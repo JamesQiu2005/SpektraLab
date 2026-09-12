@@ -218,6 +218,19 @@ struct IOParams {
     GeometryParams geometry;
     double upscale_factor = 1.0;
     bool scan_film = false;
+    /// The long edge of the `live` tier, i.e. the size every interactive edit
+    /// renders at — the app's **preview resolution**, and a user setting.
+    /// `engine.cpp` resolves the `live` row of its tier table from here, so
+    /// the tier's *size* is data while its *name* stays what the wire
+    /// addresses (CONTRACT §1.2.3).
+    ///
+    /// **The default is the old constant, 1600, and that is what makes this
+    /// additive**: a caller that never sends the field renders exactly what it
+    /// always rendered, so no parity number moves. What it deliberately does
+    /// not do is move auto exposure — `kMeterLongEdge` is its own constant,
+    /// and the only place the two meet is the meter's reuse of the live tier
+    /// image, which happens only while this field equals it.
+    int preview_long_edge = 1600;
 };
 
 struct SettingsParams {

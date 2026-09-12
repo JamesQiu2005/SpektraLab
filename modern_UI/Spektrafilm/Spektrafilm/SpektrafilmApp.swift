@@ -316,13 +316,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
         if let zoom = req.zoom {
             session.zoomTo(fraction: zoom)
-            // Wait for the detail render the zoom asked for. The renderer's
-            // `showsDetail` is the condition, not `detailTier`, because the
-            // tier flips as soon as the request is queued.
+            // A zoom no longer asks for a render, so this waits for the canvas
+            // to be *settled* rather than for a tier: the native render of the
+            // current grade, which the settle after the last edit started.
             let deadline = Date().addingTimeInterval(90)
             while Date() < deadline {
                 try? await Task.sleep(for: .milliseconds(250))
-                if !session.detailPending && (session.detailTier == .live || session.renderer.showsDetail) { break }
+                if !session.fullPending, session.canvasIsSettled { break }
             }
             try? await Task.sleep(for: .milliseconds(400))
         }

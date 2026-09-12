@@ -108,18 +108,18 @@ final class RendererTests: XCTestCase {
         dst.withUnsafeBytes { big.replace(region: MTLRegionMake2D(0, 0, 16, 8), mipmapLevel: 0,
                                           withBytes: $0.baseAddress!, bytesPerRow: 16 * 8) }
 
-        renderer.setDetail(big)
-        XCTAssertTrue(renderer.showsDetail)
+        renderer.setFullRender(big)
+        XCTAssertTrue(renderer.showsFullRender)
         let out = renderer.renderOffscreen(size: CGSize(width: 40, height: 20), backingScale: 1)!
         XCTAssertEqual(pixel(out, 5, 5), [1, 0, 0], "top-left must still be red at 4× the texture")
         XCTAssertEqual(pixel(out, 35, 5), [1, 1, 1], "top-right must still be white")
         XCTAssertEqual(pixel(out, 5, 15), [0, 0, 0], "bottom-left must still be black")
         XCTAssertEqual(pixel(out, 15, 15)[0], 0.5, accuracy: 0.02, "bottom second must still be grey")
 
-        renderer.hideDetail()
-        XCTAssertFalse(renderer.showsDetail)
+        renderer.hideFullRender()
+        XCTAssertFalse(renderer.showsFullRender)
         let back = renderer.renderOffscreen(size: CGSize(width: 40, height: 20), backingScale: 1)!
-        XCTAssertEqual(pixel(back, 5, 5), [1, 0, 0], "zooming out returns to the live tier")
+        XCTAssertEqual(pixel(back, 5, 5), [1, 0, 0], "hiding the native render returns to the preview print")
     }
 
     func testDecoderPreviewOrientation() throws {

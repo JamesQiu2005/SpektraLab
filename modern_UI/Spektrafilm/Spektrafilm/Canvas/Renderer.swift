@@ -67,15 +67,18 @@ final class Renderer: NSObject {
     /// decode preview. This is what the canvas shows at fit and while zoomed
     /// out, and it is the texture the service's ~0.4 s reprints replace.
     private(set) var live: MTLTexture?
-    /// A higher-resolution print of the same frame, rendered on demand when
-    /// the zoom passes the live tier's native resolution
-    /// (frontend SPEC §5.0). Kept separate from `live` so zooming back out is
-    /// instant and needs no render.
-    private(set) var detail: MTLTexture?
-    /// Whether `detail` is the image on screen. False at fit, true while
-    /// zoomed past the threshold — or true with a stale detail still shown
-    /// while a sharper one renders.
-    private(set) var showsDetail = false
+    /// The frame at its **own** resolution: a print rendered from the current
+    /// parameters, one per settled edit, and what the canvas settles on.
+    ///
+    /// Kept separate from `live` (the preview resolution) so the fast render
+    /// can go up while this one is still being made, and so the swap costs
+    /// nothing when it lands. **Not** `original`, which is the untouched
+    /// *decode* — this is a render, and the canvas shows it as the picture.
+    private(set) var fullRender: MTLTexture?
+    /// Whether `fullRender` is the image on screen. False while the canvas is
+    /// showing the preview resolution — at fit, and for the second or so
+    /// after an edit while the native render is on its way.
+    private(set) var showsFullRender = false
     /// The image the viewport is expressed against: the **frame's** own pixel
     /// size — the crop's, when one is applied — not the pixel size of whatever
     /// tier is on screen (D4). A resolution swap must not move the view, and a
@@ -87,7 +90,7 @@ final class Renderer: NSObject {
     }
     /// What the canvas draws: the detail print when one is shown, else the
     /// live print or decode preview.
-    var base: MTLTexture? { showsDetail ? (detail ?? live) : live }
+    var base: MTLTexture? { showsFullRender ? (fullRender ?? live) : live }
     /// The display decode at the frame's **own** resolution — Apple's
     /// rendering of the RAW, never the engine's input. Shown instead of the
     /// adjusted image while Space is held, and left of the split.
@@ -345,7 +348,7 @@ final class Renderer: NSObject {
     func setLive(_ texture: MTLTexture?, logical: CGSize? = nil) {
         log("setLive \(texture.map { "\($0.width)x\($0.height)" } ?? "nil"), needsDraw=\(needsDraw != nil)")
         live = texture
-        if texture == nil { showsDetail = false; sourceSize = nil }
+        if texture == nil { showsFullRender = false; sourceSize = nil }
         layer2Dirty = true
         // `logical` is the live tier's source size, fixed per frame. The
         // first image of a frame passes it (and refits); later live prints
@@ -368,31 +371,31 @@ final class Renderer: NSObject {
         onViewportChanged?()
     }
 
-    /// Put a higher-resolution render of the current frame on screen. The
-    /// viewport is unchanged: the draw scales the texture to the same
-    /// on-screen rectangle.
-    func setDetail(_ texture: MTLTexture?) {
-        detail = texture
-        showsDetail = texture != nil
+    /// Put the frame's own-resolution render on screen. The viewport is
+    /// unchanged: the draw scales the texture to the same on-screen rectangle.
+    func setFullRender(_ texture: MTLTexture?) {
+        fullRender = texture
+        showsFullRender = texture != nil
         layer2Dirty = true
         needsDraw?()
     }
 
-    /// Show the live tier again without discarding the detail texture, so
-    /// zooming back in is instant.
-    func hideDetail() {
-        guard showsDetail else { return }
-        showsDetail = false
+    /// Show the preview-resolution print again without discarding the native
+    /// render, so an edit that lands the same parameters back gets it for
+    /// free.
+    func hideFullRender() {
+        guard showsFullRender else { return }
+        showsFullRender = false
         layer2Dirty = true
         needsDraw?()
     }
 
-    /// Discard the detail texture. Used when it can no longer be trusted:
-    /// the parameters changed, or another frame is selected.
-    func dropDetail() {
-        guard detail != nil || showsDetail else { return }
-        detail = nil
-        showsDetail = false
+    /// Discard the native render. Used when it can no longer be trusted: the
+    /// parameters changed, or another frame is selected.
+    func dropFullRender() {
+        guard fullRender != nil || showsFullRender else { return }
+        fullRender = nil
+        showsFullRender = false
         layer2Dirty = true
         needsDraw?()
     }
@@ -577,7 +580,7 @@ final class Renderer: NSObject {
         let bs = Float(view.window?.backingScaleFactor ?? viewport.backingScale)
         var u = canvasUniforms(shown: shown, viewportSize: view.drawableSize, backingScale: CGFloat(bs))
         log("base=\(base.map { "\($0.width)x\($0.height)" } ?? "nil") shown=\(shown != nil) " +
-            "detail=\(showsDetail) scale=\(viewport.scale) offset=\(viewport.offset) drawable=\(view.drawableSize)")
+            "full=\(showsFullRender) scale=\(viewport.scale) offset=\(viewport.offset) drawable=\(view.drawableSize)")
         rpd.colorAttachments[0].loadAction = .clear
         rpd.colorAttachments[0].clearColor = MTLClearColor(red: Double(u.surroundGray), green: Double(u.surroundGray), blue: Double(u.surroundGray), alpha: 1)
         guard let enc = cb.makeRenderCommandEncoder(descriptor: rpd) else { return }

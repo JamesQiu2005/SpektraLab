@@ -1,8 +1,9 @@
 //  FrontendPolicyTests.swift — the pure decisions added with the polish pass.
 //
 //  These are not coverage for its own sake. Each one pins a rule whose wrong
-//  value is invisible in a screenshot: which tier a zoom asks for, whether two
-//  files share a sidecar, and whether a detail render is still the truth.
+//  value is invisible in a screenshot: whether a frame gets a native render at
+//  all, whether two files share a sidecar, and whether a resident render is
+//  still the truth.
 
 import Metal
 import XCTest
@@ -10,41 +11,49 @@ import XCTest
 @MainActor
 final class FrontendPolicyTests: XCTestCase {
 
-    /// HANDOFF-FRONTEND-POLISH §5.0 / the user's request: live by default,
-    /// preview at 100 %, full at 200 % — but never escalate a frame that is
-    /// already at or below the live tier's resolution.
+    /// When a frame gets a native render: whenever it is bigger than the
+    /// preview resolution, and not otherwise. A 1600 px frame has nothing to
+    /// gain from a 2560 px render of itself, and the engine never upscales.
     ///
-    /// **The numbers are native-frame zoom since D4**, not the old
-    /// texture-relative ones. The rule is unchanged: a tier is sharp enough
-    /// while its pixels are still one per native pixel on screen, so the
-    /// escalation point is the ratio of that tier's long edge to the frame's —
-    /// at 8256 px the live tier is 1:1 at 0.19 and the preview tier at 0.41,
-    /// where the old texture units said 1.0 and 2.0. That is the same
-    /// behaviour with a label that means what it says.
-    func testDetailTierEscalation() {
-        let liveCovers = CGFloat(Session.liveEdge) / 8256       // 0.194
-        let previewCovers = CGFloat(Session.previewEdge) / 8256 // 0.412
-        XCTAssertEqual(Session.wantedTier(zoomFraction: liveCovers * 0.9, imageLongEdge: 8256), .live)
-        XCTAssertEqual(Session.wantedTier(zoomFraction: liveCovers, imageLongEdge: 8256), .preview)
-        XCTAssertEqual(Session.wantedTier(zoomFraction: previewCovers, imageLongEdge: 8256), .full)
-        XCTAssertEqual(Session.wantedTier(zoomFraction: 8.0, imageLongEdge: 8256), .full)
-        // Already native at the live tier.
-        XCTAssertEqual(Session.wantedTier(zoomFraction: 4.0, imageLongEdge: 1600), .live)
-        // Between the tiers: a 3000 px frame is 1:1 at the live tier from 0.53,
-        // and being under `previewEdge` it never asks for `full` at all — the
-        // preview tier is already sharper than the frame.
-        XCTAssertEqual(Session.wantedTier(zoomFraction: 0.6, imageLongEdge: 3000), .preview)
-        XCTAssertEqual(Session.wantedTier(zoomFraction: 8.0, imageLongEdge: 3000), .preview)
-        XCTAssertEqual(Session.wantedTier(zoomFraction: 0.5, imageLongEdge: 3000), .live)
+    /// This is all that is left of the zoom ladder (2026-09-12). Zoom used to
+    /// pick the resolution; now the *frame* does, the edit settling is what
+    /// starts the render, and the zoom readout means native pixels either way.
+    func testTheNativeRenderPolicy() {
+        XCTAssertTrue(Session.wantsFullRender(frameLongEdge: 8256, previewEdge: 2560))
+        XCTAssertFalse(Session.wantsFullRender(frameLongEdge: 1600, previewEdge: 2560))
+        XCTAssertFalse(Session.wantsFullRender(frameLongEdge: 2560, previewEdge: 2560),
+                       "a frame exactly at the preview resolution is already its own pixels")
+        XCTAssertTrue(Session.wantsFullRender(frameLongEdge: 2561, previewEdge: 2560))
+        // The setting *is* the threshold, which is what makes it worth having:
+        // raising it past the frame turns the native render off.
+        XCTAssertFalse(Session.wantsFullRender(frameLongEdge: 3000, previewEdge: 3400))
+        XCTAssertTrue(Session.wantsFullRender(frameLongEdge: 3000, previewEdge: 2560))
+    }
+
+    /// The setting: what a fresh install gets, and the range it is clamped to
+    /// at both ends. The clamp matters because the value crosses the wire,
+    /// where the engine's own range check would reject it as a user error.
+    func testThePreviewResolutionDefaultsAndClamps() {
+        XCTAssertEqual(Session.defaultPreviewEdge, 2560)
+        XCTAssertEqual(Session.previewEdgeRange, 800...8192)
+        let session = Session()
+        let original = session.previewLongEdge
+        addTeardownBlock { UserDefaults.standard.set(original, forKey: Session.previewEdgeKey) }
+        XCTAssertEqual(session.previewLongEdge, Session.defaultPreviewEdge,
+                       "a fresh install does not start at the default")
+        session.setPreviewLongEdge(100)
+        XCTAssertEqual(session.previewLongEdge, 800, "the floor did not clamp")
+        session.setPreviewLongEdge(99_999)
+        XCTAssertEqual(session.previewLongEdge, 8192, "the ceiling did not clamp")
     }
 
     /// The label, and everything that reads it, is measured against the
     /// **native** frame however small the texture on screen is.
     ///
-    /// DSC03710 decodes to 6000 × 4000; the live tier is 1600 px. Measuring
-    /// the zoom against that texture made Fit read 109 % on a large window,
-    /// where the honest answer is ~29 %, and made "100 %" mean a third of the
-    /// frame's pixels per device pixel.
+    /// DSC03710 decodes to 6000 × 4000 and the canvas holds a 2560 px preview
+    /// of it. Measuring the zoom against that texture made Fit read 109 % on a
+    /// large window, where the honest answer is ~29 %, and made "100 %" mean a
+    /// third of the frame's pixels per device pixel.
     func testTheZoomLabelIsMeasuredAgainstTheNativeFrame() async throws {
         let url = try rawFrame("A7m3/DSC03710.ARW")
         let session = Session()
@@ -82,58 +91,27 @@ final class FrontendPolicyTests: XCTestCase {
                        "100 % is not one native pixel per device pixel")
     }
 
-    /// The rule that makes the detail slot a cache instead of a coincidence:
-    /// a `full` render contains everything a `preview` render does, so a
-    /// lookup asks for "this tier or sharper". Without this, zooming
-    /// 200 % → 120 % re-rendered 3400 px it already had, and the result
-    /// evicted the `full` texture so zooming back cost another 6–17 s.
-    func testDetailTiersAreRanked() {
-        XCTAssertEqual(Session.DetailTier.live.rank, 0)
-        XCTAssertLessThan(Session.DetailTier.preview.rank, Session.DetailTier.full.rank)
-        XCTAssertEqual(Session.DetailTier(rank: 2), .full)
-        XCTAssertNil(Session.DetailTier(rank: 3))
-    }
-
-    /// A resident render satisfies any tier at or below its own rank, for the
-    /// same frame and the same parameters — and nothing else.
-    func testDetailStoreAnswersThisTierOrSharper() throws {
+    /// The native-render slot is a cache keyed on **data**: the frame it
+    /// belongs to and the parameters it was made from. Nothing else may be
+    /// served — another frame's render, or one made from a grade the user has
+    /// since changed, is a different picture. The undo case is the reason the
+    /// key is the parameters rather than "whatever arrived last": a slider
+    /// dragged back to where it started makes the resident render correct
+    /// again, and `applyRender` shows it rather than re-rendering.
+    func testTheNativeRenderSlotAnswersOnlyMatchingParameters() throws {
         let device = try XCTUnwrap(MTLCreateSystemDefaultDevice())
         let store = TextureStore(device: device)
         let a = URL(fileURLWithPath: "/tmp/a.NEF"), b = URL(fileURLWithPath: "/tmp/b.NEF")
         let tex = try XCTUnwrap(store.makeWritable(width: 8, height: 8))
-        store.setDetail(tex, tier: "full", rank: 2, stamp: "s1", for: a)
+        store.setFullRender(tex, stamp: "s1", for: a)
 
-        // Sharper than asked for: a hit, reporting what is really resident.
-        XCTAssertEqual(store.detail(for: a, stamp: "s1", atLeast: 1)?.tier, "full")
-        XCTAssertEqual(store.detail(for: a, stamp: "s1", atLeast: 2)?.tier, "full")
-        // Wrong frame, or parameters that have since moved: a miss.
-        XCTAssertNil(store.detail(for: b, stamp: "s1", atLeast: 1))
-        XCTAssertNil(store.detail(for: a, stamp: "s2", atLeast: 1))
+        XCTAssertTrue(store.fullRender(for: a, stamp: "s1") === tex)
+        XCTAssertNil(store.fullRender(for: b, stamp: "s1"), "another frame's render was served")
+        XCTAssertNil(store.fullRender(for: a, stamp: "s2"),
+                     "a render the grade moved on from was served")
 
-        // A lower tier for the same frame and parameters is information the
-        // slot already holds; accepting it is the eviction bug.
-        let lower = try XCTUnwrap(store.makeWritable(width: 4, height: 4))
-        store.setDetail(lower, tier: "preview", rank: 1, stamp: "s1", for: a)
-        XCTAssertEqual(store.detail(for: a, stamp: "s1", atLeast: 2)?.tier, "full")
-
-        // Different parameters do replace it, whatever the rank.
-        store.setDetail(lower, tier: "preview", rank: 1, stamp: "s2", for: a)
-        XCTAssertEqual(store.detail(for: a, stamp: "s2", atLeast: 1)?.tier, "preview")
-        XCTAssertNil(store.detail(for: a, stamp: "s2", atLeast: 2))
-    }
-
-    /// A new print keeps a detail render whose parameters still match — the
-    /// undo case, which used to throw away a full-resolution render.
-    func testDetailSurvivesAnUndoBackToItsOwnParameters() throws {
-        let device = try XCTUnwrap(MTLCreateSystemDefaultDevice())
-        let store = TextureStore(device: device)
-        let a = URL(fileURLWithPath: "/tmp/a.NEF")
-        let tex = try XCTUnwrap(store.makeWritable(width: 8, height: 8))
-        store.setDetail(tex, tier: "full", rank: 2, stamp: "s1", for: a)
-        store.dropDetail(unless: "s1", for: a)
-        XCTAssertNotNil(store.detail(for: a, stamp: "s1", atLeast: 2))
-        store.dropDetail(unless: "s2", for: a)
-        XCTAssertNil(store.detail(for: a, stamp: "s1", atLeast: 0))
+        store.dropFullRender()
+        XCTAssertNil(store.fullRender(for: a, stamp: "s1"), "the dropped render came back")
     }
 
     /// The stamp is what makes validity a question about data. Two different

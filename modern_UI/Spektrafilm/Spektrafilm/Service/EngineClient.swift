@@ -44,7 +44,7 @@ import Metal
 /// the texture it used to have to load from a file.
 ///
 /// `@unchecked Sendable` because `MTLTexture` is not `Sendable` and a texture
-/// is exactly what this exists to carry. The same compromise `DetailEntry`
+/// is exactly what this exists to carry. The same compromise `FullRenderEntry`
 /// makes, for the same reason.
 struct RenderOutcome: @unchecked Sendable {
     let response: RenderResponse

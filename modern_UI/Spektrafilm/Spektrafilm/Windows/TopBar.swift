@@ -33,11 +33,17 @@ struct TopBar: View {
             // The empty middle of the bar is the window's drag surface: the
             // titlebar is hidden, and this is where a toolbar would be.
             WindowDragHandle().frame(minWidth: 8, maxWidth: .infinity)
-            if session.detailTier != .live {
-                Text(session.detailTier == .full ? "full" : "detail")
+            // "full" once the frame is on the canvas at its own resolution,
+            // accented while that render is still on its way. Nothing here is
+            // about zoom any more: the canvas settles at the frame's own size
+            // after every edit, whatever the zoom.
+            if session.fullPending || session.renderer.showsFullRender {
+                Text(session.renderer.showsFullRender ? "full" : "full…")
                     .font(Theme.Font.caption)
-                    .foregroundStyle(session.detailPending ? Theme.accent : Theme.dim)
-                    .help("The canvas is rendering this frame at \(session.detailTier.rawValue) resolution because the zoom is past the live tier.")
+                    .foregroundStyle(session.fullPending ? Theme.accent : Theme.dim)
+                    .help(session.renderer.showsFullRender
+                          ? "The canvas is showing this frame at its own resolution."
+                          : "Rendering this frame at its own resolution…")
             }
             // Before/after, immediately left of the zoom controls — the
             // reference layout's position

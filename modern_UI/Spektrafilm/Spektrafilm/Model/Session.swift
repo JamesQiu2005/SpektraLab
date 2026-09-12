@@ -19,7 +19,7 @@
 //                      else scheduler.request         →  reprint/preview_render
 //    adjustments    →  renderer.layer2 (no service)    →  redraw
 //    decode edit    →  re-decode (both looks)          →  reopen
-//    zoom ≥ 100 %   →  reprint(preview/full)           →  detail texture swapped in
+//    an edit settles→  reprint(preview resolution)      →  the full render follows
 //    open(folder)   →  Browse, nothing rendered        →  select() enters Print
 
 import AppKit
@@ -69,10 +69,7 @@ final class Session: CanvasHost {
               pushUndo()
               sidecar.geometry = newValue
               renderer.geometry = newValue
-              scheduleSave()
-              // A crop changes how many source pixels a given zoom is
-              // showing, so it changes which tier the canvas needs.
-              updateDetailTier() }
+              scheduleSave() }
     }
     /// The live tier's pixel size, which is what the geometry is normalised
     /// against. Zero before the first image lands.
@@ -245,7 +242,7 @@ final class Session: CanvasHost {
     // unprefixed key is not this app's state — it is whatever that build last
     // wrote, and it opened this one with both panels and the filmstrip folded
     // away for no reason the user could see.
-    static let uiKey = "ui2."
+    nonisolated static let uiKey = "ui2."
     var leftCollapsed = UserDefaults.standard.bool(forKey: Session.uiKey + "leftCollapsed") { didSet { UserDefaults.standard.set(leftCollapsed, forKey: Session.uiKey + "leftCollapsed") } }
     var rightCollapsed = UserDefaults.standard.bool(forKey: Session.uiKey + "rightCollapsed") { didSet { UserDefaults.standard.set(rightCollapsed, forKey: Session.uiKey + "rightCollapsed") } }
     var topCollapsed = UserDefaults.standard.bool(forKey: Session.uiKey + "topCollapsed") { didSet { UserDefaults.standard.set(topCollapsed, forKey: Session.uiKey + "topCollapsed") } }
@@ -337,10 +334,10 @@ final class Session: CanvasHost {
         // original" was ambiguous about which; the label says which
         // (HANDOFF §6) — and that the decode is Apple's rendering of it.
         if showingOriginal { badges.append("original · decode") }
-        if detailPending {
-            badges.append(detailTier == .full ? "full resolution…" : "detail…")
-        } else if detailTier != .live {
-            badges.append(detailTier == .full ? "full" : "detail")
+        if fullPending {
+            badges.append("full resolution…")
+        } else if renderer.showsFullRender {
+            badges.append("full")
         }
         if previewSoft && selection != nil { badges.append("preview") }
         return badges
@@ -379,6 +376,10 @@ final class Session: CanvasHost {
     var status = "Open a folder or an image to begin."
     var busy = false
     var previewSoft = false            // the canvas shows a stale/interpolated print
+    /// Whether the canvas holds the frame at its **own** resolution with
+    /// nothing pending — no interpolated print, no render on its way. What the
+    /// snapshot harness waits on before it captures.
+    var canvasIsSettled: Bool { !fullPending && (!wantsFullRender || renderer.showsFullRender) }
     var serviceReady = false
     var lastError: String?
     var exportProgress: Double?
@@ -420,28 +421,92 @@ final class Session: CanvasHost {
     /// frame is chosen (frontend SPEC §5.1, HANDOFF-FRONTEND-POLISH §2).
     var browsing = false
 
-    // MARK: the detail tier (resolution follows the zoom)
+    // MARK: - the preview resolution, and the original image
+    //
+    // Two states, not a ladder (the product decision of 2026-09-12):
+    //
+    //   1. **the preview resolution.** One settable long edge, 2560 by
+    //      default, and what every interactive edit renders at. It is the
+    //      engine's `live` tier: the *name* is the wire's (contract §1.2.3,
+    //      the three tier names are load-bearing), the *size* is the user's
+    //      (`io.preview_long_edge`; the Settings page that exposes it is the
+    //      user's next drawing, so the default is the only value today).
+    //   2. **the original image.** A render at the frame's own resolution,
+    //      started once the edit stops moving, and what the canvas shows when
+    //      it lands.
+    //
+    // Zoom selects neither. It used to: `wantedTier` escalated live → preview
+    // → full as the zoom passed each tier's native scale and the sharper
+    // render replaced the one on screen when it landed. That ladder is gone —
+    // one working resolution plus the finished picture is Capture One's model
+    // (预览图像), and it is what the user asked for. The zoom readout still
+    // means native pixels and the viewport is still expressed against the
+    // frame (D4); the canvas is simply soft above the preview resolution until
+    // the original lands, which is what `previewSoft` reports.
+    //
+    // What the sizes cost, measured on the 45 MP Nikon Z7 II frame
+    // (8256×5504, grain and glare off) on the GPU core — a live reprint:
+    //
+    //   | long edge     | reprint |
+    //   |---------------|---------|
+    //   | 1600 (before) |  6.2 ms |
+    //   | 2560 (default)| 13.7 ms |
+    //   | 8192 (native) | 121.7 ms|
+    //
+    // So the interactive render is 7 ms a frame more expensive than it was and
+    // still far inside a drag; the native render is 0.12 s and runs once per
+    // settled edit rather than on every zoom step. The memory argument that
+    // shaped the old two-step escalation is unchanged, and is now the reason
+    // there is exactly *one* native render alive at a time: 360 MB at 45 MP,
+    // 1.2 GB at 151 MP.
 
-    /// Which render the current zoom is asking for. `.live` is the resident
-    /// 1600 px print; the other two are rendered on demand and swapped in
-    /// when they land. A frame no larger than the live tier is already native
-    /// and never escalates.
-    /// `rank` orders the tiers. A render at a higher rank contains
-    /// everything a lower one does, which is what lets the store answer
-    /// "this tier or sharper" and turns a zoom-out-and-back into a swap
-    /// rather than a re-render.
-    enum DetailTier: String, Sendable, CaseIterable {
-        case live, preview, full
-        var rank: Int { switch self { case .live: 0; case .preview: 1; case .full: 2 } }
-        init?(rank: Int) {
-            guard let t = DetailTier.allCases.first(where: { $0.rank == rank }) else { return nil }
-            self = t
+    /// Long edges the preview resolution may take. Below 800 the canvas is
+    /// visibly soft at fit on any modern display; above 8192 it costs more
+    /// than the frame is worth.
+    nonisolated static let previewEdgeRange = 800...8192
+    /// A fresh install's preview resolution — Capture One's own default for
+    /// its preview image, and 2.56× the pixels of the 1600 it replaces.
+    nonisolated static let defaultPreviewEdge = 2560
+    nonisolated static let previewEdgeKey = Session.uiKey + "previewLongEdge"
+    /// How long the edit must be still before the native render is committed
+    /// to. It cannot be cancelled once the engine has started it, so some
+    /// wait is right; 400 ms is a slider release and one breath.
+    nonisolated static let fullRenderDebounceMs = 400
+
+    /// The long edge every interactive edit renders at — the engine's `live`
+    /// tier, and what the app sends as `preview_long_edge`.
+    private(set) var previewLongEdge: Int =
+        (UserDefaults.standard.object(forKey: Session.previewEdgeKey) as? Int)
+            .map { $0.clamped(to: Session.previewEdgeRange) } ?? Session.defaultPreviewEdge
+
+    /// Set it. A build-layer field: the engine rebuilds its pipeline and drops
+    /// the live tier's cached image and negative (`spk_set_params`), so the
+    /// reprint that follows is made at the new size. Nothing else moves — the
+    /// decode, the sidecar and the export are unaffected — and the native
+    /// render that follows picks the change up for free.
+    func setPreviewLongEdge(_ edge: Int) {
+        let clamped = edge.clamped(to: Session.previewEdgeRange)
+        guard clamped != previewLongEdge else { return }
+        previewLongEdge = clamped
+        UserDefaults.standard.set(clamped, forKey: Session.previewEdgeKey)
+        guard let sid = serviceSessionID, selection != nil else { return }
+        Task { [weak self] in
+            guard let self else { return }
+            _ = try? await self.client.call(.setParams,
+                SetParamsRequest(sessionID: sid,
+                                 paramsDelta: ["preview_long_edge": .double(Double(clamped))]),
+                as: SetParamsResponse.self)
+            guard self.serviceSessionID == sid, self.selection != nil else { return }
+            if let rr = try? await self.client.render(.reprint, RenderRequest(sessionID: sid)) {
+                self.applyRender(rr, generation: self.serviceGeneration)
+            }
         }
     }
-    private(set) var detailTier: DetailTier = .live
-    private(set) var detailPending = false
-    private var detailTask: Task<Void, Never>?
-    private var detailGeneration = 0
+
+    /// The native render in flight, and whether the canvas is waiting on one.
+    private(set) var fullPending = false
+    private var fullTask: Task<Void, Never>?
+    private var fullGeneration = 0
 
     /// Clipboard for ⌘C/⌘V. Film, print and Layer 2 settings only: the decode
     /// block is per-frame (a lens filter) and the crop is framing. Every field
@@ -460,7 +525,7 @@ final class Session: CanvasHost {
     /// Anything that holds the service or the user's attention. Drives the
     /// elapsed-time readout in the top bar; the service cannot report real
     /// progress over a blocking stdio transport (see `startClock`).
-    var working: Bool { busy || detailPending || exportProgress != nil }
+    var working: Bool { busy || fullPending || exportProgress != nil }
 
     // MARK: engine
     let renderer: Renderer
@@ -515,8 +580,7 @@ final class Session: CanvasHost {
     /// the frame awaits it rather than starting a second one — which is what
     /// Solve pressed while the decode is still landing turns into.
     private var developTask: Task<String?, Never>?
-    /// The long edge of an original-at-detail render in flight, if any.
-
+    /// The decode in flight. `ensureDeveloped` waits on it; a reopen replaces it.
     private var loadTask: Task<Void, Never>?
     /// The largest texture side this app's device will make, from the engine's
     /// capabilities. Metal publishes no such property (D1), and over it
@@ -536,7 +600,6 @@ final class Session: CanvasHost {
     // so nothing needs migrating and nothing is lost but disk.
     nonisolated static let cacheRoot = FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask)[0]
         .appending(path: "com.hanze.filmify")
-    nonisolated static let liveEdge = 1600
 
     init(renderer: Renderer? = Renderer()) {
         guard let renderer else { fatalError("Metal is required") }
@@ -776,11 +839,11 @@ final class Session: CanvasHost {
         exif = nil
         stockWarning = nil
         previewSoft = false
-        detailTier = .live
-        detailPending = false
-        detailTask?.cancel(); detailTask = nil
+        fullPending = false
+        fullTask?.cancel(); fullTask = nil
+        fullGeneration += 1
         loadTask?.cancel()
-        renderer.dropDetail()
+        renderer.dropFullRender()
         renderer.setLive(nil)
         renderer.original = nil
         scheduler.invalidate()
@@ -832,17 +895,16 @@ final class Session: CanvasHost {
         selection = url
         previewSoft = false
         sourceLongEdge = 0
-        // A new frame invalidates the previous frame's detail render, and the
-        // zoom may still be past the threshold — `updateDetailTier` re-asks
-        // once the new live print lands.
-        detailTier = .live
-        detailPending = false
-        detailTask?.cancel(); detailTask = nil
+        // A new frame invalidates the previous frame's native render; the
+        // print that lands for *this* one asks for its own.
+        fullPending = false
+        fullTask?.cancel(); fullTask = nil
+        fullGeneration += 1
         // A new frame has asked for nothing yet: it opens onto its decode, and
         // the develop waits for Solve or an edit (see `wantsDevelop`).
         wantsDevelop = false
         developTask?.cancel(); developTask = nil
-        renderer.dropDetail()
+        renderer.dropFullRender()
         sidecar = Sidecar.load(for: url) ?? Sidecar()
         renderer.layer2 = sidecar.adjustments.uniforms
         renderer.setCurves(sidecar.adjustments.curves)
@@ -921,7 +983,7 @@ final class Session: CanvasHost {
         // it, which is the case the engine refuses the frame for in the first
         // place. Falling back to the live tier keeps an older engine (one that
         // reports no limit) from crashing the app.
-        let limit = maxTextureEdge ?? Session.liveEdge
+        let limit = maxTextureEdge ?? previewLongEdge
         let longEdge = min(Int(max(d.pixelSize.width, d.pixelSize.height)), limit)
         let started = Date()
         nativeOriginalTask = Task { [weak self] in
@@ -963,7 +1025,7 @@ final class Session: CanvasHost {
         var clock = LoadClock()
         let settings = sidecar.decode
         let device = renderer.device
-        let liveEdge = Session.liveEdge
+        let edge = previewLongEdge
         // Decode and preview, and then the frame is *on the canvas* — that is
         // the whole of an open. The develop is `develop(_:_:clock:)`, below,
         // and it runs only if it has been asked for (`wantsDevelop`).
@@ -982,7 +1044,7 @@ final class Session: CanvasHost {
             return
         }
         let preview: TextureBox = await Task.detached(priority: .userInitiated) {
-            TextureBox(ImageDecoder.makePreviewTexture(d, device: device, maxEdge: liveEdge))
+            TextureBox(ImageDecoder.makePreviewTexture(d, device: device, maxEdge: edge))
         }.value
         clock.lap("preview-texture")
         if let tex = preview.texture, !Task.isCancelled, selection == url {
@@ -1134,7 +1196,14 @@ final class Session: CanvasHost {
                 }.value
                 clock.lap("frame")
                 guard selection == url, !Task.isCancelled else { return nil }
-                r = try await client.open(frame, paramsDelta: sidecar.params.fullDelta)
+                // The preview resolution rides with the open. It is a session
+                // setting rather than a frame parameter (`io.preview_long_edge`),
+                // so it is added here instead of living in the sidecar: a frame
+                // copied to another library must not carry the resolution its
+                // author happened to be using.
+                var delta = sidecar.params.fullDelta
+                delta["preview_long_edge"] = .double(Double(previewLongEdge))
+                r = try await client.open(frame, paramsDelta: delta)
             }
             clock.lap("engine.open")
             // `open` echoes the whole block, so the check happens here too:
@@ -1205,28 +1274,41 @@ final class Session: CanvasHost {
         // The frame's own size, and only when it is known: passing nil leaves
         // whatever the decode established (D4).
         renderer.setLive(tex, logical: nativeSourceSize)
-        previewSoft = false
+        // This print is at the **preview resolution**. For a frame bigger than
+        // that it is interpolated at 100 %, so it is not the finished picture
+        // yet — the native render that follows is, and this flag is what says
+        // so. It is also what the export harness waits on, which is the other
+        // reason it must not clear until the native render lands.
+        previewSoft = wantsFullRender
         lastRenderMs = r.elapsedMs
         if let base = statusBase { status = "\(base)  ·  \(r.reprint ? "reprint" : "render") \(Int(r.elapsedMs)) ms" }
         frameStates[url] = .processed
         sidecar.state = .processed
         scheduleSave()
         updateThumbnail(url, from: tex)
-        // A resident detail render made from *different* parameters is no
-        // longer the print on screen and showing it would be showing a
-        // different film. One made from these parameters is still the truth:
-        // an undo, or a slider dragged back to where it started, lands here
-        // and used to throw away a 17 s render for no reason.
-        if detailTier != .live {
-            let stamp = printStamp
-            if let resident = renderer.store.detail(for: url, stamp: stamp, atLeast: detailTier.rank) {
-                detailTier = DetailTier(rawValue: resident.tier) ?? detailTier
-                renderer.setDetail(resident.texture)
-            } else {
-                renderer.dropDetail()
-                renderer.store.dropDetail(unless: stamp, for: url)
-                scheduleDetail()
-            }
+        // The native render is the next step. A resident one made from
+        // *different* parameters is no longer the print on screen, and showing
+        // it would be showing a different film; one made from these parameters
+        // is still the truth, so an undo — or a slider dragged back to where
+        // it started — shows it again instead of re-rendering.
+        if !wantsFullRender {
+            // Nothing a native render could add: after the crop the frame is
+            // no bigger than the preview resolution, so what is on the canvas
+            // already is the frame's own pixels.
+            fullTask?.cancel(); fullTask = nil
+            fullPending = false
+            renderer.dropFullRender()
+            renderer.store.dropFullRender()
+            previewSoft = false
+        } else if let resident = renderer.store.fullRender(for: url, stamp: printStamp) {
+            fullTask?.cancel(); fullTask = nil
+            fullPending = false
+            renderer.setFullRender(resident)
+            previewSoft = false
+        } else {
+            renderer.dropFullRender()
+            renderer.store.dropFullRender()
+            scheduleFullRender()
         }
     }
 
@@ -1282,7 +1364,7 @@ final class Session: CanvasHost {
             let settings = Sidecar.load(for: f.id)?.decode ?? DecodeSettings()
             let device = renderer.device
             let store = renderer.store
-            let edge = Session.liveEdge
+            let edge = previewLongEdge
             prefetch[f.id] = Task.detached(priority: .background) {
                 guard let d = try? ImageDecoder.decode(f.id, settings: settings) else { return nil }
                 if let tex = ImageDecoder.makePreviewTexture(d, device: device, maxEdge: edge) { store.setSource(tex, for: f.id) }
@@ -1322,30 +1404,21 @@ final class Session: CanvasHost {
             // (RFC-015 §1.1).
             scheduler.invalidate()
             serviceSessionID = nil
-            // A higher-resolution render is made from the engine's frame too,
-            // so a zoomed-in canvas would otherwise keep the old white balance
-            // in the tile. Both copies have to go: the renderer's is the one
-            // on screen now, and the store's is the one `updateDetailTier`
-            // would find on the next pan.
+            // The native render is made from the engine's frame too, so it
+            // would otherwise keep the old white balance. Both copies have to
+            // go: the renderer's is the one on screen now, and the store's is
+            // the one `applyRender` would find and show again.
             //
             // The store's copy is the subtle one. The slot is stamped with
             // `printStamp`, which is the *film* params — a white balance is a
-            // decode setting and does not appear in it, so the resident tile
+            // decode setting and does not appear in it, so the resident render
             // still matches its own stamp and the cache serves it back as if
-            // it were current, which puts the old colour on screen the first
-            // time the user moves the view.
-            //
-            // The tier is deliberately *not* reset to `.live`. The frame has
-            // not changed size, so the zoom the user is at still wants the
-            // same tier, and `applyRender` asks for it again as soon as the
-            // new print lands (its `detailTier != .live` branch finds the slot
-            // empty and calls `scheduleDetail`). Resetting it here would drop
-            // the escalation instead, and the canvas would sit on the live
-            // tier until the viewport moved.
-            detailPending = false
-            detailTask?.cancel(); detailTask = nil
-            renderer.dropDetail()
-            renderer.store.dropDetail()
+            // it were current, which puts the old colour on screen.
+            fullPending = false
+            fullTask?.cancel(); fullTask = nil
+            fullGeneration += 1
+            renderer.dropFullRender()
+            renderer.store.dropFullRender()
             // `decoded` is still the frame the user has just changed *away*
             // from, and it stays there until the new decode lands — the panel
             // reads it (`setWhiteBalance`, `pickNeutral`) and clearing it
@@ -1451,7 +1524,6 @@ final class Session: CanvasHost {
         // photograph rather than to the frame, so its scale is no longer
         // `fitScale` — but it is fitted, and the pill should say so.
         isFit = renderer.viewport.isFit || renderer.editingCrop
-        updateDetailTier()
     }
     func picked(normalised n: CGPoint) {
         if wbPickerActive { wbPickerActive = false; pickNeutral(at: n) }
@@ -1639,67 +1711,16 @@ final class Session: CanvasHost {
         return SIMD3(Float(px[0]) / 65535, Float(px[1]) / 65535, Float(px[2]) / 65535)
     }
 
-    // MARK: - resolution follows the zoom
+    // MARK: - the native render
     //
-    // The live tier is 1600 px on the long edge. Past 100 % zoom it is being
-    // interpolated, which is exactly where grain and halation become the
-    // reason to zoom — and an interpolated live tier cannot show them
-    // (frontend SPEC §5.0). So the canvas asks for a real render at the zoom
-    // level and swaps it in when it lands, never blocking the gesture.
-    //
-    // Measured on the 45 MP Nikon Z7 II frame (5504×8256), full render /
-    // reprint:
-    //
-    //   |         | numba (2026-08) | GPU-native core (RFC-011) |
-    //   |---------|-----------------|---------------------------|
-    //   | live    | 0.57 / 0.20 s   | 0.042 / 0.012 s           |
-    //   | preview | 2.38 / 0.82 s   | 0.173 / 0.046 s           |
-    //   | full    | 13.7 / 4.73 s   | 0.990 / 0.237 s           |
-    //
-    // The escalation was designed around the left-hand column: a render that
-    // takes six to seventeen seconds and cannot be cancelled once the service
-    // has started it is worth a long wait before committing to. The
-    // right-hand column is a different problem, so `detailDebounce` came down
-    // from 700 ms to 180 — at 0.99 s cold, waiting 700 ms to decide is most
-    // of the cost of just doing it.
-    //
-    // **The escalation stays two steps, and the reason is now memory rather
-    // than time.** A full-tier rgba16 texture at 45 MP is 360 MB; the preview
-    // tier is ~90 MB. Going straight to `full` at 100 % zoom would be about
-    // as fast and would cost four times the resident memory for detail the
-    // viewport cannot show.
-
-    nonisolated static let previewEdge = 3400
-    /// How long the zoom must be still before a detail render is committed
-    /// to. Sized against the *current* cost of that render — see the table
-    /// above; it was 700 when a full render was seventeen seconds.
-    nonisolated static let detailDebounceMs = 180
-
-    /// Which tier a zoom asks for, in **native-frame zoom** (D4).
-    ///
-    /// A tier is sharp enough while its pixels are still one per native pixel
-    /// on screen, so the escalation point is that tier's long edge over the
-    /// frame's: the live tier is 1:1 from `liveEdge / image`, the preview tier
-    /// from `previewEdge / image`.
-    ///
-    /// These were the constants 1.0 and 2.0, and they were right while zoom
-    /// was measured against the texture on screen — the live tier *was* the
-    /// image, so "100 %" and "the live tier is 1:1" were the same moment. Once
-    /// zoom means the native frame they are not, and keeping the old numbers
-    /// would escalate far too late: on a 6000 px frame the live tier is 1:1 at
-    /// 27 %, so a canvas showing a stretched 1600 px texture would still be
-    /// asking for `.live` at the label's 100 %.
-    nonisolated static func wantedTier(zoomFraction: CGFloat, imageLongEdge: CGFloat) -> DetailTier {
-        guard imageLongEdge > CGFloat(Session.liveEdge) else { return .live }
-        let liveCovers = CGFloat(Session.liveEdge) / imageLongEdge
-        let previewCovers = CGFloat(Session.previewEdge) / imageLongEdge
-        if imageLongEdge > CGFloat(Session.previewEdge), zoomFraction >= previewCovers { return .full }
-        if zoomFraction >= liveCovers { return .preview }
-        return .live
-    }
+    // The model is at the top of the file, next to its state (search for "the
+    // preview resolution, and the original image"). What lives here is the
+    // machinery the zoom ladder used to own and the two-state model still
+    // needs: when to start the native render, and whether this frame is worth
+    // one at all.
 
     /// The Layer 1 parameters a print was made from, as a comparable string.
-    /// This is what stamps a detail render, so whether a resident texture is
+    /// This is what stamps a native render, so whether a resident texture is
     /// still the truth is a question about *data* rather than about which
     /// callback happened to run last.
     nonisolated static func printStamp(_ p: FilmParams) -> String {
@@ -1708,13 +1729,13 @@ final class Session: CanvasHost {
 
     /// What the *service* currently holds — not `sidecar.params`, which may
     /// already be a slider ahead of it. The live print on screen was made
-    /// from `sent`, so stamping the detail render with anything else would
+    /// from `sent`, so stamping the native render with anything else would
     /// let the two disagree about which film they are showing.
     private var printStamp: String { Session.printStamp(scheduler.sent) }
 
     /// The long edge of what is actually on screen, in source pixels. A 20 %
-    /// crop of a 45 MP frame has a 1651 px long edge, which the live tier
-    /// already covers — escalating it would spend a full-resolution render on
+    /// crop of a 45 MP frame has a 1651 px long edge, which the preview
+    /// resolution may already cover — a native render would spend 360 MB on
     /// detail the crop threw away.
     private var croppedLongEdge: CGFloat {
         guard let live = renderer.sourceSize, max(live.width, live.height) > 0 else { return sourceLongEdge }
@@ -1722,98 +1743,76 @@ final class Session: CanvasHost {
         return sourceLongEdge * max(out.width, out.height) / max(live.width, live.height)
     }
 
-    private func updateDetailTier() {
-        guard !browsing, let url = selection, decoded != nil, sourceLongEdge > 0 else { return }
-        let want = Session.wantedTier(zoomFraction: renderer.viewport.zoomFraction,
-                                      imageLongEdge: croppedLongEdge)
-
-        if want == .live {
-            guard detailTier != .live else { return }
-            detailTier = .live
-            detailTask?.cancel(); detailTask = nil
-            detailPending = false
-            // The texture stays in the store, so zooming back in is a swap.
-            renderer.hideDetail()
-            return
-        }
-
-        // Already showing something at least this sharp. This is the early
-        // out that keeps a pan at 400 % free.
-        if renderer.showsDetail, detailTier.rank >= want.rank { return }
-
-        // A resident render of this frame, made from these parameters, at
-        // this tier *or sharper*. Record the tier that is actually on screen,
-        // not the one that was asked for — otherwise the next zoom step
-        // thinks it needs a render it already has.
-        if let resident = renderer.store.detail(for: url, stamp: printStamp, atLeast: want.rank) {
-            detailTask?.cancel(); detailTask = nil
-            detailPending = false
-            detailTier = DetailTier(rawValue: resident.tier) ?? want
-            renderer.setDetail(resident.texture)
-            return
-        }
-
-        // Nothing resident. Leave an identical request that is already on its
-        // way alone; anything else starts one.
-        if want == detailTier, detailPending || detailTask != nil { return }
-        detailTier = want
-        detailTask?.cancel(); detailTask = nil
-        detailPending = false
-        scheduleDetail()
+    /// Whether a frame of this size — after the crop — has anything a native
+    /// render would add at this preview resolution. A pure decision, so the
+    /// policy is testable without a frame, a session or a GPU.
+    nonisolated static func wantsFullRender(frameLongEdge: CGFloat, previewEdge: Int) -> Bool {
+        frameLongEdge > CGFloat(previewEdge)
     }
 
-    private func scheduleDetail() {
-        guard detailTier != .live, let url = selection, let sid = serviceSessionID else { return }
-        detailGeneration += 1
-        let gen = detailGeneration
-        let tier = detailTier
-        detailTask?.cancel()
-        detailTask = Task { [weak self] in
-            // Wait for the gesture (and any edit) to stop. The render still
-            // cannot be cancelled once the service has started it — `cancel`
-            // cannot arrive mid-render on stdio — so some wait is right; it
-            // is 180 ms rather than 700 because the thing being deferred is
-            // now a second rather than seventeen.
-            try? await Task.sleep(for: .milliseconds(Session.detailDebounceMs))
-            guard let self, !Task.isCancelled, gen == self.detailGeneration else { return }
-            await self.renderDetail(tier: tier, for: url, sessionID: sid, generation: gen)
+    /// Whether *this* frame has anything a native render would add.
+    private var wantsFullRender: Bool {
+        sourceLongEdge > 0 && Session.wantsFullRender(frameLongEdge: croppedLongEdge,
+                                                      previewEdge: previewLongEdge)
+    }
+
+    /// Ask for the frame at its own resolution, once the edit has settled.
+    ///
+    /// Called when a print lands (`applyRender`) — the moment the canvas holds
+    /// the current parameters at the preview resolution. The debounce is what
+    /// keeps a dragged slider from starting one per step; the generation is
+    /// what keeps a slow render from landing on a frame or a grade the user
+    /// has moved on from.
+    private func scheduleFullRender() {
+        fullTask?.cancel()
+        fullTask = nil
+        fullPending = false
+        guard wantsFullRender, let url = selection, let sid = serviceSessionID else { return }
+        fullGeneration += 1
+        let gen = fullGeneration
+        fullTask = Task { [weak self] in
+            try? await Task.sleep(for: .milliseconds(Session.fullRenderDebounceMs))
+            guard let self, !Task.isCancelled, gen == self.fullGeneration else { return }
+            await self.renderFullRender(for: url, sessionID: sid, generation: gen)
         }
     }
 
-    private func renderDetail(tier: DetailTier, for url: URL, sessionID: String, generation gen: Int) async {
-        // The transport is single-flight, so a detail render sits in front of
-        // the user's next slider release. That is a quarter second now rather
-        // than six, but single-flight has not changed and `capabilities`
-        // still reports `concurrent: false`, so the rule stands: never start
-        // one while an edit is owed a render — wait for the scheduler to go
-        // idle and ask again, rather than dropping the escalation.
-        guard !busy, !scheduler.pending, detailTier == tier, selection == url else {
-            if detailTier == tier, selection == url { scheduleDetail() }
+    private func renderFullRender(for url: URL, sessionID sid: String, generation gen: Int) async {
+        // The transport is single-flight, so this sits in front of the user's
+        // next slider release. The rule is the one the ladder used: never
+        // start one while an edit is owed a render — wait for the scheduler to
+        // go idle and ask again, rather than dropping it.
+        guard !busy, !scheduler.pending, selection == url, serviceSessionID == sid,
+              gen == fullGeneration, wantsFullRender else {
+            if selection == url, serviceSessionID == sid { scheduleFullRender() }
             return
         }
-        detailPending = true
+        fullPending = true
         startClock()
         // Stamped here, before the call, from what the service holds. The
         // guard above has just established that no edit is owed a render, so
         // `sent` is exactly what this reprint will be made from.
         let stamp = printStamp
-        canvasLog("detail \(tier.rawValue) requested for \(url.lastPathComponent)")
-        defer { detailPending = false }
+        canvasLog("full render requested for \(url.lastPathComponent)")
+        defer { fullPending = false }
         do {
             let outcome = try await client.render(.reprint,
-                RenderRequest(sessionID: sessionID, tier: tier.rawValue))
+                RenderRequest(sessionID: sid, tier: "full"))
             let r = outcome.response
             // A render already committed to the engine outlives a cancelled
-            // `detailTask`, and a reopen (a white-balance change) moves neither
+            // `fullTask`, and a reopen (a white-balance change) moves neither
             // the generation nor the selection. What it does move is the
-            // session: a tile made from any session but the one on screen is
+            // session: a render made from any session but the one on screen is
             // a different decode, and storing it under a stamp that still
-            // matches would serve the old colour on the next pan.
-            guard gen == detailGeneration, selection == url, sessionID == serviceSessionID,
+            // matches would serve the old colour on the next edit.
+            guard gen == fullGeneration, selection == url, sid == serviceSessionID,
                   let tex = outcome.texture, let w = r.width, let h = r.height else { return }
-            renderer.store.setDetail(tex, tier: tier.rawValue, rank: tier.rank, stamp: stamp, for: url)
-            renderer.setDetail(tex)
-            canvasLog("detail \(tier.rawValue) \(w)x\(h) landed in \(Int(r.elapsedMs)) ms")
+            renderer.store.setFullRender(tex, stamp: stamp, for: url)
+            renderer.setFullRender(tex)
+            // The canvas is the frame at its own resolution now, which is the
+            // whole point: nothing on screen is interpolated any more.
+            previewSoft = false
+            canvasLog("full render \(w)x\(h) landed in \(Int(r.elapsedMs)) ms")
             if let base = statusBase { status = base }
         } catch {
             lastError = EngineMessage.userFacing(error)
@@ -1966,8 +1965,8 @@ final class Session: CanvasHost {
             serviceReady = false
             serviceSessionID = nil
             scheduler.invalidate()
-            renderer.dropDetail()
-            renderer.store.dropDetail()
+            renderer.dropFullRender()
+            renderer.store.dropFullRender()
             guard let url = selection else { status = "Render service stopped."; return }
             status = "Restarting the render service…"
             loadTask = Task { await load(url) }

@@ -69,6 +69,13 @@ const SchemaField kFields[] = {
     {"output_color_space",       "io.output_color_space",                 S, PRINT, false, 0, 0, false},
     {"output_cctf_encoding",     "io.output_cctf_encoding",               B, PRINT, false, 0, 0, false},
     {"scan_film",                "io.scan_film",                          B, PRINT, false, 0, 0, false},
+    // The app's *preview resolution*: the `live` tier's long edge, and so the
+    // size every interactive edit renders at. PRINT layer, because it is a
+    // decision about the canvas rather than about the film -- but it is one of
+    // the few print-layer fields that still invalidates a cached negative: the
+    // live tier's was made at the old size, and `spk_set_params` drops that
+    // tier's state when this changes.
+    {"preview_long_edge",        "io.preview_long_edge",                  I, PRINT, true, 800.0, 8192.0, false},
 };
 
 const SchemaField* find_field(const std::string& name) {
@@ -135,6 +142,7 @@ std::string* str_slot(Params& p, const std::string& path) {
 
 int* int_slot(Params& p, const std::string& path) {
     if (path == "io.geometry.quarter_turns") return &p.io.geometry.quarter_turns;
+    if (path == "io.preview_long_edge") return &p.io.preview_long_edge;
     return nullptr;
 }
 

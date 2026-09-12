@@ -223,44 +223,35 @@ final class OpenPathTests: XCTestCase {
                      "a white-balance change developed a frame that was never solved")
     }
 
-    // MARK: - the detail render
+    // MARK: - the native render
 
-    /// A white-balance change reaches the zoomed-in detail render too.
+    /// A white-balance change reaches the native render too.
     ///
-    /// The detail cache is stamped with `printStamp`, which is the *film*
-    /// params. A white balance is a decode setting and does not appear in it,
-    /// so after the frame has been re-decoded the resident tile still matches
-    /// its own stamp and the cache believes it is current. The reopen drops
-    /// the renderer's copy — the one on screen — but the *store's* is the one
-    /// `updateDetailTier` finds on the next pan, so the canvas goes back to
-    /// the old colour the first time the user moves the view. That is the
-    /// worst shape a bug can have: it looks fixed until you touch it.
+    /// The slot is stamped with `printStamp`, which is the *film* params. A
+    /// white balance is a decode setting and does not appear in it, so after
+    /// the frame has been re-decoded the resident render still matches its own
+    /// stamp and the cache believes it is current — the canvas would go back
+    /// to the old colour. The reopen drops both copies, and the render that
+    /// follows the new print is made from the new decode.
     ///
     /// Both halves are checked: what comes back is not the pre-change render,
-    /// and it arrives on its own rather than waiting for a viewport move.
-    func testAWhiteBalanceChangeReachesTheZoomedDetailRender() async throws {
+    /// and it arrives on its own rather than waiting for a viewport move. (The
+    /// zoom that used to prompt it is gone with the ladder — the native render
+    /// follows the *print*, so this needs no viewport at all.)
+    func testAWhiteBalanceChangeReachesTheNativeRender() async throws {
         let url = try rawFrame()
         let session = Session()
         session.open(urls: [url])
         try await waitUntil("the frame to decode", timeout: 90) { session.decoded != nil }
         try await waitUntil("the engine to warm up", timeout: 90) { session.serviceReady }
         session.solveNow()
-        try await waitUntil("the print to land", timeout: 90) {
-            session.serviceSessionIDForExport != nil && session.frameStates[url] == .processed && !session.busy
-        }
-
-        // Past 100 %, which is what asks for a detail render at all
-        // (`Session.wantedTier`). There is no window here, so the viewport is
-        // set directly and `viewportChanged` is what the view would have
-        // called after the gesture.
-        try zoom(session, to: 1.5)
-        try await waitUntil("the detail render to land", timeout: 90) {
-            session.detailTier != .live && session.renderer.showsDetail
+        try await waitUntil("the native render to land", timeout: 180) {
+            session.renderer.showsFullRender && !session.fullPending
         }
         let stamp = Session.printStamp(session.scheduler.sent)
-        let first = try XCTUnwrap(session.renderer.store.detail(for: url, stamp: stamp, atLeast: 1),
-                                  "the detail render is not in the store")
-        let firstRB = meanRB(try samples(first.texture, session.renderer.device))
+        let first = try XCTUnwrap(session.renderer.store.fullRender(for: url, stamp: stamp),
+                                  "the native render is not in the store")
+        let firstRB = meanRB(try samples(first, session.renderer.device))
 
         session.setWhiteBalance(.tungsten)
 
@@ -271,39 +262,95 @@ final class OpenPathTests: XCTestCase {
         try await waitUntil("the reopen to start", timeout: 90) {
             session.renderer.store.print(for: url) == nil
         }
-        try await waitUntil("the new print to land", timeout: 90) {
-            session.renderer.store.print(for: url) != nil && session.serviceSessionIDForExport != nil && !session.busy
+        try await waitUntil("the new native render to land", timeout: 180) {
+            session.renderer.store.fullRender(for: url, stamp: stamp) != nil && !session.fullPending
         }
         // The premise of the bug, asserted rather than assumed: if the white
         // balance ever reaches `printStamp`, the cache stops being fooled and
         // this test proves nothing.
         XCTAssertEqual(Session.printStamp(session.scheduler.sent), stamp,
-                       "the white balance is in the detail stamp now — this test needs rewriting")
+                       "the white balance is in the native render's stamp now — this test needs rewriting")
 
-        // A pan at the same zoom: the user action that used to bring the old
-        // colour back.
-        session.viewportChanged()
-        let afterPan = session.renderer.store.detail(for: url, stamp: stamp, atLeast: 1)
-        XCTAssertFalse(afterPan.map { $0.texture === first.texture } ?? false,
-                       "the pre-change detail render is still resident, and the next pan serves it")
-
-        // And a new one arrives by itself, with no viewport move to prompt it.
-        try await waitUntil("a new detail render", timeout: 90) {
-            guard let resident = session.renderer.store.detail(for: url, stamp: stamp, atLeast: 1) else { return false }
-            return resident.texture !== first.texture
-        }
-        let second = try XCTUnwrap(session.renderer.store.detail(for: url, stamp: stamp, atLeast: 1))
-        let secondRB = meanRB(try samples(second.texture, session.renderer.device))
+        let second = try XCTUnwrap(session.renderer.store.fullRender(for: url, stamp: stamp))
+        XCTAssertFalse(second === first, "the pre-change render is still the resident one")
+        let secondRB = meanRB(try samples(second, session.renderer.device))
         let printRB1 = try XCTUnwrap(printRB(session, url))
-        print("detail R/B \(String(format: "%.3f", firstRB)) → \(String(format: "%.3f", secondRB)), "
+        print("native render R/B \(String(format: "%.3f", firstRB)) → \(String(format: "%.3f", secondRB)), "
               + "print \(String(format: "%.3f", printRB1))")
 
         XCTAssertGreaterThan(abs(secondRB - firstRB) / firstRB, 0.10,
-                             "the detail render did not follow the white balance")
-        // It is a sharper render of the *same* film: it has to agree with the
-        // print on the canvas more closely than the old one did.
+                             "the native render did not follow the white balance")
+        // It is the *same* film as the print on the canvas, at the frame's own
+        // resolution: it has to agree with that print more closely than the
+        // pre-change render did.
         XCTAssertLessThan(abs(secondRB - printRB1) / printRB1, abs(firstRB - printRB1) / printRB1,
-                          "the new detail render disagrees with the print it is a sharper render of")
+                          "the new native render disagrees with the print it is a render of")
+    }
+
+    /// A zoom asks for nothing.
+    ///
+    /// It used to escalate the canvas as it passed the preview tier's native
+    /// scale — `wantedTier` picked a resolution, a render was started behind a
+    /// debounce, and the sharper texture replaced the one on screen when it
+    /// landed. The product decision of 2026-09-12 removed that: zoom moves the
+    /// viewport and nothing else, and the canvas shows whatever the last
+    /// settled edit produced.
+    ///
+    /// The observable is identity: same texture object before and after, and
+    /// nothing pending. Under the ladder a 400 % zoom on a 6000 px frame asked
+    /// for `full` and swapped it in a second later.
+    func testZoomingAsksForNoRender() async throws {
+        let url = try rawFrame("A7m3/DSC03710.ARW")
+        let session = Session()
+        session.open(urls: [url])
+        try await waitUntil("the frame to decode", timeout: 120) { session.decoded != nil }
+        try await waitUntil("the engine to warm up", timeout: 120) { session.serviceReady }
+        session.solveNow()
+        try await waitUntil("the native render to land", timeout: 180) {
+            session.renderer.showsFullRender && !session.fullPending
+        }
+        let before = try XCTUnwrap(session.renderer.base)
+
+        try zoom(session, to: 4.0)
+        // Well past the 400 ms settle and a full render of a 24 MP frame.
+        try await Task.sleep(for: .milliseconds(2500))
+
+        XCTAssertTrue(session.renderer.base === before,
+                      "the canvas swapped textures on a zoom")
+        XCTAssertFalse(session.fullPending, "a zoom started a render")
+        let settled = try XCTUnwrap(session.renderer.store.fullRender(for: url,
+                                                                     stamp: Session.printStamp(session.scheduler.sent)))
+        XCTAssertTrue(settled === before, "a zoom replaced the settled render")
+    }
+
+    /// The preview resolution reaches the engine, and the native render still
+    /// follows it.
+    ///
+    /// The setting is a session field (`io.preview_long_edge`) rather than a
+    /// frame parameter, so the number the user picks is what the interactive
+    /// render is made at — and the second half of the model, the frame at its
+    /// own resolution, is unaffected by it.
+    func testThePreviewResolutionChangesTheRenderSize() async throws {
+        let url = try rawFrame("A7m3/DSC03710.ARW")     // 6000 × 4000
+        let session = Session()
+        session.setPreviewLongEdge(1200)
+        addTeardownBlock { UserDefaults.standard.set(Session.defaultPreviewEdge,
+                                                     forKey: Session.previewEdgeKey) }
+        session.open(urls: [url])
+        try await waitUntil("the frame to decode", timeout: 120) { session.decoded != nil }
+        try await waitUntil("the engine to warm up", timeout: 120) { session.serviceReady }
+        session.solveNow()
+        try await waitUntil("the print to land", timeout: 180) {
+            session.serviceSessionIDForExport != nil && session.frameStates[url] == .processed && !session.busy
+        }
+        let print = try XCTUnwrap(session.renderer.store.print(for: url))
+        XCTAssertEqual(print.width, 1200, "the interactive print is not at the preview resolution")
+
+        try await waitUntil("the native render to land", timeout: 180) {
+            session.renderer.showsFullRender && !session.fullPending
+        }
+        XCTAssertEqual(CGFloat(session.renderer.base?.width ?? 0), 6000, accuracy: 1,
+                       "the canvas settled somewhere other than the frame's own resolution")
     }
 
     /// Solve pressed while a white-balance drag is still settling.
@@ -381,8 +428,12 @@ final class OpenPathTests: XCTestCase {
                              "this frame is not the 60 MP one the test is about")
         try await waitUntil("the engine to warm up", timeout: 180) { session.serviceReady }
         session.solveNow()
-        try await waitUntil("the print to land", timeout: 300) {
-            session.serviceSessionIDForExport != nil && session.frameStates[url] == .processed && !session.busy
+        // 60 MP is past the preview resolution, so the canvas is not settled
+        // until the native render lands as well — `previewSoft` stays true
+        // through the preview-resolution print on purpose.
+        try await waitUntil("the native render to land", timeout: 300) {
+            session.serviceSessionIDForExport != nil && session.frameStates[url] == .processed
+                && !session.busy && session.renderer.showsFullRender && !session.fullPending
         }
         XCTAssertFalse(session.previewSoft, "the canvas is still showing the decode, not a print")
         XCTAssertNil(session.lastError, "the develop reported \(session.lastError!)")
@@ -446,8 +497,8 @@ final class OpenPathTests: XCTestCase {
         session.open(urls: [url])
         try await waitUntil("the frame to decode", timeout: 120) { session.decoded != nil }
         let native = try XCTUnwrap(session.decoded?.pixelSize)
-        XCTAssertGreaterThan(native.width, CGFloat(Session.liveEdge),
-                             "this frame is not bigger than the live tier, so it cannot show the difference")
+        XCTAssertGreaterThan(native.width, CGFloat(Session.defaultPreviewEdge),
+                             "this frame is not bigger than the preview resolution, so it cannot show the difference")
 
         try await waitUntil("the original to reach the frame's own size", timeout: 180) {
             guard let original = session.renderer.original else { return false }
@@ -475,8 +526,8 @@ final class OpenPathTests: XCTestCase {
         session.open(urls: [url])
         try await waitUntil("the frame to decode", timeout: 120) { session.decoded != nil }
         let native = try XCTUnwrap(session.decoded?.pixelSize)
-        XCTAssertGreaterThan(Int(native.width), Session.liveEdge,
-                             "this frame is not bigger than the preview, so it cannot show the difference")
+        XCTAssertGreaterThan(Int(native.width), Session.defaultPreviewEdge,
+                             "this frame is not bigger than the preview resolution, so it cannot show the difference")
         // No develop: this is the state the user is in before Solve.
         XCTAssertNil(session.renderer.store.print(for: url), "something already developed this frame")
 
@@ -487,20 +538,31 @@ final class OpenPathTests: XCTestCase {
         XCTAssertTrue(session.previewSoft, "the decode is not the print, and must not claim to be")
     }
 
-    /// …and a print still wins, which is what that fix could have broken.
+    /// …and a print still wins, which is what that fix could have broken — and
+    /// it keeps winning: the canvas settles on the frame at its **own**
+    /// resolution rather than stopping at the preview one.
+    ///
+    /// This is the model in one test: after an edit settles, what is on the
+    /// canvas is a render of the current grade at the frame's own size — not
+    /// the decode it started from (D3) and not the preview-resolution print
+    /// that landed first.
     func testAPrintStillReplacesTheNativeDecode() async throws {
         let url = try rawFrame()
         let session = Session()
         session.open(urls: [url])
         try await waitUntil("the frame to decode", timeout: 120) { session.decoded != nil }
+        let native = try XCTUnwrap(session.decoded?.pixelSize)
         try await waitUntil("the engine to warm up", timeout: 120) { session.serviceReady }
         session.solveNow()
-        try await waitUntil("the print to land", timeout: 180) {
-            session.serviceSessionIDForExport != nil && session.frameStates[url] == .processed && !session.busy
+        try await waitUntil("the native render to land", timeout: 180) {
+            session.renderer.showsFullRender && !session.fullPending && session.serviceSessionIDForExport != nil
         }
-        let print = try XCTUnwrap(session.renderer.store.print(for: url))
-        XCTAssertTrue(session.renderer.base === print, "the canvas is not drawing the print")
-        XCTAssertFalse(session.previewSoft, "the print is on the canvas and the flag still says soft")
+        let base = try XCTUnwrap(session.renderer.base)
+        XCTAssertFalse(base === session.renderer.original, "the canvas is still drawing the decode")
+        XCTAssertEqual(CGFloat(base.width), native.width, accuracy: 1,
+                       "the canvas stopped at the preview resolution")
+        XCTAssertFalse(session.previewSoft, "the native render is on the canvas and the flag still says soft")
+        XCTAssertTrue(session.canvasIsSettled)
     }
 
     // MARK: - reading the canvas back

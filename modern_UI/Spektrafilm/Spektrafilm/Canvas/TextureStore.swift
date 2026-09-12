@@ -5,47 +5,35 @@
 //  | texture             | source                      | lifetime            |
 //  |---------------------|-----------------------------|---------------------|
 //  | source preview      | Core Image decode, P3       | per frame, LRU 8    |
-//  | print (live tier)   | service reprint, rgba16 raw | per frame, LRU 8    |
-//  | detail (higher tier)| service reprint at the zoom | one frame only      |
+//  | print (preview res) | service reprint, rgba16 raw | per frame, LRU 8    |
+//  | full render         | service reprint, `full`     | one frame only      |
 //  | stock LUT preview   | service preview_stock_lut   | transient           |
 //  | adjusted            | Layer 2 kernel output       | one, re-run on edit |
 //  | curve table         | CPU, 256×5 r32Float         | one                 |
 //
-//  Frame switches are instant because the last eight frames' live textures
-//  stay resident (a 1600 px rgba16 texture is ~14 MB; eight of each kind is
-//  well under 250 MB). Returning to a frame shows its last print immediately,
+//  Frame switches are instant because the last eight frames' preview-resolution
+//  prints stay resident (a 2560 px rgba16 texture is ~35 MB; eight of each kind
+//  is well under 400 MB). Returning to a frame shows its last print immediately,
 //  flagged `soft` until the service's session catches up.
 //
-//  The detail texture is deliberately *not* kept per frame: at the full tier
-//  one is 360 MB, so eight would be 2.9 GB.
+//  The full render is deliberately *not* kept per frame: at 45 MP one is
+//  360 MB, so eight would be 2.9 GB. There is one slot, for the frame on
+//  screen, and it is what the canvas settles on once an edit stops moving.
 //
-//  The one detail slot is **ranked and stamped**, and both matter:
-//
-//  - **Ranked.** A `full` render contains everything a `preview` render does,
-//    so a lookup asks for "this tier *or sharper*". Without that, zooming
-//    200 % → 120 % asked for `preview`, missed, spent 2.75 s re-rendering
-//    detail the resident texture already had — and the result then evicted
-//    the `full` one, so zooming back cost another 6–17 s. The slot only ever
-//    moves *up* within one frame and one set of parameters.
-//  - **Stamped** with the parameters the service rendered it from, so
-//    validity is data rather than timing. An undo, or a slider dragged back
-//    to where it was, makes the resident render correct again and it is
-//    shown instead of re-rendered.
-//
-//  Showing a sharper texture than the zoom asked for is free and correct:
-//  `canvasFragment` picks its sampler from the *texture* scale, so a native
-//  texture drawn at 120 % minifies with `filter::linear` exactly as a 3400 px
-//  one would.
+//  The slot is **stamped** with the parameters the service rendered it from,
+//  so validity is data rather than timing. An undo, or a slider dragged back
+//  to where it was, makes the resident render correct again and it is shown
+//  instead of re-rendered. The rank the slot used to carry went with the zoom
+//  ladder (2026-09-12): there is one full-resolution state now, not three
+//  rungs to order.
 
 import Foundation
 import Metal
 
-/// One resident higher-resolution render: which frame, which tier, which
-/// parameters made it, and how sharp it is relative to the other tiers.
-struct DetailEntry: @unchecked Sendable {
+/// One resident native-resolution render: which frame it belongs to, which
+/// parameters made it, and the texture.
+struct FullRenderEntry: @unchecked Sendable {
     let url: URL
-    let tier: String
-    let rank: Int
     let stamp: String
     let texture: MTLTexture
 }
@@ -54,14 +42,13 @@ final class TextureStore: @unchecked Sendable {
     let device: MTLDevice
     private var sources: [URL: MTLTexture] = [:]
     private var prints: [URL: MTLTexture] = [:]
-    /// One higher-resolution print, for the current frame only. A full-res
-    /// 45 MP rgba16 texture is 360 MB, so eight of them is not an option the
-    /// way eight live-tier prints (14 MB each) is.
-    ///
-    /// `rank` orders the tiers (live 0 · preview 1 · full 2) and `stamp` is
-    /// the Layer 1 parameters it was rendered from. Together they are what
-    /// makes a lookup a cache hit rather than a coincidence.
-    private var detail: DetailEntry?
+    /// The frame's print at its **own** resolution — what the canvas settles
+    /// on once an edit stops moving. One slot, current frame only: a 45 MP
+    /// rgba16 texture is 360 MB, so eight of them is not an option the way
+    /// eight preview-resolution prints is. `stamp` is the Layer 1 parameters
+    /// it was rendered from, which is what makes a lookup a cache hit rather
+    /// than a coincidence.
+    private var full: FullRenderEntry?
     private var order: [URL] = []
     private let capacity = 8
     private let lock = NSLock()
@@ -71,39 +58,29 @@ final class TextureStore: @unchecked Sendable {
     func source(for url: URL) -> MTLTexture? { lock.withLock { sources[url] } }
     func print(for url: URL) -> MTLTexture? { lock.withLock { prints[url] } }
 
-    /// The resident detail render for `url`, if it was made from `stamp` and
-    /// is at least as sharp as `rank`. Returns what is actually resident —
-    /// which may be sharper than asked for — so the caller can record the
-    /// tier it is really showing rather than the one it wanted.
-    func detail(for url: URL, stamp: String, atLeast rank: Int) -> DetailEntry? {
+    /// The resident native-resolution render for `url`, if it was made from
+    /// `stamp`.
+    func fullRender(for url: URL, stamp: String) -> MTLTexture? {
         lock.withLock {
-            guard let d = detail, d.url == url, d.stamp == stamp, d.rank >= rank else { return nil }
-            return d
+            guard let f = full, f.url == url, f.stamp == stamp else { return nil }
+            return f.texture
         }
     }
 
     func setSource(_ t: MTLTexture, for url: URL) { lock.withLock { sources[url] = t; touch(url) } }
     func setPrint(_ t: MTLTexture?, for url: URL) { lock.withLock { prints[url] = t; touch(url) } }
-    /// Take a detail render into the slot. A render is only ever accepted if
-    /// it is sharper than what is already there for the same frame and the
-    /// same parameters — a lower tier for an unchanged frame is by definition
-    /// information the slot already holds, and letting it in is what used to
-    /// evict a 17 s `full` render in favour of a 2.75 s `preview` one.
-    func setDetail(_ t: MTLTexture, tier: String, rank: Int, stamp: String, for url: URL) {
-        lock.withLock {
-            if let d = detail, d.url == url, d.stamp == stamp, d.rank >= rank { return }
-            detail = DetailEntry(url: url, tier: tier, rank: rank, stamp: stamp, texture: t)
-        }
+    /// Take a native-resolution render into the slot.
+    func setFullRender(_ t: MTLTexture, stamp: String, for url: URL) {
+        lock.withLock { full = FullRenderEntry(url: url, stamp: stamp, texture: t) }
     }
-    func dropDetail() { lock.withLock { detail = nil } }
-    /// Free the slot unless it still matches these parameters. Called when a
-    /// new print lands: if the edit was an undo back to what the resident
-    /// render was made from, it is still the truth and is kept.
-    func dropDetail(unless stamp: String, for url: URL) {
-        lock.withLock { if detail?.url != url || detail?.stamp != stamp { detail = nil } }
-    }
+    /// Free the slot. Called when a print lands that the resident render was
+    /// not made from — the same parameters are handled by the lookup, which
+    /// keeps a resident render an undo landed back on rather than re-rendering
+    /// it. (The `unless:`-shaped variant that used to sit here was only ever
+    /// called from the branch that had just failed that identical lookup.)
+    func dropFullRender() { lock.withLock { full = nil } }
     func invalidatePrint(for url: URL) { lock.withLock { prints[url] = nil } }
-    func removeAll() { lock.withLock { sources.removeAll(); prints.removeAll(); detail = nil; order.removeAll() } }
+    func removeAll() { lock.withLock { sources.removeAll(); prints.removeAll(); full = nil; order.removeAll() } }
 
     private func touch(_ url: URL) {
         order.removeAll { $0 == url }
@@ -112,7 +89,7 @@ final class TextureStore: @unchecked Sendable {
             let old = order.removeFirst()
             sources[old] = nil
             prints[old] = nil
-            if detail?.url == old { detail = nil }
+            if full?.url == old { full = nil }
         }
     }
 

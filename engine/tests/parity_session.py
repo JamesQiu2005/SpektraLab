@@ -48,6 +48,14 @@ OVERRIDES: dict[str, object] = {
     "auto_exposure_method": "balanced",
 }
 
+# Print-layer fields that nevertheless invalidate cached work. The walk below
+# asserts the usual rule -- a print-layer edit reprints the negative it already
+# has -- and `preview_long_edge` is the exception that proves the rule is about
+# the *film* side: the negative is fine, but the live tier's copy of it was
+# made at the old size, so `spk_set_params` drops that tier (the reference's
+# `apply_delta` drops it too) and the next live render makes a new one.
+PRINT_LAYER_DROPS_NEGATIVE = {"preview_long_edge"}
+
 
 def value_for(field: dict):
     name, kind = field["name"], field["type"]
@@ -106,7 +114,8 @@ def main() -> int:
             # A shoot edit must re-render the negative; a print edit must not.
             if want_layer == "shoot" and cached:
                 problems.append("reused the cached negative after a shoot-layer edit")
-            if want_layer == "print" and not cached:
+            if (want_layer == "print" and not cached
+                    and name not in PRINT_LAYER_DROPS_NEGATIVE):
                 problems.append("re-rendered the negative after a print-layer edit")
 
             if problems:
@@ -115,6 +124,43 @@ def main() -> int:
             elif args.verbose:
                 print(f"ok   {name:26s} = {value!r:24} {got_layer:5s} "
                       f"{'reused' if cached else 're-rendered'} in {result.elapsed_ms:6.1f} ms")
+
+        # --- the settable preview resolution (the `live` tier's size) --------
+        # The walk above applies the field and checks its layer, but `frame` is
+        # 400 px, so at every legal edge the live tier is the frame itself and
+        # nothing there would notice a session that accepted the field and went
+        # on ignoring it. This runs on a frame *larger* than both edges, where
+        # the two are different renders, and pairs it with the reference
+        # resolving the same field through its own params and resolver.
+        rng = np.random.default_rng(12)
+        big = (rng.random((1200, 1600, 3)) * 0.4).astype(np.float32)
+        sized = engine.open(big, {"grain_active": False, "glare_active": False,
+                                  "auto_exposure": False})
+        for edge in (800, 1600):
+            sized.set_params({"preview_long_edge": edge})
+            _, result = sized.render("live", reprint=True)
+            rendered = max(result.width, result.height)
+            if rendered != edge:
+                print(f"FAIL preview_long_edge = {edge}: live rendered a "
+                      f"{rendered} px long edge")
+                failures += 1
+            elif args.verbose:
+                print(f"ok   preview_long_edge = {edge:5d} -> live renders "
+                      f"{result.width}x{result.height}")
+        sized.close()
+
+        from spektrafilm.runtime.params_builder import init_params as ref_init_params
+        from spektrafilm.service import schema as pyschema
+        from spektrafilm.service.session import tier_long_edge
+
+        ref = ref_init_params()
+        pyschema.apply_delta(ref, {"preview_long_edge": 2560})
+        got = tier_long_edge("live", ref)
+        if got != 2560:
+            print(f"FAIL the reference resolves preview_long_edge = 2560 to {got!r}")
+            failures += 1
+        elif args.verbose:
+            print("ok   the reference resolves the same field to the same live edge")
 
         # --- the two methods the field walk does not reach ------------------
         from spektrafilm.utils.autoexposure import measure_autoexposure_ev

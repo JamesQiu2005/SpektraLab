@@ -97,6 +97,19 @@ const Tier* find_tier(const char* name) {
     return nullptr;
 }
 
+// The `live` tier's long edge is a **session setting** (`io.preview_long_edge`)
+// rather than the number in the table above: the app calls it the preview
+// resolution and lets the user choose it. The table keeps the default, so a
+// caller that never sends the field renders exactly what it always did, and
+// the tier's *name* stays what the wire addresses (CONTRACT §1.2.3) -- only
+// its size moves.
+uint32_t tier_long_edge(const Params& params, const Tier& tier) {
+    if (tier.long_edge == 0) return 0;   // `full`: the frame's own resolution
+    if (std::strcmp(tier.name, "live") != 0) return tier.long_edge;
+    return params.io.preview_long_edge > 0 ? static_cast<uint32_t>(params.io.preview_long_edge)
+                                           : tier.long_edge;
+}
+
 std::string read_text_file(const std::string& path) {
     std::ifstream in(path, std::ios::binary);
     std::ostringstream ss;
@@ -146,6 +159,11 @@ struct spk_session {
     // Per tier: the downscaled source, the cached negative, and the result.
     struct TierState {
         Image image;      // the source at this tier
+        /// The long edge `image` was built at. Part of the cache key, because
+        /// `io.preview_long_edge` is a session setting: a tier map keyed by
+        /// name alone would hand back a 1600 px image after the user asked
+        /// for 2560 and render the wrong size without failing.
+        uint32_t image_long_edge = 0;
         Image negative;   // Tap.CMY_FILM
         bool has_negative = false;
         std::optional<double> applied_ev;   // what the node applied to `negative`
@@ -240,6 +258,11 @@ struct spk_engine {
         out.set("max_mp", Json(double(kMaxFramePixels) / 1e6));
         out.set("max_pixels", Json(double(kMaxFramePixels)));
         out.set("max_texture_dimension_2d", Json(double(gpu ? gpu->max_texture_dimension_2d() : 0)));
+        // The `live` row here is the **default**: capabilities is answered by
+        // the engine, before any session exists, and the live tier's size is
+        // settable per session (`io.preview_long_edge`). A caller that wants
+        // the size it is actually rendering at reads `preview_long_edge` back
+        // from `params`, which is what the app does.
         Json tiers = Json::object();
         for (const Tier& t : kTiers) {
             if (t.long_edge) tiers.set(t.name, Json(double(t.long_edge)));
@@ -676,13 +699,14 @@ namespace {
 // past 100 %, and building both eagerly put two full-resolution anti-aliased
 // downscales of a 45 MP frame inside every open.
 bool tier_image(spk_session* session, const Tier& tier, Image& out, std::string& error) {
+    const uint32_t edge = tier_long_edge(session->params, tier);
     spk_session::TierState& state = session->tiers[tier.name];
-    if (state.image.valid()) { out = state.image; return true; }
+    if (state.image.valid() && state.image_long_edge == edge) { out = state.image; return true; }
     gpu::Gpu* gpu = session->engine->gpu;
     // Already on the device, three channels, from `spk_open`.
     const Image& full = session->source;
     Image scaled;
-    if (!downscale(gpu, full, tier.long_edge, scaled, error)) return false;
+    if (!downscale(gpu, full, edge, scaled, error)) return false;
     if (scaled.buf.get() == full.buf.get()) {
         // At or below the tier: share the source itself. It is already
         // persistent, and another copy of a 45 MP frame is 543 MB.
@@ -698,6 +722,7 @@ bool tier_image(spk_session* session, const Tier& tier, Image& out, std::string&
         if (!kept.buf) return false;
         state.image = kept;
     }
+    state.image_long_edge = edge;
     out = state.image;
     return true;
 }
@@ -718,7 +743,14 @@ bool ensure_meter(spk_session* session, std::string& error) {
     const std::string key = meter_key(session->params);
     if (session->meter.valid && session->meter.key == key) return true;
     Image small;
-    const bool ok = kTiers[0].long_edge == kMeterLongEdge
+    // Reusing the live tier's image is free only while that tier happens to be
+    // the meter's own size. With the preview resolution settable that is a
+    // runtime question rather than a constant one, so off 1600 this costs one
+    // extra downscale of the frame -- once per frame, not once per edit, and
+    // `meter_key` already stops it re-firing for a film, exposure or method
+    // change. See the note in `params.hpp`: the meter must not follow the
+    // preview size, which is the whole reason it has its own constant.
+    const bool ok = tier_long_edge(session->params, kTiers[0]) == kMeterLongEdge
         ? tier_image(session, kTiers[0], small, error)
         : downscale(session->engine->gpu, session->source, kMeterLongEdge, small, error);
     ExposureEvs evs;
@@ -1109,6 +1141,12 @@ spk_status spk_set_params(spk_session* session, const char* params_delta_json, c
     const bool shoot = delta_touches_shoot(delta);
     const bool stock_change = delta.has("film_stock") || delta.has("print_stock");
     const bool rebuild = stock_change || delta_needs_rebuild(delta);
+    // The live tier is the one piece of cached state a print-layer field can
+    // invalidate: `preview_long_edge` changes both the size of its image and
+    // the resolution its cached negative was made at. Taken before the delta
+    // for the same reason the shoot flag is -- afterwards there is nothing to
+    // compare against.
+    const uint32_t live_edge_before = tier_long_edge(session->params, kTiers[0]);
 
     if (stock_change) {
         // A stock change rebuilds the parameter tree, because it needs a
@@ -1150,6 +1188,15 @@ spk_status spk_set_params(spk_session* session, const char* params_delta_json, c
         // The live path: written straight onto the pipeline's own copy, which
         // re-derives the enlarger's cheap constants on the next print run.
         session->pipeline->apply_live_delta(delta);
+    }
+
+    // `preview_long_edge` is print-layer, but it is not free: the live tier's
+    // image and its negative were made at the old edge, and a tier map keyed
+    // by name alone would hand them back as if they were the new size. Drop
+    // the whole state -- the image is rebuilt on the next render, the negative
+    // re-renders once, and `applied_ev` is reapplied with it.
+    if (tier_long_edge(session->params, kTiers[0]) != live_edge_before) {
+        session->tiers["live"] = spk_session::TierState{};
     }
 
     if (shoot || (stock_change && delta.has("film_stock"))) {
