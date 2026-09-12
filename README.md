@@ -87,7 +87,7 @@ needs it — `OpenPathTests` and `DecodeSeparationTests` skip rather than fail.
 | `engine/resources/spektrafilm.metallib` | **not tracked, on purpose** — `engine/build.sh` recompiles it from `engine/src/shaders/*.metal` on every build, so it can never go stale against the shaders |
 | `engine/resources/` | **tracked** — the baked constants, 28 profiles, the print-LUT index |
 | `engine/third_party/metal-cpp/` | vendored Apple metal-cpp (Apache-2.0) |
-| `rfc/`, `HANDOFF-*.md`, `ARCHITECTURE.md`, `AGENTS.md` | the design record and the traps |
+| `rfc/`, `handoff/HANDOFF-*.md`, `ARCHITECTURE.md`, `AGENTS.md` | the design record and the traps |
 
 Not here, on purpose: the **Python reference implementation**. Upstream
 `spektrafilm` ships a numba/colour-science engine under `src/`; this repository
@@ -168,5 +168,5 @@ how is recorded in `Resources/Licenses/Profiles-and-LUTs-CHANGELOG.txt`.
 
 Working and used daily. Real gaps, stated: there is no CI, no auto-update and
 no crash reporting; the build is arm64-only; and shipping a notarised DMG still
-needs a Developer ID certificate. `HANDOFF-DISTRIBUTION.md` is the full
-checklist and `HANDOFF-OPEN-PATH.md` the current performance work.
+needs a Developer ID certificate. `handoff/HANDOFF-DISTRIBUTION.md` is the full
+checklist and `handoff/HANDOFF-OPEN-PATH.md` the current performance work.
