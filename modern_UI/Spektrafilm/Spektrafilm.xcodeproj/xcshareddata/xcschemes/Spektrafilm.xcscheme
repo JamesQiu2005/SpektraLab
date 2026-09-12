@@ -16,7 +16,7 @@
             <BuildableReference
                BuildableIdentifier = "primary"
                BlueprintIdentifier = "29C7B681C8D62CBAC94D51C0"
-               BuildableName = "Spektrafilm.app"
+               BuildableName = "Filmify.app"
                BlueprintName = "Spektrafilm"
                ReferencedContainer = "container:Spektrafilm.xcodeproj">
             </BuildableReference>
@@ -46,7 +46,7 @@
          <BuildableReference
             BuildableIdentifier = "primary"
             BlueprintIdentifier = "29C7B681C8D62CBAC94D51C0"
-            BuildableName = "Spektrafilm.app"
+            BuildableName = "Filmify.app"
             BlueprintName = "Spektrafilm"
             ReferencedContainer = "container:Spektrafilm.xcodeproj">
          </BuildableReference>
@@ -63,7 +63,7 @@
          <BuildableReference
             BuildableIdentifier = "primary"
             BlueprintIdentifier = "29C7B681C8D62CBAC94D51C0"
-            BuildableName = "Spektrafilm.app"
+            BuildableName = "Filmify.app"
             BlueprintName = "Spektrafilm"
             ReferencedContainer = "container:Spektrafilm.xcodeproj">
          </BuildableReference>
