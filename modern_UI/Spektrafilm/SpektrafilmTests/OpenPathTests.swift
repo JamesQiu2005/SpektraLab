@@ -462,6 +462,47 @@ final class OpenPathTests: XCTestCase {
                        "the viewport is expressed against the frame, not the original texture (D4)")
     }
 
+    /// Before a develop, the canvas draws the **frame**, not the 1600 px
+    /// preview.
+    ///
+    /// The zoom readout has been native since D4, so a preview stretched into
+    /// it claimed the frame's size while showing a smaller picture — and
+    /// pressing Original then looked *sharper* than the picture it is
+    /// supposedly the original of.
+    func testTheCanvasDrawsTheNativeDecodeBeforeADevelop() async throws {
+        let url = try rawFrame()
+        let session = Session()
+        session.open(urls: [url])
+        try await waitUntil("the frame to decode", timeout: 120) { session.decoded != nil }
+        let native = try XCTUnwrap(session.decoded?.pixelSize)
+        XCTAssertGreaterThan(Int(native.width), Session.liveEdge,
+                             "this frame is not bigger than the preview, so it cannot show the difference")
+        // No develop: this is the state the user is in before Solve.
+        XCTAssertNil(session.renderer.store.print(for: url), "something already developed this frame")
+
+        try await waitUntil("the canvas to reach the frame's own size", timeout: 180) {
+            guard let base = session.renderer.base else { return false }
+            return base.width == Int(native.width) && base.height == Int(native.height)
+        }
+        XCTAssertTrue(session.previewSoft, "the decode is not the print, and must not claim to be")
+    }
+
+    /// …and a print still wins, which is what that fix could have broken.
+    func testAPrintStillReplacesTheNativeDecode() async throws {
+        let url = try rawFrame()
+        let session = Session()
+        session.open(urls: [url])
+        try await waitUntil("the frame to decode", timeout: 120) { session.decoded != nil }
+        try await waitUntil("the engine to warm up", timeout: 120) { session.serviceReady }
+        session.solveNow()
+        try await waitUntil("the print to land", timeout: 180) {
+            session.serviceSessionIDForExport != nil && session.frameStates[url] == .processed && !session.busy
+        }
+        let print = try XCTUnwrap(session.renderer.store.print(for: url))
+        XCTAssertTrue(session.renderer.base === print, "the canvas is not drawing the print")
+        XCTAssertFalse(session.previewSoft, "the print is on the canvas and the flag still says soft")
+    }
+
     // MARK: - reading the canvas back
 
     /// An rgba16Unorm texture's samples, whatever its storage mode. The print

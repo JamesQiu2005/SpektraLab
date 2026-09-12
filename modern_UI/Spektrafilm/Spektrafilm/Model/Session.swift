@@ -931,6 +931,27 @@ final class Session: CanvasHost {
             guard let self, !Task.isCancelled, self.selection == url,
                   self.sidecar.decode == settings, let tex = box.texture else { return }
             self.renderer.original = tex
+            // And onto the canvas, while the canvas is still the decode. Since
+            // D4 the viewport is expressed against the *frame*, so a 1600 px
+            // preview stretched into it claimed the frame's size while showing
+            // a smaller picture — and the Original button, which showed the
+            // native decode, then looked sharper than the thing it is the
+            // original of. The same texture object, so this costs nothing, and
+            // the store is left alone: it holds small textures for the instant
+            // frame switch, and a native one there would fill it.
+            //
+            // Never over a print: a develop that lands first owns the canvas.
+            // `previewSoft` is the direct question — is the canvas showing
+            // something other than the print — and the store lookup is the
+            // same answer from the cache, which an eviction could lose.
+            // A reopen (a white balance change) and a frame switch both go
+            // through `load`, which puts the small preview up first — the open
+            // stays as fast as it was — and this replaces it when it lands.
+            // `previewSoft` stays true either way: this is still not a print.
+            if self.previewSoft, self.renderer.store.print(for: url) == nil {
+                self.renderer.setLive(tex, logical: d.pixelSize)
+                self.previewSoft = true
+            }
             canvasLog("original \(url.lastPathComponent) at \(tex.width)x\(tex.height) "
                       + "landed in \(Int(Date().timeIntervalSince(started) * 1000)) ms")
             self.renderer.needsDraw?()
