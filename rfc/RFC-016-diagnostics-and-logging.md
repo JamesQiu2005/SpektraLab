@@ -230,7 +230,7 @@ it answerable *by the user*, without this project's authors present.
 
 ---
 
-## 10. Open questions for the user
+## 10. Open questions, as put to the user (answered in §11)
 
 - **Retention defaults** (§4): 7 days / 100 MB / 20 files, or tighter?
 - **Console.app.** Should records also go to `os_log`, so Console and
@@ -243,3 +243,46 @@ it answerable *by the user*, without this project's authors present.
 - **Does a slow render deserve a visible warning**, or only a log record? A
   toast that says "this frame is 151 MP; a full render will take ~5 s" is a
   product decision, not a diagnostic one, and belongs to the user.
+
+---
+
+## 11. Decisions (user, 2026-09-12)
+
+1. **Retention: 7 days is enough.** The other two limits (§4) stand as written.
+2. **Yes to `os_log`.** Records go to both sinks, so Console.app and
+   `log stream` can watch a running app from outside. Consequence, accepted:
+   every field we want readable must be marked `public`, which makes it
+   visible to any process on the machine. No field carries image data, and the
+   file sink remains the complete record — `os_log` is a live view, not the
+   archive.
+3. **The diagnostic bundle carries file names by default**, with the untick
+   still offered.
+4. **The log's destination is settable, and a job writes its own log beside
+   its output.** Default stays `~/Library/Logs/Filmify/`. A batch export also
+   writes a job log **into the export destination**, next to the files it
+   produced, so a folder of exports carries the record of how it was made:
+   which recipe, which engine build, per-frame timings, per-frame applied EV,
+   and anything that failed. That is the audit trail — an export you can hand
+   to someone with the evidence of its own making attached.
+5. **The purpose, in the user's words:** the app must be *auditable,
+   traceable, and must not crash silently or blow up memory without telling
+   the user*. Two consequences beyond §1's eight questions:
+   - **A refusal is a visible event, not a log line.** When a frame is refused
+     for size or for memory headroom (§1.5 and the Settings reserve), the user
+     is told in the window, and the log records why.
+   - **This supersedes the 2026-09-12 "leave it, out of RAM is the user's
+     problem" decision** in one respect only: no chunking and no strip
+     rendering, as decided — but the app may not sail into a swap storm
+     silently. A projected peak that does not fit gets a warning the user can
+     override, and a log record either way.
+
+---
+
+## 12. Companion RFC
+
+"Apply to all images" over an opened folder, and the scheduling it needs, are
+RFC-017. The two share this RFC's machinery deliberately: the batch job's
+progress, its per-frame outcomes and its refusals are the same records defined
+here, and §11.4's job log is where a batch run's evidence lands. RFC-017 owns
+the queue, the admission control and the cancellation semantics; this RFC owns
+what any of it writes down.
