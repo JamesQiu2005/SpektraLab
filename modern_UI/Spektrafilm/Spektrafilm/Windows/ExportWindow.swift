@@ -15,6 +15,15 @@
 //  buttons are AppKit's own and this moves them onto the bar's centreline the
 //  same way the editor does — `Windows/TrafficLights.swift` is the mechanism
 //  and the comment there is the reasoning.
+//
+//  **The buttons are placed, not drawn, and that is settled rather than
+//  unresolved.** The drawing embeds a screenshot of them (an `<image>` whose
+//  href points at the designer's own Desktop) instead of drawing the three
+//  circles, so there is nothing in it to reproduce; the user's answer is that
+//  AppKit's real buttons at the drawing's leading inset are what belong there.
+//  They are the only part of this window the window server draws, which is why
+//  no offscreen capture can see them — `Tools/capture-live.sh` is the check,
+//  and `Theme.Metric.Export.trafficLightLeading` is the inset.
 
 import SwiftUI
 
@@ -48,5 +57,8 @@ struct ExportWindow: View {
 
     /// The drawing's own window. Its centre pane is the part that gives, so
     /// this is the size at which the capture can be laid over the drawing.
+    /// The side cards move inside it now (`Controls/PanelResize.swift`), which
+    /// does not change this: a narrower window is a narrower proof, and the
+    /// cards have their own bounds.
     private var minWidth: CGFloat { Theme.Metric.Export.width }
 }

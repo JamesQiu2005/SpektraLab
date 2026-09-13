@@ -183,9 +183,58 @@ enum Theme {
             static let width: CGFloat = 1490.65
             static let height: CGFloat = 989.55
 
+            /// The drawing's own card widths. They are the `standard` of the
+            /// ranges below rather than the only size the cards have: the user
+            /// asked for a tab that is "non-fixed … one narrowest and widest
+            /// for both the collapse tabs", so the page opens exactly as drawn
+            /// and the edge moves from there.
             static let leftWidth: CGFloat = 313.4
             static let rightWidth: CGFloat = 220.7
-            static let topBarHeight: CGFloat = 29.9
+
+            /// **A judgement, and the reasoning, because nothing in the
+            /// drawing bounds a card it draws at one size.**
+            ///
+            /// *Left, narrowest 272.* The card's own content is
+            /// `W − 31.4` — `wellInset` and `wellPadding` on both sides — and
+            /// the widest thing that must not be squeezed is the Naming row:
+            /// the label column at 68.5 and four chips at 168, measured off a
+            /// capture. 272 leaves that row 240.6 against the 236.5 it needs,
+            /// so the floor is the chip row and about six points of air. It is
+            /// the label column that sets it — at the drawing's own 64.5 the
+            /// row would need four points less, and it is macOS's wider optical
+            /// size that put it at 68.5.
+            ///
+            /// *Left, widest 460* and *right, widest 360.* The proof is what
+            /// this page exists to show, so the bound is where the cards start
+            /// eating it. Both at their widest leave the centre 670.7 of the
+            /// window's 1490.65 — 45 %, against 64 % at standard — and still
+            /// wider than either card. Past that the page is two lists with a
+            /// picture between them.
+            ///
+            /// *Right, narrowest 160.* The card is `W − 35` of thumbnail, and
+            /// the drawing's thumbnail is 185.6. Two thirds of that is 124,
+            /// which is where a 3:2 frame is still a picture of a photograph
+            /// rather than a coloured chip — the film's own character is what
+            /// the strip is for, and it is illegible below about there. 124 +
+            /// 35 is 159, rounded to 160.
+            static let leftRange = PanelWidthRange(narrowest: 272, standard: leftWidth, widest: 460)
+            static let rightRange = PanelWidthRange(narrowest: 160, standard: rightWidth, widest: 360)
+            /// **28, not the drawing's 29.9** — the user's "could be narrower
+            /// overall", and 28 is as far as it goes.
+            ///
+            /// The bar's floor is not set by anything this page draws. Its
+            /// tallest control is the 15.1 pt pill, which would be comfortable
+            /// at 24; the three **window buttons** are AppKit's, 14 pt across,
+            /// and `TrafficLightAlignment` puts them on the bar's centreline.
+            /// macOS gives those buttons a 28 pt title bar — 7 pt of air above
+            /// and below — and 28 is that number. Below it the buttons are
+            /// being squeezed rather than the bar tightened, which is a
+            /// different thing from a slimmer row.
+            ///
+            /// The user's decision, in as many words: "the top should be
+            /// fixed though, could be narrower overall." Fixed it is, and
+            /// this is the narrower.
+            static let topBarHeight: CGFloat = 28
             static let cardRadius: CGFloat = 15
             /// The bar-to-cards gap, which is also the gap between cards.
             static let gap: CGFloat = 5.8
