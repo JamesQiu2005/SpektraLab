@@ -515,23 +515,47 @@ struct ExportRecipe: Codable, Identifiable, Hashable, Sendable {
         return sub.isEmpty ? base : base.appending(path: sub)
     }
 
+    /// The path this recipe would write for `stem`, ignoring the existing-file
+    /// policy. The policy needs it — "the file is already there" has to be
+    /// able to *name* the file — and so does anything describing a destination
+    /// before deciding to write one.
+    ///
+    /// **The DI package gets a folder of its own**, named for the export, and
+    /// the rule lives here rather than in `Exporter` so that the exists-check,
+    /// the job log and the written files all agree on where the package is.
+    /// Two reasons, and the second is why it is not merely tidy:
+    ///
+    ///  * a package is one artifact in two files. The `.cube`'s domain *is*
+    ///    the density TIFF's numbers, so they travel together or they are
+    ///    worthless apart;
+    ///  * a DI TIFF and a finished TIFF are the **same filename** — same stem,
+    ///    same `.tif` — so `_prints/` used to hold both only by luck. The
+    ///    folder is what makes that collision impossible rather than unlikely.
+    func destinationPath(for source: URL, context: NamingRule.Context, stem: String) -> URL {
+        let dir = directory(for: source)
+        guard format == .di else { return dir.appending(path: "\(stem).\(format.ext)") }
+        return dir.appending(path: stem).appending(path: "\(stem).\(format.ext)")
+    }
+
     /// The full destination, honouring `existing`. Returns `nil` only for
     /// `.skip` when the file is already there — the one case where "no URL"
     /// is the answer rather than an error.
     func destination(for source: URL, context: NamingRule.Context,
                      fileManager: FileManager = .default) -> URL? {
-        let dir = directory(for: source)
         let stem = naming.stem(context)
-        let first = dir.appending(path: "\(stem).\(format.ext)")
+        let first = destinationPath(for: source, context: context, stem: stem)
         guard fileManager.fileExists(atPath: first.path) else { return first }
         switch existing {
         case .overwrite: return first
         case .skip: return nil
         case .addSuffix:
-            // `-1`, `-2`, … the way every other exporter does it. Bounded so
-            // a directory that somehow refuses to stop matching cannot spin.
+            // `-1`, `-2`, … the way every other exporter does it — on the stem,
+            // which for the package is the folder's name as well as the file's,
+            // so `_prints/DSC4037-1/DSC4037-1.tif` is one move and not two.
+            // Bounded so a directory that somehow refuses to stop matching
+            // cannot spin.
             for n in 1...9999 {
-                let u = dir.appending(path: "\(stem)-\(n).\(format.ext)")
+                let u = destinationPath(for: source, context: context, stem: "\(stem)-\(n)")
                 if !fileManager.fileExists(atPath: u.path) { return u }
             }
             return first

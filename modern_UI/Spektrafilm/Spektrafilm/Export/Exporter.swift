@@ -12,13 +12,16 @@
 //
 //  **Both routes are native now.** They used to call a Python service that
 //  wrote files into a workspace and returned paths; the engine returns
-//  textures and a pointer to the LUT table, and the three files — the DI
-//  TIFF, the `.cube`, the optional print preview — are written here. That is
-//  where they belong: ImageIO is already how the finished formats are
-//  written, and `writeCube` is thirty lines of text formatting that no C++
-//  file writer needs to exist for.
+//  textures and a pointer to the LUT table, and the DI package's two files —
+//  the density TIFF and the `.cube` — are written here. That is where they
+//  belong: ImageIO is already how the finished formats are written, and
+//  `writeCube` is thirty lines of text formatting that no C++ file writer
+//  needs to exist for.
 //
-//  Filenames: `<original>_<film>_<paper>.<ext>` in `<source dir>/_prints/`.
+//  Filenames: `<original>_<film>_<paper>.<ext>` in `<source dir>/_prints/`,
+//  and for the DI package inside `<stem>/` under that, because the TIFF and
+//  its cube are one artifact and would otherwise share a filename with the
+//  finished TIFF (`ExportRecipe.destinationPath`).
 
 import AppKit
 import Foundation
@@ -127,9 +130,26 @@ enum Exporter {
                 .init("frame", source.lastPathComponent),
                 .init("recipe", recipe.name),
             ])
-            let existing = dir.appending(path: "\(recipe.naming.stem(context)).\(format.ext)")
+            let existing = recipe.destinationPath(for: source, context: context,
+                                                  stem: recipe.naming.stem(context))
             return .skipped(existing)
         }
+        // The DI package's file sits in a folder of its own
+        // (`ExportRecipe.destinationPath`), so the leaf is created here too,
+        // in the same place and for the same reason as `dir`: this is the only
+        // site that can tell the user a directory could not be made.
+        let leaf = out.deletingLastPathComponent()
+        do {
+            try FileManager.default.createDirectory(at: leaf, withIntermediateDirectories: true)
+        } catch {
+            throw ExportError.directory(leaf, error.localizedDescription)
+        }
+        // The job log goes beside the **export**, and for a package the export
+        // is the folder: writing it beside the file would put a third thing
+        // inside a package the user asked to be one TIFF and one cube. One
+        // level up is still "beside" — the same `_prints/` folder every other
+        // export's log lands in, under the same name it has today.
+        let logAnchor = format == .di ? leaf : out
         let (target, _, fellBack, fellBackReason) = resolveTarget(recipe)
         var job = JobLog()
         job.note(.info, "export.start", jobHeader(session: session, recipe: recipe, out: out,
@@ -158,7 +178,7 @@ enum Exporter {
                 .init("files", result.urls.count),
                 .init("ev", result.appliedEV ?? Double.nan),
             ])
-            try? job.write(beside: out)
+            try? job.write(beside: logAnchor)
             noteExport(session, recipe: recipe, result: result, elapsedMs: elapsed,
                        fellBack: fellBack, job: job)
             // §3: after an export is a memory boundary — the full-tier render
@@ -171,7 +191,7 @@ enum Exporter {
                 .init("error", "\(error)"),
                 .init("raw", EngineMessage.technical(error)),
             ])
-            try? job.write(beside: out)
+            try? job.write(beside: logAnchor)
             session.noteFailure(error, operation: "export", frame: source.lastPathComponent)
             throw error
         }
@@ -341,9 +361,23 @@ enum Exporter {
 
     // MARK: - the DI package
 
-    /// Three files: the normalised-density negative, the print stock's
-    /// `.cube`, and a print preview so the flat file can be checked against
-    /// what the LUT does to it.
+    /// **Two files, in one folder of their own**: the normalised-density
+    /// negative and the print stock's `.cube`. The folder is
+    /// `ExportRecipe.destinationPath`'s — `<stem>/` inside the recipe's own
+    /// subfolder — and it exists because a package is one artifact: the cube's
+    /// domain *is* the TIFF's numbers.
+    ///
+    /// The print preview used to be a third file beside them. It is now **IFD1
+    /// of the density TIFF** — the same picture, inside the file whose numbers
+    /// it is a picture *of*, and no longer a file that could be separated from
+    /// them. Two things about that are load-bearing:
+    ///
+    ///  * `kCGImageDestinationEmbedThumbnail` does **nothing** for TIFF.
+    ///    Measured: the file comes out byte-identical with and without it. A
+    ///    second page is the mechanism TIFF actually has;
+    ///  * the preview carries its own profile and IFD0 does not, so the
+    ///    density channels stay untagged (`testTheDIFileIsNotTaggedAsAColour`)
+    ///    and the cube's domain does not move.
     ///
     /// The geometry is already in the negative — `node_geometry` runs on the
     /// film side, before the density curves — so the crop and the straighten
@@ -360,27 +394,26 @@ enum Exporter {
         // ImageIO for the most nearly untagged thing it will write.
         guard let cg = texture.makeCGImage(space: CGColorSpaceCreateDeviceRGB())
             else { throw ExportError.noPixels }
-        try write(cg, to: out, format: .tiff)
 
-        let base = out.deletingPathExtension()
-        let cube = base.deletingLastPathComponent()
-            .appending(path: "\(base.lastPathComponent)_\(di.meta.printStock).cube")
+        // The same table applied to the same negative, which is what
+        // `preview_stock_lut` is. At the **live** tier, not the full one: a
+        // preview's job is to be small, and a full-tier one would add a second
+        // full-resolution image to the file. Its failure is not the export's —
+        // the two things that carry the grade are the density TIFF and the
+        // cube — so a missing preview is a preview-less package and not a
+        // failed one.
+        let preview = (try? await session.client.previewStockLUT(di.meta.printStock, tier: "live"))
+            .flatMap { $0.texture?.makeCGImage() }
+
+        try write(cg, to: out, format: .tiff, preview: preview)
+
+        let stem = out.deletingPathExtension().lastPathComponent
+        let cube = out.deletingLastPathComponent().appending(path: "\(stem)_\(di.meta.printStock).cube")
         let table = try await session.client.printLUTTable(di.meta.printStock)
         try writeCube(table.table, size: table.size, to: cube,
                       title: "spektrafilm \(di.meta.printStock) print (from \(di.meta.pairedFilm))")
 
-        var urls = [out, cube]
-        // The print preview is the same table applied to the same negative,
-        // which is what `preview_stock_lut` is. It is written last and its
-        // failure is not the export's: the two files that carry the grade are
-        // already on disk.
-        if let preview = try? await session.client.previewStockLUT(di.meta.printStock, tier: "full"),
-           let tex = preview.texture, let cg = tex.makeCGImage() {
-            let path = base.deletingLastPathComponent()
-                .appending(path: "\(base.lastPathComponent)_print.tif")
-            if (try? write(cg, to: path, format: .tiff)) != nil { urls.append(path) }
-        }
-        return Result(urls: urls, note: di.meta.warning,
+        return Result(urls: [out, cube], note: di.meta.warning,
                       appliedEV: di.progress?.autoExposureEV,
                       pixels: (di.width, di.height))
     }
@@ -434,9 +467,15 @@ enum Exporter {
     ///
     /// Bit depth is decided by the format, not by the caller: ImageIO would
     /// otherwise write a 16-bit PNG.
+    /// `preview` is written as a **second page** — IFD1 — and is the only
+    /// multi-page case there is: the DI package's density channels are not a
+    /// picture, so the file carries a picture for whoever opens it. It goes
+    /// through the same depth reduction as the main image (a preview is not
+    /// worth 16 bits) and keeps its own profile, which is what lets IFD0 stay
+    /// untagged.
     @discardableResult
     static func write(_ image: CGImage, to url: URL, format: ExportFormat,
-                      quality: Double = 0.95) throws -> URL {
+                      quality: Double = 0.95, preview: CGImage? = nil) throws -> URL {
         var cg = image
         let needsEight = format.isEightBit
         if needsEight {
@@ -447,13 +486,20 @@ enum Exporter {
                                          bitsPerComponent: 8) else { throw ExportError.noPixels }
             cg = converted
         }
-        guard let dest = CGImageDestinationCreateWithURL(url as CFURL, format.utType.identifier as CFString, 1, nil) else {
+        var small: CGImage?
+        if let preview {
+            small = redraw(preview, in: preview.colorSpace ?? CGColorSpaceCreateDeviceRGB(),
+                           bitsPerComponent: 8)
+        }
+        guard let dest = CGImageDestinationCreateWithURL(
+            url as CFURL, format.utType.identifier as CFString, small == nil ? 1 : 2, nil) else {
             throw ExportError.write(url)
         }
         var props: [CFString: Any] = [:]
         if format == .jpeg { props[kCGImageDestinationLossyCompressionQuality] = quality.clamped(to: 0.1...1) }
         if format == .tiff { props[kCGImagePropertyTIFFDictionary] = [kCGImagePropertyTIFFCompression: 5] }
         CGImageDestinationAddImage(dest, cg, props as CFDictionary)
+        if let small { CGImageDestinationAddImage(dest, small, nil) }
         guard CGImageDestinationFinalize(dest) else { throw ExportError.write(url) }
         return url
     }
