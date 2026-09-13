@@ -79,15 +79,34 @@ final class BootWindowController {
     static let size = CGSize(width: 360, height: 190)
 
     private var window: NSWindow?
-    private var editor: NSWindow?
     private var observer: Task<Void, Never>?
+
+    /// The editor scene's window, or nil if SwiftUI has not made it yet.
+    ///
+    /// Identified by **not being the boot window**, which is the only
+    /// discriminator that is actually reliable here. Measured at the
+    /// handover: neither window carries an `identifier` (both print `nil`),
+    /// both have a `contentView`, and neither is an `NSPanel` — the boot
+    /// window is an `NSWindow` we made and the editor is SwiftUI's private
+    /// `TUINSWindow`, and matching on that class name would be matching on an
+    /// implementation detail. We hold the boot window's reference, so
+    /// excluding it by identity is exact and cannot go stale.
+    private func editorWindow() -> NSWindow? {
+        NSApp.windows.first { $0 !== window && !($0 is NSPanel) && $0.contentView != nil }
+    }
 
     /// Show it, hide the editor, and hand over when the session says it is up.
     func present(session: Session) {
         // An editor window that never appears is worse than a visible one, so
         // every path below has a `reveal()`.
-        editor = NSApp.windows.first { $0.contentView != nil && !($0 is NSPanel) }
-        editor?.orderOut(nil)
+        //
+        // Nothing is cached here. This runs from
+        // `applicationDidFinishLaunching`, and at that point SwiftUI has
+        // created **no windows at all** — measured: `NSApp.windows` is empty,
+        // so the old cache was always nil and the fallback in `reveal()` was
+        // doing all the work by luck. The editor is looked up at `reveal()`
+        // time instead, which is the moment it is wanted and by which it
+        // exists.
 
         let w = NSWindow(contentRect: CGRect(origin: .zero, size: BootWindowController.size),
                          styleMask: [.titled, .fullSizeContentView],
@@ -123,11 +142,26 @@ final class BootWindowController {
 
     private func reveal() {
         observer = nil
+        // Find the editor **before** letting go of the boot window, and order
+        // the boot window out after. The old version nilled `window` first,
+        // so its own fallback — "the first window with a content view" —
+        // could and did pick the boot window it had just ordered out, and
+        // `makeKeyAndOrderFront` brought it straight back. That is what an
+        // app stuck on a boot screen with a warmed-up session looked like.
+        let target = editorWindow()
         window?.orderOut(nil)
         window = nil
-        let target = editor ?? NSApp.windows.first { $0.contentView != nil }
-        target?.makeKeyAndOrderFront(nil)
+        guard let target else {
+            // Nothing to hand over to. Say so rather than leaving a user
+            // staring at a desktop wondering whether the app launched: this
+            // is unreachable in the normal path, and the log record is how we
+            // would find out it had become reachable again.
+            Diagnostics.shared.log.error(.app, "the boot window had no editor window to hand over to", [
+                .init("windows", NSApp.windows.count),
+            ])
+            return
+        }
+        target.makeKeyAndOrderFront(nil)
         NSApp.activate(ignoringOtherApps: true)
-        editor = nil
     }
 }

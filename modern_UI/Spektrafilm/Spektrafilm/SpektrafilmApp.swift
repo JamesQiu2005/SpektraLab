@@ -35,6 +35,25 @@ struct SpektrafilmApp: App {
         }
         .windowResizability(.contentSize)
         .defaultPosition(.center)
+
+        // **Not a `Settings` scene.** It is the obvious way to get the app
+        // menu's "Settings…" item for free, and in this app it stops SwiftUI
+        // from ever creating the *editor* window. Bisected: with a `Settings`
+        // scene the app has one window at the boot handover (the boot window)
+        // and the `Window("Filmify", id: "editor")` scene's window is never
+        // made; without it there are two, the second being SwiftUI's
+        // `TUINSWindow`. The app launched to a boot screen that never went
+        // away.
+        //
+        // So the page is an ordinary `Window` and the menu item is declared
+        // by hand in `EditorCommands` via `CommandGroup(replacing: .appSettings)`,
+        // which puts it in the same place with the same ⌘, shortcut.
+        // `RFC-016 §6` is what the page itself is for.
+        Window("Settings", id: "settings") {
+            SettingsWindow(session: session)
+        }
+        .windowResizability(.contentSize)
+        .defaultPosition(.center)
     }
 }
 
@@ -50,6 +69,12 @@ struct EditorCommands: Commands {
     var body: some Commands {
         CommandGroup(replacing: .appInfo) {
             Button("About Filmify") { openAbout() }
+        }
+        // Hand-declared because the page is a `Window` and not a `Settings`
+        // scene — see the comment on that scene. Same slot, same shortcut.
+        CommandGroup(replacing: .appSettings) {
+            Button("Settings…") { openWindow(id: "settings") }
+                .keyboardShortcut(",", modifiers: .command)
         }
         CommandGroup(replacing: .newItem) {
             Button("Open…") { session.openPanel() }.keyboardShortcut("o")
@@ -207,6 +232,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private let boot = BootWindowController()
 
     func applicationDidFinishLaunching(_ notification: Notification) {
+        // First statement, before anything else can want to log: `start()`
+        // opens the session file, and records written before it (the static
+        // session's own warm-up) land in the ring buffer only.
+        Diagnostics.shared.start()
         NSApp.appearance = NSAppearance(named: .darkAqua)
         NSApp.setActivationPolicy(.regular)
         NSApp.activate(ignoringOtherApps: true)
@@ -240,14 +269,31 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool { true }
 
     func applicationWillTerminate(_ notification: Notification) {
+        // The session-end record. Its absence on the next launch is the only
+        // evidence a hang, a jetsam kill or a panic leaves (§1.7), so this
+        // must come before anything here that could itself fail.
+        Diagnostics.shared.finish()
         session?.flushSave()
         if let c = session?.client { Task { await c.stop() } }
     }
 
     private var snapshotWindow: NSWindow?
 
+    /// Leave the log honest on the way out.
+    ///
+    /// `runSnapshot` ends in `exit()`, which does not run
+    /// `applicationWillTerminate` — so without this every capture leaves a
+    /// session file with no end record, and RFC-016 §1.7 then reports an
+    /// unclean exit on the *next* launch. The harness runs constantly, so
+    /// that is a permanent false alarm in the user's own log. A snapshot that
+    /// finished is a clean exit and must say so.
+    private func snapshotExit(_ code: Int32) -> Never {
+        Diagnostics.shared.finish()
+        exit(code)
+    }
+
     private func runSnapshot(_ req: SnapshotRequest) async {
-        guard let session else { exit(2) }
+        guard let session else { snapshotExit(2) }
         // Own window, own hosting view: the capture must not depend on when
         // (or whether) the SwiftUI scene's window is ordered in.
         let host = NSHostingView(rootView: EditorWindow(session: session).environment(\.snapshotMode, true))
@@ -270,8 +316,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // whole card from the measurement.
         session.leftCollapsed = false
         session.rightCollapsed = false
-        session.topCollapsed = false
         session.filmstripCollapsed = false
+        // `topCollapsed` is not reset here any more: the top bar is the
+        // window's first row and cannot be collapsed, so no view reads that
+        // flag. The stored property stays for one release so a preferences
+        // file written by an older build still decodes.
         try? await Task.sleep(for: .milliseconds(300))
         if let open = req.open {
             session.open(urls: [open])
@@ -332,12 +381,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         guard view.bounds.size == req.size,
               let rep = view.bitmapImageRepForCachingDisplay(in: view.bounds) else {
             FileHandle.standardError.write(Data("snapshot: wanted \(req.size), view is \(view.bounds.size)\n".utf8))
-            exit(3)
+            snapshotExit(3)
         }
         view.cacheDisplay(in: view.bounds, to: rep)
-        guard let png = rep.representation(using: .png, properties: [:]) else { exit(4) }
+        guard let png = rep.representation(using: .png, properties: [:]) else { snapshotExit(4) }
         try? png.write(to: req.output)
         print("snapshot \(Int(req.size.width))x\(Int(req.size.height)) → \(req.output.path)")
-        exit(0)
+        snapshotExit(0)
     }
 }
