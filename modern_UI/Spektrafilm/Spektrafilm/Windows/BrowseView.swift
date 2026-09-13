@@ -112,17 +112,6 @@ struct BrowseView: View {
 struct BrowseCell: View {
     @Bindable var session: Session
     let frame: Frame
-    /// `nil` in the editor's Browse grid, where every cell is named and none
-    /// is framed. The export page passes whether the frame is in *its* export
-    /// selection, and then `notes.md`'s rule applies instead: only the chosen
-    /// ones get the white frame and the name, and the rest "are just there".
-    ///
-    /// **Not** how the editor marks a frame — see `framing`. This one is the
-    /// export page's, which draws every chosen frame the same way, at the
-    /// weight `notes.md` gives it, whether or not one of them is also on the
-    /// canvas.
-    var chosen: Bool? = nil
-
     /// How the editor marks this cell: on the canvas, in the picked set, or
     /// neither. Also from `Session`, so the grid and the filmstrip agree by
     /// construction. The export page leaves it `.none` and uses `chosen`.
@@ -143,9 +132,7 @@ struct BrowseCell: View {
             }
             .aspectRatio(3 / 2, contentMode: .fit)
             .overlay {
-                if chosen == true {
-                    RoundedRectangle(cornerRadius: 4).stroke(Theme.selectionFrame, lineWidth: 2)
-                } else if framing.isFramed {
+                if framing.isFramed {
                     // The filmstrip's scale, on this cell's 4 pt corner: 1.5
                     // for the frame on the canvas, a weaker 1 for the rest of
                     // the set.
@@ -155,12 +142,8 @@ struct BrowseCell: View {
                 }
             }
             .overlay(alignment: .bottomTrailing) { badge.padding(6) }
-            // The editor names every cell; the export page names only the
-            // chosen ones, so the row keeps its height either way and the
-            // grid does not reflow as the selection changes.
             HStack(spacing: 4) {
-                Text(chosen == false ? "" : frame.name)
-                    .font(Theme.Font.caption).foregroundStyle(Theme.text).lineLimit(1)
+                Text(frame.name).font(Theme.Font.caption).foregroundStyle(Theme.text).lineLimit(1)
                 Spacer(minLength: 0)
             }
         }

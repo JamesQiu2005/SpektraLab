@@ -476,6 +476,7 @@ struct ExportRecipe: Codable, Identifiable, Hashable, Sendable {
         existing = (try? c.decode(ExistingFilePolicy.self, forKey: .existing)) ?? .addSuffix
         quality = (try? c.decode(Double.self, forKey: .quality)) ?? 0.95
         outputSize = (try? c.decode(OutputSize.self, forKey: .outputSize)) ?? .original
+        embedsPreview = (try? c.decode(Bool.self, forKey: .embedsPreview)) ?? false
         openWith = try? c.decodeIfPresent(OpenWith.self, forKey: .openWith)
     }
 
@@ -499,7 +500,7 @@ struct ExportRecipe: Codable, Identifiable, Hashable, Sendable {
 
     private enum CodingKeys: String, CodingKey {
         case id, name, format, colorSpace, folder, subfolder, naming, existing, quality,
-             outputSize, openWith
+             outputSize, openWith, embedsPreview
     }
 
     /// The directory this recipe writes into for a given source frame,
@@ -561,6 +562,28 @@ struct ExportRecipe: Codable, Identifiable, Hashable, Sendable {
             return first
         }
     }
+
+    /// Write a preview image into the TIFF beside the picture.
+    ///
+    /// **Off by default, and that is the point of it being a field at all.**
+    /// A preview costs about a tenth of the file and changes every exported
+    /// TIFF's bytes, so it is chosen per recipe rather than decided once for
+    /// everyone — the user's call, 2026-09-14: "every TIFF, but opt-in per
+    /// recipe".
+    ///
+    /// TIFF only, and it is a **second page**, not a thumbnail: measured,
+    /// `kCGImageDestinationEmbedThumbnail` leaves a TIFF byte-identical, so
+    /// the mechanism is a second `CGImageDestinationAddImage`. A reader has
+    /// to ask for it by index — `CGImageSourceCreateImageAtIndex(src, 1, nil)`
+    /// — because `CGImageSourceCreateThumbnailAtIndex` does not find it and
+    /// silently returns a downscale of the full picture instead, at the same
+    /// cost as having no preview at all.
+    ///
+    /// The DI package's TIFF carries one unconditionally and does not consult
+    /// this: its preview is the only rendered picture in a package whose other
+    /// two files are density and a `.cube`, so there is nothing there for a
+    /// person to look at without it.
+    var embedsPreview: Bool = false
 
     /// `outputSize` as the export path wants it: a size in pixels, or nil for
     /// the frame's own. Kept here rather than in `Exporter` so the page and

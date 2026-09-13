@@ -289,3 +289,11 @@ engine/build/
 # The engine resources `engine/build.sh bundle` rsyncs into the app bundle.
 # Generated from `engine/resources/`, and checked by the app's pre-build phase.
 modern_UI/Spektrafilm/Spektrafilm/Resources/engine/
+
+# The camera fixtures live in the spektrafilm fork, not here (see the
+# `tests/Test_image/` rule above). Each checkout and each worktree links to
+# them from its own root, and the correct target differs between the two — a
+# worktree points at the main checkout, the main checkout points at the fork —
+# so the link is machine-local and must not be tracked. It was, briefly, and
+# the merge that brought it in pointed this checkout at itself.
+/tests

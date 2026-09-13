@@ -333,6 +333,39 @@ enum Theme {
             static let recipeRowSpacing: CGFloat = 1.1
             static let formulaListHeight: CGFloat = 144
 
+            /// **Grid mode.** The drawing's grid card is the centre pane and
+            /// the filmstrip as one card: it starts just right of the
+            /// settings card and runs to the window's right edge, and the grid
+            /// lives inside it rather than in the centre alone.
+            static let gridWidth: CGFloat = 2350.54 / 2
+            /// The drawing's gap between the settings card and the grid card:
+            /// 7.81 units, 3.9 pt, and *not* the 5.8 pt `gap` the bar keeps
+            /// from the cards — two different numbers in the same drawing.
+            ///
+            /// **Unused, deliberately.** The resize handle has to sit between
+            /// those two cards in both modes or the settings card cannot be
+            /// dragged in Grid, and it is 6 pt, so the handle *is* the gap and
+            /// this is the number it stands in for. Kept rather than deleted
+            /// so the drawing's value is on the record beside the one that is
+            /// actually drawn.
+            static let gridGap: CGFloat = 3.905
+            /// Leading and top inset of the grid inside its card. The drawing
+            /// puts the first cell 67.34 units in and 120.51 down — 33.7 and
+            /// 60.25 pt — and the trailing slack falls out as one column gap,
+            /// because the row is laid out from the leading edge rather than
+            /// centred.
+            static let gridPadding: CGFloat = 33.7
+            static let gridTopInset: CGFloat = 60.25
+            /// How much of its column a thumbnail takes. The drawing's cells
+            /// are 307.88 units wide on a 457.68-unit pitch — 0.66 — so the
+            /// gap between two thumbnails is the other third of the pitch, at
+            /// every column count the slider can reach.
+            static let gridCellFraction: CGFloat = 0.66
+            /// Between two rows. **A judgement**: the drawing has one row and
+            /// does not say. Smaller than the column gap because the name
+            /// under a thumbnail is not a thumbnail.
+            static let gridRowSpacing: CGFloat = 28
+
             /// A filmstrip cell: the long edge of a thumbnail, the margin the
             /// card keeps around one, and the room below it for its name.
             static let thumbMax: CGFloat = 185.6
@@ -363,9 +396,8 @@ enum Theme {
                 + zoomClusterGap + 24
             /// The grid-size slider's stops — a **count of columns**, and the
             /// whole reason it is detented. 2 to 10 is Finder's own range and
-            /// the user asked for Finder's feel; nothing in the drawing picks
-            /// a count, so this is the one number on this page that is a
-            /// judgement rather than a measurement.
+            /// the user asked for Finder's feel; the drawing shows five of
+            /// them, which is one stop of this.
             static let gridColumns: ClosedRange<Int> = 2...10
             static var countTrailingInset: CGFloat { rightWidth / 2 - pillWidth / 2 }
             static let zoomToCount: CGFloat = 87.5

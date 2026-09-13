@@ -47,11 +47,12 @@ final class ExportPanelTests: XCTestCase {
     /// side (`HoverEdgeTab.bandShift`), which puts its own leading edge off the
     /// window when the card is folded. The pill is the thing that is
     /// positioned, and the pill is what has to be on the edge.
-    private func pillX(width: CGFloat, folded: Bool = false) throws -> CGFloat {
+    private func pillX(width: CGFloat, folded: Bool = false,
+                       mode: ExportPage.Mode = .viewer) throws -> CGFloat {
         UserDefaults.standard.set(Double(width), forKey: leftKey)
         UserDefaults.standard.set(folded, forKey: foldKey)
 
-        let host = NSHostingView(rootView: ExportWindow(session: Session()))
+        let host = NSHostingView(rootView: ExportWindow(session: Session(), startIn: mode))
         let frame = CGRect(x: 0, y: 0, width: Theme.Metric.Export.width,
                            height: Theme.Metric.Export.height)
         host.frame = frame
@@ -104,5 +105,26 @@ final class ExportPanelTests: XCTestCase {
         let x = try pillX(width: Theme.Metric.Export.leftWidth, folded: true)
         XCTAssertEqual(x, 0, accuracy: 1,
                        "a folded card leaves the canvas — and the tab — at the window's edge")
+    }
+
+    /// **Grid mode is the second drawing's arrangement**: the centre pane and
+    /// the filmstrip are one card, so what the tab hangs off is a different
+    /// card than in Viewer — reached by the grid's own gap rather than by the
+    /// resize handle. It still follows that edge, which is the whole point of
+    /// the tab being non-fixed.
+    func testTheTabFollowsTheGridCardsEdgeInGridMode() throws {
+        let width = Theme.Metric.Export.leftWidth
+        // The edge itself does not move between modes — what changes is which
+        // card is behind the pill, and that is not something a band's frame
+        // can see. What this can see is that the rule holds in Grid too.
+        let grid = try pillX(width: width, mode: .grid)
+
+        let wide = try pillX(width: width + 120, mode: .grid)
+        XCTAssertEqual(wide - grid, 120, accuracy: 1,
+                       "the tab tracks the grid card's leading edge like any other")
+
+        let folded = try pillX(width: width, folded: true, mode: .grid)
+        XCTAssertEqual(folded, 0, accuracy: 1,
+                       "folded, the grid card takes the whole window and the tab is on its edge")
     }
 }
