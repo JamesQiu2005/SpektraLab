@@ -34,6 +34,47 @@ final class Session: CanvasHost {
     private(set) var frames: [Frame] = []
     private(set) var frameStates: [URL: FrameState] = [:]
     var selection: URL?
+
+    /// The picked frames, as a set. `selectedFrames` is the read side.
+    ///
+    /// `private(set)` on purpose. Four things move it and nothing else may:
+    /// `click`, which is the person; `open(urls:)`, where a new folder is a
+    /// new set; `remove(_:)`, where a frame that goes takes its membership
+    /// with it; and `select(_:)`'s callers are deliberately *not* among them —
+    /// putting a frame on the canvas is not picking it, which is the whole
+    /// reason the export run can walk a batch without eating it. Writable from
+    /// a view, this would be a fifth notion of "selected".
+    private(set) var picked: Set<URL> = []
+
+    /// Every picked frame, **in display order**.
+    ///
+    /// One property, so the filmstrip, the Browse grid and the export page
+    /// cannot disagree about which photographs "the selected images" are —
+    /// `notes.md` says "the export setting is applied to all the selected
+    /// images", and RFC-017 §8 Q2 wants apply-to-all to take "the selection
+    /// when there is one, the folder otherwise". When that lands this is its
+    /// input; today the export page's batch is its only reader.
+    ///
+    /// Deliberately *not* `selection`. That one is what is on the canvas, and
+    /// ⌘-click must be able to grow this set without moving it (`notes.md`:
+    /// "the viewed image stays as the one the user is previously on").
+    var selectedFrames: [URL] { frames.map(\.id).filter(picked.contains) }
+
+    /// Membership alone. The export page's grids want this and not `framing`:
+    /// they draw every chosen frame the same way (`notes.md`) rather than
+    /// distinguishing the one on the canvas.
+    func isPicked(_ url: URL) -> Bool { picked.contains(url) }
+
+    /// How a cell is framed, from the one place that knows.
+    ///
+    /// Both surfaces ask this, so "the filmstrip and Browse agree" is a
+    /// property of the code rather than a convention two files keep in step
+    /// by hand — which is what the two of them have failed to do before.
+    func framing(of url: URL) -> FrameFraming {
+        if url == selection { return .open }
+        return picked.contains(url) ? .picked : .none
+    }
+
     var libraryTitle: String = ""
 
     // MARK: the current frame
@@ -920,6 +961,13 @@ final class Session: CanvasHost {
         frameStates = Dictionary(uniqueKeysWithValues: new.map { ($0.id, Sidecar.load(for: $0.id)?.state ?? .unprocessed) })
         libraryTitle = urls.count == 1 ? urls[0].lastPathComponent : "\(new.count) files"
         renderer.store.removeAll()
+        // A new folder is a new set: whatever was picked belongs to the
+        // library that was open, and carrying it across would leave the batch
+        // holding frames that are no longer in `frames` — which is exactly
+        // what `selectedFrames` maps over, so they would vanish silently and
+        // the count would disagree with the set. Dropped here, at the one
+        // point where `frames` is replaced.
+        picked = []
         // One file is a handoff — Finder's "Open With", a Capture One "Edit
         // With", a single drop — and it means "develop this". A folder or a
         // multi-file selection is a session to look through, and the old build
@@ -928,7 +976,7 @@ final class Session: CanvasHost {
         // frame is chosen.
         if new.count == 1 {
             browsing = false
-            select(new[0].id)
+            click(new[0].id)
         } else {
             enterBrowse()
         }
@@ -969,9 +1017,14 @@ final class Session: CanvasHost {
     }
 
     /// Drop a frame from the session. Never touches the file.
+    ///
+    /// It leaves the picked set with it: `selectedFrames` maps over `frames`,
+    /// so a url left in the set would be invisible — the batch would be short
+    /// by one with nothing on screen to say which one.
     func remove(_ url: URL) {
         frames.removeAll { $0.id == url }
         frameStates[url] = nil
+        picked.remove(url)
         renderer.store.invalidatePrint(for: url)
         if frames.isEmpty {
             browsing = false
@@ -990,10 +1043,51 @@ final class Session: CanvasHost {
         enterBrowse()
     }
 
+    /// A chevron or an arrow key: the same act as a plain click on the
+    /// neighbouring frame, and it collapses the set for the same reason.
     func selectRelative(_ delta: Int) {
         guard let selection, let i = frames.firstIndex(where: { $0.id == selection }) else { return }
         let j = (i + delta).clamped(to: 0...(frames.count - 1))
-        if j != i { select(frames[j].id) }
+        if j != i { click(frames[j].id) }
+    }
+
+    /// A left click on a thumbnail — the only thing the person can do that
+    /// adds to or removes from the picked set.
+    ///
+    /// `command` is the ⌘ modifier. A plain click picks exactly this frame,
+    /// collapsing whatever set there was, and opens it; ⌘-click toggles one
+    /// frame's membership and **leaves the canvas where it is**, which is what
+    /// `notes.md` asks for ("the viewed image stays as the one the user is
+    /// previously on"). There is no ⇧-click and no range extension: the two
+    /// modifiers this app has are the two that change one frame at a time, so
+    /// a stray ⇧-click does nothing rather than silently adding a range.
+    ///
+    /// The modifier is a parameter and not read off `NSEvent` in here, so that
+    /// what a ⌘-click does is testable without synthesising one — the reading
+    /// itself stays in the gesture, once, at each call site.
+    func click(_ url: URL, command: Bool = false) {
+        guard command else {
+            picked = [url]
+            select(url)
+            return
+        }
+        togglePick(url)
+    }
+
+    /// One frame in or out of the set, canvas unmoved.
+    ///
+    /// The open frame cannot leave it. A batch that excludes the photograph on
+    /// the canvas is a state with nothing to read off it — the export page
+    /// proves the frame it is about to write, so a set without that frame in
+    /// it is a proof of something the run will not produce — and it is
+    /// reachable by a single ⌘-click, which is how a person loses a selection
+    /// they never meant to lose. ⌘-clicking the open frame is therefore a
+    /// no-op rather than an unselect, and the way to drop it is to open
+    /// another frame.
+    func togglePick(_ url: URL) {
+        guard picked.contains(url) else { picked.insert(url); return }
+        guard url != selection else { return }
+        picked.remove(url)
     }
 
     func select(_ url: URL) {

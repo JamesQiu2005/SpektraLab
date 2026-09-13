@@ -10,7 +10,14 @@
 //  embedded preview, processed shows the rendered print, stale shows the
 //  print with a hollow pip after an edit. Clicking a cell is the explicit act
 //  that enters Print.
+//
+//  The framing is the filmstrip's too, from the same `Session.framing(of:)`:
+//  a plain click picks one frame and opens it, ⌘-click toggles one frame's
+//  membership in the picked set without leaving the grid. A grid whose
+//  selection disagreed with the strip's would be a batch the person cannot
+//  see, so both ask the one function rather than each deciding.
 
+import AppKit
 import SwiftUI
 
 enum BrowseSort: String, CaseIterable, Identifiable {
@@ -30,10 +37,17 @@ struct BrowseView: View {
                 LazyVGrid(columns: [GridItem(.adaptive(minimum: 186, maximum: 250), spacing: 16)],
                           spacing: 16) {
                     ForEach(sorted) { frame in
-                        BrowseCell(session: session, frame: frame)
-                            .onTapGesture { session.select(frame.id) }
+                        BrowseCell(session: session, frame: frame,
+                                   framing: session.framing(of: frame.id))
+                            // The same gesture as the filmstrip's, on the same
+                            // rule: a plain click picks one and opens it, ⌘
+                            // adds or removes one and leaves the canvas alone.
+                            .onTapGesture {
+                                session.click(frame.id,
+                                              command: NSEvent.modifierFlags.contains(.command))
+                            }
                             .contextMenu {
-                                Button("Develop") { session.select(frame.id) }
+                                Button("Develop") { session.click(frame.id) }
                                 Button("Reveal in Finder") { NSWorkspace.shared.activateFileViewerSelecting([frame.id]) }
                                 Divider()
                                 Button("Reset to defaults") { Sidecar.remove(for: frame.id); session.refreshState(for: frame.id) }
@@ -102,7 +116,17 @@ struct BrowseCell: View {
     /// is framed. The export page passes whether the frame is in *its* export
     /// selection, and then `notes.md`'s rule applies instead: only the chosen
     /// ones get the white frame and the name, and the rest "are just there".
+    ///
+    /// **Not** how the editor marks a frame — see `framing`. This one is the
+    /// export page's, which draws every chosen frame the same way, at the
+    /// weight `notes.md` gives it, whether or not one of them is also on the
+    /// canvas.
     var chosen: Bool? = nil
+
+    /// How the editor marks this cell: on the canvas, in the picked set, or
+    /// neither. Also from `Session`, so the grid and the filmstrip agree by
+    /// construction. The export page leaves it `.none` and uses `chosen`.
+    var framing: FrameFraming = .none
     @State private var image: CGImage?
 
     var body: some View {
@@ -121,6 +145,13 @@ struct BrowseCell: View {
             .overlay {
                 if chosen == true {
                     RoundedRectangle(cornerRadius: 4).stroke(Theme.selectionFrame, lineWidth: 2)
+                } else if framing.isFramed {
+                    // The filmstrip's scale, on this cell's 4 pt corner: 1.5
+                    // for the frame on the canvas, a weaker 1 for the rest of
+                    // the set.
+                    RoundedRectangle(cornerRadius: 4)
+                        .stroke(Theme.selectionFrame, lineWidth: framing.lineWidth)
+                        .opacity(framing.opacity)
                 }
             }
             .overlay(alignment: .bottomTrailing) { badge.padding(6) }

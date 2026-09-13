@@ -1,19 +1,27 @@
 //  Filmstrip.swift — the library. Thumbnails at one height, a white frame on
-//  the selected frame, a three-state badge bottom-right (nothing / filled
-//  dot / hollow dot: unprocessed / processed / stale), chevrons at both
-//  ends, and the folder name with a count at the far left when there is room.
+//  the open frame and a weaker one on the rest of the picked set, a
+//  three-state badge bottom-right (nothing / filled dot / hollow dot:
+//  unprocessed / processed / stale), chevrons at both ends, and the folder
+//  name with a count at the far left when there is room.
 //
-//  The selected thumbnail gets the frame and **nothing else** (PRD §5): the
-//  badge is suppressed there. It is not redundant on an unselected one — it
+//  The open thumbnail gets the frame and **nothing else** (PRD §5): the
+//  badge is suppressed there. It is not redundant on an unpicked one — it
 //  is the only place the strip says which frames have a print behind them and
-//  which are stale — but on the selected frame a second mark next to the
-//  white frame reads as more state to decode, and the frame already says the
-//  one thing that cell needs to say.
+//  which are stale — but on the open frame a second mark next to the white
+//  frame reads as more state to decode, and the frame already says the one
+//  thing that cell needs to say. A *picked* frame keeps its badge: a batch is
+//  exactly where "which of these already has a print" is worth reading, and
+//  unlike the open frame it is not otherwise the whole of what the cell says.
+//
+//  Which of the three marks a cell gets is `Session.framing(of:)`, not a
+//  comparison made here — the Browse grid asks the same function, so the two
+//  surfaces cannot draw a different set from the same state.
 //
 //  `LazyHStack` so a 500-image folder builds only what is visible; thumbnails
 //  come from ImageIO off the main actor and are replaced by the rendered print
 //  once a frame has been through the engine.
 
+import AppKit
 import SwiftUI
 
 struct Filmstrip: View {
@@ -27,10 +35,18 @@ struct Filmstrip: View {
                     LazyHStack(spacing: 14) {
                         ForEach(session.frames) { frame in
                             FilmstripCell(frame: frame,
-                                          selected: frame.id == session.selection,
+                                          framing: session.framing(of: frame.id),
                                           state: session.frameStates[frame.id] ?? .unprocessed)
                                 .id(frame.id)
-                                .onTapGesture { session.select(frame.id) }
+                                // The modifier is read here rather than
+                                // declared as a second gesture: a plain
+                                // `TapGesture` on macOS matches a ⌘-click too,
+                                // so stacking one would fire both and a
+                                // ⌘-click would collapse the set as well.
+                                .onTapGesture {
+                                    session.click(frame.id,
+                                                  command: NSEvent.modifierFlags.contains(.command))
+                                }
                                 .contextMenu {
                                     Button("Reveal in Finder") { NSWorkspace.shared.activateFileViewerSelecting([frame.id]) }
                                     Button("Reset to defaults") {
@@ -76,7 +92,10 @@ struct Filmstrip: View {
 
 struct FilmstripCell: View {
     let frame: Frame
-    let selected: Bool
+    /// Whether this cell is on the canvas, in the picked set, or neither —
+    /// one value from `Session.framing(of:)` rather than two booleans, so the
+    /// strip and the grid cannot spell the same state two ways.
+    let framing: FrameFraming
     let state: FrameState
     @State private var image: CGImage?
 
@@ -92,12 +111,14 @@ struct FilmstripCell: View {
                 }
             }
             .frame(height: Theme.Metric.thumbHeight)
-            .overlay(RoundedRectangle(cornerRadius: 2).stroke(Theme.selectionFrame, lineWidth: selected ? 1.5 : 0))
+            .overlay(RoundedRectangle(cornerRadius: 2)
+                .stroke(Theme.selectionFrame, lineWidth: framing.lineWidth)
+                .opacity(framing.opacity))
             // Hidden by opacity rather than taken out of the tree, the same
             // way the empty-strip caption below is: a branch that was decided
             // when the strip was in a different state is the defect this file
             // has already had once.
-            badge.padding(4).opacity(selected ? 0 : 1)
+            badge.padding(4).opacity(framing.suppressesBadge ? 0 : 1)
         }
         .help(frame.name)
         .task(id: frame.id) {

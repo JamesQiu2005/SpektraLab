@@ -353,8 +353,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             // which is right for a person and wrong for the one capture that
             // has to have a picture in it: the export page's centre pane is a
             // soft proof of the frame on the canvas.
+            // A plain click, not `select`: the capture's export page reads its
+            // batch off the picked set, and a frame put on the canvas without
+            // being picked would export a folder of nothing.
             if req.export, session.selection == nil, let first = session.frames.first {
-                session.select(first.id)
+                session.click(first.id)
             }
             // A capture is of the *print*. The app itself opens onto the
             // decode and waits for a person to ask for the develop, and a

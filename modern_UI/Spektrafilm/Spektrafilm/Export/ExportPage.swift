@@ -40,14 +40,6 @@ struct ExportPage: View {
     /// Which of the two modes the centre is in (`notes.md`: "There are two
     /// modes").
     @State private var mode: Mode = .viewer
-    /// The frames this export will write. **Not** `session.selection`: the
-    /// two are different questions — what gets exported, and what is on the
-    /// canvas — and `notes.md` is explicit that multi-selecting must not move
-    /// the second one ("the viewed image stays as the one the user is
-    /// previously on").
-    @State private var targets: Set<URL> = []
-    /// Where a ⇧-click's range starts, in `session.frames` order.
-    @State private var anchor: URL?
     /// The settings card folds away to the left, which is what the tab on its
     /// trailing edge in the drawing is for. Persisted like the editor's own
     /// collapse flags (`Session.leftCollapsed` and friends), so a card someone
@@ -151,43 +143,51 @@ struct ExportPage: View {
     // MARK: - the worklist
 
     /// What the page opens with: whatever the editor had on the canvas.
+    ///
+    /// The canvas's frame is a member of the set by construction, so this only
+    /// has to cover the one case where it is not — a page opened onto a
+    /// session whose set is empty, which is a folder opened straight into
+    /// Browse and then exported.
     private func adoptSessionSelection() {
-        guard let sel = session.selection else { return }
-        if targets.isEmpty { targets = [sel] }
-        if anchor == nil { anchor = sel }
+        guard let sel = session.selection, session.selectedFrames.isEmpty else { return }
+        session.click(sel)
     }
 
     /// `notes.md`: "Multi-select is allowed, and the export setting is applied
-    /// to all the selected images." A plain click is a new single selection;
-    /// ⌘ and ⇧ extend the *export* set and deliberately leave the viewed frame
-    /// alone, so the proof on screen does not jump away from what the person
-    /// was looking at while they pick the rest of the batch.
+    /// to all the selected images." This is the editor's own gesture, on the
+    /// editor's own set: a plain click picks one frame and opens it, ⌘ toggles
+    /// one without moving the canvas, so the proof on screen does not jump
+    /// away from what the person was looking at while they pick the rest of
+    /// the batch.
     ///
-    /// The modifier is read off `NSEvent` rather than declared as three
+    /// There is no ⇧-click. It used to extend a range from an anchor here, and
+    /// it was removed rather than kept: two modifiers that both mean "one
+    /// frame more" are one modifier too many, and a range is the one selection
+    /// gesture that silently changes its meaning when the sort order does.
+    ///
+    /// The modifier is read off `NSEvent` rather than declared as two
     /// gestures: a plain `TapGesture` on macOS matches a ⌘-click too, so
     /// stacked variants both fire and a ⌘-click becomes a plain one as well.
     private func tap(_ frame: Frame) {
-        let flags = NSEvent.modifierFlags
-        let url = frame.id
-        if flags.contains(.shift), let anchor,
-           let a = session.frames.firstIndex(where: { $0.id == anchor }),
-           let b = session.frames.firstIndex(where: { $0.id == url }) {
-            targets = Set(session.frames[a <= b ? a...b : b...a].map(\.id))
-            return
-        }
-        if flags.contains(.command) {
-            if targets.contains(url) { targets.remove(url) } else { targets.insert(url) }
-            return
-        }
-        targets = [url]
-        anchor = url
-        if session.selection != url { session.select(url) }
+        session.click(frame.id, command: NSEvent.modifierFlags.contains(.command))
     }
 
-    /// The batch, in the strip's order so the run is reproducible.
-    private var batch: [URL] {
-        session.frames.map(\.id).filter { targets.contains($0) }
-    }
+    /// The frames this export will write, in the strip's order so the run is
+    /// reproducible — `notes.md`: "the export setting is applied to all the
+    /// selected images".
+    ///
+    /// `session.selectedFrames`, and **not** `session.selection`: the two are
+    /// different questions — what gets exported, and what is on the canvas —
+    /// and `notes.md` is explicit that picking several must not move the
+    /// second one ("the viewed image stays as the one the user is previously
+    /// on"). The set lives on `Session` beside the open frame rather than here
+    /// because the filmstrip and the Browse grid mark the same frames; a batch
+    /// kept on this page is a batch that can disagree with what the person can
+    /// see. It was a local `Set<URL>` until multi-selection landed.
+    ///
+    /// RFC-017 §8 Q2 wants apply-to-all to take "the selection when there is
+    /// one, the folder otherwise". This property is that input.
+    private var batch: [URL] { session.selectedFrames }
 
     // MARK: - the proof
 
@@ -909,7 +909,7 @@ struct ExportPage: View {
                                      count: gridColumns),
                       spacing: 16) {
                 ForEach(session.frames) { frame in
-                    BrowseCell(session: session, frame: frame, chosen: targets.contains(frame.id))
+                    BrowseCell(session: session, frame: frame, chosen: session.isPicked(frame.id))
                         .onTapGesture { tap(frame) }
                         .contextMenu {
                             Button("Reveal in Finder") {
@@ -931,7 +931,7 @@ struct ExportPage: View {
             LazyVStack(alignment: .center, spacing: M.cellLabelGap) {
                 ForEach(session.frames) { frame in
                     ExportStripCell(frame: frame,
-                                    chosen: targets.contains(frame.id),
+                                    chosen: session.isPicked(frame.id),
                                     state: session.frameStates[frame.id] ?? .unprocessed)
                         .onTapGesture { tap(frame) }
                 }
@@ -1064,6 +1064,10 @@ struct ExportPage: View {
             var fellBack = false
             for (i, url) in urls.enumerated() {
                 session.exportProgress = Double(i) / Double(urls.count)
+                // `select`, not `click`: the run has to put each frame on the
+                // canvas — the exporter reads the open frame — and a click
+                // would collapse the picked set to that one frame on the first
+                // pass and empty the batch it is walking.
                 if session.selection != url { session.select(url) }
                 guard let sid = await session.ensureDeveloped() else {
                     problems.append("\(url.lastPathComponent) is still developing.")
