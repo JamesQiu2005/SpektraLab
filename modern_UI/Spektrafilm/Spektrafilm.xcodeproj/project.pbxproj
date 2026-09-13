@@ -74,12 +74,14 @@
 		74D23C25CAC3E646B8A841F2 /* Exporter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Exporter.swift"; sourceTree = "<group>"; };
 		785033D4F7ED8C628E8EE289 /* ExportRecipe.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "ExportRecipe.swift"; sourceTree = "<group>"; };
 		BF60B55D54B891A35A5C13CD /* ExportSheet.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "ExportSheet.swift"; sourceTree = "<group>"; };
+		9CF9679C5679C7A7ABD30899 /* SoftProof.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "SoftProof.swift"; sourceTree = "<group>"; };
 		585D3E3817BD7D5177771EED /* Export */ = {
 			isa = PBXGroup;
 			children = (
 				74D23C25CAC3E646B8A841F2 /* Exporter.swift */,
 				785033D4F7ED8C628E8EE289 /* ExportRecipe.swift */,
-				BF60B55D54B891A35A5C13CD /* ExportSheet.swift */
+				BF60B55D54B891A35A5C13CD /* ExportSheet.swift */,
+				9CF9679C5679C7A7ABD30899 /* SoftProof.swift */
 			);
 			path = "Export";
 			sourceTree = "<group>";
@@ -400,6 +402,7 @@
 		7ED6C81BB4E1638ECABA732C /* Exporter.swift */ = {isa = PBXBuildFile; fileRef = 74D23C25CAC3E646B8A841F2; };
 		4603921A97503A68A31BF1E3 /* ExportRecipe.swift */ = {isa = PBXBuildFile; fileRef = 785033D4F7ED8C628E8EE289; };
 		1946C52393398AB9930DEA02 /* ExportSheet.swift */ = {isa = PBXBuildFile; fileRef = BF60B55D54B891A35A5C13CD; };
+		A9D4F87367BD14B17FB67CF2 /* SoftProof.swift */ = {isa = PBXBuildFile; fileRef = 9CF9679C5679C7A7ABD30899; };
 		0DF7C0575A8F4419B62B1D8D /* ImageDecoder.swift */ = {isa = PBXBuildFile; fileRef = 80F4EA4403E27AF27CF26E36; };
 		E392EA1B18D833793DAAE00A /* Library.swift */ = {isa = PBXBuildFile; fileRef = 866971CD37D4A6E91C46DE89; };
 		E142793F0246B249B78B606F /* ThumbnailCache.swift */ = {isa = PBXBuildFile; fileRef = 4A8C40B1D89C41AC2C688F49; };
@@ -485,6 +488,7 @@
 				7ED6C81BB4E1638ECABA732C /* Exporter.swift */,
 				4603921A97503A68A31BF1E3 /* ExportRecipe.swift */,
 				1946C52393398AB9930DEA02 /* ExportSheet.swift */,
+				A9D4F87367BD14B17FB67CF2 /* SoftProof.swift */,
 				0DF7C0575A8F4419B62B1D8D /* ImageDecoder.swift */,
 				E392EA1B18D833793DAAE00A /* Library.swift */,
 				E142793F0246B249B78B606F /* ThumbnailCache.swift */,
@@ -608,6 +612,7 @@
 		445EEDA17EB327839119FB91 /* Exporter.swift */ = {isa = PBXBuildFile; fileRef = 74D23C25CAC3E646B8A841F2; };
 		88E0883CBC3C39D7969F69F5 /* ExportRecipe.swift */ = {isa = PBXBuildFile; fileRef = 785033D4F7ED8C628E8EE289; };
 		74EFADF76227C635C705E3C0 /* ExportSheet.swift */ = {isa = PBXBuildFile; fileRef = BF60B55D54B891A35A5C13CD; };
+		816D2A80D525AA69394468D6 /* SoftProof.swift */ = {isa = PBXBuildFile; fileRef = 9CF9679C5679C7A7ABD30899; };
 		23EE1119F21AF968C0CE75F5 /* ImageDecoder.swift */ = {isa = PBXBuildFile; fileRef = 80F4EA4403E27AF27CF26E36; };
 		BC30C7897DBE8F0DFDE44159 /* Library.swift */ = {isa = PBXBuildFile; fileRef = 866971CD37D4A6E91C46DE89; };
 		3AEE0C90C07AADF377B6D7F5 /* ThumbnailCache.swift */ = {isa = PBXBuildFile; fileRef = 4A8C40B1D89C41AC2C688F49; };
@@ -712,6 +717,7 @@
 				445EEDA17EB327839119FB91 /* Exporter.swift */,
 				88E0883CBC3C39D7969F69F5 /* ExportRecipe.swift */,
 				74EFADF76227C635C705E3C0 /* ExportSheet.swift */,
+				816D2A80D525AA69394468D6 /* SoftProof.swift */,
 				23EE1119F21AF968C0CE75F5 /* ImageDecoder.swift */,
 				BC30C7897DBE8F0DFDE44159 /* Library.swift */,
 				3AEE0C90C07AADF377B6D7F5 /* ThumbnailCache.swift */,
