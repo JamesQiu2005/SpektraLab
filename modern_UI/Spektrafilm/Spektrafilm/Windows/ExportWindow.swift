@@ -5,13 +5,13 @@
 //  show a recipe's *own* picture, and the canvas behind it is now a Display P3
 //  proof of a different thing — so the two are worth looking at side by side,
 //  which a modal sheet forbids. Its chrome is a window's, too
-//  (`reference_layout/Export_Page/Reference_Screenshot.jpg` draws traffic
-//  lights on the bar and no way back to an editor), so a window is what it is.
+//  (`reference_layout/Export_Page/export_page.svg` draws traffic lights on the
+//  bar and no way back to an editor), so a window is what it is.
 //
-//  Two things differ from `EditorWindow`, both measured off that reference:
-//  the cards are **flush to the window's edges** (it insets them below the bar
-//  and not at all at the sides), and the window buttons therefore sit
-//  `topBarHeight / 2` from the top rather than below an outer margin. The
+//  Two things differ from `EditorWindow`, both from that drawing: the cards
+//  are **flush to the window's edges** (they start at x 0 of a 2981.27-unit
+//  window, so there is no outer margin at all), and the window buttons
+//  therefore sit `topBarHeight / 2` from the top rather than below one. The
 //  buttons are AppKit's own and this moves them onto the bar's centreline the
 //  same way the editor does — `Windows/TrafficLights.swift` is the mechanism
 //  and the comment there is the reasoning.
@@ -38,18 +38,15 @@ struct ExportWindow: View {
             // does and the observer outlives it. See `TrafficLightAlignment`
             // for why the attachment point matters.
             .background(
-                TrafficLightAlignment(centreY: Theme.Metric.topBarHeight / 2,
-                                      leading: Theme.Metric.trafficLightLeading)
+                TrafficLightAlignment(centreY: Theme.Metric.Export.topBarHeight / 2,
+                                      leading: Theme.Metric.Export.trafficLightLeading)
                     .frame(width: 0, height: 0)
             )
             .ignoresSafeArea()
             .preferredColorScheme(.dark)
     }
 
-    /// Enough for the two side cards and a picture between them, at the
-    /// reference's own proportions: 404 + 286 of panel plus a centre that is
-    /// still wider than either panel.
-    private var minWidth: CGFloat {
-        Theme.Metric.Export.leftWidth + Theme.Metric.Export.rightWidth + 380
-    }
+    /// The drawing's own window. Its centre pane is the part that gives, so
+    /// this is the size at which the capture can be laid over the drawing.
+    private var minWidth: CGFloat { Theme.Metric.Export.width }
 }

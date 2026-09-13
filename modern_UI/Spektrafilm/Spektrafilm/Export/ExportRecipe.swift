@@ -220,7 +220,22 @@ enum NameToken: String, Codable, CaseIterable, Identifiable, Sendable {
 
     var id: String { rawValue }
 
+    /// The chip's own text — the drawing's abbreviation, because four of these
+    /// share one row and `notes.md`'s "Original Name" is half again as wide as
+    /// the chip it would have to fit in.
     var label: String {
+        switch self {
+        case .originalName: "Org. Name"
+        case .filmStock: "Film"
+        case .printStock: "Print"
+        case .date: "Date"
+        }
+    }
+
+    /// `notes.md`'s own names for the four, spelled out. What the tooltip and
+    /// the section menu say, so the abbreviation on the chip is never the only
+    /// thing a person is given.
+    var helpName: String {
         switch self {
         case .originalName: "Original Name"
         case .filmStock: "Film"

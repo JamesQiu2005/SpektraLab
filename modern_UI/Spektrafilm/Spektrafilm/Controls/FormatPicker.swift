@@ -10,14 +10,16 @@ struct PillMenu<T: Hashable>: View {
     let title: (T) -> String
     @Binding var selection: T
     /// The label column. The editor's panels take the drawing's 70 pt; the
-    /// export page's well is wider and its longest label ("Color Space") does
-    /// not fit in it, so it passes its own — and every row on a page has to
-    /// pass the same one or the pills stop lining up.
+    /// export page's is 64.5 — its own drawing — and every row on a page has
+    /// to pass the same one or the pills stop lining up.
     var labelWidth: CGFloat = Theme.Metric.sliderLabelWidth
+    /// The face both the label and the value are drawn in. The export page's
+    /// drawing sets everything bold where the editor's sets semibold.
+    var font: Font = Theme.Font.label
 
     var body: some View {
         HStack(spacing: 0) {
-            Text(label).font(Theme.Font.label).foregroundStyle(Theme.text)
+            Text(label).font(font).foregroundStyle(Theme.text)
                 .lineLimit(1)
                 .frame(width: labelWidth, alignment: .leading)
             Menu {
@@ -28,7 +30,7 @@ struct PillMenu<T: Hashable>: View {
                 }
             } label: {
                 HStack {
-                    Text(title(selection)).font(Theme.Font.label).foregroundStyle(Theme.text).padding(.leading, 12)
+                    Text(title(selection)).font(font).foregroundStyle(Theme.text).padding(.leading, 12)
                     Spacer()
                     Image(systemName: "chevron.up.chevron.down")
                         .font(.system(size: 9, weight: .semibold)).foregroundStyle(Theme.text).padding(.trailing, 8)

@@ -64,7 +64,8 @@ struct SpektrafilmApp: App {
         }
         .windowStyle(.hiddenTitleBar)
         .windowToolbarStyle(.unifiedCompact)
-        .defaultSize(width: 1600, height: 1000)
+        // The drawing's own window size, so what opens is what was drawn.
+        .defaultSize(width: Theme.Metric.Export.width, height: Theme.Metric.Export.height)
         .defaultPosition(.center)
     }
 }

@@ -7,6 +7,19 @@
 
 import SwiftUI
 
+/// The numbers a slider is drawn with. A default-constructed one is the
+/// editor's panels, which is what every caller but the export page wants; the
+/// export page's drawing has a narrower label column, a thinner track and a
+/// shorter row. The knob is not here because both drawings agree on it.
+struct SliderMetrics {
+    var labelWidth: CGFloat = Theme.Metric.sliderLabelWidth
+    var valueWidth: CGFloat = Theme.Metric.sliderValueWidth
+    var rowHeight: CGFloat = Theme.Metric.rowHeight
+    var trackHeight: CGFloat = Theme.Metric.trackHeight
+    var labelFont: Font = Theme.Font.label
+    var valueFont: Font = Theme.Font.value
+}
+
 struct ScrubSlider: View {
     let label: String
     var sublabel: String? = nil
@@ -22,6 +35,8 @@ struct ScrubSlider: View {
     var parse: (String) -> Double? = { Double($0.replacingOccurrences(of: ",", with: ".")) }
     var trackGradient: [Color]? = nil
     var disabled = false
+    /// See `SliderMetrics` — the editor's panels unless a page says otherwise.
+    var metrics = SliderMetrics()
     var onCommit: () -> Void = {}
 
     @State private var dragStart: Double?
@@ -34,18 +49,18 @@ struct ScrubSlider: View {
     var body: some View {
         HStack(spacing: 0) {
             VStack(alignment: .leading, spacing: 1) {
-                Text(label).font(Theme.Font.label)
+                Text(label).font(metrics.labelFont)
                 if let sublabelView { sublabelView }
                 else if let sublabel { Text(sublabel).font(Theme.Font.sublabel).foregroundStyle(Theme.secondaryText) }
             }
             .foregroundStyle(disabled ? Theme.dim : Theme.text)
-            .frame(width: Theme.Metric.sliderLabelWidth, alignment: .leading)
+            .frame(width: metrics.labelWidth, alignment: .leading)
             .lineLimit(1)
             track
             valueField
-                .frame(width: Theme.Metric.sliderValueWidth, alignment: .trailing)
+                .frame(width: metrics.valueWidth, alignment: .trailing)
         }
-        .frame(height: hasSecondLine ? Theme.Metric.rowHeight + 14 : Theme.Metric.rowHeight + 4)
+        .frame(height: hasSecondLine ? metrics.rowHeight + 14 : metrics.rowHeight + 4)
         .opacity(disabled ? 0.6 : 1)
         .allowsHitTesting(!disabled)
     }
@@ -70,7 +85,7 @@ struct ScrubSlider: View {
                         Capsule().fill(Theme.dim)
                     }
                 }
-                .frame(height: Theme.Metric.trackHeight)
+                .frame(height: metrics.trackHeight)
                 .padding(.horizontal, knobW / 2)
                 // Zero tick, only when zero is not at an end.
                 if zeroFraction > 0.001 && zeroFraction < 0.999 && abs(fraction - zeroFraction) > 0.02 {
