@@ -62,6 +62,17 @@ struct ExportPage: View {
     @State private var paneSize: CGSize = .zero
     @State private var proof: SoftProof?
     @State private var proving = false
+    /// **The picture that came out of the file**, after an export has actually
+    /// written one. The user's answer to what the pane shows once there is a
+    /// file to show: "the render before, the file's own embedded preview
+    /// after" — which is a stronger claim than the proof makes, because it is
+    /// not "this is what it will look like" but "this is what it does look
+    /// like".
+    ///
+    /// Cleared whenever a new proof is rendered, so any edit puts the render
+    /// back: it describes one file that exists, and the next keystroke is
+    /// about to make a different one.
+    @State private var filePreview: CGImage?
 
     @State private var running = false
     @State private var note: ResultNote?
@@ -273,7 +284,29 @@ struct ExportPage: View {
         // is already showing the previous proof, which is a truer thing to
         // look at than a picture of a recipe the person has moved on from.
         guard !Task.isCancelled else { return }
+        // An edit puts the render back: `filePreview` describes one file that
+        // exists, and this key changing means the next one will not be it.
+        filePreview = nil
         proof = made
+    }
+
+    /// The file's second page, or nil when it has one image and no more.
+    ///
+    /// **By index, not by thumbnail.** `CGImageSourceCreateThumbnailAtIndex`
+    /// does not find an embedded preview — measured by the writer's half of
+    /// this seam — and silently returns a downscale of the full picture at the
+    /// same cost, so a thumbnail call looks like it worked and shows the wrong
+    /// thing.
+    ///
+    /// A JPEG or a PNG has one image and returns nil here, which is the whole
+    /// of the "only where there is something to swap to" rule: the caller
+    /// keeps the render it already had.
+    /// `internal`, not private, so a test can reach it: the index is the whole
+    /// of the behaviour and the obvious alternative is silently wrong.
+    static func embeddedPreview(of url: URL) -> CGImage? {
+        guard let src = CGImageSourceCreateWithURL(url as CFURL, nil),
+              CGImageSourceGetCount(src) > 1 else { return nil }
+        return CGImageSourceCreateImageAtIndex(src, 1, nil)
     }
 
     // MARK: - the top bar
@@ -672,6 +705,7 @@ struct ExportPage: View {
                                     metrics: Self.sliderMetrics,
                                     onCommit: { store.save() })
                     }
+                    if recipe.wrappedValue.format == .tiff { previewRow }
                     sizeRow
                     openWithRow
                 }
@@ -696,6 +730,23 @@ struct ExportPage: View {
                     if let f = ExportFormat.withDepth(depth, like: format) { recipe.wrappedValue.format = f }
                 }
             }
+        }
+    }
+
+    /// Write a preview into the TIFF. Off by default, TIFF only, and a row
+    /// that exists in no drawing — the user's call of 2026-09-14: "every TIFF,
+    /// but opt-in per recipe".
+    ///
+    /// The checkbox is the app's own `CheckBox`; the row is this page's,
+    /// because `ToggleRow` is drawn at the editor's size and font and this
+    /// page's rows are tighter. The cost is in the tooltip rather than on the
+    /// page: it is a tenth of the file, which is worth knowing before ticking
+    /// it and not worth a sentence in front of someone who has not.
+    private var previewRow: some View {
+        row("Preview") {
+            CheckBox(isOn: recipe.embedsPreview)
+                .help("Writes a preview image into the TIFF, about a tenth larger. "
+                      + "Off unless a recipe asks for it.")
         }
     }
 
@@ -880,12 +931,19 @@ struct ExportPage: View {
         .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
 
+    /// What is on the pane: the file's own picture once one has been written
+    /// and it carries one, the render otherwise. **Nothing on this page asks
+    /// which**, and there is no caption, badge or border that says so — the
+    /// whole point is that after an export the pane is not a prediction, and a
+    /// label announcing the difference would turn it back into one.
+    private var displayImage: CGImage? { filePreview ?? proof?.image }
+
     private var viewerPane: some View {
         GeometryReader { geo in
             ScrollView([.horizontal, .vertical]) {
                 ZStack {
-                    if let proof {
-                        Image(decorative: proof.image, scale: 1)
+                    if let shown = displayImage {
+                        Image(decorative: shown, scale: 1)
                             .resizable()
                             .interpolation(.high)
                             .frame(width: fitted.width * zoom, height: fitted.height * zoom)
@@ -911,8 +969,8 @@ struct ExportPage: View {
     /// The proof's size on screen at 100 %: the picture fitted into the pane
     /// with the page's own air around it.
     private var fitted: CGSize {
-        guard let proof else { return CGSize(width: 320, height: 213) }
-        let w = CGFloat(proof.image.width), h = CGFloat(proof.image.height)
+        guard let shown = displayImage else { return CGSize(width: 320, height: 213) }
+        let w = CGFloat(shown.width), h = CGFloat(shown.height)
         guard w > 0, h > 0, paneSize.width > 1 else { return CGSize(width: 320, height: 213) }
         let avail = CGSize(width: max(1, paneSize.width - M.proofInset * 2),
                            height: max(1, paneSize.height - M.proofInset * 2 - 44))
@@ -1127,13 +1185,23 @@ struct ExportPage: View {
 
     /// A labelled row: the label in the drawing's own column, the control
     /// after it, and the pair on the drawing's row height.
+    ///
+    /// **`maxWidth: .infinity, alignment: .leading` is load-bearing.** A
+    /// `VStack` centres its children, so a row whose control is narrower than
+    /// the well — a checkbox is 21 pt — collapses to the width of its own
+    /// contents and is then centred, which puts the label halfway across the
+    /// well while every neighbouring row's label is at the column. It filled
+    /// by accident before, because every control in a row happened to want all
+    /// the width it could get.
     private func row<C: View>(_ label: String, @ViewBuilder _ content: () -> C) -> some View {
         HStack(spacing: 0) {
             Text(label).font(F.label).foregroundStyle(Theme.text)
                 .lineLimit(1)
                 .frame(width: M.labelWidth, alignment: .leading)
             content()
+            Spacer(minLength: 0)
         }
+        .frame(maxWidth: .infinity, alignment: .leading)
         .frame(height: M.rowHeight)
     }
 
@@ -1164,11 +1232,24 @@ struct ExportPage: View {
         guard let r = store.selected, !batch.isEmpty, !running else { return }
         running = true
         note = nil
+        // The file on the pane is about to be replaced by one that does not
+        // exist yet; until it does, the render stands.
+        filePreview = nil
         Task {
             defer { running = false }
             let home = session.selection
             let urls = batch
             var written: [URL] = []
+            /// The file the pane will show once the run is over: the one
+            /// written for the frame the person was looking at.
+            ///
+            /// **A batch writes several files and the pane shows one picture**,
+            /// and the frame the person was viewing is the one they were
+            /// looking at when they pressed Export — `notes.md`'s "the viewed
+            /// image stays as the one the user is previously on" is about
+            /// exactly that. If their frame was not in the batch, the first
+            /// file written is the fallback.
+            var shown: URL?
             var problems: [String] = []
             var fellBack = false
             for (i, url) in urls.enumerated() {
@@ -1188,6 +1269,7 @@ struct ExportPage: View {
                     switch out {
                     case .wrote(let files, _, let fb):
                         written += files
+                        if url == home, let first = files.first { shown = first }
                         fellBack = fellBack || fb
                     case .skipped(let existing):
                         problems.append("\(existing.lastPathComponent) already exists — skipped.")
@@ -1198,6 +1280,7 @@ struct ExportPage: View {
             }
             session.exportProgress = nil
             if let home, session.selection != home { session.select(home) }
+            if let target = shown ?? written.first { filePreview = Self.embeddedPreview(of: target) }
             if fellBack {
                 problems.append("That profile is not on this machine — the files were tagged "
                                 + "Display P3 instead.")
