@@ -245,6 +245,18 @@ enum Theme {
             static let zoomClusterGap: CGFloat = 25
             static let pillWidth: CGFloat = 76.9
             static let pillHeight: CGFloat = 15.1
+            /// The span the zoom cluster occupies, and therefore the width of
+            /// the grid-size slider that replaces it in Grid mode: two 24 pt
+            /// buttons, a 76.9 pt pill and two 25 pt gaps. Both states being
+            /// the same width is what keeps the count pill still.
+            static let zoomClusterWidth: CGFloat = 24 + zoomClusterGap + pillWidth
+                + zoomClusterGap + 24
+            /// The grid-size slider's stops — a **count of columns**, and the
+            /// whole reason it is detented. 2 to 10 is Finder's own range and
+            /// the user asked for Finder's feel; nothing in the drawing picks
+            /// a count, so this is the one number on this page that is a
+            /// judgement rather than a measurement.
+            static let gridColumns: ClosedRange<Int> = 2...10
             static var countTrailingInset: CGFloat { rightWidth / 2 - pillWidth / 2 }
             static let zoomToCount: CGFloat = 87.5
 
