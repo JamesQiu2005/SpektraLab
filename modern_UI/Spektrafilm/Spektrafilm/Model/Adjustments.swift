@@ -112,7 +112,24 @@ struct Layer2Uniforms: Sendable {
     var whitePoint: Float = 0
     var vignetteAmount: Float = 0
     var vignetteMidpoint: Float = 0.5
+    /// Encoded mid-grey (linear 0.18) in the working space — RFC-018 D1's
+    /// pivot. See `Layer2Uniforms.tone` for the two constants and why the
+    /// default is the ROMM one.
+    var midGrey: Float = Layer2Uniforms.proPhotoMidGrey
     var curvesActive: UInt32 = 0
     var enabled: UInt32 = 1
     var _pad: UInt32 = 0
+
+    /// `pow(0.18, 1/1.8)` — mid-grey through ROMM γ1.8, the working space's
+    /// own curve since RFC-018. The number `layer2Tone` pivots on.
+    ///
+    /// Kept beside `srgbMidGrey` rather than inlined because the *pair* is the
+    /// decision: D1 says the pivot follows the encoding, so a future move to
+    /// another working space is a swap of which constant is the default, not a
+    /// hunt for literals.
+    static let proPhotoMidGrey: Float = 0.3857
+    /// `1.055·0.18^(1/2.4) − 0.055` — the same through an sRGB-like curve,
+    /// which is what Display P3 has and what this code pivoted on by accident
+    /// until RFC-018.
+    static let srgbMidGrey: Float = 0.4614
 }

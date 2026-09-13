@@ -313,6 +313,13 @@ extension Layer2Uniforms {
         u.shadows = Float(shadows) / 100
         u.blackPoint = Float(blackPoint) / 100
         u.whitePoint = Float(whitePoint) / 100
+        // The tone pivot (RFC-018 D1). Set here rather than at each call site
+        // because this is the one function both the global adjustments and
+        // every mask go through: a mask whose shadows/highlights split sat
+        // somewhere else from the global panel's would be "+1 stop" meaning two
+        // things depending on where the slider was, which is the whole reason
+        // this function is shared.
+        u.midGrey = Layer2Uniforms.proPhotoMidGrey
         return u
     }
 }

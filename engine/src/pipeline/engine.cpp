@@ -199,6 +199,15 @@ struct spk_engine {
     // stocks is the whole point of this path, so re-uploading 431 kB on every
     // flip would be paying for the thing the LUT exists to avoid.
     std::unordered_map<std::string, gpu::BufferRef> print_lut_buffers;
+    // The C_max tables `spk_output_transform` hands out, one per destination
+    // colour space, as the float32 the caller's kernel reads.
+    //
+    // Kept here rather than in the `SetupCache` because the cache holds them
+    // in float64 -- the bisection needs it -- and because the ABI promises a
+    // pointer that stays good for the engine's lifetime. `unordered_map` is
+    // node-based, so a pointer into a value survives every later insert; the
+    // same property `print_lut_buffers` relies on.
+    std::unordered_map<std::string, std::vector<float>> cam16_cmax_f32;
     // Shared by every pipeline this engine builds, which is the point: a
     // slider outside LIVE_MUTABLE rebuilds the pipeline, and neither of these
     // depends on what the slider changed.
@@ -581,8 +590,18 @@ spk_session* open_frame(spk_engine* engine, const FrameIn& frame, const char* pa
     if (!init_params(engine->resources_dir, film, print, engine->neutral_filters,
                      session->params, error)) { g_error = error; return nullptr; }
     // The project convention, applied before the delta so an explicit
-    // `output_color_space` still wins: ProPhoto RGB in, Display P3 out.
-    session->params.io.output_color_space = "Display P3";
+    // `output_color_space` still wins: ProPhoto RGB in, **ProPhoto RGB out**.
+    //
+    // RFC-018 §5.1. The render's output is the *working space*, not a display
+    // space: the app grades in it and converts once, per destination, in its
+    // own output transform. Naming a display space here was the narrowest
+    // space coming first, and it is why every grading move used to be clipped
+    // at Display P3's cube face before the user ever saw it.
+    //
+    // A caller that overrides `output_color_space` owns the consequences: the
+    // app's transform reads the session's *resolved* space out of this reply's
+    // `params.io` and converts from whatever it finds there.
+    session->params.io.output_color_space = "ProPhoto RGB";
     session->params.io.output_cctf_encoding = true;
     apply_delta(session->params, delta);
     session->params.settings.working_precision = "float32";
@@ -983,6 +1002,157 @@ spk_status spk_print_lut_table(spk_engine* engine, const char* print_stock,
     if (!lut) { g_error = error; return SPK_ERR_USER; }
     *out_table = lut->table.data();
     *out_size = lut->size;
+    return SPK_OK;
+}
+
+spk_status spk_output_transform(spk_engine* engine, const char* src_cs, const char* dst_cs,
+                                const char* gamut_compress_json,
+                                char** out_json, const float** out_cmax,
+                                uint32_t* out_cmax_count) {
+    if (!engine || !src_cs || !dst_cs || !out_json || !out_cmax || !out_cmax_count) {
+        g_error = "engine, src_cs, dst_cs, out_json, out_cmax and out_cmax_count are all required";
+        return SPK_ERR_INVALID_ARG;
+    }
+    g_error.clear();
+    const std::string src(src_cs), dst(dst_cs);
+    const Colour& colour = engine->colour;
+
+    // Both ends must be spaces this build can actually render in. An unknown
+    // name fails **here** and by name -- never by falling back, which is how a
+    // picture ends up in a space nobody asked for. And it fails *before*
+    // anything expensive: `colourspace` is a map lookup, while the C_max table
+    // below is 46,080 bisections, so a typo costs nothing.
+    const Colour::Colourspace* src_space = nullptr;
+    const Colour::Colourspace* dst_space = nullptr;
+    std::string error;
+    if (!colour.colourspace(src, src_space, error)) { g_error = "source: " + error; return SPK_ERR_USER; }
+    if (!colour.colourspace(dst, dst_space, error)) { g_error = "target: " + error; return SPK_ERR_USER; }
+    // A transfer function the kernels can name. `cctf_mode_for` answers 4
+    // ("identity") for anything it does not know, and an identity curve is
+    // only *right* for the ACES spaces -- a space that is neither baked as a
+    // CCTF nor one of them would come out silently un-encoded, so it is
+    // refused rather than guessed at.
+    if (!colour.known_cctf(src) || !colour.known_cctf(dst)) {
+        const std::string& bad = colour.known_cctf(src) ? dst : src;
+        g_error = "no transfer function baked for colour space '" + bad + "'";
+        return SPK_ERR_USER;
+    }
+    // The whitepoint is what a chromatic adaptation is *between*. Every space
+    // in today's blob carries one, so this does not fire on the shipped data;
+    // it is here because the failure it would prevent is silent.
+    // `Colourspace::whitepoint` defaults to (0, 0), so a space baked without
+    // one does not fail at adaptation -- it divides by zero and returns a
+    // matrix that renders a plausible, wrong picture.
+    if (src_space->whitepoint[1] == 0.0 || dst_space->whitepoint[1] == 0.0) {
+        const std::string& bad = src_space->whitepoint[1] == 0.0 ? src : dst;
+        g_error = "no whitepoint baked for colour space '" + bad + "'";
+        return SPK_ERR_USER;
+    }
+
+    // --- the gamut compression's own settings ------------------------------
+    // `gamut_compress_json` is the caller's override and NULL means the spec
+    // every session gets (`output_default()`: cam16ucs, lightness compression
+    // on, the standard knee). No wire field can change it, so NULL is what a
+    // session actually has; the override exists because the *app* decides when
+    // to skip the step, and a caller that has already flipped it should not
+    // have to come back for the tables.
+    GamutCompressSpec og = GamutCompressSpec::output_default();
+    if (gamut_compress_json && *gamut_compress_json) {
+        Json spec = Json::object();
+        if (!Json::parse(gamut_compress_json, spec, error)) {
+            g_error = "gamut_compress: " + error;
+            return SPK_ERR_INVALID_ARG;
+        }
+        if (spec.has("algorithm")) og.algorithm = spec.at("algorithm").as_string();
+        if (spec.has("lightness_compression_active"))
+            og.lightness_compression_active = spec.at("lightness_compression_active").as_bool();
+        auto triple = [&](const char* key, double out[3]) {
+            const Json& j = spec.at(key);
+            if (!j.is_array() || j.items().size() != 3) return;
+            for (size_t i = 0; i < 3; ++i) out[i] = j.items()[i].as_double();
+        };
+        triple("knee", og.knee);
+        triple("lightness_compression", og.lightness_compression);
+    }
+    if (og.algorithm != "off" && og.algorithm != "cam16ucs") {
+        g_error = "output gamut compression '" + og.algorithm + "' is not implemented "
+                  "(only cam16ucs and off)";
+        return SPK_ERR_USER;
+    }
+
+    // --- the linear matrix -------------------------------------------------
+    // CAT02, the same transform the CAM16 setup and the scan's XYZ -> RGB use.
+    // ProPhoto is D50 and every display and export space here is D65, so this
+    // is where the picture's white actually moves.
+    Mat3 matrix;
+    if (!colour.matrix_RGB_to_RGB(src, dst, "CAT02", matrix, error)) { g_error = error; return SPK_ERR_USER; }
+    // Plain row-major -- `out[i] = sum_j m[3i + j] * x[j]` -- and written down
+    // as such because the app's kernel is the other side of a boundary the two
+    // matrix conventions have already crossed wrongly once (AGENTS.md trap 20:
+    // a transposed matrix here reads as a grading decision, not as a bug).
+    double row[9];
+    matrix.to_row_major(row);
+
+    // --- CAM16-UCS into the destination ------------------------------------
+    const Cam16Setup* cached = nullptr;
+    if (!engine->setup_cache.cam16(colour, dst, cached, error)) { g_error = error; return SPK_ERR_USER; }
+    double m2x[9], m2r[9];
+    row_major(cached->m_to_xyz, m2x);   // `spk_cam16ucs_compress`'s convention
+    row_major(cached->m_to_rgb, m2r);
+    const double consts[22] = {
+        cached->F_L, cached->N_bb, cached->N_cb, cached->n, cached->z, cached->A_w,
+        cached->c, cached->N_c,
+        cached->l_grid.front(), cached->l_grid.back(),
+        cached->h_grid.front(), cached->h_grid[1] - cached->h_grid[0],
+        og.knee[0], og.knee[1], og.knee[2],
+        og.lightness_compression_active ? og.lightness_compression[0] : 0.0,
+        og.lightness_compression_active ? og.lightness_compression[1] : 1.0,
+        og.lightness_compression_active ? og.lightness_compression[2] : 1.0,
+        cached->white_Jp, cached->D_rgb[0], cached->D_rgb[1], cached->D_rgb[2],
+    };
+
+    Json reply = Json::object();
+    reply.set("source_color_space", Json(src));
+    reply.set("target_color_space", Json(dst));
+    reply.set("source_cctf_mode", Json(double(cctf_mode_for(src))));
+    reply.set("target_cctf_mode", Json(double(cctf_mode_for(dst))));
+    auto numbers = [](const double* v, size_t n) {
+        Json a = Json::array();
+        for (size_t i = 0; i < n; ++i) a.push(Json(v[i]));
+        return a;
+    };
+    reply.set("matrix", numbers(row, 9));
+
+    Json compress = Json::object();
+    compress.set("algorithm", Json(og.algorithm));
+    compress.set("m_to_xyz", numbers(m2x, 9));
+    compress.set("m_to_rgb", numbers(m2r, 9));
+    compress.set("k", numbers(consts, 22));
+    compress.set("cmax_rows", Json(double(cached->l_grid.size())));
+    compress.set("cmax_cols", Json(double(cached->h_grid.size())));
+    // The lightness compression's gate, and it has to travel: when it is off,
+    // `k[15..17]` are zeroed/neutralised above, but the kernel cannot infer
+    // *that* from them -- a gate of 1 with those values is not an identity.
+    compress.set("lightness_compression_active", Json(og.lightness_compression_active));
+    reply.set("gamut_compress", std::move(compress));
+
+    // --- the table, as float32 the caller can upload -----------------------
+    // Engine-owned and kept for the engine's lifetime, exactly as
+    // `spk_print_lut_table`'s table is: an `unordered_map` is node-based, so a
+    // pointer to an existing value survives every later insert. The cache
+    // holds doubles (the bisection needs them) and the kernel reads float32,
+    // so the narrowing is done once, here, rather than per upload.
+    std::lock_guard<std::mutex> guard(engine->lock);
+    auto it = engine->cam16_cmax_f32.find(dst);
+    if (it == engine->cam16_cmax_f32.end()) {
+        std::vector<float> narrowed;
+        narrowed.reserve(cached->c_max_table.size());
+        for (double v : cached->c_max_table) narrowed.push_back(float(v));
+        it = engine->cam16_cmax_f32.emplace(dst, std::move(narrowed)).first;
+    }
+    *out_cmax = it->second.data();
+    *out_cmax_count = uint32_t(it->second.size());
+    *out_json = dup_json(reply);
     return SPK_OK;
 }
 

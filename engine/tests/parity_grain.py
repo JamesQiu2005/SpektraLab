@@ -50,14 +50,19 @@ def moments(patch: np.ndarray) -> tuple[float, float, float]:
     return mean, std, skew
 
 
-def reference_patch(level: float, size: int, delta: dict) -> np.ndarray:
+def reference_patch(level: float, size: int, delta: dict, output_color_space: str) -> np.ndarray:
+    """`output_color_space` comes from the session's open reply (RFC-018
+    §5.1), not from a copy of `spk_open`'s convention kept here. Grain is
+    measured on the *encoded* values, so a space mismatch moves every number in
+    this table at once — which is exactly what happened when the convention
+    moved to the working space and this line still said Display P3."""
     from spektrafilm.runtime.params_builder import digest_params, init_params
     from spektrafilm.runtime.pipeline import SimulationPipeline
     from spektrafilm.service import schema
 
     frame = np.full((size, size, 3), level, dtype=np.float32)
     params = init_params()
-    params.io.output_color_space = "Display P3"
+    params.io.output_color_space = output_color_space
     params.io.output_cctf_encoding = True
     schema.apply_delta(params, delta)
     params.settings.working_precision = "float32"
@@ -86,8 +91,9 @@ def main() -> int:
             frame = np.full((args.patch, args.patch, 3), level, dtype=np.float32)
             with engine.open(frame, delta) as session:
                 got, _ = session.render("full")
+                output_space = session.reply["params"]["output_color_space"]
             cpp = got[..., :3].astype(np.float64) / 65535.0
-            ref = np.clip(reference_patch(level, args.patch, delta), 0.0, 1.0)
+            ref = np.clip(reference_patch(level, args.patch, delta, output_space), 0.0, 1.0)
 
             # Green only: the three channels have different particle scales, so
             # pooling them would mix three distributions and hide a difference
@@ -107,7 +113,7 @@ def main() -> int:
             if args.verbose:
                 # How much the reference disagrees with *itself* between two
                 # draws, which is the floor any bar has to clear.
-                other = np.clip(reference_patch(level, args.patch, delta), 0.0, 1.0)
+                other = np.clip(reference_patch(level, args.patch, delta, output_space), 0.0, 1.0)
                 m_o, s_o, k_o = moments(other[..., 1])
                 print(f"         self-variation: mean {abs(m_o - m_r):.2e}, "
                       f"std ratio {s_o / max(s_r, 1e-12):.4f}, skew {abs(k_o - k_r):.4f}")

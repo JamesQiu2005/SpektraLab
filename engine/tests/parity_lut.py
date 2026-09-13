@@ -45,7 +45,18 @@ import numpy as np
 
 ENGINE = Path(__file__).resolve().parents[1]
 REPO = ENGINE.parent
-sys.path.insert(0, str(REPO / "src"))
+
+# Where the Python reference lives, and it is not always this repository.
+#
+# This harness was written before the product was extracted from the fork, when
+# `REPO/src` was the reference tree. The split deliberately left `src/` behind
+# (`CLAUDE.md`: no `src/`, no `.venv`), so the baked `.npz` assets this harness
+# compares the tables against are only reachable through a checkout that has
+# them. Defaulting to `REPO` keeps the old behaviour where it still applies; the
+# override is what makes the harness runnable here at all.
+import os
+REFERENCE = Path(os.environ.get("SPEKTRAFILM_REFERENCE_ROOT", REPO))
+sys.path.insert(0, str(REFERENCE / "src"))
 sys.path.insert(0, str(ENGINE / "tests"))
 
 # `parity_render`'s bars, and for its reason: the two engines are compared
@@ -174,7 +185,7 @@ def main() -> int:
 
     from spektrafilm.service.engine import _apply_lut_cpu
 
-    luts = REPO / "src/spektrafilm/data/luts/print_preview"
+    luts = REFERENCE / "src/spektrafilm/data/luts/print_preview"
     frame = load_frame()
     print(f"frame: {frame.shape[1]}x{frame.shape[0]} "
           f"({frame.shape[0] * frame.shape[1] / 1e6:.2f} MP)\n")

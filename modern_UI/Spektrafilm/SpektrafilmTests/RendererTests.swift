@@ -142,7 +142,23 @@ final class RendererTests: XCTestCase {
         let cb = renderer.queue.makeCommandBuffer()!; let blit = cb.makeBlitCommandEncoder()!
         blit.copy(from: tex, to: shared); blit.endEncoding(); cb.commit(); cb.waitUntilCompleted()
         let tl = pixel(shared, 0, 0), br = pixel(shared, 1, 1)
-        XCTAssertGreaterThan(tl[0], 0.9); XCTAssertLessThan(tl[1], 0.3)   // red at top-left
-        XCTAssertGreaterThan(br[0], 0.9); XCTAssertGreaterThan(br[2], 0.9) // white at bottom-right
+
+        // The thresholds here are the **working space's** numbers, which since
+        // RFC-018 §3 is ROMM γ1.8 rather than Display P3. This test is about
+        // orientation — the vertical flip that once produced a correct,
+        // upside-down photograph with 27 of 27 parity cases green (AGENTS.md
+        // trap 23) — so what it must discriminate is "the top-left corner is
+        // the red one", not a particular encoding of red.
+        //
+        // Derived rather than tuned: sRGB red through CAT02 into ROMM is
+        // linear (0.529, 0.098, 0.017), which at γ1.8 encodes to
+        // (0.702, 0.276, 0.104). Measured 0.702.
+        XCTAssertGreaterThan(tl[0] - max(tl[1], tl[2]), 0.25,
+                             "the top-left corner is not the red one — the preview is flipped or turned")
+        // White is (1, 1, 1) in every one of these spaces, which is what makes
+        // this half of the check independent of the working space. A 180°
+        // turn would put the red corner here.
+        XCTAssertGreaterThan(br[0], 0.9); XCTAssertGreaterThan(br[1], 0.9)
+        XCTAssertGreaterThan(br[2], 0.9)                                  // white at bottom-right
     }
 }

@@ -3,10 +3,19 @@
 //
 //  Draw-on-demand: the MTKView is paused and `needsDisplay` is set on state
 //  change (UI-GUIDELINE §4). Each draw: (1) if Layer 2 or its input changed,
-//  run the `layer2` kernel into `adjusted` and the `histogram` kernel over it;
-//  (2) blit `adjusted` (or the original, while Space is held) to the drawable
-//  through the sampling transform. The histogram buffer is read back on the
-//  command buffer's completion and published on the main actor.
+//  run the `layer2` kernel into `adjusted`; (2) run `outputTransform` into
+//  `display` — the working space converted to the canvas's own Display P3 —
+//  and the `histogram` kernel over *that*; (3) blit `display` (or the
+//  converted original, while Space is held) to the drawable through the
+//  sampling transform. The histogram buffer is read back on the command
+//  buffer's completion and published on the main actor.
+//
+//  Where the colours change hands (RFC-018): everything up to and including
+//  Layer 2 is in the **working space** — the session's resolved
+//  `io.output_color_space`, ProPhoto RGB — and the output transform is the one
+//  place a rendering space is left. `original` moves into the working space
+//  too, at the decode (`ImageDecoder.makePreviewTexture`), or the before/after
+//  split would compare two different colour spaces either side of the line.
 
 import Foundation
 import Metal
@@ -55,12 +64,18 @@ final class Renderer: NSObject {
     let queue: MTLCommandQueue
     let store: TextureStore
     private let layer2Pipeline: MTLComputePipelineState
+    private let transformPipeline: MTLComputePipelineState
     private let histogramPipeline: MTLComputePipelineState
     private let geometryPipeline: MTLComputePipelineState
     private let quadPipelineDrawable: MTLRenderPipelineState
     private let quadPipelineOffscreen: MTLRenderPipelineState
     private let curveTable: MTLTexture
     private let histogramBuffer: MTLBuffer
+    /// `[moved, clipped, outside]`, the output transform's counters (RFC-018
+    /// §5.3, and see `cam16ucsInto` for why there are three). Shared storage,
+    /// so the export's synchronous path reads them straight off the CPU after
+    /// `waitUntilCompleted` with no blit.
+    private let transformStats: MTLBuffer
     private var histogramInFlight = false
 
     /// The interactive, live-tier image: the print if there is one, else the
@@ -101,14 +116,44 @@ final class Renderer: NSObject {
     /// a sharp print. One native texture makes that ladder unnecessary: it is
     /// a picture of the frame at every zoom, and it is one texture per
     /// selected frame rather than one per tier visited.
-    var original: MTLTexture?
+    var original: MTLTexture? {
+        didSet { if oldValue !== original { displayOriginalDirty = true } }
+    }
     private var adjusted: MTLTexture?
+    /// Layer 2's output converted to the canvas's target — what the quad
+    /// actually samples, and what the histogram is taken of. The working-space
+    /// texture it comes from is `adjusted`, which nothing draws directly.
+    private var display: MTLTexture?
+    /// The same conversion for `original`, which is drawn as often (left of
+    /// the split, and alone while Space is held). Two slots rather than one:
+    /// the two textures differ in size and are sampled in the same frame, and
+    /// a single slot would re-run a full-frame transform on every split draw.
+    private var displayOriginal: MTLTexture?
+    /// The output transform's installed setup (RFC-018 §5.4). Nil until one is
+    /// installed, and nil is a real state with an honest reading — "the
+    /// textures are already what should be shown" — which is what every
+    /// offscreen test that fabricates a texture and draws it depends on.
+    private(set) var outputTransform: OutputTransformSetup?
     /// Rasterised coverage for the mask kinds that cannot be closed-form.
     /// Nothing writes it yet — brush and the Vision sources are the next
     /// component kinds and this is the seam they land on
     /// (`MaskComponentKind.isRaster`, `MaskUniform.rasterSlice`).
     var maskRasters: MTLTexture?
-    private var layer2Dirty = true
+    private var layer2DirtyStorage = true
+    /// True when Layer 2's output is stale. Writing it also dirties the
+    /// display, because the transform's input *is* Layer 2's output, so
+    /// anything that invalidates one invalidates the other. A computed
+    /// property rather than a second line at each of a dozen assignments,
+    /// where one would eventually be missed.
+    private var layer2Dirty: Bool {
+        get { layer2DirtyStorage }
+        set {
+            layer2DirtyStorage = newValue
+            if newValue { displayDirty = true }
+        }
+    }
+    private var displayDirty = true
+    private var displayOriginalDirty = true
 
     var viewport = ViewportState()
     var showOriginal = false { didSet { if oldValue != showOriginal { needsDraw?() } } }
@@ -319,12 +364,14 @@ final class Renderer: NSObject {
         self.store = TextureStore(device: device)
         guard let lib = try? device.makeDefaultLibrary(bundle: Bundle(for: Renderer.self)),
               let l2 = lib.makeFunction(name: "layer2"),
+              let xform = lib.makeFunction(name: "outputTransform"),
               let hist = lib.makeFunction(name: "histogram"),
               let geo = lib.makeFunction(name: "geometryResample"),
               let vs = lib.makeFunction(name: "canvasVertex"),
               let fs = lib.makeFunction(name: "canvasFragment") else { return nil }
         do {
             layer2Pipeline = try device.makeComputePipelineState(function: l2)
+            transformPipeline = try device.makeComputePipelineState(function: xform)
             histogramPipeline = try device.makeComputePipelineState(function: hist)
             geometryPipeline = try device.makeComputePipelineState(function: geo)
             let rd = MTLRenderPipelineDescriptor()
@@ -336,9 +383,12 @@ final class Renderer: NSObject {
             quadPipelineOffscreen = try device.makeRenderPipelineState(descriptor: rd)
         } catch { return nil }
         guard let ct = store.makeCurveTable(),
-              let hb = device.makeBuffer(length: 4 * 256 * 4, options: .storageModeShared) else { return nil }
+              let hb = device.makeBuffer(length: 4 * 256 * 4, options: .storageModeShared),
+              let sb = device.makeBuffer(length: 3 * MemoryLayout<UInt32>.size,
+                                         options: .storageModeShared) else { return nil }
         curveTable = ct
         histogramBuffer = hb
+        transformStats = sb
         super.init()
         store.upload(curves: CurveSet(), into: curveTable)
     }
@@ -460,6 +510,116 @@ final class Renderer: NSObject {
         enc.endEncoding()
     }
 
+    // MARK: the output transform
+
+    /// Install the conversion from the working space to `setup`'s target.
+    /// Everything the canvas draws afterwards goes through it; the export and
+    /// the soft proof pass their own setup to `applyOutputTransform` instead,
+    /// because they convert to a space the canvas is not showing.
+    func setOutputTransform(_ setup: OutputTransformSetup?) {
+        outputTransform = setup
+        displayDirty = true
+        displayOriginalDirty = true
+        needsDraw?()
+    }
+
+    /// The working-space texture `src`, converted to the canvas's target.
+    /// Returns `src` itself when no transform is installed — see
+    /// `outputTransform`.
+    private func displayed(_ src: MTLTexture?, slot: inout MTLTexture?, dirty: inout Bool,
+                           cb: MTLCommandBuffer) -> MTLTexture? {
+        guard let src else { return nil }
+        guard let setup = outputTransform else { return src }
+        guard let dst = ensureDisplay(&slot, for: src) else { return src }
+        if dirty {
+            encodeOutputTransform(cb, src: src, dst: dst, setup: setup)
+            dirty = false
+        }
+        return dst
+    }
+
+    private func ensureDisplay(_ slot: inout MTLTexture?, for src: MTLTexture) -> MTLTexture? {
+        if let d = slot, d.width == src.width, d.height == src.height { return d }
+        slot = store.makeWritable(width: src.width, height: src.height)
+        return slot
+    }
+
+    /// The counters are accumulated with atomics, so they have to start at
+    /// zero — and only on the paths that read them, because the canvas never
+    /// does and a blit per draw is a blit per draw.
+    private func clearTransformStats(_ cb: MTLCommandBuffer) {
+        guard let blit = cb.makeBlitCommandEncoder() else { return }
+        blit.fill(buffer: transformStats, range: 0..<transformStats.length, value: 0)
+        blit.endEncoding()
+    }
+
+    private func encodeOutputTransform(_ cb: MTLCommandBuffer, src: MTLTexture, dst: MTLTexture,
+                                       setup: OutputTransformSetup) {
+        guard let enc = cb.makeComputeCommandEncoder() else { return }
+        enc.setComputePipelineState(transformPipeline)
+        enc.setTexture(src, index: 0)
+        enc.setTexture(dst, index: 1)
+        var u = setup.uniforms
+        enc.setBytes(&u, length: MemoryLayout<OutputTransformUniforms>.stride, index: 0)
+        enc.setBuffer(setup.cmax, offset: 0, index: 1)
+        enc.setBuffer(transformStats, offset: 0, index: 2)
+        let w = transformPipeline.threadExecutionWidth
+        let h = max(1, transformPipeline.maxTotalThreadsPerThreadgroup / w)
+        enc.dispatchThreads(MTLSize(width: dst.width, height: dst.height, depth: 1),
+                            threadsPerThreadgroup: MTLSize(width: w, height: h, depth: 1))
+        enc.endEncoding()
+    }
+
+    /// Run the transform and **wait** for it, returning the converted texture
+    /// and the two counters.
+    ///
+    /// Export and the soft proof need both; the canvas path encodes without
+    /// waiting and reads neither, because a stall per draw for two numbers
+    /// nothing on screen uses would be a stall for nothing.
+    func applyOutputTransform(to src: MTLTexture, setup: OutputTransformSetup)
+        -> (texture: MTLTexture, stats: OutputTransformStats)? {
+        guard let dst = store.makeWritable(width: src.width, height: src.height),
+              let cb = queue.makeCommandBuffer() else { return nil }
+        clearTransformStats(cb)
+        encodeOutputTransform(cb, src: src, dst: dst, setup: setup)
+        cb.commit()
+        cb.waitUntilCompleted()
+        let p = transformStats.contents().bindMemory(to: UInt32.self, capacity: 3)
+        let total = Double(max(1, src.width * src.height))
+        return (dst, OutputTransformStats(movedFraction: Double(p[0]) / total,
+                                          clippedFraction: Double(p[1]) / total,
+                                          outsideFraction: Double(p[2]) / total))
+    }
+
+    /// Resample an image to an explicit pixel size (the export page's output
+    /// size). Deliberately the **same** `geometryResample` kernel the canvas
+    /// and the geometry pass use, with an identity geometry, rather than a
+    /// CoreGraphics or `MTLBlitCommandEncoder` scale beside it: two
+    /// resamplers are two chances to disagree about which pixel centre maps
+    /// where, and the way that disagreement presents is an export that is
+    /// subtly the wrong amount of sharp, which nothing checks.
+    ///
+    /// `Uniform()`'s default is inactive, and `geometryMap` returns its uv
+    /// unchanged when it is — which is what makes this a plain resample.
+    func applyResize(_ src: MTLTexture, width: Int, height: Int) -> MTLTexture? {
+        guard width > 0, height > 0 else { return nil }
+        guard width != src.width || height != src.height else { return src }
+        guard let dst = store.makeWritable(width: width, height: height),
+              let cb = queue.makeCommandBuffer(), let enc = cb.makeComputeCommandEncoder() else { return nil }
+        var u = Geometry.Uniform()
+        enc.setComputePipelineState(geometryPipeline)
+        enc.setTexture(src, index: 0)
+        enc.setTexture(dst, index: 1)
+        enc.setBytes(&u, length: MemoryLayout<Geometry.Uniform>.stride, index: 0)
+        let tg = MTLSize(width: 16, height: 16, depth: 1)
+        enc.dispatchThreadgroups(MTLSize(width: (width + 15) / 16, height: (height + 15) / 16, depth: 1),
+                                 threadsPerThreadgroup: tg)
+        enc.endEncoding()
+        cb.commit()
+        cb.waitUntilCompleted()
+        return dst
+    }
+
     private func encodeHistogram(_ cb: MTLCommandBuffer, src: MTLTexture) {
         guard let blit = cb.makeBlitCommandEncoder() else { return }
         blit.fill(buffer: histogramBuffer, range: 0..<histogramBuffer.length, value: 0)
@@ -557,26 +717,39 @@ final class Renderer: NSObject {
             return
         }
         var shown: MTLTexture? = nil
+        var before: MTLTexture? = nil
         if let base {
-            if showOriginal, let original { shown = original }
-            else if let dst = ensureAdjusted(for: base) {
-                if layer2Dirty {
+            if showOriginal, let original {
+                shown = displayed(original, slot: &displayOriginal,
+                                  dirty: &displayOriginalDirty, cb: cb)
+            } else if let dst = ensureAdjusted(for: base) {
+                let adjustRan = layer2Dirty
+                if adjustRan {
                     encodeLayer2(cb, src: base, dst: dst)
                     layer2Dirty = false
-                    if !histogramInFlight {
-                        histogramInFlight = true
-                        encodeHistogram(cb, src: dst)
-                        cb.addCompletedHandler { [weak self] _ in
-                            Task { @MainActor in
-                                self?.histogramInFlight = false
-                                self?.publishHistogram()
-                            }
+                }
+                let transformRan = displayDirty
+                shown = displayed(dst, slot: &display, dirty: &displayDirty, cb: cb)
+                // The histogram is a statement about clipping, and clipping is
+                // a property of the *destination* (RFC-018 §3) — so it is
+                // taken of the converted image, not of the working one.
+                if (adjustRan || transformRan) && !histogramInFlight {
+                    histogramInFlight = true
+                    encodeHistogram(cb, src: shown ?? dst)
+                    cb.addCompletedHandler { [weak self] _ in
+                        Task { @MainActor in
+                            self?.histogramInFlight = false
+                            self?.publishHistogram()
                         }
                     }
                 }
-                shown = dst
             }
         }
+        // Left of the split and under Space. Converted through the same slot
+        // the branch above may have just filled, so this is free when it did
+        // — and it is the *converted* texture, or the two halves of the
+        // comparison would be two different colour spaces.
+        before = displayed(original, slot: &displayOriginal, dirty: &displayOriginalDirty, cb: cb)
         let bs = Float(view.window?.backingScaleFactor ?? viewport.backingScale)
         var u = canvasUniforms(shown: shown, viewportSize: view.drawableSize, backingScale: CGFloat(bs))
         // The timestamp is not decoration: "the canvas twitches" is a question
@@ -602,7 +775,7 @@ final class Renderer: NSObject {
             // fragment texture is a sampling of undefined memory the moment a
             // branch is mispredicted into, and "the compare flag is off" is
             // not a guarantee the GPU makes.
-            enc.setFragmentTexture(original ?? shown, index: 1)
+            enc.setFragmentTexture(before ?? shown, index: 1)
             enc.setFragmentBytes(&u, length: MemoryLayout<CanvasUniforms>.stride, index: 0)
             enc.drawPrimitives(type: .triangle, vertexStart: 0, vertexCount: 6)
         }
@@ -661,14 +834,20 @@ final class Renderer: NSObject {
               let cb = queue.makeCommandBuffer() else { return nil }
         var shown: MTLTexture? = nil
         // The same swap `draw` makes while Space is held, so a capture of
-        // "show original" shows the original rather than the print.
-        if base != nil, showOriginal, let original { shown = original }
-        else if let base, let dst = ensureAdjusted(for: base) {
+        // "show original" shows the original rather than the print — and the
+        // same output transform, so a capture is a picture of what the canvas
+        // would put on screen rather than of the working space.
+        if base != nil, showOriginal, let original {
+            shown = displayed(original, slot: &displayOriginal,
+                              dirty: &displayOriginalDirty, cb: cb)
+        } else if let base, let dst = ensureAdjusted(for: base) {
             encodeLayer2(cb, src: base, dst: dst)
             layer2Dirty = false
-            encodeHistogram(cb, src: dst)
-            shown = dst
+            shown = displayed(dst, slot: &display, dirty: &displayDirty, cb: cb)
+            encodeHistogram(cb, src: shown ?? dst)
         }
+        let before = displayed(original, slot: &displayOriginal,
+                               dirty: &displayOriginalDirty, cb: cb)
         var u = canvasUniforms(shown: shown, viewportSize: CGSize(width: w, height: h), backingScale: backingScale)
         let rpd = MTLRenderPassDescriptor()
         rpd.colorAttachments[0].texture = target
@@ -679,7 +858,7 @@ final class Renderer: NSObject {
         if let shown {
             enc.setRenderPipelineState(quadPipelineOffscreen)
             enc.setFragmentTexture(shown, index: 0)
-            enc.setFragmentTexture(original ?? shown, index: 1)
+            enc.setFragmentTexture(before ?? shown, index: 1)
             enc.setFragmentBytes(&u, length: MemoryLayout<CanvasUniforms>.stride, index: 0)
             enc.drawPrimitives(type: .triangle, vertexStart: 0, vertexCount: 6)
         }
@@ -692,12 +871,17 @@ final class Renderer: NSObject {
 }
 
 extension MTLTexture {
-    /// Read an rgba16Unorm texture back as a CGImage in Display P3 (no
-    /// conversion — the bytes are P3-encoded already; the tag says so).
-    /// `space` defaults to Display P3, which is what every *print* this app
-    /// produces is in. The DI package passes device RGB instead, because its
-    /// pixels are normalised film densities rather than colours and a
-    /// rendering tag would invite a host to convert them (see `Exporter`).
+    /// Read an rgba16Unorm texture back as a CGImage — **no conversion**. The
+    /// bytes are what they are; the tag says which space that is.
+    ///
+    /// `space` defaults to Display P3, and since RFC-018 that default is only
+    /// right for a texture that has been through `applyOutputTransform` with
+    /// Display P3 as its target. A working-space texture handed to this with
+    /// the default would be a ProPhoto picture wearing a P3 tag, which shows
+    /// as a washed-out canvas and no error anywhere — so export passes its
+    /// target explicitly, and the DI package passes device RGB because its
+    /// pixels are normalised film densities rather than colours (see
+    /// `Exporter`).
     func makeCGImage(space: CGColorSpace = ImageDecoder.displayP3) -> CGImage? {
         guard pixelFormat == .rgba16Unorm else { return nil }
         let bpr = width * 8
