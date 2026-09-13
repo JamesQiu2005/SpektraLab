@@ -2,8 +2,9 @@
 //
 //  It used to be a `.sheet` over the editor. RFC-018 §6 makes it a window for
 //  a reason that is in the RFC rather than in this file: the page exists to
-//  show a recipe's *own* picture, and the canvas behind it is now a Display P3
-//  proof of a different thing — so the two are worth looking at side by side,
+//  show a recipe's *own* picture, and the canvas behind it is a proof of the
+//  *working* space rather than of this recipe's — so the two are worth looking
+//  at side by side,
 //  which a modal sheet forbids. Its chrome is a window's, too
 //  (`reference_layout/Export_Page/export_page.svg` draws traffic lights on the
 //  bar and no way back to an editor), so a window is what it is.

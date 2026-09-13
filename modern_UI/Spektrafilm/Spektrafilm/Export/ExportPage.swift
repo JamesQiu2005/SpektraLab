@@ -4,9 +4,9 @@
 //  It replaces a 590 pt sheet whose own header argued that the image could be
 //  left out, "because the canvas behind this sheet is already showing the
 //  frame at the grade being exported". RFC-018 §2.5 retires that: the app now
-//  converts once, at the end, per destination, so the canvas is a Display P3
-//  proof and nothing more — and the recipes most likely to differ from it are
-//  exactly the ones a person cannot check by looking at the canvas. So the
+//  converts once, at the end, per destination, so the canvas is a proof of the
+//  *working* space and nothing more — and the recipes most likely to differ
+//  from it are exactly the ones a person cannot check by looking at the canvas. So the
 //  centre pane is the point of this page, and it is a soft proof
 //  (`Export/SoftProof.swift`) rather than a second copy of the canvas.
 //
@@ -968,7 +968,7 @@ struct ExportPage: View {
     /// spaces. Cheap to reach, and not in the way.
     private func captionHelp(_ proof: SoftProof) -> String {
         let pixels = "\(Int(proof.exportPixelSize.width)) × \(Int(proof.exportPixelSize.height))"
-        let canvas = ColorSpaceCatalog.name(for: .displayP3) ?? "Display P3"
+        let canvas = session.workingSpaceName
         var lines = [
             "The picture above is a proof: the file's own pixels, through the same "
             + "conversion the export will run.",
@@ -980,7 +980,7 @@ struct ExportPage: View {
     }
 
     private func spaceLine(_ proof: SoftProof) -> String {
-        let canvas = ColorSpaceCatalog.name(for: .displayP3) ?? "Display P3"
+        let canvas = session.workingSpaceName
         return proof.targetName == canvas
             ? "Proof in \(proof.targetName)"
             : "Proof in \(proof.targetName) · the canvas is \(canvas)"
