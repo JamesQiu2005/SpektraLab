@@ -1,0 +1,451 @@
+//  ExportRecipe.swift — a named, saved answer to "where, called what, in what".
+//
+//  The export sheet used to be one radio group: pick a format, and everything
+//  else — the folder, the filename, the colour space — was decided in
+//  `Exporter` and could not be argued with. That is fine for one person
+//  exporting one frame and useless the moment the same person has two
+//  destinations they use every week (Capture One calls these 配方 / recipes,
+//  and `PRD/export_page_reference_capture_one.png` is the shape the user
+//  asked for).
+//
+//  Three things live here and nothing else does:
+//
+//  1. `ExportRecipe` — the saved settings, `Codable`, kept in a JSON file the
+//     user can read and edit by hand. The PRD asked for the recipes to be
+//     "set in some separated json" in so many words, so the file is the
+//     format of record and the UI is a way of writing it.
+//  2. `ExportColorSpace` — which profile the file is tagged with, resolved
+//     against **the profiles actually installed on this machine** rather than
+//     a hard-coded list. A name we cannot resolve falls back rather than
+//     failing the export, and says so.
+//  3. `NamingRule` — the filename, as tokens, with a live sample. The sample
+//     is the point: a naming scheme you cannot see the result of is a naming
+//     scheme you get wrong once per batch.
+//
+//  What is deliberately *not* here: rendering. `Exporter` owns the pixels.
+//  This file only answers where they go and what tag they carry.
+
+// `@preconcurrency` because ColorSync's dictionary keys are imported as
+// global `var`s of `Unmanaged<CFString>`, which Swift 6 reads as shared
+// mutable state and refuses from the C callback in `installedRGBProfiles`.
+// They are immutable constants in a system framework; this is the annotation
+// that says so without hard-coding their string values.
+@preconcurrency import ColorSync
+import CoreGraphics
+import Foundation
+import ImageIO
+
+// Read once, at file scope, so the `@convention(c)` callback below — which
+// can capture nothing — can still reach them.
+nonisolated(unsafe) private let kProfileColorSpace = kColorSyncProfileColorSpace.takeUnretainedValue()
+nonisolated(unsafe) private let kProfileDescription = kColorSyncProfileDescription.takeUnretainedValue()
+nonisolated(unsafe) private let kProfileURL = kColorSyncProfileURL.takeUnretainedValue()
+private let colorSyncRGBSignature = kColorSyncSigRgbData.takeUnretainedValue() as String
+
+// `ExportFormat` is declared in `Exporter.swift` as a `String` raw value, so
+// this costs nothing and keeps the recipe file readable — a format reads as
+// "TIFF 16-bit" in the JSON, not as an ordinal that shifts when a case is
+// inserted.
+extension ExportFormat: Codable {}
+
+extension ExportFormat {
+    /// Whether a colour space can be chosen at all. The DI package is
+    /// normalised film density with a `.cube` beside it indexing exactly
+    /// those numbers — tagging it with a rendering space invites whatever
+    /// opens it to convert the values and move the cube's domain out from
+    /// under it (`Exporter.exportDI`). So the choice is withheld rather than
+    /// offered and ignored.
+    var takesColorSpace: Bool { self != .di }
+    /// 8-bit formats cannot carry a wide-gamut working space usefully.
+    var isEightBit: Bool { self == .jpeg || self == .png }
+    var takesQuality: Bool { self == .jpeg }
+}
+
+// MARK: - colour space
+
+/// A profile to tag the exported file with.
+///
+/// Two kinds, because the two have different failure modes. A built-in is a
+/// `CGColorSpace` name that Core Graphics guarantees — it cannot go missing.
+/// An installed profile is a file on this machine, which can be moved,
+/// deleted, or live on a volume that is not mounted today; that one resolves
+/// at export time and falls back when it cannot.
+enum ExportColorSpace: Hashable, Codable, Sendable {
+    /// A `CGColorSpace` name (`kCGColorSpaceDisplayP3` and friends), stored
+    /// as its string value so the JSON stays legible.
+    case builtIn(String)
+    /// An ICC profile installed on this machine, by file path.
+    case installed(path: String)
+
+    static let displayP3 = ExportColorSpace.builtIn(CGColorSpace.displayP3 as String)
+    static let sRGB = ExportColorSpace.builtIn(CGColorSpace.sRGB as String)
+
+    /// The profile, or `nil` when it cannot be resolved on this machine.
+    /// Callers fall back; they do not fail the export over a tag.
+    var cgColorSpace: CGColorSpace? {
+        switch self {
+        case .builtIn(let name):
+            return CGColorSpace(name: name as CFString)
+        case .installed(let path):
+            guard let data = try? Data(contentsOf: URL(fileURLWithPath: path)) else { return nil }
+            return CGColorSpace(iccData: data as CFData)
+        }
+    }
+}
+
+/// What the colour-space picker offers: the profiles this machine actually
+/// has, plus the handful Core Graphics guarantees.
+///
+/// The PRD asked for "available color space read from the system", and this
+/// is that read. It is done once and cached: `ColorSyncIterateInstalledProfiles`
+/// walks every profile in every ColorSync search path, which is slow enough
+/// to be worth not doing inside a SwiftUI body.
+enum ColorSpaceCatalog {
+    struct Entry: Identifiable, Hashable, Sendable {
+        var id: String { space.hashValue.description + name }
+        let name: String
+        let space: ExportColorSpace
+        /// True for the guaranteed ones, which sort first.
+        let isBuiltIn: Bool
+    }
+
+    /// Always present, whatever ColorSync reports, and in the order a
+    /// photographer reaches for them.
+    static let builtIns: [Entry] = [
+        Entry(name: "Display P3", space: .builtIn(CGColorSpace.displayP3 as String), isBuiltIn: true),
+        Entry(name: "sRGB", space: .builtIn(CGColorSpace.sRGB as String), isBuiltIn: true),
+        Entry(name: "Adobe RGB (1998)", space: .builtIn(CGColorSpace.adobeRGB1998 as String), isBuiltIn: true),
+        Entry(name: "ROMM RGB (ProPhoto)", space: .builtIn(CGColorSpace.rommrgb as String), isBuiltIn: true),
+        Entry(name: "Rec. 2020", space: .builtIn(CGColorSpace.itur_2020 as String), isBuiltIn: true),
+    ].filter { $0.space.cgColorSpace != nil }
+
+    /// Built-ins first, then every installed RGB profile, de-duplicated by
+    /// name so the five above do not appear twice (they are installed as
+    /// files too, and a picker with "sRGB" in it twice is a picker nobody
+    /// trusts).
+    static let all: [Entry] = {
+        var seen = Set(builtIns.map { $0.name.lowercased() })
+        var out = builtIns
+        for e in installedRGBProfiles() where !seen.contains(e.name.lowercased()) {
+            seen.insert(e.name.lowercased())
+            out.append(e)
+        }
+        return out
+    }()
+
+    static func name(for space: ExportColorSpace) -> String? {
+        all.first { $0.space == space }?.name
+    }
+
+    /// Every installed profile whose data space is RGB, by description and
+    /// file URL, sorted by name.
+    ///
+    /// Only RGB: the catalogue is for tagging an RGB export, and offering the
+    /// machine's CMYK and grey profiles in that picker is offering choices
+    /// that cannot work. Anything without a description, a URL, or an RGB
+    /// data space is skipped rather than guessed at.
+    private static func installedRGBProfiles() -> [Entry] {
+        var found: [Entry] = []
+        withUnsafeMutablePointer(to: &found) { sink in
+            ColorSyncIterateInstalledProfiles({ info, userInfo in
+                guard let info = info as? [CFString: Any],
+                      let userInfo else { return true }
+                // The data space is the **string** "RGB " rather than the
+                // four-char code the name `kColorSyncSigRgbData` suggests.
+                // Established by dumping a real profile dictionary; guessing
+                // it produces a picker that is silently always empty, which
+                // is the kind of check that cannot fail.
+                guard info[kProfileColorSpace] as? String == colorSyncRGBSignature else { return true }
+                guard let description = info[kProfileDescription] as? String,
+                      !description.isEmpty,
+                      let url = info[kProfileURL] as? URL else { return true }
+                let sink = userInfo.assumingMemoryBound(to: [Entry].self)
+                sink.pointee.append(Entry(name: description,
+                                          space: .installed(path: url.path),
+                                          isBuiltIn: false))
+                return true
+            }, nil, UnsafeMutableRawPointer(sink), nil)
+        }
+        return found.sorted { $0.name.localizedStandardCompare($1.name) == .orderedAscending }
+    }
+}
+
+// MARK: - naming
+
+/// One piece of a filename.
+enum NameToken: String, Codable, CaseIterable, Identifiable, Sendable {
+    case originalName, filmStock, printStock, dimensions, date, counter
+
+    var id: String { rawValue }
+
+    var label: String {
+        switch self {
+        case .originalName: "Image name"
+        case .filmStock: "Film stock"
+        case .printStock: "Print stock"
+        case .dimensions: "Dimensions"
+        case .date: "Date"
+        case .counter: "Counter"
+        }
+    }
+}
+
+/// The filename, as an ordered list of tokens joined by a separator.
+///
+/// Deliberately not a printf-style format string: a format string is a thing
+/// you get wrong silently, and the whole value of this control is the sample
+/// underneath it, which a token list can always produce.
+struct NamingRule: Codable, Hashable, Sendable {
+    var tokens: [NameToken] = [.originalName, .filmStock, .printStock]
+    var separator: String = "_"
+
+    struct Context: Sendable {
+        var originalName: String
+        var filmStock: String
+        var printStock: String
+        var pixelSize: CGSize
+        var counter: Int
+        var date: Date
+    }
+
+    /// The filename stem — no extension, and no directory.
+    ///
+    /// An empty token list would produce an empty filename, which is a way to
+    /// overwrite one file repeatedly, so it falls back to the original name.
+    /// The same goes for a rule whose tokens all render empty.
+    func stem(_ c: Context) -> String {
+        let parts = tokens.compactMap { t -> String? in
+            let s: String
+            switch t {
+            case .originalName: s = c.originalName
+            case .filmStock: s = c.filmStock
+            case .printStock: s = c.printStock
+            case .dimensions: s = "\(Int(c.pixelSize.width))x\(Int(c.pixelSize.height))"
+            case .date: s = NamingRule.dateFormatter.string(from: c.date)
+            case .counter: s = String(format: "%03d", c.counter)
+            }
+            return s.isEmpty ? nil : s
+        }
+        let joined = parts.joined(separator: separator)
+        guard !joined.isEmpty else { return c.originalName }
+        // A filename cannot carry a path separator or a NUL, whatever a stock
+        // name happens to contain.
+        return joined.replacingOccurrences(of: "/", with: "-")
+                     .replacingOccurrences(of: ":", with: "-")
+    }
+
+    private static let dateFormatter: DateFormatter = {
+        let f = DateFormatter()
+        f.dateFormat = "yyyyMMdd"
+        f.locale = Locale(identifier: "en_US_POSIX")
+        return f
+    }()
+
+    /// The sample the UI shows under the token row.
+    static let sampleContext = Context(originalName: "_DSC4037", filmStock: "portra400",
+                                       printStock: "endura", pixelSize: CGSize(width: 5451, height: 3634),
+                                       counter: 1, date: Date())
+}
+
+// MARK: - destination
+
+/// Where the files land.
+enum ExportFolder: Hashable, Codable, Sendable {
+    /// Beside the frame that was opened — today's behaviour, and still the
+    /// default, because it is the one that needs no setting up.
+    case besideOriginal
+    /// A folder the user chose. Stored as a path; a path that no longer
+    /// exists is reported at export time rather than silently recreated
+    /// somewhere else.
+    case fixed(path: String)
+}
+
+/// What to do when the file already exists.
+enum ExistingFilePolicy: String, Codable, CaseIterable, Identifiable, Sendable {
+    case addSuffix, overwrite, skip
+    var id: String { rawValue }
+    var label: String {
+        switch self {
+        case .addSuffix: "Add a suffix"
+        case .overwrite: "Overwrite"
+        case .skip: "Skip"
+        }
+    }
+}
+
+// MARK: - the recipe
+
+struct ExportRecipe: Codable, Identifiable, Hashable, Sendable {
+    var id: UUID = UUID()
+    var name: String = "Untitled"
+    var format: ExportFormat = .jpeg
+    var colorSpace: ExportColorSpace = .displayP3
+    var folder: ExportFolder = .besideOriginal
+    /// A subfolder created inside `folder`. Empty means none. The default is
+    /// `_prints`, which is where exports have always gone.
+    var subfolder: String = "_prints"
+    var naming = NamingRule()
+    var existing: ExistingFilePolicy = .addSuffix
+    /// JPEG only, 0…1.
+    var quality: Double = 0.95
+
+    /// The directory this recipe writes into for a given source frame,
+    /// **without creating it** — creation belongs to the export, which is the
+    /// only place that can report the failure to the user.
+    func directory(for source: URL) -> URL {
+        let base: URL
+        switch folder {
+        case .besideOriginal: base = source.deletingLastPathComponent()
+        case .fixed(let path): base = URL(fileURLWithPath: path)
+        }
+        let sub = subfolder.trimmingCharacters(in: .whitespaces)
+        return sub.isEmpty ? base : base.appending(path: sub)
+    }
+
+    /// The full destination, honouring `existing`. Returns `nil` only for
+    /// `.skip` when the file is already there — the one case where "no URL"
+    /// is the answer rather than an error.
+    func destination(for source: URL, context: NamingRule.Context,
+                     fileManager: FileManager = .default) -> URL? {
+        let dir = directory(for: source)
+        let stem = naming.stem(context)
+        let first = dir.appending(path: "\(stem).\(format.ext)")
+        guard fileManager.fileExists(atPath: first.path) else { return first }
+        switch existing {
+        case .overwrite: return first
+        case .skip: return nil
+        case .addSuffix:
+            // `-1`, `-2`, … the way every other exporter does it. Bounded so
+            // a directory that somehow refuses to stop matching cannot spin.
+            for n in 1...9999 {
+                let u = dir.appending(path: "\(stem)-\(n).\(format.ext)")
+                if !fileManager.fileExists(atPath: u.path) { return u }
+            }
+            return first
+        }
+    }
+
+    /// The profile to tag with, resolved against this machine, with the
+    /// fallback stated. `nil` colour space means "the format decides", which
+    /// is what the DI package needs.
+    func resolvedColorSpace() -> (space: CGColorSpace?, fellBack: Bool) {
+        guard format.takesColorSpace else { return (nil, false) }
+        if let s = colorSpace.cgColorSpace { return (s, false) }
+        return (CGColorSpace(name: CGColorSpace.displayP3), true)
+    }
+
+    static let defaults: [ExportRecipe] = [
+        ExportRecipe(name: "JPEG — Display P3", format: .jpeg, colorSpace: .displayP3),
+        ExportRecipe(name: "TIFF 16-bit — ProPhoto", format: .tiff,
+                     colorSpace: .builtIn(CGColorSpace.rommrgb as String)),
+        ExportRecipe(name: "PNG 8-bit — sRGB", format: .png, colorSpace: .sRGB),
+        ExportRecipe(name: "DI package", format: .di, colorSpace: .displayP3, subfolder: "_prints"),
+    ]
+}
+
+// MARK: - the store
+
+/// The recipes, in a JSON file the user can open.
+///
+/// `~/Library/Application Support/Filmify/export-recipes.json`. Written
+/// atomically, read once at startup, and **never fatal**: a file that has
+/// been hand-edited into something unparseable falls back to the defaults and
+/// reports it, because losing the ability to export over a typo in a settings
+/// file would be the worse failure.
+@MainActor
+@Observable
+final class ExportRecipeStore {
+    private(set) var recipes: [ExportRecipe]
+    /// Set when the file could not be read or written, for the UI to show.
+    /// Nil when everything is fine.
+    private(set) var problem: String?
+
+    var selectedID: UUID?
+
+    var selected: ExportRecipe? {
+        get { recipes.first { $0.id == selectedID } ?? recipes.first }
+        set {
+            guard let newValue, let i = recipes.firstIndex(where: { $0.id == newValue.id }) else { return }
+            recipes[i] = newValue
+            save()
+        }
+    }
+
+    static let url: URL = {
+        let dir = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
+            .appending(path: "Filmify")
+        return dir.appending(path: "export-recipes.json")
+    }()
+
+    /// The file this store reads and writes. Injectable so a test can point
+    /// at a temporary directory — a test that exercised the real path would
+    /// overwrite the user's own recipes, which is not a thing a test may do.
+    let url: URL
+
+    init(url: URL = ExportRecipeStore.url) {
+        self.url = url
+        let loaded = Self.load(from: url)
+        recipes = loaded.recipes
+        problem = loaded.problem
+        selectedID = recipes.first?.id
+        // Seed the file on first run, so "set in some separated json" is true
+        // from the first launch rather than after the first edit.
+        if loaded.problem == nil, !FileManager.default.fileExists(atPath: url.path) { save() }
+    }
+
+    private static func load(from url: URL) -> (recipes: [ExportRecipe], problem: String?) {
+        guard FileManager.default.fileExists(atPath: url.path) else {
+            return (ExportRecipe.defaults, nil)
+        }
+        do {
+            let data = try Data(contentsOf: url)
+            let decoded = try JSONDecoder().decode([ExportRecipe].self, from: data)
+            // An empty array is a file that says "no recipes", which is not a
+            // state the UI can do anything with.
+            return decoded.isEmpty ? (ExportRecipe.defaults, nil) : (decoded, nil)
+        } catch {
+            return (ExportRecipe.defaults,
+                    "\(url.lastPathComponent) could not be read (\(error.localizedDescription)). Using the built-in recipes; your file has not been changed.")
+        }
+    }
+
+    func save() {
+        do {
+            try FileManager.default.createDirectory(at: url.deletingLastPathComponent(),
+                                                    withIntermediateDirectories: true)
+            let encoder = JSONEncoder()
+            encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
+            try encoder.encode(recipes).write(to: url, options: .atomic)
+            problem = nil
+        } catch {
+            problem = "Could not save \(url.lastPathComponent): \(error.localizedDescription)"
+        }
+    }
+
+    func add() {
+        var r = ExportRecipe(name: "Untitled")
+        r.id = UUID()
+        recipes.append(r)
+        selectedID = r.id
+        save()
+    }
+
+    func duplicate(_ r: ExportRecipe) {
+        var copy = r
+        copy.id = UUID()
+        copy.name = r.name + " copy"
+        recipes.append(copy)
+        selectedID = copy.id
+        save()
+    }
+
+    /// Removing the last recipe would leave the sheet with nothing to show
+    /// and no way back, so it is refused rather than allowed and worked
+    /// around.
+    func remove(_ r: ExportRecipe) {
+        guard recipes.count > 1, let i = recipes.firstIndex(where: { $0.id == r.id }) else { return }
+        recipes.remove(at: i)
+        if selectedID == r.id { selectedID = recipes.first?.id }
+        save()
+    }
+}
