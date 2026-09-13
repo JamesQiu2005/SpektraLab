@@ -174,10 +174,12 @@ struct ExportPage: View {
     /// away from what the person was looking at while they pick the rest of
     /// the batch.
     ///
-    /// There is no ⇧-click. It used to extend a range from an anchor here, and
-    /// it was removed rather than kept: two modifiers that both mean "one
-    /// frame more" are one modifier too many, and a range is the one selection
-    /// gesture that silently changes its meaning when the sort order does.
+    /// There is no ⇧-click, and the user's rule is the one that decides it —
+    /// "single click only selects one item, only cmd + click can be used to
+    /// select multiple one". It used to extend a range from an anchor here and
+    /// it was removed. A range would also be the one selection gesture that
+    /// changes its meaning when the sort order does, but that is a second
+    /// reason, not the reason.
     ///
     /// The modifier is read off `NSEvent` rather than declared as two
     /// gestures: a plain `TapGesture` on macOS matches a ⌘-click too, so
