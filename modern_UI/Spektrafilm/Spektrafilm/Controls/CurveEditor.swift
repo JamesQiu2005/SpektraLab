@@ -2,10 +2,14 @@
 //  behind the curve, draggable points, input/output readout, an eyedropper.
 //
 //  Interaction: click on the curve adds a point, drag moves it, drag a point
-//  well outside the plot (or right-click it) removes it, double-click resets
-//  the channel. The plot is a `Canvas`; hit-testing is done in the unit
-//  square so it is resolution-independent.
+//  well outside the plot removes it, **right-click (or control-click) a point
+//  opens a menu that deletes it**, double-click resets the channel. The plot is
+//  a `Canvas`; hit-testing is done in the unit square so it is
+//  resolution-independent, and both the drag and the menu ask the *same*
+//  question — `Curve.index(near:in:)` — so a point you can grab is a point you
+//  can right-click.
 
+import AppKit
 import SwiftUI
 
 struct CurveEditor: View {
@@ -81,6 +85,14 @@ struct CurveEditor: View {
                         ctx.stroke(g, with: .color(Theme.text.opacity(0.25)), style: StrokeStyle(lineWidth: 0.5, dash: [2, 2]))
                     }
                 }
+                // Above the canvas, and the only thing on the plot that takes a
+                // right-click (see `PointContextMenu`).
+                PointContextMenu(size: size, curve: curve) { i in
+                    var c = curve
+                    c.remove(i)
+                    setCurve(c)
+                }
+                .frame(width: size.width, height: size.height)
             }
             .contentShape(Rectangle())
             .gesture(
@@ -88,8 +100,10 @@ struct CurveEditor: View {
                     .onChanged { g in
                         let u = unit(g.location, size)
                         if dragging == nil {
-                            let tol = 10 / min(size.width, size.height)
-                            if let i = curve.index(near: unitClamped(g.startLocation, size), tolerance: tol) { dragging = i }
+                            // One hit test for grabbing and for the menu —
+                            // `Curve.index(near:in:)` — so the two cannot
+                            // disagree about what is under the pointer.
+                            if let i = curve.index(near: unitClamped(g.startLocation, size), in: size) { dragging = i }
                             else { var c = curve; dragging = c.insert(unitClamped(g.startLocation, size)); setCurve(c) }
                         }
                         if let i = dragging {
@@ -128,6 +142,101 @@ struct CurveEditor: View {
     private func unit(_ p: CGPoint, _ size: CGSize) -> CGPoint { CGPoint(x: p.x / size.width, y: 1 - p.y / size.height) }
     private func unitClamped(_ p: CGPoint, _ size: CGSize) -> CGPoint {
         let u = unit(p, size); return CGPoint(x: u.x.clamped(to: 0...1), y: u.y.clamped(to: 0...1))
+    }
+
+    // MARK: - the second layer
+
+    /// A right-click on a point, as something SwiftUI can host.
+    ///
+    /// SwiftUI has no right-click gesture, and both obvious workarounds are
+    /// wrong here. A `.contextMenu` on the plot cannot be told *which* point
+    /// was clicked, so it would have to guess from the hover position — and a
+    /// menu that deletes the point next to the one you clicked is worse than no
+    /// menu. An invisible per-point view with its own `.contextMenu` is
+    /// hit-testable, so it would swallow the left-drag that moves the point:
+    /// the gesture it is meant to sit beside.
+    ///
+    /// So this is an `NSView` that answers hit tests **only for a context
+    /// click** — right button, or control-click, which is the same gesture on a
+    /// trackpad — and lets every other event through to the SwiftUI view
+    /// underneath. Its `rightMouseDown` pops up an ordinary `NSMenu` at the
+    /// click, which is what "a second layer of UI" means on this platform, and
+    /// greys the item out for the two points that cannot be deleted rather than
+    /// accepting the click and doing nothing.
+    private struct PointContextMenu: NSViewRepresentable {
+        let size: CGSize
+        let curve: Curve
+        let delete: (Int) -> Void
+
+        func makeNSView(context: Context) -> NSView {
+            ClickView(size: size, curve: curve, delete: delete)
+        }
+
+        func updateNSView(_ view: NSView, context: Context) {
+            guard let view = view as? ClickView else { return }
+            view.size = size
+            view.curve = curve
+            view.delete = delete
+        }
+
+        final class ClickView: NSView {
+            var size: CGSize
+            var curve: Curve
+            var delete: (Int) -> Void
+
+            init(size: CGSize, curve: Curve, delete: @escaping (Int) -> Void) {
+                self.size = size
+                self.curve = curve
+                self.delete = delete
+                super.init(frame: .zero)
+            }
+
+            @available(*, unavailable)
+            required init?(coder: NSCoder) { fatalError("not from a nib") }
+
+            /// Flipped, so a point in this view's coordinates is a point in the
+            /// `Canvas`'s: both count y downwards from the top.
+            override var isFlipped: Bool { true }
+
+            override func hitTest(_ point: NSPoint) -> NSView? {
+                guard let event = NSApp.currentEvent else { return nil }
+                let contextClick = event.type == .rightMouseDown
+                    || (event.type == .leftMouseDown && event.modifierFlags.contains(.control))
+                return contextClick ? super.hitTest(point) : nil
+            }
+
+            override func rightMouseDown(with event: NSEvent) { showMenu(at: event) }
+
+            override func mouseDown(with event: NSEvent) {
+                guard event.modifierFlags.contains(.control) else { return super.mouseDown(with: event) }
+                showMenu(at: event)
+            }
+
+            private func showMenu(at event: NSEvent) {
+                guard size.width > 1, size.height > 1 else { return }
+                let local = convert(event.locationInWindow, from: nil)
+                let unit = CGPoint(x: (local.x / size.width).clamped(to: 0...1),
+                                   y: 1 - (local.y / size.height).clamped(to: 0...1))
+                // No menu for empty plot: a right-click that lands on nothing is
+                // not asking about a point.
+                guard let i = curve.index(near: unit, in: size) else { return }
+
+                let item = NSMenuItem(title: "Delete point", action: #selector(fire(_:)), keyEquivalent: "")
+                item.target = self
+                item.representedObject = i
+                // The ends are the curve's domain; the menu says so by being
+                // greyed rather than by doing nothing when clicked.
+                item.isEnabled = curve.isDeletable(i)
+                let menu = NSMenu()
+                menu.addItem(item)
+                menu.popUp(positioning: item, at: local, in: self)
+            }
+
+            @objc private func fire(_ sender: NSMenuItem) {
+                guard let i = sender.representedObject as? Int else { return }
+                delete(i)
+            }
+        }
     }
 
     private var readout: some View {

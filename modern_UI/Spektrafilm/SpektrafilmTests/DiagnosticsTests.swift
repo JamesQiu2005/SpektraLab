@@ -22,26 +22,39 @@ final class DiagnosticsTests: XCTestCase {
 
     // MARK: - the harness
 
-    /// A fresh log directory for one test, pointed at the **app's** log.
+    /// The log this test writes to, and the model that hands it to everything
+    /// under test.
     ///
-    /// The app's log rather than a private one on purpose: `Session`,
-    /// `EngineClient`, `RenderScheduler` and `Exporter` all write to the log
-    /// their `Diagnostics` hands them, and the app's `Diagnostics` is
-    /// `Log.shared`. A check that read some other log would not be checking
-    /// the code that runs.
+    /// **A log of its own, not `Log.shared`** — and that is the second version
+    /// of this harness. The first used the app's shared log, on the argument
+    /// that a check should read the log the app actually writes. What that
+    /// bought was a suite that failed only when the whole thing ran: another
+    /// class's session, still finishing a 45 MP native render in the
+    /// background, dropped its render record into the shared log in the middle
+    /// of this one's develop — two render records where the develop produced
+    /// one, and both of them correct. The injection seam (`Session(diagnostics:)`)
+    /// is what makes a test own its records; a global is not an input a test
+    /// can set. (AGENTS trap 24, in its `Log.shared` form.)
+    private var log: Log!
+    private var diagnostics: Diagnostics!
+
+    /// A fresh log directory and a fresh log for one test.
     @discardableResult
     private func configure(session: Bool = true, level: LogLevel = .info) throws -> URL {
         let dir = FileManager.default.temporaryDirectory.appending(path: "spk-diag-\(UUID().uuidString)")
         try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        log = Log(ringCapacity: Log.defaultRingCapacity)
+        // The sampler is built on the same log, so the `memory` records this
+        // test reads are the ones its own session produced.
+        diagnostics = Diagnostics(defaults: try freshDefaults(), log: log)
+        let log = log!
         addTeardownBlock {
-            Log.shared.endSession()
-            Log.shared.resetRing()
+            log.endSession()
+            log.resetRing()
             try? FileManager.default.removeItem(at: dir)
         }
-        Log.shared.endSession()
-        Log.shared.resetRing()
-        Log.shared.level = level
-        Log.shared.setFileSinkEnabled(true)
+        log.level = level
+        log.setFileSinkEnabled(true)
         // The preview resolution is persisted state a *different* test class
         // can leave behind (`Session.previewEdgeKey`), and it decides whether a
         // small frame earns a native render — i.e. whether an assertion about
@@ -56,7 +69,7 @@ final class DiagnosticsTests: XCTestCase {
             }
         }
         if session {
-            Log.shared.startSession(destination: dir, retention: .default, level: level,
+            log.startSession(destination: dir, retention: .default, level: level,
                                     previousSessionCheck: false)
         }
         return dir
@@ -85,7 +98,7 @@ final class DiagnosticsTests: XCTestCase {
     /// Develop a frame and return the session that did it.
     private func developedSession() async throws -> (Session, URL) {
         let url = try smokeFrame()
-        let session = Session()
+        let session = Session(diagnostics: diagnostics)
         session.open(urls: [url])
         try await waitUntil("the frame to decode", timeout: 90) { session.decoded != nil }
         session.requestPrint()
@@ -93,7 +106,7 @@ final class DiagnosticsTests: XCTestCase {
             session.serviceSessionIDForExport != nil && session.frameStates[url] == .processed
                 && !session.busy
         }
-        Log.shared.flushNow()
+        log.flushNow()
         return (session, url)
     }
 
@@ -104,7 +117,7 @@ final class DiagnosticsTests: XCTestCase {
     func testADevelopEmitsTheExpectedRecords() async throws {
         _ = try configure()
         let (session, url) = try await developedSession()
-        let records = Log.shared.records()
+        let records = log.records()
 
         // One `open` record, and it is the develop's rather than the decode's:
         // the decode-only branch also writes one, which is why the mode is
@@ -154,13 +167,13 @@ final class DiagnosticsTests: XCTestCase {
         // Every record that reaches the *ring* at `info` and above is in the
         // file — the ring holds more, because its floor is `debug` (§2), and
         // that difference is the point of having both.
-        Log.shared.flushNow()
-        let file = try XCTUnwrap(Log.shared.sessionFile)
+        log.flushNow()
+        let file = try XCTUnwrap(log.sessionFile)
         let lines = try String(contentsOf: file, encoding: .utf8)
             .split(separator: "\n").compactMap { line -> [String: Any]? in
                 try? JSONSerialization.jsonObject(with: Data(line.utf8)) as? [String: Any]
             }
-        let inBoth = Log.shared.records().filter { $0.level.reaches(.info) }.count
+        let inBoth = log.records().filter { $0.level.reaches(.info) }.count
         XCTAssertEqual(lines.count, inBoth,
                        "the file and the ring disagree about the info-and-above records")
         XCTAssertTrue(lines.contains { $0["msg"] as? String == "develop" })
@@ -185,13 +198,13 @@ final class DiagnosticsTests: XCTestCase {
         let dir = try configure()
         let records = 2_000
         let withSink = try timeRecords(records)
-        Log.shared.flushNow()
-        let file = try XCTUnwrap(Log.shared.sessionFile)
+        log.flushNow()
+        let file = try XCTUnwrap(log.sessionFile)
         let written = try String(contentsOf: file, encoding: .utf8).split(separator: "\n").count
         XCTAssertGreaterThanOrEqual(written, records,
                                     "the file sink wrote nothing, so the comparison below proves nothing")
 
-        Log.shared.setFileSinkEnabled(false)
+        log.setFileSinkEnabled(false)
         let withoutSink = try timeRecords(records)
         let added = withSink - withoutSink
         let perRecord = added / Double(records) * 1_000_000
@@ -212,7 +225,7 @@ final class DiagnosticsTests: XCTestCase {
     private func timeRecords(_ count: Int) throws -> Double {
         let started = Date()
         for i in 0..<count {
-            Log.shared.info(.render, "render", [
+            log.info(.render, "render", [
                 .init("tier", "live"), .init("kind", "reprint"),
                 .init("ms", 12.3), .init("px", 1_707_200), .init("i", i),
             ])
@@ -345,12 +358,12 @@ final class DiagnosticsTests: XCTestCase {
         try FileManager.default.setAttributes([.modificationDate: Date()], ofItemAtPath: unclean.path)
         try FileManager.default.setAttributes([.modificationDate: Date().addingTimeInterval(-3600)],
                                               ofItemAtPath: clean.path)
-        Log.shared.resetRing()
-        Log.shared.startSession(destination: dir, retention: .default, level: .info)
+        log.resetRing()
+        log.startSession(destination: dir, retention: .default, level: .info)
         try await waitUntil("the unclean-exit record", timeout: 10) {
-            Log.shared.records().contains { $0.text("marker") == "unclean_exit" }
+            log.records().contains { $0.text("marker") == "unclean_exit" }
         }
-        let warn = try XCTUnwrap(Log.shared.records().first { $0.text("marker") == "unclean_exit" })
+        let warn = try XCTUnwrap(log.records().first { $0.text("marker") == "unclean_exit" })
         XCTAssertEqual(warn.level, .warn)
         XCTAssertEqual(warn.category, .app)
     }
@@ -368,10 +381,10 @@ final class DiagnosticsTests: XCTestCase {
     /// the app's own end record stopped being recognised.
     func testASessionThatFinishesCleanlyReadsAsCleanOnTheNextLaunch() async throws {
         let dir = try configure()
-        Log.shared.info(.app, "launch", [.init("marker", "launch")])
-        let first = try XCTUnwrap(Log.shared.sessionFile)
+        log.info(.app, "launch", [.init("marker", "launch")])
+        let first = try XCTUnwrap(log.sessionFile)
 
-        Diagnostics.shared.finish()
+        diagnostics.finish()
 
         let text = try String(contentsOf: first, encoding: .utf8)
         XCTAssertTrue(text.contains(LogCleanup.SessionEndMarker),
@@ -381,11 +394,11 @@ final class DiagnosticsTests: XCTestCase {
         XCTAssertTrue(report.endedCleanly, "the app's own end record was not recognised")
 
         // …so the launch after it says nothing about an unclean exit.
-        Log.shared.resetRing()
-        Log.shared.startSession(destination: dir, retention: .default, level: .info)
+        log.resetRing()
+        log.startSession(destination: dir, retention: .default, level: .info)
         try await Task.sleep(for: .milliseconds(400))
-        Log.shared.flushNow()
-        XCTAssertFalse(Log.shared.records().contains { $0.text("marker") == "unclean_exit" },
+        log.flushNow()
+        XCTAssertFalse(log.records().contains { $0.text("marker") == "unclean_exit" },
                        "a session that ended cleanly was reported as an unclean exit")
     }
 
@@ -440,18 +453,18 @@ final class DiagnosticsTests: XCTestCase {
     func testNoPixelsReachTheRecords() async throws {
         let directory = try configure()
         _ = try await developedSession()
-        Log.shared.flushNow()
+        log.flushNow()
 
         // The whole file, not just the ring: the serialisation is part of the
         // path a leak would travel.
-        let file = try XCTUnwrap(Log.shared.sessionFile)
+        let file = try XCTUnwrap(log.sessionFile)
         let text = try String(contentsOf: file, encoding: .utf8)
         if let run = firstBase64Run(in: text, atLeast: 64) {
             XCTFail("a \(run.count)-character base64-looking run is in the log: \(run.prefix(80))…")
         }
 
         let allowedPrefixes = [NSHomeDirectory(), directory.path, "/var/folders", "/private/var/folders"]
-        for record in Log.shared.records() {
+        for record in log.records() {
             for field in record.fields {
                 guard case .string(let value) = field.value else { continue }
                 XCTAssertLessThanOrEqual(value.count, 512,
@@ -510,20 +523,20 @@ final class DiagnosticsTests: XCTestCase {
     /// `debug` record appeared in the file at Normal.
     func testTheLevelDecidesWhatReachesTheFile() async throws {
         let dir = try configure(level: .info)
-        Log.shared.debug(.canvas, "a canvas trace at Normal")
-        Log.shared.error(.error, "an error at Normal")
-        Log.shared.flushNow()
-        let file = try XCTUnwrap(Log.shared.sessionFile)
+        log.debug(.canvas, "a canvas trace at Normal")
+        log.error(.error, "an error at Normal")
+        log.flushNow()
+        let file = try XCTUnwrap(log.sessionFile)
         let atNormal = try String(contentsOf: file, encoding: .utf8)
         XCTAssertTrue(atNormal.contains("an error at Normal"))
         XCTAssertFalse(atNormal.contains("a canvas trace at Normal"),
                        "a debug record reached the file at Normal")
-        XCTAssertTrue(Log.shared.records().contains { $0.message == "a canvas trace at Normal" },
+        XCTAssertTrue(log.records().contains { $0.message == "a canvas trace at Normal" },
                       "the ring dropped a debug record at Normal — the ring is debug and above, always")
 
-        Log.shared.level = .debug
-        Log.shared.debug(.canvas, "a canvas trace at Detailed")
-        Log.shared.flushNow()
+        log.level = .debug
+        log.debug(.canvas, "a canvas trace at Detailed")
+        log.flushNow()
         let atDetailed = try String(contentsOf: file, encoding: .utf8)
         XCTAssertTrue(atDetailed.contains("a canvas trace at Detailed"),
                       "a debug record did not reach the file at Detailed")
@@ -538,8 +551,8 @@ final class DiagnosticsTests: XCTestCase {
     /// placeholders: the frame name was still in the copied log.
     func testTheBundleIsAZipWithTheLogsAndTheMachineInIt() async throws {
         let dir = try configure()
-        Log.shared.info(.open, "develop", [.init("frame", "DSC03710.ARW"), .init("px", 24_000_000)])
-        Log.shared.flushNow()
+        log.info(.open, "develop", [.init("frame", "DSC03710.ARW"), .init("px", 24_000_000)])
+        log.flushNow()
 
         let bundle = dir.appending(path: "bundle.zip")
         try DiagnosticBundle.assemble(to: bundle, includeFileNames: false, inputs: .init(
@@ -567,7 +580,7 @@ final class DiagnosticsTests: XCTestCase {
 
         // The untick replaces the file name everywhere, consistently (§7).
         let logged = try run("/usr/bin/unzip", ["-p", bundle.path,
-                                                "logs/\(try XCTUnwrap(Log.shared.sessionFile).lastPathComponent)"])
+                                                "logs/\(try XCTUnwrap(log.sessionFile).lastPathComponent)"])
         XCTAssertFalse(logged.contains("DSC03710"), "the frame name survived the untick")
         XCTAssertTrue(logged.contains("frame-0001.ARW"), "the placeholder is not the RFC's shape: \(logged)")
     }
@@ -604,7 +617,7 @@ final class DiagnosticsTests: XCTestCase {
     func testASupersededRenderIsRecordedWithTheEnginesOwnNumbers() async throws {
         _ = try configure()
         let url = try rawFrame("A7m3/DSC03710.ARW")     // 24 MP: a shoot render is long enough to interrupt
-        let session = Session()
+        let session = Session(diagnostics: diagnostics)
         session.open(urls: [url])
         try await waitUntil("the frame to decode", timeout: 120) { session.decoded != nil }
         session.requestPrint()
@@ -622,9 +635,9 @@ final class DiagnosticsTests: XCTestCase {
         session.scheduler.invalidate()     // the generation moves under the render
 
         try await waitUntil("the superseded record", timeout: 120) {
-            Log.shared.records().contains { $0.category == .render && $0.message == "superseded" }
+            log.records().contains { $0.category == .render && $0.message == "superseded" }
         }
-        let record = try XCTUnwrap(Log.shared.records().first {
+        let record = try XCTUnwrap(log.records().first {
             $0.category == .render && $0.message == "superseded"
         })
         XCTAssertEqual(record.level, .info)
@@ -759,7 +772,7 @@ final class DiagnosticsTests: XCTestCase {
     /// recorded and the window said nothing.
     func testARefusalIsVisibleInTheWindowAndInTheLog() throws {
         _ = try configure()
-        let session = Session()
+        let session = Session(diagnostics: diagnostics)
         session.noteFailure(EngineClient.ClientError.engine(
             "the frame is too large: 14204x10652 is over max_mp 60"), operation: "develop",
             frame: "IQ4.tif", pixels: 151_000_000)
@@ -770,7 +783,7 @@ final class DiagnosticsTests: XCTestCase {
         XCTAssertTrue(session.status.contains("larger than Filmify"))
         XCTAssertEqual(session.lastError, session.status)
 
-        let error = try XCTUnwrap(Log.shared.records().first { $0.category == .error })
+        let error = try XCTUnwrap(log.records().first { $0.category == .error })
         XCTAssertEqual(error.level, .error)
         XCTAssertEqual(error.text("kind"), "size")
         XCTAssertEqual(error.text("op"), "develop")
@@ -826,8 +839,8 @@ final class DiagnosticsTests: XCTestCase {
         // And the session log has the same export, with the EV the render
         // applied — the number that reconciles the file with the approved
         // canvas.
-        Log.shared.flushNow()
-        let record = try XCTUnwrap(Log.shared.records().last { $0.category == .export && $0.message == "export" })
+        log.flushNow()
+        let record = try XCTUnwrap(log.records().last { $0.category == .export && $0.message == "export" })
         XCTAssertEqual(record.text("format"), ExportFormat.tiff.rawValue)
         XCTAssertEqual(record.number("bit_depth"), 16)
         XCTAssertEqual(record.text("frame"), url.lastPathComponent)

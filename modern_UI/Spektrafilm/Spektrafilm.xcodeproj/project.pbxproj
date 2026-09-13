@@ -237,6 +237,7 @@
 			sourceTree = "<group>";
 		};
 		54964C5F0C793C8B023D7B3D /* CanvasViewTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CanvasViewTests.swift"; sourceTree = "<group>"; };
+		AA2672A23221203CDD34325A /* ColorBalanceTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "ColorBalanceTests.swift"; sourceTree = "<group>"; };
 		4A74158CD597BA1442A8D5DB /* CompareAndFlagsTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CompareAndFlagsTests.swift"; sourceTree = "<group>"; };
 		84191DFFDD90B498FA79B61D /* CurveMathTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CurveMathTests.swift"; sourceTree = "<group>"; };
 		EABFC7609BEE9536030F8252 /* DecodeSeparationTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "DecodeSeparationTests.swift"; sourceTree = "<group>"; };
@@ -259,6 +260,7 @@
 			isa = PBXGroup;
 			children = (
 				54964C5F0C793C8B023D7B3D /* CanvasViewTests.swift */,
+				AA2672A23221203CDD34325A /* ColorBalanceTests.swift */,
 				4A74158CD597BA1442A8D5DB /* CompareAndFlagsTests.swift */,
 				84191DFFDD90B498FA79B61D /* CurveMathTests.swift */,
 				EABFC7609BEE9536030F8252 /* DecodeSeparationTests.swift */,
@@ -562,6 +564,7 @@
 			runOnlyForDeploymentPostprocessing = 0;
 		};
 		71ADA4905E56DBF5CB348288 /* CanvasViewTests.swift */ = {isa = PBXBuildFile; fileRef = 54964C5F0C793C8B023D7B3D; };
+		1569BE8AC87F48955F89601C /* ColorBalanceTests.swift */ = {isa = PBXBuildFile; fileRef = AA2672A23221203CDD34325A; };
 		93613D4FA759228E40422B4B /* CompareAndFlagsTests.swift */ = {isa = PBXBuildFile; fileRef = 4A74158CD597BA1442A8D5DB; };
 		9E374E549C7AD58E55089F46 /* CurveMathTests.swift */ = {isa = PBXBuildFile; fileRef = 84191DFFDD90B498FA79B61D; };
 		5D27DA86FB66E03AA16B7B4D /* DecodeSeparationTests.swift */ = {isa = PBXBuildFile; fileRef = EABFC7609BEE9536030F8252; };
@@ -665,6 +668,7 @@
 			buildActionMask = 2147483647;
 			files = (
 				71ADA4905E56DBF5CB348288 /* CanvasViewTests.swift */,
+				1569BE8AC87F48955F89601C /* ColorBalanceTests.swift */,
 				93613D4FA759228E40422B4B /* CompareAndFlagsTests.swift */,
 				9E374E549C7AD58E55089F46 /* CurveMathTests.swift */,
 				5D27DA86FB66E03AA16B7B4D /* DecodeSeparationTests.swift */,

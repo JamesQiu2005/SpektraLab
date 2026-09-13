@@ -507,12 +507,15 @@ final class Log: @unchecked Sendable {
         sink.prepare(previousSession: { [weak self] report in
             self?.previousSessionBox.value = report
             // §1.7: the *absence* of a session-end record is how a hang, a
-            // jetsam kill or a panic shows up on the next launch. `Log.shared`
-            // rather than `self`: this runs on the file queue, a record is
-            // thread-safe from anywhere, and the sink that is being prepared is
-            // the same one the warn record will be written to.
+            // jetsam kill or a panic shows up on the next launch.
+            //
+            // `self` and not a global: the finding belongs to the log whose
+            // session was checked, and a test that gave a session its own log
+            // must not have to guess which log its records went to. (It wrote
+            // to `Log.shared` for one iteration, and the only thing that
+            // noticed was a test — which is the right thing to have noticed.)
             if previousSessionCheck, let report, !report.endedCleanly {
-                Log.shared.warn(.app, "the previous session ended without a clean exit", [
+                self?.warn(.app, "the previous session ended without a clean exit", [
                     .init("previous", report.file),
                     .init("age_s", report.ageSeconds),
                     .init("marker", "unclean_exit"),

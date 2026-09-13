@@ -1,36 +1,113 @@
-//  ColorWheel.swift — Capture One's Color Balance: Master / 3-way tabs, a hue
-//  wheel with a draggable point (angle = hue, radius = saturation) and a
-//  luminance slider beside it.
+//  ColorWheel.swift — Capture One's Color Balance: five tabs, a hue wheel with
+//  a draggable point (angle = hue, radius = saturation), and **two arc sliders
+//  per wheel** — saturation hugging the left of the circle, lightness the
+//  right — drawn as arcs concentric with the wheel rather than as straight
+//  sliders beside it.
+//
+//  The arrangement is the reference capture's (`PRD/capture_one_color_balance_
+//  reference.png`): the **3-Way** tab is a triangle, midtone above and shadow
+//  and highlight below it. That is not decoration — the right panel is 286 pt
+//  wide (`Theme.Metric.rightPanelWidth`), and three wheels in one row would be
+//  about 55 pt each, which is a control you cannot aim at. The reference puts
+//  them in a triangle for the same reason.
+//
+//  The *colours and sizes* are ours: `Theme` tokens throughout, none of Capture
+//  One's greys. This file adds no model and no uniforms — `ColorZone` already
+//  carries `hue`, `saturation` and `luminance` per zone (`Model/Adjustments
+//  .swift`), so all of this is arrangement and interaction over the state that
+//  already exists.
 
+import AppKit
 import SwiftUI
 
 struct ColorBalanceEditor: View {
     @Bindable var session: Session
-    @State private var mode: Mode = .master
-    enum Mode: String, CaseIterable, Identifiable { case master = "Master", threeWay = "3-Way"; var id: String { rawValue } }
+    @State private var tab: Tab = .master
+    /// The width the wheels are sized against: what the right panel gives a
+    /// control inside a well (286 less the well's inset and padding on both
+    /// sides — `ColorBalanceLayout.assumedWidth`, which a test pins).
+    ///
+    /// It was measured from the view for one iteration, and that was a mistake
+    /// worth recording: the preference arrived as **zero** before the first
+    /// layout and never came back, so every wheel was quietly sized to its
+    /// floor — a capture showed a triangle at 64/44 pt where the arithmetic
+    /// said 97/73, and nothing anywhere said "wrong", because a control sized
+    /// to its minimum still looks like a control. A number the panel's own
+    /// furniture decides belongs in one place with a name on it, where a test
+    /// can check it, not in a preference that can be late, zero, or absent.
+    private let width = ColorBalanceLayout.assumedWidth
+
+    enum Tab: String, CaseIterable, Identifiable {
+        case master, threeWay, shadows, midtones, highlights
+        var id: String { rawValue }
+        var title: String {
+            switch self {
+            case .master: "Master"
+            case .threeWay: "3-Way"
+            case .shadows: "Shadow"
+            case .midtones: "Midtone"
+            case .highlights: "Highlight"
+            }
+        }
+        /// The zone this tab edits, or nil for the three at once.
+        var keyPath: WritableKeyPath<ColorBalance, ColorZone>? {
+            switch self {
+            case .master: \.master
+            case .threeWay: nil
+            case .shadows: \.shadows
+            case .midtones: \.midtones
+            case .highlights: \.highlights
+            }
+        }
+    }
 
     var body: some View {
         VStack(spacing: 8) {
-            HStack(spacing: 0) {
-                ForEach(Mode.allCases) { m in
-                    let on = m == mode
-                    Button { mode = m } label: {
-                        VStack(spacing: 4) {
-                            Text(m.rawValue).font(Theme.Font.tab).foregroundStyle(on ? Theme.accent : Theme.secondaryText)
-                            Rectangle().fill(on ? Theme.accent : Theme.dim.opacity(0.5)).frame(height: on ? 1.5 : 0.5)
-                        }.contentShape(Rectangle())
-                    }.buttonStyle(.plain)
-                }
-            }
-            if mode == .master {
-                ZoneWheel(title: nil, zone: Binding(get: { session.adjustments.colorBalance.master },
-                                                    set: { var a = session.adjustments; a.colorBalance.master = $0; session.adjustments = a }), size: 110)
+            tabs
+            if let keyPath = tab.keyPath {
+                ZoneWheel(zone: zone(keyPath), wheel: ColorBalanceLayout.single(width: width))
             } else {
-                HStack(spacing: 4) {
-                    ZoneWheel(title: "Shadow", zone: zone(\.shadows), size: 66)
-                    ZoneWheel(title: "Midtone", zone: zone(\.midtones), size: 66)
-                    ZoneWheel(title: "Highlight", zone: zone(\.highlights), size: 66)
+                threeWay
+            }
+        }
+        .frame(maxWidth: .infinity)
+    }
+
+    /// The tab row: five zones, the active one underlined in the accent — the
+    /// arrangement the reference leads with, and the part our two-tab version
+    /// was missing. The row is `CurveEditor`'s idiom, at five tabs and spread
+    /// evenly, because at this width five labels do not fit side by side at
+    /// their natural widths.
+    private var tabs: some View {
+        HStack(spacing: 0) {
+            ForEach(Tab.allCases) { t in
+                let on = t == tab
+                Button { tab = t } label: {
+                    VStack(spacing: 4) {
+                        Text(t.title).font(Theme.Font.tab).lineLimit(1)
+                            .foregroundStyle(on ? Theme.accent : Theme.secondaryText)
+                        Rectangle().fill(on ? Theme.accent : Theme.dim.opacity(0.5))
+                            .frame(height: on ? 1.5 : 0.5)
+                    }
+                    .frame(maxWidth: .infinity)
+                    .contentShape(Rectangle())
                 }
+                .buttonStyle(.plain)
+            }
+        }
+    }
+
+    private var threeWay: some View {
+        let layout = ColorBalanceLayout.threeWay(width: width)
+        return VStack(spacing: 6) {
+            ZoneWheel(zone: zone(\.midtones), wheel: layout.midtone, label: "Midtone")
+            HStack(spacing: layout.gap) {
+                // The two lower labels sit *above* their wheels: the row below
+                // the midtone wheel is where its own label is, and a label under
+                // a lower wheel would be the last thing in the panel, under the
+                // wheel the user is dragging.
+                ZoneWheel(zone: zone(\.shadows), wheel: layout.side, label: "Shadow", labelFirst: true)
+                ZoneWheel(zone: zone(\.highlights), wheel: layout.side, label: "Highlight", labelFirst: true)
             }
         }
     }
@@ -39,45 +116,82 @@ struct ColorBalanceEditor: View {
         Binding(get: { session.adjustments.colorBalance[keyPath: kp] },
                 set: { var a = session.adjustments; a.colorBalance[keyPath: kp] = $0; session.adjustments = a })
     }
+
 }
 
+// MARK: - one zone
+
+/// A wheel with its two arcs. `hue` is the point's angle and `saturation` its
+/// radius; the arcs carry saturation again (as a position along an arc rather
+/// than a radius, which is what makes it grabbable) and luminance.
 struct ZoneWheel: View {
-    let title: String?
     @Binding var zone: ColorZone
-    let size: CGFloat
+    let wheel: CGFloat
+    var label: String? = nil
+    /// The three-way layout's lower wheels label above rather than below.
+    var labelFirst = false
 
     var body: some View {
         VStack(spacing: 4) {
-            if let title { Text(title).font(Theme.Font.sublabel).foregroundStyle(Theme.secondaryText) }
-            HStack(spacing: 6) {
-                wheel
-                lumSlider
+            if labelFirst { labelText }
+            // Concentric, not side by side: the arcs hug the rim, so their ends
+            // curve back over the wheel's own square. Laid out in an HStack
+            // they were clipped to their strip, and the parts beyond it — most
+            // of each arc — were cut off. They overlap here and are drawn
+            // *outside* the rim, so the only thing the overlap costs is that
+            // their hit regions must be the arc itself rather than their
+            // frame (see `ArcSlider.ArcHit`), or they would swallow the drag
+            // that moves the wheel's point.
+            ZStack {
+                ArcSlider(value: $zone.saturation, range: 0...1, side: .left, wheel: wheel,
+                          track: [Theme.dim, hueColour], neutral: 0)
+                ArcSlider(value: $zone.luminance, range: -1...1, side: .right, wheel: wheel,
+                          track: [Color.black.opacity(0.6), Theme.dim, Theme.text.opacity(0.9)], neutral: 0)
+                disc.frame(width: wheel, height: wheel)
             }
+            .frame(width: ColorBalanceLayout.band(wheel), height: ColorBalanceLayout.band(wheel))
+            if !labelFirst { labelText }
         }
         .frame(maxWidth: .infinity)
     }
 
-    private var wheel: some View {
+    @ViewBuilder private var labelText: some View {
+        if let label {
+            Text(label).font(Theme.Font.sublabel).foregroundStyle(Theme.secondaryText).lineLimit(1)
+        } else {
+            Color.clear.frame(height: 0)
+        }
+    }
+
+    /// The zone's own colour, for the saturation arc's far end: Capture One
+    /// tints that arc with the colour being added, and it is what makes the
+    /// arc read as "this much of *this* colour" rather than as a grey scale.
+    private var hueColour: Color {
+        Color(hue: zone.hue / 360, saturation: 0.85, brightness: 0.95)
+    }
+
+    private var disc: some View {
         ZStack {
             Circle().fill(AngularGradient(colors: [
                 Color(hue: 0, saturation: 0.6, brightness: 0.9), Color(hue: 1/6, saturation: 0.6, brightness: 0.9),
                 Color(hue: 2/6, saturation: 0.6, brightness: 0.85), Color(hue: 3/6, saturation: 0.6, brightness: 0.9),
                 Color(hue: 4/6, saturation: 0.6, brightness: 0.95), Color(hue: 5/6, saturation: 0.6, brightness: 0.9),
-                Color(hue: 0, saturation: 0.6, brightness: 0.9)], center: .center, startAngle: .degrees(0), endAngle: .degrees(360)))
-            Circle().fill(RadialGradient(colors: [Theme.card, Theme.card.opacity(0)], center: .center, startRadius: 0, endRadius: size / 2))
+                Color(hue: 0, saturation: 0.6, brightness: 0.9)], center: .center,
+                startAngle: .degrees(0), endAngle: .degrees(360)))
+            Circle().fill(RadialGradient(colors: [Theme.card, Theme.card.opacity(0)],
+                                         center: .center, startRadius: 0, endRadius: wheel / 2))
             Circle().stroke(Theme.dim.opacity(0.6), lineWidth: 0.5)
-            let r = CGFloat(zone.saturation) * (size / 2 - 5)
+            let r = CGFloat(zone.saturation) * (wheel / 2 - 5)
             let a = zone.hue * .pi / 180
             Circle().fill(Theme.text).frame(width: 7, height: 7)
                 .overlay(Circle().stroke(Theme.card, lineWidth: 1))
                 .offset(x: cos(a) * r, y: -sin(a) * r)
         }
-        .frame(width: size, height: size)
         .contentShape(Circle())
         .gesture(DragGesture(minimumDistance: 0).onChanged { g in
-            let c = CGPoint(x: size / 2, y: size / 2)
+            let c = CGPoint(x: wheel / 2, y: wheel / 2)
             let dx = g.location.x - c.x, dy = c.y - g.location.y
-            let rr = min(hypot(dx, dy) / (size / 2 - 5), 1)
+            let rr = min(hypot(dx, dy) / (wheel / 2 - 5), 1)
             var deg = atan2(dy, dx) * 180 / .pi
             if deg < 0 { deg += 360 }
             zone.hue = Double(deg)
@@ -85,24 +199,270 @@ struct ZoneWheel: View {
         })
         .simultaneousGesture(TapGesture(count: 2).onEnded { zone = ColorZone() })
     }
+}
 
-    private var lumSlider: some View {
-        GeometryReader { geo in
-            let h = geo.size.height
-            let y = (1 - CGFloat(zone.luminance + 1) / 2) * (h - 8) + 4
-            ZStack(alignment: .top) {
-                Capsule().fill(LinearGradient(colors: [Theme.text.opacity(0.8), Theme.dim, Color.black.opacity(0.6)], startPoint: .top, endPoint: .bottom))
-                    .frame(width: 3)
-                RoundedRectangle(cornerRadius: 2).fill(Theme.knob).frame(width: 9, height: 7).offset(y: y - 3.5)
+// MARK: - the arc
+
+/// One arc slider: a track that hugs the wheel's rim and a thumb that rides it.
+///
+/// Both arcs put **the top of the arc at the top of the range**, and both read
+/// left-to-right the same way up their own side: bottom = minimum, top =
+/// maximum. The track's gradient says which is which — grey at the bottom for
+/// a saturation of zero, the zone's own hue at the top; black through grey to
+/// white for lightness.
+struct ArcSlider: View {
+    typealias Side = ColorBalanceLayout.Side
+
+    @Binding var value: Double
+    let range: ClosedRange<Double>
+    let side: Side
+    /// The wheel this arc hugs, so the two agree without either knowing the
+    /// other's frame.
+    let wheel: CGFloat
+    /// The track's gradient, from the minimum end to the maximum end.
+    let track: [Color]
+    /// What a double-click puts back.
+    let neutral: Double
+
+    private static let gap = ColorBalanceLayout.arcGap
+    private static let weight = ColorBalanceLayout.arcWeight
+    private static let thumb = ColorBalanceLayout.thumb
+
+    var body: some View {
+        Canvas { ctx, size in
+            let c = CGPoint(x: size.width / 2, y: size.height / 2)
+            let r = wheel / 2 + Self.gap
+            // The track, drawn in segments: a gradient that follows the arc.
+            // One `stroke` with a linear shading would run straight across the
+            // curve, which reads as wrong the moment the arc is anything but
+            // vertical.
+            let segments = 24
+            for i in 0..<segments {
+                let t = Double(i + 1) / Double(segments)
+                var segment = Path()
+                segment.move(to: point(c, r, fraction: Double(i) / Double(segments)))
+                segment.addLine(to: point(c, r, fraction: t))
+                ctx.stroke(segment, with: .color(colour(at: t)),
+                           style: StrokeStyle(lineWidth: Self.weight, lineCap: .round))
             }
-            .frame(width: 12, height: h)
-            .contentShape(Rectangle())
-            .gesture(DragGesture(minimumDistance: 0).onChanged { g in
-                let f = ((g.location.y - 4) / max(h - 8, 1)).clamped(to: 0...1)
-                zone.luminance = Double(1 - 2 * f)
-            })
-            .simultaneousGesture(TapGesture(count: 2).onEnded { zone.luminance = 0 })
+            // The thumb: a tick across the track, dark under light so it reads
+            // on both ends of the gradient.
+            var tick = Path()
+            tick.move(to: point(c, r - Self.thumb, fraction: fraction))
+            tick.addLine(to: point(c, r + Self.thumb, fraction: fraction))
+            ctx.stroke(tick, with: .color(Theme.card),
+                       style: StrokeStyle(lineWidth: Self.weight + 1.6, lineCap: .round))
+            ctx.stroke(tick, with: .color(Theme.knob),
+                       style: StrokeStyle(lineWidth: Self.weight - 0.4, lineCap: .round))
         }
-        .frame(width: 12, height: size)
+        // The arc itself is the hit region, not the square it is drawn in: the
+        // square overlaps the wheel (the arcs curve back over it), and a frame
+        // that took every click inside it would take the drag meant for the
+        // wheel's point.
+        .contentShape(ArcHit(wheel: wheel, side: side))
+        .gesture(DragGesture(minimumDistance: 0).onChanged { g in
+            // The angle about the *wheel*, not the touch's radius: the arc is
+            // thin, and a drag that wanders off it radially should still track.
+            value = value(at: g.location, centre: CGPoint(x: bandWidth / 2, y: bandWidth / 2))
+        })
+        .simultaneousGesture(TapGesture(count: 2).onEnded { value = neutral })
+    }
+
+    private var bandWidth: CGFloat { ColorBalanceLayout.band(wheel) }
+
+    /// The track as a shape: the arc, stroked to something a hand can find.
+    /// `contentShape` wants a `Shape`, and this is the one region of the
+    /// slider's square that belongs to the slider — the track itself, not the
+    /// strip around it, because the square overlaps the wheel.
+    struct ArcHit: Shape {
+        let wheel: CGFloat
+        let side: Side
+        func path(in rect: CGRect) -> Path {
+            let c = CGPoint(x: rect.midX, y: rect.midY)
+            let r = wheel / 2 + ColorBalanceLayout.arcGap
+            var arc = Path()
+            let steps = 48
+            for i in 0...steps {
+                let t = Double(i) / Double(steps)
+                let theta = ColorBalanceLayout.Arc.theta(fraction: t, on: side) * .pi / 180
+                let p = CGPoint(x: c.x + r * cos(theta), y: c.y - r * sin(theta))
+                if i == 0 { arc.move(to: p) } else { arc.addLine(to: p) }
+            }
+            return arc.strokedPath(StrokeStyle(lineWidth: ColorBalanceLayout.hitWidth, lineCap: .round))
+        }
+    }
+
+    /// The point at `fraction` along the arc, 0 at the minimum end and 1 at the
+    /// maximum. Angles are the usual mathematical ones (0° = right, 90° = up)
+    /// with y flipped, so this reads the same way as the wheel's own hue
+    /// arithmetic.
+    private func point(_ c: CGPoint, _ r: CGFloat, fraction: Double) -> CGPoint {
+        let theta = ColorBalanceLayout.Arc.theta(fraction: fraction, on: side) * .pi / 180
+        return CGPoint(x: c.x + r * cos(theta), y: c.y - r * sin(theta))
+    }
+
+    private var fraction: Double { ColorBalanceLayout.Arc.fraction(value, in: range) }
+
+    private func value(at p: CGPoint, centre c: CGPoint) -> Double {
+        ColorBalanceLayout.Arc.value(atAngle: ColorBalanceLayout.Arc.angle(of: p, about: c),
+                                     on: side, in: range)
+    }
+
+    /// The track's colour at `fraction`: the gradient's stops, interpolated in
+    /// the same parameter the geometry uses.
+    private func colour(at fraction: Double) -> Color {
+        guard track.count > 1 else { return track.first ?? Theme.dim }
+        let x = fraction.clamped(to: 0...1) * Double(track.count - 1)
+        let i = min(Int(x), track.count - 2)
+        return track[i].interpolate(to: track[i + 1], amount: x - Double(i))
+    }
+}
+
+// MARK: - the arithmetic
+
+/// Where the wheels go, as arithmetic rather than as literals in a body.
+///
+/// The three-way triangle has one hard constraint — it must fit the width the
+/// panel gives it — and "does it fit" is a question a test can answer without a
+/// window, which is why the sizes are a function of the width and not constants
+/// buried in a `frame(width:)`. (The same trick `Session.wantsFullRender` uses
+/// for the native render, and `Diagnostics.projection` for the memory forecast.)
+enum ColorBalanceLayout {
+    /// The track's distance outside the wheel's rim, its weight, and the
+    /// thumb's half-length. (The arc's own sweep lives with the arithmetic, in
+    /// `ColorBalanceLayout.Arc`.)
+    static let arcGap: CGFloat = 3.5
+    static let arcWeight: CGFloat = 2.5
+    static let thumb: CGFloat = 4.5
+    /// How wide a touch has to be to count as a touch on an arc: the track,
+    /// stroked to something a fingertip can find.
+    static let hitWidth: CGFloat = 14
+    /// How far one arc slider reaches outside the wheel: the gap to the rim
+    /// plus the thumb that rides the track. It is what a column has to allow
+    /// for on each side, and it is derived from the geometry above rather than
+    /// written down a second time.
+    static let arcBand: CGFloat = arcGap + thumb + 1
+
+    /// The square one wheel and its two arcs occupy — the arcs curve back over
+    /// the wheel, so they are concentric with it rather than laid out beside
+    /// it, and this is the whole of what they need.
+    static func band(_ wheel: CGFloat) -> CGFloat { wheel + 2 * arcBand }
+
+    /// What the editor assumes before it has measured the well it sits in: the
+    /// right panel less the well's inset and padding on both sides. The editor
+    /// measures itself on first layout, so this is a starting point rather than
+    /// the rule — but it is the width a fresh install has, and the width a test
+    /// can check the triangle against.
+    static let assumedWidth: CGFloat = Theme.Metric.rightPanelWidth
+        - 2 * (Theme.Metric.wellInset + Theme.Metric.wellPadding)
+
+    /// Room for one zone label and the gap above or below it.
+    static let labelHeight: CGFloat = 15
+
+    struct ThreeWay: Equatable {
+        var midtone: CGFloat
+        var side: CGFloat
+        /// The gap between the two lower wheels.
+        var gap: CGFloat
+        /// Total height, labels included.
+        var height: CGFloat
+        /// Whether the two lower wheels fit side by side in the width asked
+        /// about. False is a real answer — the panel has a floor — and the view
+        /// is expected to be given more room rather than to overlap.
+        var fits: Bool
+    }
+
+    /// The triangle: one wheel centred above two, as the reference draws it.
+    ///
+    /// The proportions are the reference's (the midtone wheel is about 0.40 of
+    /// the panel's inner width and the lower two about 0.30), with floors so
+    /// the controls stay aimable and ceilings so they do not grow absurd on a
+    /// wide window.
+    static func threeWay(width: CGFloat) -> ThreeWay {
+        let width = max(width, 1)
+        let midtone = (width * 0.40).clamped(to: 64...120)
+        let side = (width * 0.30).clamped(to: 44...96)
+        let gap = max(6, width * 0.03)
+        // A wheel's column is the square its arcs need, not the wheel alone.
+        let fits = 2 * band(side) + gap <= width
+        let height = band(midtone) + labelHeight + 6 + labelHeight + band(side)
+        return ThreeWay(midtone: midtone, side: side, gap: gap, height: height, fits: fits)
+    }
+
+    /// One large wheel for the single-zone tabs.
+    static func single(width: CGFloat) -> CGFloat {
+        (max(width, 1) * 0.55 - 2 * arcBand).clamped(to: 64...150)
+    }
+
+    enum Side: Equatable { case left, right }
+
+    /// What an arc's position *means*: which end of it is the minimum, which is
+    /// the maximum, and what a drag at a given angle sets.
+    ///
+    /// It is here rather than in the view because "drag up gives more
+    /// saturation" is exactly the sort of thing that inverts silently in a body
+    /// and then reads as a broken control rather than as a bug — and because
+    /// the view and the test can then ask the same function instead of one
+    /// asserting what the other happens to draw.
+    ///
+    /// Angles are the mathematical ones (0° = right, 90° = up), with y flipped
+    /// where a view's coordinates are involved. **The top of the arc is the top
+    /// of the range, on both sides.** The two sides differ in which way round
+    /// the circle they run: the left arc's angles *decrease* as the value
+    /// rises (245° at the bottom to 115° at the top) and the right arc's
+    /// *increase* (−65° to 65°).
+    enum Arc {
+        /// Degrees each side spans, centred on its own side of the wheel. 130
+        /// leaves a deliberate gap at the top and the bottom, which is what
+        /// keeps the left arc from reading as a continuation of the right one.
+        static let sweep: Double = 130
+
+        static func bottomTheta(_ side: Side) -> Double { side == .left ? 245 : -65 }
+        static func topTheta(_ side: Side) -> Double { side == .left ? 245 - sweep : -65 + sweep }
+
+        /// The angle at `fraction` along the arc: 0 at the minimum end, 1 at
+        /// the maximum.
+        static func theta(fraction: Double, on side: Side) -> Double {
+            let f = fraction.clamped(to: 0...1)
+            return bottomTheta(side) + (topTheta(side) - bottomTheta(side)) * f
+        }
+
+        /// The angle of `p` about `c`, in the same orientation, normalised to
+        /// (−180, 180].
+        static func angle(of p: CGPoint, about c: CGPoint) -> Double {
+            let theta = atan2(c.y - p.y, p.x - c.x) * 180 / .pi
+            return theta > 180 ? theta - 360 : theta
+        }
+
+        /// Where a touch at `theta` lands in `range`. A touch past either end
+        /// clamps to that end — the arc is thin, and a drag that wanders off it
+        /// should track rather than jump.
+        static func value(atAngle theta: Double, on side: Side, in range: ClosedRange<Double>) -> Double {
+            let span = topTheta(side) - bottomTheta(side)
+            let f = ((theta - bottomTheta(side)) / span).clamped(to: 0...1)
+            return range.lowerBound + f * (range.upperBound - range.lowerBound)
+        }
+
+        /// The arc position a value sits at: 0 at the minimum, 1 at the maximum.
+        static func fraction(_ value: Double, in range: ClosedRange<Double>) -> Double {
+            ((value - range.lowerBound) / max(range.upperBound - range.lowerBound, 1e-9)).clamped(to: 0...1)
+        }
+    }
+}
+
+private extension Color {
+    /// A straight interpolation in sRGB. Two stops per arc is all any of these
+    /// use, and a perceptual interpolation would be a lie about what the slider
+    /// does: the value is linear in the arc's parameter, so the colour should
+    /// be too.
+    func interpolate(to other: Color, amount: Double) -> Color {
+        let a = NSColor(self).usingColorSpace(.sRGB) ?? .gray
+        let b = NSColor(other).usingColorSpace(.sRGB) ?? .gray
+        let t = CGFloat(amount.clamped(to: 0...1))
+        return Color(.sRGB,
+                     red: a.redComponent + (b.redComponent - a.redComponent) * t,
+                     green: a.greenComponent + (b.greenComponent - a.greenComponent) * t,
+                     blue: a.blueComponent + (b.blueComponent - a.blueComponent) * t,
+                     opacity: a.alphaComponent + (b.alphaComponent - a.alphaComponent) * t)
     }
 }

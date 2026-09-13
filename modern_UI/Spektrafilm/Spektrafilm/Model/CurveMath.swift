@@ -42,6 +42,40 @@ struct Curve: Codable, Equatable, Sendable {
         return best?.0
     }
 
+    /// How close a click has to be, in unit-square terms, to count as a hit on
+    /// a point in a plot of `size`: ten points of travel whatever the plot
+    /// measures.
+    ///
+    /// It is one function because there are two ways to click a point — grabbing
+    /// it (the drag) and asking about it (the context menu) — and a point you
+    /// can grab has to be a point you can right-click. Two tolerances that
+    /// agree today are two tolerances that disagree after the next change.
+    /// The degenerate case is not decoration: a plot that has not been laid out
+    /// yet has a zero side, and an infinite tolerance would make every click a
+    /// hit. Zero — nothing is under a pointer that is not over the plot — is
+    /// the honest answer.
+    static func hitTolerance(in size: CGSize) -> CGFloat {
+        let side = min(size.width, size.height)
+        return side > 0 ? 10 / side : 0
+    }
+
+    /// The point under a click at `p` (unit square) in a plot of `size`, by the
+    /// shared tolerance above.
+    func index(near p: CGPoint, in size: CGSize) -> Int? {
+        index(near: p, tolerance: Curve.hitTolerance(in: size))
+    }
+
+    /// Whether point `i` may be removed.
+    ///
+    /// The two ends define the curve's domain — its x runs 0…1 only because
+    /// they are there — so they are not deletable, and the menu greys its item
+    /// out for them rather than accepting the click and doing nothing. `remove`
+    /// asks the same question, so the menu's state and the model's behaviour
+    /// cannot drift apart.
+    func isDeletable(_ i: Int) -> Bool {
+        points.count > 2 && i > 0 && i < points.count - 1
+    }
+
     /// Insert a point, keeping the list sorted. Returns its index.
     @discardableResult
     mutating func insert(_ p: CGPoint) -> Int {
@@ -64,7 +98,7 @@ struct Curve: Codable, Equatable, Sendable {
     }
 
     mutating func remove(_ i: Int) {
-        guard points.count > 2, i > 0, i < points.count - 1 else { return }
+        guard isDeletable(i) else { return }
         points.remove(at: i)
     }
 

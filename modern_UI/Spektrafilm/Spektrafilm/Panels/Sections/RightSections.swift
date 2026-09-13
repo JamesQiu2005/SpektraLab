@@ -97,8 +97,13 @@ struct ColorBalanceSection: View {
     var body: some View {
         PanelSection("Color Balance", key: "colorbalance", initiallyExpanded: false, menu: { AnyView(Button("Reset") {
             var a = session.adjustments; a.colorBalance = ColorBalance(); session.adjustments = a }) }) {
-            ColorBalanceEditor(session: session)
-                .padding(.horizontal, Theme.Metric.wellInset + 4)
+            // In a well, like Exposure and Print White Balance beside it. The
+            // editor measures the width it is given, so the well's padding is
+            // part of what the three-way triangle is fitted to rather than a
+            // number written down twice.
+            Well {
+                ColorBalanceEditor(session: session)
+            }
         }
     }
 }
