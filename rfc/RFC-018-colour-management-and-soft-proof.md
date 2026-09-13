@@ -2,7 +2,7 @@
 
 | | |
 |---|---|
-| **Status** | Accepted 2026-09-13. Supersedes the proposal-only draft of the same number. §1 is code-traced; §2 is the decision; §3–§5 are the build. |
+| **Status** | **Implemented 2026-09-13**, except the export page's layout, which is being rebuilt against the user's `export_page.svg`. §7's measurements are in §9. Two things did not survive contact and are recorded where they happened: the warning counter (§5.3) and `parity_schema` (§5.1). |
 | **Date** | 2026-09-13 |
 | **Depends on** | RFC-014 (the C++ engine is the renderer, C ABI to Swift, shared `MTLDevice`), RFC-003 (the tap graph this does not touch), `CONTRACT-frontend-backend.md` (**extended** by §5.1 — the wire has never named an output colour space) |
 | **Scope — engine** | `core/params.hpp`, `pipeline/engine.cpp`, the new `spk_output_transform` entry point, `include/spektrafilm/spk_engine.h` |
@@ -232,6 +232,20 @@ A new session invariant, in the field tables and the changelog:
 and the behaviour stop disagreeing. `spk_open`'s convention block keeps its
 comment and loses its surprise.
 
+> **This breaks `parity_schema` on purpose, and that is not fixable here.**
+> The harness compares the declared default against the Python oracle in the
+> spektrafilm fork, which still declares sRGB — so the oracle *is* the
+> comparison and no amount of reading the reply avoids it. It is recorded as a
+> `KNOWN` divergence in the shape `parity_render.py` already uses for
+> `lens_blur_um`: named, with its reason, and **failing if the two ever agree
+> again** so it cannot rot silently. Changing the fork's `service/schema.py` is
+> the real fix and it is outside this repository.
+
+Three other harnesses (`parity_render`, `parity_grain`, `parity_exposure`)
+held their own copy of `spk_open`'s convention and went red for a change no
+node made. They now read the resolved space out of the open reply, which is
+the field this section added.
+
 ### 5.2 The new ABI — `spk_output_transform`
 
 Everything the app's transform needs, from the engine's own colour data:
@@ -304,10 +318,23 @@ kernel void outputTransform(texture2d<float, access::read>  src [[texture(0)]],
 - The CAM16 body is **ported from `engine/src/shaders/gamut.metal`**, buffer
   reads becoming texture reads and the three deliberate traps in its header
   comment carried over verbatim. That file's comment is part of the port.
-- `stats[0]` counts pixels the compression actually moved (`d > threshold`)
-  and `stats[1]` counts pixels that still hit 0 or 1 after encoding. Those two
-  numbers are §6's warning and §7's measurement, and they cost one atomic on a
-  branch most pixels do not take.
+- **Three counters, not two, and the difference matters.** `stats[0]` counts
+  pixels the knee acted on (`d > threshold`), `stats[1]` counts pixels still on
+  0 or 1 after encoding, and `stats[2]` counts pixels the destination could not
+  hold at all (`d > 1`, read *before* the knee).
+
+  `stats[0]` was the warning in this RFC's first draft and it is degenerate:
+  the session's knee is `(0.0, 1.0, 6.0)`, which the reference's own docstring
+  calls "a gentle, always-on roll-off", so `d > threshold` is true for any
+  pixel with any chroma — measured **1.0 on a frame of pure mid-grey**. A
+  warning that fires on grey is not a warning. §6's "the recipe cannot hold the
+  picture" is `stats[2]`.
+
+  `SoftProof.compressedFraction` therefore carries `stats[2]`, which is what
+  §5.5's own doc comment already defined it as. `stats[0]` is exposed beside it
+  as `movedFraction` for §7's measurements. Recorded here because the first
+  draft's wording and the shipped meaning differ, and a later reader will
+  otherwise expect 1.0.
 - When `algorithm == "off"`, the compression is skipped and `stats[0]` stays 0.
 
 ### 5.4 The app plumbing
@@ -335,8 +362,9 @@ struct SoftProof: Sendable {
     let image: CGImage            // already in the target space, tagged
     let target: CGColorSpace
     let targetName: String
-    let compressedFraction: Double   // pixels the gamut map moved, 0…1
+    let compressedFraction: Double   // the destination could not hold them, 0…1
     let clippedFraction: Double      // pixels at the container's limits, 0…1
+    let movedFraction: Double        // the literal §5.3 knee counter, 0…1
     let isPlaceholder: Bool          // true until the real transform lands
 }
 
@@ -424,3 +452,50 @@ through `ColourManagement.swift`, which is A's.
 **Do not "fix" what §1 got right.** The ingest space is a parameter and is
 correct. `kMidgrayProbeColourSpace` stays sRGB (`AGENTS.md:868`). The tap
 graph does not move. The engine keeps the spektrafilm name.
+
+---
+
+## 9. What was measured
+
+Run on the implementation, 2026-09-13. Numbers, not predictions.
+
+**§7.4 — the result the RFC was written for.** Saturation at the top, sRGB
+export, 24 MP: **before, 4,031,323 pixels pinned to a container limit (16.8 %
+of the frame); after, 10.** `compressedFraction` 0.187 — the same population,
+rolled in instead of cut off. §4.4 and §4.5 are closed and it is not close.
+
+**§7.1 — canvas regression.** `DSC03710.ARW`, 24 MP: max ΔE2000 13.1, mean
+0.159, **p50 0.000**, p90 0.703, p99 1.502, over-ΔE2 **0.0028 %** (663 px of
+24 M). 1 MP smoke frame: max 22.4, mean 0.109, p50 0.000, over-2 0.296 %. The
+whole tail is one phenomenon — near-black saturated colours, e.g.
+`[0.106, 0, 0] → [0, 0, 0]` — and it is structural rather than a defect: the
+compression now runs *after* Layer 2, so nothing lifts what it crushes. The
+bulk is untouched and the frame is not darker (chroma mean 9.25 → 9.12). This
+is the "small and structural, not zero" §7.1 asked for.
+
+**§7.5 — the tier path did not move.** c3 on `_DSC2704` reads +0.0062 / +0.0051
+EV against the note's +0.0061 / +0.0049, **worst channel identical** at
++0.0085 / +0.0068. The control settles it: the same harness on the same binary
+with the session pinned back to `output_color_space: "Display P3"` reproduces
++0.0061 / +0.0049 exactly. The 0.0002 EV is the measurement's own decode — c3
+takes a ratio of *means* through `RGB_to_RGB(v, cs, cs)`, and a ratio of means
+is not invariant under a change of decode curve. c2, which is bit-exact, held
+on every frame and method.
+
+**§7.7 — the engine.** All six harnesses and both C++ checks green: setup 227
+quantities / 0 failed · schema 0 failed with the one recorded divergence above
+· render 27 cases / 0 · session 41 fields / 0 · grain 9 levels / 0 · lut 3
+stocks / 0 · exposure 0 failures with all six negative controls red as
+designed · gpu_smoke 0 · `check_math_guard` ok.
+
+**Not measured.** §7.2 (the ProPhoto export's gamut volume), §7.3 (the sRGB
+export against the canvas, as ΔE rather than as a clipped-pixel count) and
+§7.6 (the proof against the file it proves, pixel for pixel). §7.6 is the one
+that matters most and it is the next thing to run.
+
+**Two harness facts found on the way, neither caused by this RFC.**
+`parity_lut` could not run in this repository at all — its baked `.npz` assets
+are looked up under `REPO/src`, which the split deliberately does not carry; it
+now honours `SPEKTRAFILM_REFERENCE_ROOT` and passes. And a fresh worktree has
+no `tests/`, so the three harnesses that need the smoke frame find nothing: a
+temporary symlink to the reference checkout is enough.
