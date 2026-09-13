@@ -143,12 +143,21 @@ struct PanelResizeHandle: View {
 final class PanelWidthStore {
     let range: PanelWidthRange
     private let key: String
+    /// The suite this store reads **and writes**.
+    ///
+    /// Held rather than used once: the first version took `defaults` in the
+    /// initialiser, read through it, and then wrote through
+    /// `UserDefaults.standard` — so the injection was a read-side seam only,
+    /// and a test that passed a suite to stay off the user's own preferences
+    /// wrote to them anyway. Found by a test of 5f's that failed for the right
+    /// reason; the point of the parameter is that both halves honour it.
+    private let defaults: UserDefaults
 
     var width: CGFloat {
         didSet {
             let clamped = range.clamp(width)
             if clamped != width { width = clamped; return }
-            UserDefaults.standard.set(Double(width), forKey: key)
+            defaults.set(Double(width), forKey: key)
         }
     }
 
@@ -158,6 +167,7 @@ final class PanelWidthStore {
     init(name: String, range: PanelWidthRange, defaults: UserDefaults = .standard) {
         self.range = range
         self.key = "ui.panelWidth." + name
+        self.defaults = defaults
         let stored = defaults.object(forKey: key) as? Double
         self.width = range.clamp(stored.map { CGFloat($0) } ?? range.standard)
     }
