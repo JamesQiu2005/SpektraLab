@@ -27,16 +27,18 @@ struct LeftPanel: View {
 
     private var header: some View {
         HStack(spacing: 0) {
-            // The window's three buttons are aligned to *this row's*
-            // centreline rather than left where AppKit floats them, which is
-            // 13 pt higher (Windows/TrafficLights.swift). The leading inset
-            // then follows from where the row ends. Every other card keeps
-            // the drawing's 12 pt.
-            PanelIconButton(systemImage: "square.and.arrow.down", help: "Open a folder or image (⌘O)") { session.openPanel() }
-                .padding(.leading, Theme.Metric.panelHeaderLeading)
-            PanelIconButton(systemImage: "square.and.arrow.up", help: "Export (⌘E)") { session.showExport = true }
-                .padding(.leading, 12)
-                .disabled(session.selection == nil)
+            // Import and export are **not** here any more: they lead the tool
+            // cluster on the top bar, which is the drawing's arrangement and
+            // where the user asked for them. A command in two always-visible
+            // places is a command that will disagree with itself about being
+            // enabled, so it lives in one. What is left of this row is what it
+            // was always for — the window's drag surface, the way a sidebar
+            // header is in Xcode, and the card's own menu at the far end.
+            //
+            // And the window buttons are no longer aligned to this row's
+            // centreline either: they sit on the top bar now, which cannot be
+            // collapsed (Windows/TrafficLights.swift). `EditorWindow` owns the
+            // one `TrafficLightAlignment` in the app.
             Spacer()
             Menu {
                 Button("Reset Layer 1 (film, paper, camera, enlarger)") { session.resetParams() }
@@ -53,13 +55,16 @@ struct LeftPanel: View {
         }
         .frame(height: Theme.Metric.panelHeaderHeight)
         // The header row is the window's drag surface here, as a sidebar
-        // header is in Xcode. The buttons sit above it and keep their clicks.
+        // header is in Xcode.
+        //
+        // The traffic lights are **not** aligned from here any more. They now
+        // sit on the top bar, which is full width and cannot be collapsed, so
+        // `EditorWindow` owns the one `TrafficLightAlignment` in the app. Two
+        // aligners would each build their own container and take the buttons
+        // from one another on every window notification — nothing would look
+        // wrong, and the corner would flicker on resize for no visible reason.
+        // One owner, and this is not it.
         .background(WindowDragHandle())
-        .background(
-            TrafficLightAlignment(centreY: Theme.Metric.trafficLightCentreY,
-                                  leading: Theme.Metric.trafficLightLeading)
-                .frame(width: 0, height: 0)
-        )
     }
 }
 

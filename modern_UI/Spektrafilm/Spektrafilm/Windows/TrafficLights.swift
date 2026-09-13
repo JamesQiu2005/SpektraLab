@@ -1,5 +1,5 @@
-//  TrafficLights.swift — put the three window buttons on the left card's
-//  header centreline, the way Xcode puts them on its navigator header's.
+//  TrafficLights.swift — put the three window buttons on the top bar's
+//  centreline, which is where the drawing puts them.
 //
 //  The problem this solves, measured off `reference_layout/traffic_light_bug.png`:
 //
@@ -20,6 +20,16 @@
 //  `Tools/compare-layout.py` measures against the drawing. The cards stay
 //  where they are drawn; the buttons come to them.
 //
+//  Which row owns them now (`PRD/new_frontend_top_layout.png`):
+//
+//  The left panel's header, not the bar. Every card in this window can be
+//  folded away except the top bar, and a row the lights are parked on is a
+//  row they have to leave when it goes — which is what happened: collapsing
+//  the left panel left the buttons floating over the canvas. The bar spans
+//  the window, is always present, and the drawing puts the lights on its
+//  centreline, so it is the row that can keep them. `trafficLightCentreY`
+//  and `trafficLightLeading` are the only things that moved.
+//
 //  Why the buttons are reparented rather than repositioned:
 //
 //  `.windowStyle(.hiddenTitleBar)` leaves the buttons inside a titlebar view
@@ -38,9 +48,15 @@
 import AppKit
 import SwiftUI
 
-/// Attach to the view whose centreline the buttons should share. Invisible,
-/// zero-sized, and does nothing at all in snapshot mode — the borderless
-/// capture window has no standard window buttons to align.
+/// Attach to any view that is in the window for as long as the window is —
+/// the coordinates it places the buttons at are the window's, not the host
+/// view's, so the attachment point only decides *when* the alignment is kept
+/// up. It has to outlive every collapsible card: AppKit re-lays the buttons
+/// out on its own notifications, and a dismantled observer is a corner that
+/// quietly goes back to the default position (`EditorWindow` attaches it
+/// above the browse/print switch for that reason). Invisible, zero-sized, and
+/// does nothing at all in snapshot mode — the borderless capture window has
+/// no standard window buttons to align.
 struct TrafficLightAlignment: NSViewRepresentable {
     /// Distance from the top of the window to the centre of the button row.
     let centreY: CGFloat
@@ -136,7 +152,13 @@ struct TrafficLightAlignment: NSViewRepresentable {
             guard
                   // In fullscreen the buttons belong to the fullscreen
                   // toolbar and the cards are not where they are on the desk.
-                  !window.styleMask.contains(.fullScreen) else { log("fullscreen"); return }
+                  !window.styleMask.contains(.fullScreen) else {
+                // The mask and the frame, not just the word: "fullscreen" on
+                // a window that looks like an ordinary one is a claim nobody
+                // can check, and this branch silently draws nothing.
+                log("fullscreen (mask \(window.styleMask.rawValue), frame \(window.frame), \(type(of: window)))")
+                return
+            }
             guard let host = window.contentView?.superview else { log("no theme frame"); return }
             let kinds: [NSWindow.ButtonType] = [.closeButton, .miniaturizeButton, .zoomButton]
             let buttons = kinds.compactMap { window.standardWindowButton($0) }

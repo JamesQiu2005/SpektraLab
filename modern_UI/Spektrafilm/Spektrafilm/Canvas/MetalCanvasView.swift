@@ -151,7 +151,17 @@ final class CanvasNSView: MTKView, MTKViewDelegate {
         let bs = window?.backingScaleFactor ?? 2
         var vp = renderer.viewport
         vp.backingScale = bs
-        if vp.viewport != bounds.size { vp.resize(viewport: bounds.size) }
+        if vp.viewport != bounds.size {
+            resizeCount += 1
+            vp.resize(viewport: bounds.size)
+            // The one place the viewport learns the canvas changed size. What
+            // the *draw* is given is `drawableSize`, not `bounds`, so the two
+            // are logged together: a drawable that disagrees with the bounds
+            // the viewport was computed against is a picture drawn to the
+            // wrong rectangle, and it is invisible until something moves.
+            log("resize bounds=\(bounds.size) drawable=\(drawableSize) " +
+                "vp=\(renderer.viewport.viewport)→\(vp.viewport) scale=\(vp.scale) offset=\(vp.offset)")
+        }
         if vp != renderer.viewport {
             renderer.viewport = vp
             // The crop tool's view is locked to the whole turned photograph,
@@ -166,6 +176,21 @@ final class CanvasNSView: MTKView, MTKViewDelegate {
     }
 
     private func local(_ e: NSEvent) -> CGPoint { convert(e.locationInWindow, from: nil) }
+
+    /// How many times the canvas has been laid out at a **different size**.
+    ///
+    /// `Renderer.drawCount`'s counterpart, and for the same reason: the canvas
+    /// cannot be seen by an offscreen test, but how often it was asked to
+    /// change size can be — and that count is what a layout storm is made of.
+    /// A panel animation is a stream of small resizes; a stream of them with
+    /// no draw between is the shape the canvas twitch has.
+    private(set) var resizeCount = 0
+
+    /// `SPEKTRAFILM_CANVAS_LOG=1`, the same switch `Renderer` uses.
+    private func log(_ message: @autoclosure () -> String) {
+        guard Renderer.logDraws else { return }
+        FileHandle.standardError.write(Data("canvasview: \(message())\n".utf8))
+    }
 
     // MARK: scroll / pinch
 

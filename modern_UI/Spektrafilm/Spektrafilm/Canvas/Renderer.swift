@@ -579,8 +579,19 @@ final class Renderer: NSObject {
         }
         let bs = Float(view.window?.backingScaleFactor ?? viewport.backingScale)
         var u = canvasUniforms(shown: shown, viewportSize: view.drawableSize, backingScale: CGFloat(bs))
-        log("base=\(base.map { "\($0.width)x\($0.height)" } ?? "nil") shown=\(shown != nil) " +
-            "full=\(showsFullRender) scale=\(viewport.scale) offset=\(viewport.offset) drawable=\(view.drawableSize)")
+        // The timestamp is not decoration: "the canvas twitches" is a question
+        // about *when* frames reach the screen, and a log of states without
+        // times cannot answer it. Milliseconds since the process started, so
+        // the intervals are the frame intervals.
+        let t = ProcessInfo.processInfo.systemUptime
+        log(String(format: "t=%.6f base=%@ shown=%@ full=%@ scale=%f offset=(%.2f, %.2f) " +
+                   "drawable=(%.0f, %.0f) bounds=(%.2f, %.2f) vp=(%.2f, %.2f) bs=%.1f",
+                   t, base.map { "\($0.width)x\($0.height)" } ?? "nil", "\(shown != nil)",
+                   "\(showsFullRender)", viewport.scale, viewport.offset.x, viewport.offset.y,
+                   view.drawableSize.width, view.drawableSize.height,
+                   view.bounds.width, view.bounds.height,
+                   viewport.viewport.width, viewport.viewport.height,
+                   view.window?.backingScaleFactor ?? -1))
         rpd.colorAttachments[0].loadAction = .clear
         rpd.colorAttachments[0].clearColor = MTLClearColor(red: Double(u.surroundGray), green: Double(u.surroundGray), blue: Double(u.surroundGray), alpha: 1)
         guard let enc = cb.makeRenderCommandEncoder(descriptor: rpd) else { return }

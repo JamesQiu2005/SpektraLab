@@ -60,6 +60,41 @@ final class ViewportStateTests: XCTestCase {
         XCTAssertEqual(v.offset.x, (1600 - 4000 * 0.2) / 2, accuracy: 1e-9)
     }
 
+    /// A resize is a *stream* of sizes, not one jump: a panel animation is
+    /// forty of them and a window drag is a hundred. Every intermediate size
+    /// has to be a place the picture could stop — no step may move it further
+    /// than the step itself, or the picture walks ahead of the panel it is
+    /// supposed to be following and back, which is what "the image twitches
+    /// while the panels move" would look like if the arithmetic were the
+    /// cause. This is the property a per-draw log and a frame-by-frame capture
+    /// of the real animation both found holding; it is here so that a change
+    /// to `resize` that breaks it fails in this process rather than on screen.
+    ///
+    /// The bound is real, not generous: a fitted picture is centred, so a
+    /// viewport that grows by `d` moves the picture by exactly `d/2`, and a
+    /// panning one must not move it at all.
+    func testEveryIntermediateResizeMovesThePictureByAtMostTheStep() {
+        for fitted in [true, false] {
+            var v = ViewportState()
+            v.backingScale = 2
+            v.resize(viewport: CGSize(width: 1448, height: 878), image: CGSize(width: 2084, height: 2084))
+            if !fitted { v.setScale(0.6, about: CGPoint(x: 700, y: 400)) }
+            for step in 1...40 {
+                let w = 1448 - CGFloat(step) * 10
+                let before = v.imageFrame
+                v.resize(viewport: CGSize(width: w, height: 878))
+                let after = v.imageFrame
+                // The picture may never move more than half the step, on any
+                // edge, in either direction.
+                let allowance = 5 + 1e-6
+                XCTAssertLessThanOrEqual(abs(after.minX - before.minX), allowance * 2,
+                                         "\(fitted ? "fitted" : "zoomed") step \(step): left edge walked")
+                XCTAssertEqual(after.midY, before.midY, accuracy: 0.01,
+                               "\(fitted ? "fitted" : "zoomed") step \(step): the canvas only changed width")
+            }
+        }
+    }
+
     func testNormalisedRoundTrip() {
         let v = makeVP()
         let n = v.normalised(atView: CGPoint(x: 400, y: 300))!

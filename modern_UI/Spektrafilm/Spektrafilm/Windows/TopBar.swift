@@ -1,6 +1,11 @@
-//  TopBar.swift — tools at the left, zoom at the right, exactly the design's
-//  glyphs: select · hand · crop  ……  before/after · zoom-in · [100 %] ·
-//  zoom-out · fit · fullscreen.
+//  TopBar.swift — the commands and tools at the left, zoom at the right,
+//  exactly the design's glyphs: import · export · select · hand · crop  ……
+//  before/after · zoom-in · [100 %] · zoom-out · expand.
+//
+//  The bar spans the window and is the first row of it, so the three window
+//  buttons are on its centreline (`Windows/TrafficLights.swift`) and its
+//  leading inset clears them (`Theme.Metric.topBarLeading`). It cannot be
+//  collapsed: it is the row that keeps the corner of the window (PRD §1).
 //
 //  **Selection is orange, not grey.** A selected control tints the glyph
 //  itself (`Theme.accent`) instead of putting a darker plate behind it. That
@@ -14,8 +19,25 @@ import SwiftUI
 struct TopBar: View {
     @Bindable var session: Session
 
+    /// Whether the window is in fullscreen, so the one expand button can show
+    /// which way it goes. Read off the window rather than kept as a flag of
+    /// our own: fullscreen is also left with ⌃⌘F and by the green button, and
+    /// a second copy of that state would be wrong exactly when it mattered.
+    @State private var fullScreen = false
+
     var body: some View {
         HStack(spacing: 0) {
+            // Import and export lead the cluster, which is where the drawing
+            // puts them and where the user asked for them. They were in the
+            // left panel's header until the bar became the row that hosts
+            // everything: two always-visible homes for one command is worse
+            // than none, so they left the header when they arrived here.
+            iconButton("square.and.arrow.down", "Open a folder or image (⌘O)") { session.openPanel() }
+                .padding(.leading, Theme.Metric.topBarLeading)
+            iconButton("square.and.arrow.up", "Export (⌘E)", disabled: session.selection == nil) {
+                session.showExport = true
+            }
+            .padding(.leading, 22)
             toolButton("cursorarrow", .select, "Select (V)").padding(.leading, 22)
             toolButton("hand.point.up.left", .hand, "Pan (H)").padding(.leading, 22)
             toolButton("crop", .crop, "Crop (C)").padding(.leading, 22)
@@ -66,13 +88,27 @@ struct TopBar: View {
                 .disabled(session.zoomLocked)
                 .opacity(session.zoomLocked ? 0.4 : 1)
             iconButton("minus.magnifyingglass", "Zoom out (⌘−)", disabled: session.zoomLocked) { session.zoomStep(-1) }
-            iconButton("arrow.down.right.and.arrow.up.left", "Fit (⌘0)", disabled: session.zoomLocked) { session.zoomToFit() }.padding(.leading, 18)
-            iconButton("arrow.up.left.and.arrow.down.right", "Full screen (⌃⌘F)") { NSApp.keyWindow?.toggleFullScreen(nil) }
-                .padding(.leading, 12)
-                .padding(.trailing, 18)
+            // One button, both ways (PRD §1). Fit and fullscreen were only
+            // ever two buttons because fullscreen had nowhere else to be —
+            // they are not two halves of one idea. Fit keeps its ⌘0, its View
+            // menu item and its entry in the pill's own menu, which is what
+            // the drawing's single diagonal-arrows glyph assumes.
+            iconButton(fullScreen ? "arrow.down.right.and.arrow.up.left" : "arrow.up.left.and.arrow.down.right",
+                       fullScreen ? "Leave full screen (⌃⌘F)" : "Full screen (⌃⌘F)") {
+                NSApp.keyWindow?.toggleFullScreen(nil)
+            }
+            .padding(.leading, 18)
+            .padding(.trailing, 18)
         }
         .frame(height: Theme.Metric.topBarHeight)
         .panelCard()
+        .onAppear { fullScreen = NSApp.keyWindow?.styleMask.contains(.fullScreen) ?? false }
+        .onReceive(NotificationCenter.default.publisher(for: NSWindow.didEnterFullScreenNotification)) { _ in
+            fullScreen = true
+        }
+        .onReceive(NotificationCenter.default.publisher(for: NSWindow.didExitFullScreenNotification)) { _ in
+            fullScreen = false
+        }
     }
 
     private var statusText: String {

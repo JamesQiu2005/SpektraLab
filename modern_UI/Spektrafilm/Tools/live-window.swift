@@ -7,7 +7,7 @@
 import CoreGraphics
 import Foundation
 
-let owner = CommandLine.arguments.count > 1 ? CommandLine.arguments[1] : "Spektrafilm"
+let owner = CommandLine.arguments.count > 1 ? CommandLine.arguments[1] : "Filmify"
 let list = CGWindowListCopyWindowInfo([.optionOnScreenOnly, .excludeDesktopElements], kCGNullWindowID) as? [[String: Any]] ?? []
 let windows = list
     .filter { ($0[kCGWindowOwnerName as String] as? String) == owner }

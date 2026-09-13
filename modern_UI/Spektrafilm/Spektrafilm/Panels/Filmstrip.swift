@@ -3,6 +3,13 @@
 //  dot / hollow dot: unprocessed / processed / stale), chevrons at both
 //  ends, and the folder name with a count at the far left when there is room.
 //
+//  The selected thumbnail gets the frame and **nothing else** (PRD §5): the
+//  badge is suppressed there. It is not redundant on an unselected one — it
+//  is the only place the strip says which frames have a print behind them and
+//  which are stale — but on the selected frame a second mark next to the
+//  white frame reads as more state to decode, and the frame already says the
+//  one thing that cell needs to say.
+//
 //  `LazyHStack` so a 500-image folder builds only what is visible; thumbnails
 //  come from ImageIO off the main actor and are replaced by the rendered print
 //  once a frame has been through the engine.
@@ -86,7 +93,11 @@ struct FilmstripCell: View {
             }
             .frame(height: Theme.Metric.thumbHeight)
             .overlay(RoundedRectangle(cornerRadius: 2).stroke(Theme.selectionFrame, lineWidth: selected ? 1.5 : 0))
-            badge.padding(4)
+            // Hidden by opacity rather than taken out of the tree, the same
+            // way the empty-strip caption below is: a branch that was decided
+            // when the strip was in a different state is the defect this file
+            // has already had once.
+            badge.padding(4).opacity(selected ? 0 : 1)
         }
         .help(frame.name)
         .task(id: frame.id) {

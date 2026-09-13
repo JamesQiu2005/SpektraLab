@@ -33,7 +33,7 @@ struct RightPanel: View {
                 .font(.system(size: Theme.Metric.panelIcon, weight: .regular))
                 .foregroundStyle(Theme.text)
                 .frame(width: 26, height: 26)
-                .padding(.leading, 12)
+                .padding(.leading, Theme.Metric.panelHeaderLeading)
             PanelIconButton(systemImage: session.adjustments.enabled ? "circle.dotted.circle" : "circle.dotted",
                             help: session.adjustments.enabled ? "Bypass adjustments (show the pure print)" : "Adjustments bypassed — click to enable",
                             active: !session.adjustments.enabled) {
@@ -49,6 +49,6 @@ struct RightPanel: View {
             .menuStyle(.button).buttonStyle(.plain).menuIndicator(.hidden).fixedSize()
             .padding(.trailing, 6)
         }
-        .frame(height: 44)
+        .frame(height: Theme.Metric.panelHeaderHeight)
     }
 }

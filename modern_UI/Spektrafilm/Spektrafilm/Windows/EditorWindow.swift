@@ -1,16 +1,23 @@
 //  EditorWindow.swift — the four cards on the ground, exactly as drawn:
 //
-//     ┌ left ┐  ┌───────── top bar ─────────┐  ┌ right ┐
-//     │ 328  │  │          canvas           │  │  286  │
-//     │      │  │                           │  │       │
-//     │      │  └──────── filmstrip ────────┘  │       │
-//     └──────┘                                 └───────┘
+//     ┌─────────────────── top bar ───────────────────────┐
+//     │ ┌left┐  ┌──────── canvas ────────┐  ┌right┐        │
+//     │ │328 │  │                       │  │ 286 │        │
+//     │ │    │  └───── filmstrip ───────┘  │     │        │
+//     │ └────┘                            └─────┘        │
+//     └──────────────────────────────────────────────────┘
 //
-//  Outer margins 9/7 pt, gutters 8 pt, radius 15 pt. The side panels are
+//  The top bar is the window's first row and spans all of it — it is not the
+//  canvas column's first row any more. That is what gives the three window
+//  buttons a home that never folds (`Windows/TrafficLights.swift`), and it is
+//  the drawing's own arrangement (`PRD/new_frontend_top_layout.png`).
+//
+//  Outer margins 9/7 pt, gutters 6 pt, radius 15 pt. The side panels are
 //  fixed width (the drawing's), so a wider window gives the canvas the extra
 //  room and a narrower one takes it from the canvas — never from a panel.
 //  Collapsing a card removes it from the HStack/VStack, so the canvas grows
-//  into its place; the small tabs on the canvas edges bring it back.
+//  into its place; the small tabs on the canvas edges bring it back. The top
+//  bar is the one card that does not collapse at all.
 
 import SwiftUI
 import UniformTypeIdentifiers
@@ -31,6 +38,14 @@ struct EditorWindow: View {
         }
         .animation(.easeOut(duration: 0.18), value: session.browsing)
         .background(Theme.ground)
+        // Above the browse/print switch, so the buttons are re-placed in
+        // either state and the observer outlives every card that can fold.
+        // See `TrafficLightAlignment` for why that matters.
+        .background(
+            TrafficLightAlignment(centreY: Theme.Metric.trafficLightCentreY,
+                                  leading: Theme.Metric.trafficLightLeading)
+                .frame(width: 0, height: 0)
+        )
         .ignoresSafeArea()
         .preferredColorScheme(.dark)
         .onDrop(of: [.fileURL], isTargeted: nil) { providers in
@@ -48,30 +63,37 @@ struct EditorWindow: View {
     }
 
     /// The Print state: the four cards, exactly as drawn.
+    ///
+    /// `session.topCollapsed` is deliberately not read here. The bar is not a
+    /// card that folds any more (PRD §1): it is the row that hosts the window
+    /// buttons, so it has to be present for the window to have a corner. The
+    /// stored property stays for the session's state and for a launch that
+    /// reads it back, but no view consults it.
     private var printLayout: some View {
-        HStack(spacing: Theme.Metric.gutter) {
-            if !session.leftCollapsed {
-                LeftPanel(session: session)
-                    .frame(width: Theme.Metric.leftPanelWidth)
-                    .transition(.move(edge: .leading).combined(with: .opacity))
-            }
-            VStack(spacing: Theme.Metric.gutter) {
-                if !session.topCollapsed {
-                    TopBar(session: session).transition(.move(edge: .top).combined(with: .opacity))
+        VStack(spacing: Theme.Metric.gutter) {
+            TopBar(session: session)
+            HStack(spacing: Theme.Metric.gutter) {
+                if !session.leftCollapsed {
+                    LeftPanel(session: session)
+                        .frame(width: Theme.Metric.leftPanelWidth)
+                        .transition(.move(edge: .leading).combined(with: .opacity))
                 }
-                CanvasArea(session: session)
-                if !session.filmstripCollapsed {
-                    Filmstrip(session: session)
-                        .frame(height: Theme.Metric.filmstripHeight)
-                        .transition(.move(edge: .bottom).combined(with: .opacity))
+                VStack(spacing: Theme.Metric.gutter) {
+                    CanvasArea(session: session)
+                    if !session.filmstripCollapsed {
+                        Filmstrip(session: session)
+                            .frame(height: Theme.Metric.filmstripHeight)
+                            .transition(.move(edge: .bottom).combined(with: .opacity))
+                    }
+                }
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+                if !session.rightCollapsed {
+                    RightPanel(session: session)
+                        .frame(width: Theme.Metric.rightPanelWidth)
+                        .transition(.move(edge: .trailing).combined(with: .opacity))
                 }
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
-            if !session.rightCollapsed {
-                RightPanel(session: session)
-                    .frame(width: Theme.Metric.rightPanelWidth)
-                    .transition(.move(edge: .trailing).combined(with: .opacity))
-            }
         }
         .padding(.horizontal, Theme.Metric.outerX)
         .padding(.vertical, Theme.Metric.outerY)
@@ -121,10 +143,11 @@ struct CanvasArea: View {
         // edge rather than spilling, and why the crop tool's view is fitted to
         // the picture: `Renderer.fitRotatedPhoto`). This is the overlay half.
         .clipped()
-        .overlay(alignment: .leading) { CollapseTab(edge: .leading, collapsed: $session.leftCollapsed) }
-        .overlay(alignment: .trailing) { CollapseTab(edge: .trailing, collapsed: $session.rightCollapsed) }
-        .overlay(alignment: .top) { CollapseTab(edge: .top, collapsed: $session.topCollapsed).padding(.top, 4) }
-        .overlay(alignment: .bottom) { CollapseTab(edge: .bottom, collapsed: $session.filmstripCollapsed).padding(.bottom, 4) }
+        // Three edges, not four: the top bar is not a card that folds, so
+        // there is no top tab to bring it back (PRD §1).
+        .overlay(alignment: .leading) { HoverEdgeTab(edge: .leading, collapsed: $session.leftCollapsed) }
+        .overlay(alignment: .trailing) { HoverEdgeTab(edge: .trailing, collapsed: $session.rightCollapsed) }
+        .overlay(alignment: .bottom) { HoverEdgeTab(edge: .bottom, collapsed: $session.filmstripCollapsed) }
         .overlay(alignment: .topTrailing) {
             VStack(alignment: .trailing, spacing: CanvasBadges.spacing) {
                 ForEach(session.canvasBadges, id: \.self) { badge($0) }
