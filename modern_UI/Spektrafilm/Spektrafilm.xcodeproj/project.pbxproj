@@ -264,6 +264,7 @@
 		670BA02F66C2FB67FF1B53EE /* ParamsTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "ParamsTests.swift"; sourceTree = "<group>"; };
 		A02C1261DEB889B4B7370EFA /* PrintLUTTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "PrintLUTTests.swift"; sourceTree = "<group>"; };
 		8EB35FC4E4E88A7B96A3A06A /* RendererTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "RendererTests.swift"; sourceTree = "<group>"; };
+		8630411B375EF0CFA90FE35D /* SoftProofParityTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "SoftProofParityTests.swift"; sourceTree = "<group>"; };
 		19533F295FB7423FCE62C8DD /* ViewportStateTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "ViewportStateTests.swift"; sourceTree = "<group>"; };
 		F5302C66459D988E5FC47CA3 /* WhiteBalanceTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "WhiteBalanceTests.swift"; sourceTree = "<group>"; };
 		6C750F429B304AF107F89FFD /* SpektrafilmTests */ = {
@@ -289,6 +290,7 @@
 				670BA02F66C2FB67FF1B53EE /* ParamsTests.swift */,
 				A02C1261DEB889B4B7370EFA /* PrintLUTTests.swift */,
 				8EB35FC4E4E88A7B96A3A06A /* RendererTests.swift */,
+				8630411B375EF0CFA90FE35D /* SoftProofParityTests.swift */,
 				19533F295FB7423FCE62C8DD /* ViewportStateTests.swift */,
 				F5302C66459D988E5FC47CA3 /* WhiteBalanceTests.swift */
 			);
@@ -603,6 +605,7 @@
 		039B6FFCF4BFB676662323BD /* ParamsTests.swift */ = {isa = PBXBuildFile; fileRef = 670BA02F66C2FB67FF1B53EE; };
 		503F68DEA38B3A6A770B76FC /* PrintLUTTests.swift */ = {isa = PBXBuildFile; fileRef = A02C1261DEB889B4B7370EFA; };
 		9105254BB5E54EE1AFE0A963 /* RendererTests.swift */ = {isa = PBXBuildFile; fileRef = 8EB35FC4E4E88A7B96A3A06A; };
+		79B440F7C064DEE4BA8CB3A1 /* SoftProofParityTests.swift */ = {isa = PBXBuildFile; fileRef = 8630411B375EF0CFA90FE35D; };
 		79E5DF91AA1045E525966216 /* ViewportStateTests.swift */ = {isa = PBXBuildFile; fileRef = 19533F295FB7423FCE62C8DD; };
 		1AF1357ED1527EBC8166745C /* WhiteBalanceTests.swift */ = {isa = PBXBuildFile; fileRef = F5302C66459D988E5FC47CA3; };
 		8CDECFAE3D708A987D5F23D1 /* ColourManagement.swift */ = {isa = PBXBuildFile; fileRef = 3CC9377A61A47BF9746521A9; };
@@ -713,6 +716,7 @@
 				039B6FFCF4BFB676662323BD /* ParamsTests.swift */,
 				503F68DEA38B3A6A770B76FC /* PrintLUTTests.swift */,
 				9105254BB5E54EE1AFE0A963 /* RendererTests.swift */,
+				79B440F7C064DEE4BA8CB3A1 /* SoftProofParityTests.swift */,
 				79E5DF91AA1045E525966216 /* ViewportStateTests.swift */,
 				1AF1357ED1527EBC8166745C /* WhiteBalanceTests.swift */,
 				8CDECFAE3D708A987D5F23D1 /* ColourManagement.swift */,
