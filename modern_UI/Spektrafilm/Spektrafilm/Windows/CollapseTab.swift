@@ -101,10 +101,43 @@ struct HoverEdgeTab: View {
     /// well: it is what decides where the click lands.
     static let bottomInset: CGFloat = 4
 
+    /// How far the band is pushed **outward**, past the canvas edge, so that
+    /// its centre lands on the pill's.
+    ///
+    /// The band and the pill are hung off the same edge but by different
+    /// rules — the band is `band` deep against the edge, the pill is
+    /// `tabThickness` deep and inset by `bottomInset` on the bottom edge — so
+    /// their centres do not coincide, and the *whole* of the band's slack
+    /// falls on one side of the control it reveals. Measured on a 1920×1080
+    /// window before this was here:
+    ///
+    ///     leading   band x 343…371   pill x 343…357    centres 357 vs 350
+    ///     trailing  band x 1591…1619 pill x 1605…1619  centres 1605 vs 1612
+    ///     bottom    band y 914…942   pill y 918…932    centres 928 vs 925
+    ///
+    /// Reaching for the tab from the *panel* side therefore missed the band
+    /// entirely on both vertical edges, and from below on the bottom one —
+    /// which is exactly the direction a person comes from.
+    ///
+    /// The band is allowed to leave the canvas by this much, because it takes
+    /// clicks only on the pill: the 7 pt it spends over the neighbouring card
+    /// costs nothing and is what makes the control reachable from that side.
+    private var bandShift: CGFloat {
+        Self.band / 2 - (edge == .bottom ? Self.bottomInset + Theme.Metric.tabThickness / 2
+                                         : Theme.Metric.tabThickness / 2)
+    }
+
     var body: some View {
         ZStack(alignment: pillAlignment) {
-            HoverBand(revealed: revealed, pill: pillSize, alignment: pillAlignment,
+            // The **band** moves outward; the pill does not. The pill's place
+            // is part of the interface (flush with the canvas edge, where the
+            // drawing puts it) and the band's is not — it is a region, and the
+            // only thing anyone can tell about it is whether reaching for the
+            // control finds it.
+            HoverBand(revealed: revealed, pill: pillSize, alignment: pillAlignment, shift: bandShift,
                       onHover: { revealed = $0 }, onTap: toggle)
+                .offset(x: edge == .leading ? -bandShift : (edge == .trailing ? bandShift : 0),
+                        y: edge == .bottom ? bandShift : 0)
             CollapseTab(edge: edge, collapsed: $collapsed)
                 .opacity(revealed ? 1 : 0)
                 // The band takes the click (see the note at the top). A live
@@ -131,10 +164,16 @@ struct HoverEdgeTab: View {
 /// The band itself: reports the pointer in and out, and is never the mouse's
 /// target. See the note at the top of the file for why it is not SwiftUI's
 /// own hover machinery.
-private struct HoverBand: NSViewRepresentable {
+/// Internal rather than file-private so that `CanvasViewTests` can find these
+/// in a hosted `EditorWindow` and check the one invariant that matters about
+/// them: that the pill is centred in the band it is hovered through.
+struct HoverBand: NSViewRepresentable {
     let revealed: Bool
     let pill: CGSize
     let alignment: Alignment
+    /// How far this view was offset outward, so that the pill — which was
+    /// *not* offset — can be found inside it. See `HoverEdgeTab.bandShift`.
+    let shift: CGFloat
     let onHover: (Bool) -> Void
     let onTap: () -> Void
 
@@ -153,6 +192,7 @@ private struct HoverBand: NSViewRepresentable {
         v.revealed = revealed
         v.pill = pill
         v.alignment = alignment
+        v.shift = shift
         v.onHover = onHover
         v.onTap = onTap
     }
@@ -162,21 +202,32 @@ private struct HoverBand: NSViewRepresentable {
         var revealed = false
         var pill = CGSize.zero
         var alignment: Alignment = .center
+        var shift: CGFloat = 0
         var onHover: ((Bool) -> Void)?
         private var area: NSTrackingArea?
 
         /// Where the pill is inside the band, in the band's own coordinates.
-        /// The same two tokens the pill is drawn from (`Theme.Metric`) and the
-        /// same rule `HoverEdgeTab` aligns it by — against its own edge, and
-        /// centred across. If the two ever disagree, the click lands beside
-        /// the pill rather than on it, which is a defect you can see.
+        ///
+        /// The pill is drawn by `HoverEdgeTab` against the canvas edge, and
+        /// this view was then offset `shift` outward — so the pill sits
+        /// `shift` in from the band's **outer** edge on every edge, and
+        /// centred along it. That is the same statement as "the band is
+        /// centred on the pill", arrived at from the other side, and it is why
+        /// the band's two halves are equal: `shift` is exactly what puts the
+        /// canvas edge at the band's middle.
+        ///
+        /// If this and the pill ever disagree, the click lands beside the
+        /// control rather than on it, which is a defect you can see.
         var pillRect: CGRect {
+            let t = HoverEdgeTab.bottomInset
             switch alignment {
-            case .leading:  return CGRect(x: 0, y: bounds.midY - pill.height / 2, width: pill.width, height: pill.height)
-            case .trailing: return CGRect(x: bounds.width - pill.width, y: bounds.midY - pill.height / 2,
+            case .leading:  return CGRect(x: shift, y: bounds.midY - pill.height / 2,
+                                          width: pill.width, height: pill.height)
+            case .trailing: return CGRect(x: bounds.width - shift - pill.width,
+                                          y: bounds.midY - pill.height / 2,
                                           width: pill.width, height: pill.height)
             case .bottom:   return CGRect(x: bounds.midX - pill.width / 2,
-                                          y: bounds.height - HoverEdgeTab.bottomInset - pill.height,
+                                          y: bounds.height - shift - t - pill.height,
                                           width: pill.width, height: pill.height)
             default:        return .zero
             }

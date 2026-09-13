@@ -597,35 +597,83 @@ struct Geometry: Codable, Equatable, Sendable {
     /// crop is axis-aligned in that frame at any straighten angle.
     func resized(handle: CropHandle, to point: CGPoint, in imageSize: CGSize) -> Geometry {
         let w = max(imageSize.width, 1), h = max(imageSize.height, 1)
-        var minX = crop.x, minY = crop.y
-        var maxX = crop.x + crop.width, maxY = crop.y + crop.height
-        if handle.movesLeading { minX = point.x }
-        if handle.movesTrailing { maxX = point.x }
-        if handle.movesTop { minY = point.y }
-        if handle.movesBottom { maxY = point.y }
-        // A drag past the opposite edge flips the rectangle rather than
-        // inverting it, which is what every direct-manipulation crop does.
-        var g = self
-        g.crop = CropRect(x: min(minX, maxX), y: min(minY, maxY),
-                          width: max(abs(maxX - minX), Geometry.minSide / w),
-                          height: max(abs(maxY - minY), Geometry.minSide / h))
-        if let ratio = aspect.ratio(sourceAspect: w / h) {
-            // Keep the corner opposite the one being dragged pinned, and
-            // derive the other side from the ratio.
-            let anchor = handle.oppositeAnchor
-            let pw = g.crop.width * w, ph = g.crop.height * h
-            var nw = pw, nh = ph
-            if handle.isCorner { nh = pw / ratio; if nh < Geometry.minSide { nh = Geometry.minSide; nw = nh * ratio } }
-            else if handle.movesLeading || handle.movesTrailing { nh = pw / ratio }
-            else { nw = ph * ratio }
-            let ax = g.crop.x + g.crop.width * anchor.x
-            let ay = g.crop.y + g.crop.height * anchor.y
-            g.crop = CropRect(x: ax - (nw / w) * anchor.x, y: ay - (nh / h) * anchor.y,
-                              width: nw / w, height: nh / h)
+        // Where the handle being dragged is *now* — the other end of the drag,
+        // and the thing every intermediate step below is measured from.
+        let from = CGPoint(x: handle.movesLeading ? crop.x : crop.x + crop.width,
+                           y: handle.movesTop ? crop.y : crop.y + crop.height)
+
+        /// The rectangle a drag that got `t` of the way to `destination` asks
+        /// for. `t` = 1 is the drag itself; smaller values are the same drag
+        /// stopped short, which is what lets the search below walk it back.
+        func asked(_ t: Double, to destination: CGPoint) -> Geometry {
+            let p = CGPoint(x: from.x + (destination.x - from.x) * t,
+                            y: from.y + (destination.y - from.y) * t)
+            var minX = crop.x, minY = crop.y
+            var maxX = crop.x + crop.width, maxY = crop.y + crop.height
+            if handle.movesLeading { minX = p.x }
+            if handle.movesTrailing { maxX = p.x }
+            if handle.movesTop { minY = p.y }
+            if handle.movesBottom { maxY = p.y }
+            // A drag past the opposite edge flips the rectangle rather than
+            // inverting it, which is what every direct-manipulation crop does.
+            var g = self
+            g.crop = CropRect(x: min(minX, maxX), y: min(minY, maxY),
+                              width: max(abs(maxX - minX), Geometry.minSide / w),
+                              height: max(abs(maxY - minY), Geometry.minSide / h))
+            if let ratio = aspect.ratio(sourceAspect: w / h) {
+                // Keep the corner opposite the one being dragged pinned, and
+                // derive the other side from the ratio.
+                let anchor = handle.oppositeAnchor
+                let pw = g.crop.width * w, ph = g.crop.height * h
+                var nw = pw, nh = ph
+                if handle.isCorner { nh = pw / ratio; if nh < Geometry.minSide { nh = Geometry.minSide; nw = nh * ratio } }
+                else if handle.movesLeading || handle.movesTrailing { nh = pw / ratio }
+                else { nw = ph * ratio }
+                let ax = g.crop.x + g.crop.width * anchor.x
+                let ay = g.crop.y + g.crop.height * anchor.y
+                g.crop = CropRect(x: ax - (nw / w) * anchor.x, y: ay - (nh / h) * anchor.y,
+                                  width: nw / w, height: nh / h)
+            }
+            return g
+        }
+
+        // **The first thing a drag past the edge does is stop at it.**
+        //
+        // Clamping the point, rather than shrinking a rectangle that does not
+        // fit, is what makes a crop tangent to the frame reachable: push a
+        // corner out and it lands *on* the frame's corner, push an edge out and
+        // it lands on that edge, and every other side stays exactly where it
+        // was. Shrinking moved all four, so the last few pixels of a push made
+        // the whole frame run away from the edge — which is the report.
+        //
+        // Clamping each axis on its own is also what a corner needs: a drag
+        // diagonally outward reaches one edge before the other, and walking
+        // back along the *ray* would stop there, leaving the second edge short
+        // of the frame. A person pushing a corner into the corner means both.
+        let target = CGPoint(x: point.x.clamped(to: 0...1), y: point.y.clamped(to: 0...1))
+        let want = asked(1, to: target)
+        if want.fits(in: imageSize) { return want.rememberingSize() }
+
+        // It still does not fit, which with an aspect lock it need not: the
+        // *derived* side can leave the frame even though the dragged one is
+        // pinned to it (a 3:2 crop pushed into the top edge wants a width the
+        // frame has not got). So walk the drag back along its own direction
+        // until the shape fits — the dragged edge stops short of the frame and
+        // the derived one stops with it. `fits` is the predicate at any
+        // straighten angle, and `moved(by:)` above is the same shape for the
+        // same reason.
+        var lo = 0.0, hi = 1.0
+        for _ in 0..<30 {
+            let mid = (lo + hi) / 2
+            if asked(mid, to: target).fits(in: imageSize) { lo = mid } else { hi = mid }
         }
         // Dragging a handle is the user saying how big the crop should be;
-        // whatever came out is the new remembered size.
-        return g.fitted(in: imageSize).rememberingSize()
+        // whatever came out is the new remembered size. `fitted` is **not**
+        // called here — both paths above have already guaranteed the fit, and
+        // calling it would be the shrink this function exists to avoid. It
+        // stays the right answer for `straighten`, where shrinking about the
+        // centre is exactly what turning the picture under a fixed crop means.
+        return asked(lo, to: target).rememberingSize()
     }
 
     /// Coarse rotation. The crop rides along: turning the frame right must

@@ -105,7 +105,37 @@ final class CanvasNSView: MTKView, MTKViewDelegate {
 
     override func layout() {
         super.layout()
+        sizeDrawable()
         syncViewport()
+    }
+
+    override func viewDidChangeBackingProperties() {
+        super.viewDidChangeBackingProperties()
+        sizeDrawable()
+        syncViewport()
+    }
+
+    /// Make the drawable **cover** the layer, which `autoResizeDrawable`
+    /// does not.
+    ///
+    /// MTKView sizes its drawable from the bounds and **rounds down**, while
+    /// the layer's own bounds are the bounds in pixels and are not rounded at
+    /// all. Measured on a live 1800 pt window, over one panel animation:
+    /// **14 of 28 draws had the drawable short of `bounds × backingScale`**,
+    /// the worst by 0.42 px — a bounds of 1762.2101 pt giving a 3524 px
+    /// drawable where 3524.42 px of layer were there to fill. A `CAMetalLayer`
+    /// is opaque, so the sliver it does not paint is not the ground colour
+    /// behind it; it is black, and it is on the **right and bottom**, which is
+    /// where a rounded-down size leaves a gap.
+    ///
+    /// So the drawable is sized here instead, always up. Being up to a pixel
+    /// *over* the layer is free — the excess is off the edge of what is shown —
+    /// where being under it is a visible seam.
+    private func sizeDrawable() {
+        guard bounds.width > 0, bounds.height > 0 else { return }
+        let bs = window?.backingScaleFactor ?? 2
+        let want = CGSize(width: ceil(bounds.width * bs), height: ceil(bounds.height * bs))
+        if drawableSize != want { drawableSize = want }
     }
 
     override func updateTrackingAreas() {
@@ -652,7 +682,11 @@ extension CanvasNSView {
         view.enableSetNeedsDisplay = true
         view.colorPixelFormat = Renderer.drawableFormat
         view.framebufferOnly = true
-        view.autoResizeDrawable = true
+        // **Not `autoResizeDrawable`.** It rounds the drawable down from the
+        // bounds while the layer is the bounds in pixels, and the sliver it
+        // leaves is black on the right and bottom — see `sizeDrawable`, which
+        // is what sizes it instead, and which runs from `layout`.
+        view.autoResizeDrawable = false
         view.clearColor = MTLClearColor(red: 0x5F / 255.0, green: 0x5F / 255.0, blue: 0x5F / 255.0, alpha: 1)
         if let layer = view.layer as? CAMetalLayer {
             layer.colorspace = ImageDecoder.displayP3

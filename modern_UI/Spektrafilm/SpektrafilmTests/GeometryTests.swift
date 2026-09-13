@@ -310,6 +310,86 @@ final class GeometryTests: XCTestCase {
         XCTAssertEqual(out.crop.width * size.width / (out.crop.height * size.height), 16.0 / 9, accuracy: 1e-4)
     }
 
+    /// **A handle pushed into the frame edge stops there.** It does not shrink
+    /// the crop, and it does not move any edge but its own.
+    ///
+    /// This was the defect: `resized` ended in `fitted(in:)`, which shrinks a
+    /// rectangle that does not fit *about its centre*. Drag a corner past the
+    /// edge and all four sides came in to meet it, so a crop tangent to the
+    /// frame — the thing the user is usually reaching for — was nearly
+    /// unobtainable: the last few pixels of the drag made the frame jump away
+    /// from the edge you were pushing at.
+    ///
+    /// Every case below is a drag **well past** the edge, which is the shape
+    /// that used to shrink. The three edges that are not being dragged must be
+    /// exactly where they started.
+    func testAHandleDraggedPastTheEdgeStopsAndDoesNotShrinkTheCrop() {
+        for handle in CropHandle.allCases where handle != .body {
+            var g = Geometry.default
+            g.crop = CropRect(x: 0.25, y: 0.3, width: 0.4, height: 0.3)
+            // Well outside the *frame*, but not past the opposite edge of the
+            // crop — that would be a flip, which is a different gesture with a
+            // different rule and is tested on its own below.
+            let far = CGPoint(x: handle.movesLeading ? -0.5 : (handle.movesTrailing ? 1.5 : 0.45),
+                              y: handle.movesTop ? -0.5 : (handle.movesBottom ? 1.5 : 0.45))
+            let out = g.resized(handle: handle, to: far, in: size)
+            let what = "\(handle)"
+            XCTAssertTrue(out.fits(in: size), "\(what): the result must be inside the frame")
+            XCTAssertGreaterThan(out.crop.width, Geometry.minSide / size.width - 1e-9,
+                                 "\(what): the crop collapsed")
+            XCTAssertGreaterThan(out.crop.height, Geometry.minSide / size.height - 1e-9,
+                                 "\(what): the crop collapsed")
+            // The dragged edges are against the frame, and the others are
+            // untouched. `resized` works in the unrotated frame, which at 0°
+            // is the source frame, so tangency is `crop.x == 0` and so on.
+            if handle.movesLeading { XCTAssertEqual(out.crop.x, 0, accuracy: 1e-3, "\(what): leading edge not tangent") }
+            else { XCTAssertEqual(out.crop.x, g.crop.x, accuracy: 1e-3, "\(what): leading edge moved") }
+            if handle.movesTrailing {
+                XCTAssertEqual(out.crop.x + out.crop.width, 1, accuracy: 1e-3, "\(what): trailing edge not tangent")
+            } else {
+                XCTAssertEqual(out.crop.x + out.crop.width, g.crop.x + g.crop.width,
+                               accuracy: 1e-3, "\(what): trailing edge moved")
+            }
+            if handle.movesTop { XCTAssertEqual(out.crop.y, 0, accuracy: 1e-3, "\(what): top edge not tangent") }
+            else { XCTAssertEqual(out.crop.y, g.crop.y, accuracy: 1e-3, "\(what): top edge moved") }
+            if handle.movesBottom {
+                XCTAssertEqual(out.crop.y + out.crop.height, 1, accuracy: 1e-3, "\(what): bottom edge not tangent")
+            } else {
+                XCTAssertEqual(out.crop.y + out.crop.height, g.crop.y + g.crop.height,
+                               accuracy: 1e-3, "\(what): bottom edge moved")
+            }
+        }
+    }
+
+    /// …and the same with an aspect locked, where the *derived* side has to
+    /// stop too: a 3:2 crop pushed into the top edge must stop there rather
+    /// than growing the width it is not dragging, and the anchored edge must
+    /// not move.
+    func testAnAspectLockedHandlePastTheEdgeStopsWithItsPartner() {
+        for handle in [CropHandle.top, .bottom, .left, .right, .topLeft, .bottomRight] {
+            var g = Geometry.default
+            g.crop = CropRect(x: 0.3, y: 0.3, width: 0.3, height: 0.3)
+            g.aspect = .r3x2
+            g = g.constrained(in: size)
+            let anchor = CGPoint(x: g.crop.x + g.crop.width * handle.oppositeAnchor.x,
+                                 y: g.crop.y + g.crop.height * handle.oppositeAnchor.y)
+            let out = g.resized(handle: handle,
+                                to: CGPoint(x: handle.movesLeading ? -0.5 : (handle.movesTrailing ? 1.5 : 0.45),
+                                            y: handle.movesTop ? -0.5 : (handle.movesBottom ? 1.5 : 0.45)),
+                                in: size)
+            let what = "\(handle)"
+            XCTAssertTrue(out.fits(in: size), "\(what): the result must be inside the frame")
+            XCTAssertEqual(out.crop.width * size.width / (out.crop.height * size.height),
+                           3.0 / 2, accuracy: 1e-3, "\(what): the aspect slipped")
+            // The corner opposite the drag is the one an aspect-locked resize
+            // pins, and it must still be where it was.
+            XCTAssertEqual(out.crop.x + out.crop.width * handle.oppositeAnchor.x, anchor.x,
+                           accuracy: 1e-3, "\(what): the anchor moved across")
+            XCTAssertEqual(out.crop.y + out.crop.height * handle.oppositeAnchor.y, anchor.y,
+                           accuracy: 1e-3, "\(what): the anchor moved down")
+        }
+    }
+
     // MARK: the mapping the shader copies
 
     /// The corners of the oriented rectangle are exactly where the output's

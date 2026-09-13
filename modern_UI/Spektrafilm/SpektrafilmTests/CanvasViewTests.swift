@@ -168,6 +168,95 @@ final class CanvasViewTests: XCTestCase {
         XCTAssertEqual(widths.first! - widths.last!, 400, accuracy: 0.001)
     }
 
+    /// The hover band must be **centred on the pill it reveals**.
+    ///
+    /// They are hung off the same canvas edge but by different rules — the
+    /// band is 28 pt against the edge, the pill is 14 pt and inset — so
+    /// whichever way the arithmetic goes, one of them ends up off to a side.
+    /// Measured in a hosted window on the code this was written against:
+    ///
+    ///     leading   band x 343…371   pill x 343…357    centres 357 vs 350
+    ///     trailing  band x 1591…1619 pill x 1605…1619  centres 1605 vs 1612
+    ///     bottom    band y 914…942   pill y 918…932    centres 928 vs 925
+    ///
+    /// Seven points on the two vertical edges and three on the bottom, all of
+    /// the slack on the far side from where a person reaches: coming *from*
+    /// the panel or the filmstrip, the band was not there at all. The user's
+    /// words were that the bottom trigger sits above the bar it belongs to.
+    ///
+    /// The invariant is stated as "the pill is centred in the band" rather
+    /// than as three numbers, so it holds however the tokens move and does not
+    /// repeat the arithmetic it is checking.
+    func testTheHoverBandIsCentredOnThePillItReveals() throws {
+        let session = Session()
+        let host = NSHostingView(rootView: EditorWindow(session: session))
+        host.frame = CGRect(x: 0, y: 0, width: 1920, height: 1080)
+        let window = NSWindow(contentRect: host.frame, styleMask: [.titled], backing: .buffered, defer: false)
+        window.contentView = host
+        window.orderFront(nil)
+        defer { window.orderOut(nil) }
+        host.layoutSubtreeIfNeeded()
+
+        func bands(in view: NSView) -> [HoverBand.Band] {
+            (view as? HoverBand.Band).map { [$0] } ?? view.subviews.flatMap(bands(in:))
+        }
+        let found = bands(in: host)
+        XCTAssertEqual(found.count, 3, "one band per collapsible edge — the top bar does not fold")
+        for band in found {
+            XCTAssertGreaterThan(band.bounds.width, 0)
+            XCTAssertGreaterThan(band.bounds.height, 0)
+            // The pill's rect is in the band's own coordinates, so "centred"
+            // is a statement about the band's bounds alone.
+            XCTAssertEqual(band.pillRect.midX, band.bounds.midX, accuracy: 0.5,
+                           "pill is \(band.pillRect.midX - band.bounds.midX) pt off centre across")
+            XCTAssertEqual(band.pillRect.midY, band.bounds.midY, accuracy: 0.5,
+                           "pill is \(band.pillRect.midY - band.bounds.midY) pt off centre down")
+        }
+    }
+
+    /// The drawable must **cover** the layer it is drawn into.
+    ///
+    /// `MTKView.autoResizeDrawable` rounds the drawable down from the bounds
+    /// while a `CAMetalLayer`'s own bounds are the bounds in pixels, unrounded
+    /// — so at any fractional size the drawable is up to a pixel short, and on
+    /// an opaque layer that sliver is black, on the **right and bottom**, which
+    /// is the side a rounded-down number leaves a gap on. Measured live over
+    /// one panel animation: 14 of 28 draws were short, the worst by 0.42 px
+    /// (bounds 1762.2101 pt, drawable 3524 px where 3524.42 px of layer were
+    /// there). This is the user's "very small black edge on the bottom and
+    /// right side of the canvas".
+    ///
+    /// A *fractional* size is the whole point of the test: at integral points
+    /// there is nothing to round, which is why the defect only showed up on a
+    /// window someone had dragged to an arbitrary size.
+    func testTheDrawableCoversTheViewAtFractionalSizes() throws {
+        let session = Session()
+        let view = CanvasNSView.configured(host: session)
+        let window = NSWindow(contentRect: CGRect(x: 0, y: 0, width: 1000, height: 700),
+                              styleMask: [.titled], backing: .buffered, defer: false)
+        window.contentView = view
+        window.orderFront(nil)
+        defer { window.orderOut(nil) }
+
+        for width in [999.0, 1000.37, 1276.21, 1438.63] {
+            for height in [701.0, 888.42, 894.71] {
+                view.frame = CGRect(x: 0, y: 0, width: width, height: height)
+                view.layoutSubtreeIfNeeded()
+                let bs = view.window?.backingScaleFactor ?? 2
+                let wantW = width * bs, wantH = height * bs
+                XCTAssertGreaterThanOrEqual(view.drawableSize.width, wantW - 1e-9,
+                                            "drawable \(view.drawableSize.width) px is short of \(wantW) at \(width)×\(height)")
+                XCTAssertGreaterThanOrEqual(view.drawableSize.height, wantH - 1e-9,
+                                            "drawable \(view.drawableSize.height) px is short of \(wantH) at \(width)×\(height)")
+                // …and not absurdly over: one pixel of slack, not a whole point.
+                XCTAssertLessThan(view.drawableSize.width, wantW + bs,
+                                  "the drawable is more than a pixel wider than the layer")
+                XCTAssertLessThan(view.drawableSize.height, wantH + bs,
+                                  "the drawable is more than a pixel taller than the layer")
+            }
+        }
+    }
+
     /// **The canvas twitch, measured in-process.**
     ///
     /// What "the picture twitches while the panels move" is: during the
