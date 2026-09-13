@@ -91,6 +91,25 @@ struct ExposureEvs {
     double of(const std::string& method) const;
 };
 
+// The two matrix conventions the transferred kernels use, named so they cannot
+// be confused again (AGENTS.md trap 20). Defined in `pipeline.cpp` beside the
+// comment that says why there are two; declared here because
+// `spk_output_transform` marshals the same CAM16 block out over the ABI and
+// must call the same helper rather than re-spell the orientation.
+void row_major(const Mat3& m, double out[9]);
+void transposed(const Mat3& m, double out[9]);
+
+// The transfer-function modes, as `shaders/nodes.metal` numbers them: 0 sRGB
+// (and Display P3), 1 ProPhoto RGB, 2 Adobe RGB (1998), 3 BT.709/BT.2020,
+// 4 identity (the ACES spaces).
+//
+// One definition, called by `Pipeline::build` for the session's input and
+// output spaces and by `spk_output_transform` for both ends of the transform
+// the app runs. The kernels read this number and nothing else about the space,
+// so two copies of this mapping would be two chances for a picture to be
+// decoded with one curve and encoded with another.
+uint32_t cctf_mode_for(const std::string& colour_space);
+
 class Pipeline {
 public:
     Pipeline(gpu::Gpu* gpu, const Colour* colour, const Blob* blob, SetupCache* cache)

@@ -208,7 +208,17 @@ struct GamutCompressSpec {
 struct IOParams {
     std::string input_color_space = "ProPhoto RGB";
     bool input_cctf_decoding = false;
-    std::string output_color_space = "sRGB";
+    /// **The working space** since RFC-018 §5.1. The engine renders into it,
+    /// the app grades in it, and the conversion to a display or an export
+    /// space happens once, at the end, in the app's own output transform
+    /// (`spk_output_transform`).
+    ///
+    /// It used to read `"sRGB"` while `spk_open` hardcoded Display P3 — a
+    /// header and a behaviour that disagreed, which is RFC-018 §4.2. The two
+    /// agree now, and the *resolved* space (this default or an explicit
+    /// `io.output_color_space` in the delta) is echoed in the `open` reply so
+    /// the frontend reads it rather than assuming it.
+    std::string output_color_space = "ProPhoto RGB";
     bool output_cctf_encoding = true;
     GamutCompressSpec input_gamut_compress = GamutCompressSpec::input_default();
     GamutCompressSpec output_gamut_compress = GamutCompressSpec::output_default();

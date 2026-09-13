@@ -6,26 +6,6 @@
 
 namespace spk {
 
-namespace {
-
-constexpr double kMidgray = 0.184;
-// RFC-015 §2.3's four intents. `s_hi` and `s_lo` are how far past mid-grey a
-// frame may sit before the protect modes act; §2.4 would take them from the
-// stock's own shoulder and toe, which needs a calibration set this RFC does
-// not have, so v1 uses fixed stops.
-constexpr double kProtectHighlightsStops = 2.5;
-constexpr double kProtectShadowsStops = 3.5;
-constexpr double kProtectHighlightsClampEv = 3.0;   // EV_h is at least EV_b - 3
-constexpr double kProtectShadowsClampEv = 2.0;      // EV_s is at most EV_b + 2
-// The floor under the sample before any logarithm: twelve stops below
-// mid-grey, which no real frame's shadow is and every black border is.
-constexpr double kMeterFloor = kMidgray / 4096.0;
-// `model/grain.MIN_EFFECTIVE_BLUR_SIGMA` -- a Gaussian narrower than this is
-// numerically the identity, so the pass is skipped rather than paid for.
-constexpr double kMinEffectiveBlurSigma = 0.4;
-
-void fill3(double dst[3], double v) { dst[0] = dst[1] = dst[2] = v; }
-
 // --- the two matrix conventions the kernels use, named so they cannot be
 // confused again.
 //
@@ -45,8 +25,41 @@ void fill3(double dst[3], double v) { dst[0] = dst[1] = dst[2] = v; }
 // Getting this wrong is not a crash and not obviously wrong on screen: it
 // shifted the red channel's mean by +0.14 and the blue's by -0.08, which looks
 // like a grading decision. Hence two named helpers instead of a comment.
+//
+// These two live at namespace scope rather than in the anonymous namespace
+// below because `spk_output_transform` marshals the same CAM16 block out over
+// the ABI and calls them from `engine.cpp` -- one definition of the
+// orientation, not two (pipeline.hpp declares them).
 void row_major(const Mat3& m, double out[9]) { m.to_row_major(out); }
 void transposed(const Mat3& m, double out[9]) { m.transposed().to_row_major(out); }
+
+uint32_t cctf_mode_for(const std::string& cs) {
+    if (cs == "sRGB" || cs == "Display P3") return 0;
+    if (cs == "ProPhoto RGB") return 1;
+    if (cs == "Adobe RGB (1998)") return 2;
+    if (cs == "ITU-R BT.709" || cs == "ITU-R BT.2020") return 3;
+    return 4;
+}
+
+namespace {
+
+constexpr double kMidgray = 0.184;
+// RFC-015 §2.3's four intents. `s_hi` and `s_lo` are how far past mid-grey a
+// frame may sit before the protect modes act; §2.4 would take them from the
+// stock's own shoulder and toe, which needs a calibration set this RFC does
+// not have, so v1 uses fixed stops.
+constexpr double kProtectHighlightsStops = 2.5;
+constexpr double kProtectShadowsStops = 3.5;
+constexpr double kProtectHighlightsClampEv = 3.0;   // EV_h is at least EV_b - 3
+constexpr double kProtectShadowsClampEv = 2.0;      // EV_s is at most EV_b + 2
+// The floor under the sample before any logarithm: twelve stops below
+// mid-grey, which no real frame's shadow is and every black border is.
+constexpr double kMeterFloor = kMidgray / 4096.0;
+// `model/grain.MIN_EFFECTIVE_BLUR_SIGMA` -- a Gaussian narrower than this is
+// numerically the identity, so the pass is skipped rather than paid for.
+constexpr double kMinEffectiveBlurSigma = 0.4;
+
+void fill3(double dst[3], double v) { dst[0] = dst[1] = dst[2] = v; }
 
 // The (K, 3) axis and its reciprocal steps, for an axis that is *not* a scaled
 // log-exposure -- grain's density axis. `interp_tables`'s `1/dx` with 0 where
@@ -164,16 +177,12 @@ bool Pipeline::build(const Params& params, std::string& error) {
         return false;
     }
 
-    // --- the transfer-function modes, as `shaders/nodes.metal` numbers them
-    auto cctf_mode = [](const std::string& cs) -> uint32_t {
-        if (cs == "sRGB" || cs == "Display P3") return 0;
-        if (cs == "ProPhoto RGB") return 1;
-        if (cs == "Adobe RGB (1998)") return 2;
-        if (cs == "ITU-R BT.709" || cs == "ITU-R BT.2020") return 3;
-        return 4;
-    };
-    input_cctf_mode_ = cctf_mode(params_.io.input_color_space);
-    output_cctf_mode_ = cctf_mode(params_.io.output_color_space);
+    // --- the transfer-function modes, as `shaders/nodes.metal` numbers them.
+    // `cctf_mode_for` and not a local lambda: the app's output transform asks
+    // the same question about both ends of its own conversion, and one
+    // definition is what keeps the two answers from drifting.
+    input_cctf_mode_ = cctf_mode_for(params_.io.input_color_space);
+    output_cctf_mode_ = cctf_mode_for(params_.io.output_color_space);
 
     // --- the spectral upsampling LUT -------------------------------------
     if (!film_sensitivity(*colour_, *blob_, film, params_.camera, film_sensitivity_, error)) return false;

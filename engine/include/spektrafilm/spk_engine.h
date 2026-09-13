@@ -231,6 +231,54 @@ spk_status spk_preview_stock_lut(spk_session* session, const char* print_stock,
 spk_status spk_export_di(spk_session* session, const char* print_stock,
                          spk_result* out, char** out_json);
 
+/* --- the output transform (RFC-018 §5.2) ------------------------------
+ *
+ * A session renders into the **working space** (`params.io.output_color_space`,
+ * ProPhoto RGB by default). Leaving that space is the caller's job, one
+ * conversion per destination, and this is the data it does it with: the
+ * chromatically adapted linear matrix, the two transfer-function modes as
+ * `shaders/nodes.metal` numbers them, and the CAM16-UCS setup for `dst_cs` --
+ * the same one `Pipeline::build` bakes, from the same setup cache.
+ *
+ * It is a *fetch*, not a render. Nothing here touches pixels; the transform
+ * itself runs in whatever kernel the caller has, and every number in it comes
+ * from this engine's own colour data rather than from a second colour library
+ * on the other side of the boundary.
+ *
+ * `gamut_compress_json` may be NULL, meaning the default a session gets
+ * (`GamutCompressSpec::output_default()`: cam16ucs, lightness compression on,
+ * the standard knee). An object overrides it:
+ *
+ *   {"algorithm": "cam16ucs" | "off",
+ *    "knee": [threshold, limit, power],
+ *    "lightness_compression_active": bool,
+ *    "lightness_compression": [threshold, limit, power]}
+ *
+ * and the reply's `gamut_compress` block carries `lightness_compression_active`
+ * back, because the kernel needs it: with the compression off, `k[15..17]` are
+ * neutralised but a kernel that merely *read* them, without the gate, would not
+ * be applying an identity.
+ *
+ * `algorithm: "off"` is legal and means the caller skips the compression step;
+ * the JSON still carries the tables, because a caller that flips the setting
+ * without a round trip should not have to come back for them.
+ *
+ * `out_json` is caller-freed with `spk_string_free`. `out_cmax` points into
+ * the engine's own setup cache and is valid for the engine's lifetime; it is
+ * not freed by the caller, exactly as `spk_print_lut_table`'s table is not.
+ * `*out_cmax_count` is `rows * cols`.
+ *
+ * A `src_cs` or `dst_cs` this build does not know -- or knows without a
+ * transfer function or a whitepoint -- fails with `SPK_ERR_USER` and a message
+ * naming it. **It does not fall back**: falling back is how a picture ends up
+ * in a space nobody asked for.
+ */
+spk_status spk_output_transform(spk_engine* engine,
+                                const char* src_cs, const char* dst_cs,
+                                const char* gamut_compress_json,
+                                char** out_json,
+                                const float** out_cmax, uint32_t* out_cmax_count);
+
 /* Release a result's texture (and with it the pixels `rgba16` points at).
  * Do **not** call it after taking ownership of `texture` in a language with
  * its own reference counting -- Swift's `takeRetainedValue()` already did. */
