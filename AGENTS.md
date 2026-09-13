@@ -219,7 +219,12 @@ decoration**: the bundle carries CC BY-SA profiles and GPL binaries, and
 accessor the About panel uses*.
 
 `project.pbxproj` is **generated from the filesystem** by `Tools/gen-project.py`
-(ids are path hashes, so it is byte-stable). It also lists the engine's C++
+(ids are sha1s of the file's path *relative to the project*, so two checkouts
+of the same tree generate the same bytes). The "relative" is load-bearing and
+was not always true: the ids used to hash the absolute path, so a git worktree
+and the main checkout produced files identical in every byte except all 1,400
+ids, and any merge between them conflicted over a change neither side had
+made. It also lists the engine's C++
 translation units, so **a new `engine/src/**/*.cpp` needs the generator too** —
 without it the file simply is not compiled, and the failure is a link error
 about a missing symbol rather than anything pointing at the file. A new

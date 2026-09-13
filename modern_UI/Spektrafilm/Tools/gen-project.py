@@ -4,7 +4,9 @@
     Tools/gen-project.py            # write
     Tools/gen-project.py --check    # exit 1 if the checked-in file is stale
 
-Object ids are derived from paths (first 24 hex chars of a sha1), so running
+Object ids are derived from paths *relative to the project* (first 24 hex
+chars of a sha1) -- relative so that two checkouts of the same tree agree, and
+a worktree's regeneration does not conflict with the main one's. Running
 this twice produces a byte-identical file. Every Swift/Metal file under
 `Spektrafilm/` joins the app target; everything under `SpektrafilmTests/` joins
 the unit-test target. `Resources/` is added as a folder reference so anything
@@ -102,6 +104,13 @@ def relative_to_project(path: Path) -> str:
     The engine lives outside this project's tree, so its file references use
     `sourceTree = SOURCE_ROOT` and a `../..` path. Absolute paths would work
     on exactly one machine.
+
+    **Object ids go through here too**, and that is not decoration. They are
+    sha1s of a key built from a path, so an absolute path made the id a
+    function of *where the checkout lives* — the same tree generated in a
+    git worktree and in the main checkout produced two files identical in
+    every byte except all 1,400 ids, and every merge between them conflicted
+    over a change neither side had made.
     """
     return os.path.relpath(path, ROOT)
 
@@ -125,7 +134,7 @@ class Project:
     # groups -------------------------------------------------------------
     def group(self, dir_: Path, target_files: list[tuple[str, Path]], name: str | None = None,
               is_root=False) -> str:
-        gid = uid("group:" + str(dir_))
+        gid = uid("group:" + relative_to_project(dir_))
         children = []
         for entry in sorted(dir_.iterdir(), key=lambda p: (p.is_file(), p.name.lower())):
             if entry.name.startswith(".") or entry.name == "Spektrafilm.xcodeproj":
@@ -135,7 +144,7 @@ class Project:
                     continue
                 children.append((self.group(entry, target_files), entry.name))
             else:
-                fid = uid("file:" + str(entry))
+                fid = uid("file:" + relative_to_project(entry))
                 ft = file_type(entry)
                 if entry.name == "Resources":
                     self.add(fid, f"{{isa = PBXFileReference; lastKnownFileType = folder; path = Resources; sourceTree = \"<group>\"; }}", "Resources")
@@ -162,7 +171,7 @@ def build() -> str:
     engine_files: list[tuple[str, Path]] = []
     engine_children = []
     for src in engine_sources():
-        fid = uid("file:engine:" + str(src))
+        fid = uid("file:engine:" + relative_to_project(src))
         p.add(fid, f"{{isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.cpp; "
                    f"name = \"{src.name}\"; path = \"{relative_to_project(src)}\"; "
                    f"sourceTree = SOURCE_ROOT; }}", src.name)
@@ -186,7 +195,7 @@ def build() -> str:
         ids = []
         for fid, path in files:
             if pred(path):
-                bid = uid(f"build:{tag}:{path}")
+                bid = uid(f"build:{tag}:{relative_to_project(path)}")
                 p.add(bid, f"{{isa = PBXBuildFile; fileRef = {fid}; }}", path.name)
                 ids.append(f"\t\t\t\t{bid} /* {path.name} */")
         pid = uid(f"phase:{tag}:{kind}")
