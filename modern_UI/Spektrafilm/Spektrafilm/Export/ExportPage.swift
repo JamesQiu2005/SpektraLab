@@ -46,8 +46,6 @@ struct ExportPage: View {
     /// the second one ("the viewed image stays as the one the user is
     /// previously on").
     @State private var targets: Set<URL> = []
-    /// Where a ⇧-click's range starts, in `session.frames` order.
-    @State private var anchor: URL?
     /// The settings card folds away to the left, which is what the tab on its
     /// trailing edge in the drawing is for. Persisted like the editor's own
     /// collapse flags (`Session.leftCollapsed` and friends), so a card someone
@@ -168,33 +166,29 @@ struct ExportPage: View {
     private func adoptSessionSelection() {
         guard let sel = session.selection else { return }
         if targets.isEmpty { targets = [sel] }
-        if anchor == nil { anchor = sel }
     }
 
     /// `notes.md`: "Multi-select is allowed, and the export setting is applied
-    /// to all the selected images." A plain click is a new single selection;
-    /// ⌘ and ⇧ extend the *export* set and deliberately leave the viewed frame
-    /// alone, so the proof on screen does not jump away from what the person
-    /// was looking at while they pick the rest of the batch.
+    /// to all the selected images." The user's rule, and the app's: **a plain
+    /// click is one item and collapses the set; ⌘-click toggles one item's
+    /// membership; nothing else changes the set.** There was a ⇧ range
+    /// extension here and it is gone — "single click only selects one item,
+    /// only cmd + click can be used to select multiple".
     ///
-    /// The modifier is read off `NSEvent` rather than declared as three
+    /// A ⌘-click deliberately leaves the viewed frame alone, so the proof on
+    /// screen does not jump away from what the person was looking at while
+    /// they pick the rest of the batch.
+    ///
+    /// The modifier is read off `NSEvent` rather than declared as two
     /// gestures: a plain `TapGesture` on macOS matches a ⌘-click too, so
     /// stacked variants both fire and a ⌘-click becomes a plain one as well.
     private func tap(_ frame: Frame) {
-        let flags = NSEvent.modifierFlags
         let url = frame.id
-        if flags.contains(.shift), let anchor,
-           let a = session.frames.firstIndex(where: { $0.id == anchor }),
-           let b = session.frames.firstIndex(where: { $0.id == url }) {
-            targets = Set(session.frames[a <= b ? a...b : b...a].map(\.id))
-            return
-        }
-        if flags.contains(.command) {
+        if NSEvent.modifierFlags.contains(.command) {
             if targets.contains(url) { targets.remove(url) } else { targets.insert(url) }
             return
         }
         targets = [url]
-        anchor = url
         if session.selection != url { session.select(url) }
     }
 
