@@ -482,16 +482,52 @@ takes a ratio of *means* through `RGB_to_RGB(v, cs, cs)`, and a ratio of means
 is not invariant under a change of decode curve. c2, which is bit-exact, held
 on every frame and method.
 
+**§7.6 — the proof is the file, bit for bit.** `SoftProofParityTests`, on
+`DSC03710.ARW` at 24 MP, with the proof rendered at the export's own size and
+the file **read back off disk** and compared pixel for pixel:
+
+| recipe | differing | max | mean |
+|---|---|---|---|
+| Display P3 TIFF 16-bit | **0 of 24,000,000** | 0 | 0 |
+| sRGB TIFF 16-bit | **0 of 24,000,000** | 0 | 0 |
+| ProPhoto TIFF 16-bit | **0 of 24,000,000** | 0 | 0 |
+| Display P3 PNG 8-bit | **0 of 24,000,000** | 0 | 0 |
+| the same PNG at 16-bit precision | 23,999,477 | 128 | 0.00096 |
+
+The last row is the cause, not a discrepancy: an 8-bit file against a 16-bit
+proof differs by one half of an 8-bit step at most (128 of 65535) with a mean
+of 1/64 of a step — **the container's depth and nothing else**. JPEG is the one
+format that cannot be identical, and it is the codec: 23,450,311 pixels differ,
+max 91 of 255, mean 1.45 of 255. No difference in any case comes from the
+transform, from the write, or from the two sides resolving different targets:
+both go through one `resolveTarget` and one `applyOutputTransform`.
+
+**The identity holds when the proof is rendered at the file's size, and that
+is a condition rather than a caveat.** `softProof` bounds its render by
+`min(exportSize, framed)`, and `framed` descends from the tier on the canvas,
+so a proof taken while the canvas shows a preview is a resample of the export
+chain — measured at 0.289 and 0.144 of the file's linear size for `maxPixels`
+of 2 M and 0.5 M. `exportPixelSize` reports the *file's* size in every case and
+was verified against the file on disk. So the page's caption is true as written:
+the picture is a proof of the file's colour, at a smaller size.
+
+**One configuration detail, measured rather than argued.** With the stochastic
+stages at their defaults the two sides differ substantially — 23,419,393
+pixels, max 3216 of 65535, mean 0.0006 — because the canvas's full tier and the
+export's reprint are two renders of a pipeline that draws an unseeded glare
+field and stochastic grain (`AGENTS.md` trap 1). That is the engine's
+documented nondeterminism, not the transform, and it is why the parity case
+runs with those stages off — the same setting `parity_render` and the other
+harnesses use for the same reason.
+
 **§7.7 — the engine.** All six harnesses and both C++ checks green: setup 227
 quantities / 0 failed · schema 0 failed with the one recorded divergence above
 · render 27 cases / 0 · session 41 fields / 0 · grain 9 levels / 0 · lut 3
 stocks / 0 · exposure 0 failures with all six negative controls red as
 designed · gpu_smoke 0 · `check_math_guard` ok.
 
-**Not measured.** §7.2 (the ProPhoto export's gamut volume), §7.3 (the sRGB
-export against the canvas, as ΔE rather than as a clipped-pixel count) and
-§7.6 (the proof against the file it proves, pixel for pixel). §7.6 is the one
-that matters most and it is the next thing to run.
+**Not measured.** §7.2 (the ProPhoto export's gamut volume) and §7.3 (the sRGB
+export against the canvas, as ΔE rather than as a clipped-pixel count).
 
 **Two harness facts found on the way, neither caused by this RFC.**
 `parity_lut` could not run in this repository at all — its baked `.npz` assets
