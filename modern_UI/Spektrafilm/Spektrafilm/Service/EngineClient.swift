@@ -49,6 +49,11 @@ import Metal
 struct RenderOutcome: @unchecked Sendable {
     let response: RenderResponse
     let texture: MTLTexture?
+    /// The numbers the render left in `session->progress`: the applied EV, and
+    /// the per-node times when the engine was asked for them. Read *with* the
+    /// render rather than fetched afterwards, so nothing else can render in
+    /// between and hand back somebody else's exposure (RFC-016 §1.4).
+    var progress: ProgressResponse?
 }
 
 /// `preview_stock_lut`'s result: the same kind of texture a render returns,
@@ -67,6 +72,7 @@ struct DIOutcome: @unchecked Sendable {
     let texture: MTLTexture?
     let width: Int
     let height: Int
+    var progress: ProgressResponse?
 }
 
 actor EngineClient {
@@ -113,15 +119,27 @@ actor EngineClient {
     }
     private var sessionID: String?
     private let device: MTLDevice
+    /// Where this client's records go (RFC-016 §3 `engine`). The app's log by
+    /// default; a `Session` that was handed a `Diagnostics` passes that one's,
+    /// so a test reads the log it configured rather than a global.
+    private let log: Log
     let resources: URL
+
+    /// The `capabilities` block exactly as the engine wrote it, kept for the
+    /// diagnostic bundle (RFC-016 §7 asks for "the startup capabilities JSON"):
+    /// re-encoding the decoded `Capabilities` would be this app's idea of the
+    /// block, not the engine's, and the whole point of the block is to be the
+    /// engine's own statement of what it is.
+    private(set) var capabilitiesJSON: String?
 
     /// Kept for source compatibility with the callers that used to need it.
     /// Nothing spawns a process any more, so nothing can terminate.
     var onTermination: (@Sendable (String) -> Void)?
 
-    init(device: MTLDevice, resources: URL? = nil) {
+    init(device: MTLDevice, resources: URL? = nil, log: Log = .shared) {
         self.device = device
         self.resources = resources ?? EngineClient.defaultResources()
+        self.log = log
     }
 
     /// Where the baked constants, the film profiles and the Metal library are.
@@ -253,7 +271,9 @@ actor EngineClient {
 
         switch method {
         case .capabilities:
-            return try decodeOwned(String(cString: spk_capabilities(handle)), as: R.self)
+            let json = String(cString: spk_capabilities(handle))
+            capabilitiesJSON = json
+            return try decodeOwned(json, as: R.self)
         case .paramsSchema:
             return try decodeOwned(String(cString: spk_params_schema(handle)), as: R.self)
 
@@ -277,10 +297,13 @@ actor EngineClient {
         case .setParams:
             guard let session else { throw ClientError.notRunning }
             var out: UnsafeMutablePointer<CChar>?
-            let json = try encode((params as? SetParamsRequest)?.paramsDelta ?? [:])
+            let delta = (params as? SetParamsRequest)?.paramsDelta ?? [:]
+            let json = try encode(delta)
+            let started = Date()
             guard json.withCString({ spk_set_params(session, $0, &out) }) == SPK_OK else {
                 throw ClientError.engine(lastError())
             }
+            noteSetParams(delta, elapsed: Date().timeIntervalSince(started) * 1000)
             return try decode(out, as: R.self)
 
         case .solve:
@@ -412,7 +435,8 @@ actor EngineClient {
         let texture = result.texture.map { Unmanaged<MTLTexture>.fromOpaque($0).takeRetainedValue() }
         let meta: ExportDIResponse = try decode(reply, as: ExportDIResponse.self)
         return DIOutcome(meta: meta, texture: texture,
-                         width: Int(result.width), height: Int(result.height))
+                         width: Int(result.width), height: Int(result.height),
+                         progress: progressLocked())
     }
 
     // MARK: - the two calls that are not just JSON
@@ -447,10 +471,16 @@ actor EngineClient {
         // What the engine does with the buffer: one kernel to its own
         // three-channel source, and the pipeline for the stock pair. There is
         // no host copy left to time — that was 235 ms of 727 MB at 45 MP.
+        let openMs = Date().timeIntervalSince(started) * 1000
         EngineClient.logOpen(String(format: "engine.open: %d×%d, %.0f MB borrowed, %.0f ms",
                                     frame.width, frame.height,
-                                    Double(frame.buffer.length) / 1e6,
-                                    Date().timeIntervalSince(started) * 1000))
+                                    Double(frame.buffer.length) / 1e6, openMs))
+        log.info(.engine, "open", [
+            .init("w", frame.width), .init("h", frame.height),
+            .init("px", frame.width * frame.height),
+            .init("mb", Double(frame.buffer.length) / 1e6),
+            .init("ms", openMs),
+        ])
         guard let handle else { throw ClientError.engine(lastError()) }
         session = handle
         let decoded: OpenResponse = try decode(reply, as: OpenResponse.self)
@@ -465,10 +495,12 @@ actor EngineClient {
         if let delta = request.paramsDelta, !delta.isEmpty {
             var out: UnsafeMutablePointer<CChar>?
             let json = try encode(delta)
+            let started = Date()
             guard json.withCString({ spk_set_params(session, $0, &out) }) == SPK_OK else {
                 throw ClientError.engine(lastError())
             }
             if let out { spk_string_free(out) }
+            noteSetParams(delta, elapsed: Date().timeIntervalSince(started) * 1000)
         }
 
         var result = spk_result()
@@ -501,7 +533,71 @@ actor EngineClient {
             rawPath: nil,
             width: Int(result.width),
             height: Int(result.height))
-        return RenderOutcome(response: response, texture: texture)
+        // One record per render (§3), here because this is the only place every
+        // render passes through — including the ones the scheduler goes on to
+        // drop, which never reach a callback the app can see.
+        let progress = progressLocked()
+        noteRender(method, request, response, progress: progress)
+        return RenderOutcome(response: response, texture: texture, progress: progress)
+    }
+
+    // MARK: - what a render leaves in the log
+
+    /// §3 `render`: tier, pixels, `elapsed_ms`, reprint or render, the applied
+    /// EV, and the per-node times when the user has asked for them (§5.2).
+    private func noteRender(_ method: Method, _ request: RenderRequest,
+                            _ response: RenderResponse, progress: ProgressResponse?) {
+        let width = response.width ?? 0
+        let height = response.height ?? 0
+        var fields: [LogField] = [
+            .init("tier", request.tier),
+            .init("kind", method == .previewRender ? "render" : "reprint"),
+            .init("ms", response.elapsedMs),
+            .init("w", width), .init("h", height), .init("px", width * height),
+            .init("reprint", response.reprint),
+            .init("negative_cached", response.negativeWasCached),
+        ]
+        // The EV the meter applied to this render's negative: the number the
+        // export will also use, so a canvas and an export can be reconciled
+        // (RFC-015 P.1, RFC-016 §1.4).
+        if let ev = progress?.autoExposureEV { fields.append(.init("ev", ev)) }
+        if EngineClient.nodeTimingsRequested, let times = progress?.nodeTimes, !times.isEmpty {
+            for (node, ms) in times.sorted(by: { $0.key < $1.key }) { fields.append(.init(node, ms)) }
+        }
+        log.info(.render, "render", fields)
+    }
+
+    /// `SPEKTRAFILM_NODE_TIMINGS`, as the engine sees it: read from the C
+    /// environment rather than `ProcessInfo.environment`, which is a snapshot
+    /// taken at launch and would not notice the Settings toggle (§6).
+    private nonisolated static var nodeTimingsRequested: Bool {
+        getenv("SPEKTRAFILM_NODE_TIMINGS") != nil
+    }
+
+    /// §3 `engine`: every `set_params` with its elapsed time.
+    ///
+    /// Info past 100 ms and debug below it, and the split is the point:
+    /// `spk_set_params` rebuilds the pipeline for anything outside
+    /// `LIVE_MUTABLE`, so 160–250 ms of C_max table and tc_lut is an answer to
+    /// "why is this edit slow" (§1.3) — and a 2 ms slider tick is an answer to
+    /// nothing. Parameter *names* and values only: they are small, and §5.4's
+    /// "no pixels" is about image data, not about the recipe.
+    private func noteSetParams(_ delta: [String: ParamValue], elapsed: Double) {
+        guard !delta.isEmpty else { return }
+        let names = delta.keys.sorted().joined(separator: ",")
+        log.log(elapsed >= 100 ? .info : .debug, .engine, "set_params", [
+            .init("ms", elapsed), .init("count", delta.count), .init("params", names),
+        ])
+    }
+
+    /// `spk_progress` for the session as it stands. Read after a render, on the
+    /// actor, so nothing is in flight; the call takes no lock of its own
+    /// (deliberately — `spk_cancel` reads the same struct during a render).
+    private func progressLocked() -> ProgressResponse? {
+        guard let session else { return nil }
+        var out: UnsafeMutablePointer<CChar>?
+        guard spk_progress(session, nil, &out) == SPK_OK else { return nil }
+        return try? decode(out, as: ProgressResponse.self)
     }
 
     // MARK: - the open-path log

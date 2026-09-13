@@ -340,7 +340,49 @@ final class Session: CanvasHost {
             badges.append("full")
         }
         if previewSoft && selection != nil { badges.append("preview") }
+        // RFC-016 §11.5: "a refusal is a visible event, not a log line". Both
+        // of these ride the badge stack that `EditorWindow` already draws —
+        // the existing surface, not a second one — and both clear when the
+        // frame they are about changes.
+        if let refusal { badges.append(refusal.badge) }
+        if memoryWarning != nil { badges.append("low memory headroom") }
         return badges
+    }
+
+    /// A frame the app declined to render, and why (§11.5). Set from
+    /// `EngineMessage`'s classification rather than by matching text here, so
+    /// the badge, the sentence in the status bar and the `error` record cannot
+    /// disagree about what happened.
+    private(set) var refusal: Refusal?
+    struct Refusal: Equatable, Sendable {
+        var badge: String
+        var message: String
+        var kind: EngineMessage.Kind
+    }
+
+    /// A projected peak that does not fit (§11.5): a warning the user can
+    /// override, not a refusal. Nil when the last forecast fitted.
+    private(set) var memoryWarning: String?
+    /// True while the frame on screen is over the reserve and the user has not
+    /// said to go ahead anyway.
+    var canOverrideMemoryWarning: Bool { memoryWarning != nil }
+
+    /// "Proceed anyway" (§11.5). The warning stays a *warning*: nothing was
+    /// ever blocked, so the override is a dismissal plus a record — and the
+    /// log keeps the fact that the user was told and chose to continue.
+    func overrideMemoryWarning() {
+        guard let warning = memoryWarning else { return }
+        memoryWarning = nil
+        diagnostics.allowOverReserve = true
+        log.info(.memory, "memory warning overridden by the user", [
+            .init("warning", warning), .init("frame", selection?.lastPathComponent ?? "-"),
+        ])
+    }
+
+    /// Dismiss without granting the standing override.
+    func dismissMemoryWarning() {
+        guard memoryWarning != nil else { return }
+        memoryWarning = nil
     }
 
     // MARK: before / after
@@ -531,6 +573,16 @@ final class Session: CanvasHost {
     let renderer: Renderer
     let client: EngineClient
     let scheduler: RenderScheduler
+    /// The app's diagnostics model (RFC-016). One object rather than a
+    /// singleton reached for directly, so a test can hand in a session whose
+    /// samples and records go to a directory of its own — but the app's is
+    /// `.shared`, which is also what the Settings page binds to, so the memory
+    /// numbers the page shows and the ones this session records are the same
+    /// numbers from the same sampler (§8.5).
+    let diagnostics: Diagnostics
+    /// The record's door. `diagnostics.log` and not `Log.shared` for the same
+    /// reason: a test that injects a `Diagnostics` gets its records too.
+    var log: Log { diagnostics.log }
     let catalog = StockCatalog.shared
     private var serviceSessionID: String?
     var serviceSessionIDForExport: String? { serviceSessionID }
@@ -582,6 +634,11 @@ final class Session: CanvasHost {
     private var developTask: Task<String?, Never>?
     /// The decode in flight. `ensureDeveloped` waits on it; a reopen replaces it.
     private var loadTask: Task<Void, Never>?
+    /// The open path's clock for the frame being loaded (RFC-016 §3). Set by
+    /// `load`, so a develop that joins the open in flight reports the open's
+    /// whole path — the decode and the preview texture included — rather than
+    /// starting its own record at the engine.
+    private var openClock: LoadClock?
     /// The largest texture side this app's device will make, from the engine's
     /// capabilities. Metal publishes no such property (D1), and over it
     /// `MTLTextureDescriptor` asserts rather than returning nil, so the app
@@ -601,23 +658,22 @@ final class Session: CanvasHost {
     nonisolated static let cacheRoot = FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask)[0]
         .appending(path: "com.hanze.filmify")
 
-    init(renderer: Renderer? = Renderer()) {
+    init(renderer: Renderer? = Renderer(), diagnostics: Diagnostics = .shared) {
         guard let renderer else { fatalError("Metal is required") }
         self.renderer = renderer
+        self.diagnostics = diagnostics
         // The engine is in this process now (RFC-014): no subprocess, no
         // workspace directory, and no walking up to a checkout's `.venv`. It
         // gets the canvas's own `MTLDevice`, so a render lands in a texture
         // the canvas can draw without a copy.
-        client = EngineClient(device: renderer.device)
-        scheduler = RenderScheduler(client: client)
+        client = EngineClient(device: renderer.device, log: diagnostics.log)
+        scheduler = RenderScheduler(client: client, log: diagnostics.log)
         scheduler.onResult = { [weak self] r, gen in self?.applyRender(r, generation: gen) }
         scheduler.onError = { [weak self] error in
-            // Both, deliberately: the status line gets something a user can
-            // act on, the canvas trace keeps the engine's own words.
-            let message = EngineMessage.userFacing(error)
-            canvasLog("render failed: \(EngineMessage.technical(error))")
-            self?.lastError = message
-            self?.status = message
+            // Three, deliberately: the status line gets something a user can
+            // act on, the canvas trace keeps the engine's own words, and the
+            // log gets both plus what produced it (RFC-016 §3 `error`).
+            self?.noteFailure(error, operation: "render")
         }
         scheduler.onBusy = { [weak self] b in
             guard let self else { return }
@@ -663,6 +719,29 @@ final class Session: CanvasHost {
                 let caps: Capabilities = try await self.client.call(.capabilities, as: Capabilities.self)
                 self.accept(caps)
                 canvasLog("service warm · core=\(caps.backend?.renderCore ?? "?") · engine \(caps.engine)")
+                // §1.1: "which engine am I actually running?" — a whole day
+                // went to an app rendering on an engine nobody had chosen, so
+                // this is one record at startup carrying the version, the
+                // resources directory, the render core and both size limits.
+                let bundled = await self.client.resourcesAreBundled
+                let resourcesPath = self.client.resources.path
+                if let json = await self.client.capabilitiesJSON {
+                    self.diagnostics.noteCapabilities(json: json, version: caps.engine)
+                }
+                self.log.info(.engine, "capabilities", [
+                    .init("version", caps.version),
+                    .init("engine", caps.engine),
+                    .init("render_core", caps.backend?.renderCore ?? "unreported"),
+                    .init("backend", caps.backend?.label ?? "unreported"),
+                    .init("gpu", caps.backend?.gpu ?? ""),
+                    .init("precision", caps.backend?.workingPrecision ?? ""),
+                    .init("max_mp", caps.maxMP),
+                    .init("max_texture_dimension_2d", caps.maxTextureDimension2D ?? 0),
+                    .init("transport", caps.transportVersion),
+                    .init("schema", caps.schemaVersion),
+                    .init("tiers", caps.tiers.keys.sorted().joined(separator: ",")),
+                    .init("resources", bundled ? "bundle" : resourcesPath),
+                ])
             } catch {
                 // Deliberately not swallowed. This used to be `try?`, so a
                 // capabilities block the client could not decode looked
@@ -711,11 +790,21 @@ final class Session: CanvasHost {
             canvasLog("warm_up: \(Int(r.totalMs ?? 0)) ms · core=\(r.renderCore ?? "?")"
                       + (r.alreadyWarm == true ? " · already warm" : "")
                       + (failed.isEmpty ? "" : " · FAILED: \(failed.joined(separator: ", "))"))
+            // §3 `engine`: every `warm_up` with its elapsed time. A step that
+            // failed is not fatal — it is paid again inside `open` — so this is
+            // a `warn` rather than an `error` when it happens.
+            log.log(failed.isEmpty ? .info : .warn, .engine, "warm_up", [
+                .init("ms", r.totalMs ?? 0),
+                .init("core", r.renderCore ?? "?"),
+                .init("already_warm", r.alreadyWarm ?? false),
+                .init("failed", failed.joined(separator: ",")),
+            ])
         } catch {
             // Older services do not have the method at all, which is fine:
             // the wire addition is optional and a client that skips it behaves
             // exactly as it did before (handoff §"Wire").
             canvasLog("warm_up unavailable or failed: \(error)")
+            log.warn(.engine, "warm_up unavailable", [.init("error", "\(error)")])
         }
     }
 
@@ -839,6 +928,8 @@ final class Session: CanvasHost {
         exif = nil
         stockWarning = nil
         previewSoft = false
+        refusal = nil
+        memoryWarning = nil
         fullPending = false
         fullTask?.cancel(); fullTask = nil
         fullGeneration += 1
@@ -914,8 +1005,14 @@ final class Session: CanvasHost {
         decoded = nil
         decodeIsStale = false
         exposureEvByMethod = nil
+        openClock = nil
         exif = EXIFReadout.read(url)
         stockWarning = nil
+        // Both belong to the frame that is going away (§11.5): a refusal and a
+        // memory warning are statements about *that* frame's pixels, and
+        // carrying them to the next one would be the app crying wolf.
+        refusal = nil
+        memoryWarning = nil
         // Show the last print of this frame instantly if it is resident. The
         // viewport is expressed against the *native* frame (D4), which is not
         // known until this frame decodes — so until then it is expressed
@@ -931,6 +1028,9 @@ final class Session: CanvasHost {
         renderer.original = renderer.store.source(for: url)
         scheduler.invalidate()
         serviceSessionID = nil
+        // A memory boundary (§3): what switching frames costs is the question
+        // behind "switching frames is slow".
+        sampleMemory("frame_switch")
         loadTask = Task { await load(url) }
         prefetchNeighbours(of: url)
     }
@@ -948,18 +1048,44 @@ final class Session: CanvasHost {
     /// seconds are the client's own RAW decode and the 363 MB TIFF it writes
     /// to hand the frame over. One line per stage is the difference between
     /// knowing that and guessing it.
-    struct LoadClock {
+    /// A **class**, not a struct, and that is load-bearing: one open is one
+    /// instrument, and a develop that joins an open already in flight (Solve
+    /// pressed while the decode is still landing) has to report *that* open's
+    /// stages. Handed by value, the second caller starts from zero and the
+    /// `open` record describes half the path it is supposed to describe — which
+    /// is exactly what RFC-016 §3 asks a record to fix.
+    final class LoadClock {
         private var last = Date()
         private var total = Date()
         private var parts: [String] = []
-        mutating func lap(_ name: String) {
+        /// The same laps, as record fields (RFC-016 §3 `open`: "carrying the
+        /// LoadClock stages as fields rather than a prose line"). Milliseconds
+        /// as a `Double`, not the integer the stderr line rounds to — a 1 MP
+        /// frame's `preview-texture` is under a millisecond often enough that
+        /// rounding it to 0 would make the field a lie.
+        private(set) var stages: [LogField] = []
+
+        func lap(_ name: String) {
             let now = Date()
-            parts.append("\(name) \(Int(now.timeIntervalSince(last) * 1000))")
+            let ms = now.timeIntervalSince(last) * 1000
+            parts.append("\(name) \(Int(ms))")
+            stages.append(.init(LoadClock.fieldName(name), ms))
             last = now
         }
+
         func summary() -> String {
             "open path (ms): " + parts.joined(separator: " · ") +
             " · TOTAL \(Int(Date().timeIntervalSince(total) * 1000))"
+        }
+
+        func totalMs() -> Double { Date().timeIntervalSince(total) * 1000 }
+
+        /// `engine.open` → `engine_open_ms`. The log's keys are snake_case and
+        /// greppable; the stderr line keeps the engine's own spelling, because
+        /// `AGENTS.md` documents it and people grep for it.
+        static func fieldName(_ stage: String) -> String {
+            stage.replacingOccurrences(of: "-", with: "_")
+                 .replacingOccurrences(of: ".", with: "_") + "_ms"
         }
     }
 
@@ -1022,7 +1148,11 @@ final class Session: CanvasHost {
 
     private func load(_ url: URL) async {
         status = "Decoding \(url.lastPathComponent)…"
-        var clock = LoadClock()
+        // Kept on the session as well as in this scope: a develop asked for
+        // from outside (`Solve` while the decode is landing, an export) joins
+        // *this* open and must report its laps, not an empty clock of its own.
+        let clock = LoadClock()
+        openClock = clock
         let settings = sidecar.decode
         let device = renderer.device
         let edge = previewLongEdge
@@ -1066,6 +1196,7 @@ final class Session: CanvasHost {
         decoded = d
         decodeIsStale = false
         sourceLongEdge = max(d.pixelSize.width, d.pixelSize.height)
+        sampleMemory("decode")
         if sidecar.decode.whiteBalance == .asShot, let t = d.asShotTemperature, let tn = d.asShotTint,
            (sidecar.decode.temperature != t || sidecar.decode.tint != tn) {
             sidecar.decode.temperature = t; sidecar.decode.tint = tn
@@ -1076,6 +1207,7 @@ final class Session: CanvasHost {
             canvasLog(clock.summary()
                       + "  ·  \(url.lastPathComponent) on the canvas as the decode"
                       + " — no develop until it is asked for")
+            noteOpen(clock, url: url, mode: "decode", pixels: d.pixelSize)
             // A frame whose print is still resident comes back showing it —
             // that cache is what makes switching frames instant — and calling
             // that "decoded" would be describing a picture the user is not
@@ -1142,6 +1274,9 @@ final class Session: CanvasHost {
         if let sid = serviceSessionID { return sid }
         if let task = developTask { return await task.value }
         guard let url = selection, let d = decoded else { return nil }
+        // The open's clock when there is one (see `openClock`): a develop
+        // joining an open in flight continues that path's record.
+        let clock = openClock ?? clock
         let task = Task { [weak self] in await self?.develop(url, d, clock: clock) }
         developTask = task
         let sid = await task.value
@@ -1163,7 +1298,7 @@ final class Session: CanvasHost {
     }
 
     private func openInService(_ d: DecodedImage, for url: URL, clock: LoadClock) async -> String? {
-        var clock = clock
+        let clock = clock
         // The gate, not a race (RFC-013 §2.2). Costs nothing once boot has
         // been paid, and on the path that matters — a frame restored at launch
         // submitting `open` before `capabilities` has landed — it is the
@@ -1175,6 +1310,11 @@ final class Session: CanvasHost {
             clock.lap("warm-up")
         }
         if serviceBlocked != nil { status = serviceBlocked!; return nil }
+        // §11.5, before the engine takes the frame on: what this is expected to
+        // cost, measured against what is free. A forecast that does not fit is
+        // said out loud in the window and written down either way — the app may
+        // not sail into a swap storm silently.
+        noteProjection(pixels: Int(d.pixelSize.width * d.pixelSize.height), operation: "develop")
         status = "Developing…"
         // Preserved rather than cleared: Solve sets it around the develop *and*
         // the solve that follows, and clearing it here would open a window in
@@ -1206,6 +1346,7 @@ final class Session: CanvasHost {
                 r = try await client.open(frame, paramsDelta: delta)
             }
             clock.lap("engine.open")
+            sampleMemory("engine.open")
             // `open` echoes the whole block, so the check happens here too:
             // a service can be restarted under a running app.
             if let caps = r.capabilities {
@@ -1241,6 +1382,8 @@ final class Session: CanvasHost {
                       + (backend?.sessionCache.map { "  ·  \($0.summary)" } ?? ""))
             guard selection == url else { return nil }
             applyRender(rr, generation: serviceGeneration)
+            noteOpen(clock, url: url, mode: "develop",
+                     pixels: CGSize(width: r.meta.width, height: r.meta.height))
             statusBase = "\(url.lastPathComponent)  ·  \(r.meta.width)×\(r.meta.height)  ·  \(r.detectedInput.inputColorSpace)"
             if let b = backend, b.isSlowPath {
                 // Loud, because the symptom is otherwise just "slow" and the
@@ -1252,7 +1395,12 @@ final class Session: CanvasHost {
             scheduler.request(sidecar.params)
             return r.sessionID
         } catch {
-            lastError = EngineMessage.userFacing(error)
+            noteFailure(error, operation: "develop", frame: url.lastPathComponent,
+                        pixels: Int(d.pixelSize.width * d.pixelSize.height))
+            // The status line keeps the *raw* text here, as it did before the
+            // record existed: this is the one place a developer watching the
+            // window wants the engine's own words, and `noteFailure` has
+            // already put the user-facing sentence in `lastError`.
             status = "\(error)"
             if case EngineClient.ClientError.noResources = error { serviceReady = false }
             return nil
@@ -1263,13 +1411,19 @@ final class Session: CanvasHost {
         rendersLanded += 1
         let r = outcome.response
         guard generation == serviceGeneration else {
+            noteRenderOutcome(r, generation: generation, outcome: "superseded")
             canvasLog("applyRender dropped: generation \(generation) != \(serviceGeneration)"); return
         }
         guard let url = selection else { canvasLog("applyRender dropped: no selection"); return }
         guard let tex = outcome.texture, let w = r.width, let h = r.height else {
+            noteRenderOutcome(r, generation: generation, outcome: "no_pixels")
             canvasLog("applyRender dropped: the engine returned no texture"); return
         }
+        noteRenderOutcome(r, generation: generation, outcome: "applied")
         canvasLog("applyRender uploaded \(w)x\(h)")
+        // Before the store takes it: whether this is the frame's first print
+        // decides whether it is a memory boundary (§3).
+        let firstPrint = renderer.store.print(for: url) == nil
         renderer.store.setPrint(tex, for: url)
         // The frame's own size, and only when it is known: passing nil leaves
         // whatever the decode established (D4).
@@ -1286,6 +1440,7 @@ final class Session: CanvasHost {
         sidecar.state = .processed
         scheduleSave()
         updateThumbnail(url, from: tex)
+        if firstPrint { sampleMemory("first_print") }
         // The native render is the next step. A resident one made from
         // *different* parameters is no longer the print on screen, and showing
         // it would be showing a different film; one made from these parameters
@@ -1310,6 +1465,29 @@ final class Session: CanvasHost {
             renderer.store.dropFullRender()
             scheduleFullRender()
         }
+    }
+
+    /// The app's half of §3 `render`. The engine's record says what a render
+    /// cost (`EngineClient.noteRender`); this one says what became of it —
+    /// applied, superseded, or dropped because the engine returned no pixels —
+    /// and which generation it belonged to.
+    ///
+    /// `debug`, because it answers a second question ("did the render I am
+    /// looking at actually land?"), asked while diagnosing rather than in
+    /// general. The `info` record is the one that is always exactly one per
+    /// render; a superseded render has no `applied` line beside it, which is
+    /// itself the answer.
+    private func noteRenderOutcome(_ r: RenderResponse, generation: Int, outcome: String) {
+        log.debug(.render, "outcome", [
+            .init("outcome", outcome),
+            .init("generation", generation),
+            .init("service_generation", serviceGeneration),
+            .init("renders_landed", rendersLanded),
+            .init("tier", r.tier),
+            .init("px", (r.width ?? 0) * (r.height ?? 0)),
+            .init("ms", r.elapsedMs),
+            .init("frame", selection?.lastPathComponent ?? "-"),
+        ])
     }
 
     private func markStale() {
@@ -1793,6 +1971,13 @@ final class Session: CanvasHost {
         // guard above has just established that no edit is owed a render, so
         // `sent` is exactly what this reprint will be made from.
         let stamp = printStamp
+        // The peak §11.5 is about — 7.6 GB at 45 MP and the largest single
+        // allocation the app ever asks for. The frame is already open, so this
+        // is the last cheap moment to say so; the crop only ever makes it
+        // smaller, which is why the forecast uses the frame's own pixels.
+        if let size = decoded?.pixelSize {
+            noteProjection(pixels: Int(size.width * size.height), operation: "full")
+        }
         canvasLog("full render requested for \(url.lastPathComponent)")
         defer { fullPending = false }
         do {
@@ -1815,7 +2000,7 @@ final class Session: CanvasHost {
             canvasLog("full render \(w)x\(h) landed in \(Int(r.elapsedMs)) ms")
             if let base = statusBase { status = base }
         } catch {
-            lastError = EngineMessage.userFacing(error)
+            noteFailure(error, operation: "full_render", frame: url.lastPathComponent)
         }
     }
 
@@ -1928,7 +2113,7 @@ final class Session: CanvasHost {
                 status = "Solved  ·  reprint \(Int(rr.response.elapsedMs)) ms"
                 scheduleSave()
             } catch {
-                lastError = EngineMessage.userFacing(error)
+                noteFailure(error, operation: "solve", frame: selection?.lastPathComponent)
                 status = "\(error)"
             }
         }
@@ -1973,6 +2158,75 @@ final class Session: CanvasHost {
         }
     }
 
+    // MARK: - diagnostics (RFC-016)
+
+    /// The one place a failure becomes three things: a sentence for the user,
+    /// an `error` record with the engine's own words beside it (§3), and — for
+    /// the classes that are refusals rather than breakage — a badge in the
+    /// window (§11.5: "a refusal is a visible event, not just a log line").
+    ///
+    /// The classification comes from `EngineMessage`, so the sentence the user
+    /// reads and the `kind` in the record cannot disagree.
+    func noteFailure(_ error: Error, operation: String, frame: String? = nil, pixels: Int? = nil) {
+        let raw = EngineMessage.technical(error)
+        let kind = EngineMessage.kind(error)
+        let message = EngineMessage.userFacing(error)
+        var fields: [LogField] = [
+            .init("op", operation), .init("kind", kind.rawValue),
+            .init("raw", raw), .init("user", message),
+        ]
+        if let frame { fields.append(.init("frame", frame)) }
+        if let pixels { fields.append(.init("px", pixels)) }
+        log.error(.error, "\(operation) failed", fields)
+        canvasLog("\(operation) failed: \(raw)")
+        diagnostics.noteError(message)
+        lastError = message
+        status = message
+        if kind.isRefusal, let badge = kind.badge {
+            refusal = Refusal(badge: badge, message: message, kind: kind)
+        }
+    }
+
+    /// A `memory` boundary sample (§3): after the decode, after `engine.open`,
+    /// after the first print, after an export, on a frame switch.
+    ///
+    /// Through the session's own `Diagnostics`, so the record and the Settings
+    /// page's readout are the same sample — one sampler, one number (§8.5).
+    func sampleMemory(_ reason: String) {
+        diagnostics.sampler.sample(reason)
+    }
+
+    /// Forecast what this frame will cost before the engine takes it on, and
+    /// record the answer either way (§11.5).
+    ///
+    /// The message is not a refusal: nothing here blocks. What it buys is that
+    /// the app cannot sail into a swap storm *silently* — the user is told, the
+    /// log says so, and `overrideMemoryWarning` is the door out.
+    @discardableResult
+    private func noteProjection(pixels: Int, operation: String) -> Diagnostics.MemoryProjection {
+        let projection = diagnostics.noteProjection(pixels: pixels, operation: operation,
+                                                    frame: selection?.lastPathComponent)
+        if let message = projection.message { memoryWarning = message }
+        return projection
+    }
+
+    /// §3 `open`: one record per frame open, the `LoadClock` stages as fields
+    /// rather than the prose line the stderr summary is, plus the frame's own
+    /// pixels and whether this was a develop or a decode and nothing more.
+    private func noteOpen(_ clock: LoadClock, url: URL, mode: String, pixels: CGSize?) {
+        var fields = clock.stages
+        fields.append(.init("mode", mode))
+        fields.append(.init("frame", url.lastPathComponent))
+        fields.append(.init("total_ms", clock.totalMs()))
+        if let pixels, pixels.width > 0, pixels.height > 0 {
+            fields.append(.init("w", Int(pixels.width)))
+            fields.append(.init("h", Int(pixels.height)))
+            fields.append(.init("px", Int(pixels.width * pixels.height)))
+        }
+        if let core = renderCore { fields.append(.init("core", core)) }
+        log.info(.open, mode, fields)
+    }
+
     /// Elapsed time for the current piece of work. The service cannot report
     /// real progress: `reprint` does not return until the render is finished,
     /// and the transport is single-flight, so `progress` can never be polled
@@ -2006,10 +2260,25 @@ struct TextureBox: @unchecked Sendable { let texture: MTLTexture?; init(_ t: MTL
 
 /// Shares `SPEKTRAFILM_CANVAS_LOG=1` with `Renderer`: the canvas being blank
 /// is a whole-pipeline symptom, so both ends of it log under one switch.
+///
+/// Since RFC-016 §9 step 2 the call sites are unchanged and every line is also
+/// a `debug` record in the `canvas` category (§3): at Normal it reaches the
+/// ring and not the file, so a canvas trace is available in a diagnostic
+/// bundle without having had the switch on — which is the whole reason the
+/// ring exists. The stderr behaviour is untouched, verbatim, including the
+/// `session: ` prefix and `Renderer.logDraws`' gate: `AGENTS.md` documents
+/// that line and people grep for it.
 @MainActor
 func canvasLog(_ message: @autoclosure () -> String) {
-    guard Renderer.logDraws else { return }
-    FileHandle.standardError.write(Data("session: \(message())\n".utf8))
+    if Renderer.logDraws {
+        let text = message()
+        Log.shared.debug(.canvas, text)
+        FileHandle.standardError.write(Data("session: \(text)\n".utf8))
+    } else {
+        // Not evaluated unless a sink takes it (§5.3): a draw happens sixty
+        // times a second and its message is a `String(format:)`.
+        Log.shared.debug(.canvas, message())
+    }
 }
 
 extension Notification.Name { static let thumbnailUpdated = Notification.Name("thumbnailUpdated") }

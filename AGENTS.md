@@ -252,6 +252,18 @@ numbers). `capture-live.sh` is the only capture that proves the canvas draws,
 and it needs a live GUI session — if `CGWindowListCopyWindowInfo` reports
 almost no on-screen windows, the failure is environmental, not a regression.
 
+**An in-process test is a third harness with a third blind spot: it cannot see
+a stall.** Measured 2026-09-12 — a collapse animation that takes 113 ms of dead
+time in the real window finishes in 174–181 ms inside the test process, because
+there is no display link and therefore nothing to starve. Pass counts, layout
+passes, travel and CPU time are what an in-process harness measures honestly;
+"does it stutter for the user" is not, and needs the real window. The reverse
+also holds and is easier to forget: a starved main thread shows up in the *log*
+as a gap in the draw lines, so `SPEKTRAFILM_CANVAS_LOG=1` through a real
+gesture is the cheap way to tell "the layout pass is expensive" from "the
+layout pass asked the canvas to do more" — a burst with no draws in it is the
+first, a burst with draws still ticking is the second.
+
 The app's own timing instrument, which you should not delete:
 
 ```
@@ -625,6 +637,87 @@ app's own file reader:
 `testTheFrameIsReadTopRowFirst` and `testEachTierRendersAtItsOwnResolution` pin
 both. **Look at a snapshot.** `--snapshot` is cheap and it is the only check
 that sees the thing the user sees.
+
+### 24. A test does not own `UserDefaults.standard`, and the class before it does
+
+The app's persisted settings are one object for the whole test process, so a
+value one test class writes is the value the next class reads. Measured
+2026-09-12: `DiagnosticsTests.testADevelopEmitsTheExpectedRecords` asserts
+"exactly one render record" for the 1 MP smoke frame, which holds only while
+the preview resolution is above that frame's 1200 px long edge. Run the class
+alone — green. Run the whole suite behind a class that had set the edge lower
+— two render records, and the second one is a *correct* native render of a
+frame that is now larger than the preview. The test was never wrong about the
+code; it was wrong about its inputs.
+
+`Session.previewEdgeKey` (`ui2.previewLongEdge`) is the instance that bit,
+because it is read at session start and changes what the app renders. Anything
+under `Session.uiKey` or `diag.*` behaves the same way.
+
+The rule is therefore: **a test that depends on a persisted setting sets it and
+restores it**, with the previous value captured before the write and put back
+in a teardown block — `DiagnosticsTests.configure()` is the pattern. Do not
+assume the default, and do not "fix" the other class by restoring harder.
+
+A second instance, found within the hour of the first and worse in kind: a
+collapse-animation test read `ui2.leftCollapsed` out of `UserDefaults`, which
+someone's own `defaults write` experiments had left set. The panel was already
+folded, so the collapse was a no-op — and the test **measured zero of
+everything and reported success**. A wrong count fails loudly; a test whose
+subject did not happen passes quietly, and it is the same family as trap 16.
+Handlers that write `Session.uiKey` keys outside the app (a `defaults write`, a
+capture tool, another test) are enough to do it.
+
+This is worse than an ordinary flake, and it is why it is a trap rather than a
+footnote: it cannot fail in isolation, so it never shows up while you are
+working on the thing it is about. It lands later, on someone else's change,
+looking exactly like a regression in the code under test — the same shape as
+trap 16 (a check that runs in a configuration where it cannot fire) and trap 11
+(every input shares a property nobody named).
+
+### 25. An `@Observable` `didSet` that writes to itself recurses
+
+Measured 2026-09-12 in `Diagnostics`, and it cost the test process rather than
+an assertion. The clamp below is the obvious way to write a bounded setting:
+
+```swift
+var days: Int {
+    didSet {
+        days = days.clamped(to: 0...365)      // ← unbounded recursion
+        defaults.set(days, forKey: key)
+    }
+}
+```
+
+Under `@Observable` the macro rewrites a stored property into a computed one,
+and the compiler's rule that assigning inside a property's own observer does
+not re-enter it does not survive that rewriting. The result is
+`setter → didSet → setter → …` until the stack ends: xctest dies with SIGSEGV
+and "Could not determine thread index for stack guard region", and the stack in
+the crash report is the same three frames repeated. In the app the same
+property would have taken the Settings page down on the first edit.
+
+A self-assigning observer is safe **only if it reaches a fixed point**:
+`Session.comparePosition` writes to itself and is fine, because the second pass
+finds the value already in range and stops. If you are about to write one, ask
+what makes the second pass a no-op — if the answer is "nothing", write it as a
+computed property over a private stored one instead, with the clamp in the
+setter, which is what `Diagnostics`' four numbers do now.
+
+**One near miss is already in the tree.** `Canvas/Renderer.swift` has the same
+unconditional self-assignment for `comparePosition`, and it is *safe* — but
+only because `Renderer` is a plain `NSObject` subclass rather than
+`@Observable`, so the compiler's stored-property rule still applies. If anyone
+ever makes `Renderer` observable (it is a candidate: it is the one model the
+views currently read through hand-written mirrors), that line takes the process
+down. Change it to a computed property in the same commit.
+
+Two things follow. A settings property that is only ever exercised at its
+default is not exercised at all — the crash above was found by a test that
+assigned an out-of-range value, which no earlier test did. And a stack overflow
+is a *crash*, not a failure: it restarts the test run ("Restarting after
+unexpected exit, crash, or test timeout"), so a suite that reports it must be
+read as "a test did not finish", not as "a test failed".
 
 ## Conventions
 

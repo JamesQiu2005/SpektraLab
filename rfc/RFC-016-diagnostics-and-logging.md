@@ -2,10 +2,10 @@
 
 | | |
 |---|---|
-| **Status** | Proposed 2026-09-12. Nothing implemented. |
-| **Date** | 2026-09-12 |
-| **Author** | Orchestrator session, at the user's request. The implementing session is a later one. |
-| **Depends on** | RFC-014 (the engine is in-process, so there is no second process to tail), the Settings page the user is designing (§6 is its diagnostics column) |
+| **Status** | **Implemented 2026-09-12.** All five steps of §9, and §11's decisions. See §13 for what was verified and how. |
+| **Date** | Proposed and implemented 2026-09-12 |
+| **Author** | Orchestrator session, at the user's request. Implemented by a worker session the same night. |
+| **Depends on** | RFC-014 (the engine is in-process, so there is no second process to tail), the Settings page — built alongside this as `Windows/SettingsWindow.swift`, whose diagnostics controls are §6 |
 | **Scope — app** | a logging core and its file store, instrumentation of the open/develop/render/export path, the memory sampler, the diagnostic bundle |
 | **Scope — engine** | **none required.** The engine already returns `elapsed_ms`, `node_times`, `auto_exposure_ev` and `spk_last_error`; this RFC only writes down what the app already receives |
 | **Out of scope** | crash reporting (a crash log is Apple's, not ours), telemetry of any kind, anything that leaves the machine on its own |
@@ -286,3 +286,62 @@ progress, its per-frame outcomes and its refusals are the same records defined
 here, and §11.4's job log is where a batch run's evidence lands. RFC-017 owns
 the queue, the admission control and the cancellation semantics; this RFC owns
 what any of it writes down.
+
+---
+
+## 13. What shipped, and what was verified (2026-09-12)
+
+Written after the fact, so the document the README points at does not still
+say "nothing implemented".
+
+**Where it lives.** `modern_UI/Spektrafilm/Spektrafilm/Diagnostics/` —
+`LogCore` (levels, categories, ring buffer, the two sinks), `LogFile` (the
+file sink, batching and rotation), `MemorySampler`, `Diagnostics` (the
+settings and the façade), `DiagnosticBundle`, `JobLog`. Instrumentation is in
+`Session`, `EngineClient`, `RenderScheduler` and `Exporter`. The Settings page
+is `Windows/SettingsWindow.swift`, reached from Filmify ▸ Settings… (⌘,).
+
+**§8's six checks were each seen red before being seen green**, as the section
+demands, along with six more of the same shape (supersession, the job log, the
+memory projection, the refusal badge, level expiry, the file/ring level
+split, the bundle's untick). Two worth recording because the break is the
+interesting part:
+
+- The **cost** check's negative control — a synchronous write plus `fsync` per
+  record — measured 248.3 µs a record against a 100 µs bound. Batched, it is
+  16.6 µs. Without that control the bound would have been decoration.
+- The **unclean-exit** check needed a second test. The planted-marker version
+  could not have noticed `finish()` writing a *different* marker than the next
+  launch looks for, so a round trip was added:
+  `testASessionThatFinishesCleanlyReadsAsCleanOnTheNextLaunch`.
+
+**Verified in the built app, not only under test.** A session file answers
+§1.2–§1.5 with no terminal and no Instruments; §1.7 was confirmed in both
+directions — a real `⌘Q` writes `{"cat":"app","msg":"exit","marker":"session_end"}`
+and the next launch reports nothing, while a killed session is reported on the
+next launch. §11.2 was confirmed from outside the process:
+`log show --predicate 'subsystem == "com.hanze.filmify"' --info --debug`
+returns the records unredacted, which is the whole of what marking every
+field `public` was accepted for.
+
+**Two departures from the text, both deliberate:**
+
+1. **§11.5's warning does not block.** A projected peak that does not fit
+   raises a badge, a status line and an overridable standing permission. A
+   modal would be able to wedge the app on a small machine, and §11.5 asks for
+   "a warning the user can override", not a dialog.
+2. **The memory reserve is a real setting**, not the constant it was first
+   built as. §11.5 says "the Settings reserve" as though it existed and §3
+   lists it among the settings the launch record carries, so a hard-coded
+   value was this RFC half-implemented. It is `0…32768` MB, default 2000, read
+   on every forecast rather than at launch.
+
+**One thing §9 did not anticipate.** The snapshot harness ends in `exit()`,
+which never runs `applicationWillTerminate` — so every capture left a session
+with no end record and made the *next* launch cry unclean exit. The capture
+harness runs constantly, so §1.7's signal would have been permanently
+meaningless. `SpektrafilmApp.snapshotExit(_:)` writes the record first. A
+diagnostic that cries wolf is worse than no diagnostic, and this one would
+have done it to its own author.
+
+**Still true:** RFC-017 is not implemented, by instruction. §12 stands.

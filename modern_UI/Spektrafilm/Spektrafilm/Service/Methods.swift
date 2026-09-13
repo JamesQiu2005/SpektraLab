@@ -197,6 +197,30 @@ struct RenderRequest: Encodable, Sendable {
     }
 }
 
+/// `spk_progress`'s reply. No path to it through `call(_:_:as:)` before
+/// RFC-016 needed one: the app never polled progress, because the transport
+/// was single-flight and a render does not return until it is finished.
+///
+/// What it is for now is the two numbers a *finished* render still has in
+/// `session->progress`: the per-node times when the engine has been asked for
+/// them (§5.2), and `auto_exposure_ev` — the EV the meter actually applied to
+/// this render's negative, which is the number an export has to be reconciled
+/// against the canvas with (RFC-015 P.1, RFC-016 §1.4).
+struct ProgressResponse: Decodable, Sendable {
+    let progressID: String
+    let stage: String?
+    let pct: Double?
+    let nodeTimes: [String: Double]?
+    let autoExposureEV: Double?
+    let done: Bool?
+    let cancelled: Bool?
+    enum CodingKeys: String, CodingKey {
+        case stage, pct, done, cancelled
+        case progressID = "progress_id", nodeTimes = "node_times"
+        case autoExposureEV = "auto_exposure_ev"
+    }
+}
+
 struct RenderResponse: Decodable, Sendable {
     let progressID: String
     let tier: String
