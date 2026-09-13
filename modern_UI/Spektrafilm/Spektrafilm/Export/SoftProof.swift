@@ -32,9 +32,9 @@ struct SoftProof: @unchecked Sendable {
     /// What to call the space in front of a person — the catalogue's name for
     /// it, not `CGColorSpace`'s identifier.
     let targetName: String
-    /// The proof's own pixel size, which is not the export's: a proof is
-    /// rendered small enough to be fast. The export's size travels separately
-    /// so the page can state both without implying they are the same number.
+    /// **The file's** pixel size — not the proof's, which is smaller by
+    /// design. The two travel separately so the page can state both without
+    /// implying they are the same number; `image.width` is the proof's.
     let exportPixelSize: CGSize
     /// Pixels the gamut mapping moved, 0…1. The destination could not hold
     /// them at their original chroma and they were rolled in.
@@ -95,18 +95,26 @@ extension Session {
         // reported in the same words the export would use for it.
         let (target, name, _, _) = Exporter.resolveTarget(recipe)
 
-        // The size the file keeps. The export page's output size is applied on
-        // the export path, and reaches this one when stream B's
-        // `ExportRecipe.outputSize` is wired through `Exporter.export`; until
-        // then the file's size is the geometry's own, which is what this
-        // reports.
-        let exportSize = CGSize(width: framed.width, height: framed.height)
+        // The size the file keeps — which is **not** `framed`'s. `framed`
+        // descends from `renderer.base`, the tier currently on the canvas, so
+        // on a frame showing a preview it measures 2678 x 1785 where the
+        // export writes 6000 x 4000. The export's own source is a full-tier
+        // render at the frame's native pixels, so that is what this computes:
+        // the geometry against the native size, scaled back up the way the
+        // page's own naming context does, and then the recipe's output size if
+        // it asks for one.
+        let exportSize = Self.exportSize(recipe: recipe, geometry: geometry,
+                                         sourceSize: sourceImageSize, longEdge: sourceLongEdge)
 
         // The proof is a sample of that — the same chain, the same kernel,
-        // fewer pixels.
-        let scale = min(1, (Double(maxPixels) / (exportSize.width * exportSize.height)).squareRoot())
-        let width = max(1, Int((exportSize.width * scale).rounded()))
-        let height = max(1, Int((exportSize.height * scale).rounded()))
+        // fewer pixels. It is bounded by the tier on the canvas as well as by
+        // `maxPixels`: resampling a preview *up* to the export's size would
+        // cost the full transform and prove nothing the smaller one does not.
+        let ceiling = CGSize(width: min(exportSize.width, CGFloat(framed.width)),
+                             height: min(exportSize.height, CGFloat(framed.height)))
+        let scale = min(1, (Double(maxPixels) / (ceiling.width * ceiling.height)).squareRoot())
+        let width = max(1, Int((ceiling.width * scale).rounded()))
+        let height = max(1, Int((ceiling.height * scale).rounded()))
         guard let small = renderer.applyResize(framed, width: width, height: height) else { return nil }
 
         let (setup, problem) = await ColourManagement.setup(client: client, source: workingSpaceName,
@@ -129,4 +137,22 @@ extension Session {
                          movedFraction: converted.stats.movedFraction,
                          isPlaceholder: false)
     }
+
+    /// What the export will measure: the geometry applied to the frame's
+    /// **native** pixels, scaled the way the canvas's source size relates to
+    /// them, and then overridden by the recipe's own size when it names one.
+    ///
+    /// Deliberately computed from the session rather than from a texture. Any
+    /// texture to hand is whatever tier the canvas is showing, and the export
+    /// does not render that tier.
+    static func exportSize(recipe: ExportRecipe, geometry: Geometry,
+                           sourceSize: CGSize, longEdge: CGFloat) -> CGSize {
+        if let asked = recipe.pixelSize { return asked }
+        guard sourceSize.width > 0, sourceSize.height > 0 else { return sourceSize }
+        let out = geometry.outputSize(for: sourceSize)
+        let native = max(sourceSize.width, sourceSize.height)
+        let scale = longEdge > 0 && native > 0 ? longEdge / native : 1
+        return CGSize(width: (out.width * scale).rounded(), height: (out.height * scale).rounded())
+    }
+
 }
