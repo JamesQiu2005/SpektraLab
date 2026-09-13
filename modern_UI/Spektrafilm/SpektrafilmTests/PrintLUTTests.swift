@@ -315,12 +315,17 @@ final class PrintLUTTests: XCTestCase {
         XCTAssertEqual(second[kCGImagePropertyDepth] as? Int, 8,
                        "the preview is not 8-bit — a preview is not worth 16")
         XCTAssertEqual(first[kCGImagePropertyDepth] as? Int, 16)
-        // The densities are still the densities: same pixels, same depth.
+        // **The densities are still the densities** — same pixels, not merely
+        // the same depth. This is the assertion the whole DI contract reduces
+        // to: the `.cube` indexes these numbers, so a second page that moved
+        // them by one count would invalidate the file it lives in. Compared
+        // through the same 16-bit context in the same space, so the reduction
+        // cannot invent a difference.
         let plainSrc = try XCTUnwrap(CGImageSourceCreateWithURL(plain as CFURL, nil))
-        let a = try XCTUnwrap(CGImageSourceCreateImageAtIndex(src, 0, nil))
-        let b = try XCTUnwrap(CGImageSourceCreateImageAtIndex(plainSrc, 0, nil))
-        XCTAssertEqual(a.width, b.width)
-        XCTAssertEqual(a.bitsPerComponent, b.bitsPerComponent)
+        let space = CGColorSpaceCreateDeviceRGB()
+        XCTAssertEqual(try pixels(embedded: src, space: space),
+                       try pixels(embedded: plainSrc, space: space),
+                       "embedding a preview changed the density channels")
     }
 
 
@@ -506,6 +511,20 @@ final class PrintLUTTests: XCTestCase {
         let preview = (second[kCGImagePropertyPixelWidth] as? Int ?? 0)
         XCTAssertGreaterThan(dense, preview, "the preview is not smaller than the densities")
         session.open(urls: [])
+    }
+
+    /// IFD0's pixels, as written, through a context in `space`.
+    private func pixels(embedded src: CGImageSource, space: CGColorSpace) throws -> [UInt16] {
+        let cg = try XCTUnwrap(CGImageSourceCreateImageAtIndex(src, 0, nil))
+        let ctx = try XCTUnwrap(CGContext(
+            data: nil, width: cg.width, height: cg.height, bitsPerComponent: 16,
+            bytesPerRow: cg.width * 8, space: space,
+            bitmapInfo: CGImageAlphaInfo.noneSkipLast.rawValue
+                | CGBitmapInfo.byteOrder16Little.rawValue))
+        ctx.draw(cg, in: CGRect(x: 0, y: 0, width: cg.width, height: cg.height))
+        let raw = try XCTUnwrap(ctx.data)
+        let p = raw.bindMemory(to: UInt16.self, capacity: cg.width * cg.height * 4)
+        return Array(UnsafeBufferPointer(start: p, count: cg.width * cg.height * 4))
     }
 
     private func diFrame() throws -> URL {
