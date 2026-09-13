@@ -64,7 +64,7 @@ struct ExportPage: View {
     /// How many columns the Grid draws its thumbnails in — the value the bar's
     /// detented slider sets. Persisted like every other view setting, so the
     /// grid someone arranged is the grid they come back to.
-    @AppStorage(Session.uiKey + "exportGridColumns") private var gridColumns = 4
+    @AppStorage(Session.uiKey + "exportGridColumns") private var gridColumns = 5
 
     @State private var zoom: CGFloat = 1
     @State private var paneSize: CGSize = .zero
@@ -126,12 +126,26 @@ struct ExportPage: View {
                     PanelResizeHandle(side: .trailingEdge, range: M.leftRange,
                                       width: $leftWidth.width)
                 }
-                centre
-                PanelResizeHandle(side: .leadingEdge, range: M.rightRange,
-                                  width: $rightWidth.width)
-                stripPanel
-                    .frame(width: rightWidth.width)
+                // Everything right of the settings card, as one thing — because
+                // the collapse tab hangs off *its* leading edge, and in Grid
+                // mode that edge belongs to a different card than in Viewer.
+                // The tab follows whichever is there, which is what makes it
+                // non-fixed in the sense the user meant.
+                rightOfSettings
+                    // `stroked` only in Grid: there the pill sits on the grid
+                    // card, which is the same colour as the pill. On the
+                    // ground in Viewer the original drawing draws it plain,
+                    // and its tab is deliberately unstroked — a border there
+                    // would be inventing one.
+                    .overlay(alignment: .leading) {
+                        HoverEdgeTab(edge: .leading, collapsed: $settingsCollapsed,
+                                     stroked: mode == .grid)
+                    }
             }
+            // `notes.md`: "write the transition between the modes in both
+            // ways" — both branches of `rightOfSettings` carry one and the
+            // animation is on the row that holds them.
+            .animation(.easeOut(duration: 0.18), value: mode)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
         .onAppear {
@@ -402,7 +416,7 @@ struct ExportPage: View {
                 renameDraft = nil
             }
         } message: {
-            Text("The name in the list. The file it writes is named by the Naming rule below.")
+            Text("The name in the recipe list.")
         }
     }
 
@@ -793,25 +807,54 @@ struct ExportPage: View {
 
     // MARK: - the centre
 
+    /// The proof, on the ground — Viewer mode's centre pane. Grid mode does not
+    /// put cells here at all: the grid card takes this space and the filmstrip
+    /// card's together, which is the correction the second drawing makes.
     private var centre: some View {
-        Group {
+        viewerPane
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+            .background(Theme.ground)
+    }
+
+    /// What sits to the right of the settings card. In Viewer it is the proof
+    /// on the ground with the filmstrip card beside it; in Grid the drawing
+    /// makes the centre pane and the filmstrip **one card** — x 634.64 width
+    /// 2350.54 against a window 2981.27 wide, so it starts one gap right of
+    /// the settings card and ends at the window's edge — and the grid lives
+    /// inside that.
+    ///
+    /// **The gap is 6 pt, not the drawing's 3.9.** The drawing measures 7.81
+    /// units between the two cards, which is 3.9 pt — but the resize handle
+    /// has to live between them in both modes or the settings card cannot be
+    /// dragged in Grid, and the handle is `PanelResizeHandle.hitWidth`, 6 pt.
+    /// Adding a spacer to make up the drawing's number would put 9.9 pt there
+    /// and separate the two cards further than anything draws them. So the
+    /// handle *is* the gap, and the 2.1 pt between 6 and 3.9 is what the
+    /// control costs. `Theme.Metric.Export.gridGap` is not used for it.
+    ///
+    /// A `ZStack` rather than a bare `@ViewBuilder` switch: a transition keeps
+    /// both branches alive while it runs, and a modifier applied to the
+    /// conditional is applied to *each* of them — which meant two hover bands
+    /// and two collapse tabs for the length of every mode change. One
+    /// container, one overlay, and only its contents swap.
+    private var rightOfSettings: some View {
+        ZStack {
             switch mode {
-            case .viewer: viewerPane
-            case .grid: gridPane
+            case .viewer:
+                HStack(spacing: 0) {
+                    centre
+                    PanelResizeHandle(side: .leadingEdge, range: M.rightRange,
+                                      width: $rightWidth.width)
+                    stripPanel
+                        .frame(width: rightWidth.width)
+                }
+                .transition(.opacity)
+            case .grid:
+                gridCard
+                    .transition(.opacity)
             }
         }
-        // `notes.md`: "Remember to write the transition between the modes in
-        // both ways." Both branches carry one and the animation is on the
-        // container, so neither direction is the one that happens to animate.
         .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .background(Theme.ground)
-        .animation(.easeOut(duration: 0.18), value: mode)
-        // The tab the drawing puts on the settings card's trailing edge, which
-        // folds that card away. The band belongs to the canvas, as in the
-        // editor: the pill is revealed on approach rather than always drawn.
-        .overlay(alignment: .leading) {
-            HoverEdgeTab(edge: .leading, collapsed: $settingsCollapsed)
-        }
     }
 
     private var viewerPane: some View {
@@ -828,7 +871,7 @@ struct ExportPage: View {
                     } else {
                         Text(session.selection == nil
                              ? "No frame is open. Choose one from the strip."
-                             : "This recipe writes no colour, so there is nothing to prove.")
+                             : "Nothing to prove for this recipe.")
                             .font(Theme.Font.label).foregroundStyle(Theme.dim)
                     }
                 }
@@ -870,13 +913,15 @@ struct ExportPage: View {
                     Text("Placeholder — these pixels are not the ones the file will carry.")
                         .foregroundStyle(Theme.exportAccent)
                 }
-                ForEach(ProofCaveat.lines(for: proof), id: \.text) { caveat in
+                let caveats = ProofCaveat.lines(for: proof)
+                ForEach(caveats, id: \.text) { caveat in
                     Text(caveat.text)
                         .foregroundStyle(caveat.isWarning ? Theme.exportAccent : Theme.secondaryText)
                 }
                 Text(spaceLine(proof)).foregroundStyle(Theme.dim)
             }
             .font(Theme.Font.caption)
+            .help(captionHelp(proof))
             .multilineTextAlignment(.center)
             .frame(maxWidth: 560)
             .padding(.horizontal, 10).padding(.vertical, 6)
@@ -885,42 +930,77 @@ struct ExportPage: View {
         }
     }
 
-    /// The size stated is `exportPixelSize` — the export path's own number for
-    /// what the file will measure, computed by `SoftProof` from the frame's
-    /// native pixels and the recipe's size rather than from whatever tier the
-    /// canvas happens to be showing. It is the same number the Size row paints,
-    /// arrived at by the side that writes the file.
-    private func spaceLine(_ proof: SoftProof) -> String {
-        let canvas = "the canvas is showing \(ColorSpaceCatalog.name(for: .displayP3) ?? "Display P3")"
-        let file = "\(Int(proof.exportPixelSize.width)) × \(Int(proof.exportPixelSize.height)) px"
-        return "Proof in \(proof.targetName) · writing \(file) · \(canvas)"
+    /// The space, and **only** the space. The size is stated two other places
+    /// — the Size row and the Summary — and the canvas is worth mentioning
+    /// only when it is a different space, which is the case RFC-018 §6 is
+    /// actually about. Naming the file's pixels and both spaces in one line
+    /// told a photographer nothing they could act on.
+    /// The long version, one hover away: what a proof is, both sizes, and
+    /// both spaces. Cheap to reach, and not in the way.
+    private func captionHelp(_ proof: SoftProof) -> String {
+        let pixels = "\(Int(proof.exportPixelSize.width)) × \(Int(proof.exportPixelSize.height))"
+        let canvas = ColorSpaceCatalog.name(for: .displayP3) ?? "Display P3"
+        var lines = [
+            "The picture above is a proof: the same conversion the export will run, "
+            + "at a smaller size.",
+            "The file will be \(pixels) px, in \(proof.targetName).",
+        ]
+        if proof.targetName != canvas { lines.append("The canvas is in \(canvas).") }
+        if let detail = ProofCaveat.explain(proof) { lines.append(detail) }
+        return lines.joined(separator: "\n")
     }
 
-    /// Grid mode is the editor's own Browse grid from `Windows/BrowseView.swift`
-    /// — the same cells, thumbnails and badges — with this page's selection
-    /// rule layered on through `BrowseCell.chosen`.
+    private func spaceLine(_ proof: SoftProof) -> String {
+        let canvas = ColorSpaceCatalog.name(for: .displayP3) ?? "Display P3"
+        return proof.targetName == canvas
+            ? "Proof in \(proof.targetName)"
+            : "Proof in \(proof.targetName) · the canvas is \(canvas)"
+    }
+
+    /// Grid mode's card: the centre pane and the filmstrip as one, from just
+    /// right of the settings card to the window's right edge, with the grid
+    /// inside it. The drawing's own card — see `rightOfSettings`.
     ///
-    /// The columns are the bar's detented slider and nothing else — the grid
-    /// never chooses a size for itself, so two panes of different widths show
-    /// the same count and a different thumbnail.
-    private var gridPane: some View {
-        ScrollView(.vertical, showsIndicators: false) {
-            LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 16),
-                                     count: gridColumns),
-                      spacing: 16) {
-                ForEach(session.frames) { frame in
-                    BrowseCell(session: session, frame: frame, chosen: targets.contains(frame.id))
-                        .onTapGesture { tap(frame) }
-                        .contextMenu {
-                            Button("Reveal in Finder") {
-                                NSWorkspace.shared.activateFileViewerSelecting([frame.id])
+    /// The columns are the bar's detented slider and nothing else, so the grid
+    /// never chooses a size for itself: two panes of different widths show the
+    /// same count and a different thumbnail, which is Finder's behaviour and
+    /// what the user asked for.
+    ///
+    /// Laid out from the leading edge rather than centred, at the drawing's
+    /// own inset: the pitch is what falls out of the card's width and the
+    /// column count, and a thumbnail takes the drawing's 0.66 of its column,
+    /// so the gap between two is the other third at every count.
+    private var gridCard: some View {
+        GeometryReader { geo in
+            let pitch = max(1, geo.size.width - M.gridPadding) / CGFloat(gridColumns)
+            let cell = pitch * M.gridCellFraction
+            let gap = pitch - cell
+            ScrollView(.vertical, showsIndicators: false) {
+                LazyVGrid(columns: Array(repeating: GridItem(.fixed(cell), spacing: gap),
+                                         count: gridColumns),
+                          alignment: .leading,
+                          spacing: M.gridRowSpacing) {
+                    ForEach(session.frames) { frame in
+                        ExportGridCell(frame: frame,
+                                       chosen: targets.contains(frame.id),
+                                       state: session.frameStates[frame.id] ?? .unprocessed,
+                                       width: cell)
+                            .onTapGesture { tap(frame) }
+                            .contextMenu {
+                                Button("Reveal in Finder") {
+                                    NSWorkspace.shared.activateFileViewerSelecting([frame.id])
+                                }
                             }
-                        }
+                    }
                 }
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .padding(.leading, M.gridPadding)
+                .padding(.top, M.gridTopInset)
+                .padding(.bottom, M.gridTopInset)
             }
-            .padding(.horizontal, 14)
-            .padding(.vertical, 12)
         }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .panelCard()
         .transition(.opacity)
     }
 
@@ -1077,7 +1157,7 @@ struct ExportPage: View {
                         written += files
                         fellBack = fellBack || fb
                     case .skipped(let existing):
-                        problems.append("\(existing.lastPathComponent) already exists; this recipe skips it.")
+                        problems.append("\(existing.lastPathComponent) already exists — skipped.")
                     }
                 } catch {
                     problems.append("\(url.lastPathComponent): \(EngineMessage.userFacing(error))")
@@ -1086,8 +1166,8 @@ struct ExportPage: View {
             session.exportProgress = nil
             if let home, session.selection != home { session.select(home) }
             if fellBack {
-                problems.append("The chosen profile could not be resolved on this machine; those files "
-                                + "were tagged Display P3 instead.")
+                problems.append("That profile is not on this machine — the files were tagged "
+                                + "Display P3 instead.")
             }
             if !written.isEmpty, let app = r.openWith {
                 NSWorkspace.shared.open(written,
@@ -1095,7 +1175,7 @@ struct ExportPage: View {
                                         configuration: NSWorkspace.OpenConfiguration()) { _, error in
                     guard let error else { return }
                     Task { @MainActor in
-                        note = ResultNote(text: "Could not open the files in \(app.name): "
+                        note = ResultNote(text: "\(app.name) would not open them: "
                                           + error.localizedDescription, warning: true)
                     }
                 }
@@ -1113,16 +1193,17 @@ struct ExportPage: View {
 
 /// One thumbnail down the right-hand card.
 ///
-/// The chosen cell keeps the drawing's white frame and its name; the others
-/// keep the drawing's grey one (`cls-2`, `#686969`, stroke-width 4 — 2 pt at
-/// this page's scale) and no name.
+/// `notes.md`, and it is right: "Only the chosen image gets a white frame
+/// around it, and the actual image name got displayed, the non-selected ones
+/// are just there (no actual grey frame around it)." So the frame and the name
+/// are one decision, not two, and an unchosen cell draws neither.
 ///
-/// **That is the drawing's rule, and the user ruled it wins.** `notes.md` says
-/// the opposite in as many words — "the non-selected ones are just there (no
-/// actual grey frame around it)" — and it is the older word; the drawing
-/// settles it. So the frame and the name are separate decisions here after
-/// all: the grey frame is on every cell, the white frame and the name only on
-/// the chosen one.
+/// This was briefly changed to stroke every cell in the drawing's `#686969`,
+/// on a reading of the grid drawing's two rectangles per cell as chrome. They
+/// are not: they are two example images — a white-framed 3:2 landscape and a
+/// grey-framed 2:3 portrait, overlapping, each hugging its own aspect. The
+/// drawing was a diagram of the behaviour, and the notes had described it
+/// correctly from the start.
 private struct ExportStripCell: View {
     let frame: Frame
     let chosen: Bool
@@ -1144,7 +1225,7 @@ private struct ExportStripCell: View {
                 .frame(maxWidth: .infinity)
                 .frame(maxHeight: Theme.Metric.Export.thumbMax)
                 .overlay(RoundedRectangle(cornerRadius: 2)
-                    .stroke(chosen ? Theme.selectionFrame : Theme.exportChip, lineWidth: 2))
+                    .stroke(Theme.selectionFrame, lineWidth: chosen ? 2 : 0))
                 badge.padding(5).opacity(chosen ? 0 : 1)
             }
             .frame(maxWidth: .infinity)
@@ -1169,6 +1250,98 @@ private struct ExportStripCell: View {
     /// suppressed on the chosen cell for the same reason the filmstrip
     /// suppresses it there: next to the selection frame a second mark reads as
     /// more state to decode.
+    @ViewBuilder private var badge: some View {
+        switch state {
+        case .unprocessed: EmptyView()
+        case .processed: Circle().fill(Theme.text).frame(width: 7, height: 7).shadow(radius: 1)
+        case .stale: Circle().stroke(Theme.text, lineWidth: 1.4).frame(width: 7, height: 7).shadow(radius: 1)
+        }
+    }
+}
+
+// MARK: - the grid's cell
+
+/// One cell of the grid card: the thumbnail with its filename beneath.
+///
+/// Not `BrowseCell`. The editor's browse grid is a worklist and draws each
+/// frame on a lighter plate inside a 3:2 box; the drawing's grid card draws
+/// the frame itself on the card, stroked, at whatever shape it is — a
+/// landscape one is wide and short, a portrait one is the other way about —
+/// and its name centred under it. The two are different cells that happen to
+/// show the same picture.
+///
+/// The white frame marks the **chosen** item and nothing else — the grid
+/// drawing's second rectangle in each cell is a grey-framed *example*, not a
+/// rule about unselected cells. It hugs the picture rather than boxing the
+/// cell: 3:2 on a landscape frame of film, 2:3 on a portrait one, which is how
+/// the editor's own filmstrip draws it. The cell keeps its pitch for layout;
+/// what is drawn inside it is the picture's own size.
+private struct ExportGridCell: View {
+    let frame: Frame
+    let chosen: Bool
+    let state: FrameState
+    /// The column's thumbnail width, from the card's width and the slider.
+    let width: CGFloat
+    @State private var image: CGImage?
+
+    /// The box a picture is fitted into, and the cell's own width. Nearly
+    /// square, and slightly taller — the drawing's two example frames are a
+    /// landscape filling the box's width and a portrait filling its height,
+    /// both centred, which is only possible if the box is a little taller than
+    /// it is wide.
+    private var box: CGSize { CGSize(width: width, height: width * 1.03) }
+
+    /// The stroke is on the **picture**, not on the box: the drawing's
+    /// landscape frame hugs a landscape frame of film and its portrait hugs a
+    /// portrait one, so a wide picture is outlined wide. `.aspectRatio(.fit)`
+    /// returns a view of the fitted size, so an overlay here is the picture's
+    /// own bounds — which is why this is an overlay *inside* the box rather
+    /// than one on the cell.
+    private var frameStroke: some View {
+        RoundedRectangle(cornerRadius: 2)
+            .stroke(Theme.selectionFrame, lineWidth: chosen ? 2 : 0)
+    }
+
+    var body: some View {
+        VStack(spacing: 6) {
+            ZStack(alignment: .bottomTrailing) {
+                Color.clear
+                    .frame(width: box.width, height: box.height)
+                    .overlay {
+                        if let image {
+                            Image(decorative: image, scale: 1)
+                                .resizable()
+                                .aspectRatio(contentMode: .fit)
+                                .overlay(frameStroke)
+                        } else {
+                            // Nothing of its own to hug yet, so a 3:2 stand-in
+                            // on the card's colour.
+                            Rectangle().fill(Theme.card)
+                                .aspectRatio(3 / 2, contentMode: .fit)
+                                .overlay(frameStroke)
+                        }
+                    }
+                badge.padding(4).opacity(chosen ? 0 : 1)
+            }
+            Text(frame.name)
+                .font(Theme.Font.Export.label)
+                .foregroundStyle(Theme.text)
+                .lineLimit(1)
+                .truncationMode(.middle)
+                .frame(width: box.width)
+        }
+        .help(frame.name)
+        .task(id: frame.id) {
+            image = await ThumbnailCache.shared.thumbnail(for: frame.id, maxPixel: 1024)
+        }
+        .onReceive(NotificationCenter.default.publisher(for: .thumbnailUpdated)) { n in
+            guard (n.object as? URL) == frame.id else { return }
+            Task { image = await ThumbnailCache.shared.thumbnail(for: frame.id, maxPixel: 1024) }
+        }
+    }
+
+    /// The same three states as everywhere else in the app, suppressed on the
+    /// chosen cell for the same reason the filmstrip suppresses it there.
     @ViewBuilder private var badge: some View {
         switch state {
         case .unprocessed: EmptyView()
@@ -1241,19 +1414,37 @@ enum ProofCaveat {
     /// At least this much and the wording stops being hedged.
     static let emphatic = 0.01       // 1 %
 
+    /// **A number and a verb, and nothing else.** The verbs are the whole
+    /// distinction — *rolled* kept its detail at a lower chroma, *clipped*
+    /// lost it — and the sentences that used to spell that out are what the
+    /// user asked to stop reading. `explain(_:)` is the same two statements
+    /// for a tooltip, where they cost nothing.
     static func lines(for proof: SoftProof) -> [Line] {
         var out: [Line] = []
         if proof.compressedFraction >= silence {
-            out.append(Line(text: "\(share(proof.compressedFraction)) of the frame is outside "
-                             + "\(proof.targetName) and was rolled into it rather than cut off.",
+            out.append(Line(text: "\(share(proof.compressedFraction)) rolled into \(proof.targetName)",
                             isWarning: false))
         }
         if proof.clippedFraction >= silence {
-            out.append(Line(text: "\(share(proof.clippedFraction)) of the frame sits on the edge of "
-                             + "\(proof.targetName) and has lost detail.",
+            out.append(Line(text: "\(share(proof.clippedFraction)) clipped in \(proof.targetName)",
                             isWarning: true))
         }
         return out
+    }
+
+    /// The long form, for wherever there is room to hover.
+    static func explain(_ proof: SoftProof) -> String? {
+        guard !lines(for: proof).isEmpty else { return nil }
+        var out: [String] = []
+        if proof.compressedFraction >= silence {
+            out.append("\(share(proof.compressedFraction)) of the frame is outside "
+                       + "\(proof.targetName) and was rolled into it rather than cut off.")
+        }
+        if proof.clippedFraction >= silence {
+            out.append("\(share(proof.clippedFraction)) of the frame sits on the edge of "
+                       + "\(proof.targetName) and has lost detail.")
+        }
+        return out.joined(separator: "\n")
     }
 
     static func share(_ fraction: Double) -> String {
