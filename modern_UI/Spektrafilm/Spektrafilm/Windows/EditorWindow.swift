@@ -84,13 +84,37 @@ struct EditorWindow: View {
     /// buttons, so it has to be present for the window to have a corner. The
     /// stored property stays for the session's state and for a launch that
     /// reads it back, but no view consults it.
+    /// The panels' widths, which are the user's now (PRD: "the collapse tabs
+    /// should be non-fixed, and there should be one narrowest and widest for
+    /// both").
+    ///
+    /// `@State` and not on `Session`: a panel width is chrome, and `Session` is
+    /// the document — its `uiKey` namespace is for state that has to come back
+    /// with a frame. `PanelWidthStore` writes its own keys, so the lifetime
+    /// here only has to be the window's, which is what `@State` is.
+    @State private var leftWidth = PanelWidthStore(name: "editor.left",
+                                                   range: Theme.Metric.leftPanelRange)
+    @State private var rightWidth = PanelWidthStore(name: "editor.right",
+                                                    range: Theme.Metric.rightPanelRange)
+
     private var printLayout: some View {
         VStack(spacing: Theme.Metric.gutter) {
             TopBar(session: session)
             HStack(spacing: Theme.Metric.gutter) {
                 if !session.leftCollapsed {
                     LeftPanel(session: session)
-                        .frame(width: Theme.Metric.leftPanelWidth)
+                        .frame(width: leftWidth.width)
+                        // The grip is an **overlay**, not a sibling, and that
+                        // is what keeps the standard width pixel-identical to
+                        // the drawing: a 6 pt view in the HStack would push the
+                        // canvas 6 pt right on a fresh install and move every
+                        // snapshot. It sits inside the panel's own outer margin
+                        // — the 9 pt of card before the first well — so it
+                        // covers nothing that was drawn.
+                        .overlay(alignment: .trailing) {
+                            PanelResizeHandle(side: .trailingEdge, range: leftWidth.range,
+                                              width: $leftWidth.width)
+                        }
                         .transition(.move(edge: .leading).combined(with: .opacity))
                 }
                 VStack(spacing: Theme.Metric.gutter) {
@@ -104,7 +128,17 @@ struct EditorWindow: View {
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
                 if !session.rightCollapsed {
                     RightPanel(session: session)
-                        .frame(width: Theme.Metric.rightPanelWidth)
+                        .frame(width: rightWidth.width)
+                        .overlay(alignment: .leading) {
+                            PanelResizeHandle(side: .leadingEdge, range: rightWidth.range,
+                                              width: $rightWidth.width)
+                        }
+                        // The colour balance triangle sizes its wheels from the
+                        // well it is in, and the well comes from the panel —
+                        // `ColorBalanceLayout.assumedWidth` is only what it
+                        // falls back to when nobody says.
+                        .environment(\.colorBalanceWidth,
+                                     ColorBalanceLayout.interior(panelWidth: rightWidth.width))
                         .transition(.move(edge: .trailing).combined(with: .opacity))
                 }
             }

@@ -265,6 +265,7 @@
 		CE8421F06D7963E4B9992184 /* LicensingTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "LicensingTests.swift"; sourceTree = "<group>"; };
 		CF61BA9413EC99F2810BB4DE /* MaskTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "MaskTests.swift"; sourceTree = "<group>"; };
 		FEC7699D811DD42DBF704EEE /* OpenPathTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "OpenPathTests.swift"; sourceTree = "<group>"; };
+		7D4B68041F25E6391CDA5225 /* PanelResizeWiringTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "PanelResizeWiringTests.swift"; sourceTree = "<group>"; };
 		670BA02F66C2FB67FF1B53EE /* ParamsTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "ParamsTests.swift"; sourceTree = "<group>"; };
 		A02C1261DEB889B4B7370EFA /* PrintLUTTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "PrintLUTTests.swift"; sourceTree = "<group>"; };
 		8EB35FC4E4E88A7B96A3A06A /* RendererTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "RendererTests.swift"; sourceTree = "<group>"; };
@@ -293,6 +294,7 @@
 				CE8421F06D7963E4B9992184 /* LicensingTests.swift */,
 				CF61BA9413EC99F2810BB4DE /* MaskTests.swift */,
 				FEC7699D811DD42DBF704EEE /* OpenPathTests.swift */,
+				7D4B68041F25E6391CDA5225 /* PanelResizeWiringTests.swift */,
 				670BA02F66C2FB67FF1B53EE /* ParamsTests.swift */,
 				A02C1261DEB889B4B7370EFA /* PrintLUTTests.swift */,
 				8EB35FC4E4E88A7B96A3A06A /* RendererTests.swift */,
@@ -612,6 +614,7 @@
 		302F9DB7C81BCB801B293621 /* LicensingTests.swift */ = {isa = PBXBuildFile; fileRef = CE8421F06D7963E4B9992184; };
 		6FA174F7F62365ED82151A39 /* MaskTests.swift */ = {isa = PBXBuildFile; fileRef = CF61BA9413EC99F2810BB4DE; };
 		DB25777DBD5A1C4613A4AB95 /* OpenPathTests.swift */ = {isa = PBXBuildFile; fileRef = FEC7699D811DD42DBF704EEE; };
+		CCB54740C6B298D2CB260013 /* PanelResizeWiringTests.swift */ = {isa = PBXBuildFile; fileRef = 7D4B68041F25E6391CDA5225; };
 		039B6FFCF4BFB676662323BD /* ParamsTests.swift */ = {isa = PBXBuildFile; fileRef = 670BA02F66C2FB67FF1B53EE; };
 		503F68DEA38B3A6A770B76FC /* PrintLUTTests.swift */ = {isa = PBXBuildFile; fileRef = A02C1261DEB889B4B7370EFA; };
 		9105254BB5E54EE1AFE0A963 /* RendererTests.swift */ = {isa = PBXBuildFile; fileRef = 8EB35FC4E4E88A7B96A3A06A; };
@@ -726,6 +729,7 @@
 				302F9DB7C81BCB801B293621 /* LicensingTests.swift */,
 				6FA174F7F62365ED82151A39 /* MaskTests.swift */,
 				DB25777DBD5A1C4613A4AB95 /* OpenPathTests.swift */,
+				CCB54740C6B298D2CB260013 /* PanelResizeWiringTests.swift */,
 				039B6FFCF4BFB676662323BD /* ParamsTests.swift */,
 				503F68DEA38B3A6A770B76FC /* PrintLUTTests.swift */,
 				9105254BB5E54EE1AFE0A963 /* RendererTests.swift */,

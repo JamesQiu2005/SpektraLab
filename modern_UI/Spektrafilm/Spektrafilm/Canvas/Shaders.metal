@@ -375,8 +375,17 @@ kernel void layer2(texture2d<float, access::read> src [[texture(0)]],
     // The red overlay, drawn last so it is not itself adjusted. Every editor
     // uses red and every editor's users turn it off, so it is a toggle — and
     // it tints only the mask at `maskOverlay`, the selected one. −1 is off.
+    //
+    // The tint is in the **working space's** encoding, which is not the
+    // numbers the interface was drawn with. `(0.85, 0.15, 0.15)` is an
+    // sRGB-encoded red — the one every editor's mask uses — and it is written
+    // into a picture whose space is ROMM γ1.8 now. Read as γ1.8 those numbers
+    // are a deeper red, because the curve is flatter: sRGB-decode(0.85) is
+    // 0.69198 and sRGB-decode(0.15) is 0.019607, which ROMM re-encodes to
+    // **0.81507** and **0.11255**. Left alone, the mask overlay would have
+    // darkened with the ground.
     if (maskOverlay >= 0 && shown > 0.0005) {
-        c = mix(c, float3(0.85, 0.15, 0.15), shown * 0.45);
+        c = mix(c, float3(0.81507, 0.11255, 0.11255), shown * 0.45);
     }
 
     dst.write(float4(saturate(c), 1), gid);

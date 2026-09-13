@@ -687,11 +687,34 @@ extension CanvasNSView {
         // leaves is black on the right and bottom — see `sizeDrawable`, which
         // is what sizes it instead, and which runs from `layout`.
         view.autoResizeDrawable = false
-        view.clearColor = MTLClearColor(red: 0x5F / 255.0, green: 0x5F / 255.0, blue: 0x5F / 255.0, alpha: 1)
+        // The ground, in the **working space's** encoding: the drawing's grey
+        // re-encoded, because a literal 0x5F read as ROMM γ1.8 is 1.478× the
+        // light and would have shifted the whole interface around the picture
+        // (`Renderer.ground` carries the derivation).
+        //
+        // Three things paint this ground and all three have to agree — the
+        // shader's letterbox, this clear colour, and the layer's own
+        // background behind the drawable.
+        let g = CGFloat(CanvasGround.value)
+        view.clearColor = MTLClearColor(red: Double(g), green: Double(g), blue: Double(g), alpha: 1)
         if let layer = view.layer as? CAMetalLayer {
-            layer.colorspace = ImageDecoder.displayP3
+            // **The layer is tagged with the working space.** The texture the
+            // renderer draws is ProPhoto, so the tag says ProPhoto and ColorSync
+            // converts for whatever display this is. That is the whole of the
+            // display path now: no transform of ours between Layer 2 and the
+            // screen (RFC-018 D2, as reversed — the RFC records why).
+            layer.colorspace = ImageDecoder.workingSpace
+            // False, and it stays false: ROMM γ1.8 is a plain 0–1 curve with no
+            // headroom above white, so there is no extended range to want. The
+            // flag is about the drawable's *range*, not its primaries, which is
+            // why a wider space does not turn it on.
             layer.wantsExtendedDynamicRangeContent = false
         }
+        // Tagged sRGB on purpose, and it is already the same colour as the two
+        // above: `Theme.ground` is the drawing's sRGB 0x5F, AppKit composites
+        // this one and colour-manages it itself, and CoreAnimation converts an
+        // sRGB-tagged background into the layer's space. Only the two values
+        // the GPU writes needed re-encoding.
         view.layer?.backgroundColor = CGColor(srgbRed: 0x5F / 255.0, green: 0x5F / 255.0, blue: 0x5F / 255.0, alpha: 1)
         let renderer = host.renderer
         renderer.needsDraw = { [weak view] in view?.scheduleDraw() }

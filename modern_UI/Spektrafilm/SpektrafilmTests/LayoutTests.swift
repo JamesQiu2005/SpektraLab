@@ -43,7 +43,11 @@ final class LayoutTests: XCTestCase {
         let m = Theme.Metric.self
         XCTAssertEqual(m.leftPanelWidth, (656.9 / 2).rounded(), accuracy: 0.6)
         XCTAssertEqual(m.rightPanelWidth, (572.3 / 2).rounded(), accuracy: 0.6)
-        XCTAssertEqual(m.topBarHeight, (82.7 / 2).rounded(), accuracy: 0.6)
+        // The bar is the one token that is **not** the drawing's any more: the
+        // user asked for a narrower one, and 34 is its own content's floor
+        // rather than a proportion of the drawing. See
+        // `testTheTopBarSpansTheWindowAboveTheCards`.
+        XCTAssertEqual(m.topBarHeight, 34, accuracy: 0.6)
         XCTAssertEqual(m.filmstripHeight, (250.6 / 2).rounded(), accuracy: 0.6)
         XCTAssertEqual(m.cardRadius, 15)
         XCTAssertEqual(m.gutter, 6, accuracy: 0.5)   // drawing's 8; tightened on purpose
@@ -71,11 +75,19 @@ final class LayoutTests: XCTestCase {
         // And the row still has to fit on the bar it sits in, with the whole
         // tool cluster behind it.
         XCTAssertLessThan(rowEnd, m.outerX + m.topBarLeading)
-        // Captured live at leading x 21 (Tools/capture-live.sh — no offscreen
-        // capture can see these). The centreline is the bar's now, which is
-        // 1.5 pt higher than the panel header's was.
+        // Captured live at leading x 21 (no offscreen capture can see these —
+        // the window server draws the buttons; `/tmp`'s AX driver is what
+        // un-fullscreens the app and photographs the real window).
+        //
+        // The centreline moved **with the bar**, which is the whole point of
+        // deriving it: 27.5 was `7 + 41/2`, and 24 is `7 + 34/2`. The buttons
+        // are re-placed by `TrafficLightAlignment` from the token, so a shorter
+        // bar carries them rather than clipping them — checked by capture, with
+        // the computed 7 / 24 / 41 pt lines drawn on it: the red lines land on
+        // the card's edges and the green one runs through the buttons' centres,
+        // leaving 10 pt of card above and below.
         XCTAssertEqual(m.trafficLightLeading, 21)
-        XCTAssertEqual(m.trafficLightCentreY, 27.5)
+        XCTAssertEqual(m.trafficLightCentreY, 24)
     }
 
     /// The bar is the window's first row and spans all of it; the three cards
@@ -88,10 +100,14 @@ final class LayoutTests: XCTestCase {
         XCTAssertEqual(size.width - 2 * m.outerX, 1902)
         // The cards below start one bar and one gutter down from the top.
         let cardsTop = m.outerY + m.topBarHeight + m.gutter
-        XCTAssertEqual(cardsTop, 54)
-        // …and the bar is still the drawing's height (82.7 / 2), because the
-        // drawing the numbers come from has not changed.
-        XCTAssertEqual(m.topBarHeight, 41, accuracy: 0.5)
+        XCTAssertEqual(cardsTop, 47)
+        // …and the bar is **no longer the drawing's height** (82.7 / 2 = 41).
+        // The user asked for it narrower — "the top should be fixed though,
+        // could be narrower overall" — and the floor is its own content: a
+        // 28 pt glyph box, centred, so 34 leaves 3 pt of card above and below
+        // it. The whole 7 pt goes to the picture, twice: every card below
+        // starts higher and the canvas is 7 pt taller.
+        XCTAssertEqual(m.topBarHeight, 34, accuracy: 0.5)
         // The left panel's card starts at the window's edge, under the bar.
         XCTAssertEqual(m.outerX, 9)
     }

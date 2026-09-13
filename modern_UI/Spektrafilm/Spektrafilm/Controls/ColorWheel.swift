@@ -35,7 +35,20 @@ struct ColorBalanceEditor: View {
     /// to its minimum still looks like a control. A number the panel's own
     /// furniture decides belongs in one place with a name on it, where a test
     /// can check it, not in a preference that can be late, zero, or absent.
-    private let width = ColorBalanceLayout.assumedWidth
+    /// The well's interior, which is what the wheels are sized against: the
+    /// panel less the well's inset and padding on both sides
+    /// (`ColorBalanceLayout.interior(panelWidth:)`).
+    ///
+    /// It is **given** rather than measured or assumed. Measured was tried for
+    /// one iteration and was a mistake worth recording — the preference
+    /// arrived as **zero** before the first layout and never came back, so every
+    /// wheel was quietly sized to its floor, and a control sized to its minimum
+    /// still looks like a control. Assumed was right while the panel had one
+    /// width and is wrong the moment the panel is the user's: the editor now
+    /// passes the width it actually has, and the fallback is the drawing's —
+    /// which is what a caller with no width to give (a test, a page whose own
+    /// drawing sets another one) gets.
+    @Environment(\.colorBalanceWidth) private var width
 
     enum Tab: String, CaseIterable, Identifiable {
         case master, threeWay, shadows, midtones, highlights
@@ -85,6 +98,16 @@ struct ColorBalanceEditor: View {
                 Button { tab = t } label: {
                     VStack(spacing: 4) {
                         Text(t.title).font(Theme.Font.tab).lineLimit(1)
+                            // Five labels split the well evenly, and "Highlight"
+                            // is the one that runs out first: at the drawing's
+                            // width it fits by about two points, and a panel
+                            // narrower than that ellipsized it to "Highli…".
+                            // Scaling rather than truncating is what lets the
+                            // right panel have a narrow end at all, and it costs
+                            // the drawing nothing — at 286 the label is already
+                            // inside its box, so it is drawn at full size and the
+                            // snapshot is unchanged.
+                            .minimumScaleFactor(0.85)
                             .foregroundStyle(on ? Theme.accent : Theme.secondaryText)
                         Rectangle().fill(on ? Theme.accent : Theme.dim.opacity(0.5))
                             .frame(height: on ? 1.5 : 0.5)
@@ -348,13 +371,21 @@ enum ColorBalanceLayout {
     /// it, and this is the whole of what they need.
     static func band(_ wheel: CGFloat) -> CGFloat { wheel + 2 * arcBand }
 
-    /// What the editor assumes before it has measured the well it sits in: the
-    /// right panel less the well's inset and padding on both sides. The editor
-    /// measures itself on first layout, so this is a starting point rather than
-    /// the rule — but it is the width a fresh install has, and the width a test
-    /// can check the triangle against.
-    static let assumedWidth: CGFloat = Theme.Metric.rightPanelWidth
-        - 2 * (Theme.Metric.wellInset + Theme.Metric.wellPadding)
+    /// What a control inside a well gets from a panel of `panelWidth`: the
+    /// panel less the well's inset and padding on both sides.
+    ///
+    /// One function rather than the arithmetic twice, because the editor passes
+    /// its live panel width through here and the drawing's fixed width comes
+    /// through the same door — so a well that changes its padding cannot change
+    /// it for one caller and not the other.
+    static func interior(panelWidth: CGFloat) -> CGFloat {
+        panelWidth - 2 * (Theme.Metric.wellInset + Theme.Metric.wellPadding)
+    }
+
+    /// The drawing's own interior, and the fallback for a caller with no width
+    /// to give. It is the width a fresh install has, so it is also the width a
+    /// test can check the triangle against.
+    static let assumedWidth: CGFloat = interior(panelWidth: Theme.Metric.rightPanelWidth)
 
     /// Room for one zone label and the gap above or below it.
     static let labelHeight: CGFloat = 15
@@ -464,5 +495,25 @@ private extension Color {
                      green: a.greenComponent + (b.greenComponent - a.greenComponent) * t,
                      blue: a.blueComponent + (b.blueComponent - a.blueComponent) * t,
                      opacity: a.alphaComponent + (b.alphaComponent - a.alphaComponent) * t)
+    }
+}
+
+// MARK: - how wide to draw
+
+/// How wide the colour balance controls should draw themselves.
+///
+/// An environment value because the width belongs to the *panel* and is used
+/// three views down — inside a section, inside a well — so threading it as a
+/// parameter would put it on every section's signature to be used by one of
+/// them. The default is the drawing's own interior, so a caller that never sets
+/// it behaves exactly as it did before the editor's panels became resizable.
+private struct ColorBalanceWidthKey: EnvironmentKey {
+    static let defaultValue = ColorBalanceLayout.assumedWidth
+}
+
+extension EnvironmentValues {
+    var colorBalanceWidth: CGFloat {
+        get { self[ColorBalanceWidthKey.self] }
+        set { self[ColorBalanceWidthKey.self] = newValue }
     }
 }

@@ -38,8 +38,18 @@ final class CanvasViewTests: XCTestCase {
         let view = CanvasNSView.configured(host: session)
         let layer = try XCTUnwrap(view.layer as? CAMetalLayer)
         XCTAssertEqual(layer.pixelFormat, Renderer.drawableFormat)
-        XCTAssertEqual(layer.colorspace?.name, ImageDecoder.displayP3.name,
-                       "the layer must be tagged Display P3; the pixels are already P3-encoded")
+        // The layer is tagged with **the space the texture is in**, which is the
+        // working space — ProPhoto RGB. ColorSync converts for the display.
+        //
+        // It was Display P3, and the assertion read the same way either time:
+        // tag what the pixels are. RFC-018 §2.4 had the canvas convert into P3
+        // first; the user reversed that half ("all displayed image in the main
+        // app page would be in ProPhoto RGB and macOS should be handling the
+        // color space management"), so the tag moved and the conversion went
+        // with it. A mismatch here is the quietest failure in the app — ProPhoto
+        // values wearing a P3 tag is a washed-out canvas and no error anywhere.
+        XCTAssertEqual(layer.colorspace?.name, ImageDecoder.workingSpace?.name,
+                       "the layer must be tagged with the space the canvas holds")
         XCTAssertTrue(view.isFlipped, "mouse points must share the shader's top-left origin")
 
         let window = NSWindow(contentRect: CGRect(x: 0, y: 0, width: 400, height: 300),

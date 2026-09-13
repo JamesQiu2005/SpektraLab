@@ -3,24 +3,68 @@
 //
 //  Draw-on-demand: the MTKView is paused and `needsDisplay` is set on state
 //  change (UI-GUIDELINE §4). Each draw: (1) if Layer 2 or its input changed,
-//  run the `layer2` kernel into `adjusted`; (2) run `outputTransform` into
-//  `display` — the working space converted to the canvas's own Display P3 —
-//  and the `histogram` kernel over *that*; (3) blit `display` (or the
-//  converted original, while Space is held) to the drawable through the
-//  sampling transform. The histogram buffer is read back on the command
-//  buffer's completion and published on the main actor.
+//  run the `layer2` kernel into `adjusted` and the `histogram` kernel over it;
+//  (2) blit `adjusted` (or the original, while Space is held) to the drawable
+//  through the sampling transform. The histogram buffer is read back on the
+//  command buffer's completion and published on the main actor.
 //
-//  Where the colours change hands (RFC-018): everything up to and including
-//  Layer 2 is in the **working space** — the session's resolved
-//  `io.output_color_space`, ProPhoto RGB — and the output transform is the one
-//  place a rendering space is left. `original` moves into the working space
-//  too, at the decode (`ImageDecoder.makePreviewTexture`), or the before/after
-//  split would compare two different colour spaces either side of the line.
+//  **The canvas draws the working space and does not convert it.** Every
+//  texture here is the session's resolved `io.output_color_space` — ProPhoto
+//  RGB — and the `CAMetalLayer` is *tagged* with it, so ColorSync converts for
+//  the display. `original` is in the working space too, at the decode
+//  (`ImageDecoder.makePreviewTexture`), so the before/after split compares two
+//  renderings and not two colour spaces.
+//
+//  That is a reversal, and the file is the wrong place for the argument: RFC-018
+//  §2.4 built the output transform for the canvas as well, on the grounds that
+//  a matrix profile has no perceptual table and so ColorSync clips where CAM16
+//  rolled off. The user took the decision back on 2026-09-13 — "all displayed
+//  image in the main app page would be in ProPhoto RGB and macOS should be
+//  handling the color space management" — having heard the objection. D2 in
+//  that RFC records both sides, and §7.2's numbers say what it costs.
+//
+//  The transform itself is not gone: export and the soft proof still run it,
+//  once, per destination, into the recipe's space. It is below, under "the
+//  output transform — export and the proof only".
 
 import Foundation
 import Metal
 import MetalKit
 import QuartzCore
+
+/// The ground behind the picture — the letterbox around a frame that does not
+/// fill the canvas — **in the working space's encoding**.
+///
+/// The drawing's value is `0x5F/255`, and it is an *sRGB-encoded* grey: that is
+/// what `Theme.ground` names and what every capture since the drawing has
+/// shown. The canvas carries it in ProPhoto now, and the same number means a
+/// different colour there — γ1.8 is the flatter curve, so ROMM-encoded 0x5F
+/// decodes to **1.478× the light**. Left alone, the whole interface would have
+/// shifted lighter around the picture.
+///
+/// Derived rather than written down: sRGB 0x5F decodes to linear 0.11444 and
+/// ROMM γ1.8 encodes that to 0.29990. Both steps are here, so a change to
+/// either moves the ground with it. `Theme.ground` stays the sRGB literal it
+/// is, because AppKit draws that one and colour-manages it itself.
+///
+/// Three things paint this ground and all three take the value from here: the
+/// shader's letterbox (`CanvasUniforms.surroundGray`), the clear colour, and
+/// the layer's background behind the drawable.
+///
+/// The mask overlay's red is the same problem and is handled in the shader
+/// (`layer2`), where it is mixed into the picture: `0.85, 0.15, 0.15` read as
+/// sRGB is the red the interface was drawn with, and γ1.8 re-encodes it to
+/// `0.81507, 0.11255, 0.11255`. It is not here because it is not a uniform —
+/// it never changes, and a uniform that cannot change is a uniform that can
+/// disagree with the one place it is used.
+enum CanvasGround {
+    static let value: Float = {
+        let encoded = 0x5F / 255.0
+        let linear = encoded <= 0.040449936 ? encoded / 12.92
+                                            : pow((encoded + 0.055) / 1.055, 2.4)
+        return Float(linear < 1.0 / 512.0 ? linear * 16 : pow(linear, 1.0 / 1.8))
+    }()
+}
 
 struct CanvasUniforms {
     var viewportSize = SIMD2<Float>(1, 1)
@@ -30,7 +74,8 @@ struct CanvasUniforms {
     var offset = SIMD2<Float>(0, 0)
     /// Device pixels per output logical pixel.
     var scale: Float = 1
-    var surroundGray: Float = 0x5F / 255.0
+    var surroundGray: Float = CanvasGround.value
+
     /// Device pixels per *source texture* pixel. With a crop applied this is
     /// no longer `scale`, and it is the one the sampler choice is made on.
     var magnification: Float = 1
@@ -116,44 +161,21 @@ final class Renderer: NSObject {
     /// a sharp print. One native texture makes that ladder unnecessary: it is
     /// a picture of the frame at every zoom, and it is one texture per
     /// selected frame rather than one per tier visited.
-    var original: MTLTexture? {
-        didSet { if oldValue !== original { displayOriginalDirty = true } }
-    }
+    var original: MTLTexture?
     private var adjusted: MTLTexture?
-    /// Layer 2's output converted to the canvas's target — what the quad
-    /// actually samples, and what the histogram is taken of. The working-space
-    /// texture it comes from is `adjusted`, which nothing draws directly.
-    private var display: MTLTexture?
-    /// The same conversion for `original`, which is drawn as often (left of
-    /// the split, and alone while Space is held). Two slots rather than one:
-    /// the two textures differ in size and are sampled in the same frame, and
-    /// a single slot would re-run a full-frame transform on every split draw.
-    private var displayOriginal: MTLTexture?
-    /// The output transform's installed setup (RFC-018 §5.4). Nil until one is
-    /// installed, and nil is a real state with an honest reading — "the
-    /// textures are already what should be shown" — which is what every
-    /// offscreen test that fabricates a texture and draws it depends on.
-    private(set) var outputTransform: OutputTransformSetup?
     /// Rasterised coverage for the mask kinds that cannot be closed-form.
     /// Nothing writes it yet — brush and the Vision sources are the next
     /// component kinds and this is the seam they land on
     /// (`MaskComponentKind.isRaster`, `MaskUniform.rasterSlice`).
     var maskRasters: MTLTexture?
-    private var layer2DirtyStorage = true
-    /// True when Layer 2's output is stale. Writing it also dirties the
-    /// display, because the transform's input *is* Layer 2's output, so
-    /// anything that invalidates one invalidates the other. A computed
-    /// property rather than a second line at each of a dozen assignments,
-    /// where one would eventually be missed.
-    private var layer2Dirty: Bool {
-        get { layer2DirtyStorage }
-        set {
-            layer2DirtyStorage = newValue
-            if newValue { displayDirty = true }
-        }
-    }
-    private var displayDirty = true
-    private var displayOriginalDirty = true
+    /// True when Layer 2's output is stale.
+    ///
+    /// There is no companion "the display is stale" any more, and its absence
+    /// is the point: the canvas draws the working-space texture **as it is**,
+    /// tagged with the working space, and ColorSync converts it for the
+    /// display. Nothing between Layer 2 and the drawable has to be re-run when
+    /// something upstream changes.
+    private var layer2Dirty = true
 
     var viewport = ViewportState()
     var showOriginal = false { didSet { if oldValue != showOriginal { needsDraw?() } } }
@@ -357,6 +379,7 @@ final class Renderer: NSObject {
     /// `makeCGImage()` can hand the bytes to ImageIO without a conversion.
     static let offscreenFormat: MTLPixelFormat = .rgba16Unorm
 
+
     init?(device: MTLDevice? = MTLCreateSystemDefaultDevice()) {
         guard let device, let queue = device.makeCommandQueue() else { return nil }
         self.device = device
@@ -510,43 +533,26 @@ final class Renderer: NSObject {
         enc.endEncoding()
     }
 
-    // MARK: the output transform
+    // MARK: the output transform — export and the proof only
 
-    /// Install the conversion from the working space to `setup`'s target.
-    /// Everything the canvas draws afterwards goes through it; the export and
-    /// the soft proof pass their own setup to `applyOutputTransform` instead,
-    /// because they convert to a space the canvas is not showing.
-    func setOutputTransform(_ setup: OutputTransformSetup?) {
-        outputTransform = setup
-        displayDirty = true
-        displayOriginalDirty = true
-        needsDraw?()
-    }
-
-    /// The working-space texture `src`, converted to the canvas's target.
-    /// Returns `src` itself when no transform is installed — see
-    /// `outputTransform`.
-    private func displayed(_ src: MTLTexture?, slot: inout MTLTexture?, dirty: inout Bool,
-                           cb: MTLCommandBuffer) -> MTLTexture? {
-        guard let src else { return nil }
-        guard let setup = outputTransform else { return src }
-        guard let dst = ensureDisplay(&slot, for: src) else { return src }
-        if dirty {
-            encodeOutputTransform(cb, src: src, dst: dst, setup: setup)
-            dirty = false
-        }
-        return dst
-    }
-
-    private func ensureDisplay(_ slot: inout MTLTexture?, for src: MTLTexture) -> MTLTexture? {
-        if let d = slot, d.width == src.width, d.height == src.height { return d }
-        slot = store.makeWritable(width: src.width, height: src.height)
-        return slot
-    }
-
+    /// The output transform, which **the canvas does not run**.
+    ///
+    /// The working-space texture is what the canvas draws and what the layer
+    /// says it is; ColorSync converts it for the display. This is the export's
+    /// half, and the only half left: a file in another space needs a
+    /// perceptual conversion of its own, and that is what it gets — once, per
+    /// destination, into the recipe's space.
+    ///
+    /// (RFC-018 §2.4 built this for the canvas too. The user reversed that half
+    /// on 2026-09-13 — "all displayed image in the main app page would be in
+    /// ProPhoto RGB and macOS should be handling the color space management" —
+    /// and D2 records the reversal with the objection that was raised and
+    /// overruled. What that costs is measured: §7.2 found 0.0012 % of a neutral
+    /// frame's pixels outside Display P3, 0.10 % with saturation at the top.)
+    ///
     /// The counters are accumulated with atomics, so they have to start at
-    /// zero — and only on the paths that read them, because the canvas never
-    /// does and a blit per draw is a blit per draw.
+    /// zero — and only on the paths that read them, because a blit per draw is
+    /// a blit per draw.
     private func clearTransformStats(_ cb: MTLCommandBuffer) {
         guard let blit = cb.makeBlitCommandEncoder() else { return }
         blit.fill(buffer: transformStats, range: 0..<transformStats.length, value: 0)
@@ -638,6 +644,23 @@ final class Renderer: NSObject {
         enc.endEncoding()
     }
 
+    /// Publish the bins the `histogram` kernel just filled.
+    ///
+    /// **The axis is the working space's**, and that is a decision rather than
+    /// an oversight. The bins are 256 even slices of the *encoded* value, and
+    /// the texture they come from is the one the canvas draws — ProPhoto RGB,
+    /// ROMM γ1.8. So mid-grey sits at bin 98 (`0.3857 × 256`), not at bin 118
+    /// where an sRGB-encoded histogram would have put it, and the whole plot
+    /// reads a little further left than it did.
+    ///
+    /// The alternative was to describe the *display* instead, by decoding to
+    /// linear and re-encoding through the display's own curve. That was
+    /// rejected because there is no longer such a thing: ColorSync converts
+    /// per display and per profile, including on a screen that is not P3, so a
+    /// histogram in that shape would be a guess about the monitor wearing the
+    /// authority of a measurement. This one is a statement about the pixels the
+    /// app holds, which is the thing a grade acts on and the thing an export
+    /// will convert from.
     private func publishHistogram() {
         let p = histogramBuffer.contents().bindMemory(to: UInt32.self, capacity: 1024)
         var bins = [Float](repeating: 0, count: 1024)
@@ -717,39 +740,35 @@ final class Renderer: NSObject {
             return
         }
         var shown: MTLTexture? = nil
-        var before: MTLTexture? = nil
         if let base {
             if showOriginal, let original {
-                shown = displayed(original, slot: &displayOriginal,
-                                  dirty: &displayOriginalDirty, cb: cb)
+                shown = original
             } else if let dst = ensureAdjusted(for: base) {
-                let adjustRan = layer2Dirty
-                if adjustRan {
+                if layer2Dirty {
                     encodeLayer2(cb, src: base, dst: dst)
                     layer2Dirty = false
-                }
-                let transformRan = displayDirty
-                shown = displayed(dst, slot: &display, dirty: &displayDirty, cb: cb)
-                // The histogram is a statement about clipping, and clipping is
-                // a property of the *destination* (RFC-018 §3) — so it is
-                // taken of the converted image, not of the working one.
-                if (adjustRan || transformRan) && !histogramInFlight {
-                    histogramInFlight = true
-                    encodeHistogram(cb, src: shown ?? dst)
-                    cb.addCompletedHandler { [weak self] _ in
-                        Task { @MainActor in
-                            self?.histogramInFlight = false
-                            self?.publishHistogram()
+                    // The histogram is taken of **what the canvas draws** —
+                    // the working-space texture — now that there is no
+                    // converted one to take it of. What that means for its
+                    // axis is recorded on `publishHistogram`.
+                    if !histogramInFlight {
+                        histogramInFlight = true
+                        encodeHistogram(cb, src: dst)
+                        cb.addCompletedHandler { [weak self] _ in
+                            Task { @MainActor in
+                                self?.histogramInFlight = false
+                                self?.publishHistogram()
+                            }
                         }
                     }
                 }
+                shown = dst
             }
         }
-        // Left of the split and under Space. Converted through the same slot
-        // the branch above may have just filled, so this is free when it did
-        // — and it is the *converted* texture, or the two halves of the
-        // comparison would be two different colour spaces.
-        before = displayed(original, slot: &displayOriginal, dirty: &displayOriginalDirty, cb: cb)
+        // Left of the split and under Space. The same texture the right half is
+        // drawn from — both are the working space, so the split compares two
+        // renderings and not two colour spaces.
+        let before = original ?? shown
         let bs = Float(view.window?.backingScaleFactor ?? viewport.backingScale)
         var u = canvasUniforms(shown: shown, viewportSize: view.drawableSize, backingScale: CGFloat(bs))
         // The timestamp is not decoration: "the canvas twitches" is a question
@@ -775,7 +794,7 @@ final class Renderer: NSObject {
             // fragment texture is a sampling of undefined memory the moment a
             // branch is mispredicted into, and "the compare flag is off" is
             // not a guarantee the GPU makes.
-            enc.setFragmentTexture(before ?? shown, index: 1)
+            enc.setFragmentTexture(before, index: 1)
             enc.setFragmentBytes(&u, length: MemoryLayout<CanvasUniforms>.stride, index: 0)
             enc.drawPrimitives(type: .triangle, vertexStart: 0, vertexCount: 6)
         }
@@ -834,20 +853,16 @@ final class Renderer: NSObject {
               let cb = queue.makeCommandBuffer() else { return nil }
         var shown: MTLTexture? = nil
         // The same swap `draw` makes while Space is held, so a capture of
-        // "show original" shows the original rather than the print — and the
-        // same output transform, so a capture is a picture of what the canvas
-        // would put on screen rather than of the working space.
+        // "show original" shows the original rather than the print.
         if base != nil, showOriginal, let original {
-            shown = displayed(original, slot: &displayOriginal,
-                              dirty: &displayOriginalDirty, cb: cb)
+            shown = original
         } else if let base, let dst = ensureAdjusted(for: base) {
             encodeLayer2(cb, src: base, dst: dst)
             layer2Dirty = false
-            shown = displayed(dst, slot: &display, dirty: &displayDirty, cb: cb)
-            encodeHistogram(cb, src: shown ?? dst)
+            shown = dst
+            encodeHistogram(cb, src: dst)
         }
-        let before = displayed(original, slot: &displayOriginal,
-                               dirty: &displayOriginalDirty, cb: cb)
+        let before = original ?? shown
         var u = canvasUniforms(shown: shown, viewportSize: CGSize(width: w, height: h), backingScale: backingScale)
         let rpd = MTLRenderPassDescriptor()
         rpd.colorAttachments[0].texture = target
@@ -858,7 +873,7 @@ final class Renderer: NSObject {
         if let shown {
             enc.setRenderPipelineState(quadPipelineOffscreen)
             enc.setFragmentTexture(shown, index: 0)
-            enc.setFragmentTexture(before ?? shown, index: 1)
+            enc.setFragmentTexture(before, index: 1)
             enc.setFragmentBytes(&u, length: MemoryLayout<CanvasUniforms>.stride, index: 0)
             enc.drawPrimitives(type: .triangle, vertexStart: 0, vertexCount: 6)
         }
@@ -874,15 +889,14 @@ extension MTLTexture {
     /// Read an rgba16Unorm texture back as a CGImage — **no conversion**. The
     /// bytes are what they are; the tag says which space that is.
     ///
-    /// `space` defaults to Display P3, and since RFC-018 that default is only
-    /// right for a texture that has been through `applyOutputTransform` with
-    /// Display P3 as its target. A working-space texture handed to this with
-    /// the default would be a ProPhoto picture wearing a P3 tag, which shows
-    /// as a washed-out canvas and no error anywhere — so export passes its
-    /// target explicitly, and the DI package passes device RGB because its
-    /// pixels are normalised film densities rather than colours (see
-    /// `Exporter`).
-    func makeCGImage(space: CGColorSpace = ImageDecoder.displayP3) -> CGImage? {
+    /// `space` is **the space the texture is in**, and it defaults to the
+    /// working space because that is what the canvas holds. Getting it wrong is
+    /// the quietest failure in the app — a ProPhoto picture wearing a P3 tag
+    /// shows as a washed-out canvas and no error anywhere — so a caller that
+    /// has converted passes its target explicitly (export does, and the DI
+    /// package passes device RGB because its pixels are normalised film
+    /// densities rather than colours; see `Exporter`).
+    func makeCGImage(space: CGColorSpace = ImageDecoder.workingSpace ?? ImageDecoder.displayP3) -> CGImage? {
         guard pixelFormat == .rgba16Unorm else { return nil }
         let bpr = width * 8
         var data = Data(count: bpr * height)
