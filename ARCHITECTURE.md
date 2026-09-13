@@ -418,17 +418,62 @@ renders are cached by *rank* — a `full` render satisfies a request for
 
 ### 7.4 What the frontend does *not* do
 
-- No colour management beyond one transform: the service returns Display-P3
-  encoded values, the `CAMetalLayer` is tagged Display P3, ColorSync does one
-  conversion. Do not add another.
+- No colour management of its own on the canvas. The engine returns **ProPhoto
+  RGB** encoded values — the working space — the `CAMetalLayer` is tagged
+  ProPhoto RGB, and **ColorSync** does the conversion to whatever display is in
+  front of the person. The app performs no display transform and must not add
+  one. See §7.5.
+- No bundling of a Python runtime, and no checkout beside the `.app`. That was
+  true before RFC-014 and has not been since: the engine is compiled into the
+  binary. (This bullet used to say the opposite.)
 - No masks, currently. The system is built and withdrawn behind
   `FeatureFlags.masks = false` pending a design the user is writing. The flag
   also stops masks being packed for the kernel, so a sidecar that already has
   them renders as though it did not.
-- No bundling. The app requires a checkout of this repo and a built `.venv`
-  next to it. See RFC-012.
+
 
 ---
+
+### 7.5 The colour chain, end to end
+
+RFC-018. One working space, and exactly one conversion per destination.
+
+| # | stage | space |
+|---|---|---|
+| 1 | RAW decode (Core Image) | linear ProPhoto float32 |
+| 2 | engine ingest | `io.input_color_space = "ProPhoto RGB"`, no decode |
+| 3 | engine interior | **no RGB space** — spectral upsampling → film log exposure → CMY density → print density → scan |
+| 4 | engine gamut compression | CAM16-UCS into ProPhoto RGB |
+| 5 | engine output | **ProPhoto RGB, CCTF encoded** — the working space |
+| 6 | Layer 2, masks, curves, geometry | ProPhoto RGB encoded |
+| 7a | canvas | layer tagged ProPhoto RGB; **ColorSync** converts to the display |
+| 7b | export | one output transform: CAM16 into the recipe's gamut, then that space's TRC; tagged, written, **no Core Graphics conversion** |
+| 7c | soft proof | the same transform, at the file's own resolution |
+
+Three things about this are load-bearing and easy to undo by accident:
+
+- **There is no RGB working space inside the engine.** Step 3 upsamples to
+  spectra immediately, so the ingest space needs only to be a faithful
+  colorimetric container, not a grading space. "ProPhoto vs ACEScc" is a
+  category error here; ProPhoto is the *ingest* and the *output* colorimetry,
+  not an intermediate.
+- **Whatever goes in, ProPhoto comes out.** A Display P3 JPEG and a RAW leave
+  step 5 in the same space. So every other colour space is a *compression* of
+  the pipeline's output rather than a different rendering of it, which is why
+  an sRGB recipe writes an sRGB file and why the gamut mapping belongs to the
+  export rather than to the display.
+- **The frontend reads the session's resolved output space** out of the `open`
+  reply (`Session.workingSpaceName`) rather than assuming it. Three parity
+  harnesses and two UI captions once held their own copies of that convention;
+  see AGENTS trap 28.
+
+The one trade this makes is stated rather than hidden: because ColorSync does
+the display conversion with a matrix profile, out-of-display colour on the
+**canvas** is clipped rather than rolled off. Measured in RFC-018 §7.2 at
+0.0012 % of a neutral frame and 0.10 % with saturation at the top. Only the
+export is gamut-mapped, so only the export is pinned — two people on two
+screens see two slightly different pictures, and the file is the thing that
+does not move.
 
 ## 8. The native engine
 
@@ -628,7 +673,7 @@ not the obvious one:
 |---|---|---|
 | `export` | `spk_reprint` at the full tier | Layer 2, the geometry, and the file (ImageIO) |
 | `preview_stock_lut` | `spk_preview_stock_lut` — the negative through the trilinear kernel, into a texture | draws it, or writes it |
-| `export_di` | `spk_export_di` — the negative normalised by the LUT's axes; `spk_print_lut_table` — the table | the 16-bit TIFF, the `.cube`, the print preview |
+| `export_di` | `spk_export_di` — the negative normalised by the LUT's axes; `spk_print_lut_table` — the table | the 16-bit TIFF and the `.cube`, in one folder |
 
 **No file writer was added to the engine**, and that is the design rather than
 a shortcut. ImageIO is already how the finished formats are written and it is
@@ -645,11 +690,13 @@ Two consequences worth knowing:
   HANDOFF-DISTRIBUTION §1 named this as the bundling requirement the port
   would create. They are CC BY-SA 4.0 derivatives of the profiles, which is
   why the bundle now carries licence texts (§2.3 of that handoff).
-- **The DI TIFF is tagged device RGB, not Display P3.** Its channels are film
-  densities, and the `.cube` beside it indexes exactly those numbers — a host
-  that treats them as a colour and converts on open silently moves the cube's
-  domain out from under it. `PrintLUTTests` asserts the file carries no
-  profile.
+- **The DI TIFF is tagged device RGB, not a rendering space.** Its channels are
+  film densities, and the `.cube` beside it indexes exactly those numbers — a
+  host that treats them as a colour and converts on open silently moves the
+  cube's domain out from under it. `PrintLUTTests` asserts the file carries no
+  profile. The package is **one folder holding exactly two files**, the density
+  TIFF and the `.cube`; the job log anchors one level up, because written
+  "beside the output" it landed inside the package and made it three.
 
 Still open: `native/` (the stdio proxy host) and
 `scripts/gpu_native/native_host_spike/` are dead and should be deleted;

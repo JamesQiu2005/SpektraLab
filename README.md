@@ -31,6 +31,14 @@ is statically compiled into the app and takes pixels in, handing back an
 `MTLTexture` the canvas draws — zero copy, no file handoff. A 45 MP frame opens
 in about a second.
 
+**One working space, one conversion per destination.** The engine renders to
+ProPhoto RGB; the grade, the masks and the curves all act there; the canvas is
+tagged ProPhoto RGB and ColorSync converts it for the display; an export is
+gamut-mapped into the space the recipe asks for and written in it. The export
+page shows that file at its own resolution before you write it —
+measured identical to the file, pixel for pixel. `ARCHITECTURE.md` §7.5 is the
+chain; `rfc/RFC-018` is why.
+
 ---
 
 ## Build
@@ -60,20 +68,34 @@ build/DerivedData/Build/Products/Debug/Filmify.app/Contents/MacOS/Filmify \
 
 ```bash
 xcodebuild -project Spektrafilm.xcodeproj -scheme SpektrafilmTests \
-           -derivedDataPath build/DerivedData test      # 139 tests, ~7 s
+           -derivedDataPath build/DerivedData test      # 277 tests, ~390 s with fixtures
 engine/tests/check_math_guard.sh                        # the fast-math guard can fire
 engine/build/gpu_smoke engine/resources/spektrafilm.metallib
 ```
 
 Two schemes: `SpektrafilmFrontend` runs everything except the class that renders
-a real negative (~2 s, no pixels); `SpektrafilmTests` is the full suite.
+a real negative (~7 s, no pixels); `SpektrafilmTests` is the full suite.
 `SpektrafilmTests` is the target's name and has nothing to do with the product
 name — see [Naming](#naming).
 
-Four tests skip on a fresh clone: they need camera fixtures under
-`tests/Test_image/`, which are multi-GB and deliberately not carried. Drop
-`_smoke_1mp.tif` there (a 1 MP linear ProPhoto TIFF) and they run. Nothing else
-needs it — `OpenPathTests` and `DecodeSeparationTests` skip rather than fail.
+**Read the duration, not the failure count.** 25 tests need camera fixtures
+under `tests/Test_image/`, which are multi-GB and deliberately not carried —
+and a run without them reports **`0 failures` just the same**, in ~18 s instead
+of ~390. Among the 25 are the cases that carry RFC-018 §7.2 and §7.6, so a
+green short run is the one result worth distrusting. See `AGENTS.md` trap 26.
+
+The fixtures live in the upstream `spektrafilm` fork. Each checkout reaches
+them through a `tests` symlink at its own root, and **the correct target is
+different in each**, which is why it is gitignored rather than committed:
+
+```bash
+ln -s ../spektrafilm/tests tests    # in this checkout
+ln -s ../filmify/tests tests        # in a git worktree of it
+ls tests/Test_image/A7m3            # should list the ARWs
+```
+
+Dropping a `_smoke_1mp.tif` there (a 1 MP linear ProPhoto TIFF) is enough for
+the smaller cases; the RFC-018 measurements want the A7 III pair.
 
 ---
 
@@ -138,7 +160,17 @@ PYTHONPATH=<reference-checkout>/src .venv/bin/python engine/tests/parity_setup.p
 
 Point `PYTHONPATH` at a checkout of the upstream fork, build the dylib first
 (`engine/build.sh dylib`), and use the 1 MP frame — parity is a correctness
-question, not a performance one.
+question, not a performance one. `parity_lut.py` additionally wants
+`SPEKTRAFILM_REFERENCE_ROOT`: its baked `.npz` assets are looked up under the
+reference tree, which this repository deliberately does not carry.
+
+A harness asserts about the engine, so **anything it believes about the
+engine's configuration it has to ask for**. `parity_render`, `parity_grain` and
+`parity_exposure` read the session's resolved output colour space out of the
+`open` reply; they used to hold their own copy of it and went red for a change
+that moved no node. `parity_schema` carries one recorded `KNOWN` divergence —
+`params.hpp` declares ProPhoto RGB and the Python oracle still declares sRGB —
+which fails if the two ever agree again. See `AGENTS.md` trap 28.
 
 ---
 

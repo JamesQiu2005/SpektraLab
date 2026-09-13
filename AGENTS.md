@@ -680,6 +680,27 @@ looking exactly like a regression in the code under test — the same shape as
 trap 16 (a check that runs in a configuration where it cannot fire) and trap 11
 (every input shares a property nobody named).
 
+**Two more instances, 2026-09-14, and both named the wrong file.** A test that
+set `UserDefaults.argumentDomain` to prove the launch argument reaches the
+session could not clear it again — `removeVolatileDomain(forName:)` does not
+take — so `ui2.previewLongEdge` stayed at 8192 for the rest of the process and
+`testTheZoomLabelIsMeasuredAgainstTheNativeFrame` failed three classes later
+with "the canvas is holding the frame itself". And
+`FrontendPolicyTests.testThePreviewResolutionDefaultsAndClamps` asserted
+`Session().previewLongEdge == Session.defaultPreviewEdge`, which is an
+assertion about *the machine*: it failed on 1200, a value no code in the suite
+computes, left in the store by another class's run that was killed mid-flight.
+
+So the rule above has a stronger form: **a test that depends on a persisted
+setting should not read the shared store at all.** Take a `UserDefaults` and
+inject a throwaway suite — `Session.previewEdge(in:)` and `PanelWidthStore`
+both do. Set-and-restore works until a run is interrupted; injection cannot be
+interrupted into leaking, because there is nothing shared to leak.
+
+The reason this keeps costing hours rather than minutes is the diagnostic: the
+failure names the wrong file. Nothing in the failing test's name, body or class
+mentions the setting that broke it.
+
 ### 25. An `@Observable` `didSet` that writes to itself recurses
 
 Measured 2026-09-12 in `Diagnostics`, and it cost the test process rather than
@@ -723,6 +744,99 @@ assigned an out-of-range value, which no earlier test did. And a stack overflow
 is a *crash*, not a failure: it restarts the test run ("Restarting after
 unexpected exit, crash, or test timeout"), so a suite that reports it must be
 read as "a test did not finish", not as "a test failed".
+
+### 26. A skipping suite and a full suite both report `0 failures`
+
+The camera fixtures are not in this repository — they are in the `spektrafilm`
+fork, and `tests/Test_image/` is gitignored here with a rule that says why.
+Each checkout reaches them through a `tests` symlink **whose correct target is
+different in each checkout**: a git worktree points at the main checkout, the
+main checkout points at `../spektrafilm`. A checkout without one skips the
+fixture-dependent cases and says so in a line nobody reads.
+
+Measured 2026-09-14: **18 s with 25 skipped against 375 s with 0**, and *both*
+report `0 failures`. The 25 included the cases carrying RFC-018 §7.2 and §7.6 —
+the two measurements the whole colour round rested on — so "landed as a test"
+was hollow for a round without anyone noticing.
+
+**Read the duration, not the failure count.** A real run of `SpektrafilmTests`
+on this machine is ~390 s. Anything under a minute means the fixtures are not
+there. `git check-ignore -v tests` should print `.gitignore:/tests`, and
+`ls tests/Test_image/A7m3` should list the ARWs.
+
+The symlink is ignored rather than merely untracked, and that is the point: a
+file with three different correct contents cannot be committed carefully, only
+not committed. It *was* committed once, by a `git add -A` that could not tell a
+local convenience from a change; in the main checkout it then resolved to this
+repository and `tests` became a link to itself.
+
+Same family as trap 16 and the second half of trap 24: a check that reports
+success while measuring nothing.
+
+### 27. Every UI literal that reaches the drawable is in the working space
+
+The canvas texture holds the *picture's* colour space, and the app paints its
+own chrome into it — the letterbox around the frame, the mask overlay's red.
+Those were written as sRGB code values and were correct for as long as the
+texture was Display P3, whose transfer function is sRGB's.
+
+RFC-018 moved the canvas to ProPhoto RGB (γ1.8), and the same numbers then
+meant different colours. Measured: the ground `0x5F/255` is linear 0.11444,
+which re-encodes to **0.29990** in ROMM — left alone the surround would have
+carried **1.478× the light** and the whole interface would have shifted around
+the photograph.
+
+**The check that needs no "before" image**: the window's outer margin is an
+sRGB `CGColor` that AppKit colour-manages itself, and the canvas letterbox is
+the shader's value through the tagged layer. They are two routes to the same
+grey and must land on the same pixel — live capture reads **95 and 95.03**. As
+the raw literal it read ~113.
+
+Note also that `--snapshot` cannot referee this: `cacheDisplay` applies a
+window-level conversion that follows the layer's tag, so an offscreen A/B
+compares two conversions rather than two renderings and *everything* differs,
+including regions nothing touched.
+
+### 28. A harness that keeps its own copy of a convention goes red for a change no node made
+
+`spk_open` establishes the session's output colour space. Three parity
+harnesses had that convention written into them as a constant rather than read
+from the open reply, so when RFC-018 changed the engine's output from Display
+P3 to ProPhoto RGB they went red — 23 of `parity_render`'s 27 cases, all 9 of
+`parity_grain`'s levels, the whole of `parity_exposure`'s c3 — for a change
+that moved no node and altered no arithmetic.
+
+They read `params.io` out of the open reply now, which is the field RFC-018
+§5.1 added for exactly this. **A harness asserts about the engine; anything it
+believes about the engine's configuration it must ask for.**
+
+One harness in the same family is worth knowing about separately:
+`parity_schema` compares `params.hpp`'s declared default against the Python
+oracle, and the oracle still declares sRGB. That one *cannot* be made green
+here — the oracle is the comparison — so it carries a recorded `KNOWN`
+divergence in the shape `parity_render.py` uses for `lens_blur_um`: named, with
+its reason, and **failing if the two ever agree again**.
+
+### 29. `kCGImageDestinationEmbedThumbnail` does nothing for TIFF
+
+Measured 2026-09-14: a TIFF written with and without that option is
+**byte-identical** (2,883,534 bytes either way, `CGImageSourceGetCount` = 1).
+The mechanism TIFF actually has is a second page — a second
+`CGImageDestinationAddImage`.
+
+The reading half is the part that bites, because it fails *plausibly*:
+`CGImageSourceCreateThumbnailAtIndex` does **not** find the second page. It
+returns a 2048 px downscale of page 0 instead, at the same cost as if no
+preview existed — so a thumbnail call appears to work while showing the wrong
+picture, and a size assertion cannot tell the two apart because they are the
+same size. The preview must be read by index:
+`CGImageSourceCreateImageAtIndex(src, 1, nil)`.
+
+`ExportPreviewTests` writes a two-page TIFF whose pages are deliberately
+*different colours*, because that is the only way a test can tell a real page 1
+from a downscale of page 0. `ExportPreviewChainTests` drives the real export,
+where both pages necessarily carry the same picture — so there the long edge is
+what discriminates, and neither test is sufficient alone. Both say so.
 
 ## Conventions
 
