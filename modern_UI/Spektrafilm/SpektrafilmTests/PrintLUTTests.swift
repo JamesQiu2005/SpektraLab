@@ -458,15 +458,7 @@ final class PrintLUTTests: XCTestCase {
         let out = copy.deletingLastPathComponent().appending(path: "out")
         try FileManager.default.createDirectory(at: out, withIntermediateDirectories: true)
 
-        let session = Session()
-        session.open(urls: [copy])
-        try await waitUntil("the frame to decode", timeout: 120) { session.decoded != nil }
-        try await waitUntil("the engine to warm up", timeout: 120) { session.serviceReady }
-        session.solveNow()
-        try await waitUntil("the print to land", timeout: 180) {
-            session.serviceSessionIDForExport != nil && !session.busy
-        }
-        let sid = try XCTUnwrap(session.serviceSessionIDForExport, "nothing developed")
+        let (session, sid) = try await developed(copy)
 
         var recipe = ExportRecipe(name: "DI", format: .di, folder: .fixed(path: out.path))
         recipe.subfolder = "packages"
@@ -511,6 +503,186 @@ final class PrintLUTTests: XCTestCase {
         let preview = (second[kCGImagePropertyPixelWidth] as? Int ?? 0)
         XCTAssertGreaterThan(dense, preview, "the preview is not smaller than the densities")
         session.open(urls: [])
+    }
+
+    /// The rule, without a frame or a GPU: which recipe writes a preview page.
+    ///
+    /// The writer and the job log both ask this function, so what is worth
+    /// pinning is that the two routes answer it differently — and that the
+    /// container does, because a second page is a TIFF idea and a JPEG recipe
+    /// with the flag on must not be told it has one.
+    @MainActor func testThePreviewPageRule() {
+        var recipe = ExportRecipe(name: "t", format: .tiff)
+        XCTAssertFalse(Exporter.writesPreviewPage(recipe), "off by default, so no bytes move")
+        recipe.embedsPreview = true
+        XCTAssertTrue(Exporter.writesPreviewPage(recipe))
+        recipe.format = .jpeg
+        XCTAssertFalse(Exporter.writesPreviewPage(recipe),
+                       "a JPEG cannot hold a second page, whatever the recipe says")
+        recipe.format = .di
+        XCTAssertTrue(Exporter.writesPreviewPage(recipe),
+                      "the DI package writes one whatever the flag says")
+        recipe.embedsPreview = false
+        XCTAssertTrue(Exporter.writesPreviewPage(recipe),
+                      "the DI package's preview is not the recipe's to turn off")
+    }
+
+    /// The frame open, and developed with the stochastic stages **off**.
+    ///
+    /// Off because more than one export of it is about to be compared: grain
+    /// and glare draw an unseeded field per render (`AGENTS.md` trap 1), so
+    /// two exports of the same frame with the same settings are two different
+    /// photographs and "the flag changed nothing" would be untestable. Set in
+    /// the window `SoftProofParityTests.developed` documents — after the open
+    /// and before the develop.
+    @MainActor
+    private func developed(_ copy: URL) async throws -> (Session, String) {
+        let session = Session()
+        session.open(urls: [copy])
+        try await waitUntil("the frame to decode", timeout: 120) { session.decoded != nil }
+        try await waitUntil("the engine to warm up", timeout: 120) { session.serviceReady }
+        var p = session.params
+        p.grainActive = false
+        p.glareActive = false
+        session.params = p
+        session.solveNow()
+        try await waitUntil("the print to land", timeout: 180) {
+            session.serviceSessionIDForExport != nil && !session.busy
+        }
+        return (session, try XCTUnwrap(session.serviceSessionIDForExport, "nothing developed"))
+    }
+
+    /// **The preview page is opt-in per recipe, and it is a picture of the
+    /// file.**
+    ///
+    /// Three things, and the third is the one the user's answer made matter —
+    /// the page shows this preview *after* an export, so it is what a person
+    /// ends up looking at and has to be a faithful small version of the file
+    /// rather than a cheaper approximation of it:
+    ///
+    ///  * the flag off writes one page, on writes two, and the picture in IFD0
+    ///    is byte-identical either way — the flag is not allowed to change the
+    ///    export;
+    ///  * the second page is smaller and the right shape;
+    ///  * and it is the *same picture*: both pages are reduced to the same
+    ///    8 × 8 grid and compared, which is what separates "the file, smaller"
+    ///    from "some other render that happens to be the right size". A mean
+    ///    per channel would not: two different grades of one frame can share a
+    ///    mean.
+    @MainActor
+    func testAPlainTIFFCarriesAPreviewOnlyWhenTheRecipeAsks() async throws {
+        let copy = try diFrame()
+        let out = copy.deletingLastPathComponent().appending(path: "plain")
+        try FileManager.default.createDirectory(at: out, withIntermediateDirectories: true)
+        let (session, sid) = try await developed(copy)
+
+        var recipe = ExportRecipe(name: "TIFF", format: .tiff, folder: .fixed(path: out.path))
+        recipe.subfolder = ""
+        recipe.colorSpace = .displayP3
+        recipe.existing = .overwrite
+        let context = NamingRule.Context(
+            originalName: copy.deletingPathExtension().lastPathComponent,
+            filmStock: session.params.filmStock, printStock: session.params.printStock,
+            pixelSize: .zero, counter: 1, date: Date())
+
+        var pages: [Bool: [CGImageSource]] = [:]
+        for embeds in [false, true] {
+            recipe.embedsPreview = embeds
+            recipe.name = embeds ? "with" : "without"
+            let result = try await Exporter.export(session: session, recipe: recipe,
+                                                   context: context, sessionID: sid)
+            let written = try XCTUnwrap(result.urls.first)
+            pages[embeds] = [try XCTUnwrap(CGImageSourceCreateWithURL(written as CFURL, nil))]
+        }
+
+        let off = try XCTUnwrap(pages[false]?.first), on = try XCTUnwrap(pages[true]?.first)
+        XCTAssertEqual(CGImageSourceGetCount(off), 1, "a recipe that did not ask for a preview got one")
+        XCTAssertEqual(CGImageSourceGetCount(on), 2, "the recipe asked for a preview and did not get one")
+
+        let space = try XCTUnwrap(CGColorSpace(name: CGColorSpace.displayP3))
+        let picture = try pixels(embedded: off, space: space)
+        XCTAssertEqual(try pixels(embedded: on, space: space), picture,
+                       "the preview flag changed the picture")
+
+        let full = try XCTUnwrap(CGImageSourceCreateImageAtIndex(on, 0, nil))
+        let thumb = try XCTUnwrap(CGImageSourceCreateImageAtIndex(on, 1, nil))
+        XCTAssertLessThan(thumb.width, full.width, "the preview is not smaller than the file")
+        // And a page exists whenever one was asked for, with no size caveat:
+        // the rule the reader gets is "the flag is on", not "the flag is on
+        // and the file was big enough". Pinned on a small image, where the
+        // writer used to return nothing.
+        let small = try XCTUnwrap(pixels16Image(64, 48, space))
+        let smallPreview = try XCTUnwrap(Exporter.preview(of: small))
+        XCTAssertEqual(smallPreview.width, small.width,
+                       "a file smaller than the preview size got no page")
+        XCTAssertEqual(Double(thumb.width) / Double(thumb.height),
+                       Double(full.width) / Double(full.height), accuracy: 0.01,
+                       "the preview is not the same shape as the file")
+        XCTAssertEqual(max(thumb.width, thumb.height), Exporter.previewLongEdge,
+                       "the preview is not the size the writer says it is")
+        XCTAssertEqual(thumb.bitsPerComponent, 8)
+
+        // The same picture, at a size where a comparison is cheap and a
+        // different grade would show. Reduced through the same context, so the
+        // reduction cannot invent an agreement.
+        //
+        // **A tolerance, not equality.** Both sides are resampled — the file
+        // from 6000 px down to 8, the preview from 2048 down to 8 — and two
+        // resampling routes over a natural image disagree by a count or two.
+        // Measured on this frame: worst 2 of 255. A *different* picture is not
+        // a count or two away, and the control below is what says so, because
+        // a tolerance with nothing on the other side of it is a rubber stamp.
+        let n = 8
+        let file = try grid(full, n, space), preview = try grid(thumb, n, space)
+        XCTAssertEqual(file.count, preview.count)
+        let worst = zip(file, preview).map { abs($0 - $1) }.max() ?? 0
+        XCTAssertLessThanOrEqual(worst, 3,
+                                 "the preview is not a picture of the file — worst \(worst) of 255")
+
+        // The control: the same comparison against the file drawn *upside
+        // down* has to fail. Same image, same reduction, same code path — the
+        // only difference is that it is not the same picture.
+        let flipped = try grid(full, n, space, flipped: true)
+        let flippedWorst = zip(file, flipped).map { abs($0 - $1) }.max() ?? 0
+        XCTAssertGreaterThan(flippedWorst, 3,
+                             "this comparison cannot tell two pictures apart, so the "
+                             + "assertion above proves nothing")
+
+        let entry = try XCTUnwrap(CGImageSourceCopyPropertiesAtIndex(on, 1, nil) as? [CFString: Any])
+        XCTAssertNotNil(entry[kCGImagePropertyProfileName],
+                        "the preview carries no profile, so a reader cannot show it correctly")
+    }
+
+    /// A small 16-bit image, for the writer-only cases.
+    private func pixels16Image(_ w: Int, _ h: Int, _ space: CGColorSpace) throws -> CGImage {
+        let ctx = try XCTUnwrap(CGContext(
+            data: nil, width: w, height: h, bitsPerComponent: 16, bytesPerRow: w * 8,
+            space: space, bitmapInfo: CGImageAlphaInfo.noneSkipLast.rawValue
+                | CGBitmapInfo.byteOrder16Little.rawValue))
+        ctx.setFillColor(CGColor(colorSpace: space, components: [0.4, 0.5, 0.6, 1])!)
+        ctx.fill(CGRect(x: 0, y: 0, width: w, height: h))
+        return try XCTUnwrap(ctx.makeImage())
+    }
+
+    /// One image reduced to `n × n` RGB triples, in `space`, as 0…255.
+    ///
+    /// `flipped` draws it upside down, which is the control for "is this
+    /// comparison sensitive enough to tell two pictures apart" — the same
+    /// image, the same reduction, not the same picture.
+    private func grid(_ cg: CGImage, _ n: Int, _ space: CGColorSpace,
+                      flipped: Bool = false) throws -> [Int] {
+        let ctx = try XCTUnwrap(CGContext(
+            data: nil, width: n, height: n, bitsPerComponent: 8, bytesPerRow: n * 4,
+            space: space, bitmapInfo: CGImageAlphaInfo.noneSkipLast.rawValue))
+        ctx.interpolationQuality = .high
+        if flipped {
+            ctx.translateBy(x: 0, y: CGFloat(n))
+            ctx.scaleBy(x: 1, y: -1)
+        }
+        ctx.draw(cg, in: CGRect(x: 0, y: 0, width: n, height: n))
+        let raw = try XCTUnwrap(ctx.data)
+        let p = raw.bindMemory(to: UInt8.self, capacity: n * n * 4)
+        return (0..<(n * n * 4)).map { Int(p[$0]) }
     }
 
     /// IFD0's pixels, as written, through a context in `space`.

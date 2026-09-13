@@ -56,6 +56,14 @@ extension ExportFormat {
     /// under it (`Exporter.exportDI`). So the choice is withheld rather than
     /// offered and ignored.
     var takesColorSpace: Bool { self != .di }
+    /// Whether this container can hold a preview beside the picture.
+    ///
+    /// TIFF is the only one that can: a second page is a TIFF idea, and
+    /// ImageIO has no second-image slot in JPEG or PNG. `ExportRecipe
+    /// .embedsPreview` is therefore a TIFF setting, and this is where that is
+    /// decided — rather than at the two places that act on it, the writer and
+    /// the page's toggle, which would otherwise be free to disagree.
+    var carriesPreviewPage: Bool { self == .tiff }
     /// 8-bit formats cannot carry a wide-gamut working space usefully.
     var isEightBit: Bool { self == .jpeg || self == .png }
     var takesQuality: Bool { self == .jpeg }

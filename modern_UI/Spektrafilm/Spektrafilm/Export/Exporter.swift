@@ -208,6 +208,11 @@ enum Exporter {
             .init("ext", format.ext),
             .init("bit_depth", depth(format)),
             .init("color_space", colourSpace(recipe)),
+            // The file has a second picture in it, and the record of what was
+            // written should say so: a preview is about a tenth of the file,
+            // and "why is this TIFF bigger than that one" is a question this
+            // log exists to answer.
+            .init("preview_page", writesPreviewPage(recipe)),
             .init("recipe", recipe.name),
             .init("profile_fell_back", fellBack),
             .init("elapsed_ms", elapsedMs),
@@ -380,7 +385,8 @@ enum Exporter {
                                     quality: Double, recipe: ExportRecipe,
                                     sessionID: String) async throws -> Result {
         let r = try await filePixels(session: session, recipe: recipe, sessionID: sessionID)
-        try write(r.image, to: out, format: format, quality: quality)
+        let preview = writesPreviewPage(recipe) ? preview(of: r.image) : nil
+        try write(r.image, to: out, format: format, quality: quality, preview: preview)
         return Result(urls: [out], note: nil, appliedEV: r.appliedEV, pixels: r.pixels)
     }
 
@@ -533,14 +539,74 @@ enum Exporter {
     /// context it does it in. 16-bit needs the little-endian byte order flag
     /// — without it the context is created but the channels come out
     /// byte-swapped, which looks like a colour-management bug and is not one.
-    private static func redraw(_ cg: CGImage, in space: CGColorSpace, bitsPerComponent: Int) -> CGImage? {
+    ///
+    /// `size` is the context's, so a caller can ask for a *resample* rather
+    /// than a copy — the preview page is the only one that does.
+    private static func redraw(_ cg: CGImage, in space: CGColorSpace, bitsPerComponent: Int,
+                               size: CGSize? = nil) -> CGImage? {
+        let w = Int(size?.width ?? CGFloat(cg.width))
+        let h = Int(size?.height ?? CGFloat(cg.height))
+        guard w > 0, h > 0 else { return nil }
         var info = CGImageAlphaInfo.noneSkipLast.rawValue
         if bitsPerComponent == 16 { info |= CGBitmapInfo.byteOrder16Little.rawValue }
-        guard let ctx = CGContext(data: nil, width: cg.width, height: cg.height,
+        guard let ctx = CGContext(data: nil, width: w, height: h,
                                   bitsPerComponent: bitsPerComponent, bytesPerRow: 0,
                                   space: space, bitmapInfo: info) else { return nil }
-        ctx.draw(cg, in: CGRect(x: 0, y: 0, width: cg.width, height: cg.height))
+        ctx.interpolationQuality = .high
+        ctx.draw(cg, in: CGRect(x: 0, y: 0, width: w, height: h))
         return ctx.makeImage()
+    }
+
+    /// The long edge of a preview page. **Chosen, not measured** — the one
+    /// number here that is.
+    ///
+    /// It sits between the app's interactive tier (1600, what a screenful
+    /// costs) and the file's own size, and it is what the export page shows
+    /// once the file exists, so it has to survive being looked at rather than
+    /// being a thumbnail. 2048 is a 5K pane's width at 1× and a laptop pane's
+    /// at 2×; at 8 bits it makes a 6000 × 4000 TIFF's preview about a tenth
+    /// of the file, which is the figure the user was given when they chose
+    /// this as a per-recipe option. Move it if the page wants a different
+    /// picture on screen — nothing else depends on it.
+    static let previewLongEdge = 2048
+
+    /// Whether this recipe's file carries a preview page: the rule the writer
+    /// follows and the job log records, in one place so they cannot disagree.
+    ///
+    /// Two routes answer it differently, and each for its own reason. An
+    /// ordinary TIFF's is the recipe's — **off by default**, so no existing
+    /// recipe's bytes move. The DI package's is unconditional, whatever the
+    /// flag says: its other two files are density and a `.cube`, so the
+    /// preview is the only rendered picture in it (`exportDI`, and the field's
+    /// own doc comment, which says this so nobody later "fixes" the
+    /// inconsistency).
+    static func writesPreviewPage(_ recipe: ExportRecipe) -> Bool {
+        recipe.format == .di || (recipe.embedsPreview && recipe.format.carriesPreviewPage)
+    }
+
+    /// A **faithful small copy** of the file's own pixels: resampled, in the
+    /// file's own space, 8-bit.
+    ///
+    /// Not a second render of the frame, which is the distinction that makes
+    /// this worth having. The page shows the render before an export and the
+    /// file's embedded preview after one; a preview produced by re-rendering
+    /// would be a version of the *frame*, free to differ from the file in
+    /// exactly the ways the page exists to show. This is the file, smaller.
+    ///
+    /// **A page, whenever one was asked for** — including for an export
+    /// smaller than `longEdge`, where the page is the file's own size. The
+    /// tempting alternative is to return nil there and save a copy of a small
+    /// image, and it costs more than it saves: the reader's rule would become
+    /// "the flag is on *and* the file is big enough", and a page that quietly
+    /// falls back to the render is indistinguishable from one that never
+    /// asked. `nil` is reserved for an image with no pixels at all.
+    static func preview(of image: CGImage, longEdge: Int = previewLongEdge) -> CGImage? {
+        let w = CGFloat(image.width), h = CGFloat(image.height)
+        guard w > 0, h > 0 else { return nil }
+        let scale = min(1, CGFloat(longEdge) / max(w, h))
+        let size = CGSize(width: (w * scale).rounded(), height: (h * scale).rounded())
+        return redraw(image, in: image.colorSpace ?? CGColorSpaceCreateDeviceRGB(),
+                      bitsPerComponent: 8, size: size)
     }
 
     enum ExportError: Error, LocalizedError {
