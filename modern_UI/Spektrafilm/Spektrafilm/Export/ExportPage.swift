@@ -51,6 +51,10 @@ struct ExportPage: View {
     /// The settings card folds away to the left, which is what the tab on its
     /// trailing edge in the drawing is for.
     @State private var settingsCollapsed = false
+    /// How many columns the Grid draws its thumbnails in — the value the bar's
+    /// detented slider sets. Persisted like every other view setting, so the
+    /// grid someone arranged is the grid they come back to.
+    @AppStorage(Session.uiKey + "exportGridColumns") private var gridColumns = 4
 
     @State private var zoom: CGFloat = 1
     @State private var paneSize: CGSize = .zero
@@ -230,15 +234,45 @@ struct ExportPage: View {
             // The empty middle is the window's drag surface, exactly as it is
             // on the editor's bar: the titlebar is hidden.
             WindowDragHandle().frame(minWidth: 8, maxWidth: .infinity)
-            zoomButton("plus.magnifyingglass", "Zoom in", 1.5)
-            zoomPill.padding(.horizontal, M.zoomClusterGap)
-            zoomButton("minus.magnifyingglass", "Zoom out", 1 / 1.5)
+            // One span, two controls: the zoom cluster in Viewer mode, where
+            // the drawing puts it, and the grid-size slider in Grid mode. Both
+            // are exactly `zoomClusterWidth` wide, so switching modes does not
+            // move the count pill beside them.
+            windowCluster
             Spacer().frame(width: M.zoomToCount)
             countPill
             Spacer().frame(width: M.countTrailingInset)
         }
         .frame(height: M.topBarHeight)
         .panelCard()
+        // `notes.md`: "Remember to write the transition between the modes in
+        // both ways." Both branches of the cluster carry one and the animation
+        // is on the row that holds them, so neither direction is the one that
+        // happens to animate.
+        .animation(.easeOut(duration: 0.18), value: mode)
+    }
+
+    /// The bar's right-hand control. In Viewer it is the zoom cluster the
+    /// drawing draws there; in Grid it is the slider the drawing's own margin
+    /// asks for — "Turns to choose grid size in grid view mode", at x 2279.75
+    /// of the artboard, which halves to 1139.9 pt and lands inside this span.
+    ///
+    /// What it sizes is the **thumbnail**, and the pane still takes the width
+    /// it is given: the count of columns is what the stops stand for, and the
+    /// cells grow into whatever the pane can afford. That is Finder's
+    /// behaviour, and the user asked for Finder's.
+    @ViewBuilder private var windowCluster: some View {
+        if mode == .viewer {
+            zoomButton("plus.magnifyingglass", "Zoom in", 1.5)
+            zoomPill.padding(.horizontal, M.zoomClusterGap)
+            zoomButton("minus.magnifyingglass", "Zoom out", 1 / 1.5)
+                .transition(.opacity)
+        } else {
+            DetentSlider(value: $gridColumns, range: M.gridColumns,
+                         width: M.zoomClusterWidth,
+                         help: "Thumbnail size — \(gridColumns) columns")
+                .transition(.opacity)
+        }
     }
 
     /// Both glyphs are named in `notes.md`, and the viewer's is drawn turned a
@@ -660,10 +694,11 @@ struct ExportPage: View {
 
     // MARK: - the footer
 
-    /// Not in the drawing, which leaves the card's lower third empty and has
-    /// no way to start an export anywhere in it — and a page that cannot
-    /// export is not a page. It sits where that empty space is, and carries
-    /// the progress and the result the old sheet's footer carried.
+    /// The export affordance, in the card's lower third — which the drawing
+    /// leaves empty, because it draws no way to start an export anywhere in
+    /// it. The user's decision put the button here, with the progress and the
+    /// result beside it: a page that cannot export is not a page, so this is
+    /// part of the page rather than an addition to it.
     private var footer: some View {
         VStack(spacing: 6) {
             if let problem = store.problem { message(problem, warning: true) }
@@ -795,19 +830,14 @@ struct ExportPage: View {
         }
     }
 
-    /// The size stated is the **recipe's**, read through the same `size`
-    /// binding the Size row shows, so the two cannot disagree.
-    ///
-    /// Not `SoftProof.exportPixelSize`: that field is meant to be the file's
-    /// size and currently reports the *geometry's* own — `framed` in
-    /// `SoftProof.softProof` is the canvas's current tier, so on a frame whose
-    /// canvas is showing a preview it reads 2678 × 1785 where the export
-    /// writes 6000 × 4000. Stating it here would be a lie in the one place
-    /// this page exists to be honest. See the note to the pixels stream.
+    /// The size stated is `exportPixelSize` — the export path's own number for
+    /// what the file will measure, computed by `SoftProof` from the frame's
+    /// native pixels and the recipe's size rather than from whatever tier the
+    /// canvas happens to be showing. It is the same number the Size row paints,
+    /// arrived at by the side that writes the file.
     private func spaceLine(_ proof: SoftProof) -> String {
         let canvas = "the canvas is showing \(ColorSpaceCatalog.name(for: .displayP3) ?? "Display P3")"
-        let px = size.wrappedValue
-        let file = "\(Int(px.width)) × \(Int(px.height)) px"
+        let file = "\(Int(proof.exportPixelSize.width)) × \(Int(proof.exportPixelSize.height)) px"
         return "Proof in \(proof.targetName) · writing \(file) · \(canvas)"
     }
 
@@ -815,13 +845,13 @@ struct ExportPage: View {
     /// — the same cells, thumbnails and badges — with this page's selection
     /// rule layered on through `BrowseCell.chosen`.
     ///
-    /// The drawing annotates this mode in the artboard's margin — "Turns to
-    /// choose grid size in grid view mode" — and draws no control for it. The
-    /// grid therefore sizes itself to the pane, and that annotation is the one
-    /// thing in the drawing this page does not implement.
+    /// The columns are the bar's detented slider and nothing else — the grid
+    /// never chooses a size for itself, so two panes of different widths show
+    /// the same count and a different thumbnail.
     private var gridPane: some View {
         ScrollView(.vertical, showsIndicators: false) {
-            LazyVGrid(columns: [GridItem(.adaptive(minimum: 186, maximum: 250), spacing: 16)],
+            LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 16),
+                                     count: gridColumns),
                       spacing: 16) {
                 ForEach(session.frames) { frame in
                     BrowseCell(session: session, frame: frame, chosen: targets.contains(frame.id))
@@ -1029,13 +1059,16 @@ struct ExportPage: View {
 
 /// One thumbnail down the right-hand card.
 ///
-/// `notes.md`: "Only the chosen image gets a white frame around it, and the
-/// actual image name got displayed, the non-selected ones are just there (no
-/// actual grey frame around it)." So the frame and the name are one decision,
-/// not two, and an unchosen cell draws neither. **The drawing disagrees**: it
-/// strokes the unchosen cell as well, in `#686969` (`cls-2`). `notes.md` is
-/// the authority on behaviour, so the grey frame is not drawn — and this
-/// comment is the record of the choice rather than a silent omission.
+/// The chosen cell keeps the drawing's white frame and its name; the others
+/// keep the drawing's grey one (`cls-2`, `#686969`, stroke-width 4 — 2 pt at
+/// this page's scale) and no name.
+///
+/// **That is the drawing's rule, and the user ruled it wins.** `notes.md` says
+/// the opposite in as many words — "the non-selected ones are just there (no
+/// actual grey frame around it)" — and it is the older word; the drawing
+/// settles it. So the frame and the name are separate decisions here after
+/// all: the grey frame is on every cell, the white frame and the name only on
+/// the chosen one.
 private struct ExportStripCell: View {
     let frame: Frame
     let chosen: Bool
@@ -1057,7 +1090,7 @@ private struct ExportStripCell: View {
                 .frame(maxWidth: .infinity)
                 .frame(maxHeight: Theme.Metric.Export.thumbMax)
                 .overlay(RoundedRectangle(cornerRadius: 2)
-                    .stroke(Theme.selectionFrame, lineWidth: chosen ? 2 : 0))
+                    .stroke(chosen ? Theme.selectionFrame : Theme.exportChip, lineWidth: 2))
                 badge.padding(5).opacity(chosen ? 0 : 1)
             }
             .frame(maxWidth: .infinity)
