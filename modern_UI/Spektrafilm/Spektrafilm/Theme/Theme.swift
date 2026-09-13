@@ -32,6 +32,16 @@ enum Theme {
     static let plotGrid = Color(hex: 0x3A3B39)
     /// The one accent in the interface: the active curve tab and its points.
     static let accent = Color(hex: 0xEE8A2B)
+    /// The export page's accent, `.cls-12` in
+    /// `reference_layout/Export_Page/export_page.svg`: the chosen mode in the
+    /// bar's toggle. **The user's own drawing says `#f08724`**, and this page
+    /// follows its drawing: the two oranges are 2, 3 and 7 counts apart a
+    /// channel (240/135/36 against 238/138/43), which is nothing on screen but
+    /// is not the same number, and the file that names the colour wins.
+    static let exportAccent = Color(hex: 0xF08724)
+    /// `.cls-21` — the naming chips' plate and, in the drawing, the unchosen
+    /// filmstrip cell's frame. A well-side grey one step up from `ground`.
+    static let exportChip = Color(hex: 0x686969)
     static let selectionFrame = Color(hex: 0xFAF8F4)
     static let knob = Color(hex: 0xFAF8F4)
     static let canvasSurround = ground
@@ -147,50 +157,99 @@ enum Theme {
 
         /// The export page's own geometry (RFC-018 §6).
         ///
-        /// Measured from
-        /// `reference_layout/Export_Page/Reference_Screenshot.jpg`, whose
-        /// artboard is 3000×2000. The two numbers that fix its scale are
-        /// independent of this file: its top bar is 60 px of a 2984 px window
-        /// and its well inset is 13 px, and the scale that turns those into
-        /// `topBarHeight` and `wellInset` — 1.44 — is the one used here. Its
-        /// toolbar glyphs (≈24 px) land on `toolIcon` at the same scale, which
-        /// is the third confirmation and the one that covers the type ramp.
+        /// Measured from `reference_layout/Export_Page/export_page.svg` — the
+        /// drawing itself, not a render of it. Its artboard is 3714.69 ×
+        /// 2046.5 and the window in it is 2981.27 units wide; the scale below
+        /// is **2**, the same one the editor's tokens use, and three of those
+        /// tokens land on the drawing exactly: `cardRadius` and `wellRadius`
+        /// are 30 and 22.85 units, and the quality knob is 21.07 × 17.44 —
+        /// `knobSize` is 10.5 × 8.7. A drawing that reproduces three of
+        /// another document's tokens at 2 shares its scale, so the export
+        /// window is **1490.65 × 989.55 pt**, and every number below is the
+        /// drawing's divided by two.
         ///
-        /// The page's cards are **flush to the window's edges**, unlike the
-        /// editor's: the reference insets them vertically below the bar and
-        /// not at all horizontally, so the export window has no outer margin.
-        /// Its side panels are wider than the editor's because it has more to
-        /// put in them, and both are fixed, exactly as the editor's are.
+        /// Where this page and the editor differ they differ because the two
+        /// drawings do: its bar is 30 pt rather than 41, its wells sit 6 pt
+        /// from the card edge rather than 9, and its right-hand card is 221 pt
+        /// rather than 286.
+        ///
+        /// The cards are **flush to the window's edges**, as the editor's are
+        /// when the window is its design size — the drawing puts them at x 0
+        /// and x 2543.83 of a 2981.27-wide window, so there is no outer margin
+        /// and the only gap is the 6 pt between the bar and the cards.
         enum Export {
-            static let leftWidth: CGFloat = 404
-            /// The editor's right-panel width, used unchanged: at the scale
-            /// above the reference's filmstrip card is 306 pt, and 286 is
-            /// within the measurement error of the mockup's own edges.
-            static let rightWidth: CGFloat = Theme.Metric.rightPanelWidth
-            /// Gap between the bar and the cards, below it and between them.
-            static let gap: CGFloat = Theme.Metric.outerY
-            /// Leading edge of the mode toggle, measured from the window's —
-            /// the reference puts it 32 pt past the left card's trailing edge,
-            /// which is where the centre pane's own content begins.
-            static let modeToggleLeading: CGFloat = Theme.Metric.Export.leftWidth + 32
-            /// The count pill is centred over the filmstrip card rather than
-            /// inset from the window's right edge: measured, its centre is
-            /// 1 pt from the card's. It labels the strip below it.
-            static let countTrailingInset: CGFloat = rightWidth / 2
-            /// Inset between the zoom cluster and the filmstrip card.
-            static let zoomToFilmstrip: CGFloat = 28
+            /// Design window, so a capture can be taken at exactly the size
+            /// the drawing describes.
+            static let width: CGFloat = 1490.65
+            static let height: CGFloat = 989.55
+
+            static let leftWidth: CGFloat = 313.4
+            static let rightWidth: CGFloat = 220.7
+            static let topBarHeight: CGFloat = 29.9
+            static let cardRadius: CGFloat = 15
+            /// The bar-to-cards gap, which is also the gap between cards.
+            static let gap: CGFloat = 5.8
+
+            static let wellInset: CGFloat = 5.9
+            static let wellRadius: CGFloat = 11.4
+            static let wellPadding: CGFloat = 9.8
+            static let wellVertical: CGFloat = 15
+
+            /// Section rows: header height, the gap under it, and the gap a
+            /// well keeps before the next header.
+            static let headerHeight: CGFloat = 18
+            static let headerToWell: CGFloat = 5
+            static let wellToHeader: CGFloat = 11
+
+            /// The label column a well's controls start after. The drawing's is
+            /// 64.5, and "Existing File" and "Color Space" fit it *there*
+            /// because its type is set with an optical size of 28
+            /// (`font-variation-settings: … 'opsz' 28`), which is narrower than
+            /// the text optical size the system hands a 10.5 pt face. Four
+            /// points is the whole of the difference, and a truncated label is
+            /// worse than a column four points wide.
+            static let labelWidth: CGFloat = 68.5
+            static let rowHeight: CGFloat = 14.7
+            static let rowSpacing: CGFloat = 16.5
+
+            /// The naming chips and the colour-space pill.
+            static let chipHeight: CGFloat = 14.7
+            static let chipSpacing: CGFloat = 2.1
+
+            /// A recipe row in the Export Formula list, and the list's own
+            /// height — the drawing gives the well 171 pt, of which the list
+            /// gets 144 and the +/− row the rest.
+            static let recipeRowHeight: CGFloat = 19.6
+            static let recipeRowSpacing: CGFloat = 1.1
+            static let formulaListHeight: CGFloat = 144
+
+            /// A filmstrip cell: the long edge of a thumbnail, the margin the
+            /// card keeps around one, and the room below it for its name.
+            static let thumbMax: CGFloat = 185.6
+            static let thumbMargin: CGFloat = 17.5
+            static let cellLabelGap: CGFloat = 26
+
+            /// The quality slider, from the drawing's own track and knob.
+            static let trackWidth: CGFloat = 155.5
+            static let trackHeight: CGFloat = 2.3
+
+            /// Bar: where the window buttons and the mode toggle start, how
+            /// big the toggle's glyphs are, and the gaps either side of the
+            /// zoom pill. The count pill is centred over the filmstrip card
+            /// rather than inset from the window edge — its centre is 0.65 pt
+            /// from the card's — because it labels the strip below it.
+            static let trafficLightLeading: CGFloat = 12.4
+            static let modeToggleLeading: CGFloat = 330
+            static let modeGlyph: CGFloat = 13.9
+            static let modeSpacing: CGFloat = 0
+            static let zoomClusterGap: CGFloat = 25
+            static let pillWidth: CGFloat = 76.9
+            static let pillHeight: CGFloat = 15.1
+            static var countTrailingInset: CGFloat { rightWidth / 2 - pillWidth / 2 }
+            static let zoomToCount: CGFloat = 87.5
+
             /// The proof sits on the ground with this much air around it.
-            static let proofInset: CGFloat = 18
-            /// The label column, wider than the editor's 70 pt because this
-            /// page's wells are wider and "Color Space" does not fit in the
-            /// drawing's — the reference draws it clipped ("Color Spce"),
-            /// which is a defect in a mockup rather than a target.
-            static let labelWidth: CGFloat = 88
-            /// A recipe row in the Export Formula list.
-            static let recipeRowHeight: CGFloat = 26
-            /// The naming chips.
-            static let tokenHeight: CGFloat = 20
-            static let tokenSpacing: CGFloat = 4
+            static let proofInset: CGFloat = 12
         }
     }
 
@@ -209,6 +268,21 @@ enum Theme {
         static let tab = SwiftUI.Font.system(size: 10.5, weight: .semibold)
         static let caption = SwiftUI.Font.system(size: 9, weight: .regular)
         static let pill = SwiftUI.Font.system(size: 10.5, weight: .semibold).monospacedDigit()
+
+        /// The export page's ramp — **the same sizes, in a heavier face**.
+        /// The drawing sets `font-weight: 700` on every text class it has
+        /// (`SFPro-Bold`), where the editor's sets semibold on the labels and
+        /// regular on the captions. Its pixel sizes halve onto this ramp
+        /// exactly: 21 px titles and labels → 10.5, 24 px list rows → 12,
+        /// 18 px the quality readout → 9, 15.34 px the zoom pill → 8.
+        enum Export {
+            static let sectionTitle = SwiftUI.Font.system(size: 10.5, weight: .bold)
+            static let label = SwiftUI.Font.system(size: 10.5, weight: .bold)
+            static let listItem = SwiftUI.Font.system(size: 12, weight: .bold)
+            static let chip = SwiftUI.Font.system(size: 10.5, weight: .bold)
+            static let value = SwiftUI.Font.system(size: 9, weight: .bold)
+            static let pill = SwiftUI.Font.system(size: 8, weight: .bold)
+        }
     }
 }
 
