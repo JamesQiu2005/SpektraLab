@@ -1,13 +1,20 @@
-//  Shaders.metal — the canvas: Layer 2 as a compute pass, a display quad, and
-//  the histogram.
+//  Shaders.metal — the canvas: Layer 2 as a compute pass, the output
+//  transform, a display quad, and the histogram.
 //
-//  Colour rules (UI-GUIDELINE §4): the image textures already hold Display P3
-//  *encoded* values (the engine applied `output_cctf_encoding`; the decoder
-//  preview was rendered into Display P3). Nothing here applies a transfer
-//  curve to the output; the CAMetalLayer's colour space is Display P3 and
-//  ColorSync does the display transform. Layer 2 works on encoded values on
-//  purpose — it is an adjustment to a scan — except `exposure`, which is done
-//  in a pseudo-linear domain so that "one stop" means one stop.
+//  Colour rules (UI-GUIDELINE §4, RFC-018 §2.4): **ProPhoto RGB is the working
+//  space.** The image textures hold the *working* space's encoded values — the
+//  engine applied `output_cctf_encoding` to its ProPhoto output, and the
+//  decoder's preview is rendered into ROMM too — and Layer 2 grades in them.
+//  The only place a rendering space is left is `outputTransform`, below, which
+//  converts once per destination: the canvas runs it with Display P3 (the
+//  layer's own colour space, so ColorSync still does exactly one display
+//  transform), and export runs it with the recipe's space.
+//
+//  Layer 2 works on encoded values on purpose — it is an adjustment to a scan
+//  — except `exposure`, which is done in a pseudo-linear domain so that "one
+//  stop" means one stop. It pivots its tone regions on `midGrey`, the encoded
+//  value of the frame's actual mid-grey in *this* space (Decision D1), rather
+//  than on the literal 0.5 that was only ever right by accident.
 
 #include <metal_stdlib>
 using namespace metal;
@@ -21,6 +28,11 @@ struct Layer2Uniforms {           // must match Adjustments.swift
     float4 cbLum;
     float shadows; float blackPoint; float whitePoint;
     float vignetteAmount; float vignetteMidpoint;
+    // The encoded value of mid-grey (linear 0.18) **in the space the values
+    // are in**. RFC-018 Decision D1: every tone pivot below used to be the
+    // literal 0.5, which is a pivot on mid-grey only in a space whose curve
+    // happens to put it there. See `tonePosition`.
+    float midGrey;
     uint curvesActive; uint enabled; uint _pad;
 };
 
@@ -100,6 +112,30 @@ static inline bool insideCrop(float2 suv, constant GeometryUniform &g) {
 }
 
 static inline float luma(float3 c) { return dot(c, float3(0.2126, 0.7152, 0.0722)); }
+
+/// Where an encoded value sits between "black" and "white", with **mid-grey at
+/// 0.5** rather than wherever the encoding happens to put it.
+///
+/// RFC-018 Decision D1. Every tone region below is a weight that peaks at an
+/// end and crosses over in the middle, and "the middle" used to be the literal
+/// 0.5. That is true of an sRGB-like curve by coincidence (linear 0.18 encodes
+/// to 0.4614 there, close enough that nobody noticed) and false of ROMM γ1.8,
+/// where it encodes to 0.3857 — so moving the working space to ProPhoto would
+/// have silently re-pivoted every tone slider three-quarters of a stop up.
+///
+/// The map is piecewise linear: each half keeps its own straight line from its
+/// own end to 0.5. So it is exact at both ends, crosses at mid-grey, and — the
+/// property that makes this a re-pivot rather than a retune — **at
+/// `midGrey == 0.5` it is the identity**, reproducing today's arithmetic bit
+/// for bit.
+static inline float tonePosition(float l, float midGrey) {
+    float m = saturate(midGrey);
+    // 0.5 guards a caller that hands over a degenerate mid-grey (a neutral
+    // 1×1 probe, an unset uniform): fall back to the old pivot rather than
+    // dividing by zero and painting the frame black.
+    if (m <= 0.0 || m >= 1.0) m = 0.5;
+    return (l <= m) ? 0.5 * l / m : 0.5 + 0.5 * (l - m) / (1.0 - m);
+}
 
 static inline float curveLookup(texture2d<float> table, sampler s, float x, int row) {
     return table.sample(s, float2(x, (float(row) + 0.5) / 5.0)).r;
@@ -236,13 +272,14 @@ static inline float3 layer2Tone(float3 c, constant Layer2Uniforms &u) {
     }
     if (u.contrast != 0.0) {
         float k = 1.0 + u.contrast * 1.2;
-        c = (c - 0.5) * k + 0.5;
+        c = (c - u.midGrey) * k + u.midGrey;      // D1: pivot on mid-grey
     }
     if (u.brightness != 0.0) {
         c = pow(max(c, 0.0), 1.0 / (1.0 + u.brightness * 0.8));
     }
-    // 3. highlights / shadows — tone-region masks on luma
-    float l = luma(c);
+    // 3. highlights / shadows — tone-region masks on luma, measured from
+    // mid-grey rather than from 0.5 (D1)
+    float l = tonePosition(luma(c), u.midGrey);
     if (u.shadows != 0.0) {
         float w = (1.0 - l); w = w * w;
         c += u.shadows * 0.25 * w * (1.0 - c);
@@ -256,9 +293,11 @@ static inline float3 layer2Tone(float3 c, constant Layer2Uniforms &u) {
     // 5. saturation
     l = luma(c);
     c = l + (c - l) * u.saturation;
-    // 6. colour balance — master + three zones
+    // 6. colour balance — master + three zones, split at mid-grey rather than
+    // at 0.5 (D1). `l` above is the raw luma saturation needs; the zones get
+    // their own position.
     {
-        float ls = saturate(l);
+        float ls = saturate(tonePosition(l, u.midGrey));
         float wS = (1.0 - ls) * (1.0 - ls);
         float wH = ls * ls;
         float wM = max(1.0 - wS - wH, 0.0);
@@ -451,4 +490,312 @@ kernel void histogram(texture2d<float, access::read> src [[texture(0)]],
     atomic_fetch_add_explicit(&bins[256 + g], 1u, memory_order_relaxed);
     atomic_fetch_add_explicit(&bins[512 + b], 1u, memory_order_relaxed);
     atomic_fetch_add_explicit(&bins[768 + y], 1u, memory_order_relaxed);
+}
+
+//  ── the output transform (RFC-018 §5.3) ─────────────────────────────────────
+//
+//  The single place a rendering space is left. The canvas runs it with
+//  target = Display P3; export and the soft proof run it with the recipe's
+//  space, which is what makes the proof a proof.
+//
+//      working (ProPhoto, encoded)
+//        → decode ROMM TRC
+//        → 3×3 linear, chromatically adapted
+//        → CAM16-UCS gamut compression into the TARGET
+//        → encode the target's TRC
+//        → target (encoded)
+//
+//  Every number it reads comes from the engine over `spk_output_transform`,
+//  and nothing here is a second colour library: the transfer functions below
+//  are **ported from `engine/src/shaders/nodes.metal`** and the CAM16 body from
+//  `engine/src/shaders/gamut.metal`. A second implementation of ROMM's linear
+//  toe, or of CAM16's inverse, would be a second chance to get a breakpoint
+//  wrong and nothing would say so.
+
+struct OutputTransformUniforms {   // must match ColourManagement.swift
+    // Source linear RGB → target linear RGB, **row-major**: out[i] = Σ_j m[3i+j]·x[j].
+    // Written down because the engine's own kernels do not agree about this
+    // and getting it wrong reads as a grading decision, not as a bug
+    // (AGENTS.md trap 20).
+    float matrix[9];
+    // The CAM16 setup for the *target*: its RGB↔XYZ pair with adaptation, and
+    // the 22 scalars `spk_cam16ucs_compress` reads out of `k`.
+    float cam16M2X[9];
+    float cam16M2R[9];
+    float cam16K[22];
+    uint  sourceCctfMode;    // as `nodes.metal` numbers the curves
+    uint  targetCctfMode;
+    uint  cam16Active;       // 0 → the compression step is skipped entirely
+    uint  cam16Lightness;    // the lightness compression's own gate (k[15..17])
+    uint  cmaxNL;            // 64
+    uint  cmaxNH;            // 720
+    uint  _pad0;
+    uint  _pad1;
+};
+
+// Signed power, `colour.algebra.spow`: |v|**p with v's sign kept, so a
+// negative code value does not become NaN. The transfer functions below use it
+// wherever the reference does and nowhere else -- ProPhoto's and Adobe's
+// curves are bare `**` in colour, and matching that includes matching where
+// they produce NaN.
+inline float spow(float v, float p) {
+    float s = v < 0.0f ? -1.0f : (v > 0.0f ? 1.0f : 0.0f);
+    return s * pow(fabs(v), p);
+}
+
+// The transfer functions, as one function over a mode. Mode order matches
+// `core/colour.cpp`'s `Cctf` enum: 0 sRGB (and Display P3), 1 ProPhoto RGB,
+// 2 Adobe RGB (1998), 3 BT.709/BT.2020, 4 identity (the ACES spaces).
+//
+// The breakpoints are the reference's exact ones, not the spec's printed
+// roundings: the sRGB decode turns at the *encoded* value of 0.0031308
+// (0.040449936), and the BT inverse at the encoded value of beta rather than
+// 4.5*beta. At exactly 0.04045 the two choices take different branches.
+static inline float cctf_decode_mode(float v, uint mode) {
+    switch (mode) {
+        case 0u: return (0.040449936f >= v) ? v / 12.92f : spow((v + 0.055f) / 1.055f, 2.4f);
+        case 1u: return (v < 16.0f * (1.0f / 512.0f)) ? v / 16.0f : pow(v, 1.8f);
+        case 2u: return pow(v, 563.0f / 256.0f);
+        case 3u: {
+            const float alpha = 1.099f, beta = 0.018f;
+            const float bp = alpha * pow(beta, 0.45f) - (alpha - 1.0f);
+            return (bp > v) ? v / 4.5f : spow((v + (alpha - 1.0f)) / alpha, 1.0f / 0.45f);
+        }
+        default: return v;
+    }
+}
+
+static inline float cctf_encode_mode(float v, uint mode) {
+    switch (mode) {
+        case 0u: return (v <= 0.0031308f) ? 12.92f * v : 1.055f * spow(v, 1.0f / 2.4f) - 0.055f;
+        case 1u: return (v < 1.0f / 512.0f) ? v * 16.0f : pow(v, 1.0f / 1.8f);
+        case 2u: return pow(v, 256.0f / 563.0f);
+        case 3u: {
+            const float alpha = 1.099f, beta = 0.018f;
+            return (beta > v) ? v * 4.5f : alpha * spow(v, 0.45f) - (alpha - 1.0f);
+        }
+        default: return v;
+    }
+}
+
+/// CAM16-UCS gamut compression into the target, per pixel, in linear RGB.
+///
+/// Ported from `engine/src/shaders/gamut.metal`, whose buffer reads become the
+/// uniform and `cmax` reads below. Three of the reference's traps are
+/// reproduced deliberately:
+///   * the sign-preserving power for J (a negative achromatic response gives a
+///     negative J, and pipeline output legitimately reaches -0.20);
+///   * the 460/1403 family of normalisation factors in the inverse (a, b)
+///     solve, whose omission cost dE2000 max 33;
+///   * numba's `%` on a negative hue index follows Python (non-negative) and
+///     MSL's follows C, so the wrap is spelled out.
+///
+/// One number here is knowingly not the same as its host-side counterpart. The
+/// inverse cone matrix below is the *published* eight-digit CAM16 inverse;
+/// `core/cam16.cpp` derives `inv(MATRIX_16)` numerically, as colour-science
+/// does, and the two differ by ~1e-9 relative. That is two orders of magnitude
+/// below float32 storage epsilon, so it cannot move a pixel -- and this body
+/// is the one RFC-011 measured, so it is transferred rather than improved. The
+/// host needs the derived one because the C_max bisection is in float64 and
+/// 1e-9 there flips gamut decisions; see that file.
+///
+/// `moved` is set when the knee acted on this pixel — `d > threshold`, the same
+/// branch the reference takes — and is `stats[0]`. `outside` is set when the
+/// pixel's chroma exceeded what the destination's cube can hold at that
+/// lightness and hue (`d > 1`), and is `stats[2]`.
+///
+/// **Those are not the same question, and at the session's default knee the
+/// first one is nearly meaningless.** `GamutCompressSpec::output_default` is
+/// `knee = (0.0, 1.0, 6.0)`, which the reference's own docstring calls "a
+/// gentle, always-on roll-off" — threshold 0 means every pixel with any chroma
+/// at all takes the branch, so `stats[0]` reads ~100% on any photograph. It is
+/// reported because RFC-018 §5.3 defines it that way; `stats[2]` is the number
+/// that answers "could the destination hold this picture", which is what §6's
+/// warning is about.
+static inline float3 cam16ucsInto(float3 rgb, constant OutputTransformUniforms &u,
+                                  device const float *cmax, thread bool &moved,
+                                  thread bool &outside) {
+    const uint nL = u.cmaxNL, nh = u.cmaxNH, lc_active = u.cam16Lightness;
+    // scalar constants
+    const float F_L = u.cam16K[0], N_bb = u.cam16K[1], N_cb = u.cam16K[2], n_ = u.cam16K[3],
+                z = u.cam16K[4], A_w = u.cam16K[5], c_ = u.cam16K[6], N_c = u.cam16K[7];
+    const float L_grid0 = u.cam16K[8], L_grid1 = u.cam16K[9], h_grid0 = u.cam16K[10], h_step = u.cam16K[11];
+    const float threshold = u.cam16K[12], limit = u.cam16K[13], power_ = u.cam16K[14];
+    const float lc_threshold = u.cam16K[15], lc_limit = u.cam16K[16], lc_power = u.cam16K[17], L_white = u.cam16K[18];
+    const float D0 = u.cam16K[19], D1 = u.cam16K[20], D2 = u.cam16K[21];
+    const float e_c = pow(1.64f - pow(0.29f, n_), 0.73f);
+    const float inv_FL4 = pow(F_L, 0.25f);
+
+    float r = rgb.x, g = rgb.y, b_ = rgb.z;
+    float X = u.cam16M2X[0] * r + u.cam16M2X[1] * g + u.cam16M2X[2] * b_;
+    float Y = u.cam16M2X[3] * r + u.cam16M2X[4] * g + u.cam16M2X[5] * b_;
+    float Z = u.cam16M2X[6] * r + u.cam16M2X[7] * g + u.cam16M2X[8] * b_;
+    X *= 100.0f; Y *= 100.0f; Z *= 100.0f;
+
+    float R = 0.401288f * X + 0.650173f * Y - 0.051461f * Z;
+    float G = -0.250268f * X + 1.204414f * Y + 0.045854f * Z;
+    float B = -0.002079f * X + 0.048952f * Y + 0.953127f * Z;
+
+    float Rc = D0 * R, Gc = D1 * G, Bc = D2 * B;
+    float sR = Rc >= 0.0f ? 1.0f : -1.0f, sG = Gc >= 0.0f ? 1.0f : -1.0f, sB = Bc >= 0.0f ? 1.0f : -1.0f;
+    float fR = pow(F_L * fabs(Rc) / 100.0f, 0.42f);
+    float fG = pow(F_L * fabs(Gc) / 100.0f, 0.42f);
+    float fB = pow(F_L * fabs(Bc) / 100.0f, 0.42f);
+    float Ra = 400.0f * sR * fR / (27.13f + fR) + 0.1f;
+    float Ga = 400.0f * sG * fG / (27.13f + fG) + 0.1f;
+    float Ba = 400.0f * sB * fB / (27.13f + fB) + 0.1f;
+
+    float a = Ra - 12.0f * Ga / 11.0f + Ba / 11.0f;
+    float bb = (Ra + Ga - 2.0f * Ba) / 9.0f;
+    float hrad = atan2(bb, a);
+    float e_t = 0.25f * (cos(hrad + 2.0f) + 3.8f);
+
+    float A = (2.0f * Ra + Ga + Ba / 20.0f - 0.305f) * N_bb;
+    float Aratio = A / A_w;
+    float sJ = Aratio >= 0.0f ? 1.0f : -1.0f;
+    float J = 100.0f * sJ * pow(fabs(Aratio), c_ * z);
+
+    float den = Ra + Ga + 21.0f * Ba / 20.0f;
+    float t = 0.0f;
+    if (den != 0.0f) t = (50000.0f / 13.0f * N_c * N_cb * e_t * sqrt(a * a + bb * bb)) / den;
+    float sq = sqrt(fabs(J) / 100.0f);
+    float C = (t > 0.0f) ? pow(t, 0.9f) * sq * e_c : 0.0f;
+    float M = C * inv_FL4;
+
+    float Mp = (1.0f / 0.0228f) * log(1.0f + 0.0228f * M);
+    float Jp = 1.7f * J / (1.0f + 0.007f * J);
+
+    if (lc_active != 0u) {
+        float Ln = Jp / L_white;
+        if (Ln > lc_threshold) {
+            float lsc = lc_limit - lc_threshold;
+            float lx = (Ln - lc_threshold) / lsc;
+            float ly = lx / pow(1.0f + pow(lx, lc_power), 1.0f / lc_power);
+            Ln = lc_threshold + lsc * ly;
+        }
+        Jp = Ln * L_white;
+    }
+
+    float Lc = min(max(Jp, L_grid0), L_grid1);
+    float Li = (Lc - L_grid0) / (L_grid1 - L_grid0) * (float)(nL - 1u);
+    int l0 = (int)floor(Li); l0 = min(max(l0, 0), (int)nL - 2);
+    float lf = Li - (float)l0;
+    float hi_ = (hrad - h_grid0) / h_step;
+    float hfl = floor(hi_);
+    int nhi = (int)nh;
+    int h0 = ((int)hfl % nhi + nhi) % nhi;     // Python-style modulo
+    int h1 = (h0 + 1) % nhi;
+    float hf = hi_ - hfl;
+    float c00 = cmax[l0 * nhi + h0], c01 = cmax[l0 * nhi + h1];
+    float c10 = cmax[(l0 + 1) * nhi + h0], c11 = cmax[(l0 + 1) * nhi + h1];
+    float Cmax = (1.0f - lf) * ((1.0f - hf) * c00 + hf * c01) + lf * ((1.0f - hf) * c10 + hf * c11);
+    float safe = Cmax > 1e-9f ? Cmax : 1e-9f;
+
+    float d = Mp / safe;
+    moved = d > threshold;
+    // Before the knee, because after it every pixel is inside by construction
+    // — the knee's limit is 1. This is "the container could not hold it".
+    outside = d > 1.0f;
+    if (moved) {
+        float sc = limit - threshold;
+        float xk = (d - threshold) / sc;
+        float yk = xk / pow(1.0f + pow(xk, power_), 1.0f / power_);
+        d = threshold + sc * yk;
+    }
+    float Mp_new = d * safe;
+
+    float M_new = (exp(Mp_new * 0.0228f) - 1.0f) / 0.0228f;
+    float J_new = Jp / (1.7f - 0.007f * Jp);
+    float C_new = M_new / inv_FL4;
+
+    float sJ2 = J_new >= 0.0f ? 1.0f : -1.0f;
+    float A2 = A_w * sJ2 * pow(fabs(J_new) / 100.0f, 1.0f / (c_ * z));
+    float sq2 = sqrt(fabs(J_new) / 100.0f);
+    float t2 = (sq2 > 0.0f && C_new > 0.0f) ? pow(C_new / (sq2 * e_c), 1.0f / 0.9f) : 0.0f;
+    float ca = cos(hrad), sa = sin(hrad);
+    float p2 = A2 / N_bb + 0.305f;
+    const float p3 = 21.0f / 20.0f;
+    float a2, b2;
+    if (t2 == 0.0f) { a2 = 0.0f; b2 = 0.0f; }
+    else {
+        float p1 = ((50000.0f / 13.0f) * N_c * N_cb * e_t) / t2;
+        if (fabs(sa) >= fabs(ca)) {
+            float p4 = p1 / sa;
+            b2 = (p2 * (2.0f + p3) * (460.0f / 1403.0f)) /
+                 (p4 + (2.0f + p3) * (220.0f / 1403.0f) * (ca / sa) - (27.0f / 1403.0f) + p3 * (6300.0f / 1403.0f));
+            a2 = b2 * (ca / sa);
+        } else {
+            float p5 = p1 / ca;
+            a2 = (p2 * (2.0f + p3) * (460.0f / 1403.0f)) /
+                 (p5 + (2.0f + p3) * (220.0f / 1403.0f) - ((27.0f / 1403.0f) - p3 * (6300.0f / 1403.0f)) * (sa / ca));
+            b2 = a2 * (sa / ca);
+        }
+    }
+    float Ra2 = (460.0f * p2 + 451.0f * a2 + 288.0f * b2) / 1403.0f;
+    float Ga2 = (460.0f * p2 - 891.0f * a2 - 261.0f * b2) / 1403.0f;
+    float Ba2 = (460.0f * p2 - 220.0f * a2 - 6300.0f * b2) / 1403.0f;
+
+    float vm, sv, base_;
+    vm = Ra2 - 0.1f; sv = vm >= 0.0f ? 1.0f : -1.0f;
+    base_ = (fabs(vm) < 400.0f) ? (27.13f * fabs(vm)) / (400.0f - fabs(vm)) : 0.0f;
+    float Rf = (100.0f / F_L) * sv * pow(base_, 1.0f / 0.42f) / D0;
+    vm = Ga2 - 0.1f; sv = vm >= 0.0f ? 1.0f : -1.0f;
+    base_ = (fabs(vm) < 400.0f) ? (27.13f * fabs(vm)) / (400.0f - fabs(vm)) : 0.0f;
+    float Gf = (100.0f / F_L) * sv * pow(base_, 1.0f / 0.42f) / D1;
+    vm = Ba2 - 0.1f; sv = vm >= 0.0f ? 1.0f : -1.0f;
+    base_ = (fabs(vm) < 400.0f) ? (27.13f * fabs(vm)) / (400.0f - fabs(vm)) : 0.0f;
+    float Bf = (100.0f / F_L) * sv * pow(base_, 1.0f / 0.42f) / D2;
+
+    float Xn = 1.86206786f * Rf - 1.01125463f * Gf + 0.14918677f * Bf;
+    float Yn = 0.38752654f * Rf + 0.62144744f * Gf - 0.00897398f * Bf;
+    float Zn = -0.01584150f * Rf - 0.03412294f * Gf + 1.04996444f * Bf;
+    Xn /= 100.0f; Yn /= 100.0f; Zn /= 100.0f;
+
+    return float3(u.cam16M2R[0] * Xn + u.cam16M2R[1] * Yn + u.cam16M2R[2] * Zn,
+                  u.cam16M2R[3] * Xn + u.cam16M2R[4] * Yn + u.cam16M2R[5] * Zn,
+                  u.cam16M2R[6] * Xn + u.cam16M2R[7] * Yn + u.cam16M2R[8] * Zn);
+}
+
+kernel void outputTransform(texture2d<float, access::read>  src [[texture(0)]],
+                            texture2d<float, access::write> dst [[texture(1)]],
+                            constant OutputTransformUniforms &u [[buffer(0)]],
+                            device const float *cmax [[buffer(1)]],
+                            device atomic_uint *stats [[buffer(2)]],
+                            uint2 gid [[thread_position_in_grid]])
+{
+    if (gid.x >= dst.get_width() || gid.y >= dst.get_height()) return;
+    float3 c = src.read(gid).rgb;
+
+    // 1. the working space's own curve, off
+    float3 v = float3(cctf_decode_mode(c.r, u.sourceCctfMode),
+                      cctf_decode_mode(c.g, u.sourceCctfMode),
+                      cctf_decode_mode(c.b, u.sourceCctfMode));
+    // 2. into the target, linearly, chromatically adapted
+    float3 lin = float3(u.matrix[0] * v.x + u.matrix[1] * v.y + u.matrix[2] * v.z,
+                        u.matrix[3] * v.x + u.matrix[4] * v.y + u.matrix[5] * v.z,
+                        u.matrix[6] * v.x + u.matrix[7] * v.y + u.matrix[8] * v.z);
+    // 3. CAM16-UCS into the target's gamut, rolling rather than cutting
+    bool moved = false, outside = false;
+    if (u.cam16Active != 0u) lin = cam16ucsInto(lin, u, cmax, moved, outside);
+    // 4. the target's curve, on
+    float3 enc = float3(cctf_encode_mode(lin.x, u.targetCctfMode),
+                        cctf_encode_mode(lin.y, u.targetCctfMode),
+                        cctf_encode_mode(lin.z, u.targetCctfMode));
+
+    // The three numbers the export page's warning and RFC-018 §7's measurement
+    // are made of. Each costs one atomic on a branch most pixels do not take.
+    //
+    //   stats[0]  the knee acted on this pixel  (RFC-018 §5.3's `d > threshold`)
+    //   stats[1]  still on the container's limits after encoding
+    //   stats[2]  the destination could not hold it (`d > 1`, before the knee)
+    //
+    // `stats[1]` is at or past 0 or 1, not merely near them: the texture is
+    // unorm, so those are the pixels whose detail the container has actually
+    // taken. A NaN is counted by neither comparison and so by neither total,
+    // which is the honest reading — it is not at a limit, it is not a number.
+    if (moved) atomic_fetch_add_explicit(&stats[0], 1u, memory_order_relaxed);
+    if (any(enc <= 0.0f) || any(enc >= 1.0f)) atomic_fetch_add_explicit(&stats[1], 1u, memory_order_relaxed);
+    if (outside) atomic_fetch_add_explicit(&stats[2], 1u, memory_order_relaxed);
+
+    dst.write(float4(enc, 1.0f), gid);
 }
