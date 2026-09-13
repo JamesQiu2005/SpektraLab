@@ -205,6 +205,99 @@ final class GeometryTests: XCTestCase {
         XCTAssertNil(CropAspect.free.ratio(sourceAspect: 1.5))
     }
 
+    // MARK: aspect orientation
+    //
+    // The complaint these pin: a landscape source could only be cropped
+    // landscape. Orientation is carried in `CropAspect` itself rather than in
+    // a field beside it, so these also stand in for "the two cannot drift".
+
+    func testEveryAspectHasATranspositionThatIsItsOwnInverse() {
+        for a in CropAspect.allCases {
+            XCTAssertEqual(a.transposed.transposed, a, "\(a) does not survive two transpositions")
+            // The pair shares one label — it is one ratio seen two ways, and
+            // the picker shows it once.
+            XCTAssertEqual(a.transposed.label, a.label, "\(a) and its twin disagree about the label")
+        }
+    }
+
+    func testTransposingAFixedRatioInvertsIt() {
+        for a in CropAspect.allCases {
+            guard let r = a.fixedRatio, let t = a.transposed.fixedRatio else { continue }
+            XCTAssertEqual(t, 1 / r, accuracy: 1e-9, "\(a) transposed is not its reciprocal")
+        }
+    }
+
+    /// The bug, stated directly: "Original" on a 3:2 landscape source used to
+    /// be the only thing it could be. Upright is now reachable, and it is the
+    /// source's ratio stood on end.
+    func testOriginalCanBeUpright() {
+        XCTAssertEqual(CropAspect.original.ratio(sourceAspect: 1.5), 1.5)
+        XCTAssertEqual(CropAspect.originalPortrait.ratio(sourceAspect: 1.5)!, 1 / 1.5, accuracy: 1e-9)
+        XCTAssertTrue(CropAspect.originalPortrait.isPortrait)
+        XCTAssertFalse(CropAspect.original.isPortrait)
+    }
+
+    /// What the picker binds to. An upright crop must still show its ratio
+    /// selected rather than falling off the end of a list it is not in.
+    func testThePickerShowsOneEntryPerRatioAndUprightMapsOntoIt() {
+        for a in CropAspect.pickerCases {
+            XCTAssertFalse(a.isPortrait, "the picker should list the across member, not \(a)")
+            XCTAssertEqual(a.canonical, a)
+            XCTAssertEqual(a.transposed.canonical, a, "\(a) upright does not map back onto its entry")
+        }
+        // Every case is reachable: it is either in the list or one
+        // orientation away from something that is.
+        for a in CropAspect.allCases {
+            XCTAssertTrue(CropAspect.pickerCases.contains(a.canonical),
+                          "\(a) is unreachable from the picker")
+        }
+    }
+
+    /// `free` has no ratio to turn and a square reads the same either way, so
+    /// the orientation button is disabled for exactly those two — and for
+    /// nothing else.
+    func testOnlyFreeAndSquareHaveNoOrientation() {
+        for a in CropAspect.allCases {
+            XCTAssertEqual(a.hasOrientation, a != .free && a != .square, "\(a)")
+        }
+        XCTAssertEqual(CropAspect.free.transposed, .free)
+        XCTAssertEqual(CropAspect.square.transposed, .square)
+    }
+
+    /// The orientation button's actual effect on a crop: an upright 3:2 on a
+    /// landscape frame is taller than it is wide, keeps its area, and fits.
+    func testTurningTheAspectUprightReshapesTheCrop() {
+        var g = Geometry.default
+        g.crop = CropRect(x: 0.2, y: 0.2, width: 0.4, height: 0.4)
+        g.aspect = .r3x2
+        let across = g.constrained(in: size)
+        let area = across.crop.width * size.width * across.crop.height * size.height
+
+        var upright = across
+        upright.aspect = across.aspect.transposed
+        let out = upright.constrained(in: size)
+
+        let w = out.crop.width * size.width, h = out.crop.height * size.height
+        XCTAssertEqual(w / h, 2.0 / 3, accuracy: 1e-6)
+        XCTAssertLessThan(w, h, "an upright 3:2 crop must be taller than it is wide")
+        XCTAssertEqual(w * h, area, accuracy: area * 0.01)
+        XCTAssertTrue(out.fits(in: size))
+    }
+
+    /// Sidecars written before the orientation button existed used `r2x3`
+    /// and `r3x4` as ordinary entries. They still decode, and they now mean
+    /// "that ratio, upright" — no migration, because the aspect *is* the
+    /// state.
+    func testLegacyPortraitAspectsStillDecodeAndMeanUpright() throws {
+        for raw in ["r2x3", "r3x4"] {
+            let a = try XCTUnwrap(CropAspect(rawValue: raw))
+            XCTAssertTrue(a.isPortrait)
+            XCTAssertTrue(CropAspect.pickerCases.contains(a.canonical))
+            let decoded = try JSONDecoder().decode(CropAspect.self, from: Data("\"\(raw)\"".utf8))
+            XCTAssertEqual(decoded, a)
+        }
+    }
+
     func testResizingAHandleKeepsTheOppositeCornerAndTheRatio() {
         var g = Geometry.default
         g.crop = CropRect(x: 0.2, y: 0.2, width: 0.4, height: 0.4)
@@ -499,10 +592,29 @@ final class GeometryTests: XCTestCase {
         XCTAssertEqual(s.geometry.angle, 0)
         XCTAssertEqual(s.schemaVersion, 3)
         // And it round-trips as schema 3 without the legacy key.
+        //
+        // Asked structurally, not as a substring of the serialisation.
+        // `JSONEncoder` does not guarantee key order — Foundation encodes
+        // through a dictionary, and the order follows the process's hash
+        // seed. Measured, this frame's crop came out
+        // `{"height":0.4,"x":0.1,"width":0.5,"y":0.2}`: not declaration
+        // order, and not stable between runs. The old assertion matched a
+        // substring of one particular ordering, so it passed or failed
+        // depending on how many tests were in the class with it — a test
+        // that reports on the hash seed rather than on the code.
+        //
+        // What the test actually means: schema 3 carries the crop inside
+        // `geometry` and must not *also* carry schema 2's top-level `crop`.
         let out = try JSONEncoder().encode(s)
-        let text = String(decoding: out, as: UTF8.self)
-        XCTAssertTrue(text.contains("geometry"))
-        XCTAssertFalse(text.contains("\"crop\":{\"height\":0.4,\"width\":0.5"))
+        let object = try XCTUnwrap(JSONSerialization.jsonObject(with: out) as? [String: Any])
+        let geometry = try XCTUnwrap(object["geometry"] as? [String: Any],
+                                     "schema 3 must write the crop inside `geometry`")
+        let crop = try XCTUnwrap(geometry["crop"] as? [String: Any])
+        XCTAssertEqual(crop["x"] as? Double, 0.1)
+        XCTAssertEqual(crop["y"] as? Double, 0.2)
+        XCTAssertEqual(crop["width"] as? Double, 0.5)
+        XCTAssertEqual(crop["height"] as? Double, 0.4)
+        XCTAssertNil(object["crop"], "the legacy top-level `crop` key must not be written again")
     }
 
     /// `intendedSize` arrived after schema 3 did. Every sidecar written

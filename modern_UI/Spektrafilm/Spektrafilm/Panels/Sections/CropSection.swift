@@ -25,13 +25,7 @@ struct CropSection: View {
         PanelSection("Crop", systemImage: "crop", key: "crop", menu: { AnyView(menu) }) {
             Well {
                 VStack(spacing: 4) {
-                    PillMenu(label: "Aspect", options: CropAspect.allCases, title: { $0.label },
-                             selection: Binding(get: { g.aspect },
-                                                set: { a in
-                                                    var next = g
-                                                    next.aspect = a
-                                                    session.geometry = next.constrained(in: size)
-                                                }))
+                    aspectRow
                     // Scrubbed through `scrubStraighten`, not written straight
                     // to `geometry`: a scrub is a stream of writes and the
                     // canvas must not rescale under it. The refit happens once,
@@ -50,6 +44,60 @@ struct CropSection: View {
                 }
             }
         }
+    }
+
+    /// The ratio, and which way up it is.
+    ///
+    /// Two controls, not one long list: the picker carries the *ratio* and
+    /// the button carries the *orientation*, so 3:2 and 2:3 are one entry
+    /// plus a state rather than two entries a user has to know to look for.
+    /// Capture One does it this way (`PRD/capture_one_crop_reference.png`)
+    /// and the complaint that prompted this was precisely that a landscape
+    /// source could only be cropped landscape.
+    ///
+    /// The picker binds to `canonical`, so an upright crop still shows "3:2"
+    /// selected rather than falling off the end of a list it is not in.
+    private var aspectRow: some View {
+        HStack(spacing: 6) {
+            PillMenu(label: "Aspect", options: CropAspect.pickerCases, title: { $0.label },
+                     selection: Binding(get: { g.aspect.canonical },
+                                        set: { a in
+                                            // Changing the ratio keeps the
+                                            // orientation the user already
+                                            // chose; it is a property of the
+                                            // crop, not of the ratio.
+                                            setAspect(g.aspect.isPortrait ? a.transposed : a)
+                                        }))
+            orientationButton
+        }
+    }
+
+    /// Swap the crop between upright and across. Disabled where there is
+    /// nothing to swap — a free crop has no ratio and a square reads the same
+    /// either way — rather than left live and inert.
+    private var orientationButton: some View {
+        let on = g.aspect.hasOrientation
+        return Button { setAspect(g.aspect.transposed) } label: {
+            Image(systemName: g.aspect.isPortrait ? "rectangle.portrait" : "rectangle")
+                .font(.system(size: 11, weight: .regular))
+                .foregroundStyle(on ? Theme.text : Theme.text.opacity(0.4))
+                .frame(width: 18, height: 16)
+                .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .disabled(!on)
+        .help(on ? (g.aspect.isPortrait ? "Upright — click for across" : "Across — click for upright")
+                 : "This ratio has no orientation")
+    }
+
+    /// Every aspect change lands the same way: through `constrained`, which
+    /// reshapes the crop about its centre, preserves its area and refits it.
+    /// Going through one function is what keeps the orientation button and
+    /// the picker from drifting into two different behaviours.
+    private func setAspect(_ a: CropAspect) {
+        var next = g
+        next.aspect = a
+        session.geometry = next.constrained(in: size)
     }
 
     /// Quarter turns and flips. These are exact — a 90° turn resamples

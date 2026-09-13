@@ -50,45 +50,113 @@ import Foundation
 
 // MARK: - aspect
 
-/// The aspect presets, in the order the picker shows them.
+/// The aspect presets.
+///
+/// Every ratio is a **pair** — one landscape member and one portrait member
+/// that are the same ratio with the sides swapped — and the orientation is
+/// carried in this enum rather than in a field beside it. That is the whole
+/// reason there is no `portrait: Bool` on `Geometry`: the aspect *is* the
+/// state, so a sidecar written before orientation was a control still opens
+/// and still means what it said, with no migration and no second field that
+/// could disagree with this one.
+///
+/// The picker shows `pickerCases` — the landscape (or neutral) member of
+/// each pair, one entry per ratio. The portrait member is reached with the
+/// orientation button beside it, which is Capture One's arrangement and the
+/// one the user asked for: choosing 3:2 on an upright photograph should not
+/// mean hunting for a separate "2:3" entry, and `original` on an upright
+/// photograph should be able to mean upright.
 enum CropAspect: String, Codable, CaseIterable, Sendable, Identifiable {
-    case free, original, square, r3x2, r2x3, r4x3, r3x4, r16x9, r5x4, r7x5
+    case free, original, originalPortrait, square
+    case r3x2, r2x3, r4x3, r3x4, r16x9, r9x16, r5x4, r4x5, r7x5, r5x7
 
     var id: String { rawValue }
+
+    /// The entries the picker offers: one per ratio, landscape or neutral.
+    /// The portrait twins are not listed — they are an orientation away.
+    static let pickerCases: [CropAspect] = [.free, .original, .square,
+                                            .r3x2, .r4x3, .r16x9, .r5x4, .r7x5]
 
     var label: String {
         switch self {
         case .free: "Free"
-        case .original: "Original"
+        case .original, .originalPortrait: "Original"
         case .square: "1:1"
-        case .r3x2: "3:2"
-        case .r2x3: "2:3"
-        case .r4x3: "4:3"
-        case .r3x4: "3:4"
-        case .r16x9: "16:9"
-        case .r5x4: "5:4"
-        case .r7x5: "7:5"
+        case .r3x2, .r2x3: "3:2"
+        case .r4x3, .r3x4: "4:3"
+        case .r16x9, .r9x16: "16:9"
+        case .r5x4, .r4x5: "5:4"
+        case .r7x5, .r5x7: "7:5"
         }
     }
 
-    /// Width ÷ height, in pixels. `nil` means unconstrained; `original` needs
-    /// the source, so it resolves through `ratio(sourceAspect:)`.
+    /// The same ratio, sides swapped. `free` has no orientation, and a
+    /// square's twin is itself — both are fixed points, which is what lets
+    /// the orientation button be disabled for exactly those two.
+    var transposed: CropAspect {
+        switch self {
+        case .free: .free
+        case .square: .square
+        case .original: .originalPortrait
+        case .originalPortrait: .original
+        case .r3x2: .r2x3
+        case .r2x3: .r3x2
+        case .r4x3: .r3x4
+        case .r3x4: .r4x3
+        case .r16x9: .r9x16
+        case .r9x16: .r16x9
+        case .r5x4: .r4x5
+        case .r4x5: .r5x4
+        case .r7x5: .r5x7
+        case .r5x7: .r7x5
+        }
+    }
+
+    /// True for the upright member of a pair. `free` and `square` are
+    /// neither, and answer false.
+    var isPortrait: Bool {
+        switch self {
+        case .originalPortrait, .r2x3, .r3x4, .r9x16, .r4x5, .r5x7: true
+        default: false
+        }
+    }
+
+    /// The member of this pair the picker shows, whichever way round the
+    /// orientation is currently set. `.r2x3.canonical == .r3x2`.
+    var canonical: CropAspect { isPortrait ? transposed : self }
+
+    /// Whether an orientation can be chosen at all. A free crop has no ratio
+    /// to turn and a square reads the same either way.
+    var hasOrientation: Bool { self != .free && self != .square }
+
+    /// Width ÷ height, in pixels. `nil` means unconstrained; the `original`
+    /// pair needs the source, so it resolves through `ratio(sourceAspect:)`.
     var fixedRatio: Double? {
         switch self {
-        case .free, .original: nil
+        case .free, .original, .originalPortrait: nil
         case .square: 1
         case .r3x2: 3.0 / 2
         case .r2x3: 2.0 / 3
         case .r4x3: 4.0 / 3
         case .r3x4: 3.0 / 4
         case .r16x9: 16.0 / 9
+        case .r9x16: 9.0 / 16
         case .r5x4: 5.0 / 4
+        case .r4x5: 4.0 / 5
         case .r7x5: 7.0 / 5
+        case .r5x7: 5.0 / 7
         }
     }
 
     func ratio(sourceAspect: Double) -> Double? {
-        self == .original ? sourceAspect : fixedRatio
+        switch self {
+        case .original: sourceAspect
+        // The fix the user asked for in so many words: a landscape source no
+        // longer forces a landscape crop. "Original, upright" is the source's
+        // ratio stood on end.
+        case .originalPortrait: 1 / max(sourceAspect, .leastNormalMagnitude)
+        default: fixedRatio
+        }
     }
 }
 
