@@ -144,6 +144,54 @@ enum Theme {
         static let filmCover: CGFloat = 20
         static let thumbHeight: CGFloat = 105
         static let minWindow = CGSize(width: 1100, height: 700)
+
+        /// The export page's own geometry (RFC-018 §6).
+        ///
+        /// Measured from
+        /// `reference_layout/Export_Page/Reference_Screenshot.jpg`, whose
+        /// artboard is 3000×2000. The two numbers that fix its scale are
+        /// independent of this file: its top bar is 60 px of a 2984 px window
+        /// and its well inset is 13 px, and the scale that turns those into
+        /// `topBarHeight` and `wellInset` — 1.44 — is the one used here. Its
+        /// toolbar glyphs (≈24 px) land on `toolIcon` at the same scale, which
+        /// is the third confirmation and the one that covers the type ramp.
+        ///
+        /// The page's cards are **flush to the window's edges**, unlike the
+        /// editor's: the reference insets them vertically below the bar and
+        /// not at all horizontally, so the export window has no outer margin.
+        /// Its side panels are wider than the editor's because it has more to
+        /// put in them, and both are fixed, exactly as the editor's are.
+        enum Export {
+            static let leftWidth: CGFloat = 404
+            /// The editor's right-panel width, used unchanged: at the scale
+            /// above the reference's filmstrip card is 306 pt, and 286 is
+            /// within the measurement error of the mockup's own edges.
+            static let rightWidth: CGFloat = Theme.Metric.rightPanelWidth
+            /// Gap between the bar and the cards, below it and between them.
+            static let gap: CGFloat = Theme.Metric.outerY
+            /// Leading edge of the mode toggle, measured from the window's —
+            /// the reference puts it 32 pt past the left card's trailing edge,
+            /// which is where the centre pane's own content begins.
+            static let modeToggleLeading: CGFloat = Theme.Metric.Export.leftWidth + 32
+            /// The count pill is centred over the filmstrip card rather than
+            /// inset from the window's right edge: measured, its centre is
+            /// 1 pt from the card's. It labels the strip below it.
+            static let countTrailingInset: CGFloat = rightWidth / 2
+            /// Inset between the zoom cluster and the filmstrip card.
+            static let zoomToFilmstrip: CGFloat = 28
+            /// The proof sits on the ground with this much air around it.
+            static let proofInset: CGFloat = 18
+            /// The label column, wider than the editor's 70 pt because this
+            /// page's wells are wider and "Color Space" does not fit in the
+            /// drawing's — the reference draws it clipped ("Color Spce"),
+            /// which is a defect in a mockup rather than a target.
+            static let labelWidth: CGFloat = 88
+            /// A recipe row in the Export Formula list.
+            static let recipeRowHeight: CGFloat = 26
+            /// The naming chips.
+            static let tokenHeight: CGFloat = 20
+            static let tokenSpacing: CGFloat = 4
+        }
     }
 
     // MARK: type ramp

@@ -24,6 +24,10 @@ import UniformTypeIdentifiers
 
 struct EditorWindow: View {
     @Bindable var session: Session
+    /// Opening the export page's scene. A `Window` scene is addressed by its
+    /// id from anywhere with the environment, which is how this window hands
+    /// the request on without either of them owning the other.
+    @Environment(\.openWindow) private var openWindow
 
     var body: some View {
         Group {
@@ -59,7 +63,18 @@ struct EditorWindow: View {
             }
             return true
         }
-        .sheet(isPresented: $session.showExport) { ExportSheet(session: session) }
+        // The export page is a window of its own (RFC-018 §6): with a
+        // per-destination transform the canvas is a Display P3 proof of a
+        // different thing, so the two are worth looking at side by side, which
+        // a modal sheet over the editor forbids. `showExport` is unchanged and
+        // still means "an export was asked for" — it is now consumed here
+        // rather than presented, so ⌘E, the editor's menu item and the
+        // toolbar's button all keep working without knowing the page moved.
+        .onChange(of: session.showExport) { _, wanted in
+            guard wanted else { return }
+            session.showExport = false
+            openWindow(id: ExportWindowID.scene)
+        }
     }
 
     /// The Print state: the four cards, exactly as drawn.
