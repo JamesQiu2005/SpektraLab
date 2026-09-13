@@ -399,6 +399,7 @@ final class Session: CanvasHost {
     var comparing = false {
         didSet {
             guard oldValue != comparing else { return }
+            if comparing { leaveCropTool() }
             renderer.compareSplit = comparing
         }
     }
@@ -1797,8 +1798,26 @@ final class Session: CanvasHost {
     func straightenPreview(_ line: StraightenLine?) { straightenPreview = line }
     func stepFrame(_ delta: Int) { selectRelative(delta) }
     func toggledOriginal(_ on: Bool) {
+        if on { leaveCropTool() }
         renderer.showOriginal = on
         showingOriginal = on
+    }
+
+    /// Showing the original and cropping are two different questions about
+    /// the frame, and the answers are drawn on top of one another: the crop
+    /// handles, the thirds grid and the straighten line all sit over a
+    /// picture that is no longer the one being cropped, and the before/after
+    /// split's slider runs through the middle of them. The user asked for the
+    /// simple resolution rather than a layering rule — "simply quit crop when
+    /// show original is enabled" — so this is that, in the one place both
+    /// entry points go through.
+    ///
+    /// It does not restore the crop tool afterwards. Coming back to the crop
+    /// is a decision, and a tool that reappears under the pointer because a
+    /// comparison ended is a tool nobody asked for.
+    private func leaveCropTool() {
+        guard tool == .crop else { return }
+        tool = .select
     }
 
     func hovered(normalised n: CGPoint?) {

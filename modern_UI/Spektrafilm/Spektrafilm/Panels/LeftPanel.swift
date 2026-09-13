@@ -45,7 +45,19 @@ struct LeftPanel: View {
                 Button("Reset Layer 2 (adjustments)") { session.resetAdjustments() }
                 Divider()
                 Button("Reveal sidecar in Finder") {
-                    if let u = session.selection { NSWorkspace.shared.activateFileViewerSelecting([Sidecar.url(for: u)]) }
+                    guard let u = session.selection else { return }
+                    // The settings live in the app's store now, not beside the
+                    // image, so this can be asked for a frame that has never
+                    // been saved and therefore has no file. Show the folder in
+                    // that case rather than selecting nothing, which is what
+                    // `activateFileViewerSelecting` does with a path that is
+                    // not there — a menu item that silently does nothing.
+                    let sidecar = Sidecar.url(for: u)
+                    if FileManager.default.fileExists(atPath: sidecar.path) {
+                        NSWorkspace.shared.activateFileViewerSelecting([sidecar])
+                    } else {
+                        NSWorkspace.shared.open(Sidecar.storeDirectory)
+                    }
                 }
             } label: {
                 VerticalEllipsis().frame(width: 3, height: 15).padding(10).contentShape(Rectangle())
