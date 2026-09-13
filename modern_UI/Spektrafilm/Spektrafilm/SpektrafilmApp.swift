@@ -54,6 +54,18 @@ struct SpektrafilmApp: App {
         }
         .windowResizability(.contentSize)
         .defaultPosition(.center)
+
+        // The export page, as a window rather than the sheet it used to be
+        // (RFC-018 §6). Sizing is left free — the page is three cards and a
+        // picture, and it has a minimum of its own — and the editor opens it
+        // through `ExportWindowID.scene` when something asks for an export.
+        Window("Export", id: ExportWindowID.scene) {
+            ExportWindow(session: session)
+        }
+        .windowStyle(.hiddenTitleBar)
+        .windowToolbarStyle(.unifiedCompact)
+        .defaultSize(width: 1600, height: 1000)
+        .defaultPosition(.center)
     }
 }
 
@@ -192,6 +204,14 @@ struct SnapshotRequest {
     /// the original exactly as `draw` does; it did not, until the display
     /// decode made the original worth looking at.
     var original = false
+    /// `--export` — capture the export page instead of the editor. It is its
+    /// own window now (RFC-018 §6), so it is its own root view here; the soft
+    /// proof in the centre is a render of the real recipe, which is the thing
+    /// this flag exists to be able to look at. `--export-grid` is the same
+    /// capture with the centre in Grid mode, so both halves of the mode
+    /// transition have one.
+    var export = false
+    var exportGrid = false
 
     static func parse(_ args: [String]) -> SnapshotRequest? {
         guard let i = args.firstIndex(of: "--snapshot"), args.count > i + 2 else { return nil }
@@ -208,6 +228,8 @@ struct SnapshotRequest {
             }
         }
         r.original = args.contains("--original")
+        r.exportGrid = args.contains("--export-grid")
+        r.export = r.exportGrid || args.contains("--export")
         if let j = args.firstIndex(of: "--compare") {
             r.compare = args.count > j + 1 ? (Double(args[j + 1]) ?? 0.5) : 0.5
         }
@@ -296,7 +318,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         guard let session else { snapshotExit(2) }
         // Own window, own hosting view: the capture must not depend on when
         // (or whether) the SwiftUI scene's window is ordered in.
-        let host = NSHostingView(rootView: EditorWindow(session: session).environment(\.snapshotMode, true))
+        let host = NSHostingView(rootView: req.export
+            ? AnyView(ExportWindow(session: session, startIn: req.exportGrid ? .grid : .viewer))
+            : AnyView(EditorWindow(session: session).environment(\.snapshotMode, true)))
         // Borderless, and never `center()`. A titled window is constrained to
         // the screen's visible frame, so asking for 1920×1080 on a smaller
         // display silently produced a 1800-point-wide capture — and every
@@ -324,6 +348,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         try? await Task.sleep(for: .milliseconds(300))
         if let open = req.open {
             session.open(urls: [open])
+            // Opening a *folder* lands the app in Browse with nothing chosen,
+            // which is right for a person and wrong for the one capture that
+            // has to have a picture in it: the export page's centre pane is a
+            // soft proof of the frame on the canvas.
+            if req.export, session.selection == nil, let first = session.frames.first {
+                session.select(first.id)
+            }
             // A capture is of the *print*. The app itself opens onto the
             // decode and waits for a person to ask for the develop, and a
             // snapshot has nobody at the keyboard — so it asks here.

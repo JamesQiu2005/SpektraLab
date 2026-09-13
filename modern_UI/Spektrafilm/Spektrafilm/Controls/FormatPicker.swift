@@ -9,11 +9,17 @@ struct PillMenu<T: Hashable>: View {
     let options: [T]
     let title: (T) -> String
     @Binding var selection: T
+    /// The label column. The editor's panels take the drawing's 70 pt; the
+    /// export page's well is wider and its longest label ("Color Space") does
+    /// not fit in it, so it passes its own — and every row on a page has to
+    /// pass the same one or the pills stop lining up.
+    var labelWidth: CGFloat = Theme.Metric.sliderLabelWidth
 
     var body: some View {
         HStack(spacing: 0) {
             Text(label).font(Theme.Font.label).foregroundStyle(Theme.text)
-                .frame(width: Theme.Metric.sliderLabelWidth, alignment: .leading)
+                .lineLimit(1)
+                .frame(width: labelWidth, alignment: .leading)
             Menu {
                 ForEach(options, id: \.self) { o in
                     Button { selection = o } label: {

@@ -59,6 +59,41 @@ extension ExportFormat {
     /// 8-bit formats cannot carry a wide-gamut working space usefully.
     var isEightBit: Bool { self == .jpeg || self == .png }
     var takesQuality: Bool { self == .jpeg }
+
+    /// The name the export page's Format pill shows. The raw value carries
+    /// the bit depth (`"PNG 8-bit"`), because that is what the recipe file
+    /// and the job log want to read; the page shows the depth in its own
+    /// control beside it, so the pill would say it twice.
+    var shortLabel: String {
+        switch self {
+        case .jpeg: "JPEG"
+        case .png: "PNG"
+        case .tiff: "TIFF"
+        case .di: "DI package"
+        }
+    }
+
+    /// The bits this container writes. Not a choice the page can offer
+    /// independently of the format: `ExportFormat` *is* the pair, and a
+    /// depth control that did nothing would be a control that lies.
+    var bitDepth: Int { isEightBit ? 8 : 16 }
+
+    /// The format that writes `depth` bits, when `format` has a counterpart at
+    /// that depth. Only PNG and TIFF differ by depth and only from each other:
+    /// JPEG has no 16-bit form, the DI package is one thing at one depth, and
+    /// asking a format for the depth it already has is not a move. `nil` in
+    /// all of those, which is what `depthIsChoosable` says in advance.
+    static func withDepth(_ depth: Int, like format: ExportFormat) -> ExportFormat? {
+        switch (format, depth) {
+        case (.png, 16): return .tiff
+        case (.tiff, 8): return .png
+        default: return nil
+        }
+    }
+
+    /// Whether the depth control has anywhere to go. False is drawn disabled
+    /// rather than hidden: the row keeps its shape and says *why*.
+    var depthIsChoosable: Bool { self == .png || self == .tiff }
 }
 
 // MARK: - colour space
@@ -173,31 +208,49 @@ enum ColorSpaceCatalog {
 // MARK: - naming
 
 /// One piece of a filename.
+///
+/// **Four, and only four** — `notes.md` is the authority: "Four Naming
+/// options, Original Name, Film, Print, Date are provided and user can only
+/// choose between these four". There used to be six (`dimensions`,
+/// `counter`), and the page offered no order control at all. `dimensions` and
+/// `counter` still decode out of an old recipe file and are dropped on read,
+/// which is what `NamingRule.init(from:)` is for.
 enum NameToken: String, Codable, CaseIterable, Identifiable, Sendable {
-    case originalName, filmStock, printStock, dimensions, date, counter
+    case originalName, filmStock, printStock, date
 
     var id: String { rawValue }
 
     var label: String {
         switch self {
-        case .originalName: "Image name"
-        case .filmStock: "Film stock"
-        case .printStock: "Print stock"
-        case .dimensions: "Dimensions"
+        case .originalName: "Original Name"
+        case .filmStock: "Film"
+        case .printStock: "Print"
         case .date: "Date"
-        case .counter: "Counter"
         }
     }
 }
 
-/// The filename, as an ordered list of tokens joined by a separator.
+/// The filename, as the selected tokens joined by a separator.
 ///
 /// Deliberately not a printf-style format string: a format string is a thing
 /// you get wrong silently, and the whole value of this control is the sample
 /// underneath it, which a token list can always produce.
+///
+/// Two lists, and the split is the point. `order` holds **all four** tokens in
+/// the order the chip row shows them, which `notes.md` says the user drags
+/// into shape; `tokens` holds the ones switched on. The filename is
+/// `order.filter(tokens.contains)` — so the row's order *is* the output order
+/// and there is no third thing to keep in step.
 struct NamingRule: Codable, Hashable, Sendable {
-    var tokens: [NameToken] = [.originalName, .filmStock, .printStock]
+    /// Switched on. Never empty: `notes.md` says at least one must be
+    /// selected, and the setters here are what make that true rather than a
+    /// rule the view is trusted to remember.
+    private(set) var tokens: [NameToken] = [.originalName, .filmStock, .printStock]
+    /// Every token, in the row's order.
+    private(set) var order: [NameToken] = NameToken.allCases
     var separator: String = "_"
+
+    init() {}
 
     struct Context: Sendable {
         var originalName: String
@@ -208,31 +261,99 @@ struct NamingRule: Codable, Hashable, Sendable {
         var date: Date
     }
 
+    // MARK: editing
+
+    var chosen: [NameToken] { order.filter { tokens.contains($0) } }
+
+    func isOn(_ t: NameToken) -> Bool { tokens.contains(t) }
+
+    /// Turn a token on, or off — **unless it is the last one on**, in which
+    /// case nothing happens. Refusing here rather than disabling the chip in
+    /// the view is what makes "at least one" a property of the model: the
+    /// view has no state of its own that could bypass it.
+    mutating func toggle(_ t: NameToken) {
+        if let i = tokens.firstIndex(of: t) {
+            guard tokens.count > 1 else { return }
+            tokens.remove(at: i)
+        } else {
+            tokens = order.filter { tokens.contains($0) || $0 == t }
+        }
+    }
+
+    /// Drag one chip to another position in the row. Both lists move together
+    /// so `tokens` keeps its invariant of being a subset of `order`.
+    mutating func move(_ t: NameToken, before target: NameToken) {
+        guard t != target,
+              let from = order.firstIndex(of: t),
+              let to = order.firstIndex(of: target) else { return }
+        order.remove(at: from)
+        // The target's index is one lower once `t` is out of the list, which
+        // is the difference between dropping a chip *on* its neighbour and
+        // dropping it one place past.
+        order.insert(t, at: from < to ? to - 1 : to)
+        tokens = order.filter { tokens.contains($0) }
+    }
+
+    /// Every token back to its canonical place, leaving the selection alone.
+    mutating func resetOrder() { order = NameToken.allCases }
+
+    /// The chip row as drawn: all four, in the row's order.
+    var chips: [NameToken] { order }
+
+    // MARK: output
+
     /// The filename stem — no extension, and no directory.
     ///
-    /// An empty token list would produce an empty filename, which is a way to
-    /// overwrite one file repeatedly, so it falls back to the original name.
-    /// The same goes for a rule whose tokens all render empty.
+    /// A rule whose every token renders empty falls back to the original
+    /// name: an empty stem is a way to overwrite one file repeatedly.
     func stem(_ c: Context) -> String {
-        let parts = tokens.compactMap { t -> String? in
+        let parts = chosen.compactMap { t -> String? in
             let s: String
             switch t {
             case .originalName: s = c.originalName
             case .filmStock: s = c.filmStock
             case .printStock: s = c.printStock
-            case .dimensions: s = "\(Int(c.pixelSize.width))x\(Int(c.pixelSize.height))"
             case .date: s = NamingRule.dateFormatter.string(from: c.date)
-            case .counter: s = String(format: "%03d", c.counter)
             }
             return s.isEmpty ? nil : s
         }
         let joined = parts.joined(separator: separator)
         guard !joined.isEmpty else { return c.originalName }
-        // A filename cannot carry a path separator or a NUL, whatever a stock
-        // name happens to contain.
+        // A filename cannot carry a path separator, whatever a stock name
+        // happens to contain.
         return joined.replacingOccurrences(of: "/", with: "-")
                      .replacingOccurrences(of: ":", with: "-")
     }
+
+    // MARK: coding
+
+    /// Read leniently, on purpose. A recipe file is a document a person can
+    /// edit, and one the *previous* version of this app wrote — so a token
+    /// this build no longer has is dropped rather than allowed to fail the
+    /// whole decode, which would take every other recipe in the file with it
+    /// and show the user the built-in defaults instead of their own settings.
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        separator = (try? c.decode(String.self, forKey: .separator)) ?? "_"
+        let rawOrder = (try? c.decode([String].self, forKey: .order)) ?? []
+        let rawTokens = (try? c.decode([String].self, forKey: .tokens)) ?? []
+        let known = rawOrder.compactMap(NameToken.init(rawValue:))
+        // Anything the file did not mention keeps its canonical place, so a
+        // file written before `order` existed still gets all four chips.
+        order = known + NameToken.allCases.filter { !known.contains($0) }
+        var on = rawTokens.compactMap(NameToken.init(rawValue:))
+        if on.isEmpty { on = [.originalName] }
+        tokens = order.filter { on.contains($0) }
+    }
+
+    func encode(to encoder: Encoder) throws {
+        var c = encoder.container(keyedBy: CodingKeys.self)
+        try c.encode(order, forKey: .order)
+        try c.encode(tokens, forKey: .tokens)
+        try c.encode(separator, forKey: .separator)
+    }
+
+    private enum CodingKeys: String, CodingKey { case tokens, order, separator }
 
     private static let dateFormatter: DateFormatter = {
         let f = DateFormatter()
@@ -245,6 +366,32 @@ struct NamingRule: Codable, Hashable, Sendable {
     static let sampleContext = Context(originalName: "_DSC4037", filmStock: "portra400",
                                        printStock: "endura", pixelSize: CGSize(width: 5451, height: 3634),
                                        counter: 1, date: Date())
+}
+
+// MARK: - size
+
+/// The pixels the export should write.
+///
+/// `.original` is the frame's own size after the crop and the straighten —
+/// what the export path writes today, and the only thing it can write: see
+/// `ExportRecipe.outputSize`'s note.
+enum OutputSize: Hashable, Codable, Sendable {
+    case original
+    case custom(width: Int, height: Int)
+
+    var isOriginal: Bool { self == .original }
+}
+
+// MARK: - open with
+
+/// An application to hand the finished files to, or none.
+///
+/// Stored by path rather than by bundle identifier because that is what
+/// `NSWorkspace` opens and what the picker returns; a path that has moved
+/// since is reported when the export finishes rather than at pick time.
+struct OpenWith: Hashable, Codable, Sendable {
+    var path: String
+    var name: String { URL(fileURLWithPath: path).deletingPathExtension().lastPathComponent }
 }
 
 // MARK: - destination
@@ -288,6 +435,58 @@ struct ExportRecipe: Codable, Identifiable, Hashable, Sendable {
     var existing: ExistingFilePolicy = .addSuffix
     /// JPEG only, 0…1.
     var quality: Double = 0.95
+    /// The pixels to write. **Carried, shown and proved, but not yet
+    /// applied**: `Exporter` writes the frame at its own size and has no
+    /// resize step, and that file belongs to the pixels stream (RFC-018 §8).
+    /// The page therefore states the size it will actually get rather than
+    /// letting the control promise one the file will not keep — see
+    /// `ExportPage.effectiveSizeNote`.
+    var outputSize: OutputSize = .original
+    /// Hand the finished files to this application. `nil` is "None", which is
+    /// the default and opens nothing.
+    var openWith: OpenWith?
+
+    /// Read leniently for the same reason `NamingRule.init(from:)` does: a
+    /// recipe file written by an earlier build is missing every field added
+    /// since, and a decode that threw over one absent key would replace the
+    /// user's whole file with the built-in defaults.
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        id = (try? c.decode(UUID.self, forKey: .id)) ?? UUID()
+        name = (try? c.decode(String.self, forKey: .name)) ?? "Untitled"
+        format = (try? c.decode(ExportFormat.self, forKey: .format)) ?? .jpeg
+        colorSpace = (try? c.decode(ExportColorSpace.self, forKey: .colorSpace)) ?? .displayP3
+        folder = (try? c.decode(ExportFolder.self, forKey: .folder)) ?? .besideOriginal
+        subfolder = (try? c.decode(String.self, forKey: .subfolder)) ?? "_prints"
+        naming = (try? c.decode(NamingRule.self, forKey: .naming)) ?? NamingRule()
+        existing = (try? c.decode(ExistingFilePolicy.self, forKey: .existing)) ?? .addSuffix
+        quality = (try? c.decode(Double.self, forKey: .quality)) ?? 0.95
+        outputSize = (try? c.decode(OutputSize.self, forKey: .outputSize)) ?? .original
+        openWith = try? c.decodeIfPresent(OpenWith.self, forKey: .openWith)
+    }
+
+    init(id: UUID = UUID(), name: String = "Untitled", format: ExportFormat = .jpeg,
+         colorSpace: ExportColorSpace = .displayP3, folder: ExportFolder = .besideOriginal,
+         subfolder: String = "_prints", naming: NamingRule = NamingRule(),
+         existing: ExistingFilePolicy = .addSuffix, quality: Double = 0.95,
+         outputSize: OutputSize = .original, openWith: OpenWith? = nil) {
+        self.id = id
+        self.name = name
+        self.format = format
+        self.colorSpace = colorSpace
+        self.folder = folder
+        self.subfolder = subfolder
+        self.naming = naming
+        self.existing = existing
+        self.quality = quality
+        self.outputSize = outputSize
+        self.openWith = openWith
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case id, name, format, colorSpace, folder, subfolder, naming, existing, quality,
+             outputSize, openWith
+    }
 
     /// The directory this recipe writes into for a given source frame,
     /// **without creating it** — creation belongs to the export, which is the

@@ -31,45 +31,157 @@ final class ExportRecipeTests: XCTestCase {
 
     func testTokenOrderAndSeparatorAreHonoured() {
         var rule = NamingRule()
-        rule.tokens = [.filmStock, .originalName]
+        rule.toggle(.printStock)                     // two tokens left
+        rule.move(.filmStock, before: .originalName)
         rule.separator = "-"
         XCTAssertEqual(rule.stem(context()), "portra400-_DSC4037")
     }
 
-    func testDimensionsDateAndCounterRender() {
+    /// `notes.md` is the authority on how many there are: "Four Naming options,
+    /// Original Name, Film, Print, Date are provided and user can only choose
+    /// between these four". Two more used to exist, and a test that only
+    /// checked the ones it knew about would not have noticed them staying.
+    func testThereAreExactlyFourNamingTokens() {
+        XCTAssertEqual(NameToken.allCases.map(\.rawValue),
+                       ["originalName", "filmStock", "printStock", "date"])
+        XCTAssertEqual(NamingRule().chips.count, 4)
+    }
+
+    func testDateRenders() {
         var rule = NamingRule()
-        rule.tokens = [.dimensions]
-        XCTAssertEqual(rule.stem(context()), "5451x3634")
-        rule.tokens = [.counter]
-        XCTAssertEqual(rule.stem(context(counter: 7)), "007")
-        rule.tokens = [.date]
+        rule.toggle(.date)                                  // on
+        rule.toggle(.originalName)
+        rule.toggle(.filmStock)
+        XCTAssertEqual(rule.chosen, [.printStock, .date])
+        rule.toggle(.printStock)
+        XCTAssertEqual(rule.chosen, [.date])
         // Fixed instant, so this pins the format rather than today's date.
+        let expected = DateFormatter()
+        expected.dateFormat = "yyyyMMdd"
+        expected.locale = Locale(identifier: "en_US_POSIX")
+        XCTAssertEqual(rule.stem(context()), expected.string(from: context().date))
         XCTAssertEqual(rule.stem(context()).count, 8)
     }
 
-    /// The silent-overwrite case. An empty rule must not produce an empty
-    /// filename — every frame would then export to the same file and the
-    /// folder would end up with one picture in it.
-    func testAnEmptyRuleFallsBackToTheOriginalNameRatherThanNothing() {
+    /// The silent-overwrite case. A rule whose every token renders empty must
+    /// not produce an empty filename — every frame would then export to the
+    /// same file and the folder would end up with one picture in it.
+    func testAnEmptyResultFallsBackToTheOriginalNameRatherThanNothing() {
         var rule = NamingRule()
-        rule.tokens = []
-        XCTAssertEqual(rule.stem(context()), "_DSC4037")
-        // Same again when every token renders empty.
-        rule.tokens = [.filmStock, .printStock]
+        rule.toggle(.originalName)
         let blank = NamingRule.Context(originalName: "frame", filmStock: "", printStock: "",
                                        pixelSize: .zero, counter: 1, date: Date())
         XCTAssertEqual(rule.stem(blank), "frame")
     }
 
+    /// "at least one must be selected" — refused by the model rather than by
+    /// the chip that draws it, so no view can route around it.
+    func testTheLastSelectedTokenCannotBeSwitchedOff() {
+        var rule = NamingRule()
+        rule.toggle(.filmStock)
+        rule.toggle(.printStock)
+        XCTAssertEqual(rule.chosen, [.originalName])
+        rule.toggle(.originalName)
+        XCTAssertEqual(rule.chosen, [.originalName], "the last token on must stay on")
+        // And switching another back on is still allowed.
+        rule.toggle(.date)
+        XCTAssertEqual(rule.chosen, [.originalName, .date])
+    }
+
+    /// The row's order *is* the output order, which is the whole reason
+    /// `order` and `tokens` are separate lists.
+    func testDraggingATokenReordersTheFilename() {
+        var rule = NamingRule()
+        XCTAssertEqual(rule.stem(context()), "_DSC4037_portra400_endura")
+        rule.move(.printStock, before: .originalName)
+        XCTAssertEqual(rule.chips.first, .printStock)
+        XCTAssertEqual(rule.stem(context()), "endura__DSC4037_portra400")
+        // Dragging a token *forwards* takes it there and does not stop one
+        // short, which is the off-by-one when the target's index shifts as
+        // the dragged token leaves the list.
+        rule.resetOrder()
+        XCTAssertEqual(rule.chips, [.originalName, .filmStock, .printStock, .date])
+        rule.move(.date, before: .filmStock)
+        XCTAssertEqual(rule.chips, [.originalName, .date, .filmStock, .printStock])
+        // And a token already immediately before its target does not move.
+        rule.move(.date, before: .filmStock)
+        XCTAssertEqual(rule.chips, [.originalName, .date, .filmStock, .printStock])
+    }
+
     /// A stock name with a slash in it would otherwise become a directory.
     func testAFilenameCannotCarryAPathSeparator() {
         var rule = NamingRule()
-        rule.tokens = [.filmStock]
+        rule.toggle(.originalName)
+        rule.toggle(.printStock)
         let nasty = NamingRule.Context(originalName: "f", filmStock: "kodak/portra:400",
                                        printStock: "p", pixelSize: .zero, counter: 1, date: Date())
         let stem = rule.stem(nasty)
         XCTAssertFalse(stem.contains("/"), stem)
         XCTAssertFalse(stem.contains(":"), stem)
+    }
+
+    // MARK: - the format and its depth
+
+    /// "8 bit" is not a free-standing choice: `ExportFormat` is the container
+    /// and the depth together, so the depth pill has to move the format — and
+    /// has to say when it cannot.
+    func testTheFormatCarriesItsBitDepth() {
+        XCTAssertEqual(ExportFormat.jpeg.bitDepth, 8)
+        XCTAssertEqual(ExportFormat.png.bitDepth, 8)
+        XCTAssertEqual(ExportFormat.tiff.bitDepth, 16)
+        XCTAssertEqual(ExportFormat.di.bitDepth, 16)
+
+        XCTAssertEqual(ExportFormat.withDepth(16, like: .png), .tiff)
+        XCTAssertEqual(ExportFormat.withDepth(8, like: .tiff), .png)
+        XCTAssertNil(ExportFormat.withDepth(16, like: .jpeg), "JPEG has no 16-bit form")
+        XCTAssertNil(ExportFormat.withDepth(8, like: .di), "the DI package is one thing at one depth")
+
+        XCTAssertTrue(ExportFormat.png.depthIsChoosable)
+        XCTAssertTrue(ExportFormat.tiff.depthIsChoosable)
+        XCTAssertFalse(ExportFormat.jpeg.depthIsChoosable)
+        XCTAssertFalse(ExportFormat.di.depthIsChoosable)
+    }
+
+    // MARK: - what the destination could not hold
+
+    /// RFC-018 §6: "a saturated frame into sRGB is worth a word, a frame that
+    /// fits is worth silence" — so the silence is the part to pin. A page that
+    /// warns on every export is a page whose warnings are read as noise.
+    func testAFrameThatFitsSaysNothing() {
+        let proof = SoftProof(image: blankImage(), target: CGColorSpaceCreateDeviceRGB(),
+                              targetName: "sRGB", exportPixelSize: CGSize(width: 10, height: 10),
+                              compressedFraction: 0, clippedFraction: 0, isPlaceholder: false)
+        XCTAssertTrue(ProofCaveat.lines(for: proof).isEmpty)
+        // And just under the threshold is still silence.
+        let quiet = SoftProof(image: blankImage(), target: CGColorSpaceCreateDeviceRGB(),
+                              targetName: "sRGB", exportPixelSize: CGSize(width: 10, height: 10),
+                              compressedFraction: 0.00009, clippedFraction: 0.00009,
+                              isPlaceholder: false)
+        XCTAssertTrue(ProofCaveat.lines(for: quiet).isEmpty)
+    }
+
+    func testAPictureThatDoesNotFitSaysSoAndSaysWhatItLost() {
+        let rolled = SoftProof(image: blankImage(), target: CGColorSpaceCreateDeviceRGB(),
+                               targetName: "sRGB", exportPixelSize: CGSize(width: 10, height: 10),
+                               compressedFraction: 0.04, clippedFraction: 0, isPlaceholder: false)
+        let lines = ProofCaveat.lines(for: rolled)
+        XCTAssertEqual(lines.count, 1)
+        XCTAssertFalse(lines[0].isWarning, "a rolled-in pixel kept its detail; it is not a warning")
+        XCTAssertTrue(lines[0].text.contains("4 %"), lines[0].text)
+
+        // Clipping is the one that lost something, so it is the one drawn in
+        // the accent.
+        let cut = SoftProof(image: blankImage(), target: CGColorSpaceCreateDeviceRGB(),
+                            targetName: "sRGB", exportPixelSize: CGSize(width: 10, height: 10),
+                            compressedFraction: 0, clippedFraction: 0.02, isPlaceholder: false)
+        XCTAssertEqual(ProofCaveat.lines(for: cut).map(\.isWarning), [true])
+    }
+
+    private func blankImage() -> CGImage {
+        let ctx = CGContext(data: nil, width: 1, height: 1, bitsPerComponent: 8, bytesPerRow: 0,
+                            space: CGColorSpaceCreateDeviceRGB(),
+                            bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue)!
+        return ctx.makeImage()!
     }
 
     // MARK: - where it lands
@@ -228,14 +340,54 @@ final class ExportRecipeTests: XCTestCase {
         var edited = try! XCTUnwrap(store.selected)
         edited.name = "Wechat"
         edited.subfolder = "wechat"
-        edited.naming.tokens = [.originalName, .counter]
+        edited.naming.toggle(.printStock)
+        edited.naming.move(.date, before: .filmStock)
         edited.colorSpace = .sRGB
+        edited.format = .tiff
+        edited.outputSize = .custom(width: 2048, height: 1365)
+        edited.openWith = OpenWith(path: "/Applications/Preview.app")
         store.selected = edited
 
         let reopened = ExportRecipeStore(url: url)
         XCTAssertNil(reopened.problem)
         let back = try! XCTUnwrap(reopened.recipes.first { $0.id == edited.id })
         XCTAssertEqual(back, edited)
+    }
+
+    /// A file written by an earlier build: six naming tokens, no `order`, and
+    /// none of the fields this round added. It must decode — a recipe file is
+    /// a document a person keeps, and a decode that threw over one absent key
+    /// would take every recipe in it with it and show the built-in defaults
+    /// instead of their own settings.
+    @MainActor
+    func testARecipeFileFromAnEarlierBuildStillLoads() throws {
+        let dir = FileManager.default.temporaryDirectory
+            .appending(path: "spk-recipes-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let url = dir.appending(path: "export-recipes.json")
+        let old = """
+        [{"id":"6B1F0C1A-0000-4000-8000-000000000001","name":"Old","format":"PNG 8-bit",
+          "colorSpace":{"builtIn":{"_0":"kCGColorSpaceSRGB"}},
+          "folder":{"fixed":{"path":"/tmp/old"}},"subfolder":"out",
+          "naming":{"separator":"-","tokens":["filmStock","dimensions","counter"]},
+          "existing":"overwrite","quality":0.8}]
+        """
+        try Data(old.utf8).write(to: url)
+
+        let store = ExportRecipeStore(url: url)
+        XCTAssertNil(store.problem, "an older file is not a broken file")
+        let r = try XCTUnwrap(store.recipes.first)
+        XCTAssertEqual(r.name, "Old")
+        XCTAssertEqual(r.folder, .fixed(path: "/tmp/old"))
+        XCTAssertEqual(r.existing, .overwrite)
+        // The two tokens that no longer exist are dropped; the one that does
+        // survives, and the row is the four it always is.
+        XCTAssertEqual(r.naming.chosen, [.filmStock])
+        XCTAssertEqual(r.naming.chips.count, 4)
+        // And the fields it predates take their defaults rather than throwing.
+        XCTAssertEqual(r.outputSize, .original)
+        XCTAssertNil(r.openWith)
     }
 
     /// The PRD's "separated json" means a file a person can hand-edit, which
