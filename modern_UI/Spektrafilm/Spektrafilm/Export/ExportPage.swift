@@ -49,8 +49,18 @@ struct ExportPage: View {
     /// Where a ⇧-click's range starts, in `session.frames` order.
     @State private var anchor: URL?
     /// The settings card folds away to the left, which is what the tab on its
-    /// trailing edge in the drawing is for.
-    @State private var settingsCollapsed = false
+    /// trailing edge in the drawing is for. Persisted like the editor's own
+    /// collapse flags (`Session.leftCollapsed` and friends), so a card someone
+    /// folded stays folded — and so a capture can reach the folded state
+    /// without a pointer.
+    @AppStorage(Session.uiKey + "exportSettingsCollapsed") private var settingsCollapsed = false
+    /// Both cards' widths, and the user's. The page opens at the drawing's own
+    /// and the grips move the edges from there — which is what makes the
+    /// collapse tab non-fixed: it hangs off the canvas, so it follows the edge
+    /// wherever the edge goes (`Controls/PanelResize.swift` says why nothing
+    /// about the tab had to change).
+    @State private var leftWidth = PanelWidthStore(name: "export.left", range: M.leftRange)
+    @State private var rightWidth = PanelWidthStore(name: "export.right", range: M.rightRange)
     /// How many columns the Grid draws its thumbnails in — the value the bar's
     /// detented slider sets. Persisted like every other view setting, so the
     /// grid someone arranged is the grid they come back to.
@@ -63,6 +73,12 @@ struct ExportPage: View {
 
     @State private var running = false
     @State private var note: ResultNote?
+    /// The rename dialog's draft, non-nil while it is up. A recipe is a named
+    /// thing — the list is a list of names — and the old sheet's Name field
+    /// went with the sheet: without this, every recipe anyone creates is called
+    /// "Untitled" for good, which the drawing would not have caught because it
+    /// draws the list, not the making of one.
+    @State private var renameDraft: String?
 
     /// The drawing's own numbers, so the body reads the way the drawing does.
     private typealias M = Theme.Metric.Export
@@ -105,10 +121,16 @@ struct ExportPage: View {
             HStack(spacing: 0) {
                 if !settingsCollapsed {
                     settingsPanel
+                        .frame(width: leftWidth.width)
                         .transition(.move(edge: .leading).combined(with: .opacity))
+                    PanelResizeHandle(side: .trailingEdge, range: M.leftRange,
+                                      width: $leftWidth.width)
                 }
                 centre
+                PanelResizeHandle(side: .leadingEdge, range: M.rightRange,
+                                  width: $rightWidth.width)
                 stripPanel
+                    .frame(width: rightWidth.width)
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
@@ -364,8 +386,24 @@ struct ExportPage: View {
             }
             footer
         }
-        .frame(width: M.leftWidth)
         .panelCard()
+        // The system's own alert with a text field in it — the same rule the
+        // section menus follow, applied to the one thing on this page that
+        // needs typing.
+        .alert("Rename Recipe", isPresented: Binding(
+            get: { renameDraft != nil },
+            set: { if !$0 { renameDraft = nil } })) {
+            TextField("Name", text: Binding(get: { renameDraft ?? "" },
+                                            set: { renameDraft = $0 }))
+            Button("Cancel", role: .cancel) { renameDraft = nil }
+            Button("Rename") {
+                let trimmed = (renameDraft ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+                if !trimmed.isEmpty { recipe.wrappedValue.name = trimmed }
+                renameDraft = nil
+            }
+        } message: {
+            Text("The name in the list. The file it writes is named by the Naming rule below.")
+        }
     }
 
     /// The recipe list. `notes.md` fixes the "..." as a system menu — "Do not
@@ -376,6 +414,8 @@ struct ExportPage: View {
         PanelSection("Export Formula", key: "exportFormula", menu: sectionMenu {
             Button("New Recipe") { store.add() }
             Button("Duplicate") { if let s = store.selected { store.duplicate(s) } }
+                .disabled(store.selected == nil)
+            Button("Rename…") { renameDraft = store.selected?.name ?? "" }
                 .disabled(store.selected == nil)
             Divider()
             Button("Delete") { if let s = store.selected { store.remove(s) } }
@@ -576,10 +616,17 @@ struct ExportPage: View {
                     }
                     .frame(height: M.rowHeight)
                     if recipe.wrappedValue.format.takesColorSpace {
+                        // The name is data, not a fixed label: an installed
+                        // profile can be called anything, and the narrowest
+                        // card truncates the long ones. The tooltip carries
+                        // the whole of it, so a truncated name costs a hover
+                        // rather than the information.
                         PillMenu(label: "Color Space", options: ColorSpaceCatalog.all.map(\.space),
                                  title: { ColorSpaceCatalog.name(for: $0) ?? "Unknown profile" },
                                  selection: recipe.colorSpace,
                                  labelWidth: M.labelWidth, font: F.label)
+                            .help(ColorSpaceCatalog.name(for: recipe.wrappedValue.colorSpace)
+                                  ?? "This profile is not on this machine")
                     }
                     if recipe.wrappedValue.format.takesQuality {
                         ScrubSlider(label: "Quality", sublabel: nil,
@@ -893,7 +940,6 @@ struct ExportPage: View {
             .padding(.vertical, 12)
             .frame(maxWidth: .infinity)
         }
-        .frame(width: M.rightWidth)
         .panelCard()
     }
 

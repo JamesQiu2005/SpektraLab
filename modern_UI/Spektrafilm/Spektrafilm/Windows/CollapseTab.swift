@@ -36,6 +36,20 @@ struct CollapseTab: View {
     enum Edge { case leading, trailing, top, bottom }
     let edge: Edge
     @Binding var collapsed: Bool
+    /// Outline the pill in white.
+    ///
+    /// Off everywhere the pill sits on the canvas ground, which is every case
+    /// the original drawing has: an unstroked capsule in the card colour reads
+    /// fine against the ground and a border would be noise.
+    ///
+    /// On where the pill overlaps a **card** — the export page's Grid mode,
+    /// where the grid card runs to the window's right edge and passes under
+    /// the tab. There the pill is the card's own colour on the card, which is
+    /// a control that is not there. `reference_grid_view.svg` draws exactly
+    /// this and only this: `cls-3`, `fill: #2c2d2b; stroke: #fff;
+    /// stroke-width: 2px` against the plain `cls-14` of the other drawing —
+    /// 2 units at the export page's scale 2, so 1 pt.
+    var stroked: Bool = false
 
     private var horizontal: Bool { edge == .top || edge == .bottom }
     private var glyph: String {
@@ -59,6 +73,7 @@ struct CollapseTab: View {
                 .frame(width: horizontal ? Theme.Metric.tabLength : Theme.Metric.tabThickness,
                        height: horizontal ? Theme.Metric.tabThickness : Theme.Metric.tabLength)
                 .background(Theme.card, in: Capsule())
+                .overlay { if stroked { Capsule().strokeBorder(.white, lineWidth: 1) } }
                 .contentShape(Capsule())
         }
         .buttonStyle(.plain)
@@ -75,6 +90,11 @@ struct CollapseTab: View {
 struct HoverEdgeTab: View {
     let edge: CollapseTab.Edge
     @Binding var collapsed: Bool
+    /// Passed straight to the pill; see `CollapseTab.stroked`. It is carried
+    /// here rather than left to the caller to draw, because the band's
+    /// geometry is derived from the pill's size (`bandShift`) and a second
+    /// pill drawn beside this one would be a second copy of that arithmetic.
+    var stroked: Bool = false
     @State private var revealed = false
 
     /// Depth of the band, across the edge. Twice the pill's own thickness:
@@ -138,7 +158,7 @@ struct HoverEdgeTab: View {
                       onHover: { revealed = $0 }, onTap: toggle)
                 .offset(x: edge == .leading ? -bandShift : (edge == .trailing ? bandShift : 0),
                         y: edge == .bottom ? bandShift : 0)
-            CollapseTab(edge: edge, collapsed: $collapsed)
+            CollapseTab(edge: edge, collapsed: $collapsed, stroked: stroked)
                 .opacity(revealed ? 1 : 0)
                 // The band takes the click (see the note at the top). A live
                 // button here would be a second copy of the same gesture.
