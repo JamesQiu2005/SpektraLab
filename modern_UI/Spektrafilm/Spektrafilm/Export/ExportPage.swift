@@ -263,10 +263,18 @@ struct ExportPage: View {
     /// behaviour, and the user asked for Finder's.
     @ViewBuilder private var windowCluster: some View {
         if mode == .viewer {
-            zoomButton("plus.magnifyingglass", "Zoom in", 1.5)
-            zoomPill.padding(.horizontal, M.zoomClusterGap)
-            zoomButton("minus.magnifyingglass", "Zoom out", 1 / 1.5)
-                .transition(.opacity)
+            // One `HStack`, not three loose controls: a transition belongs to
+            // a view, and three siblings each fading on their own is a
+            // cross-fade with holes in it — the buttons would pop while the
+            // pill dissolved. One container is one transition, in both
+            // directions.
+            HStack(spacing: 0) {
+                zoomButton("plus.magnifyingglass", "Zoom in", 1.5)
+                zoomPill.padding(.horizontal, M.zoomClusterGap)
+                zoomButton("minus.magnifyingglass", "Zoom out", 1 / 1.5)
+            }
+            .frame(width: M.zoomClusterWidth)
+            .transition(.opacity)
         } else {
             DetentSlider(value: $gridColumns, range: M.gridColumns,
                          width: M.zoomClusterWidth,
