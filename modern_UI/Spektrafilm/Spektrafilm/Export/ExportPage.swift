@@ -200,49 +200,70 @@ struct ExportPage: View {
     // MARK: - the proof
 
     /// What the proof depends on: which frame, which destination space, and
-    /// how many pixels are worth rendering. Everything else a recipe carries —
-    /// the name, the folder, the existing-file policy — changes no pixel, and
-    /// keying on the whole recipe would re-render the proof on every keystroke
-    /// in the Name field.
+    /// whether the format has a colour at all. Everything else a recipe
+    /// carries — the name, the folder, the existing-file policy — changes no
+    /// pixel, and keying on the whole recipe would re-render the proof on
+    /// every keystroke in the Name field.
+    ///
+    /// **The window's size is not in here and must not be.** The proof is the
+    /// file's own pixels, so it does not depend on how much of it is on
+    /// screen; a resize that started a 24-megapixel render would be the worst
+    /// kind of waste, and there used to be a budget in this key that did
+    /// exactly that.
     private struct ProofKey: Hashable {
         var frame: URL?
         var space: ExportColorSpace
         var takesColour: Bool
-        var maxPixels: Int
     }
 
     private var proofKey: ProofKey {
         ProofKey(frame: session.selection,
                  space: recipe.wrappedValue.colorSpace,
-                 takesColour: recipe.wrappedValue.format.takesColorSpace,
-                 maxPixels: proofBudget)
+                 takesColour: recipe.wrappedValue.format.takesColorSpace)
     }
 
-    /// The proof is rendered at the size it is shown at, rounded up to a whole
-    /// megapixel so a window resize does not start a render per frame. Capped
-    /// both ways: below 1 MP the picture on screen is soft, and past 8 MP the
-    /// page is rendering pixels no display here can show.
-    private var proofBudget: Int {
-        guard paneSize.width > 1, paneSize.height > 1 else { return 2_000_000 }
-        let wanted = Int(paneSize.width * paneSize.height * 4)
-        return min(8_000_000, max(1_000_000, (wanted + 999_999) / 1_000_000 * 1_000_000))
-    }
+    /// **The proof is asked for at the file's own size.** The user: "that's
+    /// actually why I insisted on the export path actually showing how the
+    /// exported image look like, with the full set export resolution, instead
+    /// of the current preview cache."
+    ///
+    /// **This is necessary and not sufficient, and the difference is worth
+    /// stating rather than leaving to be discovered.** `maxPixels` is one of
+    /// two things bounding the proof and it is the smaller one: `softProof`
+    /// also clamps to the tier on the canvas —
+    ///
+    ///     let ceiling = min(exportSize, framed)   // `framed` is the preview
+    ///
+    /// — so with `Int.max` here the proof still comes back 2678 × 1785 on a
+    /// 6000 × 4000 frame. Measured. Making it the file's pixels means
+    /// `softProof` rendering from a **full-tier source**, which is the pixels
+    /// stream's file and the change asked for there; until it lands this line
+    /// removes the budget and nothing else does.
+    private static let everyPixel = Int.max
 
+    /// Renders the proof, keeping whatever is already on screen until the new
+    /// one is ready.
+    ///
+    /// **Coalescing is `.task(id:)`'s**, not a queue: when the key changes
+    /// SwiftUI cancels this task and starts another, so the last edit wins and
+    /// the ones before it are abandoned rather than run in turn. A full-size
+    /// proof is expensive enough that the difference matters — a queue would
+    /// render every keystroke and show the first one last.
     private func makeProof() async {
         guard session.selection != nil else { proof = nil; return }
-        // The centre has not been laid out yet, so `proofBudget` would be a
-        // guess that is replaced a moment later and this would render the
-        // proof twice on every open. The pane's own first pass sets
-        // `paneSize`, which changes the key and brings us back. In Grid mode
-        // there is no pane at all, and the proof is wanted the moment the
-        // Viewer brings one.
+        // Nothing to show it in. In Grid mode there is no pane at all, and the
+        // proof is wanted the moment the Viewer brings one back.
         guard paneSize.width > 1 else { return }
         proving = true
         defer { proving = false }
         // Nothing on the canvas yet (the page opened from Browse, say): ask
         // for the develop the way every other view that wants a picture does.
         if session.serviceSessionIDForExport == nil { _ = await session.ensureDeveloped() }
-        let made = await session.softProof(recipe: recipe.wrappedValue, maxPixels: proofBudget)
+        let made = await session.softProof(recipe: recipe.wrappedValue,
+                                           maxPixels: Self.everyPixel)
+        // A superseded render's result is dropped rather than shown: the pane
+        // is already showing the previous proof, which is a truer thing to
+        // look at than a picture of a recipe the person has moved on from.
         guard !Task.isCancelled else { return }
         proof = made
     }
@@ -912,7 +933,13 @@ struct ExportPage: View {
                     Text(caveat.text)
                         .foregroundStyle(caveat.isWarning ? Theme.exportAccent : Theme.secondaryText)
                 }
-                Text(spaceLine(proof)).foregroundStyle(Theme.dim)
+                HStack(spacing: 5) {
+                    // A full-size proof takes a moment, and the picture on
+                    // screen is the previous one while it does. This says so
+                    // without covering the picture with a spinner.
+                    if proving { ProgressView().controlSize(.mini).scaleEffect(0.55) }
+                    Text(spaceLine(proof)).foregroundStyle(Theme.dim)
+                }
             }
             .font(Theme.Font.caption)
             .help(captionHelp(proof))
@@ -929,14 +956,14 @@ struct ExportPage: View {
     /// only when it is a different space, which is the case RFC-018 §6 is
     /// actually about. Naming the file's pixels and both spaces in one line
     /// told a photographer nothing they could act on.
-    /// The long version, one hover away: what a proof is, both sizes, and
-    /// both spaces. Cheap to reach, and not in the way.
+    /// The long version, one hover away: what a proof is, one size, and both
+    /// spaces. Cheap to reach, and not in the way.
     private func captionHelp(_ proof: SoftProof) -> String {
         let pixels = "\(Int(proof.exportPixelSize.width)) × \(Int(proof.exportPixelSize.height))"
         let canvas = ColorSpaceCatalog.name(for: .displayP3) ?? "Display P3"
         var lines = [
-            "The picture above is a proof: the same conversion the export will run, "
-            + "at a smaller size.",
+            "The picture above is a proof: the file's own pixels, through the same "
+            + "conversion the export will run.",
             "The file will be \(pixels) px, in \(proof.targetName).",
         ]
         if proof.targetName != canvas { lines.append("The canvas is in \(canvas).") }
