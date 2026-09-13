@@ -3,11 +3,23 @@
 
 import SwiftUI
 
+/// The four numbers a section row is drawn with. A default-constructed one is
+/// the editor's panels, which is what every caller but the export page wants;
+/// the export page's drawing has tighter rows and a heavier title, so it
+/// passes its own (`Theme.Metric.Export` and `Theme.Font.Export`).
+struct SectionMetrics {
+    var headerHeight: CGFloat = Theme.Metric.headerHeight
+    var headerToWell: CGFloat = Theme.Metric.headerToWell
+    var wellToHeader: CGFloat = Theme.Metric.wellToHeader
+    var titleFont: Font = Theme.Font.sectionTitle
+}
+
 struct SectionHeader: View {
     let title: String
     var systemImage: String? = nil
     @Binding var expanded: Bool
     var menu: (() -> AnyView)? = nil
+    var metrics = SectionMetrics()
 
     var body: some View {
         HStack(spacing: 0) {
@@ -29,7 +41,7 @@ struct SectionHeader: View {
                     .padding(.leading, 8)
             }
             Text(title)
-                .font(Theme.Font.sectionTitle)
+                .font(metrics.titleFont)
                 .foregroundStyle(Theme.text)
                 .padding(.leading, 10)
                 .lineLimit(1)
@@ -46,7 +58,7 @@ struct SectionHeader: View {
                 EllipsisGlyph().frame(width: 15, height: 3).padding(8)
             }
         }
-        .frame(height: Theme.Metric.headerHeight)
+        .frame(height: metrics.headerHeight)
         .padding(.horizontal, Theme.Metric.wellInset)
         .contentShape(Rectangle())
     }
@@ -91,23 +103,28 @@ struct PanelSection<Content: View>: View {
     let key: String
     var initiallyExpanded = true
     var menu: (() -> AnyView)? = nil
+    /// See `SectionMetrics` — the editor's panels unless a page says otherwise.
+    var metrics = SectionMetrics()
     @ViewBuilder var content: () -> Content
     @AppStorage private var expanded: Bool
 
     init(_ title: String, systemImage: String? = nil, key: String, initiallyExpanded: Bool = true,
-         menu: (() -> AnyView)? = nil, @ViewBuilder content: @escaping () -> Content) {
+         menu: (() -> AnyView)? = nil, metrics: SectionMetrics = SectionMetrics(),
+         @ViewBuilder content: @escaping () -> Content) {
         self.title = title; self.systemImage = systemImage; self.key = key
-        self.initiallyExpanded = initiallyExpanded; self.menu = menu; self.content = content
+        self.initiallyExpanded = initiallyExpanded; self.menu = menu; self.metrics = metrics
+        self.content = content
         _expanded = AppStorage(wrappedValue: initiallyExpanded, Session.uiKey + "section.\(key)")
     }
 
     var body: some View {
         VStack(spacing: 0) {
-            SectionHeader(title: title, systemImage: systemImage, expanded: $expanded, menu: menu)
+            SectionHeader(title: title, systemImage: systemImage, expanded: $expanded, menu: menu,
+                          metrics: metrics)
             if expanded {
-                content().padding(.top, Theme.Metric.headerToWell)
+                content().padding(.top, metrics.headerToWell)
             }
         }
-        .padding(.bottom, Theme.Metric.wellToHeader)
+        .padding(.bottom, metrics.wellToHeader)
     }
 }
