@@ -45,7 +45,11 @@ enum ExportFormat: String, CaseIterable, Identifiable, Sendable {
 enum Exporter {
     struct Result: Sendable {
         let urls: [URL]
-        let note: String?
+        /// What to tell the user about this export beyond its paths. `var`
+        /// because the colour fallback's reason is appended to whatever the
+        /// route itself produced (RFC-018 §5.4: a substitution is never
+        /// silent).
+        var note: String?
         /// The EV the meter applied to the render this was written from.
         /// Carried out of the render so the export record and the job log can
         /// say which exposure produced the file (RFC-015 P.1's invariant, in
@@ -126,17 +130,28 @@ enum Exporter {
             let existing = dir.appending(path: "\(recipe.naming.stem(context)).\(format.ext)")
             return .skipped(existing)
         }
-        let (space, fellBack) = recipe.resolvedColorSpace()
+        let (target, _, fellBack, fellBackReason) = resolveTarget(recipe)
         var job = JobLog()
         job.note(.info, "export.start", jobHeader(session: session, recipe: recipe, out: out,
                                                   fellBack: fellBack))
+        if let fellBackReason { job.note(.warn, "export.colour_fallback", [.init("why", fellBackReason)]) }
         let started = Date()
         do {
-            let result = format == .di
+            var result = format == .di
                 ? try await exportDI(session: session, to: out)
+                // The export page's output size belongs here — stream B's
+                // `ExportRecipe.outputSize`. It is `nil` until that field
+                // lands, which is the frame's own size (see `exportPrint`).
                 : try await exportPrint(session: session, to: out, format: format,
-                                        colorSpace: space, quality: recipe.quality,
-                                        sessionID: sessionID)
+                                        target: target, outputSize: nil,
+                                        quality: recipe.quality, sessionID: sessionID)
+            // The fallback's reason, if the route did not have one of its own.
+            // Merged rather than set, because the DI route has a note of its
+            // own (a film/paper mismatch) and losing it to a colour note would
+            // be trading one silent substitution for another.
+            if let fellBackReason {
+                result.note = result.note.map { "\($0) \(fellBackReason)" } ?? fellBackReason
+            }
             let elapsed = Date().timeIntervalSince(started) * 1000
             for url in result.urls {
                 job.note(.info, "export.file", [.init("path", url.lastPathComponent)])
@@ -192,6 +207,44 @@ enum Exporter {
         _ = job
     }
 
+    /// The space this export will actually be in: a `CGColorSpace`, the
+    /// engine's name for it, and — when those are not what the recipe asked
+    /// for — why, in words a user can act on.
+    ///
+    /// There are two ways to land on Display P3 and they are different
+    /// failures. A profile that is not on this machine is the one
+    /// `resolvedColorSpace()` has always reported. A profile that *is*
+    /// installed but has no baked colour space in the engine is new with
+    /// RFC-018: the transform cannot be built for it, and since §2.4 retired
+    /// Core Graphics' clip there is nothing left to fall back *to*. Neither is
+    /// silent — §5.4's rule, and the reason this returns a sentence rather
+    /// than a bool.
+    /// Not private: `SoftProof` resolves its destination through this same
+    /// function, because a proof of a space other than the file's is
+    /// decoration (RFC-018 §7.6).
+    static func resolveTarget(_ recipe: ExportRecipe)
+        -> (space: CGColorSpace, name: String, fellBack: Bool, reason: String?) {
+        // Resolved once: `.installed` reads an ICC profile off disk, and some
+        // of those are a megabyte.
+        let resolved = recipe.resolvedColorSpace().space
+        if let resolved {
+            if let name = ColourManagement.engineName(for: resolved) {
+                return (resolved, name, false, nil)
+            }
+            let asked = ColorSpaceCatalog.name(for: recipe.colorSpace) ?? "The recipe's profile"
+            return (ImageDecoder.displayP3, "Display P3", true,
+                    "\(asked) has no colour space in the engine, so the perceptual transform cannot be built for it. The file is in Display P3.")
+        }
+        // `resolvedColorSpace` returned nil: either the format carries no
+        // colour at all (the DI package — handled by its own route, and this
+        // value is never used) or the profile could not be read.
+        guard recipe.format.takesColorSpace else {
+            return (CGColorSpaceCreateDeviceRGB(), "device RGB (density)", false, nil)
+        }
+        return (ImageDecoder.displayP3, "Display P3", true,
+                "The recipe's profile is not on this machine. The file is in Display P3.")
+    }
+
     private static func depth(_ format: ExportFormat) -> Int {
         switch format {
         case .jpeg, .png: 8
@@ -233,8 +286,21 @@ enum Exporter {
         ]
     }
 
+    /// Render, grade, frame, size, convert, write — in that order, and the
+    /// order is the whole of RFC-018's export claim.
+    ///
+    /// The last two steps are the ones that changed: the image is converted to
+    /// the recipe's space by **our** output transform (§5.4), which rolls
+    /// out-of-gamut colour off instead of clipping it, and `write` is then
+    /// handed pixels that are already in the target and never converts a
+    /// colour. The old path rendered in Display P3 and let Core Graphics clip
+    /// into the destination — `redraw`'s colour branch, which is gone.
+    ///
+    /// `outputSize` is the export page's output size (nil = the frame's own).
+    /// It is applied **before** the transform so the transform and its clip
+    /// statistics run on the pixels that actually reach the file.
     private static func exportPrint(session: Session, to out: URL, format: ExportFormat,
-                                    colorSpace: CGColorSpace?, quality: Double,
+                                    target: CGColorSpace, outputSize: CGSize?, quality: Double,
                                     sessionID: String) async throws -> Result {
         // `.export` is a full-tier reprint: the engine reuses the working
         // negative when one is warm and runs the film side when it is not.
@@ -249,11 +315,31 @@ enum Exporter {
         // `CGImage.cropping` and could not rotate at all, so a straightened
         // frame exported unstraightened and nothing in the app said so.
         let framed = session.renderer.applyGeometry(session.geometry, to: adjusted) ?? adjusted
-        guard let cg = framed.makeCGImage() else { throw ExportError.noPixels }
-        try write(cg, to: out, format: format, colorSpace: colorSpace, quality: quality)
+        // The page's output size, through the geometry pass's own resampler.
+        let sized: MTLTexture
+        if let outputSize {
+            guard let resized = session.renderer.applyResize(framed, width: Int(outputSize.width.rounded()),
+                                                             height: Int(outputSize.height.rounded()))
+            else { throw ExportError.noPixels }
+            sized = resized
+        } else {
+            sized = framed
+        }
+        // The one conversion, at the end, out of the working space and into
+        // the destination — the same kernel the canvas and the soft proof run,
+        // which is what makes the proof a proof.
+        let (setup, problem) = await ColourManagement.setup(client: session.client,
+                                                            source: session.workingSpaceName,
+                                                            target: target,
+                                                            device: session.renderer.device)
+        guard let setup else { throw ExportError.colourSpace(problem ?? "the engine refused it") }
+        guard let converted = session.renderer.applyOutputTransform(to: sized, setup: setup)
+        else { throw ExportError.noPixels }
+        guard let cg = converted.texture.makeCGImage(space: target) else { throw ExportError.noPixels }
+        try write(cg, to: out, format: format, quality: quality)
         return Result(urls: [out], note: nil,
                       appliedEV: outcome.progress?.autoExposureEV,
-                      pixels: (adjusted.width, adjusted.height))
+                      pixels: (converted.texture.width, converted.texture.height))
     }
 
     // MARK: - the DI package
@@ -336,29 +422,33 @@ enum Exporter {
 
     /// Write one image.
     ///
-    /// `colorSpace` is **optional and means "leave the colour alone"**, not
-    /// "use the default". That distinction is load-bearing: the DI route
-    /// hands over device-RGB density and must reach the file untouched
-    /// (`exportDI`), so a parameter that silently defaulted to Display P3
-    /// would convert the very numbers the `.cube` beside it indexes. Callers
-    /// that want a profile name it; the DI route and the tests pass nil.
+    /// **`write` does not convert colour.** RFC-018 §5.4: it draws only when
+    /// the *bit depth* has to change, and even then it redraws into the
+    /// image's own colour space, so the numbers that reach the file are the
+    /// ones the output transform produced. Callers hand it a `CGImage` already
+    /// in the destination's space — `applyOutputTransform` then
+    /// `makeCGImage(space:)` — and the tag travels with the pixels rather than
+    /// being applied to them.
+    ///
+    /// The parameter that used to say otherwise is gone rather than ignored. A
+    /// `colorSpace` argument that silently meant "and also re-draw into this"
+    /// was the very Core Graphics clip this RFC removes; one that silently
+    /// meant nothing would be worse, because it would look like it worked.
     ///
     /// Bit depth is decided by the format, not by the caller: ImageIO would
     /// otherwise write a 16-bit PNG.
     @discardableResult
     static func write(_ image: CGImage, to url: URL, format: ExportFormat,
-                      colorSpace: CGColorSpace? = nil, quality: Double = 0.95) throws -> URL {
+                      quality: Double = 0.95) throws -> URL {
         var cg = image
         let needsEight = format.isEightBit
-        if needsEight || colorSpace != nil {
-            let target = colorSpace ?? cg.colorSpace ?? ImageDecoder.displayP3
-            // Re-draw only when something actually changes — a conversion is
-            // a full-resolution copy, and at 151 MP that is not free.
-            if needsEight || target.name != cg.colorSpace?.name {
-                guard let converted = redraw(cg, in: target, bitsPerComponent: needsEight ? 8 : 16)
-                    else { throw ExportError.noPixels }
-                cg = converted
-            }
+        if needsEight {
+            // Into the image's *own* space, so this is a depth reduction and
+            // not a conversion. The fallback is for a CGImage that arrived
+            // with no profile at all, which is the DI route.
+            guard let converted = redraw(cg, in: cg.colorSpace ?? CGColorSpaceCreateDeviceRGB(),
+                                         bitsPerComponent: 8) else { throw ExportError.noPixels }
+            cg = converted
         }
         guard let dest = CGImageDestinationCreateWithURL(url as CFURL, format.utType.identifier as CFString, 1, nil) else {
             throw ExportError.write(url)
@@ -386,11 +476,12 @@ enum Exporter {
     }
 
     enum ExportError: Error, LocalizedError {
-        case nothingOpen, noPixels, write(URL), directory(URL, String)
+        case nothingOpen, noPixels, write(URL), directory(URL, String), colourSpace(String)
         var errorDescription: String? {
             switch self {
             case .nothingOpen: "Nothing is open."
             case .noPixels: "The render came back empty."
+            case .colourSpace(let why): "Could not convert to the recipe's colour space: \(why)."
             case .write(let u): "Could not write \(u.lastPathComponent)."
             case .directory(let u, let why):
                 "Could not create \(u.path): \(why). Choose another folder in the export recipe."

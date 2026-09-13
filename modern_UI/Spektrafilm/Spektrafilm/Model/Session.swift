@@ -431,6 +431,31 @@ final class Session: CanvasHost {
     var stockWarning: String?
     var showExport = false
 
+    // MARK: - colour
+
+    /// The space the engine develops into, as the *engine* named it (RFC-018
+    /// §5.1). Read from every open reply rather than assumed: `spk_open`'s
+    /// convention is ProPhoto RGB, but an explicit `io.output_color_space` in
+    /// the delta wins, and the app's output transform has to convert from what
+    /// the engine actually rendered into — not from what it usually renders
+    /// into.
+    private(set) var workingSpaceName = Session.defaultWorkingSpace
+    /// Set when the conversion from the working space to the canvas's display
+    /// space could not be installed. Nil when it could.
+    ///
+    /// This is the one colour failure the canvas can have, and it is worth a
+    /// field rather than a log line: with no transform installed the canvas
+    /// draws working-space values through a Display P3 layer, which is a
+    /// washed-out picture and no error anywhere near it.
+    private(set) var colourProblem: String?
+    /// What the canvas draws in — `Renderer.drawableFormat`'s colour space,
+    /// and the target the output transform is installed with.
+    static let displaySpaceName = "Display P3"
+    /// What a session renders into when the engine has not said otherwise.
+    /// The engine's own default, spelled once here so the two can be compared
+    /// rather than silently agreed with.
+    static let defaultWorkingSpace = "ProPhoto RGB"
+
     // MARK: - the fast stock flip
 
     /// Print stocks with a shipped preview LUT, and what each was baked
@@ -1357,6 +1382,13 @@ final class Session: CanvasHost {
             guard selection == url, !Task.isCancelled else { return nil }
             serviceReady = true
             serviceSessionID = r.sessionID
+            // Before the first render can reach the canvas, so nothing is ever
+            // drawn in a space the layer cannot show. §5.1: the space comes
+            // from the reply, because an explicit `io.output_color_space` in a
+            // delta overrides the convention and this is the only place the
+            // app can find out which one it got.
+            await installOutputTransform(r.params["output_color_space"]?.stringValue
+                                         ?? Self.defaultWorkingSpace)
             serviceGeneration = scheduler.reset(sessionID: r.sessionID, params: sidecar.params)
             // What the engine's own auto-exposure chose for this frame. The
             // Exp. Comp. slider is an offset from it, so the UI has to know
@@ -1385,7 +1417,13 @@ final class Session: CanvasHost {
             applyRender(rr, generation: serviceGeneration)
             noteOpen(clock, url: url, mode: "develop",
                      pixels: CGSize(width: r.meta.width, height: r.meta.height))
-            statusBase = "\(url.lastPathComponent)  ·  \(r.meta.width)×\(r.meta.height)  ·  \(r.detectedInput.inputColorSpace)"
+            // What the status line names is the working space and the space on
+            // screen. It used to name the *input* space — a third thing again,
+            // so the bar read "ProPhoto RGB" under a Display P3 picture
+            // (RFC-018 §4.1). `detectedInput` still carries the input space
+            // for anyone who asks; it is just no longer presented as either of
+            // the two this line is about.
+            statusBase = "\(url.lastPathComponent)  ·  \(r.meta.width)×\(r.meta.height)  ·  \(colourSummary)"
             if let b = backend, b.isSlowPath {
                 // Loud, because the symptom is otherwise just "slow" and the
                 // cause is usually that the engine is not in this checkout.
@@ -1405,6 +1443,50 @@ final class Session: CanvasHost {
             status = "\(error)"
             if case EngineClient.ClientError.noResources = error { serviceReady = false }
             return nil
+        }
+    }
+
+    // MARK: - colour
+
+    /// What the status line says about colour: where the picture is being
+    /// graded, and where it is being shown. Both, because the point of
+    /// RFC-018 is that they are no longer the same space and the user should
+    /// be able to see which is which.
+    private var colourSummary: String {
+        // "not converted" rather than a `→ Display P3` that nothing performs:
+        // a status line that states a conversion which did not happen is worse
+        // than one that admits the picture is being shown raw.
+        guard colourProblem == nil, renderer.outputTransform != nil else {
+            return "\(workingSpaceName) · not converted"
+        }
+        return "\(workingSpaceName) → \(Self.displaySpaceName)"
+    }
+
+    /// Fetch the engine's numbers for working space → the canvas's Display P3
+    /// and install them on the renderer.
+    ///
+    /// Idempotent and cheap when the pair has been seen: `ColourManagement`
+    /// caches per (source, target), and a hit is a dictionary lookup rather
+    /// than a 147 ms C_max table rebuild.
+    private func installOutputTransform(_ source: String) async {
+        workingSpaceName = source
+        let (setup, problem) = await ColourManagement.setup(client: client, source: source,
+                                                            target: ImageDecoder.displayP3,
+                                                            device: renderer.device)
+        colourProblem = problem
+        if let setup {
+            renderer.setOutputTransform(setup)
+            log.info(.engine, "output_transform", [
+                .init("source", setup.sourceName),
+                .init("target", setup.targetName),
+                .init("gamut_compress", setup.compresses),
+            ])
+        } else if let problem {
+            // Written down as well as shown: the status line is the user's,
+            // and this is the one that a developer chasing a washed-out canvas
+            // needs.
+            log.warn(.engine, "output_transform_failed", [.init("source", source),
+                                                          .init("error", problem)])
         }
     }
 

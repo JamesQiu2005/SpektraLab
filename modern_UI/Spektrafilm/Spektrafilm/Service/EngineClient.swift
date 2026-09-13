@@ -75,6 +75,66 @@ struct DIOutcome: @unchecked Sendable {
     var progress: ProgressResponse?
 }
 
+/// `spk_output_transform`'s reply (RFC-018 §5.2), decoded.
+///
+/// Not a wire type and deliberately not in `Methods.swift`: nothing here
+/// crosses a process boundary any more, and this shape is the C ABI's rather
+/// than the transport's.
+struct OutputTransformReply: Decodable, Sendable {
+    let sourceColorSpace: String
+    let targetColorSpace: String
+    /// As `shaders/nodes.metal` numbers the curves. Read from the engine
+    /// rather than derived here: the mapping is the engine's, and a second
+    /// copy of it is a second chance to decode with one curve and encode with
+    /// another.
+    let sourceCctfMode: Int
+    let targetCctfMode: Int
+    /// Source linear RGB → target linear RGB, row-major.
+    let matrix: [Double]
+    let gamutCompress: GamutCompress
+
+    struct GamutCompress: Decodable, Sendable {
+        let algorithm: String
+        let mToXYZ: [Double]
+        let mToRGB: [Double]
+        /// The 22 CAM16 scalars `spk_cam16ucs_compress` reads out of `k`.
+        let consts: [Double]
+        let cmaxRows: Int
+        let cmaxCols: Int
+        let lightnessCompressionActive: Bool
+
+        enum CodingKeys: String, CodingKey {
+            case algorithm
+            case mToXYZ = "m_to_xyz"
+            case mToRGB = "m_to_rgb"
+            case consts = "k"
+            case cmaxRows = "cmax_rows"
+            case cmaxCols = "cmax_cols"
+            case lightnessCompressionActive = "lightness_compression_active"
+        }
+    }
+
+    enum CodingKeys: String, CodingKey {
+        case sourceColorSpace = "source_color_space"
+        case targetColorSpace = "target_color_space"
+        case sourceCctfMode = "source_cctf_mode"
+        case targetCctfMode = "target_cctf_mode"
+        case matrix
+        case gamutCompress = "gamut_compress"
+    }
+}
+
+/// One `spk_output_transform` fetch: the reply, and the C_max table it lent us.
+///
+/// The table is **copied out**, for the same reason `printLUTTable` copies:
+/// the engine's pointer is good for the engine's lifetime, and wrapping it
+/// would still be a dangling read the first time someone tears the engine down
+/// with a transform installed. 184 kB once per destination is not worth that.
+struct OutputTransformFetch: @unchecked Sendable {
+    let reply: OutputTransformReply
+    let cmax: [Float]
+}
+
 actor EngineClient {
     enum State: Sendable, Equatable { case stopped, starting, running, failed(String) }
 
@@ -384,6 +444,40 @@ actor EngineClient {
               let pointer, size > 1 else { throw ClientError.engine(lastError()) }
         let count = Int(size) * Int(size) * Int(size) * 3
         return (Int(size), Array(UnsafeBufferPointer(start: pointer, count: count)))
+    }
+
+    // MARK: - the output transform
+
+    /// Everything the app's own output transform needs to go from `src` to
+    /// `dst` (RFC-018 §5.2). A fetch, not a render: no pixels are touched here
+    /// and none are returned.
+    ///
+    /// An unknown space **throws** rather than falling back — the engine's own
+    /// rule, and the one thing this method must not paper over: a picture
+    /// quietly converted to a space nobody asked for is worse than a failure
+    /// that names the space.
+    ///
+    /// The gamut-compression settings are the engine's default because no wire
+    /// field can change them; a session has exactly one
+    /// (`GamutCompressSpec::output_default`), which is what passing NULL asks
+    /// for.
+    func outputTransform(src: String, dst: String) throws -> OutputTransformFetch {
+        if state != .running { try start() }
+        guard let engine else { throw ClientError.notRunning }
+        var json: UnsafeMutablePointer<CChar>?
+        var pointer: UnsafePointer<Float>?
+        var count: UInt32 = 0
+        let status = src.withCString { source in
+            dst.withCString { target in
+                spk_output_transform(engine, source, target, nil, &json, &pointer, &count)
+            }
+        }
+        guard status == SPK_OK else { throw ClientError.engine(lastError()) }
+        let reply: OutputTransformReply = try decode(json, as: OutputTransformReply.self)
+        guard let pointer, count > 0 else { throw ClientError.badResponse("no C_max table") }
+        return OutputTransformFetch(
+            reply: reply,
+            cmax: Array(UnsafeBufferPointer(start: pointer, count: Int(count))))
     }
 
     /// Flip to another print stock by table lookup rather than by re-running

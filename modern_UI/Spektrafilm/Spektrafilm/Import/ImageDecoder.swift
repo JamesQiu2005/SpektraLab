@@ -118,6 +118,15 @@ enum ImageDecoder {
 
     nonisolated(unsafe) static let displayP3 = CGColorSpace(name: CGColorSpace.displayP3)!
     nonisolated(unsafe) static let linearP3 = CGColorSpace(name: CGColorSpace.extendedLinearDisplayP3)!
+    /// The **working space**, as Core Graphics names it: ROMM RGB, γ1.8, D50 —
+    /// the same space `spk_open`'s convention and `ImageDecoder.linearProPhoto`
+    /// describe, at its own transfer function rather than linear.
+    ///
+    /// RFC-018 §2.1. The canvas's before/after texture is rendered into this,
+    /// not into Display P3: the print it is compared against is in the working
+    /// space, and a split comparing P3 against ProPhoto is comparing two
+    /// colour spaces rather than two renderings.
+    nonisolated(unsafe) static let workingSpace = CGColorSpace(name: CGColorSpace.rommrgb)
 
     /// One context for the whole app: Core Image contexts are expensive and
     /// cache compiled kernels.
@@ -266,9 +275,16 @@ enum ImageDecoder {
 
     // MARK: display preview
 
-    /// Render the *display* decode into a Display P3 texture for the canvas:
-    /// the picture shown before a develop, and the original the split and
-    /// Space compare the print against. Never the engine's input.
+    /// Render the *display* decode into a **working-space** texture for the
+    /// canvas: the picture shown before a develop, and the original the split
+    /// and Space compare the print against. Never the engine's input.
+    ///
+    /// ROMM rather than Display P3 since RFC-018 §3: the print beside it is in
+    /// the working space, so a preview rendered into P3 would put the two
+    /// halves of the before/after split in different colour spaces and the
+    /// comparison would be measuring the conversion rather than the grade.
+    /// The canvas converts it, along with everything else, in the output
+    /// transform — one conversion, at the end, per destination.
     static func makePreviewTexture(_ decoded: DecodedImage, device: MTLDevice, maxEdge: Int) -> MTLTexture? {
         let extent = decoded.display.extent
         guard extent.width > 0, extent.height > 0 else { return nil }
@@ -286,8 +302,12 @@ enum ImageDecoder {
         // a vertical flip so the texture's row 0 is the image's top row —
         // the canvas shader samples with (0,0) at the top.
         let flipped = scaled.transformed(by: CGAffineTransform(scaleX: 1, y: -1).translatedBy(x: 0, y: -target.height))
+        // The working space, and a fallback to Display P3 only if Core
+        // Graphics will not vend ROMM — which would put the original back in
+        // the wrong space, so it is worth a loud line if it ever happens.
+        let space = workingSpace ?? displayP3
         context.render(flipped, to: tex, commandBuffer: cb,
-                       bounds: CGRect(origin: .zero, size: target.size), colorSpace: displayP3)
+                       bounds: CGRect(origin: .zero, size: target.size), colorSpace: space)
         cb.commit()
         cb.waitUntilCompleted()
         return tex
