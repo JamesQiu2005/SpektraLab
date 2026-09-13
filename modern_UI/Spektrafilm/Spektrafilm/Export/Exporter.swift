@@ -139,11 +139,8 @@ enum Exporter {
         do {
             var result = format == .di
                 ? try await exportDI(session: session, to: out)
-                // The export page's output size belongs here — stream B's
-                // `ExportRecipe.outputSize`. It is `nil` until that field
-                // lands, which is the frame's own size (see `exportPrint`).
                 : try await exportPrint(session: session, to: out, format: format,
-                                        target: target, outputSize: nil,
+                                        target: target, outputSize: recipe.pixelSize,
                                         quality: recipe.quality, sessionID: sessionID)
             // The fallback's reason, if the route did not have one of its own.
             // Merged rather than set, because the DI route has a note of its

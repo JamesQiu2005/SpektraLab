@@ -435,12 +435,11 @@ struct ExportRecipe: Codable, Identifiable, Hashable, Sendable {
     var existing: ExistingFilePolicy = .addSuffix
     /// JPEG only, 0…1.
     var quality: Double = 0.95
-    /// The pixels to write. **Carried, shown and proved, but not yet
-    /// applied**: `Exporter` writes the frame at its own size and has no
-    /// resize step, and that file belongs to the pixels stream (RFC-018 §8).
-    /// The page therefore states the size it will actually get rather than
-    /// letting the control promise one the file will not keep — see
-    /// `ExportPage.effectiveSizeNote`.
+    /// The pixels to write. Applied by `Exporter.exportPrint` through
+    /// `Renderer.applyResize` — the same `geometryResample` the canvas
+    /// samples with — after the geometry and *before* the output transform,
+    /// so the proof's clipping statistics describe the pixels that reach the
+    /// file rather than a larger set that was resampled away.
     var outputSize: OutputSize = .original
     /// Hand the finished files to this application. `nil` is "None", which is
     /// the default and opens nothing.
@@ -521,6 +520,17 @@ struct ExportRecipe: Codable, Identifiable, Hashable, Sendable {
                 if !fileManager.fileExists(atPath: u.path) { return u }
             }
             return first
+        }
+    }
+
+    /// `outputSize` as the export path wants it: a size in pixels, or nil for
+    /// the frame's own. Kept here rather than in `Exporter` so the page and
+    /// the file read the same field through the same accessor — a second
+    /// reading of `.custom` is a second chance to round it differently.
+    var pixelSize: CGSize? {
+        switch outputSize {
+        case .original: nil
+        case .custom(let w, let h): w > 0 && h > 0 ? CGSize(width: w, height: h) : nil
         }
     }
 

@@ -150,20 +150,20 @@ final class ExportRecipeTests: XCTestCase {
     func testAFrameThatFitsSaysNothing() {
         let proof = SoftProof(image: blankImage(), target: CGColorSpaceCreateDeviceRGB(),
                               targetName: "sRGB", exportPixelSize: CGSize(width: 10, height: 10),
-                              compressedFraction: 0, clippedFraction: 0, isPlaceholder: false)
+                              compressedFraction: 0, clippedFraction: 0, movedFraction: 0, isPlaceholder: false)
         XCTAssertTrue(ProofCaveat.lines(for: proof).isEmpty)
         // And just under the threshold is still silence.
         let quiet = SoftProof(image: blankImage(), target: CGColorSpaceCreateDeviceRGB(),
                               targetName: "sRGB", exportPixelSize: CGSize(width: 10, height: 10),
                               compressedFraction: 0.00009, clippedFraction: 0.00009,
-                              isPlaceholder: false)
+                              movedFraction: 0, isPlaceholder: false)
         XCTAssertTrue(ProofCaveat.lines(for: quiet).isEmpty)
     }
 
     func testAPictureThatDoesNotFitSaysSoAndSaysWhatItLost() {
         let rolled = SoftProof(image: blankImage(), target: CGColorSpaceCreateDeviceRGB(),
                                targetName: "sRGB", exportPixelSize: CGSize(width: 10, height: 10),
-                               compressedFraction: 0.04, clippedFraction: 0, isPlaceholder: false)
+                               compressedFraction: 0.04, clippedFraction: 0, movedFraction: 0, isPlaceholder: false)
         let lines = ProofCaveat.lines(for: rolled)
         XCTAssertEqual(lines.count, 1)
         XCTAssertFalse(lines[0].isWarning, "a rolled-in pixel kept its detail; it is not a warning")
@@ -173,7 +173,7 @@ final class ExportRecipeTests: XCTestCase {
         // the accent.
         let cut = SoftProof(image: blankImage(), target: CGColorSpaceCreateDeviceRGB(),
                             targetName: "sRGB", exportPixelSize: CGSize(width: 10, height: 10),
-                            compressedFraction: 0, clippedFraction: 0.02, isPlaceholder: false)
+                            compressedFraction: 0, clippedFraction: 0.02, movedFraction: 0, isPlaceholder: false)
         XCTAssertEqual(ProofCaveat.lines(for: cut).map(\.isWarning), [true])
     }
 
