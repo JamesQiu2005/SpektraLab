@@ -233,12 +233,26 @@ struct ExportPage: View {
         var frame: URL?
         var space: ExportColorSpace
         var takesColour: Bool
+        /// The recipe's own output size, because it is a size the *file* will
+        /// have — the proof is the file's pixels now, so anything that changes
+        /// how many there are changes the proof. (It is a size, unlike the
+        /// next field, and it comes from the recipe rather than the window.)
+        var outputSize: OutputSize
+        /// Whether the centre has a pane to draw in — **not a proof input but
+        /// a cost input**, and the one thing here that does not change a
+        /// pixel. In Grid mode there is no pane at all, and a full-resolution
+        /// proof is seconds of engine time. It is a `Bool` and not `paneSize`
+        /// for the reason above: a resize must not re-key this, and a resize
+        /// cannot change whether a pane exists.
+        var hasPane: Bool
     }
 
     private var proofKey: ProofKey {
         ProofKey(frame: session.selection,
                  space: recipe.wrappedValue.colorSpace,
-                 takesColour: recipe.wrappedValue.format.takesColorSpace)
+                 takesColour: recipe.wrappedValue.format.takesColorSpace,
+                 outputSize: recipe.wrappedValue.outputSize,
+                 hasPane: paneSize.width > 1)
     }
 
     /// **The proof is asked for at the file's own size.** The user: "that's
@@ -246,19 +260,16 @@ struct ExportPage: View {
     /// exported image look like, with the full set export resolution, instead
     /// of the current preview cache."
     ///
-    /// **This is necessary and not sufficient, and the difference is worth
-    /// stating rather than leaving to be discovered.** `maxPixels` is one of
-    /// two things bounding the proof and it is the smaller one: `softProof`
-    /// also clamps to the tier on the canvas —
-    ///
-    ///     let ceiling = min(exportSize, framed)   // `framed` is the preview
-    ///
-    /// — so with `Int.max` here the proof still comes back 2678 × 1785 on a
-    /// 6000 × 4000 frame. Measured. Making it the file's pixels means
-    /// `softProof` rendering from a **full-tier source**, which is the pixels
-    /// stream's file and the change asked for there; until it lands this line
-    /// removes the budget and nothing else does.
-    private static let everyPixel = Int.max
+    /// That took two changes, and the first was not enough on its own — worth
+    /// keeping because the second is not where anyone would look for it.
+    /// Removing the `maxPixels` budget here was measured, at the time, to
+    /// leave the proof coming back 2678 × 1785 on a 6000 × 4000 frame: the
+    /// budget was the *smaller* of two bounds, and `softProof` also clamped to
+    /// the tier on the canvas (`min(exportSize, framed)`, where `framed`
+    /// descends from the preview). Both are gone — `softProof` is
+    /// `Exporter.filePixels`, which renders the full-tier source the export
+    /// writes from — so there is no size argument left to pass and no ceiling
+    /// left to miss.
 
     /// Renders the proof, keeping whatever is already on screen until the new
     /// one is ready.
@@ -275,14 +286,17 @@ struct ExportPage: View {
         guard paneSize.width > 1 else { return }
         proving = true
         defer { proving = false }
-        // Nothing on the canvas yet (the page opened from Browse, say): ask
-        // for the develop the way every other view that wants a picture does.
-        if session.serviceSessionIDForExport == nil { _ = await session.ensureDeveloped() }
-        let made = await session.softProof(recipe: recipe.wrappedValue,
-                                           maxPixels: Self.everyPixel)
-        // A superseded render's result is dropped rather than shown: the pane
-        // is already showing the previous proof, which is a truer thing to
-        // look at than a picture of a recipe the person has moved on from.
+        // The develop, if the frame has not been through one, is `softProof`'s
+        // — it is the same request for the page and for the export, so it is
+        // asked for on the side both of them share rather than here.
+        //
+        // Cancellation is the task's too: a superseded call returns nil rather
+        // than a stale picture, so a keystroke that changes the key does not
+        // have to be waited on and cannot land the old proof. A superseded
+        // render's result is dropped rather than shown — the pane is already
+        // showing the previous proof, which is a truer thing to look at than a
+        // picture of a recipe the person has moved on from.
+        let made = await session.softProof(recipe: recipe.wrappedValue)
         guard !Task.isCancelled else { return }
         // An edit puts the render back: `filePreview` describes one file that
         // exists, and this key changing means the next one will not be it.
@@ -1025,18 +1039,23 @@ struct ExportPage: View {
     /// The long version, one hover away: what a proof is, one size, and both
     /// spaces. Cheap to reach, and not in the way.
     private func captionHelp(_ proof: SoftProof) -> String {
-        let pixels = "\(Int(proof.exportPixelSize.width)) × \(Int(proof.exportPixelSize.height))"
+        // One size, and it is the image's: there is no `exportPixelSize` any
+        // more, because there is no second size for it to be. The line below
+        // used to say "the file *will be*", which was true while the proof was
+        // a sample of it.
+        let pixels = "\(proof.image.width) × \(proof.image.height)"
         let canvas = session.workingSpaceName
         var lines = [
             "The picture above is a proof: the file's own pixels, through the same "
             + "conversion the export will run.",
-            "The file will be \(pixels) px, in \(proof.targetName).",
+            "The file is \(pixels) px, in \(proof.targetName).",
         ]
         if proof.targetName != canvas { lines.append("The canvas is in \(canvas).") }
         if let detail = ProofCaveat.explain(proof) { lines.append(detail) }
         return lines.joined(separator: "\n")
     }
 
+    /// The one-line caption. See `captionHelp` for the rest of it.
     private func spaceLine(_ proof: SoftProof) -> String {
         let canvas = session.workingSpaceName
         return proof.targetName == canvas

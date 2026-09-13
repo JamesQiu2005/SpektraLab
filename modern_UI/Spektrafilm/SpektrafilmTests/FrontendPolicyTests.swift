@@ -30,21 +30,51 @@ final class FrontendPolicyTests: XCTestCase {
         XCTAssertTrue(Session.wantsFullRender(frameLongEdge: 3000, previewEdge: 2560))
     }
 
-    /// The setting: what a fresh install gets, and the range it is clamped to
-    /// at both ends. The clamp matters because the value crosses the wire,
-    /// where the engine's own range check would reject it as a user error.
-    func testThePreviewResolutionDefaultsAndClamps() {
+    /// The setting: what a fresh install gets, the range it is clamped to at
+    /// both ends, and that setting it sticks.
+    ///
+    /// The clamp matters because the value crosses the wire, where the
+    /// engine's own range check would reject it as a user error.
+    ///
+    /// **"A fresh install" is asserted on a throwaway suite, not on
+    /// `Session().previewLongEdge`.** That reads the process-wide store, so it
+    /// asserts about *this machine* rather than about the code — and it did
+    /// fail for exactly that reason, on a value (1200) left behind by a test
+    /// whose `UserDefaults` write outlived a killed run. `PanelWidthStore` is
+    /// read the same way for the same reason. What survives from that version
+    /// is the setter half, which is the app's own path.
+    func testThePreviewResolutionDefaultsAndClamps() throws {
         XCTAssertEqual(Session.defaultPreviewEdge, 2560)
         XCTAssertEqual(Session.previewEdgeRange, 800...8192)
+
+        let suite = "preview-edge-\(UUID().uuidString)"
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suite))
+        defer { defaults.removePersistentDomain(forName: suite) }
+        XCTAssertEqual(Session.previewEdge(in: defaults), Session.defaultPreviewEdge,
+                       "a fresh install does not start at the default")
+        // Read back through the throwaway suite, so nothing here can be
+        // poisoned by the machine — including the argument domain, which is
+        // how `-ui2.previewLongEdge 6000` reaches the app and which
+        // `removeVolatileDomain(forName:)` cannot unset.
+        defaults.set(6000, forKey: Session.previewEdgeKey)
+        XCTAssertEqual(Session.previewEdge(in: defaults), 6000,
+                       "a stored resolution did not come back")
+        defaults.set(99_999, forKey: Session.previewEdgeKey)
+        XCTAssertEqual(Session.previewEdge(in: defaults), 8192, "the ceiling did not clamp")
+        defaults.set(100, forKey: Session.previewEdgeKey)
+        XCTAssertEqual(Session.previewEdge(in: defaults), 800, "the floor did not clamp")
+
+        // And the setter, on a live session: it clamps *and* writes, which is
+        // what a stored value has to survive.
         let session = Session()
         let original = session.previewLongEdge
         addTeardownBlock { UserDefaults.standard.set(original, forKey: Session.previewEdgeKey) }
-        XCTAssertEqual(session.previewLongEdge, Session.defaultPreviewEdge,
-                       "a fresh install does not start at the default")
         session.setPreviewLongEdge(100)
         XCTAssertEqual(session.previewLongEdge, 800, "the floor did not clamp")
         session.setPreviewLongEdge(99_999)
         XCTAssertEqual(session.previewLongEdge, 8192, "the ceiling did not clamp")
+        XCTAssertEqual(Session.previewEdge(in: .standard), 8192,
+                       "the setter did not write through to the store")
     }
 
     /// The label, and everything that reads it, is measured against the

@@ -12,13 +12,16 @@
 //
 //  **Both routes are native now.** They used to call a Python service that
 //  wrote files into a workspace and returned paths; the engine returns
-//  textures and a pointer to the LUT table, and the three files — the DI
-//  TIFF, the `.cube`, the optional print preview — are written here. That is
-//  where they belong: ImageIO is already how the finished formats are
-//  written, and `writeCube` is thirty lines of text formatting that no C++
-//  file writer needs to exist for.
+//  textures and a pointer to the LUT table, and the DI package's two files —
+//  the density TIFF and the `.cube` — are written here. That is where they
+//  belong: ImageIO is already how the finished formats are written, and
+//  `writeCube` is thirty lines of text formatting that no C++ file writer
+//  needs to exist for.
 //
-//  Filenames: `<original>_<film>_<paper>.<ext>` in `<source dir>/_prints/`.
+//  Filenames: `<original>_<film>_<paper>.<ext>` in `<source dir>/_prints/`,
+//  and for the DI package inside `<stem>/` under that, because the TIFF and
+//  its cube are one artifact and would otherwise share a filename with the
+//  finished TIFF (`ExportRecipe.destinationPath`).
 
 import AppKit
 import Foundation
@@ -127,9 +130,26 @@ enum Exporter {
                 .init("frame", source.lastPathComponent),
                 .init("recipe", recipe.name),
             ])
-            let existing = dir.appending(path: "\(recipe.naming.stem(context)).\(format.ext)")
+            let existing = recipe.destinationPath(for: source, context: context,
+                                                  stem: recipe.naming.stem(context))
             return .skipped(existing)
         }
+        // The DI package's file sits in a folder of its own
+        // (`ExportRecipe.destinationPath`), so the leaf is created here too,
+        // in the same place and for the same reason as `dir`: this is the only
+        // site that can tell the user a directory could not be made.
+        let leaf = out.deletingLastPathComponent()
+        do {
+            try FileManager.default.createDirectory(at: leaf, withIntermediateDirectories: true)
+        } catch {
+            throw ExportError.directory(leaf, error.localizedDescription)
+        }
+        // The job log goes beside the **export**, and for a package the export
+        // is the folder: writing it beside the file would put a third thing
+        // inside a package the user asked to be one TIFF and one cube. One
+        // level up is still "beside" — the same `_prints/` folder every other
+        // export's log lands in, under the same name it has today.
+        let logAnchor = format == .di ? leaf : out
         let (target, _, fellBack, fellBackReason) = resolveTarget(recipe)
         var job = JobLog()
         job.note(.info, "export.start", jobHeader(session: session, recipe: recipe, out: out,
@@ -140,8 +160,8 @@ enum Exporter {
             var result = format == .di
                 ? try await exportDI(session: session, to: out)
                 : try await exportPrint(session: session, to: out, format: format,
-                                        target: target, outputSize: recipe.pixelSize,
-                                        quality: recipe.quality, sessionID: sessionID)
+                                        quality: recipe.quality, recipe: recipe,
+                                        sessionID: sessionID)
             // The fallback's reason, if the route did not have one of its own.
             // Merged rather than set, because the DI route has a note of its
             // own (a film/paper mismatch) and losing it to a colour note would
@@ -158,7 +178,7 @@ enum Exporter {
                 .init("files", result.urls.count),
                 .init("ev", result.appliedEV ?? Double.nan),
             ])
-            try? job.write(beside: out)
+            try? job.write(beside: logAnchor)
             noteExport(session, recipe: recipe, result: result, elapsedMs: elapsed,
                        fellBack: fellBack, job: job)
             // §3: after an export is a memory boundary — the full-tier render
@@ -171,7 +191,7 @@ enum Exporter {
                 .init("error", "\(error)"),
                 .init("raw", EngineMessage.technical(error)),
             ])
-            try? job.write(beside: out)
+            try? job.write(beside: logAnchor)
             session.noteFailure(error, operation: "export", frame: source.lastPathComponent)
             throw error
         }
@@ -188,6 +208,11 @@ enum Exporter {
             .init("ext", format.ext),
             .init("bit_depth", depth(format)),
             .init("color_space", colourSpace(recipe)),
+            // The file has a second picture in it, and the record of what was
+            // written should say so: a preview is about a tenth of the file,
+            // and "why is this TIFF bigger than that one" is a question this
+            // log exists to answer.
+            .init("preview_page", writesPreviewPage(recipe)),
             .init("recipe", recipe.name),
             .init("profile_fell_back", fellBack),
             .init("elapsed_ms", elapsedMs),
@@ -283,26 +308,35 @@ enum Exporter {
         ]
     }
 
-    /// Render, grade, frame, size, convert, write — in that order, and the
-    /// order is the whole of RFC-018's export claim.
+    /// The file's pixels, before anything is written: **render, grade, frame,
+    /// size, convert** — in that order, which is the whole of RFC-018's export
+    /// claim.
     ///
-    /// The last two steps are the ones that changed: the image is converted to
-    /// the recipe's space by **our** output transform (§5.4), which rolls
-    /// out-of-gamut colour off instead of clipping it, and `write` is then
-    /// handed pixels that are already in the target and never converts a
-    /// colour. The old path rendered in Display P3 and let Core Graphics clip
-    /// into the destination — `redraw`'s colour branch, which is gone.
+    /// This is the one chain. `exportPrint` writes what it returns and
+    /// `Session.softProof` shows it, so "the proof is the file" (§7.6) is a
+    /// property of the code rather than of two sequences of the same steps
+    /// that happen to agree — which is what it was, and what made the claim
+    /// conditional on the canvas happening to hold the frame's own pixels.
     ///
-    /// `outputSize` is the export page's output size (nil = the frame's own).
-    /// It is applied **before** the transform so the transform and its clip
-    /// statistics run on the pixels that actually reach the file.
-    private static func exportPrint(session: Session, to out: URL, format: ExportFormat,
-                                    target: CGColorSpace, outputSize: CGSize?, quality: Double,
-                                    sessionID: String) async throws -> Result {
-        // `.export` is a full-tier reprint: the engine reuses the working
-        // negative when one is warm and runs the film side when it is not.
+    /// The source is a **full-tier reprint**, the same request the export
+    /// makes: the proof cannot be bounded by whatever tier the canvas is
+    /// showing, because that is not what gets written. `.export` reuses the
+    /// working negative when one is warm and runs the film side when it is
+    /// not.
+    ///
+    /// The recipe's own output size, when it names one, is applied **before**
+    /// the transform — so the transform and its clip statistics run on the
+    /// pixels that actually reach the file rather than on a larger set that
+    /// was resampled away, and so the proof of a resized recipe is that size
+    /// too.
+    ///
+    /// Throws `CancellationError` if the task is cancelled — a superseded
+    /// proof is not a stale picture, it is no picture.
+    static func filePixels(session: Session, recipe: ExportRecipe, sessionID: String) async throws -> Rendered {
+        let (target, _, _, _) = resolveTarget(recipe)
         let outcome = try await session.client.render(
             .export, RenderRequest(sessionID: sessionID, tier: "full"))
+        try Task.checkCancellation()
         guard let full = outcome.texture else { throw ExportError.noPixels }
         guard let adjusted = session.renderer.applyLayer2(to: full, uniforms: session.adjustments.uniforms)
             else { throw ExportError.noPixels }
@@ -314,8 +348,9 @@ enum Exporter {
         let framed = session.renderer.applyGeometry(session.geometry, to: adjusted) ?? adjusted
         // The page's output size, through the geometry pass's own resampler.
         let sized: MTLTexture
-        if let outputSize {
-            guard let resized = session.renderer.applyResize(framed, width: Int(outputSize.width.rounded()),
+        if let outputSize = recipe.pixelSize {
+            guard let resized = session.renderer.applyResize(framed,
+                                                             width: Int(outputSize.width.rounded()),
                                                              height: Int(outputSize.height.rounded()))
             else { throw ExportError.noPixels }
             sized = resized
@@ -323,8 +358,7 @@ enum Exporter {
             sized = framed
         }
         // The one conversion, at the end, out of the working space and into
-        // the destination — the same kernel the canvas and the soft proof run,
-        // which is what makes the proof a proof.
+        // the destination — the same kernel the canvas and the soft proof run.
         let (setup, problem) = await ColourManagement.setup(client: session.client,
                                                             source: session.workingSpaceName,
                                                             target: target,
@@ -333,17 +367,48 @@ enum Exporter {
         guard let converted = session.renderer.applyOutputTransform(to: sized, setup: setup)
         else { throw ExportError.noPixels }
         guard let cg = converted.texture.makeCGImage(space: target) else { throw ExportError.noPixels }
-        try write(cg, to: out, format: format, quality: quality)
-        return Result(urls: [out], note: nil,
-                      appliedEV: outcome.progress?.autoExposureEV,
-                      pixels: (converted.texture.width, converted.texture.height))
+        return Rendered(image: cg, stats: converted.stats, target: target,
+                        pixels: (converted.texture.width, converted.texture.height),
+                        appliedEV: outcome.progress?.autoExposureEV)
+    }
+
+    /// What `filePixels` produced: the picture, and the numbers §7 asks of it.
+    struct Rendered {
+        let image: CGImage
+        let stats: OutputTransformStats
+        let target: CGColorSpace
+        let pixels: (w: Int, h: Int)
+        let appliedEV: Double?
+    }
+
+    private static func exportPrint(session: Session, to out: URL, format: ExportFormat,
+                                    quality: Double, recipe: ExportRecipe,
+                                    sessionID: String) async throws -> Result {
+        let r = try await filePixels(session: session, recipe: recipe, sessionID: sessionID)
+        let preview = writesPreviewPage(recipe) ? preview(of: r.image) : nil
+        try write(r.image, to: out, format: format, quality: quality, preview: preview)
+        return Result(urls: [out], note: nil, appliedEV: r.appliedEV, pixels: r.pixels)
     }
 
     // MARK: - the DI package
 
-    /// Three files: the normalised-density negative, the print stock's
-    /// `.cube`, and a print preview so the flat file can be checked against
-    /// what the LUT does to it.
+    /// **Two files, in one folder of their own**: the normalised-density
+    /// negative and the print stock's `.cube`. The folder is
+    /// `ExportRecipe.destinationPath`'s — `<stem>/` inside the recipe's own
+    /// subfolder — and it exists because a package is one artifact: the cube's
+    /// domain *is* the TIFF's numbers.
+    ///
+    /// The print preview used to be a third file beside them. It is now **IFD1
+    /// of the density TIFF** — the same picture, inside the file whose numbers
+    /// it is a picture *of*, and no longer a file that could be separated from
+    /// them. Two things about that are load-bearing:
+    ///
+    ///  * `kCGImageDestinationEmbedThumbnail` does **nothing** for TIFF.
+    ///    Measured: the file comes out byte-identical with and without it. A
+    ///    second page is the mechanism TIFF actually has;
+    ///  * the preview carries its own profile and IFD0 does not, so the
+    ///    density channels stay untagged (`testTheDIFileIsNotTaggedAsAColour`)
+    ///    and the cube's domain does not move.
     ///
     /// The geometry is already in the negative — `node_geometry` runs on the
     /// film side, before the density curves — so the crop and the straighten
@@ -360,27 +425,26 @@ enum Exporter {
         // ImageIO for the most nearly untagged thing it will write.
         guard let cg = texture.makeCGImage(space: CGColorSpaceCreateDeviceRGB())
             else { throw ExportError.noPixels }
-        try write(cg, to: out, format: .tiff)
 
-        let base = out.deletingPathExtension()
-        let cube = base.deletingLastPathComponent()
-            .appending(path: "\(base.lastPathComponent)_\(di.meta.printStock).cube")
+        // The same table applied to the same negative, which is what
+        // `preview_stock_lut` is. At the **live** tier, not the full one: a
+        // preview's job is to be small, and a full-tier one would add a second
+        // full-resolution image to the file. Its failure is not the export's —
+        // the two things that carry the grade are the density TIFF and the
+        // cube — so a missing preview is a preview-less package and not a
+        // failed one.
+        let preview = (try? await session.client.previewStockLUT(di.meta.printStock, tier: "live"))
+            .flatMap { $0.texture?.makeCGImage() }
+
+        try write(cg, to: out, format: .tiff, preview: preview)
+
+        let stem = out.deletingPathExtension().lastPathComponent
+        let cube = out.deletingLastPathComponent().appending(path: "\(stem)_\(di.meta.printStock).cube")
         let table = try await session.client.printLUTTable(di.meta.printStock)
         try writeCube(table.table, size: table.size, to: cube,
                       title: "spektrafilm \(di.meta.printStock) print (from \(di.meta.pairedFilm))")
 
-        var urls = [out, cube]
-        // The print preview is the same table applied to the same negative,
-        // which is what `preview_stock_lut` is. It is written last and its
-        // failure is not the export's: the two files that carry the grade are
-        // already on disk.
-        if let preview = try? await session.client.previewStockLUT(di.meta.printStock, tier: "full"),
-           let tex = preview.texture, let cg = tex.makeCGImage() {
-            let path = base.deletingLastPathComponent()
-                .appending(path: "\(base.lastPathComponent)_print.tif")
-            if (try? write(cg, to: path, format: .tiff)) != nil { urls.append(path) }
-        }
-        return Result(urls: urls, note: di.meta.warning,
+        return Result(urls: [out, cube], note: di.meta.warning,
                       appliedEV: di.progress?.autoExposureEV,
                       pixels: (di.width, di.height))
     }
@@ -434,9 +498,15 @@ enum Exporter {
     ///
     /// Bit depth is decided by the format, not by the caller: ImageIO would
     /// otherwise write a 16-bit PNG.
+    /// `preview` is written as a **second page** — IFD1 — and is the only
+    /// multi-page case there is: the DI package's density channels are not a
+    /// picture, so the file carries a picture for whoever opens it. It goes
+    /// through the same depth reduction as the main image (a preview is not
+    /// worth 16 bits) and keeps its own profile, which is what lets IFD0 stay
+    /// untagged.
     @discardableResult
     static func write(_ image: CGImage, to url: URL, format: ExportFormat,
-                      quality: Double = 0.95) throws -> URL {
+                      quality: Double = 0.95, preview: CGImage? = nil) throws -> URL {
         var cg = image
         let needsEight = format.isEightBit
         if needsEight {
@@ -447,13 +517,20 @@ enum Exporter {
                                          bitsPerComponent: 8) else { throw ExportError.noPixels }
             cg = converted
         }
-        guard let dest = CGImageDestinationCreateWithURL(url as CFURL, format.utType.identifier as CFString, 1, nil) else {
+        var small: CGImage?
+        if let preview {
+            small = redraw(preview, in: preview.colorSpace ?? CGColorSpaceCreateDeviceRGB(),
+                           bitsPerComponent: 8)
+        }
+        guard let dest = CGImageDestinationCreateWithURL(
+            url as CFURL, format.utType.identifier as CFString, small == nil ? 1 : 2, nil) else {
             throw ExportError.write(url)
         }
         var props: [CFString: Any] = [:]
         if format == .jpeg { props[kCGImageDestinationLossyCompressionQuality] = quality.clamped(to: 0.1...1) }
         if format == .tiff { props[kCGImagePropertyTIFFDictionary] = [kCGImagePropertyTIFFCompression: 5] }
         CGImageDestinationAddImage(dest, cg, props as CFDictionary)
+        if let small { CGImageDestinationAddImage(dest, small, nil) }
         guard CGImageDestinationFinalize(dest) else { throw ExportError.write(url) }
         return url
     }
@@ -462,14 +539,74 @@ enum Exporter {
     /// context it does it in. 16-bit needs the little-endian byte order flag
     /// — without it the context is created but the channels come out
     /// byte-swapped, which looks like a colour-management bug and is not one.
-    private static func redraw(_ cg: CGImage, in space: CGColorSpace, bitsPerComponent: Int) -> CGImage? {
+    ///
+    /// `size` is the context's, so a caller can ask for a *resample* rather
+    /// than a copy — the preview page is the only one that does.
+    private static func redraw(_ cg: CGImage, in space: CGColorSpace, bitsPerComponent: Int,
+                               size: CGSize? = nil) -> CGImage? {
+        let w = Int(size?.width ?? CGFloat(cg.width))
+        let h = Int(size?.height ?? CGFloat(cg.height))
+        guard w > 0, h > 0 else { return nil }
         var info = CGImageAlphaInfo.noneSkipLast.rawValue
         if bitsPerComponent == 16 { info |= CGBitmapInfo.byteOrder16Little.rawValue }
-        guard let ctx = CGContext(data: nil, width: cg.width, height: cg.height,
+        guard let ctx = CGContext(data: nil, width: w, height: h,
                                   bitsPerComponent: bitsPerComponent, bytesPerRow: 0,
                                   space: space, bitmapInfo: info) else { return nil }
-        ctx.draw(cg, in: CGRect(x: 0, y: 0, width: cg.width, height: cg.height))
+        ctx.interpolationQuality = .high
+        ctx.draw(cg, in: CGRect(x: 0, y: 0, width: w, height: h))
         return ctx.makeImage()
+    }
+
+    /// The long edge of a preview page. **Chosen, not measured** — the one
+    /// number here that is.
+    ///
+    /// It sits between the app's interactive tier (1600, what a screenful
+    /// costs) and the file's own size, and it is what the export page shows
+    /// once the file exists, so it has to survive being looked at rather than
+    /// being a thumbnail. 2048 is a 5K pane's width at 1× and a laptop pane's
+    /// at 2×; at 8 bits it makes a 6000 × 4000 TIFF's preview about a tenth
+    /// of the file, which is the figure the user was given when they chose
+    /// this as a per-recipe option. Move it if the page wants a different
+    /// picture on screen — nothing else depends on it.
+    static let previewLongEdge = 2048
+
+    /// Whether this recipe's file carries a preview page: the rule the writer
+    /// follows and the job log records, in one place so they cannot disagree.
+    ///
+    /// Two routes answer it differently, and each for its own reason. An
+    /// ordinary TIFF's is the recipe's — **off by default**, so no existing
+    /// recipe's bytes move. The DI package's is unconditional, whatever the
+    /// flag says: its other two files are density and a `.cube`, so the
+    /// preview is the only rendered picture in it (`exportDI`, and the field's
+    /// own doc comment, which says this so nobody later "fixes" the
+    /// inconsistency).
+    static func writesPreviewPage(_ recipe: ExportRecipe) -> Bool {
+        recipe.format == .di || (recipe.embedsPreview && recipe.format.carriesPreviewPage)
+    }
+
+    /// A **faithful small copy** of the file's own pixels: resampled, in the
+    /// file's own space, 8-bit.
+    ///
+    /// Not a second render of the frame, which is the distinction that makes
+    /// this worth having. The page shows the render before an export and the
+    /// file's embedded preview after one; a preview produced by re-rendering
+    /// would be a version of the *frame*, free to differ from the file in
+    /// exactly the ways the page exists to show. This is the file, smaller.
+    ///
+    /// **A page, whenever one was asked for** — including for an export
+    /// smaller than `longEdge`, where the page is the file's own size. The
+    /// tempting alternative is to return nil there and save a copy of a small
+    /// image, and it costs more than it saves: the reader's rule would become
+    /// "the flag is on *and* the file is big enough", and a page that quietly
+    /// falls back to the render is indistinguishable from one that never
+    /// asked. `nil` is reserved for an image with no pixels at all.
+    static func preview(of image: CGImage, longEdge: Int = previewLongEdge) -> CGImage? {
+        let w = CGFloat(image.width), h = CGFloat(image.height)
+        guard w > 0, h > 0 else { return nil }
+        let scale = min(1, CGFloat(longEdge) / max(w, h))
+        let size = CGSize(width: (w * scale).rounded(), height: (h * scale).rounded())
+        return redraw(image, in: image.colorSpace ?? CGColorSpaceCreateDeviceRGB(),
+                      bitsPerComponent: 8, size: size)
     }
 
     enum ExportError: Error, LocalizedError {

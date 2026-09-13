@@ -149,12 +149,12 @@ final class ExportRecipeTests: XCTestCase {
     /// warns on every export is a page whose warnings are read as noise.
     func testAFrameThatFitsSaysNothing() {
         let proof = SoftProof(image: blankImage(), target: CGColorSpaceCreateDeviceRGB(),
-                              targetName: "sRGB", exportPixelSize: CGSize(width: 10, height: 10),
+                              targetName: "sRGB",
                               compressedFraction: 0, clippedFraction: 0, movedFraction: 0, isPlaceholder: false)
         XCTAssertTrue(ProofCaveat.lines(for: proof).isEmpty)
         // And just under the threshold is still silence.
         let quiet = SoftProof(image: blankImage(), target: CGColorSpaceCreateDeviceRGB(),
-                              targetName: "sRGB", exportPixelSize: CGSize(width: 10, height: 10),
+                              targetName: "sRGB",
                               compressedFraction: 0.00009, clippedFraction: 0.00009,
                               movedFraction: 0, isPlaceholder: false)
         XCTAssertTrue(ProofCaveat.lines(for: quiet).isEmpty)
@@ -162,7 +162,7 @@ final class ExportRecipeTests: XCTestCase {
 
     func testAPictureThatDoesNotFitSaysSoAndSaysWhatItLost() {
         let rolled = SoftProof(image: blankImage(), target: CGColorSpaceCreateDeviceRGB(),
-                               targetName: "sRGB", exportPixelSize: CGSize(width: 10, height: 10),
+                               targetName: "sRGB",
                                compressedFraction: 0.04, clippedFraction: 0, movedFraction: 0, isPlaceholder: false)
         let lines = ProofCaveat.lines(for: rolled)
         XCTAssertEqual(lines.count, 1)
@@ -172,7 +172,7 @@ final class ExportRecipeTests: XCTestCase {
         // Clipping is the one that lost something, so it is the one drawn in
         // the accent.
         let cut = SoftProof(image: blankImage(), target: CGColorSpaceCreateDeviceRGB(),
-                            targetName: "sRGB", exportPixelSize: CGSize(width: 10, height: 10),
+                            targetName: "sRGB",
                             compressedFraction: 0, clippedFraction: 0.02, movedFraction: 0, isPlaceholder: false)
         XCTAssertEqual(ProofCaveat.lines(for: cut).map(\.isWarning), [true])
     }

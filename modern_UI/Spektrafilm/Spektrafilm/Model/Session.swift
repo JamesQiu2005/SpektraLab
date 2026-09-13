@@ -576,9 +576,24 @@ final class Session: CanvasHost {
 
     /// The long edge every interactive edit renders at — the engine's `live`
     /// tier, and what the app sends as `preview_long_edge`.
-    private(set) var previewLongEdge: Int =
-        (UserDefaults.standard.object(forKey: Session.previewEdgeKey) as? Int)
-            .map { $0.clamped(to: Session.previewEdgeRange) } ?? Session.defaultPreviewEdge
+    private(set) var previewLongEdge: Int = Session.previewEdge(in: .standard)
+
+    /// The rule, as a function of a defaults object.
+    ///
+    /// Split out so it can be tested on a **throwaway suite**, the way
+    /// `PanelWidthStore` is. That is not a style preference: the obvious test
+    /// — put the value in the argument domain, build a `Session`, check it —
+    /// cannot be undone. `removeVolatileDomain(forName: UserDefaults
+    /// .argumentDomain)` does not take, so the value stays for the rest of the
+    /// process and every later `Session()` in the same test run reads it. That
+    /// is not hypothetical: it happened here, and it surfaced three tests away
+    /// as `the canvas is holding the frame itself` in
+    /// `FrontendPolicyTests.testTheZoomLabelIsMeasuredAgainstTheNativeFrame`,
+    /// whose canvas had been quietly raised to 8192.
+    nonisolated static func previewEdge(in defaults: UserDefaults) -> Int {
+        (defaults.object(forKey: previewEdgeKey) as? Int)
+            .map { $0.clamped(to: previewEdgeRange) } ?? defaultPreviewEdge
+    }
 
     /// Set it. A build-layer field: the engine rebuilds its pipeline and drops
     /// the live tier's cached image and negative (`spk_set_params`), so the
