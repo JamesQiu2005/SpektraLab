@@ -460,16 +460,26 @@ actor EngineClient {
     /// The gamut-compression settings are the engine's default because no wire
     /// field can change them; a session has exactly one
     /// (`GamutCompressSpec::output_default`), which is what passing NULL asks
-    /// for.
-    func outputTransform(src: String, dst: String) throws -> OutputTransformFetch {
+    /// for. `gamutCompress` overrides it for a caller that wants a different
+    /// kernel — the shape is `spk_output_transform`'s, and the one caller
+    /// today is a measurement that separates the lightness compression from
+    /// the gamut check.
+    func outputTransform(src: String, dst: String,
+                         gamutCompress: String? = nil) throws -> OutputTransformFetch {
         if state != .running { try start() }
         guard let engine else { throw ClientError.notRunning }
         var json: UnsafeMutablePointer<CChar>?
         var pointer: UnsafePointer<Float>?
         var count: UInt32 = 0
+        // "" rather than NULL for "no override": the engine treats an empty
+        // spec the same way, and this avoids an `Optional.withCString` that
+        // does not exist.
+        let spec = gamutCompress ?? ""
         let status = src.withCString { source in
             dst.withCString { target in
-                spk_output_transform(engine, source, target, nil, &json, &pointer, &count)
+                spec.withCString { text in
+                    spk_output_transform(engine, source, target, text, &json, &pointer, &count)
+                }
             }
         }
         guard status == SPK_OK else { throw ClientError.engine(lastError()) }

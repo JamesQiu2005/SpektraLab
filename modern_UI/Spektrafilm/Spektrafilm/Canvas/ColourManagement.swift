@@ -157,14 +157,20 @@ enum ColourManagement {
     /// draws unconverted and says so, and the export falls back to Display P3
     /// the way it already does for an unresolvable profile.
     static func setup(client: EngineClient, source: String, target: CGColorSpace,
-                      device: MTLDevice) async -> (setup: OutputTransformSetup?, problem: String?) {
+                      device: MTLDevice,
+                      gamutCompress: String? = nil) async -> (setup: OutputTransformSetup?, problem: String?) {
         guard let targetName = engineName(for: target) else {
             return (nil, "the engine has no colour space for “\(DisplayName.of(target))”")
         }
-        let key = "\(source)→\(targetName)"
+        // The compression spec is part of the key and not a footnote: a setup
+        // built with a different knee or with the lightness compression off is
+        // a different kernel with a different C_max interpretation, and a cache
+        // that ignored it would hand back the wrong one.
+        let key = "\(source)→\(targetName)→\(gamutCompress ?? "")"
         if let hit = cache[key] { return (hit, nil) }
         do {
-            let fetched = try await client.outputTransform(src: source, dst: targetName)
+            let fetched = try await client.outputTransform(src: source, dst: targetName,
+                                                           gamutCompress: gamutCompress)
             guard let setup = make(fetched, source: source, target: target, targetName: targetName,
                                    device: device) else {
                 return (nil, "the engine's reply for \(source) → \(targetName) did not parse")

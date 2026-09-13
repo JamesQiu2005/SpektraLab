@@ -255,6 +255,7 @@
 		1A34D31C5C249B7AE3393289 /* EngineClientTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "EngineClientTests.swift"; sourceTree = "<group>"; };
 		824997C1D857995E47EB764F /* ExportRecipeTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "ExportRecipeTests.swift"; sourceTree = "<group>"; };
 		55B629A4A54E1F02C3B37E77 /* FrontendPolicyTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "FrontendPolicyTests.swift"; sourceTree = "<group>"; };
+		6EECE9753FC82445EF92F8E0 /* GamutVolumeTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "GamutVolumeTests.swift"; sourceTree = "<group>"; };
 		969C5D33E53586D8DBA10B9F /* GeometryContractTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "GeometryContractTests.swift"; sourceTree = "<group>"; };
 		A80314DB52E95A2058ED6D6E /* GeometryTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "GeometryTests.swift"; sourceTree = "<group>"; };
 		D21FA14465ADF0C32032374E /* LayoutTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "LayoutTests.swift"; sourceTree = "<group>"; };
@@ -281,6 +282,7 @@
 				1A34D31C5C249B7AE3393289 /* EngineClientTests.swift */,
 				824997C1D857995E47EB764F /* ExportRecipeTests.swift */,
 				55B629A4A54E1F02C3B37E77 /* FrontendPolicyTests.swift */,
+				6EECE9753FC82445EF92F8E0 /* GamutVolumeTests.swift */,
 				969C5D33E53586D8DBA10B9F /* GeometryContractTests.swift */,
 				A80314DB52E95A2058ED6D6E /* GeometryTests.swift */,
 				D21FA14465ADF0C32032374E /* LayoutTests.swift */,
@@ -596,6 +598,7 @@
 		A5617565080D6659115024D0 /* EngineClientTests.swift */ = {isa = PBXBuildFile; fileRef = 1A34D31C5C249B7AE3393289; };
 		9BFFB230A984011249109B04 /* ExportRecipeTests.swift */ = {isa = PBXBuildFile; fileRef = 824997C1D857995E47EB764F; };
 		341C6BDDEF4BA74BEBA860E6 /* FrontendPolicyTests.swift */ = {isa = PBXBuildFile; fileRef = 55B629A4A54E1F02C3B37E77; };
+		B4EC4B7CFDE6BB3DB5094608 /* GamutVolumeTests.swift */ = {isa = PBXBuildFile; fileRef = 6EECE9753FC82445EF92F8E0; };
 		BCA5341CF538605C6424EF81 /* GeometryContractTests.swift */ = {isa = PBXBuildFile; fileRef = 969C5D33E53586D8DBA10B9F; };
 		2209A1D226457302F50FFEE6 /* GeometryTests.swift */ = {isa = PBXBuildFile; fileRef = A80314DB52E95A2058ED6D6E; };
 		79A4427684DDABB45B19288D /* LayoutTests.swift */ = {isa = PBXBuildFile; fileRef = D21FA14465ADF0C32032374E; };
@@ -707,6 +710,7 @@
 				A5617565080D6659115024D0 /* EngineClientTests.swift */,
 				9BFFB230A984011249109B04 /* ExportRecipeTests.swift */,
 				341C6BDDEF4BA74BEBA860E6 /* FrontendPolicyTests.swift */,
+				B4EC4B7CFDE6BB3DB5094608 /* GamutVolumeTests.swift */,
 				BCA5341CF538605C6424EF81 /* GeometryContractTests.swift */,
 				2209A1D226457302F50FFEE6 /* GeometryTests.swift */,
 				79A4427684DDABB45B19288D /* LayoutTests.swift */,
