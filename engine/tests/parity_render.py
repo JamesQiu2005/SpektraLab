@@ -151,8 +151,17 @@ def load_frame(size: int | None) -> np.ndarray:
     return np.ascontiguousarray(np.clip(array, 0.0, None).astype(np.float32))
 
 
-def reference_render(frame: np.ndarray, delta: dict) -> np.ndarray:
-    """The same frame through numba, with the same resolved parameters."""
+def reference_render(frame: np.ndarray, delta: dict, output_color_space: str) -> np.ndarray:
+    """The same frame through numba, with the same resolved parameters.
+
+    `output_color_space` is what `spk_open` **resolved for this session**, read
+    out of the open reply (contract §1.2.1 / RFC-018 §5.1) rather than copied
+    here. It used to be the literal `"Display P3"` under the comment "`spk_open`'s
+    own convention" — a second copy of a convention, which is the thing §5.1
+    says not to keep: when the convention moved to the working space this
+    harness went red on 23 of 27 cases for a change no node made. A harness that
+    asks the engine what it did cannot go stale that way.
+    """
     from spektrafilm.runtime.params_builder import digest_params, init_params
     from spektrafilm.runtime.pipeline import SimulationPipeline
     from spektrafilm.service import schema
@@ -160,9 +169,7 @@ def reference_render(frame: np.ndarray, delta: dict) -> np.ndarray:
     resolved = {**BASE, **delta}
     params = init_params(film_profile=resolved.get("film_stock", "kodak_portra_400"),
                          print_profile=resolved.get("print_stock", "kodak_portra_endura"))
-    # `spk_open`'s own convention, applied before the delta so an explicit
-    # output space still wins.
-    params.io.output_color_space = "Display P3"
+    params.io.output_color_space = output_color_space
     params.io.output_cctf_encoding = True
     carry = {k: v for k, v in resolved.items() if k not in ("film_stock", "print_stock")}
     schema.validate_delta(carry)
@@ -254,11 +261,15 @@ def main() -> int:
             try:
                 with engine.open(frame, delta) as session:
                     rgba, _ = session.render("full")
+                    # What `spk_open` resolved for this session, so the oracle
+                    # is set up to render the same picture rather than the one
+                    # the convention used to produce.
+                    output_space = session.reply["params"]["output_color_space"]
             except Exception as exc:
                 print(f"FAIL {case.name}: the engine refused -- {exc}")
                 failures += 1
                 continue
-            want = reference_render(frame, case.delta)
+            want = reference_render(frame, case.delta, output_space)
             if not compare(case, rgba, want, args.verbose):
                 failures += 1
 

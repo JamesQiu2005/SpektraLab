@@ -583,17 +583,26 @@ def load_full_res(engine, rel: str) -> np.ndarray | None:
     return img
 
 
-def export_vs_canvas(live_rgba: np.ndarray, full_rgba: np.ndarray) -> tuple[float, float]:
-    """Full render downscaled to the live size vs the live render, in linear
-    Display P3: (mean-luminance ΔEV, worst per-channel ΔEV). The engine's own
-    downscale is not on the ABI; skimage agrees with it to <= 1.3e-7 EV on
-    metering."""
+def export_vs_canvas(live_rgba: np.ndarray, full_rgba: np.ndarray,
+                     colour_space: str) -> tuple[float, float]:
+    """Full render downscaled to the live size vs the live render, in the
+    session's own linear output space: (mean-luminance ΔEV, worst per-channel
+    ΔEV). The engine's own downscale is not on the ABI; skimage agrees with it
+    to <= 1.3e-7 EV on metering.
+
+    `colour_space` is what `spk_open` **resolved for this session**, read from
+    the open reply rather than assumed (RFC-018 §5.1). It was the literal
+    "Display P3" here — right while the convention was P3, and a measurement of
+    the wrong quantity the moment it moved. The decode below is what turns the
+    engine's encoded values into light, so interpreting them in another space
+    does not merely scale the answer: it applies the wrong curve.
+    """
     from spektrafilm.model import colour_baked as cb
     from spektrafilm.utils.preview import resize_for_preview
 
     def linear(rgba):
         v = rgba[..., :3].astype(np.float64) / 65535.0
-        return np.asarray(cb.RGB_to_RGB(v, "Display P3", "Display P3", apply_cctf_decoding=True))
+        return np.asarray(cb.RGB_to_RGB(v, colour_space, colour_space, apply_cctf_decoding=True))
 
     live = linear(live_rgba)
     down = resize_for_preview(linear(full_rgba), max(live.shape[:2]))
@@ -619,6 +628,10 @@ def check_tiers(verbose: bool) -> int:
             print(f"\n{name}  {img.shape[1]}x{img.shape[0]}")
             py = python_meter(img, APP)
             with engine.open(img, APP) as s:
+                # What `spk_open` resolved for this session: the space every
+                # render below is encoded in, and the one the c3 comparison has
+                # to decode from (RFC-018 §5.1).
+                out_space = s.reply["params"]["output_color_space"]
                 for method in SEVEN:
                     s.set_params({"auto_exposure_method": method})
                     ev = s.solve("exposure")["solved_params"]["exposure_compensation_ev"]
@@ -640,7 +653,7 @@ def check_tiers(verbose: bool) -> int:
                     if counts:
                         problems.append(f"export is not the frame at solve's EV: {counts} counts off")
                     # (c3) the export looks like the canvas.
-                    d_lum, d_ch = export_vs_canvas(outs["live"], outs["full"])
+                    d_lum, d_ch = export_vs_canvas(outs["live"], outs["full"], out_space)
                     if max(abs(d_lum), abs(d_ch)) > abs(worst_downscale[0]):
                         worst_downscale = (max(abs(d_lum), abs(d_ch)), f"{name}/{method}")
                     over_bar = abs(d_lum) > DOWNSCALE_BAR_EV or abs(d_ch) > DOWNSCALE_BAR_EV

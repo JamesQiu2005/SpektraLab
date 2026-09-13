@@ -38,6 +38,26 @@ STOCK_PAIRS = [
 ]
 
 
+# Divergences from the Python oracle that are **deliberate**, each with the
+# reason it is not a break. The shape is `parity_render.py`'s (`lens_blur_um`,
+# which the C++ engine implements and the reference prunes) and `AGENTS.md`
+# trap 22's: a known difference is written down, named, and checked in both
+# directions — a divergence that stops diverging is a failure too, so the list
+# cannot go stale.
+KNOWN = {
+    ("output_color_space", "default"): (
+        "ProPhoto RGB",
+        "RFC-018 §5.1: the declared output default is the *working space*, so that "
+        "`core/params.hpp` and `spk_open` stop disagreeing (§4.2 named that "
+        "disagreement as a defect — the header said sRGB while the behaviour was "
+        "Display P3). The Python oracle still declares sRGB because it is the old "
+        "product's schema and nothing regenerates it; what this harness exists to "
+        "catch — a rename, a moved path, a changed layer or order — is unchanged. "
+        "The wire is still transport 1 / schema 1 and no client reads this default.",
+    ),
+}
+
+
 def close(a, b, tol=1e-12) -> bool:
     if isinstance(a, bool) or isinstance(b, bool):
         return bool(a) == bool(b)
@@ -70,9 +90,24 @@ def check_schema(got: dict) -> int:
             continue
         for key in ("path", "type", "layer", "default", "live", "range"):
             a, b = g[name].get(key), w[name].get(key)
-            if not close(a, b):
-                print(f"FAIL field {name!r}.{key}: C++ {a!r}, Python {b!r}")
-                failures += 1
+            if close(a, b):
+                if (name, key) in KNOWN:
+                    expected, _ = KNOWN[(name, key)]
+                    print(f"FAIL field {name!r}.{key}: the two sides now agree ({a!r}); "
+                          f"the recorded divergence is stale — remove it from KNOWN")
+                    failures += 1
+                continue
+            if (name, key) in KNOWN:
+                expected, reason = KNOWN[(name, key)]
+                if a != expected:
+                    print(f"FAIL field {name!r}.{key}: C++ {a!r} is neither the oracle's {b!r} "
+                          f"nor the recorded divergence {expected!r}")
+                    failures += 1
+                else:
+                    print(f"known field {name!r}.{key}: C++ {a!r}, Python {b!r} — {reason}")
+                continue
+            print(f"FAIL field {name!r}.{key}: C++ {a!r}, Python {b!r}")
+            failures += 1
 
     order_cpp = [f["name"] for f in got["fields"]]
     order_py = [f["name"] for f in want["fields"]]
@@ -127,6 +162,10 @@ def python_internals(film_stock: str, print_stock: str):
 
 def check_pairs(got: dict) -> int:
     failures = 0
+    # The same KNOWN divergences as `check_schema`, applied to the *resolved*
+    # params: `output_color_space` is the same field with the same new default,
+    # merely read back per stock pair rather than off the schema.
+    announced: set = set()
     for film, print_stock in STOCK_PAIRS:
         key = f"{film}|{print_stock}"
         if key not in got:
@@ -137,9 +176,21 @@ def check_pairs(got: dict) -> int:
         g = got[key]
         for name in sorted(set(g["params"]) | set(want_params)):
             a, b = g["params"].get(name), want_params.get(name)
-            if not close(a, b):
-                print(f"FAIL {key} params.{name}: C++ {a!r}, Python {b!r}")
-                failures += 1
+            if close(a, b):
+                if (name, "default") in KNOWN:
+                    print(f"FAIL {key} params.{name}: the two sides now agree ({a!r}); "
+                          f"the recorded divergence is stale — remove it from KNOWN")
+                    failures += 1
+                continue
+            entry = KNOWN.get((name, "default"))
+            if entry is not None and a == entry[0]:
+                if name not in announced:
+                    announced.add(name)
+                    print(f"known params.{name} ({len(STOCK_PAIRS)} pairs): C++ {a!r}, "
+                          f"Python {b!r} — {entry[1]}")
+                continue
+            print(f"FAIL {key} params.{name}: C++ {a!r}, Python {b!r}")
+            failures += 1
         for name in sorted(want_internals):
             a, b = g["internals"].get(name), want_internals[name]
             if not close(a, b):
