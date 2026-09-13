@@ -15,6 +15,15 @@
 //  recipe's space. That identity is the whole claim of the type — a proof that
 //  went through the canvas path and was relabelled would prove nothing, and
 //  RFC-018 §7.6 is the check that it did not.
+//
+//  **And it is now the same *function*.** The chain used to be written twice,
+//  once here and once in `Exporter.exportPrint`, and the two agreed only
+//  because they were typed out to agree — plus a `min(exportSize, framed)`
+//  ceiling that made the proof's size depend on the tier the *canvas* happened
+//  to be showing, which is why §7.6's claim carried a caveat. `softProof` is
+//  now `Exporter.filePixels` plus a wrapper: full-tier render, grade, frame,
+//  size, transform, and the file's own pixels at the file's own size. The
+//  caveat is gone because the condition it named can no longer arise.
 
 import CoreGraphics
 import Foundation
@@ -26,16 +35,20 @@ import Metal
 /// the canvas's: that is the whole claim of the type. A proof that went
 /// through the canvas path and was relabelled would prove nothing, and
 /// `RFC-018 §7.6` is the check that it did not.
+///
+/// **It is the file's pixels and the file's size.** It used to be a smaller
+/// sample — bounded by a `maxPixels` budget and, worse, by whatever tier the
+/// canvas happened to be showing, which made §7.6's identity conditional on
+/// the canvas holding the frame's own pixels. Both bounds are gone: the proof
+/// renders the same full-tier source the export writes from, so `image.width`
+/// *is* the file's width and the page has one number where it used to carry
+/// two.
 struct SoftProof: @unchecked Sendable {
     let image: CGImage
     let target: CGColorSpace
     /// What to call the space in front of a person — the catalogue's name for
     /// it, not `CGColorSpace`'s identifier.
     let targetName: String
-    /// **The file's** pixel size — not the proof's, which is smaller by
-    /// design. The two travel separately so the page can state both without
-    /// implying they are the same number; `image.width` is the proof's.
-    let exportPixelSize: CGSize
     /// Pixels the gamut mapping moved, 0…1. The destination could not hold
     /// them at their original chroma and they were rolled in.
     ///
@@ -66,93 +79,45 @@ struct SoftProof: @unchecked Sendable {
 }
 
 extension Session {
-    /// Render the current frame as `recipe` will write it, at no more than
-    /// `maxPixels` pixels.
+    /// The file's own pixels, in the destination's space. Nil when there is
+    /// nothing to prove — no frame, or a format that carries no colour.
     ///
-    /// Returns nil when there is nothing to proof — no frame open, no render
-    /// on the canvas yet, or a recipe whose format carries no colour at all
-    /// (the DI package, whose channels are densities and whose proof would be
-    /// a lie in any rendering space).
+    /// **Cancellation is the caller's `Task`**: a superseded call returns nil
+    /// rather than a stale picture. Both await points are checked, because the
+    /// engine render is the expensive half and a keystroke in the page's
+    /// fields can supersede this several times over while one runs.
     ///
-    /// Both fractions are measured on the **proof's** pixels, which is a
-    /// sample of the file's rather than the file's own count: a 2 MP proof of
-    /// a 45 MP frame has averaged 22 source pixels into each of its own, and
-    /// averaging pulls chroma toward the mean, so a proof can report slightly
-    /// fewer moved pixels than the export will have. That is the right trade
-    /// for a warning — the alternative is a full-resolution transform on every
-    /// keystroke in the export page — and it is exact whenever the proof is
-    /// not downscaled.
+    /// The chain is `Exporter.filePixels` — the export's own, not a second
+    /// one written to look like it. That is what makes §7.6's identity exact
+    /// rather than approximate, and what the page's central claim rests on.
     @MainActor
-    func softProof(recipe: ExportRecipe, maxPixels: Int = 2_000_000) async -> SoftProof? {
+    func softProof(recipe: ExportRecipe) async -> SoftProof? {
         guard recipe.format.takesColorSpace else { return nil }
-        guard let source = renderer.base else { return nil }
-        guard let adjusted = renderer.applyLayer2(to: source, uniforms: adjustments.uniforms)
-            else { return nil }
-        let framed = renderer.applyGeometry(geometry, to: adjusted) ?? adjusted
+        // Nothing developed yet (the page opened from Browse, say): ask for it
+        // the way every other view that wants a picture does.
+        if serviceSessionIDForExport == nil { _ = await ensureDeveloped() }
+        guard let sessionID = serviceSessionIDForExport else { return nil }
+        let (_, name, _, _) = Exporter.resolveTarget(recipe)
 
-        // Resolved by the *export's* own function, so the proof cannot be a
-        // proof of a space the file will not be in — and so a fallback is
-        // reported in the same words the export would use for it.
-        let (target, name, _, _) = Exporter.resolveTarget(recipe)
-
-        // The size the file keeps — which is **not** `framed`'s. `framed`
-        // descends from `renderer.base`, the tier currently on the canvas, so
-        // on a frame showing a preview it measures 2678 x 1785 where the
-        // export writes 6000 x 4000. The export's own source is a full-tier
-        // render at the frame's native pixels, so that is what this computes:
-        // the geometry against the native size, scaled back up the way the
-        // page's own naming context does, and then the recipe's output size if
-        // it asks for one.
-        let exportSize = Self.exportSize(recipe: recipe, geometry: geometry,
-                                         sourceSize: sourceImageSize, longEdge: sourceLongEdge)
-
-        // The proof is a sample of that — the same chain, the same kernel,
-        // fewer pixels. It is bounded by the tier on the canvas as well as by
-        // `maxPixels`: resampling a preview *up* to the export's size would
-        // cost the full transform and prove nothing the smaller one does not.
-        let ceiling = CGSize(width: min(exportSize.width, CGFloat(framed.width)),
-                             height: min(exportSize.height, CGFloat(framed.height)))
-        let scale = min(1, (Double(maxPixels) / (ceiling.width * ceiling.height)).squareRoot())
-        let width = max(1, Int((ceiling.width * scale).rounded()))
-        let height = max(1, Int((ceiling.height * scale).rounded()))
-        guard let small = renderer.applyResize(framed, width: width, height: height) else { return nil }
-
-        let (setup, problem) = await ColourManagement.setup(client: client, source: workingSpaceName,
-                                                            target: target,
-                                                            device: renderer.device)
-        guard let setup else {
+        let rendered: Exporter.Rendered
+        do {
+            rendered = try await Exporter.filePixels(session: self, recipe: recipe, sessionID: sessionID)
+        } catch is CancellationError {
+            return nil
+        } catch {
             log.warn(.export, "soft_proof_failed", [
                 .init("target", name),
-                .init("error", problem ?? "the engine refused it"),
+                .init("error", EngineMessage.technical(error)),
             ])
             return nil
         }
-        guard let converted = renderer.applyOutputTransform(to: small, setup: setup),
-              let image = converted.texture.makeCGImage(space: target) else { return nil }
+        guard !Task.isCancelled else { return nil }
 
-        return SoftProof(image: image, target: target, targetName: name,
-                         exportPixelSize: exportSize,
-                         compressedFraction: converted.stats.outsideFraction,
-                         clippedFraction: converted.stats.clippedFraction,
-                         movedFraction: converted.stats.movedFraction,
+        return SoftProof(image: rendered.image, target: rendered.target, targetName: name,
+                         compressedFraction: rendered.stats.outsideFraction,
+                         clippedFraction: rendered.stats.clippedFraction,
+                         movedFraction: rendered.stats.movedFraction,
                          isPlaceholder: false)
-    }
-
-    /// What the export will measure: the geometry applied to the frame's
-    /// **native** pixels, scaled the way the canvas's source size relates to
-    /// them, and then overridden by the recipe's own size when it names one.
-    ///
-    /// Deliberately computed from the session rather than from a texture. Any
-    /// texture to hand is whatever tier the canvas is showing, and the export
-    /// does not render that tier.
-    static func exportSize(recipe: ExportRecipe, geometry: Geometry,
-                           sourceSize: CGSize, longEdge: CGFloat) -> CGSize {
-        if let asked = recipe.pixelSize { return asked }
-        guard sourceSize.width > 0, sourceSize.height > 0 else { return sourceSize }
-        let out = geometry.outputSize(for: sourceSize)
-        let native = max(sourceSize.width, sourceSize.height)
-        let scale = longEdge > 0 && native > 0 ? longEdge / native : 1
-        return CGSize(width: (out.width * scale).rounded(), height: (out.height * scale).rounded())
     }
 
 }

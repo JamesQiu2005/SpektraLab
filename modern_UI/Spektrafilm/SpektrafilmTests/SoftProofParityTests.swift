@@ -8,15 +8,20 @@
 //  of the code that wrote it. (A comparison that passes by comparing a thing
 //  to itself proves nothing, which is the trap this file is written around.)
 //
+//  **"Identical" is unconditional now, and that is the point of this file.**
+//  It used to be qualified twice over: `softProof` bounded its render by
+//  `min(exportSize, framed)`, where `framed` descends from the tier the
+//  *canvas* was showing, and by a `maxPixels` budget — so the identity held
+//  only while the canvas happened to hold the frame's own pixels, and the test
+//  had to wait for that. Both bounds are gone: `softProof` is
+//  `Exporter.filePixels`, the export's own chain, and the proof is the file's
+//  pixels at the file's size. There is nothing left to wait for and nothing
+//  left to assert conditionally.
+//
 //  What makes "identical" well-posed, and what does not:
 //
-//  * **The proof is only the file's size when the canvas holds the frame's own
-//    pixels.** `softProof` bounds its render by `min(exportSize, framed)`, and
-//    `framed` descends from the tier on the canvas. So this waits for
-//    `canvasIsSettled` — the full render — before measuring, and asks for a
-//    `maxPixels` large enough that the proof is not downscaled.
-//  * **The two sides render the frame twice**: the canvas's full tier and the
-//    export's `.export` (a full-tier reprint). They are the same request, and
+//  * **The two sides render the frame twice**: the export's `.export` and the
+//    proof's, both full-tier reprints. They are the same request, and
 //    the second reuses the cached negative — but the *print* side carries
 //    `scanning.glare`, which draws an unseeded field on every render
 //    (`AGENTS.md` trap 1). With it on, the two sides are two different
@@ -25,12 +30,14 @@
 //    friends do for the same reason; the default configuration is measured
 //    separately, below, as the difference it is.
 //
-//  **Cost: about two and a half minutes**, all of it five full-tier exports
-//  and five full-tier proofs on a 24 MP frame, each read back and compared at
-//  24 million pixels. It skips entirely without the A7 III RAW, and it is
-//  deliberate rather than incidental: the alternative is a smaller frame,
-//  which is a frame the transform does less to and therefore proves less
-//  about.
+//  **Cost: minutes**, all of it full-tier exports and full-tier proofs on a
+//  24 MP frame, each read back and compared at 24 million pixels — eight
+//  exports and eight proofs across the four cases. It skips entirely without
+//  the A7 III RAW, and it is deliberate rather than incidental: the
+//  alternative is a smaller frame, which is a frame the transform does less to
+//  and therefore proves less about. It used to spend a large part of that
+//  waiting for the *canvas* to settle, which is time it no longer spends and a
+//  dependency it no longer has.
 
 import ImageIO
 import Metal
@@ -64,9 +71,8 @@ final class SoftProofParityTests: XCTestCase {
         return url
     }
 
-    /// A session with the frame open, developed, and **settled on the full
-    /// render** — which is the only state in which the proof is the file's
-    /// size, and therefore the only state in which this question can be asked.
+    /// A session with the frame open and developed. Nothing about the canvas
+    /// is waited for — see the note at the end of this function.
     private func developed(_ url: URL, stochastic: Bool) async throws -> Session {
         let session = Session()
         session.open(urls: [url])
@@ -88,11 +94,14 @@ final class SoftProofParityTests: XCTestCase {
         try await waitUntil("the print to land", timeout: 180) {
             session.serviceSessionIDForExport != nil && session.frameStates[url] == .processed && !session.busy
         }
-        // The full render is scheduled once the edit stops moving; the canvas
-        // shows the preview tier until it lands.
-        try await waitUntil("the full render to settle", timeout: 300) { session.canvasIsSettled }
-        XCTAssertTrue(session.renderer.showsFullRender,
-                      "the canvas settled without the frame's own pixels — the proof cannot be the file's size")
+        // **No wait for the canvas, deliberately.** The proof used to be
+        // bounded by the tier on the canvas, so this had to wait for
+        // `canvasIsSettled` before it could ask its question at all — and the
+        // wait *was* the caveat. The proof renders its own full-tier source
+        // now, so this asserts the absence instead: whatever the canvas is
+        // showing, the proof is the file's pixels. If that ever stops being
+        // true, the identity cases below fail rather than silently measuring a
+        // different picture.
         return session
     }
 
@@ -256,9 +265,10 @@ final class SoftProofParityTests: XCTestCase {
             let source = try XCTUnwrap(CGImageSourceCreateWithURL(written as CFURL, nil))
             let file = try XCTUnwrap(CGImageSourceCreateImageAtIndex(source, 0, nil))
 
-            // `maxPixels: .max` so the proof is not downscaled: this case is
-            // the identity claim, and a downscale is measured separately.
-            let rendered = await session.softProof(recipe: recipe, maxPixels: .max)
+            // No budget, no size argument, nothing conditional: the proof is
+            // the file's pixels at the file's size, and `compare` fails on a
+            // size mismatch before it looks at a single value.
+            let rendered = await session.softProof(recipe: recipe)
             let proof = try XCTUnwrap(rendered, "\(c.name): no proof")
 
             XCTAssertFalse(proof.isPlaceholder)
@@ -304,18 +314,25 @@ final class SoftProofParityTests: XCTestCase {
         print("§7.6 — proof vs file, read back from disk:\n" + report.joined(separator: "\n"))
     }
 
-    /// The other half of the answer, and the one the page has to caption.
+    /// **The proof is the file's size — always, and including when the recipe
+    /// asks for a size of its own.**
     ///
-    /// **A downscaled proof is not the file, and cannot be.** `softProof` caps
-    /// its render by `maxPixels`; below the export's size the proof is a
-    /// resample of the export chain, so it differs by exactly what resampling
-    /// differs by. That is the honest reading of §7.6 — the identity is a
-    /// statement about the *transform and the write*, and it holds when the
-    /// proof is rendered at the file's size.
-    func testADownscaledProofDiffersByTheDownscale() async throws {
+    /// This replaces `testADownscaledProofDiffersByTheDownscale`, whose premise
+    /// no longer exists: `softProof` takes no pixel budget and cannot return a
+    /// resample, so "a downscaled proof is not the file" is not a case that can
+    /// be constructed. What that test protected — that the comparison harness
+    /// *can* see a difference, rather than reporting zero for everything — is
+    /// carried by the 8-bit and JPEG cases above, each of which asserts
+    /// `differing > 0` for exactly that reason.
+    ///
+    /// The second size is the case the old one could not reach: the proof used
+    /// to be sized from the frame's native pixels and the canvas tier, neither
+    /// of which knows about the recipe's own output size, so a resized export
+    /// was proofed at the wrong size and the page captioned it wrongly.
+    func testTheProofIsTheFilesSize() async throws {
         let url = try frame()
         let session = try await developed(url, stochastic: false)
-        let dir = FileManager.default.temporaryDirectory.appending(path: "spk-proof-ds-\(UUID().uuidString)")
+        let dir = FileManager.default.temporaryDirectory.appending(path: "spk-proof-size-\(UUID().uuidString)")
         try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
         addTeardownBlock { try? FileManager.default.removeItem(at: dir) }
 
@@ -326,33 +343,43 @@ final class SoftProofParityTests: XCTestCase {
         recipe.folder = .fixed(path: dir.path)
         recipe.subfolder = ""
         recipe.existing = .overwrite
+        let (target, _, _, _) = Exporter.resolveTarget(recipe)
         let context = NamingRule.Context(
             originalName: url.deletingPathExtension().lastPathComponent,
             filmStock: session.params.filmStock, printStock: session.params.printStock,
             pixelSize: .zero, counter: 1, date: Date())
-        let outcome = try await Exporter.export(session: session, recipe: recipe, context: context,
-                                                sessionID: try XCTUnwrap(session.serviceSessionIDForExport))
-        let written = try XCTUnwrap(outcome.urls.first)
-        let source = try XCTUnwrap(CGImageSourceCreateWithURL(written as CFURL, nil))
-        let file = try XCTUnwrap(CGImageSourceCreateImageAtIndex(source, 0, nil))
 
-        let (target, _, _, _) = Exporter.resolveTarget(recipe)
-        for maxPixels in [2_000_000, 500_000] {
-            let rendered = await session.softProof(recipe: recipe, maxPixels: maxPixels)
-            let proof = try XCTUnwrap(rendered)
-            let ratio = Double(proof.image.width) / Double(file.width)
-            print(String(format: "  proof %dx%d is %.3f of the file's %dx%d (exportPixelSize %.0fx%.0f)",
-                         proof.image.width, proof.image.height, ratio, file.width, file.height,
-                         proof.exportPixelSize.width, proof.exportPixelSize.height))
-            XCTAssertEqual(proof.exportPixelSize, CGSize(width: file.width, height: file.height),
-                           "exportPixelSize is not the file's size — the page would caption itself wrong")
-            XCTAssertLessThan(proof.image.width, file.width, "the proof was not downscaled at all")
+        for size in [OutputSize.original, .custom(width: 2000, height: 1333)] {
+            recipe.outputSize = size
+            let outcome = try await Exporter.export(session: session, recipe: recipe, context: context,
+                                                    sessionID: try XCTUnwrap(session.serviceSessionIDForExport))
+            let written = try XCTUnwrap(outcome.urls.first)
+            let source = try XCTUnwrap(CGImageSourceCreateWithURL(written as CFURL, nil))
+            let file = try XCTUnwrap(CGImageSourceCreateImageAtIndex(source, 0, nil))
+
+            let rendered = await session.softProof(recipe: recipe)
+            let proof = try XCTUnwrap(rendered, "\(size): no proof")
+            XCTAssertEqual(proof.image.width, file.width,
+                           "\(size): the proof is not the file's width")
+            XCTAssertEqual(proof.image.height, file.height,
+                           "\(size): the proof is not the file's height")
+            let d = try compare(proof.image, file, space: target, bits: 16)
+            XCTAssertEqual(d.differing, 0,
+                           "\(size): a full-size proof of a 16-bit TIFF differs by \(d.differing) px")
+            print("  \(size) — proof and file agree at \(file.width)x\(file.height), 0 differing")
         }
     }
 
     /// The configuration the app actually ships in, measured rather than
-    /// argued: with the stochastic stages on, the canvas's full tier and the
-    /// export's reprint are two renders of a stochastic pipeline.
+    /// argued: with the stochastic stages on, the export's reprint and the
+    /// proof's are two renders of a stochastic pipeline.
+    ///
+    /// It used to be the canvas's full tier against the export's reprint. It
+    /// is now two `filePixels` calls — the export's and the proof's — which is
+    /// the sharper statement: the proof is not merely "the same chain as the
+    /// file", it is the same request, and it still comes back different
+    /// because the *pipeline* is nondeterministic. That is the whole content
+    /// of `AGENTS.md` trap 1, at the one place that can see it.
     ///
     /// This is **not** a transform difference and it is not a defect of the
     /// proof. It is the engine's documented nondeterminism (`AGENTS.md` trap 1)
@@ -381,7 +408,7 @@ final class SoftProofParityTests: XCTestCase {
         let written = try XCTUnwrap(outcome.urls.first)
         let source = try XCTUnwrap(CGImageSourceCreateWithURL(written as CFURL, nil))
         let file = try XCTUnwrap(CGImageSourceCreateImageAtIndex(source, 0, nil))
-        let rendered = await session.softProof(recipe: recipe, maxPixels: .max)
+        let rendered = await session.softProof(recipe: recipe)
         let proof = try XCTUnwrap(rendered)
         let (target, _, _, _) = Exporter.resolveTarget(recipe)
 

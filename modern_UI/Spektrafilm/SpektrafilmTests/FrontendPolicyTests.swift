@@ -47,6 +47,48 @@ final class FrontendPolicyTests: XCTestCase {
         XCTAssertEqual(session.previewLongEdge, 8192, "the ceiling did not clamp")
     }
 
+    /// The stored value, read through the **throwaway suite**.
+    ///
+    /// This is the rule a `-ui2.previewLongEdge 6000` launch argument travels
+    /// through — the app's `UserDefaults.standard` searches the argument
+    /// domain first, and `Session.previewEdge` is what it finds there — so the
+    /// rule is what this pins. It exists because an override that silently
+    /// does not take is indistinguishable from one that works and is ignored,
+    /// and one run did look like that: a proof came back *smaller* under
+    /// `-ui2.previewLongEdge 6000` than without it, which is not a thing
+    /// raising a resolution can do. (For the record, this machine's stored
+    /// `ui2.previewLongEdge` is 2678, from an earlier capture session; 2560 —
+    /// what that run reported — is `defaultPreviewEdge`, which is what an
+    /// empty domain gives.)
+    ///
+    /// **It does not set the argument domain to prove the last mile.**
+    /// `removeVolatileDomain(forName: UserDefaults.argumentDomain)` does not
+    /// take, so a test that sets one poisons every later `Session()` in the
+    /// process — which is what happened on the first attempt: three tests
+    /// later, `testTheZoomLabelIsMeasuredAgainstTheNativeFrame` failed with
+    /// `the canvas is holding the frame itself`, its canvas quietly raised to
+    /// 8192. Trap 24's family, and the reason `Session.previewEdge` takes a
+    /// defaults object at all.
+    func testThePreviewResolutionIsReadFromAStoredValue() throws {
+        let suite = "preview-edge-\(UUID().uuidString)"
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suite))
+        defer { defaults.removePersistentDomain(forName: suite) }
+
+        // Nothing stored is the fresh-install default, which is what the app
+        // gets the first time it is launched.
+        XCTAssertEqual(Session.previewEdge(in: defaults), Session.defaultPreviewEdge)
+        defaults.set(6000, forKey: Session.previewEdgeKey)
+        XCTAssertEqual(Session.previewEdge(in: defaults), 6000,
+                       "a stored resolution did not come back")
+        // Out of range it clamps rather than being taken literally — 8192 is
+        // the engine's own ceiling for the field, and one past it would cross
+        // the wire as a user error.
+        defaults.set(99_999, forKey: Session.previewEdgeKey)
+        XCTAssertEqual(Session.previewEdge(in: defaults), 8192)
+        defaults.set(100, forKey: Session.previewEdgeKey)
+        XCTAssertEqual(Session.previewEdge(in: defaults), 800)
+    }
+
     /// The label, and everything that reads it, is measured against the
     /// **native** frame however small the texture on screen is.
     ///

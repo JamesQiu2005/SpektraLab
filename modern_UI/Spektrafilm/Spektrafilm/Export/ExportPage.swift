@@ -200,41 +200,37 @@ struct ExportPage: View {
         var frame: URL?
         var space: ExportColorSpace
         var takesColour: Bool
-        var maxPixels: Int
+        /// The recipe's own output size, because it is a size the *file* will
+        /// have — the proof is the file's pixels now, so anything that changes
+        /// how many there are changes the proof.
+        var outputSize: OutputSize
+        /// Whether the centre has a pane to draw in — **not a proof input but
+        /// a cost input**, and the one thing here that does not change a
+        /// pixel. In Grid mode there is no pane at all, and a full-resolution
+        /// proof is seconds of engine time; `paneSize`'s first pass changes
+        /// this and brings the task back. A pixel budget played this part
+        /// before, which is why the budget had to be in the key at all. The
+        /// budget is gone; the reason is not.
+        var hasPane: Bool
     }
 
     private var proofKey: ProofKey {
         ProofKey(frame: session.selection,
                  space: recipe.wrappedValue.colorSpace,
                  takesColour: recipe.wrappedValue.format.takesColorSpace,
-                 maxPixels: proofBudget)
-    }
-
-    /// The proof is rendered at the size it is shown at, rounded up to a whole
-    /// megapixel so a window resize does not start a render per frame. Capped
-    /// both ways: below 1 MP the picture on screen is soft, and past 8 MP the
-    /// page is rendering pixels no display here can show.
-    private var proofBudget: Int {
-        guard paneSize.width > 1, paneSize.height > 1 else { return 2_000_000 }
-        let wanted = Int(paneSize.width * paneSize.height * 4)
-        return min(8_000_000, max(1_000_000, (wanted + 999_999) / 1_000_000 * 1_000_000))
+                 outputSize: recipe.wrappedValue.outputSize,
+                 hasPane: paneSize.width > 1)
     }
 
     private func makeProof() async {
         guard session.selection != nil else { proof = nil; return }
-        // The centre has not been laid out yet, so `proofBudget` would be a
-        // guess that is replaced a moment later and this would render the
-        // proof twice on every open. The pane's own first pass sets
-        // `paneSize`, which changes the key and brings us back. In Grid mode
-        // there is no pane at all, and the proof is wanted the moment the
-        // Viewer brings one.
         guard paneSize.width > 1 else { return }
         proving = true
         defer { proving = false }
-        // Nothing on the canvas yet (the page opened from Browse, say): ask
-        // for the develop the way every other view that wants a picture does.
-        if session.serviceSessionIDForExport == nil { _ = await session.ensureDeveloped() }
-        let made = await session.softProof(recipe: recipe.wrappedValue, maxPixels: proofBudget)
+        // Cancellation is the task's: `softProof` returns nil for a superseded
+        // call rather than a stale picture, so a keystroke that changes the key
+        // does not have to be waited on and cannot land the old proof.
+        let made = await session.softProof(recipe: recipe.wrappedValue)
         guard !Task.isCancelled else { return }
         proof = made
     }
@@ -885,14 +881,13 @@ struct ExportPage: View {
         }
     }
 
-    /// The size stated is `exportPixelSize` — the export path's own number for
-    /// what the file will measure, computed by `SoftProof` from the frame's
-    /// native pixels and the recipe's size rather than from whatever tier the
-    /// canvas happens to be showing. It is the same number the Size row paints,
-    /// arrived at by the side that writes the file.
+    /// The canvas is in the **working space** now, and the name comes from
+    /// `session.workingSpaceName` — the field the canvas itself reads. It used
+    /// to be a literal "Display P3" in two captions and gone stale with
+    /// d885ae0, which is the argument for the field existing at all.
     private func spaceLine(_ proof: SoftProof) -> String {
-        let canvas = "the canvas is showing \(ColorSpaceCatalog.name(for: .displayP3) ?? "Display P3")"
-        let file = "\(Int(proof.exportPixelSize.width)) × \(Int(proof.exportPixelSize.height)) px"
+        let canvas = "the canvas is showing \(session.workingSpaceName)"
+        let file = "\(proof.image.width) × \(proof.image.height) px"
         return "Proof in \(proof.targetName) · writing \(file) · \(canvas)"
     }
 

@@ -180,6 +180,18 @@ layer and let ColorSync convert.
 > `SoftProofParityTests` still finds 0 differing pixels between a proof and the
 > file it proves. The half that earned its keep is the half that stays.
 
+> **Measured and rejected (2026-09-14) — splitting this step in two.** The
+> proposal was to keep the gamut mapping and hand the colour-space conversion
+> to ColorSync: compress in the working space, tag the file ProPhoto, let the
+> system convert. It cannot be built against `spk_output_transform`, whose
+> reply is one coherent per-space block — the C_max grid is indexed by (Jp, h)
+> relative to the *destination's* white, so the destination's boundary cannot
+> be applied to ProPhoto's matrices. The buildable variant would tag every
+> export ProPhoto, including a recipe that says sRGB, and a file's space is
+> the contract with whoever opens it. Measured on that variant: the container
+> round trip is free, and the whole movement is the engine's CAT02 against
+> ColorSync's Bradford — up to 32/255 at the destination's gamut corners.
+
 ### 2.5 What this makes true
 
 - A ProPhoto export contains ProPhoto gamut, because the compression aimed

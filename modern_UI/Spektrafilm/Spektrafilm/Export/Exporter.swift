@@ -160,8 +160,8 @@ enum Exporter {
             var result = format == .di
                 ? try await exportDI(session: session, to: out)
                 : try await exportPrint(session: session, to: out, format: format,
-                                        target: target, outputSize: recipe.pixelSize,
-                                        quality: recipe.quality, sessionID: sessionID)
+                                        quality: recipe.quality, recipe: recipe,
+                                        sessionID: sessionID)
             // The fallback's reason, if the route did not have one of its own.
             // Merged rather than set, because the DI route has a note of its
             // own (a film/paper mismatch) and losing it to a colour note would
@@ -303,26 +303,35 @@ enum Exporter {
         ]
     }
 
-    /// Render, grade, frame, size, convert, write — in that order, and the
-    /// order is the whole of RFC-018's export claim.
+    /// The file's pixels, before anything is written: **render, grade, frame,
+    /// size, convert** — in that order, which is the whole of RFC-018's export
+    /// claim.
     ///
-    /// The last two steps are the ones that changed: the image is converted to
-    /// the recipe's space by **our** output transform (§5.4), which rolls
-    /// out-of-gamut colour off instead of clipping it, and `write` is then
-    /// handed pixels that are already in the target and never converts a
-    /// colour. The old path rendered in Display P3 and let Core Graphics clip
-    /// into the destination — `redraw`'s colour branch, which is gone.
+    /// This is the one chain. `exportPrint` writes what it returns and
+    /// `Session.softProof` shows it, so "the proof is the file" (§7.6) is a
+    /// property of the code rather than of two sequences of the same steps
+    /// that happen to agree — which is what it was, and what made the claim
+    /// conditional on the canvas happening to hold the frame's own pixels.
     ///
-    /// `outputSize` is the export page's output size (nil = the frame's own).
-    /// It is applied **before** the transform so the transform and its clip
-    /// statistics run on the pixels that actually reach the file.
-    private static func exportPrint(session: Session, to out: URL, format: ExportFormat,
-                                    target: CGColorSpace, outputSize: CGSize?, quality: Double,
-                                    sessionID: String) async throws -> Result {
-        // `.export` is a full-tier reprint: the engine reuses the working
-        // negative when one is warm and runs the film side when it is not.
+    /// The source is a **full-tier reprint**, the same request the export
+    /// makes: the proof cannot be bounded by whatever tier the canvas is
+    /// showing, because that is not what gets written. `.export` reuses the
+    /// working negative when one is warm and runs the film side when it is
+    /// not.
+    ///
+    /// The recipe's own output size, when it names one, is applied **before**
+    /// the transform — so the transform and its clip statistics run on the
+    /// pixels that actually reach the file rather than on a larger set that
+    /// was resampled away, and so the proof of a resized recipe is that size
+    /// too.
+    ///
+    /// Throws `CancellationError` if the task is cancelled — a superseded
+    /// proof is not a stale picture, it is no picture.
+    static func filePixels(session: Session, recipe: ExportRecipe, sessionID: String) async throws -> Rendered {
+        let (target, _, _, _) = resolveTarget(recipe)
         let outcome = try await session.client.render(
             .export, RenderRequest(sessionID: sessionID, tier: "full"))
+        try Task.checkCancellation()
         guard let full = outcome.texture else { throw ExportError.noPixels }
         guard let adjusted = session.renderer.applyLayer2(to: full, uniforms: session.adjustments.uniforms)
             else { throw ExportError.noPixels }
@@ -334,8 +343,9 @@ enum Exporter {
         let framed = session.renderer.applyGeometry(session.geometry, to: adjusted) ?? adjusted
         // The page's output size, through the geometry pass's own resampler.
         let sized: MTLTexture
-        if let outputSize {
-            guard let resized = session.renderer.applyResize(framed, width: Int(outputSize.width.rounded()),
+        if let outputSize = recipe.pixelSize {
+            guard let resized = session.renderer.applyResize(framed,
+                                                             width: Int(outputSize.width.rounded()),
                                                              height: Int(outputSize.height.rounded()))
             else { throw ExportError.noPixels }
             sized = resized
@@ -343,8 +353,7 @@ enum Exporter {
             sized = framed
         }
         // The one conversion, at the end, out of the working space and into
-        // the destination — the same kernel the canvas and the soft proof run,
-        // which is what makes the proof a proof.
+        // the destination — the same kernel the canvas and the soft proof run.
         let (setup, problem) = await ColourManagement.setup(client: session.client,
                                                             source: session.workingSpaceName,
                                                             target: target,
@@ -353,10 +362,26 @@ enum Exporter {
         guard let converted = session.renderer.applyOutputTransform(to: sized, setup: setup)
         else { throw ExportError.noPixels }
         guard let cg = converted.texture.makeCGImage(space: target) else { throw ExportError.noPixels }
-        try write(cg, to: out, format: format, quality: quality)
-        return Result(urls: [out], note: nil,
-                      appliedEV: outcome.progress?.autoExposureEV,
-                      pixels: (converted.texture.width, converted.texture.height))
+        return Rendered(image: cg, stats: converted.stats, target: target,
+                        pixels: (converted.texture.width, converted.texture.height),
+                        appliedEV: outcome.progress?.autoExposureEV)
+    }
+
+    /// What `filePixels` produced: the picture, and the numbers §7 asks of it.
+    struct Rendered {
+        let image: CGImage
+        let stats: OutputTransformStats
+        let target: CGColorSpace
+        let pixels: (w: Int, h: Int)
+        let appliedEV: Double?
+    }
+
+    private static func exportPrint(session: Session, to out: URL, format: ExportFormat,
+                                    quality: Double, recipe: ExportRecipe,
+                                    sessionID: String) async throws -> Result {
+        let r = try await filePixels(session: session, recipe: recipe, sessionID: sessionID)
+        try write(r.image, to: out, format: format, quality: quality)
+        return Result(urls: [out], note: nil, appliedEV: r.appliedEV, pixels: r.pixels)
     }
 
     // MARK: - the DI package
