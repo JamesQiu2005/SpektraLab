@@ -482,6 +482,41 @@ takes a ratio of *means* through `RGB_to_RGB(v, cs, cs)`, and a ratio of means
 is not invariant under a change of decode curve. c2, which is bit-exact, held
 on every frame and method.
 
+**§7.2 — a ProPhoto export carries ProPhoto gamut.** `GamutVolumeTests`, on
+`DSC03710.ARW` at 24 MP, both arms the same chain with the same target
+(ProPhoto) and the engine pinned to Display P3 for the "before" — the
+reconstruction §7.5's control also used. Each file is read back off disk, its
+16-bit values decoded to linear light and carried into Display P3 by the
+engine's own matrix. Two grades, because a box only shows when something pushes
+against it:
+
+| grade | file | pixels outside P3 | linear range | cells (wholly outside) |
+|---|---|---|---|---|
+| neutral | before | **0 of 24,000,000** | +0.0000…0.6826 | 4265 (0) |
+| neutral | after | 289 (0.00120 %) | −0.0020…0.6833 | 4308 (0) |
+| saturation at the top | before | **0 of 24,000,000** | +0.0000…0.9377 | 9988 (0) |
+| saturation at the top | after | **24,003 (0.10001 %)** | **−0.0584**…0.8696 | 10371 (**214**) |
+
+§4.3 is closed and the two grades say different things, both worth having. With
+a grade that pushes, the old chain wrote a Display P3 box — driven right up
+against the face (0.9377) and never through it — inside a ProPhoto container;
+the new one does not, and its contents leave the cube by up to 5.8 % of full
+scale, occupying 214 cells of volume the destination cannot hold against none.
+**With the grade neutral, the exceedance is 0.001 %** — which is a fact about
+the scan rather than about the RFC: a dim indoor frame's colours are almost
+entirely inside Display P3, so on that frame the ProPhoto preset is a
+wide-gamut *container* for reasons other than §4.3. §6 is unaffected either
+way; the volume rose in both grades (4265 → 4308, 9988 → 10371 cells).
+
+The kernel's own `outsideFraction`, asked the same question of the same pixels,
+agrees: 0.00129 % against 0.00120 %, and 0.10212 % against 0.10001 %. That
+check is worth its line because the two are *not* the same construction — `d >
+1` is CAM16 chroma against a bisected table, read after the lightness
+compression has moved the pixel's lightness, so in principle it counts a
+superset. Measured on this frame the two configurations are identical
+(0.00129 % either way of the compression), because the lightness compression
+only acts above `Jp / white > 0.7` and this frame is dark. The test runs both.
+
 **§7.6 — the proof is the file, bit for bit.** `SoftProofParityTests`, on
 `DSC03710.ARW` at 24 MP, with the proof rendered at the export's own size and
 the file **read back off disk** and compared pixel for pixel:
@@ -526,8 +561,16 @@ quantities / 0 failed · schema 0 failed with the one recorded divergence above
 stocks / 0 · exposure 0 failures with all six negative controls red as
 designed · gpu_smoke 0 · `check_math_guard` ok.
 
-**Not measured.** §7.2 (the ProPhoto export's gamut volume) and §7.3 (the sRGB
-export against the canvas, as ΔE rather than as a clipped-pixel count).
+**§7.3 — not measured, deliberately, and that is the decision rather than an
+omission.** §7.3 asks for the sRGB export against the canvas as a ΔE. §7.4
+already measures the same fact where it matters and in the units the defect is
+in: before, 4,031,323 pixels sat pinned to a container limit and after, 10.
+Re-expressing that as ΔE would add a number without adding a fact — the claim
+was never "the file is close to the canvas", it was "the file is not cut off
+where the canvas rolled off", and pinned-pixel counts say that directly. The
+one thing a ΔE would add is a magnitude for the pixels that *do* move, and §7.1
+supplies that for the same chain. Recorded here so a later reader sees a
+decision.
 
 **Two harness facts found on the way, neither caused by this RFC.**
 `parity_lut` could not run in this repository at all — its baked `.npz` assets
