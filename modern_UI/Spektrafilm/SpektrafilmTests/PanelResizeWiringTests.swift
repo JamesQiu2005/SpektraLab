@@ -83,62 +83,53 @@ final class PanelResizeWiringTests: XCTestCase {
                       "the triangle does not fit at the panel's narrowest")
     }
 
-    /// A stored width is read back, and one outside the range is clamped.
+    /// Everything about the store, on a **throwaway suite**.
     ///
-    /// Read on a throwaway suite rather than `UserDefaults.standard` — the
-    /// process-wide object trap 24 is about — because these assertions are
-    /// about what the store *reads*.
-    ///
-    /// **The store's `didSet` writes to `UserDefaults.standard` regardless of
-    /// the suite it was given** (`Controls/PanelResize.swift`), so the injected
-    /// defaults are a read-side seam only. That is recorded here rather than
-    /// worked around, and reported: a test that injects a suite to avoid the
-    /// real store still writes to it, and the write half cannot be tested
-    /// through the injection at all. The write is covered below, on the real
-    /// store, with a teardown that removes the key.
-    func testAStoredWidthIsClampedToTheRange() throws {
+    /// Its `defaults:` parameter is a real injection — it reads *and* writes
+    /// through it — so this never touches the user's own preferences, which is
+    /// the whole point of the parameter and the hazard trap 24 is about. (It
+    /// was not, for one round: the `didSet` wrote to `UserDefaults.standard`
+    /// whatever suite it was handed, so a test that injected one to stay away
+    /// from the real store wrote to it anyway. Found here by a test failing for
+    /// the right reason, and fixed in `Controls/PanelResize.swift`.)
+    func testStoredWidthsRoundTripAndAreClamped() throws {
         let suite = "panel-resize-wiring-\(UUID().uuidString)"
         let defaults = try XCTUnwrap(UserDefaults(suiteName: suite))
         defer { defaults.removePersistentDomain(forName: suite) }
         let range = Theme.Metric.leftPanelRange
 
         // Nothing stored: the drawing's width.
-        let fresh = PanelWidthStore(name: "t.fresh", range: range, defaults: defaults)
-        XCTAssertEqual(fresh.width, range.standard)
+        XCTAssertEqual(PanelWidthStore(name: "t.fresh", range: range, defaults: defaults).width,
+                       range.standard)
+
+        // A width the user sets survives a relaunch, under the store's key.
+        let store = PanelWidthStore(name: "t.round", range: range, defaults: defaults)
+        store.width = range.narrowest + 7
+        XCTAssertEqual(PanelWidthStore(name: "t.round", range: range, defaults: defaults).width,
+                       range.narrowest + 7,
+                       "the width did not come back — the app would reopen at a width nobody chose")
 
         // Stored past either bound: clamped, because a bound is a bound — a
         // range tightened in a later build must not resurrect an old width.
         defaults.set(Double(range.widest + 500), forKey: "ui.panelWidth.t.over")
         XCTAssertEqual(PanelWidthStore(name: "t.over", range: range, defaults: defaults).width, range.widest)
         defaults.set(Double(range.narrowest - 500), forKey: "ui.panelWidth.t.under")
-        XCTAssertEqual(PanelWidthStore(name: "t.under", range: range, defaults: defaults).width, range.narrowest)
-    }
+        XCTAssertEqual(PanelWidthStore(name: "t.under", range: range, defaults: defaults).width,
+                       range.narrowest)
 
-    /// A width the user sets survives a relaunch — under the store's own
-    /// namespaced key, on the store the app actually uses.
-    ///
-    /// On `UserDefaults.standard` deliberately: that is where the write goes,
-    /// so testing it anywhere else would be testing a path the app does not
-    /// have. The key is removed on the way out — a leaked `ui.panelWidth.*`
-    /// would hand the next test, and the user's own app, a panel width nobody
-    /// chose, which is the hazard `develop-writes-a-sidecar` records.
-    func testAWidthSurvivesARelaunch() throws {
-        let name = "panel-resize-wiring-\(UUID().uuidString)"
-        let key = "ui.panelWidth." + name
-        addTeardownBlock { UserDefaults.standard.removeObject(forKey: key) }
-        UserDefaults.standard.removeObject(forKey: key)
-
-        let range = Theme.Metric.rightPanelRange
-        let store = PanelWidthStore(name: name, range: range)
-        store.width = range.narrowest + 7
-
-        let relaunched = PanelWidthStore(name: name, range: range)
-        XCTAssertEqual(relaunched.width, range.narrowest + 7,
-                       "the width did not come back — the app would reopen at a width nobody chose")
-
-        // And the bound still holds across the round trip: a width written
-        // under an older, wider range comes back clamped, not honoured.
-        UserDefaults.standard.set(Double(range.widest + 1000), forKey: key)
-        XCTAssertEqual(PanelWidthStore(name: name, range: range).width, range.widest)
+        // And the write goes through the *injected* suite, which is what makes
+        // the test above safe to run at all.
+        //
+        // Cleared first, and cleaned up after: an earlier version of this test
+        // ran against the pre-fix store, which wrote through
+        // `UserDefaults.standard` regardless of the suite — so the process-wide
+        // domain on this machine still holds what it leaked. Removing the key
+        // makes this assertion about *this* run rather than about that one.
+        let escaped = "ui.panelWidth.t.round"
+        UserDefaults.standard.removeObject(forKey: escaped)
+        addTeardownBlock { UserDefaults.standard.removeObject(forKey: escaped) }
+        XCTAssertEqual(defaults.object(forKey: escaped) as? Double, Double(range.narrowest + 7))
+        XCTAssertNil(UserDefaults.standard.object(forKey: escaped),
+                     "the store wrote to the process-wide preferences despite being handed a suite")
     }
 }

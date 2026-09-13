@@ -81,8 +81,19 @@ final class RendererTests: XCTestCase {
         renderer.viewport.backingScale = 1
         renderer.viewport.resize(viewport: CGSize(width: 40, height: 40), image: CGSize(width: 4, height: 2))
         let out = renderer.renderOffscreen(size: CGSize(width: 40, height: 40), backingScale: 1)!
-        let ground = 0x5F / 255.0
-        XCTAssertEqual(pixel(out, 20, 2)[0], ground, accuracy: 0.01, "letterbox above the image is the ground")
+        // The ground is the drawing's `0x5F/255` — an **sRGB-encoded** grey —
+        // written into a texture that is in the working space now, so what
+        // lands here is that colour's ROMM γ1.8 encoding, not the literal.
+        // Asserted as the *relationship* rather than as the number: the value
+        // has to be the sRGB literal re-encoded, or the interface has shifted
+        // around the picture (`CanvasGround` carries the derivation).
+        let srgb = 0x5F / 255.0
+        let linear = pow((srgb + 0.055) / 1.055, 2.4)
+        let ground = pow(linear, 1.0 / 1.8)
+        XCTAssertEqual(pixel(out, 20, 2)[0], ground, accuracy: 0.01,
+                       "letterbox above the image is the ground, in the working space")
+        XCTAssertNotEqual(ground, srgb, accuracy: 0.01,
+                          "the ground was left as its sRGB literal — it would be 1.478× the light")
         XCTAssertEqual(pixel(out, 5, 15), [1, 0, 0], "image is vertically centred")
     }
 

@@ -433,24 +433,16 @@ final class Session: CanvasHost {
 
     // MARK: - colour
 
-    /// The space the engine develops into, as the *engine* named it (RFC-018
-    /// §5.1). Read from every open reply rather than assumed: `spk_open`'s
-    /// convention is ProPhoto RGB, but an explicit `io.output_color_space` in
-    /// the delta wins, and the app's output transform has to convert from what
-    /// the engine actually rendered into — not from what it usually renders
-    /// into.
-    private(set) var workingSpaceName = Session.defaultWorkingSpace
-    /// Set when the conversion from the working space to the canvas's display
-    /// space could not be installed. Nil when it could.
+    /// The space the engine develops into **and the space the canvas draws in**,
+    /// as the *engine* named it (RFC-018 §5.1).
     ///
-    /// This is the one colour failure the canvas can have, and it is worth a
-    /// field rather than a log line: with no transform installed the canvas
-    /// draws working-space values through a Display P3 layer, which is a
-    /// washed-out picture and no error anywhere near it.
-    private(set) var colourProblem: String?
-    /// What the canvas draws in — `Renderer.drawableFormat`'s colour space,
-    /// and the target the output transform is installed with.
-    static let displaySpaceName = "Display P3"
+    /// One name where there used to be two. It is read from every open reply
+    /// rather than assumed — `spk_open`'s convention is ProPhoto RGB, but an
+    /// explicit `io.output_color_space` in the delta wins — and it is now the
+    /// only colour fact on this line, because the canvas is *tagged* with this
+    /// space and ColorSync converts for the display. There is no display space
+    /// for the app to name.
+    private(set) var workingSpaceName = Session.defaultWorkingSpace
     /// What a session renders into when the engine has not said otherwise.
     /// The engine's own default, spelled once here so the two can be compared
     /// rather than silently agreed with.
@@ -1387,8 +1379,8 @@ final class Session: CanvasHost {
             // from the reply, because an explicit `io.output_color_space` in a
             // delta overrides the convention and this is the only place the
             // app can find out which one it got.
-            await installOutputTransform(r.params["output_color_space"]?.stringValue
-                                         ?? Self.defaultWorkingSpace)
+            noteWorkingSpace(r.params["output_color_space"]?.stringValue
+                             ?? Self.defaultWorkingSpace)
             serviceGeneration = scheduler.reset(sessionID: r.sessionID, params: sidecar.params)
             // What the engine's own auto-exposure chose for this frame. The
             // Exp. Comp. slider is an offset from it, so the UI has to know
@@ -1448,46 +1440,26 @@ final class Session: CanvasHost {
 
     // MARK: - colour
 
-    /// What the status line says about colour: where the picture is being
-    /// graded, and where it is being shown. Both, because the point of
-    /// RFC-018 is that they are no longer the same space and the user should
-    /// be able to see which is which.
-    private var colourSummary: String {
-        // "not converted" rather than a `→ Display P3` that nothing performs:
-        // a status line that states a conversion which did not happen is worse
-        // than one that admits the picture is being shown raw.
-        guard colourProblem == nil, renderer.outputTransform != nil else {
-            return "\(workingSpaceName) · not converted"
-        }
-        return "\(workingSpaceName) → \(Self.displaySpaceName)"
-    }
-
-    /// Fetch the engine's numbers for working space → the canvas's Display P3
-    /// and install them on the renderer.
+    /// What the status line says about colour: **one space**, the one the
+    /// picture is in and the one the canvas is tagged with.
     ///
-    /// Idempotent and cheap when the pair has been seen: `ColourManagement`
-    /// caches per (source, target), and a hit is a dictionary lookup rather
-    /// than a 147 ms C_max table rebuild.
-    private func installOutputTransform(_ source: String) async {
+    /// It used to read `ProPhoto RGB → Display P3`, and before that it named
+    /// the *input* space under a picture in another one (RFC-018 §4.1). Neither
+    /// is true now: ColorSync converts the tagged canvas for whatever display
+    /// this is, so there is no second space for the app to name — and the user
+    /// asked for less of this in the interface rather than more ("there's not
+    /// much need to actually explaining that much, right?").
+    private var colourSummary: String { workingSpaceName }
+
+    /// Record the space the engine resolved for this session.
+    ///
+    /// Nothing is installed and nothing is fetched: the canvas draws this space
+    /// and is tagged with it, and the engine's colour numbers are fetched only
+    /// when an export or a proof actually needs to convert to a destination
+    /// (`ColourManagement`, from `Exporter` and `SoftProof`).
+    private func noteWorkingSpace(_ source: String) {
         workingSpaceName = source
-        let (setup, problem) = await ColourManagement.setup(client: client, source: source,
-                                                            target: ImageDecoder.displayP3,
-                                                            device: renderer.device)
-        colourProblem = problem
-        if let setup {
-            renderer.setOutputTransform(setup)
-            log.info(.engine, "output_transform", [
-                .init("source", setup.sourceName),
-                .init("target", setup.targetName),
-                .init("gamut_compress", setup.compresses),
-            ])
-        } else if let problem {
-            // Written down as well as shown: the status line is the user's,
-            // and this is the one that a developer chasing a washed-out canvas
-            // needs.
-            log.warn(.engine, "output_transform_failed", [.init("source", source),
-                                                          .init("error", problem)])
-        }
+        log.info(.engine, "working_space", [.init("space", source)])
     }
 
     private func applyRender(_ outcome: RenderOutcome, generation: Int) {

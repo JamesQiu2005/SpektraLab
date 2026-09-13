@@ -144,10 +144,11 @@ working (ProPhoto, encoded)
 Every number in it comes from the engine's own colour data over a new ABI
 (§5.2). Nothing is a second colour library in Swift.
 
-The canvas runs it with target = Display P3, which is why the picture on
-screen is expected to be *very close* to today's: CAM16 into P3 either way.
-Export runs it with target = the recipe's space. The soft proof runs it with
-the same target the export will, which is what makes the proof a proof.
+**Export runs it, and the soft proof runs it** with the same target the export
+will, which is what makes the proof a proof. **The canvas does not** — see D2
+below, reversed by the user before this RFC shipped. It is one transform that
+export and the proof share, and the canvas is a second, simpler path: tag the
+layer and let ColorSync convert.
 
 > **Decision D2 — the transform is ours, not ColorSync's.** ColorSync is the
 > authority for *what a space is*: every target is a `CGColorSpace`, every
@@ -158,6 +159,26 @@ the same target the export will, which is what makes the proof a proof.
 > is to clip it. That is defect §1.1 four. We do the transform on the GPU
 > because we have a gamut-mapping step to insert into it that ColorSync cannot
 > be given.
+>
+> **D2 was reversed for the canvas, 2026-09-13, and kept for everything else.**
+> The user's decision: *"the plan is that all displayed image in the main app
+> page would be in ProPhoto RGB and macOS should be handling the color space
+> management."* So the canvas stops running the transform, the texture is
+> tagged ProPhoto on the `CAMetalLayer`, and ColorSync converts working →
+> display. **The objection above was put to them and they reaffirmed the plan**;
+> it is recorded here rather than dropped, because a reversal that leaves no
+> trace reads as if nobody thought about it.
+>
+> What it costs, measured rather than argued — §7.2, on a 24 MP frame: with a
+> neutral grade **0.0012 %** of pixels are outside Display P3, and with
+> saturation at the top **0.10 %**, exceeding the cube by up to 5.8 % of full
+> scale. Those are the pixels ColorSync will clip and CAM16 rolled off. On this
+> frame, and for the way it is graded, the two are close enough that the user
+> preferred the simpler chain.
+>
+> What it does **not** touch: export and the soft proof keep the transform, and
+> `SoftProofParityTests` still finds 0 differing pixels between a proof and the
+> file it proves. The half that earned its keep is the half that stays.
 
 ### 2.5 What this makes true
 
@@ -165,14 +186,20 @@ the same target the export will, which is what makes the proof a proof.
   there — **how much** of it depends on the grade, and §9 measures both ends:
   0.001 % of the frame outside P3 on a neutral print, 0.1 % with a push, and
   214 cells of volume the destination cannot hold against none before.
-- An sRGB export is perceptually compressed into sRGB, not clipped into it —
-  and the canvas is no longer a promise the file cannot keep.
+- An sRGB export is perceptually compressed into sRGB, not clipped into it.
 - Colour wheels, saturation, curves and masks act on ProPhoto values, so a
-  push that exceeds the display rolls off at the display instead of being
-  amputated before the user ever sees it.
-- The export preview becomes load-bearing: the canvas is a P3 proof, and a
-  recipe in another space is now genuinely a different picture. **This is why
-  the export page is rewritten in the same change** (§6).
+  push is no longer amputated before the user ever sees it — it is stored,
+  shown by ColorSync as far as the display reaches, and rolled off by the
+  transform when it is exported.
+- The export preview becomes load-bearing: the canvas is tagged ProPhoto and
+  shown through ColorSync, and a recipe in another space is genuinely a
+  different picture. **This is why the export page is rewritten in the same
+  change** (§6).
+- **And the canvas is no longer a promise the file can keep** — which is D2's
+  cost, accepted. What the screen shows is ColorSync's conversion of the
+  working space for *this* display, so two people looking at the same grade on
+  two screens see two slightly different pictures, and only the export is
+  pinned.
 
 ---
 
@@ -186,8 +213,8 @@ the same target the export will, which is what makes the proof a proof.
 | 4 | engine gamut compression | CAM16-UCS **into ProPhoto RGB** | A |
 | 5 | engine output | **ProPhoto RGB, CCTF encoded** — the working space | A |
 | 6 | Layer 2, masks, curves, geometry | **ProPhoto RGB encoded** | A |
-| 7 | **output transform** | working → target, with CAM16 into the target | A |
-| 8a | canvas | target = Display P3; `layer.colorspace = displayP3` | A |
+| 7 | **output transform** | working → target, with CAM16 into the target — **export and the proof only** | A |
+| 8a | canvas | **working space**, `layer.colorspace = rommrgb`; **ColorSync** converts for the display (D2, reversed) | A |
 | 8b | export | target = the recipe's space; tagged, **no CG conversion** | A |
 | 8c | soft proof | target = the recipe's space, same kernel, same uniforms | A renders, B shows |
 
@@ -200,13 +227,26 @@ The histogram moves from the working texture to the **output-transformed**
 texture. A histogram is a statement about clipping, and clipping is a property
 of the destination, not of the working space.
 
+> **Superseded with D2.** There is no output-transformed texture on the canvas
+> any more, so the histogram has nothing to read but the working one — which
+> makes it a **ProPhoto histogram**: its axis is 256 even slices of the encoded
+> value, and ROMM γ1.8 puts mid-grey at `0.3857 × 256 = 98` where an
+> sRGB-encoded histogram would have put it at 118. The alternative was to
+> describe the *display*, by decoding to linear and re-encoding through the
+> display's curve — rejected because there is no longer such a curve: ColorSync
+> converts per display and per profile, so that histogram would be a guess
+> about the monitor wearing the authority of a measurement. This one is a
+> statement about the pixels the app holds, which is what a grade acts on and
+> what an export converts from. It is also visibly a little further left than
+> it used to be, and that is the space, not a bug.
+
 ---
 
 ## 4. Defects this closes
 
 | | defect | closed by |
 |---|---|---|
-| 4.1 | The status line names the input space under a picture in another one (`Session.swift:1388`) | §5.4 — it names the working space and the display space |
+| 4.1 | The status line names the input space under a picture in another one (`Session.swift:1388`) | §5.4 — it names the working space. It named the display space too until D2 was reversed; with ColorSync converting, there is one space to name, and the user asked for less text rather than more |
 | 4.2 | The display space is a hardcode in no contract (`engine.cpp:584`) | §5.1 — the contract states it; `params.hpp` agrees with it |
 | 4.3 | Wide-gamut presets deliver a container, not a gamut | §2.4 — the compression aims at the recipe's space |
 | 4.4 | sRGB export clips where the canvas rolled off | §2.4 — one perceptual transform, no `redraw` |
@@ -390,9 +430,11 @@ replaces the body; the UI stream never sees the change.
 The current sheet (`ExportSheet.swift`) states in its own header comment that
 it deliberately omits the image, "because the canvas behind this sheet is
 already showing the frame at the grade being exported". §2.5 retires that
-reasoning: with a per-destination transform the canvas is a P3 proof and
-nothing more, and the recipes most likely to differ from it are exactly the
-ones a user cannot check.
+reasoning: with a per-destination transform the canvas is a proof of the
+*display* and nothing more — and since D2 was reversed it is not even that, it
+is ColorSync's conversion of the working space for whatever screen is attached.
+The recipes most likely to differ from it are exactly the ones a user cannot
+check, so the reasoning holds more strongly than when it was written.
 
 So the sheet becomes a page, and the page shows the picture.
 
