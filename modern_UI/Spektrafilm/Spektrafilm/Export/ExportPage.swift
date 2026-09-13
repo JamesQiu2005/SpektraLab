@@ -719,7 +719,7 @@ struct ExportPage: View {
                                     metrics: Self.sliderMetrics,
                                     onCommit: { store.save() })
                     }
-                    if recipe.wrappedValue.format == .tiff { previewRow }
+                    if recipe.wrappedValue.format.carriesPreviewPage { previewRow }
                     sizeRow
                     openWithRow
                 }
