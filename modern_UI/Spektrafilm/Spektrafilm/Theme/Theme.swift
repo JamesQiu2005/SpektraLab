@@ -65,9 +65,70 @@ enum Theme {
         /// 8 (690.5 − 674.8); 6 spends less screen on ground between the four
         /// cards. Deliberate departure from the drawing.
         static let gutter: CGFloat = 6
+        /// The drawing's own panel widths. They are now the **standard** of a
+        /// range the user can move inside (`Controls/PanelResize.swift`), and
+        /// keeping them as the standard is what makes a fresh install
+        /// pixel-identical to the drawing — a first launch measures the same
+        /// as every snapshot taken before the panels were resizable.
         static let leftPanelWidth: CGFloat = 328
         static let rightPanelWidth: CGFloat = 286
-        static let topBarHeight: CGFloat = 41
+
+        /// How far each panel may be taken, and why those numbers.
+        ///
+        /// **Left, 320 … 420.** Its house is rows, and a row is a fixed label
+        /// column (70), a fixed value column (40) and a track that absorbs
+        /// whatever is left — so the track is not what runs out first. What
+        /// runs out first is the **Tone pill's value**: the pill gets the well
+        /// less the 70 pt label column, the well is the panel less 2 × (9 + 13),
+        /// and the longest string the Camera section can put in it is
+        /// `center-weighted (legacy)`.
+        ///
+        /// **Measured, not derived**: captured at 264, 280, 296, 312 and 316.
+        /// It ellipsized at every width through 312 and fit at 316. 320 is that
+        /// with a margin worth having. Below it the *label* column starts being
+        /// the thing that gives, which is the one part of a row that must not.
+        ///
+        /// The widest is where the panel stops being a panel: past 420 the only
+        /// thing that grows is a slider's track, and it is already twice the
+        /// length of the drawn one.
+        static var leftPanelRange: PanelWidthRange {
+            PanelWidthRange(narrowest: 320, standard: leftPanelWidth, widest: 420)
+        }
+
+        /// **Right, 268 … 364.** The widest end is the colour balance triangle,
+        /// which has *ceilings of its own* — `ColorBalanceLayout` clamps the
+        /// midtone wheel to 64…120 pt and each side wheel to 44…96 — and it
+        /// reaches both of them at 364. Past that the panel is adding width the
+        /// triangle has already refused, and the only thing that grows is the
+        /// curve editor's square.
+        ///
+        /// The narrow end is the **five-tab row above the triangle**: five
+        /// labels split the well evenly, and `Highlight` is the one that runs
+        /// out first. Measured: it ellipsized at 276 and fit at 286 — the
+        /// drawing's own width is within two points of the floor. It now scales
+        /// instead of truncating (`ColorBalanceEditor.tabs`), which is what buys
+        /// the narrow end at all, and 268 is where the scale it needs is still
+        /// inside 0.85. Below that the triangle's own floor is what is left:
+        /// two side wheels at 44 need ≈ 130 of well interior before the layout
+        /// even *reports* that it fits (`ColorBalanceLayout.ThreeWay.fits`).
+        static var rightPanelRange: PanelWidthRange {
+            PanelWidthRange(narrowest: 268, standard: rightPanelWidth, widest: 364)
+        }
+
+        /// The top bar's height, and it is **fixed** by the user's decision —
+        /// a bar you can drag is a bar that drags the window buttons with it,
+        /// because `trafficLightCentreY` places them in window coordinates
+        /// against this number.
+        ///
+        /// 41 is the drawing's and was what a wider bar bought: nothing. What
+        /// it costs is 7 pt of picture, twice, in every window the app is ever
+        /// in. The floor is its own content — the tallest control on the bar is
+        /// a 28 pt glyph box, which is centred, so at 34 there are 3 pt of card
+        /// above and below it and the three window buttons (14 pt, centred on
+        /// `trafficLightCentreY`) still sit 10 pt clear of both edges. Below
+        /// about 32 the glyph boxes start to touch and the bar reads as a
+        /// titlebar rather than as a row of the interface.
+        static let topBarHeight: CGFloat = 34
         static let filmstripHeight: CGFloat = 125
         /// Well inset from the card edge (36.2 − 17.9 → 9).
         static let wellInset: CGFloat = 9

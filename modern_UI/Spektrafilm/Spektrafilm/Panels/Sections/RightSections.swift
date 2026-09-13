@@ -98,9 +98,12 @@ struct ColorBalanceSection: View {
         PanelSection("Color Balance", key: "colorbalance", initiallyExpanded: false, menu: { AnyView(Button("Reset") {
             var a = session.adjustments; a.colorBalance = ColorBalance(); session.adjustments = a }) }) {
             // In a well, like Exposure and Print White Balance beside it. The
-            // editor measures the width it is given, so the well's padding is
-            // part of what the three-way triangle is fitted to rather than a
-            // number written down twice.
+            // triangle is fitted to the width the **panel** has, which
+            // `EditorWindow` passes down as `\.colorBalanceWidth` — the wheels
+            // cannot measure it themselves (a preference arrives as zero before
+            // the first layout, and a wheel sized to its floor still looks like
+            // a wheel; see `ColorBalanceEditor`), and they cannot assume it
+            // either now that the panel is the user's.
             Well {
                 ColorBalanceEditor(session: session)
             }
