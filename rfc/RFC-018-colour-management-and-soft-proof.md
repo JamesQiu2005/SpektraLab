@@ -59,6 +59,11 @@ joins.
 - **A wide-gamut export cannot be wide.** `"TIFF 16-bit — ProPhoto"`
   (`ExportRecipe.swift:339`) converts P3-limited pixels into a ProPhoto
   container. The picker reads as a choice of gamut; it is a choice of box.
+  (Measured afterwards, in §9: the box was real — a graded frame ran right up
+  against the P3 face at 0.9377 and never through it — but a *neutral* print
+  scan barely reaches it, so on an ungraded frame the picker was buying a
+  container either way. The defect is real and it is narrower than this
+  sentence implies.)
 - **An sRGB export does not match the canvas.** `redraw` is a Core Graphics
   matrix conversion: it *clips*. The canvas was perceptually rolled into P3 by
   CAM16; the sRGB file is hard-cut. The earlier "export matches the canvas"
@@ -157,7 +162,9 @@ the same target the export will, which is what makes the proof a proof.
 ### 2.5 What this makes true
 
 - A ProPhoto export contains ProPhoto gamut, because the compression aimed
-  there.
+  there — **how much** of it depends on the grade, and §9 measures both ends:
+  0.001 % of the frame outside P3 on a neutral print, 0.1 % with a push, and
+  214 cells of volume the destination cannot hold against none before.
 - An sRGB export is perceptually compressed into sRGB, not clipped into it —
   and the canvas is no longer a promise the file cannot keep.
 - Colour wheels, saturation, curves and masks act on ProPhoto values, so a
