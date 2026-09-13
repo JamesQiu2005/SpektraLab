@@ -37,6 +37,7 @@
 		949AA76515DB21F6736FB674 /* DetentSlider.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "DetentSlider.swift"; sourceTree = "<group>"; };
 		97C523570EE6096E0B873D38 /* FormatPicker.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "FormatPicker.swift"; sourceTree = "<group>"; };
 		7BD55D2FF39E90B43F16B1EB /* HistogramView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "HistogramView.swift"; sourceTree = "<group>"; };
+		DBF56DA2B8AFC4212CB43DFB /* PanelResize.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "PanelResize.swift"; sourceTree = "<group>"; };
 		1EB09A5F6238A78E4E1967A8 /* ScrubSlider.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "ScrubSlider.swift"; sourceTree = "<group>"; };
 		2A021B05AC73EF8147AB13FF /* SectionHeader.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "SectionHeader.swift"; sourceTree = "<group>"; };
 		B0930B2A9DBFDAEE68BE9A05 /* WhiteBalanceRows.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "WhiteBalanceRows.swift"; sourceTree = "<group>"; };
@@ -49,6 +50,7 @@
 				949AA76515DB21F6736FB674 /* DetentSlider.swift */,
 				97C523570EE6096E0B873D38 /* FormatPicker.swift */,
 				7BD55D2FF39E90B43F16B1EB /* HistogramView.swift */,
+				DBF56DA2B8AFC4212CB43DFB /* PanelResize.swift */,
 				1EB09A5F6238A78E4E1967A8 /* ScrubSlider.swift */,
 				2A021B05AC73EF8147AB13FF /* SectionHeader.swift */,
 				B0930B2A9DBFDAEE68BE9A05 /* WhiteBalanceRows.swift */
@@ -406,6 +408,7 @@
 		0153ACDC12C71FC7B62DF950 /* DetentSlider.swift */ = {isa = PBXBuildFile; fileRef = 949AA76515DB21F6736FB674; };
 		68FC8AC938F3589F7FA482EC /* FormatPicker.swift */ = {isa = PBXBuildFile; fileRef = 97C523570EE6096E0B873D38; };
 		8B2B8394D8D5B2C58972DDCE /* HistogramView.swift */ = {isa = PBXBuildFile; fileRef = 7BD55D2FF39E90B43F16B1EB; };
+		B3BD18B6CA58FB7B391A9DE6 /* PanelResize.swift */ = {isa = PBXBuildFile; fileRef = DBF56DA2B8AFC4212CB43DFB; };
 		9940BBEDED8266F2A092153C /* ScrubSlider.swift */ = {isa = PBXBuildFile; fileRef = 1EB09A5F6238A78E4E1967A8; };
 		66584CBFECEC251689F66D54 /* SectionHeader.swift */ = {isa = PBXBuildFile; fileRef = 2A021B05AC73EF8147AB13FF; };
 		EAE554CE1C026588F30D9A95 /* WhiteBalanceRows.swift */ = {isa = PBXBuildFile; fileRef = B0930B2A9DBFDAEE68BE9A05; };
@@ -495,6 +498,7 @@
 				0153ACDC12C71FC7B62DF950 /* DetentSlider.swift */,
 				68FC8AC938F3589F7FA482EC /* FormatPicker.swift */,
 				8B2B8394D8D5B2C58972DDCE /* HistogramView.swift */,
+				B3BD18B6CA58FB7B391A9DE6 /* PanelResize.swift */,
 				9940BBEDED8266F2A092153C /* ScrubSlider.swift */,
 				66584CBFECEC251689F66D54 /* SectionHeader.swift */,
 				EAE554CE1C026588F30D9A95 /* WhiteBalanceRows.swift */,
@@ -626,6 +630,7 @@
 		314B0CB8B06973B9576AC98A /* DetentSlider.swift */ = {isa = PBXBuildFile; fileRef = 949AA76515DB21F6736FB674; };
 		2C1255C351CED632FF1180E5 /* FormatPicker.swift */ = {isa = PBXBuildFile; fileRef = 97C523570EE6096E0B873D38; };
 		A1BF71EA8DBD36A7E7F481C7 /* HistogramView.swift */ = {isa = PBXBuildFile; fileRef = 7BD55D2FF39E90B43F16B1EB; };
+		05C50E43443DA3D093BE51A7 /* PanelResize.swift */ = {isa = PBXBuildFile; fileRef = DBF56DA2B8AFC4212CB43DFB; };
 		11364DC9E11324F782B45C1D /* ScrubSlider.swift */ = {isa = PBXBuildFile; fileRef = 1EB09A5F6238A78E4E1967A8; };
 		C3B8A02C49BC02693634BFAF /* SectionHeader.swift */ = {isa = PBXBuildFile; fileRef = 2A021B05AC73EF8147AB13FF; };
 		903C335EEF09F8236AD7C63A /* WhiteBalanceRows.swift */ = {isa = PBXBuildFile; fileRef = B0930B2A9DBFDAEE68BE9A05; };
@@ -738,6 +743,7 @@
 				314B0CB8B06973B9576AC98A /* DetentSlider.swift */,
 				2C1255C351CED632FF1180E5 /* FormatPicker.swift */,
 				A1BF71EA8DBD36A7E7F481C7 /* HistogramView.swift */,
+				05C50E43443DA3D093BE51A7 /* PanelResize.swift */,
 				11364DC9E11324F782B45C1D /* ScrubSlider.swift */,
 				C3B8A02C49BC02693634BFAF /* SectionHeader.swift */,
 				903C335EEF09F8236AD7C63A /* WhiteBalanceRows.swift */,
