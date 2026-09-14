@@ -37,7 +37,7 @@ final class CachePolicyTests: XCTestCase {
         XCTAssertNotEqual(base, CacheKey(kind: .printLive, sourceIdentity: "file-a",
                                          configuration: "params-a", tier: .live,
                                          previewLongEdge: 2678, engineVersion: "engine-a",
-                                         version: 2))
+                                         version: CacheKey.formatVersion + 1))
     }
 
     func testArenaEvictsTheLowerGDSFValue() {

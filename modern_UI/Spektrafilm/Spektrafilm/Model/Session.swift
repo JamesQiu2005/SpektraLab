@@ -124,7 +124,7 @@ final class Session: CanvasHost {
     /// pixel per device pixel while a 1600 px live tier of a 6000 px frame is
     /// on screen, not one *texture* pixel. A nil means "the frame's size is
     /// not known yet", and the callers pass it as "leave the size alone".
-    private var nativeSourceSize: CGSize? { decoded?.pixelSize }
+    private var nativeSourceSize: CGSize? { decoded?.pixelSize ?? displaySourceSize }
 
     // MARK: masks (蒙版) — Layer 2, local
     //
@@ -658,6 +658,10 @@ final class Session: CanvasHost {
     /// numbers the page shows and the ones this session records are the same
     /// numbers from the same sampler (§8.5).
     let diagnostics: Diagnostics
+    /// The display-only disk cache. It is separate from `DecodeResidency`
+    /// because a cached RGBA preview cannot satisfy white-balance sampling or
+    /// the engine's linear frame input.
+    private let diskCache: DiskCacheStore?
     /// The record's door. `diagnostics.log` and not `Log.shared` for the same
     /// reason: a test that injects a `Diagnostics` gets its records too.
     var log: Log { diagnostics.log }
@@ -749,6 +753,11 @@ final class Session: CanvasHost {
     private(set) var nativeOriginalInFlight = false
     private var nativeOriginalToken = 0
     private var decodedGeneration = 0
+    private var displaySourceSize: CGSize?
+    /// Testable counters for the two paths Q5 separates. A display-cache hit
+    /// must leave `decodeCount` unchanged.
+    private(set) var displayCacheHitCount = 0
+    private(set) var decodeCount = 0
     private var wasPastPreview = false
     private var saveTask: Task<Void, Never>?
     private var reopenTask: Task<Void, Never>?
@@ -757,8 +766,10 @@ final class Session: CanvasHost {
     // so nothing needs migrating and nothing is lost but disk.
     nonisolated static let cacheRoot = FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask)[0]
         .appending(path: "com.hanze.filmify")
+    nonisolated static var diskCacheRoot: URL { cacheRoot.appending(path: "store") }
 
-    init(renderer: Renderer? = nil, diagnostics: Diagnostics = .shared) {
+    init(renderer: Renderer? = nil, diagnostics: Diagnostics = .shared,
+         diskCache: DiskCacheStore? = nil) {
         guard let renderer = renderer ?? Renderer(arena: diagnostics.arena) else {
             fatalError("Metal is required")
         }
@@ -767,6 +778,8 @@ final class Session: CanvasHost {
         self.renderer = renderer
         self.diagnostics = diagnostics
         self.decodeResidency = DecodeResidency(arena: diagnostics.arena)
+        let cache = diskCache ?? (try? DiskCacheStore(root: Self.diskCacheRoot))
+        self.diskCache = cache
         // The engine is in this process now (RFC-014): no subprocess, no
         // workspace directory, and no walking up to a checkout's `.venv`. It
         // gets the canvas's own `MTLDevice`, so a render lands in a texture
@@ -789,6 +802,9 @@ final class Session: CanvasHost {
         renderer.onViewportChanged = { [weak self] in self?.viewportChanged() }
         renderer.layer2 = sidecar.adjustments.uniforms
         Session.removeLegacyLinearCache()
+        if let cache {
+            Task.detached(priority: .utility) { try? await cache.garbageCollect() }
+        }
         Task { await client.set(onTermination: { [weak self] reason in
             Task { @MainActor in self?.serviceReady = false; self?.status = reason; self?.lastError = reason }
         }) }
@@ -1032,6 +1048,7 @@ final class Session: CanvasHost {
         browsing = true
         selection = nil
         decodeResidency.clear()
+        displaySourceSize = nil
         decodeIsStale = false
         exposureEvByMethod = nil
         wantsDevelop = false
@@ -1174,6 +1191,7 @@ final class Session: CanvasHost {
         selectedMaskID = sidecar.masks.first?.id
         syncMasks()
         decodeResidency.clear()
+        displaySourceSize = nil
         decodeIsStale = false
         exposureEvByMethod = nil
         openClock = nil
@@ -1289,7 +1307,14 @@ final class Session: CanvasHost {
     }
 
     private func requestNativeOriginal(trigger: String) {
-        guard let d = decoded, let url = selection else { return }
+        guard let url = selection else { return }
+        guard let d = decoded else {
+            Task {
+                guard await ensureDecoded() != nil, selection == url else { return }
+                requestNativeOriginal(trigger: trigger)
+            }
+            return
+        }
         // Zoom is already mirrored through viewportChanged; no new canvas
         // plumbing is needed. If that mirror is ever removed, keep this hook
         // as the place to instrument the zoom-past-preview trigger.
@@ -1422,8 +1447,53 @@ final class Session: CanvasHost {
         }
     }
 
-    private func load(_ url: URL, generation: Int) async {
-        status = "Decoding \(url.lastPathComponent)…"
+    nonisolated static func displayCacheKey(url: URL, settings: DecodeSettings,
+                                            previewLongEdge: Int,
+                                            engineVersion: String) -> CacheKey {
+        CacheKey(
+            kind: .decode,
+            sourceIdentity: CacheKey.sourceIdentity(for: url),
+            configuration: CacheKey.encodedConfiguration(settings),
+            previewLongEdge: previewLongEdge,
+            engineVersion: engineVersion
+        )
+    }
+
+    /// Resolve a display picture without constructing a `DecodedImage`.
+    ///
+    /// The disk entry is deliberately RGBA-only. It may be drawn and compared,
+    /// but it is not allowed to satisfy `decoded`, the engine input, or the
+    /// white-balance sampler.
+    func displayPicture(for url: URL, settings: DecodeSettings) async -> DisplayPicture? {
+        let key = DecodeKey(url: url, settings: settings)
+        if decodeResidency.contains(key), let d = decoded,
+           let texture = renderer.store.source(for: url) {
+            return DisplayPicture(texture: texture, sourceSize: d.pixelSize, costMs: 0)
+        }
+        guard let diskCache else { return nil }
+        let cacheKey = Self.displayCacheKey(
+            url: url,
+            settings: settings,
+            previewLongEdge: previewLongEdge,
+            engineVersion: diagnostics.engineVersion ?? "unknown"
+        )
+        let started = Date()
+        guard let payload = try? await diskCache.load(cacheKey),
+              payload.kind == .decode,
+              payload.format == "rgba16Unorm",
+              let texture = renderer.store.uploadRGBA16(
+                  data: payload.data, width: payload.width, height: payload.height
+              ) else { return nil }
+        return DisplayPicture(
+            texture: texture,
+            sourceSize: CGSize(width: payload.sourceWidth, height: payload.sourceHeight),
+            costMs: Date().timeIntervalSince(started) * 1000
+        )
+    }
+
+    private func load(_ url: URL, generation: Int, requiresDecode: Bool = false) async {
+        status = requiresDecode ? "Decoding \(url.lastPathComponent)…"
+                                : "Opening \(url.lastPathComponent)…"
         // Kept on the session as well as in this scope: a develop asked for
         // from outside (`Solve` while the decode is landing, an export) joins
         // *this* open and must report its laps, not an empty clock of its own.
@@ -1432,10 +1502,27 @@ final class Session: CanvasHost {
         let settings = sidecar.decode
         let device = renderer.device
         let edge = previewLongEdge
+        if !requiresDecode, let picture = await displayPicture(for: url, settings: settings) {
+            guard !Task.isCancelled, selection == url else { return }
+            displayCacheHitCount += 1
+            sourceLongEdge = max(picture.sourceSize.width, picture.sourceSize.height)
+            displaySourceSize = picture.sourceSize
+            renderer.store.setSource(picture.texture, for: url, costMs: picture.costMs)
+            renderer.original = picture.texture
+            if renderer.store.print(for: url) == nil {
+                renderer.setLive(picture.texture, logical: picture.sourceSize)
+                previewSoft = true
+            }
+            clock.lap("display-cache")
+            noteOpen(clock, url: url, mode: "display-cache", pixels: picture.sourceSize)
+            status = "\(url.lastPathComponent)  ·  cached preview"
+            return
+        }
         // Decode and preview, and then the frame is *on the canvas* — that is
         // the whole of an open. The develop is `develop(_:_:clock:)`, below,
         // and it runs only if it has been asked for (`wantsDevelop`).
         let decodedImage: DecodedImage?
+        decodeCount += 1
         if FeatureFlags.framePipeline {
             decodedImage = try? await pipeline.run(generation: generation) { checkpoint in
                 try ImageDecoder.decode(url, settings: settings, checkpoint: checkpoint)
@@ -1466,13 +1553,16 @@ final class Session: CanvasHost {
                     try checkpoint()
                     guard let image = lease.take() else { throw CancellationError() }
                     return TextureBox(try ImageDecoder.makePreviewTexture(
-                        image, device: device, maxEdge: edge, checkpoint: checkpoint))
+                        image, device: device, maxEdge: edge,
+                        storageMode: .shared, checkpoint: checkpoint))
                 }
             } onCancel: {
                 lease.release()
             }) ?? TextureBox(nil)
         } else {
-            preview = TextureBox(ImageDecoder.makePreviewTexture(d, device: device, maxEdge: edge))
+            preview = TextureBox(ImageDecoder.makePreviewTexture(
+                d, device: device, maxEdge: edge, storageMode: .shared
+            ))
             lease.release()
         }
         clock.lap("preview-texture")
@@ -1480,12 +1570,21 @@ final class Session: CanvasHost {
             noteOpen(clock, url: url, mode: "superseded", pixels: nil)
             return
         }
-        let key = DecodeKey(url: url, settings: settings)
+        if sidecar.decode.whiteBalance == .asShot, let t = d.asShotTemperature,
+           let tn = d.asShotTint,
+           (sidecar.decode.temperature != t || sidecar.decode.tint != tn) {
+            sidecar.decode.temperature = t
+            sidecar.decode.tint = tn
+        }
+        let key = DecodeKey(url: url, settings: sidecar.decode)
         decodeResidency.adopt(d, for: key)
         decodedGeneration = generation
         decodeIsStale = false
         sourceLongEdge = max(d.pixelSize.width, d.pixelSize.height)
+        displaySourceSize = d.pixelSize
         sampleMemory("decode")
+        var diskWrite: (key: CacheKey, data: Data, width: Int, height: Int,
+                        sourceWidth: Int, sourceHeight: Int, costMs: Double)?
         if let tex = preview.texture, !Task.isCancelled, selection == url {
             renderer.store.setSource(tex, for: url, costMs: clock.totalMs())
             renderer.original = tex
@@ -1493,15 +1592,34 @@ final class Session: CanvasHost {
                 renderer.setLive(tex, logical: d.pixelSize)
                 previewSoft = true
             }
-        }
-        if sidecar.decode.whiteBalance == .asShot, let t = d.asShotTemperature, let tn = d.asShotTint,
-           (sidecar.decode.temperature != t || sidecar.decode.tint != tn) {
-            sidecar.decode.temperature = t; sidecar.decode.tint = tn
+            if diskCache != nil {
+                let cacheKey = Self.displayCacheKey(
+                    url: url,
+                    settings: sidecar.decode,
+                    previewLongEdge: edge,
+                    engineVersion: diagnostics.engineVersion ?? "unknown"
+                )
+                diskWrite = (cacheKey, tex.rgba16Bytes(), tex.width, tex.height,
+                             Int(d.pixelSize.width.rounded()),
+                             Int(d.pixelSize.height.rounded()), clock.totalMs())
+            }
         }
         // Native original is deferred until evidence says it is useful: this
         // idle trigger is the baseline against which compare and zoom fires
         // are measured. The texture and clamp remain exactly the old path.
         requestNativeOriginal(trigger: "idle_delay")
+        if let diskCache, let diskWrite {
+            try? await diskCache.store(
+                key: diskWrite.key,
+                data: diskWrite.data,
+                width: diskWrite.width,
+                height: diskWrite.height,
+                sourceWidth: diskWrite.sourceWidth,
+                sourceHeight: diskWrite.sourceHeight,
+                format: "rgba16Unorm",
+                costMs: diskWrite.costMs
+            )
+        }
         guard wantsDevelop else {
             clock.lap("decode-only")
             canvasLog(clock.summary()
@@ -1534,6 +1652,41 @@ final class Session: CanvasHost {
         await openInService(d, for: url, clock: clock)
     }
 
+    /// Resolve the linear decode on demand.
+    ///
+    /// A display-cache open deliberately stops with `decoded == nil`. The
+    /// first operation that needs scene-linear pixels — develop, white-balance
+    /// sampling, neutral picking, export — comes through here and turns the
+    /// preview-only landing into a real decode.
+    private func ensureDecoded() async -> DecodedImage? {
+        guard let url = selection else { return nil }
+
+        while true {
+            if !decodeIsStale, decodeResidency.key?.url == url, let image = decoded {
+                return image
+            }
+            guard let load = loadTask else { break }
+            await load.value
+            guard selection == url else { return nil }
+            if !decodeIsStale, decodeResidency.key?.url == url, let image = decoded {
+                return image
+            }
+            // If a newer reopen replaced this task, await that one too. If
+            // this is still the newest task, it completed as a display-only
+            // load or failed; either way, stop waiting and try a linear decode.
+            if loadTask != load { continue }
+            break
+        }
+
+        let generation = pipeline.supersede()
+        let task = Task { await load(url, generation: generation, requiresDecode: true) }
+        loadTask = task
+        await task.value
+        guard selection == url, !decodeIsStale,
+              decodeResidency.key?.url == url else { return nil }
+        return decoded
+    }
+
     /// The develop, as something every caller can await.
     ///
     /// Two callers must not develop the same frame twice, and the second one is
@@ -1563,14 +1716,7 @@ final class Session: CanvasHost {
         // waits for that one instead. It terminates because a load is only
         // superseded by a newer load — which this then waits on — and every
         // iteration awaits a task that is already cancelled or will finish.
-        while decoded == nil || decodeIsStale, let load = loadTask {
-            await load.value
-            // Nothing newer to wait for: this was the last load in flight.
-            if loadTask == load { break }
-        }
-        // Still stale after the newest load means it was cancelled or failed
-        // rather than superseding — there is no frame here to develop.
-        if decodeIsStale { return nil }
+        guard await ensureDecoded() != nil else { return nil }
         if let sid = serviceSessionID { return sid }
         if let task = developTask { return await task.value }
         guard let url = selection, let d = decoded else { return nil }
@@ -2004,14 +2150,16 @@ final class Session: CanvasHost {
     }
 
     func pickNeutral(at n: CGPoint) {
-        guard let url = selection, let dec = decoded, dec.isRAW else { return }
-        Task.detached(priority: .userInitiated) {
-            guard let r = ImageDecoder.neutral(at: n, in: url) else { return }
-            await MainActor.run {
-                var d = self.decode
-                d.whiteBalance = .custom; d.temperature = r.temperature; d.tint = r.tint
-                self.decode = d
-            }
+        guard let url = selection else { return }
+        Task {
+            guard let dec = await ensureDecoded(), dec.isRAW else { return }
+            let result = await Task.detached(priority: .userInitiated) {
+                ImageDecoder.neutral(at: n, in: url)
+            }.value
+            guard let r = result, selection == url else { return }
+            var d = decode
+            d.whiteBalance = .custom; d.temperature = r.temperature; d.tint = r.tint
+            decode = d
         }
     }
 
@@ -2433,7 +2581,7 @@ final class Session: CanvasHost {
     /// still only decoded, pressing it *is* the develop, and the solve lands
     /// on top of the session that develop made.
     var canSolve: Bool {
-        serviceReady && serviceBlocked == nil && selection != nil && decoded != nil && !busy
+        serviceReady && serviceBlocked == nil && selection != nil && !busy
     }
 
     /// Ask the engine to solve this frame: auto-exposure **and** the enlarger
@@ -2449,7 +2597,7 @@ final class Session: CanvasHost {
     /// back to zero here — leaving a shift on top of a freshly solved pack
     /// means "solve" would visibly not solve.
     func solveNow() {
-        guard serviceReady, selection != nil, decoded != nil else {
+        guard serviceReady, selection != nil else {
             status = "The render service is not running."; return
         }
         guard !busy else { return }
@@ -2623,6 +2771,15 @@ final class Session: CanvasHost {
 /// Metal textures are thread-safe to hand across; the protocol just is not
 /// marked Sendable. The box states the intent in one place.
 struct TextureBox: @unchecked Sendable { let texture: MTLTexture?; init(_ t: MTLTexture?) { texture = t } }
+
+/// A disk-cache hit is a display picture, not a decode. Carrying the source
+/// dimensions separately keeps the viewport honest without pretending the
+/// linear `DecodedImage` exists.
+struct DisplayPicture: @unchecked Sendable {
+    let texture: MTLTexture
+    let sourceSize: CGSize
+    let costMs: Double
+}
 
 /// Shares `SPEKTRAFILM_CANVAS_LOG=1` with `Renderer`: the canvas being blank
 /// is a whole-pipeline symptom, so both ends of it log under one switch.

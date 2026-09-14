@@ -144,7 +144,7 @@ seen red with two entries and 2.7 MB accounted; after restoration the gate ran
 57 tests, zero failures. The full `SpektrafilmTests` suite then passed 309 tests with
 zero failures. The Xcode project was regenerated for the two new files.
 
-### Q5 — unified RAM/disk key and GDSF policy — **in progress**
+### Q5 — unified RAM/disk key and GDSF policy — **completed**
 
 Prerequisite: Q4 and accepted measurements. Edit TextureStore.swift, cache key/value
 types, disk store/index, and focused cache/renderer tests.
@@ -166,13 +166,26 @@ file-first ordering, corrupt self-healing, version misses, restored bytes, and k
 perturbation misses pass. Roll back policy as one unit if data crosses the linear
 input contract.
 
-Foundation landed: `CacheKey`, `CacheValue`, and one `gdsfPriority` function now live
-in `Model/CachePolicy.swift`; `MemoryArena` ranks evictable entries through that
-function with last-touch only as the deterministic tie break. Texture source/print
-admission carries measured costs instead of constants. The GDSF ranking guard was seen
-red with `costMs` removed, then restored; `CachePolicyTests` and the existing
-diagnostics/renderer gates pass. The SQLite disk store and `displayPicture` seam remain
-to land under this package.
+Result: `CacheKey`, `CacheValue`, and one `gdsfPriority` function live in
+`Model/CachePolicy.swift`; `MemoryArena` ranks evictable entries through that
+function with last-touch only as the deterministic tie break. The SQLite
+`DiskCacheStore` writes the complete payload file before its index row, validates
+the versioned header and payload, self-heals corrupt/missing rows, garbage-collects
+orphans and interrupted temporaries, and evicts by the same GDSF priority. Display
+cache entries carry source dimensions separately from preview dimensions, so a disk
+hit restores the viewport without inventing linear pixels. `Session.displayPicture`
+stops at the cached RGBA texture; `ensureDecoded` performs the real decode only when
+develop, Solve, export, neutral picking, or native-original work asks for linear
+data. The first implementation exposed a resolved-settings deadlock on A7RV
+as-shot metadata, fixed by publishing the residency under the resolved decode
+settings and treating a non-stale same-URL residency as current.
+
+The GDSF ranking guard was seen red with `costMs` removed, and the display-only
+guard was seen red by falling through from a disk hit into decode (`decodeCount`
+became 1). Both were restored. The Q5 focused gate ran `DiskCacheStoreTests`,
+`SessionDisplayCacheTests`, `CachePolicyTests`, `DiagnosticsTests`,
+`RendererTests`, `OpenPathTests`, `FramePipelineTests`, and
+`DecodeResidencyTests`: 76 tests, zero failures.
 
 ### Q6 — bounded print writeback — **queued**
 

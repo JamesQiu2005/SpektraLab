@@ -16,7 +16,7 @@ enum CacheTier: String, Codable, Hashable, Sendable {
 /// inode/volume/size/mtime identity; `configuration` is the encoded decode or
 /// print configuration that changes pixels.
 struct CacheKey: Codable, Hashable, Sendable {
-    static let formatVersion = 1
+    static let formatVersion = 2
 
     let version: Int
     let kind: CacheKind
@@ -55,6 +55,12 @@ struct CacheKey: Codable, Hashable, Sendable {
             String(values.fileSize ?? 0),
             String(modified),
         ].joined(separator: "|")
+    }
+
+    static func encodedConfiguration<T: Encodable>(_ value: T) -> String {
+        let encoder = JSONEncoder()
+        encoder.outputFormatting = [.sortedKeys]
+        return String(decoding: try! encoder.encode(value), as: UTF8.self)
     }
 }
 

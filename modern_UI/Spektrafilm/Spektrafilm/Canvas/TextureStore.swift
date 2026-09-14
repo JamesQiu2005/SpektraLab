@@ -196,6 +196,12 @@ final class TextureStore: @unchecked Sendable {
         guard width > 0, height > 0,
               let data = try? Data(contentsOf: URL(fileURLWithPath: path), options: .mappedIfSafe),
               data.count >= width * height * 8 else { return nil }
+        return uploadRGBA16(data: data, width: width, height: height)
+    }
+
+    /// The same upload from bytes already held by the disk cache.
+    func uploadRGBA16(data: Data, width: Int, height: Int) -> MTLTexture? {
+        guard width > 0, height > 0, data.count == width * height * 8 else { return nil }
         let d = MTLTextureDescriptor.texture2DDescriptor(pixelFormat: .rgba16Unorm, width: width, height: height, mipmapped: false)
         d.usage = [.shaderRead]
         d.storageMode = .shared

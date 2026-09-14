@@ -322,6 +322,7 @@ enum ImageDecoder {
     /// The canvas converts it, along with everything else, in the output
     /// transform — one conversion, at the end, per destination.
     static func makePreviewTexture(_ decoded: DecodedImage, device: MTLDevice, maxEdge: Int,
+                                   storageMode: MTLStorageMode = .private,
                                    checkpoint: () throws -> Void = {}) rethrows -> MTLTexture? {
         let extent = decoded.display.extent
         guard extent.width > 0, extent.height > 0 else { return nil }
@@ -332,7 +333,7 @@ enum ImageDecoder {
         let d = MTLTextureDescriptor.texture2DDescriptor(pixelFormat: .rgba16Unorm,
                                                           width: Int(target.width), height: Int(target.height), mipmapped: false)
         d.usage = [.shaderRead, .renderTarget, .shaderWrite]   // .shaderWrite is load-bearing
-        d.storageMode = .private
+        d.storageMode = storageMode
         guard let tex = device.makeTexture(descriptor: d) else { return nil }
         guard let queue = device.makeCommandQueue(), let cb = queue.makeCommandBuffer() else { return nil }
         // Core Image's origin is bottom-left; Metal's is top-left. Render with
@@ -363,6 +364,14 @@ enum ImageDecoder {
     static func makePreviewTexture(_ decoded: DecodedImage, device: MTLDevice,
                                    maxEdge: Int) -> MTLTexture? {
         makePreviewTexture(decoded, device: device, maxEdge: maxEdge, checkpoint: {})
+    }
+
+    /// The checkpoint-free form when the caller also chooses storage.
+    static func makePreviewTexture(_ decoded: DecodedImage, device: MTLDevice,
+                                   maxEdge: Int,
+                                   storageMode: MTLStorageMode) -> MTLTexture? {
+        makePreviewTexture(decoded, device: device, maxEdge: maxEdge,
+                           storageMode: storageMode, checkpoint: {})
     }
 
     /// Value at a point (0…1 normalised, top-left origin) of the *linear*
