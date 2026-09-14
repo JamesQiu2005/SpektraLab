@@ -2551,7 +2551,7 @@ final class Session: CanvasHost {
     /// Through the session's own `Diagnostics`, so the record and the Settings
     /// page's readout are the same sample — one sampler, one number (§8.5).
     func sampleMemory(_ reason: String) {
-        diagnostics.sampler.sample(reason)
+        diagnostics.sampler.sample(reason, frame: selection?.lastPathComponent)
     }
 
     private func releaseEngineAccounting() {

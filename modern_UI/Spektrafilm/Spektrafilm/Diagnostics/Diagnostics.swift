@@ -249,6 +249,11 @@ final class Diagnostics {
     /// page cannot drift from the record, and a test can prove it.
     var memory: MemorySample? { sampler.current }
 
+    /// The latest signed arena/footprint gap, or nil before the first sample.
+    var arenaFootprintGapMB: Double? {
+        memory.map { $0.arenaFootprintGapMB(arenaBytes: arena.totalBytes) }
+    }
+
     var currentLogFile: URL? { log.sessionFile }
 
     /// A failure the page must show rather than hide: a directory that has been

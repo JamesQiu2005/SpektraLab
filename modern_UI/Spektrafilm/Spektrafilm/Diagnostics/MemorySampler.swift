@@ -37,6 +37,12 @@ struct MemorySample: Sendable, Equatable {
     var footprintMB: Double { Double(footprintBytes) / 1_000_000 }
     var peakMB: Double { Double(peakBytes) / 1_000_000 }
     var freeMB: Double { Double(freeBytes) / 1_000_000 }
+
+    /// Signed accounting gap: arena bytes minus this process footprint.
+    /// Negative means the process holds more than the arena accounts for.
+    func arenaFootprintGapMB(arenaBytes: Int) -> Double {
+        Double(arenaBytes) / 1_000_000 - footprintMB
+    }
 }
 
 final class MemorySampler: @unchecked Sendable {
@@ -94,7 +100,8 @@ final class MemorySampler: @unchecked Sendable {
     /// which at Normal reaches the ring and not the file. Both write a record:
     /// a number the page shows and the log does not has no provenance.
     @discardableResult
-    func sample(_ reason: String, level: LogLevel = .info) -> MemorySample {
+    func sample(_ reason: String, level: LogLevel = .info,
+                frame: String? = nil) -> MemorySample {
         // Admission can evict between boundary samples, so drain that first;
         // the record then covers every eviction since the previous record.
         var evicted = arena.takeEvictionReport()
@@ -116,7 +123,7 @@ final class MemorySampler: @unchecked Sendable {
             .sorted { $0.key == $1.key ? $0.value < $1.value : $0.key < $1.key }
             .map { "\($0.key):\($0.value / 1_000_000)" }
             .joined(separator: ",")
-        log.log(level, .memory, "footprint", [
+        var fields: [LogField] = [
             .init("reason", reason),
             .init("seq", sample.seq),
             .init("mb", sample.footprintMB),
@@ -126,9 +133,13 @@ final class MemorySampler: @unchecked Sendable {
             .init("arena_mb", Double(arena.totalBytes) / 1_000_000),
             .init("arena_evictable_mb", Double(arena.evictableBytes) / 1_000_000),
             .init("arena_kinds", arena.breakdown().map { "\($0.kind):\($0.bytes / 1_000_000)" }.joined(separator: ",")),
+            .init("arena_footprint_gap_mb",
+                  sample.arenaFootprintGapMB(arenaBytes: arena.totalBytes)),
             .init("evicted_mb", Double(evicted.bytes) / 1_000_000),
             .init("evicted_kinds", kinds),
-        ])
+        ]
+        if let frame { fields.append(.init("frame", frame)) }
+        log.log(level, .memory, "footprint", fields)
         return sample
     }
 

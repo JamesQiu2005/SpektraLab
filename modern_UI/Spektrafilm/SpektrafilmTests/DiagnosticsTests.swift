@@ -156,12 +156,18 @@ final class DiagnosticsTests: XCTestCase {
 
         // And a memory record at each boundary the RFC names for a develop.
         let reasons = records.filter { $0.category == .memory }.compactMap { $0.text("reason") }
-        for reason in ["decode", "engine.open", "first_print"] {
+        for reason in ["frame_switch", "decode", "engine.open", "first_print"] {
             XCTAssertTrue(reasons.contains(reason), "no memory record for \(reason); got \(reasons)")
         }
         let memory = try XCTUnwrap(records.first { $0.category == .memory })
         XCTAssertGreaterThan(memory.number("mb") ?? 0, 0)
         XCTAssertGreaterThan(memory.number("peak_mb") ?? 0, 0)
+        for record in records where record.category == .memory && record.message == "footprint" {
+            XCTAssertNotNil(record.number("arena_footprint_gap_mb"),
+                            "memory record has no signed arena/footprint gap")
+        }
+        XCTAssertEqual(records.first { $0.category == .memory && $0.text("reason") == "decode" }?
+            .text("frame"), url.lastPathComponent)
 
         // The same file, parsed: the record is JSONL and a reader can read it.
         // Every record that reaches the *ring* at `info` and above is in the
@@ -846,6 +852,11 @@ final class DiagnosticsTests: XCTestCase {
         XCTAssertEqual(record.text("frame"), url.lastPathComponent)
         XCTAssertGreaterThan(record.number("px") ?? 0, 0)
         XCTAssertNotNil(record.number("elapsed_ms"))
+        let exportMemory = log.records().last {
+            $0.category == .memory && $0.message == "footprint" && $0.text("reason") == "export"
+        }
+        XCTAssertNotNil(exportMemory?.number("arena_footprint_gap_mb"))
+        XCTAssertEqual(exportMemory?.text("frame"), url.lastPathComponent)
     }
 
     // MARK: - MemoryArena accounting
@@ -1178,7 +1189,8 @@ final class DiagnosticsTests: XCTestCase {
     ///
     /// **Seen red** by omitting the arena fields from `MemorySampler.sample`:
     /// the sampler assertions below failed on the missing `arena_kinds` and
-    /// numeric fields.
+    /// numeric fields. The signed gap was separately seen red by reversing
+    /// its subtraction, which produced +1985 instead of -1985.
     func testMemorySamplerRecordCarriesArenaAccounting() throws {
         let log = Log(ringCapacity: 64)
         let arena = MemoryArena()
@@ -1193,6 +1205,7 @@ final class DiagnosticsTests: XCTestCase {
         XCTAssertEqual(record.number("arena_mb"), 15)
         XCTAssertEqual(record.number("arena_evictable_mb"), 3)
         XCTAssertEqual(record.text("arena_kinds"), "original:12,prints:3")
+        XCTAssertEqual(record.number("arena_footprint_gap_mb"), -1985)
 
         // These are the fields the memory records carried before RFC-019 step 1.
         XCTAssertEqual(record.text("reason"), "arena-test")

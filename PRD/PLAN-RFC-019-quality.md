@@ -7,7 +7,7 @@
 This plan preserves pixels, kernels, the engine ABI, export formats, and parity/export
 suites. It does not refactor all of Session, add dependencies, edit engine/, or create
 a new cache hierarchy. Commit each completed package after its named gate and push at
-integration boundaries.
+integration boundaries only with explicit owner approval.
 
 ## Current state
 
@@ -23,9 +23,13 @@ That remains a historical helper-test result. Q1 is **completed**: the typed reg
 batch passed 31 DiagnosticsTests plus 25 RendererTests/OpenPathTests with zero failures;
 the pinned guard was also deliberately broken and seen red before restoration. Q2 is
 **completed**: concurrent admission and shared-arena guards were seen red, then the
-combined gate passed 33 DiagnosticsTests plus 25 RendererTests/OpenPathTests. Do not
-infer physical ownership from arena_mb versus phys_footprint: shared textures and Core
-Image references make that gap diagnostic only. costMs remains a future GDSF input.
+combined gate passed 33 DiagnosticsTests plus 25 RendererTests/OpenPathTests. Q3 is
+**completed**: the signed gap is logged at every boundary, and the 24 MP `DSC03710.ARW`
+decode measured 2608.5 MB footprint against 69.9 MB arena (a -2538.6 MB gap) from a
+401.4 MB frame-switch baseline. That selects DecodeResidency capacity **1**. Q1 and Q2
+are committed locally; the push is pending explicit owner approval. Do not infer
+physical ownership from arena_mb versus phys_footprint: shared textures and Core Image
+references make that gap diagnostic only. costMs remains a future GDSF input.
 
 ## Work packages
 
@@ -84,7 +88,7 @@ same immutable arena to `TextureStore`, and no arena remains optional. The combi
 gate ran `DiagnosticsTests`, `RendererTests`, and `OpenPathTests`: 58 tests, zero
 failures. Both new guards were deliberately broken and seen red before restoration.
 
-### Q3 — measure decode residency and arena/footprint gap — **queued**
+### Q3 — measure decode residency and arena/footprint gap — **completed**
 
 Edit MemorySampler.swift, Diagnostics.swift, Session.swift, and logging/tests. No
 capacity or eviction change belongs here. Measure real frames at decode, engine.open,
@@ -95,9 +99,20 @@ samples. Acceptance is a repeatable same-frame/configuration log and explicit ca
 input, with relevant OpenPathTests/FramePipeline tests. Roll back logging if it alters
 behavior or becomes a second kernel sampler.
 
+Result: `MemorySampler` now writes `arena_footprint_gap_mb` as arena bytes minus
+`phys_footprint`, plus the frame name, on every footprint sample. The existing sampler
+remains the only kernel reader. On the A7 III 24 MP `DSC03710.ARW`, with load average
+5.89 during the run but no timing claim made: frame switch 401.4 MB / arena 0; decode
+2608.5 MB / arena 69.9 MB; engine.open 3529.7 MB / arena 1269.9 MB; first_print
+4474.8 MB / arena 1461.9 MB. The decode gap is -2538.6 MB, above IMPL §5.2's ~1.5 GB
+threshold for two decodes, so Q4 uses capacity **1**. The signed-gap guard was seen red
+with its subtraction reversed, then restored. The Q3 gate ran `DiagnosticsTests`,
+`FramePipelineTests`, and `OpenPathTests`: 54 tests, zero failures.
+
 ### Q4 — bounded DecodeResidency — **queued**
 
-Prerequisites: IMPL-decode-pipeline.md step 1 and accepted Q3 measurement. Edit
+Prerequisites: IMPL-decode-pipeline.md step 1 and accepted Q3 measurement. Capacity is
+**1**, selected by Q3's 24 MP gap. Edit
 Session.swift, a residency type under Model, FramePipeline.swift, ImageDecoder.swift,
 and focused session tests.
 
