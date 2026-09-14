@@ -153,34 +153,21 @@ struct ExportPage: View {
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
         .onAppear {
             mode = startIn
-            adoptSessionSelection()
         }
-        // A selection that arrives *after* the page does — the page opened
-        // from Browse, or a develop that had not finished — is still the one
-        // thing on the canvas, so it is what this export is for until the
-        // person says otherwise. Without this the page sits with nothing
-        // chosen and a proof of a picture it will not write.
-        .onChange(of: session.selection) { _, _ in adoptSessionSelection() }
         .task(id: proofKey) { await makeProof() }
         .task(id: recipe.wrappedValue.format) { OpenWithCatalog.refresh(for: recipe.wrappedValue.format) }
     }
 
     // MARK: - the worklist
 
-    /// What the page opens with: whatever the editor had on the canvas.
-    ///
-    /// The canvas's frame is a member of the set by construction, so this only
-    /// has to cover the one case where it is not — a page opened onto a
-    /// session whose set is empty, which is a folder opened straight into
-    /// Browse and then exported.
-    private func adoptSessionSelection() {
-        guard let sel = session.selection, session.selectedFrames.isEmpty else { return }
-        session.click(sel)
+    /// The picked set, in the strip's order, is the page's content.
+    private var worklist: [Frame] {
+        session.frames.filter { session.isPicked($0.id) }
     }
 
     /// `notes.md`: "Multi-select is allowed, and the export setting is applied
-    /// to all the selected images." This is the editor's own gesture, on the
-    /// editor's own set: a plain click picks one frame and opens it, ⌘ toggles
+    /// to all the selected images." The export page's gesture keeps that set
+    /// as its content: a plain click opens one picked frame, while ⌘ toggles
     /// one without moving the canvas, so the proof on screen does not jump
     /// away from what the person was looking at while they pick the rest of
     /// the batch.
@@ -196,7 +183,11 @@ struct ExportPage: View {
     /// gestures: a plain `TapGesture` on macOS matches a ⌘-click too, so
     /// stacked variants both fire and a ⌘-click becomes a plain one as well.
     private func tap(_ frame: Frame) {
-        session.click(frame.id, command: NSEvent.modifierFlags.contains(.command))
+        if NSEvent.modifierFlags.contains(.command) {
+            session.togglePick(frame.id)
+        } else {
+            session.open(frame.id)
+        }
     }
 
     /// The frames this export will write, in the strip's order so the run is
@@ -280,7 +271,7 @@ struct ExportPage: View {
     /// proof is expensive enough that the difference matters — a queue would
     /// render every keystroke and show the first one last.
     private func makeProof() async {
-        guard session.selection != nil else { proof = nil; return }
+        guard !worklist.isEmpty, session.selection != nil else { proof = nil; return }
         // Nothing to show it in. In Grid mode there is no pane at all, and the
         // proof is wanted the moment the Viewer brings one back.
         guard paneSize.width > 1 else { return }
@@ -444,7 +435,7 @@ struct ExportPage: View {
     }
 
     private var countPill: some View {
-        Text(session.frames.count == 1 ? "1 image" : "\(session.frames.count) images")
+        Text(batch.count == 1 ? "1 image" : "\(batch.count) images")
             .font(F.label)
             .foregroundStyle(Theme.text)
             .frame(width: M.pillWidth + 22, height: M.pillHeight)
@@ -964,9 +955,11 @@ struct ExportPage: View {
                     } else if proving {
                         ProgressView().controlSize(.small)
                     } else {
-                        Text(session.selection == nil
-                             ? "No frame is open. Choose one from the strip."
-                             : "Nothing to prove for this recipe.")
+                        Text(worklist.isEmpty
+                             ? "Nothing is selected. ⌘-click images in the filmstrip to add them."
+                             : session.selection == nil
+                               ? "No frame is open. Choose one from the strip."
+                               : "Nothing to prove for this recipe.")
                             .font(Theme.Font.label).foregroundStyle(Theme.dim)
                     }
                 }
@@ -1086,17 +1079,21 @@ struct ExportPage: View {
                                          count: gridColumns),
                           alignment: .leading,
                           spacing: M.gridRowSpacing) {
-                    ForEach(session.frames) { frame in
-                        ExportGridCell(frame: frame,
-                                       chosen: session.isPicked(frame.id),
-                                       state: session.frameStates[frame.id] ?? .unprocessed,
-                                       width: cell)
-                            .onTapGesture { tap(frame) }
-                            .contextMenu {
-                                Button("Reveal in Finder") {
-                                    NSWorkspace.shared.activateFileViewerSelecting([frame.id])
+                    if worklist.isEmpty {
+                        emptyWorklist
+                    } else {
+                        ForEach(worklist) { frame in
+                            ExportGridCell(frame: frame,
+                                           chosen: true,
+                                           state: session.frameStates[frame.id] ?? .unprocessed,
+                                           width: cell)
+                                .onTapGesture { tap(frame) }
+                                .contextMenu {
+                                    Button("Reveal in Finder") {
+                                        NSWorkspace.shared.activateFileViewerSelecting([frame.id])
+                                    }
                                 }
-                            }
+                        }
                     }
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)
@@ -1112,14 +1109,20 @@ struct ExportPage: View {
 
     // MARK: - the right card
 
-    private var stripPanel: some View {
+    // Internal so the export-panel test can render the smallest view that owns
+    // the worklist ForEach, rather than trying to count cells in the full page.
+    var stripPanel: some View {
         ScrollView(.vertical, showsIndicators: false) {
             LazyVStack(alignment: .center, spacing: M.cellLabelGap) {
-                ForEach(session.frames) { frame in
-                    ExportStripCell(frame: frame,
-                                    chosen: session.isPicked(frame.id),
-                                    state: session.frameStates[frame.id] ?? .unprocessed)
-                        .onTapGesture { tap(frame) }
+                if worklist.isEmpty {
+                    emptyWorklist
+                } else {
+                    ForEach(worklist) { frame in
+                        ExportStripCell(frame: frame,
+                                        chosen: true,
+                                        state: session.frameStates[frame.id] ?? .unprocessed)
+                            .onTapGesture { tap(frame) }
+                    }
                 }
             }
             .padding(.horizontal, M.thumbMargin)
@@ -1127,6 +1130,14 @@ struct ExportPage: View {
             .frame(maxWidth: .infinity)
         }
         .panelCard()
+    }
+
+    private var emptyWorklist: some View {
+        Text("Nothing is selected. ⌘-click images in the filmstrip to add them.")
+            .font(Theme.Font.label)
+            .foregroundStyle(Theme.dim)
+            .multilineTextAlignment(.center)
+            .padding(20)
     }
 
     // MARK: - derived strings

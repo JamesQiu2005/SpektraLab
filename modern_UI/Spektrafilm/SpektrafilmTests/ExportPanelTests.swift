@@ -13,6 +13,7 @@
 //  can see it, and it is the same one `CanvasViewTests` makes of the editor's
 //  three bands.
 
+import AppKit
 import SwiftUI
 import XCTest
 
@@ -112,6 +113,77 @@ final class ExportPanelTests: XCTestCase {
     /// card than in Viewer — reached by the grid's own gap rather than by the
     /// resize handle. It still follows that edge, which is the whole point of
     /// the tab being non-fixed.
+    /// The strip is the export batch, not the library: render the actual strip
+    /// view with three picked frames out of four and count its three white cell
+    /// outlines. This deliberately renders `stripPanel`, the smallest existing
+    /// view containing the production `ForEach`, rather than reproducing the
+    /// loop in a test-only view.
+    func testTheExportStripRendersExactlySelectedFramesCountCells() throws {
+        let dir = FileManager.default.temporaryDirectory
+            .appending(path: "spk-export-strip-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        addTeardownBlock { try? FileManager.default.removeItem(at: dir) }
+        for i in 0..<4 {
+            try Data().write(to: dir.appending(path: String(format: "frame-%02d.png", i)))
+        }
+
+        let session = Session()
+        session.open(urls: [dir])
+        XCTAssertEqual(session.frames.count, 4)
+        let urls = session.frames.map(\.id)
+        session.click(urls[0])
+        session.click(urls[1], command: true)
+        session.click(urls[2], command: true)
+        XCTAssertEqual(session.selectedFrames.count, 3)
+
+        let page = ExportPage(session: session)
+        let host = NSHostingView(rootView: page.stripPanel
+            .frame(width: 180, height: 800))
+        host.frame = CGRect(x: 0, y: 0, width: 180, height: 800)
+        host.layoutSubtreeIfNeeded()
+        guard let rep = host.bitmapImageRepForCachingDisplay(in: host.bounds) else {
+            XCTFail("Hosting view produced no bitmap; the cell count cannot run")
+            return
+        }
+        host.cacheDisplay(in: host.bounds, to: rep)
+        guard let image = rep.cgImage else {
+            XCTFail("Hosting view bitmap produced no CGImage; the cell count cannot run")
+            return
+        }
+
+        // Every chosen strip cell has a long near-white top and bottom outline;
+        // labels and rounded corners are much shorter and do not pass this
+        // horizontal-run threshold. Pair those six outline bands into cells.
+        let bytes = rgbaBytes(of: image)
+        let bands = (0..<image.height).filter { y in
+            var bright = 0
+            for x in 0..<image.width {
+                let i = (y * image.width + x) * 4
+                if bytes[i] >= 225 && bytes[i + 1] >= 220 && bytes[i + 2] >= 210 { bright += 1 }
+            }
+            return bright >= image.width / 2
+        }
+        var runs = 0
+        for (index, y) in bands.enumerated() where index == 0 || y > bands[index - 1] + 1 {
+            _ = y
+            runs += 1
+        }
+        let maximum = stride(from: 0, to: bytes.count, by: 4).map { max(bytes[$0], max(bytes[$0 + 1], bytes[$0 + 2])) }.max() ?? 0
+        XCTAssertEqual(runs, 6, "three cells should produce six long outline bands, got \(runs), image \(image.width)x\(image.height), max=\(maximum)")
+    }
+
+    /// Read the renderer into a stable RGBA buffer, independent of its source
+    /// pixel format.
+    private func rgbaBytes(of image: CGImage) -> [UInt8] {
+        let ctx = CGContext(data: nil, width: image.width, height: image.height,
+                            bitsPerComponent: 8, bytesPerRow: image.width * 4,
+                            space: CGColorSpaceCreateDeviceRGB(),
+                            bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue)!
+        ctx.draw(image, in: CGRect(x: 0, y: 0, width: image.width, height: image.height))
+        return Array(UnsafeBufferPointer(start: ctx.data!.assumingMemoryBound(to: UInt8.self),
+                                         count: image.width * image.height * 4))
+    }
+
     func testTheTabFollowsTheGridCardsEdgeInGridMode() throws {
         let width = Theme.Metric.Export.leftWidth
         // The edge itself does not move between modes — what changes is which

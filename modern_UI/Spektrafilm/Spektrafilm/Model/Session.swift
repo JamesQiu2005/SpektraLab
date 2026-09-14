@@ -1114,6 +1114,15 @@ final class Session: CanvasHost {
         picked.remove(url)
     }
 
+    /// Put a frame on the canvas without touching the picked set.
+    ///
+    /// Not `click`: a plain click collapses the set, which is right in the
+    /// filmstrip (the set is invisible there) and wrong on the export page,
+    /// where the set *is* the page's content. Not `select` either: `select` is
+    /// the internal load, and the export run calls it deliberately for that
+    /// reason. This is the person's gesture on a page whose list is the batch.
+    func open(_ url: URL) { guard picked.contains(url) else { return }; select(url) }
+
     func select(_ url: URL) {
         guard url != selection || decoded == nil else { return }
         flushSave()
