@@ -40,6 +40,10 @@ struct MemorySample: Sendable, Equatable {
 }
 
 final class MemorySampler: @unchecked Sendable {
+    private struct Limits: Sendable {
+        var reserveBytes: UInt64 = 0
+        var capBytes: UInt64 = .max
+    }
     private struct State {
         var current: MemorySample?
         var peakBytes: UInt64 = 0
@@ -47,6 +51,7 @@ final class MemorySampler: @unchecked Sendable {
     }
 
     private let state = Guarded(State())
+    private let limits = Guarded(Limits())
     private let log: Log
     let arena: MemoryArena
     private let readFootprint: @Sendable () -> UInt64
@@ -72,6 +77,16 @@ final class MemorySampler: @unchecked Sendable {
     /// its own would move this, which is the thing the check watches.
     var sampleCount: Int { state.value.count }
 
+    /// The policy numbers for the next enforcement pass. `Diagnostics` updates
+    /// these when the Settings rows change; the arena still receives only
+    /// samples, never a kernel call.
+    func setLimits(reserveBytes: UInt64, capBytes: UInt64) {
+        limits.withLock {
+            $0.reserveBytes = reserveBytes
+            $0.capBytes = capBytes
+        }
+    }
+
     /// Take a sample and record it.
     ///
     /// `level` is `info` for the boundaries §3 names — those are the ones a
@@ -80,18 +95,27 @@ final class MemorySampler: @unchecked Sendable {
     /// a number the page shows and the log does not has no provenance.
     @discardableResult
     func sample(_ reason: String, level: LogLevel = .info) -> MemorySample {
-        let footprint = readFootprint()
-        let free = readFree()
-        let sample = state.withLock { s -> MemorySample in
-            s.count += 1
-            s.peakBytes = max(s.peakBytes, footprint)
-            let sample = MemorySample(seq: s.count, at: clock(), footprintBytes: footprint,
-                                      peakBytes: s.peakBytes, freeBytes: free)
-            s.current = sample
-            return sample
+        // Admission can evict between boundary samples, so drain that first;
+        // the record then covers every eviction since the previous record.
+        var evicted = arena.takeEvictionReport()
+        var sample = readSample()
+        let limits = limits.value
+
+        while true {
+            let bytes = arena.enforce(sample: sample, reserve: limits.reserveBytes,
+                                      cap: limits.capBytes)
+            evicted.add(arena.takeEvictionReport())
+            guard bytes > 0 else { break }
+            // `enforce` acts on the sample it was handed. Re-read before it is
+            // asked again; this is the rule that keeps a stale free reading
+            // from causing a second eviction batch.
+            sample = readSample()
         }
-        _ = arena.enforce(sample: sample, reserve: 0, cap: .max)
-        let kinds = arena.breakdown().map { "\($0.kind):\($0.bytes / 1_000_000)" }.joined(separator: ",")
+
+        let kinds = evicted.kinds
+            .sorted { $0.key == $1.key ? $0.value < $1.value : $0.key < $1.key }
+            .map { "\($0.key):\($0.value / 1_000_000)" }
+            .joined(separator: ",")
         log.log(level, .memory, "footprint", [
             .init("reason", reason),
             .init("seq", sample.seq),
@@ -101,9 +125,27 @@ final class MemorySampler: @unchecked Sendable {
             .init("bytes", Double(sample.footprintBytes)),
             .init("arena_mb", Double(arena.totalBytes) / 1_000_000),
             .init("arena_evictable_mb", Double(arena.evictableBytes) / 1_000_000),
-            .init("arena_kinds", kinds),
+            .init("arena_kinds", arena.breakdown().map { "\($0.kind):\($0.bytes / 1_000_000)" }.joined(separator: ",")),
+            .init("evicted_mb", Double(evicted.bytes) / 1_000_000),
+            .init("evicted_kinds", kinds),
         ])
         return sample
+    }
+
+    /// Read the kernel-backed numbers and advance the sample identity. This is
+    /// split from `sample` so one boundary can re-read after eviction without
+    /// writing a second log record.
+    private func readSample() -> MemorySample {
+        let footprint = readFootprint()
+        let free = readFree()
+        return state.withLock { s -> MemorySample in
+            s.count += 1
+            s.peakBytes = max(s.peakBytes, footprint)
+            let sample = MemorySample(seq: s.count, at: clock(), footprintBytes: footprint,
+                                      peakBytes: s.peakBytes, freeBytes: free)
+            s.current = sample
+            return sample
+        }
     }
 
     /// What a screen of memory the app can plan on: the free pool the OS is
