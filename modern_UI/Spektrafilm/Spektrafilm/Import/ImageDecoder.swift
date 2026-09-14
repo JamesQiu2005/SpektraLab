@@ -40,6 +40,9 @@ import ImageIO
 import Metal
 import UniformTypeIdentifiers
 
+/// A class-backed identity for ownership tests and debug lifetime checks.
+final class DecodeLifetime: @unchecked Sendable {}
+
 struct DecodedImage: @unchecked Sendable {
     /// What the engine develops: scene-linear, Apple's tone rendering off.
     /// The only image `engineFrame` and the neutral picker read.
@@ -53,6 +56,21 @@ struct DecodedImage: @unchecked Sendable {
     /// As-shot values reported by the RAW filter (nil for flat files).
     let asShotTemperature: Double?
     let asShotTint: Double?
+    let lifetime: DecodeLifetime
+
+    init(linear: CIImage, display: CIImage, pixelSize: CGSize, isRAW: Bool,
+         sourceURL: URL, asShotTemperature: Double?, asShotTint: Double?,
+         lifetime: DecodeLifetime = DecodeLifetime()) {
+        self.linear = linear
+        self.display = display
+        self.pixelSize = pixelSize
+        self.isRAW = isRAW
+        self.sourceURL = sourceURL
+        self.asShotTemperature = asShotTemperature
+        self.asShotTint = asShotTint
+        self.lifetime = lifetime
+    }
+
     var megapixels: Double { pixelSize.width * pixelSize.height / 1e6 }
 }
 

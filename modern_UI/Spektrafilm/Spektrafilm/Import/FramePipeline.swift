@@ -92,6 +92,11 @@ final class FramePipeline: @unchecked Sendable {
     /// nothing else resumes it — the cancellation handler only sets the flag
     /// the checkpoint reads, because `withCheckedThrowingContinuation` will
     /// not resume itself on cancellation.
+    ///
+    /// Cancellation suppresses the body, but the dispatch queue still owns the
+    /// queued closure and every object it captures. Large decoded payloads
+    /// must therefore cross this seam in a lease whose cancellation path can
+    /// release them independently.
     func run<T>(generation g: Int,
                 _ work: @escaping @Sendable (_ checkpoint: () throws -> Void) throws -> T)
         async throws -> T {

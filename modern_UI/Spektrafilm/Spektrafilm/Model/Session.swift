@@ -268,7 +268,8 @@ final class Session: CanvasHost {
         masks.append(m)
         selectedMaskID = m.id
     }
-    private(set) var decoded: DecodedImage?
+    private let decodeResidency: DecodeResidency
+    var decoded: DecodedImage? { decodeResidency.image }
     /// The source's native long edge. The escalation decision is about the
     /// *file's* resolution, not the live tier's 1600 px: a 45 MP frame needs a
     /// real render long before a 2 MP one does.
@@ -765,6 +766,7 @@ final class Session: CanvasHost {
                      "Session.renderer and Diagnostics must share one MemoryArena")
         self.renderer = renderer
         self.diagnostics = diagnostics
+        self.decodeResidency = DecodeResidency(arena: diagnostics.arena)
         // The engine is in this process now (RFC-014): no subprocess, no
         // workspace directory, and no walking up to a checkout's `.venv`. It
         // gets the canvas's own `MTLDevice`, so a render lands in a texture
@@ -1029,7 +1031,7 @@ final class Session: CanvasHost {
     private func enterBrowse() {
         browsing = true
         selection = nil
-        decoded = nil
+        decodeResidency.clear()
         decodeIsStale = false
         exposureEvByMethod = nil
         wantsDevelop = false
@@ -1171,7 +1173,7 @@ final class Session: CanvasHost {
         renderer.geometry = sidecar.geometry
         selectedMaskID = sidecar.masks.first?.id
         syncMasks()
-        decoded = nil
+        decodeResidency.clear()
         decodeIsStale = false
         exposureEvByMethod = nil
         openClock = nil
@@ -1456,40 +1458,42 @@ final class Session: CanvasHost {
             noteOpen(clock, url: url, mode: "superseded", pixels: nil)
             return
         }
+        let lease = DecodeLease(d)
         let preview: TextureBox
         if FeatureFlags.framePipeline {
-            preview = (try? await pipeline.run(generation: generation) { checkpoint in
-                TextureBox(try ImageDecoder.makePreviewTexture(d, device: device, maxEdge: edge, checkpoint: checkpoint))
+            preview = (try? await withTaskCancellationHandler {
+                try await pipeline.run(generation: generation) { checkpoint in
+                    try checkpoint()
+                    guard let image = lease.take() else { throw CancellationError() }
+                    return TextureBox(try ImageDecoder.makePreviewTexture(
+                        image, device: device, maxEdge: edge, checkpoint: checkpoint))
+                }
+            } onCancel: {
+                lease.release()
             }) ?? TextureBox(nil)
         } else {
             preview = TextureBox(ImageDecoder.makePreviewTexture(d, device: device, maxEdge: edge))
+            lease.release()
         }
         clock.lap("preview-texture")
-        if let tex = preview.texture, !Task.isCancelled, selection == url {
-            renderer.store.setSource(tex, for: url)
-            renderer.original = tex
-            if renderer.store.print(for: url) == nil {
-                // `d.pixelSize`, not the texture's: the canvas holds a tier,
-                // and the viewport is expressed against the frame (D4).
-                renderer.setLive(tex, logical: d.pixelSize)
-                previewSoft = true
-            }
-        }
-        // The preview above is what makes an open fast; the original the canvas
-        // compares against is the frame's *own* pixels, and it renders behind
-        // this one (D3). Here rather than beside the preview: an as-shot decode
-        // has just written the camera's temperature into `sidecar.decode`, and
-        // the render drops itself if the decode moves on before it lands.
         guard !Task.isCancelled, selection == url else {
-            // §3.6: account for a preview result dropped after its click was superseded.
             noteOpen(clock, url: url, mode: "superseded", pixels: nil)
             return
         }
-        decoded = d
+        let key = DecodeKey(url: url, settings: settings)
+        decodeResidency.adopt(d, for: key)
         decodedGeneration = generation
         decodeIsStale = false
         sourceLongEdge = max(d.pixelSize.width, d.pixelSize.height)
         sampleMemory("decode")
+        if let tex = preview.texture, !Task.isCancelled, selection == url {
+            renderer.store.setSource(tex, for: url)
+            renderer.original = tex
+            if renderer.store.print(for: url) == nil {
+                renderer.setLive(tex, logical: d.pixelSize)
+                previewSoft = true
+            }
+        }
         if sidecar.decode.whiteBalance == .asShot, let t = d.asShotTemperature, let tn = d.asShotTint,
            (sidecar.decode.temperature != t || sidecar.decode.tint != tn) {
             sidecar.decode.temperature = t; sidecar.decode.tint = tn

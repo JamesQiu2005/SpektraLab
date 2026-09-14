@@ -4,7 +4,7 @@
 import CryptoKit
 import Foundation
 
-struct DecodeSettings: Codable, Equatable, Sendable {
+struct DecodeSettings: Codable, Equatable, Hashable, Sendable {
     enum WhiteBalance: String, Codable, CaseIterable, Sendable {
         case asShot = "As Shot", daylight = "Daylight", cloudy = "Cloudy", shade = "Shade",
              tungsten = "Tungsten", fluorescent = "Fluorescent", custom = "Custom"

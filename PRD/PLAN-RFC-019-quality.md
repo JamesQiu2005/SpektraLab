@@ -26,10 +26,12 @@ the pinned guard was also deliberately broken and seen red before restoration. Q
 combined gate passed 33 DiagnosticsTests plus 25 RendererTests/OpenPathTests. Q3 is
 **completed**: the signed gap is logged at every boundary, and the 24 MP `DSC03710.ARW`
 decode measured 2608.5 MB footprint against 69.9 MB arena (a -2538.6 MB gap) from a
-401.4 MB frame-switch baseline. That selects DecodeResidency capacity **1**. Q1 and Q2
-are committed locally; the push is pending explicit owner approval. Do not infer
-physical ownership from arena_mb versus phys_footprint: shared textures and Core Image
-references make that gap diagnostic only. costMs remains a future GDSF input.
+401.4 MB frame-switch baseline. That selects DecodeResidency capacity **1**. Q4 is
+**completed**: the residency owns one decode behind a releaseable lease, publishes it
+only after the preview lands, and passed its 57-test focused gate. Q1–Q4 are committed
+locally; the push is pending explicit owner approval. Do not infer physical ownership
+from arena_mb versus phys_footprint: shared textures and Core Image references make that
+gap diagnostic only. costMs remains a future GDSF input.
 
 ## Work packages
 
@@ -109,7 +111,7 @@ threshold for two decodes, so Q4 uses capacity **1**. The signed-gap guard was s
 with its subtraction reversed, then restored. The Q3 gate ran `DiagnosticsTests`,
 `FramePipelineTests`, and `OpenPathTests`: 54 tests, zero failures.
 
-### Q4 — bounded DecodeResidency — **queued**
+### Q4 — bounded DecodeResidency — **completed**
 
 Prerequisites: IMPL-decode-pipeline.md step 1 and accepted Q3 measurement. Capacity is
 **1**, selected by Q3's 24 MP gap. Edit
@@ -131,6 +133,15 @@ reservation; the actual original remains pinned.
 Acceptance: capacity bound, canceled-image release, guard red verification, and real
 accounting logs. Run focused Session/OpenPath/FramePipeline tests. Roll back to the
 compatibility property if lifetime or render correctness fails.
+
+Result: `DecodeResidency` owns one decode, keyed by `(URL, DecodeSettings)`, with a
+measured 90-bytes-per-pixel estimate registered as pinned. `DecodeLease` carries the
+image across queued preview work; cancellation releases the lease so the queued closure
+retains no decode. `Session.decoded` remains the read-only compatibility property, and
+publication still happens only after the preview texture lands. The capacity guard was
+seen red with two entries and 2.7 MB accounted; after restoration the gate ran
+`DecodeResidencyTests`, `DiagnosticsTests`, `FramePipelineTests`, and `OpenPathTests`:
+57 tests, zero failures. The Xcode project was regenerated for the two new files.
 
 ### Q5 — unified RAM/disk key and GDSF policy — **queued**
 
