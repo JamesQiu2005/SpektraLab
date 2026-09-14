@@ -163,9 +163,9 @@ final class Renderer: NSObject {
     /// selected frame rather than one per tier visited.
     var arena: MemoryArena? { didSet { store.arena = arena } }
     private var originalHandle: MemoryArena.Handle?
-    var original: MTLTexture? { didSet { if let h = originalHandle { arena?.release(h) }; originalHandle = original.flatMap { arena?.admit(bytes: $0.width * $0.height * 8, cls: .pinned, kind: "original", costMs: 0, evict: {}) } } }
+    var original: MTLTexture? { didSet { if let h = originalHandle { arena?.release(h) }; originalHandle = original.flatMap { arena?.registerPinned(bytes: $0.width * $0.height * 8, kind: "original") } } }
     private var adjustedHandle: MemoryArena.Handle?
-    private var adjusted: MTLTexture? { didSet { if let h = adjustedHandle { arena?.release(h) }; adjustedHandle = adjusted.flatMap { arena?.admit(bytes: $0.width * $0.height * 8, cls: .pinned, kind: "adjusted", costMs: 0, evict: {}) } } }
+    private var adjusted: MTLTexture? { didSet { if let h = adjustedHandle { arena?.release(h) }; adjustedHandle = adjusted.flatMap { arena?.registerPinned(bytes: $0.width * $0.height * 8, kind: "adjusted") } } }
     /// Rasterised coverage for the mask kinds that cannot be closed-form.
     /// Nothing writes it yet — brush and the Vision sources are the next
     /// component kinds and this is the seam they land on
@@ -176,7 +176,7 @@ final class Renderer: NSObject {
             if let h = maskHandle { arena?.release(h) }
             maskHandle = maskRasters.flatMap {
                 // The array slices and pixel format are part of this number.
-                arena?.admit(bytes: $0.allocatedSize, cls: .pinned, kind: "maskRasters", costMs: 0, evict: {})
+                arena?.registerPinned(bytes: $0.allocatedSize, kind: "maskRasters")
             }
         }
     }

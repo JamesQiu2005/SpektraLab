@@ -4,7 +4,7 @@ import Foundation
 /// never owns the objects: an evict closure only gives the caller a place to
 /// drop its own reference.
 final class MemoryArena: @unchecked Sendable {
-    enum Class { case pinned, evictable }
+    private enum Class { case pinned, evictable }
     struct Handle: Hashable { fileprivate let id: UUID }
 
     /// Evictions since the last report was drained. The report is kept by the
@@ -24,8 +24,9 @@ final class MemoryArena: @unchecked Sendable {
         let bytes: Int
         let cls: Class
         let kind: String
+        /// Reserved for the step 4 GDSF value function; currently unused.
         let costMs: Double
-        let evict: @Sendable () -> Void
+        let evict: (@Sendable () -> Void)?
         var lastTouch: UInt64
     }
     private struct State {
@@ -41,35 +42,45 @@ final class MemoryArena: @unchecked Sendable {
     private let state = NSLock()
     private var value = State()
 
-    /// Register an allocation. The caller may pass nil only for an evictable
-    /// cache entry; pinned registrations are never refused because refusing
-    /// one would make the accounting lie about an object the app already has.
+    /// Register an allocation already owned by the caller. Pinned holdings
+    /// are never refused because refusing one would make accounting lie about
+    /// an object the app already has.
     ///
-    /// The most recent sample handed to `enforce`/`observe` is the admission
-    /// reading. That can be one sample period stale: this method deliberately
-    /// does not ask the kernel (RFC-019 rule 4), and the next enforcement pass
-    /// re-reads free memory after making room.
     @discardableResult
-    func admit(bytes: Int, cls: Class, kind: String, costMs: Double,
-               evict: @escaping @Sendable () -> Void) -> Handle? {
+    func registerPinned(bytes: Int, kind: String) -> Handle {
+        register(bytes: max(0, bytes), cls: .pinned, kind: kind, costMs: 0, evict: nil)
+    }
+
+    /// Try to add an evictable cache entry. Only this path can be refused.
+    @discardableResult
+    func admitCache(bytes: Int, kind: String, costMs: Double,
+                    evict: @escaping @Sendable () -> Void) -> Handle? {
         let bytes = max(0, bytes)
+        // The most recent sample handed to `enforce`/`observe` is the
+        // admission reading. That can be one sample period stale: this
+        // method deliberately does not ask the kernel (RFC-019 rule 4), and
+        // the next enforcement pass re-reads free memory after making room.
         var evicted: [Entry] = []
 
-        if cls == .evictable {
-            state.lock()
-            guard let needed = admissionNeedLocked(bytes: bytes),
-                  UInt64(evictableBytesLocked()) >= needed else {
-                state.unlock()
-                return nil
-            }
-            evicted = removeLowestPriorityLocked(needed: needed)
+        state.lock()
+        guard let needed = admissionNeedLocked(bytes: bytes),
+              UInt64(evictableBytesLocked()) >= needed else {
             state.unlock()
-            // Run the drop closures outside the arena lock. A store's closure
-            // may take its own lock, and it must never be asked to do that
-            // while this arena is holding one.
-            evicted.forEach { $0.evict() }
+            return nil
         }
+        evicted = removeLowestPriorityLocked(needed: needed)
+        state.unlock()
+        // Run the drop closures outside the arena lock. A store's closure
+        // may take its own lock, and it must never be asked to do that
+        // while this arena is holding one.
+        evicted.forEach { $0.evict?() }
 
+        return register(bytes: bytes, cls: .evictable, kind: kind,
+                        costMs: costMs, evict: evict)
+    }
+
+    private func register(bytes: Int, cls: Class, kind: String, costMs: Double,
+                           evict: (@Sendable () -> Void)?) -> Handle {
         let handle = Handle(id: UUID())
         state.lock()
         value.entries[handle.id] = Entry(bytes: bytes, cls: cls, kind: kind,
@@ -104,21 +115,20 @@ final class MemoryArena: @unchecked Sendable {
     }
 
     /// Hand the arena a sample and limits without running policy. `enforce`
-    /// calls this first; keeping it separate lets admission consult the same
-    /// latest reading while still making the sampler the only kernel reader.
+    /// records the same values while holding its enforcement lock. Keeping
+    /// the update separate from policy lets admission consult the same latest
+    /// reading while still making the sampler the only kernel reader.
     func observe(sample: MemorySample, reserve: UInt64, cap: UInt64) {
         state.lock()
-        value.lastSample = sample
-        value.lastReserve = reserve
-        value.lastCap = cap
+        recordSampleLocked(sample: sample, reserve: reserve, cap: cap)
         state.unlock()
     }
 
-    /// Can this entry be admitted without a later admission eviction failing?
-    /// This is the same prediction as `admit`, without registering anything.
-    func wouldAdmit(bytes: Int, cls: Class) -> Bool {
+    /// Best-effort sample prediction for an evictable cache entry. This is not
+    /// a reservation and may be stale by the time `admitCache` runs.
+    func wouldAdmitCache(bytes: Int) -> Bool {
         state.lock(); defer { state.unlock() }
-        guard cls == .evictable, let needed = admissionNeedLocked(bytes: max(0, bytes)) else { return true }
+        guard let needed = admissionNeedLocked(bytes: max(0, bytes)) else { return true }
         return UInt64(evictableBytesLocked()) >= needed
     }
 
@@ -133,9 +143,7 @@ final class MemoryArena: @unchecked Sendable {
     @discardableResult
     func enforce(sample: MemorySample, reserve: UInt64, cap: UInt64) -> Int {
         state.lock()
-        value.lastSample = sample
-        value.lastReserve = reserve
-        value.lastCap = cap
+        recordSampleLocked(sample: sample, reserve: reserve, cap: cap)
 
         let freeNeed = sample.freeBytes < reserve ? reserve - sample.freeBytes : 0
         let evictable = UInt64(evictableBytesLocked())
@@ -149,7 +157,7 @@ final class MemoryArena: @unchecked Sendable {
 
         let evicted = removeLowestPriorityLocked(needed: needed)
         state.unlock()
-        evicted.forEach { $0.evict() }
+        evicted.forEach { $0.evict?() }
         return evicted.reduce(0) { $0 + $1.bytes }
     }
 
@@ -163,6 +171,12 @@ final class MemoryArena: @unchecked Sendable {
     }
 
     // MARK: - locked policy helpers
+
+    private func recordSampleLocked(sample: MemorySample, reserve: UInt64, cap: UInt64) {
+        value.lastSample = sample
+        value.lastReserve = reserve
+        value.lastCap = cap
+    }
 
     private func nextTouchLocked() -> UInt64 {
         let touch = value.nextTouch

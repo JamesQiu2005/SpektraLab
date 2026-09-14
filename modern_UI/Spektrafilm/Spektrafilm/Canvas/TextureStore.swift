@@ -88,7 +88,7 @@ final class TextureStore: @unchecked Sendable {
         lock.withLock {
             if let h = sourceHandles.removeValue(forKey: url) { arena?.release(h) }
             let slot = HandleSlot()
-            let admitted = arena?.admit(bytes: t.width * t.height * 8, cls: .evictable,
+            let admitted = arena?.admitCache(bytes: t.width * t.height * 8,
                                         kind: "sources", costMs: 0,
                                         evict: { [weak self] in self?.dropSource(url, matching: slot) })
             if arena != nil, admitted == nil {
@@ -113,7 +113,7 @@ final class TextureStore: @unchecked Sendable {
                 return
             }
             let slot = HandleSlot()
-            let admitted = arena?.admit(bytes: t.width * t.height * 8, cls: .evictable,
+            let admitted = arena?.admitCache(bytes: t.width * t.height * 8,
                                         kind: "prints", costMs: 0,
                                         evict: { [weak self] in self?.dropPrint(url, matching: slot) })
             if arena != nil, admitted == nil {
@@ -131,7 +131,7 @@ final class TextureStore: @unchecked Sendable {
 
     /// Take a native-resolution render into the slot.
     func setFullRender(_ t: MTLTexture, stamp: String, for url: URL) {
-        lock.withLock { if let h = fullHandle { arena?.release(h) }; full = FullRenderEntry(url: url, stamp: stamp, texture: t); fullHandle = arena?.admit(bytes: t.width * t.height * 8, cls: .pinned, kind: "full", costMs: 0, evict: {}) }
+        lock.withLock { if let h = fullHandle { arena?.release(h) }; full = FullRenderEntry(url: url, stamp: stamp, texture: t); fullHandle = arena?.registerPinned(bytes: t.width * t.height * 8, kind: "full") }
     }
     /// Free the slot. Called when a print lands that the resident render was
     /// not made from — the same parameters are handled by the lookup, which

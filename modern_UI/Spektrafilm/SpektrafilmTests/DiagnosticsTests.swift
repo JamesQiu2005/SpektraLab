@@ -852,20 +852,45 @@ final class DiagnosticsTests: XCTestCase {
 
     func testArenaRegistrationAndReleaseAccounting() {
         let arena = MemoryArena()
-        let pinned = arena.admit(bytes: 100, cls: .pinned, kind: "original", costMs: 1, evict: {})
-        let cached = arena.admit(bytes: 40, cls: .evictable, kind: "prints", costMs: 2, evict: {})
-        XCTAssertNotNil(pinned)
+        let pinned = arena.registerPinned(bytes: 100, kind: "original")
+        let cached = arena.admitCache(bytes: 40, kind: "prints", costMs: 2, evict: {})
         XCTAssertNotNil(cached)
         XCTAssertEqual(arena.totalBytes, 140)
         XCTAssertEqual(arena.evictableBytes, 40)
         arena.release(cached!)
         XCTAssertEqual(arena.totalBytes, 100)
         XCTAssertEqual(arena.evictableBytes, 0)
+        arena.release(pinned)
+        XCTAssertEqual(arena.totalBytes, 0)
+    }
+
+    /// Pinned ownership is accounted even when the latest sample has no free
+    /// memory and the evictable cap is zero; release must remove that count.
+    ///
+    /// **Seen red** by registering pinned bytes as evictable: enforcement
+    /// removed them and both the post-enforce total and evictable assertions
+    /// failed.
+    func testPinnedRegistrationIgnoresCachePressureAndClampsBytes() {
+        let arena = MemoryArena()
+        arena.observe(sample: MemorySample(seq: 1, at: Date(), footprintBytes: 1,
+                                           peakBytes: 1, freeBytes: 0),
+                      reserve: 1_000, cap: 0)
+        let handle = arena.registerPinned(bytes: -20, kind: "engine")
+        XCTAssertEqual(arena.totalBytes, 0)
+        let real = arena.registerPinned(bytes: 50, kind: "original")
+        XCTAssertEqual(arena.enforce(sample: MemorySample(seq: 2, at: Date(), footprintBytes: 1,
+                                                          peakBytes: 1, freeBytes: 0),
+                                      reserve: 1_000, cap: 0), 0)
+        XCTAssertEqual(arena.totalBytes, 50)
+        XCTAssertEqual(arena.evictableBytes, 0)
+        arena.release(real)
+        arena.release(handle)
+        XCTAssertEqual(arena.totalBytes, 0)
     }
 
     func testArenaTouchDoesNotChangeAccounting() {
         let arena = MemoryArena()
-        let handle = arena.admit(bytes: 12, cls: .evictable, kind: "sources", costMs: 0, evict: {})!
+        let handle = arena.admitCache(bytes: 12, kind: "sources", costMs: 0, evict: {})!
         arena.touch(handle)
         XCTAssertEqual(arena.totalBytes, 12)
         XCTAssertEqual(arena.evictableBytes, 12)
@@ -873,9 +898,9 @@ final class DiagnosticsTests: XCTestCase {
 
     func testArenaBreakdownSumsBytesAndCounts() {
         let arena = MemoryArena()
-        _ = arena.admit(bytes: 10, cls: .pinned, kind: "full", costMs: 0, evict: {})
-        _ = arena.admit(bytes: 20, cls: .pinned, kind: "full", costMs: 0, evict: {})
-        _ = arena.admit(bytes: 7, cls: .evictable, kind: "prints", costMs: 0, evict: {})
+        _ = arena.registerPinned(bytes: 10, kind: "full")
+        _ = arena.registerPinned(bytes: 20, kind: "full")
+        _ = arena.admitCache(bytes: 7, kind: "prints", costMs: 0, evict: {})
         let breakdown = arena.breakdown()
         XCTAssertEqual(breakdown.first { $0.kind == "full" }?.bytes, 30)
         XCTAssertEqual(breakdown.first { $0.kind == "full" }?.count, 2)
@@ -900,9 +925,9 @@ final class DiagnosticsTests: XCTestCase {
         let log = Log(ringCapacity: 64)
         let arena = MemoryArena()
         let order = Order()
-        let first = arena.admit(bytes: 60_000_000, cls: .evictable, kind: "prints",
+        let first = arena.admitCache(bytes: 60_000_000, kind: "prints",
                                 costMs: 0, evict: { order.append("first") })!
-        _ = arena.admit(bytes: 40_000_000, cls: .evictable, kind: "sources",
+        _ = arena.admitCache(bytes: 40_000_000, kind: "sources",
                         costMs: 0, evict: { order.append("second") })
         arena.touch(first)
 
@@ -933,18 +958,18 @@ final class DiagnosticsTests: XCTestCase {
                                    peakBytes: 1, freeBytes: 5)
 
         let recoverable = MemoryArena()
-        let room = recoverable.admit(bytes: 160, cls: .evictable, kind: "prints",
+        let room = recoverable.admitCache(bytes: 160, kind: "prints",
                                      costMs: 0, evict: {})
         XCTAssertNotNil(room)
         recoverable.observe(sample: lowFree, reserve: 100, cap: .max)
-        let admitted = recoverable.admit(bytes: 60, cls: .evictable, kind: "prints",
+        let admitted = recoverable.admitCache(bytes: 60, kind: "prints",
                                          costMs: 0, evict: {})
         XCTAssertNotNil(admitted, "an entry with recoverable room was refused")
         XCTAssertEqual(recoverable.totalBytes, 60)
 
         let unrecoverable = MemoryArena()
         unrecoverable.observe(sample: lowFree, reserve: 100, cap: .max)
-        XCTAssertNil(unrecoverable.admit(bytes: 60, cls: .evictable, kind: "prints",
+        XCTAssertNil(unrecoverable.admitCache(bytes: 60, kind: "prints",
                                          costMs: 0, evict: {}))
         XCTAssertEqual(unrecoverable.totalBytes, 0)
     }
@@ -955,8 +980,8 @@ final class DiagnosticsTests: XCTestCase {
     /// **Seen red** by forcing `capNeed` to zero: the total stayed above 50.
     func testArenaEnforceBringsEvictableBytesUnderTheCap() {
         let arena = MemoryArena()
-        _ = arena.admit(bytes: 30, cls: .evictable, kind: "prints", costMs: 0, evict: {})
-        _ = arena.admit(bytes: 40, cls: .evictable, kind: "sources", costMs: 0, evict: {})
+        _ = arena.admitCache(bytes: 30, kind: "prints", costMs: 0, evict: {})
+        _ = arena.admitCache(bytes: 40, kind: "sources", costMs: 0, evict: {})
         let sample = MemorySample(seq: 1, at: Date(), footprintBytes: 1,
                                   peakBytes: 1, freeBytes: 1_000_000)
 
@@ -992,22 +1017,22 @@ final class DiagnosticsTests: XCTestCase {
         let refusedActual = MemoryArena()
         refusedPrediction.observe(sample: lowFree, reserve: 100, cap: .max)
         refusedActual.observe(sample: lowFree, reserve: 100, cap: .max)
-        XCTAssertFalse(refusedPrediction.wouldAdmit(bytes: 60, cls: .evictable))
+        XCTAssertFalse(refusedPrediction.wouldAdmitCache(bytes: 60))
         XCTAssertEqual(refusedPrediction.totalBytes, 0,
                        "wouldAdmit registered something")
-        XCTAssertNil(refusedActual.admit(bytes: 60, cls: .evictable, kind: "prints",
+        XCTAssertNil(refusedActual.admitCache(bytes: 60, kind: "prints",
                                          costMs: 0, evict: {}))
 
         let admittedPrediction = MemoryArena()
         let admittedActual = MemoryArena()
         for arena in [admittedPrediction, admittedActual] {
-            _ = arena.admit(bytes: 160, cls: .evictable, kind: "prints", costMs: 0, evict: {})
+            _ = arena.admitCache(bytes: 160, kind: "prints", costMs: 0, evict: {})
             arena.observe(sample: lowFree, reserve: 100, cap: .max)
         }
-        XCTAssertTrue(admittedPrediction.wouldAdmit(bytes: 60, cls: .evictable))
+        XCTAssertTrue(admittedPrediction.wouldAdmitCache(bytes: 60))
         XCTAssertEqual(admittedPrediction.totalBytes, 160,
                        "wouldAdmit evicted or registered something")
-        XCTAssertNotNil(admittedActual.admit(bytes: 60, cls: .evictable, kind: "prints",
+        XCTAssertNotNil(admittedActual.admitCache(bytes: 60, kind: "prints",
                                              costMs: 0, evict: {}))
     }
 
@@ -1105,8 +1130,8 @@ final class DiagnosticsTests: XCTestCase {
     func testMemorySamplerRecordCarriesArenaAccounting() throws {
         let log = Log(ringCapacity: 64)
         let arena = MemoryArena()
-        _ = arena.admit(bytes: 12_000_000, cls: .pinned, kind: "original", costMs: 0, evict: {})
-        _ = arena.admit(bytes: 3_000_000, cls: .evictable, kind: "prints", costMs: 0, evict: {})
+        _ = arena.registerPinned(bytes: 12_000_000, kind: "original")
+        _ = arena.admitCache(bytes: 3_000_000, kind: "prints", costMs: 0, evict: {})
         let sampler = MemorySampler(log: log, arena: arena,
                                     readFootprint: { 2_000_000_000 },
                                     readFree: { 4_000_000_000 })

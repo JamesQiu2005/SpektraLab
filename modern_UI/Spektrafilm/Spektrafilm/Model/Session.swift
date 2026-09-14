@@ -663,6 +663,9 @@ final class Session: CanvasHost {
     let catalog = StockCatalog.shared
     private var serviceSessionID: String?
     private var engineArenaHandle: MemoryArena.Handle?
+    /// Approximate engine session footprint for a 45 MP frame (PRD/IMPL-RFC-019-memory.md §3.2);
+    /// this is an accounting estimate, not a live measurement.
+    private static let engineArenaEstimateBytes = 1_200_000_000
     var serviceSessionIDForExport: String? { serviceSessionID }
     private var serviceGeneration = 0
 
@@ -1302,7 +1305,9 @@ final class Session: CanvasHost {
         // pinned registration itself is never refused (RFC-019 §1 rule 2);
         // this is the check the old debt comment pointed at.
         let allocationBytes = nativeOriginalAllocationBytes(d)
-        guard diagnostics.arena.wouldAdmit(bytes: allocationBytes, cls: .evictable) else {
+        // Best-effort cache preflight only: this sample prediction is not a
+        // reservation, and the pinned original below remains user-owned.
+        guard diagnostics.arena.wouldAdmitCache(bytes: allocationBytes) else {
             log.info(.canvas, "native original skipped", [
                 .init("trigger", trigger),
                 .init("frame", url.lastPathComponent),
@@ -1637,8 +1642,8 @@ final class Session: CanvasHost {
             // the session, not the develop, so an open only ever replaces this
             // accounted residency and a rejected develop leaves it intact.
             releaseEngineAccounting()
-            engineArenaHandle = diagnostics.arena.admit(bytes: 1_200_000_000, cls: .pinned,
-                                                         kind: "engine", costMs: 0, evict: {})
+            engineArenaHandle = diagnostics.arena.registerPinned(bytes: Self.engineArenaEstimateBytes,
+                                                                  kind: "engine")
             clock.lap("engine.open")
             sampleMemory("engine.open")
             // `open` echoes the whole block, so the check happens here too:
