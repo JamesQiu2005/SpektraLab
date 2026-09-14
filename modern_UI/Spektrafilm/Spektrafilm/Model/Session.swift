@@ -708,6 +708,14 @@ final class Session: CanvasHost {
     private var developTask: Task<String?, Never>?
     /// The decode in flight. `ensureDeveloped` waits on it; a reopen replaces it.
     private var loadTask: Task<Void, Never>?
+    /// The single-flight frame pipeline (IMP §3, step 1). Every heavy stage of
+    /// a load — RAW decode, preview render, native original — runs on its one
+    /// serial queue under a generation that a frame switch supersedes.
+    /// Detached tasks inherit no cancellation, which is how five stale jobs
+    /// used to run to completion per click; a stale job here stops at its
+    /// first checkpoint, and the blocking Metal wait runs off the cooperative
+    /// pool.
+    private let pipeline = FramePipeline()
     /// The open path's clock for the frame being loaded (RFC-016 §3). Set by
     /// `load`, so a develop that joins the open in flight reports the open's
     /// whole path — the decode and the preview texture included — rather than
@@ -1015,6 +1023,7 @@ final class Session: CanvasHost {
         fullTask?.cancel(); fullTask = nil
         fullGeneration += 1
         loadTask?.cancel()
+        pipeline.supersede()
         renderer.dropFullRender()
         renderer.setLive(nil)
         renderer.original = nil
@@ -1158,7 +1167,8 @@ final class Session: CanvasHost {
         // A memory boundary (§3): what switching frames costs is the question
         // behind "switching frames is slow".
         sampleMemory("frame_switch")
-        loadTask = Task { await load(url) }
+        let gen = pipeline.supersede()
+        loadTask = Task { await load(url, generation: gen) }
         prefetchNeighbours(of: url)
     }
 
@@ -1228,7 +1238,8 @@ final class Session: CanvasHost {
     /// lands: another frame selected, or a different decode (a white balance
     /// change) started. It is not kept in `renderer.store`, which is the
     /// small-texture cache the instant frame switch depends on.
-    private func scheduleNativeOriginal(_ d: DecodedImage, for url: URL, settings: DecodeSettings) {
+    private func scheduleNativeOriginal(_ d: DecodedImage, for url: URL, settings: DecodeSettings,
+                                        generation: Int) {
         nativeOriginalTask?.cancel()
         let device = renderer.device
         // The frame's own size, capped at the largest texture the device will
@@ -1239,10 +1250,16 @@ final class Session: CanvasHost {
         let limit = maxTextureEdge ?? previewLongEdge
         let longEdge = min(Int(max(d.pixelSize.width, d.pixelSize.height)), limit)
         let started = Date()
+        let pipeline = self.pipeline
         nativeOriginalTask = Task { [weak self] in
-            let box = await Task.detached(priority: .utility) {
-                TextureBox(ImageDecoder.makePreviewTexture(d, device: device, maxEdge: longEdge))
-            }.value
+            let box: TextureBox
+            if FeatureFlags.framePipeline {
+                box = (try? await pipeline.run(generation: generation) { checkpoint in
+                    TextureBox(try ImageDecoder.makePreviewTexture(d, device: device, maxEdge: longEdge, checkpoint: checkpoint))
+                }) ?? TextureBox(nil)
+            } else {
+                box = TextureBox(ImageDecoder.makePreviewTexture(d, device: device, maxEdge: longEdge))
+            }
             guard let self, !Task.isCancelled, self.selection == url,
                   self.sidecar.decode == settings, let tex = box.texture else { return }
             self.renderer.original = tex
@@ -1273,7 +1290,7 @@ final class Session: CanvasHost {
         }
     }
 
-    private func load(_ url: URL) async {
+    private func load(_ url: URL, generation: Int) async {
         status = "Decoding \(url.lastPathComponent)…"
         // Kept on the session as well as in this scope: a develop asked for
         // from outside (`Solve` while the decode is landing, an export) joins
@@ -1286,9 +1303,14 @@ final class Session: CanvasHost {
         // Decode and preview, and then the frame is *on the canvas* — that is
         // the whole of an open. The develop is `develop(_:_:clock:)`, below,
         // and it runs only if it has been asked for (`wantsDevelop`).
-        let decodedImage: DecodedImage? = await Task.detached(priority: .userInitiated) {
-            try? ImageDecoder.decode(url, settings: settings)
-        }.value
+        let decodedImage: DecodedImage?
+        if FeatureFlags.framePipeline {
+            decodedImage = try? await pipeline.run(generation: generation) { checkpoint in
+                try ImageDecoder.decode(url, settings: settings, checkpoint: checkpoint)
+            }
+        } else {
+            decodedImage = try? ImageDecoder.decode(url, settings: settings)
+        }
         clock.lap("decode")
         guard !Task.isCancelled, selection == url, let d = decodedImage else {
             // A load that *failed* rather than being superseded must not leave
@@ -1298,11 +1320,20 @@ final class Session: CanvasHost {
             // reopen that replaced it, and that one set the flag again for its
             // own decode.
             if !Task.isCancelled { decodeIsStale = false }
+            // One record per click that did not land on the canvas: a
+            // superseded or cancelled decode used to drop silently, which is
+            // how the log showed frame switches and no decodes (IMP §3.6).
+            noteOpen(clock, url: url, mode: "superseded", pixels: nil)
             return
         }
-        let preview: TextureBox = await Task.detached(priority: .userInitiated) {
-            TextureBox(ImageDecoder.makePreviewTexture(d, device: device, maxEdge: edge))
-        }.value
+        let preview: TextureBox
+        if FeatureFlags.framePipeline {
+            preview = (try? await pipeline.run(generation: generation) { checkpoint in
+                TextureBox(try ImageDecoder.makePreviewTexture(d, device: device, maxEdge: edge, checkpoint: checkpoint))
+            }) ?? TextureBox(nil)
+        } else {
+            preview = TextureBox(ImageDecoder.makePreviewTexture(d, device: device, maxEdge: edge))
+        }
         clock.lap("preview-texture")
         if let tex = preview.texture, !Task.isCancelled, selection == url {
             renderer.store.setSource(tex, for: url)
@@ -1319,7 +1350,11 @@ final class Session: CanvasHost {
         // this one (D3). Here rather than beside the preview: an as-shot decode
         // has just written the camera's temperature into `sidecar.decode`, and
         // the render drops itself if the decode moves on before it lands.
-        guard !Task.isCancelled, selection == url else { return }
+        guard !Task.isCancelled, selection == url else {
+            // §3.6: account for a preview result dropped after its click was superseded.
+            noteOpen(clock, url: url, mode: "superseded", pixels: nil)
+            return
+        }
         decoded = d
         decodeIsStale = false
         sourceLongEdge = max(d.pixelSize.width, d.pixelSize.height)
@@ -1328,7 +1363,7 @@ final class Session: CanvasHost {
            (sidecar.decode.temperature != t || sidecar.decode.tint != tn) {
             sidecar.decode.temperature = t; sidecar.decode.tint = tn
         }
-        scheduleNativeOriginal(d, for: url, settings: sidecar.decode)
+        scheduleNativeOriginal(d, for: url, settings: sidecar.decode, generation: generation)
         guard wantsDevelop else {
             clock.lap("decode-only")
             canvasLog(clock.summary()
@@ -1769,7 +1804,8 @@ final class Session: CanvasHost {
             // a develop would open the engine on the old frame, and `load`'s
             // tail would then keep that session as if it were the new one.
             decodeIsStale = true
-            loadTask = Task { await load(url) }
+            let gen = pipeline.supersede()
+            loadTask = Task { await load(url, generation: gen) }
         }
     }
 
@@ -2336,7 +2372,8 @@ final class Session: CanvasHost {
             renderer.store.dropFullRender()
             guard let url = selection else { status = "Render service stopped."; return }
             status = "Restarting the render service…"
-            loadTask = Task { await load(url) }
+            let gen = pipeline.supersede()
+            loadTask = Task { await load(url, generation: gen) }
         }
     }
 

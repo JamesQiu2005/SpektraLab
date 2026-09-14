@@ -39,4 +39,16 @@ enum FeatureFlags {
     /// Flip it back on when the user's own mask PRD lands and the sublayer is
     /// rebuilt to it.
     static let masks = false
+
+    /// The step 1 decode pipeline: when on, the single-flight pipeline owns
+    /// the load path (decode, preview, and native-original stages).
+    ///
+    /// Flip it off if the pipeline has a bad interaction with the export
+    /// harness. Remove the flag after the 30-click test has survived a week
+    /// of real use. IMPL §9 says this can be turned off by a user without a
+    /// build; this repository's FeatureFlags are compile-time `static let`s
+    /// (as `masks` demonstrates), so changing it does require a build. That
+    /// is a deliberate deviation from the document, called out rather than
+    /// hidden.
+    static let framePipeline = true
 }

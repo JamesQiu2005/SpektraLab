@@ -142,10 +142,11 @@ enum ImageDecoder {
 
     // MARK: decode
 
-    static func decode(_ url: URL, settings: DecodeSettings) throws -> DecodedImage {
+    static func decode(_ url: URL, settings: DecodeSettings,
+                       checkpoint: () throws -> Void = {}) throws -> DecodedImage {
         rawExtensions.contains(url.pathExtension.lowercased())
-            ? try decodeRAW(url, settings: settings)
-            : try decodeFlat(url)
+            ? try decodeRAW(url, settings: settings, checkpoint: checkpoint)
+            : try decodeFlat(url, checkpoint: checkpoint)
     }
 
     /// Which of the two RAW decodes a filter is for. See the file header.
@@ -178,19 +179,30 @@ enum ImageDecoder {
         return filter
     }
 
-    private static func decodeRAW(_ url: URL, settings: DecodeSettings) throws -> DecodedImage {
+    private static func decodeRAW(_ url: URL, settings: DecodeSettings,
+                                  checkpoint: () throws -> Void) throws -> DecodedImage {
+        // A checkpoint before each filter and before each `outputImage` read
+        // (which is where the demosaic actually happens) is what makes a
+        // superseded decode cost at most one filter.
+        try checkpoint()
         // As-shot is read from a filter nobody has set a white balance on.
         guard let probe = CIRAWFilter(imageURL: url) else { throw Failure.rawFilterUnavailable(url) }
         let asShotT = Double(probe.neutralTemperature), asShotTint = Double(probe.neutralTint)
-        guard let linear = try rawFilter(url, look: .linear, settings: settings).outputImage,
-              let display = try rawFilter(url, look: .display, settings: settings).outputImage
-        else { throw Failure.unsupported(url) }
+        try checkpoint()
+        let linearFilter = try rawFilter(url, look: .linear, settings: settings)
+        try checkpoint()
+        guard let linear = linearFilter.outputImage else { throw Failure.unsupported(url) }
+        try checkpoint()
+        let displayFilter = try rawFilter(url, look: .display, settings: settings)
+        try checkpoint()
+        guard let display = displayFilter.outputImage else { throw Failure.unsupported(url) }
         return DecodedImage(linear: linear, display: display, pixelSize: linear.extent.size,
                             isRAW: true, sourceURL: url,
                             asShotTemperature: asShotT, asShotTint: asShotTint)
     }
 
-    private static func decodeFlat(_ url: URL) throws -> DecodedImage {
+    private static func decodeFlat(_ url: URL, checkpoint: () throws -> Void) throws -> DecodedImage {
+        try checkpoint()
         guard let ci = CIImage(contentsOf: url, options: [.applyOrientationProperty: true]) else {
             throw Failure.unsupported(url)
         }
@@ -285,7 +297,8 @@ enum ImageDecoder {
     /// comparison would be measuring the conversion rather than the grade.
     /// The canvas converts it, along with everything else, in the output
     /// transform — one conversion, at the end, per destination.
-    static func makePreviewTexture(_ decoded: DecodedImage, device: MTLDevice, maxEdge: Int) -> MTLTexture? {
+    static func makePreviewTexture(_ decoded: DecodedImage, device: MTLDevice, maxEdge: Int,
+                                   checkpoint: () throws -> Void = {}) rethrows -> MTLTexture? {
         let extent = decoded.display.extent
         guard extent.width > 0, extent.height > 0 else { return nil }
         let scale = min(1.0, Double(maxEdge) / Double(max(extent.width, extent.height)))
@@ -306,11 +319,26 @@ enum ImageDecoder {
         // Graphics will not vend ROMM — which would put the original back in
         // the wrong space, so it is worth a loud line if it ever happens.
         let space = workingSpace ?? displayP3
+        // A checkpoint before the render and before the commit: a superseded
+        // preview then costs the render it has already enqueued, not the wait.
+        try checkpoint()
         context.render(flipped, to: tex, commandBuffer: cb,
                        bounds: CGRect(origin: .zero, size: target.size), colorSpace: space)
+        try checkpoint()
         cb.commit()
         cb.waitUntilCompleted()
         return tex
+    }
+
+    /// The checkpoint-free form, for the call sites that predate the frame
+    /// pipeline (`prefetchNeighbours`, the test suites): a plain non-throwing
+    /// function, so none of them needs a `try`. Swift treats a call that uses
+    /// a defaulted throwing closure parameter as potentially throwing, which
+    /// would force a `try` on every 3-arg call site — so this overload exists
+    /// to keep those sites exactly as they are.
+    static func makePreviewTexture(_ decoded: DecodedImage, device: MTLDevice,
+                                   maxEdge: Int) -> MTLTexture? {
+        makePreviewTexture(decoded, device: device, maxEdge: maxEdge, checkpoint: {})
     }
 
     /// Value at a point (0…1 normalised, top-left origin) of the *linear*
