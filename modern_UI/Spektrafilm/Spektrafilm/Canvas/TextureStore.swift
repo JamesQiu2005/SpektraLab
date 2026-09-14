@@ -36,12 +36,25 @@ struct FullRenderEntry: @unchecked Sendable {
     let url: URL
     let stamp: String
     let texture: MTLTexture
+    let costMs: Double
+    let cacheKey: CacheKey?
+    let sourceWidth: Int
+    let sourceHeight: Int
+}
+
+private struct PrintRenderEntry: @unchecked Sendable {
+    let texture: MTLTexture
+    let stamp: String
+    let costMs: Double
+    let cacheKey: CacheKey?
+    let sourceWidth: Int
+    let sourceHeight: Int
 }
 
 final class TextureStore: @unchecked Sendable {
     let device: MTLDevice
     private var sources: [URL: MTLTexture] = [:]
-    private var prints: [URL: MTLTexture] = [:]
+    private var prints: [URL: PrintRenderEntry] = [:]
     /// The frame's print at its **own** resolution — what the canvas settles
     /// on once an edit stops moving. One slot, current frame only: a 45 MP
     /// rgba16 texture is 360 MB, so eight of them is not an option the way
@@ -70,7 +83,19 @@ final class TextureStore: @unchecked Sendable {
     }
 
     func source(for url: URL) -> MTLTexture? { lock.withLock { sources[url] } }
-    func print(for url: URL) -> MTLTexture? { lock.withLock { prints[url] } }
+    func print(for url: URL) -> MTLTexture? { lock.withLock { prints[url]?.texture } }
+    func printEntry(for url: URL) -> (texture: MTLTexture, stamp: String, costMs: Double,
+                                      cacheKey: CacheKey?, sourceWidth: Int,
+                                      sourceHeight: Int)? {
+        lock.withLock {
+            guard let entry = prints[url] else { return nil }
+            return (entry.texture, entry.stamp, entry.costMs, entry.cacheKey,
+                    entry.sourceWidth, entry.sourceHeight)
+        }
+    }
+    func fullEntry(for url: URL) -> FullRenderEntry? {
+        lock.withLock { full?.url == url ? full : nil }
+    }
 
     /// The resident native-resolution render for `url`, if it was made from
     /// `stamp`.
@@ -107,7 +132,9 @@ final class TextureStore: @unchecked Sendable {
         }
     }
 
-    func setPrint(_ t: MTLTexture?, for url: URL, costMs: Double = 0) {
+    func setPrint(_ t: MTLTexture?, stamp: String = "", for url: URL, costMs: Double = 0,
+                  cacheKey: CacheKey? = nil, sourceWidth: Int? = nil,
+                  sourceHeight: Int? = nil) {
         lock.withLock {
             if let h = printHandles.removeValue(forKey: url) { arena.release(h) }
             guard let t else {
@@ -126,15 +153,29 @@ final class TextureStore: @unchecked Sendable {
                 return
             }
             slot.handle = admitted
-            prints[url] = t
+            prints[url] = PrintRenderEntry(
+                texture: t, stamp: stamp, costMs: costMs, cacheKey: cacheKey,
+                sourceWidth: sourceWidth ?? t.width,
+                sourceHeight: sourceHeight ?? t.height
+            )
             printHandles[url] = admitted
             touch(url)
         }
     }
 
     /// Take a native-resolution render into the slot.
-    func setFullRender(_ t: MTLTexture, stamp: String, for url: URL) {
-        lock.withLock { if let h = fullHandle { arena.release(h) }; full = FullRenderEntry(url: url, stamp: stamp, texture: t); fullHandle = arena.registerPinned(bytes: t.width * t.height * 8, kind: "full") }
+    func setFullRender(_ t: MTLTexture, stamp: String, costMs: Double = 0,
+                       cacheKey: CacheKey? = nil, sourceWidth: Int? = nil,
+                       sourceHeight: Int? = nil, for url: URL) {
+        lock.withLock {
+            if let h = fullHandle { arena.release(h) }
+            full = FullRenderEntry(
+                url: url, stamp: stamp, texture: t, costMs: costMs, cacheKey: cacheKey,
+                sourceWidth: sourceWidth ?? t.width,
+                sourceHeight: sourceHeight ?? t.height
+            )
+            fullHandle = arena.registerPinned(bytes: t.width * t.height * 8, kind: "full")
+        }
     }
     /// Free the slot. Called when a print lands that the resident render was
     /// not made from — the same parameters are handled by the lookup, which

@@ -187,14 +187,26 @@ became 1). Both were restored. The Q5 focused gate ran `DiskCacheStoreTests`,
 `RendererTests`, `OpenPathTests`, `FramePipelineTests`, and
 `DecodeResidencyTests`: 76 tests, zero failures.
 
-### Q6 — bounded print writeback — **queued**
+### Q6 — bounded print writeback — **completed**
 
-Edit disk store/cache and the Exporter seam. Write settled live/full prints through
-one consumer with exactly one full staging buffer or four small buffers; drop the
-oldest queued item. Preserve output bytes and key every output-affecting input.
-Restored bytes equal recomputation; deliberate key perturbations miss. Verify report
-draining exactly once across between-sample admissions and multi-batch evictions,
-with the next report zero. Run focused export/renderer and frame-switch tests.
+Result: `PrintWriteback` is a bounded FIFO over one `DiskCacheStore`, retaining at
+most one full-size print or four live-size prints and dropping the oldest staged
+entry on overflow. `TextureStore` now keeps the exact Layer 1 stamp, measured
+recompute cost, cache key and source dimensions beside each live/full texture.
+`Session` enqueues those entries only when leaving a frame (or after a settled
+full render), drains only while idle, and restores a live print before decoding.
+The print key includes source identity, the Layer 1 stamp, live/full tier,
+preview edge and engine version; Layer 2 and geometry remain draw-time inputs.
+
+The frame-switch integration test develops a real frame, leaves it, waits for the
+writer, restores the print in a fresh session and compares exact RGBA bytes.
+Engine-version perturbation is a miss, and the eviction report tests pin
+between-sample and multi-batch accumulation to one drain with the next report zero.
+The bounded-queue guard was seen red with `removeLast()` replacing `removeFirst()`.
+After restoration, the Q6 focused gate ran `PrintWritebackTests`, `PrintCacheTests`,
+`SessionPrintWritebackTests`, `EvictionReportTests`, `DiskCacheStoreTests`,
+`RendererTests`, `OpenPathTests`, `ExportPreviewChainTests`, `ExportRecipeTests`,
+and `PrintLUTTests`: 80 tests, zero failures.
 
 ### Q7 — completion-safe pool and thumbnails — **queued**
 

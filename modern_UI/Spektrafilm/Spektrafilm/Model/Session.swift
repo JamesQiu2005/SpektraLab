@@ -662,6 +662,7 @@ final class Session: CanvasHost {
     /// because a cached RGBA preview cannot satisfy white-balance sampling or
     /// the engine's linear frame input.
     private let diskCache: DiskCacheStore?
+    private let printWriteback: PrintWriteback?
     /// The record's door. `diagnostics.log` and not `Log.shared` for the same
     /// reason: a test that injects a `Diagnostics` gets its records too.
     var log: Log { diagnostics.log }
@@ -761,6 +762,7 @@ final class Session: CanvasHost {
     private var wasPastPreview = false
     private var saveTask: Task<Void, Never>?
     private var reopenTask: Task<Void, Never>?
+    private var printWritebackTask: Task<Void, Never>?
     // Renamed with the product. The old `com.hanze.spektrafilm` directory is
     // simply orphaned: it holds decoded-TIFF caches, which rebuild on demand,
     // so nothing needs migrating and nothing is lost but disk.
@@ -780,6 +782,7 @@ final class Session: CanvasHost {
         self.decodeResidency = DecodeResidency(arena: diagnostics.arena)
         let cache = diskCache ?? (try? DiskCacheStore(root: Self.diskCacheRoot))
         self.diskCache = cache
+        self.printWriteback = cache.map { PrintWriteback(store: $0) }
         // The engine is in this process now (RFC-014): no subprocess, no
         // workspace directory, and no walking up to a checkout's `.venv`. It
         // gets the canvas's own `MTLDevice`, so a render lands in a texture
@@ -1019,6 +1022,9 @@ final class Session: CanvasHost {
     func open(urls: [URL]) {
         let new = Library.frames(from: urls)
         guard !new.isEmpty else { status = "Nothing openable in the selection."; return }
+        if let selection, !new.contains(where: { $0.id == selection }) {
+            enqueuePrintWriteback(for: selection)
+        }
         frames = new
         frameStates = Dictionary(uniqueKeysWithValues: new.map { ($0.id, Sidecar.load(for: $0.id)?.state ?? .unprocessed) })
         libraryTitle = urls.count == 1 ? urls[0].lastPathComponent : "\(new.count) files"
@@ -1045,6 +1051,7 @@ final class Session: CanvasHost {
     }
 
     private func enterBrowse() {
+        if let selection { enqueuePrintWriteback(for: selection) }
         browsing = true
         selection = nil
         decodeResidency.clear()
@@ -1089,6 +1096,7 @@ final class Session: CanvasHost {
     /// so a url left in the set would be invisible — the batch would be short
     /// by one with nothing on screen to say which one.
     func remove(_ url: URL) {
+        if selection == url { enqueuePrintWriteback(for: url) }
         frames.removeAll { $0.id == url }
         frameStates[url] = nil
         picked.remove(url)
@@ -1169,6 +1177,9 @@ final class Session: CanvasHost {
     func select(_ url: URL) {
         guard url != selection || decoded == nil else { return }
         flushSave()
+        if let leaving = selection, leaving != url {
+            enqueuePrintWriteback(for: leaving)
+        }
         loadTask?.cancel()
         browsing = false
         selection = url
@@ -1284,6 +1295,24 @@ final class Session: CanvasHost {
         }
 
         func totalMs() -> Double { Date().timeIntervalSince(total) * 1000 }
+
+        /// Session setup a cold frame has to pay again before a print can be
+        /// restored or recomputed.
+        var setupMs: Double {
+            let wanted = Set([
+                Self.fieldName("decode"),
+                Self.fieldName("frame"),
+                Self.fieldName("engine.open"),
+                Self.fieldName("solve"),
+            ])
+            return stages.filter { wanted.contains($0.name) }.reduce(0) { total, field in
+                switch field.value {
+                case .double(let value): total + value
+                case .int(let value): total + Double(value)
+                case .string, .bool: total
+                }
+            }
+        }
 
         /// `engine.open` → `engine_open_ms`. The log's keys are snake_case and
         /// greppable; the stderr line keeps the engine's own spelling, because
@@ -1459,6 +1488,45 @@ final class Session: CanvasHost {
         )
     }
 
+    nonisolated static func printCacheKey(url: URL, params: FilmParams, tier: CacheTier,
+                                          previewLongEdge: Int,
+                                          engineVersion: String) -> CacheKey {
+        CacheKey(
+            kind: tier == .live ? .printLive : .printFull,
+            sourceIdentity: CacheKey.sourceIdentity(for: url),
+            configuration: printStamp(params),
+            tier: tier,
+            previewLongEdge: tier == .live ? previewLongEdge : nil,
+            engineVersion: engineVersion
+        )
+    }
+
+    /// Resolve a finished print from disk without decoding or opening the
+    /// engine. Layer 2 and geometry are applied at draw time, so the stored
+    /// bytes are the same live/full engine output the canvas would otherwise
+    /// wait to recompute.
+    private func cachedPrint(for url: URL) async -> (texture: MTLTexture, sourceSize: CGSize,
+                                                      costMs: Double, key: CacheKey)? {
+        guard let diskCache else { return nil }
+        let key = Self.printCacheKey(
+            url: url,
+            params: sidecar.params,
+            tier: .live,
+            previewLongEdge: previewLongEdge,
+            engineVersion: diagnostics.engineVersion ?? "unknown"
+        )
+        guard let payload = try? await diskCache.load(key),
+              payload.kind == .printLive,
+              payload.format == "rgba16Unorm",
+              let texture = renderer.store.uploadRGBA16(
+                  data: payload.data, width: payload.width, height: payload.height
+              ) else { return nil }
+        return (texture,
+                CGSize(width: payload.sourceWidth, height: payload.sourceHeight),
+                payload.costMs,
+                key)
+    }
+
     /// Resolve a display picture without constructing a `DecodedImage`.
     ///
     /// The disk entry is deliberately RGBA-only. It may be drawn and compared,
@@ -1502,6 +1570,23 @@ final class Session: CanvasHost {
         let settings = sidecar.decode
         let device = renderer.device
         let edge = previewLongEdge
+        if !requiresDecode, let picture = await cachedPrint(for: url) {
+            guard !Task.isCancelled, selection == url else { return }
+            sourceLongEdge = max(picture.sourceSize.width, picture.sourceSize.height)
+            displaySourceSize = picture.sourceSize
+            renderer.store.setPrint(
+                picture.texture, stamp: Self.printStamp(sidecar.params), for: url,
+                costMs: picture.costMs, cacheKey: picture.key,
+                sourceWidth: Int(picture.sourceSize.width.rounded()),
+                sourceHeight: Int(picture.sourceSize.height.rounded())
+            )
+            renderer.setLive(picture.texture, logical: picture.sourceSize)
+            previewSoft = false
+            clock.lap("print-cache")
+            noteOpen(clock, url: url, mode: "print-cache", pixels: picture.sourceSize)
+            status = "\(url.lastPathComponent)  ·  restored print"
+            return
+        }
         if !requiresDecode, let picture = await displayPicture(for: url, settings: settings) {
             guard !Task.isCancelled, selection == url else { return }
             displayCacheHitCount += 1
@@ -1913,7 +1998,19 @@ final class Session: CanvasHost {
         // Before the store takes it: whether this is the frame's first print
         // decides whether it is a memory boundary (§3).
         let firstPrint = renderer.store.print(for: url) == nil
-        renderer.store.setPrint(tex, for: url, costMs: r.elapsedMs)
+        let sourceSize = decoded?.pixelSize
+        let printKey = Self.printCacheKey(
+            url: url, params: scheduler.sent, tier: .live,
+            previewLongEdge: previewLongEdge,
+            engineVersion: diagnostics.engineVersion ?? "unknown"
+        )
+        renderer.store.setPrint(
+            tex, stamp: Self.printStamp(scheduler.sent), for: url,
+            costMs: r.elapsedMs + (openClock?.setupMs ?? 0),
+            cacheKey: printKey,
+            sourceWidth: sourceSize.map { Int($0.width.rounded()) },
+            sourceHeight: sourceSize.map { Int($0.height.rounded()) }
+        )
         // The frame's own size, and only when it is known: passing nil leaves
         // whatever the decode established (D4).
         renderer.setLive(tex, logical: nativeSourceSize)
@@ -2461,6 +2558,54 @@ final class Session: CanvasHost {
         }
     }
 
+    /// Hand a frame's finished print textures to the bounded disk writer.
+    /// This runs on leaving a frame; the current frame's live tier stays in
+    /// RAM because restoring it would cost more than its warm reprint.
+    private func enqueuePrintWriteback(for url: URL) {
+        guard let printWriteback else { return }
+        let live = renderer.store.printEntry(for: url)
+        let full = renderer.store.fullEntry(for: url)
+        Task {
+            if let live, let key = live.cacheKey {
+                await printWriteback.enqueue(StagedPrint(
+                    key: key,
+                    texture: live.texture,
+                    sourceWidth: live.sourceWidth,
+                    sourceHeight: live.sourceHeight,
+                    costMs: live.costMs
+                ))
+            }
+            if let full, let key = full.cacheKey {
+                await printWriteback.enqueue(StagedPrint(
+                    key: key,
+                    texture: full.texture,
+                    sourceWidth: full.sourceWidth,
+                    sourceHeight: full.sourceHeight,
+                    costMs: full.costMs
+                ))
+            }
+        }
+        schedulePrintWriteback()
+    }
+
+    /// Drain only when the current frame is settled. New work reschedules
+    /// itself; a backlog can never compete with a live edit.
+    private func schedulePrintWriteback() {
+        printWritebackTask?.cancel()
+        guard printWriteback != nil else { return }
+        printWritebackTask = Task { [weak self] in
+            try? await Task.sleep(for: .milliseconds(Session.fullRenderDebounceMs))
+            guard let self else { return }
+            while !Task.isCancelled {
+                if !busy && !fullPending && !scheduler.pending {
+                    await printWriteback?.drain()
+                    if await printWriteback?.isEmpty == true { return }
+                }
+                try? await Task.sleep(for: .milliseconds(200))
+            }
+        }
+    }
+
     private func renderFullRender(for url: URL, sessionID sid: String, generation gen: Int) async {
         // The transport is single-flight, so this sits in front of the user's
         // next slider release. The rule is the one the ladder used: never
@@ -2498,13 +2643,26 @@ final class Session: CanvasHost {
             // matches would serve the old colour on the next edit.
             guard gen == fullGeneration, selection == url, sid == serviceSessionID,
                   let tex = outcome.texture, let w = r.width, let h = r.height else { return }
-            renderer.store.setFullRender(tex, stamp: stamp, for: url)
+            let sourceSize = decoded?.pixelSize
+            let key = Self.printCacheKey(
+                url: url, params: scheduler.sent, tier: .full,
+                previewLongEdge: previewLongEdge,
+                engineVersion: diagnostics.engineVersion ?? "unknown"
+            )
+            renderer.store.setFullRender(
+                tex, stamp: stamp, costMs: r.elapsedMs + (openClock?.setupMs ?? 0),
+                cacheKey: key,
+                sourceWidth: sourceSize.map { Int($0.width.rounded()) },
+                sourceHeight: sourceSize.map { Int($0.height.rounded()) },
+                for: url
+            )
             renderer.setFullRender(tex)
             // The canvas is the frame at its own resolution now, which is the
             // whole point: nothing on screen is interpolated any more.
             previewSoft = false
             canvasLog("full render \(w)x\(h) landed in \(Int(r.elapsedMs)) ms")
             if let base = statusBase { status = base }
+            schedulePrintWriteback()
         } catch {
             noteFailure(error, operation: "full_render", frame: url.lastPathComponent)
         }
