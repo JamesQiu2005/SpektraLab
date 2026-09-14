@@ -14,6 +14,7 @@
 //  three bands.
 
 import AppKit
+import Metal
 import SwiftUI
 import XCTest
 
@@ -198,5 +199,41 @@ final class ExportPanelTests: XCTestCase {
         let folded = try pillX(width: width, folded: true, mode: .grid)
         XCTAssertEqual(folded, 0, accuracy: 1,
                        "folded, the grid card takes the whole window and the tab is on its edge")
+    }
+
+    /// The page's proof is rendered at full file size, but what it holds is the
+    /// one display downsample: no image in the `SoftProof` may exceed the
+    /// pane-derived bound. The file metadata and the statistics still describe
+    /// the full-size render, so the caption cannot inherit the pane size.
+    func testTheDisplayProofIsBoundedByThePaneWhileFileMetadataStaysFullSize() throws {
+        let gpu = try XCTUnwrap(MTLCreateSystemDefaultDevice())
+        let renderer = try XCTUnwrap(Renderer(device: gpu))
+        let fileSize = (w: 2048, h: 1536)
+        let texture = try XCTUnwrap(renderer.store.makeWritable(width: fileSize.w,
+                                                                 height: fileSize.h))
+        let target = try XCTUnwrap(CGColorSpace(name: CGColorSpace.sRGB))
+        let stats = OutputTransformStats(movedFraction: 0.75,
+                                         clippedFraction: 0.125,
+                                         outsideFraction: 0.25)
+        let rendered = Exporter.Rendered(texture: texture, stats: stats, target: target,
+                                         pixels: (fileSize.w, fileSize.h), appliedEV: nil)
+        let pane = CGSize(width: 500, height: 320)
+        let maxEdge = SoftProof.displayMaxEdge(for: pane)
+        XCTAssertEqual(maxEdge, 1000)
+
+        let proof = try XCTUnwrap(SoftProof.make(from: rendered, renderer: renderer,
+                                                 targetName: "sRGB",
+                                                 displayMaxEdge: maxEdge))
+        let bound = 2 * Int(max(pane.width, pane.height))
+        XCTAssertLessThanOrEqual(max(proof.displayImage.width, proof.displayImage.height), bound)
+        XCTAssertEqual(proof.displayImage.width, 1000)
+        XCTAssertEqual(proof.displayImage.height, 750)
+
+        // These are measurements of the file, not of the image on screen.
+        XCTAssertEqual(Int(proof.filePixelSize.width), fileSize.w)
+        XCTAssertEqual(Int(proof.filePixelSize.height), fileSize.h)
+        XCTAssertEqual(proof.compressedFraction, stats.outsideFraction)
+        XCTAssertEqual(proof.clippedFraction, stats.clippedFraction)
+        XCTAssertEqual(proof.movedFraction, stats.movedFraction)
     }
 }
