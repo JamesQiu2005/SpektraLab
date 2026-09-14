@@ -44,11 +44,5 @@ enum FrameFraming {
         }
     }
 
-    /// Filmstrip only: the state badge is suppressed on the frame that
-    /// already has the most on it. Kept to `.open` rather than "any framed
-    /// cell", because a picked batch is exactly where "which of these has a
-    /// print behind it" is worth reading (`Filmstrip.swift`).
-    var suppressesBadge: Bool { self == .open }
-
     var isFramed: Bool { self != .none }
 }

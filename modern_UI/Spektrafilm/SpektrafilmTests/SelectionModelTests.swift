@@ -164,15 +164,12 @@ final class SelectionModelTests: XCTestCase {
         XCTAssertEqual(session.framing(of: urls[2]), .picked)
         XCTAssertEqual(session.framing(of: urls[1]), .none)
 
-        // The open frame is the strongest mark and the only one that hides the
-        // badge; a picked frame is framed more weakly, which is what makes the
-        // two readable apart on a thumbnail that can be any colour.
+        // The open frame is the strongest mark; a picked frame is framed
+        // more weakly, which is what makes the two readable apart on a
+        // thumbnail that can be any colour.
         XCTAssertGreaterThan(FrameFraming.open.lineWidth, FrameFraming.picked.lineWidth)
         XCTAssertGreaterThan(FrameFraming.open.opacity, FrameFraming.picked.opacity)
         XCTAssertGreaterThan(FrameFraming.picked.opacity, FrameFraming.none.opacity)
-        XCTAssertTrue(FrameFraming.open.suppressesBadge)
-        XCTAssertFalse(FrameFraming.picked.suppressesBadge,
-                       "a batch is where \"which of these has a print\" is worth reading")
         XCTAssertFalse(FrameFraming.none.isFramed)
 
         // One rule, two call sites, the same words in both. A file that spelled

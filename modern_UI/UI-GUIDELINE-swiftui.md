@@ -392,8 +392,8 @@ ScrollViewReader { proxy in
 - Thumbnails via `QuickLookThumbnailing` or `CGImageSourceCreateThumbnailAtIndex` — the
   embedded JPEG, never the engine. Cache in an `NSCache` keyed by file hash.
 - Thumbnail generation off the main actor; publish results back on it.
-- Three-state badge (frontend spec §5.1): nothing / filled dot / hollow dot, bottom-right.
-  Not colour, not a banner, not desaturation.
+- No badge on a cell. Selection is the white frame and nothing else — no state pip
+  in any cell's corner, at any anchor.
 
 ---
 
