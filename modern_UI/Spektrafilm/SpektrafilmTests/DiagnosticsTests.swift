@@ -848,6 +848,142 @@ final class DiagnosticsTests: XCTestCase {
         XCTAssertNotNil(record.number("elapsed_ms"))
     }
 
+    // MARK: - MemoryArena accounting
+
+    func testArenaRegistrationAndReleaseAccounting() {
+        let arena = MemoryArena()
+        let pinned = arena.admit(bytes: 100, cls: .pinned, kind: "original", costMs: 1, evict: {})
+        let cached = arena.admit(bytes: 40, cls: .evictable, kind: "prints", costMs: 2, evict: {})
+        XCTAssertNotNil(pinned)
+        XCTAssertNotNil(cached)
+        XCTAssertEqual(arena.totalBytes, 140)
+        XCTAssertEqual(arena.evictableBytes, 40)
+        arena.release(cached!)
+        XCTAssertEqual(arena.totalBytes, 100)
+        XCTAssertEqual(arena.evictableBytes, 0)
+    }
+
+    func testArenaTouchDoesNotChangeAccounting() {
+        let arena = MemoryArena()
+        let handle = arena.admit(bytes: 12, cls: .evictable, kind: "sources", costMs: 0, evict: {})!
+        arena.touch(handle)
+        XCTAssertEqual(arena.totalBytes, 12)
+        XCTAssertEqual(arena.evictableBytes, 12)
+    }
+
+    func testArenaBreakdownSumsBytesAndCounts() {
+        let arena = MemoryArena()
+        _ = arena.admit(bytes: 10, cls: .pinned, kind: "full", costMs: 0, evict: {})
+        _ = arena.admit(bytes: 20, cls: .pinned, kind: "full", costMs: 0, evict: {})
+        _ = arena.admit(bytes: 7, cls: .evictable, kind: "prints", costMs: 0, evict: {})
+        let breakdown = arena.breakdown()
+        XCTAssertEqual(breakdown.first { $0.kind == "full" }?.bytes, 30)
+        XCTAssertEqual(breakdown.first { $0.kind == "full" }?.count, 2)
+        XCTAssertEqual(breakdown.reduce(0) { $0 + $1.bytes }, arena.totalBytes)
+    }
+
+    func testArenaEnforceRecordsOnly() {
+        let arena = MemoryArena()
+        final class Box: @unchecked Sendable { var called = false }
+        let box = Box()
+        _ = arena.admit(bytes: 9, cls: .evictable, kind: "prints", costMs: 0, evict: { box.called = true })
+        let sample = MemorySample(seq: 1, at: Date(), footprintBytes: 1, peakBytes: 1, freeBytes: 0)
+        XCTAssertEqual(arena.enforce(sample: sample, reserve: 1, cap: 1), 0)
+        XCTAssertFalse(box.called)
+        XCTAssertEqual(arena.totalBytes, 9)
+    }
+
+    /// Evicting a frame from the LRU must release every handle that frame owns,
+    /// including the pinned full-render slot when it belongs to the evicted URL.
+    /// A nil `full` that still has a live arena handle is a phantom 364 MB.
+    ///
+    /// **Seen red** by restoring the old overflow branch (`full = nil`) without
+    /// `clearFullLocked()`: the full kind remained in the arena breakdown after
+    /// the eviction.
+    func testTextureStoreEvictionReleasesFullRenderAccounting() throws {
+        let device = try XCTUnwrap(MTLCreateSystemDefaultDevice())
+        let arena = MemoryArena()
+        let store = TextureStore(device: device, arena: arena)
+        let fullURL = URL(fileURLWithPath: "/tmp/arena-full.tif")
+        let texture = try XCTUnwrap(store.makeWritable(width: 4, height: 4))
+
+        store.setSource(texture, for: fullURL)
+        store.setFullRender(texture, stamp: "s1", for: fullURL)
+        XCTAssertEqual(arena.breakdown().first { $0.kind == "full" }?.count, 1)
+
+        // The full slot's URL is the oldest LRU entry. Eight more sources take
+        // the order past capacity 8 and evict it.
+        for i in 0..<8 {
+            store.setSource(texture, for: URL(fileURLWithPath: "/tmp/arena-\(i).tif"))
+        }
+
+        XCTAssertNil(store.fullRender(for: fullURL, stamp: "s1"))
+        XCTAssertNil(arena.breakdown().first { $0.kind == "full" },
+                     "the evicted full render is still counted")
+    }
+
+    /// Dropping one print and clearing the whole store both have to release the
+    /// handles they remove; otherwise a long session accumulates accounting
+    /// with no owner.
+    ///
+    /// **Seen red** by removing the `arena.release` calls from `invalidatePrint`
+    /// and `removeAll`: the breakdown stayed non-empty after both operations.
+    func testTextureStoreInvalidationAndRemoveAllReleaseAccounting() throws {
+        let device = try XCTUnwrap(MTLCreateSystemDefaultDevice())
+        let arena = MemoryArena()
+        let store = TextureStore(device: device, arena: arena)
+        let texture = try XCTUnwrap(store.makeWritable(width: 4, height: 4))
+        let sourceURL = URL(fileURLWithPath: "/tmp/arena-source.tif")
+        let printURL = URL(fileURLWithPath: "/tmp/arena-print.tif")
+        let fullURL = URL(fileURLWithPath: "/tmp/arena-native.tif")
+        let bytes = texture.width * texture.height * 8
+
+        store.setSource(texture, for: sourceURL)
+        store.setPrint(texture, for: printURL)
+        store.setFullRender(texture, stamp: "s1", for: fullURL)
+        XCTAssertEqual(arena.totalBytes, bytes * 3)
+
+        store.invalidatePrint(for: printURL)
+        XCTAssertEqual(arena.totalBytes, bytes * 2)
+        XCTAssertNil(arena.breakdown().first { $0.kind == "prints" })
+
+        store.setPrint(texture, for: printURL)
+        store.removeAll()
+        XCTAssertEqual(arena.totalBytes, 0)
+        XCTAssertTrue(arena.breakdown().isEmpty, "removeAll left arena accounting behind")
+    }
+
+    /// The memory record is the before/after artifact for RFC-019 step 1, so
+    /// the sampler must carry the arena's total, evictable share and per-kind
+    /// breakdown without dropping any of its existing fields.
+    ///
+    /// **Seen red** by omitting the arena fields from `MemorySampler.sample`:
+    /// the sampler assertions below failed on the missing `arena_kinds` and
+    /// numeric fields.
+    func testMemorySamplerRecordCarriesArenaAccounting() throws {
+        let log = Log(ringCapacity: 64)
+        let arena = MemoryArena()
+        _ = arena.admit(bytes: 12_000_000, cls: .pinned, kind: "original", costMs: 0, evict: {})
+        _ = arena.admit(bytes: 3_000_000, cls: .evictable, kind: "prints", costMs: 0, evict: {})
+        let sampler = MemorySampler(log: log, arena: arena,
+                                    readFootprint: { 2_000_000_000 },
+                                    readFree: { 4_000_000_000 })
+
+        let sample = sampler.sample("arena-test")
+        let record = try XCTUnwrap(log.records(category: .memory).last)
+        XCTAssertEqual(record.number("arena_mb"), 15)
+        XCTAssertEqual(record.number("arena_evictable_mb"), 3)
+        XCTAssertEqual(record.text("arena_kinds"), "original:12,prints:3")
+
+        // These are the fields the memory records carried before RFC-019 step 1.
+        XCTAssertEqual(record.text("reason"), "arena-test")
+        XCTAssertEqual(record.number("seq"), Double(sample.seq))
+        XCTAssertEqual(record.number("mb"), sample.footprintMB)
+        XCTAssertEqual(record.number("peak_mb"), sample.peakMB)
+        XCTAssertEqual(record.number("free_mb"), sample.freeMB)
+        XCTAssertEqual(record.number("bytes"), Double(sample.footprintBytes))
+    }
+
     // MARK: - waiting
 
     private func waitUntil(_ what: String, timeout: Double = 30,

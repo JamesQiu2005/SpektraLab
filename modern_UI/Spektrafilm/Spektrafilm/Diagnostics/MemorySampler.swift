@@ -48,15 +48,17 @@ final class MemorySampler: @unchecked Sendable {
 
     private let state = Guarded(State())
     private let log: Log
+    let arena: MemoryArena
     private let readFootprint: @Sendable () -> UInt64
     private let readFree: @Sendable () -> UInt64
     private let clock: @Sendable () -> Date
 
-    init(log: Log = .shared,
+    init(log: Log = .shared, arena: MemoryArena = MemoryArena(),
          readFootprint: @escaping @Sendable () -> UInt64 = MemorySampler.footprintBytes,
          readFree: @escaping @Sendable () -> UInt64 = MemorySampler.freeBytes,
          clock: @escaping @Sendable () -> Date = { Date() }) {
         self.log = log
+        self.arena = arena
         self.readFootprint = readFootprint
         self.readFree = readFree
         self.clock = clock
@@ -88,6 +90,8 @@ final class MemorySampler: @unchecked Sendable {
             s.current = sample
             return sample
         }
+        _ = arena.enforce(sample: sample, reserve: 0, cap: .max)
+        let kinds = arena.breakdown().map { "\($0.kind):\($0.bytes / 1_000_000)" }.joined(separator: ",")
         log.log(level, .memory, "footprint", [
             .init("reason", reason),
             .init("seq", sample.seq),
@@ -95,6 +99,9 @@ final class MemorySampler: @unchecked Sendable {
             .init("peak_mb", sample.peakMB),
             .init("free_mb", sample.freeMB),
             .init("bytes", Double(sample.footprintBytes)),
+            .init("arena_mb", Double(arena.totalBytes) / 1_000_000),
+            .init("arena_evictable_mb", Double(arena.evictableBytes) / 1_000_000),
+            .init("arena_kinds", kinds),
         ])
         return sample
     }
