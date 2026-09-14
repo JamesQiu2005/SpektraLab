@@ -134,8 +134,8 @@ final class DecodeSeparationTests: XCTestCase {
         settings.whiteBalance = .custom
         settings.temperature = 6100
         settings.tint = 12
-        let linear = try ImageDecoder.rawFilter(url, look: .linear, settings: settings)
-        let display = try ImageDecoder.rawFilter(url, look: .display, settings: settings)
+        let linear = try ImageDecoder.rawFilter(url, look: .linear, settings: settings).filter
+        let display = try ImageDecoder.rawFilter(url, look: .display, settings: settings).filter
 
         XCTAssertFalse(linear.isLensCorrectionEnabled)
         XCTAssertFalse(display.isLensCorrectionEnabled, "the original would be misregistered against the print")
@@ -154,6 +154,36 @@ final class DecodeSeparationTests: XCTestCase {
         XCTAssertEqual(display.isGamutMappingEnabled, stock.isGamutMappingEnabled)
         XCTAssertEqual(display.localToneMapAmount, stock.localToneMapAmount)
         XCTAssertNotEqual(linear.boostAmount, display.boostAmount, "the two decodes are the same look")
+    }
+
+    /// The two-filter decode reports the camera pair even when the selected
+    /// white balance overrides it. The source is copied because opening a RAW
+    /// lets the session write its sidecar beside the file.
+    func testDecodeReportsProbeEquivalentAsShotForAsShotAndOverride() throws {
+        let source = try nef()
+        let dir = FileManager.default.temporaryDirectory.appending(path: "spk-wb-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let url = dir.appending(path: source.lastPathComponent)
+        try FileManager.default.copyItem(at: source, to: url)
+        let probe = try XCTUnwrap(CIRAWFilter(imageURL: url))
+        let expectedTemperature = Double(probe.neutralTemperature)
+        let expectedTint = Double(probe.neutralTint)
+
+        for (mode, temperature, tint) in [
+            (DecodeSettings.WhiteBalance.asShot, expectedTemperature, expectedTint),
+            (.daylight, 6100.0, 12.0),
+        ] {
+            var settings = DecodeSettings()
+            settings.whiteBalance = mode
+            settings.temperature = temperature
+            settings.tint = tint
+            let decoded = try ImageDecoder.decode(url, settings: settings)
+            XCTAssertEqual(try XCTUnwrap(decoded.asShotTemperature), expectedTemperature, accuracy: 0.01,
+                           "temperature mismatch for \(mode)")
+            XCTAssertEqual(try XCTUnwrap(decoded.asShotTint), expectedTint, accuracy: 0.01,
+                           "tint mismatch for \(mode)")
+        }
     }
 
     // MARK: - the comparison, end to end

@@ -315,6 +315,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         exit(code)
     }
 
+    /// A compare or Original capture must not photograph the preview standing
+    /// in for the native decode. Bounded so a failed render cannot hold the
+    /// snapshot harness open.
+    private func waitForNativeOriginal(_ session: Session) async {
+        let deadline = Date().addingTimeInterval(5)
+        while session.nativeOriginalInFlight, Date() < deadline {
+            try? await Task.sleep(for: .milliseconds(50))
+        }
+    }
+
     private func runSnapshot(_ req: SnapshotRequest) async {
         guard let session else { snapshotExit(2) }
         // Own window, own hosting view: the capture must not depend on when
@@ -392,11 +402,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         if let position = req.compare {
             session.comparePosition = position
             session.comparing = true
-            try? await Task.sleep(for: .milliseconds(300))
+            await waitForNativeOriginal(session)
         }
         if req.original {
             session.toggledOriginal(true)
-            try? await Task.sleep(for: .milliseconds(300))
+            await waitForNativeOriginal(session)
         }
         if let zoom = req.zoom {
             session.zoomTo(fraction: zoom)

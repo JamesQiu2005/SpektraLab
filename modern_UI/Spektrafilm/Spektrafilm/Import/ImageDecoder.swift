@@ -156,8 +156,16 @@ enum ImageDecoder {
     /// instances, not one filter read twice: a filter is mutable, and a decode
     /// whose settings could change under an image already handed out is the
     /// kind of sharing this split exists to rule out.
-    static func rawFilter(_ url: URL, look: RAWLook, settings: DecodeSettings) throws -> CIRAWFilter {
+    /// Build one of the two independent RAW looks and report the camera's
+    /// white balance before any user override is applied. The values have to
+    /// come from this filter itself: constructing a third probe filter costs
+    /// another RAW allocation, while an overridden filter no longer exposes
+    /// the as-shot pair after the switch below.
+    static func rawFilter(_ url: URL, look: RAWLook, settings: DecodeSettings) throws
+        -> (filter: CIRAWFilter, asShotTemperature: Double, asShotTint: Double) {
         guard let filter = CIRAWFilter(imageURL: url) else { throw Failure.rawFilterUnavailable(url) }
+        let asShotTemperature = Double(filter.neutralTemperature)
+        let asShotTint = Double(filter.neutralTint)
         // Geometry: identical in both, or the before/after split compares two
         // registrations of the frame rather than two renderings of it.
         filter.isLensCorrectionEnabled = false
@@ -176,7 +184,7 @@ enum ImageDecoder {
             filter.neutralTemperature = Float(settings.temperature)
             filter.neutralTint = Float(settings.tint)
         }
-        return filter
+        return (filter, asShotTemperature, asShotTint)
     }
 
     private static func decodeRAW(_ url: URL, settings: DecodeSettings,
@@ -185,17 +193,15 @@ enum ImageDecoder {
         // (which is where the demosaic actually happens) is what makes a
         // superseded decode cost at most one filter.
         try checkpoint()
-        // As-shot is read from a filter nobody has set a white balance on.
-        guard let probe = CIRAWFilter(imageURL: url) else { throw Failure.rawFilterUnavailable(url) }
-        let asShotT = Double(probe.neutralTemperature), asShotTint = Double(probe.neutralTint)
+        let linearResult = try rawFilter(url, look: .linear, settings: settings)
         try checkpoint()
-        let linearFilter = try rawFilter(url, look: .linear, settings: settings)
+        guard let linear = linearResult.filter.outputImage else { throw Failure.unsupported(url) }
         try checkpoint()
-        guard let linear = linearFilter.outputImage else { throw Failure.unsupported(url) }
+        let displayResult = try rawFilter(url, look: .display, settings: settings)
+        let asShotT = displayResult.asShotTemperature
+        let asShotTint = displayResult.asShotTint
         try checkpoint()
-        let displayFilter = try rawFilter(url, look: .display, settings: settings)
-        try checkpoint()
-        guard let display = displayFilter.outputImage else { throw Failure.unsupported(url) }
+        guard let display = displayResult.filter.outputImage else { throw Failure.unsupported(url) }
         return DecodedImage(linear: linear, display: display, pixelSize: linear.extent.size,
                             isRAW: true, sourceURL: url,
                             asShotTemperature: asShotT, asShotTint: asShotTint)

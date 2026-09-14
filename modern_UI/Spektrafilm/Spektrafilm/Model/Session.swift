@@ -440,7 +440,7 @@ final class Session: CanvasHost {
     var comparing = false {
         didSet {
             guard oldValue != comparing else { return }
-            if comparing { leaveCropTool() }
+            if comparing { leaveCropTool(); requestNativeOriginal(trigger: "comparing") }
             renderer.compareSplit = comparing
         }
     }
@@ -461,9 +461,12 @@ final class Session: CanvasHost {
     var busy = false
     var previewSoft = false            // the canvas shows a stale/interpolated print
     /// Whether the canvas holds the frame at its **own** resolution with
-    /// nothing pending — no interpolated print, no render on its way. What the
-    /// snapshot harness waits on before it captures.
-    var canvasIsSettled: Bool { !fullPending && (!wantsFullRender || renderer.showsFullRender) }
+    /// nothing pending — no interpolated print, no render on its way, and no
+    /// deferred native original. What the snapshot harness waits on before it
+    /// captures.
+    var canvasIsSettled: Bool {
+        !fullPending && !nativeOriginalInFlight && (!wantsFullRender || renderer.showsFullRender)
+    }
     var serviceReady = false
     var lastError: String?
     var exportProgress: Double?
@@ -731,6 +734,17 @@ final class Session: CanvasHost {
     /// 151 MP), so it is replaced rather than accumulated, and the preview
     /// cache that makes switching frames instant stays at the live tier.
     private var nativeOriginalTask: Task<Void, Never>?
+    /// The schedule key, count and delay state are read by the tests that pin
+    /// one deferred native original per (frame, decode).
+    private(set) var nativeOriginalKey: (URL, Int)?
+    private(set) var nativeOriginalScheduleCount = 0
+    private(set) var nativeOriginalPendingDelay = false
+    /// True from the moment a native-original task is scheduled until it lands
+    /// or is cancelled; `canvasIsSettled` and the snapshot harness wait on it.
+    private(set) var nativeOriginalInFlight = false
+    private var nativeOriginalToken = 0
+    private var decodedGeneration = 0
+    private var wasPastPreview = false
     private var saveTask: Task<Void, Never>?
     private var reopenTask: Task<Void, Never>?
     // Renamed with the product. The old `com.hanze.spektrafilm` directory is
@@ -1026,6 +1040,8 @@ final class Session: CanvasHost {
         renderer.dropFullRender()
         renderer.setLive(nil)
         renderer.original = nil
+        cancelNativeOriginal()
+        decodedGeneration = 0
         scheduler.invalidate()
         serviceSessionID = nil
         status = "\(frames.count) frames · pick one to develop."
@@ -1170,6 +1186,8 @@ final class Session: CanvasHost {
             renderer.setLive(nil)
         }
         renderer.original = renderer.store.source(for: url)
+        cancelNativeOriginal()
+        decodedGeneration = 0
         scheduler.invalidate()
         serviceSessionID = nil
         // A memory boundary (§3): what switching frames costs is the question
@@ -1246,6 +1264,41 @@ final class Session: CanvasHost {
         }
     }
 
+    /// Cancel the task keyed to the current frame/decode and invalidate its
+    /// token so a late cancellation cannot clear a newer task's state.
+    private func cancelNativeOriginal() {
+        nativeOriginalTask?.cancel()
+        nativeOriginalTask = nil
+        nativeOriginalPendingDelay = false
+        nativeOriginalToken &+= 1
+        nativeOriginalInFlight = false
+        nativeOriginalKey = nil
+        wasPastPreview = false
+    }
+
+    private func requestNativeOriginal(trigger: String) {
+        guard let d = decoded, let url = selection else { return }
+        // Zoom is already mirrored through viewportChanged; no new canvas
+        // plumbing is needed. If that mirror is ever removed, keep this hook
+        // as the place to instrument the zoom-past-preview trigger.
+        guard trigger == "comparing" || trigger == "idle_delay" || wantsFullRender else { return }
+        let key = (url, decodedGeneration)
+        if let existing = nativeOriginalKey, existing == key {
+            // One render per (frame, decode). The idle delay is still
+            // interruptible by a person asking for the original now; an
+            // in-flight or landed render is not asked for again.
+            let preemptsDelay = nativeOriginalPendingDelay
+                && (trigger == "comparing" || trigger == "zoom_past_preview")
+            guard preemptsDelay else { return }
+        }
+        log.info(.canvas, "native original trigger", [.init("trigger", trigger),
+                                                       .init("frame", url.lastPathComponent)])
+        // RFC-019 arena admission remains a later step; do not allocate here yet.
+        scheduleNativeOriginal(d, for: url, settings: sidecar.decode,
+                               generation: decodedGeneration,
+                               delayMs: trigger == "idle_delay" ? Session.fullRenderDebounceMs : 0)
+    }
+
     /// Render the *display* decode at the frame's own size and hand it to the
     /// canvas as the original.
     ///
@@ -1259,8 +1312,14 @@ final class Session: CanvasHost {
     /// change) started. It is not kept in `renderer.store`, which is the
     /// small-texture cache the instant frame switch depends on.
     private func scheduleNativeOriginal(_ d: DecodedImage, for url: URL, settings: DecodeSettings,
-                                        generation: Int) {
+                                        generation: Int, delayMs: Int = 0) {
         nativeOriginalTask?.cancel()
+        nativeOriginalToken &+= 1
+        let token = nativeOriginalToken
+        nativeOriginalKey = (url, generation)
+        nativeOriginalPendingDelay = delayMs > 0
+        nativeOriginalInFlight = true
+        nativeOriginalScheduleCount += 1
         let device = renderer.device
         // The frame's own size, capped at the largest texture the device will
         // make: past that the descriptor *asserts* and takes the process with
@@ -1272,6 +1331,18 @@ final class Session: CanvasHost {
         let started = Date()
         let pipeline = self.pipeline
         nativeOriginalTask = Task { [weak self] in
+            defer {
+                if let self, self.nativeOriginalToken == token {
+                    self.nativeOriginalInFlight = false
+                }
+            }
+            if delayMs > 0 {
+                try? await Task.sleep(for: .milliseconds(delayMs))
+                if let self, self.nativeOriginalToken == token {
+                    self.nativeOriginalPendingDelay = false
+                }
+            }
+            guard let self, !Task.isCancelled else { return }
             let box: TextureBox
             if FeatureFlags.framePipeline {
                 box = (try? await pipeline.run(generation: generation) { checkpoint in
@@ -1280,7 +1351,7 @@ final class Session: CanvasHost {
             } else {
                 box = TextureBox(ImageDecoder.makePreviewTexture(d, device: device, maxEdge: longEdge))
             }
-            guard let self, !Task.isCancelled, self.selection == url,
+            guard !Task.isCancelled, self.selection == url,
                   self.sidecar.decode == settings, let tex = box.texture else { return }
             self.renderer.original = tex
             // And onto the canvas, while the canvas is still the decode. Since
@@ -1376,6 +1447,7 @@ final class Session: CanvasHost {
             return
         }
         decoded = d
+        decodedGeneration = generation
         decodeIsStale = false
         sourceLongEdge = max(d.pixelSize.width, d.pixelSize.height)
         sampleMemory("decode")
@@ -1383,7 +1455,10 @@ final class Session: CanvasHost {
            (sidecar.decode.temperature != t || sidecar.decode.tint != tn) {
             sidecar.decode.temperature = t; sidecar.decode.tint = tn
         }
-        scheduleNativeOriginal(d, for: url, settings: sidecar.decode, generation: generation)
+        // Native original is deferred until evidence says it is useful: this
+        // idle trigger is the baseline against which compare and zoom fires
+        // are measured. The texture and clamp remain exactly the old path.
+        requestNativeOriginal(trigger: "idle_delay")
         guard wantsDevelop else {
             clock.lap("decode-only")
             canvasLog(clock.summary()
@@ -1796,6 +1871,8 @@ final class Session: CanvasHost {
             fullGeneration += 1
             renderer.dropFullRender()
             renderer.store.dropFullRender()
+            cancelNativeOriginal()
+            decodedGeneration = 0
             // `decoded` is still the frame the user has just changed *away*
             // from, and it stays there until the new decode lands — the panel
             // reads it (`setWhiteBalance`, `pickNeutral`) and clearing it
@@ -1898,6 +1975,19 @@ final class Session: CanvasHost {
         cropPivot = renderer.cropPivot
         guard renderer.base != nil else { zoomPercent = 0; isFit = true; return }
         zoomPercent = renderer.viewport.zoomPercent
+        if croppedLongEdge > 0 {
+            // The zoom at which the drawn frame outgrows the preview tier's
+            // texture. The trigger is the crossing, not the state: a pan,
+            // resize or magnify while already past it must not ask again.
+            let threshold = 100 * Double(previewLongEdge) / Double(croppedLongEdge)
+            let pastPreview = wantsFullRender && Double(zoomPercent) > threshold
+            if pastPreview && !wasPastPreview {
+                requestNativeOriginal(trigger: "zoom_past_preview")
+            }
+            wasPastPreview = pastPreview
+        } else {
+            wasPastPreview = false
+        }
         // While the crop tool is up the view is fitted to the whole
         // photograph rather than to the frame, so its scale is no longer
         // `fitScale` — but it is fitted, and the pill should say so.
@@ -2370,6 +2460,8 @@ final class Session: CanvasHost {
             scheduler.invalidate()
             renderer.dropFullRender()
             renderer.store.dropFullRender()
+            cancelNativeOriginal()
+            decodedGeneration = 0
             guard let url = selection else { status = "Render service stopped."; return }
             status = "Restarting the render service…"
             let gen = pipeline.supersede()

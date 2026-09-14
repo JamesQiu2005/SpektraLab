@@ -323,6 +323,111 @@ final class OpenPathTests: XCTestCase {
         XCTAssertTrue(settled === before, "a zoom replaced the settled render")
     }
 
+    /// The zoom trigger is a crossing, not a state. Once the frame is past the
+    /// preview tier, pan, resize and magnify all reach `viewportChanged` and
+    /// none of them may ask for the 363 MB native render again.
+    func testRepeatedPastPreviewViewportChangesScheduleTheNativeOriginalOnce() async throws {
+        let url = try rawFrame()
+        let session = Session()
+        session.open(urls: [url])
+        try await waitUntil("the frame to decode", timeout: 120) { session.decoded != nil }
+        let native = try XCTUnwrap(session.decoded?.pixelSize)
+        XCTAssertGreaterThan(Int(native.width), session.previewLongEdge,
+                             "this frame is not larger than the preview tier")
+        let idle = session.nativeOriginalScheduleCount
+        XCTAssertEqual(idle, 1, "the decode did not schedule its one idle native original")
+
+        try zoom(session, to: 0.75)
+        let afterCrossing = session.nativeOriginalScheduleCount
+        XCTAssertLessThanOrEqual(afterCrossing, idle + 1,
+                                 "crossing the threshold scheduled more than the idle render it replaced")
+
+        try zoom(session, to: 1.5)
+        session.viewportChanged()
+        session.viewportChanged()
+        XCTAssertEqual(session.nativeOriginalScheduleCount, afterCrossing,
+                       "a viewport event past the threshold scheduled the native original again")
+        try await waitUntil("the native original to settle", timeout: 120) {
+            !session.nativeOriginalInFlight
+        }
+    }
+
+    /// A frame switch cancels the delayed native original: the sleeping task
+    /// still holds the old decode, and with the frame pipeline flag off it
+    /// would otherwise render that stale image before its final guard drops it.
+    func testSelectCancelsAPendingNativeOriginal() async throws {
+        let first = try rawFrame()
+        let second = try rawFrame()
+        let session = Session()
+        session.open(urls: [first])
+        try await waitUntil("the frame to decode", timeout: 120) { session.decoded != nil }
+        XCTAssertTrue(session.nativeOriginalPendingDelay,
+                      "the native original is not in its idle-delay window")
+        XCTAssertTrue(session.nativeOriginalInFlight)
+        let scheduled = session.nativeOriginalScheduleCount
+
+        session.select(second)
+
+        XCTAssertFalse(session.nativeOriginalPendingDelay, "the delayed native original was not cancelled")
+        XCTAssertFalse(session.nativeOriginalInFlight, "a native original is still in flight")
+        XCTAssertNil(session.nativeOriginalKey, "the old frame's native key survived the switch")
+        XCTAssertEqual(session.nativeOriginalScheduleCount, scheduled,
+                       "the frame switch scheduled another native original")
+        try await waitUntil("the replacement frame to settle", timeout: 120) {
+            session.selection == second && session.decoded != nil && !session.nativeOriginalInFlight
+        }
+    }
+
+    /// Comparing is a person asking for the original now. Inside the idle
+    /// delay it replaces the delayed schedule with an immediate one, so the
+    /// wait cannot leave the split showing the preview as the original.
+    func testComparingDuringTheNativeOriginalDelayPreemptsIt() async throws {
+        let url = try rawFrame()
+        let session = Session()
+        session.open(urls: [url])
+        try await waitUntil("the frame to decode", timeout: 120) { session.decoded != nil }
+        XCTAssertTrue(session.nativeOriginalPendingDelay,
+                      "the native original is not in its idle-delay window")
+        let scheduled = session.nativeOriginalScheduleCount
+        let key = session.nativeOriginalKey
+
+        session.comparing = true
+
+        XCTAssertEqual(session.nativeOriginalScheduleCount, scheduled + 1,
+                       "comparing did not replace the delayed schedule")
+        XCTAssertFalse(session.nativeOriginalPendingDelay,
+                       "comparing left the native original behind the idle delay")
+        XCTAssertTrue(session.nativeOriginalInFlight,
+                      "the replacement native original is not in flight")
+        XCTAssertEqual(session.nativeOriginalKey?.1, key?.1,
+                       "the replacement is for a different decode")
+        try await waitUntil("the replacement native original to settle", timeout: 120) {
+            !session.nativeOriginalInFlight
+        }
+    }
+
+    /// A frame can want a full render and still be below the zoom at which the
+    /// preview tier stops covering the drawn frame. That zoom asks for
+    /// nothing; the idle schedule still owns the one native render.
+    func testZoomBelowThePreviewThresholdDoesNotRequestTheNativeOriginal() async throws {
+        let url = try rawFrame()
+        let session = Session()
+        session.open(urls: [url])
+        try await waitUntil("the frame to decode", timeout: 120) { session.decoded != nil }
+        let native = try XCTUnwrap(session.decoded?.pixelSize)
+        XCTAssertGreaterThan(Int(native.width), session.previewLongEdge,
+                             "this frame does not want a full render")
+        let scheduled = session.nativeOriginalScheduleCount
+
+        try zoom(session, to: 0.25)
+
+        XCTAssertEqual(session.nativeOriginalScheduleCount, scheduled,
+                       "a zoom below the preview threshold scheduled the native original")
+        try await waitUntil("the idle native original to settle", timeout: 120) {
+            !session.nativeOriginalInFlight
+        }
+    }
+
     /// The preview resolution reaches the engine, and the native render still
     /// follows it.
     ///
@@ -555,7 +660,8 @@ final class OpenPathTests: XCTestCase {
         try await waitUntil("the engine to warm up", timeout: 120) { session.serviceReady }
         session.solveNow()
         try await waitUntil("the native render to land", timeout: 180) {
-            session.renderer.showsFullRender && !session.fullPending && session.serviceSessionIDForExport != nil
+            session.renderer.showsFullRender && !session.fullPending
+                && !session.nativeOriginalInFlight && session.serviceSessionIDForExport != nil
         }
         let base = try XCTUnwrap(session.renderer.base)
         XCTAssertFalse(base === session.renderer.original, "the canvas is still drawing the decode")
