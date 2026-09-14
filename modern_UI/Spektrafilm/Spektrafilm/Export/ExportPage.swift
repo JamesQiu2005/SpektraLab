@@ -1342,12 +1342,13 @@ struct ExportPage: View {
 private struct ExportStripCell: View {
     let frame: Frame
     let chosen: Bool
+    /// Unread by this cell; kept as the guard test's construction seam.
     let state: FrameState
     @State private var image: CGImage?
 
     var body: some View {
         VStack(spacing: 6) {
-            ZStack(alignment: .bottomTrailing) {
+            ZStack {
                 Group {
                     if let image {
                         Image(decorative: image, scale: 1).resizable().aspectRatio(contentMode: .fit)
@@ -1361,7 +1362,6 @@ private struct ExportStripCell: View {
                 .frame(maxHeight: Theme.Metric.Export.thumbMax)
                 .overlay(RoundedRectangle(cornerRadius: 2)
                     .stroke(Theme.selectionFrame, lineWidth: chosen ? 2 : 0))
-                badge.padding(5).opacity(chosen ? 0 : 1)
             }
             .frame(maxWidth: .infinity)
             if chosen {
@@ -1378,18 +1378,6 @@ private struct ExportStripCell: View {
         .onReceive(NotificationCenter.default.publisher(for: .thumbnailUpdated)) { n in
             guard (n.object as? URL) == frame.id else { return }
             Task { image = await ThumbnailCache.shared.thumbnail(for: frame.id, maxPixel: 1024) }
-        }
-    }
-
-    /// The same three states the filmstrip and the browse grid use, and
-    /// suppressed on the chosen cell for the same reason the filmstrip
-    /// suppresses it there: next to the selection frame a second mark reads as
-    /// more state to decode.
-    @ViewBuilder private var badge: some View {
-        switch state {
-        case .unprocessed: EmptyView()
-        case .processed: Circle().fill(Theme.text).frame(width: 7, height: 7).shadow(radius: 1)
-        case .stale: Circle().stroke(Theme.text, lineWidth: 1.4).frame(width: 7, height: 7).shadow(radius: 1)
         }
     }
 }
@@ -1414,6 +1402,7 @@ private struct ExportStripCell: View {
 private struct ExportGridCell: View {
     let frame: Frame
     let chosen: Bool
+    /// Unread by this cell; kept as the guard test's construction seam.
     let state: FrameState
     /// The column's thumbnail width, from the card's width and the slider.
     let width: CGFloat
@@ -1439,7 +1428,7 @@ private struct ExportGridCell: View {
 
     var body: some View {
         VStack(spacing: 6) {
-            ZStack(alignment: .bottomTrailing) {
+            ZStack {
                 Color.clear
                     .frame(width: box.width, height: box.height)
                     .overlay {
@@ -1456,7 +1445,6 @@ private struct ExportGridCell: View {
                                 .overlay(frameStroke)
                         }
                     }
-                badge.padding(4).opacity(chosen ? 0 : 1)
             }
             Text(frame.name)
                 .font(Theme.Font.Export.label)
@@ -1472,16 +1460,6 @@ private struct ExportGridCell: View {
         .onReceive(NotificationCenter.default.publisher(for: .thumbnailUpdated)) { n in
             guard (n.object as? URL) == frame.id else { return }
             Task { image = await ThumbnailCache.shared.thumbnail(for: frame.id, maxPixel: 1024) }
-        }
-    }
-
-    /// The same three states as everywhere else in the app, suppressed on the
-    /// chosen cell for the same reason the filmstrip suppresses it there.
-    @ViewBuilder private var badge: some View {
-        switch state {
-        case .unprocessed: EmptyView()
-        case .processed: Circle().fill(Theme.text).frame(width: 7, height: 7).shadow(radius: 1)
-        case .stale: Circle().stroke(Theme.text, lineWidth: 1.4).frame(width: 7, height: 7).shadow(radius: 1)
         }
     }
 }

@@ -128,7 +128,7 @@ SpektrafilmApp                      one Window scene, one Session, dark forced
     │   ├── MetalCanvasView         MTKView (SnapshotCanvas in capture mode)
     │   └── CollapseTab × 4
     ├── TopBar                      tools · status · zoom pill · fit · fullscreen
-    ├── Filmstrip                   thumbnails, selection frame, three-state badge
+    ├── Filmstrip                   thumbnails, selection frame
     └── RightPanel                  Layer 2
         ├── header                  adjustments · bypass · ⋮
         ├── HistogramSection        live RGB + luma, EXIF caption
@@ -289,9 +289,8 @@ cell. A single file is a handoff and goes straight to Print. Before this, a
 folder open rendered the alphabetically-first frame: ~7 s and a 363 MB TIFF on
 a guess the user had not made.
 
-The grid cell's badge is the filmstrip's three-state model: no pip = never
-rendered, filled = the print matches the sidecar, hollow = the parameters
-changed after it was made.
+The grid cell has no state badge: selection is the white frame and nothing
+else, the same rule the filmstrip follows.
 
 ### Resolution follows the zoom
 

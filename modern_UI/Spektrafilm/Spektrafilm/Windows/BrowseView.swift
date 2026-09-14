@@ -8,8 +8,8 @@
 //
 //  The three thumbnail states are the filmstrip's: unprocessed shows the
 //  embedded preview, processed shows the rendered print, stale shows the
-//  print with a hollow pip after an edit. Clicking a cell is the explicit act
-//  that enters Print.
+//  print again after an edit. Clicking a cell is the explicit act that
+//  enters Print.
 //
 //  The framing is the filmstrip's too, from the same `Session.framing(of:)`:
 //  a plain click picks one frame and opens it, ⌘-click toggles one frame's
@@ -141,7 +141,6 @@ struct BrowseCell: View {
                         .opacity(framing.opacity)
                 }
             }
-            .overlay(alignment: .bottomTrailing) { badge.padding(6) }
             HStack(spacing: 4) {
                 Text(frame.name).font(Theme.Font.caption).foregroundStyle(Theme.text).lineLimit(1)
                 Spacer(minLength: 0)
@@ -154,17 +153,6 @@ struct BrowseCell: View {
         .onReceive(NotificationCenter.default.publisher(for: .thumbnailUpdated)) { n in
             guard (n.object as? URL) == frame.id else { return }
             Task { image = await ThumbnailCache.shared.thumbnail(for: frame.id, maxPixel: 512) }
-        }
-    }
-
-    /// Same three states as the filmstrip (frontend SPEC §5.1): no pip =
-    /// never rendered, filled = the print matches the sidecar, hollow = the
-    /// parameters changed after the print was made.
-    @ViewBuilder private var badge: some View {
-        switch session.frameStates[frame.id] ?? .unprocessed {
-        case .unprocessed: EmptyView()
-        case .processed: Circle().fill(Theme.text).frame(width: 7, height: 7).shadow(radius: 1)
-        case .stale: Circle().stroke(Theme.text, lineWidth: 1.4).frame(width: 7, height: 7).shadow(radius: 1)
         }
     }
 }

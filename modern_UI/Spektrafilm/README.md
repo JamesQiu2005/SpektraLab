@@ -97,7 +97,7 @@ Panels/LeftPanel          import/export/menu, then the Layer 1 sections
   Sections/Enlarger       Brightness (stops) · Yellow · Magenta — offsets from the solve
 Panels/RightPanel         adjustments tab, bypass switch, then the Layer 2 sections
   Sections/RightSections  Histogram · White Balance · Exposure · Curve · Color Balance
-Panels/Filmstrip          thumbnails, selection frame, three-state badge, chevrons
+Panels/Filmstrip          thumbnails, selection frame, chevrons
 Canvas/MetalCanvasView    MTKView + gestures     Canvas/Renderer   Metal state, Layer 2, histogram
 Model/Session             all state              Service/RenderScheduler   coalesced service calls
 ```

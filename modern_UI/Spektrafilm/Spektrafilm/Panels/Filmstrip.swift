@@ -1,21 +1,15 @@
 //  Filmstrip.swift — the library. Thumbnails at one height, a white frame on
-//  the open frame and a weaker one on the rest of the picked set, a
-//  three-state badge bottom-right (nothing / filled dot / hollow dot:
-//  unprocessed / processed / stale), chevrons at both ends, and the folder
-//  name with a count at the far left when there is room.
+//  the open frame and a weaker one on the rest of the picked set, chevrons at
+//  both ends, and the folder name with a count at the far left when there is
+//  room.
 //
-//  The open thumbnail gets the frame and **nothing else** (PRD §5): the
-//  badge is suppressed there. It is not redundant on an unpicked one — it
-//  is the only place the strip says which frames have a print behind them and
-//  which are stale — but on the open frame a second mark next to the white
-//  frame reads as more state to decode, and the frame already says the one
-//  thing that cell needs to say. A *picked* frame keeps its badge: a batch is
-//  exactly where "which of these already has a print" is worth reading, and
-//  unlike the open frame it is not otherwise the whole of what the cell says.
+//  Selection is the white frame and **nothing else** (PRD §5): the open
+//  frame is marked by the strongest frame and a picked one by the same frame
+//  held back, and no cell carries a state pip next to it.
 //
-//  Which of the three marks a cell gets is `Session.framing(of:)`, not a
-//  comparison made here — the Browse grid asks the same function, so the two
-//  surfaces cannot draw a different set from the same state.
+//  Which frame a cell gets is `Session.framing(of:)`, not a comparison made
+//  here — the Browse grid asks the same function, so the two surfaces cannot
+//  draw a different set from the same state.
 //
 //  `LazyHStack` so a 500-image folder builds only what is visible; thumbnails
 //  come from ImageIO off the main actor and are replaced by the rendered print
@@ -96,11 +90,12 @@ struct FilmstripCell: View {
     /// one value from `Session.framing(of:)` rather than two booleans, so the
     /// strip and the grid cannot spell the same state two ways.
     let framing: FrameFraming
+    /// Unread by this cell; kept as the guard test's construction seam.
     let state: FrameState
     @State private var image: CGImage?
 
     var body: some View {
-        ZStack(alignment: .bottomTrailing) {
+        ZStack {
             Group {
                 if let image {
                     Image(decorative: image, scale: 1).resizable().aspectRatio(contentMode: .fit)
@@ -114,11 +109,6 @@ struct FilmstripCell: View {
             .overlay(RoundedRectangle(cornerRadius: 2)
                 .stroke(Theme.selectionFrame, lineWidth: framing.lineWidth)
                 .opacity(framing.opacity))
-            // Hidden by opacity rather than taken out of the tree, the same
-            // way the empty-strip caption below is: a branch that was decided
-            // when the strip was in a different state is the defect this file
-            // has already had once.
-            badge.padding(4).opacity(framing.suppressesBadge ? 0 : 1)
         }
         .help(frame.name)
         .task(id: frame.id) {
@@ -130,11 +120,4 @@ struct FilmstripCell: View {
         }
     }
 
-    @ViewBuilder private var badge: some View {
-        switch state {
-        case .unprocessed: EmptyView()
-        case .processed: Circle().fill(Theme.text).frame(width: 6, height: 6).shadow(radius: 1)
-        case .stale: Circle().stroke(Theme.text, lineWidth: 1.2).frame(width: 6, height: 6).shadow(radius: 1)
-        }
-    }
 }
