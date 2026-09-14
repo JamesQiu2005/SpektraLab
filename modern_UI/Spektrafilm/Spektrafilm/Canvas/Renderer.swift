@@ -161,13 +161,25 @@ final class Renderer: NSObject {
     /// a sharp print. One native texture makes that ladder unnecessary: it is
     /// a picture of the frame at every zoom, and it is one texture per
     /// selected frame rather than one per tier visited.
-    var original: MTLTexture?
-    private var adjusted: MTLTexture?
+    var arena: MemoryArena? { didSet { store.arena = arena } }
+    private var originalHandle: MemoryArena.Handle?
+    var original: MTLTexture? { didSet { if let h = originalHandle { arena?.release(h) }; originalHandle = original.flatMap { arena?.admit(bytes: $0.width * $0.height * 8, cls: .pinned, kind: "original", costMs: 0, evict: {}) } } }
+    private var adjustedHandle: MemoryArena.Handle?
+    private var adjusted: MTLTexture? { didSet { if let h = adjustedHandle { arena?.release(h) }; adjustedHandle = adjusted.flatMap { arena?.admit(bytes: $0.width * $0.height * 8, cls: .pinned, kind: "adjusted", costMs: 0, evict: {}) } } }
     /// Rasterised coverage for the mask kinds that cannot be closed-form.
     /// Nothing writes it yet — brush and the Vision sources are the next
     /// component kinds and this is the seam they land on
     /// (`MaskComponentKind.isRaster`, `MaskUniform.rasterSlice`).
-    var maskRasters: MTLTexture?
+    private var maskHandle: MemoryArena.Handle?
+    var maskRasters: MTLTexture? {
+        didSet {
+            if let h = maskHandle { arena?.release(h) }
+            maskHandle = maskRasters.flatMap {
+                // The array slices and pixel format are part of this number.
+                arena?.admit(bytes: $0.allocatedSize, cls: .pinned, kind: "maskRasters", costMs: 0, evict: {})
+            }
+        }
+    }
     /// True when Layer 2's output is stale.
     ///
     /// There is no companion "the display is stale" any more, and its absence

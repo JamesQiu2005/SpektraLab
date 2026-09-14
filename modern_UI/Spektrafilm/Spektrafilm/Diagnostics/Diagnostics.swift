@@ -39,6 +39,8 @@ final class Diagnostics {
     /// session reads it through `records()`.
     let log: Log
     let sampler: MemorySampler
+    /// The accounting arena beside the sampler; neither performs kernel reads.
+    var arena: MemoryArena { sampler.arena }
 
     private let defaults: UserDefaults
 

@@ -662,6 +662,7 @@ final class Session: CanvasHost {
     var log: Log { diagnostics.log }
     let catalog = StockCatalog.shared
     private var serviceSessionID: String?
+    private var engineArenaHandle: MemoryArena.Handle?
     var serviceSessionIDForExport: String? { serviceSessionID }
     private var serviceGeneration = 0
 
@@ -757,6 +758,7 @@ final class Session: CanvasHost {
         guard let renderer else { fatalError("Metal is required") }
         self.renderer = renderer
         self.diagnostics = diagnostics
+        self.renderer.arena = diagnostics.arena
         // The engine is in this process now (RFC-014): no subprocess, no
         // workspace directory, and no walking up to a checkout's `.venv`. It
         // gets the canvas's own `MTLDevice`, so a render lands in a texture
@@ -1043,6 +1045,7 @@ final class Session: CanvasHost {
         cancelNativeOriginal()
         decodedGeneration = 0
         scheduler.invalidate()
+        releaseEngineAccounting()
         serviceSessionID = nil
         status = "\(frames.count) frames · pick one to develop."
     }
@@ -1189,6 +1192,7 @@ final class Session: CanvasHost {
         cancelNativeOriginal()
         decodedGeneration = 0
         scheduler.invalidate()
+        releaseEngineAccounting()
         serviceSessionID = nil
         // A memory boundary (§3): what switching frames costs is the question
         // behind "switching frames is slow".
@@ -1602,6 +1606,12 @@ final class Session: CanvasHost {
                 delta["preview_long_edge"] = .double(Double(previewLongEdge))
                 r = try await client.open(frame, paramsDelta: delta)
             }
+            // The client holds one session; open replaces it. The handle follows
+            // the session, not the develop, so an open only ever replaces this
+            // accounted residency and a rejected develop leaves it intact.
+            releaseEngineAccounting()
+            engineArenaHandle = diagnostics.arena.admit(bytes: 1_200_000_000, cls: .pinned,
+                                                         kind: "engine", costMs: 0, evict: {})
             clock.lap("engine.open")
             sampleMemory("engine.open")
             // `open` echoes the whole block, so the check happens here too:
@@ -1855,7 +1865,8 @@ final class Session: CanvasHost {
             // a re-decode is a frame change as far as the engine is concerned
             // (RFC-015 §1.1).
             scheduler.invalidate()
-            serviceSessionID = nil
+            releaseEngineAccounting()
+        serviceSessionID = nil
             // The native render is made from the engine's frame too, so it
             // would otherwise keep the old white balance. Both copies have to
             // go: the renderer's is the one on screen now, and the store's is
@@ -2456,7 +2467,8 @@ final class Session: CanvasHost {
         Task {
             await client.stop()
             serviceReady = false
-            serviceSessionID = nil
+            releaseEngineAccounting()
+        serviceSessionID = nil
             scheduler.invalidate()
             renderer.dropFullRender()
             renderer.store.dropFullRender()
@@ -2505,6 +2517,10 @@ final class Session: CanvasHost {
     /// page's readout are the same sample — one sampler, one number (§8.5).
     func sampleMemory(_ reason: String) {
         diagnostics.sampler.sample(reason)
+    }
+
+    private func releaseEngineAccounting() {
+        if let handle = engineArenaHandle { diagnostics.arena.release(handle); engineArenaHandle = nil }
     }
 
     /// Forecast what this frame will cost before the engine takes it on, and
