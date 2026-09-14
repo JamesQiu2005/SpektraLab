@@ -64,6 +64,31 @@ final class SelectionModelTests: XCTestCase {
         XCTAssertEqual(session.selection, urls[3], "a plain click did not open the frame")
     }
 
+    /// The export-page gesture opens a picked frame without changing the batch.
+    func testOpeningAnExportCellMovesSelectionAndLeavesPickedUnchanged() throws {
+        let (session, urls) = try openedSession()
+        session.click(urls[0])
+        session.click(urls[1], command: true)
+        let picked = session.selectedFrames
+
+        session.open(urls[1])
+        XCTAssertEqual(session.selection, urls[1])
+        XCTAssertEqual(session.selectedFrames, picked,
+                       "opening an export cell changed the picked set")
+    }
+
+    /// The export-page gesture refuses a frame outside the batch (§2.3: the
+    /// proof is of a frame in the batch, so the guard is the rule).
+    func testOpeningAnUnpickedCellIsANoOp() throws {
+        let (session, urls) = try openedSession()
+        session.click(urls[0])
+        session.click(urls[1], command: true)
+
+        session.open(urls[3])
+        XCTAssertEqual(session.selection, urls[0],
+                       "opening an unpicked cell moved the canvas")
+    }
+
     /// ⌘-click toggles, both directions, and never moves the canvas.
     func testCommandClickTogglesAndLeavesTheCanvasAlone() throws {
         let (session, urls) = try openedSession()
