@@ -215,10 +215,11 @@ struct ExportPage: View {
     /// pixel, and keying on the whole recipe would re-render the proof on
     /// every keystroke in the Name field.
     ///
-    /// **The window's size is not in here and must not be.** The proof is the
-    /// file's own pixels, so it does not depend on how much of it is on
-    /// screen; a resize that started a 24-megapixel render would be the worst
-    /// kind of waste, and there used to be a budget in this key that did
+    /// **The window's size is not in here and must not be.** The render is the
+    /// file's own full-size pixels regardless of how much of it is on screen;
+    /// the pane contributes only the display downsample chosen when that
+    /// render starts. A resize that started a 24-megapixel render would be the
+    /// worst kind of waste, and there used to be a budget in this key that did
     /// exactly that.
     private struct ProofKey: Hashable {
         var frame: URL?
@@ -229,10 +230,10 @@ struct ExportPage: View {
         /// how many there are changes the proof. (It is a size, unlike the
         /// next field, and it comes from the recipe rather than the window.)
         var outputSize: OutputSize
-        /// Whether the centre has a pane to draw in — **not a proof input but
-        /// a cost input**, and the one thing here that does not change a
-        /// pixel. In Grid mode there is no pane at all, and a full-resolution
-        /// proof is seconds of engine time. It is a `Bool` and not `paneSize`
+        /// Whether the centre has a pane to draw in — **not a render input but
+        /// a cost input**, and the one thing here that does not change the
+        /// file-sized render. In Grid mode there is no pane at all, and the
+        /// render is seconds of engine time. It is a `Bool` and not `paneSize`
         /// for the reason above: a resize must not re-key this, and a resize
         /// cannot change whether a pane exists.
         var hasPane: Bool
@@ -246,21 +247,16 @@ struct ExportPage: View {
                  hasPane: paneSize.width > 1)
     }
 
-    /// **The proof is asked for at the file's own size.** The user: "that's
-    /// actually why I insisted on the export path actually showing how the
-    /// exported image look like, with the full set export resolution, instead
-    /// of the current preview cache."
+    /// **The render is still full size; only what the page holds and draws
+    /// shrank.** `softProofForDisplay` runs `Exporter.filePixels` at the
+    /// file's own size, keeps the full-frame statistics, then downsamples the
+    /// converted texture once to roughly twice the pane's longest side. The
+    /// page holds only that display image and the file's real pixel size.
     ///
-    /// That took two changes, and the first was not enough on its own — worth
-    /// keeping because the second is not where anyone would look for it.
-    /// Removing the `maxPixels` budget here was measured, at the time, to
-    /// leave the proof coming back 2678 × 1785 on a 6000 × 4000 frame: the
-    /// budget was the *smaller* of two bounds, and `softProof` also clamped to
-    /// the tier on the canvas (`min(exportSize, framed)`, where `framed`
-    /// descends from the preview). Both are gone — `softProof` is
-    /// `Exporter.filePixels`, which renders the full-tier source the export
-    /// writes from — so there is no size argument left to pass and no ceiling
-    /// left to miss.
+    /// This does **not** reverse "the proof is the file": it is still the same
+    /// `Exporter.filePixels` tail, with the display downsample after the
+    /// transform. Do not re-add the old `maxPixels` or canvas-tier clamps;
+    /// those bounded the render, while this bounds only the page's copy.
 
     /// Renders the proof, keeping whatever is already on screen until the new
     /// one is ready.
@@ -287,7 +283,8 @@ struct ExportPage: View {
         // render's result is dropped rather than shown — the pane is already
         // showing the previous proof, which is a truer thing to look at than a
         // picture of a recipe the person has moved on from.
-        let made = await session.softProof(recipe: recipe.wrappedValue)
+        let made = await session.softProofForDisplay(recipe: recipe.wrappedValue,
+                                                     paneSize: paneSize)
         guard !Task.isCancelled else { return }
         // An edit puts the render back: `filePreview` describes one file that
         // exists, and this key changing means the next one will not be it.
@@ -941,7 +938,7 @@ struct ExportPage: View {
     /// which**, and there is no caption, badge or border that says so — the
     /// whole point is that after an export the pane is not a prediction, and a
     /// label announcing the difference would turn it back into one.
-    private var displayImage: CGImage? { filePreview ?? proof?.image }
+    private var displayImage: CGImage? { filePreview ?? proof?.displayImage }
 
     private var viewerPane: some View {
         GeometryReader { geo in
@@ -1007,7 +1004,7 @@ struct ExportPage: View {
                         .foregroundStyle(caveat.isWarning ? Theme.exportAccent : Theme.secondaryText)
                 }
                 HStack(spacing: 5) {
-                    // A full-size proof takes a moment, and the picture on
+                    // A full-size render takes a moment, and the picture on
                     // screen is the previous one while it does. This says so
                     // without covering the picture with a spinner.
                     if proving { ProgressView().controlSize(.mini).scaleEffect(0.55) }
@@ -1032,15 +1029,14 @@ struct ExportPage: View {
     /// The long version, one hover away: what a proof is, one size, and both
     /// spaces. Cheap to reach, and not in the way.
     private func captionHelp(_ proof: SoftProof) -> String {
-        // One size, and it is the image's: there is no `exportPixelSize` any
-        // more, because there is no second size for it to be. The line below
-        // used to say "the file *will be*", which was true while the proof was
-        // a sample of it.
-        let pixels = "\(proof.image.width) × \(proof.image.height)"
+        // The size is the file's, carried by the proof independently of the
+        // smaller display image. It used to say "the file *will be*", which was
+        // true while the proof was a sample rather than the same render.
+        let pixels = "\(Int(proof.filePixelSize.width)) × \(Int(proof.filePixelSize.height))"
         let canvas = session.workingSpaceName
         var lines = [
-            "The picture above is a proof: the file's own pixels, through the same "
-            + "conversion the export will run.",
+            "The picture above is a proof of the file: the same render and conversion "
+            + "as the export, shown downsampled for the pane.",
             "The file is \(pixels) px, in \(proof.targetName).",
         ]
         if proof.targetName != canvas { lines.append("The canvas is in \(canvas).") }

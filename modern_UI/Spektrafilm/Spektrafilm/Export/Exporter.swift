@@ -313,10 +313,11 @@ enum Exporter {
     /// claim.
     ///
     /// This is the one chain. `exportPrint` writes what it returns and
-    /// `Session.softProof` shows it, so "the proof is the file" (§7.6) is a
-    /// property of the code rather than of two sequences of the same steps
-    /// that happen to agree — which is what it was, and what made the claim
-    /// conditional on the canvas happening to hold the frame's own pixels.
+    /// `Session.softProof` derives its display image from the same result, so
+    /// "the proof is the file" (§7.6) is a property of the code rather than of
+    /// two sequences of the same steps that happen to agree — which is what it
+    /// was, and what made the claim conditional on the canvas happening to
+    /// hold the frame's own pixels.
     ///
     /// The source is a **full-tier reprint**, the same request the export
     /// makes: the proof cannot be bounded by whatever tier the canvas is
@@ -366,15 +367,19 @@ enum Exporter {
         guard let setup else { throw ExportError.colourSpace(problem ?? "the engine refused it") }
         guard let converted = session.renderer.applyOutputTransform(to: sized, setup: setup)
         else { throw ExportError.noPixels }
-        guard let cg = converted.texture.makeCGImage(space: target) else { throw ExportError.noPixels }
-        return Rendered(image: cg, stats: converted.stats, target: target,
+        return Rendered(texture: converted.texture, stats: converted.stats, target: target,
                         pixels: (converted.texture.width, converted.texture.height),
                         appliedEV: outcome.progress?.autoExposureEV)
     }
 
-    /// What `filePixels` produced: the picture, and the numbers §7 asks of it.
+    /// What `filePixels` produced: the destination-space texture, its size, and
+    /// the numbers §7 asks of it.
+    ///
+    /// The texture stays unread here. `exportPrint` materialises the full-size
+    /// `CGImage` it writes, while the page downsamples the texture once and
+    /// materialises only that display image.
     struct Rendered {
-        let image: CGImage
+        let texture: MTLTexture
         let stats: OutputTransformStats
         let target: CGColorSpace
         let pixels: (w: Int, h: Int)
@@ -385,8 +390,9 @@ enum Exporter {
                                     quality: Double, recipe: ExportRecipe,
                                     sessionID: String) async throws -> Result {
         let r = try await filePixels(session: session, recipe: recipe, sessionID: sessionID)
-        let preview = writesPreviewPage(recipe) ? preview(of: r.image) : nil
-        try write(r.image, to: out, format: format, quality: quality, preview: preview)
+        guard let image = r.texture.makeCGImage(space: r.target) else { throw ExportError.noPixels }
+        let preview = writesPreviewPage(recipe) ? preview(of: image) : nil
+        try write(image, to: out, format: format, quality: quality, preview: preview)
         return Result(urls: [out], note: nil, appliedEV: r.appliedEV, pixels: r.pixels)
     }
 
