@@ -27,6 +27,7 @@ final class MemoryArena: @unchecked Sendable {
         /// Reserved for the step 4 GDSF value function; currently unused.
         let costMs: Double
         let evict: (@Sendable () -> Void)?
+        var hits: Int
         var lastTouch: UInt64
     }
     private struct State {
@@ -37,6 +38,7 @@ final class MemoryArena: @unchecked Sendable {
         var lastSample: MemorySample?
         var lastReserve: UInt64 = 0
         var lastCap: UInt64 = .max
+        var clock: Double = 0
         var evictionReport = EvictionReport()
     }
     private let state = NSLock()
@@ -105,6 +107,7 @@ final class MemoryArena: @unchecked Sendable {
         let handle = Handle(id: UUID())
         value.entries[handle.id] = Entry(bytes: bytes, cls: cls, kind: kind,
                                          costMs: costMs, evict: evict,
+                                         hits: 0,
                                          lastTouch: nextTouchLocked())
         return handle
     }
@@ -113,6 +116,7 @@ final class MemoryArena: @unchecked Sendable {
     func touch(_ h: Handle) {
         state.lock()
         if var entry = value.entries[h.id] {
+            entry.hits += 1
             entry.lastTouch = nextTouchLocked()
             value.entries[h.id] = entry
         }
@@ -156,9 +160,8 @@ final class MemoryArena: @unchecked Sendable {
     /// whenever bytes were evicted, so the next batch is never decided from a
     /// stale free-memory reading.
     ///
-    /// Step 2 ranks by last-touch order. The GDSF value function lands in
-    /// step 4 and replaces this ranking in ONE place: the eviction helpers
-    /// below. Callers must not sort entries themselves.
+    /// GDSF costs decide the order; last-touch is only the deterministic tie
+    /// break when two entries have the same measured value.
     @discardableResult
     func enforce(sample: MemorySample, reserve: UInt64, cap: UInt64) -> Int {
         state.lock()
@@ -232,7 +235,7 @@ final class MemoryArena: @unchecked Sendable {
         return max(reserveNeed, capNeed)
     }
 
-    /// Remove lowest last-touch entries until their accounted bytes cover
+    /// Remove lowest GDSF-value entries until their accounted bytes cover
     /// `needed`. Accounting is the batch estimate; the sampler re-reads free
     /// memory after the batch and calls again if reality did not follow.
     private func removeLowestPriorityLocked(needed: UInt64) -> [Entry] {
@@ -242,16 +245,26 @@ final class MemoryArena: @unchecked Sendable {
         while freed < needed {
             guard let id = value.entries
                 .filter({ $0.value.cls == .evictable })
-                .min(by: { $0.value.lastTouch < $1.value.lastTouch })?.key,
+                .min(by: { lhs, rhs in
+                    let lp = priorityLocked(lhs.value)
+                    let rp = priorityLocked(rhs.value)
+                    return lp == rp ? lhs.value.lastTouch < rhs.value.lastTouch : lp < rp
+                })?.key,
                   let entry = value.entries.removeValue(forKey: id) else { break }
             selected.append(entry)
             freed = freed.addingReportingOverflow(UInt64(entry.bytes)).partialValue
         }
 
         for entry in selected {
+            value.clock = max(value.clock, priorityLocked(entry))
             value.evictionReport.bytes += entry.bytes
             value.evictionReport.kinds[entry.kind, default: 0] += entry.bytes
         }
         return selected
+    }
+
+    private func priorityLocked(_ entry: Entry) -> Double {
+        gdsfPriority(hits: entry.hits, costMs: entry.costMs, bytes: entry.bytes,
+                     clock: value.clock)
     }
 }

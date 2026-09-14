@@ -143,7 +143,7 @@ seen red with two entries and 2.7 MB accounted; after restoration the gate ran
 `DecodeResidencyTests`, `DiagnosticsTests`, `FramePipelineTests`, and `OpenPathTests`:
 57 tests, zero failures. The Xcode project was regenerated for the two new files.
 
-### Q5 — unified RAM/disk key and GDSF policy — **queued**
+### Q5 — unified RAM/disk key and GDSF policy — **in progress**
 
 Prerequisite: Q4 and accepted measurements. Edit TextureStore.swift, cache key/value
 types, disk store/index, and focused cache/renderer tests.
@@ -164,6 +164,14 @@ Acceptance: source/print/disk/full hits share value updates; synthetic ranking,
 file-first ordering, corrupt self-healing, version misses, restored bytes, and key
 perturbation misses pass. Roll back policy as one unit if data crosses the linear
 input contract.
+
+Foundation landed: `CacheKey`, `CacheValue`, and one `gdsfPriority` function now live
+in `Model/CachePolicy.swift`; `MemoryArena` ranks evictable entries through that
+function with last-touch only as the deterministic tie break. Texture source/print
+admission carries measured costs instead of constants. The GDSF ranking guard was seen
+red with `costMs` removed, then restored; `CachePolicyTests` and the existing
+diagnostics/renderer gates pass. The SQLite disk store and `displayPicture` seam remain
+to land under this package.
 
 ### Q6 — bounded print writeback — **queued**
 

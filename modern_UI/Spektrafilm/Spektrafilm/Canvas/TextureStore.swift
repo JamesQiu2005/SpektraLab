@@ -87,12 +87,12 @@ final class TextureStore: @unchecked Sendable {
     /// canvas still holds the texture. `evicted_mb` counts the dropped cache
     /// references; `MemorySampler`'s fresh free reading is what decides whether
     /// another batch is needed.
-    func setSource(_ t: MTLTexture, for url: URL) {
+    func setSource(_ t: MTLTexture, for url: URL, costMs: Double = 0) {
         lock.withLock {
             if let h = sourceHandles.removeValue(forKey: url) { arena.release(h) }
             let slot = HandleSlot()
             let admitted = arena.admitCache(bytes: t.width * t.height * 8,
-                                            kind: "sources", costMs: 0,
+                                            kind: "sources", costMs: costMs,
                                             evict: { [weak self] in self?.dropSource(url, matching: slot) })
             if admitted == nil {
                 sources[url] = nil
@@ -107,7 +107,7 @@ final class TextureStore: @unchecked Sendable {
         }
     }
 
-    func setPrint(_ t: MTLTexture?, for url: URL) {
+    func setPrint(_ t: MTLTexture?, for url: URL, costMs: Double = 0) {
         lock.withLock {
             if let h = printHandles.removeValue(forKey: url) { arena.release(h) }
             guard let t else {
@@ -117,7 +117,7 @@ final class TextureStore: @unchecked Sendable {
             }
             let slot = HandleSlot()
             let admitted = arena.admitCache(bytes: t.width * t.height * 8,
-                                            kind: "prints", costMs: 0,
+                                            kind: "prints", costMs: costMs,
                                             evict: { [weak self] in self?.dropPrint(url, matching: slot) })
             if admitted == nil {
                 prints[url] = nil

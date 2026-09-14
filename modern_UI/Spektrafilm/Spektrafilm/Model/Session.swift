@@ -1487,7 +1487,7 @@ final class Session: CanvasHost {
         sourceLongEdge = max(d.pixelSize.width, d.pixelSize.height)
         sampleMemory("decode")
         if let tex = preview.texture, !Task.isCancelled, selection == url {
-            renderer.store.setSource(tex, for: url)
+            renderer.store.setSource(tex, for: url, costMs: clock.totalMs())
             renderer.original = tex
             if renderer.store.print(for: url) == nil {
                 renderer.setLive(tex, logical: d.pixelSize)
@@ -1767,7 +1767,7 @@ final class Session: CanvasHost {
         // Before the store takes it: whether this is the frame's first print
         // decides whether it is a memory boundary (§3).
         let firstPrint = renderer.store.print(for: url) == nil
-        renderer.store.setPrint(tex, for: url)
+        renderer.store.setPrint(tex, for: url, costMs: r.elapsedMs)
         // The frame's own size, and only when it is known: passing nil leaves
         // whatever the decode established (D4).
         renderer.setLive(tex, logical: nativeSourceSize)
