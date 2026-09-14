@@ -331,7 +331,7 @@ enum ImageDecoder {
     }
 
     /// The checkpoint-free form, for the call sites that predate the frame
-    /// pipeline (`prefetchNeighbours`, the test suites): a plain non-throwing
+    /// pipeline (the test suites): a plain non-throwing
     /// function, so none of them needs a `try`. Swift treats a call that uses
     /// a defaulted throwing closure parameter as potentially throwing, which
     /// would force a `try` on every 3-arg call site — so this overload exists

@@ -733,7 +733,6 @@ final class Session: CanvasHost {
     private var nativeOriginalTask: Task<Void, Never>?
     private var saveTask: Task<Void, Never>?
     private var reopenTask: Task<Void, Never>?
-    private var prefetch: [URL: Task<URL?, Never>] = [:]
     // Renamed with the product. The old `com.hanze.spektrafilm` directory is
     // simply orphaned: it holds decoded-TIFF caches, which rebuild on demand,
     // so nothing needs migrating and nothing is lost but disk.
@@ -1169,7 +1168,19 @@ final class Session: CanvasHost {
         sampleMemory("frame_switch")
         let gen = pipeline.supersede()
         loadTask = Task { await load(url, generation: gen) }
-        prefetchNeighbours(of: url)
+        // `prefetchNeighbours(of:)` was deleted here (IMPL-decode-pipeline §4).
+        // It had three defects and no measurement behind it: its entries were
+        // never removed and never cancelled — not on a frame change, not in
+        // `open(urls:)`, not on completion — so a 200-frame folder accumulated
+        // 200 retained tasks and full decodes; the `prefetch[f.id] == nil`
+        // guard meant a frame prefetched once was never prefetched again, even
+        // after `TextureStore`'s LRU (capacity 8) had evicted its texture, so
+        // the cache it existed to fill went cold and stayed cold; and
+        // `.background` plus a blocking `waitUntilCompleted` is the worst case
+        // for the cooperative pool. Rebuild it — same pipeline, strictly below
+        // the foreground job, entries removed on completion and cancelled on
+        // frame change — only if a measurement with step 1 and then the decode
+        // cache in place says the misses matter. None was ever taken.
     }
 
     // MARK: - the load pipeline
@@ -1730,26 +1741,6 @@ final class Session: CanvasHost {
         let dir = legacyLinearCache
         Task.detached(priority: .utility) {
             try? FileManager.default.removeItem(at: dir)
-        }
-    }
-
-    private func prefetchNeighbours(of url: URL) {
-        guard let i = frames.firstIndex(where: { $0.id == url }) else { return }
-        for j in [i + 1, i - 1] where frames.indices.contains(j) {
-            let f = frames[j]
-            guard prefetch[f.id] == nil, renderer.store.source(for: f.id) == nil else { continue }
-            let settings = Sidecar.load(for: f.id)?.decode ?? DecodeSettings()
-            let device = renderer.device
-            let store = renderer.store
-            let edge = previewLongEdge
-            prefetch[f.id] = Task.detached(priority: .background) {
-                guard let d = try? ImageDecoder.decode(f.id, settings: settings) else { return nil }
-                if let tex = ImageDecoder.makePreviewTexture(d, device: device, maxEdge: edge) { store.setSource(tex, for: f.id) }
-                // Preview only. The linear TIFF is 363 MB; writing one for each
-                // neighbour filled the cache before the user had looked at
-                // anything (HANDOFF §2, §3.1).
-                return nil
-            }
         }
     }
 

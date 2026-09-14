@@ -183,8 +183,6 @@ top-left origin. `RendererTests.testOffscreenRenderOrientation` and
 
 - Switching frames shows the frame's last print instantly (or its decode
   preview), flagged **preview** until the service catches up.
-- The two neighbouring frames are decoded and their linear TIFFs written in
-  the background (`prefetchNeighbours`), so their `open` skips the RAW decode.
 - `Service/RenderScheduler.swift` keeps *sent* vs *wanted* params and one
   loop: debounce (40 ms print / 220 ms shoot), send one delta for the whole
   difference, apply the result only if the generation still matches. A slider
