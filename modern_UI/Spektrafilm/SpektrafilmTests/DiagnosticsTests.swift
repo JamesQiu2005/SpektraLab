@@ -882,15 +882,157 @@ final class DiagnosticsTests: XCTestCase {
         XCTAssertEqual(breakdown.reduce(0) { $0 + $1.bytes }, arena.totalBytes)
     }
 
-    func testArenaEnforceRecordsOnly() {
+    /// The reserve path evicts in last-touch order and the `memory` record
+    /// carries the bytes and kinds that were dropped. The second entry was
+    /// admitted first but touched more recently, so it must survive the first
+    /// batch's ranking decision.
+    ///
+    /// **Seen red** by changing the free comparison in `enforce` to `>`: no
+    /// eviction ran, and the `evicted_mb`/`evicted_kinds` assertions failed.
+    func testArenaEnforceEvictsUnderReserveAndReportsTheEviction() throws {
+        final class Order: @unchecked Sendable {
+            private let lock = NSLock()
+            private var value: [String] = []
+            func append(_ name: String) { lock.withLock { value.append(name) } }
+            var names: [String] { lock.withLock { value } }
+        }
+
+        let log = Log(ringCapacity: 64)
         let arena = MemoryArena()
-        final class Box: @unchecked Sendable { var called = false }
-        let box = Box()
-        _ = arena.admit(bytes: 9, cls: .evictable, kind: "prints", costMs: 0, evict: { box.called = true })
-        let sample = MemorySample(seq: 1, at: Date(), footprintBytes: 1, peakBytes: 1, freeBytes: 0)
-        XCTAssertEqual(arena.enforce(sample: sample, reserve: 1, cap: 1), 0)
-        XCTAssertFalse(box.called)
-        XCTAssertEqual(arena.totalBytes, 9)
+        let order = Order()
+        let first = arena.admit(bytes: 60_000_000, cls: .evictable, kind: "prints",
+                                costMs: 0, evict: { order.append("first") })!
+        _ = arena.admit(bytes: 40_000_000, cls: .evictable, kind: "sources",
+                        costMs: 0, evict: { order.append("second") })
+        arena.touch(first)
+
+        let sampler = MemorySampler(log: log, arena: arena,
+                                    readFootprint: { 100_000_000 },
+                                    readFree: { 1_000_000 })
+        sampler.setLimits(reserveBytes: 100_000_000, capBytes: .max)
+        _ = sampler.sample("arena-enforce")
+
+        XCTAssertEqual(order.names, ["second", "first"],
+                       "last-touch order did not choose the oldest entry first")
+        XCTAssertEqual(arena.totalBytes, 0)
+        XCTAssertEqual(arena.evictableBytes, 0)
+        let record = try XCTUnwrap(log.records(category: .memory).last)
+        XCTAssertEqual(record.number("evicted_mb"), 100)
+        XCTAssertEqual(record.text("evicted_kinds"), "prints:60,sources:40")
+        XCTAssertEqual(record.number("arena_evictable_mb"), 0)
+    }
+
+    /// Admission refuses only the cache entry that eviction cannot make room
+    /// for. The recoverable case proves the refusal is not just "low free
+    /// memory means nil"; it actually lets the arena evict before deciding.
+    ///
+    /// **Seen red** by deleting the admission guard: the unrecoverable
+    /// `admit` returned a handle instead of nil.
+    func testArenaAdmissionRefusesOnlyWhatEvictionCannotRecover() {
+        let lowFree = MemorySample(seq: 1, at: Date(), footprintBytes: 1,
+                                   peakBytes: 1, freeBytes: 5)
+
+        let recoverable = MemoryArena()
+        let room = recoverable.admit(bytes: 160, cls: .evictable, kind: "prints",
+                                     costMs: 0, evict: {})
+        XCTAssertNotNil(room)
+        recoverable.observe(sample: lowFree, reserve: 100, cap: .max)
+        let admitted = recoverable.admit(bytes: 60, cls: .evictable, kind: "prints",
+                                         costMs: 0, evict: {})
+        XCTAssertNotNil(admitted, "an entry with recoverable room was refused")
+        XCTAssertEqual(recoverable.totalBytes, 60)
+
+        let unrecoverable = MemoryArena()
+        unrecoverable.observe(sample: lowFree, reserve: 100, cap: .max)
+        XCTAssertNil(unrecoverable.admit(bytes: 60, cls: .evictable, kind: "prints",
+                                         costMs: 0, evict: {}))
+        XCTAssertEqual(unrecoverable.totalBytes, 0)
+    }
+
+    /// The cap is an independent bound on the evictable total: free memory can
+    /// be plentiful and the arena still has to drain down to the setting.
+    ///
+    /// **Seen red** by forcing `capNeed` to zero: the total stayed above 50.
+    func testArenaEnforceBringsEvictableBytesUnderTheCap() {
+        let arena = MemoryArena()
+        _ = arena.admit(bytes: 30, cls: .evictable, kind: "prints", costMs: 0, evict: {})
+        _ = arena.admit(bytes: 40, cls: .evictable, kind: "sources", costMs: 0, evict: {})
+        let sample = MemorySample(seq: 1, at: Date(), footprintBytes: 1,
+                                  peakBytes: 1, freeBytes: 1_000_000)
+
+        XCTAssertEqual(arena.enforce(sample: sample, reserve: 0, cap: 50), 30)
+        XCTAssertEqual(arena.evictableBytes, 40)
+        XCTAssertLessThanOrEqual(arena.evictableBytes, 50)
+    }
+
+    /// An empty evictable set is a terminal condition, not something to spin
+    /// on while the reserve target is still unmet.
+    ///
+    /// **Seen red** by temporarily returning non-zero from enforce when no
+    /// entry was removed: this test failed instead of the loop hanging.
+    func testArenaEnforceTerminatesWithAnEmptyEvictableSet() {
+        let arena = MemoryArena()
+        let sample = MemorySample(seq: 1, at: Date(), footprintBytes: 1,
+                                  peakBytes: 1, freeBytes: 0)
+        XCTAssertEqual(arena.enforce(sample: sample, reserve: 100, cap: .max), 0)
+        XCTAssertEqual(arena.totalBytes, 0)
+    }
+
+    /// `wouldAdmit` is the same prediction as `admit` without the mutation:
+    /// it must neither register an entry nor evict one just because it was
+    /// asked.
+    ///
+    /// **Seen red** by making `wouldAdmit` always return true: the
+    /// unrecoverable prediction assertion failed.
+    func testArenaWouldAdmitMatchesAdmissionWithoutRegistering() {
+        let lowFree = MemorySample(seq: 1, at: Date(), footprintBytes: 1,
+                                   peakBytes: 1, freeBytes: 5)
+
+        let refusedPrediction = MemoryArena()
+        let refusedActual = MemoryArena()
+        refusedPrediction.observe(sample: lowFree, reserve: 100, cap: .max)
+        refusedActual.observe(sample: lowFree, reserve: 100, cap: .max)
+        XCTAssertFalse(refusedPrediction.wouldAdmit(bytes: 60, cls: .evictable))
+        XCTAssertEqual(refusedPrediction.totalBytes, 0,
+                       "wouldAdmit registered something")
+        XCTAssertNil(refusedActual.admit(bytes: 60, cls: .evictable, kind: "prints",
+                                         costMs: 0, evict: {}))
+
+        let admittedPrediction = MemoryArena()
+        let admittedActual = MemoryArena()
+        for arena in [admittedPrediction, admittedActual] {
+            _ = arena.admit(bytes: 160, cls: .evictable, kind: "prints", costMs: 0, evict: {})
+            arena.observe(sample: lowFree, reserve: 100, cap: .max)
+        }
+        XCTAssertTrue(admittedPrediction.wouldAdmit(bytes: 60, cls: .evictable))
+        XCTAssertEqual(admittedPrediction.totalBytes, 160,
+                       "wouldAdmit evicted or registered something")
+        XCTAssertNotNil(admittedActual.admit(bytes: 60, cls: .evictable, kind: "prints",
+                                             costMs: 0, evict: {}))
+    }
+
+    /// Arena eviction must reach the TextureStore dictionaries, not just the
+    /// arena's accounting. Otherwise the cache still holds the texture and the
+    /// reported eviction is fiction.
+    ///
+    /// **Seen red** by restoring the old empty `evict: {}` closure: the source
+    /// lookup stayed non-nil after enforcement.
+    func testArenaEvictionDropsTextureStoreCacheReference() throws {
+        let device = try XCTUnwrap(MTLCreateSystemDefaultDevice())
+        let arena = MemoryArena()
+        let store = TextureStore(device: device, arena: arena)
+        let url = URL(fileURLWithPath: "/tmp/arena-evict-source.tif")
+        let texture = try XCTUnwrap(store.makeWritable(width: 4, height: 4))
+        store.setSource(texture, for: url)
+        XCTAssertNotNil(store.source(for: url))
+
+        let sample = MemorySample(seq: 1, at: Date(), footprintBytes: 1,
+                                  peakBytes: 1, freeBytes: 0)
+        XCTAssertEqual(arena.enforce(sample: sample, reserve: 1, cap: .max),
+                       texture.width * texture.height * 8)
+        XCTAssertNil(store.source(for: url),
+                     "arena eviction left the cache reference resident")
+        XCTAssertEqual(arena.evictableBytes, 0)
     }
 
     /// Evicting a frame from the LRU must release every handle that frame owns,

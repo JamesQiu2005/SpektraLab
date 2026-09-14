@@ -140,6 +140,7 @@ final class Diagnostics {
             guard clamped != storedMemoryReserveMegabytes else { return }
             storedMemoryReserveMegabytes = clamped
             defaults.set(clamped, forKey: Keys.memoryReserveMegabytes)
+            applyMemoryLimits()
         }
     }
     private var storedMemoryReserveMegabytes: Int
@@ -155,7 +156,57 @@ final class Diagnostics {
     /// The caption under the control, in the same idiom as the other two.
     nonisolated static let memoryReserveNote =
         "Memory Filmify leaves free for everything else. A frame whose forecast peak does not fit "
-        + "under it gets a warning you can dismiss — never a refusal."
+        + "under it gets a warning you can dismiss — never a refusal. The override below suppresses "
+        + "the warning, not eviction."
+
+    /// How much memory Filmify may hold in its caches. 0 is the explicit
+    /// Unlimited state: finite values are clamped to the published range, while
+    /// 0 means the cap is not enforced.
+    var memoryCapMegabytes: Int {
+        get { storedMemoryCapMegabytes }
+        set {
+            let clamped: Int
+            if newValue == Diagnostics.memoryCapUnlimited {
+                clamped = newValue
+            } else {
+                clamped = newValue.clamped(to: Diagnostics.memoryCapRange)
+            }
+            guard clamped != storedMemoryCapMegabytes else { return }
+            storedMemoryCapMegabytes = clamped
+            defaults.set(clamped, forKey: Keys.memoryCapMegabytes)
+            applyMemoryLimits()
+        }
+    }
+    private var storedMemoryCapMegabytes: Int
+
+    var memoryCapIsUnlimited: Bool {
+        get { storedMemoryCapMegabytes == Diagnostics.memoryCapUnlimited }
+        set {
+            if newValue {
+                memoryCapMegabytes = Diagnostics.memoryCapUnlimited
+            } else if memoryCapIsUnlimited {
+                memoryCapMegabytes = Diagnostics.defaultMemoryCapMB
+            }
+        }
+    }
+
+    /// 2 GB … 128 GB, plus an explicit Unlimited state. The cap bounds what the
+    /// arena may keep in evictable caches; pinned work is accounted but is not
+    /// eligible for eviction.
+    nonisolated static let memoryCapRange = 2_048...131_072
+    nonisolated static let memoryCapUnlimited = 0
+    nonisolated static var defaultMemoryCapMB: Int {
+        let physicalRAMMB = Double(ProcessInfo.processInfo.physicalMemory) / 1_000_000
+        return min(8_192, Int(0.4 * physicalRAMMB))
+    }
+
+    /// The caption under the cap control. The first sentence says which
+    /// holdings the number actually governs; the rest separates the two
+    /// independent budgets so the reserve cannot be read as a cap.
+    nonisolated static let memoryCapNote =
+        "How much Filmify may hold in caches and scratch buffers. The frame you are looking at is "
+        + "never evicted, whatever this says. Free memory is set by the other applications on the "
+        + "machine; this is the part Filmify decides."
 
     /// Where sessions are written (§11.4). Default `~/Library/Logs/Filmify/`.
     var logDirectory: URL {
@@ -248,10 +299,15 @@ final class Diagnostics {
             ?? LogRetention.default.maxFiles).clamped(to: 1...10_000)
         storedMemoryReserveMegabytes = ((defaults.object(forKey: Keys.memoryReserveMegabytes) as? Int)
             ?? Diagnostics.defaultMemoryReserveMB).clamped(to: Diagnostics.memoryReserveRange)
+        let storedCap = (defaults.object(forKey: Keys.memoryCapMegabytes) as? Int)
+            ?? Diagnostics.defaultMemoryCapMB
+        storedMemoryCapMegabytes = storedCap == Diagnostics.memoryCapUnlimited
+            ? storedCap : storedCap.clamped(to: Diagnostics.memoryCapRange)
         logDirectory = defaults.string(forKey: Keys.logDirectory)
             .map { URL(fileURLWithPath: $0) } ?? Diagnostics.defaultLogDirectory
         includeFileNamesInBundle = defaults.object(forKey: Keys.includeFileNames) as? Bool ?? true
         allowOverReserve = defaults.bool(forKey: Keys.allowOverReserve)
+        applyMemoryLimits()
     }
 
     /// `~/Library/Logs/Filmify/` (§11.4). Created by `start()`, not here: a
@@ -269,6 +325,7 @@ final class Diagnostics {
         static let retentionFiles = "diag.retentionFiles"
         static let logDirectory = "diag.logDirectory"
         static let memoryReserveMegabytes = "diag.memoryReserveMB"
+        static let memoryCapMegabytes = "diag.memoryCapMB"
         static let includeFileNames = "diag.includeFileNamesInBundle"
         static let allowOverReserve = "diag.allowOverReserve"
     }
@@ -328,6 +385,7 @@ final class Diagnostics {
             ?? Session.defaultPreviewEdge
         fields.append(.init("preview_edge", previewEdge))
         fields.append(.init("memory_reserve_mb", memoryReserveMegabytes))
+        fields.append(.init("memory_cap_mb", memoryCapIsUnlimited ? "unlimited" : String(memoryCapMegabytes)))
         fields.append(.init("log_level", level.rawValue))
         fields.append(.init("log_file", log.sessionFile?.lastPathComponent ?? "none"))
         return fields
@@ -529,9 +587,21 @@ final class Diagnostics {
             "log_directory": logDirectory.path,
             "bundle_includes_file_names": includeFileNamesInBundle ? "on" : "off",
             "memory_reserve_mb": String(memoryReserveMegabytes),
+            "memory_cap_mb": memoryCapIsUnlimited ? "unlimited" : String(memoryCapMegabytes),
             "preview_edge": String((UserDefaults.standard.object(forKey: Session.previewEdgeKey) as? Int)
                                    ?? Session.defaultPreviewEdge),
         ]
+    }
+
+    private var memoryCapBytes: UInt64 {
+        memoryCapIsUnlimited ? .max : UInt64(memoryCapMegabytes) * 1_000_000
+    }
+
+    /// Settings changes take effect at the next sample. Sampling remains the
+    /// only place that reads `phys_footprint`/free memory.
+    private func applyMemoryLimits() {
+        sampler.setLimits(reserveBytes: UInt64(memoryReserveMegabytes) * 1_000_000,
+                          capBytes: memoryCapBytes)
     }
 
     // MARK: - per-node timings, and the environment the engine reads

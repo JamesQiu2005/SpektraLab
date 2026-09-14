@@ -51,11 +51,18 @@ final class TextureStore: @unchecked Sendable {
     private var full: FullRenderEntry?
     private var order: [URL] = []
     private let capacity = 8
-    private let lock = NSLock()
+    // Admission can synchronously call an eviction closure below. That
+    // closure re-enters this store to drop the dictionary entry, so the lock
+    // must be recursive rather than deadlocking the admission path.
+    private let lock = NSRecursiveLock()
     var arena: MemoryArena?
     private var sourceHandles: [URL: MemoryArena.Handle] = [:]
     private var printHandles: [URL: MemoryArena.Handle] = [:]
     private var fullHandle: MemoryArena.Handle?
+
+    private final class HandleSlot: @unchecked Sendable {
+        var handle: MemoryArena.Handle?
+    }
 
     init(device: MTLDevice, arena: MemoryArena? = nil) { self.device = device; self.arena = arena }
 
@@ -71,8 +78,57 @@ final class TextureStore: @unchecked Sendable {
         }
     }
 
-    func setSource(_ t: MTLTexture, for url: URL) { lock.withLock { if let h = sourceHandles.removeValue(forKey: url) { arena?.release(h) }; sources[url] = t; sourceHandles[url] = arena?.admit(bytes: t.width * t.height * 8, cls: .evictable, kind: "sources", costMs: 0, evict: {}); touch(url) } }
-    func setPrint(_ t: MTLTexture?, for url: URL) { lock.withLock { if let h = printHandles.removeValue(forKey: url) { arena?.release(h) }; prints[url] = t; if let t { printHandles[url] = arena?.admit(bytes: t.width * t.height * 8, cls: .evictable, kind: "prints", costMs: 0, evict: {}) }; touch(url) } }
+    /// Cache references, not physical bytes. The current frame's preview is
+    /// registered twice (this evictable source entry and `renderer.original`'s
+    /// pinned entry), so dropping this reference can free nothing while the
+    /// canvas still holds the texture. `evicted_mb` counts the dropped cache
+    /// references; `MemorySampler`'s fresh free reading is what decides whether
+    /// another batch is needed.
+    func setSource(_ t: MTLTexture, for url: URL) {
+        lock.withLock {
+            if let h = sourceHandles.removeValue(forKey: url) { arena?.release(h) }
+            let slot = HandleSlot()
+            let admitted = arena?.admit(bytes: t.width * t.height * 8, cls: .evictable,
+                                        kind: "sources", costMs: 0,
+                                        evict: { [weak self] in self?.dropSource(url, matching: slot) })
+            if arena != nil, admitted == nil {
+                sources[url] = nil
+                sourceHandles[url] = nil
+                if prints[url] == nil { order.removeAll { $0 == url } }
+                return
+            }
+            slot.handle = admitted
+            sources[url] = t
+            sourceHandles[url] = admitted
+            touch(url)
+        }
+    }
+
+    func setPrint(_ t: MTLTexture?, for url: URL) {
+        lock.withLock {
+            if let h = printHandles.removeValue(forKey: url) { arena?.release(h) }
+            guard let t else {
+                prints[url] = nil
+                if sources[url] == nil { order.removeAll { $0 == url } }
+                return
+            }
+            let slot = HandleSlot()
+            let admitted = arena?.admit(bytes: t.width * t.height * 8, cls: .evictable,
+                                        kind: "prints", costMs: 0,
+                                        evict: { [weak self] in self?.dropPrint(url, matching: slot) })
+            if arena != nil, admitted == nil {
+                prints[url] = nil
+                printHandles[url] = nil
+                if sources[url] == nil { order.removeAll { $0 == url } }
+                return
+            }
+            slot.handle = admitted
+            prints[url] = t
+            printHandles[url] = admitted
+            touch(url)
+        }
+    }
+
     /// Take a native-resolution render into the slot.
     func setFullRender(_ t: MTLTexture, stamp: String, for url: URL) {
         lock.withLock { if let h = fullHandle { arena?.release(h) }; full = FullRenderEntry(url: url, stamp: stamp, texture: t); fullHandle = arena?.admit(bytes: t.width * t.height * 8, cls: .pinned, kind: "full", costMs: 0, evict: {}) }
@@ -90,6 +146,27 @@ final class TextureStore: @unchecked Sendable {
     private func clearFullLocked() {
         if let h = fullHandle { arena?.release(h); fullHandle = nil }
         full = nil
+    }
+
+    /// The arena has already removed the accounting entry when this runs. Drop
+    /// only the reference whose handle is still the one registered here; a
+    /// stale closure must not evict a newer entry for the same URL.
+    private func dropSource(_ url: URL, matching slot: HandleSlot) {
+        lock.withLock {
+            guard let handle = slot.handle, sourceHandles[url] == handle else { return }
+            sourceHandles[url] = nil
+            sources[url] = nil
+            if prints[url] == nil { order.removeAll { $0 == url } }
+        }
+    }
+
+    private func dropPrint(_ url: URL, matching slot: HandleSlot) {
+        lock.withLock {
+            guard let handle = slot.handle, printHandles[url] == handle else { return }
+            printHandles[url] = nil
+            prints[url] = nil
+            if sources[url] == nil { order.removeAll { $0 == url } }
+        }
     }
 
     private func touch(_ url: URL) {

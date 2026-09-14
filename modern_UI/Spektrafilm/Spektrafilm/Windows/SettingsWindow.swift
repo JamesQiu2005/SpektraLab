@@ -140,6 +140,25 @@ struct SettingsWindow: View {
                         diagnostics.memoryReserveMegabytes = $0
                     }
                     caption(Diagnostics.memoryReserveNote)
+                    intRow("Working-set cap",
+                           diagnostics.memoryCapIsUnlimited
+                               ? Diagnostics.defaultMemoryCapMB
+                               : diagnostics.memoryCapMegabytes,
+                           "MB", Diagnostics.memoryCapRange) {
+                        diagnostics.memoryCapMegabytes = $0
+                    }
+                    .disabled(diagnostics.memoryCapIsUnlimited)
+                    ToggleRow(label: "Unlimited",
+                              isOn: Binding(get: { diagnostics.memoryCapIsUnlimited },
+                                            set: { diagnostics.memoryCapIsUnlimited = $0 }))
+                    caption(Diagnostics.memoryCapNote)
+                    Divider().overlay(Theme.plotGrid).padding(.vertical, 4)
+                    readout("Held by Filmify",
+                            bytes(UInt64(max(0, diagnostics.arena.totalBytes))),
+                            help: arenaBreakdown())
+                    readout("Evictable",
+                            bytes(UInt64(max(0, diagnostics.arena.evictableBytes))))
+                    Divider().overlay(Theme.plotGrid).padding(.vertical, 4)
                     ToggleRow(label: "Allow exceeding the reserve",
                               isOn: Binding(get: { diagnostics.allowOverReserve },
                                             set: { diagnostics.allowOverReserve = $0 }))
@@ -253,13 +272,22 @@ struct SettingsWindow: View {
 
     // MARK: - pieces
 
-    private func readout(_ label: String, _ value: String) -> some View {
+    private func readout(_ label: String, _ value: String, help: String? = nil) -> some View {
         HStack(spacing: 0) {
             Text(label).font(Theme.Font.caption).foregroundStyle(Theme.dim)
                 .frame(width: 96, alignment: .leading)
             Text(value).font(Theme.Font.caption).foregroundStyle(Theme.text)
                 .lineLimit(1).truncationMode(.middle)
         }
+        .help(help ?? "")
+    }
+
+    private func arenaBreakdown() -> String {
+        let parts = diagnostics.arena.breakdown().map {
+            "\($0.kind): \(bytes(UInt64(max(0, $0.bytes))))"
+        }
+        return parts.isEmpty ? "No cache or frame allocations registered yet."
+                             : parts.joined(separator: "\n")
     }
 
     /// An integer field with its unit beside it. A stepper rather than a

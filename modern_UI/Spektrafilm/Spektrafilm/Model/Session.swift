@@ -1297,10 +1297,37 @@ final class Session: CanvasHost {
         }
         log.info(.canvas, "native original trigger", [.init("trigger", trigger),
                                                        .init("frame", url.lastPathComponent)])
-        // RFC-019 arena admission remains a later step; do not allocate here yet.
+        // This optional native-size decode is asked through the cache rule: it
+        // is skippable, even though the texture is pinned once it lands. A
+        // pinned registration itself is never refused (RFC-019 §1 rule 2);
+        // this is the check the old debt comment pointed at.
+        let allocationBytes = nativeOriginalAllocationBytes(d)
+        guard diagnostics.arena.wouldAdmit(bytes: allocationBytes, cls: .evictable) else {
+            log.info(.canvas, "native original skipped", [
+                .init("trigger", trigger),
+                .init("frame", url.lastPathComponent),
+                .init("bytes", allocationBytes),
+                .init("reason", "memory_admission"),
+            ])
+            return
+        }
         scheduleNativeOriginal(d, for: url, settings: sidecar.decode,
                                generation: decodedGeneration,
                                delayMs: trigger == "idle_delay" ? Session.fullRenderDebounceMs : 0)
+    }
+
+    /// Bytes for the native original after applying the same max-edge clamp
+    /// `scheduleNativeOriginal` uses. The allocation never exceeds the frame's
+    /// own aspect ratio or the engine-published texture edge.
+    private func nativeOriginalAllocationBytes(_ d: DecodedImage) -> Int {
+        let source = d.pixelSize
+        let sourceEdge = max(source.width, source.height)
+        guard sourceEdge > 0 else { return 0 }
+        let edge = min(Int(sourceEdge), maxTextureEdge ?? previewLongEdge)
+        let scale = min(1, Double(edge) / Double(sourceEdge))
+        let width = max(1, Int((source.width * scale).rounded(.up)))
+        let height = max(1, Int((source.height * scale).rounded(.up)))
+        return width * height * 8
     }
 
     /// Render the *display* decode at the frame's own size and hand it to the
@@ -1330,8 +1357,8 @@ final class Session: CanvasHost {
         // it, which is the case the engine refuses the frame for in the first
         // place. Falling back to the live tier keeps an older engine (one that
         // reports no limit) from crashing the app.
-        let limit = maxTextureEdge ?? previewLongEdge
-        let longEdge = min(Int(max(d.pixelSize.width, d.pixelSize.height)), limit)
+        let longEdge = min(Int(max(d.pixelSize.width, d.pixelSize.height)),
+                           maxTextureEdge ?? previewLongEdge)
         let started = Date()
         let pipeline = self.pipeline
         nativeOriginalTask = Task { [weak self] in
