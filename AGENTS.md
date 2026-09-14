@@ -201,8 +201,25 @@ python3 Tools/gen-project.py        # REGENERATE after adding/removing any sourc
 xcodebuild -project Spektrafilm.xcodeproj -scheme Spektrafilm \
     -configuration Debug -derivedDataPath build/DerivedData build
 xcodebuild -project Spektrafilm.xcodeproj -scheme SpektrafilmTests \
-    -configuration Debug -derivedDataPath build/DerivedData test   # 117 tests, ~7 s
+    -configuration Debug -derivedDataPath build/DerivedData test   # full suite; ~390 s with fixtures
 ```
+
+**Test gates.** Do not run the full `SpektrafilmTests` target after every small
+commit. Use the smallest gate that can catch the change, and widen only at a
+real integration boundary:
+
+- While implementing, build the affected target and run only the test classes
+  or cases that cover the change (`-only-testing:SpektrafilmTests/...`). A new
+  regression test should be shown red on the old or deliberately broken
+  behavior before it is shown green.
+- After a coherent group of commits, or before merging/pushing a branch, run
+  the full `SpektrafilmTests` target once. A real run with fixtures is ~390 s;
+  anything under a minute means the fixture-dependent cases were skipped
+  (trap 26), not that the suite became fast.
+- Run the engine parity harnesses only when engine inputs, kernels, resources,
+  or the render boundary changed. Do not pay for them on a UI-only commit.
+- A commit records the narrow gate that ran. The full gate belongs to the
+  integration boundary, not to every worker handoff.
 
 Two more scripts the app target depends on, both idempotent:
 
