@@ -108,6 +108,7 @@ final class Renderer: NSObject {
     let device: MTLDevice
     let queue: MTLCommandQueue
     let store: TextureStore
+    let arena: MemoryArena
     private let layer2Pipeline: MTLComputePipelineState
     private let transformPipeline: MTLComputePipelineState
     private let histogramPipeline: MTLComputePipelineState
@@ -161,11 +162,10 @@ final class Renderer: NSObject {
     /// a sharp print. One native texture makes that ladder unnecessary: it is
     /// a picture of the frame at every zoom, and it is one texture per
     /// selected frame rather than one per tier visited.
-    var arena: MemoryArena? { didSet { store.arena = arena } }
     private var originalHandle: MemoryArena.Handle?
-    var original: MTLTexture? { didSet { if let h = originalHandle { arena?.release(h) }; originalHandle = original.flatMap { arena?.registerPinned(bytes: $0.width * $0.height * 8, kind: "original") } } }
+    var original: MTLTexture? { didSet { if let h = originalHandle { arena.release(h) }; originalHandle = original.flatMap { arena.registerPinned(bytes: $0.width * $0.height * 8, kind: "original") } } }
     private var adjustedHandle: MemoryArena.Handle?
-    private var adjusted: MTLTexture? { didSet { if let h = adjustedHandle { arena?.release(h) }; adjustedHandle = adjusted.flatMap { arena?.registerPinned(bytes: $0.width * $0.height * 8, kind: "adjusted") } } }
+    private var adjusted: MTLTexture? { didSet { if let h = adjustedHandle { arena.release(h) }; adjustedHandle = adjusted.flatMap { arena.registerPinned(bytes: $0.width * $0.height * 8, kind: "adjusted") } } }
     /// Rasterised coverage for the mask kinds that cannot be closed-form.
     /// Nothing writes it yet — brush and the Vision sources are the next
     /// component kinds and this is the seam they land on
@@ -173,10 +173,10 @@ final class Renderer: NSObject {
     private var maskHandle: MemoryArena.Handle?
     var maskRasters: MTLTexture? {
         didSet {
-            if let h = maskHandle { arena?.release(h) }
+            if let h = maskHandle { arena.release(h) }
             maskHandle = maskRasters.flatMap {
                 // The array slices and pixel format are part of this number.
-                arena?.registerPinned(bytes: $0.allocatedSize, kind: "maskRasters")
+                arena.registerPinned(bytes: $0.allocatedSize, kind: "maskRasters")
             }
         }
     }
@@ -392,11 +392,13 @@ final class Renderer: NSObject {
     static let offscreenFormat: MTLPixelFormat = .rgba16Unorm
 
 
-    init?(device: MTLDevice? = MTLCreateSystemDefaultDevice()) {
+    init?(device: MTLDevice? = MTLCreateSystemDefaultDevice(),
+          arena: MemoryArena = MemoryArena()) {
         guard let device, let queue = device.makeCommandQueue() else { return nil }
         self.device = device
         self.queue = queue
-        self.store = TextureStore(device: device)
+        self.arena = arena
+        self.store = TextureStore(device: device, arena: arena)
         guard let lib = try? device.makeDefaultLibrary(bundle: Bundle(for: Renderer.self)),
               let l2 = lib.makeFunction(name: "layer2"),
               let xform = lib.makeFunction(name: "outputTransform"),

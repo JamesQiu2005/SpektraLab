@@ -55,7 +55,7 @@ final class TextureStore: @unchecked Sendable {
     // closure re-enters this store to drop the dictionary entry, so the lock
     // must be recursive rather than deadlocking the admission path.
     private let lock = NSRecursiveLock()
-    var arena: MemoryArena?
+    let arena: MemoryArena
     private var sourceHandles: [URL: MemoryArena.Handle] = [:]
     private var printHandles: [URL: MemoryArena.Handle] = [:]
     private var fullHandle: MemoryArena.Handle?
@@ -64,7 +64,10 @@ final class TextureStore: @unchecked Sendable {
         var handle: MemoryArena.Handle?
     }
 
-    init(device: MTLDevice, arena: MemoryArena? = nil) { self.device = device; self.arena = arena }
+    init(device: MTLDevice, arena: MemoryArena = MemoryArena()) {
+        self.device = device
+        self.arena = arena
+    }
 
     func source(for url: URL) -> MTLTexture? { lock.withLock { sources[url] } }
     func print(for url: URL) -> MTLTexture? { lock.withLock { prints[url] } }
@@ -86,12 +89,12 @@ final class TextureStore: @unchecked Sendable {
     /// another batch is needed.
     func setSource(_ t: MTLTexture, for url: URL) {
         lock.withLock {
-            if let h = sourceHandles.removeValue(forKey: url) { arena?.release(h) }
+            if let h = sourceHandles.removeValue(forKey: url) { arena.release(h) }
             let slot = HandleSlot()
-            let admitted = arena?.admitCache(bytes: t.width * t.height * 8,
-                                        kind: "sources", costMs: 0,
-                                        evict: { [weak self] in self?.dropSource(url, matching: slot) })
-            if arena != nil, admitted == nil {
+            let admitted = arena.admitCache(bytes: t.width * t.height * 8,
+                                            kind: "sources", costMs: 0,
+                                            evict: { [weak self] in self?.dropSource(url, matching: slot) })
+            if admitted == nil {
                 sources[url] = nil
                 sourceHandles[url] = nil
                 if prints[url] == nil { order.removeAll { $0 == url } }
@@ -106,17 +109,17 @@ final class TextureStore: @unchecked Sendable {
 
     func setPrint(_ t: MTLTexture?, for url: URL) {
         lock.withLock {
-            if let h = printHandles.removeValue(forKey: url) { arena?.release(h) }
+            if let h = printHandles.removeValue(forKey: url) { arena.release(h) }
             guard let t else {
                 prints[url] = nil
                 if sources[url] == nil { order.removeAll { $0 == url } }
                 return
             }
             let slot = HandleSlot()
-            let admitted = arena?.admitCache(bytes: t.width * t.height * 8,
-                                        kind: "prints", costMs: 0,
-                                        evict: { [weak self] in self?.dropPrint(url, matching: slot) })
-            if arena != nil, admitted == nil {
+            let admitted = arena.admitCache(bytes: t.width * t.height * 8,
+                                            kind: "prints", costMs: 0,
+                                            evict: { [weak self] in self?.dropPrint(url, matching: slot) })
+            if admitted == nil {
                 prints[url] = nil
                 printHandles[url] = nil
                 if sources[url] == nil { order.removeAll { $0 == url } }
@@ -131,7 +134,7 @@ final class TextureStore: @unchecked Sendable {
 
     /// Take a native-resolution render into the slot.
     func setFullRender(_ t: MTLTexture, stamp: String, for url: URL) {
-        lock.withLock { if let h = fullHandle { arena?.release(h) }; full = FullRenderEntry(url: url, stamp: stamp, texture: t); fullHandle = arena?.registerPinned(bytes: t.width * t.height * 8, kind: "full") }
+        lock.withLock { if let h = fullHandle { arena.release(h) }; full = FullRenderEntry(url: url, stamp: stamp, texture: t); fullHandle = arena.registerPinned(bytes: t.width * t.height * 8, kind: "full") }
     }
     /// Free the slot. Called when a print lands that the resident render was
     /// not made from — the same parameters are handled by the lookup, which
@@ -139,12 +142,12 @@ final class TextureStore: @unchecked Sendable {
     /// it. (The `unless:`-shaped variant that used to sit here was only ever
     /// called from the branch that had just failed that identical lookup.)
     func dropFullRender() { lock.withLock { clearFullLocked() } }
-    func invalidatePrint(for url: URL) { lock.withLock { if let h = printHandles.removeValue(forKey: url) { arena?.release(h) }; prints[url] = nil } }
-    func removeAll() { lock.withLock { sourceHandles.values.forEach { arena?.release($0) }; printHandles.values.forEach { arena?.release($0) }; if let h = fullHandle { arena?.release(h) }; sourceHandles.removeAll(); printHandles.removeAll(); fullHandle = nil; sources.removeAll(); prints.removeAll(); full = nil; order.removeAll() } }
+    func invalidatePrint(for url: URL) { lock.withLock { if let h = printHandles.removeValue(forKey: url) { arena.release(h) }; prints[url] = nil } }
+    func removeAll() { lock.withLock { sourceHandles.values.forEach { arena.release($0) }; printHandles.values.forEach { arena.release($0) }; if let h = fullHandle { arena.release(h) }; sourceHandles.removeAll(); printHandles.removeAll(); fullHandle = nil; sources.removeAll(); prints.removeAll(); full = nil; order.removeAll() } }
 
     /// Caller holds `lock`.
     private func clearFullLocked() {
-        if let h = fullHandle { arena?.release(h); fullHandle = nil }
+        if let h = fullHandle { arena.release(h); fullHandle = nil }
         full = nil
     }
 
@@ -170,14 +173,14 @@ final class TextureStore: @unchecked Sendable {
     }
 
     private func touch(_ url: URL) {
-        if let h = sourceHandles[url] { arena?.touch(h) }
-        if let h = printHandles[url] { arena?.touch(h) }
+        if let h = sourceHandles[url] { arena.touch(h) }
+        if let h = printHandles[url] { arena.touch(h) }
         order.removeAll { $0 == url }
         order.append(url)
         while order.count > capacity {
             let old = order.removeFirst()
-            if let h = sourceHandles.removeValue(forKey: old) { arena?.release(h) }
-            if let h = printHandles.removeValue(forKey: old) { arena?.release(h) }
+            if let h = sourceHandles.removeValue(forKey: old) { arena.release(h) }
+            if let h = printHandles.removeValue(forKey: old) { arena.release(h) }
             sources[old] = nil
             prints[old] = nil
             if full?.url == old { clearFullLocked() }

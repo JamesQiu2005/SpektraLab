@@ -1036,6 +1036,58 @@ final class DiagnosticsTests: XCTestCase {
                                              costMs: 0, evict: {}))
     }
 
+    /// Two cache entries that each fit individually must not both publish
+    /// through a stale admission reading. The barrier holds both callers at
+    /// the pre-publication seam so the result is deterministic.
+    func testConcurrentAdmissionsCannotOversubscribeTheSameRoom() {
+        let barrier = AdmissionPublicationBarrier()
+        let arena = MemoryArena(admissionPublicationProbe: { barrier.arrive() })
+        arena.observe(sample: MemorySample(seq: 1, at: Date(), footprintBytes: 1,
+                                           peakBytes: 1, freeBytes: 1_000_000),
+                      reserve: 0, cap: 100)
+        let results = AdmissionResults()
+        let start = DispatchSemaphore(value: 0)
+        let group = DispatchGroup()
+
+        for _ in 0..<2 {
+            group.enter()
+            DispatchQueue.global(qos: .userInitiated).async {
+                start.wait()
+                let handle = arena.admitCache(bytes: 60, kind: "prints",
+                                              costMs: 0, evict: {})
+                results.append(handle)
+                group.leave()
+            }
+        }
+
+        start.signal()
+        start.signal()
+        guard barrier.waitForBoth(timeout: .now() + 2) == .success else {
+            barrier.releaseBoth()
+            XCTFail("both admissions did not reach the publication seam")
+            return
+        }
+        barrier.releaseBoth()
+        XCTAssertEqual(group.wait(timeout: .now() + 2), .success)
+        XCTAssertEqual(results.admittedCount, 2)
+        XCTAssertLessThanOrEqual(
+            arena.evictableBytes, 100,
+            "concurrent admissions published against the same stale room")
+    }
+
+    /// The session, renderer, store, and diagnostics must all account against
+    /// the one arena Diagnostics owns. A separate default arena silently
+    /// disconnects cache admission from the settings and memory log.
+    ///
+    /// **Seen red** by constructing the store with a fresh arena: the store
+    /// identity assertion failed.
+    func testSessionRendererAndStoreShareTheDiagnosticsArena() throws {
+        _ = try configure(session: false)
+        let session = Session(diagnostics: diagnostics)
+        XCTAssertTrue(session.renderer.arena === diagnostics.arena)
+        XCTAssertTrue(session.renderer.store.arena === diagnostics.arena)
+    }
+
     /// Arena eviction must reach the TextureStore dictionaries, not just the
     /// arena's accounting. Otherwise the cache still holds the texture and the
     /// reported eviction is fiction.
@@ -1161,5 +1213,42 @@ final class DiagnosticsTests: XCTestCase {
             try await Task.sleep(for: .milliseconds(50))
         }
         XCTFail("timed out waiting for \(what)")
+    }
+}
+
+private final class AdmissionPublicationBarrier: @unchecked Sendable {
+    private let lock = NSLock()
+    private let bothArrived = DispatchSemaphore(value: 0)
+    private let release = DispatchSemaphore(value: 0)
+    private var arrived = 0
+
+    func arrive() {
+        lock.lock()
+        arrived += 1
+        if arrived == 2 { bothArrived.signal() }
+        lock.unlock()
+        release.wait()
+    }
+
+    func waitForBoth(timeout: DispatchTime) -> DispatchTimeoutResult {
+        bothArrived.wait(timeout: timeout)
+    }
+
+    func releaseBoth() {
+        release.signal()
+        release.signal()
+    }
+}
+
+private final class AdmissionResults: @unchecked Sendable {
+    private let lock = NSLock()
+    private var handles: [MemoryArena.Handle?] = []
+
+    func append(_ handle: MemoryArena.Handle?) {
+        lock.withLock { handles.append(handle) }
+    }
+
+    var admittedCount: Int {
+        lock.withLock { handles.compactMap { $0 }.count }
     }
 }

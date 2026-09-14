@@ -757,11 +757,14 @@ final class Session: CanvasHost {
     nonisolated static let cacheRoot = FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask)[0]
         .appending(path: "com.hanze.filmify")
 
-    init(renderer: Renderer? = Renderer(), diagnostics: Diagnostics = .shared) {
-        guard let renderer else { fatalError("Metal is required") }
+    init(renderer: Renderer? = nil, diagnostics: Diagnostics = .shared) {
+        guard let renderer = renderer ?? Renderer(arena: diagnostics.arena) else {
+            fatalError("Metal is required")
+        }
+        precondition(renderer.arena === diagnostics.arena,
+                     "Session.renderer and Diagnostics must share one MemoryArena")
         self.renderer = renderer
         self.diagnostics = diagnostics
-        self.renderer.arena = diagnostics.arena
         // The engine is in this process now (RFC-014): no subprocess, no
         // workspace directory, and no walking up to a checkout's `.venv`. It
         // gets the canvas's own `MTLDevice`, so a render lands in a texture

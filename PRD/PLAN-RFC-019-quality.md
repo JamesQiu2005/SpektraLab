@@ -6,8 +6,8 @@
 
 This plan preserves pixels, kernels, the engine ABI, export formats, and parity/export
 suites. It does not refactor all of Session, add dependencies, edit engine/, or create
-a new cache hierarchy. No commit or push is part of this work. Statuses describe
-sequencing; they are not approval to implement every package today.
+a new cache hierarchy. Commit each completed package after its named gate and push at
+integration boundaries.
 
 ## Current state
 
@@ -21,11 +21,11 @@ The private step-2 accounting cleanup is **completed**. Its prior validation was
 DiagnosticsTests with zero failures and no skips; tests resolved to ../spektrafilm/tests.
 That remains a historical helper-test result. Q1 is **completed**: the typed registration
 batch passed 31 DiagnosticsTests plus 25 RendererTests/OpenPathTests with zero failures;
-the pinned guard was also deliberately broken and seen red before restoration. Do not
+the pinned guard was also deliberately broken and seen red before restoration. Q2 is
+**completed**: concurrent admission and shared-arena guards were seen red, then the
+combined gate passed 33 DiagnosticsTests plus 25 RendererTests/OpenPathTests. Do not
 infer physical ownership from arena_mb versus phys_footprint: shared textures and Core
 Image references make that gap diagnostic only. costMs remains a future GDSF input.
-Existing policy, threading, injection, and allocation kinds remain unchanged unless a
-package says otherwise.
 
 ## Work packages
 
@@ -63,7 +63,7 @@ registering pinned bytes as evictable, failed both expected assertions, then pas
 after restoration. The `tests` symlink was verified before testing. The API/call-site
 batch landed together with no adapter overloads or empty pinned closures.
 
-### Q2 — reproduce and address admission publication races — **queued**
+### Q2 — reproduce and address admission publication races — **completed**
 
 Edit MemoryArena.swift, Renderer.swift, TextureStore.swift, Session.swift, and focused
 tests. First use barriers to reproduce concurrent admissions oversubscribing the same
@@ -75,6 +75,14 @@ Renderer, and TextureStore, preserving test injection without silent nil account
 Acceptance: deterministic red reproduction, then green with the smallest fix, plus
 DiagnosticsTests and affected RendererTests/OpenPathTests. Roll back Q2 wiring or
 synchronization if reproduction is nondeterministic or callbacks re-enter the lock.
+
+Result: a barrier forced two admissions past the same stale room and failed with 120
+bytes under a 100-byte cap. Publishing the admitted entry inside the same critical
+section as the policy decision fixed it; callbacks still run after unlocking.
+`Session` now creates its `Renderer` with `diagnostics.arena`, `Renderer` passes that
+same immutable arena to `TextureStore`, and no arena remains optional. The combined
+gate ran `DiagnosticsTests`, `RendererTests`, and `OpenPathTests`: 58 tests, zero
+failures. Both new guards were deliberately broken and seen red before restoration.
 
 ### Q3 — measure decode residency and arena/footprint gap — **queued**
 

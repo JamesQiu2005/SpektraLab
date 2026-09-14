@@ -42,13 +42,29 @@ final class MemoryArena: @unchecked Sendable {
     private let state = NSLock()
     private var value = State()
 
+#if DEBUG
+    /// A test-only barrier between the admission decision and publication.
+    /// Q2 uses it to make the admission race deterministic.
+    private let admissionPublicationProbe: (@Sendable () -> Void)?
+
+    init(admissionPublicationProbe: (@Sendable () -> Void)? = nil) {
+        self.admissionPublicationProbe = admissionPublicationProbe
+    }
+#else
+    init() {}
+#endif
+
     /// Register an allocation already owned by the caller. Pinned holdings
     /// are never refused because refusing one would make accounting lie about
     /// an object the app already has.
     ///
     @discardableResult
     func registerPinned(bytes: Int, kind: String) -> Handle {
-        register(bytes: max(0, bytes), cls: .pinned, kind: kind, costMs: 0, evict: nil)
+        state.lock()
+        let handle = registerLocked(bytes: max(0, bytes), cls: .pinned, kind: kind,
+                                    costMs: 0, evict: nil)
+        state.unlock()
+        return handle
     }
 
     /// Try to add an evictable cache entry. Only this path can be refused.
@@ -69,24 +85,27 @@ final class MemoryArena: @unchecked Sendable {
             return nil
         }
         evicted = removeLowestPriorityLocked(needed: needed)
+        let handle = registerLocked(bytes: bytes, cls: .evictable, kind: kind,
+                                    costMs: costMs, evict: evict)
         state.unlock()
+#if DEBUG
+        admissionPublicationProbe?()
+#endif
         // Run the drop closures outside the arena lock. A store's closure
         // may take its own lock, and it must never be asked to do that
         // while this arena is holding one.
         evicted.forEach { $0.evict?() }
 
-        return register(bytes: bytes, cls: .evictable, kind: kind,
-                        costMs: costMs, evict: evict)
+        return handle
     }
 
-    private func register(bytes: Int, cls: Class, kind: String, costMs: Double,
-                           evict: (@Sendable () -> Void)?) -> Handle {
+    /// Caller holds `state`.
+    private func registerLocked(bytes: Int, cls: Class, kind: String, costMs: Double,
+                                evict: (@Sendable () -> Void)?) -> Handle {
         let handle = Handle(id: UUID())
-        state.lock()
         value.entries[handle.id] = Entry(bytes: bytes, cls: cls, kind: kind,
                                          costMs: costMs, evict: evict,
                                          lastTouch: nextTouchLocked())
-        state.unlock()
         return handle
     }
 
