@@ -141,7 +141,8 @@ retains no decode. `Session.decoded` remains the read-only compatibility propert
 publication still happens only after the preview texture lands. The capacity guard was
 seen red with two entries and 2.7 MB accounted; after restoration the gate ran
 `DecodeResidencyTests`, `DiagnosticsTests`, `FramePipelineTests`, and `OpenPathTests`:
-57 tests, zero failures. The Xcode project was regenerated for the two new files.
+57 tests, zero failures. The full `SpektrafilmTests` suite then passed 309 tests with
+zero failures. The Xcode project was regenerated for the two new files.
 
 ### Q5 — unified RAM/disk key and GDSF policy — **in progress**
 
