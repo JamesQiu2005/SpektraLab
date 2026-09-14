@@ -4,6 +4,11 @@ import Foundation
 /// never owns the objects: an evict closure only gives the caller a place to
 /// drop its own reference.
 final class MemoryArena: @unchecked Sendable {
+    /// The app-wide arena. `Diagnostics.shared` and `ThumbnailCache.shared`
+    /// use this instance so their holdings share one policy and one report.
+    /// Test-created `Diagnostics` values keep their own injected arena.
+    static let shared = MemoryArena()
+
     private enum Class { case pinned, evictable }
     struct Handle: Hashable { fileprivate let id: UUID }
 

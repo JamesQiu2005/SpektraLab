@@ -109,6 +109,7 @@ final class Renderer: NSObject {
     let queue: MTLCommandQueue
     let store: TextureStore
     let arena: MemoryArena
+    let scratchPool: Bool
     private let layer2Pipeline: MTLComputePipelineState
     private let transformPipeline: MTLComputePipelineState
     private let histogramPipeline: MTLComputePipelineState
@@ -393,11 +394,13 @@ final class Renderer: NSObject {
 
 
     init?(device: MTLDevice? = MTLCreateSystemDefaultDevice(),
-          arena: MemoryArena = MemoryArena()) {
+          arena: MemoryArena = MemoryArena(),
+          scratchPool: Bool = FeatureFlags.scratchPool) {
         guard let device, let queue = device.makeCommandQueue() else { return nil }
         self.device = device
         self.queue = queue
         self.arena = arena
+        self.scratchPool = scratchPool
         self.store = TextureStore(device: device, arena: arena)
         guard let lib = try? device.makeDefaultLibrary(bundle: Bundle(for: Renderer.self)),
               let l2 = lib.makeFunction(name: "layer2"),
@@ -596,9 +599,11 @@ final class Renderer: NSObject {
     /// Export and the soft proof need both; the canvas path encodes without
     /// waiting and reads neither, because a stall per draw for two numbers
     /// nothing on screen uses would be a stall for nothing.
-    func applyOutputTransform(to src: MTLTexture, setup: OutputTransformSetup)
+    func applyOutputTransform(to src: MTLTexture, setup: OutputTransformSetup,
+                              into destination: MTLTexture? = nil)
         -> (texture: MTLTexture, stats: OutputTransformStats)? {
-        guard let dst = store.makeWritable(width: src.width, height: src.height),
+        guard let dst = destination ?? store.makeWritable(width: src.width, height: src.height),
+              dst.width == src.width, dst.height == src.height,
               let cb = queue.makeCommandBuffer() else { return nil }
         clearTransformStats(cb)
         encodeOutputTransform(cb, src: src, dst: dst, setup: setup)
@@ -621,10 +626,12 @@ final class Renderer: NSObject {
     ///
     /// `Uniform()`'s default is inactive, and `geometryMap` returns its uv
     /// unchanged when it is — which is what makes this a plain resample.
-    func applyResize(_ src: MTLTexture, width: Int, height: Int) -> MTLTexture? {
+    func applyResize(_ src: MTLTexture, width: Int, height: Int,
+                     into destination: MTLTexture? = nil) -> MTLTexture? {
         guard width > 0, height > 0 else { return nil }
         guard width != src.width || height != src.height else { return src }
-        guard let dst = store.makeWritable(width: width, height: height),
+        guard let dst = destination ?? store.makeWritable(width: width, height: height),
+              dst.width == width, dst.height == height,
               let cb = queue.makeCommandBuffer(), let enc = cb.makeComputeCommandEncoder() else { return nil }
         var u = Geometry.Uniform()
         enc.setComputePipelineState(geometryPipeline)
@@ -821,8 +828,10 @@ final class Renderer: NSObject {
 
     /// Run Layer 2 over any texture synchronously. Used by export at full
     /// resolution and by the tests.
-    func applyLayer2(to src: MTLTexture, uniforms: Layer2Uniforms? = nil) -> MTLTexture? {
-        guard let dst = store.makeWritable(width: src.width, height: src.height),
+    func applyLayer2(to src: MTLTexture, uniforms: Layer2Uniforms? = nil,
+                     into destination: MTLTexture? = nil) -> MTLTexture? {
+        guard let dst = destination ?? store.makeWritable(width: src.width, height: src.height),
+              dst.width == src.width, dst.height == src.height,
               let cb = queue.makeCommandBuffer() else { return nil }
         let saved = layer2
         if let uniforms { layer2 = uniforms }
@@ -837,13 +846,15 @@ final class Renderer: NSObject {
     /// own resolution, through the same `geometryMap` the canvas draws with.
     /// Export calls this; nothing else needs to, because the canvas applies
     /// the geometry while sampling rather than by making a second texture.
-    func applyGeometry(_ g: Geometry, to src: MTLTexture) -> MTLTexture? {
+    func applyGeometry(_ g: Geometry, to src: MTLTexture,
+                       into destination: MTLTexture? = nil) -> MTLTexture? {
         guard !g.isIdentity else { return src }
         let srcSize = CGSize(width: src.width, height: src.height)
         let out = g.outputSize(for: srcSize)
         let w = Int(out.width), h = Int(out.height)
         guard w > 0, h > 0,
-              let dst = store.makeWritable(width: w, height: h),
+              let dst = destination ?? store.makeWritable(width: w, height: h),
+              dst.width == w, dst.height == h,
               let cb = queue.makeCommandBuffer(), let enc = cb.makeComputeCommandEncoder() else { return nil }
         var u = g.uniform(for: srcSize)
         enc.setComputePipelineState(geometryPipeline)

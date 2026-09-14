@@ -30,7 +30,7 @@ import Observation
 @MainActor
 @Observable
 final class Diagnostics {
-    static let shared = Diagnostics()
+    static let shared = Diagnostics(sampler: MemorySampler(arena: .shared))
 
     // MARK: - the pieces
 

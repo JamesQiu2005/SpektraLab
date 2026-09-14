@@ -1025,6 +1025,7 @@ final class Session: CanvasHost {
         if let selection, !new.contains(where: { $0.id == selection }) {
             enqueuePrintWriteback(for: selection)
         }
+        ThumbnailCache.shared.clear()
         frames = new
         frameStates = Dictionary(uniqueKeysWithValues: new.map { ($0.id, Sidecar.load(for: $0.id)?.state ?? .unprocessed) })
         libraryTitle = urls.count == 1 ? urls[0].lastPathComponent : "\(new.count) files"
@@ -1054,6 +1055,7 @@ final class Session: CanvasHost {
         if let selection { enqueuePrintWriteback(for: selection) }
         browsing = true
         selection = nil
+        renderer.store.dropIdleScratch()
         decodeResidency.clear()
         displaySourceSize = nil
         decodeIsStale = false
@@ -1177,6 +1179,7 @@ final class Session: CanvasHost {
     func select(_ url: URL) {
         guard url != selection || decoded == nil else { return }
         flushSave()
+        renderer.store.dropIdleScratch()
         if let leaving = selection, leaving != url {
             enqueuePrintWriteback(for: leaving)
         }
@@ -2084,16 +2087,28 @@ final class Session: CanvasHost {
     }
 
     private func updateThumbnail(_ url: URL, from tex: MTLTexture) {
-        let box = TextureBox(tex)
+        let maxEdge = 320
+        let long = max(tex.width, tex.height)
+        let source: MTLTexture
+        if long > maxEdge {
+            let scale = Double(maxEdge) / Double(long)
+            let w = max(1, Int((Double(tex.width) * scale).rounded()))
+            let h = max(1, Int((Double(tex.height) * scale).rounded()))
+            guard let small = renderer.applyResize(tex, width: w, height: h) else { return }
+            source = small
+        } else {
+            source = tex
+        }
+        let box = TextureBox(source)
         Task.detached(priority: .utility) {
             guard let cg = box.texture?.makeCGImage() else { return }
-            let s = 320.0 / Double(max(cg.width, cg.height))
+            let s = Double(maxEdge) / Double(max(cg.width, cg.height))
             let w = max(1, Int(Double(cg.width) * s)), h = max(1, Int(Double(cg.height) * s))
             guard let ctx = CGContext(data: nil, width: w, height: h, bitsPerComponent: 8, bytesPerRow: 0,
                                       space: ImageDecoder.displayP3, bitmapInfo: CGImageAlphaInfo.noneSkipLast.rawValue) else { return }
             ctx.interpolationQuality = .high
             ctx.draw(cg, in: CGRect(x: 0, y: 0, width: w, height: h))
-            if let small = ctx.makeImage() { await ThumbnailCache.shared.store(small, for: url) }
+            if let small = ctx.makeImage() { ThumbnailCache.shared.store(small, for: url) }
             await MainActor.run { NotificationCenter.default.post(name: .thumbnailUpdated, object: url) }
         }
     }

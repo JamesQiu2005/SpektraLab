@@ -216,7 +216,8 @@ final class ExportPanelTests: XCTestCase {
                                          clippedFraction: 0.125,
                                          outsideFraction: 0.25)
         let rendered = Exporter.Rendered(texture: texture, stats: stats, target: target,
-                                         pixels: (fileSize.w, fileSize.h), appliedEV: nil)
+                                         pixels: (fileSize.w, fileSize.h), appliedEV: nil,
+                                         scratch: nil)
         let pane = CGSize(width: 500, height: 320)
         let maxEdge = SoftProof.displayMaxEdge(for: pane)
         XCTAssertEqual(maxEdge, 1000)

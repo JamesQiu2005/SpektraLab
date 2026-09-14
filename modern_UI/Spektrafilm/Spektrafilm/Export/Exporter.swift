@@ -339,24 +339,57 @@ enum Exporter {
             .export, RenderRequest(sessionID: sessionID, tier: "full"))
         try Task.checkCancellation()
         guard let full = outcome.texture else { throw ExportError.noPixels }
-        guard let adjusted = session.renderer.applyLayer2(to: full, uniforms: session.adjustments.uniforms)
+
+        func destination(width: Int, height: Int)
+            throws -> (texture: MTLTexture, scratch: TextureStore.Scratch?) {
+            if session.renderer.scratchPool {
+                guard let scratch = session.renderer.store.borrowWritable(width: width,
+                                                                          height: height)
+                else { throw ExportError.noPixels }
+                return (scratch.texture, scratch)
+            }
+            guard let texture = session.renderer.store.makeWritable(width: width, height: height)
             else { throw ExportError.noPixels }
+            return (texture, nil)
+        }
+
+        let (adjustedDestination, adjustedScratch) = try destination(width: full.width,
+                                                                     height: full.height)
+        guard let adjusted = session.renderer.applyLayer2(to: full,
+                                                          uniforms: session.adjustments.uniforms,
+                                                          into: adjustedDestination)
+            else { throw ExportError.noPixels }
+        var current = adjusted
+        var currentScratch = adjustedScratch
         // Crop, straighten, quarter turns and flips, through the same
         // `geometryMap` the canvas samples with — not a CoreGraphics
         // transform written a second time. The old path cropped with
         // `CGImage.cropping` and could not rotate at all, so a straightened
         // frame exported unstraightened and nothing in the app said so.
-        let framed = session.renderer.applyGeometry(session.geometry, to: adjusted) ?? adjusted
-        // The page's output size, through the geometry pass's own resampler.
-        let sized: MTLTexture
-        if let outputSize = recipe.pixelSize {
-            guard let resized = session.renderer.applyResize(framed,
-                                                             width: Int(outputSize.width.rounded()),
-                                                             height: Int(outputSize.height.rounded()))
+        if !session.geometry.isIdentity {
+            let out = session.geometry.outputSize(for: CGSize(width: current.width,
+                                                              height: current.height))
+            let (framedDestination, framedScratch) = try destination(width: Int(out.width),
+                                                                     height: Int(out.height))
+            guard session.renderer.applyGeometry(session.geometry, to: current,
+                                                 into: framedDestination) != nil
             else { throw ExportError.noPixels }
-            sized = resized
-        } else {
-            sized = framed
+            currentScratch?.giveBack()
+            current = framedDestination
+            currentScratch = framedScratch
+        }
+        // The page's output size, through the geometry pass's own resampler.
+        if let outputSize = recipe.pixelSize {
+            let w = Int(outputSize.width.rounded()), h = Int(outputSize.height.rounded())
+            if w != current.width || h != current.height {
+                let (resizedDestination, resizedScratch) = try destination(width: w, height: h)
+                guard session.renderer.applyResize(current, width: w, height: h,
+                                                   into: resizedDestination) != nil
+                else { throw ExportError.noPixels }
+                currentScratch?.giveBack()
+                current = resizedDestination
+                currentScratch = resizedScratch
+            }
         }
         // The one conversion, at the end, out of the working space and into
         // the destination — the same kernel the canvas and the soft proof run.
@@ -365,11 +398,16 @@ enum Exporter {
                                                             target: target,
                                                             device: session.renderer.device)
         guard let setup else { throw ExportError.colourSpace(problem ?? "the engine refused it") }
-        guard let converted = session.renderer.applyOutputTransform(to: sized, setup: setup)
+        let (convertedDestination, convertedScratch) = try destination(width: current.width,
+                                                                       height: current.height)
+        guard let converted = session.renderer.applyOutputTransform(to: current, setup: setup,
+                                                                    into: convertedDestination)
         else { throw ExportError.noPixels }
+        currentScratch?.giveBack()
         return Rendered(texture: converted.texture, stats: converted.stats, target: target,
                         pixels: (converted.texture.width, converted.texture.height),
-                        appliedEV: outcome.progress?.autoExposureEV)
+                        appliedEV: outcome.progress?.autoExposureEV,
+                        scratch: convertedScratch)
     }
 
     /// What `filePixels` produced: the destination-space texture, its size, and
@@ -384,6 +422,9 @@ enum Exporter {
         let target: CGColorSpace
         let pixels: (w: Int, h: Int)
         let appliedEV: Double?
+        /// Keeps a pooled output alive until the caller has materialised it.
+        /// Nil on the non-pooled path.
+        let scratch: TextureStore.Scratch?
     }
 
     private static func exportPrint(session: Session, to out: URL, format: ExportFormat,

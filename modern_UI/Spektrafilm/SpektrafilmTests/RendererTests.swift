@@ -30,6 +30,84 @@ final class RendererTests: XCTestCase {
         return px.prefix(3).map { Double($0) / 65535 }
     }
 
+    // MARK: scratch pool
+
+    /// **Seen red** by returning storage before registering it idle: the
+    /// second borrow allocated a different texture and the identity failed.
+    func testScratchPoolReusesOnlyAfterReturn() throws {
+        let arena = MemoryArena()
+        let pooled = try XCTUnwrap(Renderer(arena: arena, scratchPool: true))
+        let first = try XCTUnwrap(pooled.store.borrowWritable(width: 8, height: 8))
+        XCTAssertEqual(arena.breakdown().first { $0.kind == "scratch_in_use" }?.count, 1)
+
+        first.giveBack()
+        XCTAssertEqual(arena.breakdown().first { $0.kind == "scratch_idle" }?.count, 1)
+
+        let second = try XCTUnwrap(pooled.store.borrowWritable(width: 8, height: 8))
+        XCTAssertTrue(first.texture === second.texture)
+        second.giveBack()
+    }
+
+    /// Two idle entries per key is the bound; a third borrow must allocate a
+    /// fresh texture rather than reuse storage still held by a caller.
+    func testScratchPoolCapsIdleEntriesAtTwo() throws {
+        let pooled = try XCTUnwrap(Renderer(arena: MemoryArena(), scratchPool: true))
+        var borrowed = [TextureStore.Scratch]()
+        for _ in 0..<3 {
+            borrowed.append(try XCTUnwrap(pooled.store.borrowWritable(width: 4, height: 4)))
+        }
+        XCTAssertEqual(Set(borrowed.map { ObjectIdentifier($0.texture) }).count, 3)
+        borrowed.forEach { $0.giveBack() }
+        XCTAssertEqual(pooled.store.idleScratchCount, 2)
+
+        var reused = [TextureStore.Scratch]()
+        for _ in 0..<3 {
+            reused.append(try XCTUnwrap(pooled.store.borrowWritable(width: 4, height: 4)))
+        }
+        reused.forEach { $0.giveBack() }
+    }
+
+    func testScratchPoolDropsIdleStorageOnArenaPressure() throws {
+        let arena = MemoryArena()
+        let pooled = try XCTUnwrap(Renderer(arena: arena, scratchPool: true))
+        let first = try XCTUnwrap(pooled.store.borrowWritable(width: 4, height: 4))
+        first.giveBack()
+        XCTAssertGreaterThan(arena.evictableBytes, 0)
+
+        let sample = MemorySample(seq: 1, at: Date(), footprintBytes: 1,
+                                  peakBytes: 1, freeBytes: 1_000_000_000)
+        _ = arena.enforce(sample: sample, reserve: 0, cap: 0)
+        XCTAssertEqual(arena.evictableBytes, 0)
+
+        let second = try XCTUnwrap(pooled.store.borrowWritable(width: 4, height: 4))
+        XCTAssertFalse(first.texture === second.texture)
+        second.giveBack()
+    }
+
+    func testScratchPoolDropsIdleStorageOnFrameSwitch() throws {
+        let pooled = try XCTUnwrap(Renderer(arena: MemoryArena(), scratchPool: true))
+        let first = try XCTUnwrap(pooled.store.borrowWritable(width: 4, height: 4))
+        first.giveBack()
+        pooled.store.dropIdleScratch()
+        let second = try XCTUnwrap(pooled.store.borrowWritable(width: 4, height: 4))
+        XCTAssertFalse(first.texture === second.texture)
+        second.giveBack()
+    }
+
+#if DEBUG
+    /// A destination-writing bug that leaves an unwritten texel must surface
+    /// as the debug garbage rather than plausible stale pixels.
+    func testScratchPoolGarbageFillsBeforeBorrow() throws {
+        let pooled = try XCTUnwrap(Renderer(arena: MemoryArena(), scratchPool: true))
+        let scratch = try XCTUnwrap(pooled.store.borrowWritable(width: 1, height: 1))
+        var bytes = [UInt8](repeating: 0, count: 8)
+        scratch.texture.getBytes(&bytes, bytesPerRow: 8,
+                                 from: MTLRegionMake2D(0, 0, 1, 1), mipmapLevel: 0)
+        XCTAssertFalse(bytes.allSatisfy { $0 == 0 })
+        scratch.giveBack()
+    }
+#endif
+
     func testLayer2NeutralIsPassthrough() {
         let card = makeCard()
         let out = renderer.applyLayer2(to: card, uniforms: Adjustments().uniforms)!

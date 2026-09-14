@@ -208,7 +208,7 @@ After restoration, the Q6 focused gate ran `PrintWritebackTests`, `PrintCacheTes
 `RendererTests`, `OpenPathTests`, `ExportPreviewChainTests`, `ExportRecipeTests`,
 and `PrintLUTTests`: 80 tests, zero failures.
 
-### Q7 — completion-safe pool and thumbnails — **queued**
+### Q7 — completion-safe pool and thumbnails — **completed**
 
 For the scratch pool, edit renderer/texture allocation seams and focused tests.
 Default OFF for one release. Audit destination-writing kernels; return storage only
@@ -223,6 +223,38 @@ IMPL §9 LRU/cap wording with central GDSF first. Key both cache and in-flight w
 repopulate it, and preserve processed-thumbnail replacement. Test distinct sizes,
 cap eviction, reset, canceled/late results, and recomputation after eviction.
 Browse deletion is a separate gated UI change.
+
+Result: `TextureStore.borrowWritable` now returns an explicit `Scratch`
+ownership token keyed by `(width, height, format)`, keeps at most two idle
+entries per key, registers borrowed storage pinned and idle storage evictable,
+and drops idle entries on a frame switch or arena eviction. The export chain
+borrows destinations, holds each source through the pass that reads it, returns
+older destinations only after `waitUntilCompleted`, and keeps the final token
+alive in `Rendered` until the CPU readback. `makeWritable` remains for
+`ensureAdjusted`, `renderOffscreen`, and other returns that outlive the call.
+The pool is default-off through `FeatureFlags.scratchPool`; debug builds can
+enable it with `SPEKTRAFILM_SCRATCH_POOL=1`, and debug borrows are garbage-
+filled before use.
+
+`ThumbnailCache` now keys both cache and in-flight work by `(URL, maxPixel)`,
+caps the local cache at 256 MB with the same GDSF-shaped value policy as the
+arena, registers holdings as evictable, clears a folder generation on
+`Session.open(urls:)`, rejects late detached results, and preserves processed
+thumbnail replacement. `Session.updateThumbnail` downsamples on the GPU before
+the CPU `CGImage`, so a landed print no longer copies the full preview texture.
+
+Red verification: changing the idle scratch bound from 2 to 3 failed
+`testScratchPoolCapsIdleEntriesAtTwo` with 3 idle entries against 2; removing
+the thumbnail generation check failed `testClearRejectsLateDetachedResult`
+with a non-nil late image and one repopulated cache entry. Both guards were
+restored. The focused green gate ran `RendererTests`, `ThumbnailCacheTests`, and
+`ThumbnailSessionResetTests`: 19 tests, zero failures. The seven plan suites
+also ran with the pool forced on and debug garbage fill enabled:
+`RendererTests`, `SoftProofParityTests`, `ColourManagementTests`,
+`ExportPreviewChainTests`, `ExportRecipeTests`, `PrintLUTTests`, and
+`MaskTests` passed 78 tests, zero failures. The full `SpektrafilmTests`
+integration gate then passed 337 tests, zero failures, in 401.1 seconds. The
+Xcode project was regenerated for `ThumbnailCacheTests.swift`.
 
 ## Concerns and evidence gates
 

@@ -52,6 +52,42 @@ private struct PrintRenderEntry: @unchecked Sendable {
 }
 
 final class TextureStore: @unchecked Sendable {
+    final class Scratch: @unchecked Sendable {
+        let texture: MTLTexture
+        private let lock = NSLock()
+        private var returned = false
+        private let onReturn: @Sendable (MTLTexture) -> Void
+
+        fileprivate init(texture: MTLTexture, onReturn: @escaping @Sendable (MTLTexture) -> Void) {
+            self.texture = texture
+            self.onReturn = onReturn
+        }
+
+        /// Return this destination now that every command buffer that writes
+        /// it has completed. `deinit` is the fallback, not the contract.
+        func giveBack() {
+            lock.lock()
+            guard !returned else { lock.unlock(); return }
+            returned = true
+            lock.unlock()
+            onReturn(texture)
+        }
+
+        deinit { giveBack() }
+    }
+
+    private struct ScratchKey: Hashable {
+        let width: Int
+        let height: Int
+        let format: MTLPixelFormat
+    }
+
+    private struct IdleScratch {
+        let texture: MTLTexture
+        let handle: MemoryArena.Handle
+        let slot: HandleSlot
+    }
+
     let device: MTLDevice
     private var sources: [URL: MTLTexture] = [:]
     private var prints: [URL: PrintRenderEntry] = [:]
@@ -72,6 +108,8 @@ final class TextureStore: @unchecked Sendable {
     private var sourceHandles: [URL: MemoryArena.Handle] = [:]
     private var printHandles: [URL: MemoryArena.Handle] = [:]
     private var fullHandle: MemoryArena.Handle?
+    private var idleScratch: [ScratchKey: [IdleScratch]] = [:]
+    private var borrowedScratch: [ObjectIdentifier: MemoryArena.Handle] = [:]
 
     private final class HandleSlot: @unchecked Sendable {
         var handle: MemoryArena.Handle?
@@ -184,7 +222,28 @@ final class TextureStore: @unchecked Sendable {
     /// called from the branch that had just failed that identical lookup.)
     func dropFullRender() { lock.withLock { clearFullLocked() } }
     func invalidatePrint(for url: URL) { lock.withLock { if let h = printHandles.removeValue(forKey: url) { arena.release(h) }; prints[url] = nil } }
-    func removeAll() { lock.withLock { sourceHandles.values.forEach { arena.release($0) }; printHandles.values.forEach { arena.release($0) }; if let h = fullHandle { arena.release(h) }; sourceHandles.removeAll(); printHandles.removeAll(); fullHandle = nil; sources.removeAll(); prints.removeAll(); full = nil; order.removeAll() } }
+    func removeAll() {
+        lock.withLock {
+            sourceHandles.values.forEach { arena.release($0) }
+            printHandles.values.forEach { arena.release($0) }
+            if let h = fullHandle { arena.release(h) }
+            sourceHandles.removeAll()
+            printHandles.removeAll()
+            fullHandle = nil
+            sources.removeAll()
+            prints.removeAll()
+            full = nil
+            order.removeAll()
+            clearIdleScratchLocked()
+        }
+    }
+
+    /// Drop only idle pool storage. Borrowed scratch remains owned by its
+    /// in-flight render and is returned to a fresh pool when it completes.
+    func dropIdleScratch() { lock.withLock { clearIdleScratchLocked() } }
+    var idleScratchCount: Int {
+        lock.withLock { idleScratch.values.reduce(0) { $0 + $1.count } }
+    }
 
     /// Caller holds `lock`.
     private func clearFullLocked() {
@@ -227,6 +286,99 @@ final class TextureStore: @unchecked Sendable {
             if full?.url == old { clearFullLocked() }
         }
     }
+
+    // MARK: scratch textures
+
+    /// Borrow a transient destination. The caller returns it after the GPU has
+    /// completed every command buffer that writes it; until then the texture is
+    /// registered as pinned, and while idle it is evictable by the arena.
+    func borrowWritable(width: Int, height: Int,
+                        format: MTLPixelFormat = .rgba16Unorm) -> Scratch? {
+        guard width > 0, height > 0 else { return nil }
+        let key = ScratchKey(width: width, height: height, format: format)
+        let texture: MTLTexture
+        lock.lock()
+        if var list = idleScratch[key], let entry = list.popLast() {
+            idleScratch[key] = list.isEmpty ? nil : list
+            arena.release(entry.handle)
+            texture = entry.texture
+        } else if let made = makeWritable(width: width, height: height, format: format) {
+            texture = made
+        } else {
+            lock.unlock()
+            return nil
+        }
+        let handle = arena.registerPinned(bytes: scratchBytes(texture), kind: "scratch_in_use")
+        borrowedScratch[ObjectIdentifier(texture)] = handle
+        lock.unlock()
+#if DEBUG
+        garbageFill(texture)
+#endif
+        return Scratch(texture: texture) { [weak self] texture in
+            self?.returnScratch(texture, key: key)
+        }
+    }
+
+    private func returnScratch(_ texture: MTLTexture, key: ScratchKey) {
+        lock.lock()
+        defer { lock.unlock() }
+        guard let handle = borrowedScratch.removeValue(forKey: ObjectIdentifier(texture)) else { return }
+        arena.release(handle)
+        var list = idleScratch[key] ?? []
+        guard list.count < 2 else { return }
+        let slot = HandleSlot()
+        let admitted = arena.admitCache(bytes: scratchBytes(texture), kind: "scratch_idle",
+                                        costMs: 0,
+                                        evict: { [weak self] in
+                                            self?.dropIdleScratch(key, matching: slot)
+                                        })
+        guard let admitted else { return }
+        slot.handle = admitted
+        list.append(IdleScratch(texture: texture, handle: admitted, slot: slot))
+        idleScratch[key] = list
+    }
+
+    private func dropIdleScratch(_ key: ScratchKey, matching slot: HandleSlot) {
+        lock.withLock {
+            guard var list = idleScratch[key],
+                  let i = list.firstIndex(where: { $0.slot === slot }) else { return }
+            list.remove(at: i)
+            idleScratch[key] = list.isEmpty ? nil : list
+        }
+    }
+
+    private func clearIdleScratchLocked() {
+        for list in idleScratch.values {
+            for entry in list { arena.release(entry.handle) }
+        }
+        idleScratch.removeAll()
+    }
+
+    private func scratchBytes(_ texture: MTLTexture) -> Int {
+        texture.allocatedSize > 0 ? texture.allocatedSize : texture.width * texture.height * 8
+    }
+
+#if DEBUG
+    /// Hand every pooled destination out with recognisable garbage. A kernel
+    /// that omits a texel or reads its destination becomes visible in the
+    /// existing pixel suites instead of silently reusing old pixels.
+    private func garbageFill(_ texture: MTLTexture) {
+        let bpp = max(1, texture.allocatedSize / max(1, texture.width * texture.height))
+        let rowBytes = texture.width * bpp
+        guard rowBytes > 0 else { return }
+        let row = UnsafeMutableRawPointer.allocate(byteCount: rowBytes,
+                                                   alignment: MemoryLayout<UInt64>.alignment)
+        defer { row.deallocate() }
+        for y in 0..<texture.height {
+            let bytes = row.assumingMemoryBound(to: UInt8.self)
+            for x in 0..<rowBytes {
+                bytes[x] = UInt8(truncatingIfNeeded: (x &* 131) &+ (y &* 17) &+ 0x5d)
+            }
+            texture.replace(region: MTLRegionMake2D(0, y, texture.width, 1),
+                            mipmapLevel: 0, withBytes: row, bytesPerRow: rowBytes)
+        }
+    }
+#endif
 
     // MARK: uploads
 

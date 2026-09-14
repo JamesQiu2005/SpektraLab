@@ -51,4 +51,19 @@ enum FeatureFlags {
     /// is a deliberate deviation from the document, called out rather than
     /// hidden.
     static let framePipeline = true
+
+    /// The RFC-019 scratch texture pool.
+    ///
+    /// Off by default for one release. The pool reuses full-size export
+    /// destinations and is the one memory change with a pixel-correctness
+    /// surface: reuse is valid only when every kernel writes every texel and
+    /// never reads its destination. Debug builds can turn it on with
+    /// `SPEKTRAFILM_SCRATCH_POOL=1`; release builds never do.
+    static let scratchPool: Bool = {
+#if DEBUG
+        ProcessInfo.processInfo.environment["SPEKTRAFILM_SCRATCH_POOL"] == "1"
+#else
+        false
+#endif
+    }()
 }
