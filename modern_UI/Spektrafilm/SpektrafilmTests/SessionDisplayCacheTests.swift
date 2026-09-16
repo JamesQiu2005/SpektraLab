@@ -45,9 +45,17 @@ final class SessionDisplayCacheTests: XCTestCase {
     func testDisplayHitRestoresRGBAWithoutBecomingLinearDecodeData() async throws {
         let url = try smokeFrame()
         let diagnostics = try freshDiagnostics()
-        diagnostics.noteCapabilities(json: nil, version: "display-test-engine")
         let store = try DiskCacheStore(root: cacheRoot())
         let session = Session(diagnostics: diagnostics, diskCache: store)
+        // Every disk-cache key carries the engine version, and warm-up
+        // publishes it from a detached task. Wait for the real one rather than
+        // planting a stub and racing it: a stub only survived while the lookup
+        // beat warm-up, so this test passed on a cold process and failed once
+        // enough earlier tests had warmed the engine. See `Session.awaitBoot`.
+        try await waitUntil("warm-up to publish the engine version") {
+            diagnostics.engineVersion != nil
+        }
+        let engineVersion = try XCTUnwrap(diagnostics.engineVersion)
 
         let pixels = Data([
             0x00, 0x00, 0x80, 0xff, 0x00, 0x00, 0xff, 0xff,
@@ -57,7 +65,7 @@ final class SessionDisplayCacheTests: XCTestCase {
             url: url,
             settings: DecodeSettings(),
             previewLongEdge: session.previewLongEdge,
-            engineVersion: "display-test-engine"
+            engineVersion: engineVersion
         )
         try await store.store(
             key: key,
@@ -74,6 +82,8 @@ final class SessionDisplayCacheTests: XCTestCase {
         try await waitUntil("the display cache to land") {
             session.displayCacheHitCount == 1
         }
+        XCTAssertNil(session.lastDisplayCacheMiss,
+                     "the open did not use the planted entry; the lookup stopped at this step")
 
         let texture = try XCTUnwrap(session.renderer.store.source(for: url))
         XCTAssertEqual(texture.width, 2)

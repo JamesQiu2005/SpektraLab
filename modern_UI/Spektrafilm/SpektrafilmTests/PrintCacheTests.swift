@@ -40,12 +40,20 @@ final class PrintCacheTests: XCTestCase {
     func testStoredPrintRestoresExactBytesWithoutDecoding() async throws {
         let url = try smokeFrame()
         let diagnostics = try diagnostics()
-        diagnostics.noteCapabilities(json: nil, version: "print-test-engine")
         let store = try DiskCacheStore(
             root: FileManager.default.temporaryDirectory
                 .appending(path: "spk-print-store-\(UUID().uuidString)")
         )
         let session = Session(diagnostics: diagnostics, diskCache: store)
+        // Every disk-cache key carries the engine version, and warm-up
+        // publishes it from a detached task. Wait for the real one rather than
+        // planting a stub and racing it: a stub only survived while the lookup
+        // beat warm-up, so this test passed on a cold process and failed once
+        // enough earlier tests had warmed the engine. See `Session.awaitBoot`.
+        try await waitUntil("warm-up to publish the engine version") {
+            diagnostics.engineVersion != nil
+        }
+        let engineVersion = try XCTUnwrap(diagnostics.engineVersion)
         let pixels = Data([
             0x00, 0x00, 0x80, 0xff, 0x00, 0x00, 0xff, 0xff,
             0x00, 0x00, 0xff, 0x00, 0x00, 0x00, 0x80, 0x80,
@@ -55,7 +63,7 @@ final class PrintCacheTests: XCTestCase {
             params: FilmParams.default,
             tier: .live,
             previewLongEdge: session.previewLongEdge,
-            engineVersion: "print-test-engine"
+            engineVersion: engineVersion
         )
         try await store.store(
             key: key,

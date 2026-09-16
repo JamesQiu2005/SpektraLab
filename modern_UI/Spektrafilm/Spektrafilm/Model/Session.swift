@@ -773,6 +773,11 @@ final class Session: CanvasHost {
     /// must leave `decodeCount` unchanged.
     private(set) var displayCacheHitCount = 0
     private(set) var decodeCount = 0
+    /// Why the last display-cache lookup did not answer, or nil if it did.
+    /// Cleared on a hit, so it always describes the most recent lookup rather
+    /// than the worst one ever seen. A test that expects a hit reads this to
+    /// say *which* step failed instead of only that the open decoded.
+    private(set) var lastDisplayCacheMiss: CacheMissReason?
     private var wasPastPreview = false
     private var saveTask: Task<Void, Never>?
     private var reopenTask: Task<Void, Never>?
@@ -1556,25 +1561,54 @@ final class Session: CanvasHost {
            let texture = renderer.store.source(for: url) {
             return DisplayPicture(texture: texture, sourceSize: d.pixelSize, costMs: 0)
         }
-        guard let diskCache else { return nil }
+        guard let diskCache else { return noteDisplayMiss(.noStore, url: url) }
+        guard let engineVersion = diagnostics.engineVersion else {
+            return noteDisplayMiss(.engineUnknown, url: url)
+        }
         let cacheKey = Self.displayCacheKey(
             url: url,
             settings: settings,
             previewLongEdge: previewLongEdge,
-            engineVersion: diagnostics.engineVersion ?? "unknown"
+            engineVersion: engineVersion
         )
         let started = Date()
-        guard let payload = try? await diskCache.load(cacheKey),
-              payload.kind == .decode,
-              payload.format == "rgba16Unorm",
-              let texture = renderer.store.uploadRGBA16(
-                  data: payload.data, width: payload.width, height: payload.height
-              ) else { return nil }
+        let payload: DiskCachePayload?
+        do { payload = try await diskCache.load(cacheKey) }
+        catch { return noteDisplayMiss(.lookupFailed, url: url, error: error) }
+        guard let payload else { return noteDisplayMiss(.noEntry, url: url) }
+        guard payload.kind == .decode else { return noteDisplayMiss(.wrongKind, url: url) }
+        guard payload.format == "rgba16Unorm" else { return noteDisplayMiss(.wrongFormat, url: url) }
+        guard let texture = renderer.store.uploadRGBA16(
+            data: payload.data, width: payload.width, height: payload.height
+        ) else { return noteDisplayMiss(.uploadFailed, url: url) }
+        lastDisplayCacheMiss = nil
         return DisplayPicture(
             texture: texture,
             sourceSize: CGSize(width: payload.sourceWidth, height: payload.sourceHeight),
             costMs: Date().timeIntervalSince(started) * 1000
         )
+    }
+
+    /// Record why the display cache did not answer, and return the `nil` the
+    /// caller was going to return anyway.
+    ///
+    /// `noEntry` is logged at `debug` because a cold cache is the normal state
+    /// of a frame nobody has opened. Everything else is `info`: something was
+    /// stored and could not be used, and the user is about to pay for a decode
+    /// that should not have been necessary.
+    @discardableResult
+    private func noteDisplayMiss(_ reason: CacheMissReason, url: URL,
+                                 error: Error? = nil) -> DisplayPicture? {
+        lastDisplayCacheMiss = reason
+        var fields: [LogField] = [.init("reason", reason.rawValue)]
+        if diagnostics.includeFileNamesInBundle { fields.append(.init("file", url.lastPathComponent)) }
+        if let error { fields.append(.init("error", String(describing: error))) }
+        if reason == .noEntry {
+            log.debug(.open, "display-cache miss", fields)
+        } else {
+            log.info(.open, "display-cache miss", fields)
+        }
+        return nil
     }
 
     private func load(_ url: URL, generation: Int, requiresDecode: Bool = false) async {
@@ -1585,6 +1619,11 @@ final class Session: CanvasHost {
         // *this* open and must report its laps, not an empty clock of its own.
         let clock = LoadClock()
         openClock = clock
+        // Before the first cache key is built, not merely before the engine is
+        // called: the key carries `diagnostics.engineVersion`, and warm-up is
+        // what publishes it. See `awaitBoot`.
+        await awaitBoot(clock)
+        guard !Task.isCancelled, selection == url else { return }
         let settings = sidecar.decode
         let device = renderer.device
         let edge = previewLongEdge
@@ -1846,18 +1885,32 @@ final class Session: CanvasHost {
         Task { await ensureDeveloped() }
     }
 
+    /// The warm-up gate, not a race (RFC-013 §2.2). Costs nothing once boot has
+    /// been paid, and on the path that matters — a frame restored at launch
+    /// submitting `open` before `capabilities` has landed — it is the
+    /// difference between the user's first frame paying the interpreter start
+    /// and it having been paid already.
+    ///
+    /// **It also settles `diagnostics.engineVersion`, which every disk-cache
+    /// key is built from.** That is why the gate is now at the top of `load`
+    /// and not only here. `warmUp` publishes the version from a detached task,
+    /// so before it lands `engineVersion` is nil and a key is built from the
+    /// literal `"unknown"` — a key nothing was ever stored under, and one that
+    /// a later *write* would never reuse. Every lookup in that window missed,
+    /// and the open silently paid for a decode it had already cached. The
+    /// suite saw this as `SessionDisplayCacheTests` failing only when enough
+    /// earlier tests had warmed the engine to make `capabilities` return
+    /// before the lookup rather than after it.
+    private func awaitBoot(_ clock: LoadClock?) async {
+        guard let boot = bootTask else { return }
+        await boot.value
+        bootTask = nil
+        clock?.lap("warm-up")
+    }
+
     private func openInService(_ d: DecodedImage, for url: URL, clock: LoadClock) async -> String? {
         let clock = clock
-        // The gate, not a race (RFC-013 §2.2). Costs nothing once boot has
-        // been paid, and on the path that matters — a frame restored at launch
-        // submitting `open` before `capabilities` has landed — it is the
-        // difference between the user's first frame paying the interpreter
-        // start and it having been paid already.
-        if let boot = bootTask {
-            await boot.value
-            bootTask = nil
-            clock.lap("warm-up")
-        }
+        await awaitBoot(clock)
         if serviceBlocked != nil { status = serviceBlocked!; return nil }
         // §11.5, before the engine takes the frame on: what this is expected to
         // cost, measured against what is free. A forecast that does not fit is
@@ -2969,6 +3022,42 @@ struct DisplayPicture: @unchecked Sendable {
     let costMs: Double
 }
 
+/// Why a disk-cache lookup did not produce a picture.
+///
+/// The lookup used to be one `guard … else { return nil }` chain, which made
+/// every step below indistinguishable from "nothing was stored". That is the
+/// wrong shape for a cache: a cold cache and a *broken* one then look
+/// identical from the outside, and the only visible symptom of either is that
+/// the open quietly costs a full decode. RFC-019's display cache is worth
+/// ~0.5 s and a decode's worth of memory per open, so a cache that has
+/// stopped working has to be able to say so.
+///
+/// `noEntry` is the ordinary cold miss and is not interesting. The other four
+/// all mean something was stored and could not be used, which is a defect
+/// somewhere — a stale format, a key that moved, or a device that would not
+/// give us a texture.
+enum CacheMissReason: String, Sendable {
+    /// No disk cache is attached to this session at all.
+    case noStore
+    /// Warm-up has not published an engine version, so any key built here
+    /// would carry the literal `"unknown"` — a namespace nothing is stored
+    /// under and nothing useful would ever be stored under. Reachable only
+    /// when warm-up *failed*, since `load` now gates on it; the engine is
+    /// blocked in that case and the frame is not going to render anyway.
+    case engineUnknown
+    /// The store threw. A miss that is really an error, and the `try?` that
+    /// used to swallow it is the reason this enum exists.
+    case lookupFailed
+    /// Nothing under this key. The ordinary cold miss.
+    case noEntry
+    /// An entry under this key, but for a different kind of payload.
+    case wrongKind
+    /// An entry in a format this build cannot upload.
+    case wrongFormat
+    /// The bytes were there and the texture was not: `makeTexture` returned
+    /// nil, which at this size means the device refused the allocation.
+    case uploadFailed
+}
 
 /// Shares `SPEKTRAFILM_CANVAS_LOG=1` with `Renderer`: the canvas being blank
 /// is a whole-pipeline symptom, so both ends of it log under one switch.
