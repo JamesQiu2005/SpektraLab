@@ -1,6 +1,7 @@
 //  SpektrafilmApp.swift — @main. One window, one session, one service.
 //
-//  `--snapshot WxH out.png [--open path] [--wait s]` renders the window at
+//  `--snapshot WxH out.png [--open path] [--wait s] [--folded left|right|both]`
+//  renders the window at
 //  that size and writes a PNG: the harness `Tools/snapshot.sh` uses it to
 //  compare the built interface against the drawing at three window sizes.
 
@@ -233,6 +234,18 @@ struct SnapshotRequest {
     /// transition have one.
     var export = false
     var exportGrid = false
+    /// `--folded left|right|both` — capture with a rail folded.
+    ///
+    /// The 2026-09-17 PRD makes one requirement about state rather than
+    /// layout: the two `sidebar` buttons "must also remain on the screen at
+    /// any given time, but moves according to a good way". A folded rail has
+    /// no header to hold its own button, so the bar takes it — and that is a
+    /// thing that can only be *seen*, in the state the harness otherwise goes
+    /// out of its way to reset (`session.leftCollapsed = false`, so that a
+    /// panel folded days ago cannot silently remove a region from the
+    /// measurement). This asks for the state on purpose.
+    var foldLeft = false
+    var foldRight = false
 
     static func parse(_ args: [String]) -> SnapshotRequest? {
         guard let i = args.firstIndex(of: "--snapshot"), args.count > i + 2 else { return nil }
@@ -241,6 +254,11 @@ struct SnapshotRequest {
         var r = SnapshotRequest(size: CGSize(width: dims[0], height: dims[1]), output: URL(fileURLWithPath: args[i + 2]))
         if let j = args.firstIndex(of: "--open"), args.count > j + 1 { r.open = URL(fileURLWithPath: args[j + 1]) }
         if let j = args.firstIndex(of: "--wait"), args.count > j + 1, let w = Double(args[j + 1]) { r.wait = w }
+        if let j = args.firstIndex(of: "--folded"), args.count > j + 1 {
+            let which = args[j + 1]
+            r.foldLeft = which == "left" || which == "both"
+            r.foldRight = which == "right" || which == "both"
+        }
         if let j = args.firstIndex(of: "--zoom"), args.count > j + 1, let z = Double(args[j + 1]) { r.zoom = CGFloat(z) }
         if let j = args.firstIndex(of: "--mask"), args.count > j + 1 {
             let f = args[j + 1].split(separator: ",").map(String.init)
@@ -369,8 +387,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // session happened to leave folded: the collapse flags persist in
         // UserDefaults, and a filmstrip collapsed days ago silently removed a
         // whole card from the measurement.
-        session.leftCollapsed = false
-        session.rightCollapsed = false
+        session.leftCollapsed = req.foldLeft
+        session.rightCollapsed = req.foldRight
         session.filmstripCollapsed = false
         // The same trap, one door along: a **rail width** persists too, and a
         // rail dragged to 328 in some earlier session makes every capture

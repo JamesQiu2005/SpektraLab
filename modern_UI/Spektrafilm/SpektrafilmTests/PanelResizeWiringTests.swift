@@ -74,9 +74,11 @@ final class PanelResizeWiringTests: XCTestCase {
         XCTAssertEqual(ColorBalanceLayout.assumedWidth,
                        ColorBalanceLayout.interior(panelWidth: Theme.Metric.rightPanelWidth),
                        "the wheels' fallback is not what the drawing's panel gives them")
-        // 288 − 2 × (4 + 12): the 2026-09-17 drawing's rail, and its wells,
-        // which are held 4 pt off the rail's edges rather than the old 9.
-        XCTAssertEqual(ColorBalanceLayout.assumedWidth, 256, accuracy: 0.001)
+        // 288 − 2 × 12: the 2026-09-17 drawing's rail, less the inset the
+        // section pads with. The triangle is not in a well any more — the
+        // drawing keeps two wells in the whole interface and both are on the
+        // left rail.
+        XCTAssertEqual(ColorBalanceLayout.assumedWidth, 264, accuracy: 0.001)
 
         // It has to actually move with the panel, and a narrower panel must
         // give the wheels less room — a `max()` anywhere in there would make

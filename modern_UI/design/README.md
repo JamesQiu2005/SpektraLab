@@ -34,6 +34,13 @@ rail 0…254, right 1632…1920, filmstrip 948…1080, bar y 5…36 inset 9/9.
 There are no cards to find any more, and it needs Pillow, which this
 repository is not allowed to depend on; the Swift tool replaced it.
 
+`Tools/snapshot.sh` also takes a fourth shot, `window-folded-both.png`, with
+both rails folded (`--folded left|right|both`). That is the one state the
+harness otherwise goes out of its way to reset, and the 2026-09-17 PRD makes a
+requirement about it: the two `sidebar` buttons have to be on screen "at any
+given time", so when a rail folds its button moves onto the bar, along with
+the window buttons' clearance. Nothing but a capture shows that.
+
 ## What it cannot capture — and the harness that can
 
 Hover, focus and drag: no pointer exists. Menus and sheets are not opened.

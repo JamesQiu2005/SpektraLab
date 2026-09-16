@@ -111,6 +111,39 @@ final class LayoutTests: XCTestCase {
                              m.trafficLightLeading + TrafficLightAlignment.rowWidth)
     }
 
+    /// Folding a rail moves its `sidebar` button onto the bar, and the bar
+    /// then also carries the window buttons' clearance. The capture that shows
+    /// it is `design/snapshots/window-folded-both.png`
+    /// (`Tools/snapshot.sh`, `--folded both`); what this pins is that the two
+    /// reservations are one number seen from two origins, so the buttons
+    /// cannot end up under a glyph in one state and not the other.
+    func testAFoldedRailHandsItsRowToTheBar() {
+        let m = Theme.Metric.self
+        for (name, size) in Self.sizes {
+            let session = Session()
+            session.leftCollapsed = true
+            session.rightCollapsed = true
+            let host = NSHostingView(rootView: EditorWindow(session: session).environment(\.snapshotMode, true))
+            host.frame = CGRect(origin: .zero, size: size)
+            host.layoutSubtreeIfNeeded()
+            _ = host.fittingSize
+            // With both rails folded the centre column is the whole window,
+            // so the bar starts at `barInset` and its first control has to
+            // clear buttons placed from the **window's** edge.
+            let barLeading = m.barInset + m.barLeadingWithButtons
+            XCTAssertEqual(barLeading, m.trafficLightClearance, "\(name)")
+            XCTAssertGreaterThan(barLeading,
+                                 m.trafficLightLeading + TrafficLightAlignment.rowWidth,
+                                 "\(name): the bar's first glyph would sit on a window button")
+            // …and the buttons still fit inside the bar itself, which is the
+            // only reason one centreline can serve both rows.
+            XCTAssertGreaterThanOrEqual(m.trafficLightCentreY - TrafficLightAlignment.buttonDiameter / 2,
+                                        m.barTop, "\(name)")
+            XCTAssertLessThanOrEqual(m.trafficLightCentreY + TrafficLightAlignment.buttonDiameter / 2,
+                                     m.barTop + m.topBarHeight, "\(name)")
+        }
+    }
+
     /// The rails are the user's, and both bounds have to leave a usable rail.
     func testPanelRangesContainTheDrawing() {
         let m = Theme.Metric.self

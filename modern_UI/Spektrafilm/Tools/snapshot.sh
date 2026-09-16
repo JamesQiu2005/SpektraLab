@@ -7,6 +7,12 @@
 #
 #  Output: ../design/snapshots/window-<name>.png. The app is launched with
 #  `--snapshot WxH out.png [--open file --wait s]`; see SpektrafilmApp.swift.
+#
+#  A fourth capture, `window-folded-both.png`, is the one state the harness
+#  otherwise resets: both rails folded. The 2026-09-17 PRD requires the two
+#  `sidebar` buttons to be on screen "at any given time", and a folded rail has
+#  no header to hold its own — the bar takes it, along with the window buttons'
+#  clearance, and that is a thing only a capture can show.
 set -e
 cd "$(dirname "$0")/.."
 OUT="$(cd .. && pwd)/design/snapshots"
@@ -25,4 +31,9 @@ for spec in "macbook-pro-14:1512x982" "16x9:1920x1080" "21x9:3360x1418"; do
     "$APP" --snapshot "$size" "$OUT/window-$name.png" --wait 1.5 2>&1 | tail -1
   fi
 done
+if [ -n "$IMG" ]; then
+  "$APP" --snapshot 1920x1080 "$OUT/window-folded-both.png" --open "$IMG" --wait 60 --folded both 2>&1 | tail -1
+else
+  "$APP" --snapshot 1920x1080 "$OUT/window-folded-both.png" --wait 1.5 --folded both 2>&1 | tail -1
+fi
 echo "→ $OUT"

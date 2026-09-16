@@ -87,7 +87,7 @@ final class ColorBalanceTests: XCTestCase {
     /// The literal is deliberate: if the furniture changes, this fails and
     /// points at the triangle rather than quietly shrinking the wheels.
     func testTheAssumedWidthIsThePanelMinusItsWell() {
-        XCTAssertEqual(ColorBalanceLayout.assumedWidth, 256, accuracy: 0.001)
+        XCTAssertEqual(ColorBalanceLayout.assumedWidth, 264, accuracy: 0.001)
     }
 
     // MARK: - the arcs

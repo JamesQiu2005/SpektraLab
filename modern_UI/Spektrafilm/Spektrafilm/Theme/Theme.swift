@@ -311,6 +311,13 @@ enum Theme {
         /// menus' `rx 13.9` (= half their height, i.e. a capsule).
         static let fieldRadius: CGFloat = 4.25
 
+        /// Inset of a **plot** from the rail's edges — the histogram and the
+        /// curve, which are pictures rather than rows and so do not take the
+        /// row inset. The drawing's are 7.8 and 15.45 on a 288 pt rail; 12 is
+        /// between them and is what makes the two line up with each other,
+        /// which the drawing's do not.
+        static let plotInset: CGFloat = 12
+
         // MARK: the film and print lists
 
         /// How far a list well is inset from the rail's edges (the drawing's

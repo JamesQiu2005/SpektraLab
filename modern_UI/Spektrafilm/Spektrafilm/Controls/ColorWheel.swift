@@ -378,8 +378,17 @@ enum ColorBalanceLayout {
     /// its live panel width through here and the drawing's fixed width comes
     /// through the same door — so a well that changes its padding cannot change
     /// it for one caller and not the other.
+    /// The room the wheels are sized against: the rail less the inset its
+    /// section is padded by.
+    ///
+    /// It was `wellInset + wellPadding` while the triangle sat in a well. The
+    /// 2026-09-17 drawing keeps two wells in the whole interface and neither
+    /// is this one, so the number that has to be mirrored here is the one the
+    /// section actually pads with — `plotInset`. Two spellings of one inset is
+    /// exactly how the wheels came to be sized against a well the editor did
+    /// not draw.
     static func interior(panelWidth: CGFloat) -> CGFloat {
-        panelWidth - 2 * (Theme.Metric.wellInset + Theme.Metric.wellPadding)
+        panelWidth - 2 * Theme.Metric.plotInset
     }
 
     /// The drawing's own interior, and the fallback for a caller with no width
