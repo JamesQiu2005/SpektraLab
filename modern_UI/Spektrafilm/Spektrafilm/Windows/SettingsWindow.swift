@@ -15,8 +15,13 @@
 //    one source, and a page that sampled on its own would make that check
 //    pass while the claim it stands for quietly stopped being true.
 //  - **A control that costs something says so where it is.** Per-node GPU
-//    timings give up the batching the engine depends on; that context remains
-//    available as hover help while the page keeps its controls compact.
+//    timings give up the batching the engine depends on; the caption under
+//    the checkbox is `Diagnostics.perNodeTimingsNote`, and it is the RFC's
+//    own sentence rather than a paraphrase that could drift from it. These
+//    captions were briefly moved to hover help to make the page more compact;
+//    RFC-016 §5.2 says "the Settings toggle must say so in the same
+//    sentence", and a tooltip only says it to somebody who already suspected
+//    there was something to hover over.
 //
 //  Visually this is the app's right panel: `PanelSection` headers, `Well`
 //  grounds, `Theme` tokens, no literal colours. Not an AppKit-standard
@@ -76,7 +81,9 @@ struct SettingsWindow: View {
                              title: { "\($0) px" },
                              selection: Binding(get: { session.previewLongEdge },
                                                 set: { session.setPreviewLongEdge($0) }))
+                    caption("The resolution every interactive edit renders at. The frame's own resolution is rendered separately once an edit settles, so this trades responsiveness while dragging against nothing in the finished picture. The recorded cost of a reprint on a 45 MP frame is 13.7 ms at 2560 px, and rises roughly with the pixels.")
                     ToggleRow(label: "Fast stock preview", isOn: $session.fastStockPreview)
+                    caption("When a print stock is picked, show the LUT applied to the negative already on the canvas instead of waiting for the full reprint. It is the same table, so the preview and the print agree.")
                 }
             }
         }
@@ -92,10 +99,16 @@ struct SettingsWindow: View {
                              title: { $0.label },
                              selection: Binding(get: { diagnostics.level },
                                                 set: { diagnostics.level = $0 }))
+                    caption(diagnostics.level.detail)
                     ToggleRow(label: "Per-node GPU timings",
                               isOn: Binding(get: { diagnostics.perNodeGPUTimings },
                                             set: { diagnostics.perNodeGPUTimings = $0 }))
-                        .help(Diagnostics.perNodeTimingsNote)
+                    // Visible, not hover help. RFC-016 §5.2 is specific: "the
+                    // Settings toggle must say so in the same sentence". A
+                    // tooltip is not the toggle saying so — it is the toggle
+                    // saying so to whoever already suspected there was
+                    // something to hover over.
+                    caption(Diagnostics.perNodeTimingsNote)
                 }
             }
         }
@@ -128,6 +141,7 @@ struct SettingsWindow: View {
                            Diagnostics.memoryReserveRange) {
                         diagnostics.memoryReserveMegabytes = $0
                     }
+                    caption(Diagnostics.memoryReserveNote)
                     intRow("Working-set cap",
                            diagnostics.memoryCapIsUnlimited
                                ? Diagnostics.defaultMemoryCapMB
@@ -139,6 +153,7 @@ struct SettingsWindow: View {
                     ToggleRow(label: "Unlimited",
                               isOn: Binding(get: { diagnostics.memoryCapIsUnlimited },
                                             set: { diagnostics.memoryCapIsUnlimited = $0 }))
+                    caption(Diagnostics.memoryCapNote)
                     Divider().overlay(Theme.plotGrid).padding(.vertical, 4)
                     readout("Held by SpektraLab",
                             bytes(UInt64(max(0, diagnostics.arena.totalBytes))),
@@ -149,6 +164,7 @@ struct SettingsWindow: View {
                     ToggleRow(label: "Allow exceeding the reserve",
                               isOn: Binding(get: { diagnostics.allowOverReserve },
                                             set: { diagnostics.allowOverReserve = $0 }))
+                    caption("A frame whose projected peak does not leave the reserve free gets a warning you can override. Nothing is ever blocked; this is the standing answer to that warning, and turning it off makes the app ask again.")
                 }
             }
         }
@@ -169,6 +185,7 @@ struct SettingsWindow: View {
                     intRow("Keep at most", diagnostics.retentionFiles, "files", 1...500) {
                         diagnostics.retentionFiles = $0
                     }
+                    caption("Whichever limit is reached first wins, oldest file first. Cleaning runs at launch, never during a render.")
                     Divider().overlay(Theme.plotGrid).padding(.vertical, 4)
                     labelled("Destination") {
                         Text(diagnostics.logDirectory.path)
@@ -181,6 +198,7 @@ struct SettingsWindow: View {
                         Button("Choose…") { chooseLogDirectory() }
                             .buttonStyle(.plain).font(Theme.Font.caption).foregroundStyle(Theme.accent)
                     }
+                    caption(Diagnostics.logDirectoryNote)
                     if let f = diagnostics.cleanupFailure { warning(f) }
                     if let f = diagnostics.writeFailure { warning(f) }
                     HStack(spacing: 10) {
@@ -206,6 +224,7 @@ struct SettingsWindow: View {
                     ToggleRow(label: "Include image file names",
                               isOn: Binding(get: { diagnostics.includeFileNamesInBundle },
                                             set: { diagnostics.includeFileNamesInBundle = $0 }))
+                    caption(DiagnosticBundle.fileNamesNote)
                     HStack(spacing: 10) {
                         Button(savingBundle ? "Saving…" : "Save diagnostic bundle…") { saveBundle() }
                             .buttonStyle(.plain).font(Theme.Font.caption)
@@ -213,6 +232,7 @@ struct SettingsWindow: View {
                             .disabled(savingBundle)
                         Spacer()
                     }
+                    caption("One zip: the recent log files, the engine's capabilities, the app and engine versions, this machine, the current settings and the last error. Nothing is transmitted — it is written where you choose.")
                     if let bundleResult { caption(bundleResult) }
                 }
             }
