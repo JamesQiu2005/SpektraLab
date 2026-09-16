@@ -1,4 +1,4 @@
-# Filmify — the SwiftUI frontend
+# SpektraLab — the SwiftUI frontend
 
 > **Read §1, §3, §4 and §7 with this one correction.** This document was
 > written 2026-09-08, when the app talked to a Python render service over
@@ -346,6 +346,41 @@ other; if two need to agree, that belongs in `Session`.
 - **A new file:** run `Tools/gen-project.py`; the project lists files
   explicitly and the generator is deterministic.
 
+### 8.1 Rebuilding a panel
+
+§8 is about moving *a control*. This is about moving *all of them* — the left
+column is being reorganised from the engine's parameter categories into the
+user's flow (`handoff/HANDOFF-SPEKTRALAB-FRONTEND-RECONSTRUCTION.md`), and a
+rework of that size is exactly where a load-bearing line gets dropped without
+anything going red.
+
+A section is safe to move, split, merge or delete. It takes `session` and
+nothing else, it owns no state another section reads, and the panel is a list
+of them. **What is not safe to drop is the short list below.** Each one fails
+*silently* — the app still builds, still opens a frame and still renders, and
+the only symptom is that the picture or the timing is quietly different from
+the build before it. Each is pinned by a named test, so the way to find out
+you have broken one is to run the suite, not to look at the canvas.
+
+| Contract | Where it lives | What breaks if a rework drops it | Pinned by |
+|---|---|---|---|
+| The open delta carries the frame's sidecar, `preview_long_edge` **and** `product_defaults` | `Session.openDelta` | Without the second, the live tier renders at the engine's default rather than the user's resolution. Without the third, the engine keeps the reference's `print_exposure_compensation` and Camera Exp. Comp. stops moving the finished print's brightness — every print comes out at a different brightness | `FrontendPolicyTests.testTheOpenDeltaCarriesTheSessionSettingsAndTheProductDefaults` |
+| Cache keys are built only after warm-up has published the engine version | `Session.awaitBoot`, called at the top of `load` | Keys built from the literal `"unknown"`, so every disk-cache lookup misses and every open pays for a decode it had already cached | `SessionDisplayCacheTests`, `PrintCacheTests` |
+| Layer 1 (engine parameters) and Layer 2 (canvas adjustments) stay apart | `session.params` vs `session.adjustments` | A "grade" that needs a film render to preview, or an engine parameter applied twice | §2, "Two layers, kept apart" |
+| Export renders from the same session as the canvas | `Exporter.filePixels(session:recipe:sessionID:)` | Export and canvas drift, which is the one bar the user set as hard | `ExportPreviewChainTests` |
+| Colours come from `Theme`, never literals | `Theme/` | A section that does not follow the theme, found by eye months later | `LayoutTests` |
+
+Two habits that made the last rework cheap and are worth keeping:
+
+- **Give a contract a name and a test before you move it.** `openDelta` was six
+  lines in the middle of `load` and the engine inferred the product's defaults
+  from whether one of them was present. Both facts were true, documented and
+  impossible to notice from the panel that fed them.
+- **A guard that cannot fail is not a guard.** Two cache tests here passed for
+  months by winning a race against warm-up; they only failed once enough
+  earlier tests had warmed the engine. If a test would pass with the code it
+  covers deleted, it is not protecting the rework.
+
 ---
 
 ## 9. Known limits, stated
@@ -353,7 +388,9 @@ other; if two need to agree, that belongs in `Session`.
 - `cancel` cannot arrive mid-render on stdio; the scheduler supersedes by
   generation instead. A film-side change while one is running waits its turn.
   A detail render waits for the scheduler to be idle for the same reason.
-- The live tier is 1600 px on the long edge. Zooming past 100 % asks for a
+- The live tier's long edge is the user's `Session.previewLongEdge` — one of
+  3840, 2560 (the default), 1920 or 1080, set on the Settings page and sent
+  with the open. Zooming past 100 % asks for a
   higher tier (preview at 100 %, full at 200 %) and swaps it in when it lands,
   but that is a **whole-frame** render, not the ROI render frontend SPEC §5.0
   specifies: the service has no crop parameter, so a full-resolution film side
