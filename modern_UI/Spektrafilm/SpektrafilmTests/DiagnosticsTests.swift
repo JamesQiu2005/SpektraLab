@@ -245,8 +245,8 @@ final class DiagnosticsTests: XCTestCase {
     /// file survived and the assertion below failed naming it.
     func testTheAgeLimitDeletesByModificationDate() throws {
         let dir = try configure(session: false)
-        let old = try plant(dir, "filmify-2026-09-01T10-00-00-1.jsonl", bytes: 100, ageDays: 8)
-        let recent = try plant(dir, "filmify-2026-09-12T10-00-00-2.jsonl", bytes: 100, ageDays: 1)
+        let old = try plant(dir, "spektralab-2026-09-01T10-00-00-1.jsonl", bytes: 100, ageDays: 8)
+        let recent = try plant(dir, "spektralab-2026-09-12T10-00-00-2.jsonl", bytes: 100, ageDays: 1)
 
         let outcome = LogCleanup.clean(directory: dir, retention: LogRetention(days: 7, maxBytes: 1_000_000, maxFiles: 20))
 
@@ -258,10 +258,39 @@ final class DiagnosticsTests: XCTestCase {
 
     /// **Seen red** by making the byte loop unreachable: the directory stayed
     /// over its ceiling and the assertion failed.
+    /// Retention has to see what earlier builds wrote.
+    ///
+    /// The log directory is a persisted setting, so an install that has been
+    /// through a rename keeps writing into the folder it was already pointed
+    /// at. A cleanup that matched only the current prefix would leave every
+    /// pre-rename file there for ever while reporting that it had cleaned —
+    /// which is the worst of both, since the user turned retention *on*.
+    func testCleaningSeesFilesFromBeforeTheRename() throws {
+        let dir = try configure(session: false)
+        let old = try plant(dir, "filmify-2026-09-01T10-00-00-1.jsonl", bytes: 100, ageDays: 8)
+        let older = try plant(dir, "spektrafilm-2026-08-20T10-00-00-1.jsonl", bytes: 100, ageDays: 20)
+        let recent = try plant(dir, "spektralab-2026-09-12T10-00-00-2.jsonl", bytes: 100, ageDays: 1)
+        // Something else entirely, which is nobody's to delete.
+        let foreign = try plant(dir, "notes-2026-09-01.jsonl", bytes: 100, ageDays: 40)
+
+        let outcome = LogCleanup.clean(directory: dir,
+                                       retention: LogRetention(days: 7, maxBytes: 1_000_000, maxFiles: 20))
+
+        XCTAssertFalse(FileManager.default.fileExists(atPath: old.path),
+                       "a pre-rename file outlived the age limit")
+        XCTAssertFalse(FileManager.default.fileExists(atPath: older.path),
+                       "a file from the original name outlived the age limit")
+        XCTAssertTrue(FileManager.default.fileExists(atPath: recent.path))
+        XCTAssertTrue(FileManager.default.fileExists(atPath: foreign.path),
+                       "cleanup deleted a file this app did not write")
+        XCTAssertEqual(outcome.deleted.count, 2, "deleted: \(outcome.deleted)")
+        XCTAssertEqual(outcome.keptFiles, 1, "only the recent session file should be kept")
+    }
+
     func testTheByteLimitDeletesOldestFirst() throws {
         let dir = try configure(session: false)
         let files = try (0..<4).map { i in
-            try plant(dir, "filmify-2026-09-1\(i)T10-00-00-\(i).jsonl", bytes: 400, ageDays: Double(4 - i))
+            try plant(dir, "spektralab-2026-09-1\(i)T10-00-00-\(i).jsonl", bytes: 400, ageDays: Double(4 - i))
         }
         let retention = LogRetention(days: 365, maxBytes: 1_000, maxFiles: 100)
 
@@ -279,7 +308,7 @@ final class DiagnosticsTests: XCTestCase {
     func testTheFileCountLimitDeletesOldestFirst() throws {
         let dir = try configure(session: false)
         let files = try (0..<25).map { i in
-            try plant(dir, String(format: "filmify-2026-09-%02dT10-00-00-%d.jsonl", i + 1, i), bytes: 10,
+            try plant(dir, String(format: "spektralab-2026-09-%02dT10-00-00-%d.jsonl", i + 1, i), bytes: 10,
                       ageDays: Double(25 - i))
         }
         let retention = LogRetention(days: 365, maxBytes: 1_000_000, maxFiles: 20)
@@ -304,8 +333,8 @@ final class DiagnosticsTests: XCTestCase {
     /// was deleted by its own cleanup.
     func testCleaningNeverDeletesTheFileItIsWritingTo() throws {
         let dir = try configure(session: false)
-        let current = try plant(dir, "filmify-2026-09-12T10-00-00-9.jsonl", bytes: 10_000, ageDays: 90)
-        let other = try plant(dir, "filmify-2026-09-12T11-00-00-8.jsonl", bytes: 10, ageDays: 1)
+        let current = try plant(dir, "spektralab-2026-09-12T10-00-00-9.jsonl", bytes: 10_000, ageDays: 90)
+        let other = try plant(dir, "spektralab-2026-09-12T11-00-00-8.jsonl", bytes: 10, ageDays: 1)
 
         let outcome = LogCleanup.clean(directory: dir,
                                        retention: LogRetention(days: 0, maxBytes: 10, maxFiles: 1),
@@ -333,11 +362,11 @@ final class DiagnosticsTests: XCTestCase {
     /// be able to tell the two apart or it is not a check.
     func testALogWithNoEndRecordIsReportedAsUnclean() async throws {
         let dir = try configure(session: false)
-        let clean = dir.appending(path: "filmify-2026-09-11T10-00-00-1.jsonl")
+        let clean = dir.appending(path: "spektralab-2026-09-11T10-00-00-1.jsonl")
         let record = LogRecord(time: Date().addingTimeInterval(-90_000), level: .info, category: .app,
                                message: "exit", fields: [.init("marker", "session_end")])
         try (record.jsonLine() + "\n").write(to: clean, atomically: true, encoding: .utf8)
-        let unclean = dir.appending(path: "filmify-2026-09-12T10-00-00-2.jsonl")
+        let unclean = dir.appending(path: "spektralab-2026-09-12T10-00-00-2.jsonl")
         let launch = LogRecord(time: Date().addingTimeInterval(-60), level: .info, category: .app,
                                message: "launch", fields: [.init("marker", "launch")])
         try (launch.jsonLine() + "\n").write(to: unclean, atomically: true, encoding: .utf8)
@@ -566,10 +595,10 @@ final class DiagnosticsTests: XCTestCase {
             appVersion: "1.2.3", buildNumber: "45",
             engineVersion: "spektrafilm-0.9",
             capabilitiesJSON: #"{"version":"1.2.3"}"#,
-            lastError: "This frame is larger than Filmify can render.",
+            lastError: "This frame is larger than SpektraLab can render.",
             machine: ["model": "Mac16,7", "gpu": "Apple M4 Max"],
             settings: ["log_level": "normal"],
-            previousSession: PreviousSessionReport(file: "filmify-x.jsonl", endedCleanly: false, ageSeconds: 12)))
+            previousSession: PreviousSessionReport(file: "spektralab-x.jsonl", endedCleanly: false, ageSeconds: 12)))
 
         // A real unzip, because "it is a zip" is a claim about every tool the
         // user might open it with, not about this test's parser.
@@ -786,7 +815,7 @@ final class DiagnosticsTests: XCTestCase {
         XCTAssertEqual(session.refusal?.kind, .size)
         XCTAssertEqual(session.canvasBadges.filter { $0.hasPrefix("refused") }.count, 1,
                        "no badge for a refused frame: \(session.canvasBadges)")
-        XCTAssertTrue(session.status.contains("larger than Filmify"))
+        XCTAssertTrue(session.status.contains("larger than SpektraLab"))
         XCTAssertEqual(session.lastError, session.status)
 
         let error = try XCTUnwrap(log.records().first { $0.category == .error })

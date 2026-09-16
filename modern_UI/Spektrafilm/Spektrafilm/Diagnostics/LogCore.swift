@@ -478,7 +478,7 @@ final class Log: @unchecked Sendable {
 
     // MARK: the session
 
-    /// Start a session: clean up, then open `filmify-<stamp>-<pid>.jsonl` in
+    /// Start a session: clean up, then open `spektralab-<stamp>-<pid>.jsonl` in
     /// `directory` with `latest.jsonl` beside it.
     ///
     /// Cleaning is enqueued on the file sink's own queue **before** anything
@@ -494,7 +494,7 @@ final class Log: @unchecked Sendable {
         endSession()   // a second start in one process replaces the first
         previousSessionBox.value = nil
         let now = clock()
-        let file = destination.appending(path: "filmify-\(LogTime.fileStamp(now))-\(ProcessInfo.processInfo.processIdentifier).jsonl")
+        let file = destination.appending(path: "\(LogCleanup.sessionPrefix)\(LogTime.fileStamp(now))-\(ProcessInfo.processInfo.processIdentifier).jsonl")
         let sink = LogFileSink(directory: destination, sessionFile: file, retention: retention)
         state.withLock {
             $0.level = level

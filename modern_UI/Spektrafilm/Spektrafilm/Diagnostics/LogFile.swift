@@ -53,13 +53,30 @@ struct PreviousSessionReport: Sendable, Equatable {
 
 enum LogCleanup {
 
+    /// Every name this app has written a session file under.
+    ///
+    /// New files get `sessionPrefix`; the rest are here because **cleanup has
+    /// to be able to see what earlier builds wrote**. The log directory is a
+    /// persisted setting, so an install that has been through a rename keeps
+    /// writing into the folder it was already pointed at — and a retention
+    /// rule that only matched the current name would leave every file from
+    /// before the rename in place, for ever, while reporting that it had
+    /// cleaned. The names are dead weight the moment the last such file is
+    /// gone, and harmless until then.
+    static let sessionPrefixes = ["spektralab-", "filmify-", "spektrafilm-"]
+
+    /// What `Log.start` names a new session file.
+    static let sessionPrefix = sessionPrefixes[0]
+
     /// The session files in `directory`, newest first. Only files this app
     /// writes are considered: `latest.jsonl` is a symlink and anything else in
     /// the folder belongs to whoever put it there.
     static func logFiles(in directory: URL, fileManager: FileManager = .default) -> [URL] {
         let names = (try? fileManager.contentsOfDirectory(atPath: directory.path)) ?? []
         return names
-            .filter { $0.hasPrefix("filmify-") && $0.hasSuffix(".jsonl") }
+            .filter { name in
+                name.hasSuffix(".jsonl") && sessionPrefixes.contains { name.hasPrefix($0) }
+            }
             .map { directory.appending(path: $0) }
             .sorted { modificationDate($0, fileManager) > modificationDate($1, fileManager) }
     }
