@@ -21,27 +21,28 @@ struct CropSection: View {
     private var size: CGSize { session.sourceImageSize }
     private var g: Geometry { session.geometry }
 
+    // The 2026-09-17 drawing leaves this section collapsed and says so: "I
+    // didn't draw the crop, since it just need to change it's layout to the
+    // new system, everything else works fine there." So the rows are the
+    // rows, moved onto the rail — no well, no section icon, the new insets.
     var body: some View {
-        PanelSection("Crop", systemImage: "crop", key: "crop", menu: { AnyView(menu) }) {
-            Well {
-                VStack(spacing: 4) {
-                    aspectRow
-                    // Scrubbed through `scrubStraighten`, not written straight
-                    // to `geometry`: a scrub is a stream of writes and the
-                    // canvas must not rescale under it. The refit happens once,
-                    // on `onCommit` — the release, or the typed value.
-                    ScrubSlider(label: "Straighten", sublabel: "degrees",
-                                value: Binding(get: { g.angle },
-                                               set: { session.scrubStraighten(to: $0) }),
-                                range: -Geometry.maxAngle...Geometry.maxAngle, snap: 1,
-                                format: { String(format: "%+.1f°", $0) },
-                                onCommit: { session.straightenScrubEnded() })
-                    turnsRow
-                    Text(dimensions)
-                        .font(Theme.Font.caption).foregroundStyle(Theme.dim)
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                        .padding(.top, 2)
-                }
+        PanelSection("Crop", key: "crop", initiallyExpanded: false, menu: { AnyView(menu) }) {
+            RailRows {
+                aspectRow
+                // Scrubbed through `scrubStraighten`, not written straight
+                // to `geometry`: a scrub is a stream of writes and the
+                // canvas must not rescale under it. The refit happens once,
+                // on `onCommit` — the release, or the typed value.
+                ScrubSlider(label: "Straighten", sublabel: "degrees",
+                            value: Binding(get: { g.angle },
+                                           set: { session.scrubStraighten(to: $0) }),
+                            range: -Geometry.maxAngle...Geometry.maxAngle, snap: 1,
+                            format: { String(format: "%+.1f°", $0) },
+                            onCommit: { session.straightenScrubEnded() })
+                turnsRow
+                Text(dimensions)
+                    .font(Theme.Font.caption).foregroundStyle(Theme.dim)
+                    .frame(maxWidth: .infinity, alignment: .leading)
             }
         }
     }

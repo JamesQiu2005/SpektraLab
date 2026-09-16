@@ -110,6 +110,11 @@ final class Session: CanvasHost {
               pushUndo()
               sidecar.geometry = newValue
               renderer.geometry = newValue
+              // A crop changes the physical scale only if the user has said
+              // it should (`physicalAspect`). Off — the default — this is a
+              // no-op, and the check is here rather than inside so that the
+              // common case does not walk the arithmetic on every drag event.
+              if Session.recalculateEffectsAfterCrop { recomputeFilmFormat() }
               scheduleSave() }
     }
     /// The live tier's pixel size, which is what the geometry is normalised
@@ -1759,6 +1764,12 @@ final class Session: CanvasHost {
         decodeIsStale = false
         sourceLongEdge = max(d.pixelSize.width, d.pixelSize.height)
         displaySourceSize = d.pixelSize
+        // The physical frame's long edge is half the user's description and
+        // half this photograph's shape (`physicalAspect`), so it cannot be
+        // settled until a decode has landed — a sidecar restored on launch
+        // carries the description and a `film_format_mm` computed against
+        // whatever the *last* frame's aspect was.
+        recomputeFilmFormat(beforeOpen: true)
         sampleMemory("decode")
         var diskWrite: (key: CacheKey, data: Data, width: Int, height: Int,
                         sourceWidth: Int, sourceHeight: Int, costMs: Double)?
@@ -2443,6 +2454,192 @@ final class Session: CanvasHost {
     ///
     /// `params`' setter is what pushes undo, requests the print and schedules
     /// the save, so this must go through it rather than around it.
+    // MARK: - AE Method, Film Exposure, Lens Correction and the physical frame
+    //
+    // The Camera and Film sections of the 2026-09-17 drawing, wired. Every one
+    // of these goes through an **existing** schema field: `auto_exposure`,
+    // `auto_exposure_method`, `exposure_compensation_ev`, `film_format_mm` on
+    // the engine side, and `CIRAWFilter` on the decode side. No route and no
+    // parameter was added for any of it.
+
+    /// The AE Method pill: the four metering intents plus `Custom`, which is
+    /// the meter switched off (`AEMethod`).
+    var aeMethod: AEMethod {
+        get { AEMethod.of(params) }
+        set {
+            guard newValue != aeMethod else { return }
+            var p = params
+            newValue.apply(to: &p)
+            params = p
+            retargetSolvedEV()
+        }
+    }
+
+    /// The "As Shot" box under Film Exposure.
+    ///
+    /// It reads ticked when the frame is on the **linearized baseline**: the
+    /// meter off and no compensation, which is the photograph exposed exactly
+    /// as the camera recorded it. That is a *derived* state, like the two
+    /// white-balance boxes beside it — it is ticked whenever the pair of
+    /// values says so, not because a box was clicked.
+    var filmExposureIsAsShot: Bool {
+        !params.autoExposure && params.exposureCompensationEV == 0
+    }
+
+    /// Ticking it: "+0.0 baseline (also `As Shot`, clicking this automatically
+    /// switches AE method to custom)" — the PRD's own sentence, and both
+    /// halves of it, because either one alone leaves the frame somewhere else.
+    ///
+    /// Unticking is deliberately a no-op. The box is a statement about two
+    /// numbers, and "not the baseline" does not say *which* other exposure to
+    /// go to; the way off it is to drag the slider or choose a method, which
+    /// is also how the box came to be ticked.
+    func setFilmExposureAsShot(_ on: Bool) {
+        guard on, !filmExposureIsAsShot else { return }
+        var p = params
+        p.autoExposure = false
+        p.exposureCompensationEV = 0
+        params = p
+        retargetSolvedEV()
+    }
+
+    /// Whether the Lens Correction row can be used at all, and why not.
+    ///
+    /// The PRD's two rules, in the order it states them: only RAW can be
+    /// corrected, and a RAW that does not carry the manufacturer's correction
+    /// has nothing to switch — Core Image is already doing the standard thing
+    /// from EXIF. Both come back as a greyed row rather than as a control that
+    /// looks live and changes nothing.
+    var lensCorrectionEnabled: Bool {
+        guard let d = decoded else { return false }
+        return d.isRAW && d.lensCorrectionSupported
+    }
+
+    var lensCorrectionReason: String {
+        guard let d = decoded else { return "Open a frame to correct its lens." }
+        if !d.isRAW { return "Lens correction applies to RAW input only." }
+        if !d.lensCorrectionSupported {
+            return "This RAW carries no lens correction. Core Image is already applying the standard EXIF correction."
+        }
+        return ""
+    }
+
+    func setLensCorrection(_ on: Bool) {
+        var d = decode
+        d.lensCorrection = on
+        decode = d
+    }
+
+    // MARK: the physical frame
+
+    var filmFrame: FilmFrame { FilmFrame.named(params.filmFrame) }
+    var filmSide: FilmSide { FilmSide(rawValue: params.filmSide) ?? .short }
+
+    func setFilmFrame(_ frame: FilmFrame) {
+        var p = params
+        p.filmFrame = frame.id
+        // A preset **shows its own** side length; only Custom keeps the
+        // user's. That is the PRD's "shows the actual Side length if
+        // non-custom film type is selected".
+        if frame.id != FilmFrame.custom.id {
+            p.sideLengthMM = frame.side(filmSide)
+        }
+        p.filmFormatMM = Self.filmFormatMM(side: filmSide, sideLengthMM: p.sideLengthMM,
+                                           aspect: physicalAspect)
+        params = p
+    }
+
+    func setFilmSide(_ side: FilmSide) {
+        var p = params
+        p.filmSide = side.rawValue
+        if p.filmFrame != FilmFrame.custom.id {
+            p.sideLengthMM = FilmFrame.named(p.filmFrame).side(side)
+        }
+        p.filmFormatMM = Self.filmFormatMM(side: side, sideLengthMM: p.sideLengthMM,
+                                           aspect: physicalAspect)
+        params = p
+    }
+
+    /// Side Length, in millimetres. Only Custom may be typed into, which the
+    /// view enforces by greying the field; this clamps anyway, because a
+    /// number arriving from a pasted sidecar has not been through the view.
+    func setSideLengthMM(_ mm: Double) {
+        var p = params
+        p.filmFrame = FilmFrame.custom.id
+        p.sideLengthMM = mm.clamped(to: 1...500)
+        p.filmFormatMM = Self.filmFormatMM(side: filmSide, sideLengthMM: p.sideLengthMM,
+                                           aspect: physicalAspect)
+        params = p
+    }
+
+    /// Re-derive `film_format_mm` from the frame the user described and the
+    /// photograph's own shape. Called whenever either half can have changed:
+    /// a decode landing, and a crop while the setting below is on.
+    ///
+    /// **`beforeOpen` is not an optimisation.** On the open path this runs
+    /// between the decode landing and the engine's `open`, and going through
+    /// the `params` setter there would `requestPrint()` — which is a develop,
+    /// during an open that is contracted to stop at the decode
+    /// (`OpenPathTests.testAnOpenStopsAtTheDecode`, which is how this was
+    /// found). The value still reaches the engine, because `openDelta` is
+    /// built from the sidecar a moment later and now carries it.
+    func recomputeFilmFormat(beforeOpen: Bool = false) {
+        let mm = Self.filmFormatMM(side: filmSide, sideLengthMM: params.sideLengthMM,
+                                   aspect: physicalAspect)
+        guard abs(mm - params.filmFormatMM) > 0.001 else { return }
+        if beforeOpen {
+            sidecar.params.filmFormatMM = mm
+            scheduleSave()
+        } else {
+            var p = params
+            p.filmFormatMM = mm
+            params = p
+        }
+    }
+
+    /// long ÷ short of the photograph, as the physical scale sees it.
+    ///
+    /// **Whether a crop counts is the user's decision** (PRD: "if a crop
+    /// happens, user can decide in settings if the effects are
+    /// recalculated"), and the default is that it does not. Off is also the
+    /// physically true answer: cropping a negative does not make its grain
+    /// coarser, it shows you less of the same negative. On means the opposite
+    /// statement — that the cropped rectangle *is* the frame, re-mapped — and
+    /// it is what someone shooting a 6×17 out of a 3:2 file wants.
+    var physicalAspect: Double {
+        guard let size = decoded?.pixelSize, size.width > 0, size.height > 0 else { return 3.0 / 2.0 }
+        var w = Double(size.width), h = Double(size.height)
+        if Session.recalculateEffectsAfterCrop {
+            let c = sidecar.geometry.crop
+            w *= c.width; h *= c.height
+        }
+        guard w > 0, h > 0 else { return 3.0 / 2.0 }
+        return max(w, h) / min(w, h)
+    }
+
+    /// The engine's number, from the user's. It wants the frame's **long
+    /// edge**; Side = Short means the length describes the other one, so the
+    /// aspect is what closes the gap.
+    ///
+    /// Clamped to the service's own 4…200: an extreme aspect with a 56 mm
+    /// short side is arithmetic the engine would refuse, and a refused
+    /// `set_params` is a render that does not happen rather than a frame that
+    /// looks wrong.
+    nonisolated static func filmFormatMM(side: FilmSide, sideLengthMM: Double,
+                                         aspect: Double) -> Double {
+        let long = side == .long ? sideLengthMM : sideLengthMM * max(aspect, 1)
+        return long.clamped(to: 4...200)
+    }
+
+    /// "Recalculate film effects after a crop" — `physicalAspect`'s switch,
+    /// and a Settings toggle rather than a control on the rail: it is a
+    /// statement about what a crop *means* in this app, not a per-frame edit.
+    nonisolated static let cropRecalcKey = Session.uiKey + "recalculateEffectsAfterCrop"
+    static var recalculateEffectsAfterCrop: Bool {
+        get { UserDefaults.standard.bool(forKey: cropRecalcKey) }
+        set { UserDefaults.standard.set(newValue, forKey: cropRecalcKey) }
+    }
+
     func setAutoExposureMethod(_ method: String?) {
         guard method != params.autoExposureMethod else { return }
         var p = params

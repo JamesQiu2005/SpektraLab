@@ -43,27 +43,98 @@ enum ParamValue: Codable, Equatable, Sendable, CustomStringConvertible {
     var stringValue: String? { if case .string(let s) = self { s } else { nil } }
 }
 
-/// Film formats the Camera section offers. `mm` is the long edge of the
-/// frame, which is what `camera.film_format_mm` means (the engine derives
-/// pixel pitch from it: `film_format_mm * 1000 / max(h, w)`), so it drives
-/// grain scale. Range accepted by the service: 4…200.
-struct FilmFormat: Identifiable, Hashable, Sendable {
+/// The physical frame a photograph is recorded on, as **both** of its sides.
+///
+/// The engine's `film_format_mm` is a single number and means the frame's
+/// **long edge** (it derives pixel pitch as `film_format_mm * 1000 / max(w, h)`,
+/// which is what sets the scale of grain, halation and DIR diffusion). One
+/// number cannot say whether 56 mm is 645 or 6×6, which is the gap the PRD
+/// closes: a Film Type, a **Side**, and the length of that side.
+///
+/// So a preset carries a short side and a long side, the user picks which one
+/// the length refers to, and the wire's long edge is derived from the *photo's
+/// own aspect* — `Session.filmFormatMM(for:)`. With Side = Short at 56 mm a
+/// square frame derives 56 and a 6×7 derives 70, from the same preset, without
+/// a menu of every medium-format back ever made.
+///
+/// `long` is the classic frame for the type, and it is what Side = Long shows.
+/// It is **not** what gets sent: the derivation always goes through the photo.
+struct FilmFrame: Identifiable, Hashable, Sendable {
     let id: String
-    let mm: Double
-    static let all: [FilmFormat] = [
-        .init(id: "Super 8", mm: 5.8),
-        .init(id: "16mm", mm: 10.3),
-        .init(id: "Super 35", mm: 24.9),
-        .init(id: "35mm", mm: 36),
-        .init(id: "645", mm: 56),
-        .init(id: "6×6", mm: 56),
-        .init(id: "6×7", mm: 70),
-        .init(id: "6×9", mm: 84),
-        .init(id: "4×5", mm: 127),
-        .init(id: "8×10", mm: 200),
+    /// Millimetres.
+    let short: Double
+    let long: Double
+    let isCine: Bool
+
+    /// The custom entry. Its two sides are the user's `sideLengthMM`, so the
+    /// numbers here are only the value a fresh Custom starts at.
+    static let custom = FilmFrame(id: "Custom", short: 24, long: 36, isCine: false)
+
+    /// Cine first, as the drawing lists them, each with the orange `CINE`
+    /// pill. Camera-negative frames (what the film is exposed at), not
+    /// projection apertures.
+    static let cine: [FilmFrame] = [
+        .init(id: "Super 8", short: 4.01, long: 5.79, isCine: true),
+        .init(id: "16mm", short: 7.49, long: 10.26, isCine: true),
+        .init(id: "Super 16", short: 7.41, long: 12.52, isCine: true),
+        .init(id: "Super 35", short: 14.00, long: 24.89, isCine: true),
+        .init(id: "65mm", short: 23.01, long: 52.63, isCine: true),
     ]
-    static func nearest(mm: Double) -> FilmFormat {
-        all.min { abs($0.mm - mm) < abs($1.mm - mm) } ?? all[3]
+
+    /// The still formats the PRD names: "110, APS, 135, 120, custom".
+    ///
+    /// 120 is a film *width*, not a frame, which is exactly why the short side
+    /// is the useful number: every 120 back exposes the same 56 mm across the
+    /// film and differs only in how far along it. Side = Short at 56 therefore
+    /// covers 645, 6×6, 6×7 and 6×9 with one entry, and gets each of them
+    /// right from the photo's aspect.
+    static let still: [FilmFrame] = [
+        .init(id: "110", short: 13, long: 17, isCine: false),
+        .init(id: "APS", short: 16.7, long: 30.2, isCine: false),
+        .init(id: "135", short: 24, long: 36, isCine: false),
+        .init(id: "120", short: 56, long: 56, isCine: false),
+        custom,
+    ]
+
+    static var all: [FilmFrame] { cine + still }
+    static func named(_ id: String) -> FilmFrame { all.first { $0.id == id } ?? custom }
+
+    func side(_ s: FilmSide) -> Double { s == .short ? short : long }
+}
+
+/// Which side of the photograph the Side Length refers to.
+enum FilmSide: String, CaseIterable, Identifiable, Sendable {
+    case short, long
+    var id: String { rawValue }
+    var title: String { self == .short ? "Short" : "Long" }
+}
+
+/// The unit the Side Length is typed in. Display only — the wire is always
+/// millimetres — so it is an app preference rather than part of a frame's
+/// settings.
+enum SideUnit: String, CaseIterable, Identifiable, Sendable {
+    case mm, cm, inch
+    var id: String { rawValue }
+    var title: String { self == .inch ? "in" : rawValue }
+    /// Millimetres per unit.
+    var perMM: Double {
+        switch self {
+        case .mm: 1
+        case .cm: 10
+        case .inch: 25.4
+        }
+    }
+    func fromMM(_ mm: Double) -> Double { mm / perMM }
+    func toMM(_ v: Double) -> Double { v * perMM }
+    /// How many decimals the field shows. A millimetre reading wants one; an
+    /// inch reading of the same frame wants three, or 135 reads as "0.9 in"
+    /// and every still format looks like the same film.
+    var decimals: Int {
+        switch self {
+        case .mm: 1
+        case .cm: 2
+        case .inch: 3
+        }
     }
 }
 
@@ -100,6 +171,78 @@ enum ExposureMethod: String, CaseIterable, Identifiable, Sendable {
     }
 }
 
+/// What the **AE Method** pill offers, which is the four intents plus
+/// `custom` — and `custom` is not a fifth meter. It is the meter switched
+/// **off**.
+///
+/// The PRD: "take the linearized baseline as the +0.0 baseline (also `As
+/// Shot`, clicking this automatically switches AE method to custom), and the
+/// different AE methods just adjust the exposure based on it."
+///
+/// That is exactly the engine's existing `camera.auto_exposure` flag, which
+/// has been in the schema all along and which nothing has ever set: with it
+/// false the meter contributes nothing (`engine.cpp`: `camera.auto_exposure ?
+/// meter.evs.of(method) : nullopt`) and `exposure_compensation_ev` is the
+/// whole of the film exposure, measured from the linearized frame. So Custom
+/// needs **no new wire field and no new value** — only the flag that was
+/// already declared.
+enum AEMethod: Hashable, Identifiable, Sendable {
+    case custom
+    case metered(ExposureMethod)
+    /// A sidecar written before the field existed: the engine's own
+    /// `center_weighted`, which is not a thing the menu offers.
+    case legacy
+
+    var id: String {
+        switch self {
+        case .custom: "custom"
+        case .metered(let m): m.rawValue
+        case .legacy: "legacy"
+        }
+    }
+
+    var title: String {
+        switch self {
+        case .custom: "Custom"
+        case .metered(let m): m.title.capitalizedFirst
+        case .legacy: "center-weighted (legacy)"
+        }
+    }
+
+    /// What the menu lists. `legacy` is not in it, because choosing it is not
+    /// a thing a user can do.
+    static var offered: [AEMethod] { [.custom] + ExposureMethod.allCases.map(AEMethod.metered) }
+
+    /// Read the pair of fields a frame actually carries.
+    static func of(_ p: FilmParams) -> AEMethod {
+        guard p.autoExposure else { return .custom }
+        guard let wire = p.autoExposureMethod else { return .legacy }
+        return ExposureMethod(rawValue: wire).map(AEMethod.metered) ?? .legacy
+    }
+
+    /// Write it back. Custom leaves `autoExposureMethod` alone, so turning the
+    /// meter off and on again comes back to the intent it had — which is what
+    /// makes Custom usable as a comparison rather than a destination.
+    func apply(to p: inout FilmParams) {
+        switch self {
+        case .custom:
+            p.autoExposure = false
+        case .metered(let m):
+            p.autoExposure = true
+            p.autoExposureMethod = m.rawValue
+        case .legacy:
+            p.autoExposure = true
+            p.autoExposureMethod = nil
+        }
+    }
+}
+
+extension String {
+    /// "protect highlights" → "Protect highlights". The drawing capitalises
+    /// the pill's value ("Custom"), where the previous one lower-cased it.
+    var capitalizedFirst: String { isEmpty ? self : prefix(1).uppercased() + dropFirst() }
+}
+
 struct FilmParams: Codable, Equatable, Sendable {
     // --- stock (shoot for film, print for paper) ---
     var filmStock: String = "kodak_portra_400"
@@ -120,7 +263,28 @@ struct FilmParams: Codable, Equatable, Sendable {
     /// The default is for *new* frames, which the user asked to start
     /// `balanced`.
     var autoExposureMethod: String? = "balanced"
+    /// The engine's `camera.auto_exposure`, and the whole of what the AE
+    /// Method pill's `Custom` means: with it false the meter contributes
+    /// nothing and Film Exposure is measured from the linearized frame
+    /// (`AEMethod`).
+    ///
+    /// It has always been in the schema and nothing has ever sent it, so the
+    /// engine has always run with its own `true`. The default here is that,
+    /// which is what keeps every sidecar written before this field rendering
+    /// exactly as it did.
+    var autoExposure: Bool = true
+    /// The frame's **long edge** in millimetres, which is what the engine
+    /// means by `film_format_mm`. It is **derived** — from the three fields
+    /// below and the photograph's own aspect — and stored because the
+    /// derivation needs a decoded frame and this struct has never seen one.
+    /// `Session.recomputeFilmFormat()` is the one place that writes it.
     var filmFormatMM: Double = 36                    // 4…200
+    /// Film Type, Side and Side Length: the user's half of that derivation.
+    /// Not wire fields — the engine takes one number — but they have to come
+    /// back with the frame, so they live here beside the number they make.
+    var filmFrame: String = "135"
+    var filmSide: String = FilmSide.short.rawValue
+    var sideLengthMM: Double = 24
     var grainActive: Bool = true
     var halationActive: Bool = true
     // --- print ---
@@ -162,6 +326,9 @@ struct FilmParams: Codable, Equatable, Sendable {
             fields.append(("auto_exposure_method", .string(method), .shoot))
         }
         fields += [
+            // Sent always, unlike the method: it has a default here and the
+            // default is the engine's, so a legacy frame is unchanged by it.
+            ("auto_exposure", .bool(autoExposure), .shoot),
             ("film_format_mm", .double(filmFormatMM), .shoot),
             ("grain_active", .bool(grainActive), .shoot),
             ("grain_sublayers_active", .bool(grainActive), .shoot),

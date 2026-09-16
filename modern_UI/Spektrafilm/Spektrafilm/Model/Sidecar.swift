@@ -24,6 +24,22 @@ struct DecodeSettings: Codable, Equatable, Hashable, Sendable {
     /// the camera's, filled in after the first decode; for presets the preset's.
     var temperature: Double = 5500
     var tint: Double = 0
+    /// Apply the lens's own distortion and vignetting correction at decode.
+    ///
+    /// **A RAW-only decode setting, and deliberately not an engine
+    /// parameter.** The PRD: "only RAW files can apply lens correction. If the
+    /// RAW carries lens correction information already, i.e. Nikon NEFs,
+    /// otherwise let core image handles it based on EXIF (the standard way)."
+    /// That is `CIRAWFilter.isLensCorrectionEnabled` exactly — Core Image
+    /// reads the manufacturer's own correction out of the file, and a file
+    /// that does not carry one reports `isLensCorrectionSupported == false`,
+    /// which is what greys the row rather than offering a switch that does
+    /// nothing.
+    ///
+    /// Off by default: it changes the frame's geometry, and a crop or a
+    /// straighten made before it was turned on would no longer describe the
+    /// same rectangle.
+    var lensCorrection: Bool = false
 }
 
 /// The two "As Shot" checkboxes beside the white-balance sliders, as a value.

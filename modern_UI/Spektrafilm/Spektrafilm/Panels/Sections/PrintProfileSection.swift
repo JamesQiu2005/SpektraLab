@@ -1,48 +1,66 @@
-//  PrintProfileSection.swift — the paper list, grouped Still / Cine / Positive,
-//  with the white frame on the selected paper, and the two actions that belong
-//  to the print: Solve and Original.
+//  PrintProfileSection.swift — the paper list, grouped Still / Cine /
+//  Positive, and the two actions that belong to the print.
 //
-//  The Positive group holds one row, "No print Profile": scan the developed
+//  The list is `StockList`, the same view the film list is, because the
+//  drawing draws them the same: one well, one-line rows, a **band** on the
+//  chosen one and the accent `CINE` pill on a cinema stock.
+//
+//  The Positive group holds one row, "No Print Profile": scan the developed
 //  film instead of printing it. It is where a slide film belongs — printing
-//  Provia onto Endura is a thing the engine will happily do and a thing nobody
-//  wants — and it is also the only way to look at what the film stage actually
-//  produced, orange mask and all.
+//  Provia onto Endura is a thing the engine will happily do and a thing
+//  nobody wants — and it is also the only way to look at what the film stage
+//  actually produced, orange mask and all.
 //
 //  It is `scan_film`, not a paper. Selecting it therefore does not clear the
 //  paper: turn it off again and the print comes back on whatever was chosen
 //  before, which is what makes it usable as a comparison rather than a
 //  destination.
+//
+//  **`Solve` is called `Process` now**, which is the drawing's word for it.
+//  The button is unchanged — auto-expose this frame and solve the enlarger
+//  filter pack for the chosen paper — and the rename is the whole of the
+//  change: the handoff's complaint about the old label was that "不知道
+//  solve 了什么", and `Process` at least names the thing that happens to the
+//  photograph rather than the thing that happens to the arithmetic.
 
 import SwiftUI
 
 struct PrintProfileSection: View {
     @Bindable var session: Session
 
+    /// The sentinel `StockList` row id for "No Print Profile". It is not a
+    /// paper, so it cannot be a `print_stock` value — see `FilmParams.scanFilm`
+    /// for why that separation is load-bearing — and this is the id the list
+    /// uses to spell it without either side inventing a stock name.
+    private static let positiveID = "__scan_film__"
+
+    private var rows: [StockList.Row] {
+        var out: [StockList.Row] = []
+        for group in session.catalog.paperGroups where !group.papers.isEmpty {
+            out.append(StockList.Row(id: "__group_" + group.title, name: group.title, isHeader: true))
+            out += group.papers.map {
+                StockList.Row(id: $0.id, name: $0.name, isCine: $0.isCine, help: helpFor($0.id))
+            }
+        }
+        out.append(StockList.Row(id: "__group_Positive", name: "Positive", isHeader: true))
+        out.append(StockList.Row(id: Self.positiveID, name: "No Print Profile",
+                                 help: "Scan the developed film instead of printing it — a slide film reads as a positive, a negative film as the negative it is."))
+        return out
+    }
+
     var body: some View {
-        PanelSection("Print Profile", systemImage: "doc", key: "print", menu: { AnyView(menu) }) {
-            VStack(spacing: 8) {
-                Well(padding: 6, vertical: 6) {
-                    VStack(alignment: .leading, spacing: 0) {
-                        ForEach(session.catalog.paperGroups, id: \.title) { group in
-                            groupHeader(group.title)
-                            ForEach(group.papers) { paper in
-                                row(paper.name,
-                                    selected: !session.params.scanFilm && paper.id == session.params.printStock,
-                                    help: helpFor(paper.id)) {
-                                    session.selectPrintStock(paper.id)
-                                }
-                            }
-                        }
-                        groupHeader("Positive")
-                        row("No print Profile", selected: session.params.scanFilm,
-                            help: "Scan the developed film instead of printing it — a slide film reads as a positive, a negative film as the negative it is.") {
-                            var p = session.params
-                            p.scanFilm = true
-                            session.params = p
-                        }
+        PanelSection("Print", key: "print", menu: { AnyView(menu) }) {
+            VStack(alignment: .leading, spacing: 0) {
+                StockList(rows: rows,
+                          selected: session.params.scanFilm ? Self.positiveID : session.params.printStock,
+                          visibleRows: 5) { id in
+                    if id == Self.positiveID {
+                        var p = session.params; p.scanFilm = true; session.params = p
+                    } else {
+                        session.selectPrintStock(id)
                     }
                 }
-                actions
+                actions.padding(.top, Theme.Metric.rowSpacing + 5)
             }
         }
     }
@@ -54,68 +72,45 @@ struct PrintProfileSection: View {
         return "Fast flip available — baked against \(entry.pairedFilm)."
     }
 
-    private func groupHeader(_ title: String) -> some View {
-        Text(title).font(Theme.Font.groupHeader).foregroundStyle(Theme.text)
-            .padding(.leading, 10).frame(height: 18)
-    }
-
-    private func row(_ name: String, selected: Bool, help: String,
-                     _ action: @escaping () -> Void) -> some View {
-        Button(action: action) {
-            HStack(spacing: 6) {
-                Text(name).font(Theme.Font.listItem).foregroundStyle(Theme.text).lineLimit(1)
-                Spacer(minLength: 0)
-            }
-            .padding(.leading, 18).padding(.trailing, 6)
-            .frame(height: 20)
-            .overlay(RoundedRectangle(cornerRadius: 3)
-                .stroke(Theme.selectionFrame, lineWidth: selected ? 1 : 0))
-            .contentShape(Rectangle())
-        }
-        .buttonStyle(.plain)
-        .help(help)
-    }
-
-    /// Solve and Original, in the drawing's two-pill row.
+    /// Process and Original, in the drawing's two-button row: 26 pt tall,
+    /// `rx 8.25` — a rounded rectangle and deliberately not a capsule — 2.5
+    /// apart, and inset by the same 4 the well above them is.
     ///
-    /// They sit here rather than in the toolbar because both are questions
-    /// about the *print*: "what would the engine choose for this paper" and
-    /// "what did I start from". Original is a toggle, not a press-and-hold —
-    /// Space already does press-and-hold on the canvas, and a panel button
-    /// that only works while the mouse is down is a button nobody finds.
+    /// They sit here rather than on the bar because both are questions about
+    /// the *print*: "what would the engine choose for this paper" and "what
+    /// did I start from". Original is a toggle, not a press-and-hold — Space
+    /// already does press-and-hold on the canvas, and a button that only works
+    /// while the mouse is down is a button nobody finds.
     private var actions: some View {
-        HStack(spacing: 8) {
-            pill("Solve", help: "Auto-expose this frame and solve the enlarger filter pack for the selected paper.",
-                 active: false, enabled: session.canSolve) {
+        HStack(spacing: Theme.Metric.actionGap) {
+            action("Process", help: "Auto-expose this frame and solve the enlarger filter pack for the selected paper.",
+                   active: false, enabled: session.canSolve) {
                 session.solveNow()
             }
-            pill("Original", help: "Show the RAW as Apple's decoder renders it, before any film simulation (Space does the same, while held).",
-                 active: session.showingOriginal, enabled: session.selection != nil) {
+            action("Original", help: "Show the RAW as Apple's decoder renders it, before any film simulation (Space does the same, while held).",
+                   active: session.showingOriginal, enabled: session.selection != nil) {
                 session.toggledOriginal(!session.showingOriginal)
             }
         }
-        // The wells above are inset by `wellInset`, and a pill that is not
-        // runs to the card's own edge. A pill's fill *is* the ground colour,
-        // so at the edge it merges with the window around the card and the
-        // row reads as a bar spilling out of the panel — which is what it
-        // looked like. Same inset as the well, so the two line up.
         .padding(.horizontal, Theme.Metric.wellInset)
     }
 
-    private func pill(_ title: String, help: String, active: Bool, enabled: Bool,
-                      _ action: @escaping () -> Void) -> some View {
-        Button(action: action) {
+    private func action(_ title: String, help: String, active: Bool, enabled: Bool,
+                        _ perform: @escaping () -> Void) -> some View {
+        Button(action: perform) {
             Text(title)
-                .font(Theme.Font.listItem)
-                .foregroundStyle(active ? Theme.accent : (enabled ? Theme.text : Theme.dim))
+                .font(Theme.Font.action)
+                .foregroundStyle(active ? Theme.accent : Theme.text)
                 .frame(maxWidth: .infinity)
-                .frame(height: 26)
-                .background(Theme.well, in: Capsule())
-                .overlay(Capsule().stroke(Theme.accent, lineWidth: active ? 1 : 0))
-                .contentShape(Capsule())
+                .frame(height: Theme.Metric.actionHeight)
+                .background(Theme.well,
+                            in: RoundedRectangle(cornerRadius: Theme.Metric.actionRadius, style: .continuous))
+                .overlay(RoundedRectangle(cornerRadius: Theme.Metric.actionRadius, style: .continuous)
+                    .stroke(Theme.accent, lineWidth: active ? 1 : 0))
+                .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
-        .disabled(!enabled)
+        .rowEnabled(enabled)
         .help(help)
     }
 
@@ -126,7 +121,7 @@ struct PrintProfileSection: View {
                     var p = session.params; p.printStock = t; p.scanFilm = false; session.params = p
                 }
             }
-            Button("Solve exposure and filter pack") { session.solveNow() }
+            Button("Process this frame") { session.solveNow() }
                 .disabled(!session.canSolve)
             Divider()
             // The caveat is in the label because it is the whole decision.

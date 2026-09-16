@@ -25,9 +25,7 @@ struct LeftPanel: View {
                 VStack(spacing: 0) {
                     CameraSection(session: session)
                     Hairline()
-                    FilmProfileSection(session: session)
-                    Hairline()
-                    FeaturesSection(session: session)
+                    FilmSection(session: session)
                     Hairline()
                     PrintProfileSection(session: session)
                     Hairline()

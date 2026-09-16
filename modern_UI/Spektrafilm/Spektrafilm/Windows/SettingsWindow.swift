@@ -84,6 +84,11 @@ struct SettingsWindow: View {
                     caption("The resolution every interactive edit renders at. The frame's own resolution is rendered separately once an edit settles, so this trades responsiveness while dragging against nothing in the finished picture. The recorded cost of a reprint on a 45 MP frame is 13.7 ms at 2560 px, and rises roughly with the pixels.")
                     ToggleRow(label: "Fast stock preview", isOn: $session.fastStockPreview)
                     caption("When a print stock is picked, show the LUT applied to the negative already on the canvas instead of waiting for the full reprint. It is the same table, so the preview and the print agree.")
+                    ToggleRow(label: "Crop re-maps the frame",
+                              isOn: Binding(get: { Session.recalculateEffectsAfterCrop },
+                                            set: { Session.recalculateEffectsAfterCrop = $0
+                                                   session.recomputeFilmFormat() }))
+                    caption("Whether cropping changes the physical scale of grain, halation and glare. Off — the default, and the physically true answer — the crop shows less of the same negative and its grain is the size it always was. On, the cropped rectangle *is* the frame: the Film section's Side Length now describes the crop, so the effects grow with it. This is the setting the Film section's Side Length row is measured against.")
                 }
             }
         }

@@ -8,7 +8,7 @@
 import SwiftUI
 
 /// The numbers a slider is drawn with. A default-constructed one is the
-/// editor's panels, which is what every caller but the export page wants; the
+/// editor's rails, which is what every caller but the export page wants; the
 /// export page's drawing has a narrower label column, a thinner track and a
 /// shorter row. The knob is not here because both drawings agree on it.
 struct SliderMetrics {
@@ -18,6 +18,10 @@ struct SliderMetrics {
     var trackHeight: CGFloat = Theme.Metric.trackHeight
     var labelFont: Font = Theme.Font.label
     var valueFont: Font = Theme.Font.value
+    /// Whether the value is drawn **in a pill** (the 2026-09-17 drawing: a
+    /// `.st13` rounded rectangle at `rx 8.5`, every slider) or as bare text
+    /// (the export page's drawing, which has one slider and no pill).
+    var valueInPill: Bool = true
 }
 
 struct ScrubSlider: View {
@@ -47,22 +51,31 @@ struct ScrubSlider: View {
     private var hasSecondLine: Bool { sublabelView != nil || sublabel != nil }
 
     var body: some View {
-        HStack(spacing: 0) {
-            VStack(alignment: .leading, spacing: 1) {
-                Text(label).font(metrics.labelFont)
-                if let sublabelView { sublabelView }
-                else if let sublabel { Text(sublabel).font(Theme.Font.sublabel).foregroundStyle(Theme.secondaryText) }
+        VStack(alignment: .leading, spacing: 0) {
+            HStack(spacing: 0) {
+                Text(label)
+                    .font(metrics.labelFont)
+                    .foregroundStyle(Theme.text)
+                    .frame(width: metrics.labelWidth, alignment: .leading)
+                    .lineLimit(1)
+                track
+                    .padding(.trailing, Theme.Metric.sliderValueGap)
+                valueField
+                    .frame(width: metrics.valueWidth)
             }
-            .foregroundStyle(disabled ? Theme.dim : Theme.text)
-            .frame(width: metrics.labelWidth, alignment: .leading)
-            .lineLimit(1)
-            track
-            valueField
-                .frame(width: metrics.valueWidth, alignment: .trailing)
+            .frame(height: metrics.rowHeight)
+            // The second line is the drawing's own: "As Shot" and its box sit
+            // **under the label**, not beside the value, so they line up with
+            // the label column rather than floating in the middle of the row.
+            if let sublabelView {
+                sublabelView.frame(height: Theme.Metric.subRowHeight, alignment: .leading)
+            } else if let sublabel {
+                Text(sublabel).font(Theme.Font.sublabel).foregroundStyle(Theme.secondaryText)
+                    .lineLimit(1)
+                    .frame(height: Theme.Metric.subRowHeight, alignment: .leading)
+            }
         }
-        .frame(height: hasSecondLine ? metrics.rowHeight + 14 : metrics.rowHeight + 4)
-        .opacity(disabled ? 0.6 : 1)
-        .allowsHitTesting(!disabled)
+        .rowEnabled(!disabled)
     }
 
     private var fraction: CGFloat {
@@ -82,7 +95,10 @@ struct ScrubSlider: View {
                     if let g = trackGradient {
                         Capsule().fill(LinearGradient(colors: g, startPoint: .leading, endPoint: .trailing))
                     } else {
-                        Capsule().fill(Theme.dim)
+                        // `.st13`, the ground — not a dim grey of its own.
+                        // That is the whole reason the track is 1.5 pt: at any
+                        // more weight it would read as a divider.
+                        Capsule().fill(Theme.ground)
                     }
                 }
                 .frame(height: metrics.trackHeight)
@@ -120,7 +136,7 @@ struct ScrubSlider: View {
             )
             .simultaneousGesture(TapGesture(count: 2).onEnded { value = zero; onCommit() })
         }
-        .frame(height: Theme.Metric.rowHeight)
+        .frame(height: metrics.rowHeight)
     }
 
     private var valueField: some View {
@@ -128,21 +144,29 @@ struct ScrubSlider: View {
             if editing {
                 TextField("", text: $text)
                     .textFieldStyle(.plain)
-                    .font(Theme.Font.value)
-                    .multilineTextAlignment(.trailing)
+                    .font(metrics.valueFont)
+                    .multilineTextAlignment(.center)
                     .foregroundStyle(Theme.text)
                     .focused($focused)
                     .onSubmit { commitText() }
                     .onChange(of: focused) { _, f in if !f { commitText() } }
             } else {
                 Text(format(value))
-                    .font(Theme.Font.value)
+                    .font(metrics.valueFont)
                     .foregroundStyle(Theme.text)
                     .contentShape(Rectangle())
                     .onTapGesture { text = format(value); editing = true; focused = true }
             }
         }
         .lineLimit(1)
+        .frame(maxWidth: .infinity)
+        .frame(height: metrics.valueInPill ? Theme.Metric.controlHeight : nil)
+        .background {
+            if metrics.valueInPill {
+                RoundedRectangle(cornerRadius: Theme.Metric.fieldRadius, style: .continuous)
+                    .fill(Theme.pill)
+            }
+        }
     }
 
     private func commitText() {
@@ -151,14 +175,19 @@ struct ScrubSlider: View {
     }
 }
 
-/// A checkbox drawn as the design draws it: a 9 pt hollow square, filled when on.
+/// The checkbox, as the 2026-09-17 drawing draws it: a small square with a
+/// 1 pt `#faf8f4` border, filled with the accent when it is on.
+///
+/// The drawing's is 5 pt across, which is below what the eye resolves as a
+/// shape on a dark rail; `Theme.Metric.checkbox` is 8, and the hit area is
+/// padded well past it either way — a 5 pt target is not a target.
 struct CheckBox: View {
     @Binding var isOn: Bool
     var body: some View {
         Button { isOn.toggle() } label: {
             ZStack {
-                RoundedRectangle(cornerRadius: 1.5).stroke(Theme.text, lineWidth: 1.2)
-                if isOn { RoundedRectangle(cornerRadius: 1).fill(Theme.text).padding(2.2) }
+                RoundedRectangle(cornerRadius: 1).stroke(Theme.text, lineWidth: 1)
+                if isOn { RoundedRectangle(cornerRadius: 0.5).fill(Theme.accent).padding(1.6) }
             }
             .frame(width: Theme.Metric.checkbox, height: Theme.Metric.checkbox)
             .padding(6)
@@ -168,16 +197,24 @@ struct CheckBox: View {
     }
 }
 
-/// Label at the left, checkbox at the right — the Features rows.
+/// Label at the left, checkbox at the right — Grain, Halation, Glare and Lens
+/// Correction.
+///
+/// `enabled` is the PRD's "if one option is non-selectable, both the text and
+/// the input pill is greyed across the app", and it is one modifier on the
+/// row rather than a colour each half has to remember (`View.rowEnabled(_:)`).
 struct ToggleRow: View {
     let label: String
     @Binding var isOn: Bool
+    var enabled = true
+    var reason: String = ""
     var body: some View {
-        HStack {
+        HStack(spacing: 0) {
             Text(label).font(Theme.Font.label).foregroundStyle(Theme.text)
-            Spacer()
+            Spacer(minLength: 4)
             CheckBox(isOn: $isOn).padding(.trailing, -6)
         }
-        .frame(height: Theme.Metric.rowHeight + 3)
+        .frame(height: Theme.Metric.toggleRowHeight)
+        .rowEnabled(enabled, because: reason)
     }
 }

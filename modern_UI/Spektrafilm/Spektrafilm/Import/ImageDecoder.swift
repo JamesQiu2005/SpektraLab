@@ -52,6 +52,11 @@ struct DecodedImage: @unchecked Sendable {
     let display: CIImage
     let pixelSize: CGSize
     let isRAW: Bool
+    /// Whether this file carries the lens correction Core Image would apply —
+    /// `CIRAWFilter.isLensCorrectionSupported`. False for every flat file and
+    /// for a RAW whose maker did not write one, and it is what decides whether
+    /// the Lens Correction row is selectable at all (PRD).
+    let lensCorrectionSupported: Bool
     let sourceURL: URL
     /// As-shot values reported by the RAW filter (nil for flat files).
     let asShotTemperature: Double?
@@ -59,12 +64,14 @@ struct DecodedImage: @unchecked Sendable {
     let lifetime: DecodeLifetime
 
     init(linear: CIImage, display: CIImage, pixelSize: CGSize, isRAW: Bool,
+         lensCorrectionSupported: Bool = false,
          sourceURL: URL, asShotTemperature: Double?, asShotTint: Double?,
          lifetime: DecodeLifetime = DecodeLifetime()) {
         self.linear = linear
         self.display = display
         self.pixelSize = pixelSize
         self.isRAW = isRAW
+        self.lensCorrectionSupported = lensCorrectionSupported
         self.sourceURL = sourceURL
         self.asShotTemperature = asShotTemperature
         self.asShotTint = asShotTint
@@ -185,8 +192,9 @@ enum ImageDecoder {
         let asShotTemperature = Double(filter.neutralTemperature)
         let asShotTint = Double(filter.neutralTint)
         // Geometry: identical in both, or the before/after split compares two
-        // registrations of the frame rather than two renderings of it.
-        filter.isLensCorrectionEnabled = false
+        // registrations of the frame rather than two renderings of it. That is
+        // why the user's switch is read **here**, once, and not per look.
+        filter.isLensCorrectionEnabled = settings.lensCorrection && filter.isLensCorrectionSupported
         filter.isDraftModeEnabled = false
         if look == .linear {
             // Apple's tone rendering, off: the film model wants sensor response.
@@ -221,7 +229,9 @@ enum ImageDecoder {
         try checkpoint()
         guard let display = displayResult.filter.outputImage else { throw Failure.unsupported(url) }
         return DecodedImage(linear: linear, display: display, pixelSize: linear.extent.size,
-                            isRAW: true, sourceURL: url,
+                            isRAW: true,
+                            lensCorrectionSupported: displayResult.filter.isLensCorrectionSupported,
+                            sourceURL: url,
                             asShotTemperature: asShotT, asShotTint: asShotTint)
     }
 
