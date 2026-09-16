@@ -530,12 +530,12 @@ final class Session: CanvasHost {
     //
     // Two states, not a ladder (the product decision of 2026-09-12):
     //
-    //   1. **the preview resolution.** One settable long edge, 2560 by
-    //      default, and what every interactive edit renders at. It is the
-    //      engine's `live` tier: the *name* is the wire's (contract §1.2.3,
-    //      the three tier names are load-bearing), the *size* is the user's
-    //      (`io.preview_long_edge`; the Settings page that exposes it is the
-    //      user's next drawing, so the default is the only value today).
+    //   1. **the preview resolution.** One of four settable long edges
+    //      (3840, 2560, 1920 or 1080; 2560 by default) and what every
+    //      interactive edit renders at. It is the engine's `live` tier: the
+    //      *name* is the wire's (contract §1.2.3, the three tier names are
+    //      load-bearing), while the chosen size is the user's
+    //      (`io.preview_long_edge`).
     //   2. **the original image.** A render at the frame's own resolution,
     //      started once the edit stops moving, and what the canvas shows when
     //      it lands.
@@ -565,10 +565,14 @@ final class Session: CanvasHost {
     // there is exactly *one* native render alive at a time: 360 MB at 45 MP,
     // 1.2 GB at 151 MP.
 
-    /// Long edges the preview resolution may take. Below 800 the canvas is
-    /// visibly soft at fit on any modern display; above 8192 it costs more
-    /// than the frame is worth.
-    nonisolated static let previewEdgeRange = 800...8192
+    /// Long edges offered by the preview picker. These are deliberately
+    /// discrete: a preview size is a small set of predictable memory/render
+    /// costs, not a value that benefits from pixel-by-pixel tuning.
+    nonisolated static let previewEdgeChoices = [3840, 2560, 1920, 1080]
+    /// Kept as a coarse compatibility range for callers that only need the
+    /// bounds. Settings and persistence use `previewEdgeChoices` as the
+    /// actual constraint.
+    nonisolated static let previewEdgeRange = 1080...3840
     /// A fresh install's preview resolution — Capture One's own default for
     /// its preview image, and 2.56× the pixels of the 1600 it replaces.
     nonisolated static let defaultPreviewEdge = 2560
@@ -596,7 +600,17 @@ final class Session: CanvasHost {
     /// whose canvas had been quietly raised to 8192.
     nonisolated static func previewEdge(in defaults: UserDefaults) -> Int {
         (defaults.object(forKey: previewEdgeKey) as? Int)
-            .map { $0.clamped(to: previewEdgeRange) } ?? defaultPreviewEdge
+            .map { nearestPreviewEdge($0) } ?? defaultPreviewEdge
+    }
+
+    /// Map values persisted by older builds (or supplied through launch
+    /// arguments) to the nearest supported picker value.
+    nonisolated static func nearestPreviewEdge(_ edge: Int) -> Int {
+        previewEdgeChoices.min { lhs, rhs in
+            let leftDistance = abs(lhs - edge)
+            let rightDistance = abs(rhs - edge)
+            return leftDistance == rightDistance ? lhs < rhs : leftDistance < rightDistance
+        } ?? defaultPreviewEdge
     }
 
     /// Set it. A build-layer field: the engine rebuilds its pipeline and drops
@@ -605,7 +619,7 @@ final class Session: CanvasHost {
     /// decode, the sidecar and the export are unaffected — and the native
     /// render that follows picks the change up for free.
     func setPreviewLongEdge(_ edge: Int) {
-        let clamped = edge.clamped(to: Session.previewEdgeRange)
+        let clamped = Session.nearestPreviewEdge(edge)
         guard clamped != previewLongEdge else { return }
         previewLongEdge = clamped
         UserDefaults.standard.set(clamped, forKey: Session.previewEdgeKey)
@@ -763,11 +777,12 @@ final class Session: CanvasHost {
     private var saveTask: Task<Void, Never>?
     private var reopenTask: Task<Void, Never>?
     private var printWritebackTask: Task<Void, Never>?
-    // Renamed with the product. The old `com.hanze.spektrafilm` directory is
-    // simply orphaned: it holds decoded-TIFF caches, which rebuild on demand,
-    // so nothing needs migrating and nothing is lost but disk.
+    // Renamed with the product. The old `com.hanze.spektrafilm` and
+    // `com.hanze.filmify` directories are simply orphaned: this holds
+    // decoded-TIFF caches, which rebuild on demand, so nothing needs
+    // migrating and nothing is lost but disk.
     nonisolated static let cacheRoot = FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask)[0]
-        .appending(path: "com.hanze.filmify")
+        .appending(path: "com.hanze.spektralab")
     nonisolated static var diskCacheRoot: URL { cacheRoot.appending(path: "store") }
 
     init(renderer: Renderer? = nil, diagnostics: Diagnostics = .shared,
@@ -2953,6 +2968,7 @@ struct DisplayPicture: @unchecked Sendable {
     let sourceSize: CGSize
     let costMs: Double
 }
+
 
 /// Shares `SPEKTRAFILM_CANVAS_LOG=1` with `Renderer`: the canvas being blank
 /// is a whole-pipeline symptom, so both ends of it log under one switch.

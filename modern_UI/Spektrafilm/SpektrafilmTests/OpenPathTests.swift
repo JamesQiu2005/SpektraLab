@@ -449,7 +449,7 @@ final class OpenPathTests: XCTestCase {
             session.serviceSessionIDForExport != nil && session.frameStates[url] == .processed && !session.busy
         }
         let print = try XCTUnwrap(session.renderer.store.print(for: url))
-        XCTAssertEqual(print.width, 1200, "the interactive print is not at the preview resolution")
+        XCTAssertEqual(print.width, 1080, "the interactive print is not at the preview resolution")
 
         try await waitUntil("the native render to land", timeout: 180) {
             session.renderer.showsFullRender && !session.fullPending

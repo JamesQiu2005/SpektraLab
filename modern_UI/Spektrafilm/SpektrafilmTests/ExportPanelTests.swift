@@ -115,11 +115,11 @@ final class ExportPanelTests: XCTestCase {
     /// resize handle. It still follows that edge, which is the whole point of
     /// the tab being non-fixed.
     /// The strip is the export batch, not the library: render the actual strip
-    /// view with three picked frames out of four and count its three white cell
-    /// outlines. This deliberately renders `stripPanel`, the smallest existing
-    /// view containing the production `ForEach`, rather than reproducing the
-    /// loop in a test-only view.
-    func testTheExportStripRendersExactlySelectedFramesCountCells() throws {
+    /// view with three picked frames out of four and verify that only the frame
+    /// currently on the canvas gets a white outline. This deliberately renders
+    /// `stripPanel`, the smallest existing view containing the production
+    /// `ForEach`, rather than reproducing the loop in a test-only view.
+    func testTheExportStripFramesOnlyTheCurrentlyPreviewedImage() throws {
         let dir = FileManager.default.temporaryDirectory
             .appending(path: "spk-export-strip-\(UUID().uuidString)")
         try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
@@ -152,9 +152,10 @@ final class ExportPanelTests: XCTestCase {
             return
         }
 
-        // Every chosen strip cell has a long near-white top and bottom outline;
+        // The chosen strip cell has a long near-white top and bottom outline;
         // labels and rounded corners are much shorter and do not pass this
-        // horizontal-run threshold. Pair those six outline bands into cells.
+        // horizontal-run threshold. A single framed cell therefore has two
+        // outline bands, while the other picked cells have none.
         let bytes = rgbaBytes(of: image)
         let bands = (0..<image.height).filter { y in
             var bright = 0
@@ -170,7 +171,76 @@ final class ExportPanelTests: XCTestCase {
             runs += 1
         }
         let maximum = stride(from: 0, to: bytes.count, by: 4).map { max(bytes[$0], max(bytes[$0 + 1], bytes[$0 + 2])) }.max() ?? 0
-        XCTAssertEqual(runs, 6, "three cells should produce six long outline bands, got \(runs), image \(image.width)x\(image.height), max=\(maximum)")
+        XCTAssertEqual(runs, 2, "only the previewed cell should produce two long outline bands, got \(runs), image \(image.width)x\(image.height), max=\(maximum)")
+    }
+
+    /// A portrait preview must be outlined at the fitted image bounds, not at
+    /// the strip cell's nearly-square layout box. The image is generated in
+    /// the test and inserted into the thumbnail cache, so this exercises the
+    /// production cell with real pixel dimensions without adding a fixture.
+    func testTheExportStripPortraitFrameHugsTheDisplayedImage() async throws {
+        let dir = FileManager.default.temporaryDirectory
+            .appending(path: "spk-export-portrait-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        addTeardownBlock {
+            ThumbnailCache.shared.clear()
+            try? FileManager.default.removeItem(at: dir)
+        }
+
+        let url = dir.appending(path: "portrait.png")
+        try Data().write(to: url)
+        let session = Session()
+        session.open(urls: [dir])
+        let frameURL = try XCTUnwrap(session.frames.first?.id)
+        session.click(frameURL)
+
+        let portrait = CGContext(data: nil, width: 100, height: 200,
+                                 bitsPerComponent: 8, bytesPerRow: 0,
+                                 space: CGColorSpaceCreateDeviceRGB(),
+                                 bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue)!
+        portrait.setFillColor(CGColor(red: 0.08, green: 0.08, blue: 0.08, alpha: 1))
+        portrait.fill(CGRect(x: 0, y: 0, width: 100, height: 200))
+        ThumbnailCache.shared.store(try XCTUnwrap(portrait.makeImage()), for: frameURL)
+
+        let host = NSHostingView(rootView: ExportPage(session: session).stripPanel
+            .frame(width: 240, height: 260))
+        host.frame = CGRect(x: 0, y: 0, width: 240, height: 260)
+        host.layoutSubtreeIfNeeded()
+        for _ in 0..<12 {
+            host.layoutSubtreeIfNeeded()
+            await Task.yield()
+        }
+        host.layoutSubtreeIfNeeded()
+        guard let rep = host.bitmapImageRepForCachingDisplay(in: host.bounds) else {
+            XCTFail("Hosting view produced no bitmap; the portrait frame cannot run")
+            return
+        }
+        host.cacheDisplay(in: host.bounds, to: rep)
+        let image = try XCTUnwrap(rep.cgImage)
+        let bytes = rgbaBytes(of: image)
+
+        // The generated portrait fits to roughly 100 × 200 in the strip's
+        // 205 × 185.6 box. A mistaken cell-box stroke would be nearly the
+        // full 205 px wide; the actual frame is substantially narrower.
+        let brightRows = (0..<image.height).map { y -> (Int, Int, Int) in
+            var count = 0
+            var first = image.width
+            var last = -1
+            for x in 0..<image.width {
+                let i = (y * image.width + x) * 4
+                if bytes[i] >= 225 && bytes[i + 1] >= 220 && bytes[i + 2] >= 210 {
+                    count += 1
+                    first = min(first, x)
+                    last = x
+                }
+            }
+            return (count, first, last)
+        }
+        let row = try XCTUnwrap(brightRows.max { $0.0 < $1.0 })
+        XCTAssertGreaterThan(row.0, image.width / 4,
+                             "the portrait outline should have a long bright edge")
+        XCTAssertLessThan(row.2 - row.1 + 1, Int(Double(image.width) * 0.7),
+                          "the portrait outline should hug the fitted image, not the cell box")
     }
 
     /// Read the renderer into a stable RGBA buffer, independent of its source

@@ -1080,7 +1080,7 @@ struct ExportPage: View {
                     } else {
                         ForEach(worklist) { frame in
                             ExportGridCell(frame: frame,
-                                           chosen: true,
+                                           chosen: frame.id == session.selection,
                                            state: session.frameStates[frame.id] ?? .unprocessed,
                                            width: cell)
                                 .onTapGesture { tap(frame) }
@@ -1115,7 +1115,7 @@ struct ExportPage: View {
                 } else {
                     ForEach(worklist) { frame in
                         ExportStripCell(frame: frame,
-                                        chosen: true,
+                                        chosen: frame.id == session.selection,
                                         state: session.frameStates[frame.id] ?? .unprocessed)
                             .onTapGesture { tap(frame) }
                     }
@@ -1337,8 +1337,9 @@ struct ExportPage: View {
 ///
 /// `notes.md`, and it is right: "Only the chosen image gets a white frame
 /// around it, and the actual image name got displayed, the non-selected ones
-/// are just there (no actual grey frame around it)." So the frame and the name
-/// are one decision, not two, and an unchosen cell draws neither.
+/// are just there (no actual grey frame around it). The export batch is the
+/// worklist, while `chosen` is only the current preview, so filenames remain
+/// visible for every item even though only one gets the white frame.
 ///
 /// This was briefly changed to stroke every cell in the drawing's `#686969`,
 /// on a reading of the grid drawing's two rectangles per cell as chrome. They
@@ -1353,30 +1354,46 @@ private struct ExportStripCell: View {
     let state: FrameState
     @State private var image: CGImage?
 
+    /// Keep the frame on the fitted image, not on the strip's fixed-height
+    /// layout box.  The latter is what made a portrait thumbnail look as if
+    /// it had a square frame: the box is deliberately shared by every cell,
+    /// while the picture inside it has its own aspect ratio.
+    private var frameStroke: some View {
+        RoundedRectangle(cornerRadius: 2)
+            .stroke(Theme.selectionFrame, lineWidth: chosen ? 2 : 0)
+    }
+
     var body: some View {
         VStack(spacing: 6) {
-            ZStack {
-                Group {
+            GeometryReader { geometry in
+                let box = CGSize(width: geometry.size.width,
+                                 height: Theme.Metric.Export.thumbMax)
+                ZStack {
+                    Color.clear
                     if let image {
-                        Image(decorative: image, scale: 1).resizable().aspectRatio(contentMode: .fit)
+                        let size = exportFittedImageSize(
+                            imageSize: CGSize(width: image.width, height: image.height), in: box)
+                        Image(decorative: image, scale: 1)
+                            .resizable()
+                            .frame(width: size.width, height: size.height)
+                            .overlay(frameStroke)
                     } else {
-                        RoundedRectangle(cornerRadius: 2).fill(Theme.well)
-                            .aspectRatio(3 / 2, contentMode: .fit)
+                        let size = exportFittedImageSize(imageSize: CGSize(width: 3, height: 2), in: box)
+                        RoundedRectangle(cornerRadius: 2)
+                            .fill(Theme.well)
+                            .frame(width: size.width, height: size.height)
                             .overlay(Image(systemName: "photo").foregroundStyle(Theme.dim))
+                            .overlay(frameStroke)
                     }
                 }
-                .frame(maxWidth: .infinity)
-                .frame(maxHeight: Theme.Metric.Export.thumbMax)
-                .overlay(RoundedRectangle(cornerRadius: 2)
-                    .stroke(Theme.selectionFrame, lineWidth: chosen ? 2 : 0))
             }
             .frame(maxWidth: .infinity)
-            if chosen {
-                Text(frame.name)
-                    .font(Theme.Font.Export.label)
-                    .foregroundStyle(Theme.text)
-                    .lineLimit(1).truncationMode(.middle)
-            }
+            .frame(height: Theme.Metric.Export.thumbMax)
+            .frame(maxWidth: .infinity)
+            Text(frame.name)
+                .font(Theme.Font.Export.label)
+                .foregroundStyle(Theme.text)
+                .lineLimit(1).truncationMode(.middle)
         }
         .help(frame.name)
         .task(id: frame.id) {
@@ -1424,10 +1441,9 @@ private struct ExportGridCell: View {
 
     /// The stroke is on the **picture**, not on the box: the drawing's
     /// landscape frame hugs a landscape frame of film and its portrait hugs a
-    /// portrait one, so a wide picture is outlined wide. `.aspectRatio(.fit)`
-    /// returns a view of the fitted size, so an overlay here is the picture's
-    /// own bounds — which is why this is an overlay *inside* the box rather
-    /// than one on the cell.
+    /// portrait one, so a wide picture is outlined wide. The fitted size is
+    /// calculated explicitly from the pixels and the box before the overlay
+    /// is attached, rather than relying on SwiftUI's proposed size.
     private var frameStroke: some View {
         RoundedRectangle(cornerRadius: 2)
             .stroke(Theme.selectionFrame, lineWidth: chosen ? 2 : 0)
@@ -1438,20 +1454,23 @@ private struct ExportGridCell: View {
             ZStack {
                 Color.clear
                     .frame(width: box.width, height: box.height)
-                    .overlay {
-                        if let image {
-                            Image(decorative: image, scale: 1)
-                                .resizable()
-                                .aspectRatio(contentMode: .fit)
-                                .overlay(frameStroke)
-                        } else {
-                            // Nothing of its own to hug yet, so a 3:2 stand-in
-                            // on the card's colour.
-                            Rectangle().fill(Theme.card)
-                                .aspectRatio(3 / 2, contentMode: .fit)
-                                .overlay(frameStroke)
+                        .overlay {
+                            if let image {
+                                let size = exportFittedImageSize(
+                                    imageSize: CGSize(width: image.width, height: image.height), in: box)
+                                Image(decorative: image, scale: 1)
+                                    .resizable()
+                                    .frame(width: size.width, height: size.height)
+                                    .overlay(frameStroke)
+                            } else {
+                                // Nothing of its own to hug yet, so a 3:2 stand-in
+                                // on the card's colour.
+                                let size = exportFittedImageSize(imageSize: CGSize(width: 3, height: 2), in: box)
+                                Rectangle().fill(Theme.card)
+                                    .frame(width: size.width, height: size.height)
+                                    .overlay(frameStroke)
+                            }
                         }
-                    }
             }
             Text(frame.name)
                 .font(Theme.Font.Export.label)
@@ -1469,6 +1488,18 @@ private struct ExportGridCell: View {
             Task { image = await ThumbnailCache.shared.thumbnail(for: frame.id, maxPixel: 1024) }
         }
     }
+}
+
+/// Return the exact size an export thumbnail occupies when aspect-fitted into
+/// its layout box. Keeping this calculation explicit makes the selection
+/// outline attach to the picture's bounds, rather than to SwiftUI's proposed
+/// box (which can be wider than a portrait image).
+func exportFittedImageSize(imageSize: CGSize, in box: CGSize) -> CGSize {
+    guard imageSize.width > 0, imageSize.height > 0,
+          box.width > 0, box.height > 0 else { return .zero }
+    let scale = min(box.width / imageSize.width, box.height / imageSize.height)
+    return CGSize(width: (imageSize.width * scale).rounded(),
+                  height: (imageSize.height * scale).rounded())
 }
 
 // MARK: - the pill chrome
@@ -1591,7 +1622,7 @@ enum OpenWithCatalog {
         let ext = format.ext
         if let hit = cache[ext] { apps = hit; return }
         let probe = FileManager.default.temporaryDirectory
-            .appending(path: "filmify-openwith-probe.\(ext)")
+            .appending(path: "spektralab-openwith-probe.\(ext)")
         FileManager.default.createFile(atPath: probe.path, contents: Data())
         defer { try? FileManager.default.removeItem(at: probe) }
         let list = NSWorkspace.shared.urlsForApplications(toOpen: probe)

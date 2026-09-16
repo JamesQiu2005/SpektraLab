@@ -30,8 +30,8 @@ final class FrontendPolicyTests: XCTestCase {
         XCTAssertTrue(Session.wantsFullRender(frameLongEdge: 3000, previewEdge: 2560))
     }
 
-    /// The setting: what a fresh install gets, the range it is clamped to at
-    /// both ends, and that setting it sticks.
+    /// The setting: what a fresh install gets, the discrete choices it accepts,
+    /// and that setting it sticks.
     ///
     /// The clamp matters because the value crosses the wire, where the
     /// engine's own range check would reject it as a user error.
@@ -45,7 +45,7 @@ final class FrontendPolicyTests: XCTestCase {
     /// is the setter half, which is the app's own path.
     func testThePreviewResolutionDefaultsAndClamps() throws {
         XCTAssertEqual(Session.defaultPreviewEdge, 2560)
-        XCTAssertEqual(Session.previewEdgeRange, 800...8192)
+        XCTAssertEqual(Session.previewEdgeChoices, [3840, 2560, 1920, 1080])
 
         let suite = "preview-edge-\(UUID().uuidString)"
         let defaults = try XCTUnwrap(UserDefaults(suiteName: suite))
@@ -57,12 +57,12 @@ final class FrontendPolicyTests: XCTestCase {
         // how `-ui2.previewLongEdge 6000` reaches the app and which
         // `removeVolatileDomain(forName:)` cannot unset.
         defaults.set(6000, forKey: Session.previewEdgeKey)
-        XCTAssertEqual(Session.previewEdge(in: defaults), 6000,
-                       "a stored resolution did not come back")
+        XCTAssertEqual(Session.previewEdge(in: defaults), 3840,
+                       "a stored resolution was not mapped to the nearest choice")
         defaults.set(99_999, forKey: Session.previewEdgeKey)
-        XCTAssertEqual(Session.previewEdge(in: defaults), 8192, "the ceiling did not clamp")
+        XCTAssertEqual(Session.previewEdge(in: defaults), 3840, "the upper choice was not enforced")
         defaults.set(100, forKey: Session.previewEdgeKey)
-        XCTAssertEqual(Session.previewEdge(in: defaults), 800, "the floor did not clamp")
+        XCTAssertEqual(Session.previewEdge(in: defaults), 1080, "the lower choice was not enforced")
 
         // And the setter, on a live session: it clamps *and* writes, which is
         // what a stored value has to survive.
@@ -70,10 +70,10 @@ final class FrontendPolicyTests: XCTestCase {
         let original = session.previewLongEdge
         addTeardownBlock { UserDefaults.standard.set(original, forKey: Session.previewEdgeKey) }
         session.setPreviewLongEdge(100)
-        XCTAssertEqual(session.previewLongEdge, 800, "the floor did not clamp")
+        XCTAssertEqual(session.previewLongEdge, 1080, "the lower choice was not enforced")
         session.setPreviewLongEdge(99_999)
-        XCTAssertEqual(session.previewLongEdge, 8192, "the ceiling did not clamp")
-        XCTAssertEqual(Session.previewEdge(in: .standard), 8192,
+        XCTAssertEqual(session.previewLongEdge, 3840, "the upper choice was not enforced")
+        XCTAssertEqual(Session.previewEdge(in: .standard), 3840,
                        "the setter did not write through to the store")
     }
 
@@ -186,7 +186,7 @@ final class FrontendPolicyTests: XCTestCase {
         // asserting on `storeDirectory` here would only be asserting that the
         // redirect works.
         let real = Sidecar.defaultStoreDirectory.path
-        XCTAssertTrue(real.hasSuffix("/Library/Application Support/Filmify/Sidecars"), real)
+        XCTAssertTrue(real.hasSuffix("/Library/Application Support/SpektraLab/Sidecars"), real)
         XCTAssertFalse(real.contains(".app/"), "a sidecar must never be written into the bundle")
         let url = Sidecar.url(for: URL(fileURLWithPath: "/tmp/photos/a.NEF"))
         XCTAssertFalse(url.path.hasPrefix("/tmp/photos"), "a sidecar must not be written beside the image")
