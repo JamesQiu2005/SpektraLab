@@ -297,3 +297,21 @@ modern_UI/Spektrafilm/Spektrafilm/Resources/engine/
 # so the link is machine-local and must not be tracked. It was, briefly, and
 # the merge that brought it in pointed this checkout at itself.
 /tests
+
+# ---------------------------------------------------------------------------
+# Local-only: the native neutral-density experiment
+#
+# `experiment/film-positive` is a worktree at /private/tmp, and these are its
+# working artifacts: a patch against the engine, batch runner output, profile
+# SOP drafts and comparison renders. The experiment has not been decided, and
+# `HANDOFF-NATIVE-NEUTRAL-DENSITY.md` is its notebook rather than a handoff the
+# product is built from. Keep it local until it either lands or is abandoned;
+# a public repository is the wrong place to publish an unfinished claim about
+# colour science.
+/handoff/native-neutral-density/
+/handoff/HANDOFF-NATIVE-NEUTRAL-DENSITY.md
+
+# The app icon, still being drawn. `Assets.xcassets/AppIcon.appiconset` has no
+# images in it yet, so the app ships with the generic macOS icon; this is the
+# Illustrator source it will come from.
+/app_icon/

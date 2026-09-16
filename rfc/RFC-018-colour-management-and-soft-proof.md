@@ -27,7 +27,7 @@ not managed, it is lucky.
 The answer this RFC builds is different, and it is the user's: **the app edits
 in ProPhoto RGB and converts once, at the end, per destination.** Capture One
 grades in a wide proprietary space and converts on export; Lightroom grades in
-ProPhoto primaries and converts on export. Filmify has been doing the reverse —
+ProPhoto primaries and converts on export. SpektraLab has been doing the reverse —
 converting to the narrowest space in the chain first, then grading inside it.
 
 ---

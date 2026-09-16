@@ -13,7 +13,7 @@ native host that does not exist yet.
 
 ## 0. The product, end to end
 
-Filmify is **one application with a C++ render engine linked into it**. The
+SpektraLab is **one application with a C++ render engine linked into it**. The
 engine is spektrafilm's; so are the profiles and the LUTs baked from them. It
 used to be two programs and a pipe — RFC-014 deleted the pipe (2026-09-10) —
 and the Python engine that sat on the far side of it stayed behind in the

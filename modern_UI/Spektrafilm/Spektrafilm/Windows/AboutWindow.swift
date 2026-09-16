@@ -73,7 +73,7 @@ struct AboutWindow: View {
             Image(nsImage: NSApp.applicationIconImage)
                 .resizable().frame(width: 64, height: 64)
             VStack(alignment: .leading, spacing: 3) {
-                Text("Filmify").font(.system(size: 20, weight: .semibold))
+                Text("SpektraLab").font(.system(size: 20, weight: .semibold))
                 Text(AboutWindow.version).font(Theme.Font.sublabel).foregroundStyle(.secondary)
                 Text("A spectral film and print simulation for macOS.")
                     .font(Theme.Font.sublabel).foregroundStyle(.secondary)
@@ -86,12 +86,12 @@ struct AboutWindow: View {
     private var credits: some View {
         VStack(alignment: .leading, spacing: 10) {
             // The one line that says which name belongs to which thing. This
-            // app is Filmify; the engine, the profiles and the LUTs it uses
+            // app is SpektraLab; the engine, the profiles and the LUTs it uses
             // are spektrafilm's, and `SPEKTRAFILM_LICENSE.txt` asks that the
             // product branding be kept apart from the factual reference —
             // which it welcomes. Saying so on the About panel is where that
             // distinction is legible.
-            Text("Filmify uses the spektrafilm engine, film and paper profiles, and the print-preview LUTs baked from them.")
+            Text("SpektraLab uses the spektrafilm engine, film and paper profiles, and the print-preview LUTs baked from them.")
                 .font(Theme.Font.sublabel).foregroundStyle(.secondary)
                 .fixedSize(horizontal: false, vertical: true)
             // The attribution the CC BY-SA licence requires, in the form it
@@ -105,7 +105,7 @@ struct AboutWindow: View {
                      "https://github.com/andreavolpato/spektrafilm")
             }
             VStack(alignment: .leading, spacing: 2) {
-                Text("Filmify and its render engine")
+                Text("SpektraLab and its render engine")
                     .font(Theme.Font.groupHeader).foregroundStyle(Theme.text)
                 // The GPL's written offer, and the only form of it that is
                 // any use: a place to get the code. It points at this

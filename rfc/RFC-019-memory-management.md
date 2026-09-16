@@ -369,7 +369,7 @@ Rules:
 
 ### 7.2 On disk
 
-`~/Library/Caches/com.hanze.filmify/decode/` — `Session.cacheRoot` already
+`~/Library/Caches/com.hanze.spektralab/decode/` — `Session.cacheRoot` already
 exists (`Session.swift:732`).
 
 - One entry per `(file identity, DecodeSettings)`: the **display** decode

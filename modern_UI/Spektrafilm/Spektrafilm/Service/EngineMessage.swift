@@ -102,7 +102,7 @@ enum EngineMessage {
         // engine/build.sh bundle", which is right for a checkout and
         // meaningless for a download.
         case .install:
-            return "This copy of Filmify is missing part of itself and cannot render. "
+            return "This copy of SpektraLab is missing part of itself and cannot render. "
                  + "Download it again, or move it out of the disk image into Applications "
                  + "if it is still running from there. (\(raw))"
 
@@ -110,19 +110,19 @@ enum EngineMessage {
         // render inaccurately, which is the right call and needs saying as
         // one — the app is not broken, this build of it is.
         case .fastMath:
-            return "This build of Filmify was compiled with a maths setting that would "
+            return "This build of SpektraLab was compiled with a maths setting that would "
                  + "render colours slightly wrong, so it refused to start rather than lie to "
                  + "you. Please report the build you downloaded. (\(raw))"
 
         case .metal:
-            return "Filmify needs a Metal-capable GPU and could not find one on this Mac."
+            return "SpektraLab needs a Metal-capable GPU and could not find one on this Mac."
 
         // The frame is bigger than the engine will accept — either more pixels
         // than the cap (a Phase One IQ4 150's 14204 x 10652) or a long edge the
         // GPU cannot make a texture of. Both say so in the raw text, which is
         // the half that tells the user how far over they are.
         case .size:
-            return "This frame is larger than Filmify can render. The biggest it takes is a "
+            return "This frame is larger than SpektraLab can render. The biggest it takes is a "
                  + "150 MP camera's frame, and a very wide panorama can be refused for the GPU's "
                  + "texture limit even when it is under that. (\(raw))"
 
@@ -135,7 +135,7 @@ enum EngineMessage {
 
         // Out of memory, most likely at the full tier.
         case .memory:
-            return "Filmify ran out of memory rendering this frame at full resolution. "
+            return "SpektraLab ran out of memory rendering this frame at full resolution. "
                  + "Closing other applications, or zooming out so a smaller tier is used, "
                  + "usually gets past it. (\(raw))"
 

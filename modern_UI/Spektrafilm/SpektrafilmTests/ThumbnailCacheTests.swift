@@ -158,7 +158,7 @@ final class ThumbnailCacheTests: XCTestCase {
 final class ThumbnailSessionResetTests: XCTestCase {
     func testSessionOpenStartsANewThumbnailGeneration() throws {
         let dir = FileManager.default.temporaryDirectory
-            .appending(path: "filmify-thumbnail-reset-\(UUID().uuidString)")
+            .appending(path: "spektralab-thumbnail-reset-\(UUID().uuidString)")
         try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
         addTeardownBlock {
             ThumbnailCache.shared.clear()

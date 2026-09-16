@@ -16,7 +16,7 @@ struct SpektrafilmApp: App {
     private let snapshot = SnapshotRequest.parse(CommandLine.arguments)
 
     var body: some Scene {
-        Window("Filmify", id: "editor") {
+        Window("SpektraLab", id: "editor") {
             EditorWindow(session: session)
                 .environment(\.snapshotMode, snapshot != nil)
                 .frame(minWidth: Theme.Metric.minWindow.width, minHeight: Theme.Metric.minWindow.height)
@@ -30,7 +30,7 @@ struct SpektrafilmApp: App {
         // require something visible, and CC BY-SA 4.0 names an About screen
         // by example as a place the attribution has to survive. See
         // `AboutWindow`.
-        Window("About Filmify", id: "about") {
+        Window("About SpektraLab", id: "about") {
             AboutWindow()
         }
         .windowResizability(.contentSize)
@@ -40,7 +40,7 @@ struct SpektrafilmApp: App {
         // menu's "Settings…" item for free, and in this app it stops SwiftUI
         // from ever creating the *editor* window. Bisected: with a `Settings`
         // scene the app has one window at the boot handover (the boot window)
-        // and the `Window("Filmify", id: "editor")` scene's window is never
+        // and the `Window("SpektraLab", id: "editor")` scene's window is never
         // made; without it there are two, the second being SwiftUI's
         // `TUINSWindow`. The app launched to a boot screen that never went
         // away.
@@ -81,7 +81,7 @@ struct EditorCommands: Commands {
 
     var body: some Commands {
         CommandGroup(replacing: .appInfo) {
-            Button("About Filmify") { openAbout() }
+            Button("About SpektraLab") { openAbout() }
         }
         // Hand-declared because the page is a `Window` and not a `Settings`
         // scene — see the comment on that scene. Same slot, same shortcut.

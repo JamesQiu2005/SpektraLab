@@ -155,11 +155,11 @@ final class Diagnostics {
 
     /// The caption under the control, in the same idiom as the other two.
     nonisolated static let memoryReserveNote =
-        "Memory Filmify leaves free for everything else. A frame whose forecast peak does not fit "
+        "Memory SpektraLab leaves free for everything else. A frame whose forecast peak does not fit "
         + "under it gets a warning you can dismiss — never a refusal. The override below suppresses "
         + "the warning, not eviction."
 
-    /// How much memory Filmify may hold in its caches. 0 is the explicit
+    /// How much memory SpektraLab may hold in its caches. 0 is the explicit
     /// Unlimited state: finite values are clamped to the published range, while
     /// 0 means the cap is not enforced.
     var memoryCapMegabytes: Int {
@@ -204,11 +204,11 @@ final class Diagnostics {
     /// holdings the number actually governs; the rest separates the two
     /// independent budgets so the reserve cannot be read as a cap.
     nonisolated static let memoryCapNote =
-        "How much Filmify may hold in caches and scratch buffers. The frame you are looking at is "
+        "How much SpektraLab may hold in caches and scratch buffers. The frame you are looking at is "
         + "never evicted, whatever this says. Free memory is set by the other applications on the "
-        + "machine; this is the part Filmify decides."
+        + "machine; this is the part SpektraLab decides."
 
-    /// Where sessions are written (§11.4). Default `~/Library/Logs/Filmify/`.
+    /// Where sessions are written (§11.4). Default `~/Library/Logs/SpektraLab/`.
     var logDirectory: URL {
         didSet {
             guard logDirectory != oldValue else { return }
@@ -315,11 +315,11 @@ final class Diagnostics {
         applyMemoryLimits()
     }
 
-    /// `~/Library/Logs/Filmify/` (§11.4). Created by `start()`, not here: a
+    /// `~/Library/Logs/SpektraLab/` (§11.4). Created by `start()`, not here: a
     /// model built in a test must not make a directory in the user's home.
     nonisolated static var defaultLogDirectory: URL {
         FileManager.default.urls(for: .libraryDirectory, in: .userDomainMask)[0]
-            .appending(path: "Logs/Filmify")
+            .appending(path: "Logs/SpektraLab")
     }
 
     private enum Keys {

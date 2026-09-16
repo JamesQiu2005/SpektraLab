@@ -1,6 +1,6 @@
 //  ColourManagement.swift — the working space, and the one conversion out of it.
 //
-//  RFC-018 §5.4. Filmify grades in **one** space (ProPhoto RGB, the session's
+//  RFC-018 §5.4. SpektraLab grades in **one** space (ProPhoto RGB, the session's
 //  resolved `io.output_color_space`) and converts once, at the end, per
 //  destination. This file is the app's side of that: it asks the engine for the
 //  numbers (`spk_output_transform`), caches the answer per (source, target)

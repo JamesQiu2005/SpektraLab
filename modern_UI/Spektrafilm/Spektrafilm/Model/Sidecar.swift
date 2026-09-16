@@ -169,7 +169,7 @@ struct Sidecar: Codable, Equatable, Sendable {
 
     // MARK: - where a frame's settings live
 
-    /// `~/Library/Application Support/Filmify/Sidecars/`.
+    /// `~/Library/Application Support/SpektraLab/Sidecars/`.
     ///
     /// **Not beside the image**, which is where these used to go and which
     /// the user objected to in plain terms: opening a folder of RAWs littered
@@ -190,7 +190,7 @@ struct Sidecar: Codable, Equatable, Sendable {
     /// The real store, ignoring any override. Tests assert on this.
     static let defaultStoreDirectory: URL =
         FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
-            .appending(path: "Filmify")
+            .appending(path: "SpektraLab")
             .appending(path: "Sidecars")
 
     /// Where the store actually is. Nil means the real one.
@@ -207,7 +207,7 @@ struct Sidecar: Codable, Equatable, Sendable {
         ProcessInfo.processInfo.environment["XCTestConfigurationFilePath"] == nil
             ? nil
             : FileManager.default.temporaryDirectory
-                .appending(path: "filmify-test-sidecars-\(ProcessInfo.processInfo.processIdentifier)"))
+                .appending(path: "spektralab-test-sidecars-\(ProcessInfo.processInfo.processIdentifier)"))
 
     /// Point the store somewhere else. For tests that want to inspect it.
     static func useStore(at url: URL?) {

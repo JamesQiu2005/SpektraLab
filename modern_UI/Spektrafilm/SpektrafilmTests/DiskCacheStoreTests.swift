@@ -3,7 +3,7 @@ import XCTest
 final class DiskCacheStoreTests: XCTestCase {
     private func root() -> URL {
         let url = FileManager.default.temporaryDirectory
-            .appending(path: "filmify-disk-cache-\(UUID().uuidString)")
+            .appending(path: "spektralab-disk-cache-\(UUID().uuidString)")
         addTeardownBlock { try? FileManager.default.removeItem(at: url) }
         return url
     }

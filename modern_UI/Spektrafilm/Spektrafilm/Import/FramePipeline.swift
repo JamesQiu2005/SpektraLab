@@ -47,7 +47,7 @@ final class FramePipeline: @unchecked Sendable {
     /// `waitUntilCompleted`, and a decode holds a Metal context for its whole
     /// run — two of those concurrently would contend for Metal and for
     /// memory, not parallelise.
-    private let queue = DispatchQueue(label: "filmify.frame-pipeline", qos: .userInitiated)
+    private let queue = DispatchQueue(label: "spektralab.frame-pipeline", qos: .userInitiated)
     private let lock = NSLock()
     private var _generation = 0
     private var _jobsRun = 0

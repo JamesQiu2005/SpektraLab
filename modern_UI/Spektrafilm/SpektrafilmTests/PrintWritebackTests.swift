@@ -4,7 +4,7 @@ import XCTest
 final class PrintWritebackTests: XCTestCase {
     private func root() -> URL {
         let url = FileManager.default.temporaryDirectory
-            .appending(path: "filmify-print-writeback-\(UUID().uuidString)")
+            .appending(path: "spektralab-print-writeback-\(UUID().uuidString)")
         addTeardownBlock { try? FileManager.default.removeItem(at: url) }
         return url
     }

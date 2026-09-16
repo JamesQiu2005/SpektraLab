@@ -1,4 +1,4 @@
-# AGENTS.md — working notes for AI sessions on Filmify
+# AGENTS.md — working notes for AI sessions on SpektraLab
 
 The macOS desktop product built on the **spektrafilm** engine. Extracted from
 the `spektrafilm` fork into its own repository on 2026-09-11; `README.md` says
@@ -189,7 +189,7 @@ since `engine/build.sh bundle` is an rsync that leaves a *stale* bundle rather
 than an empty one when it does not run:
 
 ```bash
-SPEKTRAFILM_ENGINE_RESOURCES=/path/to/Filmify.app/Contents/Resources/Resources/engine \
+SPEKTRAFILM_ENGINE_RESOURCES=/path/to/SpektraLab.app/Contents/Resources/Resources/engine \
     PYTHONPATH="$REF/src" "$REF/.venv/bin/python" engine/tests/parity_lut.py
 ```
 

@@ -62,7 +62,7 @@ Anything that does not serve one of these eight does not belong in the log.
 ## 2. Shape
 
 **One file per app session**, newline-delimited JSON, in
-`~/Library/Logs/Filmify/`, named `filmify-<ISO8601>-<pid>.jsonl`, with
+`~/Library/Logs/SpektraLab/`, named `spektralab-<ISO8601>-<pid>.jsonl`, with
 `latest.jsonl` a symlink to the current one. JSONL because the consumers are a
 human with `grep`, a script, and eventually a test — not a log viewer.
 
@@ -258,7 +258,7 @@ it answerable *by the user*, without this project's authors present.
 3. **The diagnostic bundle carries file names by default**, with the untick
    still offered.
 4. **The log's destination is settable, and a job writes its own log beside
-   its output.** Default stays `~/Library/Logs/Filmify/`. A batch export also
+   its output.** Default stays `~/Library/Logs/SpektraLab/`. A batch export also
    writes a job log **into the export destination**, next to the files it
    produced, so a folder of exports carries the record of how it was made:
    which recipe, which engine build, per-frame timings, per-frame applied EV,
@@ -299,7 +299,7 @@ say "nothing implemented".
 file sink, batching and rotation), `MemorySampler`, `Diagnostics` (the
 settings and the façade), `DiagnosticBundle`, `JobLog`. Instrumentation is in
 `Session`, `EngineClient`, `RenderScheduler` and `Exporter`. The Settings page
-is `Windows/SettingsWindow.swift`, reached from Filmify ▸ Settings… (⌘,).
+is `Windows/SettingsWindow.swift`, reached from SpektraLab ▸ Settings… (⌘,).
 
 **§8's six checks were each seen red before being seen green**, as the section
 demands, along with six more of the same shape (supersession, the job log, the

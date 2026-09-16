@@ -48,16 +48,22 @@ ENGINE = ROOT.parents[1] / "engine"
 # `SpektrafilmTests.xcscheme` reference by `BlueprintName`, the Swift module is
 # named from it, and renaming it buys nothing a user can see.
 #
-# `PRODUCT_NAME` is what the user sees: `Filmify.app`, the menu bar title, the
-# About panel, the DMG. The product was renamed to Filmify because
-# `SPEKTRAFILM_LICENSE.txt` asks that "spektrafilm" not be used in product
-# branding without asking first — this app links the spektrafilm engine and
-# ships its profiles, which the same licence explicitly welcomes as a factual
-# reference ("this app uses spektrafilm LUTs"). So: product renamed, engine and
-# profiles keep their name, and the About panel carries the credit
-# (HANDOFF-DISTRIBUTION §2.3).
+# `PRODUCT_NAME` is what the user sees: `SpektraLab.app`, the menu bar title,
+# the About panel, the DMG. The product was renamed to Filmify, and then to
+# SpektraLab (2026-09-16), because `SPEKTRAFILM_LICENSE.txt` asks that
+# "spektrafilm" not be used in product branding without asking first — this
+# app links the spektrafilm engine and ships its profiles, which the same
+# licence explicitly welcomes as a factual reference ("this app uses
+# spektrafilm LUTs"). So: product renamed, engine and profiles keep their
+# name, and the About panel carries the credit (HANDOFF-DISTRIBUTION §2.3).
+#
+# `BUNDLE_ID` deliberately still reads "filmify": it is the identity macOS
+# Gatekeeper/notarisation already has on record for this app, and changing it
+# would orphan that history and any installed copy's app data. Renaming the
+# reverse-DNS id is a separate, larger decision than renaming what the user
+# sees.
 APP = "Spektrafilm"
-PRODUCT_NAME = "Filmify"
+PRODUCT_NAME = "SpektraLab"
 TESTS = "SpektrafilmTests"
 BUNDLE_ID = "com.hanze.filmify"
 MACOS = "15.0"

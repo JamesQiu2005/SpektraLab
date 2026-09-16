@@ -1,16 +1,16 @@
-# Filmify
+# SpektraLab
 
 A macOS film and print simulator. Open a RAW or TIFF negative, choose a film
 stock and a paper, and watch a physically-modelled render settle in under a
 second — grain, halation, couplers, enlarger dichroics and all.
 
-**Filmify is the application.** The simulation it runs is **spektrafilm** — the
-engine, the 28 measured film profiles and the print-preview LUTs baked from
-them are Andrea Volpato's, licensed CC BY-SA 4.0. This repository is the
+**SpektraLab is the application.** The simulation it runs is **spektrafilm** —
+the engine, the 28 measured film profiles and the print-preview LUTs baked
+from them are Andrea Volpato's, licensed CC BY-SA 4.0. This repository is the
 desktop product built on top of that engine. See [Licensing](#licensing).
 
 ```
-┌─ Filmify.app ─────────────────────────────────────────────────────────┐
+┌─ SpektraLab.app ──────────────────────────────────────────────────────┐
 │  SwiftUI + Metal, macOS                                               │
 │                                                                       │
 │  Session ── Renderer ── EngineClient                                  │
@@ -49,7 +49,7 @@ Requires macOS 15+, Xcode 26.6 and an Apple-silicon Mac. `ARCHS = arm64` only.
 engine/build.sh bundle     # compile the engine + kernels, rsync baked resources into the app
 cd modern_UI/Spektrafilm
 xcodebuild -project Spektrafilm.xcodeproj -scheme Spektrafilm \
-           -derivedDataPath build/DerivedData build     # → Filmify.app
+           -derivedDataPath build/DerivedData build     # → SpektraLab.app
 ```
 
 `engine/build.sh bundle` is **not optional and not automatic**: the app target
@@ -60,7 +60,7 @@ when the resources are absent. The dangerous case is *stale*, not absent — re-
 Launch it, or use the snapshot harness:
 
 ```bash
-build/DerivedData/Build/Products/Debug/Filmify.app/Contents/MacOS/Filmify \
+build/DerivedData/Build/Products/Debug/SpektraLab.app/Contents/MacOS/SpektraLab \
     --snapshot 1200x700 /tmp/out.png --open frame.tif --wait 40
 ```
 
@@ -118,16 +118,20 @@ it is the oracle several harnesses compare against, so see below if you need it.
 
 ### Naming
 
-The product is **Filmify**; the engine, profiles and LUTs are **spektrafilm**.
-That split is deliberate and the licence asks for it: `SPEKTRAFILM_LICENSE.txt`
-says not to use "spektrafilm" in product branding without asking, while
-explicitly welcoming the factual reference. The About panel says which is which.
+The product is **SpektraLab**; the engine, profiles and LUTs are
+**spektrafilm**. That split is deliberate and the licence asks for it:
+`SPEKTRAFILM_LICENSE.txt` says not to use "spektrafilm" in product branding
+without asking, while explicitly welcoming the factual reference. The About
+panel says which is which.
 
 Internally the Xcode **target**, the **scheme** and the Swift **module** are
 still called `Spektrafilm`. Renaming those buys nothing a user can see and
-breaks every `BlueprintName` in the schemes, so they stay. Only the *product*
-name, the bundle id (`com.hanze.filmify`) and the user-visible strings are
-Filmify.
+breaks every `BlueprintName` in the schemes, so they stay. The product was
+first renamed from Filmify to **SpektraLab** on 2026-09-16; the bundle id
+(`com.hanze.filmify`) deliberately did not move with it — it is what macOS's
+notarisation and Gatekeeper already have on record for this app, and changing
+it is a separate, larger decision than renaming what the user sees. Only the
+*product* name and the user-visible strings are SpektraLab.
 
 ### Rebaking the engine resources
 
@@ -178,14 +182,14 @@ which fails if the two ever agree again. See `AGENTS.md` trap 28.
 
 | what | licence | file |
 |---|---|---|
-| Filmify, the app | GPL-3.0-or-later | `LICENSE` |
+| SpektraLab, the app | GPL-3.0-or-later | `LICENSE` |
 | the C++ render engine | GPL-3.0-or-later | `LICENSE` |
 | film and paper profiles, and the print-preview LUTs derived from them | CC BY-SA 4.0 | `SPEKTRAFILM_LICENSE.txt` |
 | vendored metal-cpp | Apache-2.0 | `engine/third_party/metal-cpp/LICENSE.txt` |
 
 All four texts ship inside the `.app` (`Tools/bundle-licenses.sh`, checked by
 `LicensingTests` and the pre-build phase) and are reachable from
-**Filmify → About Filmify**. That panel is an obligation rather than polish:
+**SpektraLab → About SpektraLab**. That panel is an obligation rather than polish:
 CC BY-SA names "an app's About screen" by example as a place attribution must
 survive, and the GPL wants a route to the corresponding source.
 

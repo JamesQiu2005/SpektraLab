@@ -205,16 +205,16 @@ static var defaultMemoryCapMB: Int { min(8_192, Int(0.4 * physicalRAM_MB)) }
 
 Caption, in the house idiom:
 
-> How much Filmify may hold in caches and scratch buffers. The frame you are
+> How much SpektraLab may hold in caches and scratch buffers. The frame you are
 > looking at is never evicted, whatever this says. Free memory is set by the
-> other applications on the machine; this is the part Filmify decides.
+> other applications on the machine; this is the part SpektraLab decides.
 
 The row goes directly under Reserve in `memorySection`
 (`Windows/SettingsWindow.swift:120-150`), same `intRow` helper, followed by the
 arena readout:
 
 ```
-Held by Filmify   2.1 GB      (breakdown on hover)
+Held by SpektraLab   2.1 GB      (breakdown on hover)
 Evictable         1.4 GB
 ```
 
@@ -305,10 +305,10 @@ engine's working negative.
 ### 6.2 Layout
 
 `Session.cacheRoot` already exists (`Session.swift:732`,
-`~/Library/Caches/com.hanze.filmify`). Add:
+`~/Library/Caches/com.hanze.spektralab`). Add:
 
 ```
-com.hanze.filmify/
+com.hanze.spektralab/
   store/
     index.sqlite
     <first 2 hex of key>/<key>.bin

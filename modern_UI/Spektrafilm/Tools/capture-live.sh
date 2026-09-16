@@ -17,10 +17,10 @@
 #  SPEKTRAFILM_CANVAS_LOG=1 in the environment to also get a per-draw log.
 set -e
 cd "$(dirname "$0")/.."
-APP="build/DerivedData/Build/Products/Debug/Filmify.app"
+APP="build/DerivedData/Build/Products/Debug/SpektraLab.app"
 IMG="$1"
 OUT="${2:-$(cd .. && pwd)/design/snapshots/live-window.png}"
-[ -x "$APP/Contents/MacOS/Filmify" ] || xcodebuild -project Spektrafilm.xcodeproj -scheme Spektrafilm \
+[ -x "$APP/Contents/MacOS/SpektraLab" ] || xcodebuild -project Spektrafilm.xcodeproj -scheme Spektrafilm \
     -configuration Debug -derivedDataPath build/DerivedData build 2>&1 | grep -E "error:|BUILD"
 BIN=/tmp/spektrafilm-live-window
 [ -x "$BIN" ] || xcrun swiftc -O Tools/live-window.swift -o "$BIN"
@@ -30,7 +30,7 @@ BIN=/tmp/spektrafilm-live-window
 # *second* copy of the app, and the capture then photographs whichever window
 # the window server lists first — which is how a window showing the empty-strip
 # placeholder was captured while another instance held the frame.
-pkill -9 -f "MacOS/Filmify" 2>/dev/null || true
+pkill -9 -f "MacOS/SpektraLab" 2>/dev/null || true
 sleep 1
 if [ -n "$IMG" ]; then open -n "$APP" --args "$IMG"; else open -n "$APP"; fi
 
@@ -60,5 +60,5 @@ done
 ID=$(editor_id)
 [ -n "$ID" ] || { echo "capture-live: the editor window went away before the capture"; exit 1; }
 screencapture -x -o -l"$ID" "$OUT"
-pkill -9 -f "MacOS/Filmify" 2>/dev/null || true
+pkill -9 -f "MacOS/SpektraLab" 2>/dev/null || true
 echo "live window $ID → $OUT"

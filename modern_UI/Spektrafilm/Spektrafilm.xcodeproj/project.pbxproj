@@ -417,7 +417,7 @@
 			name = Engine;
 			sourceTree = "<group>";
 		};
-		B6CDB6E5D160E013280D3C68 /* Filmify.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = Filmify.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		B6CDB6E5D160E013280D3C68 /* SpektraLab.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = SpektraLab.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		E02A90D9643568EA39115CFB /* SpektrafilmTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = SpektrafilmTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 		00C45FD35CB0F9C5F764F070 /* Products */ = {
 			isa = PBXGroup;
@@ -1005,7 +1005,7 @@
 				ONLY_ACTIVE_ARCH = YES;
 				OTHER_LDFLAGS = "-framework Metal -framework QuartzCore";
 				PRODUCT_BUNDLE_IDENTIFIER = com.hanze.filmify;
-				PRODUCT_NAME = Filmify;
+				PRODUCT_NAME = SpektraLab;
 				SDKROOT = macosx;
 				SWIFT_ACTIVE_COMPILATION_CONDITIONS = DEBUG;
 				SWIFT_EMIT_LOC_STRINGS = NO;
@@ -1052,7 +1052,7 @@
 				ONLY_ACTIVE_ARCH = YES;
 				OTHER_LDFLAGS = "-framework Metal -framework QuartzCore";
 				PRODUCT_BUNDLE_IDENTIFIER = com.hanze.filmify;
-				PRODUCT_NAME = Filmify;
+				PRODUCT_NAME = SpektraLab;
 				SDKROOT = macosx;
 				SWIFT_COMPILATION_MODE = wholemodule;
 				SWIFT_EMIT_LOC_STRINGS = NO;

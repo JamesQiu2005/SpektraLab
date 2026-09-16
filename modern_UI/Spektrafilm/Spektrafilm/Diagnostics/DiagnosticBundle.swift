@@ -93,7 +93,7 @@ struct DiagnosticBundle {
         }
 
         var readme = """
-        Filmify diagnostics
+        SpektraLab diagnostics
 
         Written by the app, at the user's request. Nothing here was transmitted
         anywhere: this file is the whole of it.
