@@ -47,8 +47,8 @@ struct TopBar: View {
                     .padding(.trailing, 14)
             }
             toolButton("cursorarrow", .select, "Select (V)")
-            toolButton("hand.raised", .hand, "Pan (H)").padding(.leading, 22)
-            toolButton("crop", .crop, "Crop (C)").padding(.leading, 22)
+            toolButton("hand.raised", .hand, "Pan (H)").padding(.leading, Theme.Metric.toolGap)
+            toolButton("crop", .crop, "Crop (C)").padding(.leading, Theme.Metric.toolGap)
             if session.working {
                 ProgressView().controlSize(.small).scaleEffect(0.7).padding(.leading, 18)
             }
@@ -82,7 +82,8 @@ struct TopBar: View {
             // *displayed*, not what a click on it does.
             Button { session.comparing.toggle() } label: {
                 BeforeAfterIcon(color: session.comparing ? Theme.accent : Theme.text)
-                    .frame(width: 20, height: 16)
+                    .frame(width: Theme.Metric.beforeAfterIcon.width,
+                           height: Theme.Metric.beforeAfterIcon.height)
                     .frame(width: 28, height: 28)
                     .contentShape(Rectangle())
             }
@@ -90,11 +91,10 @@ struct TopBar: View {
             .disabled(!session.canCompare)
             .opacity(session.canCompare ? 1 : 0.4)
             .help("Before / after split — drag the line on the canvas (⌥\\)")
-            .padding(.trailing, 6)
+            .padding(.trailing, Theme.Metric.beforeAfterGap)
             iconButton("plus.magnifyingglass", "Zoom in (⌘+)", disabled: session.zoomLocked) { session.zoomStep(1) }
-            zoomPill.padding(.horizontal, 12)
-                .disabled(session.zoomLocked)
-                .opacity(session.zoomLocked ? 0.4 : 1)
+            zoomPill.padding(.horizontal, Theme.Metric.zoomGap)
+                .rowEnabled(!session.zoomLocked)
             iconButton("minus.magnifyingglass", "Zoom out (⌘−)", disabled: session.zoomLocked) { session.zoomStep(-1) }
             // One button, both ways (PRD §1). Fit and fullscreen were only
             // ever two buttons because fullscreen had nowhere else to be —
@@ -105,7 +105,7 @@ struct TopBar: View {
                        fullScreen ? "Leave full screen (⌃⌘F)" : "Full screen (⌃⌘F)") {
                 NSApp.keyWindow?.toggleFullScreen(nil)
             }
-            .padding(.leading, 18)
+            .padding(.leading, Theme.Metric.fullScreenGap)
             if session.rightCollapsed {
                 SidebarToggle(edge: .trailing, collapsed: $session.rightCollapsed)
                     .padding(.leading, 14)

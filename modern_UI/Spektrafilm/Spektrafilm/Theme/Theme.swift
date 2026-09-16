@@ -210,9 +210,29 @@ enum Theme {
         /// arrangement in which a maximised frame is not partly under a
         /// toolbar.
         static var barStrip: CGFloat { barTop * 2 + topBarHeight }
-        /// Leading inset of the bar's first control, from the bar's own edge,
-        /// when the left rail is open and the window buttons are on it.
-        static let barPadding: CGFloat = 12
+        /// Leading (and trailing) inset of the bar's own controls, from its
+        /// edge. The drawing puts the first tool's centre 38.8 pt in, and the
+        /// tools are drawn in 28 pt boxes, so 26 is that.
+        static let barPadding: CGFloat = 26
+        /// Between two tools. The drawing's centres are 303.3, 363 and 425.3 —
+        /// a pitch of ~60 — which on a 28 pt box is a 32 pt gap.
+        static let toolGap: CGFloat = 32
+        /// The zoom cluster's own gaps, either side of the pill. The drawing's
+        /// are 29.4 pt glyph-to-pill, and the glyph sits in a 28 pt box.
+        static let zoomGap: CGFloat = 23
+        /// Before/after to the zoom cluster, and the zoom cluster to the full
+        /// screen button. **The drawing's are 63.6 and 85.2**, and these are
+        /// not: at the minimum window (1100 pt, so a 540 pt bar) the drawing's
+        /// spacing puts the two clusters 19 pt wider than the bar they are on,
+        /// and a bar whose ends fall off the bar is worse than a bar that
+        /// breathes slightly less. 40 and 46 keep the drawing's *shape* — the
+        /// right-hand cluster spread out, with its widest gap before the last
+        /// button — inside 523 pt.
+        static let beforeAfterGap: CGFloat = 40
+        static let fullScreenGap: CGFloat = 46
+        /// The before/after glyph: the drawing's two rectangles side by side,
+        /// `20.1 + 21.3` units wide of 30.1 tall, halved and rounded.
+        static let beforeAfterIcon = CGSize(width: 25, height: 16)
 
         // MARK: the window buttons
         //

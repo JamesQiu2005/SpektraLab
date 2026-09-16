@@ -4,79 +4,80 @@
 |---|---|
 | **What this is** | The record of what the interface *is*: its geometry, its tokens, its view tree, and how a pixel gets from a RAW file to the canvas. |
 | **What it is not** | A task list. Open work is in `../HANDOFF-FRONTEND-POLISH.md` and `../HANDOFF-MASKS.md`; how to build and test is in `Spektrafilm/README.md`. |
-| **Authority** | The drawing, `reference_layout/SVG_link/sample_frontend.svg`. Where this document and the drawing disagree, the drawing wins and this document is stale. |
-| **Date** | 2026-09-08 |
+| **Authority** | The drawing, `reference_layout/Main/sample_frontend.svg` (2026-09-17). Where this document and the drawing disagree, the drawing wins and this document is stale. Its tokens are derived one by one in `design/TOKENS-main-2026-09-17.md`. |
+| **Date** | 2026-09-17 |
 
 ---
 
 ## 1. The window
 
-Four floating cards on a flat ground. Nothing is nested inside anything else,
-which is why the layout survives every window size: the two side panels are
-fixed width and the centre column absorbs the remainder.
+Three flush regions, separated by a **1 pt hairline**. Nothing is nested
+inside anything else and nothing floats except the tool bar, which is why the
+layout survives every window size: the two rails have a width the user picks
+inside a range, and the centre column absorbs the remainder.
 
 ```
  ┌───────────────────────────── 1920 × 1080 pt ──────────────────────────────┐
- │  9                                                                     9  │
- │ ┌────────────┐ 8 ┌──────────────────────────────────┐ 8 ┌──────────────┐  │ 7
- │ │            │   │            top bar 41            │   │              │  │
- │ │            │   ├──────────────────────────────────┤ 8 │              │  │
- │ │    left    │   │                                  │   │    right     │  │
- │ │    328     │   │             canvas               │   │     286      │  │
- │ │            │   │          (fills the rest)        │   │              │  │
- │ │            │   ├──────────────────────────────────┤ 8 │              │  │
- │ │            │   │          filmstrip 125           │   │              │  │
- │ └────────────┘   └──────────────────────────────────┘   └──────────────┘  │ 7
+ │ ┌──────────┬────────────────────────────────────────┬──────────────────┐  │
+ │ │ header 38│           ▁▁▁▁ bar 31 ▁▁▁▁             │ header 38        │  │
+ │ ├──────────┤                                        ├──────────────────┤  │
+ │ │   left   │                                        │      right       │  │
+ │ │   rail   │                 canvas                 │      rail        │  │
+ │ │   254    │            (fills the rest)            │      288         │  │
+ │ │          ├────────────────────────────────────────┤                  │  │
+ │ │          │             filmstrip 132              │                  │  │
+ │ └──────────┴────────────────────────────────────────┴──────────────────┘  │
  └───────────────────────────────────────────────────────────────────────────┘
 ```
 
 Every number is the SVG's, divided by two — the drawing is a 3840 × 2160
-canvas, which is this window at 2×. The built interface departs from it twice,
-both deliberately: the gutter is 6 rather than 8, and the left panel's header
-starts 70 pt in so the window's traffic lights can share that row the way they
-share Xcode's sidebar header.
+canvas, which is this window at 2×.
 
-| card | SVG rect (x, y, w, h) | points |
+| region | SVG rect (x, y, w, h) | points |
 |---|---|---|
-| left panel | 17.9, 14.1, 656.9 × 2131.8 | x 9, y 7, **328 × full height** |
-| top bar | 690.5, 15.5, 2547.9 × 82.7 | x 345, y 7, **41 tall** |
-| filmstrip | 690.5, 1895.3, 2547.9 × 250.6 | x 345, **125 tall** |
-| right panel | 3250.1, 15.5, 572.3 × 2131.8 | x 1625, **286 × full height** |
+| left rail | −2.6, 0.6, 509.9 × 2160 | x 0, **254 × full height** |
+| right rail | 3263.9, 0, 576.1 × 2160 | x 1632, **288 × full height** |
+| filmstrip | 507.4, 1895.3, 2756.5 × 264.7 | y 948, **132 tall**, centre column only |
+| tool bar | 529, 9.4, 2721 × 61.8, `rx 28` | y 5, **31 tall**, r 14, inset 9 either side |
 
-Outer margin 9 × 7, gutter 8, corner radius 15. `Tools/compare-layout.py`
-measures a capture against this table; the checked-in captures sit within 2 pt
-on every card.
+**No outer margin, no gutter, no card radius.** A region flush with the
+window's edge has nothing to be inset by, so `outerX`, `outerY` and `gutter`
+are not tokens any more; `cardRadius` survives only because the export page
+still draws rounded cards with it.
+
+`swift Spektrafilm/Tools/measure-layout.swift design/snapshots/window-16x9.png 2`
+measures a capture against this table. The checked-in captures are **exact**
+at all three display shapes.
 
 ### Behaviour of the frame
 
-- **Side panels never resize.** A wider window gives the canvas the extra
-  room; a narrower one takes it from the canvas. Panel width therefore trades
-  against how much of the frame you see at once, never against what you can
-  inspect — zoom does that.
-- **The left card's header shares its row with the traffic lights**, the way
-  Xcode's sidebar header does — and it genuinely shares it.
-  `.windowStyle(.hiddenTitleBar)` floats the three window buttons over the
-  content at a centre 15.75 pt from the window's top, which is 13 pt above a
-  44 pt header row's centreline: the lights sat high and slightly left of a
-  glyph row that sat low and to the right, and nothing in the corner lined up
-  with anything else. `Windows/TrafficLights.swift` **places** them instead of
-  avoiding them — leading `outerX + 12`, the card's own content inset, and
-  centre `outerY + panelHeaderHeight / 2`. `panelHeaderLeading` then follows
-  from where the button row ends rather than being tuned by hand. This is the
-  one place the built interface departs from the drawing, which puts the
-  import glyph at x 12; every other card keeps its 12 pt. The window server
-  draws the buttons, so no offscreen capture (`Tools/snapshot.sh`) can see
-  this row at all — `Tools/capture-live.sh` is the check, and it measured
-  leading x 21, centre y 28.75. The header row, the top bar's empty
-  middle and the Browse header are the window's drag surfaces
-  (`WindowDragHandle`), since hiding the titlebar removes the usual one.
-- **The gutter is 6, not the drawing's 8.** Four gutters of ground between the
-  cards is a lot of screen for nothing; `Tools/compare-layout.py` applies the
-  2 pt difference, so it still measures the drawing rather than the deviation.
-- **Collapsing removes a card from the stack**, so the canvas grows into its
-  place rather than being overlapped. The pill tab on each canvas edge brings
-  it back. `⌘\` folds both side panels; `⇧⌘F` the filmstrip.
-- **Minimum window 1100 × 700**, which leaves the canvas 460 pt wide.
+- **The hairline is only where two surfaces of the same colour meet.** The
+  drawing puts none between a rail and the canvas — the ground colour already
+  separates them — and two beside the filmstrip, where rail and strip are both
+  `Theme.card`. A rule with an inset reads as a list separator; these run edge
+  to edge, and read as a wall.
+- **The bar floats, and belongs to the centre column.** It is a rounded pill on
+  the ground over the canvas, so it is as wide as the picture is. The column
+  reserves its strip (`barStrip` = 41), which is the drawing and is also the
+  only arrangement in which a maximised frame is never partly under a toolbar.
+- **The rails are the user's**, between bounds (`PanelResize.swift`): left
+  232…380, right 268…364, each standard at the drawing's own width, so a fresh
+  install measures the drawing. Snapshot mode holds both at `standard` — a rail
+  dragged wide in an earlier session used to be what every capture measured.
+- **The window buttons sit on the rail header's row**, `y 0…38`, centre 19,
+  leading 20. That row is also where the bar's centre falls (20.5), which is
+  why folding the left rail does not move them: one centreline serves both,
+  and all that changes is which view reserves the space
+  (`trafficLightClearance` in the header, `barLeadingWithButtons` on the bar).
+  The window server draws the buttons, so no offscreen capture can see this
+  row — `Tools/capture-live.sh` is the check.
+- **Folding is the two `sidebar` buttons**, one at the far end of each rail's
+  header, and each moves onto the bar when its rail folds — the PRD requires
+  both to be on screen at every moment. `Tools/snapshot.sh` takes a fourth
+  capture, `--folded both`, which is the only way to see that. The hover tabs
+  on the canvas's vertical edges are gone with them; the **bottom** one is
+  unchanged. `⌘\` folds both rails; `⇧⌘F` the filmstrip.
+- **Minimum window 1100 × 700**, which leaves the canvas 558 pt wide.
 - Collapse state persists under `ui2.`-prefixed `UserDefaults` keys. The
   prefix is load-bearing: the previous version of this app shipped under the
   same bundle identifier and its leftover `leftCollapsed`, `filmstripCollapsed`,
@@ -91,23 +92,45 @@ from. No view file carries a literal colour or metric that could have come
 from there — that is what keeps the interface matching the drawing when one
 number moves.
 
+The palette got *smaller* with the 2026-09-17 drawing: one grey does the work
+four tokens used to. A control is a lighter shape on a darker rail —
+elevation, not hue — and the hairline does what a gutter used to.
+
 | role | value | from |
 |---|---|---|
-| ground (window, canvas surround, wells) | `#5F5F5F` | `.st2` |
-| card | `#2C2D2B` | `.st5` |
-| text and glyphs | `#FAF8F4` | `.st4` / `.st9` |
-| dim (slider tracks, captions) | `#898989` | `.st6` |
+| ground — canvas surround **and** every well, pill and slider track | `#5F5F5F` | `.st13` |
+| card — the two rails and the filmstrip | `#2C2D2B` | `.st15` |
+| rule — the 1 pt hairline | `#B5B5B6` | `.st1` stroke |
+| text and glyphs | `#FAF8F4` | `.st12` |
+| knob | `#FBF8F3` | `.st18` |
+| dim (captions) | `#898989` | — |
 | plot ground / grid | `#1E1F1E` / `#3A3B39` | — |
-| accent (active curve tab only) | `#EE8A2B` | — |
-| selection | a 1 pt `#FAF8F4` frame | the drawing's white outline |
+| accent | `#ECA650` | `.st17` / `.st3` / `.st2` |
+| selection — a band, with its text inverted | `#C9CACA` / `#0E0E0E` | `.st16` |
 
-Wells are the *ground* colour punched through a card, not a lighter card. The
-type ramp is 12 pt semibold for section titles and list items (cap height
-8.45 pt, measured off the drawing's glyph paths), 11 pt labels, 10.5 pt
-monospaced-digit values, 9 pt captions.
+**Selection in a list is a band, not a frame**: the full width of the well,
+one row tall, with the row's text turning from white to black. The filmstrip
+keeps the white frame, because a light band behind a photograph is not a mark
+you can see.
+
+There are exactly **two wells** in the whole interface — the film list and the
+print list — and a well now holds a *choice from a set*, not a group of
+controls. Everything else sits directly on a rail. That is also what makes the
+sliders legible: a track is the ground colour at 1.5 pt, and a ground-coloured
+track on a ground-coloured well is not a track at all.
+
+The type ramp is 12 pt bold for section titles, 10.5 pt semibold for labels
+and list rows, 10.5 pt monospaced-digit values, 9 pt sublabels and captions,
+11.5 pt for the two actions under the print list. Everything is semibold or
+heavier: the drawing sets every string in a bold face, and at 10.5 pt on a
+dark ground a regular weight disappears.
+
+A control that cannot be used is greyed **as a row** — label and pill together
+— through `View.rowEnabled(_:)`. The PRD makes that one rule for the whole
+app, and a rule spelled once cannot be applied to half of a row.
 
 The only colour in the interface besides the accent is the filter-pack and
-white-balance slider tracks, at low saturation.
+white-balance slider tracks, which take the drawing's own gradient stops.
 
 ---
 
@@ -117,22 +140,26 @@ white-balance slider tracks, at low saturation.
 SpektrafilmApp                      one Window scene, one Session, dark forced
 └── EditorWindow                    Browse or Print, drag-and-drop, export sheet
     ├── BrowseView                  the Browse state: grid, breadcrumb, sort
-    ├── LeftPanel                   Layer 1
-    │   ├── header                  import · export · ⋮
-    │   ├── FilmProfileSection      film list, covers, cine badge, white frame
-    │   ├── PrintProfileSection     papers grouped Still / Cine, declared-pair dot
-    │   ├── CameraSection           Format · Vignetting · Exp. Comp. · white balance
-    │   ├── FeaturesSection         Grain · Halation · Glare
-    │   └── EnlargerSection         Brightness · Yellow · Magenta
+    ├── LeftPanel                   the darkroom rail
+    │   ├── header                  ⟨window buttons⟩ · import · export · sidebar.left
+    │   ├── CameraSection           AE Method · Film Exposure · Temperature · Tint
+    │   │                           Vignetting · Lens Correction
+    │   ├── FilmSection             film list · Film Type · Side · Side Length
+    │   │                           Grain · Halation · Glare
+    │   ├── PrintProfileSection     papers grouped Still / Cine / Positive
+    │   │                           Process · Original
+    │   ├── CropSection             Aspect · Straighten · Rotate
+    │   └── EnlargerSection         Brightness · Yellow · Magenta  (not drawn; kept)
     ├── CanvasArea
     │   ├── MetalCanvasView         MTKView (SnapshotCanvas in capture mode)
-    │   └── CollapseTab × 4
-    ├── TopBar                      tools · status · zoom pill · fit · fullscreen
+    │   └── HoverEdgeTab            the filmstrip's, and only that one
+    ├── TopBar                      select · hand · crop · status · before/after
+    │                               zoom · full screen  (+ a folded rail's sidebar)
     ├── Filmstrip                   thumbnails, selection frame
-    └── RightPanel                  Layer 2
-        ├── header                  adjustments · bypass · ⋮
+    └── RightPanel                  the grade rail
+        ├── header                  adjustments · bypass · sidebar.right
         ├── HistogramSection        live RGB + luma, EXIF caption
-        ├── WhiteBalanceSection     Temperature · Tint  (post-print)
+        ├── WhiteBalanceSection     Temp. · Tint  (post-print)
         ├── ExposureSection         Exposure · Contrast · Brightness · Saturation
         │                           Highlights · Shadows · Black · White
         ├── CurveSection            5 channels, histogram behind, draggable points
@@ -140,8 +167,10 @@ SpektrafilmApp                      one Window scene, one Session, dark forced
 ```
 
 A section is one file in `Panels/Sections/`, added or removed by one line in
-its panel. Sections never reference each other; anything two of them must
-agree on lives in `Session`.
+its rail, followed by a `Hairline()`. Sections never reference each other;
+anything two of them must agree on lives in `Session`. What is **not** safe to
+drop when a rail is rebuilt is the short list in `Spektrafilm/README.md` §8.1
+— contracts that fail silently.
 
 ### The two layers
 
@@ -284,7 +313,7 @@ each, one uniform buffer, no allocation.
 
 Two states, one window (frontend SPEC §5.1). **Browse** is a grid of the
 session — thumbnails only, no decode, no render — and is where a folder or a
-multi-file drop lands. **Print** is the four-card layout, entered by clicking a
+multi-file drop lands. **Print** is the three-region layout, entered by clicking a
 cell. A single file is a handoff and goes straight to Print. Before this, a
 folder open rendered the alphabetically-first frame: ~7 s and a 363 MB TIFF on
 a guess the user had not made.
@@ -370,7 +399,7 @@ Windows/EditorWindow.swift   Browse or Print; CanvasArea; drop; export sheet
 Windows/BrowseView.swift     the Browse grid, breadcrumb and sort
 Windows/TopBar.swift         tools, status, zoom, elapsed time, detail tier
 Windows/CollapseTab.swift    the edge pills
-Panels/LeftPanel.swift       Layer 1 column
+Panels/LeftPanel.swift       the darkroom rail, and SidebarToggle
 Panels/RightPanel.swift      Layer 2 column
 Panels/Filmstrip.swift       library strip
 Panels/Sections/*.swift      one file per section
