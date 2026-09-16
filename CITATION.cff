@@ -1,65 +1,59 @@
 cff-version: 1.2.0
 message: |
-   spektrafilm is open for research, integration, and production use.
+  SpektraLab is a native macOS application and C++ Metal render engine built on
+  Andrea Volpato's `spektrafilm`, which is where the film simulation, the
+  measured profiles and the print+scan model come from.
 
-  If you find it useful:
-  * Acknowledge spektrafilm in plugin descriptions, marketing, or credits
-    (e.g. "spectral film modeling powered by `spektrafilm`" or "spectral framework inspired by `spektrafilm`").
-  * Consider starring the repo or sharing your results.
-  * Cite the repository/Zenodo DOI in academic work.
+  **If you are citing the science, cite spektrafilm, not this.** The physical
+  modelling, the profile measurements and the RA-4 print simulation are that
+  project's contribution; see the `references` section below and
+  https://github.com/andreavolpato/spektrafilm. Cite this repository only when
+  you mean the application, the C++ port of the engine, or the GPU pipeline.
 
-  The project is GPLv3 licensed, so any derivative work must also be open source under the same license. Derivatve work includes any software, plugin, or tool that incorporates spektrafilm code or is directly inspired by its methods.
-  
-  If GPLv3 is not compatible with your project, please reach out to discuss alternative options. I am very open to collaboration and integration, but I want to ensure that spektrafilm remains open source and grows with the community. 
+  SpektraLab is GPL-3.0-or-later; the profiles and the LUTs baked from them are
+  CC BY-SA 4.0 and remain Andrea Volpato's work. SpektraLab is not affiliated
+  with or endorsed by the spektrafilm project.
 
-  This helps sustain open color science. Thanks!
+title: "SpektraLab: a macOS application for spectral film and print simulation"
+abstract: |
+  SpektraLab develops a scene-linear photograph through a virtual film
+  negative and a print, on the GPU, interactively. It is a SwiftUI application
+  with a C++/Metal port of the spektrafilm render engine compiled into it, held
+  to the Python reference at float32 storage epsilon by a set of parity
+  harnesses. It contributes the application and the engine port; the spectral
+  modelling it renders is spektrafilm's.
 
 authors:
-  - family-names: "Volpato"
-    given-names: "Andrea"
-    email: "volpedellenevi@gmail.com"
-    orcid: "0000-0003-3368-0017"
-    affiliation: "KTH Royal Institute of Technology, Sweden"
+  - family-names: "Qiu"
+    given-names: "Hanze"
 
-title: "spektrafilm: spectral simulation of analog photography"
-version: "0.3.2"
-doi: "xxxxx"
-repository: "https://github.com/andreavolpato/spektrafilm"
+version: "0.3"
 license: "GPL-3.0-or-later"
-
-preferred-citation:
-  type: "article"
-  title: "spektrafilm: a measurement-grounded, physically-based spectral framework for open film emulation"
-  authors:
-    - family-names: "Volpato"
-      given-names: "Andrea"
-  publisher: ""
-  doi: ""
-  year: "2026"
-
-references:
-  - type: "software"
-    title: "spektrafilm"
-    authors:
-      - family-names: "Volpato"
-        given-names: "Andrea"
-    repository: "https://github.com/andreavolpato/spektrafilm"
-    year: "2025"
+repository-code: "https://github.com/JamesQiu2005/filmify"
+url: "https://github.com/JamesQiu2005/filmify"
 
 keywords:
   - "film emulation"
   - "spectral imaging"
   - "color science"
-  - "chemical processing"
   - "RA-4 print simulation"
-  - "cine print film"
-  - "Kodak"
-  - "Fujifilm"
-  - "open source"
-  - "halation"
-  - "dir couplers"
+  - "Metal"
+  - "macOS"
+  - "GPU rendering"
 
-abstract: |
-  spektrafilm simulates analog film from spectral capture through negative, print, and scan using manufacturer datasheets and physically based spectral modeling. It bridges open color science and production tools.
-
-url: "https://github.com/andreavolpato/spektrafilm"
+references:
+  - type: "software"
+    title: "spektrafilm: spectral simulation of analog photography"
+    abstract: |
+      The spectral film and print simulation SpektraLab renders. Source of the
+      28 film and paper profiles, the characteristic curves, the DIR-coupler
+      and halation models, and the RA-4 print and scan chain.
+    authors:
+      - family-names: "Volpato"
+        given-names: "Andrea"
+        orcid: "https://orcid.org/0000-0003-3368-0017"
+        affiliation: "KTH Royal Institute of Technology, Sweden"
+    repository-code: "https://github.com/andreavolpato/spektrafilm"
+    url: "https://github.com/andreavolpato/spektrafilm"
+    license: "GPL-3.0-or-later"
+    year: 2025
