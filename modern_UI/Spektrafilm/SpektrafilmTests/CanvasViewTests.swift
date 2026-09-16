@@ -211,7 +211,12 @@ final class CanvasViewTests: XCTestCase {
             (view as? HoverBand.Band).map { [$0] } ?? view.subviews.flatMap(bands(in:))
         }
         let found = bands(in: host)
-        XCTAssertEqual(found.count, 3, "one band per collapsible edge — the top bar does not fold")
+        // **One**, not three. The 2026-09-17 drawing folds the two rails with
+        // the `sidebar.left` / `sidebar.right` buttons in their own headers,
+        // so the leading and trailing bands are gone; the bottom one is the
+        // only tab the redraw left alone ("except the bottom gallery view
+        // remains unchanged").
+        XCTAssertEqual(found.count, 1, "the filmstrip's is the one hover tab left")
         for band in found {
             XCTAssertGreaterThan(band.bounds.width, 0)
             XCTAssertGreaterThan(band.bounds.height, 0)

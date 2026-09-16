@@ -37,17 +37,24 @@ final class PanelResizeWiringTests: XCTestCase {
     /// The floors the captures found, so a later edit cannot quietly go below
     /// them.
     ///
-    /// **These are measured, not chosen.** Both panels' narrow ends are set by
-    /// one control each, and each was found by capturing at a series of widths:
-    /// the left by the Tone pill, whose longest value is
-    /// `center-weighted (legacy)` and which ellipsized at every width through
-    /// 312 and fit at 316; the right by the colour balance tab row, which
-    /// ellipsized at 276 and fit at 286. The test asserts the *bounds*, not the
-    /// strings — what it protects is that 312 or 276 never becomes a shippable
-    /// narrowest again.
+    /// **These are measured, not chosen.** Both rails' narrow ends are set by
+    /// one control each, and each was found by capturing at a series of
+    /// widths: the left by the AE Method pill, whose longest value is
+    /// `center-weighted (legacy)`; the right by the colour balance tab row,
+    /// which ellipsized at 276 and fit at 286. The test asserts the *bounds*,
+    /// not the strings — what it protects is that a narrowest which truncates
+    /// never ships again.
+    ///
+    /// The left figure changed with the 2026-09-17 drawing and had to: the old
+    /// 316 was measured on a 328 pt panel whose rows were inset 9 and whose
+    /// labels were 70 pt of 11 pt semibold. The new rail is 254 with an 18 pt
+    /// inset and a 74 pt label column, so the pill's own floor is
+    /// `rowInset × 2 + sliderLabelWidth` plus the longest string — 110 pt of
+    /// it at 10.5 pt — and 232 is that with air.
     func testTheBoundsStayAboveWhatTheContentMeasured() {
-        XCTAssertGreaterThanOrEqual(Theme.Metric.leftPanelRange.narrowest, 316,
-                                    "the Tone pill truncates below 316")
+        let aeFloor = 2 * Theme.Metric.rowInset + Theme.Metric.sliderLabelWidth + 110
+        XCTAssertGreaterThanOrEqual(Theme.Metric.leftPanelRange.narrowest, aeFloor,
+                                    "the AE Method pill truncates below \(aeFloor)")
         XCTAssertGreaterThanOrEqual(Theme.Metric.rightPanelRange.narrowest, 268,
                                     "the colour balance tab row is past what 0.85 scale covers")
         // And the widest ends stay where the controls stop growing, rather than
@@ -67,7 +74,9 @@ final class PanelResizeWiringTests: XCTestCase {
         XCTAssertEqual(ColorBalanceLayout.assumedWidth,
                        ColorBalanceLayout.interior(panelWidth: Theme.Metric.rightPanelWidth),
                        "the wheels' fallback is not what the drawing's panel gives them")
-        XCTAssertEqual(ColorBalanceLayout.assumedWidth, 242, accuracy: 0.001)
+        // 288 − 2 × (4 + 12): the 2026-09-17 drawing's rail, and its wells,
+        // which are held 4 pt off the rail's edges rather than the old 9.
+        XCTAssertEqual(ColorBalanceLayout.assumedWidth, 256, accuracy: 0.001)
 
         // It has to actually move with the panel, and a narrower panel must
         // give the wheels less room — a `max()` anywhere in there would make

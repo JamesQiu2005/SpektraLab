@@ -500,7 +500,7 @@ struct ExportPage: View {
             // The list is inset 1 pt from the well's own edge rather than by
             // `wellPadding`: the drawing's chosen row is 2 units in from the
             // well edge, not from its content box.
-            Well(padding: 1, vertical: 6) {
+            Well(padding: 1, vertical: 6, inset: M.wellInset) {
                 VStack(spacing: 0) {
                     ScrollView {
                         VStack(spacing: M.recipeRowSpacing) {
@@ -565,7 +565,7 @@ struct ExportPage: View {
             Divider()
             Button("Clear Subfolder") { recipe.wrappedValue.subfolder = "" }
         }, metrics: Self.sectionMetrics) {
-            Well(padding: M.wellPadding, vertical: M.wellVertical) {
+            Well(padding: M.wellPadding, vertical: M.wellVertical, inset: M.wellInset) {
                 VStack(spacing: M.rowSpacing) {
                     PillMenu(label: "Folder", options: folderOptions, title: { folderLabel($0) },
                              selection: recipe.folder, labelWidth: M.labelWidth, font: F.label)
@@ -616,7 +616,7 @@ struct ExportPage: View {
                 recipe.wrappedValue.naming = n
             }
         }, metrics: Self.sectionMetrics) {
-            Well(padding: M.wellPadding, vertical: M.wellVertical) {
+            Well(padding: M.wellPadding, vertical: M.wellVertical, inset: M.wellInset) {
                 VStack(alignment: .leading, spacing: M.rowSpacing) {
                     row("Format") { tokenRow }
                     row("Sample") {
@@ -674,7 +674,7 @@ struct ExportPage: View {
             Divider()
             openWithMenu
         }, metrics: Self.sectionMetrics) {
-            Well(padding: M.wellPadding, vertical: M.wellVertical) {
+            Well(padding: M.wellPadding, vertical: M.wellVertical, inset: M.wellInset) {
                 VStack(spacing: M.rowSpacing) {
                     HStack(spacing: 12) {
                         Text("Format").font(F.label).foregroundStyle(Theme.text)
@@ -825,7 +825,7 @@ struct ExportPage: View {
                 pb.setString(summaryLines.joined(separator: "\n"), forType: .string)
             }
         }, metrics: Self.sectionMetrics) {
-            Well(padding: M.wellPadding, vertical: M.wellVertical) {
+            Well(padding: M.wellPadding, vertical: M.wellVertical, inset: M.wellInset) {
                 VStack(alignment: .leading, spacing: 4) {
                     ForEach(Array(summaryLines.enumerated()), id: \.offset) { _, line in
                         Text(line).font(F.value).foregroundStyle(Theme.secondaryText)

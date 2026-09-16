@@ -1,49 +1,108 @@
-//  Theme.swift — every visual token in the interface, measured from the design.
+//  Theme.swift — every visual token in the interface, measured from the
+//  drawing.
 //
-//  The drawing (`modern_UI/reference_layout/SVG_link/sample_frontend.svg`) is
-//  a 3840×2160 canvas, i.e. a 1920×1080 window at 2×. Every number here is
-//  the drawing's value divided by two. Nothing in a view file may carry a
-//  literal colour or size that could have come from here — that is the rule
-//  that keeps the interface matching the drawing when one token moves.
+//  Two drawings, one file. The **editor** is
+//  `modern_UI/reference_layout/Main/sample_frontend.svg` (2026-09-17), a
+//  3840×2160 canvas — a 1920×1080 window at 2× — and every editor number
+//  below is that drawing's value divided by two. The **export page** is
+//  `reference_layout/Export_Page/export_page.svg` and keeps its own nested
+//  `Metric.Export` / `Font.Export`; it was not redrawn and nothing here
+//  changes it.
+//
+//  Nothing in a view file may carry a literal colour or size that could have
+//  come from here — that is the rule that keeps the interface matching the
+//  drawing when one token moves.
+//
+//  ## What the 2026-09-17 drawing changed
+//
+//  The four floating rounded cards on a ground are gone. The window is now
+//  three flush regions — a full-height left rail, the centre, a full-height
+//  right rail — with **1 pt hairlines** where the old design had gutters and
+//  corner radii. There is no outer margin, no gutter and no card radius, so
+//  `outerX`, `outerY` and `gutter` are not tokens any more: a rail that is
+//  flush with the window's edge has nothing to be inset by. `cardRadius`
+//  survives because the export page still draws rounded cards with it.
+//
+//  The one thing that still floats is the tool bar, a rounded pill on the
+//  ground over the canvas (`barTop`/`barHeight`/`barRadius`).
+//
+//  The derivation of every number, and the drawing coordinate it came from,
+//  is `modern_UI/design/TOKENS-main-2026-09-17.md`.
 
 import SwiftUI
 
 enum Theme {
 
-    // MARK: colours (from the SVG's style classes)
+    // MARK: colours
+    //
+    // The palette got *smaller*. The drawing draws pills, wells, slider
+    // tracks and the canvas surround in one grey (`.st13`), the two rails and
+    // the filmstrip in another (`.st15`), and separates functions with a
+    // hairline instead of with a gap.
 
-    /// `.st2` — the window ground. The canvas surround and every well.
+    /// `.st13` — the canvas surround, and also every well, pill and slider
+    /// track. One grey, four jobs: the drawing uses *elevation* (a lighter
+    /// shape on a darker rail) rather than a palette to say "this is a
+    /// control".
     static let ground = Color(hex: 0x5F5F5F)
-    /// `.st5` — the four floating cards (panels, top bar, filmstrip).
+    /// `.st15` — the two rails and the filmstrip.
     static let card = Color(hex: 0x2C2D2B)
-    /// Wells inside a card: same value as the ground, on purpose — the design
-    /// reads as "cards punched through to the ground".
+    /// A well inside a rail: the same value as the ground, on purpose.
     static let well = ground
-    /// A pill or field sitting inside a well (the Format picker, the zoom pill).
+    /// A pill or field sitting **on a rail** — the AE Method menu, a value
+    /// field, the zoom pill. Ground-coloured, because that is what the
+    /// drawing fills them with now that they no longer sit inside a well.
+    static let pill = ground
+    /// A pill sitting **inside a well** — the export page only, where the
+    /// well is already ground-coloured and a control on it has to be darker
+    /// to be seen at all. Do not use it on an editor rail.
     static let field = card
-    /// `.st4` / `.st9` — primary text and glyphs.
+    /// `.st1` stroke, `#b5b5b6` at 2 units → **1 pt**. The hairline that
+    /// separates one section from the next, and the rails from the filmstrip.
+    /// It runs the full width of the rail — no inset — which is what makes
+    /// the column read as a stack of rooms rather than a list of cards.
+    static let rule = Color(hex: 0xB5B5B6)
+    /// `.st12` — primary text and glyphs.
     static let text = Color(hex: 0xFAF8F4)
-    /// `.st6` — slider tracks, dim captions.
+    /// `.st6` — dim captions and anything the interface is not asking you to
+    /// read.
     static let dim = Color(hex: 0x898989)
-    /// Text on a well that is secondary (group headers "Still" / "Cine").
+    /// Secondary text on a rail: the "As Shot" caption under a slider.
     static let secondaryText = Color(hex: 0xDAD8D4)
-    /// Plot grounds (histogram / curve) are one step darker than the card.
+    /// Plot grounds (histogram / curve) are one step darker than the rail.
     static let plot = Color(hex: 0x1E1F1E)
     static let plotGrid = Color(hex: 0x3A3B39)
-    /// The one accent in the interface: the active curve tab and its points.
-    static let accent = Color(hex: 0xEE8A2B)
+    /// `.st17` / `.st3` fill, `.st2` stroke — the one accent in the
+    /// interface. **`#eca650`, not the old `#ee8a2b`**: the new drawing names
+    /// it in three places and the file that names the colour wins.
+    static let accent = Color(hex: 0xECA650)
+    /// `.st16` — a **chosen** row in the film or print list. The drawing's
+    /// own words for what changed: "selected entries has shallow, instead of
+    /// framed square around it, and the text turns from white to black". So
+    /// selection is a full-width light band, not a frame, and the row's text
+    /// inverts on it.
+    static let selection = Color(hex: 0xC9CACA)
+    /// Text on that band.
+    static let onSelection = Color(hex: 0x0E0E0E)
+    /// How far a control that cannot be used is taken down. The PRD makes
+    /// this one rule for the whole app — "if one option is non-selectable,
+    /// both the text and the input pill is greyed across the app" — so it is
+    /// one number applied to the *row*, label and pill together
+    /// (`View.rowEnabled(_:)`), rather than a second colour per element that
+    /// each caller would have to remember to use.
+    static let disabledOpacity: Double = 0.38
     /// The export page's accent, `.cls-12` in
-    /// `reference_layout/Export_Page/export_page.svg`: the chosen mode in the
-    /// bar's toggle. **The user's own drawing says `#f08724`**, and this page
-    /// follows its drawing: the two oranges are 2, 3 and 7 counts apart a
-    /// channel (240/135/36 against 238/138/43), which is nothing on screen but
-    /// is not the same number, and the file that names the colour wins.
+    /// `reference_layout/Export_Page/export_page.svg`. **The user's own
+    /// drawing says `#f08724`**, and that page follows its own drawing.
     static let exportAccent = Color(hex: 0xF08724)
-    /// `.cls-21` — the naming chips' plate and, in the drawing, the unchosen
-    /// filmstrip cell's frame. A well-side grey one step up from `ground`.
+    /// `.cls-21` — the naming chips' plate on the export page.
     static let exportChip = Color(hex: 0x686969)
+    /// The white frame a filmstrip cell is marked with. Still a frame: the
+    /// filmstrip is the one surface the redraw left alone, and a light band
+    /// behind a photograph is not a mark you can see.
     static let selectionFrame = Color(hex: 0xFAF8F4)
-    static let knob = Color(hex: 0xFAF8F4)
+    /// `.st18` — the slider knob, a hair warmer than `text` in the drawing.
+    static let knob = Color(hex: 0xFBF8F3)
     static let canvasSurround = ground
 
     static let histR = Color(hex: 0xE8524E)
@@ -54,167 +113,284 @@ enum Theme {
     // MARK: metrics (SVG ÷ 2)
 
     enum Metric {
-        /// Card corner radius (rx 30 → 15).
-        static let cardRadius: CGFloat = 15
-        /// Well corner radius (rx 22.9 → 11.5).
-        static let wellRadius: CGFloat = 11.5
-        /// Outer margin between window edge and cards (17.9 → 9, 14.1 → 7).
-        static let outerX: CGFloat = 9
-        static let outerY: CGFloat = 7
-        /// Gutter between a side panel and the centre column. The drawing's is
-        /// 8 (690.5 − 674.8); 6 spends less screen on ground between the four
-        /// cards. Deliberate departure from the drawing.
-        static let gutter: CGFloat = 6
-        /// The drawing's own panel widths. They are now the **standard** of a
-        /// range the user can move inside (`Controls/PanelResize.swift`), and
-        /// keeping them as the standard is what makes a fresh install
-        /// pixel-identical to the drawing — a first launch measures the same
-        /// as every snapshot taken before the panels were resizable.
-        static let leftPanelWidth: CGFloat = 328
-        static let rightPanelWidth: CGFloat = 286
 
-        /// How far each panel may be taken, and why those numbers.
+        // MARK: the window's three regions
+        //
+        //      0        254                        1632      1920
+        //      ┌─────────┬──────────────────────────┬─────────┐  0
+        //      │ header  │      ▁▁▁▁ bar ▁▁▁▁       │ header  │  38
+        //      ├─────────┤                          ├─────────┤
+        //      │  left   │         canvas           │  right  │
+        //      │  rail   │                          │  rail   │
+        //      │         ├──────────────────────────┤         │  948
+        //      │         │        filmstrip         │         │
+        //      └─────────┴──────────────────────────┴─────────┘  1080
+        //
+        // The drawing's own rectangles, halved: the left rail is `x -2.6
+        // w 509.9`, the right `x 3263.9 w 576.1`, the filmstrip `y 1895.3
+        // h 264.7`, all of them running to the window's edge. There is no
+        // outer margin and no gutter — the hairline is the separator.
+
+        /// Left rail. The drawing's 509.9 / 2, rounded.
+        static let leftPanelWidth: CGFloat = 254
+        /// Right rail. The drawing's 576.1 / 2, rounded.
+        static let rightPanelWidth: CGFloat = 288
+        /// The filmstrip's own height, 264.7 / 2. It spans the centre column
+        /// only: the two vertical hairlines at `x 508.8` and `x 3263.6`
+        /// (y 1895…2160) are what the drawing separates it from the rails
+        /// with.
+        static let filmstripHeight: CGFloat = 132
+
+        /// **Left, 232 … 380.** The floor is the Camera section's AE Method
+        /// row, which is the widest thing on the rail: a 74 pt label column,
+        /// 2 × 18 pt of row inset, and a pill that has to hold
+        /// `center-weighted (legacy)` — the name a sidecar written before the
+        /// field existed still meters by, and the one string in the interface
+        /// nobody chose. That is ≈ 225 pt, so 232 is the drawing's own layout
+        /// with seven points to spare.
         ///
-        /// **Left, 320 … 420.** Its house is rows, and a row is a fixed label
-        /// column (70), a fixed value column (40) and a track that absorbs
-        /// whatever is left — so the track is not what runs out first. What
-        /// runs out first is the **Tone pill's value**: the pill gets the well
-        /// less the 70 pt label column, the well is the panel less 2 × (9 + 13),
-        /// and the longest string the Camera section can put in it is
-        /// `center-weighted (legacy)`.
-        ///
-        /// **Measured, not derived**: captured at 264, 280, 296, 312 and 316.
-        /// It ellipsized at every width through 312 and fit at 316. 320 is that
-        /// with a margin worth having. Below it the *label* column starts being
-        /// the thing that gives, which is the one part of a row that must not.
-        ///
-        /// The widest is where the panel stops being a panel: past 420 the only
-        /// thing that grows is a slider's track, and it is already twice the
-        /// length of the drawn one.
+        /// The ceiling is where the rail stops being a rail: past 380 the
+        /// only thing that grows is a slider's track, which is already longer
+        /// than the drawn one, and the film list's rows are mostly air.
         static var leftPanelRange: PanelWidthRange {
-            PanelWidthRange(narrowest: 320, standard: leftPanelWidth, widest: 420)
+            PanelWidthRange(narrowest: 232, standard: leftPanelWidth, widest: 380)
         }
 
-        /// **Right, 268 … 364.** The widest end is the colour balance triangle,
-        /// which has *ceilings of its own* — `ColorBalanceLayout` clamps the
-        /// midtone wheel to 64…120 pt and each side wheel to 44…96 — and it
-        /// reaches both of them at 364. Past that the panel is adding width the
-        /// triangle has already refused, and the only thing that grows is the
-        /// curve editor's square.
-        ///
-        /// The narrow end is the **five-tab row above the triangle**: five
-        /// labels split the well evenly, and `Highlight` is the one that runs
-        /// out first. Measured: it ellipsized at 276 and fit at 286 — the
-        /// drawing's own width is within two points of the floor. It now scales
-        /// instead of truncating (`ColorBalanceEditor.tabs`), which is what buys
-        /// the narrow end at all, and 268 is where the scale it needs is still
-        /// inside 0.85. Below that the triangle's own floor is what is left:
-        /// two side wheels at 44 need ≈ 130 of well interior before the layout
-        /// even *reports* that it fits (`ColorBalanceLayout.ThreeWay.fits`).
+        /// **Right, 268 … 364**, unchanged from the previous drawing and for
+        /// the reasons recorded then: the widest end is where the colour
+        /// balance triangle reaches its own ceilings (`ColorBalanceLayout`
+        /// clamps the midtone wheel to 64…120 pt and each side wheel to
+        /// 44…96), and the narrow end is the five-tab row above it, measured
+        /// to ellipsize at 276 and fit at 286. The new drawing's 288 sits two
+        /// points above that floor, as the old one's 286 did.
         static var rightPanelRange: PanelWidthRange {
             PanelWidthRange(narrowest: 268, standard: rightPanelWidth, widest: 364)
         }
 
-        /// The top bar's height, and it is **fixed** by the user's decision —
-        /// a bar you can drag is a bar that drags the window buttons with it,
-        /// because `trafficLightCentreY` places them in window coordinates
-        /// against this number.
-        ///
-        /// 41 is the drawing's and was what a wider bar bought: nothing. What
-        /// it costs is 7 pt of picture, twice, in every window the app is ever
-        /// in. The floor is its own content — the tallest control on the bar is
-        /// a 28 pt glyph box, which is centred, so at 34 there are 3 pt of card
-        /// above and below it and the three window buttons (14 pt, centred on
-        /// `trafficLightCentreY`) still sit 10 pt clear of both edges. Below
-        /// about 32 the glyph boxes start to touch and the bar reads as a
-        /// titlebar rather than as a row of the interface.
-        static let topBarHeight: CGFloat = 34
-        static let filmstripHeight: CGFloat = 125
-        /// Well inset from the card edge (36.2 − 17.9 → 9).
-        static let wellInset: CGFloat = 9
-        /// Height of the left panel's header row.
-        static let panelHeaderHeight: CGFloat = 44
-        /// Centre of the **top bar** in *window* coordinates, from the top —
-        /// where the traffic lights go. The bar is the first row of the
-        /// window, it is full width and it never collapses, so it is the one
-        /// row in the interface that always has a home for the buttons
-        /// (`Windows/TrafficLights.swift`). It used to be the left panel's
-        /// header, which is a row that disappears when the panel folds.
-        static var trafficLightCentreY: CGFloat { outerY + topBarHeight / 2 }
-        /// Leading edge of the close button, in window coordinates. The bar
-        /// starts at `outerX` and every card insets its content by 12, so the
-        /// buttons take that inset rather than a special one — which is what
-        /// makes the corner read as one row instead of two things that
-        /// happen to be near each other.
-        static var trafficLightLeading: CGFloat { outerX + 12 }
+        /// The header row at the top of each rail: import / export / the
+        /// sidebar toggle on the left, the adjustments glyph / the sidebar
+        /// toggle on the right. The drawing's first hairline is at `y 75.6`,
+        /// so 37.8 — rounded to 38, which also makes the traffic lights'
+        /// centreline a whole number.
+        static let panelHeaderHeight: CGFloat = 38
+        /// Leading inset of a rail header's first glyph (`x 20.2 / 2`).
+        static let panelHeaderLeading: CGFloat = 10
+        /// Trailing inset of the sidebar toggle at the header's far end
+        /// (the drawing's 254 − 245.3).
+        static let panelHeaderTrailing: CGFloat = 9
+
+        // MARK: the hairline
+        //
+        // `.st1`, `stroke: #b5b5b6; stroke-width: 2px` at 2× → 1 pt, and the
+        // drawing runs it edge to edge (`line x1="-4" x2="505.9"`).
+
+        static let rule: CGFloat = 1
+
+        // MARK: the floating tool bar
+        //
+        // `rect x 529 y 9.4 w 2721 h 61.8 rx 28`, halved: a rounded pill on
+        // the ground, over the canvas, spanning the centre column. It is the
+        // one thing in the new drawing that still floats.
+
+        /// Bar height, 61.8 / 2.
+        static let topBarHeight: CGFloat = 31
+        /// Corner radius, 28 / 2 — very nearly a capsule at this height, and
+        /// the drawing's own number rather than `height / 2`.
+        static let barRadius: CGFloat = 14
+        /// Air above the bar, 9.4 / 2.
+        static let barTop: CGFloat = 5
+        /// Air each side of it. The drawing's are 11.1 leading and 6.95
+        /// trailing, which is a sketch being a sketch: a bar that is not
+        /// centred in its own column is a thing you can see. 9 is the mean.
+        static let barInset: CGFloat = 9
+        /// The strip the centre column reserves at its top: the bar, with its
+        /// own air above and the same below. The bar therefore sits **over**
+        /// ground rather than over the picture — which is the drawing (the
+        /// `.st13` ground rectangle runs behind it) and is also the only
+        /// arrangement in which a maximised frame is not partly under a
+        /// toolbar.
+        static var barStrip: CGFloat { barTop * 2 + topBarHeight }
+        /// Leading inset of the bar's first control, from the bar's own edge,
+        /// when the left rail is open and the window buttons are on it.
+        static let barPadding: CGFloat = 12
+
+        // MARK: the window buttons
+        //
+        // `.windowStyle(.hiddenTitleBar)` does not remove the three buttons;
+        // it floats them over the content. They are *placed*
+        // (`Windows/TrafficLights.swift`), and the row they are placed on is
+        // the **rail header's**, which is the window's first row at
+        // `y 0…38` — the same row the bar's centre falls in.
+        //
+        // That is why they do not move when the left rail folds: the rail
+        // header and the bar strip occupy the same 38 pt of window, so one
+        // centreline serves both. What changes is only which of the two
+        // *reserves* the space — the header when the rail is open, the bar
+        // when it is not.
+
+        static let trafficLightLeading: CGFloat = 20
+        static var trafficLightCentreY: CGFloat { panelHeaderHeight / 2 }
         /// Gap between the zoom button and the first glyph after it. Xcode's
         /// is about this; below ~12 the glyph reads as a fourth window button.
         static let trafficLightToGlyph: CGFloat = 16
-        /// Leading inset for a side panel's header row, measured from the
-        /// card's own leading edge — the drawing's own 12, which is what every
-        /// other card keeps. The right panel's header glyph takes it; the left
-        /// panel's header has no leading control at all any more (import and
-        /// export moved to the top bar), so its row is now purely the drag
-        /// surface and the card menu.
-        ///
-        /// This was a derived number until the window buttons moved onto the
-        /// top bar: it existed only to push the import glyph clear of them.
-        /// With the buttons on a row of their own, a header is an ordinary
-        /// card header again and nothing here has to know they exist.
-        static let panelHeaderLeading: CGFloat = 12
-        /// Leading inset for the top bar's first control, from the bar's own
-        /// leading edge — the derivation `panelHeaderLeading` used to carry,
-        /// moved to the row the buttons are on now.
-        ///
-        /// `.windowStyle(.hiddenTitleBar)` does not remove the three window
-        /// buttons; it floats them over the content. They are placed rather
-        /// than avoided, so this follows from where they are: the row ends at
-        /// `trafficLightLeading + rowWidth`, the glyph starts
-        /// `trafficLightToGlyph` after that, and the glyph is centred in a
-        /// 28 pt box (`TopBar.toolButton`). The drawing puts the tools further
-        /// right than this; the drawing is a sketch and the derivation is what
-        /// keeps the corner from reading as two unrelated rows. The window
-        /// server draws the buttons, so no offscreen capture
-        /// (`Tools/snapshot.sh`) can see this row at all — `Tools/capture-live.sh`
-        /// is the check.
-        static var topBarLeading: CGFloat {
+        /// How much of a row the buttons take, from its leading edge — what
+        /// a header or a bar has to skip before its own first control.
+        static var trafficLightClearance: CGFloat {
             trafficLightLeading + TrafficLightAlignment.rowWidth + trafficLightToGlyph
-                - outerX - (28 - toolIcon) / 2
         }
-        /// Text inset from the well edge (label x 62 → 31, well x 18 → 13).
-        static let wellPadding: CGFloat = 13
-        /// Section header height and the gap wells keep from headers.
-        static let headerHeight: CGFloat = 26
-        static let headerToWell: CGFloat = 6
-        static let wellToHeader: CGFloat = 10
-        /// Slider: track height, knob size.
-        static let trackHeight: CGFloat = 2.5
-        static let knobSize = CGSize(width: 10.5, height: 8.7)
-        static let knobRadius: CGFloat = 3
-        /// Column where every slider track starts inside a well (201 → 100.5,
-        /// minus well x 18 → 82.5) and the value column width.
-        static let sliderLabelWidth: CGFloat = 70
-        static let sliderValueWidth: CGFloat = 40
-        static let rowHeight: CGFloat = 20
-        static let listRowHeight: CGFloat = 24
-        /// Checkbox square (9.9 → 5) drawn with a 1 pt stroke.
-        static let checkbox: CGFloat = 9
-        /// Disclosure triangle (24.3×14.5 → 12×7).
+        /// The same clearance, measured from the **bar's** leading edge
+        /// rather than the window's, for the case where the left rail is
+        /// folded and the bar is the row the buttons sit on.
+        static var barLeadingWithButtons: CGFloat { trafficLightClearance - barInset }
+
+        // MARK: a section on a rail
+        //
+        // A section is a header row, its content, and a hairline. Measured
+        // off the two rails' hairlines: White Balance and Exposure are drawn
+        // collapsed and are 29.05 and 31.05 apart, so a header row is 30; the
+        // Camera and Histogram headers put their content 27.25 and 30.75
+        // below the rule above them, which is the same 30 within the
+        // drawing's own noise.
+
+        static let headerHeight: CGFloat = 30
+        /// Air under a section's content, before the next hairline. The
+        /// drawing's are 14.6 (Camera), 10 (Film) and 10.75 (Print).
+        static let sectionBottom: CGFloat = 12
+        /// Leading inset of the disclosure triangle's 18 pt box, so the
+        /// triangle itself lands on the drawing's x 11.
+        static let headerLeading: CGFloat = 7
+        /// Gap between that box and the title, so the title lands on the
+        /// drawing's x 32.
+        static let headerTitleGap: CGFloat = 7
+        /// Trailing inset of the "•••" menu.
+        static let headerTrailing: CGFloat = 10
+        /// Disclosure triangle (24.3 × 14.5 → 12 × 7).
         static let disclosure = CGSize(width: 12, height: 7)
-        /// Section icon box.
+
+        // MARK: a row on a rail
+        //
+        // Every control row is inset 18 from both edges of the rail, the
+        // label takes a fixed column, and the control takes what is left —
+        // measured off the drawing: labels start at 17.6 and the value pills
+        // end at 235.6 on a 254 pt rail.
+
+        /// Inset of a control row from both edges of the rail.
+        static let rowInset: CGFloat = 18
+        /// The line box one control sits in.
+        static let rowHeight: CGFloat = 20
+        /// A control's own height — every pill, field and menu in the
+        /// interface (the drawing's 27.8 / 2).
+        static let controlHeight: CGFloat = 14
+        /// Between two row blocks.
+        static let rowSpacing: CGFloat = 5
+        /// The second line of a slider row: "As Shot" and its box.
+        static let subRowHeight: CGFloat = 15
+        /// The label column. The drawing's is 68.35 (its labels start at
+        /// 17.6 and its first control at 86.35) and `Film Exposure` fills
+        /// 66 of it *there*, at Illustrator's optical size. macOS sets the
+        /// same string wider, so the column is 74 — a truncated label is
+        /// worse than a column six points wide.
+        static let sliderLabelWidth: CGFloat = 74
+        /// The value pill at the end of a slider row (87.5 / 2).
+        static let sliderValueWidth: CGFloat = 44
+        /// Between the track and that pill (191.85 − 176.8).
+        static let sliderValueGap: CGFloat = 14
+        /// A picker that does **not** fill its row — Film Type, Side, and the
+        /// unit pill beside Side Length. The drawing draws them 107 wide and
+        /// right-aligned, where AE Method fills everything after its label.
+        static let pickerWidth: CGFloat = 112
+        /// The number field beside Side Length (99.5 / 2), and the unit pill
+        /// after it (76.6 / 2).
+        static let fieldWidth: CGFloat = 50
+        static let unitWidth: CGFloat = 38
+        /// A label-and-checkbox row (Grain / Halation / Glare / Lens
+        /// Correction): the drawing's pitch is 21.25–22.25.
+        static let toggleRowHeight: CGFloat = 17
+        /// Corner radius of a control that is **not** a capsule: the value
+        /// pills and the Side Length field, drawn `rx 8.5` against the
+        /// menus' `rx 13.9` (= half their height, i.e. a capsule).
+        static let fieldRadius: CGFloat = 4.25
+
+        // MARK: the film and print lists
+
+        /// How far a list well is inset from the rail's edges (the drawing's
+        /// 4.7 leading, 3.45 trailing).
+        static let wellInset: CGFloat = 4
+        /// Well corner radius (22.9 → 11.5).
+        static let wellRadius: CGFloat = 11.5
+        /// Text inset inside a well, and inside a list row.
+        static let wellPadding: CGFloat = 12
+        /// A row in the film or print list (39.2 / 2). The selection band is
+        /// exactly this tall and exactly the well's width, which is what
+        /// "shallow, instead of framed square" means.
+        static let listRowHeight: CGFloat = 19.5
+        /// The `CINE` pill after a cinema stock: 55.2 × 20.6 → 27.6 × 10.3,
+        /// a 1 pt accent stroke, no fill, 10.75 in from the well's edge.
+        static let cinePill = CGSize(width: 28, height: 11)
+        static let cinePillTrailing: CGFloat = 11
+
+        // MARK: the two actions under the print list
+
+        /// Process / Original: 52.6 / 2 tall, `rx 16.5` → 8.25, 2.25 apart,
+        /// and inset by the same 4 the wells above them are.
+        static let actionHeight: CGFloat = 26
+        static let actionRadius: CGFloat = 8.25
+        static let actionGap: CGFloat = 2.5
+
+        // MARK: sliders
+
+        /// Track height, 2.7 / 2. Thin, and the drawing means it: the track
+        /// is the same grey as the ground, so weight is the only thing
+        /// separating it from a divider.
+        static let trackHeight: CGFloat = 1.5
+        /// The knob. The drawing's is `12.3 × 10.1 rx 5.1` → 6.15 × 5.05,
+        /// fully rounded — a dot. 7 is that, rounded up to something a
+        /// pointer can find.
+        static let knobSize = CGSize(width: 7, height: 7)
+        static let knobRadius: CGFloat = 3.5
+        /// The checkbox. `9.9 × 9.9` with a 1 pt `#faf8f4` stroke → 5 pt of
+        /// accent inside a white box; 8 is that at a size the eye resolves,
+        /// and its hit area is padded well past it.
+        static let checkbox: CGFloat = 8
+
+        // MARK: glyphs
+
+        /// A tool glyph on the floating bar (the drawing's are 17.6–21.5 pt
+        /// tall; an SF Symbol at 15 sets about that).
+        static let toolIcon: CGFloat = 15
+        /// A rail header's glyph — import, export, the adjustments sliders.
+        static let panelIcon: CGFloat = 16
+        /// `sidebar.left` / `sidebar.right`, the two buttons that fold a rail
+        /// and that the PRD requires to be on screen at every moment
+        /// (41.8 × 32.7 → 20.9 × 16.35).
+        static let sidebarIcon: CGFloat = 15
+        /// Kept for the export page's section headers, which still draw one.
         static let sectionIcon: CGFloat = 16
-        /// Toolbar glyph size.
-        static let toolIcon: CGFloat = 17
-        /// Panel-header glyph size (import/export, sliders).
-        static let panelIcon: CGFloat = 19
-        /// Collapse tab (27.8×83.1 → 14×41.5).
+
+        // MARK: the filmstrip, and the one tab that survived
+        //
+        // The drawing replaced the left and right collapse tabs with the two
+        // sidebar buttons. The **bottom** one is unchanged — "except the
+        // bottom gallery view remains unchanged" — and is still the pill on
+        // the canvas edge (`rect 27.8 × 83.1 rx 13.9`, rotated).
+
         static let tabThickness: CGFloat = 14
         static let tabLength: CGFloat = 41.5
-        /// Zoom pill (210.5×41.4 → 105×20.7).
+        /// Thumbnail height inside the 132 pt strip.
+        static let thumbHeight: CGFloat = 110
+        static let filmCover: CGFloat = 18
+
+        /// The zoom pill on the bar (210.5 × 41.4 → 105 × 20.7). It carries
+        /// **no stroke** in the new drawing; it is a plain `.st13` capsule
+        /// like every other pill.
         static let zoomPill = CGSize(width: 105, height: 20.7)
-        static let filmCover: CGFloat = 20
-        static let thumbHeight: CGFloat = 105
+
         static let minWindow = CGSize(width: 1100, height: 700)
+
+        /// Card corner radius — the **export page's** (`rx 30 → 15`). The
+        /// editor's cards are flush and square now; `panelCard()` is the
+        /// export page's card, `railCard()` is the editor's.
+        static let cardRadius: CGFloat = 15
 
         /// The export page's own geometry (RFC-018 §6).
         ///
@@ -409,19 +585,34 @@ enum Theme {
 
     // MARK: type ramp
     //
-    // Cap height of "Kodak Portra 400" in the drawing: 16.9 units → 8.45 pt,
-    // i.e. a 12 pt face. Headers share it. Labels are one step down.
+    // Measured off the drawing's outlines. Cap heights, halved: a section
+    // title ("Camera", "White Balance") is 8.1–8.8 pt, so a 12 pt face; a row
+    // label and a list row are 7.25, so 10.5; "As Shot" is smaller again, and
+    // the two actions under the print list are set a step up from a label.
+    //
+    // Everything on this rail is **semibold or heavier**. The drawing sets
+    // every string in a bold face, and at 10.5 pt on a dark ground a regular
+    // weight disappears.
 
     enum Font {
-        static let sectionTitle = SwiftUI.Font.system(size: 12, weight: .semibold)
-        static let listItem = SwiftUI.Font.system(size: 12, weight: .semibold)
-        static let groupHeader = SwiftUI.Font.system(size: 11, weight: .semibold)
-        static let label = SwiftUI.Font.system(size: 11, weight: .semibold)
-        static let sublabel = SwiftUI.Font.system(size: 10, weight: .medium)
+        static let sectionTitle = SwiftUI.Font.system(size: 12, weight: .bold)
+        /// A row in the film or print list.
+        static let listItem = SwiftUI.Font.system(size: 10.5, weight: .semibold)
+        static let groupHeader = SwiftUI.Font.system(size: 10, weight: .semibold)
+        /// A control row's label, and the value inside a menu pill.
+        static let label = SwiftUI.Font.system(size: 10.5, weight: .semibold)
+        /// "As Shot", and any second line under a label.
+        static let sublabel = SwiftUI.Font.system(size: 9, weight: .medium)
+        /// A number in a value pill or a field.
         static let value = SwiftUI.Font.system(size: 10.5, weight: .medium).monospacedDigit()
         static let tab = SwiftUI.Font.system(size: 10.5, weight: .semibold)
         static let caption = SwiftUI.Font.system(size: 9, weight: .regular)
-        static let pill = SwiftUI.Font.system(size: 10.5, weight: .semibold).monospacedDigit()
+        static let pill = SwiftUI.Font.system(size: 10, weight: .semibold).monospacedDigit()
+        /// Process / Original, one step up from a label.
+        static let action = SwiftUI.Font.system(size: 11.5, weight: .semibold)
+        /// The `CINE` pill. Small, and the drawing draws it small: 27.6 pt of
+        /// pill has to hold four letters and its own padding.
+        static let cine = SwiftUI.Font.system(size: 7, weight: .bold)
 
         /// The export page's ramp — **the same sizes, in a heavier face**.
         /// The drawing sets `font-weight: 700` on every text class it has
@@ -452,4 +643,57 @@ extension Color {
 
 extension Comparable {
     func clamped(to r: ClosedRange<Self>) -> Self { min(max(self, r.lowerBound), r.upperBound) }
+}
+
+/// The 1 pt `#b5b5b6` line the drawing separates every function with.
+///
+/// Full bleed, always: the drawing runs it from `x -4` to `x 505.9` on a rail
+/// whose own edges are 0 and 254, which is a person drawing "edge to edge"
+/// rather than a measurement. A rule with an inset reads as a list separator;
+/// a rule without one reads as a wall, and a wall is what the new layout is
+/// made of.
+struct Hairline: View {
+    var body: some View {
+        Rectangle().fill(Theme.rule)
+            .frame(height: Theme.Metric.rule)
+            .frame(maxWidth: .infinity)
+    }
+}
+
+/// The vertical member of the same wall — between the filmstrip and a rail
+/// (the drawing's `line x1="508.8" y1="1895.1" y2="2160.2"`).
+struct VerticalHairline: View {
+    var body: some View {
+        Rectangle().fill(Theme.rule)
+            .frame(width: Theme.Metric.rule)
+            .frame(maxHeight: .infinity)
+    }
+}
+
+extension View {
+    /// "If one option is non-selectable, both the text and the input pill is
+    /// greyed across the app" (PRD).
+    ///
+    /// One modifier on the **row**, rather than a disabled colour each label
+    /// and each pill has to remember: the rule is about a row, every row in
+    /// the interface is a label and a control, and a rule spelled once cannot
+    /// be applied to one half of a row and not the other. It also stops the
+    /// row taking the mouse, which is the other half of "non-selectable" —
+    /// a greyed control that still opens its menu is worse than one that
+    /// looks live.
+    func rowEnabled(_ enabled: Bool, because reason: String = "") -> some View {
+        self.opacity(enabled ? 1 : Theme.disabledOpacity)
+            .allowsHitTesting(enabled)
+            .modifier(DisabledReason(show: !enabled && !reason.isEmpty, reason: reason))
+    }
+}
+
+/// `.help("")` still installs an empty tooltip, so the explanation has to be
+/// attached conditionally rather than passed empty.
+private struct DisabledReason: ViewModifier {
+    let show: Bool
+    let reason: String
+    func body(content: Content) -> some View {
+        if show { content.help(reason) } else { content }
+    }
 }

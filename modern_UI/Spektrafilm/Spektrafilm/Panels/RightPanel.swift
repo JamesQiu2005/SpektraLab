@@ -1,6 +1,11 @@
-//  RightPanel.swift — the Layer 2 column. The header's two glyphs are the
-//  "adjustments" tab (always on — there is one tab) and the bypass switch:
-//  the dotted circle shows the pure simulation while it is active.
+//  RightPanel.swift — the grade rail. Its header carries the adjustments
+//  glyph, the bypass switch (the dotted circle shows the pure simulation
+//  while it is active) and `sidebar.right` at the far end, which is what the
+//  2026-09-17 drawing puts there.
+//
+//  Its sections are separated by the same hairline the left rail uses, and
+//  there is no menu on the header row: the drawing has none, and each section
+//  already carries its own "•••".
 
 import SwiftUI
 
@@ -10,21 +15,26 @@ struct RightPanel: View {
     var body: some View {
         VStack(spacing: 0) {
             header
+            Hairline()
             ScrollView(.vertical, showsIndicators: false) {
                 VStack(spacing: 0) {
                     HistogramSection(session: session)
+                    Hairline()
                     WhiteBalanceSection(session: session)
+                    Hairline()
                     ExposureSection(session: session)
+                    Hairline()
                     CurveSection(session: session)
+                    Hairline()
                     ColorBalanceSection(session: session)
+                    Hairline()
                     // Withdrawn while the mask system is redesigned; the
                     // section itself is intact (`FeatureFlags.masks`).
-                    if FeatureFlags.masks { MasksSection(session: session) }
+                    if FeatureFlags.masks { MasksSection(session: session); Hairline() }
                 }
-                .padding(.top, 4)
             }
         }
-        .panelCard()
+        .railCard()
     }
 
     private var header: some View {
@@ -39,15 +49,10 @@ struct RightPanel: View {
                             active: !session.adjustments.enabled) {
                 var a = session.adjustments; a.enabled.toggle(); session.adjustments = a
             }
-            .padding(.leading, 10)
-            Spacer()
-            Menu {
-                Button("Reset all adjustments") { session.resetAdjustments() }
-            } label: {
-                VerticalEllipsis().frame(width: 3, height: 15).padding(10).contentShape(Rectangle())
-            }
-            .menuStyle(.button).buttonStyle(.plain).menuIndicator(.hidden).fixedSize()
-            .padding(.trailing, 6)
+            .padding(.leading, 8)
+            Spacer(minLength: 0)
+            SidebarToggle(edge: .trailing, collapsed: $session.rightCollapsed)
+                .padding(.trailing, Theme.Metric.panelHeaderTrailing)
         }
         .frame(height: Theme.Metric.panelHeaderHeight)
     }

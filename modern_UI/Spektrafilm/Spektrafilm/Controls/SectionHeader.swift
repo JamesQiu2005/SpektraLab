@@ -1,16 +1,29 @@
-//  SectionHeader.swift — disclosure triangle, glyph, title, "•••" — the row
-//  every section in both panels starts with, and the well under it.
+//  SectionHeader.swift — disclosure triangle, title, "•••" — the row every
+//  section in both rails starts with, and the well a list sits in.
+//
+//  The 2026-09-17 drawing changed three things here. The header is 30 pt (its
+//  two collapsed sections, White Balance and Exposure, measure 29.05 and
+//  31.05 between hairlines). It carries **no icon**: the drawing's headers are
+//  a triangle, a title and a menu, and the glyph that used to sit between the
+//  first two is gone. And a section is closed by a `Hairline` drawn by the
+//  rail rather than by air, so the only vertical space a section owns is the
+//  12 pt under its content — and a *collapsed* section owns none at all,
+//  which is what makes two shut sections 30 pt apart.
 
 import SwiftUI
 
 /// The four numbers a section row is drawn with. A default-constructed one is
-/// the editor's panels, which is what every caller but the export page wants;
-/// the export page's drawing has tighter rows and a heavier title, so it
-/// passes its own (`Theme.Metric.Export` and `Theme.Font.Export`).
+/// the editor's rails; the export page's drawing has tighter rows and a
+/// heavier title, so it passes its own (`Theme.Metric.Export` and
+/// `Theme.Font.Export`).
 struct SectionMetrics {
     var headerHeight: CGFloat = Theme.Metric.headerHeight
-    var headerToWell: CGFloat = Theme.Metric.headerToWell
-    var wellToHeader: CGFloat = Theme.Metric.wellToHeader
+    /// Air between the header and the content under it. **Zero on the
+    /// editor's rails**: `headerHeight` was measured from one hairline to the
+    /// content below it, so the gap is already inside it.
+    var headerToWell: CGFloat = 0
+    /// Air under the content, before the next hairline.
+    var wellToHeader: CGFloat = Theme.Metric.sectionBottom
     var titleFont: Font = Theme.Font.sectionTitle
 }
 
@@ -32,7 +45,7 @@ struct SectionHeader: View {
                     .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
-            .padding(.leading, 6)
+            .padding(.leading, Theme.Metric.headerLeading)
             if let systemImage {
                 Image(systemName: systemImage)
                     .font(.system(size: 13, weight: .regular))
@@ -43,7 +56,7 @@ struct SectionHeader: View {
             Text(title)
                 .font(metrics.titleFont)
                 .foregroundStyle(Theme.text)
-                .padding(.leading, 10)
+                .padding(.leading, Theme.Metric.headerTitleGap)
                 .lineLimit(1)
             Spacer(minLength: 4)
             if let menu {
@@ -54,12 +67,14 @@ struct SectionHeader: View {
                 .buttonStyle(.plain)
                 .menuIndicator(.hidden)
                 .fixedSize()
+                .padding(.trailing, Theme.Metric.headerTrailing - 8)
             } else {
-                EllipsisGlyph().frame(width: 15, height: 3).padding(8)
+                EllipsisGlyph().frame(width: 15, height: 3)
+                    .padding(8)
+                    .padding(.trailing, Theme.Metric.headerTrailing - 8)
             }
         }
         .frame(height: metrics.headerHeight)
-        .padding(.horizontal, Theme.Metric.wellInset)
         .contentShape(Rectangle())
     }
 }
@@ -81,18 +96,31 @@ struct EllipsisGlyph: View {
     }
 }
 
-/// The rounded well every section's content sits in.
+/// The rounded well a list sits in.
+///
+/// On the editor's rails there are exactly two of these — the film list and
+/// the print list — and everything else sits directly on the rail. That is
+/// the drawing: a well is now what holds a *choice from a set*, not what
+/// holds a group of controls.
+///
+/// `inset` is how far the well is held off the rail's own edges, and it is a
+/// parameter rather than a constant because the two drawings disagree: the
+/// editor's wells are 4 pt in and the export page's are its own
+/// `Export.wellInset`. It used to be `Theme.Metric.wellInset` for both, which
+/// meant the export page silently followed the editor's number.
 struct Well<Content: View>: View {
     var padding: CGFloat = Theme.Metric.wellPadding
     var vertical: CGFloat = 10
+    var inset: CGFloat = Theme.Metric.wellInset
+    var radius: CGFloat = Theme.Metric.wellRadius
     @ViewBuilder var content: () -> Content
     var body: some View {
         content()
             .padding(.horizontal, padding)
             .padding(.vertical, vertical)
             .frame(maxWidth: .infinity, alignment: .leading)
-            .background(Theme.well, in: RoundedRectangle(cornerRadius: Theme.Metric.wellRadius, style: .continuous))
-            .padding(.horizontal, Theme.Metric.wellInset)
+            .background(Theme.well, in: RoundedRectangle(cornerRadius: radius, style: .continuous))
+            .padding(.horizontal, inset)
     }
 }
 
@@ -121,10 +149,15 @@ struct PanelSection<Content: View>: View {
         VStack(spacing: 0) {
             SectionHeader(title: title, systemImage: systemImage, expanded: $expanded, menu: menu,
                           metrics: metrics)
+            // A **collapsed** section is its header and nothing else. The
+            // drawing's two shut sections are 30 pt apart, which is the
+            // header, so bottom padding here would put air under a row that
+            // has nothing under it.
             if expanded {
-                content().padding(.top, metrics.headerToWell)
+                content()
+                    .padding(.top, metrics.headerToWell)
+                    .padding(.bottom, metrics.wellToHeader)
             }
         }
-        .padding(.bottom, metrics.wellToHeader)
     }
 }

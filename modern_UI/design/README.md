@@ -4,7 +4,7 @@
 |---|---|
 | **What this is** | The loop that lets the interface be checked against the drawing without a human looking at it. |
 | **One command** | `design/snapshot.sh [image]` → `design/snapshots/window-*.png` |
-| **Measure it** | `Spektrafilm/Tools/compare-layout.py design/snapshots/window-16x9.png` |
+| **Measure it** | `swift Spektrafilm/Tools/measure-layout.swift design/snapshots/window-16x9.png 2` |
 | **Date** | 2026-09-08 |
 
 ## How it works
@@ -24,9 +24,15 @@ including Layer 2 and the histogram. `Tools/snapshot.sh` runs it at the three
 shapes that matter: MacBook Pro 14" (1512×982), 16:9 (1920×1080) and the 21:9
 display (3360×1418).
 
-`compare-layout.py` finds the four card-coloured regions in the 1920×1080
-capture and prints their rectangles against the SVG's (÷2). Under 2.5 pt of
-drift is a pass; the run recorded on 2026-09-08 was within 2 pt on every card.
+`measure-layout.swift` reads the capture and prints, in points, the three
+regions' edges, the floating bar's rectangle and every hairline in both rails,
+which is what the 2026-09-17 drawing is made of. Under 2.5 pt of drift is a
+pass; the run recorded on 2026-09-17 was **exact** at all three shapes — left
+rail 0…254, right 1632…1920, filmstrip 948…1080, bar y 5…36 inset 9/9.
+
+`compare-layout.py` measured the *previous* drawing's four floating cards.
+There are no cards to find any more, and it needs Pillow, which this
+repository is not allowed to depend on; the Swift tool replaced it.
 
 ## What it cannot capture — and the harness that can
 
@@ -62,5 +68,7 @@ capture that proves the canvas draws — run it before believing it does.
 
 ## Reference
 
-`modern_UI/reference_layout/SVG_link/sample_frontend.svg` is the drawing;
-`Theme.swift` carries every number from it, divided by two.
+`modern_UI/reference_layout/Main/sample_frontend.svg` is the drawing (2026-09-17);
+`Theme.swift` carries every number from it, divided by two, and
+`design/TOKENS-main-2026-09-17.md` is the derivation of each one.
+`reference_layout/SVG_link/sample_frontend.svg` is the drawing it replaced.

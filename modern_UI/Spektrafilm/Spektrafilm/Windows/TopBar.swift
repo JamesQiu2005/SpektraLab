@@ -1,11 +1,19 @@
-//  TopBar.swift — the commands and tools at the left, zoom at the right,
-//  exactly the design's glyphs: import · export · select · hand · crop  ……
-//  before/after · zoom-in · [100 %] · zoom-out · expand.
+//  TopBar.swift — the canvas's own bar: select · hand · crop …… before/after
+//  · zoom-in · [100 %] · zoom-out · full screen.
 //
-//  The bar spans the window and is the first row of it, so the three window
-//  buttons are on its centreline (`Windows/TrafficLights.swift`) and its
-//  leading inset clears them (`Theme.Metric.topBarLeading`). It cannot be
-//  collapsed: it is the row that keeps the corner of the window (PRD §1).
+//  It is a rounded pill floating on the ground over the canvas now, not a row
+//  spanning the window, so it belongs to the centre column and is as wide as
+//  the picture is. The drawing's three tools are exactly the three that were
+//  here (`main_page.png`: an arrow, a hand in a circle, a crop mark) — import
+//  and export went back to the left rail's header, because opening a file is
+//  not a thing you do to the picture.
+//
+//  **Two things the bar hosts only while a rail is folded.** The window
+//  buttons sit on the rail header's centreline, which is also the bar's, so
+//  when the left rail goes the bar is what has to leave room for them
+//  (`barLeadingWithButtons`). And each `sidebar` toggle moves here from its
+//  own rail's header for the same reason: the PRD requires both to be on
+//  screen at every moment, and a folded rail has no header to hold one.
 //
 //  **Selection is orange, not grey.** A selected control tints the glyph
 //  itself (`Theme.accent`) instead of putting a darker plate behind it. That
@@ -27,19 +35,19 @@ struct TopBar: View {
 
     var body: some View {
         HStack(spacing: 0) {
-            // Import and export lead the cluster, which is where the drawing
-            // puts them and where the user asked for them. They were in the
-            // left panel's header until the bar became the row that hosts
-            // everything: two always-visible homes for one command is worse
-            // than none, so they left the header when they arrived here.
-            iconButton("square.and.arrow.down", "Open a folder or image (⌘O)") { session.openPanel() }
-                .padding(.leading, Theme.Metric.topBarLeading)
-            iconButton("square.and.arrow.up", "Export (⌘E)", disabled: session.selection == nil) {
-                session.showExport = true
+            // Everything here is spaced from the bar's leading edge, and that
+            // edge is either the bar's own padding or the room the window
+            // buttons need — they are on this row whenever the left rail is
+            // not (Windows/TrafficLights.swift).
+            Spacer()
+                .frame(width: session.leftCollapsed ? Theme.Metric.barLeadingWithButtons
+                                                    : Theme.Metric.barPadding)
+            if session.leftCollapsed {
+                SidebarToggle(edge: .leading, collapsed: $session.leftCollapsed)
+                    .padding(.trailing, 14)
             }
-            .padding(.leading, 22)
-            toolButton("cursorarrow", .select, "Select (V)").padding(.leading, 22)
-            toolButton("hand.point.up.left", .hand, "Pan (H)").padding(.leading, 22)
+            toolButton("cursorarrow", .select, "Select (V)")
+            toolButton("hand.raised", .hand, "Pan (H)").padding(.leading, 22)
             toolButton("crop", .crop, "Crop (C)").padding(.leading, 22)
             if session.working {
                 ProgressView().controlSize(.small).scaleEffect(0.7).padding(.leading, 18)
@@ -98,10 +106,14 @@ struct TopBar: View {
                 NSApp.keyWindow?.toggleFullScreen(nil)
             }
             .padding(.leading, 18)
-            .padding(.trailing, 18)
+            if session.rightCollapsed {
+                SidebarToggle(edge: .trailing, collapsed: $session.rightCollapsed)
+                    .padding(.leading, 14)
+            }
+            Spacer().frame(width: Theme.Metric.barPadding)
         }
         .frame(height: Theme.Metric.topBarHeight)
-        .panelCard()
+        .barCard()
         .onAppear { fullScreen = NSApp.keyWindow?.styleMask.contains(.fullScreen) ?? false }
         .onReceive(NotificationCenter.default.publisher(for: NSWindow.didEnterFullScreenNotification)) { _ in
             fullScreen = true
@@ -162,8 +174,10 @@ struct TopBar: View {
                 .font(Theme.Font.pill)
                 .foregroundStyle(Theme.text)
                 .frame(width: Theme.Metric.zoomPill.width, height: Theme.Metric.zoomPill.height)
-                .background(Theme.well, in: Capsule())
-                .overlay(Capsule().stroke(Theme.text, lineWidth: 1))
+                // No outline. The previous drawing stroked this capsule in
+                // white; the new one draws it as a plain `.st13` pill, like
+                // every other pill in the interface.
+                .background(Theme.pill, in: Capsule())
                 .contentShape(Capsule())
         }
         .menuStyle(.button).buttonStyle(.plain).menuIndicator(.hidden).fixedSize()

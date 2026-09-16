@@ -71,7 +71,7 @@ struct Filmstrip: View {
                 .opacity(session.frames.isEmpty ? 1 : 0)
                 .allowsHitTesting(false)
         }
-        .panelCard()
+        .railCard()
     }
 
     private func edgeButton(_ name: String, action: @escaping () -> Void) -> some View {

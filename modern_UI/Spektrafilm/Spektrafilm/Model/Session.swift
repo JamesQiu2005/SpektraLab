@@ -289,6 +289,15 @@ final class Session: CanvasHost {
     var rightCollapsed = UserDefaults.standard.bool(forKey: Session.uiKey + "rightCollapsed") { didSet { UserDefaults.standard.set(rightCollapsed, forKey: Session.uiKey + "rightCollapsed") } }
     var topCollapsed = UserDefaults.standard.bool(forKey: Session.uiKey + "topCollapsed") { didSet { UserDefaults.standard.set(topCollapsed, forKey: Session.uiKey + "topCollapsed") } }
     var filmstripCollapsed = UserDefaults.standard.bool(forKey: Session.uiKey + "filmstripCollapsed") { didSet { UserDefaults.standard.set(filmstripCollapsed, forKey: Session.uiKey + "filmstripCollapsed") } }
+    /// Snapshot mode only: hold both rails at `PanelWidthRange.standard`.
+    ///
+    /// A rail's width is the user's and persists, so a rail dragged wide in
+    /// some earlier session would be what every capture measured — the same
+    /// defect the collapse flags had, which cost a round of "the layout
+    /// drifted" before anyone noticed a card was simply absent. A capture is
+    /// a check against the drawing, and the drawing's width is `standard`.
+    var snapshotPanelWidths = false
+
     var tool: CanvasTool = .select {
         didSet {
             guard oldValue != tool else { return }

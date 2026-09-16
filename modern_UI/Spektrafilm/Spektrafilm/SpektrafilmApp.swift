@@ -133,6 +133,26 @@ struct EditorCommands: Commands {
         CommandMenu("Frame") {
             Button("Previous") { session.selectRelative(-1) }.keyboardShortcut("[")
             Button("Next") { session.selectRelative(1) }.keyboardShortcut("]")
+            Divider()
+            // These three were the left rail header's "•••" until the
+            // 2026-09-17 drawing took the menu off that row. They are frame
+            // commands rather than panel commands — each one is about the
+            // open frame's settings — so this is where they belong anyway.
+            Button("Reset Film, Paper, Camera and Enlarger") { session.resetParams() }
+            Button("Reset Adjustments") { session.resetAdjustments() }
+            Button("Reveal Settings in Finder") {
+                guard let u = session.selection else { return }
+                // The settings live in the app's store, not beside the image,
+                // so this can be asked for a frame that has never been saved.
+                // Show the folder in that case rather than selecting nothing.
+                let sidecar = Sidecar.url(for: u)
+                if FileManager.default.fileExists(atPath: sidecar.path) {
+                    NSWorkspace.shared.activateFileViewerSelecting([sidecar])
+                } else {
+                    NSWorkspace.shared.open(Sidecar.storeDirectory)
+                }
+            }
+            .disabled(session.selection == nil)
         }
         // Withdrawn with the rest of the mask system (`FeatureFlags.masks`):
         // a menu is a promise, and this one cannot be kept while the feature
@@ -352,6 +372,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         session.leftCollapsed = false
         session.rightCollapsed = false
         session.filmstripCollapsed = false
+        // The same trap, one door along: a **rail width** persists too, and a
+        // rail dragged to 328 in some earlier session makes every capture
+        // measure 74 pt wide of the drawing. A capture is a check against the
+        // drawing, so it has to be of a fresh install — which is exactly what
+        // `PanelWidthRange.standard` is.
+        session.snapshotPanelWidths = true
         // `topCollapsed` is not reset here any more: the top bar is the
         // window's first row and cannot be collapsed, so no view reads that
         // flag. The stored property stays for one release so a preferences

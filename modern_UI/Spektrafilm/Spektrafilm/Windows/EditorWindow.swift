@@ -1,23 +1,40 @@
-//  EditorWindow.swift — the four cards on the ground, exactly as drawn:
+//  EditorWindow.swift — the window's three regions, exactly as the
+//  2026-09-17 drawing has them:
 //
-//     ┌─────────────────── top bar ───────────────────────┐
-//     │ ┌left┐  ┌──────── canvas ────────┐  ┌right┐        │
-//     │ │328 │  │                       │  │ 286 │        │
-//     │ │    │  └───── filmstrip ───────┘  │     │        │
-//     │ └────┘                            └─────┘        │
-//     └──────────────────────────────────────────────────┘
+//     ┌─────────┬──────────────────────────┬─────────┐
+//     │ header  │      ▁▁▁▁ bar ▁▁▁▁       │ header  │
+//     ├─────────┤                          ├─────────┤
+//     │  left   │          canvas          │  right  │
+//     │  rail   │                          │  rail   │
+//     │  254    ├──────────────────────────┤   288   │
+//     │         │        filmstrip         │         │
+//     └─────────┴──────────────────────────┴─────────┘
 //
-//  The top bar is the window's first row and spans all of it — it is not the
-//  canvas column's first row any more. That is what gives the three window
-//  buttons a home that never folds (`Windows/TrafficLights.swift`), and it is
-//  the drawing's own arrangement (`PRD/new_frontend_top_layout.png`).
+//  Flush: no outer margin, no gutter, no corner radius. Where the previous
+//  design left a 6 pt trench of ground between four floating cards, this one
+//  puts a **1 pt hairline** (`Hairline`, `#b5b5b6`) — and only where two
+//  surfaces of the *same* colour meet. Between a rail and the canvas the
+//  ground colour is the separator, so the drawing draws no line there; beside
+//  the filmstrip, where rail and strip are both `Theme.card`, it draws two
+//  (`line x1="508.8"` and `x1="3263.6"`, y 1895…2160).
 //
-//  Outer margins 9/7 pt, gutters 6 pt, radius 15 pt. The side panels are
-//  fixed width (the drawing's), so a wider window gives the canvas the extra
-//  room and a narrower one takes it from the canvas — never from a panel.
-//  Collapsing a card removes it from the HStack/VStack, so the canvas grows
-//  into its place; the small tabs on the canvas edges bring it back. The top
-//  bar is the one card that does not collapse at all.
+//  The bar no longer spans the window. It is a rounded pill floating on the
+//  ground over the canvas (`Theme.Metric.barStrip`), so it belongs to the
+//  centre column and grows with it.
+//
+//  **The window buttons did not move.** They sit at `y 19`, which is the
+//  centre of a rail header *and* very nearly the centre of the bar — one row,
+//  two occupants. So folding the left rail does not relocate them; it only
+//  changes which view reserves the space (`Theme.Metric.trafficLightClearance`
+//  in the header, `barLeadingWithButtons` on the bar).
+//
+//  Folding is the two `sidebar.left` / `sidebar.right` buttons now, not the
+//  hover tabs on the canvas edge (PRD: "moved to become sidebar.left and
+//  sidebar.right … these two buttons must also remain on the screen at any
+//  given time"). Each lives at the far end of its own rail's header and moves
+//  onto the bar when that rail is folded, which is the only place left that is
+//  always on screen. The **bottom** tab is untouched — "except the bottom
+//  gallery view remains unchanged".
 
 import SwiftUI
 import UniformTypeIdentifiers
@@ -33,8 +50,7 @@ struct EditorWindow: View {
         Group {
             if session.browsing && !session.frames.isEmpty {
                 BrowseView(session: session)
-                    .padding(.horizontal, Theme.Metric.outerX)
-                    .padding(.vertical, Theme.Metric.outerY)
+                    .padding(Theme.Metric.wellInset)
                     .transition(.opacity)
             } else {
                 printLayout
@@ -98,55 +114,70 @@ struct EditorWindow: View {
                                                     range: Theme.Metric.rightPanelRange)
 
     private var printLayout: some View {
-        VStack(spacing: Theme.Metric.gutter) {
-            TopBar(session: session)
-            HStack(spacing: Theme.Metric.gutter) {
-                if !session.leftCollapsed {
-                    LeftPanel(session: session)
-                        .frame(width: leftWidth.width)
-                        // The grip is an **overlay**, not a sibling, and that
-                        // is what keeps the standard width pixel-identical to
-                        // the drawing: a 6 pt view in the HStack would push the
-                        // canvas 6 pt right on a fresh install and move every
-                        // snapshot. It sits inside the panel's own outer margin
-                        // — the 9 pt of card before the first well — so it
-                        // covers nothing that was drawn.
-                        .overlay(alignment: .trailing) {
-                            PanelResizeHandle(side: .trailingEdge, range: leftWidth.range,
-                                              width: $leftWidth.width)
-                        }
-                        .transition(.move(edge: .leading).combined(with: .opacity))
-                }
-                VStack(spacing: Theme.Metric.gutter) {
-                    CanvasArea(session: session)
-                    if !session.filmstripCollapsed {
-                        Filmstrip(session: session)
-                            .frame(height: Theme.Metric.filmstripHeight)
-                            .transition(.move(edge: .bottom).combined(with: .opacity))
+        HStack(spacing: 0) {
+            if !session.leftCollapsed {
+                LeftPanel(session: session)
+                    .frame(width: session.snapshotPanelWidths ? leftWidth.range.standard
+                                                              : leftWidth.width)
+                    // The grip is an **overlay**, not a sibling: a 6 pt view
+                    // in the HStack would push the canvas 6 pt right on a
+                    // fresh install and move every snapshot. It sits on the
+                    // rail's own trailing edge, where the drawing has nothing
+                    // but the colour change.
+                    .overlay(alignment: .trailing) {
+                        PanelResizeHandle(side: .trailingEdge, range: leftWidth.range,
+                                          width: $leftWidth.width)
                     }
-                }
-                .frame(maxWidth: .infinity, maxHeight: .infinity)
-                if !session.rightCollapsed {
-                    RightPanel(session: session)
-                        .frame(width: rightWidth.width)
-                        .overlay(alignment: .leading) {
-                            PanelResizeHandle(side: .leadingEdge, range: rightWidth.range,
-                                              width: $rightWidth.width)
-                        }
-                        // The colour balance triangle sizes its wheels from the
-                        // well it is in, and the well comes from the panel —
-                        // `ColorBalanceLayout.assumedWidth` is only what it
-                        // falls back to when nobody says.
-                        .environment(\.colorBalanceWidth,
-                                     ColorBalanceLayout.interior(panelWidth: rightWidth.width))
-                        .transition(.move(edge: .trailing).combined(with: .opacity))
-                }
+                    .transition(.move(edge: .leading))
             }
-            .frame(maxWidth: .infinity, maxHeight: .infinity)
+            centreColumn
+            if !session.rightCollapsed {
+                RightPanel(session: session)
+                    .frame(width: session.snapshotPanelWidths ? rightWidth.range.standard
+                                                              : rightWidth.width)
+                    .overlay(alignment: .leading) {
+                        PanelResizeHandle(side: .leadingEdge, range: rightWidth.range,
+                                          width: $rightWidth.width)
+                    }
+                    // The colour balance triangle sizes its wheels from the
+                    // rail, and the rail is the user's.
+                    .environment(\.colorBalanceWidth,
+                                 ColorBalanceLayout.interior(panelWidth: rightWidth.width))
+                    .transition(.move(edge: .trailing))
+            }
         }
-        .padding(.horizontal, Theme.Metric.outerX)
-        .padding(.vertical, Theme.Metric.outerY)
         .transition(.opacity)
+    }
+
+    /// Bar strip, canvas, filmstrip — the column between the two rails.
+    ///
+    /// The strip at the top is ground with the bar floating in it, rather than
+    /// the bar being a row of its own: that is what the drawing shows (its
+    /// `.st13` ground rectangle runs from y 0 and the bar is drawn on top of
+    /// it) and it is the only arrangement in which a maximised frame is never
+    /// partly under a toolbar.
+    private var centreColumn: some View {
+        VStack(spacing: 0) {
+            TopBar(session: session)
+                .frame(height: Theme.Metric.topBarHeight)
+                .padding(.horizontal, Theme.Metric.barInset)
+                .padding(.vertical, Theme.Metric.barTop)
+                .background(Theme.ground)
+            CanvasArea(session: session)
+            if !session.filmstripCollapsed {
+                HStack(spacing: 0) {
+                    // Only against a rail that is there. With one folded, the
+                    // strip runs to the window's edge and a line at the edge
+                    // is a line with nothing on the other side of it.
+                    if !session.leftCollapsed { VerticalHairline() }
+                    Filmstrip(session: session)
+                    if !session.rightCollapsed { VerticalHairline() }
+                }
+                .frame(height: Theme.Metric.filmstripHeight)
+                .transition(.move(edge: .bottom))
+            }
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
 }
 
@@ -192,10 +223,13 @@ struct CanvasArea: View {
         // edge rather than spilling, and why the crop tool's view is fitted to
         // the picture: `Renderer.fitRotatedPhoto`). This is the overlay half.
         .clipped()
-        // Three edges, not four: the top bar is not a card that folds, so
-        // there is no top tab to bring it back (PRD §1).
-        .overlay(alignment: .leading) { HoverEdgeTab(edge: .leading, collapsed: $session.leftCollapsed) }
-        .overlay(alignment: .trailing) { HoverEdgeTab(edge: .trailing, collapsed: $session.rightCollapsed) }
+        // **One edge, not three.** The left and right tabs are gone: the
+        // drawing folds a rail with the `sidebar.left` / `sidebar.right`
+        // button in that rail's own header, and a second control that does
+        // the same thing is a control that will disagree with the first about
+        // being there. The bottom one is untouched — "except the bottom
+        // gallery view remains unchanged" — and is still the pill that
+        // appears when the pointer comes near the canvas's lower edge.
         .overlay(alignment: .bottom) { HoverEdgeTab(edge: .bottom, collapsed: $session.filmstripCollapsed) }
         .overlay(alignment: .topTrailing) {
             VStack(alignment: .trailing, spacing: CanvasBadges.spacing) {
