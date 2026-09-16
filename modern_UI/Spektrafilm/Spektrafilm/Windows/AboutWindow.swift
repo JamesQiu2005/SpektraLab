@@ -30,8 +30,35 @@ struct AboutWindow: View {
         }
     }
 
+    /// Where the corresponding source is, and the **one** place that string
+    /// lives in the app.
+    ///
+    /// This is the GPL's written offer, so it is not decoration: a binary
+    /// distributed under GPL-3.0 has to tell the person holding it where to
+    /// get the source *of that binary*. The shipped `Licenses/README.txt`
+    /// carries the same sentence, written by `Tools/bundle-licenses.sh`, and
+    /// `LicensingTests` asserts the two agree — they did not, for two product
+    /// renames: the panel pointed here and the licence file still pointed at
+    /// the upstream project, which is the source of the profiles and not of
+    /// this application.
+    ///
+    /// **If the repository is renamed, change it here and in
+    /// `bundle-licenses.sh`, then re-run that script.** GitHub redirects a
+    /// renamed repository, so the old link keeps resolving and nothing breaks
+    /// loudly — which is exactly why it needs saying.
+    static let sourceURL = "https://github.com/JamesQiu2005/filmify"
+    /// The same URL as the panel shows it, without the scheme.
+    static var sourceLabel: String {
+        sourceURL.replacingOccurrences(of: "https://", with: "")
+    }
+
+    /// The upstream project: the profiles, the print model and the engine's
+    /// science. A different work under a different licence, and the reason
+    /// two source links appear on this panel rather than one.
+    static let upstreamURL = "https://github.com/andreavolpato/spektrafilm"
+
     static let licences = [
-        Licence(id: "Spektrafilm-GPL-3.0.txt", title: "GNU GPL v3 — the application and the engine"),
+        Licence(id: "SpektraLab-GPL-3.0.txt", title: "GNU GPL v3 — the application and the engine"),
         Licence(id: "Profiles-and-LUTs-CC-BY-SA-4.0.txt", title: "CC BY-SA 4.0 — the profiles and the print LUTs"),
         Licence(id: "Profiles-and-LUTs-CHANGELOG.txt", title: "What this build changed about the profiles and LUTs"),
         Licence(id: "metal-cpp-Apache-2.0.txt", title: "Apache 2.0 — metal-cpp"),
@@ -101,8 +128,8 @@ struct AboutWindow: View {
                     .font(Theme.Font.groupHeader).foregroundStyle(Theme.text)
                 Text("Andrea Volpato — licensed CC BY-SA 4.0")
                     .font(Theme.Font.sublabel).foregroundStyle(.secondary)
-                link("github.com/andreavolpato/spektrafilm",
-                     "https://github.com/andreavolpato/spektrafilm")
+                link(AboutWindow.upstreamURL.replacingOccurrences(of: "https://", with: ""),
+                     AboutWindow.upstreamURL)
             }
             VStack(alignment: .leading, spacing: 2) {
                 Text("SpektraLab and its render engine")
@@ -114,8 +141,7 @@ struct AboutWindow: View {
                 Text("Free software under the GNU GPL v3 or later. You have the right to the corresponding source.")
                     .font(Theme.Font.sublabel).foregroundStyle(.secondary)
                     .fixedSize(horizontal: false, vertical: true)
-                link("github.com/JamesQiu2005/filmify",
-                     "https://github.com/JamesQiu2005/filmify")
+                link(AboutWindow.sourceLabel, AboutWindow.sourceURL)
             }
             Text("The 8 baked print-preview LUTs are derivatives of the profiles and carry the same CC BY-SA 4.0 licence. What was changed, and what was not, is in the changelog below.")
                 .font(Theme.Font.caption).foregroundStyle(.secondary)

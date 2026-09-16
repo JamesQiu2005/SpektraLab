@@ -1,14 +1,14 @@
 Licences and credits
 ====================
 
-Spektrafilm is free software. This directory carries the full text of every
+SpektraLab is free software. This directory carries the full text of every
 licence the application is distributed under, because a binary that ships
 without them is not licensed to be shipped.
 
-  Spektrafilm-GPL-3.0.txt
+  SpektraLab-GPL-3.0.txt
       The application and the C++ render engine, GPL-3.0-or-later. You have
-      the right to the corresponding source code:
-      https://github.com/andreavolpato/spektrafilm
+      the right to the corresponding source code of this application:
+      https://github.com/JamesQiu2005/filmify
 
   Profiles-and-LUTs-CC-BY-SA-4.0.txt
       The 28 film and paper profiles, and the 8 baked print-preview LUTs
@@ -26,6 +26,8 @@ without them is not licensed to be shipped.
       metal-cpp, Apple's C++ bindings for Metal, Apache-2.0, compiled into
       the binary.
 
-The film simulation, the measured profiles and the print+scan model are
-Andrea Volpato's work. This application is a native macOS frontend and a C++
-render engine built on them.
+Two projects, two links, and they are not interchangeable. SpektraLab is a
+native macOS application and a C++ render engine, and the first link above is
+where its source is. The film simulation, the measured profiles and the
+print+scan model are Andrea Volpato's spektrafilm, and the second link is
+where that lives. SpektraLab is not affiliated with or endorsed by it.

@@ -36,7 +36,7 @@ final class LicensingTests: XCTestCase {
     /// four times would pass the existence check above.
     func testEachTextIsTheLicenceItClaimsToBe() throws {
         let expected = [
-            "Spektrafilm-GPL-3.0.txt": "GNU GENERAL PUBLIC LICENSE",
+            "SpektraLab-GPL-3.0.txt": "GNU GENERAL PUBLIC LICENSE",
             "Profiles-and-LUTs-CC-BY-SA-4.0.txt": "Attribution-ShareAlike 4.0 International",
             "metal-cpp-Apache-2.0.txt": "Apache License",
         ]
@@ -45,6 +45,44 @@ final class LicensingTests: XCTestCase {
             XCTAssertTrue(licence.body.contains(phrase),
                           "\(licence.id) does not contain \(phrase.debugDescription)")
         }
+    }
+
+    /// The GPL's written offer points at **this application's** source, and
+    /// the panel and the shipped licence file agree about where that is.
+    ///
+    /// They did not, through two product renames. `Licenses/README.txt` was
+    /// written once and never revisited: it called the product "Spektrafilm"
+    /// and offered `github.com/andreavolpato/spektrafilm` as the corresponding
+    /// source, which is where the *profiles* come from and not where this
+    /// binary's source is. The About panel had been updated and the file
+    /// beside it had not, so the app shipped two different answers to the one
+    /// question GPL-3.0 §6 requires a single answer to.
+    ///
+    /// Nothing about that is visible at runtime — the panel looked right — so
+    /// it is asserted here, against the file the user actually receives.
+    func testTheWrittenOfferPointsAtThisApplicationsSource() throws {
+        let readme = try XCTUnwrap(
+            AboutWindow.licenceDirectory.map { $0.appending(path: "README.txt") }
+                .flatMap { try? String(contentsOf: $0, encoding: .utf8) },
+            "no Licenses/README.txt in the bundle; run Tools/bundle-licenses.sh")
+
+        XCTAssertTrue(readme.contains(AboutWindow.sourceURL),
+                      "the shipped licence file offers a different source than the About panel "
+                      + "(\(AboutWindow.sourceURL)); change it in both AboutWindow.sourceURL and "
+                      + "Tools/bundle-licenses.sh, then re-run that script")
+        XCTAssertNotEqual(AboutWindow.sourceURL, AboutWindow.upstreamURL,
+                          "the written offer points at the upstream project, which is the source "
+                          + "of the profiles and not of this application")
+        // The product is named as itself, not as the project it builds on —
+        // which is what SPEKTRAFILM_LICENSE.txt asks for and the reason the
+        // app was renamed in the first place.
+        XCTAssertTrue(readme.contains("SpektraLab is free software"),
+                      "the shipped licence file does not call the product by its name")
+        // And the upstream credit is still there: this is a two-link file and
+        // fixing one must not delete the other.
+        XCTAssertTrue(readme.contains(AboutWindow.upstreamURL),
+                      "the shipped licence file lost the upstream attribution")
+        XCTAssertTrue(readme.contains("Andrea Volpato"))
     }
 
     /// The attribution CC BY-SA requires: the author, the canonical source,

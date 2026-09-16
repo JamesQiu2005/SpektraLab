@@ -229,7 +229,7 @@ The bundle used to contain no licence file at all. It now carries four, in
 
 | file | covers |
 |---|---|
-| `Spektrafilm-GPL-3.0.txt` | the application and the C++ engine |
+| `SpektraLab-GPL-3.0.txt` | the application and the C++ engine |
 | `Profiles-and-LUTs-CC-BY-SA-4.0.txt` | the 28 profiles and the 8 baked print LUTs |
 | `Profiles-and-LUTs-CHANGELOG.txt` | what this build changed about them |
 | `metal-cpp-Apache-2.0.txt` | the vendored metal-cpp compiled into the binary |

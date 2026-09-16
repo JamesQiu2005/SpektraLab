@@ -29,7 +29,18 @@ root=$(CDPATH= cd -- "$here/../../.." && pwd)     # the repository
 out="$here/../Spektrafilm/Resources/Licenses"
 mkdir -p "$out"
 
-cp "$root/LICENSE" "$out/Spektrafilm-GPL-3.0.txt"
+# The GPL's written offer: where the source of *this binary* is. It must match
+# `AboutWindow.sourceURL`, and `LicensingTests` asserts that it does -- the two
+# disagreed through two product renames, with the panel pointing at this
+# application and the licence file still pointing at the upstream project,
+# which is the source of the profiles and not of this app. If the repository is
+# renamed, change it in both places and re-run this script.
+source_url="https://github.com/JamesQiu2005/filmify"
+# The upstream project, whose profiles and print model this application uses.
+# A different work under a different licence; not a substitute for the above.
+upstream_url="https://github.com/andreavolpato/spektrafilm"
+
+cp "$root/LICENSE" "$out/SpektraLab-GPL-3.0.txt"
 cp "$root/SPEKTRAFILM_LICENSE.txt" "$out/Profiles-and-LUTs-CC-BY-SA-4.0.txt"
 cp "$root/engine/third_party/metal-cpp/LICENSE.txt" "$out/metal-cpp-Apache-2.0.txt"
 
@@ -97,23 +108,23 @@ KG3 and lens filter curves -- is published colour-science data, not Andrea
 Volpato's profile work, and is not covered by this file.
 CHANGELOG
 
-cat > "$out/README.txt" <<'README'
+cat > "$out/README.txt" <<README
 Licences and credits
 ====================
 
-Spektrafilm is free software. This directory carries the full text of every
+SpektraLab is free software. This directory carries the full text of every
 licence the application is distributed under, because a binary that ships
 without them is not licensed to be shipped.
 
-  Spektrafilm-GPL-3.0.txt
+  SpektraLab-GPL-3.0.txt
       The application and the C++ render engine, GPL-3.0-or-later. You have
-      the right to the corresponding source code:
-      https://github.com/andreavolpato/spektrafilm
+      the right to the corresponding source code of this application:
+      $source_url
 
   Profiles-and-LUTs-CC-BY-SA-4.0.txt
       The 28 film and paper profiles, and the 8 baked print-preview LUTs
       derived from them, by Andrea Volpato, CC BY-SA 4.0.
-      https://github.com/andreavolpato/spektrafilm
+      $upstream_url
       Redistribution and derivatives must credit the author, link the
       project, and preserve that licence.
 
@@ -126,9 +137,11 @@ without them is not licensed to be shipped.
       metal-cpp, Apple's C++ bindings for Metal, Apache-2.0, compiled into
       the binary.
 
-The film simulation, the measured profiles and the print+scan model are
-Andrea Volpato's work. This application is a native macOS frontend and a C++
-render engine built on them.
+Two projects, two links, and they are not interchangeable. SpektraLab is a
+native macOS application and a C++ render engine, and the first link above is
+where its source is. The film simulation, the measured profiles and the
+print+scan model are Andrea Volpato's spektrafilm, and the second link is
+where that lives. SpektraLab is not affiliated with or endorsed by it.
 README
 
 printf 'licences   -> %s\n' "$out"
