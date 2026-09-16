@@ -140,6 +140,28 @@ uint32_t next_id() {
 // the session
 // ---------------------------------------------------------------------------
 
+/// The open-delta key that selects the product's defaults rather than the
+/// reference's. Deliberately **not** a `params_schema` row: it picks a set of
+/// defaults, it is an open-time decision, and adding a 42nd wire field would
+/// put `parity_schema` in the position of reporting a divergence from the
+/// Python oracle that is not one.
+constexpr const char* kProductDefaultsKey = "product_defaults";
+
+/// What "the product's defaults" means, in one place both `spk_open` and
+/// `spk_set_params`'s stock rebuild call.
+///
+/// Today it is one field. It is a function anyway because the rebuild path has
+/// to re-apply every one of them after `init_params` has reset the tree, and a
+/// second field added to one site and not the other would show up as a print
+/// that changes brightness the first time the user picks a different paper.
+static void apply_product_defaults(Params& params, bool product_defaults) {
+    if (!product_defaults) return;
+    // SpektraLab has no "Print auto compensation" switch, so Camera Exp. Comp.
+    // has to move the finished print rather than only the negative's placement
+    // on the film curve.
+    params.enlarger.print_exposure_compensation = false;
+}
+
 struct spk_session {
     spk_engine* engine = nullptr;
     std::string session_id;
@@ -155,6 +177,21 @@ struct spk_session {
 
     Params params;
     std::unique_ptr<Pipeline> pipeline;
+
+    // SpektraLab deliberately does not expose the reference GUI's
+    // `print_exposure_compensation` switch. Its Camera Exp. Comp. therefore
+    // has to move the finished print's brightness, rather than only moving
+    // the negative on the film curve.
+    //
+    // The caller asks for it **by name**, with `product_defaults` in the open
+    // delta (`kProductDefaultsKey`). It used to be inferred from whether the
+    // delta happened to carry `preview_long_edge`, which was true of the app
+    // and false of the parity clients — so it worked, but the product's colour
+    // behaviour hung on the presence of an unrelated field. Moving the preview
+    // resolution out of the open delta, which is an ordinary thing for a
+    // frontend to do, would have silently restored the reference's
+    // compensation and changed every print's brightness with nothing failing.
+    bool product_defaults = false;
 
     // Per tier: the downscaled source, the cached negative, and the result.
     struct TierState {
@@ -568,11 +605,29 @@ spk_session* open_frame(spk_engine* engine, const FrameIn& frame, const char* pa
     }
 
     Json delta = Json::object();
+    bool product_defaults = false;
     if (params_delta_json && *params_delta_json) {
         std::string parse_error;
         if (!Json::parse(params_delta_json, delta, parse_error)) {
             g_error = "params_delta: " + parse_error;
             return nullptr;
+        }
+        // Taken out before validation, because it is not a render parameter
+        // and must not become one: it selects a *set of defaults*, it has no
+        // schema row, no layer and no range, and `params_schema` stays the 41
+        // fields the wire has always had (which is what `parity_schema`
+        // checks, field for field, against the Python oracle).
+        if (delta.has(kProductDefaultsKey)) {
+            const Json& value = delta.at(kProductDefaultsKey);
+            if (!value.is_bool()) {
+                g_error = std::string(kProductDefaultsKey) + " must be a boolean";
+                return nullptr;
+            }
+            product_defaults = value.as_bool();
+            Json rest = Json::object();
+            for (const auto& kv : delta.fields())
+                if (kv.first != kProductDefaultsKey) rest.set(kv.first, kv.second);
+            delta = std::move(rest);
         }
         std::string message, param;
         if (!validate_delta(delta, message, param)) { g_error = message; return nullptr; }
@@ -589,6 +644,7 @@ spk_session* open_frame(spk_engine* engine, const FrameIn& frame, const char* pa
     std::string error;
     if (!init_params(engine->resources_dir, film, print, engine->neutral_filters,
                      session->params, error)) { g_error = error; return nullptr; }
+    session->product_defaults = product_defaults;
     // The project convention, applied before the delta so an explicit
     // `output_color_space` still wins: ProPhoto RGB in, **ProPhoto RGB out**.
     //
@@ -604,6 +660,12 @@ spk_session* open_frame(spk_engine* engine, const FrameIn& frame, const char* pa
     session->params.io.output_color_space = "ProPhoto RGB";
     session->params.io.output_cctf_encoding = true;
     apply_delta(session->params, delta);
+    // After the delta, and in the same order as the stock rebuild in
+    // `spk_set_params`, so the two cannot disagree about precedence. Nothing
+    // in a delta can reach this field today — it has no schema row — but
+    // "the product defaults win" is the rule, and it should be the rule in
+    // both places rather than an accident of ordering in one.
+    apply_product_defaults(session->params, session->product_defaults);
     session->params.settings.working_precision = "float32";
     if (!digest(session->params, engine->neutral_filters, error)) { g_error = error; return nullptr; }
 
@@ -1342,6 +1404,11 @@ spk_status spk_set_params(spk_session* session, const char* params_delta_json, c
         for (const auto& kv : current.fields())
             if (kv.first != "film_stock" && kv.first != "print_stock") carry.set(kv.first, kv.second);
         apply_delta(fresh, carry);
+        // After `carry`, for the reason given at the call site in `open_frame`:
+        // `init_params` has just reset the tree to the new stock's defaults,
+        // and the product's defaults are not in `carry` because they have no
+        // schema row to be read back through.
+        apply_product_defaults(fresh, session->product_defaults);
         if (!digest(fresh, engine->neutral_filters, error)) { g_error = error; return SPK_ERR_USER; }
         session->params = fresh;
     } else {

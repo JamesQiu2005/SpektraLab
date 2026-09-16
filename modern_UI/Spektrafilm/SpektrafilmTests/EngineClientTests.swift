@@ -272,6 +272,91 @@ final class EngineClientTests: XCTestCase {
         await client.stop()
     }
 
+    /// SpektraLab does not expose the reference GUI's "Print auto compensation"
+    /// switch. Its open path therefore opts out of that hidden normalization,
+    /// so Camera Exp. Comp. must move the finished print's brightness, not
+    /// merely its film-curve placement. Keep the assertion on a deliberately
+    /// plain frame with the stochastic stages disabled.
+    ///
+    /// The opt-out is `product_defaults` in the open delta. It used to be
+    /// inferred from the presence of `preview_long_edge`, so this test's
+    /// "product" case was distinguished from its "ordinary" case by a preview
+    /// resolution — which meant it was really asserting about the latch, not
+    /// about the mode. Both cases now differ by the one key that means it.
+    func testSpektraLabExposureCompensationMovesPrintBrightness() async throws {
+        let gpu = try device()
+        let client = EngineClient(device: gpu)
+
+        func mean(_ outcome: RenderOutcome) throws -> Double {
+            let texture = try XCTUnwrap(outcome.texture)
+            var rgba = [UInt16](repeating: 0, count: texture.width * texture.height * 4)
+            rgba.withUnsafeMutableBytes {
+                texture.getBytes($0.baseAddress!, bytesPerRow: texture.width * 8,
+                                 from: MTLRegionMake2D(0, 0, texture.width, texture.height),
+                                 mipmapLevel: 0)
+            }
+            var total: UInt64 = 0
+            for index in stride(from: 0, to: rgba.count, by: 4) {
+                total += UInt64(rgba[index]) + UInt64(rgba[index + 1]) + UInt64(rgba[index + 2])
+            }
+            return Double(total) / Double(texture.width * texture.height * 3 * 65535)
+        }
+
+        func renderDelta(_ openDelta: [String: ParamValue],
+                         stockChange: String? = nil) async throws -> (base: Double, brighter: Double) {
+            let open = try await client.open(try makeFrame(96, device: gpu), paramsDelta: openDelta)
+            let base = try mean(try await client.render(
+                .reprint, RenderRequest(sessionID: open.sessionID)))
+            let _: SetParamsResponse = try await client.call(
+                .setParams,
+                SetParamsRequest(sessionID: open.sessionID,
+                                 paramsDelta: ["exposure_compensation_ev": .double(2.0)]),
+                as: SetParamsResponse.self)
+            let brighter = try mean(try await client.render(
+                .reprint, RenderRequest(sessionID: open.sessionID)))
+            if let stockChange {
+                let _: SetParamsResponse = try await client.call(
+                    .setParams,
+                    SetParamsRequest(sessionID: open.sessionID,
+                                     paramsDelta: ["print_stock": .string(stockChange),
+                                                   "exposure_compensation_ev": .double(0.0)]),
+                    as: SetParamsResponse.self)
+                let stockBase = try mean(try await client.render(
+                    .reprint, RenderRequest(sessionID: open.sessionID)))
+                let _: SetParamsResponse = try await client.call(
+                    .setParams,
+                    SetParamsRequest(sessionID: open.sessionID,
+                                     paramsDelta: ["exposure_compensation_ev": .double(2.0)]),
+                    as: SetParamsResponse.self)
+                let stockBrighter = try mean(try await client.render(
+                    .reprint, RenderRequest(sessionID: open.sessionID)))
+                XCTAssertGreaterThan(stockBrighter - stockBase, 0.02,
+                                     "the product's uncompensated exposure mode was lost after a stock rebuild")
+            }
+            return (base, brighter)
+        }
+
+        let product = try await renderDelta([
+            "product_defaults": .bool(true),
+            "grain_active": .bool(false),
+            "grain_sublayers_active": .bool(false),
+            "glare_active": .bool(false),
+            "auto_exposure": .bool(false),
+        ], stockChange: "kodak_endura_premier")
+        let ordinary = try await renderDelta([
+            "grain_active": .bool(false),
+            "grain_sublayers_active": .bool(false),
+            "glare_active": .bool(false),
+            "auto_exposure": .bool(false),
+        ])
+
+        XCTAssertGreaterThan(product.brighter - product.base, 0.02,
+                             "Camera Exp. Comp. did not move finished-print brightness")
+        XCTAssertLessThan(ordinary.brighter - ordinary.base, 0.02,
+                          "standalone engine lost its reference print compensation")
+        await client.stop()
+    }
+
     /// The three tiers, and what "full" means.
     ///
     /// `full` must come back at the *source's* resolution, not the live tier's

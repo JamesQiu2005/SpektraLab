@@ -43,6 +43,39 @@ final class FrontendPolicyTests: XCTestCase {
     /// whose `UserDefaults` write outlived a killed run. `PanelWidthStore` is
     /// read the same way for the same reason. What survives from that version
     /// is the setter half, which is the app's own path.
+    /// The open contract, pinned because the panels that feed it are being
+    /// rebuilt.
+    ///
+    /// Both keys below are load-bearing in a way that fails *silently* if a
+    /// rework drops them, which is why they are asserted rather than left to
+    /// the open path to get right:
+    ///
+    ///  - Without `preview_long_edge` the engine renders the live tier at its
+    ///    own default rather than the user's chosen resolution.
+    ///  - Without `product_defaults` the engine keeps the reference's
+    ///    `print_exposure_compensation`, and Camera Exp. Comp. stops moving
+    ///    the finished print's brightness. Nothing throws; every print just
+    ///    comes out at a different brightness than the build before it.
+    ///
+    /// The engine used to infer the second from the presence of the first, so
+    /// moving the preview resolution into a `set_params` after open was enough
+    /// to change every rendered print with no test failing. It is an explicit
+    /// key now, and this is the test that keeps it sent.
+    func testTheOpenDeltaCarriesTheSessionSettingsAndTheProductDefaults() throws {
+        let delta = Session.openDelta(sidecar: Sidecar(), previewLongEdge: 1920)
+
+        XCTAssertEqual(delta["preview_long_edge"], .double(1920),
+                       "the open delta stopped carrying the preview resolution")
+        XCTAssertEqual(delta["product_defaults"], .bool(true),
+                       "the open delta stopped asking for the product's defaults")
+
+        // And the frame's own settings still ride with it: the delta is the
+        // sidecar's, extended, not a replacement for it.
+        for (key, value) in Sidecar().params.fullDelta {
+            XCTAssertEqual(delta[key], value, "the open delta dropped \(key) from the sidecar")
+        }
+    }
+
     func testThePreviewResolutionDefaultsAndClamps() throws {
         XCTAssertEqual(Session.defaultPreviewEdge, 2560)
         XCTAssertEqual(Session.previewEdgeChoices, [3840, 2560, 1920, 1080])

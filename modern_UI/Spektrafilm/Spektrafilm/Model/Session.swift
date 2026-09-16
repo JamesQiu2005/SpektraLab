@@ -1499,6 +1499,32 @@ final class Session: CanvasHost {
         }
     }
 
+    /// Everything that rides with an `open`, in one place.
+    ///
+    /// **This is the frontend's half of the open contract.** It is a named,
+    /// tested function rather than six lines in the middle of `load` because
+    /// the panels that feed it are being rebuilt, and two of the three entries
+    /// below are decisions the engine cannot re-derive if a rework drops them:
+    ///
+    ///  - `fullDelta` is the frame's own settings, from the sidecar.
+    ///  - `preview_long_edge` is a *session* setting, not a frame parameter,
+    ///    which is why it is added here rather than living in the sidecar: a
+    ///    frame copied to another library must not carry the resolution its
+    ///    author happened to be using.
+    ///  - `product_defaults` asks the engine for SpektraLab's defaults rather
+    ///    than the reference's — today, that Camera Exp. Comp. moves the
+    ///    finished print's brightness instead of only the negative's placement
+    ///    on the film curve. The engine used to infer this from the presence
+    ///    of `preview_long_edge`, so moving the preview resolution to a
+    ///    `set_params` after open would have silently changed every print.
+    ///    `FrontendPolicyTests` pins both keys for that reason.
+    nonisolated static func openDelta(sidecar: Sidecar, previewLongEdge: Int) -> [String: ParamValue] {
+        var delta = sidecar.params.fullDelta
+        delta["preview_long_edge"] = .double(Double(previewLongEdge))
+        delta["product_defaults"] = .bool(true)
+        return delta
+    }
+
     nonisolated static func displayCacheKey(url: URL, settings: DecodeSettings,
                                             previewLongEdge: Int,
                                             engineVersion: String) -> CacheKey {
@@ -1938,14 +1964,9 @@ final class Session: CanvasHost {
                 }.value
                 clock.lap("frame")
                 guard selection == url, !Task.isCancelled else { return nil }
-                // The preview resolution rides with the open. It is a session
-                // setting rather than a frame parameter (`io.preview_long_edge`),
-                // so it is added here instead of living in the sidecar: a frame
-                // copied to another library must not carry the resolution its
-                // author happened to be using.
-                var delta = sidecar.params.fullDelta
-                delta["preview_long_edge"] = .double(Double(previewLongEdge))
-                r = try await client.open(frame, paramsDelta: delta)
+                r = try await client.open(
+                    frame,
+                    paramsDelta: Self.openDelta(sidecar: sidecar, previewLongEdge: previewLongEdge))
             }
             // The client holds one session; open replaces it. The handle follows
             // the session, not the develop, so an open only ever replaces this
