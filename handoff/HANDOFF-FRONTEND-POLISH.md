@@ -6,8 +6,30 @@
 | **Read first** | `modern_UI/frontend_architecture.md` — the layout, the tokens, the view tree and the data path are recorded there and are not repeated here. Then `modern_UI/Spektrafilm/README.md` §7.1 for the four defects already found and fixed. |
 | **Not in scope** | New tests. The suites that exist (34 Swift, 32 Python) pass; this task is behaviour, not coverage. Four were added on 2026-09-09 anyway, for the rules a screenshot cannot show (see §0). Masks are their own task: `HANDOFF-MASKS.md`. |
 | **Date** | 2026-09-08 |
+| **Superseded in part** | 2026-09-17. The window was redrawn (`PRD/Frontend_Rework_2026-09-17.md`), so everything here about **cards, gutters, the 70 pt header inset and `compare-layout.py`** describes a layout that no longer exists. The *behaviour* list below is untouched and still owed. |
 
 ---
+
+## 0.0 What the 2026-09-17 redraw did to this list
+
+Three rows changed state and one changed meaning. Nothing else here was
+touched, and the items still marked "not done" are still not done.
+
+- **§1, traffic lights.** The 70 pt header inset is gone. The buttons are
+  placed at leading 20 / centre 19, which is the centreline of a rail header
+  *and* of the floating tool bar, so folding the left rail no longer moves
+  them — only which view reserves the space changes.
+- **§4, the auto-solve.** The sublabel it added still exists, and the slider
+  it sat under is now `Film Exposure`. What the redraw added beside it is the
+  thing §4 could not say: `AE Method`, with a `Custom` that turns the meter
+  **off**, so "zero" now has a stated meaning (the linearized baseline) rather
+  than an inferred one.
+- **The layout checks.** `compare-layout.py` measured four card-coloured
+  regions; there are none. `Tools/measure-layout.swift` replaced it.
+- **"within 2 pt of the drawing"** in the Status row above referred to the
+  previous drawing. Against the 2026-09-17 one the frame measures **exact** at
+  all three display shapes.
+
 
 ## 0. What landed on 2026-09-09, and what this list still owes
 
@@ -362,7 +384,8 @@ Two harnesses, and they see different things:
 
 ```
 Spektrafilm/Tools/snapshot.sh                       layout, three window sizes, offscreen
-Spektrafilm/Tools/compare-layout.py <capture>       cards against the drawing, ±2.5 pt
+swift Spektrafilm/Tools/measure-layout.swift <capture> 2   regions, bar and hairlines
+                                                    against the drawing, ±2.5 pt
 Spektrafilm/Tools/capture-live.sh [image.NEF]       the real window, window server
 SPEKTRAFILM_CANVAS_LOG=1                            one line per draw and per dropped render
 ```

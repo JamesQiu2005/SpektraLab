@@ -361,6 +361,17 @@ layout, controls or copy; those are the user's.
 Read in this order: this RFC §0, §1.1 and §7; then `CONTRACT-frontend-backend.md`
 §1–§2 and §5–§6; then `AGENTS.md` (engine build and the parity loop).
 
+**The UI names changed on 2026-09-17** (`PRD/Frontend_Rework_2026-09-17.md`).
+This RFC's arguments are unaffected — the fields and the meter are the same —
+but the strings it quotes are not on screen any more:
+
+| this RFC says | on screen now |
+|---|---|
+| Tone | **AE Method**, and it gained a fifth entry, `Custom`, which is `camera.auto_exposure = false` — the meter off, so the baseline is the linearized frame. That is the "what does zero mean" question §2.1 leaves open, answered by a control rather than by a caption |
+| Exp. Comp. | **Film Exposure**, directly under AE Method |
+| Color Temp. / Color Tint | **Temperature** / **Tint** |
+| Camera WB (preset pill) | the Camera section's "•••" |
+
 **Where things are**
 
 | what | file |
@@ -372,7 +383,7 @@ Read in this order: this RFC §0, §1.1 and §7; then `CONTRACT-frontend-backend
 | print compensation | `engine/src/core/printing.cpp` (~`:150–180`) |
 | the re-decode bug | `modern_UI/Spektrafilm/Spektrafilm/Model/Session.swift` `scheduleReopen` (~`:1129`), `ensureDeveloped` (~`:911`) |
 | RAW white balance | `modern_UI/Spektrafilm/Spektrafilm/Import/ImageDecoder.swift` `rawFilter` |
-| the UI today | `Panels/Sections/CameraSection.swift`, `Controls/KelvinSlider.swift`, `Panels/Sections/RightSections.swift` (`WhiteBalanceSection`) |
+| the UI today | `Panels/Sections/CameraSection.swift` (AE Method, Film Exposure), `Controls/WhiteBalanceRows.swift` (Temperature, Tint — was `KelvinSlider.swift`), `Panels/Sections/RightSections.swift` (`WhiteBalanceSection`, the print side) |
 
 **Commands**
 

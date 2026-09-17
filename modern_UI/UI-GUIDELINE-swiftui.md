@@ -2,10 +2,38 @@
 
 | | |
 |---|---|
-| **Status** | Binding. Read before writing any UI code. |
+| **Status** | Binding where it states a *rule*; historical where it sketches a *file*. See "What in here is still true", below. |
 | **Companion to** | `SPEC-spektrafilm-desktop-frontend.md` (what to build) — this doc is *how*. |
 | **Target** | macOS 15+, Apple Silicon only, Swift 6, SwiftUI + AppKit interop |
-| **Date** | 2026-08-28 |
+| **Written** | 2026-08-28, before the app existed |
+| **Reviewed** | 2026-09-17, against what shipped |
+
+---
+
+## What in here is still true
+
+This was written **before** the interface was built, so parts of it are a plan
+and parts of it are a rule. The plan was not followed exactly, and that is
+fine; the rules were, and they are why the app works.
+
+**Still binding, unchanged:** §0 (no web anything — the reason is the Metal
+canvas and the colour management, and neither has moved), §2's `Window` and
+forced dark, §4's colour rules, §5's scrub slider behaviour, §7's service
+client, §8's concurrency, §9's bundling, §11's list of tempting mistakes.
+
+**Superseded by what shipped:**
+
+| here | actually |
+|---|---|
+| §1's file tree | `frontend_architecture.md` §5 is the real one. `FilmPanel` / `InspectorPanel` / `AdjustmentsGroup` were never written under those names. |
+| §3's `SplitContainer` | `Controls/PanelResize.swift`. Same idea, different shape — see §3. |
+| §3's filmstrip divider | The filmstrip is a fixed 132 pt and folds; it does not resize. |
+| §10's build order | Done. It is a record of how the app was brought up, not a task list. |
+
+**And the whole layout it assumes was redrawn on 2026-09-17.** Four floating
+cards on a ground became three flush regions separated by a 1 pt hairline.
+The geometry lives in `design/TOKENS-main-2026-09-17.md` and
+`frontend_architecture.md` §1; nothing in *this* document decides it.
 
 ---
 
@@ -50,6 +78,17 @@ None in this app.
 
 ## 1. Project shape
 
+**Historical.** The tree below is what was planned in August. The real one is
+`frontend_architecture.md` §5, and the differences are not accidents: the
+panels are `Panels/LeftPanel.swift` and `Panels/RightPanel.swift` with one
+file per section in `Panels/Sections/`, because a section that is a file is a
+section that can be moved, split or merged by one line — which is exactly what
+the 2026-09-17 rework did to five of them.
+
+Kept for the two things it still gets right: **no package manager** (everything
+used is in the SDK), and **Swift 6 language mode with strict concurrency on**,
+which is much harder to turn on later than to start with.
+
 ```
 Spektrafilm.xcodeproj
   Spektrafilm/                     app target
@@ -82,11 +121,6 @@ Spektrafilm.xcodeproj
   Resources/
     python/                        embedded interpreter + engine (§9)
 ```
-
-No package manager needed for the app itself. Everything used is in the SDK.
-
-**Swift 6 language mode, strict concurrency on.** Turning it off later is much harder than
-starting with it.
 
 ---
 
@@ -124,109 +158,74 @@ matters here: a slider drag must not invalidate the filmstrip.
 
 ## 3. Resizable columns — build it, do not fight the framework
 
-The layout is: left column | canvas | right column, with a filmstrip pinned below. Both
-columns resize by dragging, collapse to zero, and remember their widths.
+The layout is: left rail | canvas | right rail, with a filmstrip pinned below
+the canvas. Both rails resize by dragging and fold away.
 
 ### Do not use `NavigationSplitView`
 
-It models hierarchical navigation (sidebar → content → detail) and carries behaviour this
-app does not want: sidebar toggle animations, automatic collapse at narrow widths,
-`.toolbar` placement assumptions. Fighting it costs more than replacing it.
+It models hierarchical navigation (sidebar → content → detail) and carries
+behaviour this app does not want: sidebar toggle animations, automatic
+collapse at narrow widths, `.toolbar` placement assumptions. Fighting it costs
+more than replacing it.
 
 ### Do not use `HSplitView`
 
-It works, but gives no programmatic control over divider position, no clean way to
-collapse to zero, and no way to persist positions without reaching into the backing
-`NSSplitView`.
+It works, but gives no programmatic control over divider position, no clean
+way to collapse to zero, and no way to persist positions without reaching into
+the backing `NSSplitView`.
 
-### Build `SplitContainer`
+### What was built instead
 
-Roughly sixty lines, fully predictable.
+`Controls/PanelResize.swift`, and it is three types rather than one:
 
-```swift
-struct SplitContainer<Left: View, Center: View, Right: View>: View {
-    @AppStorage("leftWidth")  private var leftWidth:  Double = 312
-    @AppStorage("rightWidth") private var rightWidth: Double = 260
-    @Binding var leftCollapsed: Bool
-    @Binding var rightCollapsed: Bool
+- `PanelWidthRange` — narrowest, **standard** and widest as one value, so a
+  bound can never be read without the other two. `standard` is the drawing's
+  own width, which is what makes a fresh install measure the drawing.
+- `PanelResizeHandle` — the grip, hung on the rail's inner edge as an
+  **overlay** rather than as a sibling in the `HStack`. A 6 pt view in the
+  stack would push the canvas 6 pt over on a fresh install and move every
+  capture.
+- `PanelWidthStore` — the width, persisted under a namespaced key, clamped on
+  read so a range tightened in a later build cannot open a rail outside it.
 
-    let left: Left, center: Center, right: Right
-
-    private let leftRange  = 240.0...460.0
-    private let rightRange = 200.0...400.0
-
-    var body: some View {
-        HStack(spacing: 0) {
-            if !leftCollapsed {
-                left.frame(width: leftWidth)
-                Divider.draggable(width: $leftWidth, range: leftRange, edge: .leading)
-            }
-            center.frame(maxWidth: .infinity, maxHeight: .infinity)
-            if !rightCollapsed {
-                Divider.draggable(width: $rightWidth, range: rightRange, edge: .trailing)
-                right.frame(width: rightWidth)
-            }
-        }
-    }
-}
-```
-
-The draggable divider:
-
-```swift
-struct DraggableDivider: View {
-    @Binding var width: Double
-    let range: ClosedRange<Double>
-    let edge: HorizontalEdge
-
-    @State private var startWidth: Double?
-
-    var body: some View {
-        Rectangle()
-            .fill(Color.primary.opacity(0.08))
-            .frame(width: 1)
-            .overlay {
-                Rectangle()
-                    .fill(.clear)
-                    .frame(width: 10)          // generous hit target
-                    .contentShape(.rect)
-                    .onHover { NSCursor.resizeLeftRight.set($0) }
-                    .gesture(
-                        DragGesture(minimumDistance: 0)
-                            .onChanged { g in
-                                let base = startWidth ?? width
-                                if startWidth == nil { startWidth = width }
-                                let delta = edge == .leading
-                                    ? g.translation.width
-                                    : -g.translation.width
-                                width = (base + delta).clamped(to: range)
-                            }
-                            .onEnded { _ in startWidth = nil }
-                    )
-            }
-    }
-}
-```
+`EditorWindow` composes them; there is no `SplitContainer`. The rails fold by
+leaving the `HStack` entirely (the canvas grows into the space), and what
+brings one back is the `sidebar.left` / `sidebar.right` button, which moves
+onto the tool bar while its rail is away.
 
 ### Rules that matter
 
-- **1 pt visible divider, 10 pt hit target.** A 1 pt hit target is unusable and a 10 pt
-  visible divider is ugly.
+These were written for `SplitContainer` and all of them held; `PanelResize`
+follows every one.
+
+- **1 pt visible divider, 6 pt hit target.** A 1 pt hit target is unusable and
+  a 10 pt visible divider is ugly. (6, not the 10 sketched here: the rails are
+  flush with the canvas, so the strip eats clicks meant for the control
+  nearest the edge.)
 - **`minimumDistance: 0`** or the first few pixels of every drag are swallowed.
-- **Capture the start width on drag begin.** Accumulating `translation` into `width` every
-  frame drifts, because `translation` is measured from the gesture's origin, not the last
-  event.
-- **Clamp, never let the canvas reach zero.** The columns collapse; the canvas does not.
-- **`@AppStorage` for persistence.** This is a personal tool; `UserDefaults` is the right
-  amount of machinery.
-- **Do not animate the drag.** Any implicit animation on `width` makes the divider lag the
-  cursor. If `EditorWindow` has an ambient `.animation` modifier, scope it away from here.
-- **`Tab` toggles both collapse flags.** Animate *that* — a 0.18 s `.easeOut` — because it
-  is a discrete state change, not a continuous drag.
+  (`PanelResizeHandle` uses 1, because at 0 a double-click to restore the
+  standard width registers as a drag first.)
+- **Capture the start width on drag begin.** Accumulating `translation` into
+  `width` every frame compounds it — the rail accelerates away from the
+  pointer — and at a bound the two disagree permanently.
+- **Clamp, never let the canvas reach zero.** The rails fold; the canvas does
+  not.
+- **`UserDefaults` for persistence.** This is a personal tool; it is the right
+  amount of machinery. Namespace the keys — an earlier build of this app
+  shipped under the same bundle identifier.
+- **Do not animate the drag.** Any implicit animation on `width` makes the
+  edge lag the cursor. Scope any ambient `.animation` away from it.
+- **Animate the *fold*** — a 0.18 s `.easeOut` — because that is a discrete
+  state change, not a continuous drag.
+- **A capture must not inherit a dragged width.** Snapshot mode pins both
+  rails to `standard`, for the same reason it resets the fold flags: a rail
+  someone widened days ago silently became what every measurement measured.
 
 ### Filmstrip height
 
-Same pattern vertically, one divider, 96 pt default, range 72–200, collapsible.
+Fixed, 132 pt, the drawing's. It folds (`⇧⌘F`, or the one hover tab left on
+the canvas's lower edge) and does not resize — there is nothing in it that a
+few points of extra height would show.
 
 ---
 
@@ -486,7 +485,9 @@ bundle; it is read-only once signed.
 
 Matching frontend spec §8, but scoped to what is drawn:
 
-1. `SplitContainer` with three coloured rectangles. Verify dragging, collapsing, and
+**Done** — this is a record of how the app was brought up, not a task list.
+
+1. The three-region frame with coloured rectangles. Verify dragging, folding, and
    persistence before anything real goes inside.
 2. Filmstrip with real thumbnails from a real folder. No engine involved.
 3. `MetalCanvasView` displaying a static TIFF loaded from disk, correct P3, correct

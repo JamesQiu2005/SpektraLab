@@ -104,7 +104,7 @@ the smaller cases; the RFC-018 measurements want the A7 III pair.
 | | |
 |---|---|
 | `modern_UI/Spektrafilm/` | the app: Swift sources, tests, `Tools/`, the Xcode project |
-| `modern_UI/design/`, `reference_layout/`, `film_covers/` | the drawing the UI was measured against, and the stock cover art |
+| `modern_UI/design/`, `reference_layout/`, `film_covers/` | the drawing the UI was measured against (`reference_layout/Main/`, 2026-09-17), its token derivation (`design/TOKENS-main-2026-09-17.md`), the layout captures, and the stock cover art |
 | `engine/` | the C++ engine, its MSL kernels, its C ABI, its parity harnesses |
 | `engine/resources/spektrafilm.metallib` | **not tracked, on purpose** — `engine/build.sh` recompiles it from `engine/src/shaders/*.metal` on every build, so it can never go stale against the shaders |
 | `engine/resources/` | **tracked** — the baked constants, 28 profiles, the print-LUT index |

@@ -49,16 +49,17 @@ are missing.
 
 ## 1. Layout — how the drawing became numbers
 
-`sample_frontend.svg` is a 3840×2160 canvas: a 1920×1080 window at 2×. Every
-metric in `Theme/Theme.swift` is the SVG value ÷ 2, with the SVG line quoted
-beside it. The four cards:
+`reference_layout/Main/sample_frontend.svg` (2026-09-17) is a 3840×2160
+canvas: a 1920×1080 window at 2×. Every metric in `Theme/Theme.swift` is the
+SVG value ÷ 2, with the SVG line quoted beside it. The three regions, and the
+one thing that floats:
 
-| card | SVG rect | points |
+| region | SVG rect | points |
 |---|---|---|
-| left panel | 17.9, 14.1, 656.9 × 2131.8 | x 9, y 7, **328** wide, full height |
-| top bar | 690.5, 15.5, 2547.9 × 82.7 | x 345, **41** tall |
-| filmstrip | 690.5, 1895.3, 2547.9 × 250.6 | **125** tall |
-| right panel | 3250.1, 15.5, 572.3 × 2131.8 | **286** wide |
+| left rail | −2.6, 0.6, 509.9 × 2160 | x 0, **254** wide, full height |
+| right rail | 3263.9, 0, 576.1 × 2160 | x 1632, **288** wide, full height |
+| filmstrip | 507.4, 1895.3, 2756.5 × 264.7 | y 948, **132** tall, centre column only |
+| tool bar | 529, 9.4, 2721 × 61.8, `rx 28` | y 5, **31** tall, r 14, inset 9 |
 
 Ground `#5f5f5f` — the canvas surround **and** every well, pill and slider
 track — rail `#2c2d2b`, text `#faf8f4`, one accent `#eca650`, and a 1 pt
@@ -96,11 +97,14 @@ state the PRD is actually about.
 Windows/EditorWindow      the three regions; CanvasArea with the filmstrip's tab
 Windows/TopBar            select · hand · crop  …  zoom-in · [100 %] · zoom-out · fit · fullscreen
 Panels/LeftPanel          window buttons/import/export/sidebar.left, then the sections
-  Sections/FilmProfile    film list with covers; selected = white frame; cine badge
-  Sections/PrintProfile   papers grouped Still/Cine; · marks the film's declared paper
-  Sections/Camera         Format (film_format_mm) · Vignetting (client) · Exp. Comp. · white balance
-  Sections/Features       Grain · Halation (shoot layer) · Glare (print layer)
+  Sections/Camera         AE Method (auto_exposure) · Film Exposure · Temperature · Tint
+                          Vignetting (client) · Lens Correction (decode)
+  Sections/Film           film list · Film Type / Side / Side Length (→ film_format_mm)
+                          Grain · Halation (shoot layer) · Glare (print layer)
+  Sections/PrintProfile   papers grouped Still/Cine/Positive · Process · Original
+  Sections/Crop           Aspect · Straighten · Rotate
   Sections/Enlarger       Brightness (stops) · Yellow · Magenta — offsets from the solve
+                          (not in the drawing; kept, collapsed, last)
 Panels/RightPanel         adjustments tab, bypass switch, then the Layer 2 sections
   Sections/RightSections  Histogram · White Balance · Exposure · Curve · Color Balance
 Panels/Filmstrip          thumbnails, selection frame, chevrons
@@ -120,19 +124,30 @@ Model/Session             all state              Service/RenderScheduler   coale
   millisecond. Nothing in it reaches the service. The bypass switch (dotted
   circle in the right header, `⇧⌘B`) shows the pure simulation.
 
-Two things on the left are *not* engine parameters and say so in their
+Three things on the left are *not* engine parameters and say so in their
 comments: **Vignetting** (the engine has none; it is the vignette stage of
-Layer 2, placed where a photographer looks for it) and the **white balance
-block**, which is a decode setting (§4).
+Layer 2, placed where a photographer looks for it), the **Temperature / Tint
+pair**, which is a decode setting (§4), and **Lens Correction**, which is
+`CIRAWFilter.isLensCorrectionEnabled` — RAW only, and greyed on a RAW whose
+maker wrote no correction, because Core Image is already doing the standard
+EXIF thing and there is nothing to switch.
+
+**Film Type / Side / Side Length is one engine field seen from the user's
+side.** `film_format_mm` means the frame's *long edge*, which cannot tell 645
+from 6×6; the rail asks for a type, a side and a length, and
+`Session.filmFormatMM(side:sideLengthMM:aspect:)` derives the long edge from
+that **and the photograph's own aspect**. Whether a crop re-scales it is a
+Settings toggle, off by default.
 
 ### Renamed from the drawing, with reasons
 
 | drawing | built | why |
 |---|---|---|
 | Enlarger: Cyan / Magenta | Brightness / Yellow / Magenta | a dichroic head has Y and M; the engine has `y_filter_shift`, `m_filter_shift` and no cyan. Brightness (print exposure, in stops, brighter positive) is the enlarger's main control and was missing. |
-| Color Temp / Tint "As Shot ☐" | preset pill + eyedropper + two gradient sliders | §4 |
 | Curve tabs 亮度/红色/… | RGB · Luma · Red · Green · Blue | the rest of the UI is English |
-| Features: hollow squares | hollow when off, filled when on | a state, not a decoration |
+| checkboxes: hollow squares | hollow when off, accent-filled when on | a state, not a decoration |
+| Camera: five rows, no preset pill | the white-balance presets and the neutral picker moved into the section's "•••" | the drawing's Camera is five rows and neither of those is one of them; the menu is where they still are, not gone |
+| no Enlarger section | kept, collapsed, last | the only access to `print_exposure` and the two filter axes, and the PRD does not ask for it to go |
 
 ---
 
@@ -144,7 +159,7 @@ select(frame)
   │    ├─ preview texture, Display P3, 1600 px   → canvas immediately, "preview" badge
   │    └─ half-float linear ProPhoto TIFF        → ~/Library/Caches/com.hanze.spektrafilm/linear/<key>-<wb>.tif
   ├─ service.open(tiff, full params)             → live-tier negative (film side)
-  ├─ service.solve(exposure)                     → the auto-exposure baseline (Exp. Comp. sublabel)
+  ├─ service.solve(exposure)                     → the auto-exposure baseline, per AE Method
   └─ service.reprint(output: rgba16)             → raw 16-bit RGBA → texture → canvas, badge clears
 
 zoom ≥ 100 % / ≥ 200 %
@@ -375,11 +390,13 @@ you have broken one is to run the suite, not to look at the canvas.
 
 | Contract | Where it lives | What breaks if a rework drops it | Pinned by |
 |---|---|---|---|
-| The open delta carries the frame's sidecar, `preview_long_edge` **and** `product_defaults` | `Session.openDelta` | Without the second, the live tier renders at the engine's default rather than the user's resolution. Without the third, the engine keeps the reference's `print_exposure_compensation` and Camera Exp. Comp. stops moving the finished print's brightness — every print comes out at a different brightness | `FrontendPolicyTests.testTheOpenDeltaCarriesTheSessionSettingsAndTheProductDefaults` |
+| The open delta carries the frame's sidecar, `preview_long_edge` **and** `product_defaults` | `Session.openDelta` | Without the second, the live tier renders at the engine's default rather than the user's resolution. Without the third, the engine keeps the reference's `print_exposure_compensation` and Camera Film Exposure stops moving the finished print's brightness — every print comes out at a different brightness | `FrontendPolicyTests.testTheOpenDeltaCarriesTheSessionSettingsAndTheProductDefaults` |
 | Cache keys are built only after warm-up has published the engine version | `Session.awaitBoot`, called at the top of `load` | Keys built from the literal `"unknown"`, so every disk-cache lookup misses and every open pays for a decode it had already cached | `SessionDisplayCacheTests`, `PrintCacheTests` |
 | Layer 1 (engine parameters) and Layer 2 (canvas adjustments) stay apart | `session.params` vs `session.adjustments` | A "grade" that needs a film render to preview, or an engine parameter applied twice | §2, "Two layers, kept apart" |
 | Export renders from the same session as the canvas | `Exporter.filePixels(session:recipe:sessionID:)` | Export and canvas drift, which is the one bar the user set as hard | `ExportPreviewChainTests` |
 | Colours come from `Theme`, never literals | `Theme/` | A section that does not follow the theme, found by eye months later | `LayoutTests` |
+| Re-deriving `film_format_mm` when a decode lands does **not** go through the `params` setter | `Session.recomputeFilmFormat(beforeOpen:)` | That setter `requestPrint()`s, and an open is contracted to stop at the decode. The frame still renders — it just develops twice on every open, and nothing says so | `OpenPathTests.testAnOpenStopsAtTheDecode` |
+| A non-selectable control greys as a **row**, through one modifier | `View.rowEnabled(_:)` | Half a row greys and the other half looks live, differently in each section, which is the state the PRD wrote the rule to stop | by eye; `Tools/snapshot.sh` with and without a frame open |
 
 Two habits that made the last rework cheap and are worth keeping:
 

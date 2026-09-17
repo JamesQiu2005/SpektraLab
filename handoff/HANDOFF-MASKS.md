@@ -116,13 +116,16 @@ attached rather than a measurement to match.
 ### 3.1 Where the list lives: left panel, below Enlarger
 
 ```
-  Film Profile
-  Print Profile
   Camera
-  Features
+  Film              ← the stock, the physical frame, grain/halation/glare
+  Print
+  Crop
   Enlarger          ← base exposure and filter pack
   Masks             ← dodge and burn, after the base exposure is set
 ```
+
+(The section list is the 2026-09-17 one. The argument below is about *which
+rail*, not which neighbours, so the reorganisation did not change it.)
 
 Three reasons for the left panel rather than the right:
 
@@ -191,7 +194,10 @@ A list of rows in a well, plus an add menu in the section's `•••`.
 
 Nothing structural. It is one more `PanelSection` in `LeftPanel`, one more
 canvas interaction mode alongside crop, and one more overlay in the shader.
-The four cards, their geometry and the two-layer rule are untouched.
+The frame, its geometry and the two-layer rule are untouched. (Written when
+the window was four floating cards; it is three flush regions since
+2026-09-17, and the sentence means the same thing — a section is still one
+file and one line.)
 
 ---
 

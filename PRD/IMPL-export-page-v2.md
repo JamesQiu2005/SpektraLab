@@ -149,8 +149,8 @@ exactly that and is the precedent to follow.
 
 - New sidecar (no file on disk): `false`.
 - Set `true` the first time the user picks a film stock in
-  `Panels/Sections/FilmProfileSection.swift`, or presses Solve, or otherwise
-  asks for a develop.
+  `Panels/Sections/FilmSection.swift` (was `FilmProfileSection.swift`), or
+  presses Process (was Solve), or otherwise asks for a develop.
 - **Migration:** a sidecar decoding at `schemaVersion <= 3` sets it **`true`**.
   Every frame with a sidecar on disk today was developed with a film profile;
   defaulting those to `false` would change what re-exporting an existing edit

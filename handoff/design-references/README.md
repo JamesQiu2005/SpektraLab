@@ -6,6 +6,14 @@ Generated with the built-in image generation tool from the two supplied frontend
 
 The original v1 images below are retained only as rejected exploration. Their rounded card stacks, heavy orange selection treatment and dashboard-like hierarchy are not the target aesthetic.
 
+**Landed 2026-09-17, visually.** The user's own drawing
+(`modern_UI/reference_layout/Main/sample_frontend.svg`) took this direction and
+the app now follows it: flat surfaces, 1 pt separators instead of cards, 10.5–12 pt
+type, a trace of amber for active state, and the photograph as the hero. What has
+**not** landed is the structure these prompts also describe — the
+`Input / Film / Develop / Render` tool column and the Grade rail as separate
+stages. See `../HANDOFF-SPEKTRALAB-FRONTEND-RECONSTRUCTION.md` §14.
+
 ### Capture One Studio × Dehancer main editor
 
 Output: `spektralab-desktop-editor-c1-dehancer-v2.png`

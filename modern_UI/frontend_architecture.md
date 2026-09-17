@@ -211,11 +211,12 @@ open a selection
   └─ a folder or several files                    →  Browse, and render nothing
 
 select(frame)
-  ├─ Core Image decode           CIRAWFilter, boost 0, no gamut map, no lens correction
+  ├─ Core Image decode           CIRAWFilter, boost 0, no gamut map,
+  │                              lens correction from `decode.lensCorrection`
   │    ├─ preview texture        Display P3, 1600 px  → canvas at once, "preview" badge
   │    └─ half-float TIFF        linear ProPhoto      → ~/Library/Caches/…/linear/
   ├─ service.open(tiff)          film side → live-tier negative
-  ├─ service.solve(exposure)     the auto-exposure baseline, shown under Exp. Comp.
+  ├─ service.solve(exposure)     the auto-exposure baseline, per AE Method
   └─ service.reprint(rgba16)     raw 16-bit RGBA → texture → canvas, badge clears
 
 the zoom crosses 100 % / 200 %
@@ -398,9 +399,9 @@ Theme/Theme.swift            every colour, metric and font in the interface
 Windows/EditorWindow.swift   Browse or Print; CanvasArea; drop; export sheet
 Windows/BrowseView.swift     the Browse grid, breadcrumb and sort
 Windows/TopBar.swift         tools, status, zoom, elapsed time, detail tier
-Windows/CollapseTab.swift    the edge pills
+Windows/CollapseTab.swift    the filmstrip's hover tab — the one that is left
 Panels/LeftPanel.swift       the darkroom rail, and SidebarToggle
-Panels/RightPanel.swift      Layer 2 column
+Panels/RightPanel.swift      the grade rail
 Panels/Filmstrip.swift       library strip
 Panels/Sections/*.swift      one file per section
 Controls/ScrubSlider.swift   the only slider: drag anywhere, ⌥ fine, ⇧ snap,
@@ -409,8 +410,8 @@ Controls/SectionHeader.swift disclosure header + Well + PanelSection
 Controls/CurveEditor.swift   channel tabs, draggable points, readout
 Controls/ColorWheel.swift    Master / 3-Way colour balance
 Controls/HistogramView.swift Canvas-drawn RGB + luma
-Controls/KelvinSlider.swift  the white-balance block
-Controls/FormatPicker.swift  the pill menu
+Controls/WhiteBalanceRows.swift  Temperature and Tint, each with its As Shot box
+Controls/FormatPicker.swift  PillMenu · UnitField · CinePill
 Canvas/MetalCanvasView.swift MTKView, gestures, scheduleDraw
 Canvas/Renderer.swift        Metal state, Layer 2 pass, histogram, offscreen render
 Canvas/TextureStore.swift    the buffer table
@@ -439,7 +440,8 @@ Tools/gen-project.py         regenerate the pbxproj from the filesystem
 Tools/gen-catalog.py         regenerate the stock catalog and covers
 Tools/snapshot.sh            offscreen layout captures at three window sizes
 Tools/capture-live.sh        the real window, through the window server
-Tools/compare-layout.py      a capture against the drawing
+Tools/measure-layout.swift   a capture against the drawing: regions, bar, hairlines
+Tools/compare-layout.py      superseded — it measured the previous drawing's four cards
 ```
 
 ---
@@ -449,6 +451,9 @@ Tools/compare-layout.py      a capture against the drawing
 | drawing | built | why |
 |---|---|---|
 | Enlarger: Cyan / Magenta | Brightness / Yellow / Magenta | a dichroic head grades on two axes; the engine has `y_filter_shift` and `m_filter_shift` and no cyan. Brightness (print exposure, in stops, brighter positive) is the enlarger's main control and the drawing omitted it. |
-| Color Temp / Tint with "As Shot ☐" | preset pill + eyedropper + two gradient tracks | §4 of `Spektrafilm/README.md` |
 | Curve tabs 亮度 / 红色 / … | RGB · Luma · Red · Green · Blue | the rest of the interface is English |
-| Features: hollow squares | hollow off, filled on | it is a state, not a decoration |
+| checkboxes: hollow squares | hollow off, accent-filled on | it is a state, not a decoration |
+| Camera: five rows | the white-balance presets and the neutral picker are in the section's "•••" | the drawing's Camera is five rows and neither of those is one of them. They moved, they did not go |
+| no Enlarger section | kept, collapsed, last | the only access to `print_exposure` and the two filter axes |
+| bar: gaps of 63.6 and 85.2 | 40 and 46 | the drawing's spacing is 19 pt wider than the bar at the minimum window (1100 pt) |
+| Camera section 241.35 tall | 230 | the drawing puts ~5 pt more air around each non-slider block; the rest of the rail is within 2–6 pt, so the row rhythm is left self-consistent |

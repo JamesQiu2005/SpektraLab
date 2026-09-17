@@ -326,3 +326,66 @@ deliverable output
 - sidecar/recipe 能保存上述阶段并按正确代价重算。
 
 这些成立后，左侧才真正是一套“易用但不假装硬核”的数字暗房流程，右侧则是一套成熟的桌面级后期工作区。
+
+---
+
+## 14. 状态 · 2026-09-17：外观已换，结构未动
+
+`PRD/Frontend_Rework_2026-09-17.md` 那一轮已经落地（`2cfcb12`…`1023ad3`）。
+用用户自己的话说：**那一轮只抓住了外观，没有抓住本质。**
+
+本节不改动上面任何一条产品结论，只记录哪些已经兑现、哪些仍然是空的，作为下
+一 session 的输入。§11 的工作顺序仍然有效，并且仍然停在第 1 步之前——静态
+wireframe 与信息架构还没有画。
+
+### §9 差距表的当前状态
+
+| §9 的“当前” | 2026-09-17 之后 |
+|---|---|
+| Film Profile 和 Print Profile 两个永久长列表 | **未关闭**。仍是两个常驻列表，只是各自收进一个 well，选中项从白框变成浅色条。数量没变，主次没变 |
+| Camera 混合 tone、format、vignette、film exposure、decode WB | **部分**。format 已经整体搬进 Film，并且变成有物理语义的 Film Type / Side / Side Length；其余四项仍然同居一张卡 |
+| CMY/Print WB 具有历史暗房术语 | **未关闭**。Enlarger 的 Yellow / Magenta 原样保留，只是默认折叠到最后 |
+| Grain/halation/glare 看起来都是视觉效果 | **部分**。三者现在紧挨着决定它们尺度的画幅行，位置说明了归属；但仍是三个一模一样的勾选框，没有单位、没有强度、没有阶段标注 |
+| `Solve / Original` 含义不清 | **仅改名**。`Solve` → `Process`，行为一字未动。§9 的抱怨原样成立 |
+| 左右两侧都是参数 inspector | **未关闭**。左侧仍是参数分组，不是流程 |
+| Format 是单一 long-edge mm | **已关闭**。画幅保存为“哪一边 + 该边长度”，engine 需要的长边由照片自身比例推导，因此一个 `120` 条目就能正确覆盖 645 / 6×6 / 6×7 / 6×9。裁切是否重算效应是设置项，默认关闭，即“裁切不改变底片物理尺度” |
+
+### §13 完成定义的当前状态
+
+- ❌ 用户能说清自己正在调整输入、胶片曝光、显影、呈现还是后期 —— 左侧仍是
+  `Camera / Film / Print / Crop`，没有 `Input / Develop / Render` 这三级语义。
+- ✅ 画幅变化能以确定的物理比例改变 grain/halation，裁切不会意外改变它们 ——
+  这是本轮唯一真正落到“本质”上的一条。
+- ❌ Reference 是可重复的默认起点，相纸与 cinema 从 density 正确分叉 ——
+  产品里还没有 Reference 这个概念，默认出口仍是相纸。
+- ◐ 同名曝光和白平衡不再指代多个阶段 —— 三个“变亮”现在叫
+  `Film Exposure`（左·胶片曝光）、`Brightness`（左·印相）、`Exposure`
+  （右·后期），名字已经分开；白平衡仍是两处都叫 Temperature / Tint，只靠所在
+  分区区分。
+- ➖ 不长成 DAM —— 本轮未触及。
+- ❌ sidecar/recipe 能保存上述阶段并按正确代价重算 —— sidecar 仍是一个扁平
+  的 `FilmParams`，没有 Input / Film / Develop / Render / Grade 五段边界。
+
+### 本轮新增、下一轮要接手的东西
+
+这些是这次为了兑现 PRD 而加进去的，重构时应当被继承而不是重写：
+
+- `AEMethod`（`Model/Params.swift`）。四个 metering intent 加一个 `Custom`，
+  `Custom` 就是 engine 一直声明却从没被发送过的 `camera.auto_exposure = false`
+  ——“线性化基线”在前端已经是一个可表达的状态了。
+- `FilmFrame` / `FilmSide` / `Session.filmFormatMM(side:sideLengthMM:aspect:)`。
+  §5 想要的“保存宽和高的实际成像区域”已经有了一半：保存的是**一条边 + 是哪
+  条边**，另一条由照片比例推出。§5 的四种映射里，`Match short edge` 和
+  `Match long edge` 已实现，`Fit inside frame` 和 `Custom dimensions` 还没有。
+- `Session.recalculateEffectsAfterCrop`。§4“只有重新映射画幅才改变物理尺度”
+  的开关，默认关闭。
+- `DecodeSettings.lensCorrection`。§4.0 的 Input Calibration 里第一个真正落地
+  的条目，而且它不经过 engine。
+- `View.rowEnabled(_:)`。“不可选就整行变灰”的唯一实现，重构后每一个条件性控
+  件都应该走它。
+
+### 一句话给下一 session
+
+左侧现在长得对了，说的还是 backend 的话。要动的是 §4 的分卡、§8 的 recipe
+边界和 §6 的 Reference 出口——那三件事都不是 `Theme.swift` 能解决的，而且都
+需要先有 §11 第 1 步的 wireframe。
