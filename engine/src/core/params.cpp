@@ -69,6 +69,7 @@ const SchemaField kFields[] = {
     {"output_color_space",       "io.output_color_space",                 S, PRINT, false, 0, 0, false},
     {"output_cctf_encoding",     "io.output_cctf_encoding",               B, PRINT, false, 0, 0, false},
     {"scan_film",                "io.scan_film",                          B, PRINT, false, 0, 0, false},
+    {"extended_dynamic_range",   "print_render.edr_enabled",              B, PRINT, false, 0, 0, false},
     // The app's *preview resolution*: the `live` tier's long edge, and so the
     // size every interactive edit renders at. PRINT layer, because it is a
     // decision about the canvas rather than about the film -- but it is one of
@@ -123,6 +124,7 @@ bool* bool_slot(Params& p, const std::string& path) {
     if (path == "io.geometry.flip_h") return &p.io.geometry.flip_h;
     if (path == "io.geometry.flip_v") return &p.io.geometry.flip_v;
     if (path == "print_render.glare.active") return &p.print_render.glare.active;
+    if (path == "print_render.edr_enabled") return &p.print_render.edr_enabled;
     if (path == "scanner.white_correction") return &p.scanner.white_correction;
     if (path == "scanner.black_correction") return &p.scanner.black_correction;
     if (path == "io.output_cctf_encoding") return &p.io.output_cctf_encoding;

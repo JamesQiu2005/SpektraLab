@@ -217,6 +217,7 @@ private:
     bool node_bw_correction(const Image& in, Image& out, std::string& error);
     bool node_glare(const Image& in, Image& out, std::string& error);
     bool node_xyz_to_rgb(const Image& in, Image& out, std::string& error);
+    bool node_edr(const Image& in, Image& out, std::string& error);
     bool node_gamut_compress(const Image& in, Image& out, std::string& error);
     bool node_scanner_blur(const Image& in, Image& out, std::string& error);
     bool node_unsharp(const Image& in, Image& out, std::string& error);
@@ -282,6 +283,8 @@ private:
         gpu::BufferRef tc_b_matrix;
         gpu::BufferRef xyz_to_rgb;
         gpu::BufferRef output_matrix;
+        gpu::BufferRef edr_params;
+        gpu::BufferRef edr_lut;
 
         gpu::BufferRef cam16_m2x, cam16_m2r, cam16_cmax, cam16_k;
         size_t cam16_nl = 0, cam16_nh = 0;

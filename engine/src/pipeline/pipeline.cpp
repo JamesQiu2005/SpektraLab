@@ -344,6 +344,32 @@ bool Pipeline::build(const Params& params, std::string& error) {
         if (!baked_.output_matrix) return false;
     }
 
+    // EDR is applied to the completed linear print scan immediately before
+    // CCTF encoding. Each print profile carries its measured native-Y ->
+    // extended-Y table. No table means no calibrated EDR; never substitute
+    // another paper.
+    if (params_.print_render.edr_enabled && !params_.io.scan_film) {
+        const EdrToneMap& edr = params_.print.data.edr_tone_map;
+        if (!edr.available()) {
+            error = "print profile '" + params_.print.info.stock + "' has no calibrated EDR tone map";
+            return false;
+        }
+        Mat3 m;
+        if (!colour_->matrix_RGB_to_XYZ(params_.io.output_color_space, nullptr, "CAT02", m, error))
+            return false;
+        const double span = edr.domain_log2_y[1] - edr.domain_log2_y[0];
+        const double p[8] = {
+            m.m[1][0], m.m[1][1], m.m[1][2],
+            edr.domain_log2_y[0], 1.0 / span,
+            edr.toe_y, edr.shoulder_y,
+            double(edr.target_log2_y.size()),
+        };
+        baked_.edr_params = gpu_->upload_persistent_f32(p, 8, error);
+        baked_.edr_lut = gpu_->upload_persistent_f32(edr.target_log2_y.data(),
+                                                     edr.target_log2_y.size(), error);
+        if (!baked_.edr_params || !baked_.edr_lut) return false;
+    }
+
     // --- CAM16-UCS ---------------------------------------------------------
     const GamutCompressSpec& og = params_.io.output_gamut_compress;
     if (og.algorithm != "off") {
@@ -408,6 +434,7 @@ bool Pipeline::build(const Params& params, std::string& error) {
     node_count_ += params_.film_render.grain.active ? 1 : 0;             // grain
     if (!params_.io.scan_film) node_count_ += 3;                         // the printing stage
     node_count_ += 5;                                                    // scan..gamut_compress
+    node_count_ += params_.print_render.edr_enabled && !params_.io.scan_film ? 1 : 0;
     node_count_ += params_.scanner.lens_blur > 0.0 ? 1 : 0;              // scanner_blur
     node_count_ += (params_.scanner.unsharp_mask[0] > 0.0 &&
                     params_.scanner.unsharp_mask[1] > 0.0) ? 1 : 0;      // unsharp
@@ -1406,6 +1433,21 @@ bool Pipeline::node_xyz_to_rgb(const Image& in, Image& out, std::string& error) 
     return matmul3(in, baked_.xyz_to_rgb, out, error);
 }
 
+bool Pipeline::node_edr(const Image& in, Image& out, std::string& error) {
+    // No print profile has no measured paper response, so EDR is explicitly
+    // disabled for the direct scan path and leaves its legacy output alone.
+    if (!params_.print_render.edr_enabled || params_.io.scan_film) { out = in; return true; }
+    Timer t(this, "scanning.edr");
+    if (!baked_.edr_params || !baked_.edr_lut) { error = "EDR calibration is not available"; return false; }
+    if (!alloc_like(in, out, error)) return false;
+    const uint32_t n[1] = {uint32_t(in.pixels())};
+    return gpu_->dispatch("spk_edr",
+                          {gpu::Arg::buf(in.buf), gpu::Arg::buf(baked_.edr_params),
+                           gpu::Arg::buf(baked_.edr_lut), gpu::Arg::inline_bytes(n, 1),
+                           gpu::Arg::buf(out.buf)},
+                          in.pixels(), error);
+}
+
 bool Pipeline::node_gamut_compress(const Image& in, Image& out, std::string& error) {
     if (params_.io.output_gamut_compress.algorithm == "off") { out = in; return true; }
     Timer t(this, "scanning.gamut_compress");
@@ -1548,6 +1590,10 @@ bool Pipeline::run_print(const Image& cmy, Image& out, Progress* progress, std::
     SPK_NODE(node_gamut_compress(cur, next, error)); cur = next;
     SPK_NODE(node_scanner_blur(cur, next, error)); cur = next;
     SPK_NODE(node_unsharp(cur, next, error)); cur = next;
+    // Calibrations observe the completed linear print scan. Apply EDR after
+    // spatial scanner corrections so those stages cannot bend its joins or
+    // reduce its requested tail separation, and immediately before encoding.
+    SPK_NODE(node_edr(cur, next, error)); cur = next;
     SPK_NODE(node_cctf(cur, out, error));
     if (progress_) progress_->done = true;
     progress_ = nullptr;

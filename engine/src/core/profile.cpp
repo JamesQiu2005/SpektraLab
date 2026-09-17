@@ -1,5 +1,6 @@
 #include "profile.hpp"
 
+#include <cmath>
 #include <cstdio>
 #include <fstream>
 #include <sstream>
@@ -133,6 +134,31 @@ bool Profile::from_json(const Json& root, std::string& error) {
         if (!json_to_mat(m.at("sigmas"), data.model.sigmas, r2, c2) || r2 != r || c2 != c) {
             error = "profile '" + info.stock + "': density_curves_model.sigmas does not match centers";
             return false;
+        }
+    }
+
+    const Json& edr = d.at("edr_tone_map");
+    if (edr.is_object()) {
+        data.edr_tone_map.version = int(edr.at("version").as_double(0));
+        Vec domain;
+        if (!want_vec(edr, "domain_log2_y", domain, 2, error)) return false;
+        data.edr_tone_map.domain_log2_y[0] = domain[0];
+        data.edr_tone_map.domain_log2_y[1] = domain[1];
+        data.edr_tone_map.toe_y = edr.at("toe_y").as_double(0.0);
+        data.edr_tone_map.shoulder_y = edr.at("shoulder_y").as_double(1.0);
+        if (!want_vec(edr, "target_log2_y", data.edr_tone_map.target_log2_y, 0, error)) return false;
+        if (data.edr_tone_map.version != 1 || data.edr_tone_map.target_log2_y.size() < 2 ||
+            !(data.edr_tone_map.domain_log2_y[1] > data.edr_tone_map.domain_log2_y[0]) ||
+            !(data.edr_tone_map.toe_y > 0.0) ||
+            !(data.edr_tone_map.shoulder_y > data.edr_tone_map.toe_y)) {
+            error = "profile '" + info.stock + "': invalid edr_tone_map";
+            return false;
+        }
+        for (double v : data.edr_tone_map.target_log2_y) {
+            if (!std::isfinite(v)) {
+                error = "profile '" + info.stock + "': edr_tone_map contains a non-finite value";
+                return false;
+            }
         }
     }
 

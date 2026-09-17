@@ -14,6 +14,45 @@ final class ParamsTests: XCTestCase {
         XCTAssertEqual(d["print_exposure"]?.doubleValue ?? 0, 0.5, accuracy: 1e-9, "brighter by one stop = half the enlarger exposure")
     }
 
+    func testExtendedDynamicRangeDefaultsOffAndRoutesToPrintLayer() {
+        XCTAssertFalse(FilmParams.default.extendedDynamicRange)
+        XCTAssertEqual(FilmParams.default.wire.first { $0.name == "extended_dynamic_range" }?.value,
+                       .bool(false))
+
+        var p = FilmParams.default
+        p.extendedDynamicRange = true
+        let (delta, layers) = p.delta(from: .default)
+        XCTAssertEqual(layers, [.print])
+        XCTAssertEqual(delta["extended_dynamic_range"], .bool(true))
+
+        // The preference stays in the sidecar when the Positive / No Print
+        // Profile row is selected, but its effective wire value is forced off
+        // so direct film scanning cannot be changed by a persisted EDR choice.
+        p.scanFilm = true
+        XCTAssertTrue(p.extendedDynamicRange)
+        XCTAssertFalse(p.effectiveExtendedDynamicRange)
+        var activePrint = FilmParams.default
+        activePrint.extendedDynamicRange = true
+        XCTAssertEqual(p.delta(from: activePrint).delta["extended_dynamic_range"], .bool(false))
+    }
+
+    func testSidecarMissingOnlyExtendedDynamicRangeDefaultsOff() throws {
+        var sidecar = Sidecar()
+        sidecar.params.extendedDynamicRange = true
+        let original = sidecar.params
+        guard var object = try JSONSerialization.jsonObject(with: JSONEncoder().encode(sidecar)) as? [String: Any],
+              var params = object["params"] as? [String: Any]
+        else { return XCTFail("encoded sidecar did not contain params") }
+        XCTAssertNotNil(params.removeValue(forKey: "extendedDynamicRange"))
+        object["params"] = params
+        let legacy = try JSONSerialization.data(withJSONObject: object)
+        let decoded = try JSONDecoder().decode(Sidecar.self, from: legacy)
+
+        var expected = original
+        expected.extendedDynamicRange = false
+        XCTAssertEqual(decoded.params, expected)
+    }
+
     func testShootFieldsRouteToShootLayer() {
         var p = FilmParams.default
         p.grainActive = false
@@ -35,6 +74,7 @@ final class ParamsTests: XCTestCase {
         let known: Set<String> = ["film_stock", "print_stock", "exposure_compensation_ev", "film_format_mm",
                                   "grain_active", "grain_sublayers_active", "halation_active", "print_exposure",
                                   "y_filter_shift", "m_filter_shift", "glare_active", "scan_film",
+                                  "extended_dynamic_range",
                                   // RFC-015 §3. Shoot layer; absent from a legacy
                                   // frame's delta, which is why this list holds
                                   // the name and `wire` only carries it when set.

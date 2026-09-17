@@ -126,6 +126,9 @@ struct FilmRenderParams {
 struct PrintRenderParams {
     GlareParams glare;
     PrintCurvesMorphParams density_curves_morph;
+    // Print-layer EDR master toggle. It defaults off so the legacy print
+    // path remains byte-identical until the user opts in.
+    bool edr_enabled = false;
 };
 
 struct CameraParams {

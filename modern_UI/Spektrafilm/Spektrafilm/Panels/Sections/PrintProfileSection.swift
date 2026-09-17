@@ -86,9 +86,21 @@ struct PrintProfileSection: View {
                         session.selectPrintStock(id)
                     }
                 }
+                RailRows {
+                    ToggleRow(label: "Extended Dynamic Range (EDR)",
+                              isOn: param(\.extendedDynamicRange),
+                              enabled: !session.params.scanFilm,
+                              reason: "Extended Dynamic Range applies to selected print profiles.")
+                }
+                .padding(.top, Theme.Metric.rowSpacing + 5)
                 actions.padding(.top, Theme.Metric.rowSpacing + 5)
             }
         }
+    }
+
+    private func param(_ keyPath: WritableKeyPath<FilmParams, Bool>) -> Binding<Bool> {
+        Binding(get: { session.params[keyPath: keyPath] },
+                set: { var p = session.params; p[keyPath: keyPath] = $0; session.params = p })
     }
 
     /// Only says something when there is something to say: which film the

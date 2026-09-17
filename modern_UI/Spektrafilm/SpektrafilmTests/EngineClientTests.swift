@@ -206,7 +206,8 @@ final class EngineClientTests: XCTestCase {
         // The fields the frontend's own params model depends on being there.
         let names = Set(schema.fields.map(\.name))
         for required in ["film_stock", "print_stock", "print_exposure", "m_filter_shift",
-                         "y_filter_shift", "exposure_compensation_ev", "scan_film"] {
+                         "y_filter_shift", "exposure_compensation_ev", "scan_film",
+                         "extended_dynamic_range"] {
             XCTAssertTrue(names.contains(required), "the schema lost \(required)")
         }
         await client.stop()

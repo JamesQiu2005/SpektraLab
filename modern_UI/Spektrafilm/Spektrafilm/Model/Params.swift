@@ -244,6 +244,13 @@ extension String {
 }
 
 struct FilmParams: Codable, Equatable, Sendable {
+    private enum CodingKeys: String, CodingKey {
+        case filmStock, printStock, exposureCompensationEV, autoExposureMethod, autoExposure
+        case filmFormatMM, filmFrame, filmSide, sideLengthMM, grainActive, halationActive
+        case printBrightnessStops, yFilterShift, mFilterShift, glareActive, scanFilm
+        case extendedDynamicRange
+    }
+
     // --- stock (shoot for film, print for paper) ---
     var filmStock: String = "kodak_portra_400"
     var printStock: String = "kodak_supra_endura"
@@ -309,6 +316,64 @@ struct FilmParams: Codable, Equatable, Sendable {
     /// into one field. Keeping them apart is also what lets the user's paper
     /// choice survive toggling the Positive row on and off.
     var scanFilm: Bool = false
+    /// Preserve the extended range while rendering a selected print profile.
+    /// This is a print-layer choice, so it reprints the cached negative. The
+    /// preference is retained when `scanFilm` is selected, but is made
+    /// ineffective on the direct film-scan path.
+    var extendedDynamicRange: Bool = false
+
+    /// The backend only applies EDR to an actual print profile. Keep the
+    /// user's preference in the sidecar while making the wire value false for
+    /// the Positive / No Print Profile path, so a persisted preference cannot
+    /// change direct film scanning.
+    var effectiveExtendedDynamicRange: Bool { extendedDynamicRange && !scanFilm }
+
+    init() {
+        filmStock = "kodak_portra_400"
+        printStock = "kodak_supra_endura"
+        exposureCompensationEV = 0
+        autoExposureMethod = "balanced"
+        autoExposure = true
+        filmFormatMM = 36
+        filmFrame = "135"
+        filmSide = FilmSide.short.rawValue
+        sideLengthMM = 24
+        grainActive = true
+        halationActive = true
+        printBrightnessStops = 0
+        yFilterShift = 0
+        mFilterShift = 0
+        glareActive = true
+        scanFilm = false
+        extendedDynamicRange = false
+    }
+
+    /// Keep sidecars written before EDR readable. Stored properties with
+    /// defaults still use `decode(_:forKey:)` in synthesized Codable, so an
+    /// absent key would otherwise reject the whole `FilmParams` value. The
+    /// older fields retain their synthesized Codable requirements; a missing
+    /// exposure method deliberately remains nil because that is the legacy
+    /// wire state. Only EDR is new and therefore defaults when absent.
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        filmStock = try c.decode(String.self, forKey: .filmStock)
+        printStock = try c.decode(String.self, forKey: .printStock)
+        exposureCompensationEV = try c.decode(Double.self, forKey: .exposureCompensationEV)
+        autoExposureMethod = try c.decodeIfPresent(String.self, forKey: .autoExposureMethod)
+        autoExposure = try c.decode(Bool.self, forKey: .autoExposure)
+        filmFormatMM = try c.decode(Double.self, forKey: .filmFormatMM)
+        filmFrame = try c.decode(String.self, forKey: .filmFrame)
+        filmSide = try c.decode(String.self, forKey: .filmSide)
+        sideLengthMM = try c.decode(Double.self, forKey: .sideLengthMM)
+        grainActive = try c.decode(Bool.self, forKey: .grainActive)
+        halationActive = try c.decode(Bool.self, forKey: .halationActive)
+        printBrightnessStops = try c.decode(Double.self, forKey: .printBrightnessStops)
+        yFilterShift = try c.decode(Double.self, forKey: .yFilterShift)
+        mFilterShift = try c.decode(Double.self, forKey: .mFilterShift)
+        glareActive = try c.decode(Bool.self, forKey: .glareActive)
+        scanFilm = try c.decode(Bool.self, forKey: .scanFilm)
+        extendedDynamicRange = try c.decodeIfPresent(Bool.self, forKey: .extendedDynamicRange) ?? false
+    }
 
     static let `default` = FilmParams()
 
@@ -338,6 +403,7 @@ struct FilmParams: Codable, Equatable, Sendable {
             ("m_filter_shift", .double(mFilterShift), .print),
             ("glare_active", .bool(glareActive), .print),
             ("scan_film", .bool(scanFilm), .print),
+            ("extended_dynamic_range", .bool(effectiveExtendedDynamicRange), .print),
         ]
         return fields
     }

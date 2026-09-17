@@ -57,6 +57,40 @@ has a pre-build phase (`Tools/check-bundle-resources.sh`) that fails the build
 when the resources are absent. The dangerous case is *stale*, not absent — re-run
 `engine/build.sh bundle` after anything under `engine/resources/` changes.
 
+### When Xcode cannot find `metal`
+
+A build that was working stops with one of these, in Xcode or in `xcodebuild`,
+and nothing in the repository has changed:
+
+```
+error: unable to spawn process '…/MetalToolchain-v27.1.266.1.Czoz89/…/metal' (Permission denied)
+error: unable to spawn process '…/Metal.xctoolchain/usr/bin/metal' (No such file or directory)
+error: cannot execute tool 'metal' due to missing Metal Toolchain
+```
+
+**Clean the build folder** (⇧⌘K in Xcode, or `rm -rf build/DerivedData`) and
+build again. That is the whole fix.
+
+Why: from Xcode 26 the Metal toolchain is not inside `Xcode.app`. It is a
+downloadable component mounted as a cryptex under
+`/var/run/com.apple.security.cryptexd/mnt/`, and the mount directory carries a
+**random suffix that changes when it is remounted** — an OS update, a
+reprovision, sometimes a reboot. Xcode's incremental build description caches
+the compiler's *absolute path*, so after a remount that cached path points at a
+directory that is gone, or at a leftover empty mount that is `drwx------ root`
+and cannot be read. Nothing in the project is wrong and no source file is at
+fault, which is what makes it read as "the last commit broke the build".
+
+Two things that look like fixes and are not:
+
+- `xcodebuild -downloadComponent MetalToolchain` re-downloads an asset that is
+  already installed and leaves the stale mount in place.
+- Symlinking the cryptex into `~/Library/Developer/Toolchains/` registers the
+  same toolchain twice; `xcrun -sdk macosx metal` then refuses with *cannot
+  execute tool 'metal' due to missing Metal Toolchain*, which breaks
+  `engine/build.sh` while leaving Xcode working. Check for a stray
+  `Metal.xctoolchain` there before believing the toolchain is missing.
+
 Launch it, or use the snapshot harness:
 
 ```bash

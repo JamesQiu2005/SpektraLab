@@ -336,3 +336,32 @@ kernel void spk_bw_correct(device const float* xyz [[buffer(0)]],
     float scale = corrected / (y + 1e-10f);
     for (uint c = 0u; c < 3u; ++c) out[3u * i + c] = xyz[3u * i + c] * scale;
 }
+
+// Extended Dynamic Range master. `p` is the output-space luminance row,
+// uniform log2-Y LUT domain, exact-identity toe/shoulder joins, and LUT count.
+// The profile's LUT maps the normal print's linear Y to the calibrated EDR Y.
+// RGB channels scale together, retaining chromaticity until the gamut stage.
+kernel void spk_edr(device const float* rgb [[buffer(0)]],
+                    device const float* p [[buffer(1)]],
+                    device const float* lut [[buffer(2)]],
+                    device const uint* n [[buffer(3)]],
+                    device float* out [[buffer(4)]],
+                    uint3 thread_position_in_grid [[thread_position_in_grid]]) {
+    uint i = thread_position_in_grid.x;
+    if (i >= n[0]) return;
+    float r = rgb[3u * i], g = rgb[3u * i + 1u], b = rgb[3u * i + 2u];
+    float y = max(p[0] * r + p[1] * g + p[2] * b, 0.0f);
+    float toe = p[5], shoulder = p[6];
+    float mapped = y;
+    if (y > 0.0f && (y < toe || y > shoulder)) {
+        uint count = max(uint(p[7]), 2u);
+        float u = clamp((log2(y) - p[3]) * p[4], 0.0f, 1.0f) * float(count - 1u);
+        uint i0 = min(uint(floor(u)), count - 2u);
+        float t = u - float(i0);
+        mapped = exp2(mix(lut[i0], lut[i0 + 1u], t));
+    }
+    float scale = mapped / (y + 1e-10f);
+    out[3u * i] = r * scale;
+    out[3u * i + 1u] = g * scale;
+    out[3u * i + 2u] = b * scale;
+}

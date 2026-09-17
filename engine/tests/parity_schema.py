@@ -4,8 +4,8 @@ RFC-014 keeps the wire unchanged (contract §2), and "unchanged" has to mean
 something checkable. This compares, field for field:
 
   * `params_schema` -- name, path, type, layer, default, live flag, range.
-    A row added on one side and not the other is a failure here rather than a
-    slider that silently does nothing.
+    A row added on one side and not the other is a failure here unless it is a
+    named native-product extension with its complete contract pinned below.
   * `read_params` for six stock pairs, which is what every reply carries.
   * the *digested internals* -- the stock-specific DIR-coupler gammas, the
     halation preset, the neutral filter pack from the database, and the
@@ -57,6 +57,16 @@ KNOWN = {
     ),
 }
 
+# Product-native fields added after the Python reference was frozen. Keep the
+# exception exact: the test still fails on a rename, reordered row, changed
+# path/type/layer/default/live/range, or if the Python oracle later gains it.
+NATIVE_ONLY = {
+    "extended_dynamic_range": {
+        "path": "print_render.edr_enabled", "type": "bool", "layer": "print",
+        "default": False, "live": False, "range": None,
+    },
+}
+
 
 def close(a, b, tol=1e-12) -> bool:
     if isinstance(a, bool) or isinstance(b, bool):
@@ -85,6 +95,11 @@ def check_schema(got: dict) -> int:
             failures += 1
             continue
         if name not in w:
+            expected = NATIVE_ONLY.get(name)
+            actual = {key: g[name].get(key) for key in expected} if expected else None
+            if expected is not None and actual == expected:
+                print(f"native-only field {name!r}: {expected}")
+                continue
             print(f"FAIL field {name!r}: declared by the engine, missing from the Python service")
             failures += 1
             continue
@@ -111,13 +126,16 @@ def check_schema(got: dict) -> int:
 
     order_cpp = [f["name"] for f in got["fields"]]
     order_py = [f["name"] for f in want["fields"]]
+    for name in NATIVE_ONLY:
+        order_py.insert(order_py.index("preview_long_edge"), name)
     if order_cpp != order_py:
         print("FAIL field order differs")
         print(f"     C++:    {order_cpp}")
         print(f"     Python: {order_py}")
         failures += 1
     if not failures:
-        print(f"schema: {len(w)} fields, identical")
+        print(f"schema: {len(g)} engine fields; Python fields identical plus "
+              f"{len(NATIVE_ONLY)} pinned native extension")
     return failures
 
 
@@ -176,6 +194,12 @@ def check_pairs(got: dict) -> int:
         g = got[key]
         for name in sorted(set(g["params"]) | set(want_params)):
             a, b = g["params"].get(name), want_params.get(name)
+            if name in NATIVE_ONLY and name not in want_params:
+                if a != NATIVE_ONLY[name]["default"]:
+                    print(f"FAIL {key} params.{name}: native default {a!r}, "
+                          f"expected {NATIVE_ONLY[name]['default']!r}")
+                    failures += 1
+                continue
             if close(a, b):
                 if (name, "default") in KNOWN:
                     print(f"FAIL {key} params.{name}: the two sides now agree ({a!r}); "

@@ -23,6 +23,15 @@ struct DensityCurvesModel {
     Vec centers, amplitudes, sigmas;    // (n_channels, n_layers) row-major
 };
 
+struct EdrToneMap {
+    int version = 0;
+    double domain_log2_y[2] = {0.0, 0.0};
+    double toe_y = 0.0, shoulder_y = 1.0;
+    Vec target_log2_y;
+
+    bool available() const { return version == 1 && target_log2_y.size() >= 2; }
+};
+
 struct ProfileInfo {
     std::string stock, name, type = "negative", support = "film", stage = "filming";
     std::string use = "still", antihalation = "weak", target_print;
@@ -47,6 +56,9 @@ struct ProfileData {
     Vec density_curves_layers;    // (K, 3, 3) = [k][layer][channel]
     size_t n_exposure = 0;
     DensityCurvesModel model;
+    // Optional, print profiles only. A measured neutral-axis mapping from the
+    // normal print's linear output luminance to the opt-in SDR EDR master.
+    EdrToneMap edr_tone_map;
 };
 
 struct Profile {
