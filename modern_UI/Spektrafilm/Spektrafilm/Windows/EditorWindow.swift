@@ -12,15 +12,26 @@
 //
 //  Flush: no outer margin, no gutter, no corner radius. Where the previous
 //  design left a 6 pt trench of ground between four floating cards, this one
-//  puts a **1 pt hairline** (`Hairline`, `#b5b5b6`) — and only where two
-//  surfaces of the *same* colour meet. Between a rail and the canvas the
-//  ground colour is the separator, so the drawing draws no line there; beside
-//  the filmstrip, where rail and strip are both `Theme.card`, it draws two
-//  (`line x1="508.8"` and `x1="3263.6"`, y 1895…2160).
+//  puts a **1 pt hairline** (`Hairline`, `#b5b6b6`).
 //
-//  The bar no longer spans the window. It is a rounded pill floating on the
-//  ground over the canvas (`Theme.Metric.barStrip`), so it belongs to the
-//  centre column and grows with it.
+//  **v3 (2026-09-18) changed two things in this file.**
+//
+//  The rail dividers run the **full window height** — v3 draws them at
+//  x 254.41 and x 1631.93 from the top edge to the bottom, canvas included.
+//  The older rule said a line was needed only beside the filmstrip, where
+//  rail and strip are the same colour, and that between rail and canvas the
+//  ground colour was itself the separator. v3 overrules it, and the reason is
+//  visible in the drawing: with the tool bar now `card`-coloured and flush,
+//  the top row is one surface across all three columns, so without a divider
+//  the rails have no edge at all for their first 38 pt. Both lines are
+//  **overlays** on the rails, not siblings in the `HStack` — a sibling would
+//  push the canvas 1 pt and make every recorded column width wrong.
+//
+//  And **the bar stopped floating**. It is a plain 38 pt rectangle filling
+//  the centre column's top, flush with both rails and with the window's top
+//  edge — `barTop`, `barInset` and `barRadius` are all 0 — and its height is
+//  the rail header's, so the three regions share one top row. There is no
+//  ground strip behind it any more.
 //
 //  **The window buttons did not move.** They sit at `y 19`, which is the
 //  centre of a rail header *and* very nearly the centre of the bar — one row,
@@ -119,10 +130,15 @@ struct EditorWindow: View {
                     // fresh install and move every snapshot. It sits on the
                     // rail's own trailing edge, where the drawing has nothing
                     // but the colour change.
+                    // v3's full-height divider, on the rail's own trailing
+                    // edge. Above the grip in the overlay order so the line is
+                    // never drawn over by it; the grip still takes the mouse,
+                    // because a 1 pt rectangle is not a hit target.
                     .overlay(alignment: .trailing) {
                         PanelResizeHandle(side: .trailingEdge, range: leftWidth.range,
                                           width: $leftWidth.width)
                     }
+                    .overlay(alignment: .trailing) { VerticalHairline().allowsHitTesting(false) }
                     .transition(.move(edge: .leading))
             }
             centreColumn
@@ -134,6 +150,7 @@ struct EditorWindow: View {
                         PanelResizeHandle(side: .leadingEdge, range: rightWidth.range,
                                           width: $rightWidth.width)
                     }
+                    .overlay(alignment: .leading) { VerticalHairline().allowsHitTesting(false) }
                     // The colour balance triangle sizes its wheels from the
                     // rail, and the rail is the user's.
                     .environment(\.colorBalanceWidth,
@@ -146,30 +163,37 @@ struct EditorWindow: View {
 
     /// Bar strip, canvas, filmstrip — the column between the two rails.
     ///
-    /// The strip at the top is ground with the bar floating in it, rather than
-    /// the bar being a row of its own: that is what the drawing shows (its
-    /// `.st13` ground rectangle runs from y 0 and the bar is drawn on top of
-    /// it) and it is the only arrangement in which a maximised frame is never
-    /// partly under a toolbar.
+    /// **v3: the bar is a row of its own**, closed by a hairline, rather than
+    /// a pill floating in a strip of ground. A maximised frame therefore
+    /// starts directly under a surface instead of under a pill with ground
+    /// showing round it, and the hairline under the bar is the same wall the
+    /// rails' sections are separated by — the top row reads as a room, not as
+    /// a shelf.
     private var centreColumn: some View {
         VStack(spacing: 0) {
             TopBar(session: session)
                 .frame(height: Theme.Metric.topBarHeight)
+                // `barInset` and `barTop` are 0 in v3, so these two are
+                // no-ops — kept so that a drawing which floats the bar again
+                // is three token values rather than a re-plumbing of this
+                // stack. The background is the bar's own `card`, not the
+                // ground: there is nothing behind it to show through.
                 .padding(.horizontal, Theme.Metric.barInset)
                 .padding(.vertical, Theme.Metric.barTop)
-                .background(Theme.ground)
+            Hairline()
             CanvasArea(session: session)
             if !session.filmstripCollapsed {
-                HStack(spacing: 0) {
-                    // Only against a rail that is there. With one folded, the
-                    // strip runs to the window's edge and a line at the edge
-                    // is a line with nothing on the other side of it.
-                    if !session.leftCollapsed { VerticalHairline() }
-                    Filmstrip(session: session)
-                    if !session.rightCollapsed { VerticalHairline() }
-                }
-                .frame(height: Theme.Metric.filmstripHeight)
-                .transition(.move(edge: .bottom))
+                Hairline()
+                // **No vertical hairlines here any more.** They used to be
+                // the filmstrip's own, drawn only where rail and strip share
+                // a colour; v3's dividers run the whole window height and are
+                // drawn once by each rail, so a second pair here would be a
+                // 1 pt line drawn twice at the same x — visible as a slightly
+                // heavier segment beside the strip, which is exactly the kind
+                // of seam a full-height divider exists to remove.
+                Filmstrip(session: session)
+                    .frame(height: Theme.Metric.filmstripHeight)
+                    .transition(.move(edge: .bottom))
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)

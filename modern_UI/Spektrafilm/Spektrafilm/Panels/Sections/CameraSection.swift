@@ -1,12 +1,22 @@
-//  CameraSection.swift — how the photograph enters the film: AE Method, Film
+//  CameraSection.swift — how the photograph enters the film: Metering, Film
 //  Exposure, Temperature, Tint, Vignetting, Lens Correction.
+//
+//  **v3 (2026-09-18) renamed three things and added one.** The section is
+//  **Input / Camera**; `AE Method` is **Metering**. Both are visual renames
+//  only — `session.aeMethod` keeps its name, its offered values and its
+//  legacy restoration, which handoff §7 requires. The addition is a **reset
+//  arrow on the header**, beside the "•••". Its scope is left open by §8.3,
+//  so it is wired to the one reset this section already had a name for —
+//  film exposure — and the tooltip says exactly that rather than implying it
+//  resets the section. Camera's labels are set at 9 pt in a 70 pt column,
+//  which is v3's measurement and narrower than the rail's shared 84.
 //
 //  The 2026-09-17 drawing's first section, and every row of it is a row of
 //  the drawing. No well: controls sit directly on the rail, which is what
 //  changed across the whole interface — a well now holds a *choice from a
 //  set* (the film and print lists) and nothing else.
 //
-//  **AE Method** (`auto_exposure` + `auto_exposure_method`, and the pill is
+//  **Metering** (`auto_exposure` + `auto_exposure_method`, and the pill is
 //  wired to `Session.aeMethod`). The four intents are what the engine's meter
 //  follows: overall correctness (`balanced`), a subject in the middle
 //  (`center`), the brightest part kept (`protect highlights`), the darkest
@@ -40,26 +50,35 @@ struct CameraSection: View {
     @Bindable var session: Session
 
     var body: some View {
-        PanelSection("Camera", key: "camera", menu: { AnyView(menu) }) {
+        PanelSection(L(.sectionCamera), key: "camera",
+                     action: SectionAction(help: L(.helpResetFilmExposure)) {
+                         var p = session.params; p.exposureCompensationEV = 0; session.params = p
+                     },
+                     menu: { AnyView(menu) }) {
             RailRows {
-                PillMenu(label: "AE Method",
+                PillMenu(label: L(.cameraMetering),
                          options: AEMethod.offered + (session.aeMethod == .legacy ? [.legacy] : []),
-                         title: { $0.title },
+                         title: { L($0.key) },
                          selection: Binding(get: { session.aeMethod },
-                                            set: { session.aeMethod = $0 }))
-                ScrubSlider(label: "Film Exposure",
+                                            set: { session.aeMethod = $0 }),
+                         labelWidth: Theme.Metric.cameraLabelWidth,
+                         font: Theme.Font.cameraLabel)
+                ScrubSlider(label: L(.cameraFilmExposure),
                             sublabelView: asShotLine,
                             value: Binding(get: { session.params.exposureCompensationEV },
                                            set: { var p = session.params; p.exposureCompensationEV = $0; session.params = p }),
-                            range: -4...4, snap: 1 / 3, format: { String(format: "%+.1f", $0) })
+                            range: -4...4, snap: 1 / 3, format: { String(format: "%+.1f", $0) },
+                            metrics: .camera)
                 WhiteBalanceRows(session: session)
-                ScrubSlider(label: "Vignetting",
+                ScrubSlider(label: L(.cameraVignetting),
                             value: Binding(get: { session.adjustments.vignette.amount },
                                            set: { var a = session.adjustments; a.vignette.amount = $0; session.adjustments = a }),
-                            range: -100...100, snap: 5, format: { String(format: "%+.0f", $0) })
-                ToggleRow(label: "Lens Correction",
+                            range: -100...100, snap: 5, format: { String(format: "%+.0f", $0) },
+                            metrics: .camera)
+                ToggleRow(label: L(.cameraLensCorrection),
                           isOn: Binding(get: { session.decode.lensCorrection },
                                         set: { session.setLensCorrection($0) }),
+                          labelFont: Theme.Font.cameraLabel,
                           enabled: session.lensCorrectionEnabled,
                           reason: session.lensCorrectionReason)
             }
@@ -83,13 +102,16 @@ struct CameraSection: View {
     /// drawing *does* give every section.
     private var menu: some View {
         Group {
-            Button("Reset film exposure") {
+            Button(L(.helpResetFilmExposure)) {
                 var p = session.params; p.exposureCompensationEV = 0; session.params = p
             }
             Divider()
-            Button("Pick a neutral point on the image") { session.wbPickerActive.toggle() }
+            Button(L(.helpPickNeutral)) { session.wbPickerActive.toggle() }
                 .disabled(session.selection == nil)
-            Menu("White balance preset") {
+            // The presets are not in the spec's tables, and their names are
+            // closest to profile names — which stay as they are. They are the
+            // only rows in this section left in English.
+            Menu(L(.helpWhiteBalancePreset)) {
                 ForEach(DecodeSettings.WhiteBalance.allCases.filter { $0 != .custom }, id: \.self) { wb in
                     Button {
                         session.setWhiteBalance(wb)
@@ -107,12 +129,19 @@ struct CameraSection: View {
 ///
 /// The box's own padding is a hit area rather than layout (it is drawn 8 pt),
 /// so the negative vertical padding keeps the line from growing to suit it.
+///
+/// **One view, three rows.** It draws the line under Film Exposure here and
+/// under Temperature and Tint in `WhiteBalanceRows`, so its label is one
+/// string in all three places: the two white-balance rows cannot say "As
+/// Shot" while this one says 拍摄时设置 without a `label:` parameter, which
+/// would be a shape change this pass was told not to make. The spec lists
+/// "As Shot" once, next to Film Exposure.
 struct AsShotLine: View {
     @Binding var isOn: Bool
     var enabled: Bool
     var body: some View {
         HStack(spacing: 3) {
-            Text("As Shot").font(Theme.Font.sublabel).foregroundStyle(Theme.Ink.tertiary)
+            Text(L(.cameraFilmExposureAsShot)).font(Theme.Font.sublabel).foregroundStyle(Theme.Ink.tertiary)
             CheckBox(isOn: $isOn).padding(.vertical, -6)
             Spacer(minLength: 0)
         }

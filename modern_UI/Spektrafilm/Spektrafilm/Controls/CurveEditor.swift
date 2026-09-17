@@ -42,7 +42,7 @@ struct CurveEditor: View {
                 let on = ch == channel
                 Button { channel = ch } label: {
                     VStack(spacing: 4) {
-                        Text(ch.title).font(Theme.Font.tab)
+                        Text(ch.key.map { L($0) } ?? ch.title).font(Theme.Font.tab)
                             .foregroundStyle(on ? Theme.accent : Theme.secondaryText)
                         // Only the active channel is underlined. The
                         // inactive ones drew a 0.5 pt rule each, which joined
@@ -247,8 +247,12 @@ struct CurveEditor: View {
     private var readout: some View {
         HStack(spacing: 16) {
             let input: Double? = hover.map { Double($0.x) } ?? session.hoverValue.map { Double(0.2126 * $0.x + 0.7152 * $0.y + 0.0722 * $0.z) }
-            Text("Input: \(input.map { String(format: "%.0f", $0 * 255) } ?? "--")")
-            Text("Output: \(input.map { String(format: "%.0f", curve.evaluate(CGFloat($0)) * 255) } ?? "--")")
+            // Label and number are joined here rather than in the table: the
+            // spec's rule for a dynamic value is a placeholder or system
+            // formatting, never a Chinese sentence assembled from fragments.
+            // `String`, so `Text` does not treat it as a localized key.
+            Text(readoutLine(L(.curveInput), input.map { String(format: "%.0f", $0 * 255) }))
+            Text(readoutLine(L(.curveOutput), input.map { String(format: "%.0f", curve.evaluate(CGFloat($0)) * 255) }))
             Spacer()
             Button { session.curvePickerActive.toggle() } label: {
                 Image(systemName: "eyedropper")
@@ -262,5 +266,12 @@ struct CurveEditor: View {
         .font(Theme.Font.value)
         .foregroundStyle(Theme.secondaryText)
         .padding(.horizontal, 6)
+    }
+
+    /// "Input: 128" — the colon belongs to the layout rather than to the copy,
+    /// so neither language's table entry has to carry it. `--` is the same
+    /// placeholder it always was.
+    private func readoutLine(_ label: String, _ value: String?) -> String {
+        "\(label): \(value ?? "--")"
     }
 }

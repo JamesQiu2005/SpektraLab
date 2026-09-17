@@ -1,6 +1,13 @@
-//  RightPanel.swift — the grade rail. Its header carries the adjustments
-//  glyph and `sidebar.right` at the far end, which is exactly what the
-//  2026-09-17 drawing puts there and nothing else.
+//  RightPanel.swift — the grade rail. Its header reads **Edit** and carries
+//  `sidebar.right` at the far end.
+//
+//  **v3 (2026-09-18) replaced the glyph with the word.** The row used to open
+//  with an inert `slider.horizontal.3` — the rail's name written as a
+//  picture, because the 2026-09-17 drawing wrote it as a picture. v3 writes
+//  it as a word, which is the better answer to the same problem: the glyph
+//  had to be an `Image` rather than a button so that it could not be clicked,
+//  and a symbol that exists only to be unclickable is a symbol nobody can
+//  read. `Edit` is a label, not a mode button; there is no other mode.
 //
 //  It used to carry a third thing: a dotted-circle button that bypassed the
 //  whole adjustment layer. It is gone. It was not in the drawing, it never
@@ -52,21 +59,21 @@ struct RightPanel: View {
 
     private var header: some View {
         HStack(spacing: 0) {
-            // Inert on purpose: the rail's name, written as a glyph because
-            // the drawing writes it as a glyph. It is an `Image` and not a
-            // `PanelIconButton` so that it cannot take a click, and it is
-            // alone on this end of the row — a label beside a button reads as
-            // a button, which is half of why the one that used to sit next to
-            // it was unreadable.
-            Image(systemName: "slider.horizontal.3")
-                .font(.system(size: Theme.Metric.panelIcon, weight: .regular))
+            // The rail's name. Alone on this end of the row — a label beside
+            // a button reads as a button, which is half of why the glyph that
+            // used to sit next to one was unreadable.
+            Text(L(.railEdit))
+                .font(Theme.Font.railTitle)
                 .foregroundStyle(Theme.text)
-                .frame(width: 26, height: 26)
+                .lineLimit(1)
                 .padding(.leading, Theme.Metric.panelHeaderLeading)
             Spacer(minLength: 0)
             SidebarToggle(edge: .trailing, collapsed: $session.rightCollapsed)
                 .padding(.trailing, Theme.Metric.panelHeaderTrailing)
         }
         .frame(height: Theme.Metric.panelHeaderHeight)
+        // The same drag surface the left rail's header is, for the same
+        // reason: with the titlebar hidden this row is where one would be.
+        .background(WindowDragHandle())
     }
 }

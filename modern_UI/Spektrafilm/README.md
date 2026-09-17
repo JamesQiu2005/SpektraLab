@@ -95,17 +95,22 @@ state the PRD is actually about.
 
 ```
 Windows/EditorWindow      the three regions; CanvasArea with the filmstrip's tab
-Windows/TopBar            select · hand · crop  …  zoom-in · [100 %] · zoom-out · fit · fullscreen
-Panels/LeftPanel          window buttons/import/export/sidebar.left, then the sections
-  Sections/Camera         AE Method (auto_exposure) · Film Exposure · Temperature · Tint
-                          Vignetting (client) · Lens Correction (decode)
-  Sections/Film           film list · Film Type / Side / Side Length (→ film_format_mm)
+Windows/TopBar            select · pan · crop  …  before/after · [100 %] · −· + · fullscreen
+                          flush, 38 pt, no radius (v3)
+Panels/LeftPanel          window buttons · "Develop" · import/export/sidebar.left,
+                          then the sections
+  Sections/Camera         "Input / Camera": Metering (auto_exposure) · Film Exposure ·
+                          Temperature · Tint · Vignetting (client) · Lens Correction (decode)
+  Sections/Film           film list grouped Positive/Negative · Film Format / Side /
+                          Side Length (→ film_format_mm)
                           Grain · Halation (shoot layer) · Glare (print layer)
-  Sections/PrintProfile   papers grouped Still/Cine/Positive · Process · Original
+  Sections/PrintProfile   papers grouped Still/Cine/Positive · EDR ·
+                          Developed / Original (a **view** selector; solve is
+                          "Process this frame" in the section's •••)
   Sections/Crop           Aspect · Straighten · Rotate
   Sections/Enlarger       Brightness (stops) · Yellow · Magenta — offsets from the solve
                           (not in the drawing; kept, collapsed, last)
-Panels/RightPanel         adjustments tab, bypass switch, then the Layer 2 sections
+Panels/RightPanel         "Edit", sidebar.right, then the Layer 2 sections
   Sections/RightSections  Histogram · White Balance · Exposure · Curve · Color Balance
 Panels/Filmstrip          thumbnails, selection frame, chevrons
 Canvas/MetalCanvasView    MTKView + gestures     Canvas/Renderer   Metal state, Layer 2, histogram
@@ -132,8 +137,9 @@ pair**, which is a decode setting (§4), and **Lens Correction**, which is
 maker wrote no correction, because Core Image is already doing the standard
 EXIF thing and there is nothing to switch.
 
-**Film Type / Side / Side Length is one engine field seen from the user's
-side.** `film_format_mm` means the frame's *long edge*, which cannot tell 645
+**Film Format / Side / Side Length is one engine field seen from the user's
+side.** (`Film Format` is v3's name for what the code still calls
+`filmFrame`; the rename is visual only.) `film_format_mm` means the frame's *long edge*, which cannot tell 645
 from 6×6; the rail asks for a type, a side and a length, and
 `Session.filmFormatMM(side:sideLengthMM:aspect:)` derives the long edge from
 that **and the photograph's own aspect**. Whether a crop re-scales it is a
@@ -159,7 +165,7 @@ select(frame)
   │    ├─ preview texture, Display P3, 1600 px   → canvas immediately, "preview" badge
   │    └─ half-float linear ProPhoto TIFF        → ~/Library/Caches/com.hanze.spektrafilm/linear/<key>-<wb>.tif
   ├─ service.open(tiff, full params)             → live-tier negative (film side)
-  ├─ service.solve(exposure)                     → the auto-exposure baseline, per AE Method
+  ├─ service.solve(exposure)                     → the auto-exposure baseline, per Metering
   └─ service.reprint(output: rgba16)             → raw 16-bit RGBA → texture → canvas, badge clears
 
 zoom ≥ 100 % / ≥ 200 %

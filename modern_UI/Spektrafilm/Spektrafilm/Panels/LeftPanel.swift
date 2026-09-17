@@ -2,15 +2,22 @@
 //  the drawing's order, each one closed by a hairline. To add a section:
 //  write a view in Panels/Sections and add one line to the stack.
 //
-//  The header carries what the 2026-09-17 drawing puts there — import,
-//  export, and `sidebar.left` at the far end — and it is also the row the
-//  three window buttons are placed on, so it opens with their clearance
-//  rather than with the drawing's 10 pt (`Theme.Metric.trafficLightClearance`;
-//  the drawing has no window buttons in it at all).
+//  **v3 (2026-09-18) gave the header a name.** It reads **Develop**, set in
+//  `Theme.Font.railTitle`, with import and export at the *trailing* end — the
+//  older layout had the two glyphs leading and nothing else on the row. It is
+//  a label and not a mode button: there is no second rail to switch to, and a
+//  word that looks pressable and is not is worse than a word.
 //
-//  Import and export are back here after a spell on the top bar. The bar is
-//  a *canvas* control now — it floats over the picture and is as wide as the
-//  picture is — and opening a file is not a thing you do to the picture.
+//  It is also the row the three window buttons are placed on, so it opens
+//  with their clearance rather than with v3's 10 pt
+//  (`Theme.Metric.trafficLightClearance`). v3's artwork contains neither the
+//  window buttons nor the sidebar toggles; handoff §8.2 says to keep both and
+//  **record the deviation rather than hide the functionality**, which is what
+//  this row does — the title sits after the buttons' clearance, and
+//  `sidebar.left` stays at the far end past import and export.
+//
+//  Import and export are here rather than on the top bar. The bar is a
+//  *canvas* control, and opening a file is not a thing you do to the picture.
 
 import SwiftUI
 
@@ -68,14 +75,26 @@ struct LeftPanel: View {
             // and not a container — which is why folding the rail does not move
             // them: the bar takes over the same reservation.
             Spacer().frame(width: Theme.Metric.trafficLightClearance)
-            PanelIconButton(systemImage: "tray.and.arrow.down", help: "Open a folder or image (⌘O)") {
+            Text(L(.railDevelop))
+                .font(Theme.Font.railTitle)
+                .foregroundStyle(Theme.text)
+                .lineLimit(1)
+            Spacer(minLength: 4)
+            // v3 draws a square-and-arrow container for import, not the tray
+            // the 2026-09-17 pass used, and pairs it with the export glyph
+            // that was already right.
+            // The shortcut is appended here rather than living in the table:
+            // the spec's rule is that the key is the phrase and the shortcut
+            // is added by whatever owns shortcuts, so a translation never has
+            // to reproduce `(⌘O)` or decide where it goes in a Chinese
+            // sentence.
+            PanelIconButton(systemImage: "square.and.arrow.down", help: L(.helpOpen) + " (⌘O)") {
                 session.openPanel()
             }
-            PanelIconButton(systemImage: "square.and.arrow.up", help: "Export (⌘E)",
+            PanelIconButton(systemImage: "square.and.arrow.up", help: L(.helpExport) + " (⌘E)",
                             enabled: session.selection != nil) {
                 session.showExport = true
             }
-            Spacer(minLength: 0)
             SidebarToggle(edge: .leading, collapsed: $session.leftCollapsed)
                 .padding(.trailing, Theme.Metric.panelHeaderTrailing)
         }
@@ -110,10 +129,10 @@ struct SidebarToggle: View {
     private var symbol: String { edge == .leading ? "sidebar.left" : "sidebar.right" }
     private var help: String {
         switch (edge, collapsed) {
-        case (.leading, false): "Hide the darkroom rail"
-        case (.leading, true): "Show the darkroom rail"
-        case (.trailing, false): "Hide the adjustments rail"
-        case (.trailing, true): "Show the adjustments rail"
+        case (.leading, false): L(.helpDevelopRailHide)
+        case (.leading, true): L(.helpDevelopRailShow)
+        case (.trailing, false): L(.helpEditRailHide)
+        case (.trailing, true): L(.helpEditRailShow)
         }
     }
 

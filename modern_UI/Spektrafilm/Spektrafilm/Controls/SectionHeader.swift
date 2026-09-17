@@ -1,6 +1,17 @@
 //  SectionHeader.swift — disclosure triangle, title, "•••" — the row every
 //  section in both rails starts with, and the well a list sits in.
 //
+//  **v3 (2026-09-18) added two things.** A section title's size is now a
+//  property of *which rail it is on* — 12 on the left, 10.5 on the right —
+//  so `SectionMetrics` carries the font and the two rails pass different
+//  ones (`SectionMetrics.left` / `.right`). And a header can carry a direct
+//  **reset** affordance beside its "•••", which v3 draws on Camera and Film.
+//  It is `action`, an explicit title-and-handler pair rather than a Boolean,
+//  because handoff §8.3 leaves reset *scope* unresolved: a bare arrow that
+//  might reset a slider or might reset a whole section is the ellipsis
+//  problem again, so a caller that wants one has to say in words what it
+//  resets, and that sentence becomes the tooltip.
+//
 //  The 2026-09-17 drawing changed three things here. The header is 30 pt (its
 //  two collapsed sections, White Balance and Exposure, measure 29.05 and
 //  31.05 between hairlines). It carries **no icon**: the drawing's headers are
@@ -17,6 +28,11 @@ import SwiftUI
 /// heavier title, so it passes its own (`Theme.Metric.Export` and
 /// `Theme.Font.Export`).
 struct SectionMetrics {
+    /// The left rail: 12 pt titles.
+    static let left = SectionMetrics()
+    /// The right rail: 10.5 pt titles, everything else the same.
+    static let right = SectionMetrics(titleFont: Theme.Font.rightSectionTitle)
+
     var headerHeight: CGFloat = Theme.Metric.headerHeight
     /// Air between the header and the content under it. **Zero on the
     /// editor's rails**: `headerHeight` was measured from one hairline to the
@@ -24,13 +40,30 @@ struct SectionMetrics {
     var headerToWell: CGFloat = 0
     /// Air under the content, before the next hairline.
     var wellToHeader: CGFloat = Theme.Metric.sectionBottom
-    var titleFont: Font = Theme.Font.sectionTitle
+    var titleFont: Font = Theme.Font.leftSectionTitle
+}
+
+/// A direct affordance on a section header, beside its menu. v3 draws one on
+/// Camera and Film; `help` is required and is what makes the arrow legible —
+/// see the note at the top of this file about §8.3.
+struct SectionAction {
+    let systemImage: String
+    let help: String
+    let enabled: Bool
+    let perform: () -> Void
+
+    init(systemImage: String = "arrow.counterclockwise", help: String,
+         enabled: Bool = true, perform: @escaping () -> Void) {
+        self.systemImage = systemImage; self.help = help
+        self.enabled = enabled; self.perform = perform
+    }
 }
 
 struct SectionHeader: View {
     let title: String
     var systemImage: String? = nil
     @Binding var expanded: Bool
+    var action: SectionAction? = nil
     var menu: (() -> AnyView)? = nil
     var metrics = SectionMetrics()
 
@@ -59,6 +92,21 @@ struct SectionHeader: View {
                 .padding(.leading, Theme.Metric.headerTitleGap)
                 .lineLimit(1)
             Spacer(minLength: 4)
+            if let action {
+                Button(action: action.perform) {
+                    Image(systemName: action.systemImage)
+                        .font(.system(size: Theme.Metric.resetIcon, weight: .regular))
+                        .foregroundStyle(Theme.text)
+                        // 9 pt of ink inside a 26 pt target: §3 and §6 both
+                        // require the hit region to be independent of how
+                        // small the drawing sets the glyph.
+                        .frame(width: 26, height: 26)
+                        .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .rowEnabled(action.enabled)
+                .help(action.help)
+            }
             if let menu {
                 Menu { menu() } label: {
                     EllipsisGlyph().frame(width: 15, height: 3).padding(8).contentShape(Rectangle())
@@ -149,6 +197,7 @@ struct PanelSection<Content: View>: View {
     var systemImage: String? = nil
     let key: String
     var initiallyExpanded = true
+    var action: SectionAction? = nil
     var menu: (() -> AnyView)? = nil
     /// See `SectionMetrics` — the editor's panels unless a page says otherwise.
     var metrics = SectionMetrics()
@@ -156,18 +205,20 @@ struct PanelSection<Content: View>: View {
     @AppStorage private var expanded: Bool
 
     init(_ title: String, systemImage: String? = nil, key: String, initiallyExpanded: Bool = true,
+         action: SectionAction? = nil,
          menu: (() -> AnyView)? = nil, metrics: SectionMetrics = SectionMetrics(),
          @ViewBuilder content: @escaping () -> Content) {
         self.title = title; self.systemImage = systemImage; self.key = key
-        self.initiallyExpanded = initiallyExpanded; self.menu = menu; self.metrics = metrics
+        self.initiallyExpanded = initiallyExpanded; self.action = action
+        self.menu = menu; self.metrics = metrics
         self.content = content
         _expanded = AppStorage(wrappedValue: initiallyExpanded, Session.uiKey + "section.\(key)")
     }
 
     var body: some View {
         VStack(spacing: 0) {
-            SectionHeader(title: title, systemImage: systemImage, expanded: $expanded, menu: menu,
-                          metrics: metrics)
+            SectionHeader(title: title, systemImage: systemImage, expanded: $expanded,
+                          action: action, menu: menu, metrics: metrics)
             // A **collapsed** section is its header and nothing else. The
             // drawing's two shut sections are 30 pt apart, which is the
             // header, so bottom padding here would put air under a row that

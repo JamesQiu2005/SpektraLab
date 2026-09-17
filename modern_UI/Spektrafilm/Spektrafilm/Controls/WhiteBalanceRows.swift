@@ -41,25 +41,33 @@ struct WhiteBalanceRows: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: Theme.Metric.rowSpacing) {
-            ScrubSlider(label: "Temperature",
+            ScrubSlider(label: L(.cameraTemperature),
                         sublabelView: asShotLine(Binding(get: { boxes.temp },
                                                          set: { session.setTempAsShot($0) })),
                         value: Binding(get: { session.decode.temperature },
                                        set: { session.setTemperature($0) }),
                         range: 2000...12000, zero: asShot?.temperature ?? 5500, snap: 100,
                         format: { "\(Int($0))" },
-                        trackGradient: [Color(hex: 0x005982), Color(hex: 0x8FA83C), Color(hex: 0xFFF100)])
+                        trackGradient: [Color(hex: 0x005982), Color(hex: 0x8FA83C), Color(hex: 0xFFF100)],
+                        metrics: .camera)
 
-            ScrubSlider(label: "Tint",
+            ScrubSlider(label: L(.cameraTint),
                         sublabelView: asShotLine(Binding(get: { boxes.tint },
                                                          set: { session.setTintAsShot($0) })),
                         value: Binding(get: { session.decode.tint },
                                        set: { session.setTint($0) }),
                         range: -150...150, zero: asShot?.tint ?? 0, snap: 5,
                         format: { String(format: "%+.1f", $0) },
-                        trackGradient: [Color(hex: 0x00A93A), Color(hex: 0x8AA45E), Color(hex: 0xE4007F)])
+                        trackGradient: [Color(hex: 0x00A93A), Color(hex: 0x8AA45E), Color(hex: 0xE4007F)],
+                        metrics: .camera)
         }
-        .rowEnabled(enabled, because: "Decode white balance applies to RAW input only.")
+        // v3 draws **one** As Shot line under the pair rather than one per
+        // axis. Handoff §8.4 is explicit that the two axes stay independent
+        // — the app tracks them separately and a single control would need a
+        // defined mixed state — so the two lines stay, and the deviation
+        // from the drawing is recorded here rather than closed by coupling
+        // temperature to tint.
+        .rowEnabled(enabled, because: L(.reasonDecodeWBDisabled))
     }
 
     /// "As Shot ☐" — the second label line, as the drawing has it.

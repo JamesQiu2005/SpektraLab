@@ -1,5 +1,44 @@
 # Visual iteration — the snapshot harness
 
+> **Current design target (2026-09-18):**
+> [Main v3 tokens and Claude Code handoff](TOKENS-main-v3-2026-09-18.md), with
+> [machine-readable tokens](tokens-main-v3.json), translates
+> `reference_layout/Main/sample_frontend_v3.ai`. All text is **SF Pro Bold**.
+> The handoff includes the SF Symbols/custom icon inventory.
+>
+> **The app implements it as of 2026-09-18.** `Theme.swift` carries the v3
+> palette, metrics and the split type ramp; the tool bar is flush and 38 pt;
+> the rail dividers run the full window height; the rails are headed
+> *Develop* and *Edit*; the stock lists sit on the rail with a white inset
+> capsule for the selection and the film list is grouped Positive/Negative;
+> and the two capsules under the print list are a Developed/Original **view
+> selector**, with solve still in that section's `•••` (handoff §8.1).
+> `SpektrafilmTests/LayoutTests.swift` asserts v3's geometry and
+> `StockListTests.swift` the list rules — the 2026-09-17 assertions those
+> replaced are gone, per §9's "Do not assert old reference pixels."
+>
+> **What is not done, and is not evidence yet.** The two Swift tools below
+> (`measure-layout.swift`, `compare-design.swift`) still measure the old
+> floating bar and the old drawing's render, so **a pass from either is not
+> v3 validation** — they have to be re-pointed first. No fresh capture has
+> been taken. The custom Pan glyph (§6) is still `hand.raised`. Handoff §8.3
+> (reset scope) is answered narrowly — Camera's arrow resets film exposure
+> and Film's resets the stock, each saying so in its tooltip — and §8.5's
+> histogram ellipsis is deliberately still absent. Colour (§8.7) and the
+> 5.71 pt `CINE` type (§5) are open optical QA.
+>
+> [Simplified Chinese copy guide](LOCALIZATION-zh-Hans.md) keeps profile names
+> and necessary technical identifiers in English. **It is wired as of
+> 2026-09-18**: `Localization/Localization.swift` holds the setting
+> (`Follow the system` / `English` / `简体中文`, persisted at `ui2.language`)
+> and `Localization/Strings.swift` the two-language table; Settings ▸ Language
+> switches it live, with no relaunch. Deliberately **not** an `.xcstrings`
+> catalog — a bundle cannot be swapped under a running process, and
+> `Resources/` is a folder reference, so a catalog there would be copied
+> rather than compiled. Out of scope for that pass and still English: the
+> Settings page's own copy, the export page, the menu bar, and the strings
+> the guide's two tables do not cover.
+
 | | |
 |---|---|
 | **What this is** | The loop that lets the interface be checked against the drawing without a human looking at it. |
@@ -124,7 +163,20 @@ capture that proves the canvas draws — run it before believing it does.
 
 ## Reference
 
-`modern_UI/reference_layout/Main/sample_frontend.svg` is the drawing (2026-09-17);
-`Theme.swift` carries every number from it, divided by two, and
-`design/TOKENS-main-2026-09-17.md` is the derivation of each one.
-`reference_layout/SVG_link/sample_frontend.svg` is the drawing it replaced.
+`modern_UI/reference_layout/Main/sample_frontend_v3.ai` is the drawing
+(2026-09-18), with `layout_screenshot.png` as its appearance reference;
+`Theme.swift` carries its numbers at artboard ÷ 2 and
+`design/TOKENS-main-v3-2026-09-18.md` is the derivation of each one.
+
+**The 2026-09-17 drawing is gone from the repository.**
+`reference_layout/Main/sample_frontend.svg`, its nine linked rasters and the
+`main_page.png` render were deleted with the redraw. `TOKENS-main-2026-09-17.md`
+can therefore be *read* but not re-derived, and four things still cite files
+that are no longer there: this file's own history above, `Theme.swift`'s
+header, `modern_UI/frontend_architecture.md`'s Authority row,
+`handoff/design-references/README.md`, and both comparison tools
+(`Tools/compare-design.swift`, `Tools/compare-layout.py`), which take
+`main_page.png` as their reference and so **cannot be run at all** until they
+are re-pointed at the v3 artwork. That is the same thing as the warning at the
+top of this file — an old harness pass is not v3 validation — stated as a
+missing file rather than as a caveat.

@@ -64,6 +64,23 @@ struct StockCatalog: Sendable {
         return still + cine
     }
 
+    /// Films grouped as v3 draws them: **Positive**, then **Negative**.
+    ///
+    /// Grouped on `type`, which the catalogue has carried since it was
+    /// generated — not on the name and not on the artwork's order, which is
+    /// handoff §8.6's requirement. Within each group `filmsForPicker`'s order
+    /// is kept, so a cine stock still follows the stills of its group rather
+    /// than being hoisted.
+    ///
+    /// The whole catalogue comes back: v3's illustration shows 3 positive and
+    /// 4 negative rows, and those are the counts of a *viewport*, not a
+    /// filter.
+    var filmGroups: [(title: String, films: [Stock])] {
+        let ordered = filmsForPicker
+        return [("Positive", ordered.filter(\.isPositive)),
+                ("Negative", ordered.filter { !$0.isPositive })]
+    }
+
     /// Papers grouped for the picker: Still, then Cine.
     var paperGroups: [(title: String, papers: [Stock])] {
         [("Still", papers.filter { !$0.isCine }), ("Cine", papers.filter(\.isCine))]

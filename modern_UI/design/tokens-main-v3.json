@@ -1,0 +1,644 @@
+{
+  "name": "SpektraLab main editor v3",
+  "version": "2026-09-18",
+  "status": "design-only; not loaded by the application",
+  "scope": "main editor; preserve export-page values when migrating shared Theme aliases",
+  "source": {
+    "geometry": "../reference_layout/Main/sample_frontend_v3.ai",
+    "geometrySHA256": "9911ff05002fdcb0d641cf8531ccb55dce4b7831f90d7b9f0f703fa4d909cf96",
+    "appearance": "../reference_layout/Main/layout_screenshot.png",
+    "appearanceSHA256": "5d0f70e8925f97b8780d6c5d61b0c38f768cae0c9ffdeb9104e14f69c0ddd5f8",
+    "guide": "TOKENS-main-v3-2026-09-18.md",
+    "inspectedCommit": "eda971b"
+  },
+  "coordinates": {
+    "artboard": [
+      3840,
+      2160
+    ],
+    "referenceWindowPoints": [
+      1920,
+      1080
+    ],
+    "artboardUnitsPerPoint": 2,
+    "origin": "top-left",
+    "unit": "pt"
+  },
+  "typography": {
+    "family": "SF Pro",
+    "weight": "bold",
+    "weightAuthority": "Explicit user instruction: all SF Pro Bold; PDF metadata must not override this.",
+    "sizes": {
+      "railTitle": {
+        "value": 12,
+        "status": "measured",
+        "source": "PDF text size divided by 2; guide section 5"
+      },
+      "leftSectionTitle": {
+        "value": 12,
+        "status": "measured",
+        "source": "PDF text size divided by 2; guide section 5"
+      },
+      "rightSectionTitle": {
+        "value": 10.5,
+        "status": "measured",
+        "source": "PDF text size divided by 2; guide section 5"
+      },
+      "cameraLabel": {
+        "value": 9,
+        "status": "measured",
+        "source": "PDF text size divided by 2; guide section 5"
+      },
+      "controlValue": {
+        "value": 9,
+        "status": "measured",
+        "source": "PDF text size divided by 2; guide section 5"
+      },
+      "stockItem": {
+        "value": 9,
+        "status": "measured",
+        "source": "PDF text size divided by 2; guide section 5"
+      },
+      "asShot": {
+        "value": 9,
+        "status": "measured",
+        "source": "PDF text size divided by 2; guide section 5"
+      },
+      "filmLabel": {
+        "value": 10.5,
+        "status": "measured",
+        "source": "PDF text size divided by 2; guide section 5"
+      },
+      "stockGroup": {
+        "value": 10.5,
+        "status": "measured",
+        "source": "PDF text size divided by 2; guide section 5"
+      },
+      "edrLabel": {
+        "value": 10.5,
+        "status": "measured",
+        "source": "PDF text size divided by 2; guide section 5"
+      },
+      "zoomValue": {
+        "value": 10.5,
+        "status": "measured",
+        "source": "PDF text size divided by 2; guide section 5"
+      },
+      "action": {
+        "value": 13.11,
+        "status": "measured",
+        "source": "PDF text size divided by 2; guide section 5"
+      },
+      "cine": {
+        "value": 5.71,
+        "status": "measured",
+        "source": "PDF text size divided by 2; guide section 5"
+      }
+    },
+    "numericDigits": {
+      "value": "monospaced",
+      "status": "preserved-policy",
+      "source": "current Theme.Font.value"
+    }
+  },
+  "metrics": {
+    "leftPanelWidth": {
+      "value": 254,
+      "status": "design-normalized",
+      "source": "guide sections 2, 3 and 6; artboard / 2"
+    },
+    "rightPanelWidth": {
+      "value": 288,
+      "status": "design-normalized",
+      "source": "guide sections 2, 3 and 6; artboard / 2"
+    },
+    "filmstripHeight": {
+      "value": 132,
+      "status": "design-normalized",
+      "source": "guide sections 2, 3 and 6; artboard / 2"
+    },
+    "panelHeaderHeight": {
+      "value": 38,
+      "status": "design-normalized",
+      "source": "guide sections 2, 3 and 6; artboard / 2"
+    },
+    "topBarHeight": {
+      "value": 38,
+      "status": "design-normalized",
+      "source": "guide sections 2, 3 and 6; artboard / 2"
+    },
+    "barTop": {
+      "value": 0,
+      "status": "measured",
+      "source": "guide sections 2, 3 and 6; artboard / 2"
+    },
+    "barInset": {
+      "value": 0,
+      "status": "measured",
+      "source": "guide sections 2, 3 and 6; artboard / 2"
+    },
+    "barRadius": {
+      "value": 0,
+      "status": "measured",
+      "source": "guide sections 2, 3 and 6; artboard / 2"
+    },
+    "barStrip": {
+      "value": 38,
+      "status": "design-normalized",
+      "source": "guide sections 2, 3 and 6; artboard / 2"
+    },
+    "rule": {
+      "value": 1,
+      "status": "measured",
+      "source": "guide sections 2, 3 and 6; artboard / 2"
+    },
+    "zoomPill": {
+      "value": [
+        41.29,
+        20.69
+      ],
+      "status": "measured",
+      "source": "guide sections 2, 3 and 6; artboard / 2"
+    },
+    "headerHeight": {
+      "value": 30,
+      "status": "design-normalized",
+      "source": "guide sections 2, 3 and 6; artboard / 2"
+    },
+    "rowInset": {
+      "value": 16,
+      "status": "design-normalized",
+      "source": "guide sections 2, 3 and 6; artboard / 2"
+    },
+    "camera.labelColumn": {
+      "value": 70,
+      "status": "design-normalized",
+      "source": "guide sections 2, 3 and 6; artboard / 2"
+    },
+    "camera.trackWidth.reference": {
+      "value": 90.44,
+      "status": "measured",
+      "source": "guide sections 2, 3 and 6; artboard / 2"
+    },
+    "controlHeight": {
+      "value": 13.9,
+      "status": "measured",
+      "source": "guide sections 2, 3 and 6; artboard / 2"
+    },
+    "sliderValueWidth": {
+      "value": 43.73,
+      "status": "measured",
+      "source": "guide sections 2, 3 and 6; artboard / 2"
+    },
+    "sliderValueGap": {
+      "value": 15.06,
+      "status": "measured",
+      "source": "guide sections 2, 3 and 6; artboard / 2"
+    },
+    "camera.meteringWidth.reference": {
+      "value": 149.22,
+      "status": "measured",
+      "source": "guide sections 2, 3 and 6; artboard / 2"
+    },
+    "film.pickerWidth": {
+      "value": 107.03,
+      "status": "measured",
+      "source": "guide sections 2, 3 and 6; artboard / 2"
+    },
+    "film.fieldWidth": {
+      "value": 49.77,
+      "status": "measured",
+      "source": "guide sections 2, 3 and 6; artboard / 2"
+    },
+    "film.unitWidth": {
+      "value": 38.32,
+      "status": "measured",
+      "source": "guide sections 2, 3 and 6; artboard / 2"
+    },
+    "film.controlTrailingInset": {
+      "value": 23,
+      "status": "design-normalized",
+      "source": "guide sections 2, 3 and 6; artboard / 2"
+    },
+    "film.rowPitch": {
+      "value": 22.5,
+      "status": "measured",
+      "source": "guide sections 2, 3 and 6; artboard / 2"
+    },
+    "camera.wbAxisPitch": {
+      "value": 20,
+      "status": "design-normalized",
+      "source": "guide sections 2, 3 and 6; artboard / 2"
+    },
+    "trackHeight": {
+      "value": 1.36,
+      "status": "measured",
+      "source": "guide sections 2, 3 and 6; artboard / 2"
+    },
+    "knobSize": {
+      "value": [
+        6.13,
+        5.07
+      ],
+      "status": "measured",
+      "source": "guide sections 2, 3 and 6; artboard / 2"
+    },
+    "checkbox.visualSize": {
+      "value": 5,
+      "status": "design-normalized",
+      "source": "guide sections 2, 3 and 6; artboard / 2"
+    },
+    "stock.selectionHeight": {
+      "value": 15.27,
+      "status": "measured",
+      "source": "guide sections 2, 3 and 6; artboard / 2"
+    },
+    "stock.selectionRadius": {
+      "value": 7.63,
+      "status": "design-normalized",
+      "source": "guide sections 2, 3 and 6; artboard / 2"
+    },
+    "stock.rowPitch": {
+      "value": 18,
+      "status": "measured",
+      "source": "guide sections 2, 3 and 6; artboard / 2"
+    },
+    "stock.leadingInset": {
+      "value": 16.79,
+      "status": "measured",
+      "source": "guide sections 2, 3 and 6; artboard / 2"
+    },
+    "stock.textLeadingInset": {
+      "value": 21.33,
+      "status": "measured",
+      "source": "guide sections 2, 3 and 6; artboard / 2"
+    },
+    "stock.trailingInset": {
+      "value": 26.48,
+      "status": "design-normalized",
+      "source": "guide sections 2, 3 and 6; artboard / 2"
+    },
+    "stock.selectionWidth.reference": {
+      "value": 210.74,
+      "status": "measured",
+      "source": "guide sections 2, 3 and 6; artboard / 2"
+    },
+    "stock.scrollIndicatorWidth": {
+      "value": 3.04,
+      "status": "measured",
+      "source": "guide sections 2, 3 and 6; artboard / 2"
+    },
+    "cinePill": {
+      "value": [
+        21.59,
+        8.07
+      ],
+      "status": "measured",
+      "source": "guide sections 2, 3 and 6; artboard / 2"
+    },
+    "actionSize": {
+      "value": [
+        82.86,
+        18.52
+      ],
+      "status": "measured",
+      "source": "guide sections 2, 3 and 6; artboard / 2"
+    },
+    "actionRadius": {
+      "value": 9.26,
+      "status": "design-normalized",
+      "source": "guide sections 2, 3 and 6; artboard / 2"
+    },
+    "actionGap": {
+      "value": 12.18,
+      "status": "measured",
+      "source": "guide sections 2, 3 and 6; artboard / 2"
+    },
+    "actionLeading": {
+      "value": 13.33,
+      "status": "measured",
+      "source": "guide sections 2, 3 and 6; artboard / 2"
+    },
+    "toolbar.contentInset.reference": {
+      "value": 32,
+      "status": "design-normalized",
+      "source": "guide sections 2, 3 and 6; artboard / 2"
+    },
+    "toolbar.toolCenterPitch.reference": {
+      "value": 61,
+      "status": "design-normalized",
+      "source": "guide sections 2, 3 and 6; artboard / 2"
+    },
+    "toolbar.glyphBox": {
+      "value": 22,
+      "status": "design-normalized",
+      "source": "guide sections 2, 3 and 6; artboard / 2"
+    },
+    "header.actionGlyphBox": {
+      "value": 18,
+      "status": "design-normalized",
+      "source": "guide sections 2, 3 and 6; artboard / 2"
+    },
+    "disclosure": {
+      "value": [
+        12.17,
+        7.22
+      ],
+      "status": "measured",
+      "source": "guide sections 2, 3 and 6; artboard / 2"
+    },
+    "pickerDisclosure": {
+      "value": [
+        6.9,
+        4.1
+      ],
+      "status": "measured",
+      "source": "guide sections 2, 3 and 6; artboard / 2"
+    }
+  },
+  "colors": {
+    "surface.canvas": {
+      "value": "#5F5F5F",
+      "status": "provisional-screenshot-sample",
+      "source": "supplied layout_screenshot.png; CMYK PDF rendering differs"
+    },
+    "surface.control": {
+      "value": "#5F5F5F",
+      "status": "provisional-screenshot-sample",
+      "source": "supplied layout_screenshot.png; CMYK PDF rendering differs"
+    },
+    "surface.rail": {
+      "value": "#2D2D2C",
+      "status": "provisional-screenshot-sample",
+      "source": "supplied layout_screenshot.png; CMYK PDF rendering differs"
+    },
+    "surface.toolbar": {
+      "value": "#2D2D2C",
+      "status": "provisional-screenshot-sample",
+      "source": "supplied layout_screenshot.png; CMYK PDF rendering differs"
+    },
+    "surface.stockList": {
+      "value": "#2D2D2C",
+      "status": "provisional-screenshot-sample",
+      "source": "supplied layout_screenshot.png; CMYK PDF rendering differs"
+    },
+    "ink.primary": {
+      "value": "#F9F7F3",
+      "status": "provisional-screenshot-sample",
+      "source": "supplied layout_screenshot.png; CMYK PDF rendering differs"
+    },
+    "ink.muted": {
+      "value": "#898989",
+      "status": "provisional-screenshot-sample",
+      "source": "supplied layout_screenshot.png; CMYK PDF rendering differs"
+    },
+    "separator": {
+      "value": "#B5B6B6",
+      "status": "provisional-screenshot-sample",
+      "source": "supplied layout_screenshot.png; CMYK PDF rendering differs"
+    },
+    "accent": {
+      "value": "#E1A95F",
+      "status": "provisional-screenshot-sample",
+      "source": "supplied layout_screenshot.png; CMYK PDF rendering differs"
+    },
+    "selection.fill": {
+      "value": "#FFFFFF",
+      "status": "provisional-screenshot-sample",
+      "source": "supplied layout_screenshot.png; CMYK PDF rendering differs"
+    },
+    "selection.text": {
+      "value": "#0F0E0E",
+      "status": "provisional-screenshot-sample",
+      "source": "supplied layout_screenshot.png; CMYK PDF rendering differs"
+    },
+    "action.fill": {
+      "value": "transparent",
+      "status": "visual-design",
+      "source": "outlined buttons on rail; guide section 4"
+    }
+  },
+  "icons": {
+    "import": {
+      "kind": "sf-symbol",
+      "name": "square.and.arrow.down",
+      "status": "mapped; verify deployment OS availability",
+      "guide": "section 6"
+    },
+    "export": {
+      "kind": "sf-symbol",
+      "name": "square.and.arrow.up",
+      "status": "mapped; verify deployment OS availability",
+      "guide": "section 6"
+    },
+    "select": {
+      "kind": "sf-symbol",
+      "name": "cursorarrow",
+      "status": "mapped; verify deployment OS availability",
+      "guide": "section 6"
+    },
+    "crop": {
+      "kind": "sf-symbol",
+      "name": "crop",
+      "status": "mapped; verify deployment OS availability",
+      "guide": "section 6"
+    },
+    "zoomOut": {
+      "kind": "sf-symbol",
+      "name": "minus.magnifyingglass",
+      "status": "mapped; verify deployment OS availability",
+      "guide": "section 6"
+    },
+    "zoomIn": {
+      "kind": "sf-symbol",
+      "name": "plus.magnifyingglass",
+      "status": "mapped; verify deployment OS availability",
+      "guide": "section 6"
+    },
+    "fullscreenEnter": {
+      "kind": "sf-symbol",
+      "name": "arrow.up.left.and.arrow.down.right",
+      "status": "mapped; verify deployment OS availability",
+      "guide": "section 6"
+    },
+    "fullscreenExit": {
+      "kind": "sf-symbol",
+      "name": "arrow.down.right.and.arrow.up.left",
+      "status": "mapped; verify deployment OS availability",
+      "guide": "section 6"
+    },
+    "cameraReset": {
+      "kind": "sf-symbol",
+      "name": "arrow.counterclockwise",
+      "status": "mapped; verify deployment OS availability",
+      "guide": "section 6"
+    },
+    "filmReset": {
+      "kind": "sf-symbol",
+      "name": "arrow.counterclockwise",
+      "status": "mapped; verify deployment OS availability",
+      "guide": "section 6"
+    },
+    "cameraPicker": {
+      "kind": "sf-symbol",
+      "name": "eyedropper",
+      "status": "mapped; verify deployment OS availability",
+      "guide": "section 6"
+    },
+    "curvePicker": {
+      "kind": "sf-symbol",
+      "name": "eyedropper",
+      "status": "mapped; verify deployment OS availability",
+      "guide": "section 6"
+    },
+    "overflow": {
+      "kind": "sf-symbol",
+      "name": "ellipsis",
+      "status": "mapped; verify deployment OS availability",
+      "guide": "section 6"
+    },
+    "sidebarLeft": {
+      "kind": "sf-symbol",
+      "name": "sidebar.left",
+      "status": "mapped; verify deployment OS availability",
+      "guide": "section 6"
+    },
+    "sidebarRight": {
+      "kind": "sf-symbol",
+      "name": "sidebar.right",
+      "status": "mapped; verify deployment OS availability",
+      "guide": "section 6"
+    },
+    "pan": {
+      "kind": "custom",
+      "source": "v3 vector hand with curved marks; custom asset not yet extracted",
+      "guide": "section 6"
+    },
+    "compare": {
+      "kind": "custom",
+      "source": "BeforeAfterIcon + modern_UI/control_asset/SVG/资源 1.svg",
+      "guide": "section 6"
+    },
+    "sectionDisclosure": {
+      "kind": "custom",
+      "source": "existing outlined Triangle primitive",
+      "guide": "section 6"
+    },
+    "pickerDisclosure": {
+      "kind": "custom",
+      "source": "scaled outlined Triangle primitive",
+      "guide": "section 6"
+    },
+    "filmstripPrevious": {
+      "kind": "custom",
+      "source": "outlined Triangle primitive rotated left",
+      "guide": "section 6"
+    },
+    "filmstripNext": {
+      "kind": "custom",
+      "source": "outlined Triangle primitive rotated right",
+      "guide": "section 6"
+    },
+    "checkbox": {
+      "kind": "custom",
+      "source": "existing custom control, restyle geometry",
+      "guide": "section 6"
+    },
+    "cineBadge": {
+      "kind": "custom",
+      "source": "text and capsule stroke; not an icon",
+      "guide": "section 6"
+    }
+  },
+  "referenceSectionRules": {
+    "status": "measured reference anchors, not fixed section heights",
+    "left": [
+      37.79,
+      241.23,
+      589.74,
+      800.49
+    ],
+    "right": [
+      37.81,
+      130.62,
+      159.67,
+      190.68,
+      443.71
+    ]
+  },
+  "structure": {
+    "toolbar": "flush rectangle; center column only",
+    "toolbarOrder": [
+      "select",
+      "pan",
+      "crop",
+      "flexible status and drag area",
+      "compare",
+      "zoom percentage",
+      "zoom out",
+      "zoom in",
+      "fullscreen"
+    ],
+    "railDividers": "full height, overlay; no added layout width",
+    "leftTitle": "Develop",
+    "rightTitle": "Edit",
+    "leftSections": [
+      "Input / Camera",
+      "Film",
+      "Print",
+      "Crop"
+    ],
+    "rightSections": [
+      "Histogram",
+      "White Balance",
+      "Exposure",
+      "Curve",
+      "Color Balance"
+    ],
+    "filmGroups": [
+      "Positive",
+      "Negative"
+    ],
+    "stockListSurface": "rail",
+    "stockSelection": "inset white capsule with dark text",
+    "actions": [
+      "Developed",
+      "Original"
+    ],
+    "actionSemantics": "unresolved; see guide section 8"
+  },
+  "preserve": {
+    "disabledOpacity": 0.38,
+    "minimumWindow": [
+      1100,
+      700
+    ],
+    "leftRailRange": [
+      232,
+      380
+    ],
+    "rightRailRange": [
+      268,
+      364
+    ],
+    "toolbarHitSize": [
+      28,
+      28
+    ],
+    "railActionHitSize": [
+      26,
+      26
+    ],
+    "exportTheme": "unchanged",
+    "engineAndSessionContracts": "unchanged"
+  },
+  "unresolved": [
+    "Developed versus existing solve action",
+    "sidebar and native traffic-light placement",
+    "reset scope",
+    "single drawn WB As Shot versus independent axis state",
+    "histogram overflow actions",
+    "grouped scroll behavior and complete catalog access",
+    "CMYK source to screen color agreement"
+  ]
+}

@@ -26,6 +26,16 @@
 //  Visually this is the app's right panel: `PanelSection` headers, `Well`
 //  grounds, `Theme` tokens, no literal colours. Not an AppKit-standard
 //  preferences window, because the rest of the interface is not one either.
+//
+//  **Language is the one section here that is localized, and the rest of this
+//  page is not.** That is deliberate and it is written down:
+//  `design/LOCALIZATION-zh-Hans.md`, last section — "本文件是主编辑器文案规格，
+//  不是完整应用语言包；设置、导出页、系统错误的完整本地化留到相应页面工作。"
+//  This page is the *control* for the language and the place a reader who has
+//  just switched into Chinese arrives, so its own section has to be in that
+//  language; translating the remaining five sections (diagnostics, memory
+//  readouts, bundle copy, the log notes) is a page-worth of work with its own
+//  review, and half a page translated reads worse than either whole state.
 
 import AppKit
 import SwiftUI
@@ -47,6 +57,7 @@ struct SettingsWindow: View {
     var body: some View {
         ScrollView {
             VStack(spacing: 0) {
+                languageSection
                 renderingSection
                 diagnosticsSection
                 memorySection
@@ -69,6 +80,33 @@ struct SettingsWindow: View {
             }
         }
         .onDisappear { ticker?.invalidate(); ticker = nil }
+    }
+
+    // MARK: - language
+
+    /// First on the page, because it is the control for the thing that changes
+    /// every other word on the screen — including the caption under it.
+    ///
+    /// The menu's three labels come from `LanguageSetting.label(in:)` and not
+    /// from `L(_:)`, and the active language is read **once, here, outside the
+    /// closure**: `PillMenu` takes a plain `(T) -> String`, so a closure that
+    /// reached into main-actor state on its own could not be built in a view's
+    /// body without a concurrency error. Reading it outside keeps that closure
+    /// a pure function of a captured value.
+    private var languageSection: some View {
+        let active = Localization.shared.resolved
+        return PanelSection(L(.setLanguage), systemImage: "globe", key: "setLanguage") {
+            Well {
+                VStack(spacing: 4) {
+                    PillMenu(label: L(.setLanguage),
+                             options: LanguageSetting.allCases,
+                             title: { $0.label(in: active) },
+                             selection: Binding(get: { Localization.shared.language },
+                                                set: { Localization.shared.language = $0 }))
+                    caption(L(.setLanguageCaption))
+                }
+            }
+        }
     }
 
     // MARK: - rendering

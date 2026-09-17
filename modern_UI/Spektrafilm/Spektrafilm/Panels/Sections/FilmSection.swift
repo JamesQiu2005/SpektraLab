@@ -2,7 +2,7 @@
 //  physical frame, and the three spatial effects that scale with it.
 //
 //  Three sections became one, because the drawing makes one: the film list,
-//  the Film Type / Side / Side Length rows that used to be Camera's single
+//  the Film Format / Side / Side Length rows that used to be Camera's single
 //  `Format` pill, and the Grain / Halation / Glare toggles that were their
 //  own `Features` card. They belong together for a reason the PRD states —
 //  "this is very important, as it goes straight into the grain, halation and
@@ -31,9 +31,13 @@
 import SwiftUI
 
 struct FilmSection: View {
-    /// Rows of the film well on screen before it scrolls. **Odd** — see
-    /// `StockList.visibleRows`, and `testStockListShowsAnOddNumberOfRows`.
-    static let wellRows = 5
+    /// Rows of the film list on screen before it scrolls. v3's illustration
+    /// shows two group captions and seven stocks; at 18 pt a row that is
+    /// 9 rows tall shows the Positive group whole and the Negative group's
+    /// first rows, which is the drawing's proportion without pretending the
+    /// catalogue is nine stocks long. See `StockList.visibleRows` — the
+    /// odd-count rule this number used to obey is gone.
+    static let wellRows = 9
 
     @Bindable var session: Session
     /// Display only; the wire is always millimetres. An app preference rather
@@ -47,37 +51,67 @@ struct FilmSection: View {
     private var isCustom: Bool { session.params.filmFrame == FilmFrame.custom.id }
 
     var body: some View {
-        PanelSection("Film", key: "film", menu: { AnyView(menu) }) {
+        PanelSection(L(.sectionFilm), key: "film",
+                     // The reset arrow's scope is a *named* stock, and a film
+                     // name is a profile name — the spec keeps those as they
+                     // are. Left in English on purpose, and it is not
+                     // `helpResetFilmExposure`: this resets the stock, that
+                     // one resets the exposure.
+                     action: SectionAction(help: "Reset the film stock to Portra 400") {
+                         var p = session.params; p.filmStock = "kodak_portra_400"; session.params = p
+                         session.applyFilmStageRule()
+                     },
+                     menu: { AnyView(menu) }) {
             VStack(alignment: .leading, spacing: 0) {
-                StockList(rows: session.catalog.filmsForPicker.map {
-                    StockList.Row(id: $0.id, name: $0.name, isCine: $0.isCine, help: "")
-                }, selected: session.params.filmStock, visibleRows: Self.wellRows) { id in
+                StockList(rows: stockRows,
+                          selected: session.params.filmStock,
+                          visibleRows: Self.wellRows) { id in
                     select(id)
                 }
                 RailRows {
-                    PillMenu(label: "Film Type", options: FilmFrame.all, title: { $0.id },
+                    // `title: { $0.id }` — a film format is `135`, `120`, `APS`
+                    // and so on, which the spec keeps as they are. Only the
+                    // row's label is translated.
+                    PillMenu(label: L(.filmFormat), options: FilmFrame.all, title: { $0.id },
                              selection: Binding(get: { session.filmFrame },
                                                 set: { session.setFilmFrame($0) }),
                              fill: false,
                              trailingBadge: { $0.isCine })
-                    PillMenu(label: "Side", options: FilmSide.allCases, title: { $0.title },
+                    PillMenu(label: L(.filmFormatSide), options: FilmSide.allCases, title: { L($0.key) },
                              selection: Binding(get: { session.filmSide },
                                                 set: { session.setFilmSide($0) }),
                              fill: false)
-                    UnitField(label: "Side Length",
+                    UnitField(label: L(.filmFormatSideLength),
                               value: Binding(get: { session.params.sideLengthMM },
                                              set: { session.setSideLengthMM($0) }),
                               unit: unit,
                               enabled: isCustom,
-                              reason: "Side Length is the film type's own measurement. Choose Custom to type one.")
+                              reason: L(.reasonNonCustomSideLength))
                 }
                 .padding(.top, Theme.Metric.rowSpacing + 4)
                 RailRows {
-                    ToggleRow(label: "Grain", isOn: param(\.grainActive))
-                    ToggleRow(label: "Halation", isOn: param(\.halationActive))
-                    ToggleRow(label: "Glare", isOn: param(\.glareActive))
+                    ToggleRow(label: L(.filmGrain), isOn: param(\.grainActive))
+                    ToggleRow(label: L(.filmHalation), isOn: param(\.halationActive))
+                    ToggleRow(label: L(.filmGlare), isOn: param(\.glareActive))
                 }
                 .padding(.top, Theme.Metric.rowSpacing + 4)
+            }
+        }
+    }
+
+    /// Positive and Negative, as two visible groups — v3's own division, and
+    /// taken from the catalogue's `type` rather than from the artwork's order
+    /// (handoff §8.6). A group with nothing in it is not drawn, so a
+    /// catalogue with no slide films shows one list rather than an empty
+    /// caption.
+    private var stockRows: [StockList.Row] {
+        session.catalog.filmGroups.filter { !$0.films.isEmpty }.flatMap { group in
+            // The id keeps the catalogue's English title — it is the row's
+            // identity — while the *name* is what the spec translates. A film
+            // entry's own name is a profile name and stays as it is.
+            [StockList.Row(id: "__group_" + group.title, name: L(filmGroup: group.title), isHeader: true)]
+            + group.films.map {
+                StockList.Row(id: $0.id, name: $0.name, isCine: $0.isCine, help: "")
             }
         }
     }
@@ -107,14 +141,20 @@ struct FilmSection: View {
 
     private var menu: some View {
         Group {
-            Button("Reset to Portra 400") { var p = session.params; p.filmStock = "kodak_portra_400"; session.params = p }
+            // The header's arrow is this item; both say the same thing in
+            // words, which is the point of §8.3 — a reset affordance whose
+            // scope is not named is the ellipsis problem again.
+            Button("Reset the film stock to Portra 400") {
+                var p = session.params; p.filmStock = "kodak_portra_400"; session.params = p
+                session.applyFilmStageRule()
+            }
             Divider()
-            Button("All effects on") {
+            Button(L(.helpAllEffectsOn)) {
                 var p = session.params
                 p.grainActive = true; p.halationActive = true; p.glareActive = true
                 session.params = p
             }
-            Button("All effects off") {
+            Button(L(.helpAllEffectsOff)) {
                 var p = session.params
                 p.grainActive = false; p.halationActive = false; p.glareActive = false
                 session.params = p
@@ -123,27 +163,31 @@ struct FilmSection: View {
     }
 }
 
-/// The film and print lists: a well, rows of one line each, and the chosen
-/// row carrying a **band** rather than a frame.
+/// The film and print lists: rows of one line each, sitting **directly on
+/// the rail**, with the chosen row carrying a white capsule.
 ///
-/// The PRD's own words for what changed: "selected entries has shallow,
-/// instead of framed square around it, and the text turns from white to
-/// black". So the mark is `Theme.selection` at the full width of the well and
-/// exactly one row tall, with the row's text inverted to `Theme.onSelection`.
-/// A cinema stock carries the accent `CINE` pill at the trailing edge.
+/// **v3 (2026-09-18) took the plate away.** There is no lighter well behind
+/// these rows any more and no outer clipping radius — `Theme.stockList` is
+/// the rail's own colour — and the rounding moved to the *mark*: the
+/// selection is a 15.27 pt capsule inset 16.79 from the leading edge and
+/// 26.48 from the trailing one, in `#ffffff`, with the row's text inverted to
+/// near-black. The 2026-09-17 version was a full-width `#c9caca` band on a
+/// well; the reason the drawing changed it is legible in the two side by
+/// side — a band the width of its container reads as "this cell is filled",
+/// a capsule inside it reads as "this row is chosen", and only the second one
+/// survives being the only mark in a list of 28.
 ///
 /// One view for both lists, because the two drawings of them are the same
 /// drawing — and because the previous two implementations had drifted into
-/// different row heights, different insets and two spellings of the selection
-/// mark.
+/// different row heights, different insets and two spellings of the mark.
 struct StockList: View {
     struct Row: Identifiable, Hashable {
         let id: String
         let name: String
         var isCine = false
         var help = ""
-        /// A group caption — "Still", "Cine", "Positive" — rather than a
-        /// selectable row.
+        /// A group caption — "Positive", "Negative", "Still", "Cine" —
+        /// rather than a selectable row.
         var isHeader = false
         /// Whether the row can be chosen. A disabled row greys and stops
         /// taking clicks, which is the PRD's one rule for anything
@@ -157,36 +201,40 @@ struct StockList: View {
 
     let rows: [Row]
     let selected: String?
-    /// How many rows of the well are on screen before it scrolls.
+    /// How many rows of the list are on screen before it scrolls.
     ///
-    /// **This has to be odd**, and the reason is the scroll below. Centring
-    /// the selected row puts *its* centre on the viewport's centre, so the
-    /// rows land on the well's edges only when there is a whole number of
-    /// rows either side of the middle one — that is, when the count is odd.
-    /// At an even count every row sits half a row out of register and the
-    /// well cuts the first and last ones through the glyphs, which is what
-    /// the film list was doing at 6: a well full of sliced type, which reads
-    /// as a grey block rather than as a list.
+    /// **A whole number, and that is now the whole rule.** It used to have to
+    /// be *odd*: the list centred its selected row, which put that row's
+    /// centre on the viewport's centre, so the rows landed on the viewport's
+    /// edges only with a whole number of them either side of the middle one.
+    /// At an even count every row sat half a row out of register and the
+    /// well's 11.5 pt corner cut the first and last rows through the glyphs.
     ///
-    /// The drawing shows five in each. `visibleRowsAreOdd` in
-    /// `SpektrafilmTests/LayoutTests.swift` is what keeps it that way.
+    /// v3 removes both halves of that. There is no corner to cut with, and
+    /// the lists are grouped now — a viewport holding a header and four rows
+    /// cannot be described by the parity of a row count at all. What matters
+    /// instead is that the viewport is a whole multiple of the row pitch, so
+    /// that whatever is scrolled to rests on a row boundary; handoff §3 asks
+    /// for exactly that ("a grouped implementation must use complete row
+    /// alignment and update that assumption rather than blindly reuse the
+    /// odd-count rule"). `StockListTests` pins it.
     var visibleRows: Int
     let select: (String) -> Void
 
     var body: some View {
-        // **Not** `Well`: a well pads its content, and the selection band has
-        // to be the well's full width ("selected entries has shallow" — the
-        // band *is* the mark, so an inset band reads as a chip). So the well
-        // is built here — fill, clip, inset — and the padding is the row's.
         ScrollViewReader { proxy in
-            ScrollView(.vertical, showsIndicators: false) {
+            // `showsIndicators: true`: v3 draws a 3.04 pt thumb beside each
+            // group, and unlike the old well — whose plate told you where the
+            // list ended — a list sitting straight on the rail has no other
+            // edge to say that it scrolls.
+            ScrollView(.vertical) {
                 VStack(spacing: 0) {
                     ForEach(rows) { row in
                         if row.isHeader {
                             Text(row.name)
-                                .font(Theme.Font.groupHeader)
+                                .font(Theme.Font.stockGroup)
                                 .foregroundStyle(Theme.Ink.tertiary)
-                                .padding(.leading, Theme.Metric.wellPadding)
+                                .padding(.leading, Theme.Metric.stockTextLeadingInset)
                                 .frame(maxWidth: .infinity, alignment: .leading)
                                 .frame(height: Theme.Metric.listRowHeight)
                         } else {
@@ -195,19 +243,20 @@ struct StockList: View {
                         }
                     }
                 }
-                .padding(.vertical, Theme.Metric.wellVPadding)
             }
+            .scrollIndicators(.visible)
             .onAppear { if let selected { proxy.scrollTo(selected, anchor: .center) } }
             .onChange(of: selected) { _, new in
                 guard let new else { return }
                 withAnimation(.easeOut(duration: 0.2)) { proxy.scrollTo(new, anchor: .center) }
             }
         }
-        .frame(height: Theme.Metric.listRowHeight * CGFloat(visibleRows)
-                     + Theme.Metric.wellVPadding * 2)
-        .background(Theme.well)
-        .clipShape(RoundedRectangle(cornerRadius: Theme.Metric.wellRadius, style: .continuous))
-        .padding(.horizontal, Theme.Metric.wellInset)
+        // A whole number of rows, and **no vertical padding**: the old 8 pt
+        // existed to hold the rows off a corner radius that no longer exists,
+        // and with the plate gone it is just a gap that makes the list's top
+        // row float away from the section header above it.
+        .frame(height: Theme.Metric.listRowHeight * CGFloat(visibleRows))
+        .background(Theme.stockList)
     }
 }
 
@@ -219,23 +268,42 @@ struct StockRow: View {
     var body: some View {
         // A plain view with a tap gesture, not a `Button`. macOS gives even a
         // `.plain` button a shape of its own on this release, and it was
-        // drawing a rounded plate inside the band — a second selection mark,
+        // drawing a rounded plate inside the mark — a second selection mark,
         // 8 pt of radius, inset from the one the drawing asks for.
         HStack(spacing: 4) {
             Text(row.name)
-                .font(Theme.Font.listItem)
+                .font(Theme.Font.stockItem)
                 // An unselected row is a thing being offered, not a thing
-                // being said; the selected one is the answer and keeps the
-                // full-strength ink against the band.
+                // being said; the selected one is the answer and takes the
+                // near-black ink against the white capsule.
                 .foregroundStyle(selected ? Theme.onSelection : Theme.Ink.secondary)
                 .lineLimit(1)
             Spacer(minLength: 0)
             if row.isCine { CinePill().padding(.trailing, Theme.Metric.cinePillTrailing) }
         }
-        .padding(.leading, Theme.Metric.wellPadding)
+        // The text sits inside the capsule, not flush with it: v3 puts the
+        // capsule's leading edge at 16.79 and the glyphs at 21.33.
+        .padding(.leading, Theme.Metric.stockTextLeadingInset)
         .frame(maxWidth: .infinity, alignment: .leading)
+        // The **row** is the pitch and the **capsule** is the mark, and they
+        // are deliberately not the same height: 18 against 15.27. A mark as
+        // tall as its own row is a filled cell.
         .frame(height: Theme.Metric.listRowHeight)
-        .background(selected ? Theme.selection : Color.clear)
+        .background(alignment: .leading) {
+            if selected {
+                GeometryReader { geo in
+                    RoundedRectangle(cornerRadius: Theme.Metric.stockSelectionRadius,
+                                     style: .continuous)
+                        .fill(Theme.selection)
+                        .frame(width: max(0, geo.size.width
+                                             - Theme.Metric.stockLeadingInset
+                                             - Theme.Metric.stockTrailingInset),
+                               height: Theme.Metric.stockSelectionHeight)
+                        .offset(x: Theme.Metric.stockLeadingInset,
+                                y: (geo.size.height - Theme.Metric.stockSelectionHeight) / 2)
+                }
+            }
+        }
         .contentShape(Rectangle())
         .onTapGesture(perform: action)
         .rowEnabled(row.enabled, because: row.disabledReason)

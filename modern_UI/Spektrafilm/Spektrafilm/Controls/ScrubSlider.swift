@@ -12,6 +12,14 @@ import SwiftUI
 /// export page's drawing has a narrower label column, a thinner track and a
 /// shorter row. The knob is not here because both drawings agree on it.
 struct SliderMetrics {
+    /// The rails' default: an 84 pt label column at 10.5 pt.
+    static let rail = SliderMetrics()
+    /// **Camera's own.** v3 sets its labels at 9 pt in a 70 pt column — the
+    /// section's rows are the densest in the interface and the drawing gives
+    /// them less room than Film's, not the same room in a smaller face.
+    static let camera = SliderMetrics(labelWidth: Theme.Metric.cameraLabelWidth,
+                                      labelFont: Theme.Font.cameraLabel)
+
     var labelWidth: CGFloat = Theme.Metric.sliderLabelWidth
     var valueWidth: CGFloat = Theme.Metric.sliderValueWidth
     var rowHeight: CGFloat = Theme.Metric.rowHeight
@@ -95,12 +103,21 @@ struct ScrubSlider: View {
                     if let g = trackGradient {
                         Capsule().fill(LinearGradient(colors: g, startPoint: .leading, endPoint: .trailing))
                     } else {
-                        // `.st13`, the ground — not a dim grey of its own, so
-                        // the track carries no colour the rail does not
-                        // already use. What separates it from a divider is
-                        // that a divider is 1 pt and `rule`-coloured while
-                        // this is 3 pt and darker; at the 1.5 pt it used to
-                        // be, it was *thinner* than the hairlines around it.
+                        // `surface.control` — the same grey every pill and
+                        // field is, so the track carries no colour the rail
+                        // does not already use.
+                        //
+                        // **1.36 pt, v3's measurement**, where the
+                        // 2026-09-17 pass drew 3. The objection then was
+                        // that a hairline-thin track "in the *same grey as
+                        // the ground*" was fainter than the dividers beside
+                        // it — and it was, because `well` was `ground` and
+                        // the track sat on a well of its own colour. v3
+                        // separates rail from control, so the thin track now
+                        // has contrast of its own. What it does *not* have
+                        // is a hit target, and it does not need one: the
+                        // drag is on the full row-height `contentShape`
+                        // below, not on the ink.
                         Capsule().fill(Theme.ground)
                     }
                 }
@@ -111,6 +128,9 @@ struct ScrubSlider: View {
                     Rectangle().fill(Theme.text.opacity(0.55)).frame(width: 1, height: 6)
                         .offset(x: zeroFraction * (w - knobW) + knobW / 2 - 0.5)
                 }
+                // v3's knob is a 6.13 × 5.07 dot rather than a 10 pt
+                // handle. Ink only — it is never dragged by itself; the
+                // gesture belongs to the track.
                 RoundedRectangle(cornerRadius: Theme.Metric.knobRadius, style: .continuous)
                     .fill(Theme.knob)
                     .frame(width: knobW, height: Theme.Metric.knobSize.height)
@@ -178,12 +198,15 @@ struct ScrubSlider: View {
     }
 }
 
-/// The checkbox, as the 2026-09-17 drawing draws it: a small square with a
-/// 1 pt `#faf8f4` border, filled with the accent when it is on.
+/// The checkbox: a small square with a 1 pt border, filled with the accent
+/// when it is on.
 ///
-/// The drawing's is 5 pt across, which is below what the eye resolves as a
-/// shape on a dark rail; `Theme.Metric.checkbox` is 8, and the hit area is
-/// padded well past it either way — a 5 pt target is not a target.
+/// **5 pt of ink inside a 16 pt target.** v3 measures the square at 5 and the
+/// 2026-09-17 pass drew it at 9 on the reasoning that 5 is below what the eye
+/// resolves on a dark rail. The drawing wins on the ink and the reasoning
+/// wins on the *target*: handoff §3 requires exactly that split — "preserve
+/// padded hit target" — because the thing that was too small to use was never
+/// the square, it was the 5 pt of screen you had to hit.
 struct CheckBox: View {
     @Binding var isOn: Bool
     var body: some View {
@@ -199,7 +222,7 @@ struct CheckBox: View {
                 if isOn { RoundedRectangle(cornerRadius: 0.5).fill(Theme.accent).padding(1.6) }
             }
             .frame(width: Theme.Metric.checkbox, height: Theme.Metric.checkbox)
-            .padding(6)
+            .frame(width: Theme.Metric.controlHitTarget, height: Theme.Metric.controlHitTarget)
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
@@ -215,6 +238,9 @@ struct CheckBox: View {
 struct ToggleRow: View {
     let label: String
     @Binding var isOn: Bool
+    /// Which of the two v3 densities this row is in: Film's 10.5 (the
+    /// default, and the EDR row's) or Camera's 9.
+    var labelFont: Font = Theme.Font.label
     var enabled = true
     var reason: String = ""
     /// One line under the label, in the metadata ink, for a switch whose
@@ -233,7 +259,7 @@ struct ToggleRow: View {
     var body: some View {
         HStack(spacing: 0) {
             VStack(alignment: .leading, spacing: 1) {
-                Text(label).font(Theme.Font.label).foregroundStyle(Theme.Ink.secondary)
+                Text(label).font(labelFont).foregroundStyle(Theme.Ink.secondary)
                     .fixedSize(horizontal: false, vertical: true)
                 if !sublabel.isEmpty {
                     Text(sublabel).font(Theme.Font.sublabel).foregroundStyle(Theme.Ink.tertiary)
@@ -241,7 +267,11 @@ struct ToggleRow: View {
                 }
             }
             Spacer(minLength: 4)
-            CheckBox(isOn: $isOn).padding(.trailing, -6)
+            // The box's target is wider than its ink, so it is pulled back
+            // to put the *square* on the row's trailing inset rather than
+            // the padding around it.
+            CheckBox(isOn: $isOn)
+                .padding(.trailing, -(Theme.Metric.controlHitTarget - Theme.Metric.checkbox) / 2)
         }
         // A row with a sublabel is two lines and sizes itself; one without is
         // the drawing's fixed row, unchanged.

@@ -1,12 +1,30 @@
-//  TopBar.swift — the canvas's own bar: select · hand · crop …… before/after
-//  · zoom-in · [100 %] · zoom-out · full screen.
+//  TopBar.swift — the canvas's own bar: select · pan · crop …… before/after
+//  · [100 %] · zoom-out · zoom-in · full screen.
 //
-//  It is a rounded pill floating on the ground over the canvas now, not a row
-//  spanning the window, so it belongs to the centre column and is as wide as
-//  the picture is. The drawing's three tools are exactly the three that were
-//  here (`main_page.png`: an arrow, a hand in a circle, a crop mark) — import
-//  and export went back to the left rail's header, because opening a file is
-//  not a thing you do to the picture.
+//  **v3 (2026-09-18) flattened it and re-ordered it.** It was a rounded pill
+//  floating on ground; it is now a plain rectangle filling the centre
+//  column's top, flush with both rails and with the window's top edge, 38 pt
+//  tall like the rail headers beside it (`Theme.Metric.topBarHeight`, which
+//  *is* `panelHeaderHeight`) and closed by a hairline drawn by
+//  `EditorWindow`. It still belongs to the centre column and is as wide as
+//  the picture is.
+//
+//  Two orders changed, both from v3's measured glyph centres:
+//
+//  - **Zoom out before zoom in**, with the percentage plate ahead of both:
+//    `… Before/After · 1405.64 % · 1478.38 − · 1541.06 + · 1601.37 ⤢`. The
+//    old bar had `+` then the pill then `−`, which reads as a stepper
+//    straddling its own readout; v3's reads left-to-right as one cluster with
+//    the value at its head.
+//  - **The percentage plate is 41 pt, not 105.** It holds `100 %` and nothing
+//    else, so `Fit · 100 %` does not fit in it. Fit keeps its ⌘0, its View
+//    menu item and its place in this pill's own menu; what it loses is the
+//    prefix in the readout, and a 105 pt plate sized for a string that is
+//    only sometimes there was 64 pt of permanent air.
+//
+//  The drawing's three tools are exactly the three that were here — import
+//  and export live on the left rail's header, because opening a file is not a
+//  thing you do to the picture.
 //
 //  **Two things the bar hosts only while a rail is folded.** The window
 //  buttons sit on the rail header's centreline, which is also the bar's, so
@@ -46,8 +64,23 @@ struct TopBar: View {
                 SidebarToggle(edge: .leading, collapsed: $session.leftCollapsed)
                     .padding(.trailing, 14)
             }
-            toolButton("cursorarrow", .select, "Select (V)")
-            toolButton("hand.raised", .hand, "Pan (H)").padding(.leading, Theme.Metric.toolGap)
+            // Shortcuts are appended at the call site rather than stored in the
+            // table — the spec's rule, and it is what keeps a translation from
+            // having to place `(V)` inside a Chinese phrase.
+            //
+            // **Crop has no key.** The spec lists Select and Pan among the
+            // toolbar's tools and gives Crop no row; its Chinese in the table
+            // (裁剪) belongs to the *section*, and reusing it here would be the
+            // global-English-replacement the spec forbids. So this one stays
+            // English, as a boundary of the spec's scope rather than a miss.
+            toolButton("cursorarrow", .select, L(.helpSelect) + " (V)")
+            // v3 draws a tilted hand with curved motion marks around it, which
+            // is not `hand.raised` and is not any SF Symbol — §6 of the
+            // handoff calls it custom and says to trace the vector rather
+            // than crop the bitmap. Until that asset exists this is the
+            // nearest symbol, and the deviation is recorded here rather than
+            // silently closed.
+            toolButton("hand.raised", .hand, L(.helpPan) + " (H)").padding(.leading, Theme.Metric.toolGap)
             toolButton("crop", .crop, "Crop (C)").padding(.leading, Theme.Metric.toolGap)
             if session.working {
                 ProgressView().controlSize(.small).scaleEffect(0.7).padding(.leading, 18)
@@ -55,7 +88,7 @@ struct TopBar: View {
             Text(statusText).font(Theme.Font.caption).foregroundStyle(Theme.dim).lineLimit(1)
                 .padding(.leading, 12)
             if !session.serviceReady, session.selection != nil {
-                Button("Restart") { session.restartService() }
+                Button(L(.actionRestart)) { session.restartService() }
                     .buttonStyle(.plain).font(Theme.Font.caption).foregroundStyle(Theme.accent)
                     .padding(.leading, 8)
                     .help("The render service is not running. Start it again.")
@@ -68,7 +101,7 @@ struct TopBar: View {
             // about zoom any more: the canvas settles at the frame's own size
             // after every edit, whatever the zoom.
             if session.fullPending || session.renderer.showsFullRender {
-                Text(session.renderer.showsFullRender ? "full" : "full…")
+                Text(session.renderer.showsFullRender ? L(.statusFull) : L(.statusFullPending))
                     .font(Theme.Font.caption)
                     .foregroundStyle(session.fullPending ? Theme.accent : Theme.dim)
                     .help(session.renderer.showsFullRender
@@ -90,19 +123,25 @@ struct TopBar: View {
             .buttonStyle(.plain)
             .disabled(!session.canCompare)
             .opacity(session.canCompare ? 1 : 0.4)
-            .help("Before / after split — drag the line on the canvas (⌥\\)")
+            // The spec's row is the phrase only. Its "drag the line on the
+            // canvas" clause has no row and an English sentence cannot be
+            // appended to a Chinese one, so the tooltip is the phrase plus the
+            // shortcut the spec says to append. The clause is a copy decision,
+            // named in the hand-off report rather than dropped quietly.
+            .help(L(.helpBeforeAfter) + " (⌥\\)")
             .padding(.trailing, Theme.Metric.beforeAfterGap)
-            iconButton("plus.magnifyingglass", "Zoom in (⌘+)", disabled: session.zoomLocked) { session.zoomStep(1) }
-            zoomPill.padding(.horizontal, Theme.Metric.zoomGap)
-                .rowEnabled(!session.zoomLocked)
-            iconButton("minus.magnifyingglass", "Zoom out (⌘−)", disabled: session.zoomLocked) { session.zoomStep(-1) }
+            // v3's order: the value, then out, then in.
+            zoomPill.rowEnabled(!session.zoomLocked)
+            iconButton("minus.magnifyingglass", L(.helpZoomOut) + " (⌘−)", disabled: session.zoomLocked) { session.zoomStep(-1) }
+                .padding(.leading, Theme.Metric.zoomGap)
+            iconButton("plus.magnifyingglass", L(.helpZoomIn) + " (⌘+)", disabled: session.zoomLocked) { session.zoomStep(1) }
             // One button, both ways (PRD §1). Fit and fullscreen were only
             // ever two buttons because fullscreen had nowhere else to be —
             // they are not two halves of one idea. Fit keeps its ⌘0, its View
             // menu item and its entry in the pill's own menu, which is what
             // the drawing's single diagonal-arrows glyph assumes.
             iconButton(fullScreen ? "arrow.down.right.and.arrow.up.left" : "arrow.up.left.and.arrow.down.right",
-                       fullScreen ? "Leave full screen (⌃⌘F)" : "Full screen (⌃⌘F)") {
+                       (fullScreen ? L(.helpFullScreenLeave) : L(.helpFullScreenEnter)) + " (⌃⌘F)") {
                 NSApp.keyWindow?.toggleFullScreen(nil)
             }
             .padding(.leading, Theme.Metric.fullScreenGap)
@@ -114,6 +153,12 @@ struct TopBar: View {
         }
         .frame(height: Theme.Metric.topBarHeight)
         .barCard()
+        // The whole bar is a window drag surface behind its controls, not
+        // just the gap in the middle: with the titlebar hidden and the bar
+        // now flush with the window's top edge, this row *is* where a
+        // titlebar would be, and a flush bar whose only draggable part is an
+        // 8 pt gap between two clusters is a window that feels nailed down.
+        .background(WindowDragHandle())
         .onAppear { fullScreen = NSApp.keyWindow?.styleMask.contains(.fullScreen) ?? false }
         .onReceive(NotificationCenter.default.publisher(for: NSWindow.didEnterFullScreenNotification)) { _ in
             fullScreen = true
@@ -163,15 +208,20 @@ struct TopBar: View {
 
     private var zoomPill: some View {
         Menu {
-            Button("Fit") { session.zoomToFit() }
+            Button(L(.helpFit)) { session.zoomToFit() }
             ForEach([0.25, 0.5, 1.0, 2.0, 4.0], id: \.self) { f in
                 Button("\(Int(f * 100)) %") { session.zoomTo(fraction: f) }
             }
         } label: {
             // zoomPercent is 0 until an image is on the canvas.
-            Text(session.zoomPercent == 0 ? "—"
-                 : session.isFit ? "Fit · \(session.zoomPercent) %" : "\(session.zoomPercent) %")
-                .font(Theme.Font.pill)
+            //
+            // **No `Fit ·` prefix.** v3's plate is 41.29 pt and the prefix
+            // does not fit in it. Whether the canvas is fitted is still worth
+            // knowing, so it is said in the tooltip and by the check mark in
+            // this menu rather than by a string that would either truncate
+            // the number or size the plate for a case that is usually absent.
+            Text(session.zoomPercent == 0 ? "—" : "\(session.zoomPercent) %")
+                .font(Theme.Font.zoomValue)
                 .foregroundStyle(Theme.text)
                 .frame(width: Theme.Metric.zoomPill.width, height: Theme.Metric.zoomPill.height)
                 // No outline. The previous drawing stroked this capsule in
@@ -181,5 +231,7 @@ struct TopBar: View {
                 .contentShape(Capsule())
         }
         .menuStyle(.button).buttonStyle(.plain).menuIndicator(.hidden).fixedSize()
+        .help(session.isFit ? "Fitted to the window — \(session.zoomPercent) % (⌘0)"
+                            : "Zoom — \(session.zoomPercent) %")
     }
 }

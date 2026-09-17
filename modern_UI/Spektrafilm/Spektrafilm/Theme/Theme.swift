@@ -2,11 +2,16 @@
 //  drawing.
 //
 //  Two drawings, one file. The **editor** is
-//  `modern_UI/reference_layout/Main/sample_frontend.svg` (2026-09-17), a
-//  3840×2160 canvas — a 1920×1080 window at 2× — and every editor number
+//  `modern_UI/reference_layout/Main/sample_frontend_v3.ai` (2026-09-18), a
+//  3840×2160 artboard — a 1920×1080 window at 2× — and every editor number
 //  below is that drawing's value divided by two. The **export page** is
 //  `reference_layout/Export_Page/export_page.svg` and keeps its own nested
 //  `Metric.Export`.
+//
+//  The 2026-09-17 drawing this replaced, `sample_frontend.svg`, is **no
+//  longer in the repository**; the prose below that measures it is history,
+//  and `design/TOKENS-main-2026-09-17.md` says which of its numbers v3 left
+//  alone. Where the two disagree, v3 wins.
 //
 //  `Font.Export` is **no longer its own ramp**: it aliases the editor's, so
 //  the two pages agree about what a label and a list row are. The page's own
@@ -16,6 +21,34 @@
 //  Nothing in a view file may carry a literal colour or size that could have
 //  come from here — that is the rule that keeps the interface matching the
 //  drawing when one token moves.
+//
+//  ## What the v3 drawing changed (2026-09-18)
+//
+//  `design/TOKENS-main-v3-2026-09-18.md` translates
+//  `reference_layout/Main/sample_frontend_v3.ai`, and it is the current
+//  target — read it before the 2026-09-17 derivation below, which it
+//  supersedes where the two disagree. The four changes with structure behind
+//  them:
+//
+//  - **The tool bar stopped floating.** `barTop`, `barInset` and `barRadius`
+//    are 0 and `topBarHeight` is 38, flush with both rails and the top edge
+//    and aligned to the rail headers' own 38. Nothing in the window floats
+//    any more.
+//  - **The rail dividers run the full window height**, canvas included. The
+//    older rule — that only the filmstrip needs a vertical line, because
+//    elsewhere the ground colour separates rail from canvas — is superseded.
+//    They stay overlays, so the three-column arithmetic is unchanged.
+//  - **The stock lists sit on the rail.** No lighter well plate, no outer
+//    clipping radius; the *selection* is what is rounded and inset, and it is
+//    white with near-black text.
+//  - **Two type sizes, not one.** The left rail's section titles are 12 and
+//    the right rail's are 10.5, so `sectionTitle` split into
+//    `leftSectionTitle` / `rightSectionTitle`. Control labels split the same
+//    way: Camera's are 9, Film's are 10.5.
+//
+//  The palette values below marked "v3 sample" are sampled from
+//  `layout_screenshot.png`, not recovered Illustrator swatches — §4 of the
+//  handoff says so, and §8.7 leaves colour equivalence as an open QA item.
 //
 //  ## What the 2026-09-17 drawing changed
 //
@@ -49,9 +82,14 @@ enum Theme {
     /// track. One grey, four jobs: the drawing uses *elevation* (a lighter
     /// shape on a darker rail) rather than a palette to say "this is a
     /// control".
-    static let ground = Color(hex: 0x5F5F5F)
-    /// `.st15` — the two rails and the filmstrip.
-    static let card = Color(hex: 0x2C2D2B)
+    static let ground = Color(hex: 0x5F5F5F)   // v3 sample: unchanged
+    /// `.st15` — the two rails, the tool bar and the filmstrip.
+    ///
+    /// v3 sample `#2D2D2C`, one point off the 2026-09-17 value. Taken, not
+    /// rounded back: the tool bar is this colour now too, so the rail and the
+    /// bar meeting at a hairline is the one place a one-point difference
+    /// would have shown as a seam.
+    static let card = Color(hex: 0x2D2D2C)
     /// A well inside a rail: the same value as the ground, on purpose.
     static let well = ground
     /// A pill or field sitting **on a rail** — the AE Method menu, a value
@@ -73,9 +111,9 @@ enum Theme {
     /// separates one section from the next, and the rails from the filmstrip.
     /// It runs the full width of the rail — no inset — which is what makes
     /// the column read as a stack of rooms rather than a list of cards.
-    static let rule = Color(hex: 0xB5B5B6)
+    static let rule = Color(hex: 0xB5B6B6)   // v3 sample
     /// `.st12` — primary text and glyphs.
-    static let text = Color(hex: 0xFAF8F4)
+    static let text = Color(hex: 0xF9F7F3)   // v3 sample
     /// `.st6` — dim captions and anything the interface is not asking you to
     /// read.
     static let dim = Color(hex: 0x898989)
@@ -87,15 +125,27 @@ enum Theme {
     /// `.st17` / `.st3` fill, `.st2` stroke — the one accent in the
     /// interface. **`#eca650`, not the old `#ee8a2b`**: the new drawing names
     /// it in three places and the file that names the colour wins.
-    static let accent = Color(hex: 0xECA650)
+    static let accent = Color(hex: 0xE1A95F)
     /// `.st16` — a **chosen** row in the film or print list. The drawing's
     /// own words for what changed: "selected entries has shallow, instead of
     /// framed square around it, and the text turns from white to black". So
     /// selection is a full-width light band, not a frame, and the row's text
     /// inverts on it.
-    static let selection = Color(hex: 0xC9CACA)
-    /// Text on that band.
-    static let onSelection = Color(hex: 0x0E0E0E)
+    /// **v3: white, and the band is rounded and inset** rather than running
+    /// the well's full width. The mark moved from `#c9caca` at full width to
+    /// `#ffffff` inside a capsule, which is the one selection treatment in
+    /// the interface loud enough to be found in a list of 28 without a frame.
+    static let selection = Color(hex: 0xFFFFFF)
+    /// Text on that band. v3 sample `#0f0e0e`.
+    static let onSelection = Color(hex: 0x0F0E0E)
+    /// The rail under a stock list.
+    ///
+    /// **`card`, not `well`.** v3 puts the film and print lists directly on
+    /// the rail with no lighter plate under them, so the list's ground is the
+    /// rail's. Its own name rather than `card` at the call site because
+    /// "the stock list has no plate" is the decision, and a later drawing
+    /// that gives it one back should move one token.
+    static let stockList = card
     /// How far a control that cannot be used is taken down. The PRD makes
     /// this one rule for the whole app — "if one option is non-selectable,
     /// both the text and the input pill is greyed across the app" — so it is
@@ -209,37 +259,39 @@ enum Theme {
 
         static let rule: CGFloat = 1
 
-        // MARK: the floating tool bar
+        // MARK: the tool bar
         //
-        // `rect x 529 y 9.4 w 2721 h 61.8 rx 28`, halved: a rounded pill on
-        // the ground, over the canvas, spanning the centre column. It is the
-        // one thing in the new drawing that still floats.
+        // **v3: it does not float.** The drawing fills the centre column's
+        // top with a plain rectangle from `y .59` to `y 75.59` — flush with
+        // both rails and with the window's top edge, no radius, no air. Its
+        // 38 pt is the rail headers' 38 pt, so the three regions share one
+        // top row and the traffic lights' centreline is the same in all of
+        // them.
 
-        /// Bar height, 61.8 / 2.
-        static let topBarHeight: CGFloat = 31
-        /// Corner radius, 28 / 2 — very nearly a capsule at this height, and
-        /// the drawing's own number rather than `height / 2`.
-        static let barRadius: CGFloat = 14
-        /// Air above the bar, 9.4 / 2.
-        static let barTop: CGFloat = 5
-        /// Air each side of it. The drawing's are 11.1 leading and 6.95
-        /// trailing, which is a sketch being a sketch: a bar that is not
-        /// centred in its own column is a thing you can see. 9 is the mean.
-        static let barInset: CGFloat = 9
-        /// The strip the centre column reserves at its top: the bar, with its
-        /// own air above and the same below. The bar therefore sits **over**
-        /// ground rather than over the picture — which is the drawing (the
-        /// `.st13` ground rectangle runs behind it) and is also the only
-        /// arrangement in which a maximised frame is not partly under a
-        /// toolbar.
+        /// Bar height, `(75.59 − .59) / 2` = 37.5, taken as the rail header's
+        /// own 38 so the two cannot drift apart by half a point.
+        static let topBarHeight: CGFloat = panelHeaderHeight
+        /// **Zero.** Kept as tokens rather than deleted because the views read
+        /// them and because a later drawing that floats the bar again should
+        /// be three numbers rather than a re-plumbing — but a flush bar has
+        /// no radius and nothing to be inset by.
+        static let barRadius: CGFloat = 0
+        static let barTop: CGFloat = 0
+        static let barInset: CGFloat = 0
+        /// The strip the centre column reserves at its top. With no air above
+        /// or below the bar this **is** the bar, which is the point: there is
+        /// no ground strip behind it any more, so a maximised frame starts
+        /// directly under a surface rather than under a floating pill with
+        /// ground showing round it.
         static var barStrip: CGFloat { barTop * 2 + topBarHeight }
         /// Leading (and trailing) inset of the bar's own controls, from its
-        /// edge. The drawing puts the first tool's centre 38.8 pt in, and the
-        /// tools are drawn in 28 pt boxes, so 26 is that.
-        static let barPadding: CGFloat = 26
-        /// Between two tools. The drawing's centres are 303.3, 363 and 425.3 —
-        /// a pitch of ~60 — which on a 28 pt box is a 32 pt gap.
-        static let toolGap: CGFloat = 32
+        /// edge. v3's first tool centre is x 303.12 at 1920 pt, i.e. 49 pt
+        /// past the 254 pt rail; the tools are drawn in 28 pt boxes, so the
+        /// content inset is 32 and the glyph lands on 46 + 3.
+        static let barPadding: CGFloat = 32
+        /// Between two tools. v3's centres are 303.12, ~363 and 425.22 — a
+        /// pitch of 61 — which on a 28 pt box is a 33 pt gap.
+        static let toolGap: CGFloat = 33
         /// The zoom cluster's own gaps, either side of the pill. The drawing's
         /// are 29.4 pt glyph-to-pill, and the glyph sits in a 28 pt box.
         static let zoomGap: CGFloat = 23
@@ -321,13 +373,14 @@ enum Theme {
         // measured off the drawing: labels start at 17.6 and the value pills
         // end at 235.6 on a 254 pt rail.
 
-        /// Inset of a control row from both edges of the rail.
-        static let rowInset: CGFloat = 18
+        /// Inset of a control row from both edges of the rail. v3 measures
+        /// its labels at x 15.61…17.12, so 16.
+        static let rowInset: CGFloat = 16
         /// The line box one control sits in.
         static let rowHeight: CGFloat = 22
         /// A control's own height — every pill, field and menu in the
-        /// interface (the drawing's 27.8 / 2).
-        static let controlHeight: CGFloat = 14
+        /// interface (27.8 / 2 = 13.9, which v3 confirms).
+        static let controlHeight: CGFloat = 13.9
         /// Between two row blocks.
         ///
         /// This and `rowHeight` are where "everything is vertically
@@ -344,18 +397,39 @@ enum Theme {
         /// same string wider, so the column is 74 — a truncated label is
         /// worse than a column six points wide.
         static let sliderLabelWidth: CGFloat = 84
+        /// Camera's own label column. v3 puts its track and menu at x 86.35
+        /// and its labels at 16, so 70 — narrower than the shared 84, and
+        /// `Film Exposure` is the string that has to fit. Film's rows keep
+        /// the wider shared column: their labels are set at 10.5 rather than
+        /// Camera's 9 and `Side Length` is the longest of them.
+        static let cameraLabelWidth: CGFloat = 70
+        /// Camera's metering menu fills the row after that column
+        /// (298.44 / 2), and its slider tracks are 90.44 at the reference
+        /// rail width. Both grow with the rail; they are recorded so a
+        /// capture can be measured against them.
+        static let cameraMeteringWidth: CGFloat = 149.22
+        static let cameraTrackWidth: CGFloat = 90.44
         /// The value pill at the end of a slider row (87.5 / 2).
-        static let sliderValueWidth: CGFloat = 44
+        static let sliderValueWidth: CGFloat = 43.73
         /// Between the track and that pill (191.85 − 176.8).
-        static let sliderValueGap: CGFloat = 14
+        static let sliderValueGap: CGFloat = 15.06
         /// A picker that does **not** fill its row — Film Type, Side, and the
         /// unit pill beside Side Length. The drawing draws them 107 wide and
         /// right-aligned, where AE Method fills everything after its label.
-        static let pickerWidth: CGFloat = 112
+        static let pickerWidth: CGFloat = 107.03
         /// The number field beside Side Length (99.5 / 2), and the unit pill
         /// after it (76.6 / 2).
-        static let fieldWidth: CGFloat = 50
-        static let unitWidth: CGFloat = 38
+        static let fieldWidth: CGFloat = 49.77
+        static let unitWidth: CGFloat = 38.32
+        /// Trailing inset of Film's own controls: v3 ends their right edges
+        /// at x 231.10 on a 254 pt rail. Wider than `rowInset` on purpose —
+        /// the pickers are right-aligned and the drawing holds them further
+        /// off the edge than it holds the labels.
+        static let filmControlTrailingInset: CGFloat = 23
+        /// Film's row pitch: v3's label baselines are 45 units apart.
+        static let filmRowPitch: CGFloat = 22.5
+        /// The Temperature / Tint text pitch in Camera (≈19.87).
+        static let wbAxisPitch: CGFloat = 20
         /// A label-and-checkbox row (Grain / Halation / Glare / Lens
         /// Correction): the drawing's pitch is 21.25–22.25, and 17 was under
         /// the bottom of that range rather than in it.
@@ -373,9 +447,16 @@ enum Theme {
         static let plotInset: CGFloat = 12
 
         // MARK: the film and print lists
+        //
+        // **v3 took the plate away.** The lists sit directly on the rail
+        // (`Theme.stockList`), with no lighter well behind them and no outer
+        // clipping radius — so the numbers below that describe a *well* now
+        // describe only the export page's recipe list, which still has one.
+        // What marks the chosen row is the `stock*` group further down: a
+        // white capsule, inset from both edges and 15.27 pt tall.
 
         /// How far a list well is inset from the rail's edges (the drawing's
-        /// 4.7 leading, 3.45 trailing).
+        /// 4.7 leading, 3.45 trailing). Export page only now.
         static let wellInset: CGFloat = 4
         /// Well corner radius (22.9 → 11.5).
         static let wellRadius: CGFloat = 11.5
@@ -390,49 +471,82 @@ enum Theme {
         /// inset, and it is also what stops a scrolled list presenting a
         /// half-row against the boundary.
         static let wellVPadding: CGFloat = 8
-        /// A row in the film or print list (39.2 / 2). The selection band is
-        /// exactly this tall and exactly the well's width, which is what
-        /// "shallow, instead of framed square" means.
-        static let listRowHeight: CGFloat = 19.5
-        /// The `CINE` pill after a cinema stock: 55.2 × 20.6 → 27.6 × 10.3,
-        /// a 1 pt accent stroke, no fill, 10.75 in from the well's edge.
-        static let cinePill = CGSize(width: 28, height: 11)
+        /// A row in the film or print list. v3's list text baselines are 36
+        /// units apart, so the pitch is **18** — and the row is the pitch,
+        /// not the mark: the white capsule inside it is 15.27, which is what
+        /// makes a selected row read as marked rather than as a filled cell.
+        static let listRowHeight: CGFloat = 18
+        /// The selection capsule: 30.53 / 2 tall, radius half of that.
+        static let stockSelectionHeight: CGFloat = 15.27
+        static let stockSelectionRadius: CGFloat = 7.63
+        /// Where that capsule starts and ends. v3 draws it from x 33.57 / 2
+        /// to x 227.52 on a 254 pt rail — so 16.79 in at the leading edge and
+        /// 26.48 off the trailing one, which is why it is *not* symmetric and
+        /// why the list cannot be padded with one number.
+        static let stockLeadingInset: CGFloat = 16.79
+        static let stockTrailingInset: CGFloat = 26.48
+        /// And where the row's text starts, 42.66 / 2 — inside the capsule,
+        /// not flush with it.
+        static let stockTextLeadingInset: CGFloat = 21.33
+        /// The list's scroll indicator (6.08 / 2). Its *height* reflects the
+        /// scroll state; only the width is drawn art.
+        static let stockScrollIndicatorWidth: CGFloat = 3.04
+        /// The `CINE` pill after a cinema stock (v3 vector bounds), a 1 pt
+        /// accent stroke, no fill.
+        static let cinePill = CGSize(width: 21.59, height: 8.07)
         static let cinePillTrailing: CGFloat = 11
 
         // MARK: the two actions under the print list
 
-        /// Process / Original: 52.6 / 2 tall, `rx 16.5` → 8.25, 2.25 apart,
-        /// and inset by the same 4 the wells above them are.
-        static let actionHeight: CGFloat = 26
-        static let actionRadius: CGFloat = 8.25
-        static let actionGap: CGFloat = 2.5
+        /// v3 draws them 165.72 × 37.03 → **82.86 × 18.52**: two capsules
+        /// side by side at their own width, not two halves of the rail. The
+        /// second starts at x 108.37 and the first ends at 96.19, so the gap
+        /// is 12.18 and the pair is inset 13.33 from the rail's leading edge.
+        static let actionSize = CGSize(width: 82.86, height: 18.52)
+        static let actionRadius: CGFloat = 9.26
+        static let actionGap: CGFloat = 12.18
+        static let actionLeading: CGFloat = 13.33
 
         // MARK: sliders
 
-        /// Track height. The drawing's is 2.7 / 2 = 1.35, and taking it
-        /// literally is what made the sliders read as debug controls: a
-        /// 1.5 pt track in the *same grey as the ground* is thinner than the
-        /// hairlines around it, so the one control you drag was the faintest
-        /// mark on the rail. 3 is still a hairline's cousin and is a thing
-        /// you can see and aim at.
-        static let trackHeight: CGFloat = 3
-        /// The knob. The drawing's is `12.3 × 10.1 rx 5.1` → 6.15 × 5.05, a
-        /// dot; at 7 it was smaller than the value pill's corner radius. 10
-        /// reads as a handle and still sits inside the row.
-        static let knobSize = CGSize(width: 10, height: 10)
-        static let knobRadius: CGFloat = 5
-        /// The checkbox. `9.9 × 9.9` with a 1 pt `#faf8f4` stroke → 5 pt of
-        /// accent inside a white box; 9 is that at a size the eye resolves,
-        /// and its hit area is padded well past it.
-        static let checkbox: CGFloat = 9
+        // The three numbers below are v3's measured ink, and the 2026-09-17
+        // pass deliberately drew all three **larger** than this. That
+        // departure is reverted, and the reason it can be is a palette
+        // change rather than a change of mind: the old objection was that a
+        // 1.35 pt track "in the *same grey as the ground*" was fainter than
+        // the hairlines beside it — true when `well` was `ground` and a
+        // track sat on a well of its own colour. v3 separates the two
+        // (`surface.rail` #2d2d2c under `surface.control` #5f5f5f), so the
+        // thin track now has the contrast the thick one was borrowing.
+        //
+        // **Ink only.** §3 of the handoff is explicit that hit regions stay
+        // independent of it, so every one of these is drawn at the measured
+        // size inside a padded target — see `ScrubSlider` and `CheckBox`.
+
+        /// Track height, 2.71 / 2.
+        static let trackHeight: CGFloat = 1.36
+        /// The knob: v3's vector bounds, a dot rather than a handle.
+        static let knobSize = CGSize(width: 6.13, height: 5.07)
+        static let knobRadius: CGFloat = 2.535
+        /// The checkbox's **drawn** square. Its hit target is padded to 16.
+        static let checkbox: CGFloat = 5
+        /// The hit target every one of the three sits inside, so that a 5 pt
+        /// square and a 6 pt dot are still things a pointer can find.
+        static let controlHitTarget: CGFloat = 16
 
         // MARK: glyphs
 
-        /// A tool glyph on the floating bar (the drawing's are 17.6–21.5 pt
-        /// tall; an SF Symbol at 15 sets about that).
-        static let toolIcon: CGFloat = 15
-        /// A rail header's glyph — import, export, the adjustments sliders.
-        static let panelIcon: CGFloat = 16
+        /// A tool glyph on the bar. v3's bounds are zoom ≈21.3 × 21.6,
+        /// Select ≈12.9 × 16.6, Pan ≈21.4 × 16.5, Crop ≈17.9 × 19.6 — not one
+        /// square, which is §6's point: optical alignment beats stretching
+        /// every silhouette to the same box. 16 sets an SF Symbol at about
+        /// the middle of that range inside the 28 pt hit region.
+        static let toolIcon: CGFloat = 16
+        /// A rail header's glyph — import, export. §6 suggests 18.
+        static let panelIcon: CGFloat = 18
+        /// The reset arrow v3 adds to the Camera header: 8–9 pt of ink inside
+        /// a 26 pt rail-action hit region.
+        static let resetIcon: CGFloat = 9
         /// `sidebar.left` / `sidebar.right`, the two buttons that fold a rail
         /// and that the PRD requires to be on screen at every moment
         /// (41.8 × 32.7 → 20.9 × 16.35).
@@ -453,10 +567,13 @@ enum Theme {
         static let thumbHeight: CGFloat = 110
         static let filmCover: CGFloat = 18
 
-        /// The zoom pill on the bar (210.5 × 41.4 → 105 × 20.7). It carries
-        /// **no stroke** in the new drawing; it is a plain `.st13` capsule
+        /// The zoom pill on the bar. v3 draws it x 2769.98…2852.56,
+        /// y 17.63…59.01 → **41.29 × 20.69**: a third of the width it was,
+        /// because v3's pill holds `100 %` and nothing else — the `Fit ·`
+        /// prefix the old 105 pt pill carried does not fit and moves into the
+        /// menu. It carries **no stroke**; it is a plain `.st13` capsule
         /// like every other pill.
-        static let zoomPill = CGSize(width: 105, height: 20.7)
+        static let zoomPill = CGSize(width: 41.29, height: 20.69)
 
         static let minWindow = CGSize(width: 1100, height: 700)
 
@@ -712,33 +829,86 @@ enum Theme {
     // The honest metric across the two is the **spread**, where that bias
     // cancels. Measured by `Tools/compare-design.swift`.
 
-    enum Font {
-        /// The one size above `body`, and the top of the hierarchy.
-        static let sectionTitle = SwiftUI.Font.system(size: 12.5, weight: .bold)
+    // ## What v3 changed about the ramp above
+    //
+    // The three-size argument survives; the sizes do not. v3 measures the
+    // two rails at **different** section-title sizes — 12 on the left, 10.5
+    // on the right — and their control labels at different sizes too, 9 in
+    // Camera against 10.5 in Film. That is not noise in the drawing: the
+    // right rail is 288 pt wide and carries the longer names, and setting it
+    // a step smaller is how the drawing fits `Color Balance` and
+    // `White Balance` on one line without truncating. So `sectionTitle`
+    // splits by rail, and so does `label`.
+    //
+    // The weight does not move. All SF Pro Bold, on the user's explicit
+    // instruction (handoff §5) — the PDF's embedded `SFPro-Regular` name and
+    // its weight-400 metadata are artefacts of the export and do not
+    // override it.
 
-        /// **The workhorse.** A label, a list row, a value, a tab, an action
-        /// and a pill are all this. They are not peers because they share a
-        /// size — they are told apart by `Ink`.
-        static let body = SwiftUI.Font.system(size: 11, weight: .bold)
-        static let listItem = body
-        static let label = body
-        static let tab = body
-        static let action = body
-        static let value = SwiftUI.Font.system(size: 11, weight: .bold).monospacedDigit()
+    enum Font {
+        /// A rail's own name — Develop, Edit.
+        static let railTitle = SwiftUI.Font.system(size: 12, weight: .bold)
+        /// A section title on the **left** rail: Input / Camera, Film, Print,
+        /// Crop.
+        static let leftSectionTitle = SwiftUI.Font.system(size: 12, weight: .bold)
+        /// A section title on the **right** rail: Histogram, White Balance,
+        /// Exposure, Curve, Color Balance. A step smaller, and that is the
+        /// drawing rather than a compromise — see the note above.
+        static let rightSectionTitle = SwiftUI.Font.system(size: 10.5, weight: .bold)
+        /// The old single title role, kept pointing at the left rail's size
+        /// so that anything not yet migrated — the Settings page, the export
+        /// page's own `Export.sectionTitle` — keeps a title-sized title.
+        static let sectionTitle = leftSectionTitle
+
+        /// **The workhorse**, and v3 halves it into two.
+        ///
+        /// `body` is 10.5: Film's labels, the stock group eyebrows, the EDR
+        /// row, the zoom readout. `small` is 9: Camera's labels, every
+        /// control value, a stock row, "As Shot". They are not a hierarchy —
+        /// a stock row is not subordinate to a Film label — they are two
+        /// densities, and which one a row takes is a property of the block
+        /// it is in.
+        static let body = SwiftUI.Font.system(size: 10.5, weight: .bold)
+        static let small = SwiftUI.Font.system(size: 9, weight: .bold)
+
+        static let filmLabel = body
+        static let stockGroup = body
+        static let edrLabel = body
+        static let zoomValue = SwiftUI.Font.system(size: 10.5, weight: .bold).monospacedDigit()
+
+        static let cameraLabel = small
+        static let listItem = small
+        static let stockItem = small
+        static let asShot = small
+        /// Values keep monospaced digits — a number that changes under the
+        /// pointer must not reflow the row it is in (preserved policy).
+        static let value = SwiftUI.Font.system(size: 9, weight: .bold).monospacedDigit()
         static let pill = value
 
-        /// One step down, for text that is *about* a control rather than part
-        /// of it: "As Shot", a group's eyebrow, a caption under a plot. It is
-        /// `Ink.tertiary` wherever it is used, and the two together are what
-        /// stop metadata competing with the row it belongs to.
-        static let meta = SwiftUI.Font.system(size: 9.5, weight: .bold)
+        /// `label` is the *shared* label role, and it is Film's: the wider of
+        /// the two, so a row that has not been told which block it is in gets
+        /// the readable one rather than the tight one. Camera passes
+        /// `cameraLabel` explicitly.
+        static let label = body
+        static let tab = body
+
+        /// Developed / Original, the two capsules under the print list. The
+        /// largest type in the interface, and measured — v3 sets them at
+        /// 26.22 / 2.
+        static let action = SwiftUI.Font.system(size: 13.11, weight: .bold)
+
+        /// Text that is *about* a control rather than part of it: a caption
+        /// under a plot, a disabled reason. `Ink.tertiary` wherever it is
+        /// used.
+        static let meta = SwiftUI.Font.system(size: 9, weight: .bold)
         static let sublabel = meta
-        static let groupHeader = meta
+        static let groupHeader = stockGroup
         static let caption = meta
 
-        /// The `CINE` badge, which has to hold four letters inside 28 pt of
-        /// pill, and is the one place a fourth size is earned.
-        static let cine = SwiftUI.Font.system(size: 8, weight: .bold)
+        /// The `CINE` badge. v3 sets it at 11.42 / 2 = **5.71** inside a
+        /// 21.59 pt pill — very small, and §5 of the handoff flags it for
+        /// optical QA rather than asserting it reads.
+        static let cine = SwiftUI.Font.system(size: 5.71, weight: .bold)
 
         /// The export page's ramp is **the same ramp**.
         ///
@@ -750,13 +920,23 @@ enum Theme {
         /// fact about the export, not an instruction. The page's sizes were
         /// also its own (10.5 / 12 / 9 / 8), so the two pages disagreed about
         /// what a list row is. They agree now.
+        /// **v3 froze this ramp rather than following the editor's.**
+        ///
+        /// It used to alias the editor's roles, which was right while there
+        /// was one ramp. v3 re-sizes the editor's and specifies only the main
+        /// editor (handoff §5 and §9: "Do not globally repoint
+        /// `Font.Export`… Capture current export values before any later
+        /// shared-token migration"). So these are the literal values the
+        /// aliases resolved to at `eda971b` — 12.5 / 11 / 11 / 11 / 11 / 9.5
+        /// — written out, so the export page holds still until its own
+        /// drawing is translated.
         enum Export {
-            static let sectionTitle = Font.sectionTitle
-            static let label = Font.body
-            static let listItem = Font.body
-            static let chip = Font.body
-            static let value = Font.value
-            static let pill = Font.meta
+            static let sectionTitle = SwiftUI.Font.system(size: 12.5, weight: .bold)
+            static let label = SwiftUI.Font.system(size: 11, weight: .bold)
+            static let listItem = SwiftUI.Font.system(size: 11, weight: .bold)
+            static let chip = SwiftUI.Font.system(size: 11, weight: .bold)
+            static let value = SwiftUI.Font.system(size: 11, weight: .bold).monospacedDigit()
+            static let pill = SwiftUI.Font.system(size: 9.5, weight: .bold)
         }
     }
 
@@ -806,8 +986,14 @@ struct Hairline: View {
     }
 }
 
-/// The vertical member of the same wall — between the filmstrip and a rail
-/// (the drawing's `line x1="508.8" y1="1895.1" y2="2160.2"`).
+/// The vertical member of the same wall.
+///
+/// **v3 runs it the full window height**, canvas included: its dividers are
+/// at x 254.41 and x 1631.93 from the top edge to the bottom. The
+/// 2026-09-17 rule — that only the filmstrip needs one, because between a
+/// rail and the canvas the ground colour is already a separator — is
+/// superseded. It stays an **overlay** at both call sites, so a line that is
+/// 1 pt wide does not make the three-column arithmetic 2 pt wrong.
 struct VerticalHairline: View {
     var body: some View {
         Rectangle().fill(Theme.rule)

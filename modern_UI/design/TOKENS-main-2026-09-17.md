@@ -1,5 +1,19 @@
 # The main window's tokens — 2026-09-17 drawing
 
+> **Superseded.** This is the historical derivation of the 2026-09-17
+> drawing. The implemented layout is [Main v3](TOKENS-main-v3-2026-09-18.md),
+> derived from `sample_frontend_v3.ai` and in the app since 2026-09-18 — see
+> `README.md` for what of it is done and what is still open. All v3 text uses
+> SF Pro Bold.
+>
+> Kept, not deleted, because several numbers below are still the ones in
+> `Theme.swift`: v3 re-measured the bar, the lists, the type ramp and the
+> slider ink, and left the three region widths, the filmstrip, the hairline
+> and the collapse tab where this drawing put them. Where the two disagree,
+> v3 wins; where v3 is silent, this is the derivation. `sample_frontend.svg`
+> itself is gone — the drawing this file measures is no longer in the
+> repository, so nothing here can be re-derived, only read.
+
 | | |
 |---|---|
 | **Drawing** | `modern_UI/reference_layout/Main/sample_frontend.svg` |

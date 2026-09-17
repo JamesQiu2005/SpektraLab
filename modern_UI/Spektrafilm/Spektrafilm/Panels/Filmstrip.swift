@@ -42,8 +42,8 @@ struct Filmstrip: View {
                                                   command: NSEvent.modifierFlags.contains(.command))
                                 }
                                 .contextMenu {
-                                    Button("Reveal in Finder") { NSWorkspace.shared.activateFileViewerSelecting([frame.id]) }
-                                    Button("Reset to defaults") {
+                                    Button(L(.helpRevealInFinder)) { NSWorkspace.shared.activateFileViewerSelecting([frame.id]) }
+                                    Button(L(.helpResetDefaults)) {
                                         if frame.id == session.selection { session.resetParams(); session.resetAdjustments() }
                                         else { Sidecar.remove(for: frame.id) }
                                     }
@@ -66,7 +66,7 @@ struct Filmstrip: View {
             // taken when the strip was empty and was not re-evaluated when it
             // filled. Opacity depends on the same value every pass, so it
             // cannot go stale.
-            Text("Drop a folder or images here, or press ⌘O.")
+            Text(L(.statusEmptyFilmstrip))
                 .font(Theme.Font.label).foregroundStyle(Theme.dim)
                 .opacity(session.frames.isEmpty ? 1 : 0)
                 .allowsHitTesting(false)

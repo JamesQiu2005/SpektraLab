@@ -26,14 +26,14 @@ struct CropSection: View {
     // new system, everything else works fine there." So the rows are the
     // rows, moved onto the rail — no well, no section icon, the new insets.
     var body: some View {
-        PanelSection("Crop", key: "crop", initiallyExpanded: false, menu: { AnyView(menu) }) {
+        PanelSection(L(.sectionCrop), key: "crop", initiallyExpanded: false, menu: { AnyView(menu) }) {
             RailRows {
                 aspectRow
                 // Scrubbed through `scrubStraighten`, not written straight
                 // to `geometry`: a scrub is a stream of writes and the
                 // canvas must not rescale under it. The refit happens once,
                 // on `onCommit` — the release, or the typed value.
-                ScrubSlider(label: "Straighten", sublabel: "degrees",
+                ScrubSlider(label: L(.cropStraighten), sublabel: L(.cropStraightenUnit),
                             value: Binding(get: { g.angle },
                                            set: { session.scrubStraighten(to: $0) }),
                             range: -Geometry.maxAngle...Geometry.maxAngle, snap: 1,
@@ -60,7 +60,8 @@ struct CropSection: View {
     /// selected rather than falling off the end of a list it is not in.
     private var aspectRow: some View {
         HStack(spacing: 6) {
-            PillMenu(label: "Aspect", options: CropAspect.pickerCases, title: { $0.label },
+            PillMenu(label: L(.cropAspect), options: CropAspect.pickerCases,
+                     title: { $0.key.map { L($0) } ?? $0.label },
                      selection: Binding(get: { g.aspect.canonical },
                                         set: { a in
                                             // Changing the ratio keeps the
@@ -106,7 +107,7 @@ struct CropSection: View {
     /// straighten slider's range.
     private var turnsRow: some View {
         HStack(spacing: 0) {
-            Text("Rotate").font(Theme.Font.label).foregroundStyle(Theme.Ink.secondary)
+            Text(L(.cropRotate)).font(Theme.Font.label).foregroundStyle(Theme.Ink.secondary)
                 .frame(width: Theme.Metric.sliderLabelWidth, alignment: .leading)
             HStack(spacing: 6) {
                 glyph("rotate.left", "Rotate left (⌥⌘[)") { session.geometry = g.turned(by: -1) }
@@ -148,10 +149,10 @@ struct CropSection: View {
 
     private var menu: some View {
         Group {
-            Button("Reset crop") { session.geometry = .default }
-            Button("Straighten to 0°") { session.geometry = g.straightened(to: 0, in: size) }
+            Button(L(.helpResetCrop)) { session.geometry = .default }
+            Button(L(.helpStraightenZero)) { session.geometry = g.straightened(to: 0, in: size) }
             Divider()
-            Button("Crop to whole frame") {
+            Button(L(.helpCropWholeFrame)) {
                 var n = g
                 n.crop = .full
                 n.angle = 0

@@ -54,6 +54,13 @@ struct ColorBalanceEditor: View {
         case master, threeWay, shadows, midtones, highlights
         var id: String { rawValue }
         var title: String {
+            // **Left in English.** The spec's right-rail table lists a plural
+            // `Midtones` among the Exposure section's sliders, which is not
+            // this tab — this one is the singular `Midtone`, and no row
+            // matches it. Translating it would be a copy change (Midtone →
+            // Midtones) rather than a lookup, so it stays; the spec's last
+            // section records that the main editor's tables are not a whole
+            // language pack.
             switch self {
             case .master: "Master"
             case .threeWay: "3-Way"
