@@ -210,7 +210,6 @@
 		};
 		9F23C3316C10DCB824FB61A8 /* AboutWindow.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "AboutWindow.swift"; sourceTree = "<group>"; };
 		09F0E1278E0E11D0A2B20BCA /* BootWindow.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "BootWindow.swift"; sourceTree = "<group>"; };
-		9CA69EA7B8B528ABE8D0D54A /* BrowseView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "BrowseView.swift"; sourceTree = "<group>"; };
 		1314FC9749243D900B18259C /* CollapseTab.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CollapseTab.swift"; sourceTree = "<group>"; };
 		ADC8065A5E52A589C2F6AE42 /* EditorWindow.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "EditorWindow.swift"; sourceTree = "<group>"; };
 		F67B2F725579EC801242F867 /* ExportWindow.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "ExportWindow.swift"; sourceTree = "<group>"; };
@@ -222,7 +221,6 @@
 			children = (
 				9F23C3316C10DCB824FB61A8 /* AboutWindow.swift */,
 				09F0E1278E0E11D0A2B20BCA /* BootWindow.swift */,
-				9CA69EA7B8B528ABE8D0D54A /* BrowseView.swift */,
 				1314FC9749243D900B18259C /* CollapseTab.swift */,
 				ADC8065A5E52A589C2F6AE42 /* EditorWindow.swift */,
 				F67B2F725579EC801242F867 /* ExportWindow.swift */,
@@ -348,6 +346,7 @@
 		3B5B23434C9E6560483E822B /* bundle-licenses.sh */ = {isa = PBXFileReference; lastKnownFileType = text.script.sh; path = "bundle-licenses.sh"; sourceTree = "<group>"; };
 		769986EEE867DFEAEA6221C8 /* capture-live.sh */ = {isa = PBXFileReference; lastKnownFileType = text.script.sh; path = "capture-live.sh"; sourceTree = "<group>"; };
 		58B2C0307BBC444C754E5565 /* check-bundle-resources.sh */ = {isa = PBXFileReference; lastKnownFileType = text.script.sh; path = "check-bundle-resources.sh"; sourceTree = "<group>"; };
+		1E85E1F5E0D2DC3770A53E08 /* compare-design.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "compare-design.swift"; sourceTree = "<group>"; };
 		10478F93C01D4A12794B8E8D /* compare-layout.py */ = {isa = PBXFileReference; lastKnownFileType = text.script.python; path = "compare-layout.py"; sourceTree = "<group>"; };
 		7A1377F4B609B3CE3513CAFD /* gen-catalog.py */ = {isa = PBXFileReference; lastKnownFileType = text.script.python; path = "gen-catalog.py"; sourceTree = "<group>"; };
 		D9DFA21EE15AC0B57DCC3ECE /* gen-project.py */ = {isa = PBXFileReference; lastKnownFileType = text.script.python; path = "gen-project.py"; sourceTree = "<group>"; };
@@ -362,6 +361,7 @@
 				3B5B23434C9E6560483E822B /* bundle-licenses.sh */,
 				769986EEE867DFEAEA6221C8 /* capture-live.sh */,
 				58B2C0307BBC444C754E5565 /* check-bundle-resources.sh */,
+				1E85E1F5E0D2DC3770A53E08 /* compare-design.swift */,
 				10478F93C01D4A12794B8E8D /* compare-layout.py */,
 				7A1377F4B609B3CE3513CAFD /* gen-catalog.py */,
 				D9DFA21EE15AC0B57DCC3ECE /* gen-project.py */,
@@ -505,7 +505,6 @@
 		7DE68917EFE0387EB6CA31CE /* Theme.swift */ = {isa = PBXBuildFile; fileRef = E9A855B54DCFEA59C4405355; };
 		7485388DD7C86A4BB6126DD2 /* AboutWindow.swift */ = {isa = PBXBuildFile; fileRef = 9F23C3316C10DCB824FB61A8; };
 		11E93F8098E4781E687D3B40 /* BootWindow.swift */ = {isa = PBXBuildFile; fileRef = 09F0E1278E0E11D0A2B20BCA; };
-		DD8132A0C128DAC05E681E89 /* BrowseView.swift */ = {isa = PBXBuildFile; fileRef = 9CA69EA7B8B528ABE8D0D54A; };
 		9F226DBBF6D9A09997010B68 /* CollapseTab.swift */ = {isa = PBXBuildFile; fileRef = 1314FC9749243D900B18259C; };
 		30D807F890E0D613B37D2F53 /* EditorWindow.swift */ = {isa = PBXBuildFile; fileRef = ADC8065A5E52A589C2F6AE42; };
 		4254A1EA9E8977408D6035DD /* ExportWindow.swift */ = {isa = PBXBuildFile; fileRef = F67B2F725579EC801242F867; };
@@ -601,7 +600,6 @@
 				7DE68917EFE0387EB6CA31CE /* Theme.swift */,
 				7485388DD7C86A4BB6126DD2 /* AboutWindow.swift */,
 				11E93F8098E4781E687D3B40 /* BootWindow.swift */,
-				DD8132A0C128DAC05E681E89 /* BrowseView.swift */,
 				9F226DBBF6D9A09997010B68 /* CollapseTab.swift */,
 				30D807F890E0D613B37D2F53 /* EditorWindow.swift */,
 				4254A1EA9E8977408D6035DD /* ExportWindow.swift */,
@@ -755,7 +753,6 @@
 		B37DF42FDDF1115FF10B93AC /* Theme.swift */ = {isa = PBXBuildFile; fileRef = E9A855B54DCFEA59C4405355; };
 		079BA19AF46D3C795867E568 /* AboutWindow.swift */ = {isa = PBXBuildFile; fileRef = 9F23C3316C10DCB824FB61A8; };
 		E173521E6D3C6C05CEBB9055 /* BootWindow.swift */ = {isa = PBXBuildFile; fileRef = 09F0E1278E0E11D0A2B20BCA; };
-		CA29219CF949296F54F4F28D /* BrowseView.swift */ = {isa = PBXBuildFile; fileRef = 9CA69EA7B8B528ABE8D0D54A; };
 		47529647F3D60BBE8CE96974 /* CollapseTab.swift */ = {isa = PBXBuildFile; fileRef = 1314FC9749243D900B18259C; };
 		6BE641FE29553FD2270F5946 /* EditorWindow.swift */ = {isa = PBXBuildFile; fileRef = ADC8065A5E52A589C2F6AE42; };
 		451102DB41DB7EE46F2749EF /* ExportWindow.swift */ = {isa = PBXBuildFile; fileRef = F67B2F725579EC801242F867; };
@@ -890,7 +887,6 @@
 				B37DF42FDDF1115FF10B93AC /* Theme.swift */,
 				079BA19AF46D3C795867E568 /* AboutWindow.swift */,
 				E173521E6D3C6C05CEBB9055 /* BootWindow.swift */,
-				CA29219CF949296F54F4F28D /* BrowseView.swift */,
 				47529647F3D60BBE8CE96974 /* CollapseTab.swift */,
 				6BE641FE29553FD2270F5946 /* EditorWindow.swift */,
 				451102DB41DB7EE46F2749EF /* ExportWindow.swift */,

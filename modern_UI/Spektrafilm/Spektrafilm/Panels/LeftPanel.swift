@@ -152,11 +152,12 @@ struct VerticalEllipsis: View {
 }
 
 extension View {
-    /// A rounded card. The **export page's** shape — its drawing still has
-    /// four of them — and the Browse grid's.
-    func panelCard() -> some View {
-        self.background(Theme.card, in: RoundedRectangle(cornerRadius: Theme.Metric.cardRadius, style: .continuous))
-    }
+    // `panelCard()` — a rounded card on a visible ground — used to live here
+    // for the export page and the Browse grid. Both are gone: the grid was
+    // removed with the import page, and the export page is three flush rails
+    // like the editor. Nothing in the app is a floating card now, so the
+    // modifier is not kept "just in case" — a second surface treatment that
+    // nothing uses is how the two pages drifted apart in the first place.
 
     /// A rail, or the filmstrip: flush with the window and square, because
     /// the 2026-09-17 drawing separates regions with a hairline rather than

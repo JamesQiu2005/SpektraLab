@@ -535,10 +535,16 @@ final class Session: CanvasHost {
     /// `serviceGeneration` does not move for a print-layer edit.
     private var rendersLanded = 0
 
-    /// The app lands in Browse when a *folder* or several files are opened:
-    /// the grid is the confirmation step and nothing is rendered until a
-    /// frame is chosen (frontend SPEC §5.1, HANDOFF-FRONTEND-POLISH §2).
-    var browsing = false
+    // The Browse grid is gone (2026-09-17). Opening a folder no longer
+    // switches the window to a separate worklist page: the frames land in the
+    // filmstrip and the editor stays on screen with nothing selected.
+    //
+    // What the grid was *for* is kept, and it is the part that matters — a
+    // folder still renders **nothing** until a frame is chosen, so opening
+    // one does not spend seven seconds and 363 MB developing whichever frame
+    // sorts first (HANDOFF-FRONTEND-POLISH §2). That guarantee never needed a
+    // page of its own; it needed `selection` to stay nil, which is what
+    // `unloadSelection()` below does.
 
     // MARK: - the preview resolution, and the original image
     //
@@ -1078,16 +1084,20 @@ final class Session: CanvasHost {
         // and 363 MB on a guess (HANDOFF §2). Now it renders nothing until a
         // frame is chosen.
         if new.count == 1 {
-            browsing = false
             click(new[0].id)
         } else {
-            enterBrowse()
+            unloadSelection()
         }
     }
 
-    private func enterBrowse() {
+    /// Put the session down to nothing selected, keeping `frames`.
+    ///
+    /// This was `enterBrowse()` and it is the same teardown; only the page it
+    /// used to switch to has gone. The name says what it does rather than
+    /// where it went, because it is also what `remove(_:)` calls when the
+    /// open frame is the one dropped.
+    private func unloadSelection() {
         if let selection { enqueuePrintWriteback(for: selection) }
-        browsing = true
         selection = nil
         renderer.store.dropIdleScratch()
         decodeResidency.clear()
@@ -1115,7 +1125,7 @@ final class Session: CanvasHost {
         scheduler.invalidate()
         releaseEngineAccounting()
         serviceSessionID = nil
-        status = "\(frames.count) frames · pick one to develop."
+        status = "\(frames.count) frames · pick one in the filmstrip to develop."
     }
 
     func openPanel() { let urls = Library.chooseFilesOrFolder(); if !urls.isEmpty { open(urls: urls) } }
@@ -1138,20 +1148,12 @@ final class Session: CanvasHost {
         picked.remove(url)
         renderer.store.invalidatePrint(for: url)
         if frames.isEmpty {
-            browsing = false
             selection = nil
             renderer.setLive(nil)
             status = "Open a folder or an image to begin."
         } else if selection == url {
-            enterBrowse()
+            unloadSelection()
         }
-    }
-
-    /// Return to the grid without reopening the folder.
-    func browseSession() {
-        guard frames.count > 1 else { return }
-        flushSave()
-        enterBrowse()
     }
 
     /// A chevron or an arrow key: the same act as a plain click on the
@@ -1218,7 +1220,6 @@ final class Session: CanvasHost {
             enqueuePrintWriteback(for: leaving)
         }
         loadTask?.cancel()
-        browsing = false
         selection = url
         previewSoft = false
         sourceLongEdge = 0
@@ -2267,7 +2268,7 @@ final class Session: CanvasHost {
             // tail would find that session already there, decide the frame was
             // developed, and reprint from the old decode — a white-balance
             // change that changes nothing the user can see. Dropping the
-            // session is what `select` and `enterBrowse` do on a frame change;
+            // session is what `select` and `unloadSelection` do on a frame change;
             // a re-decode is a frame change as far as the engine is concerned
             // (RFC-015 §1.1).
             scheduler.invalidate()

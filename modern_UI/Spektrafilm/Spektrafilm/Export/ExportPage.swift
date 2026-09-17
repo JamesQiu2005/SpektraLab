@@ -119,9 +119,23 @@ struct ExportPage: View {
     }
 
     var body: some View {
-        VStack(spacing: M.gap) {
-            topBar
-            HStack(spacing: 0) {
+        // Three flush columns, and the bar floats over the middle one.
+        //
+        // This page kept the **old** shape for two months after the editor
+        // stopped using it: four rounded cards, `M.gap` between them, on a
+        // visible ground. The 2026-09-17 drawing had already retired that
+        // language, and so had this page's own drawing —
+        // `export_page.svg` runs its settings rail and its worklist to the
+        // window's edges at full height and separates everything with 1 pt
+        // hairlines, exactly as the editor's does. A page on cards beside an
+        // editor on rails is two apps.
+        //
+        // The bar moved with it. It used to be a full-width row *above* the
+        // columns, which is why the rails began 31 pt down and the window had
+        // no square corner; it is now the editor's arrangement — a pill on
+        // the ground over the centre column only, with the rails running the
+        // full height either side of it.
+        HStack(spacing: 0) {
                 if !settingsCollapsed {
                     settingsPanel
                         .frame(width: leftWidth.width)
@@ -144,12 +158,11 @@ struct ExportPage: View {
                         HoverEdgeTab(edge: .leading, collapsed: $settingsCollapsed,
                                      stroked: mode == .grid)
                     }
-            }
-            // `notes.md`: "write the transition between the modes in both
-            // ways" — both branches of `rightOfSettings` carry one and the
-            // animation is on the row that holds them.
-            .animation(.easeOut(duration: 0.18), value: mode)
         }
+        // `notes.md`: "write the transition between the modes in both
+        // ways" — both branches of `rightOfSettings` carry one and the
+        // animation is on the row that holds them.
+        .animation(.easeOut(duration: 0.18), value: mode)
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
         .onAppear {
             mode = startIn
@@ -322,7 +335,17 @@ struct ExportPage: View {
     /// card's — because it labels the strip below it.
     private var topBar: some View {
         HStack(spacing: 0) {
-            Spacer().frame(width: M.modeToggleLeading)
+            // `M.modeToggleLeading` is **not** used any more, and leaving it
+            // in was a layout bug rather than a cosmetic one. It is 330 pt:
+            // the distance from the *window's* leading edge to the mode
+            // buttons, measured while the bar was a full-width row that had
+            // to clear the window buttons and the settings card. The bar is a
+            // pill over the centre column now, so that spacer became 330 pt
+            // of minimum width demanded from the middle of the layout — which
+            // the settings rail paid for. Widening the rail by 120 moved its
+            // edge by 114, and by 188 moved it 168.5, because the bar would
+            // not compress. `ExportPanelTests` measures exactly that.
+            Spacer().frame(width: Theme.Metric.barPadding)
             modeButton(.grid)
             modeButton(.viewer).padding(.leading, M.modeSpacing)
             // The empty middle is the window's drag surface, exactly as it is
@@ -338,7 +361,7 @@ struct ExportPage: View {
             Spacer().frame(width: M.countTrailingInset)
         }
         .frame(height: M.topBarHeight)
-        .panelCard()
+        .barCard()
         // `notes.md`: "Remember to write the transition between the modes in
         // both ways." Both branches of the cluster carry one and the animation
         // is on the row that holds them, so neither direction is the one that
@@ -446,19 +469,39 @@ struct ExportPage: View {
 
     private var settingsPanel: some View {
         VStack(spacing: 0) {
+            // The window buttons' row.
+            //
+            // Required, not decorative. `ExportWindow` hides the titlebar and
+            // *places* the three buttons at `Export.topBarHeight / 2`; while
+            // the page opened with a full-width bar they landed in it. Now
+            // that the rails run to the top of the window, this rail owns
+            // that row, and without it "Export Formula" is drawn underneath
+            // the close button.
+            railHeader
+            Hairline()
             ScrollView {
+                // A hairline **between** sections, never after the last —
+                // the same rule the editor's rail follows, and for the same
+                // reason: a rule with nothing under it is a border, and this
+                // rail has no bottom to border. The sections used to sit
+                // flush against each other inside a card, which is what made
+                // five headers read as one undifferentiated column.
                 VStack(spacing: 0) {
-                    formulaSection
-                    locationSection
-                    namingSection
-                    formatSection
-                    summarySection
+                    let sections: [(String, AnyView)] =
+                        [("formula", AnyView(formulaSection)),
+                         ("location", AnyView(locationSection)),
+                         ("naming", AnyView(namingSection)),
+                         ("format", AnyView(formatSection)),
+                         ("summary", AnyView(summarySection))]
+                    ForEach(Array(sections.enumerated()), id: \.element.0) { index, entry in
+                        if index > 0 { Hairline() }
+                        entry.1
+                    }
                 }
-                .padding(.top, 4)
             }
             footer
         }
-        .panelCard()
+        .railCard()
         // The system's own alert with a text field in it — the same rule the
         // section menus follow, applied to the one thing on this page that
         // needs typing.
@@ -476,6 +519,16 @@ struct ExportPage: View {
         } message: {
             Text("The name in the recipe list.")
         }
+    }
+
+    /// The strip at the top of the settings rail that the three window
+    /// buttons are placed over. Empty on purpose — the drawing puts nothing
+    /// else in it — and a drag surface, as the editor's rail header is.
+    private var railHeader: some View {
+        Color.clear
+            .frame(height: M.topBarHeight)
+            .frame(maxWidth: .infinity)
+            .background(WindowDragHandle())
     }
 
     /// The recipe list. `notes.md` fixes the "..." as a system menu — "Do not
@@ -565,7 +618,7 @@ struct ExportPage: View {
             Divider()
             Button("Clear Subfolder") { recipe.wrappedValue.subfolder = "" }
         }, metrics: Self.sectionMetrics) {
-            Well(padding: M.wellPadding, vertical: M.wellVertical, inset: M.wellInset) {
+            Well(padding: M.wellPadding, vertical: M.wellVertical, inset: M.wellInset, fill: false) {
                 VStack(spacing: M.rowSpacing) {
                     PillMenu(label: "Folder", options: folderOptions, title: { folderLabel($0) },
                              selection: recipe.folder, labelWidth: M.labelWidth, font: F.label)
@@ -575,7 +628,7 @@ struct ExportPage: View {
                             .font(F.label).foregroundStyle(Theme.text)
                             .padding(.horizontal, 8)
                             .frame(height: M.rowHeight)
-                            .background(Theme.field, in: Capsule())
+                            .background(Theme.pill, in: Capsule())
                             .onSubmit { store.save() }
                     }
                     PillMenu(label: "Existing File", options: ExistingFilePolicy.allCases,
@@ -616,7 +669,7 @@ struct ExportPage: View {
                 recipe.wrappedValue.naming = n
             }
         }, metrics: Self.sectionMetrics) {
-            Well(padding: M.wellPadding, vertical: M.wellVertical, inset: M.wellInset) {
+            Well(padding: M.wellPadding, vertical: M.wellVertical, inset: M.wellInset, fill: false) {
                 VStack(alignment: .leading, spacing: M.rowSpacing) {
                     row("Format") { tokenRow }
                     row("Sample") {
@@ -674,7 +727,7 @@ struct ExportPage: View {
             Divider()
             openWithMenu
         }, metrics: Self.sectionMetrics) {
-            Well(padding: M.wellPadding, vertical: M.wellVertical, inset: M.wellInset) {
+            Well(padding: M.wellPadding, vertical: M.wellVertical, inset: M.wellInset, fill: false) {
                 VStack(spacing: M.rowSpacing) {
                     HStack(spacing: 12) {
                         Text("Format").font(F.label).foregroundStyle(Theme.text)
@@ -790,7 +843,7 @@ struct ExportPage: View {
             .multilineTextAlignment(.center)
             .font(F.label).foregroundStyle(Theme.text)
             .frame(width: 62, height: M.rowHeight)
-            .background(Theme.field, in: Capsule())
+            .background(Theme.pill, in: Capsule())
     }
 
     /// `notes.md`: "Open with allows the user to select the default open_app."
@@ -825,7 +878,7 @@ struct ExportPage: View {
                 pb.setString(summaryLines.joined(separator: "\n"), forType: .string)
             }
         }, metrics: Self.sectionMetrics) {
-            Well(padding: M.wellPadding, vertical: M.wellVertical, inset: M.wellInset) {
+            Well(padding: M.wellPadding, vertical: M.wellVertical, inset: M.wellInset, fill: false) {
                 VStack(alignment: .leading, spacing: 4) {
                     ForEach(Array(summaryLines.enumerated()), id: \.offset) { _, line in
                         Text(line).font(F.value).foregroundStyle(Theme.secondaryText)
@@ -892,6 +945,28 @@ struct ExportPage: View {
             .background(Theme.ground)
     }
 
+    /// The bar's reserved strip: ground, with the pill floating on it.
+    ///
+    /// The strip is *reserved* rather than overlaid, which is the editor's
+    /// arrangement and is there for the same reason — it is the only one in
+    /// which a picture fitted to the pane is never partly under a toolbar.
+    private var barStrip: some View {
+        topBar
+            .padding(.horizontal, Theme.Metric.barInset)
+            .padding(.top, Theme.Metric.barTop)
+            .padding(.bottom, Theme.Metric.barTop)
+            .frame(maxWidth: .infinity)
+            .background(Theme.ground)
+    }
+
+    /// Viewer's middle column: the bar's strip, then the proof.
+    private var centreWithBar: some View {
+        VStack(spacing: 0) {
+            barStrip
+            centre
+        }
+    }
+
     /// What sits to the right of the settings card. In Viewer it is the proof
     /// on the ground with the filmstrip card beside it; in Grid the drawing
     /// makes the centre pane and the filmstrip **one card** — x 634.64 width
@@ -918,7 +993,7 @@ struct ExportPage: View {
             switch mode {
             case .viewer:
                 HStack(spacing: 0) {
-                    centre
+                    centreWithBar
                     PanelResizeHandle(side: .leadingEdge, range: M.rightRange,
                                       width: $rightWidth.width)
                     stripPanel
@@ -926,8 +1001,11 @@ struct ExportPage: View {
                 }
                 .transition(.opacity)
             case .grid:
-                gridCard
-                    .transition(.opacity)
+                VStack(spacing: 0) {
+                    barStrip
+                    gridCard
+                }
+                .transition(.opacity)
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -1099,7 +1177,7 @@ struct ExportPage: View {
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .panelCard()
+        .railCard()
         .transition(.opacity)
     }
 
@@ -1125,7 +1203,7 @@ struct ExportPage: View {
             .padding(.vertical, 12)
             .frame(maxWidth: .infinity)
         }
-        .panelCard()
+        .railCard()
     }
 
     private var emptyWorklist: some View {
@@ -1410,7 +1488,7 @@ private struct ExportStripCell: View {
 
 /// One cell of the grid card: the thumbnail with its filename beneath.
 ///
-/// Not `BrowseCell`. The editor's browse grid is a worklist and draws each
+/// Not the filmstrip's cell. The editor's strip is a worklist and draws each
 /// frame on a lighter plate inside a 3:2 box; the drawing's grid card draws
 /// the frame itself on the card, stroked, at whatever shape it is — a
 /// landscape one is wide and short, a portrait one is the other way about —
@@ -1524,13 +1602,18 @@ private struct PillField<MenuContent: View>: View {
                 Text(title).font(font)
                     .foregroundStyle(dimmed ? Theme.dim : Theme.text).padding(.leading, 9)
                 Spacer(minLength: 4)
-                Image(systemName: "chevron.up.chevron.down")
-                    .font(.system(size: 8, weight: .semibold))
-                    .foregroundStyle(dimmed ? Theme.dim : Theme.text).padding(.trailing, 6)
+                // `PillMenu`'s mark, not SF Symbols' double chevron. One
+                // glyph for "there is more under this", everywhere — the two
+                // pills sat in the same row wearing different ones.
+                Triangle()
+                    .stroke(dimmed ? Theme.dim : Theme.text,
+                            style: StrokeStyle(lineWidth: 1, lineJoin: .round))
+                    .frame(width: 8, height: 5)
+                    .padding(.trailing, 8)
             }
             .frame(height: Theme.Metric.Export.rowHeight - 1)
             .frame(maxWidth: .infinity)
-            .background(Theme.field, in: Capsule())
+            .background(Theme.pill, in: Capsule())
             .contentShape(Capsule())
         }
         .menuStyle(.button).buttonStyle(.plain).menuIndicator(.hidden)

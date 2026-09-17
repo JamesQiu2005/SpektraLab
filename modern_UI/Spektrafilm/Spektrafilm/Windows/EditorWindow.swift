@@ -47,16 +47,11 @@ struct EditorWindow: View {
     @Environment(\.openWindow) private var openWindow
 
     var body: some View {
-        Group {
-            if session.browsing && !session.frames.isEmpty {
-                BrowseView(session: session)
-                    .padding(Theme.Metric.wellInset)
-                    .transition(.opacity)
-            } else {
-                printLayout
-            }
-        }
-        .animation(.easeOut(duration: 0.18), value: session.browsing)
+        // One layout. The window used to switch to a `BrowseView` worklist
+        // whenever a folder was open and no frame chosen; that page is gone
+        // and the filmstrip is the only list. Opening a folder still develops
+        // nothing until a frame is picked — see `Session.unloadSelection()`.
+        printLayout
         .background(Theme.ground)
         // Above the browse/print switch, so the buttons are re-placed in
         // either state and the observer outlives every card that can fold.

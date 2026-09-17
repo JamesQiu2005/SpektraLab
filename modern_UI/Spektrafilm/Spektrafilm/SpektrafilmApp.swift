@@ -129,7 +129,6 @@ struct EditorCommands: Commands {
             Button("Restart Render Service") { session.restartService() }
                 .keyboardShortcut("r", modifiers: [.command, .option])
                 .disabled(session.selection == nil)
-            Button("Browse This Folder") { session.browseSession() }.disabled(session.frames.count < 2)
         }
         CommandMenu("Frame") {
             Button("Previous") { session.selectRelative(-1) }.keyboardShortcut("[")
@@ -396,6 +395,21 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // drawing, so it has to be of a fresh install — which is exactly what
         // `PanelWidthRange.standard` is.
         session.snapshotPanelWidths = true
+        // And one door further along again: a `PanelSection`'s expansion is
+        // `@AppStorage` too, under `Session.uiKey + "section.<key>"`, and the
+        // export page's collapse flag is its own key. Neither was reset, so
+        // an export capture showed whichever sections a real run had last
+        // left open — Summary is declared `initiallyExpanded: false` and
+        // photographed expanded, which is precisely the kind of difference a
+        // capture is supposed to be trusted about. Clearing the keys restores
+        // every section's declared default rather than asserting a list of
+        // them here, so a new section is covered the day it is written.
+        let defaults = UserDefaults.standard
+        for (k, _) in defaults.dictionaryRepresentation()
+        where k.hasPrefix(Session.uiKey + "section.") {
+            defaults.removeObject(forKey: k)
+        }
+        defaults.removeObject(forKey: Session.uiKey + "exportSettingsCollapsed")
         // `topCollapsed` is not reset here any more: the top bar is the
         // window's first row and cannot be collapsed, so no view reads that
         // flag. The stored property stays for one release so a preferences

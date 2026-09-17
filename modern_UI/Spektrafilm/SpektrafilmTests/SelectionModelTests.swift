@@ -197,9 +197,11 @@ final class SelectionModelTests: XCTestCase {
         XCTAssertGreaterThan(FrameFraming.picked.opacity, FrameFraming.none.opacity)
         XCTAssertFalse(FrameFraming.none.isFramed)
 
-        // One rule, two call sites, the same words in both. A file that spelled
-        // it differently would be a second rule.
-        for file in ["Panels/Filmstrip.swift", "Windows/BrowseView.swift"] {
+        // One rule, and every call site spells it the same way. `BrowseView`
+        // was the second site until the Browse grid was removed (2026-09-17);
+        // the filmstrip is the only list of frames now, so this guards the
+        // one that is left rather than pretending there are still two.
+        for file in ["Panels/Filmstrip.swift"] {
             XCTAssertTrue(try source(file).contains("framing: session.framing(of: frame.id)"),
                           "\(file) does not ask Session how to mark a cell")
         }

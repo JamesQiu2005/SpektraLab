@@ -113,13 +113,27 @@ struct Well<Content: View>: View {
     var vertical: CGFloat = 10
     var inset: CGFloat = Theme.Metric.wellInset
     var radius: CGFloat = Theme.Metric.wellRadius
+    /// Whether the plate is drawn at all.
+    ///
+    /// A well means "these rows are a *list*, and the plate is its edge" — a
+    /// film catalogue, a recipe list. It does not mean "these rows belong to
+    /// the same section", which is what the hairline above them already says.
+    /// The export page had a plate under every group, so Location, Naming,
+    /// Format and Summary each read as a grey block rather than as rows, and
+    /// four blocks in a column read as one. Its drawing puts a plate under
+    /// the recipe list and nothing else; `fill: false` is the rest.
+    var fill: Bool = true
     @ViewBuilder var content: () -> Content
     var body: some View {
         content()
             .padding(.horizontal, padding)
             .padding(.vertical, vertical)
             .frame(maxWidth: .infinity, alignment: .leading)
-            .background(Theme.well, in: RoundedRectangle(cornerRadius: radius, style: .continuous))
+            .background {
+                if fill {
+                    RoundedRectangle(cornerRadius: radius, style: .continuous).fill(Theme.well)
+                }
+            }
             .padding(.horizontal, inset)
     }
 }

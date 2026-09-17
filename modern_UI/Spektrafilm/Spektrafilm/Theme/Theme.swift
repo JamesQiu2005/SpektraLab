@@ -9,9 +9,9 @@
 //  `Metric.Export`.
 //
 //  `Font.Export` is **no longer its own ramp**: it aliases the editor's, so
-//  the two pages agree about what a label and a list row are. Its metrics
-//  have not been revisited and the page still draws rounded cards — see the
-//  note on `cardRadius`. That page's visual rework is not done.
+//  the two pages agree about what a label and a list row are. The page's own
+//  *metrics* are still its drawing's — tighter rows and a narrower label
+//  column — which is why `Metric.Export` stays.
 //
 //  Nothing in a view file may carry a literal colour or size that could have
 //  come from here — that is the rule that keeps the interface matching the
@@ -24,8 +24,9 @@
 //  right rail — with **1 pt hairlines** where the old design had gutters and
 //  corner radii. There is no outer margin, no gutter and no card radius, so
 //  `outerX`, `outerY` and `gutter` are not tokens any more: a rail that is
-//  flush with the window's edge has nothing to be inset by. `cardRadius`
-//  survives because the export page still draws rounded cards with it.
+//  flush with the window's edge has nothing to be inset by. The export page
+//  was the last card and is a rail now too, so `cardRadius` records a shape
+//  nothing draws.
 //
 //  The one thing that still floats is the tool bar, a rounded pill on the
 //  ground over the canvas (`barTop`/`barHeight`/`barRadius`).
@@ -57,9 +58,16 @@ enum Theme {
     /// field, the zoom pill. Ground-coloured, because that is what the
     /// drawing fills them with now that they no longer sit inside a well.
     static let pill = ground
-    /// A pill sitting **inside a well** — the export page only, where the
-    /// well is already ground-coloured and a control on it has to be darker
-    /// to be seen at all. Do not use it on an editor rail.
+    /// A pill sitting **inside a well**, where the well is already
+    /// ground-coloured and a control on it has to be darker to be seen at
+    /// all. Do not use it on a rail.
+    ///
+    /// Nothing uses it at the moment. It was the export page's plate for
+    /// every pill and field on the page, which was right while those rows sat
+    /// inside wells and became invisible the moment they did not: `field` is
+    /// `card`, so a pill drawn in it on a bare rail is a pill the same colour
+    /// as the rail. That is what made the page's controls look like three
+    /// different species — some capsules, some bare text.
     static let field = card
     /// `.st1` stroke, `#b5b5b6` at 2 units → **1 pt**. The hairline that
     /// separates one section from the next, and the rails from the filmstrip.
@@ -441,9 +449,14 @@ enum Theme {
 
         static let minWindow = CGSize(width: 1100, height: 700)
 
-        /// Card corner radius — the **export page's** (`rx 30 → 15`). The
-        /// editor's cards are flush and square now; `panelCard()` is the
-        /// export page's card, `railCard()` is the editor's.
+        /// Card corner radius — the export page's old one (`rx 30 → 15`).
+        ///
+        /// **Nothing draws a card any more.** The editor stopped on
+        /// 2026-09-17 and the export page followed; both are flush rails
+        /// separated by hairlines, which is what each page's own drawing
+        /// shows. Kept as the recorded value of a shape the interface no
+        /// longer has, so that reinstating one is a decision rather than a
+        /// guess at a radius.
         static let cardRadius: CGFloat = 15
 
         /// The export page's own geometry (RFC-018 §6).
@@ -612,6 +625,10 @@ enum Theme {
             /// rather than inset from the window edge — its centre is 0.65 pt
             /// from the card's — because it labels the strip below it.
             static let trafficLightLeading: CGFloat = 12.4
+            /// **Superseded.** The window-leading inset of the mode
+            /// buttons while the bar was a full-width row; the bar is a pill
+            /// over the centre column now and uses `barPadding`, as the
+            /// editor's does. Kept as the drawing's recorded number.
             static let modeToggleLeading: CGFloat = 330
             static let modeGlyph: CGFloat = 13.9
             static let modeSpacing: CGFloat = 0

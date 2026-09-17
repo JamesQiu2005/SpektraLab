@@ -4,8 +4,24 @@
 |---|---|
 | **What this is** | The loop that lets the interface be checked against the drawing without a human looking at it. |
 | **One command** | `design/snapshot.sh [image]` → `design/snapshots/window-*.png` |
+| **The frame** | `spektrafilm/tests/Test_image/Nikon Z7ii/_DSC0897.NEF` — always this one |
 | **Measure it** | `swift Spektrafilm/Tools/measure-layout.swift design/snapshots/window-16x9.png 2` |
 | **Date** | 2026-09-08 |
+
+## The frame the captures use
+
+Every committed capture is of **`_DSC0897.NEF`** (the Nikon Z7ii folder in the
+`spektrafilm` tests tree, which the repository-root `tests` symlink reaches).
+It is not arbitrary and it should not be swapped casually: a capture is read
+by diffing it against the last one, and changing the photograph changes every
+pixel of the canvas, the histogram, the curve and four thumbnails at once. A
+real regression is then a needle in a frame-sized haystack.
+
+The export page's capture is the same frame:
+
+```
+SpektraLab --snapshot 1490x990 out.png --export --open <frame> --wait 120
+```
 
 ## How it works
 
