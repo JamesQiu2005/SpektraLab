@@ -22,7 +22,7 @@ upstream fork when this product was extracted into its own repository
 is measured against; it is simply no longer in this tree. See `README.md`.
 
 ```
-  ┌─ modern_UI/Spektrafilm ─── one binary, ~20 MB ────────────────────────┐
+  ┌─ modern_UI/Spektrafilm ─── one binary, 32 MB ─────────────────────────┐
   │  SwiftUI + Metal, macOS app                                           │
   │                                                                       │
   │  Session (@Observable, @MainActor)                                    │
@@ -712,11 +712,20 @@ A non-live slider is 0.2–3.4 ms of `set_params` plus a reprint. Opening a
 24 MP RAW through the app is ~2.0 s, of which ~1.6 s is Core Image rendering
 the linear TIFF to a float bitmap — now the largest single cost on that path.
 
-Bundle **17 MB Release**, of which 15 MB is resources: 9.45 MB of constants
-(5.97 MB of it the Hanatos irradiance spectra, kept float16 as the reference
-stores them, plus the 3.45 MB of print-preview LUTs the LUT port added),
-5.8 MB of profiles for all 28 stocks, 196 kB of film cover art and 80 kB of
-licence texts. All data, all trimmable, none of it code. The DMG is 10 MB.
+Bundle **32 MB Release**, of which 15 MB is engine resources: 9.45 MB of
+constants (5.97 MB of it the Hanatos irradiance spectra, kept float16 as the
+reference stores them, plus the 3.45 MB of print-preview LUTs the LUT port
+added), 5.8 MB of profiles for all 28 stocks, 196 kB of film cover art and
+80 kB of licence texts. All data, all trimmable, none of it code. The DMG is
+24 MB.
+
+It was 17 MB and a 10 MB DMG until the app icon arrived. The other 13 MB is
+`Assets.car`, and almost all of that is the Icon Composer document's own SVG
+layers, which `actool` keeps rather than flattening: the system composes the
+light, dark and tinted renderings from them at display time. It buys an icon
+that follows the desktop's appearance, and it costs more than the entire
+render engine's constants do — worth knowing before anything else is added to
+the catalogue.
 
 ### 8.8 The three methods that used to be refused
 
