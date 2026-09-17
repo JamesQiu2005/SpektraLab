@@ -44,7 +44,12 @@ struct CurveEditor: View {
                     VStack(spacing: 4) {
                         Text(ch.title).font(Theme.Font.tab)
                             .foregroundStyle(on ? Theme.accent : Theme.secondaryText)
-                        Rectangle().fill(on ? Theme.accent : Theme.dim.opacity(0.5)).frame(height: on ? 1.5 : 0.5)
+                        // Only the active channel is underlined. The
+                        // inactive ones drew a 0.5 pt rule each, which joined
+                        // into a full-width line under the row — a separator
+                        // between the channels and the plot they belong to,
+                        // which are not two things. Same in `ColorWheel`.
+                        Rectangle().fill(on ? Theme.accent : Color.clear).frame(height: 1.5)
                     }
                     .contentShape(Rectangle())
                 }

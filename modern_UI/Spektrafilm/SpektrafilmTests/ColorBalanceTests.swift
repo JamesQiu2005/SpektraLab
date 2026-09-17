@@ -39,10 +39,11 @@ final class ColorBalanceTests: XCTestCase {
         // smallest.
         XCTAssertGreaterThan(layout.midtone, layout.side)
         // Every wheel keeps room for a thumb on both sides.
-        XCTAssertGreaterThan(layout.side, 2 * ColorBalanceLayout.arcBand)
+        XCTAssertGreaterThan(layout.side, 2 * ColorBalanceLayout.arcBand(layout.side))
         // The band a wheel occupies is the wheel plus the arc overhang, and the
         // height the view lays out is the sum of those bands and the labels.
-        XCTAssertEqual(ColorBalanceLayout.band(layout.side), layout.side + 2 * ColorBalanceLayout.arcBand)
+        XCTAssertEqual(ColorBalanceLayout.band(layout.side),
+                       layout.side + 2 * ColorBalanceLayout.arcBand(layout.side))
         XCTAssertEqual(layout.height,
                        ColorBalanceLayout.band(layout.midtone) + ColorBalanceLayout.labelHeight + 6
                        + ColorBalanceLayout.labelHeight + ColorBalanceLayout.band(layout.side),
@@ -122,6 +123,53 @@ final class ColorBalanceTests: XCTestCase {
     /// about the wheel rather than about the touch's own radius — the arc is
     /// thin and a drag that wanders off it must still track.
     ///
+    /// The angle the **view** actually passes, not the arc's own.
+    ///
+    /// `ArcSlider` reads a touch through `Arc.angle(of:about:)`, which
+    /// normalises to (−180, 180]. The left arc runs 115°…245°, so its whole
+    /// lower half arrives negative — the bottom of it, 245°, comes back as
+    /// −115°. That fell outside the span and clamped to the *maximum*, so
+    /// dragging the lower half of the saturation arc slammed it to 1.
+    ///
+    /// The tests below this one never saw it because they pass
+    /// `bottomTheta(.left)` — 245 — which is the one domain the call site
+    /// never produces. This walks the arc the way a pointer does.
+    func testAnArcTracksTheAnglesTheViewActuallyProduces() {
+        let A = ColorBalanceLayout.Arc.self
+        let centre = CGPoint.zero
+        for side in [ColorBalanceLayout.Side.left, .right] {
+            let range: ClosedRange<Double> = side == .left ? 0...1 : -1...1
+            for step in 0...20 {
+                let f = Double(step) / 20
+                // A point on the arc at this fraction, in view coordinates.
+                let theta = A.theta(fraction: f, on: side) * .pi / 180
+                let p = CGPoint(x: cos(theta) * 50, y: -sin(theta) * 50)
+                let got = A.value(atAngle: A.angle(of: p, about: centre), on: side, in: range)
+                let want = range.lowerBound + f * (range.upperBound - range.lowerBound)
+                XCTAssertEqual(got, want, accuracy: 1e-6,
+                               "\(side) arc at fraction \(f): a touch on the track "
+                             + "must read back as the value that put the thumb there")
+            }
+        }
+    }
+
+    /// The arcs' hit band must not reach into the wheel.
+    ///
+    /// It did: a 14 pt band centred 3.5 pt outside the rim covered the outer
+    /// 3.5 pt of the wheel, so a drag started near the rim moved a slider
+    /// instead of the colour.
+    func testTheArcsDoNotReachIntoTheWheel() {
+        // Every wheel the layouts can produce, from the narrow rail's smallest
+        // three-way wheel to the widest single one.
+        for wheel in stride(from: CGFloat(40), through: 160, by: 4) {
+            let inner = ColorBalanceLayout.arcGap(wheel)
+                      - ColorBalanceLayout.hitWidth(wheel) / 2
+            XCTAssertGreaterThan(inner, 0,
+                                 "at wheel \(wheel) the arc's hit band reaches "
+                               + "\(-inner) pt into the wheel")
+        }
+    }
+
     /// **Seen red first** by removing the clamp in `value(atAngle:on:in:)`
     /// (a touch well past the end then produced a value outside the range).
     func testAnArcClampsAtItsEndsAndMeasuresTheAngle() {

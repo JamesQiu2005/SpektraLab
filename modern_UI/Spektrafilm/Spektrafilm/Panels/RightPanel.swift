@@ -17,20 +17,25 @@ struct RightPanel: View {
             header
             Hairline()
             ScrollView(.vertical, showsIndicators: false) {
+                // Between sections, never after the last — the left rail's
+                // rule, applied here too. This stack still ended with a
+                // `Hairline()` under Color Balance, which drew a rule across
+                // empty rail below the colour wheel.
                 VStack(spacing: 0) {
-                    HistogramSection(session: session)
-                    Hairline()
-                    WhiteBalanceSection(session: session)
-                    Hairline()
-                    ExposureSection(session: session)
-                    Hairline()
-                    CurveSection(session: session)
-                    Hairline()
-                    ColorBalanceSection(session: session)
-                    Hairline()
-                    // Withdrawn while the mask system is redesigned; the
-                    // section itself is intact (`FeatureFlags.masks`).
-                    if FeatureFlags.masks { MasksSection(session: session); Hairline() }
+                    let sections: [(String, AnyView)] =
+                        [("histogram", AnyView(HistogramSection(session: session))),
+                         ("whiteBalance", AnyView(WhiteBalanceSection(session: session))),
+                         ("exposure", AnyView(ExposureSection(session: session))),
+                         ("curve", AnyView(CurveSection(session: session))),
+                         ("colorBalance", AnyView(ColorBalanceSection(session: session)))]
+                        // Withdrawn while the mask system is redesigned; the
+                        // section itself is intact (`FeatureFlags.masks`).
+                        + (FeatureFlags.masks
+                           ? [("masks", AnyView(MasksSection(session: session)))] : [])
+                    ForEach(Array(sections.enumerated()), id: \.element.0) { index, entry in
+                        if index > 0 { Hairline() }
+                        entry.1
+                    }
                 }
             }
         }

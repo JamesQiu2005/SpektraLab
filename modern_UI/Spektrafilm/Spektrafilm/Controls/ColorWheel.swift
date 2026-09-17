@@ -109,8 +109,13 @@ struct ColorBalanceEditor: View {
                             // snapshot is unchanged.
                             .minimumScaleFactor(0.85)
                             .foregroundStyle(on ? Theme.accent : Theme.secondaryText)
-                        Rectangle().fill(on ? Theme.accent : Theme.dim.opacity(0.5))
-                            .frame(height: on ? 1.5 : 0.5)
+                        // Only the **active** tab is underlined. The
+                        // inactive ones used to draw a 0.5 pt rule of their
+                        // own, which joined up into a full-width line under
+                        // the row — a separator between the tabs and their
+                        // own content, which are not two things.
+                        Rectangle().fill(on ? Theme.accent : Color.clear)
+                            .frame(height: 1.5)
                     }
                     .frame(maxWidth: .infinity)
                     .contentShape(Rectangle())
@@ -247,14 +252,14 @@ struct ArcSlider: View {
     /// What a double-click puts back.
     let neutral: Double
 
-    private static let gap = ColorBalanceLayout.arcGap
+    private var gap: CGFloat { ColorBalanceLayout.arcGap(wheel) }
     private static let weight = ColorBalanceLayout.arcWeight
-    private static let thumb = ColorBalanceLayout.thumb
+    private var thumbLength: CGFloat { ColorBalanceLayout.thumb(wheel) }
 
     var body: some View {
         Canvas { ctx, size in
             let c = CGPoint(x: size.width / 2, y: size.height / 2)
-            let r = wheel / 2 + Self.gap
+            let r = wheel / 2 + gap
             // The track, drawn in segments: a gradient that follows the arc.
             // One `stroke` with a linear shading would run straight across the
             // curve, which reads as wrong the moment the arc is anything but
@@ -271,8 +276,8 @@ struct ArcSlider: View {
             // The thumb: a tick across the track, dark under light so it reads
             // on both ends of the gradient.
             var tick = Path()
-            tick.move(to: point(c, r - Self.thumb, fraction: fraction))
-            tick.addLine(to: point(c, r + Self.thumb, fraction: fraction))
+            tick.move(to: point(c, r - thumbLength, fraction: fraction))
+            tick.addLine(to: point(c, r + thumbLength, fraction: fraction))
             ctx.stroke(tick, with: .color(Theme.card),
                        style: StrokeStyle(lineWidth: Self.weight + 1.6, lineCap: .round))
             ctx.stroke(tick, with: .color(Theme.knob),
@@ -302,7 +307,7 @@ struct ArcSlider: View {
         let side: Side
         func path(in rect: CGRect) -> Path {
             let c = CGPoint(x: rect.midX, y: rect.midY)
-            let r = wheel / 2 + ColorBalanceLayout.arcGap
+            let r = wheel / 2 + ColorBalanceLayout.arcGap(wheel)
             var arc = Path()
             let steps = 48
             for i in 0...steps {
@@ -311,7 +316,8 @@ struct ArcSlider: View {
                 let p = CGPoint(x: c.x + r * cos(theta), y: c.y - r * sin(theta))
                 if i == 0 { arc.move(to: p) } else { arc.addLine(to: p) }
             }
-            return arc.strokedPath(StrokeStyle(lineWidth: ColorBalanceLayout.hitWidth, lineCap: .round))
+            return arc.strokedPath(StrokeStyle(lineWidth: ColorBalanceLayout.hitWidth(wheel),
+                                               lineCap: .round))
         }
     }
 
@@ -354,22 +360,47 @@ enum ColorBalanceLayout {
     /// The track's distance outside the wheel's rim, its weight, and the
     /// thumb's half-length. (The arc's own sweep lives with the arithmetic, in
     /// `ColorBalanceLayout.Arc`.)
-    static let arcGap: CGFloat = 3.5
-    static let arcWeight: CGFloat = 2.5
-    static let thumb: CGFloat = 4.5
-    /// How wide a touch has to be to count as a touch on an arc: the track,
-    /// stroked to something a fingertip can find.
-    static let hitWidth: CGFloat = 14
+    // MARK: the ring, which is a proportion of its wheel
+    //
+    // These were four constants — `arcGap` 3.5, `thumb` 4.5, `hitWidth` 14 —
+    // and two things were wrong with that.
+    //
+    // **The arcs sat on the wheel.** A 14 pt hit band centred 3.5 pt outside
+    // the rim covers the outer 3.5 pt of the wheel itself, so a drag begun
+    // near the rim moved a slider instead of the colour. Capture One leaves a
+    // clear ring of background between a wheel and its dial, and that gap is
+    // what lets the two be aimed at separately.
+    //
+    // **A constant gap cannot be right at both sizes.** The three-way tab
+    // draws wheels of 44 pt at the rail's narrow end and the single-zone tabs
+    // draw one of 150; a ring that reads well around the large one swallows
+    // the small one's column, and simply widening the constant overflowed the
+    // narrow rail. So the ring is a proportion of its own wheel, with floors
+    // that keep it aimable and ceilings that stop it becoming a target in its
+    // own right.
+
+    /// The track's distance outside the rim.
+    static func arcGap(_ wheel: CGFloat) -> CGFloat { (wheel * 0.09).clamped(to: 4.5...10) }
+    /// The thumb's half-length, across the track.
+    static func thumb(_ wheel: CGFloat) -> CGFloat { (wheel * 0.05).clamped(to: 3...5) }
+    static let arcWeight: CGFloat = 3
+
+    /// How wide a touch has to be to count as a touch on an arc.
+    ///
+    /// Bounded by the gap, and that is the invariant rather than the number:
+    /// the band is centred on the track, so it reaches `hitWidth / 2` inward,
+    /// and staying under `arcGap` is what keeps it off the wheel.
+    /// `testTheArcsDoNotReachIntoTheWheel` asserts it at every size.
+    static func hitWidth(_ wheel: CGFloat) -> CGFloat { min(16, 2 * arcGap(wheel) - 1.5) }
+
     /// How far one arc slider reaches outside the wheel: the gap to the rim
-    /// plus the thumb that rides the track. It is what a column has to allow
-    /// for on each side, and it is derived from the geometry above rather than
-    /// written down a second time.
-    static let arcBand: CGFloat = arcGap + thumb + 1
+    /// plus the thumb that rides the track.
+    static func arcBand(_ wheel: CGFloat) -> CGFloat { arcGap(wheel) + thumb(wheel) + 1 }
 
     /// The square one wheel and its two arcs occupy — the arcs curve back over
     /// the wheel, so they are concentric with it rather than laid out beside
     /// it, and this is the whole of what they need.
-    static func band(_ wheel: CGFloat) -> CGFloat { wheel + 2 * arcBand }
+    static func band(_ wheel: CGFloat) -> CGFloat { wheel + 2 * arcBand(wheel) }
 
     /// What a control inside a well gets from a panel of `panelWidth`: the
     /// panel less the well's inset and padding on both sides.
@@ -431,7 +462,12 @@ enum ColorBalanceLayout {
 
     /// One large wheel for the single-zone tabs.
     static func single(width: CGFloat) -> CGFloat {
-        (max(width, 1) * 0.55 - 2 * arcBand).clamped(to: 64...150)
+        // `arcBand` depends on the wheel, so solve for it: take the wheel the
+        // width suggests, then shrink it by the band that wheel would want.
+        // One pass is enough — the band is at most 16 and the clamp catches
+        // the rest.
+        let raw = (max(width, 1) * 0.55).clamped(to: 64...150)
+        return (raw - 2 * arcBand(raw)).clamped(to: 64...150)
     }
 
     enum Side: Equatable { case left, right }
@@ -477,9 +513,29 @@ enum ColorBalanceLayout {
         /// Where a touch at `theta` lands in `range`. A touch past either end
         /// clamps to that end — the arc is thin, and a drag that wanders off it
         /// should track rather than jump.
+        ///
+        /// **`theta` is brought onto this arc's own turn first**, and that is
+        /// not a nicety. `angle(of:about:)` normalises to (−180, 180], while
+        /// the left arc runs 115°…245° — so every point on its lower half came
+        /// back negative (the bottom of the arc, 245°, arrives as −115°), fell
+        /// outside the span, and clamped to **1**. Dragging the lower half of
+        /// the saturation arc did not move it down; it slammed it to maximum.
+        ///
+        /// The right arc spans −65°…65°, never crosses the seam, and was
+        /// always fine — which is why this looked like a wheel bug rather than
+        /// an arithmetic one.
+        ///
+        /// The unit tests did not catch it because they call this function
+        /// with the arc's *own* angles (`bottomTheta(.left)` is 245) and the
+        /// view calls it with what `angle(of:about:)` returns. Two domains,
+        /// one function, and the seam between them is where the defect lived.
         static func value(atAngle theta: Double, on side: Side, in range: ClosedRange<Double>) -> Double {
-            let span = topTheta(side) - bottomTheta(side)
-            let f = ((theta - bottomTheta(side)) / span).clamped(to: 0...1)
+            let bottom = bottomTheta(side), top = topTheta(side)
+            let mid = (bottom + top) / 2
+            var t = theta
+            while t - mid > 180 { t -= 360 }
+            while t - mid < -180 { t += 360 }
+            let f = ((t - bottom) / (top - bottom)).clamped(to: 0...1)
             return range.lowerBound + f * (range.upperBound - range.lowerBound)
         }
 
