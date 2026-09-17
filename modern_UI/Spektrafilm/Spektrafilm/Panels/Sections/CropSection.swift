@@ -106,7 +106,7 @@ struct CropSection: View {
     /// straighten slider's range.
     private var turnsRow: some View {
         HStack(spacing: 0) {
-            Text("Rotate").font(Theme.Font.label).foregroundStyle(Theme.text)
+            Text("Rotate").font(Theme.Font.label).foregroundStyle(Theme.Ink.secondary)
                 .frame(width: Theme.Metric.sliderLabelWidth, alignment: .leading)
             HStack(spacing: 6) {
                 glyph("rotate.left", "Rotate left (⌥⌘[)") { session.geometry = g.turned(by: -1) }

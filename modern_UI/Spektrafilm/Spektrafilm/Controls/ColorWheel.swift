@@ -180,7 +180,7 @@ struct ZoneWheel: View {
 
     @ViewBuilder private var labelText: some View {
         if let label {
-            Text(label).font(Theme.Font.sublabel).foregroundStyle(Theme.secondaryText).lineLimit(1)
+            Text(label).font(Theme.Font.sublabel).foregroundStyle(Theme.Ink.tertiary).lineLimit(1)
         } else {
             Color.clear.frame(height: 0)
         }

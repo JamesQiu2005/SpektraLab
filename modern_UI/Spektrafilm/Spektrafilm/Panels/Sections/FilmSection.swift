@@ -31,6 +31,10 @@
 import SwiftUI
 
 struct FilmSection: View {
+    /// Rows of the film well on screen before it scrolls. **Odd** — see
+    /// `StockList.visibleRows`, and `testStockListShowsAnOddNumberOfRows`.
+    static let wellRows = 5
+
     @Bindable var session: Session
     /// Display only; the wire is always millimetres. An app preference rather
     /// than part of a frame's settings, because "show me inches" is a fact
@@ -47,7 +51,7 @@ struct FilmSection: View {
             VStack(alignment: .leading, spacing: 0) {
                 StockList(rows: session.catalog.filmsForPicker.map {
                     StockList.Row(id: $0.id, name: $0.name, isCine: $0.isCine, help: "")
-                }, selected: session.params.filmStock, visibleRows: 6) { id in
+                }, selected: session.params.filmStock, visibleRows: Self.wellRows) { id in
                     select(id)
                 }
                 RailRows {
@@ -140,8 +144,19 @@ struct StockList: View {
 
     let rows: [Row]
     let selected: String?
-    /// How many rows of the well are on screen before it scrolls. The drawing
-    /// gives the film list 6.5 and the print list 5.
+    /// How many rows of the well are on screen before it scrolls.
+    ///
+    /// **This has to be odd**, and the reason is the scroll below. Centring
+    /// the selected row puts *its* centre on the viewport's centre, so the
+    /// rows land on the well's edges only when there is a whole number of
+    /// rows either side of the middle one — that is, when the count is odd.
+    /// At an even count every row sits half a row out of register and the
+    /// well cuts the first and last ones through the glyphs, which is what
+    /// the film list was doing at 6: a well full of sliced type, which reads
+    /// as a grey block rather than as a list.
+    ///
+    /// The drawing shows five in each. `visibleRowsAreOdd` in
+    /// `SpektrafilmTests/LayoutTests.swift` is what keeps it that way.
     var visibleRows: Int
     let select: (String) -> Void
 
@@ -157,7 +172,7 @@ struct StockList: View {
                         if row.isHeader {
                             Text(row.name)
                                 .font(Theme.Font.groupHeader)
-                                .foregroundStyle(Theme.secondaryText)
+                                .foregroundStyle(Theme.Ink.tertiary)
                                 .padding(.leading, Theme.Metric.wellPadding)
                                 .frame(maxWidth: .infinity, alignment: .leading)
                                 .frame(height: Theme.Metric.listRowHeight)
@@ -167,6 +182,7 @@ struct StockList: View {
                         }
                     }
                 }
+                .padding(.vertical, Theme.Metric.wellVPadding)
             }
             .onAppear { if let selected { proxy.scrollTo(selected, anchor: .center) } }
             .onChange(of: selected) { _, new in
@@ -174,7 +190,8 @@ struct StockList: View {
                 withAnimation(.easeOut(duration: 0.2)) { proxy.scrollTo(new, anchor: .center) }
             }
         }
-        .frame(height: Theme.Metric.listRowHeight * CGFloat(visibleRows))
+        .frame(height: Theme.Metric.listRowHeight * CGFloat(visibleRows)
+                     + Theme.Metric.wellVPadding * 2)
         .background(Theme.well)
         .clipShape(RoundedRectangle(cornerRadius: Theme.Metric.wellRadius, style: .continuous))
         .padding(.horizontal, Theme.Metric.wellInset)
@@ -194,7 +211,10 @@ struct StockRow: View {
         HStack(spacing: 4) {
             Text(row.name)
                 .font(Theme.Font.listItem)
-                .foregroundStyle(selected ? Theme.onSelection : Theme.text)
+                // An unselected row is a thing being offered, not a thing
+                // being said; the selected one is the answer and keeps the
+                // full-strength ink against the band.
+                .foregroundStyle(selected ? Theme.onSelection : Theme.Ink.secondary)
                 .lineLimit(1)
             Spacer(minLength: 0)
             if row.isCine { CinePill().padding(.trailing, Theme.Metric.cinePillTrailing) }

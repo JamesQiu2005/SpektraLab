@@ -163,4 +163,34 @@ final class LayoutTests: XCTestCase {
         let canvas = m.minWindow.width - m.leftPanelWidth - m.rightPanelWidth
         XCTAssertGreaterThanOrEqual(canvas, 400)
     }
+
+    /// A list well shows an **odd** number of rows.
+    ///
+    /// `StockList` keeps the chosen stock in view by centring it, which puts
+    /// that row's centre on the viewport's centre. The rows then land on the
+    /// well's edges only when a whole number of them fits either side of the
+    /// middle one — an odd count. At an even count every row sits half a row
+    /// out of register, and the well cuts its first and last rows through the
+    /// glyphs: the film list shipped at 6 and did exactly that.
+    ///
+    /// This asserts the property rather than the number, so raising a list to
+    /// seven rows is fine and slipping back to six is not.
+    func testStockListShowsAnOddNumberOfRows() {
+        for (name, count) in [("film", FilmSection.wellRows), ("print", PrintProfileSection.wellRows)] {
+            XCTAssertEqual(count % 2, 1,
+                           "the \(name) well shows \(count) rows; an even count "
+                         + "half-steps the scroll and slices the first and last row")
+        }
+    }
+
+    /// The rows inside a well clear its corner radius.
+    ///
+    /// Without this the 11.5 pt radius cuts the corners off the first and
+    /// last rows, and a row that ends in a curve reads as a row that has been
+    /// sliced — the same defect as the even-row-count one, from the other end.
+    func testWellPaddingClearsItsOwnCornerRadius() {
+        XCTAssertGreaterThanOrEqual(Theme.Metric.wellVPadding,
+                                    Theme.Metric.wellRadius / 2,
+                                    "a row would be clipped by the well's corner")
+    }
 }

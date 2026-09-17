@@ -40,7 +40,7 @@ struct PillMenu<T: Hashable>: View {
 
     var body: some View {
         HStack(spacing: 0) {
-            Text(label).font(font).foregroundStyle(Theme.text)
+            Text(label).font(font).foregroundStyle(Theme.Ink.secondary)
                 .lineLimit(1)
                 .frame(width: labelWidth, alignment: .leading)
             if !fill { Spacer(minLength: 0) }
@@ -66,14 +66,21 @@ struct PillMenu<T: Hashable>: View {
                         .padding(.trailing, 9)
                 }
                 .frame(height: Theme.Metric.controlHeight)
-                .frame(maxWidth: fill ? .infinity : Theme.Metric.pickerWidth)
+                // `width`, not `maxWidth`. A maximum with `fixedSize` under
+                // it resolves to the *intrinsic* width, so every non-filling
+                // pill came out as wide as its own word — Film Type 42 pt,
+                // Side 44 pt, the unit pill narrower again — and the trailing
+                // column had a different left edge on every row. The drawing
+                // gives them one width and one left edge; this is that.
+                .frame(width: fill ? nil : Theme.Metric.pickerWidth)
+                .frame(maxWidth: fill ? .infinity : nil)
                 .background(plate, in: Capsule())
                 .contentShape(Capsule())
             }
             .menuStyle(.button)
             .buttonStyle(.plain)
             .menuIndicator(.hidden)
-            .fixedSize(horizontal: !fill, vertical: false)
+            .fixedSize(horizontal: false, vertical: false)
         }
         .frame(height: Theme.Metric.rowHeight)
         .rowEnabled(enabled, because: reason)
@@ -103,7 +110,7 @@ struct UnitField: View {
 
     var body: some View {
         HStack(spacing: 0) {
-            Text(label).font(Theme.Font.label).foregroundStyle(Theme.text)
+            Text(label).font(Theme.Font.label).foregroundStyle(Theme.Ink.secondary)
                 .lineLimit(1)
                 .frame(width: Theme.Metric.sliderLabelWidth, alignment: .leading)
             Spacer(minLength: 0)
@@ -124,7 +131,7 @@ struct UnitField: View {
                     // "mm" *and* a chevron, so its padding is tighter than
                     // every other pill's. At the menu pill's 10/9 it had 13 pt
                     // for the word and showed "…".
-                    Text(unit.title).font(Theme.Font.label).foregroundStyle(Theme.text)
+                    Text(unit.title).font(Theme.Font.label).foregroundStyle(Theme.Ink.tertiary)
                         .fixedSize()
                         .padding(.leading, 6)
                     Spacer(minLength: 2)

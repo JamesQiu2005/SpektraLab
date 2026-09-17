@@ -112,7 +112,7 @@ struct AsShotLine: View {
     var enabled: Bool
     var body: some View {
         HStack(spacing: 3) {
-            Text("As Shot").font(Theme.Font.sublabel).foregroundStyle(Theme.secondaryText)
+            Text("As Shot").font(Theme.Font.sublabel).foregroundStyle(Theme.Ink.tertiary)
             CheckBox(isOn: $isOn).padding(.vertical, -6)
             Spacer(minLength: 0)
         }

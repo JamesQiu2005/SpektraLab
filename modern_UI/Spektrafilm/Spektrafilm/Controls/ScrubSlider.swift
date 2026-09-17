@@ -55,7 +55,7 @@ struct ScrubSlider: View {
             HStack(spacing: 0) {
                 Text(label)
                     .font(metrics.labelFont)
-                    .foregroundStyle(Theme.text)
+                    .foregroundStyle(Theme.Ink.secondary)
                     .frame(width: metrics.labelWidth, alignment: .leading)
                     .lineLimit(1)
                 track
@@ -70,7 +70,7 @@ struct ScrubSlider: View {
             if let sublabelView {
                 sublabelView.frame(height: Theme.Metric.subRowHeight, alignment: .leading)
             } else if let sublabel {
-                Text(sublabel).font(Theme.Font.sublabel).foregroundStyle(Theme.secondaryText)
+                Text(sublabel).font(Theme.Font.sublabel).foregroundStyle(Theme.Ink.tertiary)
                     .lineLimit(1)
                     .frame(height: Theme.Metric.subRowHeight, alignment: .leading)
             }
@@ -95,9 +95,12 @@ struct ScrubSlider: View {
                     if let g = trackGradient {
                         Capsule().fill(LinearGradient(colors: g, startPoint: .leading, endPoint: .trailing))
                     } else {
-                        // `.st13`, the ground — not a dim grey of its own.
-                        // That is the whole reason the track is 1.5 pt: at any
-                        // more weight it would read as a divider.
+                        // `.st13`, the ground — not a dim grey of its own, so
+                        // the track carries no colour the rail does not
+                        // already use. What separates it from a divider is
+                        // that a divider is 1 pt and `rule`-coloured while
+                        // this is 3 pt and darker; at the 1.5 pt it used to
+                        // be, it was *thinner* than the hairlines around it.
                         Capsule().fill(Theme.ground)
                     }
                 }
@@ -186,7 +189,13 @@ struct CheckBox: View {
     var body: some View {
         Button { isOn.toggle() } label: {
             ZStack {
-                RoundedRectangle(cornerRadius: 1).stroke(Theme.text, lineWidth: 1)
+                // Off, this is an empty box; drawn in `text` it was a bright
+                // white square and the loudest mark in its row, which put
+                // more emphasis on an unchecked option than on the label
+                // naming it. The accent still carries "on" — the empty state
+                // is metadata and is inked like it.
+                RoundedRectangle(cornerRadius: 1)
+                    .stroke(isOn ? Theme.accent : Theme.Ink.tertiary, lineWidth: 1)
                 if isOn { RoundedRectangle(cornerRadius: 0.5).fill(Theme.accent).padding(1.6) }
             }
             .frame(width: Theme.Metric.checkbox, height: Theme.Metric.checkbox)
@@ -210,7 +219,7 @@ struct ToggleRow: View {
     var reason: String = ""
     var body: some View {
         HStack(spacing: 0) {
-            Text(label).font(Theme.Font.label).foregroundStyle(Theme.text)
+            Text(label).font(Theme.Font.label).foregroundStyle(Theme.Ink.secondary)
             Spacer(minLength: 4)
             CheckBox(isOn: $isOn).padding(.trailing, -6)
         }

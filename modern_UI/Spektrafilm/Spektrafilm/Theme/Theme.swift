@@ -6,8 +6,12 @@
 //  3840×2160 canvas — a 1920×1080 window at 2× — and every editor number
 //  below is that drawing's value divided by two. The **export page** is
 //  `reference_layout/Export_Page/export_page.svg` and keeps its own nested
-//  `Metric.Export` / `Font.Export`; it was not redrawn and nothing here
-//  changes it.
+//  `Metric.Export`.
+//
+//  `Font.Export` is **no longer its own ramp**: it aliases the editor's, so
+//  the two pages agree about what a label and a list row are. Its metrics
+//  have not been revisited and the page still draws rounded cards — see the
+//  note on `cardRadius`. That page's visual rework is not done.
 //
 //  Nothing in a view file may carry a literal colour or size that could have
 //  come from here — that is the rule that keeps the interface matching the
@@ -274,8 +278,12 @@ enum Theme {
 
         static let headerHeight: CGFloat = 30
         /// Air under a section's content, before the next hairline. The
-        /// drawing's are 14.6 (Camera), 10 (Film) and 10.75 (Print).
-        static let sectionBottom: CGFloat = 12
+        /// drawing's are 14.6 (Camera), 10 (Film) and 10.75 (Print) — but
+        /// those are the gaps *below* content that already sits on roomier
+        /// rows. Taken with `rowSpacing` below, 16 is what reproduces the
+        /// drawing's own breathing: its largest gap inside the left rail
+        /// measures 35.5 pt against the built rail's 24.
+        static let sectionBottom: CGFloat = 16
         /// Leading inset of the disclosure triangle's 18 pt box, so the
         /// triangle itself lands on the drawing's x 11.
         static let headerLeading: CGFloat = 7
@@ -297,20 +305,26 @@ enum Theme {
         /// Inset of a control row from both edges of the rail.
         static let rowInset: CGFloat = 18
         /// The line box one control sits in.
-        static let rowHeight: CGFloat = 20
+        static let rowHeight: CGFloat = 22
         /// A control's own height — every pill, field and menu in the
         /// interface (the drawing's 27.8 / 2).
         static let controlHeight: CGFloat = 14
         /// Between two row blocks.
-        static let rowSpacing: CGFloat = 5
+        ///
+        /// This and `rowHeight` are where "everything is vertically
+        /// compressed" was. At 20/5 the nine rows of the Camera section
+        /// closed 36 pt earlier than the drawing's; 22/9 is that 36 pt given
+        /// back to the gaps rather than to the rows, because the drawing's
+        /// rows are not tall — its *spaces* are.
+        static let rowSpacing: CGFloat = 9
         /// The second line of a slider row: "As Shot" and its box.
-        static let subRowHeight: CGFloat = 15
+        static let subRowHeight: CGFloat = 16
         /// The label column. The drawing's is 68.35 (its labels start at
         /// 17.6 and its first control at 86.35) and `Film Exposure` fills
         /// 66 of it *there*, at Illustrator's optical size. macOS sets the
         /// same string wider, so the column is 74 — a truncated label is
         /// worse than a column six points wide.
-        static let sliderLabelWidth: CGFloat = 74
+        static let sliderLabelWidth: CGFloat = 84
         /// The value pill at the end of a slider row (87.5 / 2).
         static let sliderValueWidth: CGFloat = 44
         /// Between the track and that pill (191.85 − 176.8).
@@ -324,8 +338,9 @@ enum Theme {
         static let fieldWidth: CGFloat = 50
         static let unitWidth: CGFloat = 38
         /// A label-and-checkbox row (Grain / Halation / Glare / Lens
-        /// Correction): the drawing's pitch is 21.25–22.25.
-        static let toggleRowHeight: CGFloat = 17
+        /// Correction): the drawing's pitch is 21.25–22.25, and 17 was under
+        /// the bottom of that range rather than in it.
+        static let toggleRowHeight: CGFloat = 21
         /// Corner radius of a control that is **not** a capsule: the value
         /// pills and the Side Length field, drawn `rx 8.5` against the
         /// menus' `rx 13.9` (= half their height, i.e. a capsule).
@@ -347,6 +362,15 @@ enum Theme {
         static let wellRadius: CGFloat = 11.5
         /// Text inset inside a well, and inside a list row.
         static let wellPadding: CGFloat = 12
+        /// Air above the first row and below the last, **inside** the well.
+        ///
+        /// Without it the rows run flush to the well's own edge, so the
+        /// 11.5 pt corner radius cuts the corners off the first and last
+        /// rows and the selection band — a row that ends in a curve reads as
+        /// a row that has been sliced. The drawing insets them; this is that
+        /// inset, and it is also what stops a scrolled list presenting a
+        /// half-row against the boundary.
+        static let wellVPadding: CGFloat = 8
         /// A row in the film or print list (39.2 / 2). The selection band is
         /// exactly this tall and exactly the well's width, which is what
         /// "shallow, instead of framed square" means.
@@ -366,19 +390,22 @@ enum Theme {
 
         // MARK: sliders
 
-        /// Track height, 2.7 / 2. Thin, and the drawing means it: the track
-        /// is the same grey as the ground, so weight is the only thing
-        /// separating it from a divider.
-        static let trackHeight: CGFloat = 1.5
-        /// The knob. The drawing's is `12.3 × 10.1 rx 5.1` → 6.15 × 5.05,
-        /// fully rounded — a dot. 7 is that, rounded up to something a
-        /// pointer can find.
-        static let knobSize = CGSize(width: 7, height: 7)
-        static let knobRadius: CGFloat = 3.5
+        /// Track height. The drawing's is 2.7 / 2 = 1.35, and taking it
+        /// literally is what made the sliders read as debug controls: a
+        /// 1.5 pt track in the *same grey as the ground* is thinner than the
+        /// hairlines around it, so the one control you drag was the faintest
+        /// mark on the rail. 3 is still a hairline's cousin and is a thing
+        /// you can see and aim at.
+        static let trackHeight: CGFloat = 3
+        /// The knob. The drawing's is `12.3 × 10.1 rx 5.1` → 6.15 × 5.05, a
+        /// dot; at 7 it was smaller than the value pill's corner radius. 10
+        /// reads as a handle and still sits inside the row.
+        static let knobSize = CGSize(width: 10, height: 10)
+        static let knobRadius: CGFloat = 5
         /// The checkbox. `9.9 × 9.9` with a 1 pt `#faf8f4` stroke → 5 pt of
-        /// accent inside a white box; 8 is that at a size the eye resolves,
+        /// accent inside a white box; 9 is that at a size the eye resolves,
         /// and its hit area is padded well past it.
-        static let checkbox: CGFloat = 8
+        static let checkbox: CGFloat = 9
 
         // MARK: glyphs
 
@@ -612,49 +639,113 @@ enum Theme {
 
     // MARK: type ramp
     //
-    // Measured off the drawing's outlines. Cap heights, halved: a section
-    // title ("Camera", "White Balance") is 8.1–8.8 pt, so a 12 pt face; a row
-    // label and a list row are 7.25, so 10.5; "As Shot" is smaller again, and
-    // the two actions under the print list are set a step up from a label.
+    // ## Why this is four sizes and one weight
     //
-    // Everything on this rail is **semibold or heavier**. The drawing sets
-    // every string in a bold face, and at 10.5 pt on a dark ground a regular
-    // weight disappears.
+    // The ramp this replaces had six sizes (12, 11.5, 10.5, 10, 9, 7) and
+    // four weights scattered across eleven roles, with `listItem`, `label`,
+    // `value` and `tab` all landing on 10.5 — four different jobs at one
+    // size, told apart by weight alone. The result is what the user called
+    // headers, labels, values, metadata and list items competing instead of
+    // forming a hierarchy, and it is measurable:
+    //
+    //     metric                     drawing   that ramp
+    //     ink-height spread            4.0 pt     7.0 pt
+    //     stem-width spread            1.0 px     2.41 px
+    //
+    // The drawing is *tighter* than the interface was, not looser. It sets
+    // nearly one size and one weight — its section title and its list rows
+    // measure the same stem to a tenth of a pixel — and gets its hierarchy
+    // from **colour, position and space**. Six sizes and four weights read as
+    // noise, and no amount of it makes a rail legible.
+    //
+    // ## One weight, and why that is the fix rather than the problem
+    //
+    // "Too uniformly bold" reads like an instruction to unbold something, and
+    // the first attempt at this ramp did exactly that — bold title, semibold
+    // body, semibold meta. It made the measurement **worse**: stem spread
+    // went from 2.41 px to 2.99 px against the drawing's 1.00.
+    //
+    // The drawing's stems are uniform because the drawing is set in one
+    // weight — Illustrator exports it as `SFPro-Bold` on every text class it
+    // has — and this app is SF Pro bold throughout by house style. A ramp
+    // that mixes weights cannot be uniform, so mixing weights is the thing
+    // that breaks it. The complaint is real and it is not about the face: it
+    // is that eleven roles at one *size* in one *ink* have nothing left to
+    // tell them apart.
+    //
+    // So the weight stays put and the other two axes do the work:
+    //
+    //     size   12.5 title · 11 body · 9.5 meta        (three, was six)
+    //     ink    primary · secondary · tertiary          (see `Ink`)
+    //
+    // `mean stem width` is *not* a target to chase: Illustrator's rasteriser
+    // lays down thinner stems than the macOS text system at the same nominal
+    // weight, so the reference reads ~1 px light no matter what the app does.
+    // The honest metric across the two is the **spread**, where that bias
+    // cancels. Measured by `Tools/compare-design.swift`.
 
     enum Font {
-        static let sectionTitle = SwiftUI.Font.system(size: 12, weight: .bold)
-        /// A row in the film or print list.
-        static let listItem = SwiftUI.Font.system(size: 10.5, weight: .semibold)
-        static let groupHeader = SwiftUI.Font.system(size: 10, weight: .semibold)
-        /// A control row's label, and the value inside a menu pill.
-        static let label = SwiftUI.Font.system(size: 10.5, weight: .semibold)
-        /// "As Shot", and any second line under a label.
-        static let sublabel = SwiftUI.Font.system(size: 9, weight: .medium)
-        /// A number in a value pill or a field.
-        static let value = SwiftUI.Font.system(size: 10.5, weight: .medium).monospacedDigit()
-        static let tab = SwiftUI.Font.system(size: 10.5, weight: .semibold)
-        static let caption = SwiftUI.Font.system(size: 9, weight: .regular)
-        static let pill = SwiftUI.Font.system(size: 10, weight: .semibold).monospacedDigit()
-        /// Process / Original, one step up from a label.
-        static let action = SwiftUI.Font.system(size: 11.5, weight: .semibold)
-        /// The `CINE` pill. Small, and the drawing draws it small: 27.6 pt of
-        /// pill has to hold four letters and its own padding.
-        static let cine = SwiftUI.Font.system(size: 7, weight: .bold)
+        /// The one size above `body`, and the top of the hierarchy.
+        static let sectionTitle = SwiftUI.Font.system(size: 12.5, weight: .bold)
 
-        /// The export page's ramp — **the same sizes, in a heavier face**.
-        /// The drawing sets `font-weight: 700` on every text class it has
-        /// (`SFPro-Bold`), where the editor's sets semibold on the labels and
-        /// regular on the captions. Its pixel sizes halve onto this ramp
-        /// exactly: 21 px titles and labels → 10.5, 24 px list rows → 12,
-        /// 18 px the quality readout → 9, 15.34 px the zoom pill → 8.
+        /// **The workhorse.** A label, a list row, a value, a tab, an action
+        /// and a pill are all this. They are not peers because they share a
+        /// size — they are told apart by `Ink`.
+        static let body = SwiftUI.Font.system(size: 11, weight: .bold)
+        static let listItem = body
+        static let label = body
+        static let tab = body
+        static let action = body
+        static let value = SwiftUI.Font.system(size: 11, weight: .bold).monospacedDigit()
+        static let pill = value
+
+        /// One step down, for text that is *about* a control rather than part
+        /// of it: "As Shot", a group's eyebrow, a caption under a plot. It is
+        /// `Ink.tertiary` wherever it is used, and the two together are what
+        /// stop metadata competing with the row it belongs to.
+        static let meta = SwiftUI.Font.system(size: 9.5, weight: .bold)
+        static let sublabel = meta
+        static let groupHeader = meta
+        static let caption = meta
+
+        /// The `CINE` badge, which has to hold four letters inside 28 pt of
+        /// pill, and is the one place a fourth size is earned.
+        static let cine = SwiftUI.Font.system(size: 8, weight: .bold)
+
+        /// The export page's ramp is **the same ramp**.
+        ///
+        /// It used to be six roles at `.bold` — every string on the page in
+        /// the heaviest face there is, which is the flattest hierarchy
+        /// available and the reason the page read as a wall. The drawing does
+        /// set `font-weight: 700` on its text classes, but a drawing sets one
+        /// weight because an Illustrator artboard has no semibold; that is a
+        /// fact about the export, not an instruction. The page's sizes were
+        /// also its own (10.5 / 12 / 9 / 8), so the two pages disagreed about
+        /// what a list row is. They agree now.
         enum Export {
-            static let sectionTitle = SwiftUI.Font.system(size: 10.5, weight: .bold)
-            static let label = SwiftUI.Font.system(size: 10.5, weight: .bold)
-            static let listItem = SwiftUI.Font.system(size: 12, weight: .bold)
-            static let chip = SwiftUI.Font.system(size: 10.5, weight: .bold)
-            static let value = SwiftUI.Font.system(size: 9, weight: .bold)
-            static let pill = SwiftUI.Font.system(size: 8, weight: .bold)
+            static let sectionTitle = Font.sectionTitle
+            static let label = Font.body
+            static let listItem = Font.body
+            static let chip = Font.body
+            static let value = Font.value
+            static let pill = Font.meta
         }
+    }
+
+    // MARK: ink
+    //
+    // The hierarchy the ramp above deliberately does not carry. One size of
+    // type in three inks reads as three levels; three sizes of type in one
+    // ink reads as a mess, which is what the rail was doing.
+
+    enum Ink {
+        /// A section title, a value, a selected list row — the thing being
+        /// said.
+        static let primary = text
+        /// A control's label, an unselected list row — the thing being asked.
+        static let secondary = secondaryText
+        /// Metadata: "As Shot", captions, an inactive tab, a unit.
+        static let tertiary = dim
     }
 }
 

@@ -26,6 +26,10 @@
 import SwiftUI
 
 struct PrintProfileSection: View {
+    /// Rows of the print well on screen before it scrolls. **Odd** — see
+    /// `StockList.visibleRows`, and `testStockListShowsAnOddNumberOfRows`.
+    static let wellRows = 5
+
     @Bindable var session: Session
 
     /// The sentinel `StockList` row id for "No Print Profile". It is not a
@@ -53,7 +57,7 @@ struct PrintProfileSection: View {
             VStack(alignment: .leading, spacing: 0) {
                 StockList(rows: rows,
                           selected: session.params.scanFilm ? Self.positiveID : session.params.printStock,
-                          visibleRows: 5) { id in
+                          visibleRows: Self.wellRows) { id in
                     if id == Self.positiveID {
                         var p = session.params; p.scanFilm = true; session.params = p
                     } else {

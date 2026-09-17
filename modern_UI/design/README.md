@@ -25,10 +25,43 @@ shapes that matter: MacBook Pro 14" (1512×982), 16:9 (1920×1080) and the 21:9
 display (3360×1418).
 
 `measure-layout.swift` reads the capture and prints, in points, the three
-regions' edges, the floating bar's rectangle and every hairline in both rails,
-which is what the 2026-09-17 drawing is made of. Under 2.5 pt of drift is a
-pass; the run recorded on 2026-09-17 was **exact** at all three shapes — left
-rail 0…254, right 1632…1920, filmstrip 948…1080, bar y 5…36 inset 9/9.
+regions' edges, the floating bar's rectangle and every hairline in both rails.
+Under 2.5 pt of drift is a pass; the run recorded on 2026-09-17 was **exact**
+at all three shapes — left rail 0…254, right 1632…1920, filmstrip 948…1080,
+bar y 5…36 inset 9/9.
+
+**That pass meant much less than it sounded like**, and this is the cautionary
+note the harness exists under now. The interface it graded exact was the one
+the user rejected outright: the type carried its hierarchy in neither size nor
+ink, the film well cut its first and last rows through the glyphs, the left
+rail drew five equal hairlines where the drawing draws three, and the Film
+Type and Side pills were each as wide as their own word. None of those is an
+edge, a bar or a hairline *position*, so none of them was measured.
+
+The reason the gap could hide is worth keeping in mind whenever the drawing is
+consulted: `sample_frontend.svg` contains 74 rectangles and **one empty
+`<text/>` node**. Illustrator exported its type — SF Pro, which is what the
+app is set in — as outlines and linked rasters, so a validator that reads the
+SVG can confirm every rectangle in it and never learn that typography exists.
+
+```
+Tools/compare-design.swift <capture.png> <reference.png> [scale]
+```
+
+is the second half. It resamples the drawing's *render* onto the capture's own
+pixel grid — `main_page.png` is 3706 × 2094 inside a **ground-grey** matte, so
+it is neither the artboard nor a whole multiple of it — and then compares the
+things an edge cannot show: separator inventory, text-line count, ink height
+and stem width (and the spread of each), control heights and widths and their
+right-edge scatter, well extents and whether any well clips a row, and the
+rail's ink distribution. It exits non-zero on drift.
+
+Two of its numbers, `mean ink height` and `mean stem width`, print as
+`(context)` and never fail a run. Illustrator's rasteriser lays down thinner,
+smaller ink than the macOS text system at the same nominal weight, so the
+reference reads about 1 px light whatever the app does; chasing it would mean
+shipping type lighter than the house face. The paired **spread** is the gate,
+because that bias is common to every role and cancels.
 
 `compare-layout.py` measured the *previous* drawing's four floating cards.
 There are no cards to find any more, and it needs Pillow, which this

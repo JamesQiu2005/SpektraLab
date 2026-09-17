@@ -263,3 +263,56 @@ Listed in one place, because these are the ones to argue with:
 - `leftPanelRange` 232…380 — nothing in the drawing bounds a rail it draws at
   one width; the floor is the AE Method row's own content and the ceiling is
   where the only thing still growing is a slider's track.
+
+## 12. 2026-09-17, later: what the rectangles could not say
+
+The tokens above are all derived from the drawing's **rectangles**, and every
+one of them still holds. The interface built from them was rejected anyway,
+and the reason is in the derivation's own blind spot: `sample_frontend.svg`
+has 74 rectangles and one empty `<text/>` node, so nothing in this document
+could be about type, weight, ink or rhythm. Section 0 says `main_page.png` is
+"used here for **appearance** … and never for geometry" — but typography *is*
+geometry, and it only exists in that render.
+
+`Tools/compare-design.swift` measures it there, and these tokens moved as a
+result. The numbers are the drawing's render resampled onto the capture's grid
+(scale 1.9204, ground-grey matte at 9, 12).
+
+| token | was | now | why |
+|---|---|---|---|
+| `Font` sizes | 12 / 11.5 / 10.5 / 10 / 9 / 7 | 12.5 / 11 / 9.5 / 8 | six sizes over eleven roles read as noise; the drawing's ink-height spread is 4.0 pt against the built rail's 7.0 |
+| `Font` weights | bold / semibold / medium / regular | **bold throughout** | the drawing is one weight, so its stem spread is 1.0 px; mixing weights took the built rail to 2.99. Unbolding made it *worse* |
+| `Ink` | — | primary / secondary / tertiary | the hierarchy the ramp deliberately stopped carrying |
+| `rowSpacing` | 5 | 9 | the drawing's largest gap in the left rail is 35.5 pt; the built rail's was 24 |
+| `rowHeight` | 20 | 22 | with the above, gives back the 36 pt the Camera section was short |
+| `toggleRowHeight` | 17 | 21 | the drawing's pitch is 21.25–22.25 and 17 was under it |
+| `sectionBottom` | 12 | 16 | as `rowSpacing` |
+| `trackHeight` | 1.5 | 3 | a 1.5 pt track in the ground's own grey is *thinner than the hairlines beside it* |
+| `knobSize` | 7 | 10 | smaller than the value pill's corner radius |
+| `sliderLabelWidth` | 74 | 84 | "Film Exposure" truncates in the bold face at 74 |
+| `wellVPadding` | — | 8 | rows ran flush into the 11.5 pt corner radius |
+| `checkbox` | 8 | 9 | and its *off* state is inked `tertiary`, not `text` |
+
+Three defects were structural rather than numeric, and are recorded here
+because a token cannot hold them:
+
+- **The film well showed six rows.** `StockList` centres the selected row, so
+  the rows land on the well's edges only at an **odd** count; at six, every
+  row sat half a row out of register and the first and last were cut through
+  the glyphs. Now five, asserted by `testStockListShowsAnOddNumberOfRows`.
+- **A rule after the last section.** `LeftPanel` was `Section(); Hairline()`
+  repeated, which draws a border under the final section against empty rail,
+  and with a collapsed Crop last it put two rules 31 pt apart. The hairlines
+  go *between* sections now, and the rail carries four where it carried five
+  — the drawing has three.
+- **Non-filling pills hugged their text.** `.frame(maxWidth:)` under a
+  `.fixedSize(horizontal: true)` resolves to the intrinsic width, so Film Type
+  came out 42 pt and Side 44 pt with a different left edge on each row.
+
+### Still drifting
+
+`rule count` 4 v 3, `last ink` 883 v 780 — the rail holds more content than
+the drawing does, which is a product decision (catalogue length, how many
+sections) and not a token. `control width spread` now reads 96 against 111
+because the pills are *more* uniform than the drawing's, which is drift in the
+harmless direction. The export page has not been through any of this.

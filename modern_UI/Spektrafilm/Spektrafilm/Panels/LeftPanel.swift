@@ -22,23 +22,39 @@ struct LeftPanel: View {
             header
             Hairline()
             ScrollView(.vertical, showsIndicators: false) {
+                // A hairline **between** sections, never after the last one.
+                //
+                // The stack used to be `Section(); Hairline()` repeated, which
+                // draws a rule under the final section against empty rail —
+                // a bottom border, not a separator, and the rail has no
+                // bottom to border. With a collapsed Crop last it also put
+                // two rules 31 pt apart, which is a band, and a column of
+                // equal bands is exactly the "looks like a spreadsheet" the
+                // drawing does not have: it carries three rules where this
+                // carried five.
+                //
+                // Written as a separated list so the invariant is structural
+                // and adding a section cannot reintroduce the trailing rule.
                 VStack(spacing: 0) {
-                    CameraSection(session: session)
-                    Hairline()
-                    FilmSection(session: session)
-                    Hairline()
-                    PrintProfileSection(session: session)
-                    Hairline()
-                    CropSection(session: session)
-                    Hairline()
-                    // Not in the drawing, and kept anyway: the enlarger is
-                    // the only access to `print_exposure` and the two filter
-                    // axes, and the PRD does not ask for them to go. Last, so
-                    // the four sections that *are* drawn are the four you see
-                    // without scrolling.
-                    EnlargerSection(session: session)
-                    Hairline()
-                    if FeatureFlags.masks { MasksSection(session: session); Hairline() }
+                    let sections: [(String, AnyView)] =
+                        [("camera", AnyView(CameraSection(session: session))),
+                         ("film", AnyView(FilmSection(session: session))),
+                         ("print", AnyView(PrintProfileSection(session: session))),
+                         ("crop", AnyView(CropSection(session: session)))]
+                        // The enlarger is **not in the drawing** and is behind
+                        // a flag now rather than merely last: it put a fifth
+                        // section into a rail the drawing gives four, and its
+                        // Yellow/Magenta rows are the gap the reconstruction
+                        // handoff §9 still lists as open. `print_exposure` is
+                        // unchanged behind `FeatureFlags.enlarger`.
+                        + (FeatureFlags.enlarger
+                           ? [("enlarger", AnyView(EnlargerSection(session: session)))] : [])
+                        + (FeatureFlags.masks
+                           ? [("masks", AnyView(MasksSection(session: session)))] : [])
+                    ForEach(Array(sections.enumerated()), id: \.element.0) { index, entry in
+                        if index > 0 { Hairline() }
+                        entry.1
+                    }
                 }
             }
         }
