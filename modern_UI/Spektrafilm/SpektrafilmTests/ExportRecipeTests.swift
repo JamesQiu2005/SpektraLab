@@ -344,7 +344,7 @@ final class ExportRecipeTests: XCTestCase {
         edited.naming.move(.date, before: .filmStock)
         edited.colorSpace = .sRGB
         edited.format = .tiff
-        edited.outputSize = .custom(width: 2048, height: 1365)
+        edited.outputSize = .longEdge(2048)
         edited.openWith = OpenWith(path: "/Applications/Preview.app")
         store.selected = edited
 
@@ -388,6 +388,80 @@ final class ExportRecipeTests: XCTestCase {
         // And the fields it predates take their defaults rather than throwing.
         XCTAssertEqual(r.outputSize, .original)
         XCTAssertNil(r.openWith)
+    }
+
+    // MARK: - output size
+
+    /// The defect this replaced: two fields, each writing its own axis, and a
+    /// resample straight to `w × h`. Typing a width left the height where it
+    /// was, so the file came out stretched — "instead of both sides pixel
+    /// count change accordingly, only one side is exported".
+    ///
+    /// A long edge cannot express that, and this is the assertion that says
+    /// so: whatever the frame's shape, the written size has the *same* shape.
+    func testALongEdgeKeepsTheShapeOfTheFrame() throws {
+        let landscape = CGSize(width: 8256, height: 5504)   // 3:2
+        let portrait = CGSize(width: 5504, height: 8256)
+        let square = CGSize(width: 4000, height: 4000)
+
+        for source in [landscape, portrait, square] {
+            let out = try XCTUnwrap(OutputSize.longEdge(2000).pixels(for: source))
+            XCTAssertEqual(max(out.width, out.height), 2000,
+                           "\(source): the long edge is not the long edge")
+            // Aspect to within the rounding of one pixel on the short side.
+            let want = source.width / source.height
+            let got = out.width / out.height
+            XCTAssertEqual(got, want, accuracy: 1 / min(out.width, out.height),
+                           "\(source): the shape changed — \(out)")
+        }
+    }
+
+    /// Orientation-independence is the reason the control is a long edge at
+    /// all: one recipe runs over a batch, and a batch has both.
+    func testAPortraitAndALandscapeAgreeOnTheirLongSideAndNotOnTheirShort() throws {
+        let l = try XCTUnwrap(OutputSize.longEdge(1600).pixels(for: CGSize(width: 6000, height: 4000)))
+        let p = try XCTUnwrap(OutputSize.longEdge(1600).pixels(for: CGSize(width: 4000, height: 6000)))
+        XCTAssertEqual(l, CGSize(width: 1600, height: 1067))
+        XCTAssertEqual(p, CGSize(width: 1067, height: 1600))
+    }
+
+    func testOriginalAsksForNoResampleAtAll() {
+        XCTAssertNil(OutputSize.original.pixels(for: CGSize(width: 8256, height: 5504)))
+        XCTAssertTrue(OutputSize.original.isOriginal)
+        XCTAssertNil(OutputSize.original.edge)
+    }
+
+    /// A stray paste must not ask the device for a texture it will refuse.
+    func testTheLongEdgeIsBounded() {
+        XCTAssertEqual(OutputSize.clamped(1_000_000), .longEdge(OutputSize.bounds.upperBound))
+        XCTAssertEqual(OutputSize.clamped(0), .longEdge(OutputSize.bounds.lowerBound))
+        XCTAssertEqual(OutputSize.clamped(2048), .longEdge(2048))
+    }
+
+    /// A recipe saved before this change holds two numbers. Only the larger
+    /// one was ever reliably what the person meant — the other is whatever the
+    /// field it did not edit was left at — so that is the one that survives,
+    /// and the stretch does not come back with the file.
+    func testARecipeSavedWithTwoAxesReadsBackAsItsLongerSide() throws {
+        let json = #"{"custom":{"width":2048,"height":1365}}"#
+        let decoded = try JSONDecoder().decode(OutputSize.self, from: Data(json.utf8))
+        XCTAssertEqual(decoded, .longEdge(2048))
+
+        // Portrait, where the *height* is the long edge — the case a naive
+        // "read the width" migration gets backwards.
+        let tall = #"{"custom":{"width":1365,"height":2048}}"#
+        XCTAssertEqual(try JSONDecoder().decode(OutputSize.self, from: Data(tall.utf8)),
+                       .longEdge(2048))
+    }
+
+    func testTheOutputSizeRoundTripsThroughItsOwnJSON() throws {
+        for size in [OutputSize.original, .longEdge(4000)] {
+            let data = try JSONEncoder().encode(size)
+            XCTAssertEqual(try JSONDecoder().decode(OutputSize.self, from: data), size)
+        }
+        // Readable by hand, which is the point of the recipe file.
+        let text = String(decoding: try JSONEncoder().encode(OutputSize.longEdge(4000)), as: UTF8.self)
+        XCTAssertTrue(text.contains("longEdge"), text)
     }
 
     /// The PRD's "separated json" means a file a person can hand-edit, which

@@ -86,11 +86,29 @@ struct PrintProfileSection: View {
                         session.selectPrintStock(id)
                     }
                 }
+                // **Scope, on the row.** EDR is a *print* parameter: it
+                // changes the paper's shoulder and toe in the engine, which
+                // means the canvas, the export proof and the written file all
+                // change together and none of them can disagree.
+                //
+                // That is why it is here, under the paper it belongs to, and
+                // not on the export page. But sitting under a stock list it
+                // read as a fourth kind of thing — the user's note was that
+                // "its current position under Print leaves that scope
+                // unclear" — because the controls near it are a viewing
+                // choice (Original), a solve (Process) and a selection, and a
+                // checkbox among those could be any of the three. The
+                // sublabel settles it without moving it.
                 RailRows {
                     ToggleRow(label: "Extended Dynamic Range (EDR)",
                               isOn: param(\.extendedDynamicRange),
                               enabled: !session.params.scanFilm,
-                              reason: "Extended Dynamic Range applies to selected print profiles.")
+                              reason: "Extended Dynamic Range applies to selected print profiles.",
+                              sublabel: "Changes the render — canvas, proof and file alike",
+                              help: "A calibrated per-paper profile with more room in the "
+                              + "highlight shoulder and the toe. It is part of the print "
+                              + "stage, not a way of looking at it: what you see on the "
+                              + "canvas is what the exported file carries.")
                 }
                 .padding(.top, Theme.Metric.rowSpacing + 5)
                 actions.padding(.top, Theme.Metric.rowSpacing + 5)

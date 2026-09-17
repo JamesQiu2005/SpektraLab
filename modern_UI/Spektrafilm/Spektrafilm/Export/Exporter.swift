@@ -379,7 +379,12 @@ enum Exporter {
             currentScratch = framedScratch
         }
         // The page's output size, through the geometry pass's own resampler.
-        if let outputSize = recipe.pixelSize {
+        // Asked for against the pixels in hand — after the crop and the
+        // straighten — so the long edge is the long edge of the picture that
+        // is actually being written, and the other side follows from it
+        // rather than from whatever a second field was left holding.
+        if let outputSize = recipe.pixelSize(for: CGSize(width: current.width,
+                                                         height: current.height)) {
             let w = Int(outputSize.width.rounded()), h = Int(outputSize.height.rounded())
             if w != current.width || h != current.height {
                 let (resizedDestination, resizedScratch) = try destination(width: w, height: h)

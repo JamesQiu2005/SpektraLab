@@ -349,7 +349,7 @@ final class SoftProofParityTests: XCTestCase {
             filmStock: session.params.filmStock, printStock: session.params.printStock,
             pixelSize: .zero, counter: 1, date: Date())
 
-        for size in [OutputSize.original, .custom(width: 2000, height: 1333)] {
+        for size in [OutputSize.original, .longEdge(2000)] {
             recipe.outputSize = size
             let outcome = try await Exporter.export(session: session, recipe: recipe, context: context,
                                                     sessionID: try XCTUnwrap(session.serviceSessionIDForExport))

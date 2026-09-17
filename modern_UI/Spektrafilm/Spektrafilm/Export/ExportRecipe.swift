@@ -395,14 +395,89 @@ struct NamingRule: Codable, Hashable, Sendable {
 
 /// The pixels the export should write.
 ///
-/// `.original` is the frame's own size after the crop and the straighten —
-/// what the export path writes today, and the only thing it can write: see
-/// `ExportRecipe.outputSize`'s note.
-enum OutputSize: Hashable, Codable, Sendable {
+/// **One number, not two.** This was `custom(width:height:)` — two fields on
+/// the page, each writing its own axis and leaving the other where it was.
+/// Typing a width therefore did not move the height, and since the resize is
+/// a plain resample to exactly `w × h`, the file came out stretched: the
+/// user's "instead of both sides pixel count change accordingly, only one
+/// side is exported". Nothing in the app noticed, because both numbers were
+/// *honoured* — they were just no longer a shape.
+///
+/// A long edge cannot express that mistake. It is also the right control for
+/// a batch: `notes.md` applies one recipe to every selected frame, and a
+/// batch of portraits and landscapes has no common width. The long edge is
+/// the one bound that means the same thing to both.
+///
+/// `.original` is the frame's own size after the crop and the straighten.
+enum OutputSize: Hashable, Sendable {
     case original
-    case custom(width: Int, height: Int)
+    /// Resample so the **longer** side is this many pixels; the other side
+    /// follows from the frame's shape.
+    case longEdge(Int)
 
     var isOriginal: Bool { self == .original }
+
+    /// The number the page's field shows, or `nil` while this is `.original`.
+    var edge: Int? {
+        if case .longEdge(let e) = self { return e }
+        return nil
+    }
+
+    /// Small enough to be a thumbnail, large enough for any sensor and a 2×
+    /// upsample, and bounded at all so a stray paste cannot ask for a
+    /// texture the device will refuse.
+    static let bounds: ClosedRange<Int> = 16...60_000
+
+    static func clamped(_ edge: Int) -> OutputSize { .longEdge(edge.clamped(to: bounds)) }
+
+    /// The pixels to write for a source of this size, aspect kept, or `nil`
+    /// for "the source's own".
+    ///
+    /// The **source** is the frame after the crop and the straighten, not the
+    /// sensor: `Exporter` calls this with the texture it is holding at that
+    /// point, so a cropped frame resizes from the shape it actually has.
+    func pixels(for source: CGSize) -> CGSize? {
+        guard case .longEdge(let e) = self else { return nil }
+        let w = source.width, h = source.height
+        guard w > 0, h > 0 else { return nil }
+        let scale = CGFloat(e) / max(w, h)
+        return CGSize(width: max(1, (w * scale).rounded()),
+                      height: max(1, (h * scale).rounded()))
+    }
+}
+
+/// Written as `{"longEdge": 4000}` or `{"original": true}` — a recipe file is
+/// a document the PRD says a person may edit by hand, so the key says what the
+/// number means.
+///
+/// The decode also reads the **old** two-axis form. A file written before this
+/// change holds `{"custom": {"width": w, "height": h}}`, of which only the
+/// larger number was ever reliably what the person meant; the smaller one is
+/// whatever the other field happened to be left at. So it is read as
+/// `longEdge(max(w, h))` and the stretch does not survive the upgrade.
+extension OutputSize: Codable {
+    private enum CodingKeys: String, CodingKey { case original, longEdge, custom }
+    private struct TwoAxis: Codable { var width = 0; var height = 0 }
+
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        if let e = try? c.decode(Int.self, forKey: .longEdge), e > 0 {
+            self = OutputSize.clamped(e)
+        } else if let old = try? c.decode(TwoAxis.self, forKey: .custom),
+                  max(old.width, old.height) > 0 {
+            self = OutputSize.clamped(max(old.width, old.height))
+        } else {
+            self = .original
+        }
+    }
+
+    func encode(to encoder: Encoder) throws {
+        var c = encoder.container(keyedBy: CodingKeys.self)
+        switch self {
+        case .original: try c.encode(true, forKey: .original)
+        case .longEdge(let e): try c.encode(e, forKey: .longEdge)
+        }
+    }
 }
 
 // MARK: - open with
@@ -593,16 +668,12 @@ struct ExportRecipe: Codable, Identifiable, Hashable, Sendable {
     /// person to look at without it.
     var embedsPreview: Bool = false
 
-    /// `outputSize` as the export path wants it: a size in pixels, or nil for
-    /// the frame's own. Kept here rather than in `Exporter` so the page and
-    /// the file read the same field through the same accessor — a second
-    /// reading of `.custom` is a second chance to round it differently.
-    var pixelSize: CGSize? {
-        switch outputSize {
-        case .original: nil
-        case .custom(let w, let h): w > 0 && h > 0 ? CGSize(width: w, height: h) : nil
-        }
-    }
+    /// `outputSize` as the export path wants it: a size in pixels for a source
+    /// of this shape, or nil for the frame's own. Kept here rather than in
+    /// `Exporter` so the page's read-out and the file are the same arithmetic
+    /// — a second reading is a second chance to round it differently, and the
+    /// page promises the number before the file exists.
+    func pixelSize(for source: CGSize) -> CGSize? { outputSize.pixels(for: source) }
 
     /// The profile to tag with, resolved against this machine, with the
     /// fallback stated. `nil` colour space means "the format decides", which

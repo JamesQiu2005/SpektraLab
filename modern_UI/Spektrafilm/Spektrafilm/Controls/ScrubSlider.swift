@@ -217,13 +217,37 @@ struct ToggleRow: View {
     @Binding var isOn: Bool
     var enabled = true
     var reason: String = ""
+    /// One line under the label, in the metadata ink, for a switch whose
+    /// **scope** is not guessable from where it sits.
+    ///
+    /// A checkbox on a panel implies "this changes what the panel is about",
+    /// and most of them do. The ones that do not — a switch that changes the
+    /// render everywhere rather than only the thing above it — read as
+    /// view settings and get used as if they were. Saying so costs a 9.5 pt
+    /// line and is the difference between a control and a guess.
+    var sublabel: String = ""
+    /// What it does, for the hover. Distinct from `reason`, which is why it
+    /// cannot be used right now.
+    var help: String = ""
+
     var body: some View {
         HStack(spacing: 0) {
-            Text(label).font(Theme.Font.label).foregroundStyle(Theme.Ink.secondary)
+            VStack(alignment: .leading, spacing: 1) {
+                Text(label).font(Theme.Font.label).foregroundStyle(Theme.Ink.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+                if !sublabel.isEmpty {
+                    Text(sublabel).font(Theme.Font.sublabel).foregroundStyle(Theme.Ink.tertiary)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+            }
             Spacer(minLength: 4)
             CheckBox(isOn: $isOn).padding(.trailing, -6)
         }
-        .frame(height: Theme.Metric.toggleRowHeight)
+        // A row with a sublabel is two lines and sizes itself; one without is
+        // the drawing's fixed row, unchanged.
+        .frame(height: sublabel.isEmpty ? Theme.Metric.toggleRowHeight : nil)
+        .frame(minHeight: sublabel.isEmpty ? nil : Theme.Metric.toggleRowHeight)
         .rowEnabled(enabled, because: reason)
+        .help(help)
     }
 }

@@ -103,10 +103,21 @@ enum Theme {
     /// (`View.rowEnabled(_:)`), rather than a second colour per element that
     /// each caller would have to remember to use.
     static let disabledOpacity: Double = 0.38
-    /// The export page's accent, `.cls-12` in
-    /// `reference_layout/Export_Page/export_page.svg`. **The user's own
-    /// drawing says `#f08724`**, and that page follows its own drawing.
-    static let exportAccent = Color(hex: 0xF08724)
+    /// The export page's accent — **now the same one**.
+    ///
+    /// `reference_layout/Export_Page/export_page.svg` names `#f08724` in
+    /// `.cls-12`, and the page followed its own drawing while the editor
+    /// moved to `#eca650` with the 2026-09-17 redraw. The result is two
+    /// oranges a visible step apart in the same window: the naming chips
+    /// against the film list's `CINE` pill, one page apart. The user's note is
+    /// that this page "doesn't really match the style as the actual
+    /// frontend", and an accent is the one colour in the palette whose whole
+    /// job is to be recognised, so it cannot be two colours.
+    ///
+    /// The later drawing wins, as it did when it renamed the accent in the
+    /// first place. Kept as its own name rather than deleted so the export
+    /// drawing's value stays on the record and one line puts it back.
+    static let exportAccent = accent
     /// `.cls-21` — the naming chips' plate on the export page.
     static let exportChip = Color(hex: 0x686969)
     /// The white frame a filmstrip cell is marked with. Still a frame: the

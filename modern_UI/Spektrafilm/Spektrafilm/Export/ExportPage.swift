@@ -560,7 +560,14 @@ struct ExportPage: View {
                             ForEach(store.recipes) { r in recipeRow(r) }
                         }
                     }
-                    .frame(height: M.formulaListHeight)
+                    // As tall as it needs to be, up to the drawing's height.
+                    // Fixed at 144 it drew a 144 pt well around four 19.6 pt
+                    // rows — two thirds of it empty, on a page whose whole
+                    // complaint was that it does not look like the rest of the
+                    // app. Nothing else here holds a list open past its
+                    // contents; the stock lists show a fixed count because
+                    // they have forty rows to scroll, and this has four.
+                    .frame(height: formulaListHeight)
                     .padding(.top, 9)
                     HStack(spacing: 14) {
                         Spacer()
@@ -573,6 +580,14 @@ struct ExportPage: View {
                 }
             }
         }
+    }
+
+    /// The recipe list's height: its rows, bounded by the drawing's own 144 so
+    /// a long list still scrolls rather than pushing Location off the rail.
+    private var formulaListHeight: CGFloat {
+        let rows = CGFloat(max(1, store.recipes.count))
+        let content = rows * M.recipeRowHeight + (rows - 1) * M.recipeRowSpacing
+        return min(content, M.formulaListHeight)
     }
 
     private func railButton(_ glyph: String, _ help: String, dimmed: Bool,
@@ -588,40 +603,77 @@ struct ExportPage: View {
         .help(help)
     }
 
-    /// The chosen row is marked by its outline and nothing else — the drawing
-    /// draws the same rule here: the row's fill is the well it sits in.
+    /// The chosen row is a **band**, as every other list in the app marks one.
+    ///
+    /// It was a 1.3 pt white outline, which is what this page's own drawing
+    /// draws — and which the 2026-09-17 drawing had already retired everywhere
+    /// else, in the user's own words: "selected entries has shallow, instead
+    /// of framed square around it, and the text turns from white to black".
+    /// The film list and the paper list both do that; this one kept the frame,
+    /// so the app marked a selection two different ways depending on which
+    /// page you were on. That is the mismatch with "the actual frontend" at
+    /// its most literal, and the newer drawing is the one that wins.
+    ///
+    /// Plain views with a tap gesture rather than a `Button`, for the reason
+    /// `StockRow` gives: on this release a `.plain` button still draws a
+    /// rounded plate of its own inside the band.
     private func recipeRow(_ r: ExportRecipe) -> some View {
         let on = r.id == store.selected?.id
-        return Button { store.selectedID = r.id } label: {
-            Text(r.name)
-                .font(F.listItem)
-                .foregroundStyle(Theme.text)
-                .lineLimit(1)
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .padding(.leading, 15)
-                .frame(height: M.recipeRowHeight)
-                .overlay {
-                    if on {
-                        RoundedRectangle(cornerRadius: 2, style: .continuous)
-                            .stroke(Theme.selectionFrame, lineWidth: 1.3)
-                    }
-                }
-                .contentShape(Rectangle())
-        }
-        .buttonStyle(.plain)
+        return Text(r.name)
+            .font(F.listItem)
+            .foregroundStyle(on ? Theme.onSelection : Theme.Ink.secondary)
+            .lineLimit(1)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .padding(.leading, 15)
+            .frame(height: M.recipeRowHeight)
+            .background(on ? Theme.selection : Color.clear)
+            .contentShape(Rectangle())
+            .onTapGesture { store.selectedID = r.id }
+            .help(r.name)
     }
 
+    /// Where the files land, and — the part that was missing — **how many
+    /// places that is**.
+    ///
+    /// The folder is chosen in the row itself rather than in the section's
+    /// "...": a destination reached only through a menu on a header is a
+    /// destination people do not know they can change, and "Beside the
+    /// original" being the sole visible option read as the only one.
+    ///
+    /// The line at the foot used to print one path with its head truncated.
+    /// Under `.besideOriginal` that path is the open frame's folder and the
+    /// batch may be writing into a dozen others — the page stated one of them
+    /// as if it were the answer. It now counts them, and the button beside it
+    /// opens the one it can show.
     private var locationSection: some View {
         PanelSection("Location", key: "exportLocation", menu: sectionMenu {
             Button("Choose Folder…") { chooseFolder() }
             Button("Use the Frame's Own Folder") { recipe.wrappedValue.folder = .besideOriginal }
             Divider()
             Button("Clear Subfolder") { recipe.wrappedValue.subfolder = "" }
+            Button("Reveal in Finder") { reveal(destinationFolders.first) }
+                .disabled(destinationFolders.isEmpty)
         }, metrics: Self.sectionMetrics) {
             Well(padding: M.wellPadding, vertical: M.wellVertical, inset: M.wellInset, fill: false) {
                 VStack(spacing: M.rowSpacing) {
-                    PillMenu(label: "Folder", options: folderOptions, title: { folderLabel($0) },
-                             selection: recipe.folder, labelWidth: M.labelWidth, font: F.label)
+                    HStack(spacing: 6) {
+                        Text("Folder").font(F.label).foregroundStyle(Theme.Ink.secondary)
+                            .lineLimit(1)
+                            .frame(width: M.labelWidth, alignment: .leading)
+                        PillField(title: folderLabel(recipe.wrappedValue.folder), font: F.label,
+                                  help: folderHelp) {
+                            Button("Beside the original") {
+                                recipe.wrappedValue.folder = .besideOriginal
+                            }
+                            if case .fixed(let p) = recipe.wrappedValue.folder {
+                                Button((p as NSString).abbreviatingWithTildeInPath) {}
+                                    .disabled(true)
+                            }
+                            Divider()
+                            Button("Choose Folder…") { chooseFolder() }
+                        }
+                    }
+                    .frame(height: M.rowHeight)
                     row("Subfolder") {
                         TextField("none", text: recipe.subfolder)
                             .textFieldStyle(.plain)
@@ -634,13 +686,86 @@ struct ExportPage: View {
                     PillMenu(label: "Existing File", options: ExistingFilePolicy.allCases,
                              title: { $0.label }, selection: recipe.existing,
                              labelWidth: M.labelWidth, font: F.label)
-                    Text(writePath)
-                        .font(F.value).foregroundStyle(Theme.dim)
-                        .lineLimit(1).truncationMode(.head)
-                        .frame(maxWidth: .infinity, alignment: .leading)
+                    destinationLine
                 }
             }
         }
+    }
+
+    /// The resolved destination, and the Finder button for it.
+    private var destinationLine: some View {
+        HStack(alignment: .firstTextBaseline, spacing: 6) {
+            Text(destinationSummary)
+                .font(F.value).foregroundStyle(Theme.Ink.tertiary)
+                .lineLimit(2).truncationMode(.head)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .help(destinationHelp)
+            Button("Reveal") { reveal(destinationFolders.first) }
+                .buttonStyle(.plain)
+                .font(F.value).foregroundStyle(Theme.exportAccent)
+                .help(destinationFolders.count > 1
+                      ? "Open the first of these folders. The rest are beside their own frames."
+                      : "Open this folder in the Finder. A folder that does not exist yet opens "
+                        + "its nearest parent — the export creates the rest.")
+                .rowEnabled(!destinationFolders.isEmpty)
+        }
+    }
+
+    /// Every distinct folder this recipe would write into for the current
+    /// selection. One under a fixed folder; under `.besideOriginal`, as many
+    /// as the batch has source folders.
+    private var destinationFolders: [URL] {
+        let r = recipe.wrappedValue
+        let sources = batch.isEmpty ? [session.selection].compactMap { $0 } : batch
+        guard !sources.isEmpty else { return [URL(fileURLWithPath: writePath)] }
+        var seen: [URL] = []
+        for s in sources where !seen.contains(r.directory(for: s)) {
+            seen.append(r.directory(for: s))
+        }
+        return seen
+    }
+
+    private var destinationSummary: String {
+        let folders = destinationFolders
+        guard let first = folders.first else { return writePath }
+        let path = (first.path as NSString).abbreviatingWithTildeInPath
+        guard folders.count > 1 else { return path }
+        return "\(folders.count) folders — one beside each original, starting \(path)"
+    }
+
+    private var destinationHelp: String {
+        let folders = destinationFolders
+        guard folders.count > 1 else { return folders.first?.path ?? writePath }
+        let shown = folders.prefix(8).map(\.path)
+        let rest = folders.count - shown.count
+        return (["Beside the original writes into each frame's own folder:"] + shown
+                + (rest > 0 ? ["…and \(rest) more"] : [])).joined(separator: "\n")
+    }
+
+    private var folderHelp: String {
+        switch recipe.wrappedValue.folder {
+        case .besideOriginal:
+            "Each frame's own folder. A batch drawn from several folders therefore writes "
+            + "into several — the line below counts them."
+        case .fixed:
+            "One folder for every frame in the batch."
+        }
+    }
+
+    /// Open a folder in the Finder, walking up to the nearest one that exists:
+    /// the subfolder is created by the export and not before, so the exact
+    /// path is usually not there yet and `selectFile` on it would do nothing
+    /// at all rather than say why.
+    private func reveal(_ url: URL?) {
+        guard var u = url else { return }
+        let fm = FileManager.default
+        var isDir: ObjCBool = false
+        while !(fm.fileExists(atPath: u.path, isDirectory: &isDir) && isDir.boolValue) {
+            let parent = u.deletingLastPathComponent()
+            if parent.path == u.path { return }
+            u = parent
+        }
+        NSWorkspace.shared.selectFile(nil, inFileViewerRootedAtPath: u.path)
     }
 
     /// `notes.md`: "Four Naming options … (at least one must be selected),
@@ -672,15 +797,43 @@ struct ExportPage: View {
             Well(padding: M.wellPadding, vertical: M.wellVertical, inset: M.wellInset, fill: false) {
                 VStack(alignment: .leading, spacing: M.rowSpacing) {
                     row("Format") { tokenRow }
-                    row("Sample") {
-                        Text(sampleName)
-                            .font(F.label)
-                            .foregroundStyle(Theme.text)
-                            .lineLimit(1).truncationMode(.middle)
-                    }
+                    resolvedNameRow
                 }
             }
         }
+    }
+
+    /// The filename this recipe writes, **whole**.
+    ///
+    /// It was one line, `truncationMode(.middle)`, at the width of a 313 pt
+    /// card — so the moment more than two tokens were on, the middle of the
+    /// name was replaced by an ellipsis. The middle is where the tokens are.
+    /// A naming control whose read-out hides the part you are editing is a
+    /// control you verify by exporting, which is the thing the read-out exists
+    /// to avoid: "the current truncated sample hides the exact information
+    /// users need to check".
+    ///
+    /// So it wraps instead of truncating, it is selectable so the exact string
+    /// can be copied and compared, and it is drawn in the value face because
+    /// it is the answer rather than the question. It is resolved against the
+    /// open frame whenever there is one (`nameContext`) — the rest of a batch
+    /// differs only where the original-name token is.
+    private var resolvedNameRow: some View {
+        HStack(alignment: .firstTextBaseline, spacing: 0) {
+            Text("File name").font(F.label).foregroundStyle(Theme.Ink.secondary)
+                .lineLimit(1)
+                .frame(width: M.labelWidth, alignment: .leading)
+            Text(sampleName)
+                .font(F.value).foregroundStyle(Theme.text)
+                .textSelection(.enabled)
+                .fixedSize(horizontal: false, vertical: true)
+                .frame(maxWidth: .infinity, alignment: .leading)
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .help(session.selection == nil
+              ? "An example — no frame is open, so this is the model frame from the recipe file."
+              : "The name this recipe gives the open frame. Every other frame in the batch "
+                + "differs only where the original name is.")
     }
 
     private var tokenRow: some View {
@@ -720,26 +873,33 @@ struct ExportPage: View {
             }
     }
 
+    /// **No section menu.** It carried two items, and both were a second way
+    /// to do something the well already does: "Set to Original Size" is now
+    /// the Size row's own first choice, and Open With had a row of its own
+    /// three lines below it. The user's note — "there are two repeated paths
+    /// to show open with, keep the explicit one" — is the general rule as much
+    /// as the particular fix: a "..." that only repeats the panel under it
+    /// teaches people to open it looking for something that is not there.
     private var formatSection: some View {
-        PanelSection("Format and Size", key: "exportFormat", menu: sectionMenu {
-            Button("Set to Original Size") { recipe.wrappedValue.outputSize = .original }
-                .disabled(recipe.wrappedValue.outputSize.isOriginal)
-            Divider()
-            openWithMenu
-        }, metrics: Self.sectionMetrics) {
+        PanelSection("Format and Size", key: "exportFormat", metrics: Self.sectionMetrics) {
             Well(padding: M.wellPadding, vertical: M.wellVertical, inset: M.wellInset, fill: false) {
                 VStack(spacing: M.rowSpacing) {
                     HStack(spacing: 12) {
-                        Text("Format").font(F.label).foregroundStyle(Theme.text)
+                        Text("Format").font(F.label).foregroundStyle(Theme.Ink.secondary)
                             .frame(width: M.labelWidth, alignment: .leading)
                         PillField(title: recipe.wrappedValue.format.shortLabel, font: F.label) {
                             ForEach(ExportFormat.allCases) { f in
                                 Button(f.shortLabel) { recipe.wrappedValue.format = f }
                             }
                         }
-                        depthPill
+                        // Its natural width, so the format name beside it keeps the
+                        // rest of the row. Sharing it evenly truncated "DI
+                        // package" to "DI pack…" to make room for a pill that
+                        // says "16 bit" and cannot be changed.
+                        depthPill.fixedSize()
                     }
                     .frame(height: M.rowHeight)
+                    if recipe.wrappedValue.format == .di { diNote }
                     if recipe.wrappedValue.format.takesColorSpace {
                         // The name is data, not a fixed label: an installed
                         // profile can be called anything, and the narrowest
@@ -761,11 +921,39 @@ struct ExportPage: View {
                                     onCommit: { store.save() })
                     }
                     if recipe.wrappedValue.format.carriesPreviewPage { previewRow }
-                    sizeRow
+                    sizeRows
                     openWithRow
                 }
             }
         }
+    }
+
+    /// What a DI package **is**, on the page, because nothing else on it says.
+    ///
+    /// Every other format is a file whose name you recognise. This one is two
+    /// files and a convention, and the pill that selects it says "DI package"
+    /// — which tells someone who already knows exactly what they already knew.
+    /// Both halves matter and neither is guessable: the TIFF is not a picture
+    /// (it is untagged normalised density and looks wrong opened as one), and
+    /// it is only half the export without the cube beside it.
+    ///
+    /// The last line is the **next step**, which is the part a person actually
+    /// needs: these two files are an input to a grading system, not a
+    /// deliverable.
+    private var diNote: some View {
+        VStack(alignment: .leading, spacing: 2) {
+            Text("Two files: a 16-bit TIFF of normalised film density, untagged, "
+                 + "and the print profile as a 3D .cube LUT, in a folder named for the export.")
+            Text("Next: load both into Resolve, Baselight or Nuke and apply the cube to the "
+                 + "TIFF. Opened on its own the TIFF is density, not a picture.")
+        }
+        .font(F.value).foregroundStyle(Theme.Ink.tertiary)
+        .fixedSize(horizontal: false, vertical: true)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .help("The TIFF carries the film's density normalised by the LUT's own axes and is "
+              + "written in device RGB on purpose, so nothing converts the numbers the cube "
+              + "indexes. The cube is the paper's transform, domain 0–1, and it carries a "
+              + "preview page so the package has something a person can look at.")
     }
 
     /// The bit depth is not a free choice: `ExportFormat` *is* the format and
@@ -805,61 +993,120 @@ struct ExportPage: View {
         }
     }
 
-    /// Size + the "..." `notes.md` asks for by name: "for the size three dot,
-    /// include set to originals".
-    private var sizeRow: some View {
-        HStack(spacing: 6) {
-            Text("Size").font(F.label).foregroundStyle(Theme.text)
-                .frame(width: M.labelWidth, alignment: .leading)
-            numberField(.width)
-            Text("×").font(F.label).foregroundStyle(Theme.dim)
-            numberField(.height)
-            Spacer(minLength: 0)
-            Menu {
-                Button("Set to Original Size") { recipe.wrappedValue.outputSize = .original }
-                    .disabled(recipe.wrappedValue.outputSize.isOriginal)
-                Divider()
-                openWithMenu
-            } label: {
-                EllipsisGlyph().frame(width: 15, height: 3).padding(4).contentShape(Rectangle())
+    /// Size: **what kind of size**, then the number it needs, then the pixels
+    /// that fall out of it.
+    ///
+    /// It was two fields, `width × height`, and both of its problems came from
+    /// that. The first is the bug: each field wrote its own axis and left the
+    /// other alone, so typing a width silently changed the shape of the
+    /// picture and the resample stretched it. The second is that a width means
+    /// nothing to a batch — one recipe runs over every selected frame
+    /// (`notes.md`), and a selection of portraits and landscapes has no common
+    /// width, only a common long edge.
+    ///
+    /// So the row leads with the choice and the number is subordinate to it,
+    /// and the line under it states the result in pixels rather than leaving
+    /// it to be inferred: a size control whose consequence you have to work
+    /// out is a size control you check after the export instead of before.
+    private var sizeRows: some View {
+        VStack(alignment: .leading, spacing: 3) {
+            HStack(spacing: 6) {
+                Text("Size").font(F.label).foregroundStyle(Theme.Ink.secondary)
+                    .lineLimit(1)
+                    .frame(width: M.labelWidth, alignment: .leading)
+                PillField(title: sizeModeLabel, font: F.label,
+                          help: "Original keeps each frame's own pixels. "
+                          + "Long edge resamples every frame so its longer side is the "
+                          + "number you set, whichever way round the frame is.") {
+                    Button("Original Size") { recipe.wrappedValue.outputSize = .original }
+                    Button("Resize: Long Edge") {
+                        recipe.wrappedValue.outputSize = OutputSize.clamped(currentLongEdge)
+                    }
+                }
+                if recipe.wrappedValue.outputSize.edge != nil { longEdgeField }
             }
-            .menuStyle(.button).buttonStyle(.plain).menuIndicator(.hidden).fixedSize()
-            .help("Size options")
+            .frame(height: M.rowHeight)
+            Text(resultingSizeLine)
+                .font(F.value).foregroundStyle(Theme.Ink.tertiary)
+                .fixedSize(horizontal: false, vertical: true)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .padding(.leading, M.labelWidth)
+                .help(resultingSizeHelp)
         }
-        .frame(height: M.rowHeight)
     }
 
-    private enum SizeAxis { case width, height }
+    /// The frame's own long edge, which is what "Resize" starts at — switching
+    /// the mode must not itself resample anything. The number is there to be
+    /// changed, not to be discovered afterwards.
+    private var currentLongEdge: Int {
+        let p = nameContext.pixelSize
+        return max(1, Int(max(p.width, p.height).rounded()))
+    }
 
-    private func numberField(_ axis: SizeAxis) -> some View {
+    private var sizeModeLabel: String {
+        recipe.wrappedValue.outputSize.isOriginal ? "Original" : "Long Edge"
+    }
+
+    /// One number, committed on Return or on leaving the field, clamped to
+    /// `OutputSize.bounds` rather than accepted and failed at the resample.
+    private var longEdgeField: some View {
         TextField("", value: Binding(
-            get: { Int(axis == .width ? size.wrappedValue.width : size.wrappedValue.height) },
-            set: { new in
-                let w = axis == .width ? new : Int(size.wrappedValue.width)
-                let h = axis == .height ? new : Int(size.wrappedValue.height)
-                recipe.wrappedValue.outputSize = .custom(width: max(1, w), height: max(1, h))
-            }), format: .number.grouping(.never))
+            get: { recipe.wrappedValue.outputSize.edge ?? currentLongEdge },
+            set: { recipe.wrappedValue.outputSize = OutputSize.clamped($0) }),
+                  format: .number.grouping(.never))
             .textFieldStyle(.plain)
             .multilineTextAlignment(.center)
             .font(F.label).foregroundStyle(Theme.text)
             .frame(width: 62, height: M.rowHeight)
             .background(Theme.pill, in: Capsule())
+            .onSubmit { store.save() }
+            .help("Pixels on the longer side, \(OutputSize.bounds.lowerBound)–"
+                  + "\(OutputSize.bounds.upperBound).")
+    }
+
+    /// The pixels this recipe writes **for the frame on the canvas** — and, in
+    /// a batch, the fact that the others are their own shape.
+    ///
+    /// Said about one named frame rather than about "the export", because
+    /// under Original a batch has as many answers as it has frames and under a
+    /// long edge it still has one answer per aspect ratio. Naming which frame
+    /// it is is the difference between a read-out and a claim.
+    private var resultingSizeLine: String {
+        let source = nameContext.pixelSize
+        let out = recipe.wrappedValue.outputSize.pixels(for: source) ?? source
+        let px = "\(Int(out.width)) × \(Int(out.height)) px"
+        guard batch.count > 1 else { return px }
+        let others = batch.count - 1
+        return recipe.wrappedValue.outputSize.isOriginal
+            ? "\(px) for this frame · \(others) more at their own sizes"
+            : "\(px) for this frame · \(others) more, each keeping its own shape"
+    }
+
+    private var resultingSizeHelp: String {
+        recipe.wrappedValue.outputSize.isOriginal
+            ? "Every frame is written at its own pixels, after the crop and the straighten."
+            : "Every frame is resampled so its longer side is "
+              + "\(recipe.wrappedValue.outputSize.edge ?? currentLongEdge) px. "
+              + "A portrait and a landscape in the same batch therefore come out the same "
+              + "size on their long side and keep their own shape."
     }
 
     /// `notes.md`: "Open with allows the user to select the default open_app."
+    ///
+    /// **The only way in.** It used to be reachable from here, from the Size
+    /// row's "..." and from the section's — three doors onto one pill, two of
+    /// them invisible until opened. This is the explicit one and the other two
+    /// are gone.
     private var openWithRow: some View {
         HStack(spacing: 6) {
-            Text("Open With").font(F.label).foregroundStyle(Theme.text)
+            Text("Open With").font(F.label).foregroundStyle(Theme.Ink.secondary)
                 .frame(width: M.labelWidth, alignment: .leading)
-            PillField(title: recipe.wrappedValue.openWith?.name ?? "None", font: F.label) {
+            PillField(title: recipe.wrappedValue.openWith?.name ?? "None", font: F.label,
+                      help: "Hand the finished files to this application when the export ends.") {
                 openWithItems
             }
         }
         .frame(height: M.rowHeight)
-    }
-
-    @ViewBuilder private var openWithMenu: some View {
-        Menu("Open With") { openWithItems }
     }
 
     @ViewBuilder private var openWithItems: some View {
@@ -871,7 +1118,12 @@ struct ExportPage: View {
     }
 
     private var summarySection: some View {
-        PanelSection("Summary", key: "exportSummary", initiallyExpanded: false, menu: sectionMenu {
+        // **Open by default.** It was shut, which put the one view that
+        // states the whole recipe in one place behind a click, and left the
+        // rail's bottom third empty to do it. Everything else on this page
+        // is a control; this is the read-back, and a read-back nobody opens
+        // is a read-back that is not checked.
+        PanelSection("Summary", key: "exportSummary", menu: sectionMenu {
             Button("Copy Summary") {
                 let pb = NSPasteboard.general
                 pb.clearContents()
@@ -1028,7 +1280,11 @@ struct ExportPage: View {
                             .interpolation(.high)
                             .frame(width: fitted.width * zoom, height: fitted.height * zoom)
                     } else if proving {
-                        ProgressView().controlSize(.small)
+                        VStack(spacing: 8) {
+                            ProgressView().controlSize(.small)
+                            Text("Rendering the preview…")
+                                .font(Theme.Font.label).foregroundStyle(Theme.Ink.tertiary)
+                        }
                     } else {
                         Text(worklist.isEmpty
                              ? "Nothing is selected. ⌘-click images in the filmstrip to add them."
@@ -1071,7 +1327,24 @@ struct ExportPage: View {
     /// approximation — a lower-resolution proof, a cached one — would set.
     @ViewBuilder private var proofCaption: some View {
         if let proof, session.selection != nil {
+            // **What it is, then what is wrong with it.** The caveats used to
+            // come first, so the first line of the caption was "44 % rolled
+            // into Display P3" — a statement about a picture that had not yet
+            // been identified as a preview of anything. Naming the thing costs
+            // one line and is what the rest of the caption is then about.
             VStack(spacing: 3) {
+                Text(spaceLine(proof)).foregroundStyle(Theme.secondaryText)
+                // A full-size render takes a moment, and the picture on screen
+                // is the **previous** one while it does. A spinner on its own
+                // said "something is happening"; it did not say that what you
+                // are looking at is out of date, which is the only part that
+                // can mislead. So it says it.
+                if proving {
+                    HStack(spacing: 5) {
+                        ProgressView().controlSize(.mini).scaleEffect(0.55)
+                        Text("Updating preview…").foregroundStyle(Theme.dim)
+                    }
+                }
                 if proof.isPlaceholder {
                     Text("Placeholder — these pixels are not the ones the file will carry.")
                         .foregroundStyle(Theme.exportAccent)
@@ -1079,14 +1352,7 @@ struct ExportPage: View {
                 let caveats = ProofCaveat.lines(for: proof)
                 ForEach(caveats, id: \.text) { caveat in
                     Text(caveat.text)
-                        .foregroundStyle(caveat.isWarning ? Theme.exportAccent : Theme.secondaryText)
-                }
-                HStack(spacing: 5) {
-                    // A full-size render takes a moment, and the picture on
-                    // screen is the previous one while it does. This says so
-                    // without covering the picture with a spinner.
-                    if proving { ProgressView().controlSize(.mini).scaleEffect(0.55) }
-                    Text(spaceLine(proof)).foregroundStyle(Theme.dim)
+                        .foregroundStyle(caveat.isWarning ? Theme.exportAccent : Theme.dim)
                 }
             }
             .font(Theme.Font.caption)
@@ -1123,11 +1389,16 @@ struct ExportPage: View {
     }
 
     /// The one-line caption. See `captionHelp` for the rest of it.
+    ///
+    /// **It leads with what the picture is.** It used to read "Proof in
+    /// Display P3 · the canvas is Linear ProPhoto", which asks the reader to
+    /// hold two spaces and two meanings of the word *canvas* — the pane in
+    /// front of them, and the working space — before it has told them what
+    /// they are looking at. The working space is still one hover away in
+    /// `captionHelp`, where a second space is a detail rather than a
+    /// comparison the caption makes on the reader's behalf.
     private func spaceLine(_ proof: SoftProof) -> String {
-        let canvas = session.workingSpaceName
-        return proof.targetName == canvas
-            ? "Proof in \(proof.targetName)"
-            : "Proof in \(proof.targetName) · the canvas is \(canvas)"
+        "Output preview · \(proof.targetName)"
     }
 
     /// Grid mode's card: the centre pane and the filmstrip as one, from just
@@ -1247,21 +1518,6 @@ struct ExportPage: View {
         recipe.wrappedValue.naming.stem(nameContext) + "." + recipe.wrappedValue.format.ext
     }
 
-    /// The two fields show the original size until one is edited, and then
-    /// show what was typed — "set to originals" in `notes.md`'s phrasing is
-    /// the way back. `ExportRecipe.pixelSize` is the same reading the export
-    /// path makes, so the page and the file cannot disagree about it.
-    private var size: Binding<CGSize> {
-        Binding(get: {
-            switch recipe.wrappedValue.outputSize {
-            case .original: return nameContext.pixelSize
-            case .custom(let w, let h): return CGSize(width: CGFloat(w), height: CGFloat(h))
-            }
-        }, set: { s in
-            recipe.wrappedValue.outputSize = .custom(width: Int(s.width), height: Int(s.height))
-        })
-    }
-
     private var writePath: String {
         let source = session.selection ?? URL(fileURLWithPath: "/Users/you/Pictures/_DSC4037.NEF")
         return recipe.wrappedValue.directory(for: source).path
@@ -1274,6 +1530,7 @@ struct ExportPage: View {
             "Images  \(batch.count) of \(session.frames.count)",
             "File name  \(sampleName)",
             "Format  \(r.format.shortLabel) · \(r.format.bitDepth) bit",
+            "Size  \(resultingSizeLine)",
         ]
         if r.format.takesColorSpace {
             lines.append("Colour space  \(ColorSpaceCatalog.name(for: r.colorSpace) ?? "Unknown profile")")
@@ -1281,7 +1538,7 @@ struct ExportPage: View {
             lines.append("Colour space  untagged (density)")
         }
         if let proof, session.selection != nil { lines.append("Proof  \(proof.targetName)") }
-        lines.append("Folder  \(writePath)")
+        lines.append("Folder  \(destinationSummary)")
         return lines
     }
 
@@ -1299,7 +1556,14 @@ struct ExportPage: View {
     /// the width it could get.
     private func row<C: View>(_ label: String, @ViewBuilder _ content: () -> C) -> some View {
         HStack(spacing: 0) {
-            Text(label).font(F.label).foregroundStyle(Theme.text)
+            // `Ink.secondary`, as every label in the editor is: a label is the
+            // thing being asked and the control beside it is the thing being
+            // said. Drawn in `Theme.text` they were the same weight, the same
+            // size and the same colour as the values, which is the "everything
+            // competing, nothing leading" the rails were rebuilt to fix — and
+            // this page had stayed behind. `PillMenu`'s own rows were already
+            // secondary, so the well did not even agree with itself.
+            Text(label).font(F.label).foregroundStyle(Theme.Ink.secondary)
                 .lineLimit(1)
                 .frame(width: M.labelWidth, alignment: .leading)
             content()

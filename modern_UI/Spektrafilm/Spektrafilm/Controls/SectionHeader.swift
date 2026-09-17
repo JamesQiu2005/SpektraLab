@@ -68,11 +68,16 @@ struct SectionHeader: View {
                 .menuIndicator(.hidden)
                 .fixedSize()
                 .padding(.trailing, Theme.Metric.headerTrailing - 8)
-            } else {
-                EllipsisGlyph().frame(width: 15, height: 3)
-                    .padding(8)
-                    .padding(.trailing, Theme.Metric.headerTrailing - 8)
             }
+            // **No menu, no glyph.** There used to be an inert `EllipsisGlyph`
+            // here for a section that passes none, because the drawing draws
+            // "..." on every header it has. But it is pixel-for-pixel the live
+            // one, so the only way to learn which is which is to click both —
+            // the same trap as the dotted circle that came off the grade
+            // rail's header, and the user's question about that one was "I
+            // still have no idea what it can do and why it exists". A section
+            // with nothing to put in a menu is better off saying so by being
+            // quiet.
         }
         .frame(height: metrics.headerHeight)
         .contentShape(Rectangle())

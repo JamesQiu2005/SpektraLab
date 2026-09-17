@@ -14,7 +14,11 @@ import SwiftUI
 struct HistogramSection: View {
     @Bindable var session: Session
     var body: some View {
-        PanelSection("Histogram", key: "histogram", menu: { AnyView(EmptyView()) }) {
+        // No menu — it used to pass an empty one, which drew a live "..."
+        // over a popup with nothing in it. `SectionHeader` draws no glyph
+        // for a section with nothing to offer, which is the honest version
+        // of the same statement.
+        PanelSection("Histogram", key: "histogram") {
             VStack(spacing: 3) {
                 // The drawing's plot is 255.5 × 45 pt inside a 288 rail, with
                 // the exposure triple read underneath it.
