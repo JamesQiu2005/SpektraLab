@@ -93,8 +93,15 @@ struct LeftPanel: View {
 /// is why this is one view used in three places rather than a button drawn in
 /// each: a rail's header holds its own while the rail is open, and the bar
 /// holds it while the rail is folded. The glyph never changes — `sidebar.left`
-/// always means "the left rail", open or shut — and the accent says which
-/// state it is in, the same way a selected tool on the bar does.
+/// always means "the left rail", open or shut.
+///
+/// **It does not tint.** It used to go `Theme.accent` while its rail was
+/// folded, on the reasoning that a selected control tints its glyph. That was
+/// the wrong category: this is not a mode you are in, it is a door you push,
+/// and the state it would be reporting — whether a whole rail is on screen —
+/// is not something you need a 6 pt orange glyph to tell you. The accent is
+/// the one colour in the palette that means "look here", and spending it on
+/// a fact already filling half the window devalues it everywhere else.
 struct SidebarToggle: View {
     enum Edge { case leading, trailing }
     let edge: Edge
@@ -114,7 +121,7 @@ struct SidebarToggle: View {
         Button { withAnimation(.easeOut(duration: 0.18)) { collapsed.toggle() } } label: {
             Image(systemName: symbol)
                 .font(.system(size: Theme.Metric.sidebarIcon, weight: .regular))
-                .foregroundStyle(collapsed ? Theme.accent : Theme.text)
+                .foregroundStyle(Theme.text)
                 .frame(width: 26, height: 26)
                 .contentShape(Rectangle())
         }

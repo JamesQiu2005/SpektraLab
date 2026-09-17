@@ -20,6 +20,14 @@ struct Stock: Codable, Identifiable, Hashable, Sendable {
     var isFilm: Bool { stage == "filming" }
     var isPaper: Bool { stage == "printing" }
     var isCine: Bool { use == "cine" }
+    /// A reversal (slide) film: Provia, Velvia, Ektachrome, Kodachrome.
+    ///
+    /// The catalogue has carried this since it was generated — `type` is
+    /// `"positive"` or `"negative"` and the four slide films are the ones
+    /// with no `targetPrint` — and nothing read it. A positive is already a
+    /// viewable image, so printing one onto a paper stock is an operation the
+    /// engine performs happily and nobody wants.
+    var isPositive: Bool { type == "positive" }
     var brand: String { name.split(separator: " ").first.map(String.init) ?? "" }
     var coverURL: URL? {
         cover.flatMap { StockCatalog.bundle.url(forResource: $0, withExtension: nil, subdirectory: "Resources/FilmCovers") }

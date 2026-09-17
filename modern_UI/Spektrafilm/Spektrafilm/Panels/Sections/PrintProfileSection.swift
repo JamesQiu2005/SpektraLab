@@ -38,12 +38,29 @@ struct PrintProfileSection: View {
     /// uses to spell it without either side inventing a stock name.
     private static let positiveID = "__scan_film__"
 
+    /// Whether the chosen film is a slide film, in which case no paper on the
+    /// list may be chosen.
+    ///
+    /// The section's own header has said since it was written that "printing
+    /// Provia onto Endura is a thing the engine will happily do and a thing
+    /// nobody wants". It was a comment; this is the rule. A positive is
+    /// already a viewable image — the paper stage has nothing to interpret —
+    /// so every paper greys out and "No Print Profile" is the only row left.
+    private var filmIsPositive: Bool { session.filmIsPositive }
+
+    private static let positiveOnlyReason =
+        "A slide film is already a positive — there is nothing for a paper to interpret. "
+        + "Choose a negative film to print onto paper."
+
     private var rows: [StockList.Row] {
         var out: [StockList.Row] = []
         for group in session.catalog.paperGroups where !group.papers.isEmpty {
             out.append(StockList.Row(id: "__group_" + group.title, name: group.title, isHeader: true))
             out += group.papers.map {
-                StockList.Row(id: $0.id, name: $0.name, isCine: $0.isCine, help: helpFor($0.id))
+                StockList.Row(id: $0.id, name: $0.name, isCine: $0.isCine,
+                              help: filmIsPositive ? "" : helpFor($0.id),
+                              enabled: !filmIsPositive,
+                              disabledReason: filmIsPositive ? Self.positiveOnlyReason : "")
             }
         }
         out.append(StockList.Row(id: "__group_Positive", name: "Positive", isHeader: true))
@@ -56,11 +73,16 @@ struct PrintProfileSection: View {
         PanelSection("Print", key: "print", menu: { AnyView(menu) }) {
             VStack(alignment: .leading, spacing: 0) {
                 StockList(rows: rows,
-                          selected: session.params.scanFilm ? Self.positiveID : session.params.printStock,
+                          selected: session.params.scanFilm || filmIsPositive
+                                    ? Self.positiveID : session.params.printStock,
                           visibleRows: Self.wellRows) { id in
                     if id == Self.positiveID {
                         var p = session.params; p.scanFilm = true; session.params = p
                     } else {
+                        // `rowEnabled` already withholds the click; this is the
+                        // second door, because the row's own gesture is not the
+                        // only way an id reaches here.
+                        guard !filmIsPositive else { return }
                         session.selectPrintStock(id)
                     }
                 }
@@ -125,6 +147,10 @@ struct PrintProfileSection: View {
                     var p = session.params; p.printStock = t; p.scanFilm = false; session.params = p
                 }
             }
+            // A positive declares none, so this would do nothing; saying so is
+            // better than a live-looking item that silently does not fire.
+            .disabled(filmIsPositive
+                      || session.catalog.stock(session.params.filmStock)?.targetPrint == nil)
             Button("Process this frame") { session.solveNow() }
                 .disabled(!session.canSolve)
             Divider()

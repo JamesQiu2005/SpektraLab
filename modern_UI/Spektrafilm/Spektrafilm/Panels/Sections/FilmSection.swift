@@ -93,6 +93,11 @@ struct FilmSection: View {
             p.printStock = target
         }
         session.params = p
+        // A slide film has no print stage. A positive declares no
+        // `targetPrint`, so the branch above leaves `printStock` where it
+        // was — which is the point: coming back to a negative restores the
+        // paper rather than landing on a default.
+        session.applyFilmStageRule()
     }
 
     private func param(_ kp: WritableKeyPath<FilmParams, Bool>) -> Binding<Bool> {
@@ -140,6 +145,14 @@ struct StockList: View {
         /// A group caption — "Still", "Cine", "Positive" — rather than a
         /// selectable row.
         var isHeader = false
+        /// Whether the row can be chosen. A disabled row greys and stops
+        /// taking clicks, which is the PRD's one rule for anything
+        /// non-selectable (`View.rowEnabled(_:)`), rather than a row that
+        /// looks live and quietly does nothing.
+        var enabled = true
+        /// Why it cannot be chosen — shown as the row's tooltip, so the greying
+        /// is explained where it is seen.
+        var disabledReason = ""
     }
 
     let rows: [Row]
@@ -225,6 +238,7 @@ struct StockRow: View {
         .background(selected ? Theme.selection : Color.clear)
         .contentShape(Rectangle())
         .onTapGesture(perform: action)
+        .rowEnabled(row.enabled, because: row.disabledReason)
         .help(row.help)
     }
 }

@@ -11,6 +11,84 @@ import XCTest
 @MainActor
 final class FrontendPolicyTests: XCTestCase {
 
+    /// The four slide films are the four the catalogue calls positive, and
+    /// none of them declares a paper.
+    ///
+    /// Pinned against the catalogue rather than a hard-coded list: the rule is
+    /// "a positive has no print stage", and a profile added later should be
+    /// caught by `type` rather than by someone remembering this test.
+    func testTheCatalogueKnowsWhichFilmsAreSlides() {
+        let catalog = StockCatalog.shared
+        let positives = catalog.films.filter(\.isPositive).map(\.id).sorted()
+        XCTAssertEqual(positives, ["fujifilm_provia_100f", "fujifilm_velvia_100",
+                                   "kodak_ektachrome_100", "kodak_kodachrome_64"])
+        for film in catalog.films where film.isPositive {
+            XCTAssertNil(film.targetPrint,
+                         "\(film.id) is a positive and must declare no paper")
+        }
+    }
+
+    /// A slide film cannot be printed onto paper, and the refusal is in the
+    /// model rather than only in the greying.
+    ///
+    /// `PrintProfileSection` greys the rows so the interface says *why*, but a
+    /// rule enforced only by a disabled row is a rule any other caller — a
+    /// menu item, a restored sidecar — walks straight past.
+    func testASlideFilmRefusesAPaperAndScansInstead() {
+        let session = Session()
+        var p = session.params
+        p.filmStock = "kodak_portra_400"
+        p.printStock = "kodak_portra_endura"
+        p.scanFilm = false
+        session.params = p
+
+        // A negative prints, and the paper takes.
+        session.selectPrintStock("kodak_super_endura")
+        XCTAssertEqual(session.params.printStock, "kodak_super_endura")
+        XCTAssertFalse(session.params.scanFilm)
+        XCTAssertFalse(session.filmIsPositive)
+
+        // Switching to a slide film scans it.
+        var q = session.params; q.filmStock = "fujifilm_velvia_100"; session.params = q
+        XCTAssertTrue(session.filmIsPositive)
+        session.applyFilmStageRule()
+        XCTAssertTrue(session.params.scanFilm, "a positive is scanned, not printed")
+
+        // And the paper list is now inert.
+        session.selectPrintStock("kodak_portra_endura")
+        XCTAssertEqual(session.params.printStock, "kodak_super_endura",
+                       "a paper chosen while a slide film is loaded must not take")
+        XCTAssertTrue(session.params.scanFilm)
+
+        // The paper it had is *kept*, not cleared, so going back restores it.
+        var r = session.params; r.filmStock = "kodak_portra_400"; session.params = r
+        XCTAssertFalse(session.filmIsPositive)
+        session.selectPrintStock("kodak_portra_endura")
+        XCTAssertEqual(session.params.printStock, "kodak_portra_endura")
+        XCTAssertFalse(session.params.scanFilm)
+    }
+
+    /// Both rails open expanded, every time.
+    ///
+    /// Not a default-value test — `bool(forKey:)` was already false for an
+    /// unwritten key — but a *persistence* test: a rail folded in one session
+    /// must not decide how the app opens in the next.
+    func testTheRailsDoNotRememberBeingFolded() {
+        UserDefaults.standard.set(true, forKey: Session.uiKey + "leftCollapsed")
+        UserDefaults.standard.set(true, forKey: Session.uiKey + "rightCollapsed")
+        defer {
+            UserDefaults.standard.removeObject(forKey: Session.uiKey + "leftCollapsed")
+            UserDefaults.standard.removeObject(forKey: Session.uiKey + "rightCollapsed")
+        }
+        let session = Session()
+        XCTAssertFalse(session.leftCollapsed)
+        XCTAssertFalse(session.rightCollapsed)
+
+        // They still fold for as long as the window lives.
+        session.leftCollapsed = true
+        XCTAssertTrue(session.leftCollapsed)
+    }
+
     /// When a frame gets a native render: whenever it is bigger than the
     /// preview resolution, and not otherwise. A 1600 px frame has nothing to
     /// gain from a 2560 px render of itself, and the engine never upscales.

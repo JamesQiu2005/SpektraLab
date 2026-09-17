@@ -290,8 +290,21 @@ final class Session: CanvasHost {
     // wrote, and it opened this one with both panels and the filmstrip folded
     // away for no reason the user could see.
     nonisolated static let uiKey = "ui2."
-    var leftCollapsed = UserDefaults.standard.bool(forKey: Session.uiKey + "leftCollapsed") { didSet { UserDefaults.standard.set(leftCollapsed, forKey: Session.uiKey + "leftCollapsed") } }
-    var rightCollapsed = UserDefaults.standard.bool(forKey: Session.uiKey + "rightCollapsed") { didSet { UserDefaults.standard.set(rightCollapsed, forKey: Session.uiKey + "rightCollapsed") } }
+    // **The two rails always open expanded**, and are deliberately not
+    // restored from the last session.
+    //
+    // A fresh install already opened expanded — `bool(forKey:)` is `false` for
+    // a key that was never written — so this is not about the default value.
+    // It is about *persistence*: folding a rail is a momentary thing you do to
+    // see the picture, and writing it to disk means one such moment decides
+    // how the app looks every time it is opened afterwards. The comment above
+    // describes the previous build shipping exactly that bug from stale keys;
+    // restoring our own is the same outcome by a tidier route.
+    //
+    // They still fold, and the fold still lasts as long as the window does.
+    // It just does not outlive it.
+    var leftCollapsed = false
+    var rightCollapsed = false
     var topCollapsed = UserDefaults.standard.bool(forKey: Session.uiKey + "topCollapsed") { didSet { UserDefaults.standard.set(topCollapsed, forKey: Session.uiKey + "topCollapsed") } }
     var filmstripCollapsed = UserDefaults.standard.bool(forKey: Session.uiKey + "filmstripCollapsed") { didSet { UserDefaults.standard.set(filmstripCollapsed, forKey: Session.uiKey + "filmstripCollapsed") } }
     /// Snapshot mode only: hold both rails at `PanelWidthRange.standard`.
@@ -2435,12 +2448,37 @@ final class Session: CanvasHost {
     /// ordering is the whole of why it is fast: `EngineClient` is an actor,
     /// so a table lookup queued behind the reprint the setter schedules
     /// would arrive after the thing it was meant to precede.
+    /// Whether the chosen film is a reversal (slide) stock — Provia, Velvia,
+    /// Ektachrome, Kodachrome.
+    ///
+    /// A positive is already a viewable image, so the paper stage has nothing
+    /// to interpret: the print list greys out and the frame is scanned rather
+    /// than printed. The catalogue has carried `type` since it was generated
+    /// and nothing read it until now.
+    var filmIsPositive: Bool { catalog.stock(params.filmStock)?.isPositive ?? false }
+
     func selectPrintStock(_ stock: String) {
+        // The one gate. `PrintProfileSection` greys the rows so the interface
+        // says why, but the rule lives here so that a menu item, a sidecar or
+        // a future caller cannot route around it.
+        guard !filmIsPositive else { return }
         if fastStockPreview, printLUTStocks[stock] != nil { startStockPreview(stock) }
         var p = params
         p.printStock = stock
         p.scanFilm = false
         params = p
+    }
+
+    /// Choosing a film decides whether there is a print stage at all.
+    ///
+    /// Called by the film list. A positive is scanned, and `printStock` is
+    /// deliberately **left alone** while that is true: `scanFilm` is a
+    /// separate field from the paper for exactly this reason, so going back
+    /// to a negative restores the paper that was chosen before rather than
+    /// landing on a default.
+    func applyFilmStageRule() {
+        guard filmIsPositive, !params.scanFilm else { return }
+        var p = params; p.scanFilm = true; params = p
     }
 
     /// The Camera section's Tone pill: which exposure intent the engine meters
