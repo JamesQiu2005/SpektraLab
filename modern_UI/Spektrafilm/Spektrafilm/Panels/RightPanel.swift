@@ -1,7 +1,15 @@
 //  RightPanel.swift — the grade rail. Its header carries the adjustments
-//  glyph, the bypass switch (the dotted circle shows the pure simulation
-//  while it is active) and `sidebar.right` at the far end, which is what the
-//  2026-09-17 drawing puts there.
+//  glyph and `sidebar.right` at the far end, which is exactly what the
+//  2026-09-17 drawing puts there and nothing else.
+//
+//  It used to carry a third thing: a dotted-circle button that bypassed the
+//  whole adjustment layer. It is gone. It was not in the drawing, it never
+//  said what it was, and an unlabelled glyph whose entire job is to change
+//  the picture in a way you cannot attribute to it is worse than no control —
+//  the user's verdict was "I still have no idea what it can do and why it
+//  exists". The capability is untouched and lives where a mode belongs, on
+//  the menu with its own words and a shortcut: **View ▸ Bypass Adjustments
+//  (⇧⌘B)**.
 //
 //  Its sections are separated by the same hairline the left rail uses, and
 //  there is no menu on the header row: the drawing has none, and each section
@@ -44,17 +52,17 @@ struct RightPanel: View {
 
     private var header: some View {
         HStack(spacing: 0) {
+            // Inert on purpose: the rail's name, written as a glyph because
+            // the drawing writes it as a glyph. It is an `Image` and not a
+            // `PanelIconButton` so that it cannot take a click, and it is
+            // alone on this end of the row — a label beside a button reads as
+            // a button, which is half of why the one that used to sit next to
+            // it was unreadable.
             Image(systemName: "slider.horizontal.3")
                 .font(.system(size: Theme.Metric.panelIcon, weight: .regular))
                 .foregroundStyle(Theme.text)
                 .frame(width: 26, height: 26)
                 .padding(.leading, Theme.Metric.panelHeaderLeading)
-            PanelIconButton(systemImage: session.adjustments.enabled ? "circle.dotted.circle" : "circle.dotted",
-                            help: session.adjustments.enabled ? "Bypass adjustments (show the pure print)" : "Adjustments bypassed — click to enable",
-                            active: !session.adjustments.enabled) {
-                var a = session.adjustments; a.enabled.toggle(); session.adjustments = a
-            }
-            .padding(.leading, 8)
             Spacer(minLength: 0)
             SidebarToggle(edge: .trailing, collapsed: $session.rightCollapsed)
                 .padding(.trailing, Theme.Metric.panelHeaderTrailing)

@@ -121,7 +121,13 @@ struct EditorCommands: Commands {
             }.keyboardShortcut("\\")
             Button("Toggle Filmstrip") { withAnimation { session.filmstripCollapsed.toggle() } }.keyboardShortcut("f", modifiers: [.command, .shift])
             Divider()
-            Button("Bypass Adjustments") { var a = session.adjustments; a.enabled.toggle(); session.adjustments = a }.keyboardShortcut("b", modifiers: [.command, .shift])
+            // The only door onto this now — the right rail's dotted-circle glyph
+            // is gone, so this label is also the state read-out. It says which
+            // way the switch is pointing, as Before / After does, because a
+            // bypass you forgot you turned on looks like a broken render.
+            Button(session.adjustments.enabled ? "Bypass Adjustments" : "Restore Adjustments") {
+                var a = session.adjustments; a.enabled.toggle(); session.adjustments = a
+            }.keyboardShortcut("b", modifiers: [.command, .shift])
             Button(session.comparing ? "Hide Before / After" : "Before / After") { session.comparing.toggle() }
                 .keyboardShortcut("\\", modifiers: [.option])
                 .disabled(!session.canCompare)
