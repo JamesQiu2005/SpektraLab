@@ -100,6 +100,7 @@ when it looks like a refactor — see §8.4.
 | the wire, ownership, version negotiation | `CONTRACT-frontend-backend.md` |
 | the method surface and semantics | `API-SPEC-callable-render-service.md` |
 | the frontend in detail | `modern_UI/Spektrafilm/README.md` |
+| what it actually looks like, on real frames | `screenshots/` (§7) |
 | the GPU-native render core (the kernels this port inherited) | `rfc/RFC-011-gpu-native-render-core.md` |
 | why the Python process *was* still here | `rfc/RFC-012-consistent-backend-process.md` |
 
@@ -372,7 +373,40 @@ picture — it is a look decision, not a free speedup.
 A native macOS app: SwiftUI for the panels, AppKit for the window, Metal for
 the canvas. `modern_UI/Spektrafilm/README.md` is the detailed document; this is
 what someone modifying the *pipeline* needs to know about the thing consuming
-it.
+it. `screenshots/SpektraLab_main.png` is that window on a real frame.
+
+**The left rail is not "the engine rail".** §7.2's two layers are the
+load-bearing split, and the right rail is exactly Layer 2 — but the left rail
+carries four different costs, and a row filed under the wrong one is a row
+whose latency nobody can predict:
+
+| left rail | runs in | what one change costs |
+|---|---|---|
+| Temperature · Tint · As Shot · Lens Correction | **the decode** — `CIRAWFilter`, Core Image | a re-decode of the frame, then a render |
+| AE Method · Film Exposure · the film list · Film Type/Side/Side Length · Grain · Halation · Glare · the paper list · EDR · Process | **the engine**, Layer 1 | a `params_delta` and a render |
+| Vignetting | **Layer 2**, the app's kernel | one draw |
+| Crop · Straighten · turns · flips | **neither** — geometry, upstream of both | one draw; `Exporter` applies it first, after the print comes back |
+
+Crop is on the left because the frame's shape is a camera-side decision, not
+because it reaches an engine parameter — it reaches none (`CropSection.swift`).
+The one wire it can pull is `Session.recalculateEffectsAfterCrop`, off by
+default: cropping a negative does not make its grain coarser unless the person
+says the crop is a different negative.
+
+**Two white balances, and they are different stages.** Camera's Temperature and
+Tint are the decode's, in kelvin, with an "As Shot" box per axis; White Balance
+in the right rail is Layer 2's, on the scan; and neither is the enlarger's
+filter pack, which `Process` solves. They are kept apart by the rule that two
+stages must not share a name — which is why the right rail's section writes
+"Print — an adjustment on the scan" under its own sliders.
+
+**The right rail is Layer 2 in the drawing's order**: Histogram · White Balance
+· Exposure · Curve · Color Balance, with masks withdrawn behind
+`FeatureFlags.masks` (§7.4). The histogram is the one that reads rather than
+writes — 256 bins × (R, G, B, luma), read back on the Layer 2 pass's completion
+and published on the main actor, so it describes the **adjusted** image and not
+the print the engine returned. Under it sit the frame's ISO, shutter and
+aperture.
 
 ### 7.1 Structure
 
@@ -395,26 +429,48 @@ Panels/ Windows/ Controls/   the interface
 |---|---|---|
 | what | film, paper, camera, enlarger | exposure, contrast, curves, colour balance |
 | where | the **engine** | a **Metal compute kernel in the app** |
-| cost | an engine call: ~10 ms live, ~170 ms full | one draw, sub-millisecond |
-| panel | left | right |
+| cost | an engine call: ~14 ms at the default preview size, ~0.12 s at native | one draw, sub-millisecond |
+| panel | left — but not every left row is Layer 1, see the table above | right |
 
 A Layer 1 edit sends a `params_delta` and waits for pixels. A Layer 2 edit
 never leaves the app. Putting a control on the wrong side is not a cosmetic
 mistake — it is the difference between a slider that tracks the mouse and one
-that does not. The gap is narrower than it was (a live-tier reprint is ~10 ms
-now, not 190) but it is still a gap, and it still runs on a debounce.
+that does not. The gap is narrower than it was (a live reprint is 13.7 ms at the
+2560 default, not 190) but it is still a gap, and it still runs on a debounce.
 
 `FilmParams.wire` is the single place the Layer 1 field names live, each tagged
 `shoot` or `print`, and `ParamsTests.testWireNamesMatchTheServiceSchema` pins
 the set against `service/schema.py`. **A rename on the Python side fails a
 Swift test rather than silently rejecting every delta at runtime.**
 
-### 7.3 Resolution tiers
+### 7.3 Resolution: two states, not a ladder
 
-The canvas holds the `live` (1600 px) render and escalates to `preview`
-(3400 px) at 100 % zoom and `full` at 200 %, per `Session.wantedTier`. Detail
-renders are cached by *rank* — a `full` render satisfies a request for
-`preview` — so zooming out and back is a texture swap, not a re-render.
+**The preview resolution** is what every interactive edit renders at: one of
+four settable long edges (3840, 2560, 1920, 1080; **2560** by default). It is
+the engine's `live` tier — the wire's three tier names are load-bearing,
+contract §1.2.3 — with the size chosen by the user (`io.preview_long_edge`).
+
+**The original image** is a render at the frame's own resolution, started
+400 ms after the edit stops moving and shown when it lands. Exactly one is
+alive at a time, which is the memory argument that used to shape the
+escalation: 360 MB at 45 MP, 1.2 GB at 151 MP.
+
+**Zoom selects neither** — the product decision of 2026-09-12. `wantedTier`
+used to escalate live → preview → full as the zoom passed each tier's native
+scale, and that ladder is gone; one working resolution plus the finished
+picture is Capture One's model (预览图像) and what the user asked for. The zoom
+readout still means native pixels and the viewport is still expressed against
+the **native** frame rather than against whatever is on the canvas. The canvas
+is simply soft above the preview resolution until the original lands, which
+`previewSoft` reports as a `preview` badge — and the `full` badge is the other
+half of the same statement: the frame is on the canvas at its own size, at
+**any** zoom, including the 33 % fit in `screenshots/SpektraLab_main.png`.
+
+Measured on the 45 MP Nikon Z7 II frame (8256×5504, grain and glare off), a
+live reprint costs 6.2 ms at 1600, **13.7 ms at the 2560 default** and 121.7 ms
+at 8192 native. So the interactive render is 7 ms a frame dearer than the 1600
+it replaced, and the native render is 0.12 s run once per settled edit instead
+of on every zoom step.
 
 ### 7.4 What the frontend does *not* do
 

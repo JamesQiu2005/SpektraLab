@@ -18,6 +18,18 @@ run time. `ARCHITECTURE.md` §0 is the map and §8 is the engine. RFC-014 §8 is
 the after-the-fact record: what parity measures, why each bar is where it is,
 and the bugs already found.
 
+**Half of this product is an interface, and it now has a picture.**
+`screenshots/` is the app as it renders — the editor window, the before/after
+split, grain at 1:1 — captured from the *running app*, not from the snapshot
+harness. Look at it before changing anything on the canvas or the rails.
+`ARCHITECTURE.md` §7 says what each row of each rail costs (four different
+things on the left rail alone), `modern_UI/Spektrafilm/README.md` is the
+detail, and `modern_UI/reference_layout/Main/` is the drawing the layout is
+measured against. A capture earns its place by settling arguments: this one is
+what caught §7.3 still describing a tier ladder five days after the ladder was
+deleted — a `full` badge at a 33 % fit is a thing a document cannot talk its
+way out of.
+
 **The Python reference is not here, and two things need it.** The upstream
 fork's `src/` package is the oracle `engine/tests/parity_*.py` compare against,
 and the only thing that can re-bake `engine/resources/`. Both take it as an
@@ -291,11 +303,12 @@ The app's own timing instrument, which you should not delete:
 ```
 $ SPEKTRAFILM_CANVAS_LOG=1 …/Spektrafilm --snapshot 1600x900 /tmp/o.png \
       --open "tests/Test_image/A7m3/DSC03710.ARW" --wait 90 2>&1 >/dev/null \
-  | grep -E "open path|detail"
+  | grep -E "open path|full render"
 session: open path (ms): decode 76 · preview-texture 195 · linear-tiff 51
          · service.open 1613 · solve 30 · reprint 44 · TOTAL 2011
          · core=native-metal
-session: detail preview 3400x2266 landed in 191 ms
+session: full render requested for DSC03710.ARW
+session: full render <w>x<h> landed in <n> ms
 ```
 
 **`core=native-metal` is the first thing to check**, and it is now the *only*
@@ -304,11 +317,15 @@ engine. `service.open` keeps its name for continuity; there is no service, and
 what it measures is Core Image rendering the linear TIFF to a float bitmap plus
 the upload. On a 24 MP RAW that read is most of it.
 
-The `detail … landed` line is the one that says a higher-resolution render
-actually reached the canvas. `scheduleDetail` drops a result whose generation
-changed, so when a full render was slow the line never appeared and the app
-looked like it never showed full resolution — which is what a 13.6 s render
-did before trap 18 was fixed.
+The `full render … landed` line is the one that says the frame reached the
+canvas at its **own** resolution. It used to read `detail preview 3400x2266
+landed`, from the tier ladder deleted on 2026-09-12 (`ARCHITECTURE.md` §7.3);
+grepping for `detail` finds nothing now. `renderFullRender` drops a result
+whose generation, selection or *session* has moved, so when the render is slow
+the line never appears and the app looks like it never showed full resolution
+— which is what a 13.6 s render did before trap 18 was fixed. The `full` badge
+in the canvas's top-right corner is the same fact, on screen
+(`Session.canvasBadges`).
 
 Snapshot flags for canvas features a test cannot see: `--zoom`, `--geometry`,
 `--mask`, `--compare`.
@@ -981,6 +998,15 @@ what discriminates, and neither test is sufficient alone. Both say so.
   gate proved MLX kernels are byte-identical from `libmlx.dylib`. **Step 5, the
   native host, is unstarted.** Do not put rendering logic in an RPC handler —
   that seam is what makes option D a deletion rather than a rewrite.
+- **Re-take `screenshots/` when the interface moves**, and say in the same
+  commit what moved. They are the product's only picture outside the code and
+  they carry a date; a stale one is a false claim about today. Capture the
+  running app (fullscreen, ⌃⌘F), not the snapshot harness —
+  `modern_UI/design/snapshots/` is the *layout* record, measured against the
+  drawing, while `screenshots/` is what a person sees. The 1:1 grain capture
+  must not be resampled or JPEG'd: at and above 100 % the canvas samples
+  nearest, so those pixels are the engine's grain, and resizing the file
+  resizes the evidence. `screenshots/README.md` carries the provenance of each.
 - Anything claiming a speed or memory win must come with a measurement in the
   same message. `tracemalloc` for allocation, `resource.getrusage` for RSS.
 - Quality claims need a ΔE number from `compare.py`, not an eyeball.

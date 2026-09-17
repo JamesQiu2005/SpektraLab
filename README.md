@@ -9,6 +9,49 @@ the engine, the 28 measured film profiles and the print-preview LUTs baked
 from them are Andrea Volpato's, licensed CC BY-SA 4.0. This repository is the
 desktop product built on top of that engine. See [Licensing](#licensing).
 
+## What it looks like
+
+![The editor: a 120 frame on Kodak Portra 160, printed on Kodak Professional Endura Premier](screenshots/SpektraLab_main.png)
+
+**The two rails are the two halves of the program.** On the left is the
+negative — camera, film stock, the physical frame, paper, crop — and most of it
+is the engine: a change there is a render. On the right is the grade —
+histogram, white balance, exposure, curve, colour balance — and that rail is
+Layer 2, one Metal compute pass inside the app: a change there is a draw,
+before the next frame. Which side a control is on is a statement about what
+moving it costs, and `ARCHITECTURE.md` §7 has the row-by-row version —
+including the four rows on the left that are neither.
+
+**`Film Type · Side · Side Length` is not metadata.** 120, short side, 2.205 in:
+the app turns that and the photograph's own aspect into one number — the
+frame's long edge in millimetres — and the engine divides its micrometre
+quantities by it. Grain is a particle count per sub-layer and channel derived
+from the pixel pitch; halation and coupler diffusion are measured in µm. Tell
+it the negative is 35 mm and the same photograph gets coarser grain, correctly.
+
+**`full` is not a zoom level.** That badge says the canvas is showing this frame
+at its own resolution rather than the preview, and it is up at a 33 % fit: the
+canvas settles at native size after every edit, at whatever zoom. There is no
+tier ladder to climb (§7.3).
+
+| the split: decode against render (⌥\\) | the same engine, at 1:1 |
+|---|---|
+| ![Before and after](screenshots/natural_halation.png) | ![Grain at 1:1](screenshots/physically_accurate_grain.png) |
+
+Left of the line is **Apple's decode of the RAW**, at the frame's own
+resolution — never the engine's input — and right of it is the same photograph
+through film and paper: halation where the bright sky meets the skyline, the
+paper's contrast, grain. The line is anchored to the picture and not to the
+window, so it stays on the same building while you pan and zoom.
+
+The 1:1 crop is that grain, unresampled. At and above 100 % the canvas samples
+nearest, so what is on screen is the render's own pixels rather than a smear of
+them — which is the only way a grain model can be looked at honestly.
+`screenshots/README.md` says where each capture comes from and how to re-take
+it.
+
+## How it is put together
+
 ```
 ┌─ SpektraLab.app ──────────────────────────────────────────────────────┐
 │  SwiftUI + Metal, macOS                                               │
@@ -143,6 +186,7 @@ the smaller cases; the RFC-018 measurements want the A7 III pair.
 | `engine/resources/spektrafilm.metallib` | **not tracked, on purpose** — `engine/build.sh` recompiles it from `engine/src/shaders/*.metal` on every build, so it can never go stale against the shaders |
 | `engine/resources/` | **tracked** — the baked constants, 28 profiles, the print-LUT index |
 | `engine/third_party/metal-cpp/` | vendored Apple metal-cpp (Apache-2.0) |
+| `screenshots/` | the product as it renders, on real frames — the pictures above, with their provenance |
 | `rfc/`, `handoff/HANDOFF-*.md`, `ARCHITECTURE.md`, `AGENTS.md` | the design record and the traps |
 
 Not here, on purpose: the **Python reference implementation**. Upstream
