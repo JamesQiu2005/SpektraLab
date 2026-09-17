@@ -1,5 +1,7 @@
 # SpektraLab
 
+<img src="screenshots/app-icon.png" alt="The SpektraLab icon: three dye layers and a base, stacked" width="132" align="right">
+
 A macOS film and print simulator. Open a RAW or TIFF negative, choose a film
 stock and a paper, and watch a physically-modelled render settle in under a
 second — grain, halation, couplers, enlarger dichroics and all.
@@ -43,6 +45,15 @@ resolution — never the engine's input — and right of it is the same photogra
 through film and paper: halation where the bright sky meets the skyline, the
 paper's contrast, grain. The line is anchored to the picture and not to the
 window, so it stays on the same building while you pan and zoom.
+
+**The icon is a document, not a picture.** `Spektrafilm/SpektraLab.icon` is an
+Icon Composer file — the dye layers as SVG, a translucency value and a shadow
+— and `actool` composes it at build time, so the shape mask, the material and
+the specular edge are the system's rather than drawn in. The catalogue keeps
+the layers (`SpektraLab_Assets/…` in `Assets.car`), which is what lets macOS
+render its own light, dark and tinted variants from one document. The PNG above
+is that composite read back out of the built bundle — `Tools/render-icon.swift`,
+which is also the check that the icon reached the app at all.
 
 The 1:1 crop is that grain, unresampled. At and above 100 % the canvas samples
 nearest, so what is on screen is the render's own pixels rather than a smear of
@@ -180,7 +191,7 @@ the smaller cases; the RFC-018 measurements want the A7 III pair.
 
 | | |
 |---|---|
-| `modern_UI/Spektrafilm/` | the app: Swift sources, tests, `Tools/`, the Xcode project |
+| `modern_UI/Spektrafilm/` | the app: Swift sources, tests, `Tools/`, the Xcode project, and `Spektrafilm/SpektraLab.icon` — the Icon Composer document `actool` builds the icon from |
 | `modern_UI/design/`, `reference_layout/`, `film_covers/` | the drawing the UI was measured against (`reference_layout/Main/`, 2026-09-17), its token derivation (`design/TOKENS-main-2026-09-17.md`), the layout captures, and the stock cover art |
 | `engine/` | the C++ engine, its MSL kernels, its C ABI, its parity harnesses |
 | `engine/resources/spektrafilm.metallib` | **not tracked, on purpose** — `engine/build.sh` recompiles it from `engine/src/shaders/*.metal` on every build, so it can never go stale against the shaders |

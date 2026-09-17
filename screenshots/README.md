@@ -14,12 +14,26 @@ offscreen at a stated size so a layout can be *measured* against the drawing in
 | `SpektraLab_main.png` | the editor, fullscreen: `_DSC34610-6.tif` (5537 px wide) on **Kodak Portra 160**, printed on **Kodak Professional Endura Premier**; 120 film, short side 2.205 in; grain, halation, glare and EDR all on; `Fit · 33 %` with the `full` badge up | 2048 px wide, from 3024 |
 | `natural_halation.png` | the before/after split on a San Francisco frame — left of the line is Apple's decode of the RAW, right is the same pixels through film and paper | 1386 px wide, from 1798 |
 | `physically_accurate_grain.png` | the canvas at 1:1 on the Yosemite frame: the engine's grain at the render's own pixels | **native, 1226 px, unresampled** |
+| `app-icon.png` | the app icon as macOS draws it, read back out of the built bundle | 1024 px, from a 2048 px rendition |
 
 **The 1:1 capture must not be resized.** At and above 100 % the canvas samples
 nearest (`canvasFragment` in `Canvas/Shaders.metal`), so the pixels in that
 file are the grain the engine drew — a particle count per sub-layer and
 channel, scaled by the frame's pixel pitch in µm. Resampling the file to save
 a megabyte resamples the evidence, and so does a JPEG.
+
+`app-icon.png` is the odd one out: it is not a capture but a render, and it is
+made rather than taken — build the app, then
+
+```bash
+swiftc -O Tools/render-icon.swift -o /tmp/render-icon
+/tmp/render-icon "$PWD/build/DerivedData/Build/Products/Debug/SpektraLab.app" \
+                 ../../screenshots/app-icon.png 1024
+```
+
+from `modern_UI/Spektrafilm`. It reads the icon the way the Finder does, so it
+is also the check that `Spektrafilm/SpektraLab.icon` reached the bundle — an
+app icon that failed to compile is a build that succeeds.
 
 ## Re-taking them
 

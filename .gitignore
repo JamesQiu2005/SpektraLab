@@ -311,7 +311,11 @@ modern_UI/Spektrafilm/Spektrafilm/Resources/engine/
 /handoff/native-neutral-density/
 /handoff/HANDOFF-NATIVE-NEUTRAL-DENSITY.md
 
-# The app icon, still being drawn. `Assets.xcassets/AppIcon.appiconset` has no
-# images in it yet, so the app ships with the generic macOS icon; this is the
-# Illustrator source it will come from.
+# The Illustrator drawing the icon came out of. The icon itself is **tracked**
+# and is not here: it is `modern_UI/Spektrafilm/Spektrafilm/SpektraLab.icon`,
+# an Icon Composer document that `actool` builds into the bundle
+# (`ASSETCATALOG_COMPILER_APPICON_NAME`, which must keep matching its base
+# name). It lives with the target because it is a build input, not a sketch —
+# open it from there, or the app builds from a copy nobody edited. The empty
+# `AppIcon.appiconset` it replaced is gone.
 /app_icon/

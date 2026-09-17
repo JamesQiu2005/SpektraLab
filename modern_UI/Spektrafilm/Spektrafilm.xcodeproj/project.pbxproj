@@ -199,6 +199,7 @@
 			path = "Service";
 			sourceTree = "<group>";
 		};
+		10EF18222161F212EEF63649 /* SpektraLab.icon */ = {isa = PBXFileReference; lastKnownFileType = folder.iconcomposer.icon; path = "SpektraLab.icon"; sourceTree = "<group>"; };
 		E9A855B54DCFEA59C4405355 /* Theme.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Theme.swift"; sourceTree = "<group>"; };
 		8EB45331C2448244C60954B0 /* Theme */ = {
 			isa = PBXGroup;
@@ -247,6 +248,7 @@
 				43C8D0438EAE575CD4C06CEB /* Panels */,
 				84CF9EF6E2C9FE2AE285B578 /* Resources */,
 				DB17323FBCFC0CF9A11FDBA4 /* Service */,
+				10EF18222161F212EEF63649 /* SpektraLab.icon */,
 				8EB45331C2448244C60954B0 /* Theme */,
 				B32EB60C18534A921EE88FB5 /* Windows */,
 				58EE2CED0B2C7C1F694C2A6C /* Info.plist */,
@@ -354,6 +356,7 @@
 		C6454FA299ABB90F982C453B /* make-smoke.py */ = {isa = PBXFileReference; lastKnownFileType = text.script.python; path = "make-smoke.py"; sourceTree = "<group>"; };
 		5FD5A6F01E9E37CE817FE7D2 /* measure-layout.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "measure-layout.swift"; sourceTree = "<group>"; };
 		CAC54B5D1A76CDDB8C5B1FC4 /* package.sh */ = {isa = PBXFileReference; lastKnownFileType = text.script.sh; path = "package.sh"; sourceTree = "<group>"; };
+		8F4A80183C0335C6FCC96A68 /* render-icon.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "render-icon.swift"; sourceTree = "<group>"; };
 		1CF4EBBC105C01A3E15AAE22 /* snapshot.sh */ = {isa = PBXFileReference; lastKnownFileType = text.script.sh; path = "snapshot.sh"; sourceTree = "<group>"; };
 		B023CA8F0F68491740229B47 /* Tools */ = {
 			isa = PBXGroup;
@@ -369,6 +372,7 @@
 				C6454FA299ABB90F982C453B /* make-smoke.py */,
 				5FD5A6F01E9E37CE817FE7D2 /* measure-layout.swift */,
 				CAC54B5D1A76CDDB8C5B1FC4 /* package.sh */,
+				8F4A80183C0335C6FCC96A68 /* render-icon.swift */,
 				1CF4EBBC105C01A3E15AAE22 /* snapshot.sh */
 			);
 			path = "Tools";
@@ -630,12 +634,14 @@
 		};
 		29265CB1EFE378BC3507BDBC /* Assets.xcassets */ = {isa = PBXBuildFile; fileRef = 3375270C81BEA0B1B8896473; };
 		5BC84AF57D2EE77582E8F6F3 /* Resources */ = {isa = PBXBuildFile; fileRef = 84CF9EF6E2C9FE2AE285B578; };
+		5A7569683773F58959082B96 /* SpektraLab.icon */ = {isa = PBXBuildFile; fileRef = 10EF18222161F212EEF63649; };
 		C831EECBAB01524E02C71B42 /* app-resources */ = {
 			isa = PBXResourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
 				29265CB1EFE378BC3507BDBC /* Assets.xcassets */,
-				5BC84AF57D2EE77582E8F6F3 /* Resources */
+				5BC84AF57D2EE77582E8F6F3 /* Resources */,
+				5A7569683773F58959082B96 /* SpektraLab.icon */
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -916,12 +922,14 @@
 		};
 		3BCF59DCB1F31E7D7BCB9E44 /* Assets.xcassets */ = {isa = PBXBuildFile; fileRef = 3375270C81BEA0B1B8896473; };
 		AD4B9035FC275B589CE3FEFF /* Resources */ = {isa = PBXBuildFile; fileRef = 84CF9EF6E2C9FE2AE285B578; };
+		762A444DA3A9BE2604F6C18D /* SpektraLab.icon */ = {isa = PBXBuildFile; fileRef = 10EF18222161F212EEF63649; };
 		201E3014E52B86C5F3284B5C /* test-resources */ = {
 			isa = PBXResourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
 				3BCF59DCB1F31E7D7BCB9E44 /* Assets.xcassets */,
-				AD4B9035FC275B589CE3FEFF /* Resources */
+				AD4B9035FC275B589CE3FEFF /* Resources */,
+				762A444DA3A9BE2604F6C18D /* SpektraLab.icon */
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -963,7 +971,7 @@
 			isa = XCBuildConfiguration;
 			buildSettings = {
 				ARCHS = arm64;
-				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				ASSETCATALOG_COMPILER_APPICON_NAME = SpektraLab;
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
 				CLANG_CXX_LANGUAGE_STANDARD = "c++20";
 				CLANG_CXX_LIBRARY = "libc++";
@@ -1012,7 +1020,7 @@
 			isa = XCBuildConfiguration;
 			buildSettings = {
 				ARCHS = arm64;
-				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				ASSETCATALOG_COMPILER_APPICON_NAME = SpektraLab;
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
 				CLANG_CXX_LANGUAGE_STANDARD = "c++20";
 				CLANG_CXX_LIBRARY = "libc++";
@@ -1086,7 +1094,7 @@
 			isa = XCBuildConfiguration;
 			buildSettings = {
 				ARCHS = arm64;
-				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				ASSETCATALOG_COMPILER_APPICON_NAME = SpektraLab;
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
 				CLANG_CXX_LANGUAGE_STANDARD = "c++20";
 				CLANG_CXX_LIBRARY = "libc++";
@@ -1132,7 +1140,7 @@
 			isa = XCBuildConfiguration;
 			buildSettings = {
 				ARCHS = arm64;
-				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				ASSETCATALOG_COMPILER_APPICON_NAME = SpektraLab;
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
 				CLANG_CXX_LANGUAGE_STANDARD = "c++20";
 				CLANG_CXX_LIBRARY = "libc++";

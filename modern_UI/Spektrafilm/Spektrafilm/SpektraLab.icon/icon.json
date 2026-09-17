@@ -1,0 +1,59 @@
+{
+  "color-space-for-untagged-svg-colors" : "display-p3",
+  "fill" : {
+    "solid" : "extended-gray:1.00000,1.00000"
+  },
+  "groups" : [
+    {
+      "layers" : [
+        {
+          "hidden" : false,
+          "image-name" : "5.app icon shape.svg",
+          "name" : "5.app icon shape"
+        },
+        {
+          "image-name" : "4.1 – layer.svg",
+          "name" : "4.1 – layer"
+        },
+        {
+          "image-name" : "3.4 – layer.svg",
+          "name" : "3.4 – layer"
+        },
+        {
+          "image-name" : "2.2 – layer.svg",
+          "name" : "2.2 – layer"
+        },
+        {
+          "image-name" : "资源 1.svg",
+          "name" : "资源 1",
+          "position" : {
+            "scale" : 1,
+            "translation-in-points" : [
+              -0.1205365000000711,
+              252
+            ]
+          }
+        },
+        {
+          "hidden" : true,
+          "image-name" : "1.background.svg",
+          "name" : "1.background"
+        }
+      ],
+      "shadow" : {
+        "kind" : "neutral",
+        "opacity" : 0.5
+      },
+      "translucency" : {
+        "enabled" : true,
+        "value" : 0.3
+      }
+    }
+  ],
+  "supported-platforms" : {
+    "circles" : [
+      "watchOS"
+    ],
+    "squares" : "shared"
+  }
+}

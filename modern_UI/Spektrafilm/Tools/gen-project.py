@@ -12,6 +12,12 @@ this twice produces a byte-identical file. Every Swift/Metal file under
 the unit-test target. `Resources/` is added as a folder reference so anything
 dropped in it ships in the bundle without touching this script.
 
+`Spektrafilm/SpektraLab.icon` is the Icon Composer document and is treated as
+one opaque file, not as the directory of SVG layers it really is: it goes
+through `actool` like an asset catalogue (`folder.iconcomposer.icon` is
+`BasedOn = folder.abstractassetcatalog`), and `ASSETCATALOG_COMPILER_APPICON_NAME`
+picks it by base name.
+
 **The C++ render engine** (RFC-014) joins the app target too, as sources
 rather than as a prebuilt library: `ENGINE_SOURCES` below lists every
 translation unit under `engine/src/`, referenced relative to this project, and
@@ -125,7 +131,8 @@ def file_type(p: Path) -> str:
     return {".swift": "sourcecode.swift", ".metal": "sourcecode.metal",
             ".cpp": "sourcecode.cpp.cpp", ".h": "sourcecode.c.h", ".hpp": "sourcecode.cpp.h",
             ".plist": "text.plist.xml", ".entitlements": "text.plist.entitlements",
-            ".xcassets": "folder.assetcatalog", ".md": "net.daringfireball.markdown",
+            ".xcassets": "folder.assetcatalog", ".icon": "folder.iconcomposer.icon",
+            ".md": "net.daringfireball.markdown",
             ".py": "text.script.python", ".sh": "text.script.sh"}.get(p.suffix, "folder")
 
 
@@ -145,7 +152,7 @@ class Project:
         for entry in sorted(dir_.iterdir(), key=lambda p: (p.is_file(), p.name.lower())):
             if entry.name.startswith(".") or entry.name == "Spektrafilm.xcodeproj":
                 continue
-            if entry.is_dir() and entry.suffix not in (".xcassets",) and entry.name != "Resources":
+            if entry.is_dir() and entry.suffix not in (".xcassets", ".icon") and entry.name != "Resources":
                 if entry.name in ("build", "DerivedData"):
                     continue
                 children.append((self.group(entry, target_files), entry.name))
@@ -209,7 +216,7 @@ def build() -> str:
         return pid
 
     is_src = lambda q: q.suffix in (".swift", ".metal", ".cpp")
-    is_res = lambda q: q.suffix == ".xcassets" or q.name == "Resources"
+    is_res = lambda q: q.suffix in (".xcassets", ".icon") or q.name == "Resources"
     app_sources = phase("PBXSourcesBuildPhase", app_files + engine_files, is_src, "app-sources")
     app_resources = phase("PBXResourcesBuildPhase", app_files, is_res, "app-resources")
     app_frameworks = phase("PBXFrameworksBuildPhase", [], lambda q: False, "app-frameworks")
@@ -267,7 +274,12 @@ def build() -> str:
         "MTL_ENABLE_DEBUG_INFO": "INCLUDE_SOURCE",
         "MTL_FAST_MATH": "YES",
         "COMBINE_HIDPI_IMAGES": "YES",
-        "ASSETCATALOG_COMPILER_APPICON_NAME": "AppIcon",
+        # The Icon Composer document, `Spektrafilm/SpektraLab.icon`, whose base
+        # name this must match -- `actool` selects the app icon by name, and a
+        # name with no document behind it compiles to a bundle with no icon
+        # rather than to an error. It reads PRODUCT_NAME because the icon is
+        # named for the product, which is the one place those two must agree.
+        "ASSETCATALOG_COMPILER_APPICON_NAME": PRODUCT_NAME,
         "ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME": "AccentColor",
     }
     app_cfg = {
