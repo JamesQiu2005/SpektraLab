@@ -6,7 +6,8 @@ A macOS film and print simulator. Open a RAW or TIFF negative, choose a film
 stock and a paper, and watch a physically-modelled render settle in under a
 second — grain, halation, couplers, enlarger dichroics and all.
 
-**SpektraLab is the application.** The simulation it runs is **spektrafilm** —
+**SpektraLab is the application.** The film process pipeline was a direct 
+C++ & Natice Metal pork forked from Spektrafilm by Andrea Volpato.
 the engine, the 28 measured film profiles and the print-preview LUTs baked
 from them are Andrea Volpato's, licensed CC BY-SA 4.0. This repository is the
 desktop product built on top of that engine. See [Licensing](#licensing).
@@ -45,15 +46,6 @@ resolution — never the engine's input — and right of it is the same photogra
 through film and paper: halation where the bright sky meets the skyline, the
 paper's contrast, grain. The line is anchored to the picture and not to the
 window, so it stays on the same building while you pan and zoom.
-
-**The icon is a document, not a picture.** `Spektrafilm/SpektraLab.icon` is an
-Icon Composer file — the dye layers as SVG, a translucency value and a shadow
-— and `actool` composes it at build time, so the shape mask, the material and
-the specular edge are the system's rather than drawn in. The catalogue keeps
-the layers (`SpektraLab_Assets/…` in `Assets.car`), which is what lets macOS
-render its own light, dark and tinted variants from one document. The PNG above
-is that composite read back out of the built bundle — `Tools/render-icon.swift`,
-which is also the check that the icon reached the app at all.
 
 The 1:1 crop is that grain, unresampled. At and above 100 % the canvas samples
 nearest, so what is on screen is the render's own pixels rather than a smear of
@@ -204,23 +196,6 @@ Not here, on purpose: the **Python reference implementation**. Upstream
 `spektrafilm` ships a numba/colour-science engine under `src/`; this repository
 carries only the C++ port. The Python engine never shipped and never will — but
 it is the oracle several harnesses compare against, so see below if you need it.
-
-### Naming
-
-The product is **SpektraLab**; the engine, profiles and LUTs are
-**spektrafilm**. That split is deliberate and the licence asks for it:
-`SPEKTRAFILM_LICENSE.txt` says not to use "spektrafilm" in product branding
-without asking, while explicitly welcoming the factual reference. The About
-panel says which is which.
-
-Internally the Xcode **target**, the **scheme** and the Swift **module** are
-still called `Spektrafilm`. Renaming those buys nothing a user can see and
-breaks every `BlueprintName` in the schemes, so they stay. The product was
-first renamed from Filmify to **SpektraLab** on 2026-09-16; the bundle id
-(`com.hanze.filmify`) deliberately did not move with it — it is what macOS's
-notarisation and Gatekeeper already have on record for this app, and changing
-it is a separate, larger decision than renaming what the user sees. Only the
-*product* name and the user-visible strings are SpektraLab.
 
 ### Rebaking the engine resources
 
