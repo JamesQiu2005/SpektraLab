@@ -1,96 +1,73 @@
 # ARCHITECTURE.md
 
-How the spektrafilm runtime is put together, with the performance and memory
-characteristics measured on this fork. Written for someone about to modify the
-pipeline.
+How SpektraLab is put together: a SwiftUI app with a C++ Metal render engine
+compiled into it. Written for someone about to change the pipeline, the app, or
+the release.
 
-**§0 is the map of the whole product** and is the section to read if you have
-just arrived. §1–§6 are the render pipeline and are unchanged in numbering
-(RFC-003 cites §3). §7 is the macOS frontend, §8 is the executor layer and the
-native host that does not exist yet.
+**§0 is the map** and the section to read first. §1 is the physical model the
+engine simulates, §2–§4 are the engine's runtime, §5 is how it is built and
+released, §7 is the macOS frontend, and §8 is the engine in detail. Section
+numbers are cited from other documents (RFC-003 cites §3), so they stay put.
 
 ---
 
 ## 0. The product, end to end
 
 SpektraLab is **one application with a C++ render engine linked into it**. The
-engine is spektrafilm's; so are the profiles and the LUTs baked from them. It
-used to be two programs and a pipe — RFC-014 deleted the pipe (2026-09-10) —
-and the Python engine that sat on the far side of it stayed behind in the
-upstream fork when this product was extracted into its own repository
-(2026-09-11). It ships to nobody and remains the reference every number below
-is measured against; it is simply no longer in this tree. See `README.md`.
+engine, the 28 film profiles and the LUTs baked from them are spektrafilm's, by
+Andrea Volpato. The Python implementation they came from lives in the upstream
+repository, not here. It never ships; it is the reference that the parity
+harnesses (§8.6) measure this engine against.
 
 ```
-  ┌─ modern_UI/Spektrafilm ─── one binary, 32 MB ─────────────────────────┐
-  │  SwiftUI + Metal, macOS app                                           │
+  ┌─ modern_UI/Spektrafilm ─── SpektraLab.app, one binary, 32 MB ─────────┐
+  │  SwiftUI + AppKit + Metal · arm64 · macOS 15+ · English / 简体中文      │
   │                                                                       │
-  │  Session (@Observable, @MainActor)                                    │
-  │  Renderer  ── Metal canvas, Layer 2                                   │
+  │  Import/    RAW + TIFF decode (Core Image) ─ linear ProPhoto float    │
+  │  Session    all state, @Observable, @MainActor                        │
+  │  Renderer   the Metal canvas: Layer 2, geometry, histogram            │
+  │  Export/    recipes, soft proof, ImageIO writers                      │
   │  EngineClient ── actor, JSON in / MTLTexture out                      │
   │        │                                                              │
   │        │  spk_engine.h, a hand-written extern "C" surface             │
   │        ▼                                                              │
   │  ┌─ engine/ ── C++20, compiled into this target ──────────────────┐   │
   │  │  core/      the setup maths: colour, profiles, curves,         │   │
-  │  │             couplers, CAM16, the Hanatos LUT                   │   │
+  │  │             couplers, CAM16, the Hanatos LUT, print LUTs       │   │
   │  │  gpu/       a five-verb interface + its Metal backend          │   │
-  │  │  shaders/   the kernels, MSL, in spektrafilm.metallib          │   │
-  │  │  pipeline/  the 21-node graph, the session, the C ABI          │   │
+  │  │  shaders/   the kernels, MSL → spektrafilm.metallib            │   │
+  │  │  pipeline/  the node graph, the session, the C ABI             │   │
   │  └────────────────────────────────────────────────────────────────┘   │
-  │  Resources/engine/  baked constants, 28 film profiles, the metallib   │
-  │  RAW decode (Core Image) ── linear ProPhoto float ──▶ spk_open        │
-  └───────────────────────────────────────────────────────────────────────┘
-
-  ┌─ src/spektrafilm ── IN THE UPSTREAM FORK, not in this repository ─────┐
-  │  the reference and the test oracle: numba, colour-science, scipy.     │
-  │  engine/tests/parity_*.py drive the *shipping* binary through ctypes  │
-  │  and compare against it, over there.                                  │
+  │  Resources/engine/  baked constants, 28 profiles, print LUTs, metallib│
+  │  Resources/Licenses/  the four licence texts, shown in About          │
   └───────────────────────────────────────────────────────────────────────┘
 ```
 
-**There is no pipe, and no Python at run time.** The engine takes pixels and
-returns an `MTLTexture` the canvas draws — RFC-014 §2.2's zero copy. What that
-deleted, concretely: a 364 MB TIFF crossing the boundary in each direction on
-every `open`, `_write_rgba16` (10 ms of a 30.6 ms reprint), JSON-RPC framing, a
-workspace directory, a subprocess, and the requirement that a repository
-checkout with a 2.2 GB virtualenv sit next to the `.app`.
+**There is no pipe, no subprocess and no Python at run time.** The engine takes
+pixels and returns an `MTLTexture` the canvas draws, with no copy (RFC-014
+§2.2). It used to be two programs joined by JSON-RPC over stdio. RFC-014
+removed the pipe on 2026-09-10, and the product moved into its own repository
+on 2026-09-11.
 
-**The method surface did not change.** `EngineClient.call(_:_:as:)` takes the
-same `Method` and the same Codable request/response types the stdio client
-took, and the engine reports the same `transport_version` and `schema_version`
-(both 1). Parameters still cross as JSON, because they are small, the schema
-already exists, and a struct-per-parameter boundary breaks every time a slider
-is added. Renders are the one exception and go through
-`EngineClient.render(_:_:)`, because a texture cannot travel through a
+**Parameters still cross as JSON.** `EngineClient.call(_:_:as:)` takes a
+`Method` and Codable request/response types, and the engine reports
+`transport_version` and `schema_version` (both 1). JSON stays because parameters
+are small, the schema already exists, and a struct-per-parameter boundary would
+break every time a slider is added. Renders are the one exception and go
+through `EngineClient.render(_:_:)`, because a texture cannot travel through a
 `Decodable`.
 
-**What is still Python.** `src/spektrafilm`, in the upstream fork, is the
-reference implementation and the oracle for six parity harnesses (§8.6). It is
-a development dependency and it is not in this repository — see `README.md` for
-how the harnesses reach it.
-
-**The whole method surface is ported.** `export`, `export_di` and
-`preview_stock_lut` were for a while the only methods the Python side
-implemented, and the engine refused them by name rather than answering wrongly.
-They are `spk_reprint` at the full tier, `spk_export_di` +
-`spk_print_lut_table`, and `spk_preview_stock_lut` now (§8.8). **The engine
-gained no file writer**: it returns pixels and the baked table, and
-`Exporter.swift` writes the TIFF, the `.cube` and the print preview through
-ImageIO.
+**The engine returns pixels, never files.** `export`, `export_di` and
+`preview_stock_lut` are `spk_reprint` at the full tier, `spk_export_di` +
+`spk_print_lut_table`, and `spk_preview_stock_lut` (§8.8). `Exporter.swift`
+writes the TIFF, the `.cube` and the print preview through ImageIO.
 
 ### Who owns what
 
-**Historical.** `CONTRACT-frontend-backend.md` §4 split this work between two
-concurrent sessions — frontend on `modern_UI/**`, backend on `src/**`,
-`tests/**`, `scripts/**`, `rfc/**`. The backend half belonged to the Python
-engine, which stayed behind in the fork; what came across is one product with
-one owner, so §4 no longer routes anything. The contract still governs **§1,
-the wire**, which is unchanged.
-
-Read the contract before changing anything that crosses the pipe. A field
-name, a tier name, a file layout or a version number is a wire change even
-when it looks like a refactor — see §8.4.
+`CONTRACT-frontend-backend.md` §1 still governs **the wire**. Its §4 once split
+the work between a frontend and a Python backend session; the backend stayed
+upstream, so §4 no longer routes anything. A field name, a tier name, a file
+layout or a version number is a wire change even when it looks like a refactor.
 
 ### Where to read more
 
@@ -100,9 +77,10 @@ when it looks like a refactor — see §8.4.
 | the wire, ownership, version negotiation | `CONTRACT-frontend-backend.md` |
 | the method surface and semantics | `API-SPEC-callable-render-service.md` |
 | the frontend in detail | `modern_UI/Spektrafilm/README.md` |
-| what it actually looks like, on real frames | `screenshots/` (§7) |
-| the GPU-native render core (the kernels this port inherited) | `rfc/RFC-011-gpu-native-render-core.md` |
-| why the Python process *was* still here | `rfc/RFC-012-consistent-backend-process.md` |
+| the traps that have cost real debugging time | `AGENTS.md` |
+| what it looks like, on real frames | `screenshots/` (§7) |
+| the colour chain | `rfc/RFC-018-colour-management-and-soft-proof.md`, and §7.5 |
+| the GPU render core the kernels came from | `rfc/RFC-011-gpu-native-render-core.md` |
 
 ---
 
@@ -117,254 +95,165 @@ scene light → [camera+film] → latent image → [development] → negative dy
 ```
 
 Colour is modelled **spectrally**, not as RGB matrices. The spectral axis is
-`SPECTRAL_SHAPE = (380, 780, 5)` → **81 wavelengths**, fixed in `config.py`.
-Density curves are sampled on `LOG_EXPOSURE = linspace(-3, 4, 256)`.
+380–780 nm in 5 nm steps, **81 wavelengths**. Density curves are sampled on
+256 points of log exposure from −3 to 4. Both come from the baked constants.
 
-Three distinct transforms carry the colour:
+Three transforms carry the colour:
 
 **(a) RGB → film exposure** — Hanatos 2025 spectral upsampling
-(`utils/spectral_upsampling.py`). Input RGB becomes XYZ under CAT16 adaptation
-to the film's reference illuminant, splits into brightness `b = X+Y+Z` and
-chromaticity `xy`, and `_tri2quad` warps the xy triangle into a unit square.
-A 192×192×81 LUT of irradiance spectra is indexed by that coordinate, then
-collapsed **at build time** against the film's spectral sensitivity into a
-192×192×3 `tc_lut`. Runtime is a bicubic 2D lookup times `b`. The 81-axis
-never touches the image here — this half was already optimal.
+(`core/hanatos.cpp`). Input RGB becomes XYZ under CAT16 adaptation to the
+film's reference illuminant, splits into brightness `b = X+Y+Z` and
+chromaticity `xy`, and a triangle-to-square warp maps `xy` into a unit square.
+A 192×192×81 table of irradiance spectra is indexed by that coordinate and
+collapsed **at setup time** against the film's spectral sensitivity into a
+192×192×3 `tc_lut`. Per pixel it is a bicubic 2D lookup times `b`; the
+81-wavelength axis never touches the image here.
 
-**(b) Exposure → density** — `interpolate_exposure_to_density` against 256-sample
-characteristic curves, then DIR couplers (a 3×3 donor→receiver inhibition
-matrix applied to silver density, spatially diffused, subtracted from log
-exposure, re-interpolated against back-solved pre-coupler curves), then grain.
+**(b) Exposure → density** — interpolation against 256-sample characteristic
+curves, then DIR couplers (a 3×3 donor→receiver inhibition matrix applied to
+silver density, spatially diffused, subtracted from log exposure and
+re-interpolated against back-solved pre-coupler curves), then grain.
 
 **(c) Density → light → response** — the spectral integral:
 
 $$\text{out}_m = \sum_{\lambda} I(\lambda)\,S_m(\lambda)\;10^{-\left(\sum_k c_k D_k(\lambda) + D_{\text{base}}(\lambda)\right)}$$
 
-Runs twice: in printing (S = paper sensitivity, I = enlarger illuminant) and in
-scanning (S = CIE 1931 CMFs, I = viewing illuminant). **This was the memory
-sink** — see §4.
+It runs twice: in printing (S = paper sensitivity, I = enlarger illuminant) and
+in scanning (S = CIE 1931 CMFs, I = viewing illuminant). The kernel keeps the
+81-wavelength axis in registers, 3 values in and 3 out per pixel, and never
+materialises a per-pixel spectrum. The reference once did, at 1.4 kB per pixel.
 
 ---
 
 ## 2. Runtime structure
 
-```
-runtime/
-  pipeline.py      SimulationPipeline — builds services + stages, owns topology
-  topology.py      Node / Tap / run_topology — the dispatcher
-  process.py       Simulator, simulate(), simulate_preview()
-  params_schema.py all parameter dataclasses
-  params_builder.py init_params(), digest_params()
-  stages/          filming.py, printing.py, scanning.py
-  services/        resize, enlarger, spectral LUT cache, colour reference
-```
+`engine/src/pipeline/pipeline.cpp` runs the render as a **sequence of named
+nodes**, one per physically distinct effect (the granularity RFC-003 chose). The
+node order, the labels and the identity-pruning conditions are the reference's,
+because the labels are what per-node timings and a regression bisection report
+in. A node whose parameters make it the identity is skipped, not paid for.
 
-The pipeline is a **tap graph**. Each `Node` declares which taps it reads and
-writes; `run_topology` fires nodes whose inputs are present and returns when
-the requested `collect` tap exists.
+The reference is a general graph over named taps. The engine keeps only the
+three entry/exit pairs that are used: RGB in → film densities for the negative
+(`run_film`), film densities → RGB out for a reprint (`run_print`), and both in
+a row for a full render.
+
+By stage, not in execution order:
 
 ```
-rgb_in → preprocess → rgb_pre → filming.expose → log_e_film
-       → filming.develop → cmy_film → printing.expose → log_e_print
-       → printing.develop → cmy_print → scanning.scan → rgb_out
+preprocess  decode_input · input_cast · geometry · crop_rescale · auto_exposure
+filming     expose.upsample · expose.exposure · expose.boost · expose.lens_blur
+            · expose.halation · expose.log · develop.curves
+            · develop.dir_couplers · develop.grain
+printing    expose.enlarger_spectral · expose.print_exposure
+            · develop.print_curves
+scanning    scan_spectral · xyz_to_rgb · gamut_compress · cctf · edr · glare
+            · scanner_blur · unsharp · bw_correction
 ```
 
-Taps are addressable: `pipeline.process(img, collect=Tap.CMY_PRINT)` returns an
-intermediate. **This is the best debugging tool in the codebase** — bisecting a
-discrepancy by tap localises it in one pass.
+Twenty-six labels in all. `preprocess.decode_input` is dormant in the app,
+because Core Image decodes before the engine sees the frame (§7.5). A slide
+film has no print stage: `scan_film` takes the scanning branch straight from
+the film's densities.
 
-`io.scan_film = True` swaps the print+scan branch for a direct film scan.
-
-### Node granularity (resolved by RFC-003)
-
-The graph was six nodes, each bundling several physically distinct effects.
-RFC-003 split it into ~24 effect-level nodes, which is what made per-node
-backend selection, per-node precision, and dead-node elimination possible.
-`_declare_topology` builds the full graph; `_build_topology` returns it after
-`prune_identity_nodes` has dropped the no-ops and aliased their taps.
-
-Each `Node` carries `kind` (pointwise / spatial / stochastic), `support` (halo
-px, `inf` for global operators), `backend`, `precision`, and `run_mlx`. That
-contract surface is also the seam a future native backend would attach to: a
-`run_native` alongside `run_mlx`, ported node by node against the Python
-float64 reference (RFC-007 5).
+A **session** holds one opened frame and its last negative. A `print`-layer
+edit reprints from the cached negative; a `shoot`-layer edit rebuilds it (§8.5).
+Renders come in three **tiers**: `live` at the preview long edge the user picks,
+`preview`, and `full` at the frame's own pixels. The tier names are part of the
+wire (contract §1.2.3).
 
 ---
 
 ## 3. Stage classification
 
-The partition that matters for any port:
+The partition that matters for any port or any tiling:
 
 | class | stages | shape |
 |---|---|---|
 | **pointwise** | spectral upsampling, boost, curves, both spectral integrals, gamut compression, XYZ→RGB, CCTF | fused elementwise; parallelises with no halo; LUT-able in principle |
-| **spatial** | diffusion filter, lens blur, scatter, halation, DIR coupler diffusion | separable convolutions; tiling needs halos |
-| **stochastic** | grain, **glare** | needs counter-based RNG for reproducibility/tiling |
+| **spatial** | lens blur, halation, DIR coupler diffusion, scanner blur, unsharp | separable convolutions; tiling needs halos |
+| **stochastic** | grain, **glare** | needs counter-based RNG for reproducibility and tiling |
 
 Glare being stochastic is easy to miss and is the source of the pipeline's
-default nondeterminism (see AGENTS.md).
+default nondeterminism (see `AGENTS.md`). Halation has unbounded support, which
+is what stops the full-resolution render from being tiled.
+
+**Gamut compression is a look, not a free speedup.** `gamut_compress` is a
+CAM16-UCS roll-off: a one-sided Reinhard shoulder on lightness (identity below
+70, asymptotic at 100) and a chroma knee against the destination's `C_max`,
+preserving hue. On ordinary frames almost nothing is out of gamut, so the chroma
+half is insurance, while the lightness half touches a real share of the
+highlights. Changing the algorithm changes the picture.
 
 ---
 
 ## 4. Memory model
 
-Per-pixel cost of live buffers, float64:
+**GPU buffers are pooled, and a buffer is reused only when it is both free and
+idle**: its last handle is dropped, *and* the command buffer that last named it
+has completed. §8.3 has the defect that taught this. The pipeline flushes at
+node boundaries, which is where the reference evaluates too.
 
-| buffer | bytes/px |
-|---|---|
-| `(H,W,3)` | 24 |
-| `(H,W,81)` | 648 |
-| `(H,W,81) bool` | 81 |
-| `(H,W,3,3)` grain sublayers | 72 |
+**One full-resolution render is alive at a time.** The interactive render is at
+the preview long edge. The frame's own resolution is rendered once, after edits
+settle (§7.3). At 45 MP that full render is about 360 MB; at 151 MP, 1.2 GB.
 
-**The original sink**: the spectral stages materialised `density_spectral`
-(648) + `transmitted` (648) + a NaN mask (81) ≈ **1.4 kB/px**, twice. At 45 MP
-that is ~63 GB.
+**Large resident allocations share one policy.** `Diagnostics/MemoryArena.swift`
+accounts for the app's big holdings, including decoded frames and thumbnails, and
+gives each an evict closure; the arena never owns the objects. A dropped engine
+client once leaked about 458 MB; that is fixed.
 
-**The fix** (`utils/fused_spectral.py`): the integral is 3-in/3-out, so the
-81-axis can live in registers. Measured **1944 → 24 B/px, 81× less, 32×
-faster, exact to 2.4e-15**.
-
-Secondary costs that remain:
-
-- `run_topology` used to accumulate every tap in one dict and free nothing —
-  7 × `(H,W,3) float64` = 168 B/px at once. `free_taps` now drops each tap once
-  its last reader has fired, and (RFC-005) does so *before* the per-node
-  precision cast, since the cast allocates a second buffer for the same tap.
-- `_preprocess` (`pipeline.py:192`) upcasts float32 input to float64.
-- `printing.py:80` allocated a `zeros_like` that was immediately overwritten
-  (**removed**).
-- The `log10` → `10**` round trip between the spectral call and its caller —
-  two full-image transcendental passes that cancel, present only because the
-  optional LUT interpolates in log space. Still present.
-- NumPy expression chains allocate one full-resolution temporary per operator.
-  Measured on the CAM16 gamut compression: **19.67× the input** in temporaries,
-  ~20 GB of churn at 45 MP for one stage. Fusing it into a single numba pass
-  brought that to 2.00× (RFC-007 A). This is the dominant remaining allocation
-  pattern wherever a stage is still written as NumPy expressions.
-- MLX's device buffer pool held **1.76 GB with active memory at 0.00 GB**.
-  Full-resolution runs now cap it to zero (`unpooled_device_memory`); preview
-  runs keep it, since there the next render is imminent. This is what collapsed
-  the run-to-run spread in peak RSS from 1.80 GB to 0.20 GB.
-- Python's cyclic GC is **not** a lever here: rendering with `gc.disable()`
-  changes peak RSS by 0.01 GB. The collector reclaims 415 objects across a full
-  render, none of them arrays, and zero arrays over 50 MB are reachable through
-  cycles. NumPy buffers are freed by refcount. Tap dtype, reference lifetime,
-  and promotion copies are what govern the footprint.
+**Export never enlarges a frame.** `OutputSize.pixels(for:)` returns no resample
+when the requested long edge is at or above the frame's own. There is no
+super-resolution path, and an upsample would only add memory with the square of
+the scale.
 
 ---
 
-## 5. What has been added on this fork
+## 5. Build and release
 
 ```
-utils/fused_spectral.py       fused spectral integral (numba), exact
-utils/fused_gamut_cam16.py    fused CIECAM16 gamut compression (RFC-007 A)
-utils/fused_tc_b.py           fused front half of spectral upsampling
-utils/spectral_dispatch.py    backend switch: reference | numba | mlx
-utils/parallel_pointwise.py   chunked thread-parallel wrapper for pointwise stages
-utils/precision.py            working_precision invariant (RFC-006)
-utils/lazy_colour.py          keeps colour-science out of the import path (RFC-012)
-model/colour_baked.py         21.9 KiB of baked constants replacing 148 MB of deps
-data/baked/colour_constants.npz
-backends/mlx_spectral.py      custom Metal kernel via mx.fast.metal_kernel
-backends/metal/               the GPU-native render core (RFC-011) — see §8
-service/                      the JSON-RPC render service — see §0 and §8.3
-modern_UI/Spektrafilm/        the macOS app — see §7
-tests/baseline/               baseline generation, instrumented runner, ΔE harness
-scripts/gpu_native/           parity harness + the native-host spike (§8.5)
-rfc/RFC-001 … RFC-012
+engine/build.sh bundle     compile the kernels, rsync engine/resources into the app
+Tools/gen-project.py       generate the Xcode project; version, targets, flags
+xcodebuild …               the app, with the engine's C++ compiled into it
+Tools/package.sh           archive → export → verify → floor → DMG → notarise → spctl
 ```
 
-The spectral backend is `params.settings.spectral_backend`, and its default is
-**`"mlx"`**, not `"numba"` — MLX-first since RFC-001; if MLX is unavailable the
-render raises rather than silently dropping to CPU. The whole-pipeline
-executor is a separate axis: `params.settings.gpu_backend`, `"metal"` for the
-GPU-native core of §8.
-
-`parallel_pointwise` is wired into three call sites in `scanning.py`:
-`XYZ_to_RGB`, `compress_rgb`, and the CCTF encode.
+- **The kernels are compiled by `engine/build.sh`, not by Xcode**, with safe math
+  and `-mmacos-version-min=15.0`. Xcode's fast math must not reach them (§8.4).
+  The build refuses a metallib stamped for any other macOS, because one built for
+  the host (macOS 27) shipped once in 0.3.
+- **`engine/resources/` is tracked**, 15 MB of baked output. Regenerating it
+  needs the Python reference and is done upstream (`engine/tools/bake_resources.py`).
+  The metallib inside it is the one untracked file; it is rebuilt every time.
+- **The app's floor is checked on the finished artefact.** `package.sh` asserts
+  `LSMinimumSystemVersion` 15.0, every Mach-O `arm64` with `minos` ≤ 15, and
+  every metallib stamped ≤ 15.
+- **Versions are derived.** `MARKETING_VERSION` and `CURRENT_PROJECT_VERSION` in
+  `Tools/gen-project.py` are the one place; `Info.plist` references them.
+- **Signing.** The hardened runtime is on and the entitlements are empty. Without
+  a Developer ID the build is ad-hoc signed and not notarised, and `package.sh`
+  says so and exits 1. Builds go out as GitHub prereleases.
+- **Licences.** `license/` holds the GPL-3.0 text (the app and the engine) and
+  spektrafilm's CC BY-SA 4.0 text (the profiles and LUTs); metal-cpp's Apache-2.0
+  text stays with the vendored code. `Tools/bundle-licenses.sh` copies all of them
+  into the bundle, and `LicensingTests` and the pre-build phase check they are
+  there.
 
 ---
 
 ## 6. Where the time goes
 
-> **These are the *Python reference's* numbers, and they are the reason RFC-014
-> exists — not what the shipped app does.** For the engine that actually
-> renders, see §8.7: 45 MP is 0.87 s at the full tier and 0.13 s at the live
-> one. This section is kept because it is still where the *model's* cost lives,
-> and because the reference is what every parity harness runs against.
+The engine's measured numbers are in §8.7: at 45 MP a live reprint is about
+0.01 s and a full-resolution render 0.87 s on an M3 Max. The largest cost on the
+open path is not the engine; it is Core Image rendering the RAW to a float
+bitmap.
 
-Exact path — LUTs off, no grain, no glare — **8.14 s, 6.15 GB**:
-
-| stage | time | % |
-|---|---|---|
-| filming.expose | 2.66 s | 32.7% |
-| scanning.scan_print | 2.31 s | 28.4% |
-| preprocess | 1.46 s | 17.9% |
-| filming.develop | 865 ms | 10.6% |
-| printing.expose | 758 ms | 9.3% |
-| spectral integrals (MLX) | 455 ms | 5.6% |
-
-Full-quality path — LUTs on, grain, glare — **24.10 s, 6.66 GB**. The delta
-versus 8.14 s is dominated by **grain (~16 s)**, now the single largest item in
-the pipeline and entirely un-optimised.
-
-### The 45 MP profile after RFC-007 A
-
-The current frontend metric (deterministic, ProPhoto → Display P3, grain and
-glare off, GPU on) is **12.9 s / 13.85 GB**, down from 40.9 s at the start of
-the optimisation work:
-
-| node | time | % |
-|---|---|---|
-| `filming.expose.halation` | 3.30 s | 26.0% |
-| `filming.develop.dir_couplers` | 2.40 s | 18.9% |
-| `scanning.scan_spectral` | 1.58 s | 12.4% |
-| `scanning.gamut_compress` | 1.38 s | 10.8% |
-| `printing.expose.print_exposure` | 1.24 s | 9.8% |
-| `printing.expose.enlarger_spectral` | 688 ms | 5.4% |
-| `filming.expose.upsample` | 587 ms | 4.6% |
-
-**The profile is now spatial-dominated.** The two largest stages do not fuse
-the way the pointwise stages did: `halation` is `support=inf` (a global
-operator, which also blocks tiling) and `dir_couplers` is a diffusion. Any
-plan written against the older pointwise-heavy profile is stale.
-
-### Gamut compression, twice a bottleneck
-
-`compress_rgb` defaults to `cam16ucs` — a full CIECAM16 forward *and* inverse
-per pixel, the heaviest of the four available algorithms. It was 8.52 s, ~50%
-of wall time.
-
-It resists the obvious optimisations: a 65³ LUT still errs 6.9e-3 (the Reinhard
-knee has a sharp corner at `threshold = 0`, and CAM16 destabilises outside the
-plausible input range), and it cannot be masked because with `threshold = 0`
-the knee is never formally identity.
-
-It is, however, purely pointwise — hence `parallel_pointwise`, which took it to
-1.37 s bit-exactly.
-
-RFC-007 A then fused it: `utils/fused_gamut_cam16.py` runs the whole
-RGB → XYZ → CAM16 → knee → CAM16⁻¹ → XYZ → RGB chain in a single numba pass,
-with colour-science confined to setup (matrices via the identity trick, the
-viewing-condition constants, the `C_max` table). Isolated on a real 16 MP tap
-that is 7.70 s → 0.32 s and **19.67× → 2.00× the input in temporaries**; in the
-pipeline, where the reference was already thread-parallel, it is 4.32 s →
-1.38 s at 45 MP. The fused path bypasses `parallel_pointwise` deliberately —
-it is internally parallel, and nesting numba's non-threadsafe `workqueue`
-layer inside a thread pool aborts the process.
-
-The same treatment applies to the front half of spectral upsampling
-(`utils/fused_tc_b.py`): 3.97 s → 0.59 s at 45 MP, matching the reference to
-8e-16.
-
-Worth knowing what it does: a one-sided Reinhard roll-off on CAM16 lightness
-`Jp` (identity below 70, asymptotic at 100) plus a chroma knee against
-`C_max(Jp, hue)` for the destination cube, preserving hue and lightness. On the
-baseline image **0.000%** of pixels are out of gamut (max `d = C/C_max` is
-0.903), so the chroma half is insurance; the lightness half touches 13.8% of
-pixels and is a real highlight shoulder. Changing the algorithm changes the
-picture — it is a look decision, not a free speedup.
+The model's cost is **spatial-dominated**. In the reference's 45 MP profile,
+halation (unbounded support) and the DIR coupler diffusion were the two largest
+nodes, and neither fuses the way the pointwise stages do. That profile took
+12.9 s; the gap is why RFC-014 exists. Per-node engine timings need
+`SPEKTRAFILM_NODE_TIMINGS=1` (§8.9).
 
 ---
 
@@ -373,7 +262,12 @@ picture — it is a look decision, not a free speedup.
 A native macOS app: SwiftUI for the panels, AppKit for the window, Metal for
 the canvas. `modern_UI/Spektrafilm/README.md` is the detailed document; this is
 what someone modifying the *pipeline* needs to know about the thing consuming
-it. `screenshots/SpektraLab_main.png` is that window on a real frame.
+it. `screenshots/spektralab-main_new.png` is that window on a real frame.
+
+The left rail is four sections — **Input / Camera · Film · Print · Crop** — and
+the right rail five. The interface is English or Simplified Chinese
+(`Localization/`, switchable in Settings); enum display names stay English
+because tests pin them.
 
 **The left rail is not "the engine rail".** §7.2's two layers are the
 load-bearing split, and the right rail is exactly Layer 2 — but the left rail
@@ -383,8 +277,9 @@ whose latency nobody can predict:
 | left rail | runs in | what one change costs |
 |---|---|---|
 | Temperature · Tint · As Shot · Lens Correction | **the decode** — `CIRAWFilter`, Core Image | a re-decode of the frame, then a render |
-| AE Method · Film Exposure · the film list · Film Type/Side/Side Length · Grain · Halation · Glare · the paper list · EDR · Process | **the engine**, Layer 1 | a `params_delta` and a render |
+| Metering · Film Exposure · the film list · Film Format/Side/Side Length · Grain · Halation · Glare · the paper list · EDR · **Solve** | **the engine**, Layer 1 | a `params_delta` and a render |
 | Vignetting | **Layer 2**, the app's kernel | one draw |
+| **Original** | **neither** — shows the decode instead of the print; a toggle, and ⎵ while held | one draw |
 | Crop · Straighten · turns · flips | **neither** — geometry, upstream of both | one draw; `Exporter` applies it first, after the print comes back |
 
 Crop is on the left because the frame's shape is a camera-side decision, not
@@ -396,7 +291,7 @@ says the crop is a different negative.
 **Two white balances, and they are different stages.** Camera's Temperature and
 Tint are the decode's, in kelvin, with an "As Shot" box per axis; White Balance
 in the right rail is Layer 2's, on the scan; and neither is the enlarger's
-filter pack, which `Process` solves. They are kept apart by the rule that two
+filter pack, which **Solve** (the Print section's left capsule) solves. They are kept apart by the rule that two
 stages must not share a name — which is why the right rail's section writes
 "Print — an adjustment on the scan" under its own sliders.
 
@@ -411,16 +306,22 @@ aperture.
 ### 7.1 Structure
 
 ```
-Model/Session.swift      all application state, @Observable, @MainActor
-Model/Params.swift       Layer 1 — mirrors service/schema.py field for field
-Model/Adjustments.swift  Layer 2 — client-side, never reaches the service
-Model/Geometry.swift     the oriented-crop model (crop, straighten, turns, flips)
-Model/Sidecar.swift      per-frame settings on disk, schema 3
-Canvas/Renderer.swift    Metal state; the Layer 2 compute pass and the canvas draw
-Canvas/Shaders.metal     layer2 · geometryResample · histogram · canvasFragment
-Service/EngineClient.swift   the C++ engine, in this process (§8)
-Service/RenderScheduler.swift  sent-vs-wanted coalescing of slider deltas
-Panels/ Windows/ Controls/   the interface
+Model/        Session (all state, @Observable, @MainActor) · Params (Layer 1,
+              the wire's fields) · Adjustments (Layer 2, never leaves the app)
+              · Geometry (crop, straighten, turns, flips) · Sidecar (per-frame
+              settings on disk) · StockCatalog · FeatureFlags · DecodeResidency
+Import/       Library, ImageDecoder (Core Image), FramePipeline, ThumbnailCache
+Canvas/       Renderer (Metal state; the Layer 2 pass and the draw) ·
+              Shaders.metal (layer2 · geometryResample · histogram ·
+              canvasFragment) · ColourManagement · crop/compare/mask overlays
+Service/      EngineClient (the C++ engine, in this process, §8) · Methods ·
+              RenderScheduler (sent-vs-wanted coalescing of slider deltas) ·
+              EngineMessage (engine errors in words a user can act on)
+Export/       ExportPage · ExportRecipe (formats, colour space, long edge) ·
+              Exporter (ImageIO writers) · SoftProof
+Panels/ Controls/ Windows/ Theme/   the interface, drawn to the v3 layout
+Localization/ English and 简体中文
+Diagnostics/  the log, job log, memory arena and sampler, disk cache
 ```
 
 ### 7.2 The two layers, which is the load-bearing distinction
@@ -440,8 +341,9 @@ that does not. The gap is narrower than it was (a live reprint is 13.7 ms at the
 
 `FilmParams.wire` is the single place the Layer 1 field names live, each tagged
 `shoot` or `print`, and `ParamsTests.testWireNamesMatchTheServiceSchema` pins
-the set against `service/schema.py`. **A rename on the Python side fails a
-Swift test rather than silently rejecting every delta at runtime.**
+the set against the reference's wire schema, and `parity_schema.py` holds the
+engine to the same names. **A rename fails a test rather than silently
+rejecting every delta at runtime.**
 
 ### 7.3 Resolution: two states, not a ladder
 
@@ -464,7 +366,7 @@ the **native** frame rather than against whatever is on the canvas. The canvas
 is simply soft above the preview resolution until the original lands, which
 `previewSoft` reports as a `preview` badge — and the `full` badge is the other
 half of the same statement: the frame is on the canvas at its own size, at
-**any** zoom, including the 33 % fit in `screenshots/SpektraLab_main.png`.
+**any** zoom, including the 28 % fit in `screenshots/spektralab-main_new.png`.
 
 Measured on the 45 MP Nikon Z7 II frame (8256×5504, grain and glare off), a
 live reprint costs 6.2 ms at 1600, **13.7 ms at the 2560 default** and 121.7 ms
@@ -543,12 +445,12 @@ why each bar is where it is, and the bugs already found.
 engine/include/spektrafilm/spk_engine.h   the whole C ABI
 engine/src/core/        setup maths — no GPU, no pixels, testable on its own
       blob, json, colour, spectral, profile, params, curves, cam16,
-      hanatos, printing, print_lut, setup_cache
-engine/src/gpu/         gpu.hpp (the interface) + metal_gpu.cpp (metal-cpp)
+      hanatos, numeric, printing, print_lut, setup_cache
+engine/src/gpu/         gpu.hpp (the interface) + metal_gpu.cpp, metal_impl.cpp
 engine/src/shaders/     the kernels; built by build.sh, not by Xcode
-engine/src/pipeline/    image, blur, pipeline (21 nodes), engine (the C ABI)
+engine/src/pipeline/    image, blur, pipeline (the node sequence, §2), engine (the C ABI)
 engine/tools/           bake_resources.py
-engine/tests/           six parity harnesses + two C++ drivers
+engine/tests/           seven parity harnesses, three C++ drivers, the math guard
 engine/build.sh         lib | dylib | metallib | tests | bundle | all
 ```
 
@@ -619,7 +521,7 @@ a resource — **not** compiled by Xcode. The app target sets
 kernels inherit that is RFC-014 §5.1 trap 1: `exp` and fma contraction drift by
 up to 1.1e-5, past the float32 bar, silently.
 
-Every body transferred verbatim from `backends/metal/*.py`. What was added is
+Every body transferred verbatim from the reference's `backends/metal/*.py` (upstream). What was added is
 what MLX supplied for free: `take_rgb`, `affine3`, `mul`, `transpose3`, a max
 reduction, a strided sample for the meter, the rgba16 conversion, the two
 transfer-function kernels, and `spk_math_probe`.
@@ -644,13 +546,14 @@ them made every non-live slider cost 160–250 ms:
 pipeline it builds. The tc_lut's key folds in the sensitivity rather than the
 stock name because that is where the camera's UV/IR cut lands.
 
-The negative cache is why the layer table in `service/schema.py` is a
+The negative cache is why the wire schema's `shoot` / `print` layer table is a
 correctness concern rather than metadata: a `print`-layer edit reuses the
 cached negative and a `shoot`-layer edit must not.
 
 ### 8.6 Parity: what is actually measured
 
-Python stays the oracle. All six drive the shipping binary.
+Python stays the oracle, and it lives upstream. All seven drive the shipping
+binary through `spk_ctypes.py`.
 
 | harness | holds | result |
 |---|---|---|
@@ -659,6 +562,7 @@ Python stays the oracle. All six drive the shipping binary.
 | `parity_render.py` | the picture, 27 configurations, 1 MP frame, vs numba | 0 failed, max 2.3e-5 |
 | `parity_session.py` | all 39 wire fields applied to a *live* session | 0 failed |
 | `parity_grain.py` | grain's mean/std/skew at 9 densities | 0 failed |
+| `parity_exposure.py` | the auto-exposure meter's four modes, each engine written from the contract's text (RFC-015 §6) | the other harnesses run with the meter off |
 | `parity_lut.py` | the 8 print tables, the LUT apply, the DI normalisation | 0 failed, tables bit-exact, max 8.0e-6 |
 
 Plus `gpu_smoke` (the boundary) and `check_math_guard.sh` (that the guard
@@ -667,7 +571,7 @@ fires).
 The render bar is **measured, not asserted**: 3e-5 absolute, because the
 already-validated Python Metal core reaches 1.9e-5 against the same numba
 reference on the same frame and this engine reaches 2.3e-5. Do not tighten it
-to float32 epsilon — no GPU path over 21 nodes meets that — and do not loosen
+to float32 epsilon — no GPU path over the whole node chain meets that — and do not loosen
 it without saying what you measured. It is paired with a count-level bar so a
 systematic shift cannot hide under the absolute one.
 
@@ -703,7 +607,7 @@ through one trilinear sample instead of the print chain. Re-measured
 2026-09-10 on a synthetic 45 MP frame, which reproduced the reprint column to
 0.009 / 0.034 / 0.167 s in the same run — that agreement is what makes the
 new column comparable to the two beside it. **About 4× a reprint, not the
-190× in HANDOFF-PRINT-LUT §3.1**: that figure was this kernel against *scipy
+190× first estimated**: that figure was this kernel against *scipy
 on the CPU*, which is the wrong comparison for a user who would otherwise
 have got a real reprint on the GPU. `spk_export_di` is 51 ms at the full
 tier, nearly all of it the rgba16 conversion.
@@ -752,9 +656,8 @@ Two consequences worth knowing:
 - **The print-preview LUTs are bundled now**, 3.45 MB inside
   `spektrafilm_constants.bin` as `print_lut/<stock>` and
   `print_lut_axes/<stock>`, with `print_luts.json` as the metadata index.
-  HANDOFF-DISTRIBUTION §1 named this as the bundling requirement the port
-  would create. They are CC BY-SA 4.0 derivatives of the profiles, which is
-  why the bundle now carries licence texts (§2.3 of that handoff).
+  They are CC BY-SA 4.0 derivatives of the profiles, which is why the bundle
+  carries licence texts (§5).
 - **The DI TIFF is tagged device RGB, not a rendering space.** Its channels are
   film densities, and the `.cube` beside it indexes exactly those numbers — a
   host that treats them as a colour and converts on open silently moves the
@@ -763,9 +666,7 @@ Two consequences worth knowing:
   TIFF and the `.cube`; the job log anchors one level up, because written
   "beside the output" it landed inside the package and made it three.
 
-Still open: `native/` (the stdio proxy host) and
-`scripts/gpu_native/native_host_spike/` are dead and should be deleted;
-per-node timings are off unless `SPEKTRAFILM_NODE_TIMINGS=1` (§8.9); Xcode's
+Still open: per-node timings are off unless `SPEKTRAFILM_NODE_TIMINGS=1` (§8.9); Xcode's
 Debug configuration compiles the engine at `-O0`, which is ~1.7× on the setup
 maths and nothing on the kernels. And baking a *ninth* print LUT is still
 Python's job — `engine/src/core/print_lut.cpp` reads tables and does not make

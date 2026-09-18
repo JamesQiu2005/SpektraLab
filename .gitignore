@@ -311,6 +311,17 @@ modern_UI/Spektrafilm/Spektrafilm/Resources/engine/
 /handoff/native-neutral-density/
 /handoff/HANDOFF-NATIVE-NEUTRAL-DENSITY.md
 
+# ---------------------------------------------------------------------------
+# Local-only: working notes for the people and agents building this
+#
+# `handoff/` is the session-to-session record (HANDOFF-*.md and the design
+# references), and `CLAUDE.md` is the agent's entry point. Both stay on the
+# machine that works on the product and are not part of the public repository;
+# code comments that cite "HANDOFF-… §n" refer to them. `AGENTS.md`, the RFCs
+# and ARCHITECTURE.md stay tracked.
+/handoff/
+/CLAUDE.md
+
 # The Illustrator drawing the icon came out of. The icon itself is **tracked**
 # and is not here: it is `modern_UI/Spektrafilm/Spektrafilm/SpektraLab.icon`,
 # an Icon Composer document that `actool` builds into the bundle
@@ -319,3 +330,6 @@ modern_UI/Spektrafilm/Spektrafilm/Resources/engine/
 # open it from there, or the app builds from a copy nobody edited. The empty
 # `AppIcon.appiconset` it replaced is gone.
 /app_icon/
+
+# Local build output: packaged apps, snapshots, full-size screenshots.
+/output/

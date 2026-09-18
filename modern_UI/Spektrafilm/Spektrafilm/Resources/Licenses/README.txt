@@ -8,7 +8,7 @@ without them is not licensed to be shipped.
   SpektraLab-GPL-3.0.txt
       The application and the C++ render engine, GPL-3.0-or-later. You have
       the right to the corresponding source code of this application:
-      https://github.com/JamesQiu2005/filmify
+      https://github.com/JamesQiu2005/SpektraLab
 
   Profiles-and-LUTs-CC-BY-SA-4.0.txt
       The 28 film and paper profiles, and the 8 baked print-preview LUTs

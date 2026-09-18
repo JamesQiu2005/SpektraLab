@@ -7,14 +7,14 @@ stock and a paper, and watch a physically-modelled render settle in under a
 second — grain, halation, couplers, enlarger dichroics and all.
 
 **SpektraLab is the application.** The film process pipeline was a direct 
-C++ & Natice Metal pork forked from Spektrafilm by Andrea Volpato.
+C++ and native Metal port of Spektrafilm by Andrea Volpato.
 the engine, the 28 measured film profiles and the print-preview LUTs baked
 from them are Andrea Volpato's, licensed CC BY-SA 4.0. This repository is the
 desktop product built on top of that engine. See [Licensing](#licensing).
 
 ## What it looks like
 
-![The editor: a 120 frame on Kodak Portra 160, printed on Kodak Professional Endura Premier](screenshots/SpektraLab_main.png)
+![The editor: Lower Manhattan at dusk on Kodak Portra 400, printed on Kodak Professional Portra Endura](screenshots/spektralab-main_new.png)
 
 **The two rails are the two halves of the program.** On the left is the
 negative — camera, film stock, the physical frame, paper, crop — and most of it
@@ -190,7 +190,8 @@ the smaller cases; the RFC-018 measurements want the A7 III pair.
 | `engine/resources/` | **tracked** — the baked constants, 28 profiles, the print-LUT index |
 | `engine/third_party/metal-cpp/` | vendored Apple metal-cpp (Apache-2.0) |
 | `screenshots/` | the product as it renders, on real frames — the pictures above, with their provenance |
-| `rfc/`, `handoff/HANDOFF-*.md`, `ARCHITECTURE.md`, `AGENTS.md` | the design record and the traps |
+| `rfc/`, `ARCHITECTURE.md`, `AGENTS.md` | the design record and the traps |
+| `license/` | the GPL-3.0 text for the app and engine, and the CC BY-SA 4.0 text for the profiles and LUTs |
 
 Not here, on purpose: the **Python reference implementation**. Upstream
 `spektrafilm` ships a numba/colour-science engine under `src/`; this repository
@@ -246,9 +247,9 @@ which fails if the two ever agree again. See `AGENTS.md` trap 28.
 
 | what | licence | file |
 |---|---|---|
-| SpektraLab, the app | GPL-3.0-or-later | `LICENSE` |
-| the C++ render engine | GPL-3.0-or-later | `LICENSE` |
-| film and paper profiles, and the print-preview LUTs derived from them | CC BY-SA 4.0 | `SPEKTRAFILM_LICENSE.txt` |
+| SpektraLab, the app | GPL-3.0-or-later | `license/LICENSE` |
+| the C++ render engine | GPL-3.0-or-later | `license/LICENSE` |
+| film and paper profiles, and the print-preview LUTs derived from them | CC BY-SA 4.0 | `license/SPEKTRAFILM_LICENSE.txt` |
 | vendored metal-cpp | Apache-2.0 | `engine/third_party/metal-cpp/LICENSE.txt` |
 
 All four texts ship inside the `.app` (`Tools/bundle-licenses.sh`, checked by
@@ -268,5 +269,5 @@ how is recorded in `Resources/Licenses/Profiles-and-LUTs-CHANGELOG.txt`.
 
 Working and used daily. Real gaps, stated: there is no CI, no auto-update and
 no crash reporting; the build is arm64-only; and shipping a notarised DMG still
-needs a Developer ID certificate. `handoff/HANDOFF-DISTRIBUTION.md` is the full
-checklist and `handoff/HANDOFF-OPEN-PATH.md` the current performance work.
+needs a Developer ID certificate. Builds are published as prereleases on the
+[Releases](https://github.com/JamesQiu2005/SpektraLab/releases) page.

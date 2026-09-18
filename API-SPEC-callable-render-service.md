@@ -264,7 +264,7 @@ Kodak theatrical release-print stock**, unused until this point.
   scientific publications, and technical material... all data publicly
   available."* This is digitized published sensitometric data, not a
   reverse-engineered LUT grab, and it's CC BY-SA 4.0
-  (`SPEKTRAFILM_LICENSE.txt`), not something requiring separate licensing to
+  (`license/SPEKTRAFILM_LICENSE.txt`), not something requiring separate licensing to
   ship.
 
 **Measured, not just theorized — the two pairings produce a visibly

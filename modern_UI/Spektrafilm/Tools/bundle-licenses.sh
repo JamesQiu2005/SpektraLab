@@ -35,13 +35,13 @@ mkdir -p "$out"
 # application and the licence file still pointing at the upstream project,
 # which is the source of the profiles and not of this app. If the repository is
 # renamed, change it in both places and re-run this script.
-source_url="https://github.com/JamesQiu2005/filmify"
+source_url="https://github.com/JamesQiu2005/SpektraLab"
 # The upstream project, whose profiles and print model this application uses.
 # A different work under a different licence; not a substitute for the above.
 upstream_url="https://github.com/andreavolpato/spektrafilm"
 
-cp "$root/LICENSE" "$out/SpektraLab-GPL-3.0.txt"
-cp "$root/SPEKTRAFILM_LICENSE.txt" "$out/Profiles-and-LUTs-CC-BY-SA-4.0.txt"
+cp "$root/license/LICENSE" "$out/SpektraLab-GPL-3.0.txt"
+cp "$root/license/SPEKTRAFILM_LICENSE.txt" "$out/Profiles-and-LUTs-CC-BY-SA-4.0.txt"
 cp "$root/engine/third_party/metal-cpp/LICENSE.txt" "$out/metal-cpp-Apache-2.0.txt"
 
 # The CC BY-SA text asks that changes to the profiles and LUTs be recorded in

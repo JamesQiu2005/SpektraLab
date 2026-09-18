@@ -46,7 +46,7 @@ struct AboutWindow: View {
     /// `bundle-licenses.sh`, then re-run that script.** GitHub redirects a
     /// renamed repository, so the old link keeps resolving and nothing breaks
     /// loudly — which is exactly why it needs saying.
-    static let sourceURL = "https://github.com/JamesQiu2005/filmify"
+    static let sourceURL = "https://github.com/JamesQiu2005/SpektraLab"
     /// The same URL as the panel shows it, without the scheme.
     static var sourceLabel: String {
         sourceURL.replacingOccurrences(of: "https://", with: "")

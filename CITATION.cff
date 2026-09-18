@@ -29,8 +29,8 @@ authors:
 
 version: "0.3"
 license: "GPL-3.0-or-later"
-repository-code: "https://github.com/JamesQiu2005/filmify"
-url: "https://github.com/JamesQiu2005/filmify"
+repository-code: "https://github.com/JamesQiu2005/SpektraLab"
+url: "https://github.com/JamesQiu2005/SpektraLab"
 
 keywords:
   - "film emulation"

@@ -1,7 +1,7 @@
 # screenshots/
 
 The product as it renders, on real photographs. These are captures of the
-**running app**, taken 2026-09-17, and they are what `README.md` shows a
+**running app**, taken 2026-09-17 and 2026-09-19, and they are what `README.md` shows a
 reader who has not built it.
 
 They are not the same thing as `modern_UI/design/snapshots/`. Those come from
@@ -11,7 +11,7 @@ offscreen at a stated size so a layout can be *measured* against the drawing in
 
 | file | what it is | size |
 |---|---|---|
-| `SpektraLab_main.png` | the editor, fullscreen: `_DSC34610-6.tif` (5537 px wide) on **Kodak Portra 160**, printed on **Kodak Professional Endura Premier**; 120 film, short side 2.205 in; grain, halation, glare and EDR all on; `Fit · 33 %` with the `full` badge up | 2048 px wide, from 3024 |
+| `spektralab-main_new.png` | the editor in a window: `_DSC0897.NEF` (Nikon Z7 II, 8256×5504), Lower Manhattan at dusk, on **Kodak Portra 400**, printed on **Kodak Professional Portra Endura**; 135 film; grain, halation, glare and EDR on; straightened −0.6°; `28 %` with the `full` badge up. Taken before the Print section's buttons became Solve / Original | 2048 px wide, from 3824 |
 | `natural_halation.png` | the before/after split on a San Francisco frame — left of the line is Apple's decode of the RAW, right is the same pixels through film and paper | 1386 px wide, from 1798 |
 | `physically_accurate_grain.png` | the canvas at 1:1 on the Yosemite frame: the engine's grain at the render's own pixels | **native, 1226 px, unresampled** |
 | `app-icon.png` | the app icon as macOS draws it, read back out of the built bundle | 1024 px, from a 2048 px rendition |

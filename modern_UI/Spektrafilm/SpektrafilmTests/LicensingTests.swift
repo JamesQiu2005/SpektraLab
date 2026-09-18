@@ -117,7 +117,10 @@ final class LicensingTests: XCTestCase {
         XCTAssertFalse(short.contains("$("), "CFBundleShortVersionString was not expanded: \(short)")
         XCTAssertFalse(build.contains("$("), "CFBundleVersion was not expanded: \(build)")
         XCTAssertNotEqual(short, "0.2", "the version is still the hand-typed 0.2")
-        XCTAssertEqual(short.split(separator: ".").count, 2, "expected MAJOR.MINOR, got \(short)")
+        // MAJOR.MINOR or MAJOR.MINOR.PATCH — 0.3.1 was the first patch release.
+        let parts = short.split(separator: ".", omittingEmptySubsequences: false)
+        XCTAssertTrue((2...3).contains(parts.count) && parts.allSatisfy { Int($0) != nil },
+                      "expected MAJOR.MINOR[.PATCH], got \(short)")
     }
 
     private final class BundleTag {}
