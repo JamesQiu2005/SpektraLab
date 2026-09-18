@@ -1047,12 +1047,23 @@ struct ExportPage: View {
         recipe.wrappedValue.outputSize.isOriginal ? "Original" : "Long Edge"
     }
 
+    /// The largest number the field takes. For one frame that is the frame's
+    /// own long edge — there is no super-resolution path, so anything above
+    /// it would be a promise the export does not keep. A batch can hold
+    /// frames bigger than this one, so it keeps the global bound and
+    /// `OutputSize.pixels(for:)` stops each frame at its own size.
+    private var longEdgeCeiling: Int {
+        batch.count > 1 ? OutputSize.bounds.upperBound
+                        : max(OutputSize.bounds.lowerBound, currentLongEdge)
+    }
+
     /// One number, committed on Return or on leaving the field, clamped to
-    /// `OutputSize.bounds` rather than accepted and failed at the resample.
+    /// `OutputSize.bounds` and to `longEdgeCeiling` rather than accepted and
+    /// quietly not honoured.
     private var longEdgeField: some View {
         TextField("", value: Binding(
             get: { recipe.wrappedValue.outputSize.edge ?? currentLongEdge },
-            set: { recipe.wrappedValue.outputSize = OutputSize.clamped($0) }),
+            set: { recipe.wrappedValue.outputSize = OutputSize.clamped(min($0, longEdgeCeiling)) }),
                   format: .number.grouping(.never))
             .textFieldStyle(.plain)
             .multilineTextAlignment(.center)
@@ -1061,7 +1072,7 @@ struct ExportPage: View {
             .background(Theme.pill, in: Capsule())
             .onSubmit { store.save() }
             .help("Pixels on the longer side, \(OutputSize.bounds.lowerBound)–"
-                  + "\(OutputSize.bounds.upperBound).")
+                  + "\(longEdgeCeiling). Frames are never enlarged.")
     }
 
     /// The pixels this recipe writes **for the frame on the canvas** — and, in
@@ -1079,7 +1090,7 @@ struct ExportPage: View {
         let others = batch.count - 1
         return recipe.wrappedValue.outputSize.isOriginal
             ? "\(px) for this frame · \(others) more at their own sizes"
-            : "\(px) for this frame · \(others) more, each keeping its own shape"
+            : "\(px) for this frame · \(others) more, each keeping its own shape, none enlarged"
     }
 
     private var resultingSizeHelp: String {
@@ -1088,7 +1099,8 @@ struct ExportPage: View {
             : "Every frame is resampled so its longer side is "
               + "\(recipe.wrappedValue.outputSize.edge ?? currentLongEdge) px. "
               + "A portrait and a landscape in the same batch therefore come out the same "
-              + "size on their long side and keep their own shape."
+              + "size on their long side and keep their own shape. A frame already smaller "
+              + "than that is written at its own pixels — nothing is ever enlarged."
     }
 
     /// `notes.md`: "Open with allows the user to select the default open_app."

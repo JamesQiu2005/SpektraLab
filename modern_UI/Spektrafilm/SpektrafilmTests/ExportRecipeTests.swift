@@ -425,6 +425,17 @@ final class ExportRecipeTests: XCTestCase {
         XCTAssertEqual(p, CGSize(width: 1067, height: 1600))
     }
 
+    /// No super-resolution path exists, so a long edge past the frame's own
+    /// must not stretch it: the frame is written at its own pixels.
+    func testALongEdgeNeverEnlargesTheFrame() throws {
+        let source = CGSize(width: 6000, height: 4000)
+        XCTAssertNil(OutputSize.longEdge(6000).pixels(for: source))
+        XCTAssertNil(OutputSize.longEdge(12_000).pixels(for: source))
+        XCTAssertNil(OutputSize.longEdge(OutputSize.bounds.upperBound).pixels(for: source))
+        let smaller = try XCTUnwrap(OutputSize.longEdge(5999).pixels(for: source))
+        XCTAssertEqual(smaller.width, 5999)
+    }
+
     func testOriginalAsksForNoResampleAtAll() {
         XCTAssertNil(OutputSize.original.pixels(for: CGSize(width: 8256, height: 5504)))
         XCTAssertTrue(OutputSize.original.isOriginal)

@@ -77,7 +77,7 @@ enum S: String, CaseIterable, Sendable {
     case cropStraighten, cropStraightenUnit, cropRotate
 
     // MARK: actions and view states
-    case actionDeveloped, actionOriginal, actionProcess, actionRestart
+    case actionDeveloped, actionOriginal, actionSolve, actionProcess, actionRestart
 
     // MARK: tooltips, menus and accessibility labels
     case helpOpen, helpExport, helpSelect, helpPan, helpBeforeAfter
@@ -184,6 +184,7 @@ extension S {
         // actions
         case .actionDeveloped: "Developed"
         case .actionOriginal: "Original"
+        case .actionSolve: "Solve"
         // The spec's row gives both English forms — "Process / Process
         // this frame" — and this key is the ••• item, not a button. The
         // longer one is chosen because §8.1 of the layout handoff turns on
@@ -336,6 +337,7 @@ extension S {
         // actions
         case .actionDeveloped: "显影效果"
         case .actionOriginal: "原图"
+        case .actionSolve: "配光"
         case .actionProcess: "自动测光与配光"
         case .actionRestart: "重新启动"
 

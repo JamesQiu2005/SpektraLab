@@ -265,7 +265,7 @@ final class LayoutTests: XCTestCase {
         let m = Theme.Metric.self
         let needed = m.actionLeading + m.actionSize.width * 2 + m.actionGap
         XCTAssertLessThanOrEqual(needed, m.leftPanelRange.narrowest,
-                                 "Developed / Original would run off a narrowed rail")
+                                 "Solve / Original would run off a narrowed rail")
         XCTAssertLessThanOrEqual(needed, m.leftPanelWidth)
     }
 }

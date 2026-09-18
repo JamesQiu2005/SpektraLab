@@ -423,9 +423,9 @@ enum OutputSize: Hashable, Sendable {
         return nil
     }
 
-    /// Small enough to be a thumbnail, large enough for any sensor and a 2×
-    /// upsample, and bounded at all so a stray paste cannot ask for a
-    /// texture the device will refuse.
+    /// Small enough to be a thumbnail, large enough for any sensor, and
+    /// bounded at all so a stray paste cannot ask for a texture the device
+    /// will refuse. The real ceiling is per frame — see `pixels(for:)`.
     static let bounds: ClosedRange<Int> = 16...60_000
 
     static func clamped(_ edge: Int) -> OutputSize { .longEdge(edge.clamped(to: bounds)) }
@@ -436,11 +436,18 @@ enum OutputSize: Hashable, Sendable {
     /// The **source** is the frame after the crop and the straighten, not the
     /// sensor: `Exporter` calls this with the texture it is holding at that
     /// point, so a cropped frame resizes from the shape it actually has.
+    ///
+    /// **Never larger than the source.** There is no super-resolution path:
+    /// an upsample is a bilinear stretch that invents no detail and costs
+    /// memory in proportion to the square of the scale. So a long edge at or
+    /// above the frame's own is the frame's own — `nil`, no resample — and a
+    /// batch mixing sizes shrinks the big frames and leaves the small ones be.
     func pixels(for source: CGSize) -> CGSize? {
         guard case .longEdge(let e) = self else { return nil }
         let w = source.width, h = source.height
         guard w > 0, h > 0 else { return nil }
         let scale = CGFloat(e) / max(w, h)
+        guard scale < 1 else { return nil }
         return CGSize(width: max(1, (w * scale).rounded()),
                       height: max(1, (h * scale).rounded()))
     }

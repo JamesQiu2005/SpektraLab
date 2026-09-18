@@ -148,33 +148,34 @@ struct PrintProfileSection: View {
         return "Fast flip available — baked against \(entry.pairedFilm)."
     }
 
-    /// Developed / Original — **one two-state view selector**, in v3's
-    /// two-capsule row: 82.86 × 18.52 each, `rx 9.26`, 12.18 apart, the pair
-    /// inset 13.33 from the rail's leading edge. Two capsules at their own
-    /// width, not two halves of the rail.
+    /// Solve / Original, in v3's two-capsule row: 82.86 × 18.52 each,
+    /// `rx 9.26`, 12.18 apart, the pair inset 13.33 from the rail's leading
+    /// edge. Two capsules at their own width, not two halves of the rail.
     ///
-    /// They sit here rather than on the bar because the question they answer
-    /// is about the *print*: what did I start from. Neither is a press-and-
-    /// hold — Space already does that on the canvas, and a button that only
-    /// works while the mouse is down is a button nobody finds.
+    /// This row used to be Developed / Original, a two-state view selector —
+    /// which left Solve, the one action that prints the frame, in the "…"
+    /// menu where nobody found it. So the left capsule is Solve and the
+    /// right one is Original as a **toggle**: pressed, it shows the RAW;
+    /// pressed again, the developed print. Space still does the same while
+    /// held on the canvas.
     ///
-    /// **No plate.** v3 fills neither capsule: the active one is an accent
-    /// outline with accent text, the inactive one a muted outline with muted
-    /// text. Handoff §4 also notes that a muted inactive Original is *not*
-    /// the same thing as a disabled one — so `rowEnabled` still carries
-    /// disablement separately, and with no frame open both capsules grey
-    /// together rather than one of them merely looking unselected.
+    /// **No plate.** v3 fills neither capsule. Solve is an accent outline
+    /// whenever it can run; Original is accent while it is showing and muted
+    /// otherwise. A muted Original is *not* a disabled one — `rowEnabled`
+    /// carries disablement separately, so with no frame open both grey.
     private var actions: some View {
         HStack(spacing: Theme.Metric.actionGap) {
-            action(L(.actionDeveloped),
-                   help: "Show the developed print (⎵ shows the original while held).",
-                   active: !session.showingOriginal, enabled: session.selection != nil) {
-                session.toggledOriginal(false)
+            action(L(.actionSolve),
+                   help: "Auto-exposure and the enlarger filter pack for this paper — print this frame.",
+                   active: session.canSolve, enabled: session.canSolve) {
+                session.solveNow()
             }
             action(L(.actionOriginal),
-                   help: "Show the RAW as Apple's decoder renders it, before any film simulation (⎵ does the same, while held).",
+                   help: session.showingOriginal
+                       ? "Showing the original — press to go back to the developed print."
+                       : "Show the RAW as Apple's decoder renders it, before any film simulation (⎵ does the same, while held).",
                    active: session.showingOriginal, enabled: session.selection != nil) {
-                session.toggledOriginal(true)
+                session.toggledOriginal(!session.showingOriginal)
             }
             Spacer(minLength: 0)
         }
@@ -210,8 +211,7 @@ struct PrintProfileSection: View {
             // better than a live-looking item that silently does not fire.
             .disabled(filmIsPositive
                       || session.catalog.stock(session.params.filmStock)?.targetPrint == nil)
-            // §8.1: solve keeps its own words here rather than hiding
-            // behind the Developed capsule above.
+            // Also the Solve capsule above; kept here under its longer name.
             Button(L(.actionProcess)) { session.solveNow() }
                 .disabled(!session.canSolve)
             Divider()
