@@ -135,6 +135,35 @@ if ! $dry; then
   fi
 fi
 
+# --- 4b. the floor every Mac has to meet -----------------------------------
+# "Every Apple-silicon Mac on macOS 15 or later" is checked on the artefact,
+# not believed from the build settings: every Mach-O must be arm64 with a
+# minos of at most 15, and every metallib must be stamped for macOS 15. The
+# engine's metallib is built outside Xcode, and it once shipped stamped for
+# the build machine's macOS 27 -- it would open and fail to render on anything older.
+say "deployment floor"
+if ! $dry; then
+  floor=15
+  bad=0
+  plist_min=$(/usr/libexec/PlistBuddy -c "Print :LSMinimumSystemVersion" "$app/Contents/Info.plist")
+  echo "  LSMinimumSystemVersion $plist_min"
+  [[ "${plist_min%%.*}" == "$floor" ]] || { echo "error: LSMinimumSystemVersion is $plist_min" >&2; bad=1; }
+  while IFS= read -r -d '' f; do
+    file -b "$f" | grep -q "Mach-O" || continue
+    archs=$(lipo -archs "$f")
+    minos=$(vtool -show-build "$f" 2>/dev/null | awk '/minos/ {print $2; exit}')
+    echo "  ${f#"$app/"}: $archs, minos $minos"
+    [[ "$archs" == *arm64* ]] || { echo "error: $f has no arm64 slice" >&2; bad=1; }
+    [[ "${minos%%.*}" -le "$floor" ]] || { echo "error: $f needs macOS $minos" >&2; bad=1; }
+  done < <(find "$app" -type f -print0)
+  while IFS= read -r -d '' f; do
+    major=$(xcrun -sdk macosx metal-readobj --file-headers "$f" | awk '/PlatformMajor:/ {print $2; exit}')
+    echo "  ${f#"$app/"}: metallib for macOS $major"
+    [[ "$major" -le "$floor" ]] || { echo "error: $f is stamped for macOS $major" >&2; bad=1; }
+  done < <(find "$app" -name '*.metallib' -print0)
+  [[ $bad == 0 ]] || exit 1
+fi
+
 # --- 5. the DMG ------------------------------------------------------------
 say "disk image"
 run rm -f "$dmg"

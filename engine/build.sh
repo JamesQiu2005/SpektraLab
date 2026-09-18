@@ -37,6 +37,13 @@ cxxflags=(-std=c++20 -O2 -Wall -Wextra)
 includes=(-I"$here/include" -I"$here/src" -I"$here/src/core" -I"$here/third_party/metal-cpp")
 frameworks=(-framework Metal -framework Foundation -framework QuartzCore)
 math_flags=(-fmetal-math-mode=safe -fmetal-math-fp32-functions=precise)
+# The app's floor is macOS 15 (LSMinimumSystemVersion, MACOSX_DEPLOYMENT_TARGET
+# in gen-project.py). Without this the metal compiler targets the *host* OS, and
+# a metallib stamped for a newer macOS than the user's does not load -- the app
+# opens and cannot render. `check_metallib_target` below fails the build if the
+# stamp drifts.
+MACOS_MIN=15.0
+target_flags=(-mmacos-version-min="$MACOS_MIN")
 
 sources=()
 collect_sources() {
@@ -57,17 +64,27 @@ collect_sources() {
   fi
 }
 
+check_metallib_target() {
+  local major
+  major=$(xcrun -sdk macosx metal-readobj --file-headers "$1" | awk '/PlatformMajor:/ {print $2; exit}')
+  if [[ "$major" != "${MACOS_MIN%%.*}" ]]; then
+    echo "build.sh: $1 targets macOS $major, not $MACOS_MIN -- it would not load on older Macs" >&2
+    exit 1
+  fi
+}
+
 build_metallib() {
   local airs=() m air
   shopt -s nullglob
   for m in "$here"/src/shaders/*.metal; do
     air="$out/$(basename "$m" .metal).air"
-    xcrun -sdk macosx metal "${math_flags[@]}" -Werror -c "$m" -o "$air"
+    xcrun -sdk macosx metal "${math_flags[@]}" "${target_flags[@]}" -Werror -c "$m" -o "$air"
     airs+=("$air")
   done
   shopt -u nullglob
   if [[ ${#airs[@]} -eq 0 ]]; then echo "no shaders yet"; return 0; fi
   xcrun -sdk macosx metallib "${airs[@]}" -o "$out/spektrafilm.metallib"
+  check_metallib_target "$out/spektrafilm.metallib"
   cp "$out/spektrafilm.metallib" "$here/resources/spektrafilm.metallib"
   echo "metallib   -> $here/resources/spektrafilm.metallib"
 }
