@@ -799,6 +799,44 @@ final class DiagnosticsTests: XCTestCase {
                        "a clamped value was not written down")
     }
 
+    /// The disk cache cap: persisted, clamped, and — the part that matters —
+    /// actually handed to whoever owns the store. A setting nothing consults
+    /// is the guard-that-cannot-fire shape with a Settings row on top, which
+    /// is precisely what the 16 GB constant it replaces was.
+    func testDiskCacheCapPersistsClampsAndIsApplied() throws {
+        let log = Log(ringCapacity: 64)
+        let defaults = try freshDefaults()
+        let diagnostics = Diagnostics(defaults: defaults, log: log)
+        XCTAssertEqual(diagnostics.diskCacheCapMegabytes, Diagnostics.defaultDiskCacheCapMB)
+        XCTAssertEqual(diagnostics.diskCacheCapBytes,
+                       UInt64(Diagnostics.defaultDiskCacheCapMB) * 1_000_000)
+
+        var applied: [UInt64] = []
+        diagnostics.onDiskCacheCapChanged = { applied.append($0) }
+
+        diagnostics.diskCacheCapMegabytes = 4_000
+        XCTAssertEqual(defaults.integer(forKey: "diag.diskCacheCapMB"), 4_000,
+                       "the cap was not written down, so the next launch disagrees with the page")
+        XCTAssertEqual(applied, [4_000_000_000],
+                       "the store was never told, so the setting changes nothing on disk")
+
+        // Setting the same value again must not re-run eviction.
+        diagnostics.diskCacheCapMegabytes = 4_000
+        XCTAssertEqual(applied.count, 1)
+
+        diagnostics.diskCacheCapMegabytes = 99_999_999
+        XCTAssertEqual(diagnostics.diskCacheCapMegabytes,
+                       Diagnostics.diskCacheCapRange.upperBound)
+        diagnostics.diskCacheCapMegabytes = 0
+        XCTAssertEqual(diagnostics.diskCacheCapMegabytes,
+                       Diagnostics.diskCacheCapRange.lowerBound,
+                       "there is deliberately no unlimited or zero state here")
+
+        let relaunched = Diagnostics(defaults: defaults, log: log)
+        XCTAssertEqual(relaunched.diskCacheCapMegabytes,
+                       Diagnostics.diskCacheCapRange.lowerBound)
+    }
+
     /// A refusal is a visible event (§11.5): a badge in the window, a sentence
     /// in the status line, and an `error` record carrying the engine's own
     /// words beside the user-facing one.

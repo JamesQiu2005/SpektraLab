@@ -710,6 +710,14 @@ final class Session: CanvasHost {
     /// the engine's linear frame input.
     private let diskCache: DiskCacheStore?
     private let printWriteback: PrintWriteback?
+    /// What the disk cache currently holds, for the Settings readout. Sampled
+    /// on demand rather than maintained: the store is the one that knows, and
+    /// a running total kept here would be a second source of truth that drifts
+    /// every time an eviction happens without the app asking.
+    private(set) var diskCacheBytes: UInt64 = 0
+    /// Nil when the cache could not be opened at all — the readout says so
+    /// rather than showing a confident 0.
+    var hasDiskCache: Bool { diskCache != nil }
     /// The record's door. `diagnostics.log` and not `Log.shared` for the same
     /// reason: a test that injects a `Diagnostics` gets its records too.
     var log: Log { diagnostics.log }
@@ -833,7 +841,8 @@ final class Session: CanvasHost {
         self.renderer = renderer
         self.diagnostics = diagnostics
         self.decodeResidency = DecodeResidency(arena: diagnostics.arena)
-        let cache = diskCache ?? (try? DiskCacheStore(root: Self.diskCacheRoot))
+        let cache = diskCache ?? (try? DiskCacheStore(root: Self.diskCacheRoot,
+                                                     capBytes: diagnostics.diskCacheCapBytes))
         self.diskCache = cache
         self.printWriteback = cache.map { PrintWriteback(store: $0) }
         // The engine is in this process now (RFC-014): no subprocess, no
@@ -859,7 +868,21 @@ final class Session: CanvasHost {
         renderer.layer2 = sidecar.adjustments.uniforms
         Session.removeLegacyLinearCache()
         if let cache {
-            Task.detached(priority: .utility) { try? await cache.garbageCollect() }
+            Task.detached(priority: .utility) {
+                try? await cache.garbageCollect()
+                try? await cache.trimToCap()
+            }
+            // The Settings row and the store, joined here because this is the
+            // object that has both. A cap changed while the app is running is
+            // applied at once, not at the next launch: lowering it is how a
+            // person asks for the disk back.
+            diagnostics.onDiskCacheCapChanged = { bytes in
+                Task.detached(priority: .utility) { try? await cache.setCapBytes(bytes) }
+            }
+            Task { [weak self] in
+                let bytes = (try? await cache.totalBytes()) ?? 0
+                await MainActor.run { self?.diskCacheBytes = bytes }
+            }
         }
         Task { await client.set(onTermination: { [weak self] reason in
             Task { @MainActor in self?.serviceReady = false; self?.status = reason; self?.lastError = reason }
@@ -2251,6 +2274,27 @@ final class Session: CanvasHost {
     /// entry), which is the user's disk, not ours to keep. Off the main
     /// thread, and quiet on failure: a directory that is already gone is the
     /// normal case after the first launch.
+    /// Re-read what the store holds. Called by the Settings page on the timer
+    /// it already runs; nothing else needs the number.
+    func refreshDiskCacheUsage() {
+        guard let diskCache else { return }
+        Task { [weak self] in
+            let bytes = (try? await diskCache.totalBytes()) ?? 0
+            await MainActor.run { self?.diskCacheBytes = bytes }
+        }
+    }
+
+    /// Empty it. Everything here can be remade from the original files, which
+    /// is why this needs no confirmation and why the caption says so.
+    func clearDiskCacheNow() {
+        guard let diskCache else { return }
+        Task { [weak self] in
+            try? await diskCache.clearAll()
+            let bytes = (try? await diskCache.totalBytes()) ?? 0
+            await MainActor.run { self?.diskCacheBytes = bytes }
+        }
+    }
+
     nonisolated static func removeLegacyLinearCache() {
         let dir = legacyLinearCache
         Task.detached(priority: .utility) {

@@ -48,10 +48,16 @@ actor DiskCacheStore {
     }
 
     nonisolated let root: URL
-    nonisolated let capBytes: UInt64
+    /// The ceiling this store evicts down to. A `var` since RFC-020's Settings
+    /// work: it was a constant 16 GB nothing could see or change, which is the
+    /// condition `Diagnostics.diskCacheCapNote` describes. Changing it evicts
+    /// immediately rather than waiting for the next `store`, because the
+    /// person who just lowered it did so to get the disk back now.
+    private(set) var capBytes: UInt64
+
     nonisolated(unsafe) private let database: OpaquePointer
 
-    init(root: URL, capBytes: UInt64 = 16_000_000_000) throws {
+    init(root: URL, capBytes: UInt64 = DiskCacheStore.defaultCapBytes) throws {
         self.root = root
         self.capBytes = capBytes
         try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
@@ -259,6 +265,44 @@ actor DiskCacheStore {
             total = UInt64(sqlite3_column_int64(row, 0))
         }
         return total
+    }
+
+    /// Only the fallback for a store built without one — `Session` passes the
+    /// Settings value, so this is what a test or a stray construction gets.
+    nonisolated static let defaultCapBytes: UInt64 =
+        UInt64(Diagnostics.defaultDiskCacheCapMB) * 1_000_000
+
+    /// Evict down to the current cap. `store` already does this after every
+    /// write, so this exists for the one moment nothing writes: launch, when
+    /// the cap the Settings page holds may be lower than the one the last
+    /// session evicted against — including the first launch after the cap
+    /// stopped being a 16 GB constant. Without it a lowered cap would take
+    /// effect only at the next cached render, which is exactly the shape of
+    /// "a setting nothing consults".
+    func trimToCap() throws { try evictIfNeeded() }
+
+    /// Raise or lower the ceiling. Lowering evicts now; raising cannot evict,
+    /// so the call is cheap in that direction.
+    func setCapBytes(_ newValue: UInt64) throws {
+        guard newValue != capBytes else { return }
+        let shrinking = newValue < capBytes
+        capBytes = newValue
+        if shrinking { try evictIfNeeded() }
+    }
+
+    /// Everything, index and files both. Used by Settings' "Empty cache now";
+    /// the directory itself stays so the store keeps working after it.
+    func clearAll() throws {
+        var paths: [String] = []
+        try query("SELECT path FROM entries") { row in
+            if let path = self.text(row, 0) { paths.append(path) }
+        }
+        for path in paths {
+            try? FileManager.default.removeItem(at: URL(fileURLWithPath: path))
+        }
+        try execute("DELETE FROM entries")
+        try setClock(0)
+        try garbageCollect()
     }
 
     private func evictIfNeeded() throws {

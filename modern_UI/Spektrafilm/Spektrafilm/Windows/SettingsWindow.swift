@@ -61,6 +61,7 @@ struct SettingsWindow: View {
                 renderingSection
                 diagnosticsSection
                 memorySection
+                diskCacheSection
                 logsSection
                 bundleSection
                 machineSection
@@ -72,11 +73,15 @@ struct SettingsWindow: View {
         .preferredColorScheme(.dark)
         .onAppear {
             diagnostics.refreshMemory()
+            session.refreshDiskCacheUsage()
             // 2 s: fast enough to watch a render land, slow enough that the
             // page is not itself a load. The sampler's own records are
             // written at boundaries, not on this timer.
             ticker = Timer.scheduledTimer(withTimeInterval: 2, repeats: true) { _ in
-                MainActor.assumeIsolated { diagnostics.refreshMemory() }
+                MainActor.assumeIsolated {
+                    diagnostics.refreshMemory()
+                    session.refreshDiskCacheUsage()
+                }
             }
         }
         .onDisappear { ticker?.invalidate(); ticker = nil }
@@ -208,6 +213,65 @@ struct SettingsWindow: View {
                               isOn: Binding(get: { diagnostics.allowOverReserve },
                                             set: { diagnostics.allowOverReserve = $0 }))
                     caption("A frame whose projected peak does not leave the reserve free gets a warning you can override. Nothing is ever blocked; this is the standing answer to that warning, and turning it off makes the app ask again.")
+                }
+            }
+        }
+    }
+
+    // MARK: - disk cache
+
+    /// The disk half of what the app holds, and until now the half nobody
+    /// could see. `DiskCacheStore` has always evicted — against a 16 GB
+    /// constant compiled into it, which is not the same as being managed: no
+    /// readout, no control, and no line in the session record. This section is
+    /// the readout and the control; `Diagnostics.diskCacheCapMegabytes` is the
+    /// line in the record.
+    ///
+    /// It sits under Memory rather than under Logs because it answers the same
+    /// question — what is SpektraLab holding, and what may it hold — for the
+    /// other kind of storage. The unit differs and so does the consequence:
+    /// over the memory cap the app evicts to keep working, over this one it
+    /// evicts to stop growing.
+    private var diskCacheSection: some View {
+        PanelSection("Disk cache", systemImage: "internaldrive", key: "setDiskCache") {
+            Well {
+                VStack(alignment: .leading, spacing: 3) {
+                    if session.hasDiskCache {
+                        readout("In use", "\(bytes(session.diskCacheBytes)) of "
+                                          + "\(bytes(diagnostics.diskCacheCapBytes))")
+                    } else {
+                        readout("In use", "the cache could not be opened")
+                    }
+                    intRow("Limit", diagnostics.diskCacheCapMegabytes / 1_000, "GB",
+                           Diagnostics.diskCacheCapGigabyteRange) {
+                        diagnostics.diskCacheCapMegabytes = $0 * 1_000
+                    }
+                    caption(Diagnostics.diskCacheCapNote)
+                    Divider().overlay(Theme.plotGrid).padding(.vertical, 4)
+                    labelled("Location") {
+                        Text(Session.diskCacheRoot.path)
+                            .font(Theme.Font.caption).foregroundStyle(Theme.text)
+                            .lineLimit(1).truncationMode(.head)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                            .padding(.horizontal, 8)
+                            .frame(height: 16)
+                            .background(Theme.field, in: Capsule())
+                    }
+                    HStack(spacing: 10) {
+                        Button("Reveal in Finder") {
+                            NSWorkspace.shared.activateFileViewerSelecting([Session.diskCacheRoot])
+                        }
+                        .buttonStyle(.plain).font(Theme.Font.caption).foregroundStyle(Theme.accent)
+                        Button("Empty cache now") {
+                            session.clearDiskCacheNow()
+                        }
+                        .buttonStyle(.plain).font(Theme.Font.caption)
+                        .foregroundStyle(session.hasDiskCache ? Theme.accent : Theme.dim)
+                        .disabled(!session.hasDiskCache)
+                        .help("Deletes every cached decode and print. Nothing of yours is in it.")
+                        Spacer()
+                    }
+                    .padding(.top, 2)
                 }
             }
         }

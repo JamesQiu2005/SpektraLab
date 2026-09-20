@@ -208,6 +208,62 @@ final class Diagnostics {
         + "never evicted, whatever this says. Free memory is set by the other applications on the "
         + "machine; this is the part SpektraLab decides."
 
+    /// How much disk the shared decode/print cache may hold (`DiskCacheStore`).
+    ///
+    /// It existed before this setting did — as a constant 16 GB inside the
+    /// store, which nothing displayed, nothing could change, and no record
+    /// mentioned. That is the "unmanaged" state RFC-020 §8 names when it says
+    /// the disk cache's *layer* is a real question deferred to another RFC:
+    /// this row is not that question. It is the budget, and RFC-021 needs a
+    /// budget to exist before it can choose anything against one.
+    ///
+    /// Unlike the working-set cap there is deliberately **no Unlimited state**.
+    /// An unbounded on-disk cache is the condition this row was added to end.
+    var diskCacheCapMegabytes: Int {
+        get { storedDiskCacheCapMegabytes }
+        set {
+            let clamped = newValue.clamped(to: Diagnostics.diskCacheCapRange)
+            guard clamped != storedDiskCacheCapMegabytes else { return }
+            storedDiskCacheCapMegabytes = clamped
+            defaults.set(clamped, forKey: Keys.diskCacheCapMegabytes)
+            onDiskCacheCapChanged?(diskCacheCapBytes)
+        }
+    }
+    private var storedDiskCacheCapMegabytes: Int
+
+    var diskCacheCapBytes: UInt64 { UInt64(storedDiskCacheCapMegabytes) * 1_000_000 }
+
+    /// Set by `Session`, which owns the store. `Diagnostics` holds the setting
+    /// and not the cache, for the same reason it holds the memory cap and not
+    /// the arena: one place the value lives, one place it is applied.
+    var onDiskCacheCapChanged: ((UInt64) -> Void)?
+
+    /// 1 GB … 512 GB, stored in MB to match every other size on this page and
+    /// in the session record. The floor is not zero: zero would mean "cache
+    /// nothing", which is a different feature — it would make every reopen pay
+    /// a full decode — and this row is a budget, not a switch. The ceiling is
+    /// past any realistic library and exists only so a typo cannot re-create
+    /// the unbounded state this setting was added to end.
+    nonisolated static let diskCacheCapRange = 1_000...512_000
+    /// The page shows and steps whole gigabytes; the stored unit stays MB.
+    nonisolated static let diskCacheCapGigabyteRange =
+        (diskCacheCapRange.lowerBound / 1_000)...(diskCacheCapRange.upperBound / 1_000)
+
+    /// 8 GB, against the 16 GB the store used to assume. Halving it is the
+    /// point: the old number was chosen by nobody, and a decode cache that can
+    /// quietly reach 16 GB on a 256 GB laptop is the complaint this answers.
+    nonisolated static let defaultDiskCacheCapMB = 8_000
+
+    /// The caption under the control. It says what is cached and what losing
+    /// it costs, because "clear the cache" is only a safe-sounding button if
+    /// the page says what it throws away.
+    nonisolated static let diskCacheCapNote =
+        "Disk SpektraLab may use for decoded frames and finished prints, so reopening a photo does not "
+        + "decode it again. Nothing here is your work — every entry can be remade from the original "
+        + "file, so the only cost of emptying it is the wait the next time you open those frames. "
+        + "Least-valuable entries are evicted first, by how often each is used against what it cost "
+        + "to make."
+
     /// Where sessions are written (§11.4). Default `~/Library/Logs/SpektraLab/`.
     var logDirectory: URL {
         didSet {
@@ -308,6 +364,8 @@ final class Diagnostics {
             ?? Diagnostics.defaultMemoryCapMB
         storedMemoryCapMegabytes = storedCap == Diagnostics.memoryCapUnlimited
             ? storedCap : storedCap.clamped(to: Diagnostics.memoryCapRange)
+        storedDiskCacheCapMegabytes = ((defaults.object(forKey: Keys.diskCacheCapMegabytes) as? Int)
+            ?? Diagnostics.defaultDiskCacheCapMB).clamped(to: Diagnostics.diskCacheCapRange)
         logDirectory = defaults.string(forKey: Keys.logDirectory)
             .map { URL(fileURLWithPath: $0) } ?? Diagnostics.defaultLogDirectory
         includeFileNamesInBundle = defaults.object(forKey: Keys.includeFileNames) as? Bool ?? true
@@ -331,6 +389,7 @@ final class Diagnostics {
         static let logDirectory = "diag.logDirectory"
         static let memoryReserveMegabytes = "diag.memoryReserveMB"
         static let memoryCapMegabytes = "diag.memoryCapMB"
+        static let diskCacheCapMegabytes = "diag.diskCacheCapMB"
         static let includeFileNames = "diag.includeFileNamesInBundle"
         static let allowOverReserve = "diag.allowOverReserve"
     }
@@ -391,6 +450,7 @@ final class Diagnostics {
         fields.append(.init("preview_edge", previewEdge))
         fields.append(.init("memory_reserve_mb", memoryReserveMegabytes))
         fields.append(.init("memory_cap_mb", memoryCapIsUnlimited ? "unlimited" : String(memoryCapMegabytes)))
+        fields.append(.init("disk_cache_cap_mb", diskCacheCapMegabytes))
         fields.append(.init("log_level", level.rawValue))
         fields.append(.init("log_file", log.sessionFile?.lastPathComponent ?? "none"))
         return fields
@@ -593,6 +653,7 @@ final class Diagnostics {
             "bundle_includes_file_names": includeFileNamesInBundle ? "on" : "off",
             "memory_reserve_mb": String(memoryReserveMegabytes),
             "memory_cap_mb": memoryCapIsUnlimited ? "unlimited" : String(memoryCapMegabytes),
+            "disk_cache_cap_mb": String(diskCacheCapMegabytes),
             "preview_edge": String((UserDefaults.standard.object(forKey: Session.previewEdgeKey) as? Int)
                                    ?? Session.defaultPreviewEdge),
         ]

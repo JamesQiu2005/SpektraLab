@@ -99,6 +99,95 @@ final class DiskCacheStoreTests: XCTestCase {
         XCTAssertEqual(total, 8)
     }
 
+    /// The Settings row's whole point: lowering the cap has to take effect now,
+    /// not at the next `store`. Three 8-byte entries, then a cap of 8.
+    func testLoweringTheCapEvictsImmediately() async throws {
+        let store = try DiskCacheStore(root: root())
+        for (i, name) in ["a", "b", "c"].enumerated() {
+            try await store.store(key: key(name), data: Data(repeating: UInt8(i), count: 8),
+                                  width: 1, height: 1, format: "rgba16Unorm",
+                                  costMs: Double(100 - i))
+        }
+        let before = try await store.totalBytes()
+        XCTAssertEqual(before, 24)
+
+        try await store.setCapBytes(8)
+        let after = try await store.totalBytes()
+        XCTAssertEqual(after, 8)
+        let cap = await store.capBytes
+        XCTAssertEqual(cap, 8)
+    }
+
+    /// The launch case: a store reopened against a lower cap than the one its
+    /// contents were written under. Nothing writes at launch, so without the
+    /// explicit trim the cache stays over its limit until the next cached
+    /// render — which on a machine that is only ever opened and closed is
+    /// never. Written over a *reopened* root rather than a fresh one so it is
+    /// the real sequence and not a rearrangement of it.
+    func testTrimToCapEvictsAStoreReopenedUnderALowerCap() async throws {
+        let root = root()
+        do {
+            let generous = try DiskCacheStore(root: root, capBytes: 1_000)
+            for (i, name) in ["a", "b", "c"].enumerated() {
+                try await generous.store(key: key(name), data: Data(repeating: UInt8(i), count: 8),
+                                         width: 1, height: 1, format: "rgba16Unorm",
+                                         costMs: Double(100 - i))
+            }
+            let held = try await generous.totalBytes()
+            XCTAssertEqual(held, 24)
+        }
+
+        let reopened = try DiskCacheStore(root: root, capBytes: 8)
+        // The gap this test pins: construction alone evicts nothing.
+        let beforeTrim = try await reopened.totalBytes()
+        XCTAssertEqual(beforeTrim, 24,
+                       "if construction already evicted, the assertion below cannot fail and proves nothing")
+        try await reopened.trimToCap()
+        let afterTrim = try await reopened.totalBytes()
+        XCTAssertEqual(afterTrim, 8)
+    }
+
+    /// Raising it evicts nothing — the other direction has to be free, since
+    /// the Settings stepper sends one call per press.
+    func testRaisingTheCapKeepsEverything() async throws {
+        let store = try DiskCacheStore(root: root(), capBytes: 16)
+        try await store.store(key: key("a"), data: Data(repeating: 1, count: 8),
+                              width: 1, height: 1, format: "rgba16Unorm", costMs: 10)
+        try await store.setCapBytes(32)
+        let total = try await store.totalBytes()
+        XCTAssertEqual(total, 8)
+    }
+
+    /// "Empty cache now" takes the index rows and the files both, and leaves a
+    /// store that still works afterwards.
+    func testClearAllRemovesEveryEntryAndItsFile() async throws {
+        let root = root()
+        let store = try DiskCacheStore(root: root)
+        try await store.store(key: key("a"), data: Data(repeating: 1, count: 8),
+                              width: 1, height: 1, format: "rgba16Unorm", costMs: 10)
+        try await store.store(key: key("b"), data: Data(repeating: 2, count: 8),
+                              width: 1, height: 1, format: "rgba16Unorm", costMs: 10)
+
+        try await store.clearAll()
+        let total = try await store.totalBytes()
+        XCTAssertEqual(total, 0)
+        let gone = try await store.load(key("a"))
+        XCTAssertNil(gone)
+
+        let files = FileManager.default.enumerator(at: root, includingPropertiesForKeys: nil)
+        var binaries = 0
+        while let file = files?.nextObject() as? URL {
+            if file.pathExtension == "bin" { binaries += 1 }
+        }
+        XCTAssertEqual(binaries, 0)
+
+        // Still usable: the directory and the index survived.
+        try await store.store(key: key("c"), data: Data(repeating: 3, count: 8),
+                              width: 1, height: 1, format: "rgba16Unorm", costMs: 10)
+        let again = try await store.load(key("c"))
+        XCTAssertNotNil(again)
+    }
+
     func testGarbageCollectionDropsAFileWithoutAnIndexRow() async throws {
         let root = root()
         let store = try DiskCacheStore(root: root)
