@@ -64,6 +64,12 @@ collect_sources() {
   fi
 }
 
+# **The metallib build is byte-reproducible**, checked 2026-09-20 by the peer
+# session building the same sources three times: `014600ec...` each time. That
+# makes a hash a valid provenance check — "does this artifact match that tag"
+# is answerable rather than inferable, and a bundle built from a tree that has
+# moved since its commit can be shown to be one. Worth keeping: the build does
+# not stamp a UUID or a timestamp, and this comment is the only record of it.
 check_metallib_target() {
   local major
   major=$(xcrun -sdk macosx metal-readobj --file-headers "$1" | awk '/PlatformMajor:/ {print $2; exit}')
