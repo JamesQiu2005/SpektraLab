@@ -254,6 +254,11 @@ struct spk_engine {
     std::string cached_schema;
     std::string cached_memory_report;
     std::vector<spk_session*> sessions;
+    // RFC-020 §3.1: the frame the pool's buffers were made for. A pool is a
+    // set of planes of *some* frame, and this is what says whether the frame
+    // being opened is that one. Guarded by `lock`, like `sessions`.
+    bool pool_frame_valid = false;
+    uint32_t pool_frame_w = 0, pool_frame_h = 0;
     std::mutex lock;
 
     ~spk_engine() {
@@ -682,6 +687,39 @@ spk_session* open_frame(spk_engine* engine, const FrameIn& frame, const char* pa
                   " px long edge is above the device's " + std::to_string(max_edge) +
                   " px texture limit";
         return nullptr;
+    }
+
+    // RFC-020 §3.1: the frame switch, which is one of the only two occasions
+    // the pool gives anything back.
+    //
+    // A pooled buffer is a plane of *some* frame's render, and the pool has no
+    // way to know which; the engine does, so the decision is here and the
+    // mechanism is `Gpu::trim_pool`. Either the engine has no session open at
+    // all -- so nothing anyone is looking at could be using those buffers --
+    // or the frame being opened is a different size from the one they were
+    // made for. A 102 MP pool has no business surviving into a 24 MP frame,
+    // and §1.2 measured the price of the re-fault as small: what is expensive
+    // is not faulting pages back in, it is crossing into the compressor.
+    //
+    // Deliberately **not** at `end_frame`. Within a session the same sizes
+    // come back immediately and the pool is exactly the right structure to
+    // hold them; the change is that "keep it" stops meaning "keep it forever".
+    {
+        bool trim = false;
+        {
+            std::lock_guard<std::mutex> guard(engine->lock);
+            const bool previous_session_gone = engine->pool_frame_valid && engine->sessions.empty();
+            const bool frame_changed = !engine->pool_frame_valid ||
+                                       engine->pool_frame_w != frame.width ||
+                                       engine->pool_frame_h != frame.height;
+            trim = previous_session_gone || frame_changed;
+            engine->pool_frame_valid = true;
+            engine->pool_frame_w = frame.width;
+            engine->pool_frame_h = frame.height;
+        }
+        // Outside the lock: this releases Metal buffers, which is not work to
+        // hold the session list across.
+        if (trim && engine->gpu) engine->gpu->trim_pool(0);
     }
 
     Json delta = Json::object();

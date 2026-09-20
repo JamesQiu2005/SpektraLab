@@ -227,6 +227,21 @@ public:
     // fixed when each buffer was made. No Metal object is walked, retained or
     // asked anything, and nothing here can fail.
     virtual PoolStats pool_stats() const = 0;
+
+    // Give memory back. Frees every pooled buffer with `refs == 0` -- in
+    // descending size order, until the pool's total is at or below
+    // `keep_bytes` (`0` means all of them) -- and removes it from the pool,
+    // releasing the Metal buffer with it.
+    //
+    // **Never** a buffer with `refs > 0`: a live handle is a node mid-render
+    // or a buffer `dispatch` is holding for a just-encoded kernel. The two
+    // callers are a frame switch (RFC-020 §3.1, `keep_bytes == 0`) and the
+    // memory-pressure handler (§3.2: the frame's live high-water for `warn`,
+    // everything for `critical`).
+    //
+    // Unlike `alloc`, this is not on any render path and takes no encoder:
+    // `pool_lock_` is taken here, so a caller holding it must not call this.
+    virtual void trim_pool(size_t keep_bytes) = 0;
 };
 
 // --- BufferRef, once Gpu is complete ---------------------------------------

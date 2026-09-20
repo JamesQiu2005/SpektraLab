@@ -465,6 +465,38 @@ public:
         return s;
     }
 
+    // --- RFC-020 §3.1, §3.2: giving it back --------------------------------
+
+    void trim_pool(size_t keep_bytes) override {
+        std::lock_guard<std::mutex> guard(pool_lock_);
+        size_t total = 0;
+        for (const Buffer* b : pool_) total += b->bytes;
+        if (total <= keep_bytes) return;
+
+        // Largest first. A render's pool is a handful of same-sized
+        // full-frame planes plus small constant uploads, so taking the big
+        // ones back is the whole of the effect and the small ones are not
+        // worth an allocation each to recreate.
+        std::vector<Buffer*> candidates;
+        for (Buffer* b : pool_) if (b->refs == 0) candidates.push_back(b);
+        std::sort(candidates.begin(), candidates.end(),
+                  [](const Buffer* a, const Buffer* b) { return a->bytes > b->bytes; });
+
+        for (Buffer* b : candidates) {
+            if (total <= keep_bytes) break;
+            total -= b->bytes;
+            // `pool_` is where `b` came from. `pending_` may or may not name
+            // it: a buffer at `refs == 0` that is not yet reusable is exactly
+            // the one `release` queued, and leaving it there would be a
+            // dangling pointer for the next `reclaim` to write through.
+            pool_.erase(std::find(pool_.begin(), pool_.end(), b));
+            auto queued = std::find(pending_.begin(), pending_.end(), b);
+            if (queued != pending_.end()) pending_.erase(queued);
+            if (b->mtl) b->mtl->release();
+            delete b;
+        }
+    }
+
 private:
     MTL::ComputePipelineState* pipeline(const char* name, std::string& error) {
         auto it = pipelines_.find(name);
