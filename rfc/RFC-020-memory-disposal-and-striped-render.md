@@ -10,7 +10,7 @@
 | **Scope — app** | the strip-wise ingestion that feeds it, and the one Settings switch that turns the mode on |
 | **Out of scope** | **RFC-021** — choosing the strip height dynamically from free memory and the app's cap. This RFC must make that a policy swap and nothing more; §7 is the contract it owes RFC-021. Also: which *layer* the disk cache should hold (§8.1), RFC-017 batch processing. |
 | **Hard gate** | **Zero precision loss.** Every mode this RFC adds produces output bit-identical to today's, or it does not ship. §5.1. |
-| **Amended** | **2026-09-20 — §4.2 and P4 were wrong about one node.** `boost` holds an image-global statistic and cannot be striped. See the amendment at the end; read it before trusting §4.2's table or P4's headline claim. |
+| **Amended** | **2026-09-20 — §4.2 and P4 were wrong about one node.** `boost` holds an image-global statistic and cannot be striped; §4.4's ~6 GB estimate is now known to be optimistic in two identified places. See the amendment at the end; read it before trusting §4.2's table, P4's headline claim, or §4.4's estimate. |
 
 ---
 
@@ -681,6 +681,28 @@ in the finding survives, and it survives differently now: the claim was
 > The second is exact and *changes the picture*, so in a bit-identical step only
 > the first is available. What may not happen is a global that reaches a band.
 
+**And P4's enforcement is mechanical now, not editorial.** A rule addressed to
+whoever writes the next node with nothing firing if they ignore it is the
+"guards that cannot fire" defect this repository keeps finding in its own
+tests. §6's hash enforces P4 only when a parity case exercises the new node **at
+a non-default parameter** — the precise condition that made `boost` invisible to
+`strip_executor.py` at `boost_ev = 0` and visible to `parity_render`'s axis. So
+`engine/tests/band_purity.py` walks the call graph from every stage whose table
+entry says `band_able` and fails if any path reaches `device_max`, `read_back`
+or `exposure_sample_y`. It is a source check: no dylib, no render, no
+parameters, so it fires on the *addition*. It also verifies its own sink list
+against the tree and pins the stage-table parse, and `--self-test` asserts the
+verdict flips — including with `film_boost_and_blurs`'s whole-frame marker
+removed in memory, where it reports `film_boost_and_blurs -> node_boost ->
+device_max`.
+
+Its documented blind spot, so the guarantee is not read as wider than it is: a
+node that reads frame-level state which is not computed from pixels —
+`pixel_size_um_`, the tier ratio, the run's seed, a setup table. `unsharp`,
+`glare`, `lens_blur`, `grain` and `dir_couplers` all read such state and are
+correctly band-able; a band reads the same values. The line P4 draws is
+"computed from the plane's pixels".
+
 ### The checked classification
 
 Every node in both chains, swept 2026-09-20 for reductions (`device_max`,
@@ -711,3 +733,27 @@ F/R — they need the plane for their halo and field, not for the ratio, so
 nothing about them changes when a band arrives. And `auto_exposure`'s class C is
 sound because `blur_.affine` is pointwise, unlike `blur_.gaussian`; a future
 pointwise node calling `gaussian` would be the same error as `boost`.
+
+### §4.4's estimate is optimistic in two places, both identified
+
+§4.4's peak row reads **"~6 GB, estimated"** and its caveat already says the
+estimate "assumes no node falls back to whole-frame". That assumption is now
+known to be **violated in two places**, both found while doing the sweep above
+and both the size of a full 102 MP plane — **1.22 GB each**:
+
+1. **`boost` is whole-frame**, so a full plane must exist where §4.4 counted a
+   band, and it sits *inside* what would otherwise be the film side's first
+   band run.
+2. **The `log_and_curves → couplers` crossing holds `log_e_film` as a second
+   live plane.** `node_dir_couplers` takes both planes, which is why `Chain`
+   carries `cur` *and* `log_e_film` and why a crossing between a band run and a
+   whole-frame stage must copy every live field. That second plane is live
+   across the band run of the stage that produces it.
+
+**This is not a re-estimate and the ~6 GB is not being defended.** §9 step 1's
+promise stands unchanged: the first thing Part B does is replace the estimate
+with a measurement, and that measurement is what any later number comes from.
+What is recorded here is only what the estimate is now *known* to leave out, so
+that nobody quotes ~6 GB as though the sweep had left it untouched. The saving
+the section claims — a band's working set against the ~11 GB of intermediates —
+is unaffected by either omission.
