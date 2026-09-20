@@ -21,6 +21,14 @@ constexpr Layer PRINT = Layer::Print;
 // these three specifically; everything else gets a rebuild, which measured
 // 18.8 ms against a 190 ms reprint, so the conservative default is nearly free.
 bool is_live(const char* name) {
+    // RFC-020 §4's three execution fields, and they belong here for the same
+    // reason the others do: a change that cannot move a pixel must not cost a
+    // pipeline rebuild. This is also what `parity_render`'s strip axis leans
+    // on -- it flips `strip_rows` between renders in one session, so a field
+    // that quietly needed a rebuild would show up as that loop slowing down
+    // rather than as a failure.
+    if (std::strcmp(name, "striped") == 0 || std::strcmp(name, "strip_rows") == 0 ||
+        std::strcmp(name, "strip_budget_bytes") == 0) return true;
     return std::strcmp(name, "print_exposure") == 0 || std::strcmp(name, "m_filter_shift") == 0 ||
            std::strcmp(name, "y_filter_shift") == 0 || std::strcmp(name, "preflash_exposure") == 0;
 }
@@ -70,14 +78,29 @@ const SchemaField kFields[] = {
     {"output_cctf_encoding",     "io.output_cctf_encoding",               B, PRINT, false, 0, 0, false},
     {"scan_film",                "io.scan_film",                          B, PRINT, false, 0, 0, false},
     {"extended_dynamic_range",   "print_render.edr_enabled",              B, PRINT, false, 0, 0, false},
+    // RFC-020 §4's striped execution -- three fields, and the split is the
+    // point: `striped` is the switch, `strip_rows` the height (0 = the engine's
+    // policy decides, §7), and the budget is accepted and varied by nothing
+    // yet. They sit here, between `extended_dynamic_range` and
+    // `preview_long_edge`, because that is where `parity_schema.py` inserts
+    // every entry of its NATIVE_ONLY table -- the oracle's own last field is
+    // `preview_long_edge`, and the native extensions go immediately before it
+    // in that table's order. Appending them after it is a FAIL there, and it
+    // is a FAIL that reads as a rename or a moved path.
+    // `SchemaField` is positional: has_range, lo, hi, live. All three are
+    // `live` -- switching modes cannot move a pixel, so requiring a rebuild
+    // would be the schema lying -- and `striped` is the one row whose range is
+    // absent rather than zero-width.
+    {"striped",                  "settings.striped",                     B, PRINT, false, 0, 0, true},
+    {"strip_rows",               "settings.strip_rows",                  I, PRINT, true, 0.0, 16384.0, true},
+    {"strip_budget_bytes",       "settings.strip_budget_bytes",          I, PRINT, true, 0.0, 8e9, true},
     // The app's *preview resolution*: the `live` tier's long edge, and so the
     // size every interactive edit renders at. PRINT layer, because it is a
     // decision about the canvas rather than about the film -- but it is one of
     // the few print-layer fields that still invalidates a cached negative: the
     // live tier's was made at the old size, and `spk_set_params` drops that
     // tier's state when this changes.
-    {"preview_long_edge",        "io.preview_long_edge",                  I, PRINT, true, 800.0, 8192.0, false},
-};
+    {"preview_long_edge",        "io.preview_long_edge",                  I, PRINT, true, 800.0, 8192.0, false},};
 
 const SchemaField* find_field(const std::string& name) {
     for (const SchemaField& f : kFields) if (name == f.name) return &f;
@@ -129,6 +152,7 @@ bool* bool_slot(Params& p, const std::string& path) {
     if (path == "scanner.black_correction") return &p.scanner.black_correction;
     if (path == "io.output_cctf_encoding") return &p.io.output_cctf_encoding;
     if (path == "io.scan_film") return &p.io.scan_film;
+    if (path == "settings.striped") return &p.settings.striped;
     return nullptr;
 }
 
@@ -145,6 +169,8 @@ std::string* str_slot(Params& p, const std::string& path) {
 int* int_slot(Params& p, const std::string& path) {
     if (path == "io.geometry.quarter_turns") return &p.io.geometry.quarter_turns;
     if (path == "io.preview_long_edge") return &p.io.preview_long_edge;
+    if (path == "settings.strip_rows") return &p.settings.strip_rows;
+    if (path == "settings.strip_budget_bytes") return &p.settings.strip_budget_bytes;
     return nullptr;
 }
 

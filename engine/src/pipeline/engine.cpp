@@ -1004,6 +1004,26 @@ bool ensure_meter(spk_session* session, std::string& error) {
     return true;
 }
 
+// RFC-020 §4: which execution path a session is on. A *different entry point*
+// rather than a flag inside the single-pass one (P3) -- the un-striped path
+// stays exactly what ships, which is what makes §6's hash comparison mean
+// anything -- and one call site each, so the graph cannot drift between them.
+bool run_film_for(spk_session* session, const Image& source, Image& negative,
+                  Progress* progress, std::string& error) {
+    if (session->params.settings.striped) {
+        return session->pipeline->run_film_striped(source, negative, progress, error);
+    }
+    return session->pipeline->run_film(source, negative, progress, error);
+}
+
+bool run_print_for(spk_session* session, const Image& negative, Image& rgb,
+                   Progress* progress, std::string& error) {
+    if (session->params.settings.striped) {
+        return session->pipeline->run_print_striped(negative, rgb, progress, error);
+    }
+    return session->pipeline->run_print(negative, rgb, progress, error);
+}
+
 bool negative_for(spk_session* session, const Tier& tier, Progress* progress, Image& out,
                   std::string& error) {
     spk_session::TierState& state = session->tiers[tier.name];
@@ -1021,7 +1041,7 @@ bool negative_for(spk_session* session, const Tier& tier, Progress* progress, Im
         camera.auto_exposure ? std::optional<double>(session->meter.evs.of(camera.auto_exposure_method))
                              : std::nullopt);
     Image negative;
-    if (!session->pipeline->run_film(source, negative, progress, error)) return false;
+    if (!run_film_for(session, source, negative, progress, error)) return false;
     state.applied_ev = session->pipeline->last_auto_exposure_ev();
     if (progress) progress->auto_exposure_ev = state.applied_ev;
     // The negative is what every subsequent slider drag reprints from, so it
@@ -1127,7 +1147,7 @@ spk_status render_tier(spk_session* session, const char* tier_name, bool use_rep
     if (ok) session->pipeline->set_source_long_edge(std::max(tier_source.h, tier_source.w),
                                                   std::max(session->source.h, session->source.w));
     if (ok) ok = negative_for(session, *tier, &session->progress, negative, error);
-    if (ok) ok = session->pipeline->run_print(negative, rgb, &session->progress, error);
+    if (ok) ok = run_print_for(session, negative, rgb, &session->progress, error);
     if (ok) ok = materialise(session, rgb, out, error);
     gpu->end_frame();
 
@@ -1717,6 +1737,28 @@ spk_status spk_progress(spk_session* session, const char* progress_id, char** ou
     // render started. Reported and nothing else -- the mode that would act on
     // it (§4) does not exist yet.
     out.set("memory_pressure_critical", Json(p.memory_pressure_critical));
+    // RFC-020 §4, step 4: the plan the executor built and the passes it ran.
+    // Only present when the striped path ran, so nothing an existing consumer
+    // reads changes. **Not an answer to §10.4** -- that is about whether
+    // progress *granularity* follows the strips; this is inspection.
+    if (!p.strips.empty()) {
+        Json segments = Json::array();
+        for (const Progress::StripRun& run : p.strips) {
+            Json spans = Json::array();
+            for (const StripSpan& span : run.plan) {
+                Json row = Json::object();
+                row.set("y0", Json(double(span.y0)));
+                row.set("rows", Json(double(span.rows)));
+                spans.push(std::move(row));
+            }
+            Json entry = Json::object();
+            entry.set("stage", Json(run.stage));
+            entry.set("passes", Json(double(run.passes)));
+            entry.set("plan", std::move(spans));
+            segments.push(std::move(entry));
+        }
+        out.set("strip_segments", std::move(segments));
+    }
     out.set("done", Json(p.done));
     out.set("cancelled", Json(p.cancelled));
     if (out_json) *out_json = dup_json(out);

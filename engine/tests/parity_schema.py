@@ -65,6 +65,24 @@ NATIVE_ONLY = {
         "path": "print_render.edr_enabled", "type": "bool", "layer": "print",
         "default": False, "live": False, "range": None,
     },
+    # RFC-020 §4's striped execution. Three, not one, and the split is the
+    # point: `striped` is the switch, `strip_rows` the height (`0` = the
+    # engine's policy decides, per §7), and the budget is accepted and varied
+    # by nothing yet. All three are `live` because switching modes cannot move
+    # a pixel -- if one of them ever needed a rebuild, that is a schema lie and
+    # this table is where it should be visible.
+    "striped": {
+        "path": "settings.striped", "type": "bool", "layer": "print",
+        "default": False, "live": True, "range": None,
+    },
+    "strip_rows": {
+        "path": "settings.strip_rows", "type": "int", "layer": "print",
+        "default": 0, "live": True, "range": [0, 16384],
+    },
+    "strip_budget_bytes": {
+        "path": "settings.strip_budget_bytes", "type": "int", "layer": "print",
+        "default": 0, "live": True, "range": [0, 8e9],
+    },
 }
 
 

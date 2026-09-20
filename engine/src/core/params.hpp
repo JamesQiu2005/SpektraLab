@@ -259,6 +259,23 @@ struct SettingsParams {
     int preview_max_size = 640;
     bool preview_mode = false;
     bool neutral_print_filters_from_database = true;
+
+    // RFC-020 §3.1's... no: §4's striped execution, step 4. Three questions
+    // that were one field in the first draft, and the split is not cosmetic:
+    // a count cannot express "on" (a count is *policy*, and §7 puts policy in
+    // `choose_strip_height` inside the engine -- an app picking a number would
+    // be RFC-021 leaking into the client a release early), and a height is the
+    // quantity RFC-021 actually chooses, because the same count means wildly
+    // different working sets on a 24 MP and a 102 MP frame.
+    //
+    // All three are execution settings, not look settings: the picture is
+    // bit-identical either way (§6's gate is the hash), so none of them may
+    // invalidate a cached negative or a tier. They are `live` in the schema for
+    // that reason -- written straight onto the running pipeline, read by the
+    // next render, and no rebuild for a change that cannot move a pixel.
+    bool striped = false;              ///< run the striped executor at all
+    int strip_rows = 0;                ///< 0 = let `choose_strip_height` decide
+    int strip_budget_bytes = 0;        ///< accepted, recorded, varies nothing yet (§7)
 };
 
 struct DebugParams {

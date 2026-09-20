@@ -1083,7 +1083,9 @@ bool Pipeline::node_grain(const Image& in, Image& out, std::string& error) {
     // "stochastic" is the product path, where a fresh grain per render is the
     // honest answer. Either way the *distribution* at every density is the
     // same -- which is what the third moment carries.
-    const uint32_t seed = params_.settings.grain_sampler == "exact" ? 0x5EEDu : fresh_seed();
+    // The run's seed, hoisted to `film_prefix`: one realisation per render, so
+    // every strip of a striped run comes from the same grain field.
+    const uint32_t seed = film_seed_;
     Image grain;
 
     if (g.sublayers_active) {
@@ -1405,8 +1407,9 @@ bool Pipeline::node_glare(const Image& in, Image& out, std::string& error) {
     if (!glare.active || glare.percent <= 0.0) { out = in; return true; }
     Timer t(this, "scanning.glare");
     Image field;
+    // `print_seed_`: hoisted to `print_prefix`, one field per render.
     if (!lognormal_field(in.h, in.w, glare.percent, glare.roughness * glare.percent,
-                         fresh_seed(), 200, false, field, error)) return false;
+                         print_seed_, 200, false, field, error)) return false;
     // Pixels *at the full tier*, scaled to this one: the parameter is a
     // fraction of the frame, not of the film (see `GlareParams::blur`), so the
     // export is exactly what it always was and the canvas is what moves.
@@ -1526,13 +1529,22 @@ bool Pipeline::node_cctf(const Image& in, Image& out, std::string& error) {
         if (!gpu_->flush(error)) return false;                             \
     } while (0)
 
-bool Pipeline::run_film(const Image& in, Image& out, Progress* progress, std::string& error) {
-    if (!built_) { error = "pipeline was not built"; return false; }
-    progress_ = progress;
-    if (progress_) { progress_->total_nodes = node_count_; progress_->fired = 0; }
-    last_ae_ev_.reset();
-
-    Image cur, next;
+// The film side, split at the one place RFC-020 §4's strips can cut it: the
+// prefix is everything that must see the whole plane (`geometry` changes the
+// frame's dimensions, and the pitch fixed beside it is the unit every
+// micrometre-specified effect downstream converts with), and the segment is
+// what the strips cut, which is dimension-preserving throughout -- `upsample`
+// included, which is a lattice resample and not a spatial one.
+//
+// `frame_h`/`frame_w` are the **frame's**, passed down rather than read off
+// `cur` (§4.5 trap 1). Step 4 cannot reach that line with a band -- every node
+// is handed a full plane, so `cur.h` *is* the frame's height on every pass --
+// so this is plumbing, not a fix. **Plumbed and not yet verified**: step 5 is
+// where a band first reaches a node, and where a pitch taken from one would
+// first bend every grain size and blur radius in the picture.
+bool Pipeline::film_prefix(const Image& in, uint32_t frame_h, uint32_t frame_w, Image& cur,
+                           std::string& error) {
+    Image next;
     SPK_NODE(node_input_cast(in, cur, error));
     SPK_NODE(node_decode_input(cur, next, error)); cur = next;
     SPK_NODE(node_geometry(cur, next, error)); cur = next;
@@ -1543,10 +1555,30 @@ bool Pipeline::run_film(const Image& in, Image& out, Progress* progress, std::st
     // downstream converts with. The pitch is the *pre-crop* long edge's.
     {
         Timer t(this, "preprocess.crop_rescale");
-        if (source_long_edge_ == 0) source_long_edge_ = std::max(cur.h, cur.w);
+        if (source_long_edge_ == 0) source_long_edge_ = std::max(frame_h, frame_w);
         pixel_size_um_ = params_.camera.film_format_mm * 1000.0 / double(source_long_edge_);
     }
 
+    // The film side's one seed for this run (RFC-020 §4.3, trap 4), drawn here
+    // rather than inside `node_grain`. Under strips a per-node draw is a
+    // different realisation in every pass, and the assembled frame then has a
+    // seam at every strip boundary -- measured before this line existed: with
+    // the draw still in the node, `strip_rows` above one strip changed the
+    // hash on every value of the axis.
+    //
+    // Drawn under exactly the conditions that used to gate it -- active grain,
+    // non-exact sampler -- and in the same order relative to the print side,
+    // so the un-striped path's sequence is untouched. That is checked, not
+    // assumed: the hash of every un-striped render is byte-identical across
+    // this change.
+    const GrainParams& film_grain = params_.film_render.grain;
+    film_seed_ = (film_grain.active && params_.settings.grain_sampler != "exact")
+               ? fresh_seed() : 0x5EEDu;
+    return true;
+}
+
+bool Pipeline::film_segment(const Image& in, Image& out, std::string& error) {
+    Image cur = in, next;
     SPK_NODE(node_upsample(cur, next, error)); cur = next;
     SPK_NODE(node_exposure(cur, next, error)); cur = next;
     SPK_NODE(node_boost(cur, next, error)); cur = next;
@@ -1558,27 +1590,119 @@ bool Pipeline::run_film(const Image& in, Image& out, Progress* progress, std::st
     SPK_NODE(node_film_curves(log_e_film, cmy, error));
     SPK_NODE(node_dir_couplers(cmy, log_e_film, next, error)); cmy = next;
     SPK_NODE(node_grain(cmy, out, error));
+    return true;
+}
+
+// §7's one policy call site. Constant body: the caller's requested height, or
+// the whole plane when it asked for none. `node_count` and `budget_bytes` are
+// parameters and nothing else -- accepted and recorded here so RFC-021 can
+// consult them without adding an ABI field, and deliberately not consulted
+// yet, because a budget that already varied something would be RFC-021's
+// policy landed a release early.
+uint32_t Pipeline::choose_strip_height(uint32_t plane_h, uint32_t node_count,
+                                       size_t budget_bytes, uint32_t requested_rows) {
+    (void)node_count;
+    (void)budget_bytes;
+    if (plane_h == 0) return 1;
+    if (requested_rows == 0 || requested_rows >= plane_h) return plane_h;
+    return requested_rows;
+}
+
+std::vector<StripSpan> Pipeline::strip_plan(uint32_t plane_h) const {
+    const uint32_t rows = choose_strip_height(plane_h, uint32_t(node_count_),
+                                              size_t(params_.settings.strip_budget_bytes),
+                                              uint32_t(params_.settings.strip_rows));
+    std::vector<StripSpan> plan;
+    for (uint32_t y = 0; y < plane_h; y += rows) {
+        plan.push_back({y, std::min(rows, plane_h - y)});
+    }
+    return plan;
+}
+
+bool Pipeline::run_film(const Image& in, Image& out, Progress* progress, std::string& error) {
+    if (!built_) { error = "pipeline was not built"; return false; }
+    progress_ = progress;
+    if (progress_) { progress_->total_nodes = node_count_; progress_->fired = 0; }
+    last_ae_ev_.reset();
+
+    Image cur;
+    if (!film_prefix(in, in.h, in.w, cur, error)) return false;
+    if (!film_segment(cur, out, error)) return false;
     progress_ = nullptr;
     return true;
 }
 
-bool Pipeline::run_print(const Image& cmy, Image& out, Progress* progress, std::string& error) {
+// The striped pass. One pass per strip, and each pass runs the whole segment:
+// with every node declaring itself whole-frame (§4.6's escape hatch) a pass has
+// no band-local work in it, so this does `n_strips` times the segment's work
+// for one frame's output. That redundancy is deliberate -- it is what makes the
+// seed hoist testable, since a per-node draw is then a different realisation
+// per pass and the assembled picture shows it -- and it is a **scaffold**: the
+// shipping shape (§4.4) is strip-outer *within segments*, with whole-frame
+// nodes materialised once per run at a segment boundary. Step 5 changes this
+// shape; step 4 uses it as a test rig, with the mode off by default so no
+// product path pays for it.
+bool Pipeline::run_film_striped(const Image& in, Image& out, Progress* progress,
+                               std::string& error) {
     if (!built_) { error = "pipeline was not built"; return false; }
     progress_ = progress;
-    if (pixel_size_um_ <= 0.0) {
-        // Every reprint is preceded by the negative that produced its input,
-        // so the pitch is always known by the time this runs. Saying so beats
-        // silently dividing by zero if that ever stops being true.
-        error = "run_print was called before any run_film, so the film's pixel pitch is unknown";
-        return false;
-    }
+    if (progress_) { progress_->total_nodes = node_count_; progress_->fired = 0; }
+    last_ae_ev_.reset();
 
+    Image cur;
+    if (!film_prefix(in, in.h, in.w, cur, error)) return false;
+
+    const std::vector<StripSpan> plan = strip_plan(cur.h);
+    Image assembled;
+    assembled.h = cur.h; assembled.w = cur.w; assembled.c = 3;
+    assembled.buf = gpu_->alloc(assembled.bytes(), error);
+    if (!assembled.buf) return false;
+    float* dst = static_cast<float*>(gpu_->contents(assembled.buf.get()));
+
+    uint32_t passes = 0;
+    for (const StripSpan& span : plan) {
+        Image pass;
+        if (!film_segment(cur, pass, error)) return false;
+        ++passes;
+        // The strip's rows out of the pass's plane. Host-side, which is legal
+        // because every buffer here is shared storage and the segment's last
+        // node flushed. The dimensions must line up because the segment is
+        // dimension-preserving; if a future node resamples, this is where the
+        // executor has to learn about it rather than quietly copying the wrong
+        // rows.
+        if (pass.h != assembled.h || pass.w != assembled.w) {
+            error = "the striped executor assumes the film segment preserves the plane's shape";
+            return false;
+        }
+        std::memcpy(dst + size_t(span.y0) * assembled.w * 3,
+                    static_cast<const float*>(gpu_->contents(pass.buf.get()))
+                        + size_t(span.y0) * assembled.w * 3,
+                    size_t(span.rows) * assembled.w * 3 * sizeof(float));
+    }
+    if (progress_) progress_->strips.push_back({"film", plan, passes});
+    progress_ = nullptr;
+    out = assembled;
+    return true;
+}
+
+bool Pipeline::print_prefix(std::string& error) {
+    // The enlarger's cheap constants are re-derived on every print run,
+    // because `print_exposure` and the two filter shifts are live-mutable: the
+    // service writes them straight onto this pipeline between renders.
+    if (!params_.io.scan_film && !refresh_print_constants(error)) return false;
+
+    // The print side's one seed for this run, on the same terms as the film
+    // side's: `node_glare`'s field is a realisation of the *frame*, so a draw
+    // per pass would seam it at every boundary. Same gating condition as the
+    // draw it replaces, so the sequence is unchanged.
+    const GlareParams& glare = params_.print_render.glare;
+    print_seed_ = (glare.active && glare.percent > 0.0) ? fresh_seed() : 0u;
+    return true;
+}
+
+bool Pipeline::print_segment(const Image& cmy, Image& out, std::string& error) {
     Image cur = cmy, next;
     if (!params_.io.scan_film) {
-        // The enlarger's cheap constants are re-derived on every print run,
-        // because `print_exposure` and the two filter shifts are live-mutable:
-        // the service writes them straight onto this pipeline between renders.
-        if (!refresh_print_constants(error)) { progress_ = nullptr; return false; }
         SPK_NODE(node_enlarger_spectral(cur, next, error)); cur = next;
         SPK_NODE(node_print_exposure(cur, next, error)); cur = next;
         SPK_NODE(node_print_curves(cur, next, error)); cur = next;
@@ -1595,8 +1719,64 @@ bool Pipeline::run_print(const Image& cmy, Image& out, Progress* progress, std::
     // reduce its requested tail separation, and immediately before encoding.
     SPK_NODE(node_edr(cur, next, error)); cur = next;
     SPK_NODE(node_cctf(cur, out, error));
+    return true;
+}
+
+bool Pipeline::run_print(const Image& cmy, Image& out, Progress* progress, std::string& error) {
+    if (!built_) { error = "pipeline was not built"; return false; }
+    progress_ = progress;
+    if (pixel_size_um_ <= 0.0) {
+        // Every reprint is preceded by the negative that produced its input,
+        // so the pitch is always known by the time this runs. Saying so beats
+        // silently dividing by zero if that ever stops being true.
+        error = "run_print was called before any run_film, so the film's pixel pitch is unknown";
+        return false;
+    }
+    if (!print_prefix(error)) { progress_ = nullptr; return false; }
+    if (!print_segment(cmy, out, error)) return false;
     if (progress_) progress_->done = true;
     progress_ = nullptr;
+    return true;
+}
+
+// `run_print` through the executor, with the same shape and the same scaffold
+// note as `run_film_striped`: the whole print segment per strip, because every
+// node is whole-frame in step 4. The print side is dimension-preserving from
+// end to end, so the strips cut the negative's own rows.
+bool Pipeline::run_print_striped(const Image& cmy, Image& out, Progress* progress,
+                                 std::string& error) {
+    if (!built_) { error = "pipeline was not built"; return false; }
+    progress_ = progress;
+    if (pixel_size_um_ <= 0.0) {
+        error = "run_print was called before any run_film, so the film's pixel pitch is unknown";
+        return false;
+    }
+    if (!print_prefix(error)) { progress_ = nullptr; return false; }
+
+    const std::vector<StripSpan> plan = strip_plan(cmy.h);
+    Image assembled;
+    assembled.h = cmy.h; assembled.w = cmy.w; assembled.c = 3;
+    assembled.buf = gpu_->alloc(assembled.bytes(), error);
+    if (!assembled.buf) return false;
+    float* dst = static_cast<float*>(gpu_->contents(assembled.buf.get()));
+
+    uint32_t passes = 0;
+    for (const StripSpan& span : plan) {
+        Image pass;
+        if (!print_segment(cmy, pass, error)) return false;
+        ++passes;
+        if (pass.h != assembled.h || pass.w != assembled.w) {
+            error = "the striped executor assumes the print segment preserves the plane's shape";
+            return false;
+        }
+        std::memcpy(dst + size_t(span.y0) * assembled.w * 3,
+                    static_cast<const float*>(gpu_->contents(pass.buf.get()))
+                        + size_t(span.y0) * assembled.w * 3,
+                    size_t(span.rows) * assembled.w * 3 * sizeof(float));
+    }
+    if (progress_) { progress_->strips.push_back({"print", plan, passes}); progress_->done = true; }
+    progress_ = nullptr;
+    out = assembled;
     return true;
 }
 

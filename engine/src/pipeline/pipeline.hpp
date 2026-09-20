@@ -43,6 +43,19 @@
 
 namespace spk {
 
+/// One strip of a run: a full-width band of the plane the executor is cutting,
+/// as `(y0, rows)` in that plane's own rows.
+///
+/// **The plan is over the plane the strips partition**, which is the plane
+/// entering the striped segment -- the film side's, that is after `geometry`,
+/// which is whole-frame in v1 and changes the dimensions. It is the frame's
+/// own height only when geometry is a no-op, and calling it "the frame" loosely
+/// is how a crop ends up off by its own offset.
+struct StripSpan {
+    uint32_t y0 = 0;
+    uint32_t rows = 0;
+};
+
 // A render's progress and its cancellation flag. `cancel` is read between
 // nodes, so a cancelled render unwinds at a node boundary rather than being
 // abandoned mid-kernel.
@@ -71,6 +84,26 @@ struct Progress {
     // empty with the meter off. `spk_progress` reports it (RFC-015 P.1), so a
     // harness can hold every tier to the same number.
     std::optional<double> auto_exposure_ev;
+    // RFC-020 §4, step 4: one entry per segment the striped executor ran, with
+    // the plan it built and the passes it executed. Both, because they can
+    // disagree and that disagreement is a different bug from a wrong plan -- a
+    // plan nothing runs is a plan nothing tested.
+    //
+    // Per segment rather than per render, because a `spk_render` runs two
+    // (film then print) and one counter for both would make "the passes equal
+    // the plan's length" unassertable, which is the whole reason it is
+    // reported.
+    //
+    // **Not an answer to §10.4.** That question is whether strips should
+    // change the *granularity a progress bar sees* (`fired`/`total_nodes`);
+    // this is the plan the run used, reported for inspection. Nothing here
+    // changes how often progress moves.
+    struct StripRun {
+        std::string stage;              // "film" or "print"
+        std::vector<StripSpan> plan;
+        uint32_t passes = 0;
+    };
+    std::vector<StripRun> strips;
     // RFC-020 §3.2: a critical memory-pressure event had arrived when this
     // render started. It changes nothing -- a render already encoded cannot be
     // made smaller, which is what §4's striped mode is for -- so it is read,
@@ -172,6 +205,38 @@ public:
     // parameters are expressed against.
     uint32_t frame_long_edge_ = 0;
 
+    // --- RFC-020 §4: the striped execution (step 4: every node whole-frame) --
+
+    /// §7's **one policy call site**, called from exactly one place
+    /// (`strip_plan`). RFC-020's body is constant: the caller's requested
+    /// height, or the whole plane when it asked for none. RFC-021 replaces
+    /// this body with one that derives the height from `budget_bytes` -- and
+    /// because the budget is already a parameter, that is a new body and no
+    /// new ABI field.
+    ///
+    /// `node_count` and `budget_bytes` are accepted and unused on purpose
+    /// (§7: recorded in RFC-020, varied in RFC-021). Do not grow a second
+    /// caller, and do not key anything on the height this returns.
+    static uint32_t choose_strip_height(uint32_t plane_h, uint32_t node_count,
+                                        size_t budget_bytes, uint32_t requested_rows);
+
+    /// The plan itself: contiguous, full-width, covering `[0, plane_h)` once.
+    /// Built by the executor before it runs, and reported through
+    /// `Progress::strip_plan`, because a plan nothing asserts on is a plan
+    /// that can be off by a row and still hash green -- with every node
+    /// whole-frame the arithmetic cannot notice.
+    std::vector<StripSpan> strip_plan(uint32_t plane_h) const;
+
+    /// `run_film` / `run_print` with the striped executor in place of the
+    /// single pass. What each pass actually *computes* is the same graph in
+    /// step 4 (every node declares itself whole-frame), so a pass has no
+    /// band-local work; that redundancy is what makes the seed hoist testable
+    /// and it is a scaffold, not the shipping shape. §4.4's topology is
+    /// strip-outer within segments, with whole-frame nodes materialised once
+    /// per run at a segment boundary -- step 5's shape, not this one.
+    bool run_film_striped(const Image& in, Image& out, Progress* progress, std::string& error);
+    bool run_print_striped(const Image& cmy, Image& out, Progress* progress, std::string& error);
+
     // The film's pixel pitch for the frame most recently run through
     // `run_film`, in micrometres. Grain, halation and the DIR-coupler
     // diffusion are all specified in micrometres and converted with it.
@@ -200,6 +265,28 @@ private:
                                    const std::string& method, double& ev, std::string& error);
     // RFC-015 §2.3's four intents, from one sample.
     static ExposureEvs exposure_evs_from(const std::vector<double>& Y, uint32_t sh, uint32_t sw);
+
+    /// The film side split at the one place the strips can cut it. The prefix
+    /// is everything that must see the whole plane -- `geometry` changes the
+    /// frame's dimensions, and the pitch it fixes is every micrometre-specified
+    /// effect downstream's unit -- and the segment is what the strips cut,
+    /// which is dimension-preserving throughout.
+    ///
+    /// `frame_h`/`frame_w` are the **frame's**, passed down rather than read
+    /// off `cur` (§4.5 trap 1). In step 4 nothing else can reach that line --
+    /// every node is handed a full plane, so `cur.h` *is* the frame height --
+    /// so this is plumbing, not a fix. **Plumbed and not yet verified**: step
+    /// 5 is where a band first reaches a node and where a wrong pitch would
+    /// first show up in the picture.
+    bool film_prefix(const Image& in, uint32_t frame_h, uint32_t frame_w, Image& cur,
+                     std::string& error);
+    bool film_segment(const Image& in, Image& out, std::string& error);
+    /// The print side's split. Its prefix is the enlarger's live-mutable
+    /// constants, which are host constants rather than pixels, and its segment
+    /// is dimension-preserving from end to end -- so the strips cut the
+    /// negative's own rows.
+    bool print_prefix(std::string& error);
+    bool print_segment(const Image& cmy, Image& out, std::string& error);
 
     // --- per-node bodies, in topology order -----------------------------
     bool node_input_cast(const Image& in, Image& out, std::string& error);
@@ -265,6 +352,18 @@ private:
     Progress* progress_ = nullptr;
     std::optional<double> injected_ev_;
     std::optional<double> last_ae_ev_;
+
+    // The run's seeds, drawn **once per run** rather than inside the nodes
+    // (RFC-020 §4.3, trap 4). Under strips a per-node draw is a different
+    // realisation per band, which is the one place a seam can appear: grain
+    // and the glare field are the two nodes whose output is a random
+    // realisation of the *frame*, not of a band.
+    //
+    // Drawn in the same order and under the same conditions as before, so the
+    // un-striped path's sequence is unchanged and its picture is byte-identical
+    // -- which the hash gate checks rather than assumes.
+    uint32_t film_seed_ = 0;
+    uint32_t print_seed_ = 0;
 
     // --- baked, persistent ----------------------------------------------
     struct Baked {

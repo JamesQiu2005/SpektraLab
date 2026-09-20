@@ -35,6 +35,7 @@ Usage:
 from __future__ import annotations
 
 import argparse
+import hashlib
 import sys
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -234,12 +235,68 @@ def compare(case: Case, got: np.ndarray, want: np.ndarray, verbose: bool) -> boo
     return ok
 
 
+def strip_axis(engine, frame: np.ndarray, base: dict, quiet: bool) -> int:
+    """RFC-020 §6's gate: the striped mode changes no pixels, so the gate is a
+    hash.
+
+    For each tier and each of `render` and `reprint`, the **un-striped**
+    render is the reference and every strip height on the axis must reproduce
+    its sha1 exactly. Comparing against the shipping path rather than against
+    the axis's own `n = 1` is deliberate: `n = 1` proves the executor
+    degenerates, and the reference proves it agrees with what ships.
+
+    1 proves the executor degenerates to a single pass; 3 and 17 do not divide
+    typical heights, so the short last strip is exercised; H is one row per
+    strip, which is where anything that reads a global row index is either
+    right or obviously wrong. H is included only for frames short enough to
+    make it mean something -- at 1 MP it is a thousand passes per group -- and
+    its absence is reported rather than silent.
+    """
+    counts = [1, 2, 3, 8, 17]
+    if frame.shape[0] <= 512:
+        counts.append(frame.shape[0])
+        h_note = f"H = {frame.shape[0]}"
+    else:
+        h_note = f"H skipped: {frame.shape[0]} rows would be {frame.shape[0]} passes per group"
+
+    failures = 0
+    for kind in ("render", "reprint"):
+        for tier in ("live", "full"):
+            # One session per group, with the strip height flipped through
+            # `set_params` between renders. That is not a shortcut: the strip
+            # fields are declared `live` in the schema precisely because
+            # switching modes cannot move a pixel, so a flip that needed a
+            # pipeline rebuild would be the schema lying. If this ever starts
+            # costing a rebuild, this loop is where it shows.
+            with engine.open(frame, base) as session:
+                digests = []
+                for n in [None, *counts]:
+                    if n is not None:
+                        rows = max(1, (frame.shape[0] + n - 1) // n)
+                        session.set_params({"striped": True, "strip_rows": rows})
+                    session.render(tier)                       # the negative, for a reprint
+                    rgba, _ = session.render(tier, reprint=(kind == "reprint"))
+                    digests.append(hashlib.sha1(rgba.tobytes()).hexdigest()[:16])
+            want = digests[0]
+            bad = [(n, d) for n, d in zip(counts, digests[1:]) if d != want]
+            what = f"{kind}/{tier}"
+            if bad:
+                failures += 1
+                print(f"FAIL strips {what}: {want} whole, "
+                      + ", ".join(f"n={n} -> {d}" for n, d in bad))
+            elif not quiet:
+                print(f"ok   strips {what}: {len(counts)} heights, all {want}   [{h_note}]")
+    return failures
+
+
 def main() -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("--case", action="append", help="run only these cases")
     ap.add_argument("--size", type=int, default=None,
                     help="use a synthetic frame this many pixels tall instead of the 1 MP frame")
     ap.add_argument("--verbose", "-v", action="store_true")
+    ap.add_argument("--no-strips", action="store_true",
+                    help="skip RFC-020 §6's strip-count axis")
     args = ap.parse_args()
 
     from spk_ctypes import Engine
@@ -272,6 +329,8 @@ def main() -> int:
             want = reference_render(frame, case.delta, output_space)
             if not compare(case, rgba, want, args.verbose):
                 failures += 1
+            if not args.no_strips:
+                failures += strip_axis(engine, frame, delta, args.verbose)
 
     print(f"\n{len(cases)} cases, {failures} failed")
     return 1 if failures else 0
