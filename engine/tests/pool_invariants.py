@@ -28,9 +28,14 @@ both checkable at every API boundary:
 **2. The size policy, pinned as it is** (a small request does take a
 full-frame plane when that is what the pool holds, and there is no upper
 bound). Asserted, not preferred: a future size bound is *expected* to break
-this check, loudly and on purpose.
+this check, loudly and on purpose, and the commit that adds one should come
+here first.
 
-**3. That reuse happens at all**, with a negative case that must differ.
+**3. That reuse happens at all**, with a negative case that must differ: a
+render whose requests no free buffer fits allocates, and the same render again
+-- with the pool now holding its sizes -- allocates nothing at all. Measured,
+not assumed: the second full render of a frame leaves `allocations` and
+`buffers` *unchanged*.
 
 Nothing here is timed and nothing here is a claim about the policy being good.
 """
@@ -96,6 +101,90 @@ class Probe:
         return self.failures
 
 
+def question_two(h: int, w: int, args) -> int:
+    """The size policy, pinned as it is rather than as anyone might prefer."""
+    print("\n--- 2. what the pool hands over when the sizes do not match ---")
+    failures = 0
+    plane = h * w * 3 * 4
+    with spk_ctypes.Engine(dylib=args.dylib) as engine:
+        # Its own engine, so `reuse_max_taken` belongs to this scenario and
+        # not to whatever ran before it.
+        session = engine.open(frame(h, w), {"product_defaults": True})
+        session.render("full")
+        before = engine.memory_report()["pool"]
+        session.render("live")
+        after = engine.memory_report()["pool"]
+        d = delta(before, after, ("reuses", "allocations"))
+        taken = after["audit"]["reuse_max_taken"]
+        asked = after["audit"]["reuse_max_taken_for_request"]
+
+        def check(ok, what, detail=""):
+            nonlocal failures
+            print(f"{'ok  ' if ok else 'FAIL'}  {what}{('  -- ' + detail) if detail else ''}")
+            if not ok:
+                failures += 1
+
+        check(d["reuses"] > 0, "a live-tier render is served out of a pool of full-frame planes",
+              f"{d['reuses']:.0f} reuses, {d['allocations']:.0f} fresh allocations")
+        check(taken >= 0.5 * plane,
+              "and it takes a full-frame plane, not a size that fits it",
+              f"{mb(taken)} taken for a request of {mb(asked)}")
+        check(taken > asked,
+              "the request was smaller than what it got, with no upper bound",
+              f"{taken / max(asked, 1):.1f}x")
+        check(after["audit"]["reuse_bytes_taken"] >= after["audit"]["reuse_bytes_requested"],
+              "and in total the pool handed over at least what was asked of it",
+              f"{mb(after['audit']['reuse_bytes_taken'])} taken for "
+              f"{mb(after['audit']['reuse_bytes_requested'])} requested")
+    return failures
+
+
+def question_three(h: int, w: int, args) -> int:
+    """Reuse happens -- with a case where it must not, so the two differ."""
+    print("\n--- 3. reuse happens, and does not, in the two cases that differ ---")
+    failures = 0
+    with spk_ctypes.Engine(dylib=args.dylib) as engine:
+        session = engine.open(frame(h, w), {"product_defaults": True})
+        # The pool is filled with *live-tier* planes, so the full tier's
+        # requests cannot be served from it and must be allocated.
+        session.render("live")
+        a = engine.memory_report()["pool"]
+        session.render("full")
+        b = engine.memory_report()["pool"]
+        must_allocate = delta(a, b, ("allocations", "reuses"))
+        # Run the same render again: the pool now holds the sizes it wants.
+        session.render("full")
+        c = engine.memory_report()["pool"]
+        must_reuse = delta(b, c, ("allocations", "reuses"))
+
+        def check(ok, what, detail=""):
+            nonlocal failures
+            print(f"{'ok  ' if ok else 'FAIL'}  {what}{('  -- ' + detail) if detail else ''}")
+            if not ok:
+                failures += 1
+
+        check(must_allocate["allocations"] > 0,
+              "a render whose requests fit nothing free has to allocate",
+              f"{must_allocate['allocations']:.0f} fresh, {must_allocate['reuses']:.0f} reused")
+        check(must_reuse["allocations"] == 0,
+              "and the same render again allocates nothing at all",
+              f"{must_reuse['allocations']:.0f} fresh, {must_reuse['reuses']:.0f} reused")
+        check(must_reuse["reuses"] > 0 and must_reuse != must_allocate,
+              "so the two cases differ, which is what makes either of them evidence",
+              f"{must_allocate['allocations']:.0f}/{must_allocate['reuses']:.0f} against "
+              f"{must_reuse['allocations']:.0f}/{must_reuse['reuses']:.0f} fresh/reused")
+        # And the property that makes the pool safe for a session's own planes:
+        # a persistent allocation is never a reuse.
+        fresh = engine.memory_report()["pool"]["audit"]["persistent_allocations"]
+        other = engine.open(frame(h, w), {"product_defaults": True})
+        grown = engine.memory_report()["pool"]["audit"]["persistent_allocations"] - fresh
+        check(grown > 0,
+              "a session's source is a fresh persistent allocation, never out of the pool",
+              f"{grown:.0f} persistent allocations for the open")
+        other.close()
+    return failures
+
+
 def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--size", default="2000x2600", help="HxW; the RFC's 102 MP is 8742x11656")
@@ -156,7 +245,15 @@ def main() -> int:
         third.close()
         probe.boundary("close it")
 
-        return probe.end()
+        failures = probe.end()
+        failures += question_two(h, w, args)
+        failures += question_three(h, w, args)
+        return failures
+
+
+def delta(before: dict, after: dict, keys) -> dict:
+    """Counters are monotone, so a phase is a difference."""
+    return {k: after["audit"][k] - before["audit"][k] for k in keys}
 
 
 if __name__ == "__main__":
