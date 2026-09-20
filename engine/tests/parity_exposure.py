@@ -1,5 +1,17 @@
 """Hold the C++ auto-exposure meter against the Python reference (RFC-015 §6).
 
+**BROKEN IN THIS CHECKOUT SINCE 2026-09-17, AND NOT BY A STALE DRIVER.** It
+dies in `python_meter` before any engine call: the reference tree at
+`~/spektrafilm` rejects the parameter name `extended_dynamic_range`, which the
+C++ schema has had since `aa8bd63` (EDR, 2026-09-17) and the fork has not. So
+this harness has been red for three days while every other harness stayed
+green, and nothing said so -- the same *effect* as `parity-drivers-go-stale`
+with a different mechanism: not a driver grading an old engine, but an oracle
+that has drifted out from under the thing it grades. Fixing it means either the
+fork learning the field or this file building its Python params without it, and
+both belong to whoever owns the fork. Until then, read a green run of the other
+six as "six", not "all".
+
 Every other harness runs with `auto_exposure = false`, because the two
 engines' meters were never compared and a render with the meter on would mix
 a metering difference into a pixel comparison. This is the harness for the

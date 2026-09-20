@@ -164,6 +164,29 @@ def main() -> int:
                   "film_couplers carried, the rest band-able; halos "
                   + ", ".join(f"{st['name']}={st['halo']}" for st in segs[0]["stages"] if st["halo"]))
 
+            # **The crossing count, pinned, because it has slipped three times
+            # under a loose definition.** A crossing is one place a plane and a
+            # band meet: one slice into a band run and one assembly out of it,
+            # so `2 x runs`, and a run has both ends in a plane even when it
+            # starts at the segment's input or ends at its output. At the
+            # shipped settings film has two runs (`scale_and_expose`, then
+            # `blurs -> log_and_curves`) and print has two (`spectral`, then
+            # `linear -> scan_finish -> output`): 4 and 4, eight in total. In
+            # step 5's table print had three runs, so the same arithmetic gave
+            # 4 + 6 = 10 -- F becoming band-able merged two runs there and took
+            # two crossings out, which is the saving this pin now protects.
+            #
+            # `passes` is the other axis and moves with the plan; `crossings`
+            # does not, and confusing the two is how the number kept moving.
+            want_runs = {"film": 2, "print": 2}
+            got_runs = {g["stage"]: g["runs"] for g in segs}
+            want_cross = {"film": 4, "print": 4}
+            got_cross = {g["stage"]: g["crossings"] for g in segs}
+            check(got_runs == want_runs and got_cross == want_cross,
+                  f"{label}: the runs and crossings are pinned",
+                  f"runs {got_runs}, crossings {got_cross} (2 x runs = "
+                  f"{sum(got_cross.values())} in total)")
+
             # §6's gate in this probe's own terms: the striped picture is the
             # un-striped one -- **each against its own kind**. A render and a
             # reprint of the same frame are not the same picture and never

@@ -1754,6 +1754,8 @@ spk_status spk_progress(spk_session* session, const char* progress_id, char** ou
             Json entry = Json::object();
             entry.set("stage", Json(run.stage));
             entry.set("passes", Json(double(run.passes)));
+            entry.set("runs", Json(double(run.runs)));
+            entry.set("crossings", Json(double(run.crossings)));
             entry.set("plan", std::move(spans));
             Json ran = Json::array();
             for (const Progress::StripRun::StageRun& st : run.stages) {

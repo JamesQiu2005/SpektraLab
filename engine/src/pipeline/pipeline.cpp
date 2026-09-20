@@ -1977,6 +1977,8 @@ bool Pipeline::run_stages_striped(const Stage* stages, size_t count, Chain& chai
             // or more strips with two F stages in one run.
             while (j < count && band_able[j]) { halo += halos[j]; ++j; }
             for (size_t k = i; k < j; ++k) report.stages[k].halo = halo;
+            ++report.runs;
+            report.crossings += 2;   // the slice in, the assembly out
 
             // The plane this run's strips are written back into. **`log_e_film`
             // is assembled too**, because the crossing after this run hands

@@ -57,13 +57,29 @@ public:
 
     /// What a blur needs from a strip boundary. `carried` means an active
     /// channel takes the IIR branch, whose recurrence cannot be cut.
+    ///
+    /// **The two composition rules, and they are not the same rule:**
+    ///
+    ///   * inside a `mixture`, the components are **alternatives** --
+    ///     `G1 + G2 + ...` of one input -- so the widest radius covers them all
+    ///     and `demand(components)` takes the max;
+    ///   * two blurs in **sequence** are `G_b(G_a(x))`, whose output at row `y`
+    ///     depends on the input out to `R_a + R_b`, so the caller **adds** the
+    ///     two demands' `halo`s.
+    ///
+    /// `merge` is the first rule; `+` on `halo` is the second. Using `merge`
+    /// where the sum belongs is exact in the middle of a band and one or two
+    /// rows short at every boundary, which is a 1-LSB difference no plan, no
+    /// pass count and no eye sees.
     struct Demand {
         bool carried = false;
         uint32_t halo = 0;
     };
     static Demand demand(const double sigma[3], double truncate = 3.0);
+    /// The max over a mixture's components: they are alternatives of one input.
     static Demand demand(const std::vector<Component>& components, double truncate = 3.0);
-    /// The demand of running both: halos take the wider, carried wins.
+    /// For **alternatives**: the wider halo, and a `carried` on either side.
+    /// Not for sequence -- see the note above.
     static Demand merge(const Demand& a, const Demand& b);
 
     // The (weight, sigma) list `fast_exponential_filter` is a sum of: a

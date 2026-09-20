@@ -145,6 +145,23 @@ struct Progress {
         /// none, which is honest rather than a failure: a stage that needs the
         /// whole plane is not run per strip, so there is no pass to count.
         uint32_t passes = 0;
+        /// Band runs in this segment, and the crossings they cost: **two per
+        /// run** -- one slice into it, one assembly out of it. A run has both
+        /// ends in a plane even when it starts at the segment's input or ends
+        /// at its output, which is the part that has been dropped twice now,
+        /// once in each direction (`couplers -> grain` counted as a copy when
+        /// both are whole, then print's entry and final assembly counted as
+        /// neither).
+        ///
+        /// Counted **per run, not per strip**: the number under discussion is
+        /// the number of places a plane and a band meet, and it does not grow
+        /// with the plan's length. The `log_e_film` field a film crossing
+        /// carries when it is live is a *separate* fact -- it is the second
+        /// plane §4.4 does not know about -- and is deliberately not folded in
+        /// here, because a count that mixes the two is the count that keeps
+        /// slipping.
+        uint32_t runs = 0;
+        uint32_t crossings = 0;
         /// The stages this segment executed, in order, each with its kind.
         /// Reported so the *plan* and the *execution* can be held together:
         /// with the kinds visible, a caller can check that every strip pass
