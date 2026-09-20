@@ -3054,6 +3054,7 @@ final class Session: CanvasHost {
             // whole point: nothing on screen is interpolated any more.
             previewSoft = false
             canvasLog("full render \(w)x\(h) landed in \(Int(r.elapsedMs)) ms")
+            sampleMemory("full_render")
             if let base = statusBase { status = base }
             schedulePrintWriteback()
         } catch {
@@ -3249,7 +3250,24 @@ final class Session: CanvasHost {
     }
 
     /// A `memory` boundary sample (§3): after the decode, after `engine.open`,
-    /// after the first print, after an export, on a frame switch.
+    /// after the first print, **after a full render**, after an export, on a
+    /// frame switch.
+    ///
+    /// The full-tier one was missing until 2026-09-20, and its absence was the
+    /// reason a user could not check RFC-020's own numbers on their own
+    /// machine. Every boundary here was a moment somebody had asked about
+    /// except the one the memory work is *about*: the full render is where the
+    /// engine holds nine planes at once, it is the 15.6 GB in RFC-020 §1.1,
+    /// and nothing sampled it. `peakBytes` is a running maximum, so what the
+    /// Settings page called "Session peak" was the highest of the *other*
+    /// boundaries — a number that could only under-report, and did, unless the
+    /// Settings page happened to be open with its own 2 s timer running.
+    ///
+    /// Taken after the texture has landed rather than during the render: the
+    /// pool is not returned at `end_frame` (RFC-020 §3.1), so the high-water
+    /// is still charged to the process here. That is the same place §1.1's
+    /// table takes its "render full" row, which is what makes the app's
+    /// number and the RFC's comparable at all.
     ///
     /// Through the session's own `Diagnostics`, so the record and the Settings
     /// page's readout are the same sample — one sampler, one number (§8.5).

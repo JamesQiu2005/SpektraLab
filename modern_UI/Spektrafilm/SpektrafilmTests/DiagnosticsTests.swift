@@ -110,6 +110,50 @@ final class DiagnosticsTests: XCTestCase {
         return (session, url)
     }
 
+    /// The full render is a `memory` boundary, and until 2026-09-20 it was the
+    /// only interesting one that was not.
+    ///
+    /// Why it matters enough to have a test of its own: `peakBytes` is a
+    /// running maximum over the boundaries that are *taken*, so a missing
+    /// boundary does not produce a missing number — it produces a smaller one,
+    /// silently, in the readout the Settings page calls "Session peak". A user
+    /// comparing their machine against RFC-020 §1.1's 15.6 GB was comparing it
+    /// against the highest of decode, open and first print instead, and had no
+    /// way to see that from the number.
+    ///
+    /// The smoke frame is 799 x 1200, so the preview edge is dropped to 1080
+    /// to make `wantsFullRender` true deterministically rather than relying on
+    /// the frame being larger than whatever the default happens to be.
+    func testAFullRenderIsAMemoryBoundary() async throws {
+        _ = try configure()
+        let url = try smokeFrame()
+        let session = Session(diagnostics: diagnostics)
+        session.setPreviewLongEdge(1080)
+        XCTAssertTrue(Session.wantsFullRender(frameLongEdge: 1200, previewEdge: 1080),
+                      "this frame no longer provokes a full render — the test needs a bigger one")
+        session.open(urls: [url])
+        try await waitUntil("the frame to decode", timeout: 90) { session.decoded != nil }
+        try await waitUntil("the engine to warm up", timeout: 90) { session.serviceReady }
+        session.requestPrint()
+        try await waitUntil("the full render to land", timeout: 180) {
+            session.renderer.showsFullRender && !session.fullPending
+        }
+        log.flushNow()
+
+        let memory = log.records().filter { $0.category == .memory }
+        let reasons = memory.compactMap { $0.text("reason") }
+        XCTAssertTrue(reasons.contains("full_render"),
+                      "the full render took no memory sample; got \(reasons)")
+
+        // Not just present — it has to be the sample the peak can come from.
+        let full = try XCTUnwrap(memory.first { $0.text("reason") == "full_render" })
+        let mb = try XCTUnwrap(full.number("mb"))
+        let peak = try XCTUnwrap(full.number("peak_mb"))
+        XCTAssertGreaterThan(mb, 0)
+        XCTAssertGreaterThanOrEqual(peak, mb,
+                                    "the peak is below the sample it was taken from")
+    }
+
     // MARK: - §8.1 a develop emits the expected records
 
     /// **Seen red** by deleting `clock.lap("solve")` from `openInService`; the
