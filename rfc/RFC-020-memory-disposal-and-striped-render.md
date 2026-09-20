@@ -10,6 +10,7 @@
 | **Scope — app** | the strip-wise ingestion that feeds it, and the one Settings switch that turns the mode on |
 | **Out of scope** | **RFC-021** — choosing the strip height dynamically from free memory and the app's cap. This RFC must make that a policy swap and nothing more; §7 is the contract it owes RFC-021. Also: which *layer* the disk cache should hold (§8.1), RFC-017 batch processing. |
 | **Hard gate** | **Zero precision loss.** Every mode this RFC adds produces output bit-identical to today's, or it does not ship. §5.1. |
+| **Superseded numbers** | **§1 and §1.1 describe the pre-class-R engine.** The figures to quote are in "Final baseline" at the end: 4.1 / 7.0 / 7.9 / 13.7 GB peak at 24 / 45 / 61 / 102 MP, measured on the packaged 1.0.3 app. |
 | **Amended** | **2026-09-20 — §4.2 and P4 were wrong about one node.** `boost` holds an image-global statistic and cannot be striped; §4.4's ~6 GB estimate is now known to be optimistic in two identified places. See the amendment at the end; read it before trusting §4.2's table, P4's headline claim, or §4.4's estimate. |
 
 ---
@@ -794,3 +795,79 @@ What is recorded here is only what the estimate is now *known* to leave out, so
 that nobody quotes ~6 GB as though the sweep had left it untouched. The saving
 the section claims — a band's working set against the ~11 GB of intermediates —
 is unaffected by either omission.
+
+---
+
+## Final baseline, 2026-09-20 — four resolutions, the shipped app, a continuous probe
+
+**This supersedes §1 and §1.1 as the number to quote.** Those tables were
+measured before class R removed the blur's transposes and they describe an
+engine that no longer exists. This one is the **packaged 1.0.3 app**, cold-opened
+on one frame at a time, sampled by an external probe rather than by the app's
+own boundaries.
+
+### Method, and why it is not §1.1's
+
+`proc_pid_rusage` → `ri_phys_footprint` every **25 ms** from a separate process
+— the same quantity as `task_vm_info`'s `phys_footprint`, which is what
+`MemorySampler` reads and what Activity Monitor's Memory column shows, so the
+figures are comparable to both. Driven against
+`SpektraLab --snapshot 1400x900 out.png --open FILE --wait 70`.
+
+Two reasons a continuous probe was necessary:
+
+- **The app's own `memory` records under-report the peak by about a gigabyte.**
+  On the 102 MP run the highest boundary sample is **12,694 MB** against the
+  probe's **13,723 MB**, because `sampleMemory` fires once a phase has settled
+  and part of the transient is already given back. Settings ▸ Memory ▸ Session
+  peak is sound for comparing two builds and is a **lower bound**, not the peak.
+- **Activity Monitor cannot resolve it at all.** It refreshes every 1–5 s
+  against phases that last one to three seconds.
+
+### The numbers
+
+| frame | pixels | **peak** | decode peak | peak falls in | full render | open path |
+|---|---|---|---|---|---|---|
+| 24 MP | 6000 x 4000 | **4,129 MB** | 1,672 MB | `first_print` | 1,120 ms | 2,014 ms |
+| 45 MP | 8256 x 5504 | **7,026 MB** | 4,273 MB | `engine.open` | 2,119 ms | 2,744 ms |
+| 61 MP | 9504 x 6336 | **7,899 MB** | 3,821 MB | `full_render` | 2,601 ms | 3,167 ms |
+| 102 MP | 11664 x 8750 | **13,723 MB** | 8,835 MB | `full_render` | — | — |
+
+Against a 16 GB machine: 26 %, 44 %, 49 % and 86 % of it. **At the mainstream
+resolutions the product is comfortable rather than tight** — a 61 MP frame
+leaves 8 GB free — and only 102 MP is close to the ceiling, on hardware those
+users are unlikely to own.
+
+### What this corrects
+
+**Core Image's decode is *not* the binding peak, and an earlier reading of this
+RFC said it was.** The 102 MP run has two humps and the second is far larger:
+decode reaches 8,835 MB at t+2.25 s and falls back to ~6 GB, then the full
+render reaches **13,723 MB** at t+5.0 s. The render is the peak by **4.9 GB**.
+The error came from comparing a user-reported 11.84 GB against §1.1's
+8.53–12.12 GB Core Image range and concluding it fell inside — two different
+quantities on two different paths. **Striped ingestion (§4.7) would therefore
+not move the binding number**, which is worth knowing before anyone spends
+§9 step 7 on it.
+
+**`Diagnostics.forecastBytesPerPixel = 167` is now conservative rather than
+correct.** Measured here: **172 B/px at 24 MP, 155 at 45 MP, 131 at 61 MP,
+135 at 102 MP.** §2 of this RFC measured 153 B/px and concluded 167 was
+"conservative and correct"; class R moved the large-frame figure down to about
+135, so the constant now over-predicts by roughly a quarter at the sizes where
+the warning matters. Over-prediction is the safe direction — the warning fires
+early rather than late — so this is a tuning note and not a defect.
+
+**Where the peak falls is not a fixed answer.** At 24 MP it is in the
+`first_print` window, at 45 MP in `engine.open` (the decode's output and the
+engine's own copy of the frame are both live), and only at 61 MP and above is
+it the full render. A reader looking for "the peak" in one place will find it
+in the wrong one at three of these four sizes.
+
+### One trap in reading the app's logs
+
+A `decode` record of **12,714 MB** appears in an interactive session on the same
+Hasselblad frame, against **8,835 MB** measured cold. That session had already
+developed two 45 MP frames and the figure carries their residue. **Cold-open a
+frame before quoting its decode cost**, or the number belongs to the session
+rather than to the file.
