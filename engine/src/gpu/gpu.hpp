@@ -118,9 +118,20 @@ struct PoolAudit {
     //                        going below zero and being clamped back.
     //   `reclaim_while_encoding`  buffers made reusable while a command buffer
     //                        that may name them is open and unrun.
+    //   `live_underflows`    a subtraction larger than `live_bytes_`, which is
+    //                        the pool counter and the reference counts having
+    //                        come apart. Clamped rather than wrapped, so the
+    //                        anomaly lands here instead of in
+    //                        `frame_high_water_bytes`, where it used to reach
+    //                        the pressure handler as a trim target of eighteen
+    //                        exabytes -- found 2026-09-20 by a two-session
+    //                        sequence in `iir_peak.py`, and traced to
+    //                        `release` subtracting a *persistent* buffer that
+    //                        no `add` had ever counted.
     uint64_t pending_held = 0;
     uint64_t over_releases = 0;
     uint64_t reclaim_while_encoding = 0;
+    uint64_t live_underflows = 0;
 };
 
 // What the engine holds, for `spk_memory_report` (RFC-020 §3.3).

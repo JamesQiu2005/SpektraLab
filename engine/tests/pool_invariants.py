@@ -60,6 +60,42 @@ def frame(h: int, w: int) -> np.ndarray:
     return np.repeat((row * col).astype(np.float32)[:, :, None], 3, axis=2)
 
 
+def two_sessions_one_engine(engine) -> None:
+    """The pool's own high-water, across two sessions on one engine.
+
+    **This is a check that exists because its absence hid a defect.** The
+    pre-R build counted a *persistent* buffer's release against the pool's
+    `live_bytes_`, which had never counted it; the `size_t` wrapped to
+    `2^64 - 1` and `frame_high_water_bytes` followed it, so the *second*
+    session in any engine read eighteen exabytes as a frame's peak -- which is
+    also the number the memory-pressure handler trims to. Every probe that
+    checked the accounting used one session per engine and saw nothing wrong.
+
+    Two identical sessions must therefore report the *same* high-water, and it
+    must be a size: not zero (nothing happened) and not the whole pool (the
+    arithmetic came apart). `live_underflows` is the direct witness; the other
+    two hold on builds that predate it.
+    """
+    from pool_invariants import frame as _frame
+
+    img = _frame(300, 400)
+    peaks = []
+    for _ in range(3):
+        session = engine.open(img, {"product_defaults": True})
+        session.render("full")
+        pool = engine.memory_report()["pool"]
+        peaks.append(pool["frame_high_water_bytes"])
+        underflows = pool.get("audit", {}).get("live_underflows", 0)
+        session.close()
+    same = len(set(peaks)) == 1
+    sane = all(0 < p <= 1 << 40 for p in peaks)
+    ok = same and sane and not underflows
+    print(f"{'ok  ' if ok else 'FAIL'}  three sessions on one engine report one "
+          f"high-water  -- {', '.join(f'{p / MB:,.2f} MB' for p in peaks)}"
+          + (f", live_underflows {underflows}" if underflows else ""))
+    return ok
+
+
 def mb(n: float) -> str:
     return f"{n / MB:,.1f} MB"
 
@@ -171,6 +207,11 @@ def question_three(h: int, w: int, args) -> int:
               f"{must_reuse['allocations']:.0f} fresh, {must_reuse['reuses']:.0f} reused")
         check(must_reuse["reuses"] > 0 and must_reuse != must_allocate,
               "so the two cases differ, which is what makes either of them evidence",
+              # At a frame size whose live tier does not downscale, the pool is
+              # already full of *full-tier* planes and this setup has no case to
+              # make -- run the probe at its default `--size` before believing
+              # this line.
+
               f"{must_allocate['allocations']:.0f}/{must_allocate['reuses']:.0f} against "
               f"{must_reuse['allocations']:.0f}/{must_reuse['reuses']:.0f} fresh/reused")
         # And the property that makes the pool safe for a session's own planes:
@@ -197,6 +238,8 @@ def main() -> int:
 
     with spk_ctypes.Engine(dylib=args.dylib) as engine:
         probe = Probe(engine)
+        if not two_sessions_one_engine(engine):
+            probe.failures += 1
         small = frame(h // 3, w // 3)
         big = frame(h, w)
 

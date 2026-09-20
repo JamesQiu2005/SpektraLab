@@ -363,6 +363,7 @@ struct spk_engine {
         audit.set("reuse_max_taken", Json(double(pool.audit.reuse_max_taken)));
         audit.set("reuse_max_taken_for_request", Json(double(pool.audit.reuse_max_taken_for_request)));
         audit.set("pending_held", Json(double(pool.audit.pending_held)));
+        audit.set("live_underflows", Json(double(pool.audit.live_underflows)));
         audit.set("over_releases", Json(double(pool.audit.over_releases)));
         audit.set("reclaim_while_encoding", Json(double(pool.audit.reclaim_while_encoding)));
         pool_json.set("audit", std::move(audit));

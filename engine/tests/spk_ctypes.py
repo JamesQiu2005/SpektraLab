@@ -59,7 +59,16 @@ class Engine:
         # and an rsync that did not run leaves a stale bundle rather than an
         # empty one.
         env = os.environ.get("SPEKTRAFILM_ENGINE_RESOURCES")
-        self._resources = str(resources or env or ENGINE / "resources")
+        # **A dylib and a metallib are a pair.** The kernels live in
+        # `resources/spektrafilm.metallib` and a dylib dispatches them by name,
+        # so an old dylib against a new metallib is not a comparison, it is
+        # `no kernel 'spk_transpose3'`. Every probe's `--dylib` is meant for
+        # exactly that comparison -- a worktree build against the current tree
+        # -- so when a dylib is named, its own `../resources` is used unless
+        # the caller or the environment says otherwise.
+        beside = dylib.parent.parent / "resources" if dylib else None
+        self._resources = str(resources or env
+                              or (beside if beside and beside.is_dir() else ENGINE / "resources"))
         self._handle = self._lib.spk_engine_create(self._resources.encode(), None)
         if not self._handle:
             raise EngineError(self._last_error())

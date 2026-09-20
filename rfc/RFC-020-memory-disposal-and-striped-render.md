@@ -750,6 +750,37 @@ and both the size of a full 102 MP plane — **1.22 GB each**:
    whole-frame stage must copy every live field. That second plane is live
    across the band run of the stage that produces it.
 
+### Step 6-R: what the transpose removal changed, and the instrument it found broken
+
+**Class R is not opt-in, and that is new for this RFC.** §9's steps 4 to 6-F all
+left the un-striped path untouched, so their gate was "striped == un-striped".
+R removes the IIR's transpose on the *shipping* path — every render, mode or no
+mode — and the gate that can fail is therefore **new engine against old engine,
+byte for byte** (`engine/tests/iir_bitexact.py`).
+
+**That gate caught a real defect on its first run, and the parity harnesses
+could not have.** The transposed path was horizontal-first and the first draft
+of the rewrite ran vertical-first; a separable IIR's two passes commute in exact
+arithmetic and *not* in floating point, so every value moved in the last place.
+`parity_render` holds the engine to the Python reference at 1e-5 — a bar set by
+the reference being a different implementation in a different language — and a
+last-place change is invisible to it by construction. **Any future step that
+alters the shipping arithmetic needs the byte comparison, and R is the first
+that did.**
+
+**And the instrument was broken.** Measuring the saving (45.7 MP for the
+preliminary estimate, 102 MP on a clean machine for the replacement of §4.4)
+turned up a defect in this RFC's own accounting, §3.3's: `release` subtracted a
+**persistent** buffer's bytes from the pool's `live_bytes_`, which had never
+counted them, so the `size_t` wrapped to `2^64 - 1` — and `frame_high_water_bytes`
+follows that sum, which is what the memory-pressure handler trims to (§3.2). The
+effect is that a pressure event arriving after any persistent buffer was released
+would have trimmed to eighteen exabytes, i.e. done nothing, silently disabling
+the feature this RFC's §3.2 exists to provide. Fixed by counting persistent
+buffers in `persistent_bytes_` and nowhere else, and by clamping rather than
+wrapping, with a `live_underflows` counter that must stay zero. Found by a
+two-session sequence, not by any of the probes written to check that accounting.
+
 **This is not a re-estimate and the ~6 GB is not being defended.** §9 step 1's
 promise stands unchanged: the first thing Part B does is replace the estimate
 with a measurement, and that measurement is what any later number comes from.

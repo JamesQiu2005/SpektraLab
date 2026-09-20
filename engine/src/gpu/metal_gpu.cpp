@@ -266,7 +266,12 @@ public:
         // none (see `reclaim`). Kept so `live_bytes_` follows the count
         // wherever the count goes, instead of following it only where it
         // happens to go today.
-        if (buffer->refs == 0) add_live_locked(buffer->bytes);
+        // **And a persistent buffer is not a pool buffer here either.** Its
+        // bytes are counted in `persistent_bytes_` by `alloc_persistent` and
+        // belong to no pool sum; letting one in here would leave it in
+        // `live_bytes_` for good, because `release` now correctly declines to
+        // subtract it.
+        if (!buffer->persistent && buffer->refs == 0) add_live_locked(buffer->bytes);
         ++buffer->refs;
     }
 
@@ -279,8 +284,14 @@ public:
         const bool was_live = buffer->refs > 0;
         if (--buffer->refs > 0) return;
         buffer->refs = 0;
-        if (was_live) sub_live_locked(buffer->bytes);
-        else ++audit_.over_releases;   // a release of a buffer nobody holds
+        // **A persistent buffer is not a pool buffer.** `live_bytes_` is the
+        // pool's running sum -- `alloc_persistent` counts its bytes in
+        // `persistent_bytes_` and nowhere else -- so subtracting one here made
+        // the two sums disagree by a whole plane's worth. This is what the wrap
+        // was: the session's source plane, subtracted by a `release` that no
+        // `add` had ever matched.
+        if (was_live && !buffer->persistent) sub_live_locked(buffer->bytes);
+        else if (!was_live) ++audit_.over_releases;   // a release of a buffer nobody holds
         if (buffer->persistent) {
             persistent_bytes_ -= buffer->bytes;
             --persistent_buffers_;
@@ -1019,7 +1030,21 @@ private:
         live_bytes_ += bytes;
         if (live_bytes_ > frame_high_water_) frame_high_water_ = live_bytes_;
     }
-    void sub_live_locked(size_t bytes) { live_bytes_ -= bytes; }
+    // **Clamped, and counted.** `live_bytes_` is a running sum of pool buffers
+    // at `refs > 0`, and a subtraction larger than it means that sum and the
+    // reference counts have come apart -- which used to wrap the `size_t` to
+    // `2^64 - 1` and, because `frame_high_water_` follows it, hand the
+    // memory-pressure handler a trim target of eighteen exabytes. Clamping
+    // keeps the number usable and `live_underflows` says the arithmetic is
+    // wrong, rather than the size of the universe being the answer.
+    void sub_live_locked(size_t bytes) {
+        if (bytes > live_bytes_) {
+            ++audit_.live_underflows;
+            live_bytes_ = 0;
+            return;
+        }
+        live_bytes_ -= bytes;
+    }
 
     // Caller holds `pool_lock_`. A buffer whose last handle has dropped but
     // which is not reusable yet, because the command buffer that names it has
