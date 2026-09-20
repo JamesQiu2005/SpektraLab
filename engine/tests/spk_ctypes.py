@@ -73,6 +73,13 @@ class Engine:
         lib.spk_capabilities.argtypes = [ctypes.c_void_p]
         lib.spk_params_schema.restype = ctypes.c_char_p
         lib.spk_params_schema.argtypes = [ctypes.c_void_p]
+        # RFC-020 §3.3, and conditional on purpose: a probe that measures the
+        # engine *before* that RFC has to be able to load it, and it is the
+        # only way to show a disposal check can fail (a check that only runs
+        # against the fixed engine is a check with one outcome).
+        if hasattr(lib, "spk_memory_report"):
+            lib.spk_memory_report.restype = ctypes.c_char_p
+            lib.spk_memory_report.argtypes = [ctypes.c_void_p]
         lib.spk_last_error.restype = ctypes.c_char_p
         lib.spk_last_error.argtypes = [ctypes.c_void_p]
         lib.spk_build_info.restype = ctypes.c_char_p
@@ -135,6 +142,16 @@ class Engine:
 
     def params_schema(self) -> dict:
         return json.loads(self._lib.spk_params_schema(self._handle).decode())
+
+    def memory_report(self) -> dict:
+        """What the engine holds, in bytes (RFC-020 §3.3).
+
+        The engine owns the string and it is valid until the next call on this
+        engine, so this parses it immediately rather than holding it.
+        """
+        if not hasattr(self._lib, "spk_memory_report"):
+            raise EngineError("this engine predates RFC-020: no spk_memory_report")
+        return json.loads((self._lib.spk_memory_report(self._handle) or b"{}").decode())
 
     def warm_up(self, film: str, print_stock: str) -> dict:
         out = ctypes.c_char_p()

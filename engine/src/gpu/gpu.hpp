@@ -80,6 +80,38 @@ private:
     Buffer* buffer_ = nullptr;
 };
 
+// What the engine holds, for `spk_memory_report` (RFC-020 §3.3).
+//
+// Bytes are the sizes a buffer was **made** at, not the sizes callers asked
+// for: `alloc` reuses the smallest free buffer that fits, so those differ, and
+// the one the process pays for is the former.
+//
+// The three pool numbers partition `total_bytes` and are the whole reason this
+// is a `free`/`pending` split rather than one "free" number: a buffer whose
+// last handle has dropped is not necessarily one the next `alloc` may take
+// (see the comment in `release`), so "how much could be given back right now"
+// and "how much is dead but still named by an unrun command buffer" are
+// different questions with different answers.
+struct PoolStats {
+    size_t total_bytes = 0;      // every pooled buffer: live + free + pending
+    size_t live_bytes = 0;       // refs > 0 -- a node, an Image, or `inflight_`
+    size_t free_bytes = 0;       // refs == 0 and reusable: the next alloc may take it
+    size_t pending_bytes = 0;    // refs == 0, waiting on a command buffer
+    size_t buffers = 0;
+    size_t live_buffers = 0;
+    size_t free_buffers = 0;
+    size_t pending_buffers = 0;
+    // The peak `live_bytes` reached inside the current frame. RFC-020 §3.2's
+    // `warn` trim keeps the pool at this size: enough for the frame that is
+    // running, and no more.
+    size_t frame_high_water_bytes = 0;
+    // Allocations *outside* the pool: a session's source and its cached
+    // negatives, the baked tables, a render's rgba16 result. Not additive
+    // with the pool numbers above -- these are not pooled buffers.
+    size_t persistent_bytes = 0;
+    size_t persistent_buffers = 0;
+};
+
 // One dispatch's arguments, in buffer-index order. A small constant may be
 // passed inline (`bytes`) instead of allocated; the backend decides how.
 struct Arg {
@@ -185,6 +217,16 @@ public:
     // the app draws the print and the original on `MTLTexture`s, so a frame
     // wider than this renders and then cannot be shown.
     virtual uint32_t max_texture_dimension_2d() const = 0;
+
+    // --- RFC-020: what the engine holds, and giving it back ---------------
+
+    // The pool's holdings, and the persistent allocations made outside it.
+    //
+    // Cheap by construction, because a UI timer reads it: one pass over a
+    // couple of dozen handles under `pool_lock_`, summing sizes that were
+    // fixed when each buffer was made. No Metal object is walked, retained or
+    // asked anything, and nothing here can fail.
+    virtual PoolStats pool_stats() const = 0;
 };
 
 // --- BufferRef, once Gpu is complete ---------------------------------------

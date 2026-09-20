@@ -117,26 +117,54 @@ public:
     // that, continuously, which is the point. They remain as the place to hang
     // per-frame bookkeeping, and as an assertion: anything still referenced at
     // `end_frame` is a leak by a caller that kept a handle.
-    void begin_frame() override {}
+    void begin_frame() override {
+        // A new frame's live high-water starts where the frame starts: what
+        // some *other* frame still holds is not this one's to keep (RFC-020
+        // §3.2).
+        std::lock_guard<std::mutex> guard(pool_lock_);
+        frame_high_water_ = live_bytes_;
+    }
 
     void end_frame() override {
-        // The pool itself is kept. Trimming it here would hand every 540 MB
-        // buffer back to the OS and pay the page faults again on the next
-        // render.
+        // The pool itself is kept. Not because re-faulting it is expensive --
+        // RFC-020 §1.2 measured that and it is not: minor faults barely move
+        // between the trimmed and untrimmed builds, and the same measurement
+        // shows what *is* expensive, which is residency past the compressor
+        // threshold (1,377,634 system compressions during one 28 GB render,
+        // against 0 at 19 GB). Within a session, editing one frame, every
+        // size the pool holds comes straight back, and handing buffers to the
+        // OS between nodes would buy the faults without the residency.
+        //
+        // What changes is where "keep it" ends: on a frame switch (§3.1) and
+        // on memory pressure (§3.2), both of which mean the next render is
+        // not the one these buffers were made for.
     }
 
     void retain(Buffer* buffer) override {
         if (!buffer) return;
         std::lock_guard<std::mutex> guard(pool_lock_);
+        // The `refs == 0` arm is the counter's definition rather than a
+        // reachable case -- nothing copies a handle to a buffer that has
+        // none (see `reclaim`). Kept so `live_bytes_` follows the count
+        // wherever the count goes, instead of following it only where it
+        // happens to go today.
+        if (buffer->refs == 0) add_live_locked(buffer->bytes);
         ++buffer->refs;
     }
 
     void release(Buffer* buffer) override {
         if (!buffer) return;
         std::lock_guard<std::mutex> guard(pool_lock_);
+        // `was_live` rather than a plain decrement, because `refs` is clamped
+        // below: an over-release took it to -1 and this line put it back to
+        // 0, and the counter must not follow it down there.
+        const bool was_live = buffer->refs > 0;
         if (--buffer->refs > 0) return;
         buffer->refs = 0;
+        if (was_live) sub_live_locked(buffer->bytes);
         if (buffer->persistent) {
+            persistent_bytes_ -= buffer->bytes;
+            --persistent_buffers_;
             // A one-off size nothing else would want: give it back to the OS.
             if (buffer->mtl) buffer->mtl->release();
             delete buffer;
@@ -224,6 +252,7 @@ public:
         Buffer* b = new Buffer{mtl, bytes, 1, false, false};
         std::lock_guard<std::mutex> guard(pool_lock_);
         pool_.push_back(b);
+        add_live_locked(b->bytes);
         return BufferRef(this, b);
     }
 
@@ -256,6 +285,12 @@ public:
         MTL::Buffer* mtl = device_->newBuffer(bytes, MTL::ResourceStorageModeShared);
         if (!mtl) { error = "out of GPU memory allocating " + std::to_string(bytes) + " bytes"; return {}; }
         Buffer* b = new Buffer{mtl, bytes, 1, false, true};
+        // Counted, not pooled: this is what `spk_memory_report`'s `persistent`
+        // block is, and it is where the session's source and cached negatives
+        // live (RFC-020 §3.3).
+        std::lock_guard<std::mutex> guard(pool_lock_);
+        persistent_bytes_ += bytes;
+        ++persistent_buffers_;
         return BufferRef(this, b);
     }
 
@@ -294,6 +329,13 @@ public:
         mtl->retain();
         // `persistent`, so the last release gives the retain back and deletes
         // the wrapper rather than putting the caller's memory in the pool.
+        //
+        // Deliberately **not** in `persistent_bytes_`: the pixels are the
+        // caller's and the caller already accounts for them (RFC-019's
+        // `DecodeResidency`, 90 B/px against a measured 85). The engine
+        // holding the only *other* reference to them for the length of one
+        // call is not a holding of its own, and counting it would double the
+        // decode in every report.
         return BufferRef(this, new Buffer{mtl, bytes, 1, false, true});
     }
 
@@ -405,6 +447,24 @@ public:
         return known ? 16384u : 8192u;
     }
 
+    // --- RFC-020 §3.3: what the pool holds --------------------------------
+
+    PoolStats pool_stats() const override {
+        std::lock_guard<std::mutex> guard(pool_lock_);
+        PoolStats s;
+        for (const Buffer* b : pool_) {
+            s.total_bytes += b->bytes;
+            if (b->refs > 0) { s.live_bytes += b->bytes; ++s.live_buffers; }
+            else if (b->reusable) { s.free_bytes += b->bytes; ++s.free_buffers; }
+            else { s.pending_bytes += b->bytes; ++s.pending_buffers; }
+        }
+        s.buffers = pool_.size();
+        s.frame_high_water_bytes = frame_high_water_;
+        s.persistent_bytes = persistent_bytes_;
+        s.persistent_buffers = persistent_buffers_;
+        return s;
+    }
+
 private:
     MTL::ComputePipelineState* pipeline(const char* name, std::string& error) {
         auto it = pipelines_.find(name);
@@ -434,9 +494,23 @@ private:
         for (Buffer* b : pool_)
             if (b->refs == 0 && b->reusable && b->bytes >= bytes &&
                 (!best || b->bytes < best->bytes)) best = b;
-        if (best) { best->refs = 1; best->reusable = false; }
+        if (best) { best->refs = 1; best->reusable = false; add_live_locked(best->bytes); }
         return best;
     }
+
+    // `live_bytes_` is the running sum of the pool buffers at `refs > 0`, and
+    // `frame_high_water_` its peak within the current frame. Every arm that
+    // changes `refs` goes through these two, so the number follows the count
+    // rather than being re-derived from it (a walk of the pool would be just
+    // as cheap, but `trim_pool` can then ask the question without one).
+    //
+    // Pool buffers only: a persistent allocation is not one of these, and
+    // `pool_stats` reports it separately.
+    void add_live_locked(size_t bytes) {
+        live_bytes_ += bytes;
+        if (live_bytes_ > frame_high_water_) frame_high_water_ = live_bytes_;
+    }
+    void sub_live_locked(size_t bytes) { live_bytes_ -= bytes; }
 
     // Caller holds `pool_lock_`. A buffer whose last handle has dropped but
     // which is not reusable yet, because the command buffer that names it has
@@ -449,6 +523,7 @@ private:
 
     // Everything freed since the last flush is now genuinely idle: the work
     // that referenced it has completed.
+    //
     void reclaim() {
         std::lock_guard<std::mutex> guard(pool_lock_);
         for (Buffer* b : pending_) if (b->refs == 0) b->reusable = true;
@@ -482,6 +557,16 @@ private:
     // Buffers created to back an oversized inline argument, kept alive until
     // the command buffer that references them has completed.
     std::vector<BufferRef> inflight_;
+
+    // RFC-020 §3.3. All four are maintained under `pool_lock_` in the two
+    // helpers below, never re-derived here -- `pool_stats` re-derives them
+    // anyway, so a drift would show up as a disagreement rather than as a
+    // wrong number nobody can check.
+    size_t live_bytes_ = 0;
+    size_t frame_high_water_ = 0;
+    size_t persistent_bytes_ = 0;
+    size_t persistent_buffers_ = 0;
+
 };
 
 }  // namespace

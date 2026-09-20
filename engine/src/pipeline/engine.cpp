@@ -252,6 +252,7 @@ struct spk_engine {
     std::string math_mode;
     std::string cached_capabilities;
     std::string cached_schema;
+    std::string cached_memory_report;
     std::vector<spk_session*> sessions;
     std::mutex lock;
 
@@ -318,6 +319,75 @@ struct spk_engine {
         out.set("transport_version", Json(double(SPK_TRANSPORT_VERSION)));
         out.set("schema_version", Json(double(SPK_SCHEMA_VERSION)));
         out.set("backend", std::move(backend));
+        return out;
+    }
+
+    // RFC-020 §3.3. The shape is in the header, next to the entry point, and
+    // the one thing worth repeating here is the relationship the caller has to
+    // get right: the per-session rows are a breakdown *of* `persistent.bytes`.
+    // RFC-019 P6's whole question is what the gap between the arena and the
+    // process is, and a report that can be read two ways would answer it two
+    // ways.
+    Json memory_report_json() {
+        const gpu::PoolStats pool = gpu ? gpu->pool_stats() : gpu::PoolStats{};
+
+        Json pool_json = Json::object();
+        pool_json.set("total_bytes", Json(double(pool.total_bytes)));
+        pool_json.set("live_bytes", Json(double(pool.live_bytes)));
+        pool_json.set("free_bytes", Json(double(pool.free_bytes)));
+        pool_json.set("pending_bytes", Json(double(pool.pending_bytes)));
+        pool_json.set("buffers", Json(double(pool.buffers)));
+        pool_json.set("live_buffers", Json(double(pool.live_buffers)));
+        pool_json.set("free_buffers", Json(double(pool.free_buffers)));
+        pool_json.set("pending_buffers", Json(double(pool.pending_buffers)));
+        // The size a `warn` pressure event would keep (RFC-020 §3.2), so a
+        // reader can tell "the pool is idle" from "the pool is as big as this
+        // frame ever gets".
+        pool_json.set("frame_high_water_bytes", Json(double(pool.frame_high_water_bytes)));
+
+        // The per-session part of `persistent`: the source every tier reads
+        // from and the cached negative every reprint returns. These are the
+        // two holdings RFC-020 §1 names as living inside a session, and the
+        // ones a frame switch is supposed to give back.
+        Json session_rows = Json::array();
+        size_t source_bytes = 0, negative_bytes = 0;
+        int negative_count = 0;
+        for (spk_session* s : sessions) {
+            size_t source = 0;
+            if (gpu && s->source.buf) source = gpu->size_bytes(s->source.buf.get());
+            size_t negatives = 0;
+            int count = 0;
+            for (const auto& kv : s->tiers) {
+                if (!kv.second.has_negative || !kv.second.negative.buf || !gpu) continue;
+                negatives += gpu->size_bytes(kv.second.negative.buf.get());
+                ++count;
+            }
+            source_bytes += source;
+            negative_bytes += negatives;
+            negative_count += count;
+            Json row = Json::object();
+            row.set("session_id", Json(s->session_id));
+            row.set("source_bytes", Json(double(source)));
+            row.set("cached_negative_bytes", Json(double(negatives)));
+            // A session caches a negative per tier it has rendered, so this
+            // is 0, 1 or 3 -- and 3 is three full planes, which is worth
+            // seeing next to the byte count rather than dividing by it.
+            row.set("negatives", Json(double(count)));
+            session_rows.push(std::move(row));
+        }
+
+        Json persistent = Json::object();
+        persistent.set("bytes", Json(double(pool.persistent_bytes)));
+        persistent.set("buffers", Json(double(pool.persistent_buffers)));
+        persistent.set("source_bytes", Json(double(source_bytes)));
+        persistent.set("cached_negative_bytes", Json(double(negative_bytes)));
+        persistent.set("negatives", Json(double(negative_count)));
+        persistent.set("sessions", std::move(session_rows));
+
+        Json out = Json::object();
+        out.set("total_bytes", Json(double(pool.total_bytes + pool.persistent_bytes)));
+        out.set("pool", std::move(pool_json));
+        out.set("persistent", std::move(persistent));
         return out;
     }
 };
@@ -460,6 +530,16 @@ const char* spk_capabilities(spk_engine* engine) {
 
 const char* spk_params_schema(spk_engine* engine) {
     return engine ? engine->cached_schema.c_str() : "";
+}
+
+const char* spk_memory_report(spk_engine* engine) {
+    if (!engine) return "";
+    // The same lifetime as `spk_capabilities`, and for the same reason: the
+    // numbers move, so a cached string would be a report about a moment the
+    // caller did not ask about.
+    std::lock_guard<std::mutex> guard(engine->lock);
+    engine->cached_memory_report = engine->memory_report_json().dump();
+    return engine->cached_memory_report.c_str();
 }
 
 spk_status spk_warm_up(spk_engine* engine, const char* film_stock, const char* print_stock,

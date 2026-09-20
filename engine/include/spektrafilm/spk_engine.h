@@ -144,6 +144,32 @@ void        spk_engine_destroy(spk_engine* engine);
 const char* spk_capabilities(spk_engine* engine);
 const char* spk_params_schema(spk_engine* engine);
 
+/* What this engine holds, in bytes. Engine-owned and valid until the next
+ * call on this engine, exactly as the two above.
+ *
+ * RFC-020 §3.3. `pool` is the render buffer pool, and its total splits into
+ * `live_bytes` (a node or an Image is holding it), `free_bytes` (reusable by
+ * the next allocation right now) and `pending_bytes` (freed, but an encoded
+ * command buffer still names it). `persistent` is everything allocated
+ * outside the pool: a session's source and its cached negatives, the baked
+ * tables, a render's rgba16 result.
+ *
+ * **`persistent.source_bytes` and `persistent.cached_negative_bytes` are a
+ * breakdown *of* `persistent.bytes`, not additions to it**, and
+ * `persistent.sessions` is that breakdown per open session. So the engine's
+ * whole holding is `pool.total_bytes + persistent.bytes`, which is the
+ * top-level `total_bytes`; registering a per-session entry and a pool entry
+ * means splitting `persistent.sessions`, not adding it to the pool.
+ *
+ * It does not include the caller's own memory -- the frame passed to
+ * `spk_open_device`, or a Core Image decode -- which the caller accounts for
+ * (RFC-019 `DecodeResidency`).
+ *
+ * Cheap enough for a UI timer: a sum over a few dozen handles under one lock,
+ * with no Metal object walked or queried. Cannot fail.
+ */
+const char* spk_memory_report(spk_engine* engine);
+
 /* Pay the fixed per-stock-pair setup before the user is looking (RFC-013 §3).
  * Idempotent. `out_json` receives the `warm_up` reply. */
 spk_status spk_warm_up(spk_engine* engine, const char* film_stock,
