@@ -402,6 +402,11 @@ struct spk_engine {
         // The one-shot flag, *not* taken here: `spk_render` takes it, so a
         // report cannot steal the event from the render it belongs to.
         pressure.set("critical_pending", Json(pool.pressure_critical_pending));
+        // RFC-020 §3.1's idle form, next to the reactive one it complements:
+        // the threshold it is armed at (0 = off) and how many times it has
+        // given the pool back.
+        pressure.set("idle_trim_seconds", Json(pool.idle_trim_seconds));
+        pressure.set("idle_trims", Json(double(pool.idle_trims)));
 
         Json out = Json::object();
         out.set("total_bytes", Json(double(pool.total_bytes + pool.persistent_bytes)));

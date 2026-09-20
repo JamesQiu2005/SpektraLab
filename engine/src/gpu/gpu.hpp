@@ -127,6 +127,13 @@ struct PoolStats {
     // platform or a process where the source could not be created, in which
     // case the counters above stay zero because nothing would set them.
     bool pressure_monitor = false;
+    // RFC-020 §3.1's idle form: the threshold it runs at (0 = the timer is
+    // not armed), and how many times it has actually given something back.
+    // Counted on the bytes freed rather than on the tick, because after the
+    // threshold the timer keeps ticking and a trim of an empty pool is not an
+    // event -- without that, an idle hour reads as hundreds of trims.
+    double idle_trim_seconds = 0.0;
+    uint64_t idle_trims = 0;
 };
 
 // One dispatch's arguments, in buffer-index order. A small constant may be
@@ -277,7 +284,12 @@ public:
     //
     // Unlike `alloc`, this is not on any render path and takes no encoder:
     // `pool_lock_` is taken here, so a caller holding it must not call this.
-    virtual void trim_pool(size_t keep_bytes) = 0;
+    //
+    // Returns the bytes actually freed, so a caller can tell a trim that gave
+    // something back from one that found an empty pool -- which is what the
+    // idle timer's counter means, and what stops a tick that does nothing
+    // from reading as an event.
+    virtual size_t trim_pool(size_t keep_bytes) = 0;
 
     // Whether a **critical** memory-pressure event has arrived since the last
     // call, clearing the flag. One-shot on purpose (RFC-020 §3.2): the next

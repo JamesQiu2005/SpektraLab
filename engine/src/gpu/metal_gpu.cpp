@@ -26,6 +26,7 @@
 #include <algorithm>
 #include <atomic>
 #include <cerrno>
+#include <chrono>
 #include <climits>
 #include <cmath>
 #include <cstdint>
@@ -57,6 +58,13 @@ struct Buffer {
 namespace {
 
 constexpr size_t kThreadgroup = 256;
+// How long the engine waits, with no frame in flight, before giving the pool
+// back (RFC-020 §3.1's idle form). One constant and no adaptation: RFC-020 §7
+// leaves policy to RFC-021, and this has to stay a swap for it rather than a
+// thing with opinions. Chosen from the measurement in
+// `engine/tests/idle_trim.py` rather than from taste; the comment on
+// `maybe_trim_idle` carries the number it was chosen against.
+constexpr double kIdleTrimSeconds = 60.0;
 // A small constant goes in as `setBytes`, which avoids an allocation and a
 // residency entry. 4 kB is Metal's documented limit for it.
 constexpr size_t kInlineLimit = 4096;
@@ -69,7 +77,7 @@ public:
     ~MetalGpu() override {
         // First, so no handler can be running (or start) while the pool below
         // is being torn down.
-        stop_pressure_monitor();
+        stop_monitors();
         for (Buffer* b : pool_) { if (b->mtl) b->mtl->release(); delete b; }
         for (auto& kv : pipelines_) kv.second->release();
         if (command_buffer_) command_buffer_->release();
@@ -78,15 +86,16 @@ public:
         if (device_ && owns_device_) device_->release();
     }
 
-    // Called by `create_metal` once the object exists, because the source's
-    // context is `this` and a source must never be able to fire at an object
-    // whose constructor has not returned. Public only for that reason --
-    // `MetalGpu` is file-local and nothing else constructs one.
+    // The pressure source (§3.2) and the idle timer (§3.1). Called by
+    // `create_metal` once the object exists, because both sources' context is
+    // `this` and neither may fire at an object whose constructor has not
+    // returned. Public only for that reason -- `MetalGpu` is file-local and
+    // nothing else constructs one.
     //
     // Best-effort: if either object cannot be made, the engine renders exactly
     // as it did before and `pool_stats().pressure_monitor` says so. Nothing
     // about a render may depend on this existing.
-    void start_pressure_monitor() {
+    void start_monitors() {
         pressure_queue_ = dispatch_queue_create("com.spektrafilm.engine.memorypressure", nullptr);
         if (!pressure_queue_) return;
         pressure_source_ = dispatch_source_create(
@@ -107,6 +116,30 @@ public:
             test_pressure_flags_ = DISPATCH_MEMORYPRESSURE_CRITICAL;
         } else if (mode && std::strcmp(mode, "warn") == 0) {
             test_pressure_flags_ = DISPATCH_MEMORYPRESSURE_WARN;
+        }
+
+        // The idle timer, on the same queue: a serial queue is what makes the
+        // two handlers mutually exclusive without a lock of their own, and it
+        // is what `stop_monitors` drains once for both.
+        const double idle_s = idle_trim_seconds();
+        if (idle_s > 0.0) {
+            idle_source_ = dispatch_source_create(DISPATCH_SOURCE_TYPE_TIMER, 0, 0, pressure_queue_);
+            if (idle_source_) {
+                // Tick at a quarter of the threshold, capped, so the trim
+                // lands within a quarter of it of the moment it is due and a
+                // timer that is going to sit there for a minute does not wake
+                // the CPU more than it has to. The leeway is for coalescing,
+                // which is what a leeway is for; it delays the trim by at most
+                // that much and the threshold is not a promise to be exact.
+                const double tick_s = std::max(0.25, std::min(idle_s / 4.0, 5.0));
+                const uint64_t tick_ns = uint64_t(tick_s * 1e9);
+                dispatch_source_set_timer(idle_source_,
+                                          dispatch_time(DISPATCH_TIME_NOW, int64_t(tick_ns)),
+                                          tick_ns, tick_ns / 4);
+                dispatch_set_context(idle_source_, this);
+                dispatch_source_set_event_handler_f(idle_source_, &MetalGpu::idle_tick);
+                dispatch_activate(idle_source_);
+            }
         }
     }
 
@@ -170,6 +203,12 @@ public:
     // per-frame bookkeeping, and as an assertion: anything still referenced at
     // `end_frame` is a leak by a caller that kept a handle.
     void begin_frame() override {
+        // A frame in flight, counted rather than flagged: two renders on two
+        // threads are legal, and a bool would have the first one to finish
+        // say the engine is idle while the second is still running. The idle
+        // timer reads this and never trims a pool a render is using.
+        frames_in_flight_.fetch_add(1, std::memory_order_relaxed);
+        last_activity_ns_.store(steady_ns(), std::memory_order_relaxed);
         // Before the reset, and outside the lock (the handler takes it): a
         // `warn` arriving here trims to the *previous* frame's peak, which is
         // the right reading for an event that lands between frames -- the next
@@ -192,9 +231,12 @@ public:
         // size the pool holds comes straight back, and handing buffers to the
         // OS between nodes would buy the faults without the residency.
         //
-        // What changes is where "keep it" ends: on a frame switch (§3.1) and
-        // on memory pressure (§3.2), both of which mean the next render is
-        // not the one these buffers were made for.
+        // What changes is where "keep it" ends: on a frame switch (§3.1), on
+        // memory pressure (§3.2) and after the idling that means nobody is
+        // editing this frame any more -- each of which means the next render
+        // is not the one these buffers were made for.
+        last_activity_ns_.store(steady_ns(), std::memory_order_relaxed);
+        frames_in_flight_.fetch_sub(1, std::memory_order_relaxed);
         fire_test_pressure_if_asked();
     }
 
@@ -665,16 +707,19 @@ public:
         s.pressure_critical_events = pressure_critical_.load(std::memory_order_relaxed);
         s.pressure_critical_pending = critical_pending_.load(std::memory_order_relaxed);
         s.pressure_monitor = pressure_source_ != nullptr;
+        s.idle_trim_seconds = idle_source_ ? idle_trim_seconds() : 0.0;
+        s.idle_trims = idle_trims_.load(std::memory_order_relaxed);
         return s;
     }
 
     // --- RFC-020 §3.1, §3.2: giving it back --------------------------------
 
-    void trim_pool(size_t keep_bytes) override {
+    size_t trim_pool(size_t keep_bytes) override {
         std::lock_guard<std::mutex> guard(pool_lock_);
         size_t total = 0;
         for (const Buffer* b : pool_) total += b->bytes;
-        if (total <= keep_bytes) return;
+        if (total <= keep_bytes) return 0;
+        size_t freed = 0;
 
         // Largest first. A render's pool is a handful of same-sized
         // full-frame planes plus small constant uploads, so taking the big
@@ -697,7 +742,9 @@ public:
             if (queued != pending_.end()) pending_.erase(queued);
             if (b->mtl) b->mtl->release();
             delete b;
+            freed += b->bytes;
         }
+        return freed;
     }
 
     bool take_critical_pressure() override {
@@ -707,6 +754,78 @@ public:
     }
 
 private:
+    // --- RFC-020 §3.1, the idle form: nobody is editing any more ----------
+
+    // The other half of "not at `end_frame`". The pool is kept between renders
+    // seconds apart because the same sizes come straight back; that reasoning
+    // stops holding when the seconds become minutes, and the process is then
+    // sitting on ~11 GB of dead capacity at 102 MP with nothing to show for
+    // it. §3.2's pressure source does not cover this case: macOS memory
+    // pressure is reactive, so on a machine with nothing else running it
+    // never fires, and by the time it does the compressor is already
+    // involved. This is the proactive form of the same decision.
+    //
+    // The cost of being wrong is bounded and measured -- see `idle_keep_bytes`
+    // for why the target is zero and `engine/tests/idle_trim.py` for what the
+    // next render pays.
+    void maybe_trim_idle() {
+        // The two constraints this file keeps re-learning, both structural:
+        // never mid-render (a render's own pool is what it would be freeing,
+        // and the buffers it is about to reuse are exactly the ones that would
+        // go), and never inside `pool_lock_` -- `trim_pool` takes it, and this
+        // handler holds nothing.
+        if (frames_in_flight_.load(std::memory_order_relaxed) > 0) return;
+        const int64_t last = last_activity_ns_.load(std::memory_order_relaxed);
+        if (last == 0) return;   // no frame has ever run; nothing to give back
+        const double idle_s =
+            double(steady_ns() - last) / 1e9;
+        if (idle_s < idle_trim_seconds()) return;
+        if (trim_pool(idle_keep_bytes()) > 0) {
+            idle_trims_.fetch_add(1, std::memory_order_relaxed);
+        }
+    }
+
+    // **The one policy function**, so that a later RFC can replace this body
+    // and nothing else (RFC-020 §7's rule about a single call site).
+    //
+    // Zero, and not the frame's live high-water, for the reason §3.1 gives for
+    // not trimming at all between renders: keeping a size is a bet that the
+    // same size comes back. Between renders that bet is good -- the user is
+    // mid-edit. After a minute of nothing it is a bet on a user who may have
+    // gone to lunch, and the whole point of an idle trim is to stop paying for
+    // that bet. The high-water case is not lost either: that is what §3.2's
+    // `warn` level is for, and it fires when the *system* says memory is
+    // short rather than when the clock does.
+    static size_t idle_keep_bytes() { return 0; }
+
+    // Seconds, from the seam or from the constant, **read once** -- a
+    // function-local static is initialized under the language's own lock and
+    // every later read happens after it, which is the ordering the timer
+    // handler needs and a plain member would not have. Latched, so like
+    // `SPEKTRAFILM_TEST_PRESSURE` the variable has to be set before the engine
+    // is created.
+    //
+    // A value of **0 means off** -- no timer at all, which is the control
+    // `idle_trim.py` runs against and the switch a user could be given. A
+    // value that does not parse is *not* off: a typo must not quietly disable
+    // a behaviour, so it falls back to the shipped number.
+    static double idle_trim_seconds() {
+        static const double seconds = [] {
+            const char* text = std::getenv("SPEKTRAFILM_IDLE_TRIM_SECONDS");
+            if (!text || !*text) return kIdleTrimSeconds;
+            char* end = nullptr;
+            const double parsed = std::strtod(text, &end);
+            if (end && *end == '\0' && parsed >= 0.0) return parsed;
+            return kIdleTrimSeconds;
+        }();
+        return seconds;
+    }
+
+    static int64_t steady_ns() {
+        return std::chrono::duration_cast<std::chrono::nanoseconds>(
+                   std::chrono::steady_clock::now().time_since_epoch()).count();
+    }
+
     // --- RFC-020 §3.2: memory pressure ------------------------------------
 
     // `start_pressure_monitor` is up with the constructor: it needs to be
@@ -719,17 +838,25 @@ private:
     // it), and only then is the source released. Without the drain there is a
     // window where a handler is between `dispatch_source_get_data` and
     // `pool_lock_` on a deleted object.
-    void stop_pressure_monitor() {
-        if (pressure_source_) {
-            dispatch_source_cancel(pressure_source_);
-            if (pressure_queue_) dispatch_sync_f(pressure_queue_, nullptr, &MetalGpu::noop);
-            dispatch_release(pressure_source_);
-            pressure_source_ = nullptr;
+    void stop_monitors() {
+        if (pressure_source_) dispatch_source_cancel(pressure_source_);
+        if (idle_source_) dispatch_source_cancel(idle_source_);
+        // One drain for both: the queue is serial, so a synchronous no-op
+        // submitted now runs after any handler already running or queued, and
+        // after a cancel no new one can be delivered.
+        if (pressure_queue_ && (pressure_source_ || idle_source_)) {
+            dispatch_sync_f(pressure_queue_, nullptr, &MetalGpu::noop);
         }
+        if (pressure_source_) { dispatch_release(pressure_source_); pressure_source_ = nullptr; }
+        if (idle_source_) { dispatch_release(idle_source_); idle_source_ = nullptr; }
         if (pressure_queue_) {
             dispatch_release(pressure_queue_);
             pressure_queue_ = nullptr;
         }
+    }
+
+    static void idle_tick(void* context) {
+        static_cast<MetalGpu*>(context)->maybe_trim_idle();
     }
 
     static void pressure_event(void* context) {
@@ -939,6 +1066,16 @@ private:
     dispatch_queue_t pressure_queue_ = nullptr;
     dispatch_source_t pressure_source_ = nullptr;
     unsigned long test_pressure_flags_ = 0;
+
+    // RFC-020 §3.1's idle form. The timer fires on `pressure_queue_`, and
+    // what it reads to decide is these two: how many frames are in flight (a
+    // render's pool is not the timer's to take) and when the last one touched
+    // the engine. Both are written by the render's thread and read by the
+    // handler's.
+    std::atomic<int> frames_in_flight_{0};
+    std::atomic<int64_t> last_activity_ns_{0};
+    std::atomic<uint64_t> idle_trims_{0};
+    dispatch_source_t idle_source_ = nullptr;
 };
 
 }  // namespace
@@ -974,7 +1111,7 @@ Gpu* Gpu::create_metal(void* device_handle, const std::string& metallib_path, st
     // After construction, and best-effort: the source's context is the object,
     // and a source that cannot be made leaves pressure unmonitored rather than
     // failing the engine. `MetalGpu`'s own destructor undoes it.
-    gpu->start_pressure_monitor();
+    gpu->start_monitors();
     return gpu;
 }
 
