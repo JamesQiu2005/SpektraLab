@@ -71,6 +71,11 @@ struct Progress {
     // empty with the meter off. `spk_progress` reports it (RFC-015 P.1), so a
     // harness can hold every tier to the same number.
     std::optional<double> auto_exposure_ev;
+    // RFC-020 §3.2: a critical memory-pressure event had arrived when this
+    // render started. It changes nothing -- a render already encoded cannot be
+    // made smaller, which is what §4's striped mode is for -- so it is read,
+    // reported by `spk_progress`, and no more.
+    bool memory_pressure_critical = false;
 };
 
 // RFC-015 §2.3: what each of the four exposure intents would choose, all from

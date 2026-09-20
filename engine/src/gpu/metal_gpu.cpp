@@ -14,8 +14,17 @@
 
 #include <Metal/Metal.hpp>
 
+// For the memory-pressure source (§3.2) and nothing else. Dispatch is in
+// libSystem, so this adds a header and no link step; the `_f` variants below
+// are the C function-pointer API, which is what keeps this a `.cpp` rather
+// than a `.mm` (see the file header).
+#include <dispatch/dispatch.h>
+
 #include <algorithm>
+#include <atomic>
 #include <cmath>
+#include <cstdint>
+#include <cstdlib>
 #include <cstring>
 #include <mutex>
 #include <unordered_map>
@@ -50,12 +59,47 @@ public:
         : device_(device), owns_device_(owns_device), library_(library), queue_(queue) {}
 
     ~MetalGpu() override {
+        // First, so no handler can be running (or start) while the pool below
+        // is being torn down.
+        stop_pressure_monitor();
         for (Buffer* b : pool_) { if (b->mtl) b->mtl->release(); delete b; }
         for (auto& kv : pipelines_) kv.second->release();
         if (command_buffer_) command_buffer_->release();
         if (queue_) queue_->release();
         if (library_) library_->release();
         if (device_ && owns_device_) device_->release();
+    }
+
+    // Called by `create_metal` once the object exists, because the source's
+    // context is `this` and a source must never be able to fire at an object
+    // whose constructor has not returned. Public only for that reason --
+    // `MetalGpu` is file-local and nothing else constructs one.
+    //
+    // Best-effort: if either object cannot be made, the engine renders exactly
+    // as it did before and `pool_stats().pressure_monitor` says so. Nothing
+    // about a render may depend on this existing.
+    void start_pressure_monitor() {
+        pressure_queue_ = dispatch_queue_create("com.spektrafilm.engine.memorypressure", nullptr);
+        if (!pressure_queue_) return;
+        pressure_source_ = dispatch_source_create(
+            DISPATCH_SOURCE_TYPE_MEMORYPRESSURE, 0,
+            DISPATCH_MEMORYPRESSURE_WARN | DISPATCH_MEMORYPRESSURE_CRITICAL, pressure_queue_);
+        if (!pressure_source_) {
+            dispatch_release(pressure_queue_);
+            pressure_queue_ = nullptr;
+            return;
+        }
+        dispatch_set_context(pressure_source_, this);
+        dispatch_source_set_event_handler_f(pressure_source_, &MetalGpu::pressure_event);
+        dispatch_activate(pressure_source_);
+        // Read once, here, where nothing can race with it (see the seam's
+        // comment further down).
+        const char* mode = std::getenv("SPEKTRAFILM_TEST_PRESSURE");
+        if (mode && std::strcmp(mode, "critical") == 0) {
+            test_pressure_flags_ = DISPATCH_MEMORYPRESSURE_CRITICAL;
+        } else if (mode && std::strcmp(mode, "warn") == 0) {
+            test_pressure_flags_ = DISPATCH_MEMORYPRESSURE_WARN;
+        }
     }
 
     std::string device_name() const override {
@@ -118,6 +162,11 @@ public:
     // per-frame bookkeeping, and as an assertion: anything still referenced at
     // `end_frame` is a leak by a caller that kept a handle.
     void begin_frame() override {
+        // Before the reset, and outside the lock (the handler takes it): a
+        // `warn` arriving here trims to the *previous* frame's peak, which is
+        // the right reading for an event that lands between frames -- the next
+        // render is that frame.
+        fire_test_pressure_if_asked();
         // A new frame's live high-water starts where the frame starts: what
         // some *other* frame still holds is not this one's to keep (RFC-020
         // §3.2).
@@ -138,6 +187,7 @@ public:
         // What changes is where "keep it" ends: on a frame switch (§3.1) and
         // on memory pressure (§3.2), both of which mean the next render is
         // not the one these buffers were made for.
+        fire_test_pressure_if_asked();
     }
 
     void retain(Buffer* buffer) override {
@@ -478,6 +528,10 @@ public:
         s.frame_high_water_bytes = frame_high_water_;
         s.persistent_bytes = persistent_bytes_;
         s.persistent_buffers = persistent_buffers_;
+        s.pressure_warn_events = pressure_warn_.load(std::memory_order_relaxed);
+        s.pressure_critical_events = pressure_critical_.load(std::memory_order_relaxed);
+        s.pressure_critical_pending = critical_pending_.load(std::memory_order_relaxed);
+        s.pressure_monitor = pressure_source_ != nullptr;
         return s;
     }
 
@@ -513,7 +567,113 @@ public:
         }
     }
 
+    bool take_critical_pressure() override {
+        // One atomic exchange, not a load and then a store: two renders on two
+        // threads must not both report the same event as their own.
+        return critical_pending_.exchange(false, std::memory_order_relaxed);
+    }
+
 private:
+    // --- RFC-020 §3.2: memory pressure ------------------------------------
+
+    // `start_pressure_monitor` is up with the constructor: it needs to be
+    // public for `create_metal`, and the queue and source it makes are its
+    // only collaborators here.
+    //
+    // Undone in the destructor, in this order, because the handler touches
+    // `*this`. Cancel stops *new* deliveries, the synchronous no-op drains one
+    // that is already running (the queue is serial and FIFO, so it runs after
+    // it), and only then is the source released. Without the drain there is a
+    // window where a handler is between `dispatch_source_get_data` and
+    // `pool_lock_` on a deleted object.
+    void stop_pressure_monitor() {
+        if (pressure_source_) {
+            dispatch_source_cancel(pressure_source_);
+            if (pressure_queue_) dispatch_sync_f(pressure_queue_, nullptr, &MetalGpu::noop);
+            dispatch_release(pressure_source_);
+            pressure_source_ = nullptr;
+        }
+        if (pressure_queue_) {
+            dispatch_release(pressure_queue_);
+            pressure_queue_ = nullptr;
+        }
+    }
+
+    static void pressure_event(void* context) {
+        auto* self = static_cast<MetalGpu*>(context);
+        self->handle_pressure(dispatch_source_get_data(self->pressure_source_));
+    }
+
+    static void noop(void*) {}
+
+    // The seam's trampoline, on the same queue as the real one.
+    static void test_pressure_event(void* context) {
+        auto* self = static_cast<MetalGpu*>(context);
+        self->handle_pressure(self->test_pressure_flags_);
+    }
+
+    // The handler body, taking the same `DISPATCH_MEMORYPRESSURE_*` flags the
+    // source delivers, so the test seam below drives this and not a copy of it.
+    //
+    // Two constraints that are the ordinary shape of this file's bugs, both
+    // structural rather than checked here: it runs on a dispatch queue while
+    // a render may be running on another thread, so it must take `pool_lock_`
+    // rather than being called with it held (it never is -- `trim_pool` is
+    // what takes it, and this is not called from under it), and it must never
+    // free a buffer with `refs > 0`, which is `trim_pool`'s own rule.
+    void handle_pressure(unsigned long flags) {
+        if (flags & DISPATCH_MEMORYPRESSURE_CRITICAL) {
+            pressure_critical_.fetch_add(1, std::memory_order_relaxed);
+            critical_pending_.store(true, std::memory_order_relaxed);
+            // Everything the frame is not holding. Nothing else happens with
+            // the flag: §4's striped mode is what would make a render already
+            // encoded smaller, and it does not exist yet (RFC-020 §3.2).
+            trim_pool(0);
+            return;
+        }
+        if (flags & DISPATCH_MEMORYPRESSURE_WARN) {
+            pressure_warn_.fetch_add(1, std::memory_order_relaxed);
+            // Keep enough for the frame that is running -- its own live
+            // high-water, which is what a render of this size needs -- and
+            // give back the rest, which is a bigger frame's leftovers. Between
+            // frames the value is the last frame's peak, which is the right
+            // reading for the same reason: the next render is that frame.
+            size_t keep = 0;
+            {
+                std::lock_guard<std::mutex> guard(pool_lock_);
+                keep = frame_high_water_;
+            }
+            trim_pool(keep);
+        }
+    }
+
+    // The test seam, and the reason it exists: a real memory-pressure event
+    // cannot be induced without squeezing the whole machine (RFC-020 §4.7
+    // declines to do that on a working one), so the path from the queue to the
+    // trim would otherwise ship unexercised and a harness could only assert
+    // that the numbers did not change.
+    //
+    // `SPEKTRAFILM_TEST_PRESSURE=warn|critical` delivers that event at each
+    // frame boundary, through the real handler on the real queue -- the queue,
+    // the handler, the trim, the flag and the counters are all the shipping
+    // ones; what is synthetic is the kernel's decision to send it. Unset, this
+    // costs one integer test per boundary and does nothing. The same shape as
+    // `SPEKTRAFILM_NODE_TIMINGS`.
+    //
+    // Both boundaries, for two different things a harness has to see: at the
+    // start, so the render about to run takes the flag and reports it; at the
+    // end, so the trim's effect can be measured at a moment when no render is
+    // in flight to grow the pool again.
+    //
+    // Synchronous on purpose: a harness has to be able to observe the effect
+    // after the call rather than at a moment it does not control. `sync` still
+    // runs the handler *on the queue*, which is the property that matters.
+    // Called with `pool_lock_` released -- the handler takes it.
+    void fire_test_pressure_if_asked() {
+        if (!test_pressure_flags_ || !pressure_queue_) return;
+        dispatch_sync_f(pressure_queue_, this, &MetalGpu::test_pressure_event);
+    }
+
     MTL::ComputePipelineState* pipeline(const char* name, std::string& error) {
         auto it = pipelines_.find(name);
         if (it != pipelines_.end()) return it->second;
@@ -636,6 +796,14 @@ private:
     size_t persistent_bytes_ = 0;
     size_t persistent_buffers_ = 0;
 
+    // RFC-020 §3.2. Atomic because the handler runs on `pressure_queue_`
+    // while a render runs on the caller's thread.
+    std::atomic<uint64_t> pressure_warn_{0};
+    std::atomic<uint64_t> pressure_critical_{0};
+    std::atomic<bool> critical_pending_{false};
+    dispatch_queue_t pressure_queue_ = nullptr;
+    dispatch_source_t pressure_source_ = nullptr;
+    unsigned long test_pressure_flags_ = 0;
 };
 
 }  // namespace
@@ -667,7 +835,12 @@ Gpu* Gpu::create_metal(void* device_handle, const std::string& metallib_path, st
         device->release();
         return nullptr;
     }
-    return new MetalGpu(device, owns, library, queue);
+    auto* gpu = new MetalGpu(device, owns, library, queue);
+    // After construction, and best-effort: the source's context is the object,
+    // and a source that cannot be made leaves pressure unmonitored rather than
+    // failing the engine. `MetalGpu`'s own destructor undoes it.
+    gpu->start_pressure_monitor();
+    return gpu;
 }
 
 }  // namespace spk::gpu

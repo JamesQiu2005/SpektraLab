@@ -389,10 +389,19 @@ struct spk_engine {
         persistent.set("negatives", Json(double(negative_count)));
         persistent.set("sessions", std::move(session_rows));
 
+        Json pressure = Json::object();
+        pressure.set("monitor", Json(pool.pressure_monitor));
+        pressure.set("warn_events", Json(double(pool.pressure_warn_events)));
+        pressure.set("critical_events", Json(double(pool.pressure_critical_events)));
+        // The one-shot flag, *not* taken here: `spk_render` takes it, so a
+        // report cannot steal the event from the render it belongs to.
+        pressure.set("critical_pending", Json(pool.pressure_critical_pending));
+
         Json out = Json::object();
         out.set("total_bytes", Json(double(pool.total_bytes + pool.persistent_bytes)));
         out.set("pool", std::move(pool_json));
         out.set("persistent", std::move(persistent));
+        out.set("pressure", std::move(pressure));
         return out;
     }
 };
@@ -1055,6 +1064,10 @@ spk_status render_tier(spk_session* session, const char* tier_name, bool use_rep
     session->progress.detailed = std::getenv("SPEKTRAFILM_NODE_TIMINGS") != nullptr;
 
     gpu->begin_frame();
+    // RFC-020 §3.2, after the frame marker so that an event arriving as this
+    // render starts belongs to it. One-shot: the flag describes *this* render,
+    // not a state every later one also inherits.
+    session->progress.memory_pressure_critical = gpu->take_critical_pressure();
     std::string error;
     const bool had_negative = session->tiers[tier->name].has_negative;
     if (!use_reprint && had_negative) {
@@ -1662,6 +1675,10 @@ spk_status spk_progress(spk_session* session, const char* progress_id, char** ou
     // RFC-015 P.1, additive: the EV the auto-exposure node applied to this
     // render's negative, null with the meter off.
     out.set("auto_exposure_ev", p.auto_exposure_ev ? Json(*p.auto_exposure_ev) : Json());
+    // RFC-020 §3.2, additive: whether the system asked for memory back as this
+    // render started. Reported and nothing else -- the mode that would act on
+    // it (§4) does not exist yet.
+    out.set("memory_pressure_critical", Json(p.memory_pressure_critical));
     out.set("done", Json(p.done));
     out.set("cancelled", Json(p.cancelled));
     if (out_json) *out_json = dup_json(out);

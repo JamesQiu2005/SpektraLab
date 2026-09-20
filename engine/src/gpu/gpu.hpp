@@ -110,6 +110,15 @@ struct PoolStats {
     // with the pool numbers above -- these are not pooled buffers.
     size_t persistent_bytes = 0;
     size_t persistent_buffers = 0;
+    // RFC-020 §3.2. Cumulative, so a 2 s timer sees an event it slept through;
+    // `critical_pending` is the one-shot flag the next `spk_render` takes.
+    uint64_t pressure_warn_events = 0;
+    uint64_t pressure_critical_events = 0;
+    bool pressure_critical_pending = false;
+    // Whether a memory-pressure source is registered at all. False on a
+    // platform or a process where the source could not be created, in which
+    // case the counters above stay zero because nothing would set them.
+    bool pressure_monitor = false;
 };
 
 // One dispatch's arguments, in buffer-index order. A small constant may be
@@ -242,6 +251,15 @@ public:
     // Unlike `alloc`, this is not on any render path and takes no encoder:
     // `pool_lock_` is taken here, so a caller holding it must not call this.
     virtual void trim_pool(size_t keep_bytes) = 0;
+
+    // Whether a **critical** memory-pressure event has arrived since the last
+    // call, clearing the flag. One-shot on purpose (RFC-020 §3.2): the next
+    // `spk_render` reads it, so `spk_progress` can say the render ran under
+    // pressure, and every later render is not told about an event that
+    // predates it. Warnings are not taken, only counted -- they are the same
+    // kind of event at a lower level, and a counter answers the question a
+    // report asks of them.
+    virtual bool take_critical_pressure() = 0;
 };
 
 // --- BufferRef, once Gpu is complete ---------------------------------------
