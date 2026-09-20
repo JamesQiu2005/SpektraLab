@@ -371,9 +371,24 @@ public:
 
     bool flush(std::string& error) override {
         // Anything held only for an encoded-but-unsubmitted dispatch can go
-        // back to the pool once the work has run.
-        struct Clear { std::vector<BufferRef>* v; ~Clear() { v->clear(); } } clear{&inflight_};
-        if (!command_buffer_) { reclaim(); return true; }
+        // back to the pool once the work has run -- and it has run, or this
+        // line is not reached.
+        //
+        // **Before `reclaim`, not when this function returns** (RFC-020
+        // §3.4). As a destructor it ran after `reclaim()` had swept
+        // `pending_`, so every buffer released here landed in an already-
+        // swept `pending_` and waited for the *next* flush to become
+        // reusable: one whole flush of the pool's largest, longest-lived
+        // buffers spent dead. Nothing decides when `flush` is called, so
+        // that is a wait with no bound on it. The destructor arm is kept for
+        // the early returns that deliberately skip `reclaim` on failure, and
+        // `clear()` twice in a row is a no-op.
+        struct ReleaseInflight {
+            std::vector<BufferRef>* v;
+            ~ReleaseInflight() { v->clear(); }
+            void now() { v->clear(); }
+        } inflight{&inflight_};
+        if (!command_buffer_) { inflight.now(); reclaim(); return true; }
         if (encoder_) { encoder_->endEncoding(); encoder_ = nullptr; }
         command_buffer_->commit();
         command_buffer_->waitUntilCompleted();
@@ -388,6 +403,7 @@ public:
         }
         command_buffer_->release();
         command_buffer_ = nullptr;
+        inflight.now();
         reclaim();
         return true;
     }
@@ -556,6 +572,27 @@ private:
     // Everything freed since the last flush is now genuinely idle: the work
     // that referenced it has completed.
     //
+    // The `refs == 0` filter is a **comment and not a branch** on purpose
+    // (RFC-020 §3.4): the state it excludes cannot be reached, and a branch
+    // nothing reaches is where a real defect hides (AGENTS.md,
+    // guards-that-cannot-fire). The argument, in full, because the next
+    // reader is the one who has to re-establish it:
+    //
+    //   `pending_` is pushed to in exactly one place, `release`, at the
+    //   moment the count reaches zero. `refs` rises in exactly one place,
+    //   `retain`, and `retain` is called from `BufferRef`'s copy constructor
+    //   and copy assignment -- both of which need a live `BufferRef` to copy,
+    //   and a buffer at `refs == 0` is by definition one whose last handle
+    //   has been destroyed. So nothing can re-retain a buffer between the
+    //   `release` that queued it and the `reclaim` that sweeps it, and the
+    //   filter never has anything to filter.
+    //
+    // If that argument is ever wrong, the failure it guards is the worse of
+    // the two: marking a live buffer reusable hands it to the next `alloc`
+    // while a kernel is still reading it -- the 25-of-27 render-parity bug
+    // the comment in `release` records, silent corruption rather than a
+    // leak. So the guard stays, and the state it excludes being unreachable
+    // is what is written down rather than what is assumed.
     void reclaim() {
         std::lock_guard<std::mutex> guard(pool_lock_);
         for (Buffer* b : pending_) if (b->refs == 0) b->reusable = true;
