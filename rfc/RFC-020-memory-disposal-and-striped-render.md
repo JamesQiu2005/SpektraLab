@@ -779,7 +779,13 @@ would have trimmed to eighteen exabytes, i.e. done nothing, silently disabling
 the feature this RFC's §3.2 exists to provide. Fixed by counting persistent
 buffers in `persistent_bytes_` and nowhere else, and by clamping rather than
 wrapping, with a `live_underflows` counter that must stay zero. Found by a
-two-session sequence, not by any of the probes written to check that accounting.
+two-session sequence, not by any of the probes written to check that accounting --
+and **it shipped in 1.0.2**: `be7705e` and `a9021ff` are ancestors of
+`spektralab-v1.0.2`, so on those installs §3.2's warn-level trim has been sized
+from a wrapped sum since the first frame switch of a session. Critical still
+trims and nothing renders differently; the level below it simply stops doing
+anything. Two days of green probes did not see it because every one of them
+opened a single session per engine.
 
 **This is not a re-estimate and the ~6 GB is not being defended.** §9 step 1's
 promise stands unchanged: the first thing Part B does is replace the estimate

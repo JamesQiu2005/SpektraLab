@@ -128,6 +128,17 @@ struct PoolAudit {
     //                        sequence in `iir_peak.py`, and traced to
     //                        `release` subtracting a *persistent* buffer that
     //                        no `add` had ever counted.
+    //
+    //                        **It shipped in 1.0.2.** `be7705e` (the report)
+    //                        and `a9021ff` (the handler) are both ancestors of
+    //                        `spektralab-v1.0.2`, so on those installs the
+    //                        warn-level trim has been sized from a wrapped sum
+    //                        since the first frame switch of a session. Critical
+    //                        still trims, nothing crashes and nothing renders
+    //                        differently; the feature just stops doing anything.
+    //                        Nothing in the suite saw it in two days, because
+    //                        every accounting probe opened one session per
+    //                        engine -- the one dimension nobody varied.
     uint64_t pending_held = 0;
     uint64_t over_releases = 0;
     uint64_t reclaim_while_encoding = 0;
