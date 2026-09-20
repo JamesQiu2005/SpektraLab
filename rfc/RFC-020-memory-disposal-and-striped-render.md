@@ -440,21 +440,48 @@ added additively. That alone removes the 1.63 GB transient.
 
 It does **not** by itself remove `session->source`, because every tier
 downscale reads from it and every reprint reads the cached negative. Removing
-those two needs something else, and here is the one genuinely speculative idea
-in this RFC, flagged as such:
+those two needs something else.
 
-> **Back `session->source` and the cached negative with a file, not wired
-> memory.** `MTLDevice.makeBuffer(bytesNoCopy:)` over an `mmap`'d,
-> page-aligned file would let the kernel evict clean pages under pressure and
-> fault them back from SSD, instead of the app holding 2.4 GB wired. On Apple
-> silicon that is the same unified memory the GPU reads.
->
-> **This must be measured before it is designed in.** Two things are unknown:
-> whether Metal accepts a no-copy buffer over a file mapping for compute, and
-> whether clean pages of such a mapping actually stay out of `phys_footprint`
-> — which is the only number that matters here, because it is the one jetsam
-> reads. A half-day probe settles both. If either answer is no, this idea is
-> dropped and §4.4's table keeps those two rows at 1.22 GB.
+**Back `session->source` and the cached negative with a file, not wired
+memory** — `MTLDevice.makeBuffer(bytesNoCopy:)` over an `mmap`'d, page-aligned
+file, so the kernel can drop clean pages under pressure instead of the app
+holding 2.4 GB. On Apple silicon that is the same unified memory the GPU reads.
+
+This was the one speculative idea in the first draft. **It has been measured**
+— `rfc/probes/rfc020-mmap-plane.swift`, 2026-09-20, at the 102 MP plane size —
+and it works:
+
+| | ordinary `.storageModeShared` | `bytesNoCopy` over a file |
+|---|---|---|
+| Metal accepts it for compute | — | **yes**, kernel output correct |
+| `phys_footprint` for a 1.22 GB plane | **+1.232 GB** | **+0.135 GB** |
+| resident (`mincore`) | 1.22 GB | **1.225 GB** |
+| GPU read, alternated, median of 3 | 10 ms | **10 ms (1.01x)** |
+| host fill | 139 ms | 175 ms (**1.26x**, ~+34 ms per open) |
+
+The pages are genuinely in RAM — `mincore` says so — and are **about nine
+times less charged to the process**. That is the whole of the idea and it
+holds. `msync` costs 218–536 ms and is **not** needed: the footprint benefit
+applies to dirty file-backed pages as measured, so nothing forces a write-back
+and the kernel does it lazily, under pressure, if at all.
+
+So §4.4's two 1.22 GB rows are movable, and moving them takes **~2.4 GB off
+the 15.6 GB peak for ~34 ms per open** — before any striping at all, and with
+none of §4's complexity. That makes it the cheapest real win in this RFC and
+it is sequenced accordingly (§9).
+
+**One thing the probe could not answer, and this RFC must not pretend
+otherwise.** `madvise(MADV_DONTNEED)` does not drop residency for a
+`MAP_SHARED` file mapping on macOS — measured: still 1.225 GB resident — so an
+application cannot force the reclaim, and inducing real system-wide pressure to
+watch the fault-back is not something to do casually on a working machine.
+**The eviction path is therefore inferred, not measured**: we know the pages
+are not charged and we know the kernel *may* drop them, but we have not
+observed what a render pays when it has to fault 1.22 GB back from SSD
+mid-flight. At ~3 GB/s that is ~400 ms if it happens all at once, which is
+survivable, but it is arithmetic and not a measurement. The acceptance test in
+§6 should include a machine deliberately squeezed, or the claim stays
+qualified.
 
 ---
 
@@ -573,8 +600,12 @@ step is the last one:
 2. **Disposal** (§3.1, §3.2, §3.4). Trim on frame switch, answer pressure, and
    settle the two latent defects. Measurable on its own: switching from a
    102 MP frame to a 24 MP one must return the pool.
-3. **The `mmap` probe** (§4.7). Half a day, and it decides whether two 1.22 GB
-   rows in §4.4's table are movable at all. Do it before designing around them.
+3. ~~The `mmap` probe.~~ **Done, 2026-09-20; the answer is yes** (§4.7,
+   `rfc/probes/rfc020-mmap-plane.swift`). What replaces it is the work it
+   cleared: **back `session->source` and the cached negative with file
+   mappings.** ~2.4 GB off the peak for ~34 ms per open, no striping, no
+   pixel change — the cheapest real win here, and it moves ahead of everything
+   in §4.
 4. **The strip executor with every node whole-frame.** A striped render that
    materialises each node's full plane saves nothing and must be
    bit-identical — which makes it a pure test of the plumbing, the offsets and
