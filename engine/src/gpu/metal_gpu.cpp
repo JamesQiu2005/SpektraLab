@@ -155,18 +155,65 @@ public:
     BufferRef alloc(size_t bytes, std::string& error) override {
         if (bytes == 0) { error = "zero-length allocation"; return {}; }
         {
-            std::lock_guard<std::mutex> guard(pool_lock_);
             // Reuse the smallest free buffer that fits, so a chain of
             // same-sized full-frame nodes recycles two or three buffers
             // rather than one per node.
-            Buffer* best = nullptr;
-            for (Buffer* b : pool_)
-                if (b->refs == 0 && b->reusable && b->bytes >= bytes &&
-                    (!best || b->bytes < best->bytes)) best = b;
-            if (best) {
-                best->refs = 1;
-                best->reusable = false;
-                return BufferRef(this, best);
+            std::lock_guard<std::mutex> guard(pool_lock_);
+            if (Buffer* best = take_reusable_locked(bytes)) return BufferRef(this, best);
+        }
+        // Nothing reusable fits. A long stretch with no flush in it can leave
+        // most of the pool dead but not yet reclaimable: `release` puts a
+        // buffer in `pending_` instead of marking it reusable, and only
+        // `flush` -> `reclaim` promotes it. At 102 MP a full-frame buffer is
+        // 1.22 GB, and the grain and diffusion stages
+        // (`spk_grain_layer_one`, `spk_sep_fir_acc`, `spk_couplers_correction`)
+        // run long enough with no flush in them to strand 13 GB of pending
+        // buffers -- 19 of them, 13.1 GB -- while genuine concurrent liveness
+        // is 11.0 GB. `alloc` then faults in 8 more at 1.22 GB each, for a
+        // 28.9 GB peak on a 24 GB machine. Reference counting made the pool
+        // reusable *across* flushes (AGENTS.md trap 5); nothing bounded a
+        // stretch containing none. So before taking a fresh buffer, ask whether
+        // a pending one would have served the request, and if so make it
+        // genuine by flushing.
+        //
+        // Three things are load-bearing here:
+        //
+        //  1. **The lock is released before `flush`.** `flush` ends in
+        //     `reclaim`, which takes `pool_lock_`; calling it from inside the
+        //     `lock_guard` scope above would deadlock on a non-recursive
+        //     mutex. That is why the scan and the flush are in separate scopes.
+        //  2. **The 16 MB floor** keeps the flush off small constant uploads,
+        //     where the submit-and-wait round trip costs more than the buffer.
+        //  3. **`flush` contains `waitUntilCompleted`**, so this puts a
+        //     synchronisation point inside `alloc`. The engine is fully
+        //     synchronous today, which makes it free -- but it is a real
+        //     barrier, and anyone who later overlaps encode with execute has
+        //     to reckon with it here rather than discover it as a mystery
+        //     stall in the profile.
+        //
+        // One more consequence, latent rather than live: this can end and
+        // commit the *open* encoder, so a caller that took an encoder pointer
+        // before calling in must not hold it across the call. `dispatch` is
+        // the only caller that does, on the >4 KB inline-argument path, and no
+        // kernel in the tree passes an inline argument within three orders of
+        // magnitude of the 16 MB floor -- so it cannot fire today. A future
+        // kernel with a multi-megabyte constant would have to bind its
+        // arguments before taking the encoder.
+        if (bytes >= (16u << 20)) {
+            bool worth = false;
+            {
+                std::lock_guard<std::mutex> guard(pool_lock_);
+                worth = pending_would_serve_locked(bytes);
+            }
+            if (worth) {
+                // A failed flush falls through to a fresh buffer rather than
+                // failing the render: the next real dispatch reports the same
+                // failure with a better message anyway.
+                std::string ignored;
+                if (flush(ignored)) {
+                    std::lock_guard<std::mutex> guard(pool_lock_);
+                    if (Buffer* best = take_reusable_locked(bytes)) return BufferRef(this, best);
+                }
             }
         }
         MTL::Buffer* mtl = device_->newBuffer(bytes, MTL::ResourceStorageModeShared);
@@ -378,6 +425,26 @@ private:
         }
         pipelines_[name] = pso;
         return pso;
+    }
+
+    // Caller holds `pool_lock_`. The smallest free buffer that fits, taken
+    // (its reference is handed to the caller).
+    Buffer* take_reusable_locked(size_t bytes) {
+        Buffer* best = nullptr;
+        for (Buffer* b : pool_)
+            if (b->refs == 0 && b->reusable && b->bytes >= bytes &&
+                (!best || b->bytes < best->bytes)) best = b;
+        if (best) { best->refs = 1; best->reusable = false; }
+        return best;
+    }
+
+    // Caller holds `pool_lock_`. A buffer whose last handle has dropped but
+    // which is not reusable yet, because the command buffer that names it has
+    // not run. It would serve this request if it had.
+    bool pending_would_serve_locked(size_t bytes) {
+        for (Buffer* b : pending_)
+            if (b->refs == 0 && b->bytes >= bytes) return true;
+        return false;
     }
 
     // Everything freed since the last flush is now genuinely idle: the work
