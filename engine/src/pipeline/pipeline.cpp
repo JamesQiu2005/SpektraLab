@@ -868,6 +868,13 @@ bool Pipeline::node_exposure(const Image& in, Image& out, std::string& error) {
     return blur_.affine(in, s, t0, out, error);
 }
 
+// **Not a pointwise node, whatever §4.2's table says.** `device_max(in)` below
+// is a reduction over every pixel of the frame, so this node cannot be run on a
+// band: each strip would be normalised by its own maximum and the seams would
+// be visible wherever the boost is on. The striped executor therefore keeps it
+// in a whole-frame stage -- see `film_boost_and_blurs` -- and anyone revisiting
+// §4.2's classification should start here. Found by the §6 strip axis, not by
+// reading the table.
 bool Pipeline::node_boost(const Image& in, Image& out, std::string& error) {
     const HalationParams& hal = params_.film_render.halation;
     if (hal.boost_ev == 0.0) { out = in; return true; }
@@ -1605,14 +1612,28 @@ bool Pipeline::film_scale_and_expose(const Chain& in, Chain& out, std::string& e
     Image cur = in.cur, next;
     SPK_NODE(node_upsample(cur, next, error)); cur = next;
     SPK_NODE(node_exposure(cur, next, error)); cur = next;
-    SPK_NODE(node_boost(cur, next, error)); cur = next;
     out = in;
     out.cur = cur;
     return true;
 }
 
-bool Pipeline::film_blurs(const Chain& in, Chain& out, std::string& error) {
+bool Pipeline::film_boost_and_blurs(const Chain& in, Chain& out, std::string& error) {
+    // **`node_boost` is here and not in the band-able stage, and it is not a
+    // detail.** It normalises the highlight lift by `device_max(in)` -- the
+    // *frame's* own maximum, a reduction over every pixel -- so it is not a
+    // pointwise node however §4.2's table classifies it, and on a band it
+    // would normalise each strip by that strip's brightest pixel. The §6 axis
+    // caught exactly that: with `halation_boost_ev = 3.0`, every strip height
+    // produced a different picture from the un-stripped render, at `n = 1`
+    // as well as at `n = 180`.
+    //
+    // It takes §4.6's escape hatch and declares itself whole-frame, which is
+    // what P4 prescribes for a node that wants an image-global statistic: the
+    // alternative -- taking the maximum from the meter tier, the way auto
+    // exposure takes its EV -- is exact by construction and changes the
+    // picture, so it is not available to a step whose gate is a hash.
     Image cur = in.cur, next;
+    SPK_NODE(node_boost(cur, next, error)); cur = next;
     SPK_NODE(node_lens_blur(cur, next, error)); cur = next;
     SPK_NODE(node_halation(cur, next, error)); cur = next;
     out = in;
@@ -1708,7 +1729,7 @@ bool Pipeline::print_output(const Chain& in, Chain& out, std::string& error) {
 // they are I + F/R with the blurs inside their bodies.
 const Pipeline::Stage Pipeline::kFilmStages[] = {
     {"film_scale_and_expose", true,  &Pipeline::film_scale_and_expose},
-    {"film_blurs",            false, &Pipeline::film_blurs},
+    {"film_boost_and_blurs",   false, &Pipeline::film_boost_and_blurs},
     {"film_log_and_curves",   true,  &Pipeline::film_log_and_curves},
     {"film_couplers",         false, &Pipeline::film_couplers},
     {"film_grain",            false, &Pipeline::film_grain},
@@ -1776,6 +1797,78 @@ bool Pipeline::run_film(const Image& in, Image& out, Progress* progress, std::st
     return true;
 }
 
+// The stage walk. This is the shipping topology arriving: a band-able run is
+// executed once per strip, a whole-frame stage once for the frame, and the
+// crossings between them are where the copies happen -- derived from the kinds,
+// so no second place decides a size and `choose_strip_height` stays §7's only
+// call site.
+bool Pipeline::run_stages_striped(const Stage* stages, size_t count, Chain& chain,
+                                  const std::vector<StripSpan>& plan, Progress::StripRun& report,
+                                  std::string& error) {
+    size_t i = 0;
+    while (i < count) {
+        if (stages[i].band_able) {
+            size_t j = i;
+            while (j < count && stages[j].band_able) ++j;
+            for (size_t k = i; k < j; ++k) report.stages.push_back({stages[k].name, true});
+
+            // The plane this run's strips are written back into. **`log_e_film`
+            // is assembled too**, because the crossing after this run hands
+            // `film_couplers` both fields as planes -- the one place a crossing
+            // carries more than `cur`, and the reason `Chain` exists. It is
+            // also the extra plane §4.4's nine-plane table does not know about.
+            const uint32_t frame_h = chain.cur.h;
+            Chain plane_out;
+            for (const StripSpan& span : plan) {
+                Chain band_in;
+                if (!band_from(chain.cur, span, band_in.cur, error)) return false;
+                if (chain.log_e_film.buf &&
+                    !band_from(chain.log_e_film, span, band_in.log_e_film, error)) return false;
+
+                Chain cur = band_in;
+                for (size_t k = i; k < j; ++k) {
+                    Chain next;
+                    if (!(this->*stages[k].run)(cur, next, error)) return false;
+                    cur = next;
+                }
+                ++report.passes;
+
+                if (!plane_out.cur.buf) {
+                    // The shape comes from the **band**, not from the plane the
+                    // run is writing into: on the run that *produces*
+                    // `log_e_film` there is no plane yet, and taking the width
+                    // from an empty image is a zero-length allocation.
+                    plane_out.cur.h = frame_h;
+                    plane_out.cur.w = cur.cur.w;
+                    plane_out.cur.c = cur.cur.c;
+                    plane_out.cur.buf = gpu_->alloc(plane_out.cur.bytes(), error);
+                    if (!plane_out.cur.buf) return false;
+                }
+                if (!band_into(cur.cur, span, plane_out.cur, error)) return false;
+                if (cur.log_e_film.buf) {
+                    if (!plane_out.log_e_film.buf) {
+                        plane_out.log_e_film.h = frame_h;
+                        plane_out.log_e_film.w = cur.log_e_film.w;
+                        plane_out.log_e_film.c = cur.log_e_film.c;
+                        plane_out.log_e_film.buf = gpu_->alloc(plane_out.log_e_film.bytes(), error);
+                        if (!plane_out.log_e_film.buf) return false;
+                    }
+                    if (!band_into(cur.log_e_film, span, plane_out.log_e_film, error)) return false;
+                }
+            }
+            chain = plane_out;
+            i = j;
+        } else {
+            report.stages.push_back({stages[i].name, false});
+            Chain next;
+            if (!(this->*stages[i].run)(chain, next, error)) return false;
+            chain = next;
+            ++i;
+        }
+    }
+    return true;
+}
+
 // The striped pass. One pass per strip, and each pass runs the whole segment:
 // with every node declaring itself whole-frame (§4.6's escape hatch) a pass has
 // no band-local work in it, so this does `n_strips` times the segment's work
@@ -1786,6 +1879,34 @@ bool Pipeline::run_film(const Image& in, Image& out, Progress* progress, std::st
 // nodes materialised once per run at a segment boundary. Step 5 changes this
 // shape; step 4 uses it as a test rig, with the mode off by default so no
 // product path pays for it.
+bool Pipeline::band_from(const Image& plane, const StripSpan& span, Image& out,
+                         std::string& error) {
+    if (span.rows == 0) { out = Image{}; return true; }
+    out.h = span.rows; out.w = plane.w; out.c = plane.c;
+    out.buf = gpu_->alloc(out.bytes(), error);
+    if (!out.buf) return false;
+    const size_t row = size_t(plane.w) * plane.c;
+    std::memcpy(gpu_->contents(out.buf.get()),
+                static_cast<const float*>(gpu_->contents(plane.buf.get())) + size_t(span.y0) * row,
+                size_t(span.rows) * row * sizeof(float));
+    if (!gpu_->flush(error)) return false;
+    return true;
+}
+
+bool Pipeline::band_into(const Image& band, const StripSpan& span, Image& plane,
+                         std::string& error) {
+    if (!band.buf || span.rows == 0) return true;
+    const size_t row = size_t(plane.w) * plane.c;
+    if (band.h != span.rows || band.w != plane.w || band.c != plane.c) {
+        error = "a band does not match the strip it is being written back into";
+        return false;
+    }
+    if (!gpu_->flush(error)) return false;
+    std::memcpy(static_cast<float*>(gpu_->contents(plane.buf.get())) + size_t(span.y0) * row,
+                gpu_->contents(band.buf.get()), size_t(span.rows) * row * sizeof(float));
+    return true;
+}
+
 bool Pipeline::run_film_striped(const Image& in, Image& out, Progress* progress,
                                std::string& error) {
     if (!built_) { error = "pipeline was not built"; return false; }
@@ -1796,36 +1917,17 @@ bool Pipeline::run_film_striped(const Image& in, Image& out, Progress* progress,
     Image cur;
     if (!film_prefix(in, FrameShape{in.h, in.w}, cur, error)) return false;
 
-    const std::vector<StripSpan> plan = strip_plan(cur.h);
-    Image assembled;
-    assembled.h = cur.h; assembled.w = cur.w; assembled.c = 3;
-    assembled.buf = gpu_->alloc(assembled.bytes(), error);
-    if (!assembled.buf) return false;
-    float* dst = static_cast<float*>(gpu_->contents(assembled.buf.get()));
-
-    uint32_t passes = 0;
-    for (const StripSpan& span : plan) {
-        Image pass;
-        if (!film_segment(cur, pass, error)) return false;
-        ++passes;
-        // The strip's rows out of the pass's plane. Host-side, which is legal
-        // because every buffer here is shared storage and the segment's last
-        // node flushed. The dimensions must line up because the segment is
-        // dimension-preserving; if a future node resamples, this is where the
-        // executor has to learn about it rather than quietly copying the wrong
-        // rows.
-        if (pass.h != assembled.h || pass.w != assembled.w) {
-            error = "the striped executor assumes the film segment preserves the plane's shape";
-            return false;
-        }
-        std::memcpy(dst + size_t(span.y0) * assembled.w * 3,
-                    static_cast<const float*>(gpu_->contents(pass.buf.get()))
-                        + size_t(span.y0) * assembled.w * 3,
-                    size_t(span.rows) * assembled.w * 3 * sizeof(float));
+    Chain chain;
+    chain.cur = cur;
+    Progress::StripRun report;
+    report.stage = "film";
+    report.plan = strip_plan(cur.h);
+    if (!run_stages_striped(kFilmStages, kFilmStageCount, chain, report.plan, report, error)) {
+        return false;
     }
-    if (progress_) progress_->strips.push_back({"film", plan, passes});
+    if (progress_) progress_->strips.push_back(std::move(report));
     progress_ = nullptr;
-    out = assembled;
+    out = chain.cur;
     return true;
 }
 
@@ -1873,10 +1975,6 @@ bool Pipeline::run_print(const Image& cmy, Image& out, Progress* progress, std::
     return true;
 }
 
-// `run_print` through the executor, with the same shape and the same scaffold
-// note as `run_film_striped`: the whole print segment per strip, because every
-// node is whole-frame in step 4. The print side is dimension-preserving from
-// end to end, so the strips cut the negative's own rows.
 bool Pipeline::run_print_striped(const Image& cmy, Image& out, Progress* progress,
                                  std::string& error) {
     if (!built_) { error = "pipeline was not built"; return false; }
@@ -1887,30 +1985,17 @@ bool Pipeline::run_print_striped(const Image& cmy, Image& out, Progress* progres
     }
     if (!print_prefix(error)) { progress_ = nullptr; return false; }
 
-    const std::vector<StripSpan> plan = strip_plan(cmy.h);
-    Image assembled;
-    assembled.h = cmy.h; assembled.w = cmy.w; assembled.c = 3;
-    assembled.buf = gpu_->alloc(assembled.bytes(), error);
-    if (!assembled.buf) return false;
-    float* dst = static_cast<float*>(gpu_->contents(assembled.buf.get()));
-
-    uint32_t passes = 0;
-    for (const StripSpan& span : plan) {
-        Image pass;
-        if (!print_segment(cmy, pass, error)) return false;
-        ++passes;
-        if (pass.h != assembled.h || pass.w != assembled.w) {
-            error = "the striped executor assumes the print segment preserves the plane's shape";
-            return false;
-        }
-        std::memcpy(dst + size_t(span.y0) * assembled.w * 3,
-                    static_cast<const float*>(gpu_->contents(pass.buf.get()))
-                        + size_t(span.y0) * assembled.w * 3,
-                    size_t(span.rows) * assembled.w * 3 * sizeof(float));
+    Chain chain;
+    chain.cur = cmy;
+    Progress::StripRun report;
+    report.stage = "print";
+    report.plan = strip_plan(cmy.h);
+    if (!run_stages_striped(kPrintStages, kPrintStageCount, chain, report.plan, report, error)) {
+        return false;
     }
-    if (progress_) { progress_->strips.push_back({"print", plan, passes}); progress_->done = true; }
+    if (progress_) { progress_->strips.push_back(std::move(report)); progress_->done = true; }
     progress_ = nullptr;
-    out = assembled;
+    out = chain.cur;
     return true;
 }
 

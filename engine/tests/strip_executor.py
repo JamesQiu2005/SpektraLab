@@ -12,8 +12,12 @@ make the step falsifiable instead:
    geometry is what steps 5 and 6 are built on, and step 4 is the only step
    where it can be checked in isolation -- nothing reads it yet, so nothing
    goes visibly wrong if it is off by a row.
-2. **The loop actually ran what it planned** (`passes == len(plan)` per
-   segment). A correct plan the loop does not execute is a different bug.
+2. **The loop actually ran what it planned.** A strip pass happens once per
+   strip per *band-able run*, so `passes == len(plan) x band_runs` exactly, and
+   the band-able runs are where the chain says they are -- the classes are
+   pinned, because a stage wrongly marked band-able is a picture bug (an F/R
+   stage truncated at a band edge) and this is where the classification is
+   visible.
 
 Plus §6's hash gate, against the **un-striped** render as the reference rather
 than against the axis's own `n = 1`: that the mode degenerates is one claim,
@@ -103,12 +107,29 @@ def main() -> int:
                 why = check_partition(seg["plan"], h, expected)
                 if why:
                     problems.append(f"{seg['stage']}: {why}")
-                elif seg["passes"] != len(seg["plan"]):
+                    continue
+                # One pass per strip per band-able *run*: the runs are maximal
+                # groups of adjacent band-able stages, and the expected class
+                # sets are pinned below.
+                runs = [st["band_able"] for st in seg["stages"]]
+                band_runs = sum(1 for i, b in enumerate(runs) if b and not (i and runs[i - 1]))
+                if seg["passes"] != band_runs * len(seg["plan"]):
                     problems.append(f"{seg['stage']}: {seg['passes']} passes for "
-                                    f"{len(seg['plan'])} strips")
+                                    f"{len(seg['plan'])} strips x {band_runs} band runs")
             check(not problems, f"{label}: the plan partitions [0, {h}) and ran",
                   "; ".join(problems) if problems else
-                  f"{expected} strips x 2 segments, {segs[0]['passes']} passes each")
+                  f"{expected} strips, " + ", ".join(
+                      f"{g['stage']} {g['passes']} passes" for g in segs))
+
+            # The classification, pinned. Step 5 stripes class P and nothing
+            # else; an F/R stage here would be a picture bug this harness must
+            # see, and a stage that quietly stopped being band-able would make
+            # the mode do less while every hash stayed green.
+            want = {"film": {"film_scale_and_expose", "film_log_and_curves"},
+                    "print": {"print_spectral", "print_linear", "print_output"}}
+            got = {g["stage"]: {st["name"] for st in g["stages"] if st["band_able"]} for g in segs}
+            check(got == want, f"{label}: the band-able stages are class P and only class P",
+                  f"{got}" if got != want else "film and print as expected")
 
             # §6's gate in this probe's own terms: the striped picture is the
             # un-striped one -- **each against its own kind**. A render and a

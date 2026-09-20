@@ -1755,6 +1755,14 @@ spk_status spk_progress(spk_session* session, const char* progress_id, char** ou
             entry.set("stage", Json(run.stage));
             entry.set("passes", Json(double(run.passes)));
             entry.set("plan", std::move(spans));
+            Json ran = Json::array();
+            for (const Progress::StripRun::StageRun& st : run.stages) {
+                Json e = Json::object();
+                e.set("name", Json(st.name));
+                e.set("band_able", Json(st.band_able));
+                ran.push(std::move(e));
+            }
+            entry.set("stages", std::move(ran));
             segments.push(std::move(entry));
         }
         out.set("strip_segments", std::move(segments));

@@ -145,10 +145,17 @@ struct Progress {
         /// none, which is honest rather than a failure: a stage that needs the
         /// whole plane is not run per strip, so there is no pass to count.
         uint32_t passes = 0;
-        /// The stages this segment executed, in order. Reported so the two
-        /// encodings of the chain order -- the straight-line calls in
-        /// `film_segment` and this table -- can be held against each other.
-        std::vector<std::string> stages;
+        /// The stages this segment executed, in order, each with its kind.
+        /// Reported so the *plan* and the *execution* can be held together:
+        /// with the kinds visible, a caller can check that every strip pass
+        /// belongs to a band-able run and that the runs are where the chain
+        /// says they are. It is not a drift check between two orderings --
+        /// there is only one, the stage table, walked by both paths.
+        struct StageRun {
+            std::string name;
+            bool band_able = false;
+        };
+        std::vector<StageRun> stages;
     };
     std::vector<StripRun> strips;
     // RFC-020 §3.2: a critical memory-pressure event had arrived when this
@@ -273,6 +280,20 @@ public:
         Image log_e_film;  // film only: live from `log_and_curves` to `couplers`
     };
 
+    // **A step 6 consequence, written down where the crossings are.** At the
+    // `film_log_and_curves -> film_couplers` crossing, `cur` *and* `log_e_film`
+    // must be planes at the same moment, so that boundary holds one more full
+    // plane than §4.4's memory table accounts for -- its nine-plane count was
+    // built from a straight-line reading of the graph, and §4.2's table reads
+    // every node as one-in-one-out, which only `node_dir_couplers` is not. At
+    // 102 MP that is 1.22 GB at a crossing the estimate does not know about.
+    // Step 5 does not care (everything is whole-frame); step 6's measurement is
+    // where to look for it.
+    //
+    // The rows a band run operates on. Used by the executor to carry a band and
+    // its origin together, so that writing it back cannot lose the offset: a
+    // pair of loose values is exactly the shape `Strip` exists to remove.
+
     struct Stage {
         const char* name;
         /// Class P in step 5: a stage the executor may run once per strip.
@@ -294,7 +315,7 @@ public:
     // `strip_executor.py` exist because they are still two encodings of one
     // order.
     bool film_scale_and_expose(const Chain& in, Chain& out, std::string& error);
-    bool film_blurs(const Chain& in, Chain& out, std::string& error);
+    bool film_boost_and_blurs(const Chain& in, Chain& out, std::string& error);
     bool film_log_and_curves(const Chain& in, Chain& out, std::string& error);
     bool film_couplers(const Chain& in, Chain& out, std::string& error);
     bool film_grain(const Chain& in, Chain& out, std::string& error);
@@ -323,6 +344,21 @@ public:
     /// that can be off by a row and still hash green -- with every node
     /// whole-frame the arithmetic cannot notice.
     std::vector<StripSpan> strip_plan(uint32_t plane_h) const;
+
+    /// Copy a band's rows out of a whole plane, into a band-sized buffer.
+    /// The copy is the price of `image.hpp`'s no-stride contract, paid once per
+    /// live field at each crossing where the kind changes.
+    bool band_from(const Image& plane, const StripSpan& span, Image& out, std::string& error);
+    /// And back: the band's rows, into the plane at the band's own offset.
+    bool band_into(const Image& band, const StripSpan& span, Image& plane, std::string& error);
+
+    /// Walk a stage table over a plan: a band-able run once per strip, a plane
+    /// stage once for the frame, and the **crossings derived from the kinds**
+    /// rather than listed beside the chain -- so `choose_strip_height` stays the
+    /// only place a size is chosen, which is what §7 owes RFC-021.
+    bool run_stages_striped(const Stage* stages, size_t count, Chain& chain,
+                            const std::vector<StripSpan>& plan, Progress::StripRun& report,
+                            std::string& error);
 
     /// `run_film` / `run_print` with the striped executor in place of the
     /// single pass. What each pass actually *computes* is the same graph in
