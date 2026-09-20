@@ -1951,14 +1951,22 @@ bool Pipeline::run_stages_striped(const Stage* stages, size_t count, Chain& chai
     std::vector<uint32_t> halos(count, 0);
     for (size_t i = 0; i < count; ++i) {
         const Stage& st = stages[i];
+        const char* resolution = "whole";
         if (st.klass == StageClass::Pointwise) {
             band_able[i] = true;
+            resolution = "banded";
         } else if (st.klass == StageClass::Neighbourhood) {
             const Blur::Demand d = (this->*st.demand)();
             band_able[i] = !d.carried;
             halos[i] = d.halo;
+            resolution = d.carried ? "swept" : "banded";
         }
-        report.stages.push_back({st.name, class_name(st.klass), band_able[i]});
+        Progress::StripRun::StageRun entry;
+        entry.name = st.name;
+        entry.stage_class = class_name(st.klass);
+        entry.band_able = band_able[i];
+        entry.resolution = resolution;
+        report.stages.push_back(std::move(entry));
     }
 
     size_t i = 0;
@@ -2037,9 +2045,23 @@ bool Pipeline::run_stages_striped(const Stage* stages, size_t count, Chain& chai
             chain = plane_out;
             i = j;
         } else {
+            // A stage that resolves `"swept"` still runs whole here -- what it
+            // reports is *how* it ran whole, and the blurs that did the work
+            // fill that in. Everything else leaves the report empty and says
+            // nothing, which is the honest answer for a stage with no sweeps in
+            // it.
+            Blur::SweepReport sweep;
+            const bool report_sweep = report.stages[i].resolution == "swept";
+            if (report_sweep) blur_.set_sweep_report(&sweep);
             Chain next;
-            if (!(this->*stages[i].run)(chain, next, error)) return false;
+            const bool ok = (this->*stages[i].run)(chain, next, error);
+            if (report_sweep) blur_.set_sweep_report(nullptr);
+            if (!ok) return false;
             chain = next;
+            if (report_sweep) {
+                report.stages[i].swept = std::move(sweep.bands);
+                report.stages[i].launches = sweep.launches;
+            }
             ++i;
         }
     }

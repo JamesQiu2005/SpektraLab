@@ -82,21 +82,6 @@ kernel void spk_reduce_max(device const float* x [[buffer(0)]],
     if (lid == 0u) partials[tg.x] = scratch[0];
 }
 
-// `mx.contiguous(mx.transpose(img, (1, 0, 2)))` -- the IIR's horizontal pass
-// is the vertical kernel on the transpose, so every recurrence thread reads
-// coalesced memory.
-kernel void spk_transpose3(device const float* img [[buffer(0)]],
-                           device const uint* meta [[buffer(1)]],
-                           device float* out [[buffer(2)]],
-                           uint3 thread_position_in_grid [[thread_position_in_grid]]) {
-    uint i = thread_position_in_grid.x;
-    uint H = meta[0], W = meta[1];
-    if (i >= H * W) return;
-    uint y = i / W, x = i % W;
-    uint dst = x * H + y;
-    for (uint c = 0u; c < 3u; ++c) out[3u * dst + c] = img[3u * i + c];
-}
-
 // The tier downscale's resample half, verbatim from
 // `backends/metal/resize.py`. The Gaussian prefilter in front of it is
 // `spk_sep_fir_acc` in 'mirror' mode, which is what skimage's

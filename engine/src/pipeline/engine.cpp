@@ -1769,7 +1769,23 @@ spk_status spk_progress(spk_session* session, const char* progress_id, char** ou
                 // first, which is why the harness pins one and reads the other.
                 e.set("class", Json(st.stage_class));
                 e.set("band_able", Json(st.band_able));
+                e.set("resolution", Json(st.resolution));
                 e.set("halo", Json(double(st.halo)));
+                if (!st.swept.empty() || st.launches) {
+                    // A `Swept` stage's own account of what it swept: the rows
+                    // its sweeps covered, in launch order, and how many
+                    // launches they cost. Filled by the sweeps, not by the
+                    // executor, so it is evidence rather than echo.
+                    Json bands = Json::array();
+                    for (const StripSpan& b : st.swept) {
+                        Json one = Json::object();
+                        one.set("y0", Json(double(b.y0)));
+                        one.set("rows", Json(double(b.rows)));
+                        bands.push(std::move(one));
+                    }
+                    e.set("swept", std::move(bands));
+                    e.set("launches", Json(double(st.launches)));
+                }
                 ran.push(std::move(e));
             }
             entry.set("stages", std::move(ran));

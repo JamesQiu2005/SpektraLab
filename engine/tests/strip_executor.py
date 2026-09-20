@@ -187,6 +187,34 @@ def main() -> int:
                   f"runs {got_runs}, crossings {got_cross} (2 x runs = "
                   f"{sum(got_cross.values())} in total)")
 
+            # **A `Swept` stage's own account of what it did**, step 6-R. The
+            # stage sweeps the plane where it lies, so what it reports is one
+            # span covering the whole plane *per blur call it made* -- several
+            # for a mixture, one for a single gaussian -- and the launches that
+            # cost.
+            #
+            # **This assertion is weak and says so.** A swept stage has no
+            # bands, so there is no row-level slip for it to catch: the strong
+            # witness for this class is the hash (`iir_bitexact.py` against the
+            # previous build, byte for byte). What is checked here is only that
+            # the reported spans cover the plane, so a stage that reported
+            # nothing, or half of it, fails instead of passing quietly.
+            swept = [st for g in segs for st in g["stages"] if st["resolution"] == "swept"]
+            problems = []
+            for st in swept:
+                if not st.get("swept") or not st.get("launches"):
+                    problems.append(f"{st['name']} resolved swept and reported nothing")
+                    continue
+                covered = sum(b["rows"] for b in st["swept"])
+                want_rows = len(st["swept"]) * h
+                if covered != want_rows or any(b["y0"] != 0 for b in st["swept"]):
+                    problems.append(f"{st['name']}: {st['swept']} is not {len(st['swept'])} x "
+                                    f"[0, {h})")
+            check(not problems, f"{label}: the swept stages cover the plane",
+                  "; ".join(problems) if problems else
+                  ", ".join(f"{st['name']} {len(st['swept'])} spans, {st['launches']} launches"
+                            for st in swept) + "  [weak: the hash is the strong witness]")
+
             # §6's gate in this probe's own terms: the striped picture is the
             # un-striped one -- **each against its own kind**. A render and a
             # reprint of the same frame are not the same picture and never

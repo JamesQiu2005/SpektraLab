@@ -38,23 +38,11 @@
 #include "image.hpp"
 #include "params.hpp"
 #include "printing.hpp"
+#include "strip.hpp"
 #include "setup_cache.hpp"
 #include "spectral.hpp"
 
 namespace spk {
-
-/// One strip of a run: a full-width band of the plane the executor is cutting,
-/// as `(y0, rows)` in that plane's own rows.
-///
-/// **The plan is over the plane the strips partition**, which is the plane
-/// entering the striped segment -- the film side's, that is after `geometry`,
-/// which is whole-frame in v1 and changes the dimensions. It is the frame's
-/// own height only when geometry is a no-op, and calling it "the frame" loosely
-/// is how a crop ends up off by its own offset.
-struct StripSpan {
-    uint32_t y0 = 0;
-    uint32_t rows = 0;
-};
 
 /// A frame's dimensions, as a type rather than two loose `uint32_t`s.
 ///
@@ -179,6 +167,22 @@ struct Progress {
             /// mode saved nothing because the code cannot" and "because these
             /// parameters cannot", which is what a user's report needs.
             bool band_able = false;
+            /// **Why**, in one word, because `band_able == false` cannot tell
+            /// two very different things apart:
+            ///
+            ///   * `"banded"` -- ran once per strip, with `halo` rows of
+            ///     context;
+            ///   * `"swept"` -- a neighbourhood stage whose recurrence is over
+            ///     the plane (some active channel is IIR), so it runs whole and
+            ///     is **already minimal**: class R removed its transposes for
+            ///     every render, mode or no mode. Not a saving the mode is
+            ///     missing;
+            ///   * `"whole"` -- cannot be striped at all: `geometry`, `boost`,
+            ///     and the nodes this RFC has not reached.
+            ///
+            /// The third is a gap and the second is not, and a reader deciding
+            /// whether the mode is doing its job needs to know which.
+            std::string resolution;
             /// The context this stage actually executed with, in rows each
             /// side: **the run's halo**, which is the sum of the run's stages'
             /// demands and not any single stage's. Reported per stage rather
@@ -186,6 +190,14 @@ struct Progress {
             /// a reader checking the sum against a stage's own radius is
             /// checking the one thing that can be silently too small.
             uint32_t halo = 0;
+            /// For a `"swept"` stage: the rows its sweeps covered, in the order
+            /// the sweeps ran, and how many launches that took. **Filled by the
+            /// blurs that launched them, never copied from the executor's
+            /// plan** -- the plan is about bands and a swept pass makes none --
+            /// so a reader can see what the stage did rather than what it was
+            /// handed.
+            std::vector<StripSpan> swept;
+            uint32_t launches = 0;
         };
         std::vector<StageRun> stages;
     };

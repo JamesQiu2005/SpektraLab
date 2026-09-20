@@ -16,6 +16,7 @@
 
 #include "image.hpp"
 #include "numeric.hpp"
+#include "strip.hpp"
 
 namespace spk {
 
@@ -29,6 +30,34 @@ public:
     // instead of three blurs plus three full-frame adds.
     bool gaussian(const Image& img, const double sigma[3], Image& out, std::string& error,
                   double truncate = 3.0, const Image* acc = nullptr, const double* weight = nullptr);
+
+    // --- class R, and what it turned out to be -----------------------------
+    //
+    // The IIR used to transpose the plane so that both passes could be one
+    // kernel marching down contiguous memory. It now runs the *same* kernel
+    // with an `axis`, and the two transposed copies plus the transpose back --
+    // **three planes, all live at once** -- are gone. The arithmetic is
+    // untouched: the same instructions in the same order at different
+    // addresses.
+    //
+    // **This is a change to the shipping blur, not to the striped mode.** Every
+    // render gets it, mode or no mode, because a recurrence over a plane that
+    // is materialised anyway does not need to be cut up. RFC-020 §4.3's "one
+    // plane, not two" was always a statement about the pass; reading it as a
+    // striping rule is what made a carried-state kernel look necessary. It was
+    // written, it compiled, and it had no caller that could exist while the
+    // plane is whole -- so it was deleted, and §4.3's banded form waits for the
+    // day a plane is not materialised.
+    //
+    // What that leaves for the striped executor is bookkeeping: such a stage is
+    // `Swept` -- whole-plane by design and already minimal -- which is a
+    // different fact from "not striped yet", and the one `band_able == false`
+    // cannot express.
+    struct SweepReport {
+        std::vector<StripSpan> bands;  ///< the rows swept, in the order launched
+        uint32_t launches = 0;         ///< kernel launches
+    };
+    void set_sweep_report(SweepReport* report) { sweep_report_ = report; }
 
     // `sum_k w_k * G(sigma_k)(img)`, accumulated in the reference's order, so
     // the difference from it is a rounding of the running sum and not a
@@ -103,6 +132,7 @@ private:
     bool alloc_like(const Image& img, Image& out, std::string& error);
 
     gpu::Gpu* gpu_;
+    SweepReport* sweep_report_ = nullptr;
 };
 
 }  // namespace spk

@@ -100,45 +100,52 @@ bool Blur::iir(const Image& img, const double sigmas[3], const bool active[3],
     broadcast3(weight, wt, 1.0);
     const float wtf[3] = {float(wt[0]), float(wt[1]), float(wt[2])};
     gpu::BufferRef wt_buf = gpu_->upload(wtf, sizeof wtf, error);
-    gpu::BufferRef one;
-    {
-        const float ones[3] = {1.0f, 1.0f, 1.0f};
-        one = gpu_->upload(ones, sizeof ones, error);
-    }
-    if (!wt_buf || !one) return false;
+    if (!wt_buf) return false;
 
-    // The horizontal pass is the vertical kernel applied to a transposed copy,
-    // so every recurrence thread marches down contiguous memory.
-    Image t; t.h = img.w; t.w = img.h; t.c = 3;
-    t.buf = gpu_->alloc(img.bytes(), error);
-    Image t2; t2.h = img.w; t2.w = img.h; t2.c = 3;
-    t2.buf = gpu_->alloc(img.bytes(), error);
-    Image back;
-    if (!t.buf || !t2.buf || !alloc_like(img, back, error)) return false;
+    // **Two launches and one plane.** The vertical pass runs first, in place
+    // over the destination; the horizontal pass is the *same kernel* with
+    // `axis = 1`, marching along rows with stride 3 rather than down the
+    // columns of a transposed copy. What the transposed path bought was
+    // coalesced reads for the horizontal recurrence and it cost three extra
+    // full planes to get them: the transpose, its result, and the transpose
+    // back. Those are gone, and the arithmetic is untouched -- the same
+    // instructions in the same order, at different addresses.
     if (!alloc_like(img, out, error)) return false;
-
-    const uint32_t tmeta[2] = {img.h, img.w};
-    const uint32_t bmeta[2] = {img.w, img.h};
-    const uint32_t pass_plain[3] = {t.h, t.w, 0};
-    const uint32_t pass_final[3] = {img.h, img.w, acc ? 1u : 0u};
-    const gpu::BufferRef& dummy = acc ? acc->buf : img.buf;
-
-    if (!gpu_->dispatch("spk_transpose3",
-                        {gpu::Arg::buf(img.buf), gpu::Arg::inline_bytes(tmeta, 2), gpu::Arg::buf(t.buf)},
-                        img.pixels(), error)) return false;
-    if (!gpu_->dispatch("spk_iir_vertical_df_acc",
-                        {gpu::Arg::buf(t.buf), gpu::Arg::buf(coef_buf), gpu::Arg::buf(act_buf),
-                         gpu::Arg::buf(t.buf), gpu::Arg::buf(one), gpu::Arg::inline_bytes(pass_plain, 3),
-                         gpu::Arg::buf(t2.buf)},
-                        size_t(t.w) * 3, error)) return false;
-    if (!gpu_->dispatch("spk_transpose3",
-                        {gpu::Arg::buf(t2.buf), gpu::Arg::inline_bytes(bmeta, 2), gpu::Arg::buf(back.buf)},
-                        t2.pixels(), error)) return false;
-    return gpu_->dispatch("spk_iir_vertical_df_acc",
-                          {gpu::Arg::buf(back.buf), gpu::Arg::buf(coef_buf), gpu::Arg::buf(act_buf),
-                           gpu::Arg::buf(dummy), gpu::Arg::buf(wt_buf),
-                           gpu::Arg::inline_bytes(pass_final, 3), gpu::Arg::buf(out.buf)},
-                          size_t(img.w) * 3, error);
+    const Image* dummy = acc ? acc : &img;
+    // **Horizontal first, and the order is not a detail.** The reference's
+    // `_gaussian_filter_2d_large` is `_iir_horizontal` then `_iir_vertical`,
+    // and a separable IIR's two passes commute in exact arithmetic and *not* in
+    // floating point: run them the other way round and every value moves in the
+    // last place. The transposed path was horizontal-first for this reason --
+    // the transpose existed so that pass could be the vertical kernel -- and
+    // the first draft of this rewrite had it vertical-first, with a comment
+    // claiming the order was preserved. `iir_bitexact.py` against the previous
+    // build said otherwise, which is what that gate is for: the parity
+    // harnesses hold a 1e-5 tolerance and would have absorbed it.
+    //
+    // The first pass is plain and the second carries the mixture's multiply-add,
+    // which is also where the fused multiply-add landed in the transposed path.
+    const uint32_t meta_h[4] = {img.h, img.w, 0u, 1u};
+    const uint32_t meta_v[4] = {img.h, img.w, acc ? 1u : 0u, 0u};
+    if (!gpu_->dispatch("spk_iir_df_acc",
+                        {gpu::Arg::buf(img.buf), gpu::Arg::buf(coef_buf), gpu::Arg::buf(act_buf),
+                         gpu::Arg::buf(dummy->buf), gpu::Arg::buf(wt_buf),
+                         gpu::Arg::inline_bytes(meta_h, 4), gpu::Arg::buf(out.buf)},
+                        size_t(img.h) * 3, error)) return false;
+    if (!gpu_->dispatch("spk_iir_df_acc",
+                        {gpu::Arg::buf(out.buf), gpu::Arg::buf(coef_buf), gpu::Arg::buf(act_buf),
+                         gpu::Arg::buf(dummy->buf), gpu::Arg::buf(wt_buf),
+                         gpu::Arg::inline_bytes(meta_v, 4), gpu::Arg::buf(out.buf)},
+                        size_t(img.w) * 3, error)) return false;
+    // What a `Swept` stage reports: this pass covers the plane once, as one
+    // span, whatever the executor's plan says -- the plan is about bands and
+    // this never makes one. Filled here rather than by the caller, so the
+    // report is what was launched and not what was intended.
+    if (sweep_report_) {
+        sweep_report_->bands.push_back({0, img.h});
+        sweep_report_->launches += 2;
+    }
+    return true;
 }
 
 uint32_t Blur::fir_radius(double sigma, double truncate) {
@@ -164,7 +171,8 @@ Blur::Demand Blur::demand(const double sigma[3], double truncate) {
 Blur::Demand Blur::demand(const std::vector<Component>& components, double truncate) {
     // Every component runs -- `mixture` does not skip one for a zero weight,
     // it blurs it and multiplies by zero -- so this is exact rather than
-    // conservative.
+    // conservative. The components are **alternatives** of one input, which is
+    // why this is a max: sequence is the caller's sum.
     Demand d;
     for (const Component& comp : components) d = merge(d, demand(comp.sigma, truncate));
     return d;

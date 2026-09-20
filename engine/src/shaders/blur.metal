@@ -47,30 +47,42 @@ kernel void spk_sep_fir_acc(device const float* img [[buffer(0)]],
     out[3u * gid] = acc.x; out[3u * gid + 1u] = acc.y; out[3u * gid + 2u] = acc.z;
 }
 
-// One thread per (column, channel). Forward sweep down the rows, backward
-// sweep up. Coefficients arrive as (hi, lo) pairs; inactive channels copy
-// through. The horizontal pass is this kernel applied to a transposed copy, so
-// every recurrence thread reads coalesced memory.
-kernel void spk_iir_vertical_df_acc(device const float* img [[buffer(0)]],
-                                    device const float* coef [[buffer(1)]],
-                                    device const uint* act [[buffer(2)]],
-                                    device const float* accin [[buffer(3)]],
-                                    device const float* wt [[buffer(4)]],
-                                    device const uint* meta [[buffer(5)]],
-                                    device float* out [[buffer(6)]],
-                                    uint3 thread_position_in_grid [[thread_position_in_grid]]) {
+// One thread per (index, channel), forward sweep then backward, state in
+// registers as a double-float. Coefficients arrive as (hi, lo) pairs; inactive
+// channels copy through.
+//
+// **`axis` is the whole of RFC-020 §4.3's transpose removal.** `meta[3]` is 0
+// for the vertical pass -- threads are (column, channel), the recurrence
+// marches down rows with the plane's row length as its stride -- and 1 for the
+// horizontal one, where threads are (row, channel) and it marches across
+// columns with stride 3. Two thirds of this file used to be avoided by
+// transposing the plane so that both passes were this loop; the instruction
+// stream is identical either way and only the addresses differ, which is why
+// the untransposed pass is bit-identical rather than merely close.
+//
+// meta: {H, W, accumulate, axis}
+kernel void spk_iir_df_acc(device const float* img [[buffer(0)]],
+                           device const float* coef [[buffer(1)]],
+                           device const uint* act [[buffer(2)]],
+                           device const float* accin [[buffer(3)]],
+                           device const float* wt [[buffer(4)]],
+                           device const uint* meta [[buffer(5)]],
+                           device float* out [[buffer(6)]],
+                           uint3 thread_position_in_grid [[thread_position_in_grid]]) {
     uint t = thread_position_in_grid.x;
-    uint H = meta[0], W = meta[1], accumulate = meta[2];
-    if (t >= W * 3u) return;
-    uint c = t % 3u, x = t / 3u;
+    uint H = meta[0], W = meta[1], accumulate = meta[2], axis = meta[3];
+    uint threads = (axis == 0u) ? W * 3u : H * 3u;
+    if (t >= threads) return;
+    uint c = t % 3u, k = t / 3u;
+    uint n = (axis == 0u) ? H : W;              // the recurrence's length
+    uint stride = (axis == 0u) ? W * 3u : 3u;
+    uint base = (axis == 0u) ? (k * 3u + c) : (k * W * 3u + c);
     df B  = df{coef[8u * c + 0u], coef[8u * c + 1u]};
     df B1 = df{coef[8u * c + 2u], coef[8u * c + 3u]};
     df B2 = df{coef[8u * c + 4u], coef[8u * c + 5u]};
     df B3 = df{coef[8u * c + 6u], coef[8u * c + 7u]};
-    uint stride = W * 3u;
-    uint base = x * 3u + c;
     if (act[c] == 0u) {
-        for (uint i = 0u; i < H; ++i) {
+        for (uint i = 0u; i < n; ++i) {
             uint idx = base + i * stride;
             out[idx] = accumulate != 0u ? accin[idx] + wt[c] * img[idx] : img[idx];
         }
@@ -78,7 +90,7 @@ kernel void spk_iir_vertical_df_acc(device const float* img [[buffer(0)]],
     }
     float x0 = img[base];
     df w1 = df{x0, 0.0f}, w2 = w1, w3 = w1;
-    for (uint i = 0u; i < H; ++i) {
+    for (uint i = 0u; i < n; ++i) {
         df v = df_mul_f(B, img[base + i * stride]);
         v = df_add(v, df_mul(B1, w1));
         v = df_add(v, df_mul(B2, w2));
@@ -86,9 +98,9 @@ kernel void spk_iir_vertical_df_acc(device const float* img [[buffer(0)]],
         out[base + i * stride] = v.hi;
         w3 = w2; w2 = w1; w1 = v;
     }
-    float xn = out[base + (H - 1u) * stride];
+    float xn = out[base + (n - 1u) * stride];
     df y1 = df{xn, 0.0f}, y2 = y1, y3 = y1;
-    for (int i = (int)H - 1; i >= 0; --i) {
+    for (int i = (int)n - 1; i >= 0; --i) {
         uint idx = base + (uint)i * stride;
         df v = df_mul_f(B, out[idx]);
         v = df_add(v, df_mul(B1, y1));
