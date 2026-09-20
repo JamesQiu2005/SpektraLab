@@ -21,6 +21,29 @@ Two things are asked of this probe, and the second is the interesting one:
    configurations is the re-fault cost with the machine's own run-to-run
    variation subtracted.
 
+**The condition of the experiment, and both numbers below are conditional on
+it.** The first run of this probe was taken with the machine already inside
+the compressor regime -- `xctest` at 100 %, **14.9 GB of 16.4 GB swap in use**,
+145 M cumulative compressions -- which is the variable under study rather than
+noise around it. What it measured, median of six runs at 11656 x 8742:
+
+    | | pool kept | pool given back |
+    |---|---|---|
+    | live tier | 588 ms (147-1,156) | 65 ms (53-92) |
+    | full tier | 2,590 ms | 2,578 ms |
+
+The honest reading is therefore **"on a machine already swapping, holding 11 GB
+of dead full-frame planes costs about 9x on the interactive tier"** -- which is
+§1.2's story reproduced -- and *not* the general "a kept pool is slow". Nothing
+here establishes the general version: the mechanism was not measured (see
+below), and a quiet machine should narrow the gap, not widen it. The idle
+trim's 60 s does not rest on this table; it rests on the cadence argument in
+the commit.
+
+`swapusage` is recorded at the start and end of every child and reported, so
+the condition travels with the data rather than with whoever remembers to
+mention it.
+
 Run it directly; it drives two child processes because the seam is latched at
 engine creation.
 """
@@ -50,6 +73,13 @@ h, w = {h}, {w}
 wait_s = {wait_s}
 CYCLES = {cycles}
 
+def swap_used_mb():
+    out = subprocess.run(["/usr/sbin/sysctl", "-n", "vm.swapusage"],
+                         capture_output=True, text=True).stdout
+    import re
+    m = re.search(r"used = ([\d.]+)M", out)
+    return float(m.group(1)) if m else -1.0
+
 def vm_counters():
     out = subprocess.run(["/usr/bin/vm_stat"], capture_output=True, text=True).stdout
     import re
@@ -66,6 +96,7 @@ def footprint_mb():
     units = {{"B": 1, "KB": 1 << 10, "MB": 1 << 20, "GB": 1 << 30}}
     return float(m.group(1)) * units[m.group(2)]
 
+swap_at_start = swap_used_mb()
 engine = Engine()
 pixels = frame(h, w)
 session = engine.open(pixels)
@@ -119,6 +150,8 @@ session.close()
 engine.close()
 
 print(json.dumps({{
+    "swap_start_mb": swap_at_start,
+    "swap_end_mb": swap_used_mb(),
     "pool_after_full": pool_after_full,
     "pool_after_wait": pool_after_wait,
     "t_full_median": median(full_ms),
@@ -174,6 +207,14 @@ def main() -> int:
 
     held = run_child(h, w, 0.0, wait_s, args.cycles)
     trimmed = run_child(h, w, args.idle, wait_s, args.cycles)
+
+    # The condition, printed with the numbers and not after them. Swap matters
+    # here because it is the variable under study: a machine already in the
+    # compressor is where a kept pool of dead planes is expensive, and a
+    # machine that is not is a different experiment.
+    print(f"    swap in use: control {held['swap_start_mb']:,.0f} -> {held['swap_end_mb']:,.0f} MB, "
+          f"enabled {trimmed['swap_start_mb']:,.0f} -> {trimmed['swap_end_mb']:,.0f} MB "
+          f"(this machine reports its total in `sysctl vm.swapusage`)")
 
     print(f"    disabled: pool after the wait {mb(held['pool_after_wait'])}")
     print(f"    enabled:  pool after the wait {mb(trimmed['pool_after_wait'])}")
