@@ -141,7 +141,14 @@ struct Progress {
     struct StripRun {
         std::string stage;              // "film" or "print"
         std::vector<StripSpan> plan;
+        /// Strip passes over a **band-able** run. Zero when the segment has
+        /// none, which is honest rather than a failure: a stage that needs the
+        /// whole plane is not run per strip, so there is no pass to count.
         uint32_t passes = 0;
+        /// The stages this segment executed, in order. Reported so the two
+        /// encodings of the chain order -- the straight-line calls in
+        /// `film_segment` and this table -- can be held against each other.
+        std::vector<std::string> stages;
     };
     std::vector<StripRun> strips;
     // RFC-020 §3.2: a critical memory-pressure event had arrived when this
@@ -246,6 +253,56 @@ public:
     uint32_t frame_long_edge_ = 0;
 
     // --- RFC-020 §4: the striped execution (step 4: every node whole-frame) --
+
+    /// One stage: a **contiguous run** of the chain that shares a class
+    /// (§4.2). Stages exist because a class boundary is where the executor has
+    /// to convert between a band and the plane -- and the run is contiguous
+    /// because the chain's order is the reference's. Grouping by class across
+    /// a whole-frame node would mean reordering nodes, which changes the
+    /// picture: `lens_blur` and `halation` sit *between* `boost` and
+    /// `expose_log` in the film chain, so the pointwise nodes are two stages
+    /// and not one.
+    /// What a stage reads and writes. **Not one image: the film chain is not
+    /// a straight line.** `log_e_film` is produced by `film_log_and_curves`
+    /// and read twice -- by `film_curves` inside that stage and by
+    /// `film_couplers` afterwards -- so a stage cannot be a one-in-one-out
+    /// function. Threading the struct also means a crossing between a band run
+    /// and a whole-frame stage has to copy every *live* field, not just `cur`.
+    struct Chain {
+        Image cur;         // the running image: each stage's input and output
+        Image log_e_film;  // film only: live from `log_and_curves` to `couplers`
+    };
+
+    struct Stage {
+        const char* name;
+        /// Class P in step 5: a stage the executor may run once per strip.
+        /// False means it needs the whole plane -- F/R's halos and carried
+        /// recurrences, and (until step 6) the two I nodes, whose bodies hold
+        /// their own blurs and so cannot be split by a stage boundary.
+        bool band_able;
+        bool (Pipeline::*run)(const Chain&, Chain&, std::string&);
+    };
+    static const Stage kFilmStages[];
+    static const size_t kFilmStageCount;
+    static const Stage kPrintStages[];
+    static const size_t kPrintStageCount;
+
+    // The stages, in chain order. Each one is a contiguous run of the nodes
+    // the segment used to call inline, and the un-stripped path calls them in
+    // this order exactly as it called the nodes -- which is what keeps the
+    // two paths' sequences comparable, and the drift witnesses in
+    // `strip_executor.py` exist because they are still two encodings of one
+    // order.
+    bool film_scale_and_expose(const Chain& in, Chain& out, std::string& error);
+    bool film_blurs(const Chain& in, Chain& out, std::string& error);
+    bool film_log_and_curves(const Chain& in, Chain& out, std::string& error);
+    bool film_couplers(const Chain& in, Chain& out, std::string& error);
+    bool film_grain(const Chain& in, Chain& out, std::string& error);
+    bool print_spectral(const Chain& in, Chain& out, std::string& error);
+    bool print_glare(const Chain& in, Chain& out, std::string& error);
+    bool print_linear(const Chain& in, Chain& out, std::string& error);
+    bool print_scan_finish(const Chain& in, Chain& out, std::string& error);
+    bool print_output(const Chain& in, Chain& out, std::string& error);
 
     /// §7's **one policy call site**, called from exactly one place
     /// (`strip_plan`). RFC-020's body is constant: the caller's requested

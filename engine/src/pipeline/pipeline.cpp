@@ -554,6 +554,17 @@ bool Pipeline::node_geometry(const Image& in, Image& out, std::string& error) {
     // user kept -- so grain and halation do not coarsen when a crop is
     // applied. Recorded before the identity check, as the reference's node
     // body does, so it is set on both paths.
+    //
+    // **This is the same inference `run_film` used to make, and it is safe
+    // only because `geometry` stays whole-frame in v1** (§4.5): `in` here is
+    // the full plane, so `in.h` *is* the frame's height. The moment someone
+    // stripes this node, `in` becomes a band, this line becomes the film's
+    // pixel pitch, and every micrometre-specified effect downstream --
+    // grain, halation, the coupler diffusion, the lens blur -- is silently
+    // wrong at every size. It is marked rather than fixed because the fix is
+    // to pass the frame's shape in, which is what `film_prefix` already does
+    // for the identical line: whoever takes the class off `geometry` should
+    // take the shape as a parameter at the same time.
     source_long_edge_ = std::max(in.h, in.w);
     const GeometryParams& g = params_.io.geometry;
     if (g.is_identity()) { out = in; return true; }
@@ -1577,19 +1588,152 @@ bool Pipeline::film_prefix(const Image& in, const FrameShape& frame, Image& cur,
     return true;
 }
 
-bool Pipeline::film_segment(const Image& in, Image& out, std::string& error) {
-    Image cur = in, next;
+// The film and print chains, as **stages**: contiguous runs of the same nodes
+// the segments used to call inline, in the same order, split at the class
+// boundaries (§4.2) because that is where the executor has to convert between a
+// band and the plane.
+//
+// **A stage is not one-in-one-out, and the film chain is why.** The chain
+// carries two live intermediates: `log_e_film` and the coupler's output, and
+// `node_dir_couplers` takes *both* (`cmy` from `film_curves` and `log_e_film`
+// from `expose_log`). So a stage reads and writes a `Chain`, not an `Image`,
+// and the executor threads the whole struct -- which also means a crossing
+// between a band run and a whole-frame stage has to copy **every live field**,
+// not just `cur`. That is a real finding from writing this out rather than a
+// complication invented here, and step 6 inherits it.
+bool Pipeline::film_scale_and_expose(const Chain& in, Chain& out, std::string& error) {
+    Image cur = in.cur, next;
     SPK_NODE(node_upsample(cur, next, error)); cur = next;
     SPK_NODE(node_exposure(cur, next, error)); cur = next;
     SPK_NODE(node_boost(cur, next, error)); cur = next;
+    out = in;
+    out.cur = cur;
+    return true;
+}
+
+bool Pipeline::film_blurs(const Chain& in, Chain& out, std::string& error) {
+    Image cur = in.cur, next;
     SPK_NODE(node_lens_blur(cur, next, error)); cur = next;
     SPK_NODE(node_halation(cur, next, error)); cur = next;
-    Image log_e_film;
-    SPK_NODE(node_expose_log(cur, log_e_film, error));
+    out = in;
+    out.cur = cur;
+    return true;
+}
+
+bool Pipeline::film_log_and_curves(const Chain& in, Chain& out, std::string& error) {
+    // Produces both of the chain's intermediates: the log-exposed frame and
+    // the developed curve output. `log_e_film` is read twice downstream.
+    Image next;
+    SPK_NODE(node_expose_log(in.cur, next, error));
+    out = in;
+    out.log_e_film = next;
     Image cmy;
-    SPK_NODE(node_film_curves(log_e_film, cmy, error));
-    SPK_NODE(node_dir_couplers(cmy, log_e_film, next, error)); cmy = next;
-    SPK_NODE(node_grain(cmy, out, error));
+    SPK_NODE(node_film_curves(out.log_e_film, cmy, error));
+    out.cur = cmy;
+    return true;
+}
+
+bool Pipeline::film_couplers(const Chain& in, Chain& out, std::string& error) {
+    Image next;
+    SPK_NODE(node_dir_couplers(in.cur, in.log_e_film, next, error));
+    out = in;
+    out.cur = next;
+    return true;
+}
+
+bool Pipeline::film_grain(const Chain& in, Chain& out, std::string& error) {
+    // Step 5: whole-frame. Its body holds its own dye-cloud blurs, so it is
+    // I + F/R and cannot be split by a stage boundary -- grain comes back in
+    // step 6 with F and R. See the §9 note in the commit.
+    SPK_NODE(node_grain(in.cur, out.cur, error));
+    out.log_e_film = Image{};
+    return true;
+}
+
+bool Pipeline::print_spectral(const Chain& in, Chain& out, std::string& error) {
+    Image cur = in.cur, next;
+    if (!params_.io.scan_film) {
+        SPK_NODE(node_enlarger_spectral(cur, next, error)); cur = next;
+        SPK_NODE(node_print_exposure(cur, next, error)); cur = next;
+        SPK_NODE(node_print_curves(cur, next, error)); cur = next;
+    }
+    SPK_NODE(node_scan_spectral(cur, next, error)); cur = next;
+    SPK_NODE(node_bw_correction(cur, next, error)); cur = next;
+    out = in;
+    out.cur = cur;
+    return true;
+}
+
+bool Pipeline::print_glare(const Chain& in, Chain& out, std::string& error) {
+    SPK_NODE(node_glare(in.cur, out.cur, error));
+    out.log_e_film = Image{};
+    return true;
+}
+
+bool Pipeline::print_linear(const Chain& in, Chain& out, std::string& error) {
+    Image cur = in.cur, next;
+    SPK_NODE(node_xyz_to_rgb(cur, next, error)); cur = next;
+    SPK_NODE(node_gamut_compress(cur, next, error)); cur = next;
+    out = in;
+    out.cur = cur;
+    return true;
+}
+
+bool Pipeline::print_scan_finish(const Chain& in, Chain& out, std::string& error) {
+    Image cur = in.cur, next;
+    SPK_NODE(node_scanner_blur(cur, next, error)); cur = next;
+    SPK_NODE(node_unsharp(cur, next, error)); cur = next;
+    out = in;
+    out.cur = cur;
+    return true;
+}
+
+bool Pipeline::print_output(const Chain& in, Chain& out, std::string& error) {
+    // Calibrations observe the completed linear print scan. Apply EDR after
+    // spatial scanner corrections so those stages cannot bend its joins or
+    // reduce its requested tail separation, and immediately before encoding.
+    Image cur = in.cur, next;
+    SPK_NODE(node_edr(cur, next, error)); cur = next;
+    out = in;
+    // `cctf` writes into the destination, exactly as it did when it was the
+    // segment's last call -- the destination is the caller's `out.cur`, not a
+    // scratch buffer, and `node_cctf` allocates it.
+    SPK_NODE(node_cctf(cur, out.cur, error));
+    return true;
+}
+
+// The stage tables, in chain order. `band_able` is the class: step 5 has only
+// class P true, and everything else needs the whole plane -- the F/R nodes for
+// their halos and carried recurrences, and `film_grain`/`print_glare` because
+// they are I + F/R with the blurs inside their bodies.
+const Pipeline::Stage Pipeline::kFilmStages[] = {
+    {"film_scale_and_expose", true,  &Pipeline::film_scale_and_expose},
+    {"film_blurs",            false, &Pipeline::film_blurs},
+    {"film_log_and_curves",   true,  &Pipeline::film_log_and_curves},
+    {"film_couplers",         false, &Pipeline::film_couplers},
+    {"film_grain",            false, &Pipeline::film_grain},
+};
+const size_t Pipeline::kFilmStageCount = sizeof(kFilmStages) / sizeof(kFilmStages[0]);
+const Pipeline::Stage Pipeline::kPrintStages[] = {
+    {"print_spectral",    true,  &Pipeline::print_spectral},
+    {"print_glare",       false, &Pipeline::print_glare},
+    {"print_linear",      true,  &Pipeline::print_linear},
+    {"print_scan_finish", false, &Pipeline::print_scan_finish},
+    {"print_output",      true,  &Pipeline::print_output},
+};
+const size_t Pipeline::kPrintStageCount = sizeof(kPrintStages) / sizeof(kPrintStages[0]);
+
+bool Pipeline::film_segment(const Image& in, Image& out, std::string& error) {
+    // The straight-line chain, unchanged in every node and in every order; the
+    // stages are the same calls grouped at the class boundaries.
+    Chain cur;
+    cur.cur = in;
+    for (size_t i = 0; i < kFilmStageCount; ++i) {
+        Chain next;
+        if (!(this->*kFilmStages[i].run)(cur, next, error)) return false;
+        cur = next;
+    }
+    out = cur.cur;
     return true;
 }
 
@@ -1701,24 +1845,14 @@ bool Pipeline::print_prefix(std::string& error) {
 }
 
 bool Pipeline::print_segment(const Image& cmy, Image& out, std::string& error) {
-    Image cur = cmy, next;
-    if (!params_.io.scan_film) {
-        SPK_NODE(node_enlarger_spectral(cur, next, error)); cur = next;
-        SPK_NODE(node_print_exposure(cur, next, error)); cur = next;
-        SPK_NODE(node_print_curves(cur, next, error)); cur = next;
+    Chain cur;
+    cur.cur = cmy;
+    for (size_t i = 0; i < kPrintStageCount; ++i) {
+        Chain next;
+        if (!(this->*kPrintStages[i].run)(cur, next, error)) return false;
+        cur = next;
     }
-    SPK_NODE(node_scan_spectral(cur, next, error)); cur = next;
-    SPK_NODE(node_bw_correction(cur, next, error)); cur = next;
-    SPK_NODE(node_glare(cur, next, error)); cur = next;
-    SPK_NODE(node_xyz_to_rgb(cur, next, error)); cur = next;
-    SPK_NODE(node_gamut_compress(cur, next, error)); cur = next;
-    SPK_NODE(node_scanner_blur(cur, next, error)); cur = next;
-    SPK_NODE(node_unsharp(cur, next, error)); cur = next;
-    // Calibrations observe the completed linear print scan. Apply EDR after
-    // spatial scanner corrections so those stages cannot bend its joins or
-    // reduce its requested tail separation, and immediately before encoding.
-    SPK_NODE(node_edr(cur, next, error)); cur = next;
-    SPK_NODE(node_cctf(cur, out, error));
+    out = cur.cur;
     return true;
 }
 
