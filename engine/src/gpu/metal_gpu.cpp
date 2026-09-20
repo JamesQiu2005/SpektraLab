@@ -59,6 +59,17 @@ struct Buffer {
     // buffer through one entry and leaves the other naming freed memory, for
     // the next `reclaim` to write through. Found by forcing a double release
     // to prove the audit can fire -- it crashed instead of reporting.
+    //
+    // **Why this branch and not the one §3.4 declined.** `reclaim` could have
+    // grown a branch for `refs > 0` buffers and it deliberately did not,
+    // because that one would have *absorbed* the evidence that the accounting
+    // is wrong: the state it would handle is the state that indicts the
+    // caller. This one is the reverse. The duplicate does not hide the
+    // mistake, it is what makes the mistake lethal, so refusing it turns an
+    // unobservable use-after-free into a counted refusal -- which is the only
+    // reason `over_releases` can fire and be read at all, rather than the
+    // process dying before anyone can look at the counter. If this is ever
+    // removed, remove the counter with it.
     bool in_pending = false;
 };
 
