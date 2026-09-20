@@ -384,6 +384,12 @@ struct spk_engine {
         Json persistent = Json::object();
         persistent.set("bytes", Json(double(pool.persistent_bytes)));
         persistent.set("buffers", Json(double(pool.persistent_buffers)));
+        // A subset of `bytes`, not more of it: the planes whose pages live
+        // in a file (RFC-020 §4.7) and are charged about a tenth as much to
+        // the process's footprint. A consumer weighing the engine's holdings
+        // against a footprint may want to weigh these differently.
+        persistent.set("file_backed_bytes", Json(double(pool.file_backed_bytes)));
+        persistent.set("file_backed_buffers", Json(double(pool.file_backed_buffers)));
         persistent.set("source_bytes", Json(double(source_bytes)));
         persistent.set("cached_negative_bytes", Json(double(negative_bytes)));
         persistent.set("negatives", Json(double(negative_count)));
@@ -812,7 +818,11 @@ spk_session* open_frame(spk_engine* engine, const FrameIn& frame, const char* pa
         const size_t bytes = uploaded.elements() * sizeof(float);
         std::string upload_error;
         if (frame.host && frame.channels == 3) {
-            uploaded.buf = engine->gpu->upload_persistent(frame.host, bytes, upload_error);
+            // RFC-020 §4.7: the session's source, in a file rather than in
+            // this process's ledger -- 1.362 GB of `phys_footprint` against
+            // 0.137 for the same 1.22 GB plane, measured. See
+            // `alloc_file_backed`.
+            uploaded.buf = engine->gpu->upload_file_backed(frame.host, bytes, upload_error);
             session->source = uploaded;
         } else {
             // The host copy is the 235 ms `spk_open_device` exists to avoid
@@ -823,7 +833,10 @@ spk_session* open_frame(spk_engine* engine, const FrameIn& frame, const char* pa
             rgb.h = uploaded.h;
             rgb.w = uploaded.w;
             rgb.c = 3;
-            if (uploaded.buf) rgb.buf = engine->gpu->alloc_persistent(rgb.bytes(), upload_error);
+            // Written by `spk_take_rgb` below rather than by the host, and
+            // file-backed for the same reason as the branch above: it is
+            // `session->source`.
+            if (uploaded.buf) rgb.buf = engine->gpu->alloc_file_backed(rgb.bytes(), upload_error);
             const uint32_t meta[2] = {uint32_t(uploaded.pixels()), uploaded.c};
             if (!uploaded.buf || !rgb.buf ||
                 !engine->gpu->dispatch("spk_take_rgb",
@@ -997,7 +1010,10 @@ bool negative_for(spk_session* session, const Tier& tier, Progress* progress, Im
     if (!gpu->flush(error)) return false;
     Image kept;
     kept.h = negative.h; kept.w = negative.w; kept.c = 3;
-    kept.buf = gpu->upload_persistent(gpu->contents(negative.buf.get()), negative.bytes(), error);
+    // The cached negative is the other holding RFC-020 §4.7 names: every
+    // reprint reads it, it lives as long as the session, and at the full
+    // tier it is the second 1.22 GB plane.
+    kept.buf = gpu->upload_file_backed(gpu->contents(negative.buf.get()), negative.bytes(), error);
     if (!kept.buf) return false;
     state.negative = kept;
     state.has_negative = true;

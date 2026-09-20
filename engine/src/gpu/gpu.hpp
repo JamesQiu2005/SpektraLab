@@ -110,6 +110,14 @@ struct PoolStats {
     // with the pool numbers above -- these are not pooled buffers.
     size_t persistent_bytes = 0;
     size_t persistent_buffers = 0;
+    // The part of `persistent` whose pages live in a file rather than in the
+    // process's ledger (RFC-020 §4.7): **a subset of `persistent_bytes`, not
+    // more of it**, and the same relationship `source_bytes` has. A consumer
+    // weighing the engine's footprint may want to weigh these differently --
+    // measured, the same 1.22 GB plane costs 1.362 GB of `phys_footprint` as
+    // an ordinary shared buffer here (the control) and 0.137 GB this way.
+    size_t file_backed_bytes = 0;
+    size_t file_backed_buffers = 0;
     // RFC-020 §3.2. Cumulative, so a 2 s timer sees an event it slept through;
     // `critical_pending` is the one-shot flag the next `spk_render` takes.
     uint64_t pressure_warn_events = 0;
@@ -184,6 +192,25 @@ public:
     virtual BufferRef upload_persistent(const void* data, size_t bytes, std::string& error) = 0;
     virtual BufferRef upload_persistent_f32(const double* data, size_t count, std::string& error) = 0;
     virtual BufferRef upload_persistent_u32(const uint32_t* data, size_t count, std::string& error) = 0;
+
+    // A persistent allocation whose pages live in a **file** rather than in
+    // the process's ledger (RFC-020 §4.7). Same lifetime as the pair below --
+    // it is one of them, with different memory behind it -- and never pooled,
+    // because a full-frame plane is not a size any node should be handed.
+    //
+    // The point is `phys_footprint`, the number jetsam reads. Measured at the
+    // 102 MP plane size, the same 1.22 GB plane costs **1.362 GB** as an
+    // ordinary shared buffer and **0.137 GB** this way -- ten times less --
+    // while the pages are genuinely resident and the GPU reads them at the
+    // same speed (rfc/probes/, and `files_are_light` in `metal_gpu.cpp` for
+    // where the file goes and what happens to it).
+    //
+    // Falls back to an ordinary persistent allocation if the file cannot be
+    // made, because this is an optimisation and an open that fails for it
+    // would be the optimisation breaking the product. The fallback is visible
+    // rather than silent: `pool_stats().file_backed_bytes` does not grow.
+    virtual BufferRef alloc_file_backed(size_t bytes, std::string& error) = 0;
+    virtual BufferRef upload_file_backed(const void* data, size_t bytes, std::string& error) = 0;
 
     // A caller's `id<MTLBuffer>`, wrapped without a copy. Retained while a
     // handle exists and released -- never pooled -- when the last one drops,

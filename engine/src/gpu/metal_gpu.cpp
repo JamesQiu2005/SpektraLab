@@ -20,8 +20,13 @@
 // than a `.mm` (see the file header).
 #include <dispatch/dispatch.h>
 
+#include <sys/mman.h>
+#include <unistd.h>
+
 #include <algorithm>
 #include <atomic>
+#include <cerrno>
+#include <climits>
 #include <cmath>
 #include <cstdint>
 #include <cstdlib>
@@ -44,6 +49,9 @@ struct Buffer {
     // together make it safe to hand out again.
     bool reusable = false;
     bool persistent = false;
+    // Persistent *and* backed by a file rather than by this process's ledger,
+    // so `release` knows to keep `file_backed_bytes_` honest (RFC-020 §4.7).
+    bool file_backed = false;
 };
 
 namespace {
@@ -215,6 +223,10 @@ public:
         if (buffer->persistent) {
             persistent_bytes_ -= buffer->bytes;
             --persistent_buffers_;
+            if (buffer->file_backed) {
+                file_backed_bytes_ -= buffer->bytes;
+                --file_backed_buffers_;
+            }
             // A one-off size nothing else would want: give it back to the OS.
             if (buffer->mtl) buffer->mtl->release();
             delete buffer;
@@ -360,6 +372,125 @@ public:
 
     BufferRef upload_persistent_u32(const uint32_t* data, size_t count, std::string& error) override {
         return upload_persistent(data, count * sizeof(uint32_t), error);
+    }
+
+    // --- RFC-020 §4.7: planes whose pages live in a file -------------------
+
+    // What `alloc_file_backed` is for, in one place.
+    //
+    // `phys_footprint` is what jetsam reads, and a `StorageModeShared`
+    // MTLBuffer's pages are charged to it in full. A file-backed mapping's
+    // are not: measured at 11664 x 8750 x 3ch x f32 (1.22 GB), 1.362 GB
+    // against 0.137 GB -- ten times less -- with `mincore` reporting the
+    // mapping fully resident and the GPU reading it at 1.00x. So a session's
+    // source and its cached negatives, the two holdings RFC-020 §1 names as
+    // living inside a session, cost the process about a tenth of what they
+    // did, and the ~2.4 GB they add to a 102 MP peak mostly stops being
+    // charged.
+    //
+    // Two things this design decided rather than inherited, both from
+    // `rfc/probes/`:
+    //
+    //  * **No `msync`.** The benefit holds for *dirty* file-backed pages, so
+    //    nothing forces a write-back and the kernel does it lazily, under
+    //    pressure, if at all. `msync` costs 218-536 ms per plane and buys
+    //    nothing.
+    //  * **The file is unlinked before the first byte is written.** A named
+    //    file would have to be cleaned up by something, and the something
+    //    would have to survive a crash -- the same problem the app's disk
+    //    cache needed a budget for. Measured (`/tmp/mmap_lifetime.swift`,
+    //    three processes): named and unlinked are *identical*, 0.137 GB
+    //    against the anonymous control's 1.362 GB. So the name exists for the
+    //    duration of one `mkstemp` call and the inode is all that is kept. A
+    //    process that dies while a plane is mapped leaves nothing behind: the
+    //    kernel drops the inode with the last mapping. The residue of a crash
+    //    *inside* `mkstemp` is one zero-length file in the user's temp
+    //    directory, because `ftruncate` has not run yet.
+    //
+    // What is **not** measured, and must not be claimed: what a render pays
+    // when the kernel has evicted these pages and has to fault them back.
+    // `madvise(MADV_DONTNEED)` does not drop residency for a `MAP_SHARED`
+    // mapping on macOS and a real squeeze is not something to induce on a
+    // working machine, so that path stays inferred. RFC-020 §4.7 carries the
+    // same qualification.
+    static std::string scratch_dir() {
+        // A test seam, the same shape as `SPEKTRAFILM_TEST_PRESSURE`: it is
+        // the only way to reach the "no plane file can be made" branch, and a
+        // branch no test reaches is a branch nobody has run. Unset, the
+        // process's own scratch directory is used and this costs one
+        // `getenv` per plane.
+        const char* chosen = std::getenv("SPEKTRAFILM_PLANE_DIR");
+        if (chosen && *chosen) return std::string(chosen);
+        // `confstr` rather than `TMPDIR`: the environment is the caller's to
+        // change and this is not. A path that does not fit is not a path.
+        char buf[PATH_MAX];
+        const size_t n = confstr(_CS_DARWIN_USER_TEMP_DIR, buf, sizeof buf);
+        if (n > 0 && n <= sizeof buf) return std::string(buf);
+        const char* fallback = std::getenv("TMPDIR");
+        return (fallback && *fallback) ? std::string(fallback) : std::string("/tmp");
+    }
+
+    BufferRef alloc_file_backed(size_t bytes, std::string& error) override {
+        if (bytes == 0) { error = "zero-length allocation"; return {}; }
+        // Metal requires a page-aligned pointer, which `mmap` gives, and a
+        // length that is a multiple of the page, which it does not: 16 kB
+        // pages here, so a 1,223,000,000-byte plane maps 1,223,008,256. What
+        // the pool and the report call the buffer stays the requested size.
+        const size_t page = static_cast<size_t>(getpagesize());
+        const size_t mapped = (bytes + page - 1) / page * page;
+
+        std::string path = scratch_dir() + "/spektrafilm-plane-XXXXXX";
+        const int fd = mkstemp(path.data());
+        if (fd < 0) {
+            // An optimisation that cannot run is not a reason to fail an open.
+            // Visible rather than silent: `file_backed_bytes` does not grow.
+            return alloc_persistent(bytes, error);
+        }
+        unlink(path.data());   // before a byte is written; the fd keeps the inode
+        if (ftruncate(fd, static_cast<off_t>(mapped)) != 0) {
+            error = "could not size a plane file: " + std::string(std::strerror(errno));
+            close(fd);
+            return {};
+        }
+        void* base = mmap(nullptr, mapped, PROT_READ | PROT_WRITE, MAP_SHARED, fd, 0);
+        if (base == MAP_FAILED) {
+            error = "could not map a " + std::to_string(bytes) + "-byte plane: " +
+                    std::string(std::strerror(errno));
+            close(fd);
+            return {};
+        }
+        close(fd);   // the mapping holds the inode; nothing needs the descriptor
+
+        // The deallocator is the whole reason this is safe rather than lucky.
+        // Metal calls it when the last reference to the buffer is gone --
+        // including the references its own command buffers take -- so the
+        // unmap happens exactly when nothing can reach the pages, not when
+        // this process's last handle drops. That is the one moment
+        // `munmap` may run, and the API is the only thing that knows it.
+        // Non-capturing, so clang emits it as a constant and there is no
+        // block to copy.
+        MTL::Buffer* mtl = device_->newBuffer(base, mapped, MTL::ResourceStorageModeShared,
+                                             ^(void* p, NS::UInteger length) { munmap(p, length); });
+        if (!mtl) {
+            // `newBuffer` did not take the deallocator's ownership, so this
+            // mapping is still ours to drop.
+            munmap(base, mapped);
+            error = "out of GPU memory mapping " + std::to_string(bytes) + " bytes";
+            return {};
+        }
+        Buffer* b = new Buffer{mtl, bytes, 1, false, true, /*file_backed=*/true};
+        std::lock_guard<std::mutex> guard(pool_lock_);
+        persistent_bytes_ += bytes;
+        file_backed_bytes_ += bytes;
+        ++persistent_buffers_;
+        ++file_backed_buffers_;
+        return BufferRef(this, b);
+    }
+
+    BufferRef upload_file_backed(const void* data, size_t bytes, std::string& error) override {
+        BufferRef b = alloc_file_backed(bytes, error);
+        if (b) std::memcpy(contents(b.get()), data, bytes);
+        return b;
     }
 
     BufferRef borrow(void* mtl_buffer, size_t bytes, std::string& error) override {
@@ -528,6 +659,8 @@ public:
         s.frame_high_water_bytes = frame_high_water_;
         s.persistent_bytes = persistent_bytes_;
         s.persistent_buffers = persistent_buffers_;
+        s.file_backed_bytes = file_backed_bytes_;
+        s.file_backed_buffers = file_backed_buffers_;
         s.pressure_warn_events = pressure_warn_.load(std::memory_order_relaxed);
         s.pressure_critical_events = pressure_critical_.load(std::memory_order_relaxed);
         s.pressure_critical_pending = critical_pending_.load(std::memory_order_relaxed);
@@ -795,6 +928,8 @@ private:
     size_t frame_high_water_ = 0;
     size_t persistent_bytes_ = 0;
     size_t persistent_buffers_ = 0;
+    size_t file_backed_bytes_ = 0;      // a subset of the two above
+    size_t file_backed_buffers_ = 0;
 
     // RFC-020 §3.2. Atomic because the handler runs on `pressure_queue_`
     // while a render runs on the caller's thread.

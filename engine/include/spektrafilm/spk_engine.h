@@ -154,12 +154,20 @@ const char* spk_params_schema(spk_engine* engine);
  * outside the pool: a session's source and its cached negatives, the baked
  * tables, a render's rgba16 result.
  *
- * **`persistent.source_bytes` and `persistent.cached_negative_bytes` are a
- * breakdown *of* `persistent.bytes`, not additions to it**, and
- * `persistent.sessions` is that breakdown per open session. So the engine's
- * whole holding is `pool.total_bytes + persistent.bytes`, which is the
- * top-level `total_bytes`; registering a per-session entry and a pool entry
- * means splitting `persistent.sessions`, not adding it to the pool.
+ * **`persistent.source_bytes`, `persistent.cached_negative_bytes` and
+ * `persistent.file_backed_bytes` are a breakdown *of* `persistent.bytes`, not
+ * additions to it**, and `persistent.sessions` is that breakdown per open
+ * session. So the engine's whole holding is
+ * `pool.total_bytes + persistent.bytes`, which is the top-level
+ * `total_bytes`; registering a per-session entry and a pool entry means
+ * splitting `persistent.sessions`, not adding it to the pool.
+ *
+ * `file_backed_bytes` is the part of the holding whose pages live in a file
+ * rather than in the process's ledger (RFC-020 §4.7) -- the source and the
+ * cached negatives. It is reported separately because a consumer weighing the
+ * engine against a footprint should weigh it differently: measured, a 1.22 GB
+ * plane costs 1,362 MB of `phys_footprint` as an ordinary buffer and 137 MB
+ * this way.
  *
  * It does not include the caller's own memory -- the frame passed to
  * `spk_open_device`, or a Core Image decode -- which the caller accounts for
