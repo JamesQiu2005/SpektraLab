@@ -80,6 +80,49 @@ private:
     Buffer* buffer_ = nullptr;
 };
 
+// The pool's audit, for `engine/tests/pool_invariants.py` (RFC-020 §3).
+//
+// Counters rather than branches, and placed where a violation could actually
+// arise rather than where it is vacuous by construction. `take_reusable_locked`
+// selects on `refs == 0`, so re-checking that there would be checking the
+// predicate; what *can* go wrong is upstream of it -- a buffer queued for
+// reuse while a handle still exists, or made reusable while a command buffer
+// that names it is still open. Those are the three that must stay zero.
+struct PoolAudit {
+    // Traffic. `reuses` are hand-outs served from the free set, `allocations`
+    // are buffers made fresh; the two together are every buffer a node ever
+    // got. `persistent_allocations` are the planes and tables that are never
+    // pooled and must never be a reuse: the session's source and its cached
+    // negatives.
+    uint64_t allocations = 0;
+    uint64_t reuses = 0;
+    uint64_t persistent_allocations = 0;
+    // The size relationship on a reuse, for pinning the policy as it is
+    // rather than as someone might prefer it. `reuse_taken` is the buffer
+    // handed over and `reuse_requested` what was asked for; by design there is
+    // no upper bound, so a small request can take a full-frame plane when that
+    // is what the pool holds -- and `max_taken_for_request` names the request
+    // that took the largest one, so the ratio is a fact about an actual
+    // hand-out rather than a statistic.
+    uint64_t reuse_bytes_requested = 0;
+    uint64_t reuse_bytes_taken = 0;
+    size_t reuse_max_taken = 0;
+    size_t reuse_max_taken_for_request = 0;
+    // **These three must stay zero**, and each is a property argued in a
+    // comment somewhere above. A comment cannot fail; these can.
+    //   `pending_held`       a buffer queued for reuse while a handle exists
+    //                        -- §3.4's defect two, which was established
+    //                        unreachable by argument. This is how that
+    //                        argument gets a runtime witness.
+    //   `over_releases`      a release of a buffer nobody holds: the count
+    //                        going below zero and being clamped back.
+    //   `reclaim_while_encoding`  buffers made reusable while a command buffer
+    //                        that may name them is open and unrun.
+    uint64_t pending_held = 0;
+    uint64_t over_releases = 0;
+    uint64_t reclaim_while_encoding = 0;
+};
+
 // What the engine holds, for `spk_memory_report` (RFC-020 §3.3).
 //
 // Bytes are the sizes a buffer was **made** at, not the sizes callers asked
@@ -134,6 +177,7 @@ struct PoolStats {
     // event -- without that, an idle hour reads as hundreds of trims.
     double idle_trim_seconds = 0.0;
     uint64_t idle_trims = 0;
+    PoolAudit audit;
 };
 
 // One dispatch's arguments, in buffer-index order. A small constant may be

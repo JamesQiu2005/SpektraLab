@@ -53,6 +53,13 @@ struct Buffer {
     // Persistent *and* backed by a file rather than by this process's ledger,
     // so `release` knows to keep `file_backed_bytes_` honest (RFC-020 §4.7).
     bool file_backed = false;
+    // Queued in `pending_` and not yet reclaimed. A second `release` for the
+    // same buffer would otherwise queue it twice, and the duplicate is what
+    // turns a caller's mistake into a use-after-free: `trim_pool` frees the
+    // buffer through one entry and leaves the other naming freed memory, for
+    // the next `reclaim` to write through. Found by forcing a double release
+    // to prove the audit can fire -- it crashed instead of reporting.
+    bool in_pending = false;
 };
 
 namespace {
@@ -262,6 +269,7 @@ public:
         if (--buffer->refs > 0) return;
         buffer->refs = 0;
         if (was_live) sub_live_locked(buffer->bytes);
+        else ++audit_.over_releases;   // a release of a buffer nobody holds
         if (buffer->persistent) {
             persistent_bytes_ -= buffer->bytes;
             --persistent_buffers_;
@@ -274,6 +282,14 @@ public:
             delete buffer;
             return;
         }
+        // Already queued: this release is one too many for a buffer nobody
+        // holds any more, and pushing it again is the difference between an
+        // anomaly the audit can report and a use-after-free in `trim_pool`.
+        // Counted, reported, and not pushed.
+        if (buffer->in_pending) {
+            ++audit_.over_releases;
+            return;
+        }
         // **Not** reusable yet. The last handle going away means no *future*
         // dispatch names this buffer; it says nothing about the dispatches
         // already encoded into the open command buffer, which have not run.
@@ -281,6 +297,7 @@ public:
         // buffer an earlier one had not read yet -- 25 of 27 render-parity
         // cases, with no crash and no error. It becomes reusable at `flush`,
         // which is also where the reference evaluates (AGENTS.md trap 5).
+        buffer->in_pending = true;
         pending_.push_back(buffer);
     }
 
@@ -357,6 +374,7 @@ public:
         std::lock_guard<std::mutex> guard(pool_lock_);
         pool_.push_back(b);
         add_live_locked(b->bytes);
+        ++audit_.allocations;
         return BufferRef(this, b);
     }
 
@@ -395,6 +413,7 @@ public:
         std::lock_guard<std::mutex> guard(pool_lock_);
         persistent_bytes_ += bytes;
         ++persistent_buffers_;
+        ++audit_.persistent_allocations;
         return BufferRef(this, b);
     }
 
@@ -526,6 +545,7 @@ public:
         file_backed_bytes_ += bytes;
         ++persistent_buffers_;
         ++file_backed_buffers_;
+        ++audit_.persistent_allocations;
         return BufferRef(this, b);
     }
 
@@ -709,6 +729,7 @@ public:
         s.pressure_monitor = pressure_source_ != nullptr;
         s.idle_trim_seconds = idle_source_ ? idle_trim_seconds() : 0.0;
         s.idle_trims = idle_trims_.load(std::memory_order_relaxed);
+        s.audit = audit_;
         return s;
     }
 
@@ -962,7 +983,16 @@ private:
         for (Buffer* b : pool_)
             if (b->refs == 0 && b->reusable && b->bytes >= bytes &&
                 (!best || b->bytes < best->bytes)) best = b;
-        if (best) { best->refs = 1; best->reusable = false; add_live_locked(best->bytes); }
+        if (best) {
+            ++audit_.reuses;
+            audit_.reuse_bytes_requested += bytes;
+            audit_.reuse_bytes_taken += best->bytes;
+            if (best->bytes > audit_.reuse_max_taken) {
+                audit_.reuse_max_taken = best->bytes;
+                audit_.reuse_max_taken_for_request = bytes;
+            }
+            best->refs = 1; best->reusable = false; add_live_locked(best->bytes);
+        }
         return best;
     }
 
@@ -1015,7 +1045,15 @@ private:
     // is what is written down rather than what is assumed.
     void reclaim() {
         std::lock_guard<std::mutex> guard(pool_lock_);
-        for (Buffer* b : pending_) if (b->refs == 0) b->reusable = true;
+        // Becoming reusable is only safe once the work that named these has
+        // completed, which is the only thing `reclaim` is ever called after.
+        // Counted rather than assumed: this is the ordering `flush` keeps.
+        if (command_buffer_) ++audit_.reclaim_while_encoding;
+        for (Buffer* b : pending_) {
+            b->in_pending = false;
+            if (b->refs == 0) b->reusable = true;
+            else ++audit_.pending_held;
+        }
         pending_.clear();
     }
 
@@ -1076,6 +1114,10 @@ private:
     std::atomic<int64_t> last_activity_ns_{0};
     std::atomic<uint64_t> idle_trims_{0};
     dispatch_source_t idle_source_ = nullptr;
+
+    // Every field of this is written under `pool_lock_` and read under it, so
+    // it needs no atomics of its own -- `pool_stats` copies it whole.
+    PoolAudit audit_;
 };
 
 }  // namespace

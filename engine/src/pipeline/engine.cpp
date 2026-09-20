@@ -350,6 +350,23 @@ struct spk_engine {
         // frame ever gets".
         pool_json.set("frame_high_water_bytes", Json(double(pool.frame_high_water_bytes)));
 
+        // RFC-020 §3's audit, for `engine/tests/pool_invariants.py`: what the
+        // pool handed out, and the three counters that must stay zero. They
+        // are properties argued in comments in `metal_gpu.cpp`; a comment
+        // cannot fail and these can, which is the whole reason they exist.
+        Json audit = Json::object();
+        audit.set("allocations", Json(double(pool.audit.allocations)));
+        audit.set("reuses", Json(double(pool.audit.reuses)));
+        audit.set("persistent_allocations", Json(double(pool.audit.persistent_allocations)));
+        audit.set("reuse_bytes_requested", Json(double(pool.audit.reuse_bytes_requested)));
+        audit.set("reuse_bytes_taken", Json(double(pool.audit.reuse_bytes_taken)));
+        audit.set("reuse_max_taken", Json(double(pool.audit.reuse_max_taken)));
+        audit.set("reuse_max_taken_for_request", Json(double(pool.audit.reuse_max_taken_for_request)));
+        audit.set("pending_held", Json(double(pool.audit.pending_held)));
+        audit.set("over_releases", Json(double(pool.audit.over_releases)));
+        audit.set("reclaim_while_encoding", Json(double(pool.audit.reclaim_while_encoding)));
+        pool_json.set("audit", std::move(audit));
+
         // The per-session part of `persistent`: the source every tier reads
         // from and the cached negative every reprint returns. These are the
         // two holdings RFC-020 §1 names as living inside a session, and the
