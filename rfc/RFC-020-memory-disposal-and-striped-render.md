@@ -10,6 +10,7 @@
 | **Scope — app** | the strip-wise ingestion that feeds it, and the one Settings switch that turns the mode on |
 | **Out of scope** | **RFC-021** — choosing the strip height dynamically from free memory and the app's cap. This RFC must make that a policy swap and nothing more; §7 is the contract it owes RFC-021. Also: which *layer* the disk cache should hold (§8.1), RFC-017 batch processing. |
 | **Hard gate** | **Zero precision loss.** Every mode this RFC adds produces output bit-identical to today's, or it does not ship. §5.1. |
+| **Amended** | **2026-09-20 — §4.2 and P4 were wrong about one node.** `boost` holds an image-global statistic and cannot be striped. See the amendment at the end; read it before trusting §4.2's table or P4's headline claim. |
 
 ---
 
@@ -637,3 +638,76 @@ Steps 1 and 2 are worth doing even if 4 onwards never happens.
 4. **Does the app want a progress granularity change?** `spk_progress` reads
    between nodes; with strips there are `n_strips` times as many boundaries,
    which is either a nicer progress bar or a noisier one.
+
+---
+
+## Amendment, 2026-09-20 — `boost` is not pointwise, and P4's premise is false for it
+
+Written after step 5 (class P striped, `bfe3b37`) where the §6 hash axis caught
+this on its first real run. The body of the RFC above is left as it was
+believed; this section is what the code and the gate established.
+
+### What was wrong
+
+**§4.2's table lists `boost` as class P — pointwise, needing nothing from a
+strip. It is not.** `node_boost` normalises its highlight lift by
+`device_max(in)`: a reduction over every pixel of the frame. On a band it
+normalises each strip by that strip's own brightest pixel, which is a different
+picture at every strip height — including `n = 1`, which is how the failure was
+diagnosed rather than survived.
+
+**The node said so in its own comment.** `pipeline.cpp`'s `node_boost` reads
+*"normalised by the frame's own maximum — so it is image-global, which is why it
+cannot be baked into a LUT"*, and `git log -S` dates that comment to the
+RFC-014 port, long before this RFC was written. So §4.2's taxonomy was built by
+reading node bodies and missed one that announces itself. That is the more
+useful statement of the error than the misclassification itself.
+
+### What replaces it
+
+§4.2's headline finding — **"there is no image-global statistic anywhere in the
+full-tier render"** — is false. There is one: `boost`'s maximum. Everything else
+in the finding survives, and it survives differently now: the claim was
+*checked*, node by node, instead of inherited from a reading.
+
+**P4 is corrected to:**
+
+> **The engine's image-globals are enumerated and closed.** `boost` holds one:
+> the frame's maximum, reduced once per run, because its highlight lift is
+> normalised by it. It takes §4.6's escape hatch and declares itself
+> whole-frame, so it never sees a band. **A node that acquires another must do
+> one of two things, and there is no third**: declare itself whole-frame, or
+> take its statistic from the meter tier the way auto exposure takes its EV.
+> The second is exact and *changes the picture*, so in a bit-identical step only
+> the first is available. What may not happen is a global that reaches a band.
+
+### The checked classification
+
+Every node in both chains, swept 2026-09-20 for reductions (`device_max`,
+`read_back`, `exposure_sample_y`), host reads of device memory, and closures
+over state outside the node's own input. Twenty-five nodes: film's `input_cast`,
+`decode_input`, `geometry`, `auto_exposure`, `upsample`, `exposure`, `boost`,
+`lens_blur`, `halation`, `expose_log`, `film_curves`, `dir_couplers`, `grain`;
+print's `enlarger_spectral`, `print_exposure`, `print_curves`, `scan_spectral`,
+`bw_correction`, `glare`, `xyz_to_rgb`, `edr`, `gamut_compress`,
+`scanner_blur`, `unsharp`, `cctf`.
+
+| verdict | nodes |
+|---|---|
+| **Disagrees with §4.2** | `boost` — reduction over the frame (§4.2: P) |
+| Agrees, reads frame-level **constants** | `lens_blur`, `halation`, `dir_couplers`, `unsharp` (`pixel_size_um_`, the tier ratio), `geometry` (`source_long_edge_`), `grain`, `glare` (both, plus the run seed) |
+| Agrees, reads **host constants** baked by its prefix | `enlarger_spectral`, `print_exposure`, `bw_correction`, `gamut_compress`, `auto_exposure` |
+| Agrees, and reads nothing outside its input | `input_cast`, `decode_input`, `upsample`, `exposure`, `expose_log`, `film_curves`, `print_curves`, `scan_spectral`, `xyz_to_rgb`, `edr`, `cctf` |
+
+The distinction that matters in that table is not which nodes are "clean" but
+which read state that is **frame-level by construction** (`pixel_size_um_`, the
+tier ratio, the setup tables, the run's seed) as against state that would have
+to be *computed from* a band's pixels. Only the second kind is a
+misclassification. `boost` was the only one of those.
+
+Two consequences for step 6, both from the same sweep: `unsharp` and `glare`
+read the *frame's* long edges for their tier ratio and are correctly classed
+F/R — they need the plane for their halo and field, not for the ratio, so
+nothing about them changes when a band arrives. And `auto_exposure`'s class C is
+sound because `blur_.affine` is pointwise, unlike `blur_.gaussian`; a future
+pointwise node calling `gaussian` would be the same error as `boost`.
