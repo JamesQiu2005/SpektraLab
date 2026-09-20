@@ -44,6 +44,26 @@ import spk_ctypes  # noqa: E402
 from pool_invariants import frame  # noqa: E402
 
 
+# The table's classes, pinned. A stage whose class moves is a code change, and
+# it has to move here with it -- this is the pin the resolved value cannot give.
+WANT_CLASS = {
+    "film": {"film_scale_and_expose": "pointwise", "film_boost": "whole",
+             "film_blurs": "neighbourhood", "film_log_and_curves": "pointwise",
+             "film_couplers": "neighbourhood", "film_grain": "whole"},
+    "print": {"print_spectral": "pointwise", "print_glare": "whole",
+              "print_linear": "pointwise", "print_scan_finish": "neighbourhood",
+              "print_output": "pointwise"},
+}
+# And what those classes resolve to at the shipped settings on the default
+# frame. `film_couplers` is the interesting one: its diffusion tail's widest
+# surrogate sigma is 2.7684 x 200 um over the pitch, which crosses 3 px on any
+# frame this size, so the stage asks for the escape hatch rather than a halo.
+WANT_BAND = {
+    "film": {"film_scale_and_expose", "film_blurs", "film_log_and_curves"},
+    "print": {"print_spectral", "print_linear", "print_scan_finish", "print_output"},
+}
+
+
 def segments(engine, session) -> list[dict]:
     out = ctypes.c_char_p()
     if engine._lib.spk_progress(session._handle, None, ctypes.byref(out)) != spk_ctypes.SPK_OK:
@@ -121,15 +141,28 @@ def main() -> int:
                   f"{expected} strips, " + ", ".join(
                       f"{g['stage']} {g['passes']} passes" for g in segs))
 
-            # The classification, pinned. Step 5 stripes class P and nothing
-            # else; an F/R stage here would be a picture bug this harness must
-            # see, and a stage that quietly stopped being band-able would make
-            # the mode do less while every hash stayed green.
-            want = {"film": {"film_scale_and_expose", "film_log_and_curves"},
-                    "print": {"print_spectral", "print_linear", "print_output"}}
-            got = {g["stage"]: {st["name"] for st in g["stages"] if st["band_able"]} for g in segs}
-            check(got == want, f"{label}: the band-able stages are class P and only class P",
-                  f"{got}" if got != want else "film and print as expected")
+            # **Two facts, two pins**, and step 6 is why. `class` is the
+            # table's entry -- a property of the code, the same on every run --
+            # and `band_able` is what this run resolved to. A stage wrongly
+            # marked in the table would otherwise hide behind a run whose
+            # parameters happened to agree with the mistake: at the shipped
+            # settings `film_couplers` resolves `carried` (its diffusion tail
+            # crosses the IIR sigma), which is indistinguishable in the report
+            # from a stage the table forgot to mark band-able at all.
+            got_class = {g["stage"]: {st["name"]: st["class"] for st in g["stages"]} for g in segs}
+            check(got_class == WANT_CLASS, f"{label}: the static classes are pinned",
+                  f"{got_class}" if got_class != WANT_CLASS else
+                  "film and print as the table says")
+
+            # The resolution, pinned for this probe's frame. It is a function of
+            # the frame's pitch (the sigmas are micrometres over a pitch), so a
+            # `--height` other than the default moves it and this pin has to be
+            # re-derived rather than trusted.
+            got_band = {g["stage"]: {st["name"] for st in g["stages"] if st["band_able"]} for g in segs}
+            check(got_band == WANT_BAND, f"{label}: and resolve as the demand says",
+                  f"{got_band}" if got_band != WANT_BAND else
+                  "film_couplers carried, the rest band-able; halos "
+                  + ", ".join(f"{st['name']}={st['halo']}" for st in segs[0]["stages"] if st["halo"]))
 
             # §6's gate in this probe's own terms: the striped picture is the
             # un-striped one -- **each against its own kind**. A render and a

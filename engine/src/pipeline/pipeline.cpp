@@ -872,7 +872,7 @@ bool Pipeline::node_exposure(const Image& in, Image& out, std::string& error) {
 // is a reduction over every pixel of the frame, so this node cannot be run on a
 // band: each strip would be normalised by its own maximum and the seams would
 // be visible wherever the boost is on. The striped executor therefore keeps it
-// in a whole-frame stage -- see `film_boost_and_blurs` -- and anyone revisiting
+// in a whole-frame stage of its own -- see `film_boost` -- and anyone revisiting
 // §4.2's classification should start here. Found by the §6 strip axis, not by
 // reading the table.
 bool Pipeline::node_boost(const Image& in, Image& out, std::string& error) {
@@ -911,23 +911,43 @@ bool Pipeline::node_boost(const Image& in, Image& out, std::string& error) {
                           in.elements(), error);
 }
 
-bool Pipeline::node_lens_blur(const Image& in, Image& out, std::string& error) {
+// --- the sigmas, in one place, because a demand must agree with its node ----
+//
+// Each of these was the first line of the node below it. They are members now
+// because a `Neighbourhood` stage has to know, *before* it runs, whether its
+// blur takes the FIR branch and how many rows of context that branch reads --
+// and the only way to know is the same arithmetic the node will do. A halo one
+// row short is a seam; a `carried` that disagrees with the branch the kernel
+// takes is a different picture. Neither has a second place to come from.
+
+double Pipeline::lens_blur_sigma() const {
     // The pitch is live here, not frozen at build time -- which is the whole
     // of the divergence from the Python engine noted in the header.
-    const double sigma_px = pixel_size_um_ > 0.0 ? params_.camera.lens_blur_um / pixel_size_um_ : 0.0;
-    if (sigma_px <= 0.0) { out = in; return true; }
-    Timer t(this, "filming.expose.lens_blur");
-    double sigma[3];
-    fill3(sigma, sigma_px);
-    return blur_.gaussian(in, sigma, out, error);
+    return pixel_size_um_ > 0.0 ? params_.camera.lens_blur_um / pixel_size_um_ : 0.0;
 }
 
-bool Pipeline::node_halation(const Image& in, Image& out, std::string& error) {
+double Pipeline::scanner_blur_sigma() const {
+    return params_.scanner.lens_blur;
+}
+
+double Pipeline::unsharp_sigma() const {
+    // Pixels at the *full tier*, scaled to this one, so the sharpening is the
+    // same fraction of the frame wherever it runs. See
+    // `ScannerParams::unsharp_mask`; the µm-per-tier form was tried first and
+    // only reproduced today's sharpening on the one frame size it was anchored
+    // to.
+    return params_.scanner.unsharp_mask[0] * tier_ratio();
+}
+
+double Pipeline::tier_ratio() const {
+    return frame_long_edge_ > 0 ? double(source_long_edge_) / double(frame_long_edge_) : 1.0;
+}
+
+Pipeline::HalationBlurs Pipeline::halation_blurs() const {
+    HalationBlurs out;
     const HalationParams& hal = params_.film_render.halation;
-    if (!hal.active) { out = in; return true; }
-    Timer t(this, "filming.expose.halation");
+    if (!hal.active) return out;
     const double px = pixel_size_um_;
-    Image raw = in;
 
     // Scatter: a Gaussian core plus an exponential tail, as one accumulated
     // mixture, then mixed back over the original by `scatter_amount`.
@@ -941,38 +961,32 @@ bool Pipeline::node_halation(const Image& in, Image& out, std::string& error) {
         tail_w[c] = hal.scatter_tail_weight[c];
         any_scatter |= sigma_c[c] > 0.0 || lambda_t[c] > 0.0;
     }
+    // An empty list is the node's own guard, not a convention: it is exactly
+    // when `node_halation` would skip the mixture, so a demand reading this
+    // cannot ask for context a stage will not use.
     if (s_amount > 0.0 && any_scatter) {
-        std::vector<Blur::Component> comps;
         Blur::Component core{};
         for (int c = 0; c < 3; ++c) {
             core.weight[c] = core_w[c];
             core.sigma[c] = std::max(sigma_c[c], 1e-6);
         }
-        comps.push_back(core);
+        out.scatter.push_back(core);
         double tail_lambda[3];
         for (int c = 0; c < 3; ++c) tail_lambda[c] = std::max(lambda_t[c], 1e-6);
         std::vector<Blur::Component> tail;
         Blur::exponential_components(tail_lambda, tail_w, tail);
-        comps.insert(comps.end(), tail.begin(), tail.end());
-        Image scattered;
-        if (!blur_.mixture(raw, comps, scattered, error)) return false;
-        double a[3], b[3];
-        fill3(a, 1.0 - s_amount);
-        fill3(b, s_amount);
-        Image mixed;
-        if (!blur_.lincomb(raw, scattered, a, b, mixed, error)) return false;
-        raw = mixed;
+        out.scatter.insert(out.scatter.end(), tail.begin(), tail.end());
     }
 
     // Back-reflection: N bounces off the base, each a wider Gaussian, with a
     // geometric decay normalised to sum 1.
     const double h_amount = hal.halation_amount, h_scale = hal.halation_spatial_scale;
-    double a_tot[3], sigma_h[3];
+    double sigma_h[3];
     bool any_strength = false, any_sigma = false;
     for (int c = 0; c < 3; ++c) {
-        a_tot[c] = double(float(hal.halation_strength[c]) * float(h_amount));
+        const double a_tot = double(float(hal.halation_strength[c]) * float(h_amount));
         sigma_h[c] = hal.halation_first_sigma_um[c] * h_scale / px;
-        any_strength |= a_tot[c] > 0.0;
+        any_strength |= a_tot > 0.0;
         any_sigma |= sigma_h[c] > 0.0;
     }
     const int N = hal.halation_n_bounces;
@@ -986,18 +1000,130 @@ bool Pipeline::node_halation(const Image& in, Image& out, std::string& error) {
             total += decay[size_t(k - 1)];
         }
         for (double& d : decay) d /= total;
-        std::vector<Blur::Component> comps;
         for (int k = 1; k <= N; ++k) {
             Blur::Component comp{};
             for (int c = 0; c < 3; ++c) {
                 comp.weight[c] = decay[size_t(k - 1)];
                 comp.sigma[c] = std::max(sigma_h[c] * std::sqrt(double(k)), 1e-6);
             }
-            comps.push_back(comp);
+            out.bounces.push_back(comp);
         }
-        Image hb;
-        if (!blur_.mixture(raw, comps, hb, error)) return false;
+    }
+    return out;
+}
+
+std::vector<Blur::Component> Pipeline::dir_coupler_diffusion() const {
+    std::vector<Blur::Component> comps;
+    const DirCouplersParams& dcp = params_.film_render.dir_couplers;
+    // `active` first, because `node_dir_couplers` returns before the diffusion
+    // when it is off: a demand that misses a guard asks a stage for context the
+    // stage will not use, and at the crossover it would freeze a stage
+    // whole-frame for a blur that never runs.
+    if (!dcp.active) return comps;
+    if (!(dcp.diffusion_size_um > 0.0)) return comps;
+    const double size_px = dcp.diffusion_size_um / pixel_size_um_;
+    const double tail_px = dcp.diffusion_tail_um / pixel_size_um_;
+    const double wt = dcp.diffusion_tail_weight;
+    Blur::Component core{};
+    for (int c = 0; c < 3; ++c) { core.weight[c] = 1.0 - wt; core.sigma[c] = size_px; }
+    comps.push_back(core);
+    double lambda[3], weight[3];
+    fill3(lambda, tail_px);
+    fill3(weight, wt);
+    std::vector<Blur::Component> tail;
+    Blur::exponential_components(lambda, weight, tail);
+    comps.insert(comps.end(), tail.begin(), tail.end());
+    return comps;
+}
+
+// **Sequential blurs compose their radii; a mixture's components do not.**
+// This is the run's sum rule one level down and it is the same mistake: inside
+// one `mixture` the components are alternatives -- `G1 + G2 + ...` of the same
+// input, so the widest one's radius is enough -- while two blurs in a row are
+// `G_b(G_a(x))`, and the output at row `y` then depends on the input out to
+// `R_a + R_b`. `Blur::merge` is the max, for components; `+` is the sum, for
+// sequence. Getting this wrong is not visible in the plan and shows up as a
+// row of one-LSB differences at each band boundary, which is how the
+// `format_medium` case of `parity_render`'s axis found halation.
+Blur::Demand Pipeline::film_blurs_demand() const {
+    // `lens_blur` is one sigma on three channels, so it is FIR or IIR whole;
+    // halation's two mixtures are where the channels can straddle. In order:
+    // lens, then halation's scatter, then its bounces -- each reading the
+    // previous one's output.
+    double sigma[3];
+    fill3(sigma, lens_blur_sigma());
+    const HalationBlurs hal = halation_blurs();
+    const Blur::Demand lens = Blur::demand(sigma);
+    const Blur::Demand scatter = Blur::demand(hal.scatter);
+    const Blur::Demand bounces = Blur::demand(hal.bounces);
+    Blur::Demand d;
+    d.carried = lens.carried || scatter.carried || bounces.carried;
+    d.halo = lens.halo + scatter.halo + bounces.halo;
+    return d;
+}
+
+Blur::Demand Pipeline::film_couplers_demand() const {
+    // One mixture, so the max over its components is the whole of it.
+    return Blur::demand(dir_coupler_diffusion());
+}
+
+Blur::Demand Pipeline::print_scan_finish_demand() const {
+    // `scanner_blur` then `unsharp`, and again in sequence: unsharp's mask is a
+    // second gaussian of the *blurred* image.
+    double sigma[3];
+    fill3(sigma, scanner_blur_sigma());
+    const Blur::Demand scanner = Blur::demand(sigma);
+    Blur::Demand d = scanner;
+    // `unsharp` blurs only when the amount is positive as well as the sigma,
+    // and its sigma is already zero in every case where the ratio has no frame
+    // to scale -- but the amount is a second guard and the demand has to read
+    // the same one the node does.
+    if (params_.scanner.unsharp_mask[1] > 0.0) {
+        double usigma[3];
+        fill3(usigma, unsharp_sigma());
+        d = Blur::demand(usigma);
+        d.halo += scanner.halo;
+        d.carried = d.carried || scanner.carried;
+    }
+    return d;
+}
+
+bool Pipeline::node_lens_blur(const Image& in, Image& out, std::string& error) {
+    const double sigma_px = lens_blur_sigma();
+    if (sigma_px <= 0.0) { out = in; return true; }
+    Timer t(this, "filming.expose.lens_blur");
+    double sigma[3];
+    fill3(sigma, sigma_px);
+    return blur_.gaussian(in, sigma, out, error);
+}
+
+bool Pipeline::node_halation(const Image& in, Image& out, std::string& error) {
+    const HalationParams& hal = params_.film_render.halation;
+    if (!hal.active) { out = in; return true; }
+    Timer t(this, "filming.expose.halation");
+    // The sigma arithmetic moved to `halation_blurs` so this node and
+    // `film_blurs_demand` cannot disagree about which branch will run; the two
+    // blocks below are the same two mixtures, in the same order, with the
+    // guards now expressed as "the list is empty".
+    const HalationBlurs blurs = halation_blurs();
+    Image raw = in;
+
+    if (!blurs.scatter.empty()) {
+        Image scattered;
+        if (!blur_.mixture(raw, blurs.scatter, scattered, error)) return false;
         double a[3], b[3];
+        fill3(a, 1.0 - hal.scatter_amount);
+        fill3(b, hal.scatter_amount);
+        Image mixed;
+        if (!blur_.lincomb(raw, scattered, a, b, mixed, error)) return false;
+        raw = mixed;
+    }
+
+    if (!blurs.bounces.empty()) {
+        double a_tot[3], a[3], b[3];
+        for (int c = 0; c < 3; ++c) {
+            a_tot[c] = double(float(hal.halation_strength[c]) * float(hal.halation_amount));
+        }
         if (hal.halation_renormalize) {
             for (int c = 0; c < 3; ++c) {
                 a[c] = 1.0 / (1.0 + a_tot[c]);
@@ -1007,6 +1133,8 @@ bool Pipeline::node_halation(const Image& in, Image& out, std::string& error) {
             fill3(a, 1.0);
             for (int c = 0; c < 3; ++c) b[c] = a_tot[c];
         }
+        Image hb;
+        if (!blur_.mixture(raw, blurs.bounces, hb, error)) return false;
         Image mixed;
         if (!blur_.lincomb(raw, hb, a, b, mixed, error)) return false;
         raw = mixed;
@@ -1064,22 +1192,10 @@ bool Pipeline::node_dir_couplers(const Image& cmy, const Image& log_raw, Image& 
                          gpu::Arg::buf(corr.buf)},
                         cmy.pixels(), error)) return false;
 
-    if (dcp.diffusion_size_um > 0.0) {
-        const double size_px = dcp.diffusion_size_um / pixel_size_um_;
-        const double tail_px = dcp.diffusion_tail_um / pixel_size_um_;
-        const double wt = dcp.diffusion_tail_weight;
-        std::vector<Blur::Component> comps;
-        Blur::Component core{};
-        for (int c = 0; c < 3; ++c) { core.weight[c] = 1.0 - wt; core.sigma[c] = size_px; }
-        comps.push_back(core);
-        double lambda[3], weight[3];
-        fill3(lambda, tail_px);
-        fill3(weight, wt);
-        std::vector<Blur::Component> tail;
-        Blur::exponential_components(lambda, weight, tail);
-        comps.insert(comps.end(), tail.begin(), tail.end());
+    const std::vector<Blur::Component> diffusion = dir_coupler_diffusion();
+    if (!diffusion.empty()) {
         Image diffused;
-        if (!blur_.mixture(corr, comps, diffused, error)) return false;
+        if (!blur_.mixture(corr, diffusion, diffused, error)) return false;
         corr = diffused;
     }
 
@@ -1431,8 +1547,7 @@ bool Pipeline::node_glare(const Image& in, Image& out, std::string& error) {
     // Pixels *at the full tier*, scaled to this one: the parameter is a
     // fraction of the frame, not of the film (see `GlareParams::blur`), so the
     // export is exactly what it always was and the canvas is what moves.
-    const double ratio = frame_long_edge_ > 0
-                       ? double(source_long_edge_) / double(frame_long_edge_) : 1.0;
+    const double ratio = tier_ratio();
     if (glare.blur > 0.0) {
         double sigma[3];
         fill3(sigma, glare.blur * ratio);
@@ -1484,22 +1599,17 @@ bool Pipeline::node_gamut_compress(const Image& in, Image& out, std::string& err
 }
 
 bool Pipeline::node_scanner_blur(const Image& in, Image& out, std::string& error) {
-    if (params_.scanner.lens_blur <= 0.0) { out = in; return true; }
+    const double sigma_px = scanner_blur_sigma();
+    if (sigma_px <= 0.0) { out = in; return true; }
     Timer t(this, "scanning.scanner_blur");
     double sigma[3];
-    fill3(sigma, params_.scanner.lens_blur);
+    fill3(sigma, sigma_px);
     return blur_.gaussian(in, sigma, out, error);
 }
 
 bool Pipeline::node_unsharp(const Image& in, Image& out, std::string& error) {
     const double amount = params_.scanner.unsharp_mask[1];
-    // Pixels at the *full tier*, scaled to this one, so the sharpening is the
-    // same fraction of the frame wherever it runs. See `ScannerParams::unsharp_mask`;
-    // the µm-per-tier form was tried first and only reproduced today's
-    // sharpening on the one frame size it was anchored to.
-    const double ratio = frame_long_edge_ > 0
-                       ? double(source_long_edge_) / double(frame_long_edge_) : 1.0;
-    const double sigma_px = params_.scanner.unsharp_mask[0] * ratio;
+    const double sigma_px = unsharp_sigma();
     if (!(sigma_px > 0.0 && amount > 0.0)) { out = in; return true; }
     Timer t(this, "scanning.unsharp");
     double sigma[3];
@@ -1617,23 +1727,40 @@ bool Pipeline::film_scale_and_expose(const Chain& in, Chain& out, std::string& e
     return true;
 }
 
-bool Pipeline::film_boost_and_blurs(const Chain& in, Chain& out, std::string& error) {
-    // **`node_boost` is here and not in the band-able stage, and it is not a
-    // detail.** It normalises the highlight lift by `device_max(in)` -- the
-    // *frame's* own maximum, a reduction over every pixel -- so it is not a
-    // pointwise node however §4.2's table classifies it, and on a band it
-    // would normalise each strip by that strip's brightest pixel. The §6 axis
-    // caught exactly that: with `halation_boost_ev = 3.0`, every strip height
-    // produced a different picture from the un-stripped render, at `n = 1`
-    // as well as at `n = 180`.
+bool Pipeline::film_boost(const Chain& in, Chain& out, std::string& error) {
+    // **`node_boost` is a stage of its own, and it is not a detail.** It
+    // normalises the highlight lift by `device_max(in)` -- the *frame's* own
+    // maximum, a reduction over every pixel -- so it is not a pointwise node
+    // however §4.2's table classifies it, and on a band it would normalise each
+    // strip by that strip's brightest pixel. The §6 axis caught exactly that:
+    // with `halation_boost_ev = 3.0`, every strip height produced a different
+    // picture from the un-stripped render, at `n = 1` as well as at `n = 180`.
     //
     // It takes §4.6's escape hatch and declares itself whole-frame, which is
     // what P4 prescribes for a node that wants an image-global statistic: the
     // alternative -- taking the maximum from the meter tier, the way auto
     // exposure takes its EV -- is exact by construction and changes the
     // picture, so it is not available to a step whose gate is a hash.
+    //
+    // **It is its own stage because §4.6's hatch is per node, not per render.**
+    // Step 5 wrote `boost` into a stage with `lens_blur` and `halation` because
+    // stages were the unit that could be marked whole-frame; step 6 needs those
+    // two to be band-able, and a shared stage would freeze them behind a node
+    // that can never be striped. Cutting the table at the node is how a
+    // per-node hatch is spelled in a stage-based executor, and the runs either
+    // side stay contiguous.
     Image cur = in.cur, next;
     SPK_NODE(node_boost(cur, next, error)); cur = next;
+    out = in;
+    out.cur = cur;
+    return true;
+}
+
+bool Pipeline::film_blurs(const Chain& in, Chain& out, std::string& error) {
+    // Class F, resolved per run: `lens_blur` is one sigma on three channels,
+    // halation's two mixtures are where a channel can straddle the crossover,
+    // and a `carried` demand sends the whole stage back to whole-frame.
+    Image cur = in.cur, next;
     SPK_NODE(node_lens_blur(cur, next, error)); cur = next;
     SPK_NODE(node_halation(cur, next, error)); cur = next;
     out = in;
@@ -1728,20 +1855,30 @@ bool Pipeline::print_output(const Chain& in, Chain& out, std::string& error) {
 // their halos and carried recurrences, and `film_grain`/`print_glare` because
 // they are I + F/R with the blurs inside their bodies.
 const Pipeline::Stage Pipeline::kFilmStages[] = {
-    {"film_scale_and_expose", true,  &Pipeline::film_scale_and_expose},
-    {"film_boost_and_blurs",   false, &Pipeline::film_boost_and_blurs},
-    {"film_log_and_curves",   true,  &Pipeline::film_log_and_curves},
-    {"film_couplers",         false, &Pipeline::film_couplers},
-    {"film_grain",            false, &Pipeline::film_grain},
+    {"film_scale_and_expose", StageClass::Pointwise,     &Pipeline::film_scale_and_expose, nullptr},
+    {"film_boost",            StageClass::Whole,         &Pipeline::film_boost,            nullptr},
+    {"film_blurs",            StageClass::Neighbourhood, &Pipeline::film_blurs,            &Pipeline::film_blurs_demand},
+    {"film_log_and_curves",   StageClass::Pointwise,     &Pipeline::film_log_and_curves,   nullptr},
+    {"film_couplers",         StageClass::Neighbourhood, &Pipeline::film_couplers,         &Pipeline::film_couplers_demand},
+    {"film_grain",            StageClass::Whole,         &Pipeline::film_grain,            nullptr},
 };
 const size_t Pipeline::kFilmStageCount = sizeof(kFilmStages) / sizeof(kFilmStages[0]);
 const Pipeline::Stage Pipeline::kPrintStages[] = {
-    {"print_spectral",    true,  &Pipeline::print_spectral},
-    {"print_glare",       false, &Pipeline::print_glare},
-    {"print_linear",      true,  &Pipeline::print_linear},
-    {"print_scan_finish", false, &Pipeline::print_scan_finish},
-    {"print_output",      true,  &Pipeline::print_output},
+    {"print_spectral",    StageClass::Pointwise,     &Pipeline::print_spectral,    nullptr},
+    {"print_glare",       StageClass::Whole,         &Pipeline::print_glare,       nullptr},
+    {"print_linear",      StageClass::Pointwise,     &Pipeline::print_linear,      nullptr},
+    {"print_scan_finish", StageClass::Neighbourhood, &Pipeline::print_scan_finish, &Pipeline::print_scan_finish_demand},
+    {"print_output",      StageClass::Pointwise,     &Pipeline::print_output,      nullptr},
 };
+
+const char* Pipeline::class_name(StageClass klass) {
+    switch (klass) {
+        case StageClass::Pointwise: return "pointwise";
+        case StageClass::Neighbourhood: return "neighbourhood";
+        case StageClass::Whole: return "whole";
+    }
+    return "?";
+}
 const size_t Pipeline::kPrintStageCount = sizeof(kPrintStages) / sizeof(kPrintStages[0]);
 
 bool Pipeline::film_segment(const Image& in, Image& out, std::string& error) {
@@ -1805,12 +1942,41 @@ bool Pipeline::run_film(const Image& in, Image& out, Progress* progress, std::st
 bool Pipeline::run_stages_striped(const Stage* stages, size_t count, Chain& chain,
                                   const std::vector<StripSpan>& plan, Progress::StripRun& report,
                                   std::string& error) {
+    // **Every stage is resolved for this run before anything is walked.** The
+    // class in the table is what the code can do -- a property of the code, the
+    // same on every frame -- and the demand is what *these parameters* let it
+    // do. The crossings are chosen from the second, so a demand consulted
+    // mid-walk would be a crossing chosen after the copy it governs.
+    std::vector<bool> band_able(count, false);
+    std::vector<uint32_t> halos(count, 0);
+    for (size_t i = 0; i < count; ++i) {
+        const Stage& st = stages[i];
+        if (st.klass == StageClass::Pointwise) {
+            band_able[i] = true;
+        } else if (st.klass == StageClass::Neighbourhood) {
+            const Blur::Demand d = (this->*st.demand)();
+            band_able[i] = !d.carried;
+            halos[i] = d.halo;
+        }
+        report.stages.push_back({st.name, class_name(st.klass), band_able[i]});
+    }
+
     size_t i = 0;
     while (i < count) {
-        if (stages[i].band_able) {
+        if (band_able[i]) {
             size_t j = i;
-            while (j < count && stages[j].band_able) ++j;
-            for (size_t k = i; k < j; ++k) report.stages.push_back({stages[k].name, true});
+            uint32_t halo = 0;
+            // **The run's halo is the sum, not the widest.** A stage's own rows
+            // near the band edge are wrong until its successors have run: for
+            // `A(FIR) -> B(P) -> C(FIR)`, C's output on `[y0, y0+rows)` needs
+            // its input right on `[y0-R_c, ...+R_c)`, which needs A's output
+            // right there, which needs A's *input* on `[y0-R_c-R_a, ...)`. The
+            // halos compose along the run. A max would be wrong by
+            // `min(R_a, R_c)` rows -- and wrong *only* on an interior band, so a
+            // two-strip plan would not see it: which is why the axis runs three
+            // or more strips with two F stages in one run.
+            while (j < count && band_able[j]) { halo += halos[j]; ++j; }
+            for (size_t k = i; k < j; ++k) report.stages[k].halo = halo;
 
             // The plane this run's strips are written back into. **`log_e_film`
             // is assembled too**, because the crossing after this run hands
@@ -1820,15 +1986,25 @@ bool Pipeline::run_stages_striped(const Stage* stages, size_t count, Chain& chai
             const uint32_t frame_h = chain.cur.h;
             Chain plane_out;
             for (const StripSpan& span : plan) {
+                BandRead read;
                 Chain band_in;
-                if (!band_from(chain.cur, span, band_in.cur, error)) return false;
+                if (!band_from(chain.cur, span, halo, read, band_in.cur, error)) return false;
                 if (chain.log_e_film.buf &&
-                    !band_from(chain.log_e_film, span, band_in.log_e_film, error)) return false;
+                    !band_from(chain.log_e_film, span, halo, read, band_in.log_e_film, error)) return false;
 
                 Chain cur = band_in;
                 for (size_t k = i; k < j; ++k) {
                     Chain next;
                     if (!(this->*stages[k].run)(cur, next, error)) return false;
+                    // The halo's precondition, enforced rather than assumed: a
+                    // stage that reshaped the band would leave `band_into`
+                    // writing rows that no longer mean what `read` says.
+                    if (next.cur.buf && (next.cur.h != cur.cur.h || next.cur.w != cur.cur.w ||
+                                         next.cur.c != cur.cur.c)) {
+                        error = std::string("a band-able stage changed the band's shape: ") +
+                                stages[k].name;
+                        return false;
+                    }
                     cur = next;
                 }
                 ++report.passes;
@@ -1844,7 +2020,7 @@ bool Pipeline::run_stages_striped(const Stage* stages, size_t count, Chain& chai
                     plane_out.cur.buf = gpu_->alloc(plane_out.cur.bytes(), error);
                     if (!plane_out.cur.buf) return false;
                 }
-                if (!band_into(cur.cur, span, plane_out.cur, error)) return false;
+                if (!band_into(cur.cur, read, plane_out.cur, error)) return false;
                 if (cur.log_e_film.buf) {
                     if (!plane_out.log_e_film.buf) {
                         plane_out.log_e_film.h = frame_h;
@@ -1853,13 +2029,12 @@ bool Pipeline::run_stages_striped(const Stage* stages, size_t count, Chain& chai
                         plane_out.log_e_film.buf = gpu_->alloc(plane_out.log_e_film.bytes(), error);
                         if (!plane_out.log_e_film.buf) return false;
                     }
-                    if (!band_into(cur.log_e_film, span, plane_out.log_e_film, error)) return false;
+                    if (!band_into(cur.log_e_film, read, plane_out.log_e_film, error)) return false;
                 }
             }
             chain = plane_out;
             i = j;
         } else {
-            report.stages.push_back({stages[i].name, false});
             Chain next;
             if (!(this->*stages[i].run)(chain, next, error)) return false;
             chain = next;
@@ -1879,31 +2054,47 @@ bool Pipeline::run_stages_striped(const Stage* stages, size_t count, Chain& chai
 // nodes materialised once per run at a segment boundary. Step 5 changes this
 // shape; step 4 uses it as a test rig, with the mode off by default so no
 // product path pays for it.
-bool Pipeline::band_from(const Image& plane, const StripSpan& span, Image& out,
-                         std::string& error) {
-    if (span.rows == 0) { out = Image{}; return true; }
-    out.h = span.rows; out.w = plane.w; out.c = plane.c;
+// The halo is **clamped at the plane's own edges, never reflected into
+// existence**, and that is a precondition of the whole FIR path rather than a
+// convenience: `spk_sep_fir_acc` reflects at whatever buffer it is handed, so
+// an edge band's buffer edge *is* the plane's edge and its `reflect_index` over
+// the smaller `nlim` lands on the same source row the full plane's would, while
+// an interior band's kept rows never reflect at all -- their support
+// `[y0-R, y0+rows+R)` is inside the buffer by construction. Fill a halo by
+// reflecting rows into the buffer instead and the two stops coinciding; the
+// kernel would then be exact for the interior bands and quietly wrong at the
+// edges, which is the worst of the two ways to be wrong.
+bool Pipeline::band_from(const Image& plane, const StripSpan& span, uint32_t halo, BandRead& read,
+                         Image& out, std::string& error) {
+    read.span = span;
+    if (span.rows == 0) { out = Image{}; read.y0 = 0; read.rows = 0; return true; }
+    read.y0 = span.y0 > halo ? span.y0 - halo : 0;
+    const uint32_t end = std::min(plane.h, span.y0 + span.rows + halo);
+    read.rows = end - read.y0;
+    out.h = read.rows; out.w = plane.w; out.c = plane.c;
     out.buf = gpu_->alloc(out.bytes(), error);
     if (!out.buf) return false;
     const size_t row = size_t(plane.w) * plane.c;
     std::memcpy(gpu_->contents(out.buf.get()),
-                static_cast<const float*>(gpu_->contents(plane.buf.get())) + size_t(span.y0) * row,
-                size_t(span.rows) * row * sizeof(float));
+                static_cast<const float*>(gpu_->contents(plane.buf.get())) + size_t(read.y0) * row,
+                size_t(read.rows) * row * sizeof(float));
     if (!gpu_->flush(error)) return false;
     return true;
 }
 
-bool Pipeline::band_into(const Image& band, const StripSpan& span, Image& plane,
+bool Pipeline::band_into(const Image& band, const BandRead& read, Image& plane,
                          std::string& error) {
+    const StripSpan& span = read.span;
     if (!band.buf || span.rows == 0) return true;
     const size_t row = size_t(plane.w) * plane.c;
-    if (band.h != span.rows || band.w != plane.w || band.c != plane.c) {
-        error = "a band does not match the strip it is being written back into";
+    if (band.h != read.rows || band.w != plane.w || band.c != plane.c) {
+        error = "a band does not carry the rows it was read with";
         return false;
     }
     if (!gpu_->flush(error)) return false;
     std::memcpy(static_cast<float*>(gpu_->contents(plane.buf.get())) + size_t(span.y0) * row,
-                gpu_->contents(band.buf.get()), size_t(span.rows) * row * sizeof(float));
+                static_cast<const float*>(gpu_->contents(band.buf.get())) + size_t(read.offset()) * row,
+                size_t(span.rows) * row * sizeof(float));
     return true;
 }
 

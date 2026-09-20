@@ -153,7 +153,22 @@ struct Progress {
         /// there is only one, the stage table, walked by both paths.
         struct StageRun {
             std::string name;
+            /// The table's class for this stage: a property of the code, the
+            /// same on every run of every frame.
+            std::string stage_class;
+            /// What this run resolved to. False for a `Neighbourhood` stage
+            /// whose demand came back `carried`, or whose halo was wider than
+            /// the plane -- and that distinction is the difference between "the
+            /// mode saved nothing because the code cannot" and "because these
+            /// parameters cannot", which is what a user's report needs.
             bool band_able = false;
+            /// The context this stage actually executed with, in rows each
+            /// side: **the run's halo**, which is the sum of the run's stages'
+            /// demands and not any single stage's. Reported per stage rather
+            /// than per run because a run has no name of its own, and because
+            /// a reader checking the sum against a stage's own radius is
+            /// checking the one thing that can be silently too small.
+            uint32_t halo = 0;
         };
         std::vector<StageRun> stages;
     };
@@ -290,18 +305,51 @@ public:
     // Step 5 does not care (everything is whole-frame); step 6's measurement is
     // where to look for it.
     //
-    // The rows a band run operates on. Used by the executor to carry a band and
-    // its origin together, so that writing it back cannot lose the offset: a
-    // pair of loose values is exactly the shape `Strip` exists to remove.
+    /// A stage's demand is its blurs' demand: `Blur::Demand` is the type the
+    /// FIR/IIR rule produces, and re-spelling it here would be a second place
+    /// the crossover lives.
+    ///
+    /// **It is resolved from this run's parameters rather than read from the
+    /// table**, because F and R are not node properties: they are the two
+    /// branches of one blur call, chosen per channel by sigma (`sigma < 3.0` is
+    /// FIR, `>= 3` the YvV IIR). Halation's three channels routinely straddle
+    /// the crossover, so "is this stage band-able" is a question about the run,
+    /// and a table cannot answer it: the same `film_blurs` is strippable at
+    /// `lens_blur_um = 4` and whole-frame at `lens_blur_um = 40`.
+    ///
+    /// A `carried` demand is the escape hatch doing its job (§4.6): the stage
+    /// declares itself whole-frame for this run and the mode simply saves less.
+    /// That is exact rather than approximate, and it stays exact until step 6's
+    /// R half replaces it with the carried state.
+    enum class StageClass {
+        /// Band-able with no boundary maths at all: RFC-020's class P, and
+        /// class I once §4.5's global-row offset is plumbed through to the
+        /// kernels (step 6's second half).
+        Pointwise,
+        /// Band-able when `demand` says every active channel takes the FIR
+        /// branch, with `demand.halo` rows of context. Otherwise whole-frame.
+        Neighbourhood,
+        /// Never band-able: `geometry` (a rotated source rect), `boost` (an
+        /// image-global reduction), and every node this RFC has not striped.
+        Whole,
+    };
 
     struct Stage {
         const char* name;
-        /// Class P in step 5: a stage the executor may run once per strip.
-        /// False means it needs the whole plane -- F/R's halos and carried
-        /// recurrences, and (until step 6) the two I nodes, whose bodies hold
-        /// their own blurs and so cannot be split by a stage boundary.
-        bool band_able;
+        /// **The class is a property of the code and does not vary between
+        /// runs.** `demand` below is what varies, and the two must stay
+        /// distinguishable: a stage wrongly marked here can otherwise hide
+        /// behind "it resolved to whole for that run", which a reader cannot
+        /// tell apart from a legitimate IIR resolution. So `spk_progress`
+        /// reports both -- this, pinned by the harness, and the resolved
+        /// `band_able`, which explains the run.
+        StageClass klass;
         bool (Pipeline::*run)(const Chain&, Chain&, std::string&);
+        /// Non-null exactly for `Neighbourhood` stages. Called once per run,
+        /// before any strip executes, because the answer decides the plan's
+        /// crossings -- a demand consulted mid-run would be a crossing chosen
+        /// after the copy it governs.
+        Blur::Demand (Pipeline::*demand)() const;
     };
     static const Stage kFilmStages[];
     static const size_t kFilmStageCount;
@@ -315,7 +363,8 @@ public:
     // `strip_executor.py` exist because they are still two encodings of one
     // order.
     bool film_scale_and_expose(const Chain& in, Chain& out, std::string& error);
-    bool film_boost_and_blurs(const Chain& in, Chain& out, std::string& error);
+    bool film_boost(const Chain& in, Chain& out, std::string& error);
+    bool film_blurs(const Chain& in, Chain& out, std::string& error);
     bool film_log_and_curves(const Chain& in, Chain& out, std::string& error);
     bool film_couplers(const Chain& in, Chain& out, std::string& error);
     bool film_grain(const Chain& in, Chain& out, std::string& error);
@@ -345,12 +394,34 @@ public:
     /// whole-frame the arithmetic cannot notice.
     std::vector<StripSpan> strip_plan(uint32_t plane_h) const;
 
+    /// What a band read actually took: the strip it is *for*, and the rows it
+    /// actually holds, which are the strip's plus `halo` each side **clamped to
+    /// the plane**. One type rather than loose `uint32_t`s for §4.5's reason --
+    /// this pair has to agree with itself at the write-back, and a pair of
+    /// integers is exactly the shape that lets them drift one apart.
+    struct BandRead {
+        StripSpan span;      ///< the strip this band is for
+        uint32_t y0 = 0;     ///< the band's first row, in the plane
+        uint32_t rows = 0;   ///< rows the band holds, after clamping
+        uint32_t offset() const { return span.y0 - y0; }
+    };
+
     /// Copy a band's rows out of a whole plane, into a band-sized buffer.
     /// The copy is the price of `image.hpp`'s no-stride contract, paid once per
     /// live field at each crossing where the kind changes.
-    bool band_from(const Image& plane, const StripSpan& span, Image& out, std::string& error);
-    /// And back: the band's rows, into the plane at the band's own offset.
-    bool band_into(const Image& band, const StripSpan& span, Image& plane, std::string& error);
+    ///
+    /// `halo` is the run's context, in rows, and it is **clamped at the plane's
+    /// own edges**. That clamping is what makes the existing FIR kernel exact
+    /// on a band without changing a line of it: an interior band's kept rows
+    /// never reflect inside the band's own support, and an edge band's buffer
+    /// edge *is* the plane's edge, where the kernel's `reflect_index` over the
+    /// band's smaller `nlim` lands on the same source row as the full plane's
+    /// would. Nothing here approximates anything.
+    bool band_from(const Image& plane, const StripSpan& span, uint32_t halo, BandRead& read,
+                   Image& out, std::string& error);
+    /// And back: the strip's rows -- not the band's, which are the strip's plus
+    /// the halo -- into the plane at the band's own offset.
+    bool band_into(const Image& band, const BandRead& read, Image& plane, std::string& error);
 
     /// Walk a stage table over a plan: a band-able run once per strip, a plane
     /// stage once for the frame, and the **crossings derived from the kinds**
@@ -420,6 +491,41 @@ private:
     /// negative's own rows.
     bool print_prefix(std::string& error);
     bool print_segment(const Image& cmy, Image& out, std::string& error);
+
+    // --- what a neighbourhood stage needs from a boundary ----------------
+    // One demand per `Neighbourhood` stage, computed from **the same parameter
+    // arithmetic the node bodies use**. The sigmas are factored out just below
+    // so that a node and its own demand cannot disagree about what will run: a
+    // halo a row short is a seam in the picture, and a `carried` that disagrees
+    // with the branch the kernel takes is a different picture, and neither has
+    // a second place to come from.
+    Blur::Demand film_blurs_demand() const;
+    Blur::Demand film_couplers_demand() const;
+    Blur::Demand print_scan_finish_demand() const;
+    /// The class as it appears in `spk_progress` -- "pointwise",
+    /// "neighbourhood", "whole". One spelling, next to the enum, so a reader
+    /// and a harness cannot disagree about which string means which value.
+    static const char* class_name(StageClass klass);
+
+    /// The blur plans the F nodes actually run, derived from this run's
+    /// parameters. Each returns an empty list when its node's own guard would
+    /// take the identity path, so a demand can never ask for context a stage
+    /// will not use -- and, the other way, can never miss one it will.
+    struct HalationBlurs {
+        std::vector<Blur::Component> scatter;  ///< empty when the guard says no
+        std::vector<Blur::Component> bounces;
+    };
+    HalationBlurs halation_blurs() const;
+    std::vector<Blur::Component> dir_coupler_diffusion() const;
+    /// The sigma `node_lens_blur` blurs with -- one number, three channels --
+    /// and the ones the print side's two sharpening nodes use.
+    double lens_blur_sigma() const;
+    double scanner_blur_sigma() const;
+    double unsharp_sigma() const;
+    /// `source_long_edge_ / frame_long_edge_`: the full tier's long edge over
+    /// this render's, which is what turns a parameter stated as a fraction of
+    /// the frame into this frame's pixels.
+    double tier_ratio() const;
 
     // --- per-node bodies, in topology order -----------------------------
     bool node_input_cast(const Image& in, Image& out, std::string& error);

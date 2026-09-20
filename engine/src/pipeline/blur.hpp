@@ -40,6 +40,32 @@ public:
     bool mixture(const Image& img, const std::vector<Component>& components, Image& out,
                  std::string& error, double truncate = 3.0);
 
+    // --- the class of a sigma, and what it costs a strip boundary -----------
+    //
+    // Exposed because a striped executor has to know *before* it runs whether a
+    // stage is a neighbourhood stage and how many rows of context it needs.
+    // This is the one place the FIR/IIR split is decided -- `gaussian` below
+    // reads the same predicate -- and the radius is obtained by asking
+    // `gaussian_kernel_1d` for it rather than by repeating `truncate * sigma +
+    // 0.5` here, because a second copy of that rounding is exactly how a halo
+    // comes out a row short.
+    static bool is_fir(double sigma) { return sigma > 0.0 && sigma < kSmallSigmaMax; }
+
+    /// Rows (and columns) a FIR gaussian at this sigma reads. Zero when the
+    /// sigma is not a FIR sigma.
+    static uint32_t fir_radius(double sigma, double truncate = 3.0);
+
+    /// What a blur needs from a strip boundary. `carried` means an active
+    /// channel takes the IIR branch, whose recurrence cannot be cut.
+    struct Demand {
+        bool carried = false;
+        uint32_t halo = 0;
+    };
+    static Demand demand(const double sigma[3], double truncate = 3.0);
+    static Demand demand(const std::vector<Component>& components, double truncate = 3.0);
+    /// The demand of running both: halos take the wider, carried wins.
+    static Demand merge(const Demand& a, const Demand& b);
+
     // The (weight, sigma) list `fast_exponential_filter` is a sum of: a
     // three-Gaussian surrogate for an isotropic 2-D exponential PSF.
     static void exponential_components(const double decay[3], const double weight[3],

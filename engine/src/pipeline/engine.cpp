@@ -1759,7 +1759,15 @@ spk_status spk_progress(spk_session* session, const char* progress_id, char** ou
             for (const Progress::StripRun::StageRun& st : run.stages) {
                 Json e = Json::object();
                 e.set("name", Json(st.name));
+                // Two facts, and the pair is the point: `class` is a property
+                // of the code (the table's entry, the same on every run), and
+                // `band_able` is what **this run** resolved to. A stage wrongly
+                // marked in the table and a stage legitimately sent whole-frame
+                // by its parameters look identical in the second and not in the
+                // first, which is why the harness pins one and reads the other.
+                e.set("class", Json(st.stage_class));
                 e.set("band_able", Json(st.band_able));
+                e.set("halo", Json(double(st.halo)));
                 ran.push(std::move(e));
             }
             entry.set("stages", std::move(ran));

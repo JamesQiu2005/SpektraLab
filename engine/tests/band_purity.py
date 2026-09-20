@@ -10,11 +10,19 @@ parameter -- which is precisely why `node_boost` slipped past
 `parity_render`'s 27-case axis. That is too thin a thread for a principle
 step 6 leans on, so this probe makes the rule mechanical.
 
-**The property, exactly:** no function reachable from a stage whose table entry
-says `band_able` may compute anything over the plane's pixels -- neither by a
-GPU reduction nor by a copy of the plane to the host. "Declares itself
-whole-frame" is not a marker in the code; it *is* the stage table, so the
-property is checkable as reachability from that table.
+**The property, exactly:** no function reachable from a stage that *can be*
+band-able -- `Pointwise`, and `Neighbourhood`, which resolves either way by its
+parameters -- may compute anything over the plane's pixels, neither by a GPU
+reduction nor by a copy of the plane to the host. "Declares itself whole-frame"
+is not a marker in the code; it *is* the table's `Whole` class, so the property
+is checkable as reachability from that table.
+
+**And a second rule step 6 added:** a *demand* function is asked before any band
+exists, so it must be answerable from the parameters alone. A demand that read
+pixels would make the plan depend on the render -- and the first thing that
+would break is the promise that the mode is chosen before the picture is
+computed. Both rules are checked here, with the demand's failure worded
+differently so a reader can tell which one fired.
 
 Three things make the check honest rather than decorative:
 
@@ -61,7 +69,7 @@ SINKS = {
     "exposure_sample_y": "reads the plane's luma to the host",
 }
 
-EXPECTED_TABLE_ROWS = 10  # five film stages, five print stages
+EXPECTED_TABLE_ROWS = 11  # six film stages -- the `boost` split made one more -- and five print
 
 # `if (cond) {` and its relatives have the shape of a definition -- a name, a
 # parenthesised something, then a brace -- and are skipped by name so a call
@@ -202,9 +210,19 @@ def reachable(text: str, defs: dict[str, tuple[int, int, int]],
     return hits
 
 
-def stage_table(src: str) -> list[tuple[str, bool, str]]:
-    return [(m.group(1), m.group(2) == "true", m.group(3)) for m in
-            re.finditer(r'\{\s*"(\w+)",\s*(true|false),\s*&Pipeline::(\w+)\s*\}', src)]
+def stage_table(src: str) -> list[tuple[str, str, str, str]]:
+    """(name, class, run function, demand function) for every row of both tables.
+
+    Step 6 replaced the boolean with a class and a demand, and this regex came
+    off the source the moment it did -- which is exactly why the row count is
+    pinned below: a parser that stops matching is otherwise a green light over
+    nothing.
+    """
+    rows = []
+    for m in re.finditer(r'\{\s*"(\w+)",\s*StageClass::(\w+),\s*&Pipeline::(\w+),\s*'
+                         r'(?:&Pipeline::(\w+)|nullptr)\s*\}', src):
+        rows.append((m.group(1), m.group(2), m.group(3), m.group(4) or ""))
+    return rows
 
 
 def check(src: str) -> tuple[list[str], list[str]]:
@@ -212,7 +230,7 @@ def check(src: str) -> tuple[list[str], list[str]]:
     text = blank_literals(src)
     defs = definitions(text)
     # The table is read from the raw source: its stage names are string
-    # literals, and the blanker has just replaced every one of them with space.
+    # literals, and the blanker has just replaced every one of them with spaces.
     rows = stage_table(src)
     failures: list[str] = []
     notes: list[str] = []
@@ -222,9 +240,19 @@ def check(src: str) -> tuple[list[str], list[str]]:
     if len(rows) != EXPECTED_TABLE_ROWS:
         failures.append(f"the stage tables parsed to {len(rows)} rows, not "
                         f"{EXPECTED_TABLE_ROWS}; the parser has come off the source")
-    for name, _, fn in rows:
+    for name, klass, fn, demand in rows:
         if fn not in defs:
             failures.append(f"stage {name} names {fn}, which is not defined in pipeline.cpp")
+        # The class and the demand have to agree, or the resolution cannot
+        # happen: a `Neighbourhood` stage with no demand has nothing to say
+        # whether it may be striped, and a demand on a stage that never asks is
+        # dead code pretending to be a guarantee.
+        if klass == "Neighbourhood" and not demand:
+            failures.append(f"{name} is a Neighbourhood stage with no demand function, so "
+                            f"nothing can tell the executor whether it may be striped")
+        if klass != "Neighbourhood" and demand:
+            failures.append(f"{name} is {klass} and names a demand function; only a "
+                            f"Neighbourhood stage has one")
 
     # The sink list, verified against the tree rather than trusted.
     for sink, why in SINKS.items():
@@ -232,19 +260,37 @@ def check(src: str) -> tuple[list[str], list[str]]:
             failures.append(f"the sink list has rotted: {sink} ({why}) is not defined "
                             f"any more, so this probe is no longer guarding it")
 
-    for name, band_able, fn in rows:
+    # **The roots are every stage that can be band-able**, which is `Pointwise`
+    # and `Neighbourhood` -- a Neighbourhood stage resolves either way by its
+    # parameters, so a static check has to treat it as band-able. `Whole` is the
+    # escape hatch and the only class that may reach a sink.
+    roots = [(f"stage {name}", fn) for name, klass, fn, _ in rows if klass != "Whole"]
+    # And the demands themselves, which are a *second* rule: a demand is asked
+    # before any band exists, so it must be answerable from the parameters
+    # alone. A demand that read pixels would make the plan depend on the render.
+    roots += [(f"demand of {name}", demand) for name, _, _, demand in rows if demand]
+
+    whole = {fn for name, klass, fn, _ in rows if klass == "Whole"}
+    for label, fn in roots:
         if fn not in defs:
             continue
         hits = reachable(text, defs, [fn])
-        if band_able and hits:
+        if hits:
             for sink, path in hits.items():
-                failures.append(f"{name} is band-able and reaches {sink} "
+                failures.append(f"{label} can be band-able and reaches {sink} "
                                 f"({SINKS[sink]}) via {' -> '.join(path)}")
-        elif hits:
-            notes.append(f"{name} is whole-frame, as its table entry says: "
-                         + "; ".join(f"{sink} via {' -> '.join(path)}" for sink, path in hits.items()))
+        elif fn in whole:
+            notes.append(f"{fn} is whole-frame, as its table entry says: "
+                         + "; ".join(f"{s} via {' -> '.join(p)}" for s, p in
+                                     reachable(text, defs, [fn]).items()))
         else:
-            notes.append(f"{name} reaches no sink")
+            notes.append(f"{label} reaches no sink")
+
+    for fn in whole:
+        hits = reachable(text, defs, [fn])
+        if hits:
+            notes.append(f"{fn} is whole-frame, as its table entry says: "
+                         + "; ".join(f"{s} via {' -> '.join(p)}" for s, p in hits.items()))
 
     return failures, notes
 
@@ -252,18 +298,33 @@ def check(src: str) -> tuple[list[str], list[str]]:
 def self_test(src: str) -> int:
     """Assert the verdict flips for the right reasons, in both directions."""
     cases = [
-        ("the whole-frame marker removed from film_boost_and_blurs",
-         '{"film_boost_and_blurs",   false,', '{"film_boost_and_blurs",   true, ',
-         "band-able and reaches"),
+        ("film_boost's whole-frame class replaced by Pointwise",
+         '{"film_boost",            StageClass::Whole,',
+         '{"film_boost",            StageClass::Pointwise,',
+         "stage film_boost can be band-able and reaches device_max"),
+        ("a demand that reads pixels",
+         "    return Blur::demand(dir_coupler_diffusion());",
+         "    double v = 0.0;\n    device_max(Image{}, v, (*(new std::string)));\n"
+         "    return Blur::demand(dir_coupler_diffusion());",
+         "demand of film_couplers can be band-able and reaches device_max"),
+        ("a Neighbourhood stage with no demand",
+         '{"print_scan_finish", StageClass::Neighbourhood, &Pipeline::print_scan_finish,'
+         ' &Pipeline::print_scan_finish_demand},',
+         '{"print_scan_finish", StageClass::Neighbourhood, &Pipeline::print_scan_finish, nullptr},',
+         "Neighbourhood stage with no demand function"),
         ("a sink renamed under the probe",
          "bool Pipeline::device_max(", "bool Pipeline::device_maximum(",
          "sink list has rotted"),
         ("a stage row naming a function that is not there",
-         '{"print_output",      true,  &Pipeline::print_output},',
-         '{"print_output",      true,  &Pipeline::print_outputty},',
+         '{"print_output",      StageClass::Pointwise,     &Pipeline::print_output,      nullptr},' + "\n};",
+         '{"print_output",      StageClass::Pointwise,     &Pipeline::print_outputty,      nullptr},' + "\n};",
          "is not defined in pipeline.cpp"),
-        ("a benign edit (a stage turned whole-frame)",
-         '{"print_output",      true,', '{"print_output",      false,',
+        # A `Whole` stage with no demand is a legitimate shape (a P stage turned
+        # whole is a code change, not a mistake) -- this is the negative control:
+        # the probe must stay green on an edit that breaks nothing.
+        ("a benign edit (a Pointwise stage turned whole-frame)",
+         '{"print_output",      StageClass::Pointwise,     &Pipeline::print_output,      nullptr},',
+         '{"print_output",      StageClass::Whole,     &Pipeline::print_output,      nullptr},',
          None),
     ]
     bad = 0

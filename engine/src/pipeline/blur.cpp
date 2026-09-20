@@ -141,6 +141,42 @@ bool Blur::iir(const Image& img, const double sigmas[3], const bool active[3],
                           size_t(img.w) * 3, error);
 }
 
+uint32_t Blur::fir_radius(double sigma, double truncate) {
+    if (!is_fir(sigma)) return 0;
+    // Asked of the kernel builder itself rather than recomputed: this function
+    // exists so the executor knows how many rows of context to copy, and the
+    // one thing it must not do is round `truncate * sigma + 0.5` differently
+    // from the kernel that will read them.
+    Vec ignored;
+    return uint32_t(gaussian_kernel_1d(sigma, truncate, ignored));
+}
+
+Blur::Demand Blur::demand(const double sigma[3], double truncate) {
+    Demand d;
+    for (int c = 0; c < 3; ++c) {
+        if (!(sigma[c] > 0.0)) continue;  // identity: no pass, no context
+        if (is_fir(sigma[c])) d.halo = std::max(d.halo, fir_radius(sigma[c], truncate));
+        else d.carried = true;
+    }
+    return d;
+}
+
+Blur::Demand Blur::demand(const std::vector<Component>& components, double truncate) {
+    // Every component runs -- `mixture` does not skip one for a zero weight,
+    // it blurs it and multiplies by zero -- so this is exact rather than
+    // conservative.
+    Demand d;
+    for (const Component& comp : components) d = merge(d, demand(comp.sigma, truncate));
+    return d;
+}
+
+Blur::Demand Blur::merge(const Demand& a, const Demand& b) {
+    Demand d;
+    d.carried = a.carried || b.carried;
+    d.halo = std::max(a.halo, b.halo);
+    return d;
+}
+
 bool Blur::gaussian(const Image& img, const double sigma[3], Image& out, std::string& error,
                     double truncate, const Image* acc, const double* weight) {
     bool use_fir[3], use_iir[3];
