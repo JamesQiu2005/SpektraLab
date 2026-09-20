@@ -56,6 +56,46 @@ struct StripSpan {
     uint32_t rows = 0;
 };
 
+/// A frame's dimensions, as a type rather than two loose `uint32_t`s.
+///
+/// `film_prefix` takes this rather than `(frame_h, frame_w)` for the reason
+/// step 4 named and could not yet enforce: a signature of plain integers lets a
+/// *band's* height be passed where the frame's belongs, with no compiler
+/// complaint and no failing test until a micrometre-specified effect is quietly
+/// wrong. The film's pitch is `frame_long_edge`'s inverse and every grain size,
+/// blur radius and diffusion length downstream is measured through it.
+struct FrameShape {
+    uint32_t h = 0;
+    uint32_t w = 0;
+    uint32_t long_edge() const { return h > w ? h : w; }
+};
+
+/// A full-width band of a frame: what the executor hands a node that can be
+/// striped (RFC-020 §4.2's classes P, I, F, R).
+///
+/// **Not an `Image`, and not convertible to one.** A whole-frame node takes
+/// `const Image&` and therefore *cannot* be handed a band by accident, which is
+/// §4.5's offset trap closed by the compiler rather than by a comment asking
+/// for care. A striped node takes `const Strip&` and reads `y0` because there
+/// is nothing else to read.
+///
+/// `plane` is the band's **own** buffer -- `rows()` tall and tightly packed,
+/// with `plane.w` the *frame's* width, because a band is full-width by
+/// construction. It is a real buffer and not a view because `image.hpp` is
+/// explicit that an `Image` has no stride and no padding, and every kernel's
+/// indexing depends on that; the executor pays a row copy at each crossing
+/// between a whole-frame node and a striped one instead of teaching every
+/// kernel an offset.
+///
+/// `frame_h` is the frame's, **never the band's** -- that is the whole reason
+/// it is a member and not derived from `plane.h`.
+struct Strip {
+    Image plane;
+    uint32_t y0 = 0;
+    uint32_t frame_h = 0;
+    uint32_t rows() const { return plane.h; }
+};
+
 // A render's progress and its cancellation flag. `cancel` is read between
 // nodes, so a cancelled render unwinds at a node boundary rather than being
 // abandoned mid-kernel.
@@ -272,14 +312,14 @@ private:
     /// effect downstream's unit -- and the segment is what the strips cut,
     /// which is dimension-preserving throughout.
     ///
-    /// `frame_h`/`frame_w` are the **frame's**, passed down rather than read
-    /// off `cur` (§4.5 trap 1). In step 4 nothing else can reach that line --
-    /// every node is handed a full plane, so `cur.h` *is* the frame height --
-    /// so this is plumbing, not a fix. **Plumbed and not yet verified**: step
-    /// 5 is where a band first reaches a node and where a wrong pitch would
-    /// first show up in the picture.
-    bool film_prefix(const Image& in, uint32_t frame_h, uint32_t frame_w, Image& cur,
-                     std::string& error);
+    /// `frame` is the frame's **own** shape, passed down rather than read off
+    /// `cur` (§4.5 trap 1), and typed so that a band's height cannot be handed
+    /// to it by mistake. In step 4 nothing can reach that line wrongly -- every
+    /// node is handed a full plane, so `cur.h` *is* the frame height -- so the
+    /// typing is plumbing, not a fix. **Plumbed and not yet verified**: step 5
+    /// is where a band first reaches a node, and where a pitch taken from one
+    /// would first bend every grain size and blur radius in the picture.
+    bool film_prefix(const Image& in, const FrameShape& frame, Image& cur, std::string& error);
     bool film_segment(const Image& in, Image& out, std::string& error);
     /// The print side's split. Its prefix is the enlarger's live-mutable
     /// constants, which are host constants rather than pixels, and its segment

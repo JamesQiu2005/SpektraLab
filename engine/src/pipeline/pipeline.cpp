@@ -1542,7 +1542,7 @@ bool Pipeline::node_cctf(const Image& in, Image& out, std::string& error) {
 // so this is plumbing, not a fix. **Plumbed and not yet verified**: step 5 is
 // where a band first reaches a node, and where a pitch taken from one would
 // first bend every grain size and blur radius in the picture.
-bool Pipeline::film_prefix(const Image& in, uint32_t frame_h, uint32_t frame_w, Image& cur,
+bool Pipeline::film_prefix(const Image& in, const FrameShape& frame, Image& cur,
                            std::string& error) {
     Image next;
     SPK_NODE(node_input_cast(in, cur, error));
@@ -1555,7 +1555,7 @@ bool Pipeline::film_prefix(const Image& in, uint32_t frame_h, uint32_t frame_w, 
     // downstream converts with. The pitch is the *pre-crop* long edge's.
     {
         Timer t(this, "preprocess.crop_rescale");
-        if (source_long_edge_ == 0) source_long_edge_ = std::max(frame_h, frame_w);
+        if (source_long_edge_ == 0) source_long_edge_ = frame.long_edge();
         pixel_size_um_ = params_.camera.film_format_mm * 1000.0 / double(source_long_edge_);
     }
 
@@ -1626,7 +1626,7 @@ bool Pipeline::run_film(const Image& in, Image& out, Progress* progress, std::st
     last_ae_ev_.reset();
 
     Image cur;
-    if (!film_prefix(in, in.h, in.w, cur, error)) return false;
+    if (!film_prefix(in, FrameShape{in.h, in.w}, cur, error)) return false;
     if (!film_segment(cur, out, error)) return false;
     progress_ = nullptr;
     return true;
@@ -1650,7 +1650,7 @@ bool Pipeline::run_film_striped(const Image& in, Image& out, Progress* progress,
     last_ae_ev_.reset();
 
     Image cur;
-    if (!film_prefix(in, in.h, in.w, cur, error)) return false;
+    if (!film_prefix(in, FrameShape{in.h, in.w}, cur, error)) return false;
 
     const std::vector<StripSpan> plan = strip_plan(cur.h);
     Image assembled;
