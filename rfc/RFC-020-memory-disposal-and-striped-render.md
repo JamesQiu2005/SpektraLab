@@ -19,11 +19,17 @@
 dead-but-not-yet-reusable buffers — and took the 101.9 MP peak from **28.9 GB
 to 19.1 GB**, bit-identical, measured. That was the free half.
 
-**19.1 GB still does not fit a 24 GB Mac**, and the remaining gap is not a
-defect. It is the shape of the pipeline: at the full tier the engine genuinely
-holds about nine 1.22 GB planes at once, and nothing about that is wasteful.
-You cannot fix it by finding another bug. You fix it by developing the frame in
-pieces, or not at all.
+§1.1 then measured the app's own path on three real 100 MP cameras, and the
+honest picture is better than the synthetic one: **15.6 GB after the fix
+against 25.3 GB before**, which means `b61282c` is very probably the whole of
+the reported bug. **This RFC is therefore not a rescue.** It is written on the
+assumption that "fits a 24 GB Mac with nothing to spare, behind a 12 GB Core
+Image decode spike" is not where a 100 MP camera should leave the product.
+
+The remaining gap is not a defect. It is the shape of the pipeline: at the full
+tier the engine genuinely holds about nine 1.22 GB planes at once, and nothing
+about that is wasteful. You cannot fix it by finding another bug. You fix it by
+developing the frame in pieces, or not at all.
 
 There is a second, separate thing wrong, and it is worth naming apart from the
 first: **the engine never gives anything back.** The pool is not trimmed at
@@ -65,7 +71,54 @@ code: `session->source` (1.22 GB, `alloc_persistent`, lives as long as the
 session), the cached negative at the full tier (1.22 GB, what makes a reprint
 12 ms instead of 107), and the rgba16 result (0.82 GB, handed to the caller +1).
 
-Two facts about the machine that shaped everything below, both measured:
+### 1.1 The real baseline: three 100 MP cameras, the app's own path
+
+The table above is the engine driven alone on a synthetic frame. **This one is
+the app's actual open path** — `CIRAWFilter` for both looks, the canvas preview
+texture, `engineFrame`, `spk_open_device`, `solve`, then both tiers — measured
+on real files in `spektrafilm/tests/Test_image/large_raws`, one process per
+file, 2026-09-20, same machine:
+
+| | GFX100 II | GFX100S | CFV 100C |
+|---|---|---|---|
+| frame | 11648 x 8736 | 11648 x 8736 | 11664 x 8750 |
+| **Core Image transient, at the preview texture** | **11.66 GB** | **12.12 GB** | **8.53 GB** |
+| after warm-up (Core Image has given it back) | 1.76 | 1.76 | 5.31 |
+| `spk_open_device` | 5.61 | 5.66 | 5.43 |
+| solve | 6.45 | 6.50 | 6.27 |
+| render live (2678 px) | 7.09 / 155 ms | 7.15 / 171 ms | 6.92 / 179 ms |
+| **render full** | **15.55 GB** / 2059 ms | **15.55 GB** / 2216 ms | **15.58 GB** / 2224 ms |
+| compressions during the full render | 185,292 | 106,291 | 99,059 |
+| **peak** | **153 B/px** | **153 B/px** | **153 B/px** |
+
+Three different cameras, three different RAW formats, **153 bytes a pixel every
+time**. That consistency is itself useful: the per-pixel cost is a property of
+the pipeline, not of the file.
+
+Two things this baseline says that the synthetic one could not:
+
+- **There are two peaks in a session, not one, and the first one is Core
+  Image's.** Making a 2678 px preview of a 102 MP RAW costs a transient of
+  8.5–12.1 GB, before the engine has been asked for anything. It is genuinely
+  transient — the footprint falls back to 1.8 GB — and it is a high-water mark
+  rather than a per-frame addition (§2), but on a 24 GB machine it is a spike
+  that has to fit, and it varies by 3.6 GB between two cameras of the same
+  resolution. `DecodeResidency.estimatedBytesPerPixel = 90` (9.2 GB here) sits
+  inside that range but does not cover the Fuji case.
+- **`b61282c` is very likely the whole of the reported bug.** The same
+  Hasselblad file, same probe, with the pre-fix engine: **peak 25.31 GB
+  (248 B/px), full render 3852 ms, 726,983 compressions** — against 15.58 GB,
+  2224 ms and 99,059 after. 25.3 GB is what "23 GB on a 24 GB M5" looks like
+  from the other side of the ceiling, and 15.6 GB fits.
+
+That does not retire this RFC. 15.6 GB plus a 12 GB decode spike on a 24 GB
+machine is survival, not headroom, and §3's disposal work is unaffected by it.
+But it does change the urgency of §4: the striped mode is what makes 100 MP
+comfortable, not what makes it possible.
+
+### 1.2 Two facts about the machine
+
+Both measured, and both shaped everything below:
 
 - **Page faults are cheap.** Between the pre- and post-`b61282c` builds, minor
   faults moved only 548,288 -> 473,082, and at 45.4 MP they are *identical*
@@ -89,18 +142,28 @@ should be sold as "faster".
 
 ## 2. What this is not about
 
-`Diagnostics.forecastBytesPerPixel = 167` under-predicts by ~40 % at 102 MP
-(measured 187 B/px after `b61282c`, 284 before), so the Settings warning did
-not fire for the user who reported this. That is a one-constant fix in the app
-and it belongs in a commit, not an RFC. It is named here only so it is not
-lost.
+**`Diagnostics.forecastBytesPerPixel = 167` needs no change, and an earlier
+draft of this section was wrong to say it did.** That draft read 187 and
+284 B/px off the *synthetic engine-only* probe, which carries a 1.22 GB host
+array the app does not have, and concluded the constant under-predicted by
+40 %. §1.1 measures the app's own path instead: **153 B/px** after `b61282c`,
+on three cameras, so 167 is conservative and correct today. It was *not*
+correct at the time the bug was reported — the pre-fix path measures
+**248 B/px**, which is why the Settings warning did not fire for that user —
+but the fix moved the truth under the constant rather than the constant under
+the truth. Re-validate it at 45 MP before trusting it everywhere; do not
+change it.
 
-And **Core Image is not implicated.** Measured in a process the engine was
-absent from: 101 B/px peak, ~85 B/px retained, and — the load-bearing part —
-it is a **high-water mark, not a per-frame addition**: a second decode costs
-nothing more, and `CIContext.clearCaches()` frees nothing. `DecodeResidency
-.estimatedBytesPerPixel = 90` is a good estimate. The client side of RFC-019 is
-working as designed. This RFC is about the other side of the C ABI.
+**Core Image is a bounded high-water mark, not a leak, but it is not nothing.**
+Measured in a process the engine was absent from: 101 B/px peak, ~85 B/px
+retained, a second decode costs nothing more, and `CIContext.clearCaches()`
+frees nothing. At 45 MP that is 4.6 GB and unremarkable. At 102 MP §1.1 shows
+it as an 8.5–12.1 GB transient spike that precedes every render — the first of
+the session's two peaks. The client side of RFC-019 accounts for it honestly
+(`DecodeResidency` estimates 90 B/px against a measured 85), so nothing here is
+mis-reported; it is simply larger than a 24 GB machine has room to be relaxed
+about. Reducing it is the client's problem and §4.7's striped ingestion is the
+lever. This RFC is otherwise about the other side of the C ABI.
 
 ---
 
@@ -296,7 +359,10 @@ Sketch at 101.9 MP with 8 strips (each ~1275 rows, ~153 MB a plane):
 | render working set | **~11.0 GB** | ~9 x 153 MB = **~1.4 GB** |
 | the `R` passes' plane-for-the-axis | — | 1.22 GB, one at a time |
 | rgba16 result | 0.82 GB | 0.82 GB |
-| **peak** | **19.1 GB** | **~6 GB, estimated** |
+| **peak** | **15.6 GB measured** (§1.1) | **~6 GB, estimated** |
+
+The "today" column's rows are derived and its total is measured; they agree to
+about a gigabyte, which is the pool's high-water above the live set.
 
 **That last number is an estimate and must be labelled one.** It assumes the
 `R` passes need one full plane at a time and not two, and it assumes no node
