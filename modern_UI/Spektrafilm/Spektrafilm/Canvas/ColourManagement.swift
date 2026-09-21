@@ -145,9 +145,23 @@ enum ColourManagement {
 
     /// The setup for one conversion, fetched from the engine once and kept.
     ///
-    /// Keyed by the pair and by nothing else: the engine's answer is a pure
-    /// function of the two names, so a hit is not a guess about staleness.
+    /// Keyed by the pair and the compression spec, and by nothing else: the
+    /// engine's answer is a pure function of those, so a hit is not a guess
+    /// about staleness.
     private static var cache: [String: OutputTransformSetup] = [:]
+
+    /// The export transform's CAM16 setting.
+    ///
+    /// The engine has already run the working-space output gamut compression
+    /// before it encoded ProPhoto (`Pipeline::print_linear`). That pass also
+    /// contains CAM16's lightness shoulder, and the engine's transform default
+    /// would apply it a second time here. The canvas never shows that second
+    /// pass; exports did, which compressed their highlights and dynamic range.
+    ///
+    /// Keep the chroma knee, because this is the conversion into the recipe's
+    /// gamut. Drop only the lightness stage, because it already happened once.
+    static let gamutCompressionWithoutLightness =
+        #"{"lightness_compression_active": false}"#
 
     /// The setup for `source` → `target`, or `nil` when the engine cannot
     /// build one — with `problem` saying which space it did not know.
@@ -158,7 +172,8 @@ enum ColourManagement {
     /// the way it already does for an unresolvable profile.
     static func setup(client: EngineClient, source: String, target: CGColorSpace,
                       device: MTLDevice,
-                      gamutCompress: String? = nil) async -> (setup: OutputTransformSetup?, problem: String?) {
+                      gamutCompress: String? = gamutCompressionWithoutLightness) async
+        -> (setup: OutputTransformSetup?, problem: String?) {
         guard let targetName = engineName(for: target) else {
             return (nil, "the engine has no colour space for “\(DisplayName.of(target))”")
         }

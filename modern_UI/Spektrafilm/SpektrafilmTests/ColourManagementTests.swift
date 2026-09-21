@@ -83,7 +83,8 @@ final class ColourManagementTests: XCTestCase {
         defer { Task { await client.stop() } }
         let renderer = try XCTUnwrap(Renderer(device: gpu))
         let (setup, problem) = await ColourManagement.setup(client: client, source: "ProPhoto RGB",
-                                                            target: ImageDecoder.displayP3, device: gpu)
+                                                            target: ImageDecoder.displayP3, device: gpu,
+                                                            gamutCompress: nil)
         let transform = try XCTUnwrap(setup, "no setup: \(problem ?? "-")")
 
         // A 2×2 of ROMM-encoded mid-grey, read straight back off the GPU.
@@ -124,6 +125,73 @@ final class ColourManagementTests: XCTestCase {
         // they go looking for it.
         XCTAssertEqual(out.stats.movedFraction, 1.0, accuracy: 1e-6,
                        "the always-on knee stopped being always-on")
+    }
+
+    /// The engine already has the render's one lightness compression.
+    ///
+    /// `Pipeline::print_linear` runs CAM16 into the **working space** before the
+    /// output CCTF, so the ProPhoto pixels the app receives have already been
+    /// through the lightness shoulder. The export transform converts those
+    /// pixels into the recipe's space; asking for the engine's transform default
+    /// here applies that shoulder a second time, which is invisible in the
+    /// canvas but compresses highlights in every app export.
+    ///
+    /// The simulated engine pass is explicit rather than assumed: it calls the
+    /// same transform with `nil`, which is the engine's default. The app-facing
+    /// setup must then match the same transform with lightness compression
+    /// explicitly off, while still doing CAM16's chroma mapping.
+    func testTheExportTransformDoesNotRepeatTheEnginesLightnessCompression() async throws {
+        let gpu = try device()
+        let client = EngineClient(device: gpu)
+        defer { Task { await client.stop() } }
+        let renderer = try XCTUnwrap(Renderer(device: gpu))
+        ColourManagement.forgetCached()
+
+        let encoded: [Float] = [0.35, 0.50, 0.65, 0.75, 0.85, 0.92, 0.97, 1.0]
+        let src = try XCTUnwrap(renderer.store.makeWritable(width: encoded.count, height: 1))
+        var px = [UInt16](repeating: 0, count: encoded.count * 4)
+        for (i, value) in encoded.enumerated() {
+            let v = UInt16((value * 65535).rounded())
+            px[i * 4] = v; px[i * 4 + 1] = v; px[i * 4 + 2] = v; px[i * 4 + 3] = 65535
+        }
+        px.withUnsafeBytes {
+            src.replace(region: MTLRegionMake2D(0, 0, encoded.count, 1), mipmapLevel: 0,
+                        withBytes: $0.baseAddress!, bytesPerRow: encoded.count * 8)
+        }
+
+        let proPhoto = try XCTUnwrap(CGColorSpace(name: CGColorSpace.rommrgb))
+        let (engineSetup, engineProblem) = await ColourManagement.setup(
+            client: client, source: "ProPhoto RGB", target: proPhoto, device: gpu,
+            gamutCompress: nil)
+        let engineTransform = try XCTUnwrap(engineSetup, "\(engineProblem ?? "-")")
+        let engineOut = try XCTUnwrap(renderer.applyOutputTransform(to: src, setup: engineTransform))
+            .texture
+
+        let p3 = try XCTUnwrap(CGColorSpace(name: CGColorSpace.displayP3))
+        let (exportSetup, exportProblem) = await ColourManagement.setup(
+            client: client, source: "ProPhoto RGB", target: p3, device: gpu)
+        let export = try XCTUnwrap(exportSetup, "\(exportProblem ?? "-")")
+        let (controlSetup, controlProblem) = await ColourManagement.setup(
+            client: client, source: "ProPhoto RGB", target: p3, device: gpu,
+            gamutCompress: #"{"lightness_compression_active": false}"#)
+        let control = try XCTUnwrap(controlSetup, "\(controlProblem ?? "-")")
+
+        XCTAssertEqual(export.uniforms.cam16Lightness, 0,
+                       "the export transform has the lightness shoulder on again")
+        XCTAssertEqual(export.uniforms.cam16Active, 1,
+                       "the gamut mapping itself was switched off, not just its lightness stage")
+
+        let exported = try XCTUnwrap(renderer.applyOutputTransform(to: engineOut, setup: export))
+            .texture
+        let controlled = try XCTUnwrap(renderer.applyOutputTransform(to: engineOut, setup: control))
+            .texture
+        var a = [UInt16](repeating: 0, count: encoded.count * 4)
+        var b = [UInt16](repeating: 0, count: encoded.count * 4)
+        exported.getBytes(&a, bytesPerRow: encoded.count * 8,
+                          from: MTLRegionMake2D(0, 0, encoded.count, 1), mipmapLevel: 0)
+        controlled.getBytes(&b, bytesPerRow: encoded.count * 8,
+                            from: MTLRegionMake2D(0, 0, encoded.count, 1), mipmapLevel: 0)
+        XCTAssertEqual(a, b, "the export compressed highlights after the engine already did")
     }
 
     /// A colour ProPhoto can hold and sRGB cannot comes out of sRGB

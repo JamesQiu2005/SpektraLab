@@ -461,9 +461,10 @@ actor EngineClient {
     /// field can change them; a session has exactly one
     /// (`GamutCompressSpec::output_default`), which is what passing NULL asks
     /// for. `gamutCompress` overrides it for a caller that wants a different
-    /// kernel — the shape is `spk_output_transform`'s, and the one caller
-    /// today is a measurement that separates the lightness compression from
-    /// the gamut check.
+    /// kernel — the shape is `spk_output_transform`'s. `ColourManagement`
+    /// passes its own export setting; `nil` remains for callers that need the
+    /// engine default itself, including the measurement that separates the
+    /// lightness compression from the gamut check.
     func outputTransform(src: String, dst: String,
                          gamutCompress: String? = nil) throws -> OutputTransformFetch {
         if state != .running { try start() }
