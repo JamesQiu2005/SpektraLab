@@ -2,7 +2,7 @@
 
 | | |
 |---|---|
-| **Status** | **Proposed 2026-09-20.** Not implemented. |
+| **Status** | **Implemented 2026-09-21.** |
 | **Date** | 2026-09-20 |
 | **Author** | At the user's request, from a release cadence of three versions in one day |
 | **Supersedes** | **This number was reserved for something else.** See §0. |

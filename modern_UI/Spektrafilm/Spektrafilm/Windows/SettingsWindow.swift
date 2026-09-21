@@ -49,6 +49,7 @@ struct SettingsWindow: View {
 
     @State private var bundleResult: String?
     @State private var savingBundle = false
+    @State private var updateStatus: UpdateCheck.Status = .idle
     /// The memory readout refreshes while the page is open and stops when it
     /// closes. A settings page nobody is looking at has no business taking
     /// samples.
@@ -361,6 +362,28 @@ struct SettingsWindow: View {
                     readout("Engine", diagnostics.engineVersion ?? "not reported yet")
                     readout("Render core", session.renderCore ?? "not reported yet")
                     readout("Log file", diagnostics.currentLogFile?.lastPathComponent ?? "none")
+                    Divider().overlay(Theme.plotGrid).padding(.vertical, 4)
+                    HStack(spacing: 10) {
+                        Button(updateStatus == .checking ? "Checking…" : "Check for updates") {
+                            checkForUpdates()
+                        }
+                        .buttonStyle(.plain).font(Theme.Font.caption)
+                        .foregroundStyle(updateStatus == .checking ? Theme.dim : Theme.accent)
+                        .disabled(updateStatus == .checking)
+                        Text(updateSummary)
+                            .font(Theme.Font.caption).foregroundStyle(Theme.dim)
+                            .lineLimit(1).truncationMode(.middle)
+                        Spacer(minLength: 0)
+                    }
+                    if case .updateAvailable(_, let release) = updateStatus {
+                        Button("Open release page") { NSWorkspace.shared.open(release) }
+                            .buttonStyle(.plain).font(Theme.Font.caption)
+                            .foregroundStyle(Theme.accent)
+                    }
+                    if case .failed(let reason) = updateStatus {
+                        warning("Could not check: \(reason)")
+                    }
+                    caption("One unauthenticated request to GitHub's public SpektraLab release API, only when you press this. It sends no identifier and no app version.")
                     if diagnostics.previousSessionChecked {
                         if let p = diagnostics.previousSession {
                             readout("Last session", p.endedCleanly
@@ -487,6 +510,28 @@ struct SettingsWindow: View {
             } catch {
                 bundleResult = "Could not write the bundle: \(error.localizedDescription)"
             }
+        }
+    }
+
+    private var updateSummary: String {
+        switch updateStatus {
+        case .idle:
+            return "not checked"
+        case .checking:
+            return "checking GitHub…"
+        case .updateAvailable(let version, _):
+            return "\(version) is available"
+        case .upToDate:
+            return "this is the newest release"
+        case .failed:
+            return "could not check"
+        }
+    }
+
+    private func checkForUpdates() {
+        updateStatus = .checking
+        Task {
+            updateStatus = await UpdateCheck.check()
         }
     }
 }

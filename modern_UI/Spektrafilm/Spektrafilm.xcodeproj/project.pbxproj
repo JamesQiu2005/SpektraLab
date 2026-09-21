@@ -220,6 +220,15 @@
 			path = "Theme";
 			sourceTree = "<group>";
 		};
+		60EC177B720E7F60B0465202 /* UpdateCheck.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "UpdateCheck.swift"; sourceTree = "<group>"; };
+		5C9CB679873E45A89DEC1B69 /* Updates */ = {
+			isa = PBXGroup;
+			children = (
+				60EC177B720E7F60B0465202 /* UpdateCheck.swift */
+			);
+			path = "Updates";
+			sourceTree = "<group>";
+		};
 		9F23C3316C10DCB824FB61A8 /* AboutWindow.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "AboutWindow.swift"; sourceTree = "<group>"; };
 		09F0E1278E0E11D0A2B20BCA /* BootWindow.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "BootWindow.swift"; sourceTree = "<group>"; };
 		1314FC9749243D900B18259C /* CollapseTab.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CollapseTab.swift"; sourceTree = "<group>"; };
@@ -262,6 +271,7 @@
 				DB17323FBCFC0CF9A11FDBA4 /* Service */,
 				10EF18222161F212EEF63649 /* SpektraLab.icon */,
 				8EB45331C2448244C60954B0 /* Theme */,
+				5C9CB679873E45A89DEC1B69 /* Updates */,
 				B32EB60C18534A921EE88FB5 /* Windows */,
 				58EE2CED0B2C7C1F694C2A6C /* Info.plist */,
 				2FFF020EEE5414F41FA8C099 /* Spektrafilm.entitlements */,
@@ -309,6 +319,7 @@
 		CC56E077560147D2B373F9FD /* StockListTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "StockListTests.swift"; sourceTree = "<group>"; };
 		E39626358BE4F0374CF79AF2 /* ThumbnailBadgeTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "ThumbnailBadgeTests.swift"; sourceTree = "<group>"; };
 		5C8CA97F6949FD495BBE87BE /* ThumbnailCacheTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "ThumbnailCacheTests.swift"; sourceTree = "<group>"; };
+		E519422FCB997EFAA37EF9BA /* UpdateCheckTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "UpdateCheckTests.swift"; sourceTree = "<group>"; };
 		19533F295FB7423FCE62C8DD /* ViewportStateTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "ViewportStateTests.swift"; sourceTree = "<group>"; };
 		F5302C66459D988E5FC47CA3 /* WhiteBalanceTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "WhiteBalanceTests.swift"; sourceTree = "<group>"; };
 		6C750F429B304AF107F89FFD /* SpektrafilmTests */ = {
@@ -353,6 +364,7 @@
 				CC56E077560147D2B373F9FD /* StockListTests.swift */,
 				E39626358BE4F0374CF79AF2 /* ThumbnailBadgeTests.swift */,
 				5C8CA97F6949FD495BBE87BE /* ThumbnailCacheTests.swift */,
+				E519422FCB997EFAA37EF9BA /* UpdateCheckTests.swift */,
 				19533F295FB7423FCE62C8DD /* ViewportStateTests.swift */,
 				F5302C66459D988E5FC47CA3 /* WhiteBalanceTests.swift */
 			);
@@ -523,6 +535,7 @@
 		6FB2F52FB45B8179713F77A2 /* Methods.swift */ = {isa = PBXBuildFile; fileRef = 2570445CCC905A6DD29D02F1; };
 		D60EC6EBCB244A0BE4D06A26 /* RenderScheduler.swift */ = {isa = PBXBuildFile; fileRef = 658A1D2EB50A0D8EB93C8A9F; };
 		7DE68917EFE0387EB6CA31CE /* Theme.swift */ = {isa = PBXBuildFile; fileRef = E9A855B54DCFEA59C4405355; };
+		8111223953FAA398DB461ED3 /* UpdateCheck.swift */ = {isa = PBXBuildFile; fileRef = 60EC177B720E7F60B0465202; };
 		7485388DD7C86A4BB6126DD2 /* AboutWindow.swift */ = {isa = PBXBuildFile; fileRef = 9F23C3316C10DCB824FB61A8; };
 		11E93F8098E4781E687D3B40 /* BootWindow.swift */ = {isa = PBXBuildFile; fileRef = 09F0E1278E0E11D0A2B20BCA; };
 		9F226DBBF6D9A09997010B68 /* CollapseTab.swift */ = {isa = PBXBuildFile; fileRef = 1314FC9749243D900B18259C; };
@@ -620,6 +633,7 @@
 				6FB2F52FB45B8179713F77A2 /* Methods.swift */,
 				D60EC6EBCB244A0BE4D06A26 /* RenderScheduler.swift */,
 				7DE68917EFE0387EB6CA31CE /* Theme.swift */,
+				8111223953FAA398DB461ED3 /* UpdateCheck.swift */,
 				7485388DD7C86A4BB6126DD2 /* AboutWindow.swift */,
 				11E93F8098E4781E687D3B40 /* BootWindow.swift */,
 				9F226DBBF6D9A09997010B68 /* CollapseTab.swift */,
@@ -710,6 +724,7 @@
 		066A83C93205AA978E100BE7 /* StockListTests.swift */ = {isa = PBXBuildFile; fileRef = CC56E077560147D2B373F9FD; };
 		5D3A40EA08E206BFB85BE486 /* ThumbnailBadgeTests.swift */ = {isa = PBXBuildFile; fileRef = E39626358BE4F0374CF79AF2; };
 		FC2399FEC6F794F7D648B010 /* ThumbnailCacheTests.swift */ = {isa = PBXBuildFile; fileRef = 5C8CA97F6949FD495BBE87BE; };
+		C75BB18A94E8AF5DC533FCEC /* UpdateCheckTests.swift */ = {isa = PBXBuildFile; fileRef = E519422FCB997EFAA37EF9BA; };
 		79E5DF91AA1045E525966216 /* ViewportStateTests.swift */ = {isa = PBXBuildFile; fileRef = 19533F295FB7423FCE62C8DD; };
 		1AF1357ED1527EBC8166745C /* WhiteBalanceTests.swift */ = {isa = PBXBuildFile; fileRef = F5302C66459D988E5FC47CA3; };
 		8CDECFAE3D708A987D5F23D1 /* ColourManagement.swift */ = {isa = PBXBuildFile; fileRef = 3CC9377A61A47BF9746521A9; };
@@ -778,6 +793,7 @@
 		6D67DFF0913BCD9DB0842308 /* Methods.swift */ = {isa = PBXBuildFile; fileRef = 2570445CCC905A6DD29D02F1; };
 		B91F3248BAFEE6877D8017F4 /* RenderScheduler.swift */ = {isa = PBXBuildFile; fileRef = 658A1D2EB50A0D8EB93C8A9F; };
 		B37DF42FDDF1115FF10B93AC /* Theme.swift */ = {isa = PBXBuildFile; fileRef = E9A855B54DCFEA59C4405355; };
+		2AF8C98E7896A9A4668F18FA /* UpdateCheck.swift */ = {isa = PBXBuildFile; fileRef = 60EC177B720E7F60B0465202; };
 		079BA19AF46D3C795867E568 /* AboutWindow.swift */ = {isa = PBXBuildFile; fileRef = 9F23C3316C10DCB824FB61A8; };
 		E173521E6D3C6C05CEBB9055 /* BootWindow.swift */ = {isa = PBXBuildFile; fileRef = 09F0E1278E0E11D0A2B20BCA; };
 		47529647F3D60BBE8CE96974 /* CollapseTab.swift */ = {isa = PBXBuildFile; fileRef = 1314FC9749243D900B18259C; };
@@ -847,6 +863,7 @@
 				066A83C93205AA978E100BE7 /* StockListTests.swift */,
 				5D3A40EA08E206BFB85BE486 /* ThumbnailBadgeTests.swift */,
 				FC2399FEC6F794F7D648B010 /* ThumbnailCacheTests.swift */,
+				C75BB18A94E8AF5DC533FCEC /* UpdateCheckTests.swift */,
 				79E5DF91AA1045E525966216 /* ViewportStateTests.swift */,
 				1AF1357ED1527EBC8166745C /* WhiteBalanceTests.swift */,
 				8CDECFAE3D708A987D5F23D1 /* ColourManagement.swift */,
@@ -915,6 +932,7 @@
 				6D67DFF0913BCD9DB0842308 /* Methods.swift */,
 				B91F3248BAFEE6877D8017F4 /* RenderScheduler.swift */,
 				B37DF42FDDF1115FF10B93AC /* Theme.swift */,
+				2AF8C98E7896A9A4668F18FA /* UpdateCheck.swift */,
 				079BA19AF46D3C795867E568 /* AboutWindow.swift */,
 				E173521E6D3C6C05CEBB9055 /* BootWindow.swift */,
 				47529647F3D60BBE8CE96974 /* CollapseTab.swift */,
