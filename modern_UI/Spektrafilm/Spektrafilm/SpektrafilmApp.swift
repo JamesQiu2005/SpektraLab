@@ -102,26 +102,34 @@ struct EditorCommands: Commands {
         }
         CommandGroup(replacing: .pasteboard) {
             Button("Copy Settings") { session.copySettings() }
-                .keyboardShortcut("c").disabled(session.selection == nil)
+                // Capture One's adjustment clipboard uses ⇧⌘C / ⇧⌘V. Keep
+                // plain ⌘C / ⌘V available for the system pasteboard.
+                .keyboardShortcut("c", modifiers: [.command, .shift]).disabled(session.selection == nil)
             Button("Paste Settings") { session.pasteSettings() }
-                .keyboardShortcut("v").disabled(!session.canPasteSettings)
+                .keyboardShortcut("v", modifiers: [.command, .shift]).disabled(!session.canPasteSettings)
         }
         CommandMenu("View") {
             // Greyed out in the crop tool, where the view is fitted to the
             // whole turned photograph and the user cannot move it
             // (`Session.zoomLocked`). Disabled rather than silently ignored:
             // a shortcut that does nothing and says nothing reads as a bug.
-            Button("Zoom In") { session.zoomStep(1) }.keyboardShortcut("+").disabled(session.zoomLocked)
-            Button("Zoom Out") { session.zoomStep(-1) }.keyboardShortcut("-").disabled(session.zoomLocked)
-            Button("Zoom to Fit") { session.zoomToFit() }.keyboardShortcut("0").disabled(session.zoomLocked)
-            Button("Zoom to 100 %") { session.zoomTo(fraction: 1) }.keyboardShortcut("1").disabled(session.zoomLocked)
+            // These follow Capture One's Viewer shortcuts: ⌘+ / ⌘− step the
+            // magnification, while comma and period are fit and 100%.
+            Button("Zoom In") { session.zoomStep(1) }
+                .keyboardShortcut("+", modifiers: .command).disabled(session.zoomLocked)
+            Button("Zoom Out") { session.zoomStep(-1) }
+                .keyboardShortcut("-", modifiers: .command).disabled(session.zoomLocked)
+            Button("Zoom to Fit") { session.zoomToFit() }
+                .keyboardShortcut(",", modifiers: []).disabled(session.zoomLocked)
+            Button("Zoom to 100 %") { session.zoomTo(fraction: 1) }
+                .keyboardShortcut(".", modifiers: []).disabled(session.zoomLocked)
             Divider()
             Button("Toggle Side Panels") {
                 withAnimation(.easeOut(duration: 0.18)) {
                     let c = !(session.leftCollapsed && session.rightCollapsed)
                     session.leftCollapsed = c; session.rightCollapsed = c
                 }
-            }.keyboardShortcut("\\")
+            }.keyboardShortcut("b", modifiers: .command)
             Button("Toggle Filmstrip") { withAnimation { session.filmstripCollapsed.toggle() } }.keyboardShortcut("f", modifiers: [.command, .shift])
             Divider()
             // The only door onto this now — the right rail's dotted-circle glyph
@@ -131,8 +139,11 @@ struct EditorCommands: Commands {
             Button(session.adjustments.enabled ? "Bypass Adjustments" : "Restore Adjustments") {
                 var a = session.adjustments; a.enabled.toggle(); session.adjustments = a
             }.keyboardShortcut("b", modifiers: [.command, .shift])
+            // Capture One uses Y for its single Before/After toggle. The
+            // split-view mode is a separate affordance in Capture One, but
+            // SpektraLab exposes one comparison state, so Y owns that toggle.
             Button(session.comparing ? "Hide Before / After" : "Before / After") { session.comparing.toggle() }
-                .keyboardShortcut("\\", modifiers: [.option])
+                .keyboardShortcut("y", modifiers: [])
                 .disabled(!session.canCompare)
             Divider()
             Button("Restart Render Service") { session.restartService() }
@@ -140,8 +151,13 @@ struct EditorCommands: Commands {
                 .disabled(session.selection == nil)
         }
         CommandMenu("Frame") {
-            Button("Previous") { session.selectRelative(-1) }.keyboardShortcut("[")
-            Button("Next") { session.selectRelative(1) }.keyboardShortcut("]")
+            // Capture One uses the unmodified arrow keys for adjacent images.
+            // The canvas responder already routes the same keys to
+            // `stepFrame`, so this remains usable when the viewer has focus.
+            Button("Previous") { session.selectRelative(-1) }
+                .keyboardShortcut(.leftArrow, modifiers: [])
+            Button("Next") { session.selectRelative(1) }
+                .keyboardShortcut(.rightArrow, modifiers: [])
             Divider()
             // These three were the left rail header's "•••" until the
             // 2026-09-17 drawing took the menu off that row. They are frame
