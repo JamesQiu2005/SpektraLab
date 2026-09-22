@@ -58,6 +58,10 @@ struct DecodedImage: @unchecked Sendable {
     /// the Lens Correction row is selectable at all (PRD).
     let lensCorrectionSupported: Bool
     let sourceURL: URL
+    /// The source file's EXIF dictionary, kept outside the render pipeline.
+    /// It is copied back to the finished export without interpreting or
+    /// rewriting it. The engine never sees metadata.
+    let sourceEXIF: [CFString: Any]?
     /// As-shot values reported by the RAW filter (nil for flat files).
     let asShotTemperature: Double?
     let asShotTint: Double?
@@ -65,7 +69,8 @@ struct DecodedImage: @unchecked Sendable {
 
     init(linear: CIImage, display: CIImage, pixelSize: CGSize, isRAW: Bool,
          lensCorrectionSupported: Bool = false,
-         sourceURL: URL, asShotTemperature: Double?, asShotTint: Double?,
+         sourceURL: URL, sourceEXIF: [CFString: Any]? = nil,
+         asShotTemperature: Double?, asShotTint: Double?,
          lifetime: DecodeLifetime = DecodeLifetime()) {
         self.linear = linear
         self.display = display
@@ -73,6 +78,7 @@ struct DecodedImage: @unchecked Sendable {
         self.isRAW = isRAW
         self.lensCorrectionSupported = lensCorrectionSupported
         self.sourceURL = sourceURL
+        self.sourceEXIF = sourceEXIF
         self.asShotTemperature = asShotTemperature
         self.asShotTint = asShotTint
         self.lifetime = lifetime
@@ -169,9 +175,21 @@ enum ImageDecoder {
 
     static func decode(_ url: URL, settings: DecodeSettings,
                        checkpoint: () throws -> Void = {}) throws -> DecodedImage {
-        rawExtensions.contains(url.pathExtension.lowercased())
-            ? try decodeRAW(url, settings: settings, checkpoint: checkpoint)
-            : try decodeFlat(url, checkpoint: checkpoint)
+        let sourceEXIF = sourceEXIF(from: url)
+        return rawExtensions.contains(url.pathExtension.lowercased())
+            ? try decodeRAW(url, settings: settings, sourceEXIF: sourceEXIF, checkpoint: checkpoint)
+            : try decodeFlat(url, sourceEXIF: sourceEXIF, checkpoint: checkpoint)
+    }
+
+    /// Read metadata once at the door. This is deliberately a side channel:
+    /// no metadata is sent through `EngineClient` or used to make pixels.
+    static func sourceEXIF(from url: URL) -> [CFString: Any]? {
+        guard let source = CGImageSourceCreateWithURL(url as CFURL, nil),
+              let properties = CGImageSourceCopyPropertiesAtIndex(source, 0, nil)
+                as? [CFString: Any],
+              let exif = properties[kCGImagePropertyExifDictionary] as? [CFString: Any]
+        else { return nil }
+        return exif
     }
 
     /// Which of the two RAW decodes a filter is for. See the file header.
@@ -214,6 +232,7 @@ enum ImageDecoder {
     }
 
     private static func decodeRAW(_ url: URL, settings: DecodeSettings,
+                                  sourceEXIF: [CFString: Any]?,
                                   checkpoint: () throws -> Void) throws -> DecodedImage {
         // A checkpoint before each filter and before each `outputImage` read
         // (which is where the demosaic actually happens) is what makes a
@@ -232,10 +251,12 @@ enum ImageDecoder {
                             isRAW: true,
                             lensCorrectionSupported: displayResult.filter.isLensCorrectionSupported,
                             sourceURL: url,
+                            sourceEXIF: sourceEXIF,
                             asShotTemperature: asShotT, asShotTint: asShotTint)
     }
 
-    private static func decodeFlat(_ url: URL, checkpoint: () throws -> Void) throws -> DecodedImage {
+    private static func decodeFlat(_ url: URL, sourceEXIF: [CFString: Any]?,
+                                   checkpoint: () throws -> Void) throws -> DecodedImage {
         try checkpoint()
         guard let ci = CIImage(contentsOf: url, options: [.applyOrientationProperty: true]) else {
             throw Failure.unsupported(url)
@@ -254,7 +275,8 @@ enum ImageDecoder {
         }
         // A flat file is already a rendering: there is no second look to take.
         return DecodedImage(linear: image, display: image, pixelSize: image.extent.size,
-                            isRAW: false, sourceURL: url, asShotTemperature: nil, asShotTint: nil)
+                            isRAW: false, sourceURL: url, sourceEXIF: sourceEXIF,
+                            asShotTemperature: nil, asShotTint: nil)
     }
 
     // MARK: the engine's frame

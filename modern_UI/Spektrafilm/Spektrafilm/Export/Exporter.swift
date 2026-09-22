@@ -161,7 +161,8 @@ enum Exporter {
                 ? try await exportDI(session: session, to: out)
                 : try await exportPrint(session: session, to: out, format: format,
                                         quality: recipe.quality, recipe: recipe,
-                                        sessionID: sessionID)
+                                        sessionID: sessionID,
+                                        sourceEXIF: session.decoded?.sourceEXIF)
             // The fallback's reason, if the route did not have one of its own.
             // Merged rather than set, because the DI route has a note of its
             // own (a film/paper mismatch) and losing it to a colour note would
@@ -434,11 +435,13 @@ enum Exporter {
 
     private static func exportPrint(session: Session, to out: URL, format: ExportFormat,
                                     quality: Double, recipe: ExportRecipe,
-                                    sessionID: String) async throws -> Result {
+                                    sessionID: String,
+                                    sourceEXIF: [CFString: Any]?) async throws -> Result {
         let r = try await filePixels(session: session, recipe: recipe, sessionID: sessionID)
         guard let image = r.texture.makeCGImage(space: r.target) else { throw ExportError.noPixels }
         let preview = writesPreviewPage(recipe) ? preview(of: image) : nil
-        try write(image, to: out, format: format, quality: quality, preview: preview)
+        try write(image, to: out, format: format, quality: quality, preview: preview,
+                  sourceEXIF: sourceEXIF)
         return Result(urls: [out], note: nil, appliedEV: r.appliedEV, pixels: r.pixels)
     }
 
@@ -558,7 +561,8 @@ enum Exporter {
     /// untagged.
     @discardableResult
     static func write(_ image: CGImage, to url: URL, format: ExportFormat,
-                      quality: Double = 0.95, preview: CGImage? = nil) throws -> URL {
+                      quality: Double = 0.95, preview: CGImage? = nil,
+                      sourceEXIF: [CFString: Any]? = nil) throws -> URL {
         var cg = image
         let needsEight = format.isEightBit
         if needsEight {
@@ -581,6 +585,10 @@ enum Exporter {
         var props: [CFString: Any] = [:]
         if format == .jpeg { props[kCGImageDestinationLossyCompressionQuality] = quality.clamped(to: 0.1...1) }
         if format == .tiff { props[kCGImagePropertyTIFFDictionary] = [kCGImagePropertyTIFFCompression: 5] }
+        // EXIF is a side channel, never an engine input. Pass the source
+        // dictionary through unchanged; ImageIO owns only the outer file
+        // container and the export's pixels.
+        if let sourceEXIF { props[kCGImagePropertyExifDictionary] = sourceEXIF }
         CGImageDestinationAddImage(dest, cg, props as CFDictionary)
         if let small { CGImageDestinationAddImage(dest, small, nil) }
         guard CGImageDestinationFinalize(dest) else { throw ExportError.write(url) }
