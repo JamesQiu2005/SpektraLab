@@ -63,7 +63,7 @@ enum LanguageSetting: String, CaseIterable, Sendable {
                 ? S.languageFollowSystem.simplifiedChinese
                 : S.languageFollowSystem.english
         case .english: return "English"
-        case .simplifiedChinese: return "简体中文"
+        case .simplifiedChinese: return "简体中文 (zh-Hans)"
         }
     }
 }

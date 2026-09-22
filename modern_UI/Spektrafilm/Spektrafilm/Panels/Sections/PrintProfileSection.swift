@@ -193,6 +193,7 @@ struct PrintProfileSection: View {
                        height: Theme.Metric.actionSize.height)
                 .overlay(RoundedRectangle(cornerRadius: Theme.Metric.actionRadius, style: .continuous)
                     .stroke(active ? Theme.accent : Theme.Ink.tertiary, lineWidth: 1))
+                .frame(height: Theme.Metric.actionHitHeight)
                 .contentShape(Rectangle())
         }
         .buttonStyle(.plain)

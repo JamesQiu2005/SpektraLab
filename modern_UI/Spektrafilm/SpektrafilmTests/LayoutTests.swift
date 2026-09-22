@@ -133,13 +133,12 @@ final class LayoutTests: XCTestCase {
         XCTAssertEqual(m.actionGap, 108.37 - 96.19, accuracy: 0.05)
         XCTAssertEqual(m.actionLeading + m.actionSize.width + m.actionGap, 108.37,
                        accuracy: 0.05)
-        // Sliders and the checkbox, which v3 draws far smaller than the
-        // 2026-09-17 pass did — see the note in `Theme` about why taking the
-        // measurement back is a palette change rather than a change of mind.
+        // Sliders still follow the drawing. The checkbox intentionally does
+        // not: its product token supersedes the unusable 5 pt artwork.
         XCTAssertEqual(m.trackHeight, 2.71 / 2, accuracy: 0.05)
         XCTAssertEqual(m.knobSize.width, 6.13, accuracy: 0.05)
         XCTAssertEqual(m.knobSize.height, 5.07, accuracy: 0.05)
-        XCTAssertEqual(m.checkbox, 5, accuracy: 0.5)
+        XCTAssertEqual(m.checkbox, 10, accuracy: 0.5)
         // The hairline, `.st1` at stroke-width 2 on a 2× drawing.
         XCTAssertEqual(m.rule, 1)
         // The one tab that survived, unchanged: rect 27.8 × 83.1 rx 13.9.
@@ -147,20 +146,19 @@ final class LayoutTests: XCTestCase {
         XCTAssertEqual(m.tabLength, 83.1 / 2, accuracy: 0.1)
     }
 
-    /// **Ink shrank; targets did not.**
+    /// Interactive ink and targets stay usable on a laptop.
     ///
-    /// This is the assertion that keeps v3's small ink honest. §3 and §6 of
-    /// the handoff both require hit regions to stay independent of how small
-    /// the drawing sets a mark, and three marks here are now under 7 pt: the
-    /// checkbox's square, the slider's knob, and the reset arrow's glyph. A
-    /// future pass that "simplifies" a 16 pt frame around a 5 pt box down to
-    /// the box would leave the interface looking right and unusable.
+    /// The slider and reset arrow keep their small drawn ink, while the
+    /// checkbox was promoted to a product token after real use showed the
+    /// reference artwork's 5 pt mark was unreadable and hard to click.
     func testSmallInkKeepsALargeTarget() {
         let m = Theme.Metric.self
-        XCTAssertGreaterThanOrEqual(m.controlHitTarget, 16,
-                                    "a 5 pt checkbox needs a target a pointer can find")
+        XCTAssertGreaterThanOrEqual(m.controlHitTarget, 28,
+                                    "a toggle needs a target a pointer can find on a laptop")
         XCTAssertGreaterThan(m.controlHitTarget, m.checkbox * 2,
                              "the target is the ink again and then some")
+        XCTAssertGreaterThanOrEqual(m.actionHitHeight, 28,
+                                    "yellow action capsules need the same usable target")
         // The knob is never dragged by itself — the track's gesture covers a
         // whole row — so the row height is its effective target.
         XCTAssertGreaterThan(m.rowHeight, m.knobSize.height * 3,
@@ -168,6 +166,22 @@ final class LayoutTests: XCTestCase {
         // The reset arrow and the toolbar glyphs keep the boxes §6 names.
         XCTAssertLessThan(m.resetIcon, 12, "v3 draws the reset arrow at 8–9 pt")
         XCTAssertGreaterThan(m.toolIcon, m.resetIcon)
+    }
+
+    func testInterfaceScaleDefaultsPersistsAndOffersReadableSteps() throws {
+        XCTAssertEqual(InterfaceScale.allCases, [.compact, .standard, .large])
+        XCTAssertEqual(InterfaceScale.defaultValue, .standard)
+        XCTAssertEqual(InterfaceScale.standard.factor, 1.15, accuracy: 0.001)
+
+        let suite = "interface-scale-\(UUID().uuidString)"
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suite))
+        defer { defaults.removePersistentDomain(forName: suite) }
+
+        let fresh = InterfaceScaleStore(defaults: defaults)
+        XCTAssertEqual(fresh.scale, .standard)
+        fresh.scale = .large
+        XCTAssertEqual(defaults.string(forKey: InterfaceScaleStore.key), InterfaceScale.large.rawValue)
+        XCTAssertEqual(InterfaceScaleStore(defaults: defaults).scale, .large)
     }
 
     /// The window buttons sit on the **rail header's** centreline, which is

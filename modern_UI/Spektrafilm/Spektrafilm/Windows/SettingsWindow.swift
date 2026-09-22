@@ -23,17 +23,18 @@
 //    sentence", and a tooltip only says it to somebody who already suspected
 //    there was something to hover over.
 //
-//  Visually this is the app's right panel: `PanelSection` headers, `Well`
-//  grounds, `Theme` tokens, no literal colours. Not an AppKit-standard
+//  Visually this is the app's right panel: `PanelSection` headers, rail rows,
+//  hairlines and `Theme` tokens, with no second card/well language inside the
+//  rail. Not an AppKit-standard
 //  preferences window, because the rest of the interface is not one either.
 //
-//  **Language is the one section here that is localized, and the rest of this
-//  page is not.** That is deliberate and it is written down:
+//  **Language and Interface are localized, and the diagnostic sections are
+//  not.** That is deliberate and it is written down:
 //  `design/LOCALIZATION-zh-Hans.md`, last section — "本文件是主编辑器文案规格，
 //  不是完整应用语言包；设置、导出页、系统错误的完整本地化留到相应页面工作。"
 //  This page is the *control* for the language and the place a reader who has
-//  just switched into Chinese arrives, so its own section has to be in that
-//  language; translating the remaining five sections (diagnostics, memory
+//  just switched into Chinese arrives, so language and type scale have to be
+//  usable in that language; translating the remaining sections (diagnostics, memory
 //  readouts, bundle copy, the log notes) is a page-worth of work with its own
 //  review, and half a page translated reads worse than either whole state.
 
@@ -59,6 +60,7 @@ struct SettingsWindow: View {
         ScrollView {
             VStack(spacing: 0) {
                 languageSection
+                appearanceSection
                 renderingSection
                 diagnosticsSection
                 memorySection
@@ -67,9 +69,9 @@ struct SettingsWindow: View {
                 bundleSection
                 machineSection
             }
-            .padding(.vertical, 12)
+            .padding(.vertical, Theme.Metric.Settings.verticalInset)
         }
-        .frame(width: 460, height: 560)
+        .frame(width: Theme.Metric.Settings.width, height: Theme.Metric.Settings.height)
         .background(Theme.card)
         .preferredColorScheme(.dark)
         .onAppear {
@@ -102,7 +104,7 @@ struct SettingsWindow: View {
     private var languageSection: some View {
         let active = Localization.shared.resolved
         return PanelSection(L(.setLanguage), systemImage: "globe", key: "setLanguage") {
-            Well {
+            SettingsRows {
                 VStack(spacing: 4) {
                     PillMenu(label: L(.setLanguage),
                              options: LanguageSetting.allCases,
@@ -115,11 +117,32 @@ struct SettingsWindow: View {
         }
     }
 
+    // MARK: - appearance
+
+    private var appearanceSection: some View {
+        let chinese = Localization.shared.resolved == .simplifiedChinese
+        return PanelSection(chinese ? "界面" : "Interface",
+                            systemImage: "textformat.size", key: "setAppearance") {
+            SettingsRows {
+                VStack(spacing: Theme.Metric.Settings.rowSpacing) {
+                    PillMenu(label: chinese ? "缩放" : "Scale",
+                             options: InterfaceScale.allCases,
+                             title: { $0.label },
+                             selection: Binding(get: { InterfaceScaleStore.shared.scale },
+                                                set: { InterfaceScaleStore.shared.scale = $0 }))
+                    caption(chinese
+                            ? "同步调整主界面、设置与导出页的字体大小；更改立即生效。"
+                            : "Scales type across the editor, Settings and Export. Changes apply immediately.")
+                }
+            }
+        }
+    }
+
     // MARK: - rendering
 
     private var renderingSection: some View {
         PanelSection("Rendering", systemImage: "slider.horizontal.3", key: "setRendering") {
-            Well {
+            SettingsRows {
                 VStack(spacing: 4) {
                     PillMenu(label: "Preview", options: Session.previewEdgeChoices,
                              title: { "\($0) px" },
@@ -142,7 +165,7 @@ struct SettingsWindow: View {
 
     private var diagnosticsSection: some View {
         PanelSection("Diagnostics", systemImage: "stethoscope", key: "setDiagnostics") {
-            Well {
+            SettingsRows {
                 VStack(spacing: 4) {
                     PillMenu(label: "Log level", options: LogLevelSetting.allCases,
                              title: { $0.label },
@@ -171,7 +194,7 @@ struct SettingsWindow: View {
     /// where it is visible and revocable.
     private var memorySection: some View {
         PanelSection("Memory", systemImage: "memorychip", key: "setMemory") {
-            Well {
+            SettingsRows {
                 VStack(alignment: .leading, spacing: 3) {
                     if let m = diagnostics.memory {
                         readout("Footprint", bytes(m.footprintBytes))
@@ -235,7 +258,7 @@ struct SettingsWindow: View {
     /// evicts to stop growing.
     private var diskCacheSection: some View {
         PanelSection("Disk cache", systemImage: "internaldrive", key: "setDiskCache") {
-            Well {
+            SettingsRows {
                 VStack(alignment: .leading, spacing: 3) {
                     if session.hasDiskCache {
                         readout("In use", "\(bytes(session.diskCacheBytes)) of "
@@ -282,7 +305,7 @@ struct SettingsWindow: View {
 
     private var logsSection: some View {
         PanelSection("Logs", systemImage: "doc.text", key: "setLogs") {
-            Well {
+            SettingsRows {
                 VStack(spacing: 4) {
                     intRow("Keep for", diagnostics.retentionDays, "days", 1...365) {
                         diagnostics.retentionDays = $0
@@ -327,7 +350,7 @@ struct SettingsWindow: View {
 
     private var bundleSection: some View {
         PanelSection("Diagnostic bundle", systemImage: "shippingbox", key: "setBundle") {
-            Well {
+            SettingsRows {
                 VStack(spacing: 4) {
                     ToggleRow(label: "Include image file names",
                               isOn: Binding(get: { diagnostics.includeFileNamesInBundle },
@@ -356,7 +379,7 @@ struct SettingsWindow: View {
     /// would.
     private var machineSection: some View {
         PanelSection("This session", systemImage: "info.circle", key: "setMachine") {
-            Well {
+            SettingsRows {
                 VStack(alignment: .leading, spacing: 3) {
                     readout("App", Diagnostics.bundleInfo.version)
                     readout("Engine", diagnostics.engineVersion ?? "not reported yet")
@@ -533,5 +556,19 @@ struct SettingsWindow: View {
         Task {
             updateStatus = await UpdateCheck.check()
         }
+    }
+}
+
+/// Settings content sits directly on the rail, like the editor's controls.
+/// Keeping the inset and spacing in `Theme` prevents this window from growing
+/// a parallel preferences-page visual system.
+private struct SettingsRows<Content: View>: View {
+    @ViewBuilder var content: () -> Content
+
+    var body: some View {
+        content()
+            .padding(.horizontal, Theme.Metric.rowInset)
+            .padding(.vertical, Theme.Metric.Settings.rowSpacing)
+            .frame(maxWidth: .infinity, alignment: .leading)
     }
 }

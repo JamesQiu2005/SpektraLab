@@ -19,6 +19,7 @@ struct SpektrafilmApp: App {
     var body: some Scene {
         Window("SpektraLab", id: "editor") {
             EditorWindow(session: session)
+                .id(InterfaceScaleStore.shared.scale)
                 .environment(\.snapshotMode, snapshot != nil)
                 .frame(minWidth: Theme.Metric.minWindow.width, minHeight: Theme.Metric.minWindow.height)
         }
@@ -52,6 +53,7 @@ struct SpektrafilmApp: App {
         // `RFC-016 §6` is what the page itself is for.
         Window("Settings", id: "settings") {
             SettingsWindow(session: session)
+                .id(InterfaceScaleStore.shared.scale)
         }
         .windowResizability(.contentSize)
         .defaultPosition(.center)
@@ -62,6 +64,7 @@ struct SpektrafilmApp: App {
         // through `ExportWindowID.scene` when something asks for an export.
         Window("Export", id: ExportWindowID.scene) {
             ExportWindow(session: session)
+                .id(InterfaceScaleStore.shared.scale)
         }
         .windowStyle(.hiddenTitleBar)
         .windowToolbarStyle(.unifiedCompact)

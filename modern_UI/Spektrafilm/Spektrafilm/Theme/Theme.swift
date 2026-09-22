@@ -67,7 +67,48 @@
 //  The derivation of every number, and the drawing coordinate it came from,
 //  is `modern_UI/design/TOKENS-main-2026-09-17.md`.
 
+import Observation
 import SwiftUI
+
+/// The user's interface type scale. This deliberately scales the typography
+/// tokens rather than applying a transform to the finished window: text stays
+/// sharp, hit testing stays in the real layout, and every page keeps using the
+/// same visual system.
+enum InterfaceScale: String, CaseIterable, Identifiable, Sendable {
+    case compact = "100"
+    case standard = "115"
+    case large = "130"
+
+    static let defaultValue: InterfaceScale = .standard
+
+    var id: String { rawValue }
+    var factor: CGFloat { CGFloat(Int(rawValue) ?? 100) / 100 }
+    var label: String { rawValue + " %" }
+}
+
+/// Observable and injectable for the same reason as `Localization`: changing
+/// the setting must repaint an already-open editor, while tests must not write
+/// into the process-wide defaults domain.
+@Observable
+final class InterfaceScaleStore: @unchecked Sendable {
+    static let shared = InterfaceScaleStore()
+    static let key = Session.uiKey + "interfaceScale"
+
+    private let defaults: UserDefaults
+
+    var scale: InterfaceScale {
+        didSet {
+            guard scale != oldValue else { return }
+            defaults.set(scale.rawValue, forKey: Self.key)
+        }
+    }
+
+    init(defaults: UserDefaults = .standard) {
+        self.defaults = defaults
+        scale = defaults.string(forKey: Self.key)
+            .flatMap(InterfaceScale.init(rawValue:)) ?? .defaultValue
+    }
+}
 
 enum Theme {
 
@@ -433,7 +474,7 @@ enum Theme {
         /// A label-and-checkbox row (Grain / Halation / Glare / Lens
         /// Correction): the drawing's pitch is 21.25–22.25, and 17 was under
         /// the bottom of that range rather than in it.
-        static let toggleRowHeight: CGFloat = 21
+        static let toggleRowHeight: CGFloat = 28
         /// Corner radius of a control that is **not** a capsule: the value
         /// pills and the Side Length field, drawn `rx 8.5` against the
         /// menus' `rx 13.9` (= half their height, i.e. a capsule).
@@ -506,6 +547,10 @@ enum Theme {
         static let actionRadius: CGFloat = 9.26
         static let actionGap: CGFloat = 12.18
         static let actionLeading: CGFloat = 13.33
+        /// Pointer target around the drawing-sized action capsules. The ink
+        /// remains faithful to the reference; the target reflects use on a
+        /// laptop rather than Illustrator coordinates.
+        static let actionHitHeight: CGFloat = 28
 
         // MARK: sliders
 
@@ -528,11 +573,12 @@ enum Theme {
         /// The knob: v3's vector bounds, a dot rather than a handle.
         static let knobSize = CGSize(width: 6.13, height: 5.07)
         static let knobRadius: CGFloat = 2.535
-        /// The checkbox's **drawn** square. Its hit target is padded to 16.
-        static let checkbox: CGFloat = 5
-        /// The hit target every one of the three sits inside, so that a 5 pt
-        /// square and a 6 pt dot are still things a pointer can find.
-        static let controlHitTarget: CGFloat = 16
+        /// The checkbox's visible square. The drawing's 5 pt mark proved too
+        /// small in real use, so the product token is intentionally larger.
+        static let checkbox: CGFloat = 10
+        /// The shared pointer target for compact controls. It stays larger
+        /// than the visible square so the pointer does not have to find ink.
+        static let controlHitTarget: CGFloat = 28
 
         // MARK: glyphs
 
@@ -586,6 +632,16 @@ enum Theme {
         /// longer has, so that reinstating one is a decision rather than a
         /// guess at a radius.
         static let cardRadius: CGFloat = 15
+
+        /// The Settings window is another rail: the same section stack,
+        /// hairlines, row inset and typography as the editor, at a width that
+        /// leaves diagnostic sentences readable at the default laptop scale.
+        enum Settings {
+            static let width: CGFloat = 520
+            static let height: CGFloat = 640
+            static let verticalInset: CGFloat = 12
+            static let rowSpacing: CGFloat = 6
+        }
 
         /// The export page's own geometry (RFC-018 §6).
         ///
@@ -846,19 +902,23 @@ enum Theme {
     // override it.
 
     enum Font {
+        private static func scaled(_ size: CGFloat, weight: SwiftUI.Font.Weight = .bold) -> SwiftUI.Font {
+            SwiftUI.Font.system(size: size * InterfaceScaleStore.shared.scale.factor, weight: weight)
+        }
+
         /// A rail's own name — Develop, Edit.
-        static let railTitle = SwiftUI.Font.system(size: 12, weight: .bold)
+        static var railTitle: SwiftUI.Font { scaled(12) }
         /// A section title on the **left** rail: Input / Camera, Film, Print,
         /// Crop.
-        static let leftSectionTitle = SwiftUI.Font.system(size: 12, weight: .bold)
+        static var leftSectionTitle: SwiftUI.Font { scaled(12) }
         /// A section title on the **right** rail: Histogram, White Balance,
         /// Exposure, Curve, Color Balance. A step smaller, and that is the
         /// drawing rather than a compromise — see the note above.
-        static let rightSectionTitle = SwiftUI.Font.system(size: 10.5, weight: .bold)
+        static var rightSectionTitle: SwiftUI.Font { scaled(10.5) }
         /// The old single title role, kept pointing at the left rail's size
         /// so that anything not yet migrated — the Settings page, the export
         /// page's own `Export.sectionTitle` — keeps a title-sized title.
-        static let sectionTitle = leftSectionTitle
+        static var sectionTitle: SwiftUI.Font { leftSectionTitle }
 
         /// **The workhorse**, and v3 halves it into two.
         ///
@@ -868,47 +928,47 @@ enum Theme {
         /// a stock row is not subordinate to a Film label — they are two
         /// densities, and which one a row takes is a property of the block
         /// it is in.
-        static let body = SwiftUI.Font.system(size: 10.5, weight: .bold)
-        static let small = SwiftUI.Font.system(size: 9, weight: .bold)
+        static var body: SwiftUI.Font { scaled(10.5) }
+        static var small: SwiftUI.Font { scaled(9) }
 
-        static let filmLabel = body
-        static let stockGroup = body
-        static let edrLabel = body
-        static let zoomValue = SwiftUI.Font.system(size: 10.5, weight: .bold).monospacedDigit()
+        static var filmLabel: SwiftUI.Font { body }
+        static var stockGroup: SwiftUI.Font { body }
+        static var edrLabel: SwiftUI.Font { body }
+        static var zoomValue: SwiftUI.Font { scaled(10.5).monospacedDigit() }
 
-        static let cameraLabel = small
-        static let listItem = small
-        static let stockItem = small
-        static let asShot = small
+        static var cameraLabel: SwiftUI.Font { small }
+        static var listItem: SwiftUI.Font { small }
+        static var stockItem: SwiftUI.Font { small }
+        static var asShot: SwiftUI.Font { small }
         /// Values keep monospaced digits — a number that changes under the
         /// pointer must not reflow the row it is in (preserved policy).
-        static let value = SwiftUI.Font.system(size: 9, weight: .bold).monospacedDigit()
-        static let pill = value
+        static var value: SwiftUI.Font { scaled(9).monospacedDigit() }
+        static var pill: SwiftUI.Font { value }
 
         /// `label` is the *shared* label role, and it is Film's: the wider of
         /// the two, so a row that has not been told which block it is in gets
         /// the readable one rather than the tight one. Camera passes
         /// `cameraLabel` explicitly.
-        static let label = body
-        static let tab = body
+        static var label: SwiftUI.Font { body }
+        static var tab: SwiftUI.Font { body }
 
         /// Developed / Original, the two capsules under the print list. The
         /// largest type in the interface, and measured — v3 sets them at
         /// 26.22 / 2.
-        static let action = SwiftUI.Font.system(size: 13.11, weight: .bold)
+        static var action: SwiftUI.Font { scaled(13.11) }
 
         /// Text that is *about* a control rather than part of it: a caption
         /// under a plot, a disabled reason. `Ink.tertiary` wherever it is
         /// used.
-        static let meta = SwiftUI.Font.system(size: 9, weight: .bold)
-        static let sublabel = meta
-        static let groupHeader = stockGroup
-        static let caption = meta
+        static var meta: SwiftUI.Font { scaled(9) }
+        static var sublabel: SwiftUI.Font { meta }
+        static var groupHeader: SwiftUI.Font { stockGroup }
+        static var caption: SwiftUI.Font { meta }
 
         /// The `CINE` badge. v3 sets it at 11.42 / 2 = **5.71** inside a
         /// 21.59 pt pill — very small, and §5 of the handoff flags it for
         /// optical QA rather than asserting it reads.
-        static let cine = SwiftUI.Font.system(size: 5.71, weight: .bold)
+        static var cine: SwiftUI.Font { scaled(5.71) }
 
         /// The export page's ramp is **the same ramp**.
         ///
@@ -931,12 +991,12 @@ enum Theme {
         /// — written out, so the export page holds still until its own
         /// drawing is translated.
         enum Export {
-            static let sectionTitle = SwiftUI.Font.system(size: 12.5, weight: .bold)
-            static let label = SwiftUI.Font.system(size: 11, weight: .bold)
-            static let listItem = SwiftUI.Font.system(size: 11, weight: .bold)
-            static let chip = SwiftUI.Font.system(size: 11, weight: .bold)
-            static let value = SwiftUI.Font.system(size: 11, weight: .bold).monospacedDigit()
-            static let pill = SwiftUI.Font.system(size: 9.5, weight: .bold)
+            static var sectionTitle: SwiftUI.Font { scaled(12.5) }
+            static var label: SwiftUI.Font { scaled(11) }
+            static var listItem: SwiftUI.Font { scaled(11) }
+            static var chip: SwiftUI.Font { scaled(11) }
+            static var value: SwiftUI.Font { scaled(11).monospacedDigit() }
+            static var pill: SwiftUI.Font { scaled(9.5) }
         }
     }
 

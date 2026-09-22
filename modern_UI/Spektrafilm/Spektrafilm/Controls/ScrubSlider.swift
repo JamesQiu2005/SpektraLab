@@ -201,12 +201,9 @@ struct ScrubSlider: View {
 /// The checkbox: a small square with a 1 pt border, filled with the accent
 /// when it is on.
 ///
-/// **5 pt of ink inside a 16 pt target.** v3 measures the square at 5 and the
-/// 2026-09-17 pass drew it at 9 on the reasoning that 5 is below what the eye
-/// resolves on a dark rail. The drawing wins on the ink and the reasoning
-/// wins on the *target*: handoff §3 requires exactly that split — "preserve
-/// padded hit target" — because the thing that was too small to use was never
-/// the square, it was the 5 pt of screen you had to hit.
+/// The reference drawing's 5 pt square inside a 16 pt target was not readable
+/// or reliably clickable on a laptop. Both values now come from product
+/// accessibility tokens: 10 pt of visible state inside a 28 pt target.
 struct CheckBox: View {
     @Binding var isOn: Bool
     var body: some View {
