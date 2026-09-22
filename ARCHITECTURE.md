@@ -94,6 +94,19 @@ scene light → [camera+film] → latent image → [development] → negative dy
             → [scanner/viewing] → output RGB
 ```
 
+One rule governs changes to this model:
+
+> 不要为了修 rendering problem 去污染 material model。
+>
+> **Do not pollute the material model to fix a rendering problem.** Film and
+> paper profiles describe what the materials can do; they are not places to
+> store scene placement, output-headroom, or grading decisions. If the scene is
+> wider than the selected film and paper can separate, map the scene before it
+> reaches them. If the completed print needs more output headroom, use the
+> output-side EDR stage. If the photograph needs a final look, use Layer 2.
+> Fix the stage that owns the decision rather than changing a measured material
+> response to compensate for another stage.
+
 Colour is modelled **spectrally**, not as RGB matrices. The spectral axis is
 380–780 nm in 5 nm steps, **81 wavelengths**. Density curves are sampled on
 256 points of log exposure from −3 to 4. Both come from the baked constants.
@@ -680,4 +693,3 @@ three orders of magnitude below the truth. `progress.node_times` is therefore
 **empty** unless `SPEKTRAFILM_NODE_TIMINGS=1`, which flushes per node and gives
 up the batching for the run. An empty field is honest; a plausible wrong number
 in front of someone bisecting a slow frame is not.
-

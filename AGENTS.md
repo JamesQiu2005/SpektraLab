@@ -10,6 +10,14 @@ section before touching the pipeline.
 
 ## What this repo is, in one screen
 
+> 不要为了修 rendering problem 去污染 material model。
+>
+> **Do not pollute the material model to fix a rendering problem.** A film or
+> paper profile describes measured capability, not a control surface. Scene
+> placement belongs before the film, output headroom belongs after the print,
+> and the final look belongs in Layer 2. Fix the stage that owns the decision;
+> never rewrite a measured response to hide a limitation in another stage.
+
 **One binary.** The macOS app under `modern_UI/` has a C++ render engine
 (`engine/`) compiled into it and reached through a hand-written `extern "C"`
 surface; it renders into an `MTLTexture` the canvas draws. There is no Python
@@ -871,6 +879,60 @@ same size. The preview must be read by index:
 from a downscale of page 0. `ExportPreviewChainTests` drives the real export,
 where both pages necessarily carry the same picture — so there the long edge is
 what discriminates, and neither test is sufficient alone. Both say so.
+
+### 30. `exposure_compensation_ev` moves the negative and not the print
+
+Measured 2026-09-21 through the shipping dylib on a neutral ramp:
+
+| | Y(0) via `exposure_compensation_ev` | Y(0) via the same gain on the input |
+|---|---:|---:|
+| −2 EV | 0.17332 | 0.01862 |
+| 0 EV | 0.17563 | 0.17563 |
+| +2 EV | 0.17309 | 0.58430 |
+
+On the **negative** (`io.scan_film: true`) the two paths are `np.array_equal`.
+The cancellation is on the print side, and it is deliberate:
+`core/printing.cpp:168` computes the enlarger gain from
+`kMidgray * 2^exposure_compensation_ev`, with `print_exposure_compensation` and
+`normalize_print_exposure` both hard-coded `true` in `params.hpp:151-152`,
+neither on the wire, both cleared only under `debug.lut_mode`. The enlarger
+re-times the print for the film exposure, the way a darkroom printer does.
+
+So **Exp. Comp. changes where the scene sits on the film's characteristic
+curve — contrast, toe and shoulder engagement — and not the print's
+brightness.** At ±6 EV the mid holds near 0.175 while the contrast collapses;
+that is the signature. `enlarger.print_exposure` is the control that moves print
+brightness (0.5 → Y(0) 0.535, 2.0 → 0.025).
+
+**The consequence for any experiment:** a session that uses Exp. Comp. as a
+brightness control to compare against is measuring nothing. Pre-multiply the
+input instead — bit-identical on the negative, and it behaves as expected on the
+print. RFC-023 §15.4 lost a control run to this.
+
+### 31. Colour dies in the toe long before tone does
+
+Measured 2026-09-21, `kodak_portra_400` + `kodak_portra_endura` at defaults: the
+same chromaticity placed at different scene exposures and rendered, C\*ab of the
+print.
+
+| scene EV | −5.0 | −4.0 | −3.0 | −2.0 | −1.0 | −0.5 | 0.0 | +1.0 | +2.0 | +3.0 |
+|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|
+| skin | 1.6 | 1.1 | 3.9 | 14.1 | 22.3 | **24.5** | 23.7 | 21.2 | 14.2 | 5.3 |
+| foliage | 1.5 | 0.9 | 1.9 | 12.1 | 29.1 | 38.5 | 47.0 | **56.1** | 51.8 | 35.7 |
+
+**Below about −3.5 EV everything renders at C\*ab ≈ 1.7 — as a grey, not as a
+dark colour.** Taking 50 % of peak as the boundary, the **colour window is about
+4.2–4.4 stops** while the ISO-6846 *tonal* window on the same pair is **5.66
+stops**. A medium's colour latitude is narrower than its tonal latitude.
+
+Two things follow. Any work that asks "how many stops does this medium hold"
+must say **of what** — and the answer for tone is not the answer for colour.
+And a shadow-recovery feature that lands content between the colour boundary and
+the tonal boundary produces a region that is lighter and still grey; the
+emulsion did not record the colour and nothing downstream can return it.
+
+The measurement is cheap and reusable: `rfc/probes/rfc023-slm-probe.py`
+(`probe_medium`, plus the Lab helpers in RFC-023 §16).
 
 ## Conventions
 
