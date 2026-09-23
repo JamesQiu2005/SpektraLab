@@ -573,6 +573,15 @@ private:
     bool node_enlarger_spectral(const Image& in, Image& out, std::string& error);
     bool node_print_exposure(const Image& in, Image& out, std::string& error);
     bool node_print_curves(const Image& in, Image& out, std::string& error);
+
+    // RFC-024's virtual contrast mask (`contrast_mask.cpp`). `prepare` runs
+    // once per print run on the whole negative, after `print_prefix`; the
+    // epilogue replaces `node_enlarger_spectral` in `print_spectral` only
+    // while `mask_on_` is set, and is pointwise, so it bands.
+    bool contrast_mask_wanted() const;
+    bool prepare_contrast_mask(const Image& cmy, std::string& error);
+    void release_contrast_mask();
+    bool node_contrast_mask_epilogue(const Image& in, Image& out, std::string& error);
     bool node_scan_spectral(const Image& in, Image& out, std::string& error);
     bool node_bw_correction(const Image& in, Image& out, std::string& error);
     bool node_glare(const Image& in, Image& out, std::string& error);
@@ -682,6 +691,19 @@ private:
     double print_gain_[3] = {1, 1, 1};
     double print_offset_[3] = {0, 0, 0};
     double print_exposure_gain_[3] = {1, 1, 1};
+
+    // RFC-024, per print run: the prepared field and the parameter block both
+    // mask kernels read. The coefficients are a frame-arena buffer, dropped at
+    // the end of the run that made them.
+    bool mask_on_ = false;
+    gpu::BufferRef mask_coef_;
+    uint32_t mask_gw_ = 0, mask_gh_ = 0, mask_frame_w_ = 0, mask_frame_h_ = 0;
+    float mask_params_[16] = {};
+    // The first row, in the plane, of the band a band-able stage is running
+    // on; 0 on the un-striped path. Set by `run_stages_striped` -- the one
+    // node that needs a frame coordinate reads it rather than every stage
+    // growing a `Strip` argument.
+    uint32_t band_row0_ = 0;
 
     // black/white references
     bool bw_active_ = false;

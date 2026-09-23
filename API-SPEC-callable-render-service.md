@@ -553,3 +553,37 @@ single-threaded, and installing `tbb` is the only thing that would change that
 calculus (untested here; it would need its own measurement pass, and TBB is
 also the layer that makes nested parallelism safe, which would unblock
 `parallel_pointwise` wrapping fused kernels — see RFC-007 §8.5).
+
+## 11. RFC-024 virtual contrast mask — wire fields (2026-09-23)
+
+Six native-only fields, all **print layer** and **not live**. A mask edit costs
+a pipeline rebuild plus a reprint of the cached negative. It never re-develops
+the negative: `negative_was_cached` is 1 on the reprint that follows.
+`parity_schema.py` pins them in `NATIVE_ONLY`.
+
+| field | path | type | default | range | meaning |
+|---|---|---|---|---|---|
+| `contrast_mask_active` | `print_render.contrast_mask.active` | bool | `false` | — | the switch; `false` keeps the unmasked dispatches exactly (byte-identical to the pre-RFC build) |
+| `contrast_mask_highlights` | `…contrast_mask.highlights` | float | `0.0` | 0–3 | stops by which a low base exposure (**print highlight**) is raised, read 4 stops past the knee; `0` disables the branch exactly |
+| `contrast_mask_shadows` | `…contrast_mask.shadows` | float | `0.0` | 0–3 | the same for high base exposures (**print shadows**), which are lowered |
+| `contrast_mask_core` | `…contrast_mask.core` | float | `1.0` | 0–3 | half-width, in stops about the negative's mid-grey, of the identity core |
+| `contrast_mask_scale` | `…contrast_mask.scale` | float | `0.03` | 0.005–0.25 | the base extractor's sigma as a fraction of the frame's long edge (tier-independent) |
+| `contrast_mask_edge_aware` | `…contrast_mask.edge_aware` | bool | `false` | — | guided-filter base (`true`) or plain Gaussian, the classic unsharp mask (`false`) |
+
+The defaults are placeholders, not recommendations. Every control is the
+user's, and no values are calibrated (RFC-024 §12.5).
+
+With `active` and at least one non-zero amount, and only for ordinary
+negative-to-paper printing (it is ignored under `scan_film`, on a positive
+print material, and in `lut_mode`), the print run has one extra whole-frame
+analysis step, and `printing.expose.enlarger_spectral` is replaced by
+`printing.expose.contrast_mask`. That node is pointwise and bands under
+`striped`, and its output is byte-identical to the un-striped render. The
+masked exposure is `P·[2^δ·A + F]`: the gain applies to the image exposure
+before the existing pre-flash `F`, and `print_exposure` `P` keeps its meaning.
+The print LUT and DI paths (`spk_print_lut_table`, `spk_preview_stock_lut`,
+`spk_export_di`) are pointwise tables and do not carry the mask.
+
+Research-only environment switches, off the wire: `SPEKTRAFILM_MASK_DUMP=<file>`
+writes the analysis grid (`x`, base, δ). `SPEKTRAFILM_MASK_POINTWISE=1` turns
+the base into each pixel's own `x`, which is RFC-024 §9.1's pointwise comparator.

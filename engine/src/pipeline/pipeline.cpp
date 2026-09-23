@@ -433,6 +433,7 @@ bool Pipeline::build(const Params& params, std::string& error) {
     node_count_ += params_.film_render.dir_couplers.active ? 1 : 0;      // dir_couplers
     node_count_ += params_.film_render.grain.active ? 1 : 0;             // grain
     if (!params_.io.scan_film) node_count_ += 3;                         // the printing stage
+    node_count_ += contrast_mask_wanted() ? 1 : 0;                       // RFC-024 analysis
     node_count_ += 5;                                                    // scan..gamut_compress
     node_count_ += params_.print_render.edr_enabled && !params_.io.scan_film ? 1 : 0;
     node_count_ += params_.scanner.lens_blur > 0.0 ? 1 : 0;              // scanner_blur
@@ -1801,7 +1802,8 @@ bool Pipeline::film_grain(const Chain& in, Chain& out, std::string& error) {
 bool Pipeline::print_spectral(const Chain& in, Chain& out, std::string& error) {
     Image cur = in.cur, next;
     if (!params_.io.scan_film) {
-        SPK_NODE(node_enlarger_spectral(cur, next, error)); cur = next;
+        if (mask_on_) { SPK_NODE(node_contrast_mask_epilogue(cur, next, error)); cur = next; }
+        else { SPK_NODE(node_enlarger_spectral(cur, next, error)); cur = next; }
         SPK_NODE(node_print_exposure(cur, next, error)); cur = next;
         SPK_NODE(node_print_curves(cur, next, error)); cur = next;
     }
@@ -2003,6 +2005,7 @@ bool Pipeline::run_stages_striped(const Stage* stages, size_t count, Chain& chai
                     !band_from(chain.log_e_film, span, halo, read, band_in.log_e_film, error)) return false;
 
                 Chain cur = band_in;
+                band_row0_ = read.y0;
                 for (size_t k = i; k < j; ++k) {
                     Chain next;
                     if (!(this->*stages[k].run)(cur, next, error)) return false;
@@ -2042,6 +2045,7 @@ bool Pipeline::run_stages_striped(const Stage* stages, size_t count, Chain& chai
                     if (!band_into(cur.log_e_film, read, plane_out.log_e_film, error)) return false;
                 }
             }
+            band_row0_ = 0;
             chain = plane_out;
             i = j;
         } else {
@@ -2184,7 +2188,10 @@ bool Pipeline::run_print(const Image& cmy, Image& out, Progress* progress, std::
         return false;
     }
     if (!print_prefix(error)) { progress_ = nullptr; return false; }
-    if (!print_segment(cmy, out, error)) return false;
+    if (!prepare_contrast_mask(cmy, error)) { progress_ = nullptr; return false; }
+    const bool ok = print_segment(cmy, out, error);
+    release_contrast_mask();
+    if (!ok) return false;
     if (progress_) progress_->done = true;
     progress_ = nullptr;
     return true;
@@ -2199,15 +2206,17 @@ bool Pipeline::run_print_striped(const Image& cmy, Image& out, Progress* progres
         return false;
     }
     if (!print_prefix(error)) { progress_ = nullptr; return false; }
+    if (!prepare_contrast_mask(cmy, error)) { progress_ = nullptr; return false; }
 
     Chain chain;
     chain.cur = cmy;
     Progress::StripRun report;
     report.stage = "print";
     report.plan = strip_plan(cmy.h);
-    if (!run_stages_striped(kPrintStages, kPrintStageCount, chain, report.plan, report, error)) {
-        return false;
-    }
+    const bool ok = run_stages_striped(kPrintStages, kPrintStageCount, chain, report.plan, report,
+                                       error);
+    release_contrast_mask();
+    if (!ok) return false;
     if (progress_) { progress_->strips.push_back(std::move(report)); progress_->done = true; }
     progress_ = nullptr;
     out = chain.cur;

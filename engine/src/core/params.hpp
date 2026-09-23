@@ -123,8 +123,33 @@ struct FilmRenderParams {
     GlareParams glare;
 };
 
+// RFC-024: the virtual contrast mask, a neutral spatial gain on the
+// enlarger's image exposure before pre-flash and paper development. Off by
+// default, and `active = false` leaves the print path's nodes and kernels
+// exactly as they were -- the bypass is structural, not a unity gain.
+//
+// Units are the RFC's: stops of paper exposure relative to the negative's own
+// mid-grey through the same enlarger. `highlights` / `shadows` are named for
+// the *final print* (RFC-024 §5.1): print highlights are the low projected
+// exposures a dense negative gives, and they are raised; print shadows are the
+// high ones, and they are lowered. Each is the change the curve makes to a
+// base exposure `kContrastMaskReach` stops beyond its knee, so 0 disables that
+// branch exactly.
+//
+// The defaults are placeholders, not recommendations: every control is the
+// user's to set, and none is calibrated (RFC-024 §12.5).
+struct ContrastMaskParams {
+    bool active = false;
+    double highlights = 0.0;   ///< stops raised, print-highlight side
+    double shadows = 0.0;      ///< stops lowered, print-shadow side
+    double core = 1.0;         ///< half-width of the identity core, stops
+    double scale = 0.03;       ///< base extractor's sigma, fraction of the long edge
+    bool edge_aware = false;   ///< guided-filter base (true) or plain Gaussian (false)
+};
+
 struct PrintRenderParams {
     GlareParams glare;
+    ContrastMaskParams contrast_mask;
     PrintCurvesMorphParams density_curves_morph;
     // Print-layer EDR master toggle. It defaults off so the legacy print
     // path remains byte-identical until the user opts in.

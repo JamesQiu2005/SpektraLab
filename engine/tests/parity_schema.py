@@ -83,6 +83,33 @@ NATIVE_ONLY = {
         "path": "settings.strip_budget_bytes", "type": "int", "layer": "print",
         "default": 0, "live": True, "range": [0, 8e9],
     },
+    # RFC-024's virtual contrast mask: print layer (a mask edit reprints the
+    # cached negative), not live (the analysis is prepared per run, and a
+    # rebuild is the honest default). `active = false` is the exact bypass.
+    "contrast_mask_active": {
+        "path": "print_render.contrast_mask.active", "type": "bool", "layer": "print",
+        "default": False, "live": False, "range": None,
+    },
+    "contrast_mask_highlights": {
+        "path": "print_render.contrast_mask.highlights", "type": "float", "layer": "print",
+        "default": 0.0, "live": False, "range": [0.0, 3.0],
+    },
+    "contrast_mask_shadows": {
+        "path": "print_render.contrast_mask.shadows", "type": "float", "layer": "print",
+        "default": 0.0, "live": False, "range": [0.0, 3.0],
+    },
+    "contrast_mask_core": {
+        "path": "print_render.contrast_mask.core", "type": "float", "layer": "print",
+        "default": 1.0, "live": False, "range": [0.0, 3.0],
+    },
+    "contrast_mask_scale": {
+        "path": "print_render.contrast_mask.scale", "type": "float", "layer": "print",
+        "default": 0.03, "live": False, "range": [0.001, 0.25],
+    },
+    "contrast_mask_edge_aware": {
+        "path": "print_render.contrast_mask.edge_aware", "type": "bool", "layer": "print",
+        "default": False, "live": False, "range": None,
+    },
 }
 
 
