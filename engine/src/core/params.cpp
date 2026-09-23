@@ -94,6 +94,18 @@ const SchemaField kFields[] = {
     {"striped",                  "settings.striped",                     B, PRINT, false, 0, 0, true},
     {"strip_rows",               "settings.strip_rows",                  I, PRINT, true, 0.0, 16384.0, true},
     {"strip_budget_bytes",       "settings.strip_budget_bytes",          I, PRINT, true, 0.0, 8e9, true},
+    // RFC-024's virtual contrast mask. Native-only like the strip fields, so
+    // they sit in the same place for the same reason -- before
+    // `preview_long_edge`, in `parity_schema.py`'s NATIVE_ONLY order. PRINT
+    // layer: a mask edit reprints the cached negative and never re-develops it
+    // (RFC-024 §8). Not live, because the analysis is prepared per run and a
+    // rebuild is the cheap, honest default.
+    {"contrast_mask_active",     "print_render.contrast_mask.active",     B, PRINT, false, 0, 0, false},
+    {"contrast_mask_highlights", "print_render.contrast_mask.highlights", F, PRINT, true, 0.0, 3.0, false},
+    {"contrast_mask_shadows",    "print_render.contrast_mask.shadows",    F, PRINT, true, 0.0, 3.0, false},
+    {"contrast_mask_core",       "print_render.contrast_mask.core",       F, PRINT, true, 0.0, 3.0, false},
+    {"contrast_mask_scale",      "print_render.contrast_mask.scale",      F, PRINT, true, 0.001, 0.25, false},
+    {"contrast_mask_edge_aware", "print_render.contrast_mask.edge_aware", B, PRINT, false, 0, 0, false},
     // The app's *preview resolution*: the `live` tier's long edge, and so the
     // size every interactive edit renders at. PRINT layer, because it is a
     // decision about the canvas rather than about the film -- but it is one of
@@ -134,6 +146,10 @@ double* float_slot(Params& p, const std::string& path) {
     if (path == "enlarger.y_filter_neutral") return &p.enlarger.y_filter_neutral;
     if (path == "enlarger.preflash_exposure") return &p.enlarger.preflash_exposure;
     if (path == "scanner.lens_blur") return &p.scanner.lens_blur;
+    if (path == "print_render.contrast_mask.highlights") return &p.print_render.contrast_mask.highlights;
+    if (path == "print_render.contrast_mask.shadows") return &p.print_render.contrast_mask.shadows;
+    if (path == "print_render.contrast_mask.core") return &p.print_render.contrast_mask.core;
+    if (path == "print_render.contrast_mask.scale") return &p.print_render.contrast_mask.scale;
     return nullptr;
 }
 
@@ -153,6 +169,8 @@ bool* bool_slot(Params& p, const std::string& path) {
     if (path == "io.output_cctf_encoding") return &p.io.output_cctf_encoding;
     if (path == "io.scan_film") return &p.io.scan_film;
     if (path == "settings.striped") return &p.settings.striped;
+    if (path == "print_render.contrast_mask.active") return &p.print_render.contrast_mask.active;
+    if (path == "print_render.contrast_mask.edge_aware") return &p.print_render.contrast_mask.edge_aware;
     return nullptr;
 }
 
