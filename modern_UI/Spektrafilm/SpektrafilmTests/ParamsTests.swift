@@ -84,8 +84,105 @@ final class ParamsTests: XCTestCase {
                                   // along (`camera.auto_exposure`) and never
                                   // sent until the 2026-09-17 rework, which is
                                   // why `Custom` needed no new field.
-                                  "auto_exposure"]
+                                  "auto_exposure",
+                                  // Enlarger pre-flash, on the wire since
+                                  // RFC-014 and wired here 2026-09-24.
+                                  "preflash_exposure",
+                                  // RFC-024 (API-SPEC §11).
+                                  "contrast_mask_active", "contrast_mask_highlights",
+                                  "contrast_mask_shadows", "contrast_mask_core",
+                                  "contrast_mask_scale", "contrast_mask_scheme",
+                                  // RFC-023 (API-SPEC §12): the resolved curve,
+                                  // never the pull-backs.
+                                  "scene_latitude_active", "scene_latitude_norm",
+                                  "scene_latitude_highlight_knee", "scene_latitude_highlight_room",
+                                  "scene_latitude_shadow_knee", "scene_latitude_shadow_room",
+                                  "scene_latitude_rolloff", "scene_latitude_max_lift"]
         XCTAssertEqual(Set(FilmParams.default.wire.map(\.name)), known)
+    }
+
+    /// The mask and pre-flash are enlarger edits: a reprint of the cached
+    /// negative. Scene Latitude sits before the film: a re-develop.
+    func testMaskAndPreflashArePrintEditsAndSceneLatitudeIsAShootEdit() {
+        var p = FilmParams.default
+        p.contrastMask.active = true
+        p.contrastMask.highlights = 1.5
+        p.preflashExposure = 0.01
+        let print = p.delta(from: .default)
+        XCTAssertEqual(print.layers, [.print])
+        XCTAssertEqual(print.delta["contrast_mask_highlights"], .double(1.5))
+        XCTAssertEqual(print.delta["preflash_exposure"], .double(0.01))
+        XCTAssertTrue(FilmParams.liveMutable.contains("preflash_exposure"))
+
+        var q = FilmParams.default
+        q.sceneLatitude.active = true
+        q.sceneLatitude.highlightRoom = 2.5
+        XCTAssertEqual(q.delta(from: .default).layers, [.shoot])
+    }
+
+    /// RFC-023 §8.3: the pull-backs are UI state. Moving one changes nothing
+    /// the engine sees -- only applying a fit does -- so a paper change can
+    /// never re-render an old edit through them.
+    func testScenePullBacksNeverReachTheWire() {
+        var p = FilmParams.default
+        p.sceneLatitude.highlightPullBack = 3
+        p.sceneLatitude.shadowPullBack = 2
+        p.sceneLatitude.shadowPercentile = 1
+        XCTAssertTrue(p.delta(from: .default).delta.isEmpty)
+        XCTAssertNotEqual(p, .default, "but they are kept, in the sidecar")
+    }
+
+    /// The UI's range is the engine's; a stored value outside it is clamped on
+    /// the way out rather than refused by the engine mid-drag.
+    func testMaskScaleIsClampedToTheEngineRange() {
+        var p = FilmParams.default
+        p.contrastMask.scale = 0.001
+        XCTAssertEqual(p.fullDelta["contrast_mask_scale"], .double(0.002))
+        p.contrastMask.scale = 0.3
+        XCTAssertEqual(p.fullDelta["contrast_mask_scale"], .double(0.12))
+    }
+
+    /// A sidecar from before any of these existed, and one from a build that
+    /// knew only some of the mask's fields, both decode to the engine's
+    /// defaults -- which are the structural bypass, so the frame renders as it
+    /// always did.
+    func testSidecarsWithoutTheNewFieldsDecodeToTheBypass() throws {
+        var sidecar = Sidecar()
+        sidecar.params.preflashExposure = 0.02
+        sidecar.params.contrastMask.active = true
+        sidecar.params.sceneLatitude.active = true
+        guard var object = try JSONSerialization.jsonObject(with: JSONEncoder().encode(sidecar)) as? [String: Any],
+              var params = object["params"] as? [String: Any]
+        else { return XCTFail("encoded sidecar did not contain params") }
+        params.removeValue(forKey: "preflashExposure")
+        params.removeValue(forKey: "sceneLatitude")
+        params["contrastMask"] = ["active": true, "highlights": 1.0]   // a partial, older shape
+        object["params"] = params
+        let decoded = try JSONDecoder().decode(Sidecar.self, from: JSONSerialization.data(withJSONObject: object))
+        XCTAssertEqual(decoded.params.preflashExposure, 0)
+        XCTAssertEqual(decoded.params.sceneLatitude, SceneLatitudeSettings())
+        XCTAssertTrue(decoded.params.contrastMask.active)
+        XCTAssertEqual(decoded.params.contrastMask.highlights, 1.0)
+        XCTAssertEqual(decoded.params.contrastMask.core, 1.0)
+        XCTAssertEqual(decoded.params.contrastMask.scheme, "gaussian")
+    }
+
+    /// A refused fit carries no delta and cannot be applied.
+    func testARefusedFitChangesNothing() throws {
+        let json = """
+        {"valid": false, "issues": [{"code": "knees_cross", "side": "both", "message": "m"}],
+         "warnings": [], "core_stops": -1.2,
+         "highlight": {"on": true, "pull_back": 4.5, "minimum_pull_back": 3.8, "scene_extreme_ev": 7.3,
+                       "medium_boundary_ev": 2.5, "knee": -1.0, "room": 3.5, "landing_ev": 2.8,
+                       "slope_at_extreme": 0.12},
+         "shadow": {"on": false, "pull_back": 0, "minimum_pull_back": -1, "scene_extreme_ev": -3,
+                    "medium_boundary_ev": -4.6, "landing_ev": -3, "slope_at_extreme": 1}}
+        """
+        let fit = try JSONDecoder().decode(SceneLatitudeResponse.Fit.self, from: Data(json.utf8))
+        var s = SceneLatitudeSettings()
+        XCTAssertFalse(s.apply(fit))
+        XCTAssertEqual(s, SceneLatitudeSettings())
+        XCTAssertNil(fit.shadow.knee, "a side that is off has no knee")
     }
 
     /// `Custom` is `auto_exposure = false` and nothing else, and the four

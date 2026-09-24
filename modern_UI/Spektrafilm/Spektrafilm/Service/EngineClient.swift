@@ -544,6 +544,42 @@ actor EngineClient {
                          progress: progressLocked())
     }
 
+    // MARK: - RFC-023 / RFC-024 measurements
+
+    /// RFC-023's Fit (API-SPEC §12): the medium, the scene, a suggestion and
+    /// the solve for `request`'s pull-backs. Writes no parameter -- commit a
+    /// valid fit's `paramsDelta` through `setParams` (or
+    /// `SceneLatitudeSettings.apply`) like any other edit.
+    func sceneLatitude(_ request: SceneLatitudeRequest) async throws -> SceneLatitudeResponse {
+        if state != .running { try start() }
+        guard let session else { throw ClientError.notRunning }
+        let json = try encode(request)
+        var out: UnsafeMutablePointer<CChar>?
+        guard json.withCString({ spk_scene_latitude(session, $0, &out) }) == SPK_OK else {
+            throw ClientError.engine(lastError())
+        }
+        return try decode(out, as: SceneLatitudeResponse.self)
+    }
+
+    /// RFC-024's mask as a picture, for the canvas overlay (API-SPEC §11).
+    /// The tier must have been rendered: the field is analysed on its cached
+    /// negative. Copied out, because the engine's buffer is only valid until
+    /// the next call on the session.
+    func contrastMaskField(tier: String = "live") async throws -> ContrastMaskField {
+        if state != .running { try start() }
+        guard let session else { throw ClientError.notRunning }
+        var pointer: UnsafePointer<Float>?
+        var width: UInt32 = 0, height: UInt32 = 0
+        guard tier.withCString({ spk_contrast_mask_field(session, $0, &pointer, &width, &height) }) == SPK_OK
+        else { throw ClientError.engine(lastError()) }
+        guard let pointer, width > 0, height > 0 else {
+            return ContrastMaskField(width: 0, height: 0, delta: [])
+        }
+        let count = Int(width) * Int(height)
+        return ContrastMaskField(width: Int(width), height: Int(height),
+                                 delta: Array(UnsafeBufferPointer(start: pointer, count: count)))
+    }
+
     // MARK: - the two calls that are not just JSON
 
     private func decodeOwned<R: Decodable>(_ json: String, as: R.Type) throws -> R {

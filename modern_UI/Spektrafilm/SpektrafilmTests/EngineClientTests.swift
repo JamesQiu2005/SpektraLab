@@ -233,6 +233,84 @@ final class EngineClientTests: XCTestCase {
         await client.stop()
     }
 
+    /// Every name and value `FilmParams` puts on the wire is one the engine
+    /// accepts. The Swift list and the C++ schema are separate tables; this is
+    /// where they meet.
+    func testTheWholeWireIsAcceptedByTheEngine() async throws {
+        let gpu = try device()
+        let client = EngineClient(device: gpu)
+        var p = FilmParams.default
+        p.contrastMask.active = true
+        p.contrastMask.highlights = 1
+        p.preflashExposure = 0.01
+        _ = try await client.open(try makeFrame(64, device: gpu), paramsDelta: p.fullDelta)
+        await client.stop()
+    }
+
+    /// RFC-023's Fit through the boundary: it measures and solves, and a valid
+    /// fit applied through `FilmParams` is a shoot edit the engine accepts.
+    func testSceneLatitudeFitsAndItsDeltaCommits() async throws {
+        let gpu = try device()
+        let client = EngineClient(device: gpu)
+        let open = try await client.open(try makeFrame(96, device: gpu),
+                                         paramsDelta: FilmParams.default.fullDelta)
+        let reply = try await client.sceneLatitude(SceneLatitudeRequest())
+        XCTAssertGreaterThan(reply.medium.latitudeStops, 3, "a paper holds several stops")
+        XCTAssertLessThan(reply.medium.shadowEV, reply.medium.highlightEV)
+        XCTAssertEqual(reply.medium.rampEV.count, reply.medium.rampY.count)
+        XCTAssertEqual(reply.scene.histogram.fractions.count, 128)
+        XCTAssertLessThanOrEqual(reply.scene.p0_1, reply.scene.p99_9)
+
+        // Pull the top back past its minimum: a real highlight branch.
+        let n = max(reply.fit.highlight.minimumPullBack, 0) + 0.75
+        let solved = try await client.sceneLatitude(SceneLatitudeRequest(highlightPullBack: n,
+                                                                         shadowPullBack: 0))
+        XCTAssertTrue(solved.fit.valid, "\(solved.fit.issues)")
+        XCTAssertTrue(solved.fit.highlight.on)
+        XCTAssertLessThan(solved.fit.highlight.landingEV, solved.fit.highlight.mediumBoundaryEV)
+        var p = FilmParams.default
+        XCTAssertTrue(p.sceneLatitude.apply(solved.fit))
+        XCTAssertEqual(p.sceneLatitude.highlightPullBack, n, accuracy: 1e-9)
+        let edit = p.delta(from: .default)
+        XCTAssertEqual(edit.layers, [.shoot])
+        let set: SetParamsResponse = try await client.call(
+            .setParams, SetParamsRequest(sessionID: open.sessionID, paramsDelta: edit.delta),
+            as: SetParamsResponse.self)
+        XCTAssertEqual(set.invalidated, "shoot")
+        await client.stop()
+    }
+
+    /// RFC-024's field: refused before the tier has a negative, empty with the
+    /// mask off, and the grid in the frame's aspect with it on.
+    func testTheMaskFieldFollowsTheMask() async throws {
+        let gpu = try device()
+        let client = EngineClient(device: gpu)
+        let open = try await client.open(try makeFrame(96, device: gpu),
+                                         paramsDelta: FilmParams.default.fullDelta)
+        do {
+            _ = try await client.contrastMaskField(tier: "live")
+            XCTFail("a tier with no negative has no mask to show")
+        } catch {}
+        _ = try await client.render(.reprint, RenderRequest(sessionID: open.sessionID))
+        let off = try await client.contrastMaskField(tier: "live")
+        XCTAssertTrue(off.isEmpty)
+
+        var p = FilmParams.default
+        p.contrastMask.active = true
+        p.contrastMask.highlights = 2
+        p.contrastMask.shadows = 2
+        p.contrastMask.core = 0
+        let _: SetParamsResponse = try await client.call(
+            .setParams, SetParamsRequest(sessionID: open.sessionID, paramsDelta: p.delta(from: .default).delta),
+            as: SetParamsResponse.self)
+        let on = try await client.contrastMaskField(tier: "live")
+        XCTAssertFalse(on.isEmpty)
+        XCTAssertEqual(on.delta.count, on.width * on.height)
+        XCTAssertGreaterThan(on.width, on.height, "the synthetic frame is 4:3 landscape")
+        XCTAssertTrue(on.delta.contains { $0 != 0 }, "a zero core and two stops must move something")
+        await client.stop()
+    }
+
     func testAReprintReusesTheNegative() async throws {
         let frameSize = 96
         let gpu = try device()

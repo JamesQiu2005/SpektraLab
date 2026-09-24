@@ -243,12 +243,126 @@ extension String {
     var capitalizedFirst: String { isEmpty ? self : prefix(1).uppercased() + dropFirst() }
 }
 
+/// RFC-024's virtual contrast mask: a regional gain on the enlarger's image
+/// exposure, before pre-flash and paper (API-SPEC §11). Print layer, so an edit
+/// reprints the cached negative. Every value is the user's; the defaults are
+/// the engine's placeholders and do nothing while `active` is false or both
+/// amounts are 0 (RFC-024 §12.5).
+struct ContrastMaskSettings: Codable, Equatable, Sendable {
+    var active = false
+    /// Stops by which the print's highlights (low paper exposure) are raised.
+    var highlights = 0.0           // 0…3
+    /// Stops by which the print's shadows (high paper exposure) are lowered.
+    var shadows = 0.0              // 0…3
+    /// Half-width of the untouched core about the negative's mid-grey, stops.
+    var core = 1.0                 // 0…3
+    /// The blur's sigma as a fraction of the frame's long edge.
+    var scale = 0.03               // 0.002…0.12
+    /// The base extractor by name; `gaussian` is the only product scheme.
+    var scheme = "gaussian"
+
+    static let scaleRange = 0.002...0.12
+
+    init() {}
+
+    /// Every key optional, so a sidecar from before a field existed decodes.
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        let d = ContrastMaskSettings()
+        active = try c.decodeIfPresent(Bool.self, forKey: .active) ?? d.active
+        highlights = try c.decodeIfPresent(Double.self, forKey: .highlights) ?? d.highlights
+        shadows = try c.decodeIfPresent(Double.self, forKey: .shadows) ?? d.shadows
+        core = try c.decodeIfPresent(Double.self, forKey: .core) ?? d.core
+        scale = try c.decodeIfPresent(Double.self, forKey: .scale) ?? d.scale
+        scheme = try c.decodeIfPresent(String.self, forKey: .scheme) ?? d.scheme
+    }
+}
+
+/// RFC-023's Scene Latitude (API-SPEC §12). Two halves, and keeping them apart
+/// is the RFC's §8.3:
+///
+/// - the **pull-backs** are UI state -- what the user dragged -- and never
+///   reach the wire;
+/// - the **resolved curve** (knees, rooms) is what `spk_scene_latitude` solved
+///   from them and is the only thing the engine renders. A paper change must
+///   not re-render an old edit, so nothing here is re-derived implicitly: the
+///   resolved values change only when a fit is applied.
+///
+/// Shoot layer: the curve sits before the film, so an edit re-develops.
+struct SceneLatitudeSettings: Codable, Equatable, Sendable {
+    // --- UI state, not on the wire ---
+    /// Stops the scene's top is pulled back; 0 = the highlight side is off.
+    var highlightPullBack = 0.0
+    /// Stops the scene's bottom is pulled up (the bounded landing); 0 = off.
+    var shadowPullBack = 0.0
+    /// Which robust extreme each side is fitted to: 0.1 or 1, 99.9 or 99.
+    var shadowPercentile = 0.1
+    var highlightPercentile = 99.9
+    // --- the resolved curve, on the wire ---
+    var active = false
+    var norm = "power"
+    var highlightKnee = 2.0
+    var highlightRoom = 0.0
+    var shadowKnee = -2.0
+    var shadowRoom = 0.0
+    var rolloff = 2.0              // 1…4
+    var maxLift = 4.0              // 0.25…12
+
+    init() {}
+
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        let d = SceneLatitudeSettings()
+        highlightPullBack = try c.decodeIfPresent(Double.self, forKey: .highlightPullBack) ?? d.highlightPullBack
+        shadowPullBack = try c.decodeIfPresent(Double.self, forKey: .shadowPullBack) ?? d.shadowPullBack
+        shadowPercentile = try c.decodeIfPresent(Double.self, forKey: .shadowPercentile) ?? d.shadowPercentile
+        highlightPercentile = try c.decodeIfPresent(Double.self, forKey: .highlightPercentile) ?? d.highlightPercentile
+        active = try c.decodeIfPresent(Bool.self, forKey: .active) ?? d.active
+        norm = try c.decodeIfPresent(String.self, forKey: .norm) ?? d.norm
+        highlightKnee = try c.decodeIfPresent(Double.self, forKey: .highlightKnee) ?? d.highlightKnee
+        highlightRoom = try c.decodeIfPresent(Double.self, forKey: .highlightRoom) ?? d.highlightRoom
+        shadowKnee = try c.decodeIfPresent(Double.self, forKey: .shadowKnee) ?? d.shadowKnee
+        shadowRoom = try c.decodeIfPresent(Double.self, forKey: .shadowRoom) ?? d.shadowRoom
+        rolloff = try c.decodeIfPresent(Double.self, forKey: .rolloff) ?? d.rolloff
+        maxLift = try c.decodeIfPresent(Double.self, forKey: .maxLift) ?? d.maxLift
+    }
+
+    /// The request that re-solves these pull-backs against the session's
+    /// current medium and scene.
+    var request: SceneLatitudeRequest {
+        SceneLatitudeRequest(highlightPullBack: highlightPullBack, shadowPullBack: shadowPullBack,
+                             rolloff: rolloff, maxLift: maxLift, norm: norm,
+                             shadowPercentile: shadowPercentile,
+                             highlightPercentile: highlightPercentile)
+    }
+
+    /// Take a fit: the pull-backs it was solved for become the UI state and
+    /// its resolved curve becomes the render state. Returns false -- and
+    /// changes nothing -- for a fit the engine refused, which carries no
+    /// `params_delta`, so a refused fit cannot be committed by accident.
+    @discardableResult
+    mutating func apply(_ fit: SceneLatitudeResponse.Fit) -> Bool {
+        guard fit.valid, let d = fit.paramsDelta else { return false }
+        highlightPullBack = fit.highlight.pullBack
+        shadowPullBack = fit.shadow.pullBack
+        active = d.active
+        norm = d.norm
+        highlightKnee = d.highlightKnee
+        highlightRoom = d.highlightRoom
+        shadowKnee = d.shadowKnee
+        shadowRoom = d.shadowRoom
+        rolloff = d.rolloff
+        maxLift = d.maxLift
+        return true
+    }
+}
+
 struct FilmParams: Codable, Equatable, Sendable {
     private enum CodingKeys: String, CodingKey {
         case filmStock, printStock, exposureCompensationEV, autoExposureMethod, autoExposure
         case filmFormatMM, filmFrame, filmSide, sideLengthMM, grainActive, halationActive
         case printBrightnessStops, yFilterShift, mFilterShift, glareActive, scanFilm
-        case extendedDynamicRange
+        case extendedDynamicRange, preflashExposure, contrastMask, sceneLatitude
     }
 
     // --- stock (shoot for film, print for paper) ---
@@ -328,6 +442,17 @@ struct FilmParams: Codable, Equatable, Sendable {
     /// change direct film scanning.
     var effectiveExtendedDynamicRange: Bool { extendedDynamicRange && !scanFilm }
 
+    /// The enlarger's pre-flash: a uniform paper exposure of this many times
+    /// the light through the film's clear base, added before development
+    /// (`printing.cpp`). **Not in EV** -- measured on `_DSC2663`, 0.01 is ~9 %
+    /// of the mid-grey exposure and the useful range is 0…0.03 of the wire's
+    /// 0…1 (`output/preflash_DSC2663/report.md`). Print layer, live.
+    var preflashExposure: Double = 0
+    /// RFC-024. Print layer.
+    var contrastMask = ContrastMaskSettings()
+    /// RFC-023. Shoot layer.
+    var sceneLatitude = SceneLatitudeSettings()
+
     init() {
         filmStock = "kodak_portra_400"
         printStock = "kodak_supra_endura"
@@ -346,6 +471,9 @@ struct FilmParams: Codable, Equatable, Sendable {
         glareActive = true
         scanFilm = false
         extendedDynamicRange = false
+        preflashExposure = 0
+        contrastMask = ContrastMaskSettings()
+        sceneLatitude = SceneLatitudeSettings()
     }
 
     /// Keep sidecars written before EDR readable. Stored properties with
@@ -353,7 +481,8 @@ struct FilmParams: Codable, Equatable, Sendable {
     /// absent key would otherwise reject the whole `FilmParams` value. The
     /// older fields retain their synthesized Codable requirements; a missing
     /// exposure method deliberately remains nil because that is the legacy
-    /// wire state. Only EDR is new and therefore defaults when absent.
+    /// wire state. EDR, pre-flash, the contrast mask and Scene Latitude are
+    /// newer and therefore default when absent.
     init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
         filmStock = try c.decode(String.self, forKey: .filmStock)
@@ -373,6 +502,11 @@ struct FilmParams: Codable, Equatable, Sendable {
         glareActive = try c.decode(Bool.self, forKey: .glareActive)
         scanFilm = try c.decode(Bool.self, forKey: .scanFilm)
         extendedDynamicRange = try c.decodeIfPresent(Bool.self, forKey: .extendedDynamicRange) ?? false
+        preflashExposure = try c.decodeIfPresent(Double.self, forKey: .preflashExposure) ?? 0
+        contrastMask = try c.decodeIfPresent(ContrastMaskSettings.self, forKey: .contrastMask)
+            ?? ContrastMaskSettings()
+        sceneLatitude = try c.decodeIfPresent(SceneLatitudeSettings.self, forKey: .sceneLatitude)
+            ?? SceneLatitudeSettings()
     }
 
     static let `default` = FilmParams()
@@ -404,6 +538,26 @@ struct FilmParams: Codable, Equatable, Sendable {
             ("glare_active", .bool(glareActive), .print),
             ("scan_film", .bool(scanFilm), .print),
             ("extended_dynamic_range", .bool(effectiveExtendedDynamicRange), .print),
+            ("preflash_exposure", .double(preflashExposure), .print),
+            // RFC-024 (API-SPEC §11). Sent always: the defaults are the
+            // engine's, and off is a structural bypass, so a legacy frame
+            // renders byte for byte as before.
+            ("contrast_mask_active", .bool(contrastMask.active), .print),
+            ("contrast_mask_highlights", .double(contrastMask.highlights), .print),
+            ("contrast_mask_shadows", .double(contrastMask.shadows), .print),
+            ("contrast_mask_core", .double(contrastMask.core), .print),
+            ("contrast_mask_scale", .double(contrastMask.scale.clamped(to: ContrastMaskSettings.scaleRange)), .print),
+            ("contrast_mask_scheme", .string(contrastMask.scheme), .print),
+            // RFC-023 (API-SPEC §12): the resolved curve only; the pull-backs
+            // are UI state and stay in the sidecar.
+            ("scene_latitude_active", .bool(sceneLatitude.active), .shoot),
+            ("scene_latitude_norm", .string(sceneLatitude.norm), .shoot),
+            ("scene_latitude_highlight_knee", .double(sceneLatitude.highlightKnee), .shoot),
+            ("scene_latitude_highlight_room", .double(sceneLatitude.highlightRoom), .shoot),
+            ("scene_latitude_shadow_knee", .double(sceneLatitude.shadowKnee), .shoot),
+            ("scene_latitude_shadow_room", .double(sceneLatitude.shadowRoom), .shoot),
+            ("scene_latitude_rolloff", .double(sceneLatitude.rolloff), .shoot),
+            ("scene_latitude_max_lift", .double(sceneLatitude.maxLift), .shoot),
         ]
         return fields
     }
@@ -436,5 +590,6 @@ struct FilmParams: Codable, Equatable, Sendable {
     /// (`schema.LIVE_MUTABLE`). Informational — the client sends the same
     /// delta either way — but the scheduler uses it to pick the tighter
     /// debounce.
-    static let liveMutable: Set<String> = ["print_exposure", "m_filter_shift", "y_filter_shift"]
+    static let liveMutable: Set<String> = ["print_exposure", "m_filter_shift", "y_filter_shift",
+                                           "preflash_exposure"]
 }

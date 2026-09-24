@@ -352,3 +352,181 @@ struct WarmUpResponse: Decodable, Sendable {
     /// The names of the steps the engine reported as failed.
     var failedSteps: [String] { (steps ?? []).filter { $0.ok == false }.map(\.name) }
 }
+
+// MARK: - RFC-023 Scene Latitude (`spk_scene_latitude`, API-SPEC §12)
+
+/// What to solve. Every field optional on the wire: an absent pull-back asks
+/// for the engine's suggestion, an absent curve setting uses the session's.
+struct SceneLatitudeRequest: Encodable, Equatable, Sendable {
+    var highlightPullBack: Double?
+    var shadowPullBack: Double?
+    var rolloff: Double?
+    var maxLift: Double?
+    var norm: String?
+    var margin: Double?
+    /// 0.1 or 1.
+    var shadowPercentile: Double?
+    /// 99.9 or 99.
+    var highlightPercentile: Double?
+    enum CodingKeys: String, CodingKey {
+        case rolloff, norm, margin
+        case highlightPullBack = "highlight_pull_back", shadowPullBack = "shadow_pull_back"
+        case maxLift = "max_lift", shadowPercentile = "shadow_percentile"
+        case highlightPercentile = "highlight_percentile"
+    }
+
+    /// Only the keys that are set, so "absent" means what the engine says it
+    /// means rather than arriving as `null`.
+    func encode(to encoder: Encoder) throws {
+        var c = encoder.container(keyedBy: CodingKeys.self)
+        try c.encodeIfPresent(highlightPullBack, forKey: .highlightPullBack)
+        try c.encodeIfPresent(shadowPullBack, forKey: .shadowPullBack)
+        try c.encodeIfPresent(rolloff, forKey: .rolloff)
+        try c.encodeIfPresent(maxLift, forKey: .maxLift)
+        try c.encodeIfPresent(norm, forKey: .norm)
+        try c.encodeIfPresent(margin, forKey: .margin)
+        try c.encodeIfPresent(shadowPercentile, forKey: .shadowPercentile)
+        try c.encodeIfPresent(highlightPercentile, forKey: .highlightPercentile)
+    }
+}
+
+/// The medium, the scene, a suggestion and a solved fit -- measurements and a
+/// proposal, never a render (API-SPEC §12).
+struct SceneLatitudeResponse: Decodable, Sendable {
+    /// The session's film + paper, measured by a neutral ramp (RFC-023 §8.1).
+    struct Medium: Decodable, Sendable {
+        let shadowEV: Double
+        let highlightEV: Double
+        let latitudeStops: Double
+        let yBlack: Double
+        let yWhite: Double
+        /// 128 points of the print's relative luminance against scene EV --
+        /// enough to draw the medium's response.
+        let rampEV: [Double]
+        let rampY: [Double]
+        enum CodingKeys: String, CodingKey {
+            case shadowEV = "shadow_ev", highlightEV = "highlight_ev", latitudeStops = "latitude_stops"
+            case yBlack = "y_black", yWhite = "y_white", rampEV = "ramp_ev", rampY = "ramp_y"
+        }
+    }
+
+    /// The frame on the curve's own axis: stops from the metered mid-grey.
+    struct Scene: Decodable, Sendable {
+        struct Histogram: Decodable, Sendable {
+            let loEV: Double
+            let hiEV: Double
+            /// Fraction of the frame per bin; 128 bins across [loEV, hiEV].
+            let fractions: [Double]
+            enum CodingKeys: String, CodingKey { case loEV = "lo_ev", hiEV = "hi_ev", fractions }
+        }
+        let norm: String
+        let samples: Double
+        let p0_1: Double
+        let p1: Double
+        let p50: Double
+        let p99: Double
+        let p99_9: Double
+        let histogram: Histogram
+        enum CodingKeys: String, CodingKey {
+            case norm, samples, p1, p50, p99, histogram
+            case p0_1 = "p0_1", p99_9 = "p99_9"
+        }
+    }
+
+    struct Suggested: Decodable, Sendable {
+        let highlightPullBack: Double
+        let shadowPullBack: Double
+        let marginUsed: Double
+        let valid: Bool
+        enum CodingKeys: String, CodingKey {
+            case valid
+            case highlightPullBack = "highlight_pull_back", shadowPullBack = "shadow_pull_back"
+            case marginUsed = "margin_used"
+        }
+    }
+
+    struct Fit: Decodable, Sendable {
+        /// A refusal (`issues`) or a legal-but-worth-saying note (`warnings`).
+        struct Issue: Decodable, Equatable, Sendable {
+            /// `pull_back_below_minimum`, `pull_back_exceeds_max_lift`,
+            /// `knees_cross`, `room_below_minimum`, `out_of_range`;
+            /// warnings: `knee_past_midgrey`.
+            let code: String
+            /// `highlight`, `shadow` or `both`.
+            let side: String
+            let message: String
+        }
+        /// One side's readouts. `knee`/`room` only when the side is on.
+        struct Side: Decodable, Sendable {
+            let on: Bool
+            let pullBack: Double
+            /// Below this the extreme lands past the medium's boundary.
+            let minimumPullBack: Double
+            let sceneExtremeEV: Double
+            let mediumBoundaryEV: Double
+            let knee: Double?
+            let room: Double?
+            /// Where the render really puts the extreme (the shadow side
+            /// includes the lift bound), and the curve's slope there.
+            let landingEV: Double
+            let slopeAtExtreme: Double
+            enum CodingKeys: String, CodingKey {
+                case on, knee, room
+                case pullBack = "pull_back", minimumPullBack = "minimum_pull_back"
+                case sceneExtremeEV = "scene_extreme_ev", mediumBoundaryEV = "medium_boundary_ev"
+                case landingEV = "landing_ev", slopeAtExtreme = "slope_at_extreme"
+            }
+        }
+        /// The wire delta that commits this fit, typed.
+        struct ParamsDelta: Decodable, Equatable, Sendable {
+            let active: Bool
+            let norm: String
+            let highlightKnee: Double
+            let highlightRoom: Double
+            let shadowKnee: Double
+            let shadowRoom: Double
+            let rolloff: Double
+            let maxLift: Double
+            enum CodingKeys: String, CodingKey {
+                case active = "scene_latitude_active", norm = "scene_latitude_norm"
+                case highlightKnee = "scene_latitude_highlight_knee"
+                case highlightRoom = "scene_latitude_highlight_room"
+                case shadowKnee = "scene_latitude_shadow_knee"
+                case shadowRoom = "scene_latitude_shadow_room"
+                case rolloff = "scene_latitude_rolloff", maxLift = "scene_latitude_max_lift"
+            }
+        }
+        let valid: Bool
+        let issues: [Issue]
+        let warnings: [Issue]
+        let highlight: Side
+        let shadow: Side
+        /// The untouched core's width, when both sides are on.
+        let coreStops: Double?
+        /// Present only when `valid`.
+        let paramsDelta: ParamsDelta?
+        enum CodingKeys: String, CodingKey {
+            case valid, issues, warnings, highlight, shadow
+            case coreStops = "core_stops", paramsDelta = "params_delta"
+        }
+    }
+
+    let medium: Medium
+    let scene: Scene
+    let suggested: Suggested
+    let fit: Fit
+}
+
+// MARK: - RFC-024 mask field (`spk_contrast_mask_field`, API-SPEC §11)
+
+/// The mask the next print of a tier applies, as a picture: the delta in stops
+/// at each analysis-grid cell, row-major, top row first, `width` × `height` in
+/// the frame's own aspect. Positive raises the print's highlights, negative
+/// lowers its shadows. Empty (0 × 0) with the mask off.
+struct ContrastMaskField: Equatable, Sendable {
+    let width: Int
+    let height: Int
+    let delta: [Float]
+    var isEmpty: Bool { width == 0 || height == 0 }
+    func at(x: Int, y: Int) -> Float { delta[y * width + x] }
+}
