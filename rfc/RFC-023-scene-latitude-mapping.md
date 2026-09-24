@@ -2,7 +2,7 @@
 
 | | |
 |---|---|
-| **Status** | **Research / design, now with measurements. Proposed 2026-09-21. No engine code changed by the session that wrote this.** §15 runs the design on a real RAW through the shipping dylib; three claims in §5, §11 and §12 did not survive it and are corrected in place. |
+| **Status** | **Engine implemented 2026-09-24 (§17), off by default, no UI yet.** Research / design proposed 2026-09-21. §15 runs the design on a real RAW through the shipping dylib; three claims in §5, §11 and §12 did not survive it and are corrected in place. |
 | **Date** | 2026-09-21. **Revised the same day**, at the user's direction, on three points: the branch must have *curvature* at the progressive ends rather than a corner (§5.4–§5.5, §7.3); the construction should follow camera log curves' implementation logic (§5.7, §2.12); and the signal must never be log-encoded, with the controls expressed as highlight/shadow pull-back after the subject's exposure is set (§5.6, §9.2). All three changed the model. |
 | **Author** | Research session, at the user's request, from the report that *"jpg 进去效果比 raw 好，因为曝光的原因"* |
 | **Supersedes in spirit** | RFC-022's premise — not RFC-022's findings. §13.4 says exactly what is and is not retracted. |
@@ -2053,3 +2053,58 @@ the tonal one (±2.8), and §9.3's default margin should be revisited against
 - ARRI — [*LogC4 Logarithmic Color Space Specification*, 1 May 2022](https://www.arri.com/resource/blob/278790/dc29f7399c1dc9553d329e27f1409a89/2022-05-arri-logc4-specification-data.pdf) (the constants are derived in the document; the best-documented member of the camera-log family, §2.12/§5.7)
 - [ISO 6846:1992 — *Photography — Black-and-white continuous-tone papers — Determination of ISO speed and ISO range for printing*](https://www.iso.org/standard/13355.html); conventional density criteria cross-checked against [Ilford Multigrade RC technical information](https://www.ilfordphoto.com/wp/wp-content/uploads/2021/01/MULTIGRADE-IV-RC-Papers-060619.pdf)
 - This repository — `engine/src/shaders/nodes.metal` (`spk_tc_b`, `spk_lut2d_cubic`, `spk_edr`), `engine/src/pipeline/pipeline.cpp` (`exposure_evs_from`, `node_upsample`, `node_exposure`, `film_prefix`), `engine/resources/profiles/*.json`
+
+---
+
+## 17. Engine implementation (2026-09-24)
+
+Option A of §10.3, as designed, plus the §15 corrections.
+
+- **Node** `filming.expose.scene_latitude` (`engine/src/pipeline/scene_latitude.cpp`,
+  kernel `spk_scene_latitude` in `engine/src/shaders/scene_latitude.metal`): after
+  auto-exposure, before `upsample`, in the band-able `film_scale_and_expose`
+  stage. Not dispatched when off. Power norm by default, `Y` and `max` on the
+  wire; the lift bounded by `max_lift` through the same smooth-min (§15.5);
+  §11's pathological-pixel rule (`k = 1`) and the `k` clamp.
+- **Host math** `engine/src/core/latitude_fit.{hpp,cpp}`: the double-precision
+  curve, the knee solve, the ISO 6846 boundaries, the scene statistic, the Fit
+  and the suggestion.
+- **Wire** eight shoot-layer fields and one C call, API-SPEC §12.
+
+**Gates**, `rfc/probes/rfc023-engine-check.py` on `_DSC8683.NEF` at 2048 px,
+grain and glare off:
+
+| gate | result |
+|---|---|
+| off vs a build of `main` before this change | **byte-identical** |
+| on with both rooms 0 | **byte-identical** |
+| striped (97 rows) vs un-striped, curve on | **byte-identical** |
+| node vs the §15 numpy reference (`apply_slm2`, power, bounded) | max 1 / 65535 |
+| crossed knees, unknown norm, pull-back under the minimum | refused |
+| `parity_schema` / `setup` (227) / `render` (27) / `session` (59) / `lut` / `strip_executor` / `gpu_smoke` / math guard | 0 failures |
+
+**Two things the implementation found.**
+
+1. **The Fit must solve for the bounded landing.** §15.6 solved the curve and
+   then applied the lift bound, so the landing it reported was not the one the
+   render made: on this frame a 3.24-stop shadow pull-back landed 0.72 stop
+   short, outside the medium. The Fit now inverts the bound first
+   (`d* = N·L/√(L² − N²)`) and solves for `d*`. The cost is honest and large:
+   at `max_lift = 4` the §9.3 suggestion for this frame (P0.1 at −7.62 into a
+   boundary at −4.63) needs the knee at +7 EV and is refused with
+   `knees_cross`; at `max_lift = 8` it is valid with a 0.37-stop core. Fitting
+   the shadows to P1 instead (`shadow_percentile: 1`, what §15.6 preferred)
+   turns the shadow side off on this frame — P1 already sits inside the medium.
+2. **The medium measured today is not §15.2's.** Portra 400 + Portra Endura
+   through today's engine: **[−4.63, +2.40] EV = 7.03 stops** (glare off;
+   −4.86 with glare on), against §15.2's 5.66. The engine's own probe and the
+   Python `probe_medium` agree exactly, so the difference is in the chain
+   between 2026-09-21 and now, not in the probe. Not investigated yet.
+
+The probe runs with **glare off** although glare is part of the print: on the
+1024 × 8 ramp its stochastic field made the minimum sample the "black" and put
+the shadow boundary at −9.45 EV. A descriptor that moves between calls is worse
+than one 0.23 stop conservative.
+
+Not done: the UI; §16.5's colour-window margin; Option B's fusion into
+`spk_lut2d_cubic`; a gradient test for the knee (§14.4).

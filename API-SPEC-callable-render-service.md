@@ -567,8 +567,27 @@ the negative: `negative_was_cached` is 1 on the reprint that follows.
 | `contrast_mask_highlights` | `…contrast_mask.highlights` | float | `0.0` | 0–3 | stops by which a low base exposure (**print highlight**) is raised, read 4 stops past the knee; `0` disables the branch exactly |
 | `contrast_mask_shadows` | `…contrast_mask.shadows` | float | `0.0` | 0–3 | the same for high base exposures (**print shadows**), which are lowered |
 | `contrast_mask_core` | `…contrast_mask.core` | float | `1.0` | 0–3 | half-width, in stops about the negative's mid-grey, of the identity core |
-| `contrast_mask_scale` | `…contrast_mask.scale` | float | `0.03` | 0.005–0.25 | the base extractor's sigma as a fraction of the frame's long edge (tier-independent) |
-| `contrast_mask_edge_aware` | `…contrast_mask.edge_aware` | bool | `false` | — | guided-filter base (`true`) or plain Gaussian, the classic unsharp mask (`false`) |
+| `contrast_mask_scale` | `…contrast_mask.scale` | float | `0.03` | 0.002–0.12 | the base extractor's sigma as a fraction of the frame's long edge (tier-independent) |
+| `contrast_mask_scheme` | `…contrast_mask.scheme` | str | `"gaussian"` | `gaussian` | the base extractor, by name; the classic unsharp mask is the only product scheme |
+
+**Changed 2026-09-24, by the user's decision, before any client depended on
+it:** `contrast_mask_edge_aware` (bool) is gone. It is replaced by the
+`contrast_mask_scheme` enum. The guided base behaved like the excluded
+per-pixel arm at its fixed threshold (RFC-024 §12.4), so it is research-only:
+`SPEKTRAFILM_MASK_GUIDED=1`.
+
+The scale range narrowed from 0.001–0.25 to 0.002–0.12, for two reasons:
+- Below about 4 ÷ the preview's long edge, the live tier caps the analysis
+  grid, and the canvas stops matching the export.
+- At 0.25 a live edit cost 161 ms.
+
+Measured on a 45 MP frame with a 2560 px preview:
+
+| scale | live edit, mask off | live edit, mask on | full reprint, mask off | full reprint, mask on |
+|---|---|---|---|---|
+| 0.008–0.12 | 18 ms | 24–25 ms | 164 ms | 221 ms (0.03) |
+| 0.004 | | 30 ms | | |
+| 0.002 | | 61 ms | | 274 ms |
 
 The defaults are placeholders, not recommendations. Every control is the
 user's, and no values are calibrated (RFC-024 §12.5).
@@ -584,6 +603,76 @@ before the existing pre-flash `F`, and `print_exposure` `P` keeps its meaning.
 The print LUT and DI paths (`spk_print_lut_table`, `spk_preview_stock_lut`,
 `spk_export_di`) are pointwise tables and do not carry the mask.
 
-Research-only environment switches, off the wire: `SPEKTRAFILM_MASK_DUMP=<file>`
-writes the analysis grid (`x`, base, δ). `SPEKTRAFILM_MASK_POINTWISE=1` turns
-the base into each pixel's own `x`, which is RFC-024 §9.1's pointwise comparator.
+**`spk_contrast_mask_field(session, tier, &delta, &grid_w, &grid_h)`**
+returns the mask as a picture, for a canvas overlay. `delta` is in stops after
+the gain bound: positive raises the print's highlights, negative lowers its
+shadows. It is sampled at each analysis-grid cell, row-major, `grid_w` ×
+`grid_h`, in the frame's own aspect (at least 512 cells on the long edge, 4
+per σ).
+
+- It is exactly what the next print of `tier` applies. On a real frame it was
+  bit-identical to the third plane of `SPEKTRAFILM_MASK_DUMP`.
+- It needs the tier's cached negative (render the tier first); otherwise it is
+  refused.
+- With the mask off it returns `SPK_OK`, a NULL field and a 0 × 0 grid.
+- It runs the analysis only. It does not draw the print's glare seed, so the
+  next print is unchanged: verified byte for byte.
+- The floats are engine-owned and valid until the next call on the session.
+
+Research-only environment switches, off the wire:
+- `SPEKTRAFILM_MASK_DUMP=<file>` writes the analysis grid (`x`, base, δ).
+- `SPEKTRAFILM_MASK_POINTWISE=1` turns the base into each pixel's own `x`,
+  which is RFC-024 §9.1's pointwise comparator.
+- `SPEKTRAFILM_MASK_GUIDED=1` selects the self-guided base.
+
+## 12. RFC-023 Scene Latitude — wire fields and `spk_scene_latitude` (2026-09-24)
+
+Eight native-only fields, all **shoot layer** and **not live**: the node sits
+before the film (after auto-exposure, before `filming.expose.upsample`), so an
+edit re-develops the negative (`negative_was_cached` is 0 on the next render).
+`parity_schema.py` pins them in `NATIVE_ONLY`.
+
+| field | path | type | default | range | meaning |
+|---|---|---|---|---|---|
+| `scene_latitude_active` | `camera.scene_latitude.active` | bool | `false` | — | the switch; `false`, or both rooms 0, dispatches nothing (byte-identical to the pre-RFC build) |
+| `scene_latitude_norm` | `…scene_latitude.norm` | str | `"power"` | `power` \| `y` \| `max` | the scalar the gain is computed on (RFC-023 §5.2, §15.5) |
+| `scene_latitude_highlight_knee` | `…highlight_knee` | float | `2.0` | −24–24 | `K_h`, stops from the metered mid-grey |
+| `scene_latitude_highlight_room` | `…highlight_room` | float | `0.0` | 0–24 | `H_h`, stops; **0 turns the highlight side off exactly** |
+| `scene_latitude_shadow_knee` | `…shadow_knee` | float | `−2.0` | −24–24 | `K_s` |
+| `scene_latitude_shadow_room` | `…shadow_room` | float | `0.0` | 0–24 | `H_s`; 0 turns the shadow side off |
+| `scene_latitude_rolloff` | `…rolloff` | float | `2.0` | 1–4 | `m`, the roll-off order |
+| `scene_latitude_max_lift` | `…max_lift` | float | `4.0` | 0.25–12 | `L_max`, stops: the smooth bound on the shadow lift |
+
+These are the **resolved** curve, never the UI's pull-backs (RFC-023 §8.3): a
+paper change must not re-render an old edit. With both sides on, a delta whose
+`shadow_knee ≥ highlight_knee` is refused by `spk_set_params`.
+
+**`spk_scene_latitude(session, request_json, &out_json)`** measures, suggests
+and solves; it never renders and never writes a parameter. Request (every key
+optional): `highlight_pull_back`, `shadow_pull_back` (stops; 0 = side off;
+absent = the suggestion), `rolloff`, `max_lift`, `norm` (absent = the
+session's), `margin` (0.25), `shadow_percentile` (0.1 or 1),
+`highlight_percentile` (99.9 or 99). Reply:
+
+- `medium` — `shadow_ev`, `highlight_ev`, `latitude_stops`, `y_black`,
+  `y_white`, and a 128-point `ramp_ev`/`ramp_y`: a 1024-sample neutral ramp
+  rendered through the session's own film, paper, enlarger and Exp. Comp.
+  (grain, halation, glare, mask, EDR and crop off), read with ISO 6846's
+  criteria. Cached per session until a field it reads changes.
+- `scene` — `p0_1`, `p1`, `p50`, `p99`, `p99_9` and a 128-bin `histogram` over
+  [−16, 16] EV, on the node's own axis: the meter's frame, through
+  input_cast/decode/geometry and the session's auto-exposure EV, in the norm.
+- `suggested` — RFC-023 §9.3's policy: pull-backs landing each extreme
+  `margin` inside the medium, less margin if needed, `valid` false if none works.
+- `fit` — `valid`, `issues` (refusals: `pull_back_below_minimum`,
+  `pull_back_exceeds_max_lift`, `knees_cross`, `room_below_minimum`,
+  `out_of_range`), `warnings` (`knee_past_midgrey`: legal, but the subject is no
+  longer in the untouched core), per side `on`, `pull_back`,
+  `minimum_pull_back`, `scene_extreme_ev`, `medium_boundary_ev`, `knee`,
+  `room`, `landing_ev`, `slope_at_extreme`, and `core_stops`. **`params_delta`
+  is present only when `valid`** — it is what a client sends to commit.
+
+The shadow pull-back is the **bounded** lift: `landing_ev` is where the render
+really puts the extreme, because the Fit solves the curve for the lift that
+`max_lift`'s bound brings back to the pull-back. A pull-back at or beyond
+`max_lift` is refused.

@@ -41,6 +41,7 @@
 #include "colour.hpp"
 #include "image.hpp"
 #include "json.hpp"
+#include "latitude_fit.hpp"
 #include "params.hpp"
 #include "pipeline.hpp"
 #include "print_lut.hpp"
@@ -214,6 +215,20 @@ struct spk_session {
         std::string key;
         ExposureEvs evs;
     } meter;
+
+    // RFC-023: the medium probe and the scene statistic behind
+    // `spk_scene_latitude`, each kept until something it read changes. The
+    // medium is a render of a neutral ramp (§8.1), so it is worth keeping;
+    // the scene is one read-back of the meter's frame.
+    struct SceneLatitude {
+        std::string medium_key, scene_key;
+        slm::Medium medium;
+        slm::SceneStats scene;
+    } scene_latitude;
+
+    // RFC-024: the last field `spk_contrast_mask_field` returned. The caller's
+    // pointer is into this, valid until the next call on the session.
+    std::vector<float> mask_field;
 
     std::mutex lock;
     Progress progress;
@@ -981,12 +996,10 @@ static std::string meter_key(const Params& params) {
     return key;
 }
 
-// The session's meter, computed on demand -- whichever render or solve needs
-// it first -- and kept until an upstream field changes. Needs an open frame.
-bool ensure_meter(spk_session* session, std::string& error) {
-    const std::string key = meter_key(session->params);
-    if (session->meter.valid && session->meter.key == key) return true;
-    Image small;
+// The frame at the meter's own resolution: what the meter reads, and what
+// Scene Latitude's scene statistic reads (RFC-023 §9.1 -- the same sample, so
+// its `E = 0` is the meter's).
+bool meter_frame(spk_session* session, Image& small, std::string& error) {
     // Reusing the live tier's image is free only while that tier happens to be
     // the meter's own size. With the preview resolution settable that is a
     // runtime question rather than a constant one, so off 1600 this costs one
@@ -994,11 +1007,20 @@ bool ensure_meter(spk_session* session, std::string& error) {
     // `meter_key` already stops it re-firing for a film, exposure or method
     // change. See the note in `params.hpp`: the meter must not follow the
     // preview size, which is the whole reason it has its own constant.
-    const bool ok = tier_long_edge(session->params, kTiers[0]) == kMeterLongEdge
+    return tier_long_edge(session->params, kTiers[0]) == kMeterLongEdge
         ? tier_image(session, kTiers[0], small, error)
         : downscale(session->engine->gpu, session->source, kMeterLongEdge, small, error);
+}
+
+// The session's meter, computed on demand -- whichever render or solve needs
+// it first -- and kept until an upstream field changes. Needs an open frame.
+bool ensure_meter(spk_session* session, std::string& error) {
+    const std::string key = meter_key(session->params);
+    if (session->meter.valid && session->meter.key == key) return true;
+    Image small;
     ExposureEvs evs;
-    if (!ok || !session->pipeline->measure_meter_evs(small, evs, error)) return false;
+    if (!meter_frame(session, small, error) ||
+        !session->pipeline->measure_meter_evs(small, evs, error)) return false;
     session->meter.valid = true;
     session->meter.key = key;
     session->meter.evs = evs;
@@ -1648,6 +1670,311 @@ spk_status spk_get_params(spk_session* session, char** out_json) {
     if (!session) { g_error = "session is null"; return SPK_ERR_INVALID_ARG; }
     std::lock_guard<std::mutex> guard(session->lock);
     if (out_json) *out_json = dup_json(read_params(session->params));
+    return SPK_OK;
+}
+
+namespace {
+
+// RFC-023 §8.1: the medium, measured by rendering a neutral ramp through the
+// real pipeline at the session's own film, paper, enlarger and Exp. Comp. --
+// never by composing profile metadata, which §15.2 measured under-predicting
+// by ~30 %. What is switched off is what is stochastic, spatial across the
+// ramp, or not part of the straight print: grain, halation, glare, the
+// RFC-024 mask, EDR, the crop, and Scene Latitude itself. Auto-exposure is
+// off because the ramp is already on the metered axis.
+//
+// **Glare is off although it is part of the print, and that is a measured
+// trade.** It is the print's veil, and on Portra 400 + Portra Endura it moves
+// the shadow boundary by 0.23 stop (-4.63 -> -4.86 EV) when the ramp is
+// averaged over 16 rows. On this probe's ramp it is a stochastic field whose
+// minimum sample became the "black" and put the boundary at -9.45 EV: a
+// descriptor that moves between calls is worse than one that is 0.23 stop
+// conservative. Halation moves neither boundary at all.
+constexpr uint32_t kRampSamples = 1024, kRampRows = 8;
+constexpr double kRampLo = -12.0, kRampHi = 12.0;
+
+Params medium_probe_params(const Params& session) {
+    Params p = session;
+    p.camera.auto_exposure = false;
+    p.camera.scene_latitude.active = false;
+    p.film_render.grain.active = false;
+    p.film_render.grain.sublayers_active = false;
+    p.film_render.halation.active = false;
+    p.print_render.glare.active = false;
+    p.print_render.contrast_mask.active = false;
+    p.print_render.edr_enabled = false;
+    p.io.geometry = GeometryParams{};
+    p.io.input_cctf_decoding = false;
+    p.io.output_cctf_encoding = false;
+    p.settings.striped = false;
+    return p;
+}
+
+bool probe_medium(spk_session* session, slm::Medium& out, std::string& error) {
+    const Params probe = medium_probe_params(session->params);
+    spk_engine* engine = session->engine;
+    Mat3 to_xyz;
+    if (!engine->colour.matrix_RGB_to_XYZ(probe.io.output_color_space, nullptr, "CAT02", to_xyz, error))
+        return false;
+
+    std::vector<float> ramp(size_t(kRampSamples) * kRampRows * 3);
+    out.ev.resize(kRampSamples);
+    for (uint32_t j = 0; j < kRampSamples; ++j) {
+        out.ev[j] = kRampLo + (kRampHi - kRampLo) * double(j) / double(kRampSamples - 1);
+        const float v = float(slm::kMidgray * std::pow(2.0, out.ev[j]));
+        for (uint32_t i = 0; i < kRampRows; ++i)
+            for (int c = 0; c < 3; ++c) ramp[(size_t(i) * kRampSamples + j) * 3 + size_t(c)] = v;
+    }
+
+    Pipeline pipeline(engine->gpu, &engine->colour, &engine->blob, &engine->setup_cache);
+    if (!pipeline.build(probe, error)) return false;
+    pipeline.set_source_long_edge(kRampSamples, kRampSamples);
+    gpu::Gpu* gpu = engine->gpu;
+    Image in, negative, rgb;
+    in.h = kRampRows; in.w = kRampSamples; in.c = 3;
+    in.buf = gpu->upload(ramp.data(), ramp.size() * sizeof(float), error);
+    if (!in.buf || !pipeline.run_film(in, negative, nullptr, error) ||
+        !pipeline.run_print(negative, rgb, nullptr, error) || !gpu->flush(error)) return false;
+    const float* px = static_cast<const float*>(gpu->contents(rgb.buf.get()));
+    out.y.assign(kRampSamples, 0.0);
+    for (uint32_t i = 0; i < rgb.h; ++i)
+        for (uint32_t j = 0; j < rgb.w && j < kRampSamples; ++j) {
+            const float* q = px + (size_t(i) * rgb.w + j) * rgb.c;
+            out.y[j] += (to_xyz.m[1][0] * q[0] + to_xyz.m[1][1] * q[1] + to_xyz.m[1][2] * q[2]) / double(rgb.h);
+        }
+    return slm::read_boundaries(out, error);
+}
+
+Json side_json(const slm::Side& s) {
+    Json j = Json::object();
+    j.set("on", Json(s.on));
+    j.set("pull_back", Json(s.pull_back));
+    j.set("minimum_pull_back", Json(s.minimum));
+    j.set("scene_extreme_ev", Json(s.extreme));
+    j.set("medium_boundary_ev", Json(s.boundary));
+    if (s.on) {
+        j.set("knee", Json(s.knee));
+        j.set("room", Json(s.room));
+    }
+    j.set("landing_ev", Json(s.landing));
+    j.set("slope_at_extreme", Json(s.slope));
+    return j;
+}
+
+}  // namespace
+
+spk_status spk_contrast_mask_field(spk_session* session, const char* tier, const float** out_delta,
+                                   uint32_t* out_grid_w, uint32_t* out_grid_h) {
+    if (!session || !out_delta || !out_grid_w || !out_grid_h) {
+        g_error = "session and outputs must not be null";
+        return SPK_ERR_INVALID_ARG;
+    }
+    *out_delta = nullptr;
+    *out_grid_w = *out_grid_h = 0;
+    const std::string name = tier && *tier ? tier : "live";
+    const Tier* t = nullptr;
+    for (const Tier& k : kTiers) if (name == k.name) t = &k;
+    if (!t) { g_error = "unknown tier '" + name + "'"; return SPK_ERR_INVALID_ARG; }
+    std::lock_guard<std::mutex> guard(session->lock);
+    g_error.clear();
+    // The field is analysed on the tier's cached negative, the same plane the
+    // next reprint reads; it does not develop one.
+    auto it = session->tiers.find(t->name);
+    if (it == session->tiers.end() || !it->second.has_negative) {
+        g_error = "tier '" + name + "' has no negative yet: render it first";
+        return SPK_ERR_USER;
+    }
+    gpu::Gpu* gpu = session->engine->gpu;
+    gpu->begin_frame();
+    std::string error;
+    uint32_t gw = 0, gh = 0;
+    const bool ok = session->pipeline->contrast_mask_field(it->second.negative, session->mask_field,
+                                                           gw, gh, error);
+    gpu->end_frame();
+    if (!ok) { g_error = error; return SPK_ERR_GPU; }
+    *out_delta = session->mask_field.empty() ? nullptr : session->mask_field.data();
+    *out_grid_w = gw;
+    *out_grid_h = gh;
+    return SPK_OK;
+}
+
+spk_status spk_scene_latitude(spk_session* session, const char* request_json, char** out_json) {
+    if (!session) { g_error = "session is null"; return SPK_ERR_INVALID_ARG; }
+    Json request = Json::object();
+    if (request_json && *request_json) {
+        std::string parse_error;
+        if (!Json::parse(request_json, request, parse_error) || !request.is_object()) {
+            g_error = "scene latitude request: " + (parse_error.empty() ? "not an object" : parse_error);
+            return SPK_ERR_INVALID_ARG;
+        }
+    }
+    std::lock_guard<std::mutex> guard(session->lock);
+    g_error.clear();
+
+    // The curve's own settings come from the request when given, else from the
+    // session -- so a Fit can be asked "what if m were 3" without committing it.
+    SceneLatitudeParams base = session->params.camera.scene_latitude;
+    if (request.at("rolloff").is_number()) base.rolloff = request.at("rolloff").as_double();
+    if (request.at("max_lift").is_number()) base.max_lift = request.at("max_lift").as_double();
+    if (request.at("norm").is_string()) base.norm = request.at("norm").as_string();
+    if (!(base.rolloff >= 1.0 && base.rolloff <= 4.0) || !(base.max_lift >= 0.25 && base.max_lift <= 12.0) ||
+        !is_known_scene_latitude_norm(base.norm)) {
+        g_error = "scene latitude request: rolloff must be in [1, 4], max_lift in [0.25, 12], "
+                  "norm one of power, y, max";
+        return SPK_ERR_USER;
+    }
+    const double margin = request.at("margin").as_double(0.25);
+    slm::Extremes at;
+    const double sp = request.at("shadow_percentile").as_double(0.1);
+    const double hp = request.at("highlight_percentile").as_double(99.9);
+    if ((sp != 0.1 && sp != 1.0) || (hp != 99.9 && hp != 99.0)) {
+        g_error = "scene latitude request: shadow_percentile is 0.1 or 1, highlight_percentile 99.9 or 99";
+        return SPK_ERR_USER;
+    }
+    at.shadow_p1 = sp == 1.0;
+    at.highlight_p99 = hp == 99.0;
+
+    gpu::Gpu* gpu = session->engine->gpu;
+    gpu->begin_frame();
+    std::string error;
+    bool ok = true;
+
+    // The medium: keyed on every wire field the probe reads, after the probe's
+    // own overrides -- so a crop or a grain toggle does not re-probe, and a
+    // paper, filter or Exp. Comp. change does.
+    const std::string medium_key = read_params(medium_probe_params(session->params)).dump() +
+                                   (session->product_defaults ? "|product" : "|reference") + "|" +
+                                   spk_build_info();
+    auto& cache = session->scene_latitude;
+    if (cache.medium_key != medium_key || !cache.medium.valid) {
+        ok = probe_medium(session, cache.medium, error);
+        cache.medium_key = ok ? medium_key : std::string();
+    }
+
+    // The scene: the meter's frame, through the node's upstream nodes and the
+    // session's one auto-exposure EV, on the requested norm.
+    if (ok) ok = ensure_meter(session, error);
+    if (ok) {
+        const CameraParams& cam = session->params.camera;
+        const double ev = cam.auto_exposure ? session->meter.evs.of(cam.auto_exposure_method) : 0.0;
+        char ev_text[64];
+        std::snprintf(ev_text, sizeof ev_text, "%.17g", ev);
+        const std::string scene_key = meter_key(session->params) + base.norm + "|" + ev_text;
+        if (cache.scene_key != scene_key) {
+            Image small;
+            std::vector<double> E;
+            ok = meter_frame(session, small, error);
+            if (ok && base.norm == session->params.camera.scene_latitude.norm) {
+                ok = session->pipeline->scene_latitude_sample(small, ev, E, error);
+            } else if (ok) {
+                // The sample reads the norm from its pipeline's params, so a
+                // "what if" on another norm gets a pipeline of its own rather
+                // than a rebuild of the session's.
+                Params p = session->params;
+                p.camera.scene_latitude.norm = base.norm;
+                Pipeline sampler(gpu, &session->engine->colour, &session->engine->blob,
+                                 &session->engine->setup_cache);
+                ok = sampler.build(p, error) && sampler.scene_latitude_sample(small, ev, E, error);
+            }
+            if (ok) {
+                cache.scene = slm::scene_stats(std::move(E));
+                cache.scene_key = scene_key;
+            }
+        }
+    }
+    gpu->end_frame();
+    if (!ok) { g_error = error; return SPK_ERR_GPU; }
+    if (cache.scene.samples == 0) { g_error = "scene latitude: the frame has no positive pixels"; return SPK_ERR_USER; }
+
+    const slm::Medium& medium = cache.medium;
+    const slm::SceneStats& scene = cache.scene;
+    const slm::Suggestion suggestion = slm::suggest(medium, scene, margin, base, at);
+    const double nh = request.at("highlight_pull_back").is_number()
+        ? request.at("highlight_pull_back").as_double() : suggestion.highlight_pull_back;
+    const double ns = request.at("shadow_pull_back").is_number()
+        ? request.at("shadow_pull_back").as_double() : suggestion.shadow_pull_back;
+    const slm::Fit f = slm::fit(medium, scene, nh, ns, base, at);
+
+    Json m = Json::object();
+    m.set("shadow_ev", Json(medium.shadow_ev));
+    m.set("highlight_ev", Json(medium.highlight_ev));
+    m.set("latitude_stops", Json(medium.highlight_ev - medium.shadow_ev));
+    m.set("y_black", Json(medium.y_black));
+    m.set("y_white", Json(medium.y_white));
+    Json ramp_ev = Json::array(), ramp_y = Json::array();
+    for (size_t i = 0; i < medium.ev.size(); i += 8) {   // 128 points: enough to draw
+        ramp_ev.push(Json(medium.ev[i]));
+        ramp_y.push(Json(medium.y[i]));
+    }
+    m.set("ramp_ev", std::move(ramp_ev));
+    m.set("ramp_y", std::move(ramp_y));
+
+    Json sc = Json::object();
+    sc.set("norm", Json(base.norm));
+    sc.set("samples", Json(double(scene.samples)));
+    sc.set("p0_1", Json(scene.p01));
+    sc.set("p1", Json(scene.p1));
+    sc.set("p50", Json(scene.p50));
+    sc.set("p99", Json(scene.p99));
+    sc.set("p99_9", Json(scene.p999));
+    Json hist = Json::object(), bins = Json::array();
+    hist.set("lo_ev", Json(slm::SceneStats::kLo));
+    hist.set("hi_ev", Json(slm::SceneStats::kHi));
+    for (double v : scene.histogram) bins.push(Json(v));
+    hist.set("fractions", std::move(bins));
+    sc.set("histogram", std::move(hist));
+
+    Json sg = Json::object();
+    sg.set("highlight_pull_back", Json(suggestion.highlight_pull_back));
+    sg.set("shadow_pull_back", Json(suggestion.shadow_pull_back));
+    sg.set("margin_used", Json(suggestion.margin_used));
+    sg.set("valid", Json(suggestion.found));
+
+    Json fj = Json::object();
+    fj.set("valid", Json(f.valid()));
+    Json issues = Json::array();
+    for (const slm::FitIssue& is : f.issues) {
+        Json e = Json::object();
+        e.set("code", Json(is.code));
+        e.set("side", Json(is.side));
+        e.set("message", Json(is.message));
+        issues.push(std::move(e));
+    }
+    fj.set("issues", std::move(issues));
+    Json warnings = Json::array();
+    for (const slm::FitIssue& is : f.warnings) {
+        Json e = Json::object();
+        e.set("code", Json(is.code));
+        e.set("side", Json(is.side));
+        e.set("message", Json(is.message));
+        warnings.push(std::move(e));
+    }
+    fj.set("warnings", std::move(warnings));
+    fj.set("highlight", side_json(f.highlight));
+    fj.set("shadow", side_json(f.shadow));
+    fj.set("core_stops", f.core ? Json(*f.core) : Json());
+    // The delta to send with `spk_set_params` -- present only when valid, so
+    // a client cannot commit a refused fit by accident.
+    if (f.valid()) {
+        Json delta = Json::object();
+        const bool any = f.highlight.on || f.shadow.on;
+        delta.set("scene_latitude_active", Json(any));
+        delta.set("scene_latitude_norm", Json(f.params.norm));
+        delta.set("scene_latitude_highlight_knee", Json(f.params.highlight_knee));
+        delta.set("scene_latitude_highlight_room", Json(f.params.highlight_room));
+        delta.set("scene_latitude_shadow_knee", Json(f.params.shadow_knee));
+        delta.set("scene_latitude_shadow_room", Json(f.params.shadow_room));
+        delta.set("scene_latitude_rolloff", Json(f.params.rolloff));
+        delta.set("scene_latitude_max_lift", Json(f.params.max_lift));
+        fj.set("params_delta", std::move(delta));
+    }
+
+    Json out = Json::object();
+    out.set("medium", std::move(m));
+    out.set("scene", std::move(sc));
+    out.set("suggested", std::move(sg));
+    out.set("fit", std::move(fj));
+    if (out_json) *out_json = dup_json(out);
     return SPK_OK;
 }
 

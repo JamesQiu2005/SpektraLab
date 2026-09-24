@@ -106,19 +106,21 @@ def main():
     amt = {"contrast_mask_active": True, "contrast_mask_highlights": 1.5,
            "contrast_mask_shadows": 1.5, "contrast_mask_core": 1.0}
     os.environ["SPEKTRAFILM_MASK_DUMP"] = str(outdir / "mask_guided.bin")
-    guided, rg = arm({**amt, "contrast_mask_edge_aware": True, "contrast_mask_scale": 0.03})
+    # The guided base is research-only since 2026-09-24: `SPEKTRAFILM_MASK_GUIDED`.
+    guided, rg = arm({**amt, "contrast_mask_scale": 0.03}, env={"SPEKTRAFILM_MASK_GUIDED": "1"})
     os.environ["SPEKTRAFILM_MASK_DUMP"] = str(outdir / "mask_gauss.bin")
-    gauss, _ = arm({**amt, "contrast_mask_edge_aware": False, "contrast_mask_scale": 0.03})
+    gauss, _ = arm({**amt, "contrast_mask_scale": 0.03})
     os.environ.pop("SPEKTRAFILM_MASK_DUMP")
-    point, _ = arm({**amt, "contrast_mask_edge_aware": True}, env={"SPEKTRAFILM_MASK_POINTWISE": "1"})
+    point, _ = arm(amt, env={"SPEKTRAFILM_MASK_POINTWISE": "1"})
     # the deliberately-too-much control: a wide Gaussian at full strength
     over, _ = arm({"contrast_mask_active": True, "contrast_mask_highlights": 3.0,
                    "contrast_mask_shadows": 3.0, "contrast_mask_core": 0.25,
-                   "contrast_mask_edge_aware": False, "contrast_mask_scale": 0.12})
+                   "contrast_mask_scale": 0.12})
     report["negative_was_cached_on_mask_edit"] = bool(rg.negative_was_cached)
 
     # --- gate: striped == un-striped with the mask on ---------------------------
-    ses.set_params({**amt, "contrast_mask_edge_aware": True, "contrast_mask_scale": 0.03,
+    os.environ["SPEKTRAFILM_MASK_GUIDED"] = "1"
+    ses.set_params({**amt, "contrast_mask_scale": 0.03,
                     "striped": True, "strip_rows": 97})
     striped, _ = ses.render("full", reprint=True)
     ses.set_params({"striped": False, "strip_rows": 0})

@@ -89,6 +89,17 @@ class Engine:
         if hasattr(lib, "spk_memory_report"):
             lib.spk_memory_report.restype = ctypes.c_char_p
             lib.spk_memory_report.argtypes = [ctypes.c_void_p]
+        # RFC-023, conditional for the same reason: a probe comparing against
+        # an engine from before Scene Latitude has to be able to load it.
+        if hasattr(lib, "spk_contrast_mask_field"):
+            lib.spk_contrast_mask_field.restype = ctypes.c_int32
+            lib.spk_contrast_mask_field.argtypes = [
+                ctypes.c_void_p, ctypes.c_char_p, ctypes.POINTER(ctypes.POINTER(ctypes.c_float)),
+                ctypes.POINTER(ctypes.c_uint32), ctypes.POINTER(ctypes.c_uint32)]
+        if hasattr(lib, "spk_scene_latitude"):
+            lib.spk_scene_latitude.restype = ctypes.c_int32
+            lib.spk_scene_latitude.argtypes = [ctypes.c_void_p, ctypes.c_char_p,
+                                               ctypes.POINTER(ctypes.c_char_p)]
         lib.spk_last_error.restype = ctypes.c_char_p
         lib.spk_last_error.argtypes = [ctypes.c_void_p]
         lib.spk_build_info.restype = ctypes.c_char_p
@@ -235,6 +246,23 @@ class Session:
     def solve(self, target: str = "both") -> dict:
         out = ctypes.c_char_p()
         if self._engine._lib.spk_solve(self._handle, target.encode(), ctypes.byref(out)) != SPK_OK:
+            raise EngineError(self._engine._last_error())
+        return self._engine._take_json(out)
+
+    def contrast_mask_field(self, tier: str = "live") -> np.ndarray:
+        ptr = ctypes.POINTER(ctypes.c_float)()
+        gw, gh = ctypes.c_uint32(), ctypes.c_uint32()
+        if self._engine._lib.spk_contrast_mask_field(self._handle, tier.encode(), ctypes.byref(ptr),
+                                                     ctypes.byref(gw), ctypes.byref(gh)) != SPK_OK:
+            raise EngineError(self._engine._last_error())
+        if not ptr:
+            return np.zeros((0, 0), np.float32)
+        return np.ctypeslib.as_array(ptr, shape=(gh.value * gw.value,)).reshape(gh.value, gw.value).copy()
+
+    def scene_latitude(self, request: dict | None = None) -> dict:
+        out = ctypes.c_char_p()
+        body = json.dumps(request).encode() if request else None
+        if self._engine._lib.spk_scene_latitude(self._handle, body, ctypes.byref(out)) != SPK_OK:
             raise EngineError(self._engine._last_error())
         return self._engine._take_json(out)
 

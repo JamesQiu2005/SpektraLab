@@ -104,11 +104,44 @@ NATIVE_ONLY = {
     },
     "contrast_mask_scale": {
         "path": "print_render.contrast_mask.scale", "type": "float", "layer": "print",
-        "default": 0.03, "live": False, "range": [0.001, 0.25],
+        "default": 0.03, "live": False, "range": [0.002, 0.12],
     },
-    "contrast_mask_edge_aware": {
-        "path": "print_render.contrast_mask.edge_aware", "type": "bool", "layer": "print",
+    "contrast_mask_scheme": {
+        "path": "print_render.contrast_mask.scheme", "type": "str", "layer": "print",
+        "default": "gaussian", "live": False, "range": None,
+    },
+    # RFC-023 Scene Latitude: the resolved curve, SHOOT layer (it sits before the film).
+    "scene_latitude_active": {
+        "path": "camera.scene_latitude.active", "type": "bool", "layer": "shoot",
         "default": False, "live": False, "range": None,
+    },
+    "scene_latitude_norm": {
+        "path": "camera.scene_latitude.norm", "type": "str", "layer": "shoot",
+        "default": 'power', "live": False, "range": None,
+    },
+    "scene_latitude_highlight_knee": {
+        "path": "camera.scene_latitude.highlight_knee", "type": "float", "layer": "shoot",
+        "default": 2.0, "live": False, "range": [-24.0, 24.0],
+    },
+    "scene_latitude_highlight_room": {
+        "path": "camera.scene_latitude.highlight_room", "type": "float", "layer": "shoot",
+        "default": 0.0, "live": False, "range": [0.0, 24.0],
+    },
+    "scene_latitude_shadow_knee": {
+        "path": "camera.scene_latitude.shadow_knee", "type": "float", "layer": "shoot",
+        "default": -2.0, "live": False, "range": [-24.0, 24.0],
+    },
+    "scene_latitude_shadow_room": {
+        "path": "camera.scene_latitude.shadow_room", "type": "float", "layer": "shoot",
+        "default": 0.0, "live": False, "range": [0.0, 24.0],
+    },
+    "scene_latitude_rolloff": {
+        "path": "camera.scene_latitude.rolloff", "type": "float", "layer": "shoot",
+        "default": 2.0, "live": False, "range": [1.0, 4.0],
+    },
+    "scene_latitude_max_lift": {
+        "path": "camera.scene_latitude.max_lift", "type": "float", "layer": "shoot",
+        "default": 4.0, "live": False, "range": [0.25, 12.0],
     },
 }
 

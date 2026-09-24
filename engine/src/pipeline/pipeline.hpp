@@ -291,6 +291,21 @@ public:
     // returns all seven methods' EVs. Leaves the pipeline's pitch as it was.
     bool measure_meter_evs(const Image& in, ExposureEvs& out, std::string& error);
 
+    // RFC-024: the mask this print would apply, as the delta in stops at each
+    // cell of its analysis grid (`gw` x `gh`, row-major, the frame's own
+    // aspect). Empty with the mask off. Runs the analysis only -- no print --
+    // and leaves the pipeline's print state as it was.
+    bool contrast_mask_field(const Image& cmy, std::vector<float>& delta, uint32_t& gw,
+                             uint32_t& gh, std::string& error);
+
+    // RFC-023 §9.1: the scene on Scene Latitude's own axis -- stops of the
+    // node's norm relative to the metered mid-grey -- for every pixel of `in`
+    // (the frame at the meter's resolution) after the node's upstream nodes
+    // and the auto-exposure gain `ev`. Leaves the pipeline's pitch as it was,
+    // as `measure_meter_evs` does.
+    bool scene_latitude_sample(const Image& in, double ev, std::vector<double>& E,
+                               std::string& error);
+
     // The EV the auto-exposure node applies instead of metering its own
     // input. The session sets it before every film render, so every tier is
     // exposed alike; empty (a standalone pipeline, `warm_up`) meters the
@@ -574,12 +589,18 @@ private:
     bool node_print_exposure(const Image& in, Image& out, std::string& error);
     bool node_print_curves(const Image& in, Image& out, std::string& error);
 
+    // RFC-023's Scene Latitude Mapping (`scene_latitude.cpp`): pointwise,
+    // before `node_upsample`, and not dispatched at all while it is off.
+    bool scene_latitude_wanted() const;
+    bool node_scene_latitude(const Image& in, Image& out, std::string& error);
+
     // RFC-024's virtual contrast mask (`contrast_mask.cpp`). `prepare` runs
     // once per print run on the whole negative, after `print_prefix`; the
     // epilogue replaces `node_enlarger_spectral` in `print_spectral` only
     // while `mask_on_` is set, and is pointwise, so it bands.
     bool contrast_mask_wanted() const;
-    bool prepare_contrast_mask(const Image& cmy, std::string& error);
+    bool prepare_contrast_mask(const Image& cmy, std::string& error,
+                               std::vector<float>* delta_out = nullptr);
     void release_contrast_mask();
     bool node_contrast_mask_epilogue(const Image& in, Image& out, std::string& error);
     bool node_scan_spectral(const Image& in, Image& out, std::string& error);

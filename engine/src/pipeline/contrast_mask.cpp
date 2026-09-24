@@ -146,7 +146,8 @@ void Pipeline::release_contrast_mask() {
     band_row0_ = 0;
 }
 
-bool Pipeline::prepare_contrast_mask(const Image& cmy, std::string& error) {
+bool Pipeline::prepare_contrast_mask(const Image& cmy, std::string& error,
+                                     std::vector<float>* delta_out) {
     release_contrast_mask();
     if (!contrast_mask_wanted()) return true;
     if (progress_ && progress_->cancelled) { error = "render cancelled"; return false; }
@@ -205,7 +206,10 @@ bool Pipeline::prepare_contrast_mask(const Image& cmy, std::string& error) {
     // --- the base ------------------------------------------------------------
     const double sigma = std::max(0.5, m.scale * double(cells));   // in cells
     std::vector<double> a(x.size(), 0.0), b;
-    if (m.edge_aware) {
+    // The self-guided base is research-only (RFC-024 §12.4, the user's
+    // decision of 2026-09-24): at its fixed threshold it counted building
+    // texture as edge and greyed the print like the per-pixel arm.
+    if (std::getenv("SPEKTRAFILM_MASK_GUIDED")) {
         // He, Sun & Tang's guided filter, self-guided, on the grid. Two box
         // passes of radius r have a standard deviation of ~0.816 r, so r is
         // chosen to match the Gaussian's sigma at the same `scale`.
@@ -241,6 +245,21 @@ bool Pipeline::prepare_contrast_mask(const Image& cmy, std::string& error) {
     mask_gw_ = gw; mask_gh_ = gh; mask_frame_w_ = W; mask_frame_h_ = H;
     mask_on_ = true;
 
+    // The field at the grid's own cells: RFC-024's delta, in stops, after the
+    // gain bound -- what `spk_contrast_mask_field` hands the canvas, and the
+    // third plane of the research dump. Computed only when someone asks.
+    auto delta_at = [&](size_t i) {
+        const double bb = a[i] * x[i] + b[i];
+        double d = 0.0;
+        if (p[11] != 0.0f && bb < k_lo) { const double D = k_lo - bb; d = D - D * p[10] / std::sqrt(double(p[10]) * p[10] + D * D); }
+        else if (p[14] != 0.0f && bb > k_hi) { const double D = bb - k_hi; d = D * p[13] / std::sqrt(double(p[13]) * p[13] + D * D) - D; }
+        return float(d * kGainLimit / std::sqrt(kGainLimit * kGainLimit + d * d));
+    };
+    if (delta_out) {
+        delta_out->resize(x.size());
+        for (size_t i = 0; i < x.size(); ++i) (*delta_out)[i] = delta_at(i);
+    }
+
     // A research instrument, off unless asked for: the grid's `x`, the base at
     // the grid's own `x`, and the delta there, as three float32 planes.
     if (const char* dump = std::getenv("SPEKTRAFILM_MASK_DUMP")) {
@@ -252,19 +271,32 @@ bool Pipeline::prepare_contrast_mask(const Image& cmy, std::string& error) {
             std::fwrite(plane.data(), sizeof(float), plane.size(), f);
             for (size_t i = 0; i < x.size(); ++i) plane[i] = float(a[i] * x[i] + b[i]);
             std::fwrite(plane.data(), sizeof(float), plane.size(), f);
-            for (size_t i = 0; i < x.size(); ++i) {
-                const double bb = a[i] * x[i] + b[i];
-                double d = 0.0;
-                if (p[11] != 0.0f && bb < k_lo) { const double D = k_lo - bb; d = D - D * p[10] / std::sqrt(double(p[10]) * p[10] + D * D); }
-                else if (p[14] != 0.0f && bb > k_hi) { const double D = bb - k_hi; d = D * p[13] / std::sqrt(double(p[13]) * p[13] + D * D) - D; }
-                plane[i] = float(d * kGainLimit / std::sqrt(kGainLimit * kGainLimit + d * d));
-            }
+            for (size_t i = 0; i < x.size(); ++i) plane[i] = delta_at(i);
             std::fwrite(plane.data(), sizeof(float), plane.size(), f);
             std::fclose(f);
         }
     }
     if (progress_) progress_->fired += 1;
     return true;
+}
+
+bool Pipeline::contrast_mask_field(const Image& cmy, std::vector<float>& delta, uint32_t& gw,
+                                   uint32_t& gh, std::string& error) {
+    delta.clear();
+    gw = gh = 0;
+    if (!contrast_mask_wanted()) return true;
+    // Only the enlarger's constants, not `print_prefix`: that draws the print
+    // side's glare seed, and asking to see the mask must not change the next
+    // print's realisation.
+    if (!refresh_print_constants(error)) return false;
+    Progress* const saved = progress_;
+    progress_ = nullptr;
+    const bool ok = prepare_contrast_mask(cmy, error, &delta);
+    progress_ = saved;
+    gw = mask_gw_;
+    gh = mask_gh_;
+    release_contrast_mask();
+    return ok;
 }
 
 bool Pipeline::node_contrast_mask_epilogue(const Image& in, Image& out, std::string& error) {

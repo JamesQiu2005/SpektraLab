@@ -545,10 +545,19 @@ at every scale). Judge halos by eye at the blur's own scale.
   amounts 0, core 1, σ 0.03, Gaussian. With the amounts at 0 they do nothing.
   Recommending values needs a real calibration across photograph types, and
   that is deferred.
-- **Not done:** the Swift side and UI; §5.2's detail margin and overflow
-  report; a versioned algorithm field; exposing the guided filter's threshold
-  if that scheme is offered to users; turning `edge_aware` into a named-scheme
-  enum before any client depends on the bool.
+- **Done 2026-09-24, by the user's decisions:**
+  - `edge_aware` became the `contrast_mask_scheme` enum, with `gaussian` as
+    its only product value; the guided base is research-only.
+  - The scale range narrowed to 0.002–0.12, measured in API-SPEC §11.
+  - `spk_contrast_mask_field` hands the δ grid to the canvas.
+- **Measured, in answer to §8's open question:** a mask edit on a 2560 px
+  preview costs 24–25 ms against 18 ms without the mask (scale 0.008–0.12),
+  and 61 ms at 0.002. The feature is not `live` on the wire, but it is fast
+  enough to drag.
+- **Not done:**
+  - the Swift side and UI
+  - §5.2's detail margin and overflow report
+  - a versioned algorithm field
 - **Probe display trap:** the engine's output is ProPhoto RGB. RFC-023's
   `result_to_rgb8` writes those codes into an untagged PNG, which every viewer
   reads as sRGB and shows with the wrong tone and colour. The RFC-024 probe

@@ -412,6 +412,7 @@
 		77D9C5C0A25442DE67A9B1DE /* curves.cpp */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.cpp; name = "curves.cpp"; path = "../../engine/src/core/curves.cpp"; sourceTree = SOURCE_ROOT; };
 		9F7B85F45EBDF1CE3728F27D /* hanatos.cpp */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.cpp; name = "hanatos.cpp"; path = "../../engine/src/core/hanatos.cpp"; sourceTree = SOURCE_ROOT; };
 		9DFC1577C6F351347984BBA6 /* json.cpp */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.cpp; name = "json.cpp"; path = "../../engine/src/core/json.cpp"; sourceTree = SOURCE_ROOT; };
+		5F12CEA67BE4CABCBD8A194F /* latitude_fit.cpp */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.cpp; name = "latitude_fit.cpp"; path = "../../engine/src/core/latitude_fit.cpp"; sourceTree = SOURCE_ROOT; };
 		0F90D106A52C5D6476740420 /* numeric.cpp */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.cpp; name = "numeric.cpp"; path = "../../engine/src/core/numeric.cpp"; sourceTree = SOURCE_ROOT; };
 		2C61086C8EC6D0D28BE6D34A /* params.cpp */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.cpp; name = "params.cpp"; path = "../../engine/src/core/params.cpp"; sourceTree = SOURCE_ROOT; };
 		A5E364C2C3926AF21426B912 /* print_lut.cpp */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.cpp; name = "print_lut.cpp"; path = "../../engine/src/core/print_lut.cpp"; sourceTree = SOURCE_ROOT; };
@@ -425,6 +426,7 @@
 		C8D24B2105DE16C5200297CC /* contrast_mask.cpp */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.cpp; name = "contrast_mask.cpp"; path = "../../engine/src/pipeline/contrast_mask.cpp"; sourceTree = SOURCE_ROOT; };
 		E2C17B8BF9B1AE15206603D4 /* engine.cpp */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.cpp; name = "engine.cpp"; path = "../../engine/src/pipeline/engine.cpp"; sourceTree = SOURCE_ROOT; };
 		05255F333E49F5B4B78CE005 /* pipeline.cpp */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.cpp; name = "pipeline.cpp"; path = "../../engine/src/pipeline/pipeline.cpp"; sourceTree = SOURCE_ROOT; };
+		6B9E732572541F028D0B239A /* scene_latitude.cpp */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.cpp; name = "scene_latitude.cpp"; path = "../../engine/src/pipeline/scene_latitude.cpp"; sourceTree = SOURCE_ROOT; };
 		6E206BF4A16CC067140F0164 /* Engine */ = {
 			isa = PBXGroup;
 			children = (
@@ -434,6 +436,7 @@
 				77D9C5C0A25442DE67A9B1DE /* curves.cpp */,
 				9F7B85F45EBDF1CE3728F27D /* hanatos.cpp */,
 				9DFC1577C6F351347984BBA6 /* json.cpp */,
+				5F12CEA67BE4CABCBD8A194F /* latitude_fit.cpp */,
 				0F90D106A52C5D6476740420 /* numeric.cpp */,
 				2C61086C8EC6D0D28BE6D34A /* params.cpp */,
 				A5E364C2C3926AF21426B912 /* print_lut.cpp */,
@@ -446,7 +449,8 @@
 				C132A91149E2E1D76F4F8C2E /* blur.cpp */,
 				C8D24B2105DE16C5200297CC /* contrast_mask.cpp */,
 				E2C17B8BF9B1AE15206603D4 /* engine.cpp */,
-				05255F333E49F5B4B78CE005 /* pipeline.cpp */
+				05255F333E49F5B4B78CE005 /* pipeline.cpp */,
+				6B9E732572541F028D0B239A /* scene_latitude.cpp */
 			);
 			name = Engine;
 			sourceTree = "<group>";
@@ -555,6 +559,7 @@
 		AB8C3928053AAB9AB77EA40D /* curves.cpp */ = {isa = PBXBuildFile; fileRef = 77D9C5C0A25442DE67A9B1DE; };
 		4B244FF0BD1A80C0B7D36387 /* hanatos.cpp */ = {isa = PBXBuildFile; fileRef = 9F7B85F45EBDF1CE3728F27D; };
 		405222C6C44FB7336C0C5250 /* json.cpp */ = {isa = PBXBuildFile; fileRef = 9DFC1577C6F351347984BBA6; };
+		32433A8A6DF71B84C3183326 /* latitude_fit.cpp */ = {isa = PBXBuildFile; fileRef = 5F12CEA67BE4CABCBD8A194F; };
 		B206AEA83F7808A81CCCCA6E /* numeric.cpp */ = {isa = PBXBuildFile; fileRef = 0F90D106A52C5D6476740420; };
 		B906BEFAAFE209A2C0D00A48 /* params.cpp */ = {isa = PBXBuildFile; fileRef = 2C61086C8EC6D0D28BE6D34A; };
 		8FC0EB8271705185420472B0 /* print_lut.cpp */ = {isa = PBXBuildFile; fileRef = A5E364C2C3926AF21426B912; };
@@ -568,6 +573,7 @@
 		6F0E6DC1854E974751B4ACC0 /* contrast_mask.cpp */ = {isa = PBXBuildFile; fileRef = C8D24B2105DE16C5200297CC; };
 		6CA1845EA1FCDAA29F4BB5EE /* engine.cpp */ = {isa = PBXBuildFile; fileRef = E2C17B8BF9B1AE15206603D4; };
 		BD74FC412EEF846209C82BB3 /* pipeline.cpp */ = {isa = PBXBuildFile; fileRef = 05255F333E49F5B4B78CE005; };
+		4B468E1B214531456EBD198F /* scene_latitude.cpp */ = {isa = PBXBuildFile; fileRef = 6B9E732572541F028D0B239A; };
 		AB6F1305312B9996E2538FF8 /* app-sources */ = {
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
@@ -654,6 +660,7 @@
 				AB8C3928053AAB9AB77EA40D /* curves.cpp */,
 				4B244FF0BD1A80C0B7D36387 /* hanatos.cpp */,
 				405222C6C44FB7336C0C5250 /* json.cpp */,
+				32433A8A6DF71B84C3183326 /* latitude_fit.cpp */,
 				B206AEA83F7808A81CCCCA6E /* numeric.cpp */,
 				B906BEFAAFE209A2C0D00A48 /* params.cpp */,
 				8FC0EB8271705185420472B0 /* print_lut.cpp */,
@@ -666,7 +673,8 @@
 				0E89615A1A137B8283BBD90D /* blur.cpp */,
 				6F0E6DC1854E974751B4ACC0 /* contrast_mask.cpp */,
 				6CA1845EA1FCDAA29F4BB5EE /* engine.cpp */,
-				BD74FC412EEF846209C82BB3 /* pipeline.cpp */
+				BD74FC412EEF846209C82BB3 /* pipeline.cpp */,
+				4B468E1B214531456EBD198F /* scene_latitude.cpp */
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -815,6 +823,7 @@
 		5DC6EE808B8B0BFFF9804FCE /* curves.cpp */ = {isa = PBXBuildFile; fileRef = 77D9C5C0A25442DE67A9B1DE; };
 		846920E85821D5CB35A22269 /* hanatos.cpp */ = {isa = PBXBuildFile; fileRef = 9F7B85F45EBDF1CE3728F27D; };
 		962A62FDFE65F3D694D84DB2 /* json.cpp */ = {isa = PBXBuildFile; fileRef = 9DFC1577C6F351347984BBA6; };
+		F8636519E12B3F0CD9687393 /* latitude_fit.cpp */ = {isa = PBXBuildFile; fileRef = 5F12CEA67BE4CABCBD8A194F; };
 		A19AFA4731E13A31D5D3BFB2 /* numeric.cpp */ = {isa = PBXBuildFile; fileRef = 0F90D106A52C5D6476740420; };
 		6071A88A4FC60DDCDB84916D /* params.cpp */ = {isa = PBXBuildFile; fileRef = 2C61086C8EC6D0D28BE6D34A; };
 		C5D3DA18A7C42703ED74B499 /* print_lut.cpp */ = {isa = PBXBuildFile; fileRef = A5E364C2C3926AF21426B912; };
@@ -828,6 +837,7 @@
 		5E1CCA6DDEE2901B5E986E69 /* contrast_mask.cpp */ = {isa = PBXBuildFile; fileRef = C8D24B2105DE16C5200297CC; };
 		2B2733A93D5E1AD3A25E2445 /* engine.cpp */ = {isa = PBXBuildFile; fileRef = E2C17B8BF9B1AE15206603D4; };
 		603567AF9E3F5DBD58D00DD0 /* pipeline.cpp */ = {isa = PBXBuildFile; fileRef = 05255F333E49F5B4B78CE005; };
+		E03FCC86E58095D656B72473 /* scene_latitude.cpp */ = {isa = PBXBuildFile; fileRef = 6B9E732572541F028D0B239A; };
 		1F4D89CC2FE4F3BC028B2B29 /* test-sources */ = {
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
@@ -956,6 +966,7 @@
 				5DC6EE808B8B0BFFF9804FCE /* curves.cpp */,
 				846920E85821D5CB35A22269 /* hanatos.cpp */,
 				962A62FDFE65F3D694D84DB2 /* json.cpp */,
+				F8636519E12B3F0CD9687393 /* latitude_fit.cpp */,
 				A19AFA4731E13A31D5D3BFB2 /* numeric.cpp */,
 				6071A88A4FC60DDCDB84916D /* params.cpp */,
 				C5D3DA18A7C42703ED74B499 /* print_lut.cpp */,
@@ -968,7 +979,8 @@
 				24D197279CD10B683F6D9288 /* blur.cpp */,
 				5E1CCA6DDEE2901B5E986E69 /* contrast_mask.cpp */,
 				2B2733A93D5E1AD3A25E2445 /* engine.cpp */,
-				603567AF9E3F5DBD58D00DD0 /* pipeline.cpp */
+				603567AF9E3F5DBD58D00DD0 /* pipeline.cpp */,
+				E03FCC86E58095D656B72473 /* scene_latitude.cpp */
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

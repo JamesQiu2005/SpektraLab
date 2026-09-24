@@ -1,4 +1,5 @@
 #include "pipeline.hpp"
+#include "timer.hpp"
 
 #include <chrono>
 #include <cmath>
@@ -75,33 +76,6 @@ void axis_and_inv(const Vec& axis, size_t k, Vec& inv) {
 
 }  // namespace
 
-// A node's timing, recorded under the reference's label so a per-node
-// regression is attributable to the same name on both engines.
-struct Pipeline::Timer {
-    Timer(Pipeline* p, const char* label) : p_(p), label_(label) {
-        if (p_->progress_) {
-            p_->progress_->stage = label_;
-            if (p_->progress_->detailed) start_ = std::chrono::steady_clock::now();
-        }
-    }
-    ~Timer() {
-        if (!p_->progress_) return;
-        if (p_->progress_->detailed) {
-            // Wait for the work this node encoded, so the number is GPU time
-            // and not encode time. Costs the batching for the whole run.
-            std::string error;
-            p_->gpu_->flush(error);
-            const double ms = std::chrono::duration<double, std::milli>(
-                std::chrono::steady_clock::now() - start_).count();
-            p_->progress_->node_ms[label_] += ms;
-        }
-        p_->progress_->fired += 1;
-    }
-    Pipeline* p_;
-    const char* label_;
-    std::chrono::steady_clock::time_point start_;
-};
-
 
 uint32_t Pipeline::fresh_seed() {
     // splitmix64, so the stochastic grain sampler gets a fresh realisation per
@@ -141,6 +115,16 @@ bool Pipeline::build(const Params& params, std::string& error) {
     // return None from a node body and let the dispatcher run the numba
     // reference; there is no reference here, so an unsupported configuration
     // must be refused loudly rather than silently rendered differently.
+    // RFC-023 §9.2's validity rule, held at the render as well as in the Fit:
+    // the two knees must not cross, because the gap between them is the
+    // identity core. A client that sends a crossed pair gets a refusal, not a
+    // curve that silently picks one branch.
+    if (const SceneLatitudeParams& sl = params_.camera.scene_latitude;
+        sl.active && sl.highlight_room > 0.0 && sl.shadow_room > 0.0 &&
+        !(sl.shadow_knee < sl.highlight_knee)) {
+        error = "scene latitude: the shadow knee must lie below the highlight knee";
+        return false;
+    }
     if (params_.settings.rgb_to_raw_method != "hanatos2025") {
         error = "rgb_to_raw_method '" + params_.settings.rgb_to_raw_method +
                 "' is not implemented by the native engine (only hanatos2025)";
@@ -423,6 +407,7 @@ bool Pipeline::build(const Params& params, std::string& error) {
     node_count_ += params_.io.geometry.is_identity() ? 0 : 1;            // geometry
     node_count_ += params_.camera.auto_exposure ? 1 : 0;                 // auto_exposure
     node_count_ += 1;                                                    // crop_rescale
+    node_count_ += scene_latitude_wanted() ? 1 : 0;                      // RFC-023
     node_count_ += 1;                                                    // upsample
     node_count_ += 1;                                                    // exposure
     node_count_ += 1;                                                    // boost
@@ -1721,6 +1706,10 @@ bool Pipeline::film_prefix(const Image& in, const FrameShape& frame, Image& cur,
 // complication invented here, and step 6 inherits it.
 bool Pipeline::film_scale_and_expose(const Chain& in, Chain& out, std::string& error) {
     Image cur = in.cur, next;
+    // RFC-023 sits here, before `upsample`: a scalar gain commutes with the
+    // spectral reconstruction exactly (§12.2), and this is the band-able
+    // stage, so the node strips with it.
+    if (scene_latitude_wanted()) { SPK_NODE(node_scene_latitude(cur, next, error)); cur = next; }
     SPK_NODE(node_upsample(cur, next, error)); cur = next;
     SPK_NODE(node_exposure(cur, next, error)); cur = next;
     out = in;

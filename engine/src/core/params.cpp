@@ -104,8 +104,24 @@ const SchemaField kFields[] = {
     {"contrast_mask_highlights", "print_render.contrast_mask.highlights", F, PRINT, true, 0.0, 3.0, false},
     {"contrast_mask_shadows",    "print_render.contrast_mask.shadows",    F, PRINT, true, 0.0, 3.0, false},
     {"contrast_mask_core",       "print_render.contrast_mask.core",       F, PRINT, true, 0.0, 3.0, false},
-    {"contrast_mask_scale",      "print_render.contrast_mask.scale",      F, PRINT, true, 0.001, 0.25, false},
-    {"contrast_mask_edge_aware", "print_render.contrast_mask.edge_aware", B, PRINT, false, 0, 0, false},
+    // Scale 0.002-0.12, the user's decision of 2026-09-24: below ~4/preview
+    // long edge the live tier caps the analysis grid and the canvas stops
+    // matching the export, and 0.25 cost 161 ms per live edit (host Gaussian).
+    {"contrast_mask_scale",      "print_render.contrast_mask.scale",      F, PRINT, true, 0.002, 0.12, false},
+    {"contrast_mask_scheme",     "print_render.contrast_mask.scheme",     S, PRINT, false, 0, 0, false},
+    // RFC-023's Scene Latitude Mapping, native-only and in the same place for
+    // the same reason. SHOOT layer: the gain sits before the film, so an edit
+    // re-develops the negative. The knees and rooms are the *resolved* curve
+    // (RFC-023 §8.3) -- `spk_scene_latitude` solves them from the UI's
+    // pull-backs -- and a room of 0 turns that side off exactly.
+    {"scene_latitude_active",         "camera.scene_latitude.active",         B, SHOOT, false, 0, 0, false},
+    {"scene_latitude_norm",           "camera.scene_latitude.norm",           S, SHOOT, false, 0, 0, false},
+    {"scene_latitude_highlight_knee", "camera.scene_latitude.highlight_knee", F, SHOOT, true, -24.0, 24.0, false},
+    {"scene_latitude_highlight_room", "camera.scene_latitude.highlight_room", F, SHOOT, true, 0.0, 24.0, false},
+    {"scene_latitude_shadow_knee",    "camera.scene_latitude.shadow_knee",    F, SHOOT, true, -24.0, 24.0, false},
+    {"scene_latitude_shadow_room",    "camera.scene_latitude.shadow_room",    F, SHOOT, true, 0.0, 24.0, false},
+    {"scene_latitude_rolloff",        "camera.scene_latitude.rolloff",        F, SHOOT, true, 1.0, 4.0, false},
+    {"scene_latitude_max_lift",       "camera.scene_latitude.max_lift",       F, SHOOT, true, 0.25, 12.0, false},
     // The app's *preview resolution*: the `live` tier's long edge, and so the
     // size every interactive edit renders at. PRINT layer, because it is a
     // decision about the canvas rather than about the film -- but it is one of
@@ -150,6 +166,12 @@ double* float_slot(Params& p, const std::string& path) {
     if (path == "print_render.contrast_mask.shadows") return &p.print_render.contrast_mask.shadows;
     if (path == "print_render.contrast_mask.core") return &p.print_render.contrast_mask.core;
     if (path == "print_render.contrast_mask.scale") return &p.print_render.contrast_mask.scale;
+    if (path == "camera.scene_latitude.highlight_knee") return &p.camera.scene_latitude.highlight_knee;
+    if (path == "camera.scene_latitude.highlight_room") return &p.camera.scene_latitude.highlight_room;
+    if (path == "camera.scene_latitude.shadow_knee") return &p.camera.scene_latitude.shadow_knee;
+    if (path == "camera.scene_latitude.shadow_room") return &p.camera.scene_latitude.shadow_room;
+    if (path == "camera.scene_latitude.rolloff") return &p.camera.scene_latitude.rolloff;
+    if (path == "camera.scene_latitude.max_lift") return &p.camera.scene_latitude.max_lift;
     return nullptr;
 }
 
@@ -170,7 +192,7 @@ bool* bool_slot(Params& p, const std::string& path) {
     if (path == "io.scan_film") return &p.io.scan_film;
     if (path == "settings.striped") return &p.settings.striped;
     if (path == "print_render.contrast_mask.active") return &p.print_render.contrast_mask.active;
-    if (path == "print_render.contrast_mask.edge_aware") return &p.print_render.contrast_mask.edge_aware;
+    if (path == "camera.scene_latitude.active") return &p.camera.scene_latitude.active;
     return nullptr;
 }
 
@@ -181,6 +203,8 @@ std::string* str_slot(Params& p, const std::string& path) {
     if (path == "enlarger.illuminant") return &p.enlarger.illuminant;
     if (path == "io.output_color_space") return &p.io.output_color_space;
     if (path == "camera.auto_exposure_method") return &p.camera.auto_exposure_method;
+    if (path == "camera.scene_latitude.norm") return &p.camera.scene_latitude.norm;
+    if (path == "print_render.contrast_mask.scheme") return &p.print_render.contrast_mask.scheme;
     return nullptr;
 }
 
@@ -210,6 +234,12 @@ bool is_known_exposure_method(const std::string& method) {
     return method == "center_weighted" || method == "average" || method == "median" ||
            method == "balanced" || method == "center" ||
            method == "protect_highlights" || method == "protect_shadows";
+}
+
+bool is_known_contrast_mask_scheme(const std::string& scheme) { return scheme == "gaussian"; }
+
+bool is_known_scene_latitude_norm(const std::string& norm) {
+    return norm == "power" || norm == "y" || norm == "max";
 }
 
 const std::vector<SchemaField>& schema_fields() {
@@ -268,11 +298,22 @@ bool validate_delta(const Json& delta, std::string& error, std::string& param) {
             return false;
         }
         // A closed set of names is not a range, so `has_range` cannot express
-        // it; this is the one enumerated string on the wire.
+        // it; this, `contrast_mask_scheme` and `scene_latitude_norm` are the enumerated strings.
         if (kv.first == "auto_exposure_method" && !is_known_exposure_method(v.as_string())) {
             error = "'auto_exposure_method' = '" + v.as_string() +
                     "' is not an exposure method (balanced, center, protect_highlights, "
                     "protect_shadows, center_weighted, average, median)";
+            param = kv.first;
+            return false;
+        }
+        if (kv.first == "contrast_mask_scheme" && !is_known_contrast_mask_scheme(v.as_string())) {
+            error = "'contrast_mask_scheme' = '" + v.as_string() + "' is not a scheme (gaussian)";
+            param = kv.first;
+            return false;
+        }
+        if (kv.first == "scene_latitude_norm" && !is_known_scene_latitude_norm(v.as_string())) {
+            error = "'scene_latitude_norm' = '" + v.as_string() +
+                    "' is not a norm (power, y, max)";
             param = kv.first;
             return false;
         }

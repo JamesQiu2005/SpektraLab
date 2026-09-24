@@ -204,6 +204,27 @@ spk_status spk_get_params(spk_session* session, char** out_json);
 /* `target` is "exposure", "filter_pack" or "both". */
 spk_status spk_solve(spk_session* session, const char* target, char** out_json);
 
+/* RFC-024's mask, as a picture: the delta in stops (positive raises the
+ * print's highlights, negative lowers its shadows) at each cell of the
+ * analysis grid, row-major, `grid_w` x `grid_h` in the frame's own aspect --
+ * after the gain bound, exactly what the next print of `tier` would apply.
+ * Needs the tier's negative (render the tier first). With the mask off it
+ * returns SPK_OK, a NULL field and a 0 x 0 grid. The floats are
+ * engine-owned and valid until the next call on this session. */
+spk_status spk_contrast_mask_field(spk_session* session, const char* tier, const float** out_delta,
+                                   uint32_t* out_grid_w, uint32_t* out_grid_h);
+
+/* RFC-023's Scene Latitude: measure, suggest and solve -- never render.
+ * `request_json` may be NULL or an object with any of `highlight_pull_back`,
+ * `shadow_pull_back` (stops; 0 turns a side off; absent = the suggestion),
+ * `rolloff`, `max_lift`, `norm` (absent = the session's), `margin`
+ * (default 0.25), `shadow_percentile` (0.1 or 1) and `highlight_percentile`
+ * (99.9 or 99) -- which robust extreme each side is fitted to. `out_json` receives the measured medium, the scene
+ * statistic, the suggested pull-backs and the solved fit, whose
+ * `params_delta` -- present only when the fit is valid -- is what a client
+ * sends to `spk_set_params` to commit it (API-SPEC §12). */
+spk_status spk_scene_latitude(spk_session* session, const char* request_json, char** out_json);
+
 /* Tiers are the three API-SPEC §6 names: "live", "preview", "full". */
 spk_status spk_reprint(spk_session* session, const char* tier, spk_result* out);
 spk_status spk_render(spk_session* session, const char* tier, spk_result* out);

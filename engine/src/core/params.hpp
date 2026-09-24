@@ -144,8 +144,14 @@ struct ContrastMaskParams {
     double shadows = 0.0;      ///< stops lowered, print-shadow side
     double core = 1.0;         ///< half-width of the identity core, stops
     double scale = 0.03;       ///< base extractor's sigma, fraction of the long edge
-    bool edge_aware = false;   ///< guided-filter base (true) or plain Gaussian (false)
+    /// The base extractor, by name. Only "gaussian" (the classic unsharp mask)
+    /// is a product scheme: the self-guided filter behaved like the per-pixel
+    /// arm at its fixed threshold (RFC-024 §12.4), so it is reachable only
+    /// through `SPEKTRAFILM_MASK_GUIDED` for research.
+    std::string scheme = "gaussian";
 };
+
+bool is_known_contrast_mask_scheme(const std::string& scheme);
 
 struct PrintRenderParams {
     GlareParams glare;
@@ -155,6 +161,27 @@ struct PrintRenderParams {
     // path remains byte-identical until the user opts in.
     bool edr_enabled = false;
 };
+
+// RFC-023's Scene Latitude Mapping: a pointwise gain before spectral
+// upsampling that compresses the scene's two ends onto the medium while an
+// identity core stays exactly untouched. The axis is stops relative to the
+// metered mid-grey, measured after auto-exposure and before Exp. Comp.
+// (RFC-023 §5.1, §15.4). These are the **resolved** knees and rooms: the UI's
+// pull-backs are solved into them at commit time (`spk_scene_latitude`) and
+// never travel on the wire, so a paper change cannot re-render an old edit
+// (§8.3). A side whose room is 0 is off, exactly.
+struct SceneLatitudeParams {
+    bool active = false;
+    std::string norm = "power";     ///< power | y | max -- the scalar the gain is computed on
+    double highlight_knee = 2.0;    ///< K_h, stops
+    double highlight_room = 0.0;    ///< H_h, stops; 0 = the highlight side is off
+    double shadow_knee = -2.0;      ///< K_s, stops
+    double shadow_room = 0.0;       ///< H_s, stops; 0 = the shadow side is off
+    double rolloff = 2.0;           ///< m, the roll-off order (§5.5)
+    double max_lift = 4.0;          ///< L_max, stops: the smooth bound on the shadow lift (§15.5)
+};
+
+bool is_known_scene_latitude_norm(const std::string& norm);
 
 struct CameraParams {
     double exposure_compensation_ev = 0.0;
@@ -168,6 +195,7 @@ struct CameraParams {
     double filter_uv[3] = {0.0, 410.0, 8.0};
     double filter_ir[3] = {0.0, 675.0, 15.0};
     DiffusionFilterParams diffusion_filter;
+    SceneLatitudeParams scene_latitude;
 };
 
 struct EnlargerParams {
