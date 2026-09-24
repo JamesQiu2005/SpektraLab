@@ -54,6 +54,7 @@ struct ScrubSlider: View {
     @State private var dragStart: Double?
     @State private var editing = false
     @State private var text = ""
+    @State private var hovered = false
     @FocusState private var focused: Bool
 
     private var hasSecondLine: Bool { sublabelView != nil || sublabel != nil }
@@ -103,22 +104,17 @@ struct ScrubSlider: View {
                     if let g = trackGradient {
                         Capsule().fill(LinearGradient(colors: g, startPoint: .leading, endPoint: .trailing))
                     } else {
-                        // `surface.control` — the same grey every pill and
-                        // field is, so the track carries no colour the rail
-                        // does not already use.
-                        //
-                        // **1.36 pt, v3's measurement**, where the
-                        // 2026-09-17 pass drew 3. The objection then was
-                        // that a hairline-thin track "in the *same grey as
-                        // the ground*" was fainter than the dividers beside
-                        // it — and it was, because `well` was `ground` and
-                        // the track sat on a well of its own colour. v3
-                        // separates rail from control, so the thin track now
-                        // has contrast of its own. What it does *not* have
-                        // is a hit target, and it does not need one: the
-                        // drag is on the full row-height `contentShape`
-                        // below, not on the ink.
-                        Capsule().fill(Theme.ground)
+                        let anchor = (zeroFraction > 0.001 && zeroFraction < 0.999)
+                                     ? zeroFraction : 0
+                        let lo = min(anchor, fraction)
+                        let hi = max(anchor, fraction)
+                        ZStack(alignment: .leading) {
+                            Capsule().fill(Theme.trackRest)
+                            Capsule().fill(Theme.trackActive)
+                                .frame(width: (hi - lo) * max(w - knobW, 1))
+                                .offset(x: lo * max(w - knobW, 1))
+                        }
+                        .opacity(hovered || dragStart != nil ? 1 : 0.88)
                     }
                 }
                 .frame(height: metrics.trackHeight)
@@ -128,16 +124,19 @@ struct ScrubSlider: View {
                     Rectangle().fill(Theme.text.opacity(0.55)).frame(width: 1, height: 6)
                         .offset(x: zeroFraction * (w - knobW) + knobW / 2 - 0.5)
                 }
-                // v3's knob is a 6.13 × 5.07 dot rather than a 10 pt
-                // handle. Ink only — it is never dragged by itself; the
-                // gesture belongs to the track.
                 RoundedRectangle(cornerRadius: Theme.Metric.knobRadius, style: .continuous)
                     .fill(Theme.knob)
+                    .overlay {
+                        RoundedRectangle(cornerRadius: Theme.Metric.knobRadius, style: .continuous)
+                            .strokeBorder(Theme.knobEdge, lineWidth: 1)
+                    }
+                    .shadow(color: Theme.knobShadow, radius: 1, y: 1)
                     .frame(width: knobW, height: Theme.Metric.knobSize.height)
                     .offset(x: x - knobW / 2)
             }
             .frame(height: geo.size.height)
             .contentShape(Rectangle())
+            .onHover { hovered = $0 }
             .gesture(
                 DragGesture(minimumDistance: 0)
                     .onChanged { g in
@@ -184,17 +183,27 @@ struct ScrubSlider: View {
         .lineLimit(1)
         .frame(maxWidth: .infinity)
         .frame(height: metrics.valueInPill ? Theme.Metric.controlHeight : nil)
-        .background {
-            if metrics.valueInPill {
-                RoundedRectangle(cornerRadius: Theme.Metric.fieldRadius, style: .continuous)
-                    .fill(Theme.pill)
-            }
-        }
+        .modifier(ValueBoxSurface(inPill: metrics.valueInPill,
+                                  hovered: hovered, pressed: editing))
     }
 
     private func commitText() {
         if let v = parse(text) { value = v.clamped(to: range); onCommit() }
         editing = false
+    }
+}
+
+private struct ValueBoxSurface: ViewModifier {
+    let inPill: Bool
+    let hovered: Bool
+    let pressed: Bool
+
+    func body(content: Content) -> some View {
+        if inPill {
+            content.controlSurface(hovered: hovered, pressed: pressed)
+        } else {
+            content
+        }
     }
 }
 
@@ -214,9 +223,21 @@ struct CheckBox: View {
                 // more emphasis on an unchecked option than on the label
                 // naming it. The accent still carries "on" — the empty state
                 // is metadata and is inked like it.
-                RoundedRectangle(cornerRadius: 1)
-                    .stroke(isOn ? Theme.accent : Theme.Ink.tertiary, lineWidth: 1)
-                if isOn { RoundedRectangle(cornerRadius: 0.5).fill(Theme.accent).padding(1.6) }
+                RoundedRectangle(cornerRadius: 2, style: .continuous)
+                    .fill(isOn
+                          ? AnyShapeStyle(Theme.accent)
+                          : AnyShapeStyle(LinearGradient(colors: [Color.black.opacity(0.34),
+                                                                  Color.white.opacity(0.07)],
+                                                         startPoint: .top, endPoint: .bottom)))
+                RoundedRectangle(cornerRadius: 2, style: .continuous)
+                    .strokeBorder(isOn
+                                  ? LinearGradient(colors: [Color.white.opacity(0.38),
+                                                            Color.black.opacity(0.22)],
+                                                   startPoint: .top, endPoint: .bottom)
+                                  : LinearGradient(colors: [Color.black.opacity(0.50),
+                                                            Color.white.opacity(0.20)],
+                                                   startPoint: .top, endPoint: .bottom),
+                                  lineWidth: 1)
             }
             .frame(width: Theme.Metric.checkbox, height: Theme.Metric.checkbox)
             .frame(width: Theme.Metric.controlHitTarget, height: Theme.Metric.controlHitTarget)

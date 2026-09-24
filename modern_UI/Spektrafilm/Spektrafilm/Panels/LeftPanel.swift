@@ -189,12 +189,14 @@ extension View {
     /// the 2026-09-17 drawing separates regions with a hairline rather than
     /// with a gap and a radius.
     func railCard() -> some View {
-        self.background(Theme.card)
+        self.background(Theme.cardFill)
     }
 
     /// The one thing that still floats: the tool bar's pill.
     func barCard() -> some View {
-        self.background(Theme.card,
-                        in: RoundedRectangle(cornerRadius: Theme.Metric.barRadius, style: .continuous))
+        self.background {
+            RoundedRectangle(cornerRadius: Theme.Metric.barRadius, style: .continuous)
+                .fill(Theme.cardFill)
+        }
     }
 }

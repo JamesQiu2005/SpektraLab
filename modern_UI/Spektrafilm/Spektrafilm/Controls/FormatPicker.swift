@@ -74,7 +74,7 @@ struct PillMenu<T: Hashable>: View {
                 // gives them one width and one left edge; this is that.
                 .frame(width: fill ? nil : Theme.Metric.pickerWidth)
                 .frame(maxWidth: fill ? .infinity : nil)
-                .background(plate, in: Capsule())
+                .pillSurface(base: plate)
                 .contentShape(Capsule())
             }
             .menuStyle(.button)
@@ -141,7 +141,7 @@ struct UnitField: View {
                         .padding(.trailing, 5)
                 }
                 .frame(width: Theme.Metric.unitWidth, height: Theme.Metric.controlHeight)
-                .background(Theme.pill, in: Capsule())
+                .pillSurface(base: Theme.pill)
                 .contentShape(Capsule())
             }
             .menuStyle(.button).buttonStyle(.plain).menuIndicator(.hidden).fixedSize()
