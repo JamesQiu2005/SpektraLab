@@ -122,6 +122,14 @@ const SchemaField kFields[] = {
     {"scene_latitude_shadow_room",    "camera.scene_latitude.shadow_room",    F, SHOOT, true, 0.0, 24.0, false},
     {"scene_latitude_rolloff",        "camera.scene_latitude.rolloff",        F, SHOOT, true, 1.0, 4.0, false},
     {"scene_latitude_max_lift",       "camera.scene_latitude.max_lift",       F, SHOOT, true, 0.25, 12.0, false},
+    // RFC-025's decoupled effect strengths, native-only and placed like the
+    // rest. `halation_amount` and `dir_couplers_amount` were on the wire
+    // already; these are the three the switches could not reach. Scatter is
+    // `HalationParams::scatter_amount`, which `halation_active` used to be the
+    // only way to turn off -- and it is a mix weight, so above 1 it sharpens.
+    {"halation_scatter_amount",  "film_render.halation.scatter_amount",   F, SHOOT, true, 0.0, 1.0, false},
+    {"grain_amount",             "film_render.grain.amount",              F, SHOOT, true, 0.0, 2.0, false},
+    {"glare_amount",             "print_render.glare.amount",             F, PRINT, true, 0.0, 4.0, false},
     // The app's *preview resolution*: the `live` tier's long edge, and so the
     // size every interactive edit renders at. PRINT layer, because it is a
     // decision about the canvas rather than about the film -- but it is one of
@@ -172,6 +180,9 @@ double* float_slot(Params& p, const std::string& path) {
     if (path == "camera.scene_latitude.shadow_room") return &p.camera.scene_latitude.shadow_room;
     if (path == "camera.scene_latitude.rolloff") return &p.camera.scene_latitude.rolloff;
     if (path == "camera.scene_latitude.max_lift") return &p.camera.scene_latitude.max_lift;
+    if (path == "film_render.halation.scatter_amount") return &p.film_render.halation.scatter_amount;
+    if (path == "film_render.grain.amount") return &p.film_render.grain.amount;
+    if (path == "print_render.glare.amount") return &p.print_render.glare.amount;
     return nullptr;
 }
 

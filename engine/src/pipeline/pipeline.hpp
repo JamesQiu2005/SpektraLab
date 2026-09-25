@@ -585,6 +585,8 @@ private:
     bool node_film_curves(const Image& in, Image& out, std::string& error);
     bool node_dir_couplers(const Image& cmy, const Image& log_raw, Image& out, std::string& error);
     bool node_grain(const Image& in, Image& out, std::string& error);
+    /// The grain model itself; `node_grain` is this plus RFC-025's strength.
+    bool grain_realise(const Image& in, Image& out, std::string& error);
     bool node_enlarger_spectral(const Image& in, Image& out, std::string& error);
     bool node_print_exposure(const Image& in, Image& out, std::string& error);
     bool node_print_curves(const Image& in, Image& out, std::string& error);

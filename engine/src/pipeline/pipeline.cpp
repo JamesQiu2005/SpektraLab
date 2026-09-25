@@ -1194,9 +1194,26 @@ bool Pipeline::node_dir_couplers(const Image& cmy, const Image& log_raw, Image& 
                         baked_.coupler_curve_y, baked_.film_curve_k, out, error);
 }
 
+// RFC-025's strength, as a mix in density of the grained image over the one
+// that went in: `in + k * (grained - in)`. It scales the grain's deviation and
+// the blur the node applies alike, which is what "less of this film's grain"
+// means; a smaller particle would be a different film. At k = 1 the mix is not
+// run, so the default is the node as it always was, and at k = 0 neither is
+// the model. Pointwise, so a strip's band mixes exactly as the plane would.
 bool Pipeline::node_grain(const Image& in, Image& out, std::string& error) {
     const GrainParams& g = params_.film_render.grain;
-    if (!g.active) { out = in; return true; }
+    if (!g.active || g.amount <= 0.0) { out = in; return true; }
+    if (g.amount == 1.0) return grain_realise(in, out, error);
+    Image grained;
+    if (!grain_realise(in, grained, error)) return false;
+    double a[3], b[3];
+    fill3(a, 1.0 - g.amount);
+    fill3(b, g.amount);
+    return blur_.lincomb(in, grained, a, b, out, error);
+}
+
+bool Pipeline::grain_realise(const Image& in, Image& out, std::string& error) {
+    const GrainParams& g = params_.film_render.grain;
     Timer t(this, "filming.develop.grain");
     const double px = pixel_size_um_;
     // `grain_sampler = "exact"` pins the realisation so an A/B is meaningful;
@@ -1524,11 +1541,14 @@ bool Pipeline::node_bw_correction(const Image& in, Image& out, std::string& erro
 bool Pipeline::node_glare(const Image& in, Image& out, std::string& error) {
     if (params_.io.scan_film) { out = in; return true; }
     const GlareParams& glare = params_.print_render.glare;
-    if (!glare.active || glare.percent <= 0.0) { out = in; return true; }
+    // RFC-025: the strength scales `percent`, so a mean and a spread move
+    // together, as a hazier enlarger's would. × 1.0 is exact.
+    const double percent = glare.percent * glare.amount;
+    if (!glare.active || percent <= 0.0) { out = in; return true; }
     Timer t(this, "scanning.glare");
     Image field;
     // `print_seed_`: hoisted to `print_prefix`, one field per render.
-    if (!lognormal_field(in.h, in.w, glare.percent, glare.roughness * glare.percent,
+    if (!lognormal_field(in.h, in.w, percent, glare.roughness * percent,
                          print_seed_, 200, false, field, error)) return false;
     // Pixels *at the full tier*, scaled to this one: the parameter is a
     // fraction of the frame, not of the film (see `GlareParams::blur`), so the
@@ -2150,7 +2170,7 @@ bool Pipeline::print_prefix(std::string& error) {
     // per pass would seam it at every boundary. Same gating condition as the
     // draw it replaces, so the sequence is unchanged.
     const GlareParams& glare = params_.print_render.glare;
-    print_seed_ = (glare.active && glare.percent > 0.0) ? fresh_seed() : 0u;
+    print_seed_ = (glare.active && glare.percent * glare.amount > 0.0) ? fresh_seed() : 0u;
     return true;
 }
 

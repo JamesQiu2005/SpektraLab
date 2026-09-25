@@ -143,6 +143,21 @@ NATIVE_ONLY = {
         "path": "camera.scene_latitude.max_lift", "type": "float", "layer": "shoot",
         "default": 4.0, "live": False, "range": [0.25, 12.0],
     },
+    # RFC-025's decoupled effect strengths. 1.0 is the model's own strength and
+    # the bypass of the new arithmetic, so a frame that never sends them is
+    # unchanged.
+    "halation_scatter_amount": {
+        "path": "film_render.halation.scatter_amount", "type": "float", "layer": "shoot",
+        "default": 1.0, "live": False, "range": [0.0, 1.0],
+    },
+    "grain_amount": {
+        "path": "film_render.grain.amount", "type": "float", "layer": "shoot",
+        "default": 1.0, "live": False, "range": [0.0, 2.0],
+    },
+    "glare_amount": {
+        "path": "print_render.glare.amount", "type": "float", "layer": "print",
+        "default": 1.0, "live": False, "range": [0.0, 4.0],
+    },
 }
 
 

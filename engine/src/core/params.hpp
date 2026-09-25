@@ -41,6 +41,11 @@ struct GrainParams {
     double blur_dye_clouds_um = 1.0;
     double micro_structure[2] = {0.2, 30.0};
     int n_sub_layers = 1;
+    /// RFC-025. Native-only: `node_grain`'s output mixed back over its input,
+    /// `in + amount * (grained - in)`, in density. 1 is the model's own grain
+    /// and skips the mix, so a frame that never sets it is byte for byte what
+    /// it was; 0 skips the node's work entirely.
+    double amount = 1.0;
 };
 
 struct HalationParams {
@@ -94,6 +99,9 @@ struct GlareParams {
     /// measured, the unsharp going 0.7 px to 0.5087 on a 6000 px frame and to
     /// 0.1017 on a 1200 px one.
     double blur = 0.5;
+    /// RFC-025. Native-only multiplier on `percent` -- and so on the field's
+    /// spread too, which is `roughness * percent` -- read where `percent` is.
+    double amount = 1.0;
 };
 
 struct DiffusionFilterParams {
