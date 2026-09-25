@@ -2,11 +2,11 @@
 
 | | |
 |---|---|
-| **Status** | **Implemented 2026-09-25, on `main` and on `ui-rework`.** Engine, wire, app and Settings all landed. The two engine promises in §4 are tested through the C ABI. The sliders have not been looked at on a real photograph yet (§7). |
+| **Status** | **Implemented 2026-09-25 on `main`.** Engine, wire, app and Settings all landed. The two engine promises in §4 are tested through the C ABI. The sliders have not been looked at on a real photograph yet (§7). |
 | **Decision** | Each film effect gets a strength that multiplies what the chosen film would do. 1 is always "this film, as modelled", and every default is the engine's, so no existing frame changes. A Settings switch, **Decouple effects**, shows the strengths. It is a view preference, not an edit. |
 | **Scope** | Grain, halation, halation's scatter, DIR couplers and glare: a strength for each, plus grain's sub-layer model as its own switch. |
 | **Not in scope** | Changing any profile's effect parameters; per-channel strengths; lens blur (trap 22: it does nothing on the reference); a grain *size* control (§3.1). |
-| **Related** | PR #2 (the `ui-rework` theme); AGENTS.md trap 22; RFC-020 (seeds and strips); RFC-024 §11's "sent always" convention. |
+| **Related** | AGENTS.md trap 22; RFC-020 (seeds and strips); RFC-024 §11's "sent always" convention. |
 
 ## 0. Why
 
@@ -147,8 +147,10 @@ Glare            [x]
   Strength       ───●──── 1.00×
 ```
 
-Each slider's neutral point (`zero`) is 1, so the new track fill grows away
-from the film's own value, and a double-click resets to it. A slider greys,
+Each slider's neutral point (`zero`) is 1: the track marks the film's own value
+with a tick while the knob is away from it, and a double-click resets to it.
+The sliders use the rail's existing `ScrubSlider`; how they look waits on the
+next hand-drawn reference. A slider greys,
 rather than hides, while its effect is off. All strings are in both languages.
 
 ## 6. Not done
