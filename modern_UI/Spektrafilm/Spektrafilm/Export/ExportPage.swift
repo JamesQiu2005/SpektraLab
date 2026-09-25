@@ -680,7 +680,7 @@ struct ExportPage: View {
                             .font(F.label).foregroundStyle(Theme.text)
                             .padding(.horizontal, 8)
                             .frame(height: M.rowHeight)
-                            .background(Theme.pill, in: Capsule())
+                            .pillSurface(base: Theme.pill)
                             .onSubmit { store.save() }
                     }
                     PillMenu(label: "Existing File", options: ExistingFilePolicy.allCases,
@@ -1069,7 +1069,7 @@ struct ExportPage: View {
             .multilineTextAlignment(.center)
             .font(F.label).foregroundStyle(Theme.text)
             .frame(width: 62, height: M.rowHeight)
-            .background(Theme.pill, in: Capsule())
+            .pillSurface(base: Theme.pill)
             .onSubmit { store.save() }
             .help("Pixels on the longer side, \(OutputSize.bounds.lowerBound)–"
                   + "\(longEdgeCeiling). Frames are never enlarged.")
@@ -1173,6 +1173,7 @@ struct ExportPage: View {
                     .font(Theme.Font.caption).foregroundStyle(Theme.dim)
                 Spacer()
                 Button(running ? "Exporting…" : "Export") { run() }
+                    .buttonStyle(.primarySurface)
                     .keyboardShortcut(.defaultAction)
                     .disabled(running || batch.isEmpty || store.selected == nil)
             }
@@ -1889,7 +1890,7 @@ private struct PillField<MenuContent: View>: View {
             }
             .frame(height: Theme.Metric.Export.rowHeight - 1)
             .frame(maxWidth: .infinity)
-            .background(Theme.pill, in: Capsule())
+            .pillSurface(base: Theme.pill)
             .contentShape(Capsule())
         }
         .menuStyle(.button).buttonStyle(.plain).menuIndicator(.hidden)

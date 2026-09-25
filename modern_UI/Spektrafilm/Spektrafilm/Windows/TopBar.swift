@@ -227,7 +227,7 @@ struct TopBar: View {
                 // No outline. The previous drawing stroked this capsule in
                 // white; the new one draws it as a plain `.st13` pill, like
                 // every other pill in the interface.
-                .background(Theme.pill, in: Capsule())
+                .pillSurface(base: Theme.pill)
                 .contentShape(Capsule())
         }
         .menuStyle(.button).buttonStyle(.plain).menuIndicator(.hidden).fixedSize()

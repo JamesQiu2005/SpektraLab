@@ -72,7 +72,7 @@ struct SettingsWindow: View {
             .padding(.vertical, Theme.Metric.Settings.verticalInset)
         }
         .frame(width: Theme.Metric.Settings.width, height: Theme.Metric.Settings.height)
-        .background(Theme.card)
+        .background(Theme.cardFill)
         .preferredColorScheme(.dark)
         .onAppear {
             diagnostics.refreshMemory()
@@ -279,7 +279,7 @@ struct SettingsWindow: View {
                             .frame(maxWidth: .infinity, alignment: .leading)
                             .padding(.horizontal, 8)
                             .frame(height: 16)
-                            .background(Theme.field, in: Capsule())
+                            .pillSurface(base: Theme.field)
                     }
                     HStack(spacing: 10) {
                         Button("Reveal in Finder") {
@@ -325,7 +325,7 @@ struct SettingsWindow: View {
                             .frame(maxWidth: .infinity, alignment: .leading)
                             .padding(.horizontal, 8)
                             .frame(height: 16)
-                            .background(Theme.field, in: Capsule())
+                            .pillSurface(base: Theme.field)
                         Button("Choose…") { chooseLogDirectory() }
                             .buttonStyle(.plain).font(Theme.Font.caption).foregroundStyle(Theme.accent)
                     }

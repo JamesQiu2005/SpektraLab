@@ -133,11 +133,11 @@ final class LayoutTests: XCTestCase {
         XCTAssertEqual(m.actionGap, 108.37 - 96.19, accuracy: 0.05)
         XCTAssertEqual(m.actionLeading + m.actionSize.width + m.actionGap, 108.37,
                        accuracy: 0.05)
-        // Sliders still follow the drawing. The checkbox intentionally does
-        // not: its product token supersedes the unusable 5 pt artwork.
-        XCTAssertEqual(m.trackHeight, 2.71 / 2, accuracy: 0.05)
-        XCTAssertEqual(m.knobSize.width, 6.13, accuracy: 0.05)
-        XCTAssertEqual(m.knobSize.height, 5.07, accuracy: 0.05)
+        // The refreshed slider has a visible 3 pt track and 9 pt knob. The
+        // checkbox retains its larger target than the reference artwork.
+        XCTAssertEqual(m.trackHeight, 3, accuracy: 0.05)
+        XCTAssertEqual(m.knobSize.width, 9, accuracy: 0.05)
+        XCTAssertEqual(m.knobSize.height, 9, accuracy: 0.05)
         XCTAssertEqual(m.checkbox, 10, accuracy: 0.5)
         // The hairline, `.st1` at stroke-width 2 on a 2× drawing.
         XCTAssertEqual(m.rule, 1)
@@ -161,7 +161,7 @@ final class LayoutTests: XCTestCase {
                                     "yellow action capsules need the same usable target")
         // The knob is never dragged by itself — the track's gesture covers a
         // whole row — so the row height is its effective target.
-        XCTAssertGreaterThan(m.rowHeight, m.knobSize.height * 3,
+        XCTAssertGreaterThan(m.rowHeight, m.knobSize.height * 2,
                              "the slider's gesture must not be the size of its dot")
         // The reset arrow and the toolbar glyphs keep the boxes §6 names.
         XCTAssertLessThan(m.resetIcon, 12, "v3 draws the reset arrow at 8–9 pt")

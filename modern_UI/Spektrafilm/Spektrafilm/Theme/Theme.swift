@@ -163,10 +163,9 @@ enum Theme {
     /// Plot grounds (histogram / curve) are one step darker than the rail.
     static let plot = Color(hex: 0x1E1F1E)
     static let plotGrid = Color(hex: 0x3A3B39)
-    /// `.st17` / `.st3` fill, `.st2` stroke — the one accent in the
-    /// interface. **`#eca650`, not the old `#ee8a2b`**: the new drawing names
-    /// it in three places and the file that names the colour wins.
-    static let accent = Color(hex: 0xE1A95F)
+    /// The single accent shared by the editor and export page. Keep it flat
+    /// so selected states read as signals rather than glossy surfaces.
+    static let accent = Color(hex: 0xFF9F0A)
     /// `.st16` — a **chosen** row in the film or print list. The drawing's
     /// own words for what changed: "selected entries has shallow, instead of
     /// framed square around it, and the text turns from white to black". So
@@ -218,6 +217,42 @@ enum Theme {
     /// `.st18` — the slider knob, a hair warmer than `text` in the drawing.
     static let knob = Color(hex: 0xFBF8F3)
     static let canvasSurround = ground
+
+    // Shared surface treatment for controls and the rail. These tokens only
+    // describe appearance; callers retain their existing actions and values.
+    static let controlTop = Color(hex: 0x6A6A6A)
+    static let controlTopHover = Color(hex: 0x767676)
+    static let controlFillHover = Color(hex: 0x696969)
+    static let controlTopPressed = Color(hex: 0x545454)
+    static let controlFillPressed = Color(hex: 0x5E5E5E)
+    static var controlFill: LinearGradient {
+        LinearGradient(colors: [controlTop, ground], startPoint: .top, endPoint: .bottom)
+    }
+    static var controlFillHoverGradient: LinearGradient {
+        LinearGradient(colors: [controlTopHover, controlFillHover], startPoint: .top, endPoint: .bottom)
+    }
+    static var controlFillPressedGradient: LinearGradient {
+        LinearGradient(colors: [controlTopPressed, controlFillPressed], startPoint: .top, endPoint: .bottom)
+    }
+    static var controlStroke: LinearGradient {
+        LinearGradient(colors: [Color.white.opacity(0.14), Color.black.opacity(0.30)],
+                       startPoint: .top, endPoint: .bottom)
+    }
+    static var controlStrokePressed: LinearGradient {
+        LinearGradient(colors: [Color.black.opacity(0.30), Color.white.opacity(0.14)],
+                       startPoint: .top, endPoint: .bottom)
+    }
+    static let cardTop = Color(hex: 0x353534)
+    static var cardFill: LinearGradient {
+        LinearGradient(colors: [cardTop, card], startPoint: .top, endPoint: .bottom)
+    }
+    static let ruleSoft = Color.white.opacity(0.08)
+    static let trackRest = Color.white.opacity(0.16)
+    static let trackActive = Color.white.opacity(0.66)
+    static let knobEdge = Color.white.opacity(0.32)
+    static let knobShadow = Color.black.opacity(0.45)
+    static let rowHoverWash = Color.white.opacity(0.05)
+    static let buttonHoverWash = Color.white.opacity(0.07)
 
     static let histR = Color(hex: 0xE8524E)
     static let histG = Color(hex: 0x62C462)
@@ -569,10 +604,10 @@ enum Theme {
         // size inside a padded target — see `ScrubSlider` and `CheckBox`.
 
         /// Track height, 2.71 / 2.
-        static let trackHeight: CGFloat = 1.36
+        static let trackHeight: CGFloat = 3
         /// The knob: v3's vector bounds, a dot rather than a handle.
-        static let knobSize = CGSize(width: 6.13, height: 5.07)
-        static let knobRadius: CGFloat = 2.535
+        static let knobSize = CGSize(width: 9, height: 9)
+        static let knobRadius: CGFloat = 4.5
         /// The checkbox's visible square. The drawing's 5 pt mark proved too
         /// small in real use, so the product token is intentionally larger.
         static let checkbox: CGFloat = 10
@@ -902,19 +937,19 @@ enum Theme {
     // override it.
 
     enum Font {
-        private static func scaled(_ size: CGFloat, weight: SwiftUI.Font.Weight = .bold) -> SwiftUI.Font {
+        private static func scaled(_ size: CGFloat, weight: SwiftUI.Font.Weight = .regular) -> SwiftUI.Font {
             SwiftUI.Font.system(size: size * InterfaceScaleStore.shared.scale.factor, weight: weight)
         }
 
         /// A rail's own name — Develop, Edit.
-        static var railTitle: SwiftUI.Font { scaled(12) }
+        static var railTitle: SwiftUI.Font { scaled(12, weight: .semibold) }
         /// A section title on the **left** rail: Input / Camera, Film, Print,
         /// Crop.
-        static var leftSectionTitle: SwiftUI.Font { scaled(12) }
+        static var leftSectionTitle: SwiftUI.Font { scaled(12, weight: .semibold) }
         /// A section title on the **right** rail: Histogram, White Balance,
         /// Exposure, Curve, Color Balance. A step smaller, and that is the
         /// drawing rather than a compromise — see the note above.
-        static var rightSectionTitle: SwiftUI.Font { scaled(10.5) }
+        static var rightSectionTitle: SwiftUI.Font { scaled(10.5, weight: .semibold) }
         /// The old single title role, kept pointing at the left rail's size
         /// so that anything not yet migrated — the Settings page, the export
         /// page's own `Export.sectionTitle` — keeps a title-sized title.
@@ -932,9 +967,9 @@ enum Theme {
         static var small: SwiftUI.Font { scaled(9) }
 
         static var filmLabel: SwiftUI.Font { body }
-        static var stockGroup: SwiftUI.Font { body }
+        static var stockGroup: SwiftUI.Font { scaled(10.5, weight: .medium) }
         static var edrLabel: SwiftUI.Font { body }
-        static var zoomValue: SwiftUI.Font { scaled(10.5).monospacedDigit() }
+        static var zoomValue: SwiftUI.Font { scaled(10.5, weight: .medium).monospacedDigit() }
 
         static var cameraLabel: SwiftUI.Font { small }
         static var listItem: SwiftUI.Font { small }
@@ -942,7 +977,7 @@ enum Theme {
         static var asShot: SwiftUI.Font { small }
         /// Values keep monospaced digits — a number that changes under the
         /// pointer must not reflow the row it is in (preserved policy).
-        static var value: SwiftUI.Font { scaled(9).monospacedDigit() }
+        static var value: SwiftUI.Font { scaled(9, weight: .medium).monospacedDigit() }
         static var pill: SwiftUI.Font { value }
 
         /// `label` is the *shared* label role, and it is Film's: the wider of
@@ -955,12 +990,12 @@ enum Theme {
         /// Developed / Original, the two capsules under the print list. The
         /// largest type in the interface, and measured — v3 sets them at
         /// 26.22 / 2.
-        static var action: SwiftUI.Font { scaled(13.11) }
+        static var action: SwiftUI.Font { scaled(13.11, weight: .medium) }
 
         /// Text that is *about* a control rather than part of it: a caption
         /// under a plot, a disabled reason. `Ink.tertiary` wherever it is
         /// used.
-        static var meta: SwiftUI.Font { scaled(9) }
+        static var meta: SwiftUI.Font { scaled(9, weight: .light) }
         static var sublabel: SwiftUI.Font { meta }
         static var groupHeader: SwiftUI.Font { stockGroup }
         static var caption: SwiftUI.Font { meta }
@@ -968,7 +1003,7 @@ enum Theme {
         /// The `CINE` badge. v3 sets it at 11.42 / 2 = **5.71** inside a
         /// 21.59 pt pill — very small, and §5 of the handoff flags it for
         /// optical QA rather than asserting it reads.
-        static var cine: SwiftUI.Font { scaled(5.71) }
+        static var cine: SwiftUI.Font { scaled(5.71, weight: .medium) }
 
         /// The export page's ramp is **the same ramp**.
         ///
@@ -991,12 +1026,12 @@ enum Theme {
         /// — written out, so the export page holds still until its own
         /// drawing is translated.
         enum Export {
-            static var sectionTitle: SwiftUI.Font { scaled(12.5) }
+            static var sectionTitle: SwiftUI.Font { scaled(12.5, weight: .semibold) }
             static var label: SwiftUI.Font { scaled(11) }
             static var listItem: SwiftUI.Font { scaled(11) }
-            static var chip: SwiftUI.Font { scaled(11) }
-            static var value: SwiftUI.Font { scaled(11).monospacedDigit() }
-            static var pill: SwiftUI.Font { scaled(9.5) }
+            static var chip: SwiftUI.Font { scaled(11, weight: .medium) }
+            static var value: SwiftUI.Font { scaled(11, weight: .medium).monospacedDigit() }
+            static var pill: SwiftUI.Font { scaled(9.5, weight: .medium) }
         }
     }
 
@@ -1040,7 +1075,7 @@ extension Comparable {
 /// made of.
 struct Hairline: View {
     var body: some View {
-        Rectangle().fill(Theme.rule)
+        Rectangle().fill(Theme.ruleSoft)
             .frame(height: Theme.Metric.rule)
             .frame(maxWidth: .infinity)
     }
@@ -1056,7 +1091,7 @@ struct Hairline: View {
 /// 1 pt wide does not make the three-column arithmetic 2 pt wrong.
 struct VerticalHairline: View {
     var body: some View {
-        Rectangle().fill(Theme.rule)
+        Rectangle().fill(Theme.ruleSoft)
             .frame(width: Theme.Metric.rule)
             .frame(maxHeight: .infinity)
     }
@@ -1077,6 +1112,94 @@ extension View {
         self.opacity(enabled ? 1 : Theme.disabledOpacity)
             .allowsHitTesting(enabled)
             .modifier(DisabledReason(show: !enabled && !reason.isEmpty, reason: reason))
+    }
+
+    /// Subtle raised treatment shared by value fields and secondary controls.
+    func controlSurface(radius: CGFloat = Theme.Metric.fieldRadius,
+                        hovered: Bool = false,
+                        pressed: Bool = false) -> some View {
+        self
+            .background {
+                RoundedRectangle(cornerRadius: radius, style: .continuous)
+                    .fill(pressed ? Theme.controlFillPressedGradient
+                                  : (hovered ? Theme.controlFillHoverGradient : Theme.controlFill))
+            }
+            .overlay {
+                RoundedRectangle(cornerRadius: radius, style: .continuous)
+                    .strokeBorder(pressed ? Theme.controlStrokePressed : Theme.controlStroke,
+                                  lineWidth: 1)
+            }
+    }
+
+    /// Capsule variant. Accent plates opt out of the grey surface's top wash.
+    func pillSurface(base: Color = Theme.ground,
+                     hovered: Bool = false,
+                     pressed: Bool = false,
+                     wash: Bool = true) -> some View {
+        self
+            .background {
+                Capsule()
+                    .fill(base)
+                    .overlay {
+                        Capsule().fill(LinearGradient(
+                            colors: [Color.white.opacity(pressed || !wash ? 0 : 0.05), .clear],
+                            startPoint: .top, endPoint: .bottom))
+                    }
+                    .overlay {
+                        Capsule().fill(LinearGradient(
+                            colors: [Color.white.opacity(hovered && wash ? 0.07 : 0), .clear],
+                            startPoint: .top, endPoint: .bottom))
+                    }
+            }
+            .overlay {
+                Capsule().strokeBorder(pressed ? Theme.controlStrokePressed : Theme.controlStroke,
+                                       lineWidth: 1)
+            }
+    }
+}
+
+/// The button styles change only drawing and pointer feedback, not actions.
+struct SecondaryButtonStyle: ButtonStyle {
+    func makeBody(configuration: Configuration) -> some View {
+        SurfaceButton(label: configuration.label, pressed: configuration.isPressed, primary: false)
+    }
+}
+
+struct PrimaryButtonStyle: ButtonStyle {
+    func makeBody(configuration: Configuration) -> some View {
+        SurfaceButton(label: configuration.label, pressed: configuration.isPressed, primary: true)
+    }
+}
+
+extension ButtonStyle where Self == SecondaryButtonStyle {
+    static var surface: SecondaryButtonStyle { SecondaryButtonStyle() }
+}
+
+extension ButtonStyle where Self == PrimaryButtonStyle {
+    static var primarySurface: PrimaryButtonStyle { PrimaryButtonStyle() }
+}
+
+private struct SurfaceButton<Label: View>: View {
+    let label: Label
+    let pressed: Bool
+    let primary: Bool
+
+    @State private var hovered = false
+    @Environment(\.isEnabled) private var enabled
+
+    var body: some View {
+        label
+            .font(Theme.Font.label)
+            .foregroundStyle(primary ? Theme.card : Theme.text)
+            .lineLimit(1)
+            .padding(.horizontal, 10)
+            .frame(height: Theme.Metric.rowHeight)
+            .pillSurface(base: primary ? Theme.accent : Theme.ground,
+                         hovered: hovered && enabled, pressed: pressed,
+                         wash: !primary)
+            .opacity(enabled ? 1 : Theme.disabledOpacity)
+            .contentShape(Capsule())
+            .onHover { hovered = $0 }
     }
 }
 
