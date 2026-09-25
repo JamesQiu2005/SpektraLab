@@ -357,12 +357,70 @@ struct SceneLatitudeSettings: Codable, Equatable, Sendable {
     }
 }
 
+/// RFC-025: each film effect's strength, apart from the film that sets it.
+///
+/// The stock decides *how much* halation, grain and coupler cross-talk a
+/// negative has -- its antihalation tag, its grain model, its DIR matrix -- and
+/// until now the only thing the user could do about any of it was switch it
+/// off. These are multipliers on the stock's own value, so 1 is always "this
+/// film, as modelled", whichever film that is, and every default is the
+/// engine's, so a frame that has never seen them renders as it did.
+///
+/// They belong to the frame (they are in the sidecar and on the wire whether
+/// or not Settings shows them). The *Decouple effects* setting only decides
+/// whether the Film section shows the sliders; hiding them must not change a
+/// picture that was made with them.
+struct EffectStrengths: Codable, Equatable, Sendable {
+    /// `grain_amount`: the grained density mixed over the clean one.
+    var grain = 1.0                // 0…2
+    /// `grain_sublayers_active`, which the Grain switch used to set too: the
+    /// three-sub-layer model against the single-layer one.
+    var grainLayered = true
+    /// `halation_amount`: the back-reflection off the base.
+    var halation = 1.0             // 0…4
+    /// `halation_scatter_amount`: the in-emulsion scatter, a mix weight.
+    var scatter = 1.0              // 0…1
+    /// `dir_couplers_active` / `dir_couplers_amount`: the inter-layer
+    /// inhibition that gives a stock its colour separation.
+    var couplersActive = true
+    var couplers = 1.0             // 0…1.5
+    /// `glare_amount`: the print's veil.
+    var glare = 1.0                // 0…4
+
+    static let grainRange = 0.0...2.0
+    static let halationRange = 0.0...4.0
+    static let scatterRange = 0.0...1.0
+    /// Not the wire's 0…4. Above ≈1.736 the coupler inverse's exposure axis
+    /// stops being monotonic (AGENTS.md trap 22) and the output is no longer
+    /// the model's, so the slider stops short of it.
+    static let couplersRange = 0.0...1.5
+    static let glareRange = 0.0...4.0
+
+    static let `default` = EffectStrengths()
+    var isDefault: Bool { self == .default }
+
+    init() {}
+
+    /// Every key optional, so a sidecar from before a field existed decodes.
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        let d = EffectStrengths()
+        grain = try c.decodeIfPresent(Double.self, forKey: .grain) ?? d.grain
+        grainLayered = try c.decodeIfPresent(Bool.self, forKey: .grainLayered) ?? d.grainLayered
+        halation = try c.decodeIfPresent(Double.self, forKey: .halation) ?? d.halation
+        scatter = try c.decodeIfPresent(Double.self, forKey: .scatter) ?? d.scatter
+        couplersActive = try c.decodeIfPresent(Bool.self, forKey: .couplersActive) ?? d.couplersActive
+        couplers = try c.decodeIfPresent(Double.self, forKey: .couplers) ?? d.couplers
+        glare = try c.decodeIfPresent(Double.self, forKey: .glare) ?? d.glare
+    }
+}
+
 struct FilmParams: Codable, Equatable, Sendable {
     private enum CodingKeys: String, CodingKey {
         case filmStock, printStock, exposureCompensationEV, autoExposureMethod, autoExposure
         case filmFormatMM, filmFrame, filmSide, sideLengthMM, grainActive, halationActive
         case printBrightnessStops, yFilterShift, mFilterShift, glareActive, scanFilm
-        case extendedDynamicRange, preflashExposure, contrastMask, sceneLatitude
+        case extendedDynamicRange, preflashExposure, contrastMask, sceneLatitude, effects
     }
 
     // --- stock (shoot for film, print for paper) ---
@@ -452,6 +510,8 @@ struct FilmParams: Codable, Equatable, Sendable {
     var contrastMask = ContrastMaskSettings()
     /// RFC-023. Shoot layer.
     var sceneLatitude = SceneLatitudeSettings()
+    /// RFC-025. Shoot layer except glare, which is the print's.
+    var effects = EffectStrengths()
 
     init() {
         filmStock = "kodak_portra_400"
@@ -474,6 +534,7 @@ struct FilmParams: Codable, Equatable, Sendable {
         preflashExposure = 0
         contrastMask = ContrastMaskSettings()
         sceneLatitude = SceneLatitudeSettings()
+        effects = EffectStrengths()
     }
 
     /// Keep sidecars written before EDR readable. Stored properties with
@@ -507,6 +568,7 @@ struct FilmParams: Codable, Equatable, Sendable {
             ?? ContrastMaskSettings()
         sceneLatitude = try c.decodeIfPresent(SceneLatitudeSettings.self, forKey: .sceneLatitude)
             ?? SceneLatitudeSettings()
+        effects = try c.decodeIfPresent(EffectStrengths.self, forKey: .effects) ?? EffectStrengths()
     }
 
     static let `default` = FilmParams()
@@ -530,7 +592,9 @@ struct FilmParams: Codable, Equatable, Sendable {
             ("auto_exposure", .bool(autoExposure), .shoot),
             ("film_format_mm", .double(filmFormatMM), .shoot),
             ("grain_active", .bool(grainActive), .shoot),
-            ("grain_sublayers_active", .bool(grainActive), .shoot),
+            // `&&`, not the setting alone: with grain off this is what it has
+            // always been, so a legacy frame's stamp does not move.
+            ("grain_sublayers_active", .bool(grainActive && effects.grainLayered), .shoot),
             ("halation_active", .bool(halationActive), .shoot),
             ("print_exposure", .double(FilmParams.printExposure(stops: printBrightnessStops)), .print),
             ("y_filter_shift", .double(yFilterShift), .print),
@@ -558,6 +622,15 @@ struct FilmParams: Codable, Equatable, Sendable {
             ("scene_latitude_shadow_room", .double(sceneLatitude.shadowRoom), .shoot),
             ("scene_latitude_rolloff", .double(sceneLatitude.rolloff), .shoot),
             ("scene_latitude_max_lift", .double(sceneLatitude.maxLift), .shoot),
+            // RFC-025. Sent always, like RFC-024's: every default is the
+            // engine's and 1 is a bypass, so the picture of a legacy frame is
+            // unchanged (its stamp is not -- new fields miss the cache once).
+            ("halation_amount", .double(effects.halation.clamped(to: EffectStrengths.halationRange)), .shoot),
+            ("halation_scatter_amount", .double(effects.scatter.clamped(to: EffectStrengths.scatterRange)), .shoot),
+            ("grain_amount", .double(effects.grain.clamped(to: EffectStrengths.grainRange)), .shoot),
+            ("dir_couplers_active", .bool(effects.couplersActive), .shoot),
+            ("dir_couplers_amount", .double(effects.couplers.clamped(to: EffectStrengths.couplersRange)), .shoot),
+            ("glare_amount", .double(effects.glare.clamped(to: EffectStrengths.glareRange)), .print),
         ]
         return fields
     }

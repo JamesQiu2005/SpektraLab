@@ -97,8 +97,63 @@ final class ParamsTests: XCTestCase {
                                   "scene_latitude_active", "scene_latitude_norm",
                                   "scene_latitude_highlight_knee", "scene_latitude_highlight_room",
                                   "scene_latitude_shadow_knee", "scene_latitude_shadow_room",
-                                  "scene_latitude_rolloff", "scene_latitude_max_lift"]
+                                  "scene_latitude_rolloff", "scene_latitude_max_lift",
+                                  // RFC-025. The first three and the couplers'
+                                  // switch were declared all along; the rest are
+                                  // native-only (parity_schema's NATIVE_ONLY).
+                                  "halation_amount", "halation_scatter_amount", "grain_amount",
+                                  "dir_couplers_active", "dir_couplers_amount", "glare_amount"]
         XCTAssertEqual(Set(FilmParams.default.wire.map(\.name)), known)
+    }
+
+    /// RFC-025. A frame from before the strengths existed decodes to the
+    /// film's own, and sends exactly what it did for the two switches the
+    /// strengths share a field with.
+    func testEffectStrengthsDefaultToTheFilmAndLegacyFramesDecode() throws {
+        var legacy = try JSONSerialization.jsonObject(
+            with: JSONEncoder().encode(FilmParams.default)) as! [String: Any]
+        legacy.removeValue(forKey: "effects")
+        let decoded = try JSONDecoder().decode(FilmParams.self,
+                                               from: JSONSerialization.data(withJSONObject: legacy))
+        XCTAssertEqual(decoded, .default)
+        XCTAssertTrue(decoded.effects.isDefault)
+
+        let wire = Dictionary(uniqueKeysWithValues: FilmParams.default.wire.map { ($0.name, $0.value) })
+        for name in ["halation_amount", "halation_scatter_amount", "grain_amount",
+                     "dir_couplers_amount", "glare_amount"] {
+            XCTAssertEqual(wire[name], .double(1), name)
+        }
+        XCTAssertEqual(wire["dir_couplers_active"], .bool(true))
+
+        // `grain_sublayers_active` used to be `grain_active` itself; with the
+        // sub-layer model left on it still is, in both states.
+        var off = FilmParams.default
+        off.grainActive = false
+        XCTAssertEqual(Dictionary(uniqueKeysWithValues: off.wire.map { ($0.name, $0.value) })["grain_sublayers_active"],
+                       .bool(false))
+        XCTAssertEqual(wire["grain_sublayers_active"], .bool(true))
+    }
+
+    /// RFC-025. Glare is the print's, everything else re-develops; and the
+    /// couplers' slider cannot reach the range trap 22 records.
+    func testEffectStrengthLayersAndTheCouplerCeiling() {
+        var p = FilmParams.default
+        p.effects.glare = 2
+        XCTAssertEqual(p.delta(from: .default).layers, [.print])
+
+        p = .default
+        p.effects.grain = 0.5
+        p.effects.grainLayered = false
+        let d = p.delta(from: .default)
+        XCTAssertEqual(d.layers, [.shoot])
+        XCTAssertEqual(d.delta["grain_amount"], .double(0.5))
+        XCTAssertEqual(d.delta["grain_sublayers_active"], .bool(false))
+
+        p = .default
+        p.effects.couplers = 4
+        XCTAssertEqual(p.delta(from: .default).delta["dir_couplers_amount"],
+                       .double(EffectStrengths.couplersRange.upperBound))
+        XCTAssertLessThan(EffectStrengths.couplersRange.upperBound, 1.736)
     }
 
     /// The mask and pre-flash are enlarger edits: a reprint of the cached

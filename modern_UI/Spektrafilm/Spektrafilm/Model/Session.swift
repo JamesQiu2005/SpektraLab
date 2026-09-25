@@ -2723,6 +2723,13 @@ final class Session: CanvasHost {
         set { UserDefaults.standard.set(newValue, forKey: cropRecalcKey) }
     }
 
+    /// RFC-025's *Decouple effects*: whether the Film section shows a strength
+    /// for each effect beside its switch. A view preference, not an edit --
+    /// `FilmParams.effects` is on the wire either way, so turning this off
+    /// hides the sliders and never changes a picture. Read with `@AppStorage`
+    /// under this key where a view has to follow it.
+    nonisolated static let decoupleEffectsKey = Session.uiKey + "decoupleEffects"
+
     func setAutoExposureMethod(_ method: String?) {
         guard method != params.autoExposureMethod else { return }
         var p = params

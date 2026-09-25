@@ -55,6 +55,7 @@ struct SettingsWindow: View {
     /// closes. A settings page nobody is looking at has no business taking
     /// samples.
     @State private var ticker: Timer?
+    @AppStorage(Session.decoupleEffectsKey) private var decoupleEffects = false
 
     var body: some View {
         ScrollView {
@@ -156,6 +157,8 @@ struct SettingsWindow: View {
                                             set: { Session.recalculateEffectsAfterCrop = $0
                                                    session.recomputeFilmFormat() }))
                     caption("Whether cropping changes the physical scale of grain, halation and glare. Off — the default, and the physically true answer — the crop shows less of the same negative and its grain is the size it always was. On, the cropped rectangle *is* the frame: the Film section's Side Length now describes the crop, so the effects grow with it. This is the setting the Film section's Side Length row is measured against.")
+                    ToggleRow(label: "Decouple effects", isOn: $decoupleEffects)
+                    caption("Show a strength for each film effect beside its switch — grain, halation and its scatter, DIR couplers, glare — and let grain's sub-layer model be chosen on its own. Every strength is a multiple of what the chosen film would do, so 1 is always that film as modelled. The strengths belong to the frame: turning this off hides the sliders and changes no picture.")
                 }
             }
         }

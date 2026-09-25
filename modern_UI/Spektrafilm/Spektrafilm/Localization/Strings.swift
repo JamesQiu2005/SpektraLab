@@ -59,6 +59,8 @@ enum S: String, CaseIterable, Sendable {
     case filmFormat, filmFormatSide, filmFormatShort, filmFormatLong
     case filmFormatSideLength
     case filmGrain, filmHalation, filmGlare
+    // RFC-025, shown only with Settings → Decouple effects.
+    case filmEffectStrength, filmGrainLayers, filmScatter, filmCouplers
 
     // MARK: Print
     case printGroupStill, printGroupCine, printNone, printEDR
@@ -89,12 +91,12 @@ enum S: String, CaseIterable, Sendable {
     case helpReset, helpResetFilmExposure, helpResetChannels, helpResetCrop
     case helpStraightenZero, helpCropWholeFrame, helpRevealInFinder
     case helpResetDefaults, helpUseFilmPaper
-    case helpAllEffectsOn, helpAllEffectsOff, helpFastFlip
+    case helpAllEffectsOn, helpAllEffectsOff, helpFastFlip, helpResetEffectStrengths
 
     // MARK: status and disabled reasons
     case statusFull, statusFullPending, statusEmptyFilmstrip
     case statusEDRScope, statusRightRailWBScope
-    case reasonDecodeWBDisabled, reasonNonCustomSideLength
+    case reasonDecodeWBDisabled, reasonNonCustomSideLength, reasonEffectOff
     case reasonPositiveFilmDisablesPaper, reasonEDRDisabledInScanFilm
 
     // MARK: the Settings page's Language section
@@ -148,6 +150,10 @@ extension S {
         case .filmGrain: "Grain"
         case .filmHalation: "Halation"
         case .filmGlare: "Glare"
+        case .filmEffectStrength: "Strength"
+        case .filmGrainLayers: "Sub-layers"
+        case .filmScatter: "Scatter"
+        case .filmCouplers: "DIR Couplers"
 
         // Print
         case .printGroupStill: "Still"
@@ -229,6 +235,7 @@ extension S {
         case .helpUseFilmPaper: "Use the film's declared paper"
         case .helpAllEffectsOn: "All effects on"
         case .helpAllEffectsOff: "All effects off"
+        case .helpResetEffectStrengths: "Reset effect strengths to the film's own"
         case .helpFastFlip: "Fast flip (baked LUT, no glare, ignores your print grade)"
 
         // status and reasons
@@ -240,6 +247,7 @@ extension S {
         case .reasonDecodeWBDisabled: "Decode white balance applies to RAW input only."
         case .reasonNonCustomSideLength:
             "Side Length is the film type's own measurement. Choose Custom to type one."
+        case .reasonEffectOff: "Turn the effect on to set its strength."
         case .reasonPositiveFilmDisablesPaper:
             "A slide film is already a positive — there is nothing for a paper to interpret. "
             + "Choose a negative film to print onto paper."
@@ -301,6 +309,10 @@ extension S {
         case .filmGrain: "颗粒"
         case .filmHalation: "光晕"
         case .filmGlare: "耀光"
+        case .filmEffectStrength: "强度"
+        case .filmGrainLayers: "分层颗粒"
+        case .filmScatter: "散射"
+        case .filmCouplers: "DIR 成色剂"
 
         // Print
         case .printGroupStill: "静态摄影"
@@ -369,6 +381,7 @@ extension S {
         case .helpUseFilmPaper: "使用胶片预设的相纸"
         case .helpAllEffectsOn: "开启所有效果"
         case .helpAllEffectsOff: "关闭所有效果"
+        case .helpResetEffectStrengths: "将效果强度恢复为胶片默认值"
         case .helpFastFlip: "快速切换（使用预烘焙 LUT，不含耀光，忽略印相调整）"
 
         // status and reasons
@@ -379,6 +392,7 @@ extension S {
         case .statusRightRailWBScope: "对印相扫描结果进行调整。"
         case .reasonDecodeWBDisabled: "仅 RAW 图像支持调整解码白平衡。"
         case .reasonNonCustomSideLength: "选择“自定义”画幅后可修改边长。"
+        case .reasonEffectOff: "开启该效果后可调节强度。"
         case .reasonPositiveFilmDisablesPaper: "正片无需相纸印相。选择负片后可使用相纸配置。"
         case .reasonEDRDisabledInScanFilm: "扩展动态范围仅适用于相纸印相。"
 

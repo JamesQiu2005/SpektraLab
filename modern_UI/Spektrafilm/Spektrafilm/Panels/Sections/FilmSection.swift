@@ -44,6 +44,9 @@ struct FilmSection: View {
     /// than part of a frame's settings, because "show me inches" is a fact
     /// about the reader, not about the photograph.
     @AppStorage(Session.uiKey + "sideUnit") private var unitRaw = SideUnit.mm.rawValue
+    /// RFC-025: Settings → Decouple effects. Shows the strengths; the
+    /// strengths are the frame's and render whether or not they are shown.
+    @AppStorage(Session.decoupleEffectsKey) private var decoupleEffects = false
 
     private var unit: Binding<SideUnit> {
         Binding(get: { SideUnit(rawValue: unitRaw) ?? .mm }, set: { unitRaw = $0.rawValue })
@@ -90,9 +93,13 @@ struct FilmSection: View {
                 }
                 .padding(.top, Theme.Metric.rowSpacing + 4)
                 RailRows {
-                    ToggleRow(label: L(.filmGrain), isOn: param(\.grainActive))
-                    ToggleRow(label: L(.filmHalation), isOn: param(\.halationActive))
-                    ToggleRow(label: L(.filmGlare), isOn: param(\.glareActive))
+                    if decoupleEffects {
+                        decoupledEffects
+                    } else {
+                        ToggleRow(label: L(.filmGrain), isOn: param(\.grainActive))
+                        ToggleRow(label: L(.filmHalation), isOn: param(\.halationActive))
+                        ToggleRow(label: L(.filmGlare), isOn: param(\.glareActive))
+                    }
                 }
                 .padding(.top, Theme.Metric.rowSpacing + 4)
             }
@@ -139,6 +146,43 @@ struct FilmSection: View {
                 set: { var p = session.params; p[keyPath: kp] = $0; session.params = p })
     }
 
+    private func effect<V>(_ kp: WritableKeyPath<EffectStrengths, V>) -> Binding<V> {
+        Binding(get: { session.params.effects[keyPath: kp] },
+                set: { var p = session.params; p.effects[keyPath: kp] = $0; session.params = p })
+    }
+
+    /// RFC-025's rows: each effect's switch, then what it can be tuned by. The
+    /// switches are the same three fields as the coupled rows plus the two
+    /// that used to ride on them (grain's sub-layer model, the couplers), so a
+    /// frame reads identically in either mode. A strength greys, rather than
+    /// hides, while its effect is off: the value is still the frame's.
+    @ViewBuilder private var decoupledEffects: some View {
+        let p = session.params
+        ToggleRow(label: L(.filmGrain), isOn: param(\.grainActive))
+        strength(\.grain, range: EffectStrengths.grainRange, enabled: p.grainActive)
+        ToggleRow(label: L(.filmGrainLayers), isOn: effect(\.grainLayered),
+                  enabled: p.grainActive, reason: L(.reasonEffectOff))
+        ToggleRow(label: L(.filmHalation), isOn: param(\.halationActive))
+        strength(\.halation, range: EffectStrengths.halationRange, enabled: p.halationActive)
+        strength(\.scatter, label: L(.filmScatter), range: EffectStrengths.scatterRange,
+                 enabled: p.halationActive)
+        ToggleRow(label: L(.filmCouplers), isOn: effect(\.couplersActive))
+        strength(\.couplers, range: EffectStrengths.couplersRange,
+                 enabled: p.effects.couplersActive)
+        ToggleRow(label: L(.filmGlare), isOn: param(\.glareActive))
+        strength(\.glare, range: EffectStrengths.glareRange, enabled: p.glareActive)
+    }
+
+    /// A multiplier on what the film does, so its neutral is 1 -- the fill
+    /// grows from there, and a double-click puts it back.
+    private func strength(_ kp: WritableKeyPath<EffectStrengths, Double>,
+                          label: String = L(.filmEffectStrength),
+                          range: ClosedRange<Double>, enabled: Bool) -> some View {
+        ScrubSlider(label: label, value: effect(kp), range: range, zero: 1, snap: 0.25,
+                    format: { String(format: "%.2f×", $0) },
+                    disabled: !enabled)
+    }
+
     private var menu: some View {
         Group {
             // The header's arrow is this item; both say the same thing in
@@ -158,6 +202,15 @@ struct FilmSection: View {
                 var p = session.params
                 p.grainActive = false; p.halationActive = false; p.glareActive = false
                 session.params = p
+            }
+            // Offered whenever a frame carries strengths, shown or not: with
+            // the sliders hidden this is the only way to see there is
+            // something to reset, and the only way to reset it.
+            if decoupleEffects || !session.params.effects.isDefault {
+                Button(L(.helpResetEffectStrengths)) {
+                    var p = session.params; p.effects = .default; session.params = p
+                }
+                .disabled(session.params.effects.isDefault)
             }
         }
     }

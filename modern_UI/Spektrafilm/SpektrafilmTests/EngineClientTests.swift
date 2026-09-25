@@ -311,6 +311,73 @@ final class EngineClientTests: XCTestCase {
         await client.stop()
     }
 
+    /// RFC-025's two promises, through the real C ABI: a strength of 0 is the
+    /// effect switched off, byte for byte, and a strength of 1 changes
+    /// nothing. Grain and glare are stochastic, so "off" is the only
+    /// comparison that can be exact for them -- which is why the reference is
+    /// a render with both switched off, and each is then switched back on at
+    /// strength 0. Scatter is deterministic, so it is also moved and restored.
+    ///
+    /// 4 mm of film on a 512 px frame puts ~8 µm in a pixel: the scatter tail
+    /// (~9 µm) and the grain then cover whole pixels, where at the default
+    /// 36 mm they would be sub-pixel and this test would pass by measuring
+    /// nothing.
+    func testEffectStrengthsZeroIsOffAndOneIsTheFilm() async throws {
+        let gpu = try device()
+        let client = EngineClient(device: gpu)
+
+        func pixels(_ outcome: RenderOutcome) throws -> [UInt16] {
+            let texture = try XCTUnwrap(outcome.texture)
+            var rgba = [UInt16](repeating: 0, count: texture.width * texture.height * 4)
+            rgba.withUnsafeMutableBytes {
+                texture.getBytes($0.baseAddress!, bytesPerRow: texture.width * 8,
+                                 from: MTLRegionMake2D(0, 0, texture.width, texture.height),
+                                 mipmapLevel: 0)
+            }
+            return rgba
+        }
+
+        var base = FilmParams.default
+        base.grainActive = false
+        base.glareActive = false
+        base.autoExposure = false
+        var open = base.fullDelta
+        open["film_format_mm"] = .double(4)
+        let session = try await client.open(try makeFrame(384, device: gpu), paramsDelta: open)
+
+        func render(_ delta: [String: ParamValue]) async throws -> [UInt16] {
+            if !delta.isEmpty {
+                let _: SetParamsResponse = try await client.call(
+                    .setParams, SetParamsRequest(sessionID: session.sessionID, paramsDelta: delta),
+                    as: SetParamsResponse.self)
+            }
+            return try pixels(try await client.render(.reprint, RenderRequest(sessionID: session.sessionID)))
+        }
+
+        let reference = try await render([:])
+
+        let noScatter = try await render(["halation_scatter_amount": .double(0)])
+        XCTAssertNotEqual(noScatter, reference, "scatter at 0 moved nothing: the test is measuring nothing")
+        let restored = try await render(["halation_scatter_amount": .double(1)])
+        XCTAssertEqual(restored, reference, "a strength of 1 must be the film as modelled")
+
+        let grainAtZero = try await render(["grain_active": .bool(true),
+                                            "grain_sublayers_active": .bool(true),
+                                            "grain_amount": .double(0)])
+        XCTAssertEqual(grainAtZero, reference, "grain at strength 0 is grain off")
+        let someGrain = try await render(["grain_amount": .double(0.5)])
+        XCTAssertNotEqual(someGrain, reference, "grain at 0.5 drew no grain")
+
+        let glareAtZero = try await render(["grain_active": .bool(false),
+                                            "grain_sublayers_active": .bool(false),
+                                            "glare_active": .bool(true),
+                                            "glare_amount": .double(0)])
+        XCTAssertEqual(glareAtZero, reference, "glare at strength 0 is glare off")
+        let someGlare = try await render(["glare_amount": .double(2)])
+        XCTAssertNotEqual(someGlare, reference, "glare at 2 added no veil")
+        await client.stop()
+    }
+
     func testAReprintReusesTheNegative() async throws {
         let frameSize = 96
         let gpu = try device()
