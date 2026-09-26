@@ -34,6 +34,8 @@
 #include <cstdlib>
 #include <cstring>
 
+#include <dispatch/dispatch.h>
+
 #include "pipeline.hpp"
 
 namespace spk {
@@ -90,6 +92,19 @@ void box(const std::vector<double>& in, std::vector<double>& out, uint32_t w, ui
     box_1d(tmp, out, w, h, r, false);
 }
 
+// `fn(line)` for every line, across the cores. Each line writes only its own
+// outputs and reads only shared inputs, and each output is still accumulated
+// in the same order by one thread -- so the result is bit-identical to the
+// serial loop; only the wall time changes. Measured on a 45 MP frame at the
+// live tier: the serial Gaussian was ~260 ms of a 275 ms reprint at scale
+// 0.03 and ~600 of 631 at 0.093.
+template <class F>
+void for_each_line(uint32_t lines, F&& fn) {
+    struct Ctx { F* fn; } ctx{&fn};
+    dispatch_apply_f(lines, dispatch_get_global_queue(QOS_CLASS_USER_INITIATED, 0), &ctx,
+                     [](void* c, size_t line) { (*static_cast<Ctx*>(c)->fn)(uint32_t(line)); });
+}
+
 void gaussian(const std::vector<double>& in, std::vector<double>& out, uint32_t w, uint32_t h,
               double sigma) {
     const int r = std::max(1, int(std::ceil(4.0 * sigma)));
@@ -98,7 +113,7 @@ void gaussian(const std::vector<double>& in, std::vector<double>& out, uint32_t 
     auto pass = [&](const std::vector<double>& src, std::vector<double>& dst, bool horizontal) {
         dst.assign(src.size(), 0.0);
         const uint32_t len = horizontal ? w : h, lines = horizontal ? h : w;
-        for (uint32_t line = 0; line < lines; ++line) {
+        for_each_line(lines, [&](uint32_t line) {
             for (uint32_t c = 0; c < len; ++c) {
                 double acc = 0.0, wsum = 0.0;
                 const int lo = std::max(0, int(c) - r), hi = std::min(int(len) - 1, int(c) + r);
@@ -111,7 +126,7 @@ void gaussian(const std::vector<double>& in, std::vector<double>& out, uint32_t 
                 }
                 dst[horizontal ? size_t(line) * w + c : size_t(c) * w + line] = acc / wsum;
             }
-        }
+        });
     };
     std::vector<double> tmp;
     pass(in, tmp, true);
