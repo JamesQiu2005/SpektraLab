@@ -1,0 +1,44 @@
+# Does a clean checkout build?
+#
+# Deliberately the only thing CI does. The tests run locally before a push
+# (AGENTS.md, "Test gates"): the ones that matter need camera fixtures, a real
+# GPU and the Python oracle, none of which a hosted runner has. What a local
+# build cannot see is a clean checkout — a file on disk but not committed, a
+# project not regenerated after adding a source file — and that is this job.
+
+name: Build
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group: build-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: macos-26          # arm64; Xcode 26.6 is the image default
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Select Xcode 26.6
+        run: sudo xcode-select -s /Applications/Xcode_26.6.app
+
+      # From Xcode 26 the Metal compiler is a separate component.
+      - name: Metal toolchain
+        run: |
+          xcrun -sdk macosx metal --version \
+            || xcodebuild -downloadComponent MetalToolchain
+
+      - name: Engine kernels and resources
+        run: engine/build.sh bundle
+
+      - name: App
+        working-directory: modern_UI/Spektrafilm
+        run: |
+          xcodebuild -project Spektrafilm.xcodeproj -scheme Spektrafilm \
+            -configuration Debug -derivedDataPath build/DerivedData build
