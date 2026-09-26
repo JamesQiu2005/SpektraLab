@@ -38,8 +38,9 @@ struct RightPanel: View {
                 // empty rail below the colour wheel.
                 VStack(spacing: 0) {
                     let sections: [(String, AnyView)] =
-                        [("histogram", AnyView(HistogramSection(session: session))),
-                         ("whiteBalance", AnyView(WhiteBalanceSection(session: session))),
+                        // The histogram is not here: it describes the finished
+                        // picture and heads the canvas's badge stack instead.
+                        [("whiteBalance", AnyView(WhiteBalanceSection(session: session))),
                          ("exposure", AnyView(ExposureSection(session: session))),
                          ("curve", AnyView(CurveSection(session: session))),
                          ("colorBalance", AnyView(ColorBalanceSection(session: session)))]

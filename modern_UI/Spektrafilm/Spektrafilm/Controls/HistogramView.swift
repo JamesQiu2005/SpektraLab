@@ -9,6 +9,9 @@ struct HistogramPlot: View {
     var channels: Set<CurveChannel> = [.rgb]
     var showGrid = true
     var lineWidth: CGFloat = 1
+    /// The plot's own darker ground. Off on the canvas, where the histogram
+    /// sits straight on the surround like the badges under it.
+    var showGround = true
 
     var body: some View {
         Canvas { ctx, size in
@@ -47,7 +50,7 @@ struct HistogramPlot: View {
                 ctx.stroke(path(row: row), with: .color(color.opacity(0.95)), lineWidth: lineWidth)
             }
         }
-        .background(Theme.plot)
+        .background(showGround ? Theme.plot : .clear)
         .clipShape(RoundedRectangle(cornerRadius: 2))
     }
 }

@@ -1,7 +1,8 @@
-//  RightSections.swift — the grade rail: Histogram, White Balance, Exposure,
-//  Curve, Color Balance, in the 2026-09-17 drawing's order and with its names.
-//  All Layer 2 except the histogram, which reads the adjusted image. Each is
-//  its own view; the rail lists them and puts a hairline between.
+//  RightSections.swift — the grade rail: White Balance, Exposure, Curve,
+//  Color Balance, in the 2026-09-17 drawing's order and with its names. All
+//  Layer 2. The histogram that used to head this rail is on the canvas now
+//  (`EditorWindow`'s badge stack). Each is its own view; the rail lists them
+//  and puts a hairline between.
 //
 //  **v3 (2026-09-18): this rail's section titles are 10.5 pt**, a step under
 //  the left rail's 12, which is why every `PanelSection` here passes
@@ -16,33 +17,6 @@
 //  ground-coloured well is not a track at all.
 
 import SwiftUI
-
-struct HistogramSection: View {
-    @Bindable var session: Session
-    var body: some View {
-        // No menu — it used to pass an empty one, which drew a live "..."
-        // over a popup with nothing in it. `SectionHeader` draws no glyph
-        // for a section with nothing to offer, which is the honest version
-        // of the same statement.
-        PanelSection(L(.sectionHistogram), key: "histogram", metrics: .right) {
-            VStack(spacing: 3) {
-                // The drawing's plot is 255.5 × 45 pt inside a 288 rail, with
-                // the exposure triple read underneath it.
-                HistogramPlot(bins: session.histogram, channels: [.rgb])
-                    .frame(height: 45)
-                HStack {
-                    Text(session.exif?.iso ?? "")
-                    Spacer()
-                    Text(session.exif?.shutter ?? "")
-                    Spacer()
-                    Text(session.exif?.aperture ?? "")
-                }
-                .font(Theme.Font.caption).foregroundStyle(Theme.dim)
-            }
-            .padding(.horizontal, Theme.Metric.plotInset)
-        }
-    }
-}
 
 struct WhiteBalanceSection: View {
     @Bindable var session: Session

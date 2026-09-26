@@ -69,8 +69,9 @@ struct CompareOverlay: View {
     /// right edge, i.e. at any zoom past fit. Then it sits below them.
     private func afterY(_ y: CGFloat, right: CGFloat, width: CGFloat) -> CGFloat {
         let badges = session.canvasBadges.count
-        guard badges > 0, width - right < CanvasBadges.reservedWidth else { return y }
-        let stack = CanvasBadges.inset + CGFloat(badges) * (CanvasBadges.height + CanvasBadges.spacing)
+        let histogram = session.selection != nil
+        guard badges > 0 || histogram, width - right < CanvasBadges.reservedWidth else { return y }
+        let stack = CanvasBadges.stackHeight(badges: badges, histogram: histogram)
         return max(y, stack + CanvasBadges.height / 2 + CanvasBadges.spacing)
     }
 
@@ -121,9 +122,19 @@ struct CompareOverlay: View {
 enum CanvasBadges {
     static let inset: CGFloat = 8
     static let spacing: CGFloat = 4
-    /// A caption-size capsule: the font's line plus 2 pt above and below.
+    /// One line of badge text. Plain text now, no capsule, but it keeps the
+    /// line's height so the stack's arithmetic is unchanged.
     static let height: CGFloat = 18
-    /// How far in from the canvas's right edge the stack can reach — its
-    /// widest badge, "full resolution…", plus the inset, with a margin.
-    static let reservedWidth: CGFloat = 150
+    /// The output histogram at the top of the stack: the finished picture's
+    /// pixels, so it lives with the tier badge rather than on a rail.
+    static let histogram = CGSize(width: 200, height: 56)
+    /// How far in from the canvas's right edge the stack can reach — the
+    /// histogram, its widest member, plus the inset, with a margin.
+    static let reservedWidth: CGFloat = 220
+
+    /// The stack's height with `badges` lines under the histogram (or none).
+    static func stackHeight(badges: Int, histogram showsHistogram: Bool) -> CGFloat {
+        inset + (showsHistogram ? histogram.height + spacing : 0)
+            + CGFloat(badges) * (height + spacing)
+    }
 }

@@ -251,10 +251,30 @@ struct CanvasArea: View {
         // appears when the pointer comes near the canvas's lower edge.
         .overlay(alignment: .bottom) { HoverEdgeTab(edge: .bottom, collapsed: $session.filmstripCollapsed) }
         .overlay(alignment: .topTrailing) {
+            // The finished picture's histogram heads the stack: it describes
+            // the pixels on this canvas, as the tier badge under it does, so
+            // it moved here from the right rail. No ground and no grid -- it
+            // sits on the surround like the text below it. Not a hit target.
             VStack(alignment: .trailing, spacing: CanvasBadges.spacing) {
+                if session.selection != nil {
+                    HistogramPlot(bins: session.histogram, channels: [.rgb],
+                                  showGrid: false, showGround: false)
+                        .frame(width: CanvasBadges.histogram.width,
+                               height: CanvasBadges.histogram.height)
+                        // A soft black haze, not a plate: blurred past its
+                        // own edge so there is no outline to read, and dark
+                        // enough that the lines hold over a white print.
+                        .background {
+                            RoundedRectangle(cornerRadius: 8, style: .continuous)
+                                .fill(Color.black.opacity(0.45))
+                                .padding(-6)
+                                .blur(radius: 10)
+                        }
+                }
                 ForEach(session.canvasBadges, id: \.self) { badge($0) }
             }
             .padding(CanvasBadges.inset)
+            .allowsHitTesting(false)
         }
         // Contract §2's "a visible error rather than a blank canvas". Centred
         // and opaque, not a corner badge: the app is not going to render, and
@@ -290,10 +310,12 @@ struct CanvasArea: View {
         }
     }
 
+    /// Plain text, no capsule. The shadow is not a plate: it is what keeps a
+    /// white word readable where the picture under the corner is white too.
     private func badge(_ text: String) -> some View {
         Text(text).font(Theme.Font.caption).foregroundStyle(Theme.text)
-            .padding(.horizontal, 6).padding(.vertical, 2)
-            .background(Theme.card.opacity(0.8), in: Capsule())
+            .frame(height: CanvasBadges.height)
+            .shadow(color: .black.opacity(0.6), radius: 1.5)
     }
 }
 
