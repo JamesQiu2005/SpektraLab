@@ -725,4 +725,79 @@ final class GeometryTests: XCTestCase {
         let back = try JSONDecoder().decode(Sidecar.self, from: JSONEncoder().encode(s))
         XCTAssertEqual(back.geometry, s.geometry)
     }
+
+    // MARK: - the navigator's picture
+
+    /// The affine form of the output → source mapping agrees with the mapping
+    /// itself everywhere, for every turn and flip — it is the navigator's
+    /// crop, and a disagreement is a thumbnail of somewhere else.
+    func testTheAffineMappingIsTheModelsMapping() {
+        for turns in 0..<4 {
+            for (fh, fv) in [(false, false), (true, false), (false, true), (true, true)] {
+                var g = Geometry()
+                g.crop = CropRect(x: 0.2, y: 0.15, width: 0.5, height: 0.6)
+                g.angle = 7.5
+                g.quarterTurns = turns
+                g.flipH = fh; g.flipV = fv
+                let t = g.outputToSourceTransform(imageSize: size)
+                let out = g.outputSize(for: size)
+                for p in [CGPoint(x: 0.1, y: 0.9), CGPoint(x: 0.5, y: 0.5), CGPoint(x: 0.83, y: 0.27)] {
+                    let expected = g.sourcePoint(forOutput: p, imageSize: size)
+                    let got = CGPoint(x: p.x * out.width, y: p.y * out.height).applying(t)
+                    XCTAssertEqual(got.x / size.width, expected.x, accuracy: 1e-9, "turns \(turns) flips \(fh) \(fv)")
+                    XCTAssertEqual(got.y / size.height, expected.y, accuracy: 1e-9, "turns \(turns) flips \(fh) \(fv)")
+                }
+            }
+        }
+    }
+
+    /// The navigator draws the thumbnail through the crop: a crop of the left
+    /// half of a left-red / right-blue picture is all red, and a crop of the
+    /// top-right quarter is blue and the crop's shape.
+    ///
+    /// Seen red before the fix: the navigator showed the whole uncropped frame.
+    func testTheNavigatorShowsTheCroppedFrame() throws {
+        let w = 200, h = 100
+        let ctx = try XCTUnwrap(CGContext(data: nil, width: w, height: h, bitsPerComponent: 8,
+                                          bytesPerRow: 0, space: CGColorSpaceCreateDeviceRGB(),
+                                          bitmapInfo: CGImageAlphaInfo.noneSkipLast.rawValue))
+        ctx.setFillColor(red: 1, green: 0, blue: 0, alpha: 1)
+        ctx.fill(CGRect(x: 0, y: 0, width: w / 2, height: h))
+        ctx.setFillColor(red: 0, green: 0, blue: 1, alpha: 1)
+        ctx.fill(CGRect(x: w / 2, y: 0, width: w / 2, height: h))
+        let image = try XCTUnwrap(ctx.makeImage())
+
+        XCTAssertTrue(NavigatorSection.frame(image, by: .default) === image,
+                      "an identity geometry should not redraw")
+
+        var left = Geometry()
+        left.crop = CropRect(x: 0, y: 0, width: 0.5, height: 1)
+        let l = try XCTUnwrap(NavigatorSection.frame(image, by: left))
+        XCTAssertEqual(l.width, 100); XCTAssertEqual(l.height, 100)
+        XCTAssertEqual(try meanRGB(l).r, 1, accuracy: 0.02)
+        XCTAssertEqual(try meanRGB(l).b, 0, accuracy: 0.02)
+
+        var corner = Geometry()
+        corner.crop = CropRect(x: 0.6, y: 0, width: 0.4, height: 0.5)
+        corner.quarterTurns = 1
+        let c = try XCTUnwrap(NavigatorSection.frame(image, by: corner))
+        XCTAssertEqual(c.width, 50, "a quarter turn should swap the crop's sides")
+        XCTAssertEqual(c.height, 80)
+        XCTAssertEqual(try meanRGB(c).b, 1, accuracy: 0.02)
+    }
+
+    private func meanRGB(_ image: CGImage) throws -> (r: Double, g: Double, b: Double) {
+        let w = image.width, h = image.height
+        var px = [UInt8](repeating: 0, count: w * h * 4)
+        let ctx = try XCTUnwrap(CGContext(data: &px, width: w, height: h, bitsPerComponent: 8,
+                                          bytesPerRow: w * 4, space: CGColorSpaceCreateDeviceRGB(),
+                                          bitmapInfo: CGImageAlphaInfo.noneSkipLast.rawValue))
+        ctx.draw(image, in: CGRect(x: 0, y: 0, width: w, height: h))
+        var r = 0.0, g = 0.0, b = 0.0
+        for i in stride(from: 0, to: px.count, by: 4) {
+            r += Double(px[i]); g += Double(px[i + 1]); b += Double(px[i + 2])
+        }
+        let n = Double(w * h) * 255
+        return (r / n, g / n, b / n)
+    }
 }

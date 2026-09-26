@@ -89,6 +89,35 @@ final class SelectionModelTests: XCTestCase {
                        "opening an unpicked cell moved the canvas")
     }
 
+    /// While a batch export runs, no gesture moves the open frame or the set.
+    ///
+    /// The exporter writes whatever frame is open, so a click that landed
+    /// between the run's `select` and its write put one frame's render under
+    /// another's file name. Seen red by removing the `batchExporting` guards.
+    func testABatchExportHoldsTheFrameAndTheSet() throws {
+        let (session, urls) = try openedSession()
+        session.click(urls[0])
+        session.click(urls[1], command: true)
+        let picked = session.selectedFrames
+
+        session.batchExporting = true
+        session.click(urls[2])
+        session.click(urls[3], command: true)
+        session.click(urls[1], command: true)
+        session.open(urls[1])
+        session.stepFrame(1)
+        XCTAssertEqual(session.selection, urls[0], "a gesture moved the open frame mid-batch")
+        XCTAssertEqual(session.selectedFrames, picked, "a gesture changed the batch mid-batch")
+
+        // The run's own door stays open.
+        session.select(urls[1])
+        XCTAssertEqual(session.selection, urls[1])
+
+        session.batchExporting = false
+        session.click(urls[2])
+        XCTAssertEqual(session.selection, urls[2], "the lock outlived the batch")
+    }
+
     /// ⌘-click toggles, both directions, and never moves the canvas.
     func testCommandClickTogglesAndLeavesTheCanvasAlone() throws {
         let (session, urls) = try openedSession()

@@ -211,6 +211,10 @@ struct SettingsWindow: View {
                     // saying so to whoever already suspected there was
                     // something to hover over.
                     caption(Diagnostics.perNodeTimingsNote)
+                    ToggleRow(label: "Write a job log beside exports",
+                              isOn: Binding(get: { diagnostics.writeExportJobLog },
+                                            set: { diagnostics.writeExportJobLog = $0 }))
+                    caption(Diagnostics.exportJobLogNote)
                 }
             }
         }

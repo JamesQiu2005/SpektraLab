@@ -911,14 +911,16 @@ final class DiagnosticsTests: XCTestCase {
 
     // MARK: - the job log (§11.4)
 
-    /// An export writes its own record beside its output: which recipe, which
-    /// engine build, the per-frame timing and the applied EV.
+    /// With the opt-in on, an export writes its own record beside its output:
+    /// which recipe, which engine build, the per-frame timing and the applied
+    /// EV.
     ///
     /// **Seen red** by removing the `job.write(beside:)` call: the export
     /// produced a TIFF with no record of how it was made, which is the state
     /// §11.4 exists to end.
     func testAnExportCarriesItsOwnJobLog() async throws {
         _ = try configure()
+        diagnostics.writeExportJobLog = true
         let (session, url) = try await developedSession()
         let sessionID = try XCTUnwrap(session.serviceSessionIDForExport)
 
@@ -968,6 +970,33 @@ final class DiagnosticsTests: XCTestCase {
         }
         XCTAssertNotNil(exportMemory?.number("arena_footprint_gap_mb"))
         XCTAssertEqual(exportMemory?.text("frame"), url.lastPathComponent)
+    }
+
+    /// The job log is opt-in since 2026-09-26: by default a folder of prints
+    /// holds prints, and the export is recorded in the session log only.
+    func testAnExportWritesNoJobLogByDefault() async throws {
+        _ = try configure()
+        XCTAssertFalse(diagnostics.writeExportJobLog, "the job log is on by default")
+        let (session, url) = try await developedSession()
+        let sessionID = try XCTUnwrap(session.serviceSessionIDForExport)
+        var recipe = ExportRecipe()
+        recipe.format = .jpeg
+        let context = NamingRule.Context(
+            originalName: url.deletingPathExtension().lastPathComponent,
+            filmStock: session.params.filmStock, printStock: session.params.printStock,
+            pixelSize: session.decoded?.pixelSize ?? .zero, counter: 1, date: Date())
+        let outcome = try await Exporter.export(session: session, recipe: recipe,
+                                                context: context, sessionID: sessionID)
+        guard case .wrote(let urls, _, _) = outcome else {
+            XCTFail("the export was skipped: \(outcome)"); return
+        }
+        let output = try XCTUnwrap(urls.first)
+        XCTAssertTrue(FileManager.default.fileExists(atPath: output.path))
+        XCTAssertFalse(FileManager.default.fileExists(atPath: JobLog.url(beside: output).path),
+                       "a job log was written beside \(output.lastPathComponent) with the setting off")
+        log.flushNow()
+        let record = try XCTUnwrap(log.records().last { $0.category == .export && $0.message == "export" })
+        XCTAssertNil(record.text("job_log"), "the session log names a job log that was not written")
     }
 
     // MARK: - MemoryArena accounting

@@ -75,6 +75,8 @@ struct ExportPage: View {
     @State private var filePreview: CGImage?
 
     @State private var running = false
+    /// The batch in flight, kept so Stop can cancel it.
+    @State private var runTask: Task<Void, Never>?
     @State private var note: ResultNote?
     /// The rename dialog's draft, non-nil while it is up. A recipe is a named
     /// thing — the list is a list of names — and the old sheet's Name field
@@ -1172,6 +1174,12 @@ struct ExportPage: View {
                 Text(running ? "Exporting…" : exportButtonTitle)
                     .font(Theme.Font.caption).foregroundStyle(Theme.dim)
                 Spacer()
+                if running {
+                    // Cancels between frames: the frame being written is
+                    // finished (or dropped whole), never cut off mid-file.
+                    Button("Stop") { runTask?.cancel() }
+                        .keyboardShortcut(.cancelAction)
+                }
                 Button(running ? "Exporting…" : "Export") { run() }
                     .keyboardShortcut(.defaultAction)
                     .disabled(running || batch.isEmpty || store.selected == nil)
@@ -1608,15 +1616,21 @@ struct ExportPage: View {
     /// The batch runs through the one frame at a time the engine can hold, so
     /// each is selected, developed and written in turn, and the frame the
     /// person was looking at is put back afterwards.
+    ///
+    /// While it runs, `session.batchExporting` holds the open frame and the
+    /// picked set still — the exporter writes whatever frame is open, so a
+    /// click that moved it mid-run used to put one frame's render under
+    /// another's name.
     private func run() {
         guard let r = store.selected, !batch.isEmpty, !running else { return }
         running = true
+        session.batchExporting = true
         note = nil
         // The file on the pane is about to be replaced by one that does not
         // exist yet; until it does, the render stands.
         filePreview = nil
-        Task {
-            defer { running = false }
+        runTask = Task {
+            defer { running = false; session.batchExporting = false; runTask = nil }
             let home = session.selection
             let urls = batch
             var written: [URL] = []
@@ -1632,15 +1646,30 @@ struct ExportPage: View {
             var shown: URL?
             var problems: [String] = []
             var fellBack = false
+            var stoppedAt: Int?
             for (i, url) in urls.enumerated() {
+                if Task.isCancelled { stoppedAt = i; break }
                 session.exportProgress = Double(i) / Double(urls.count)
                 // `select`, not `click`: the run has to put each frame on the
                 // canvas — the exporter reads the open frame — and a click
                 // would collapse the picked set to that one frame on the first
                 // pass and empty the batch it is walking.
                 if session.selection != url { session.select(url) }
+                session.lastError = nil
                 guard let sid = await session.ensureDeveloped() else {
-                    problems.append("\(url.lastPathComponent) is still developing.")
+                    // The frame was just selected and nothing else can move
+                    // it, so a nil here is a develop that failed — say why
+                    // rather than suggesting a wait that will not help.
+                    let why = session.refusal?.message ?? session.lastError
+                    problems.append("\(url.lastPathComponent) could not be developed"
+                                    + (why.map { ": \($0)" } ?? "."))
+                    continue
+                }
+                if Task.isCancelled { stoppedAt = i; break }
+                // Belt and braces for the lock above: the exporter writes the
+                // open frame, so it must be this one.
+                guard session.selection == url else {
+                    problems.append("\(url.lastPathComponent) was skipped: another frame was opened.")
                     continue
                 }
                 do {
@@ -1654,9 +1683,14 @@ struct ExportPage: View {
                     case .skipped(let existing):
                         problems.append("\(existing.lastPathComponent) already exists — skipped.")
                     }
+                } catch is CancellationError {
+                    stoppedAt = i; break
                 } catch {
                     problems.append("\(url.lastPathComponent): \(EngineMessage.userFacing(error))")
                 }
+            }
+            if let stoppedAt {
+                problems.append("Stopped — \(urls.count - stoppedAt) of \(urls.count) not exported.")
             }
             session.exportProgress = nil
             if let home, session.selection != home { session.select(home) }

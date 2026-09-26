@@ -63,6 +63,10 @@ struct EditorWindow: View {
         // and the filmstrip is the only list. Opening a folder still develops
         // nothing until a frame is picked — see `Session.unloadSelection()`.
         printLayout
+        // A batch export writes whatever frame is open, with whatever it is
+        // set to (`Session.batchExporting`): the editor is look-only until the
+        // run finishes, so a slider or a click cannot land mid-file.
+        .allowsHitTesting(!session.batchExporting)
         .background(Theme.ground)
         // Above the browse/print switch, so the buttons are re-placed in
         // either state and the observer outlives every card that can fold.

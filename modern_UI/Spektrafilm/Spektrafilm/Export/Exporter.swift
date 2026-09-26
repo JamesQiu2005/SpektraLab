@@ -150,6 +150,10 @@ enum Exporter {
         // level up is still "beside" — the same `_prints/` folder every other
         // export's log lands in, under the same name it has today.
         let logAnchor = format == .di ? leaf : out
+        // Opt-in since 2026-09-26 (`Diagnostics.writeExportJobLog`). The job
+        // is still assembled either way: it costs nothing, and the session
+        // log's `export` record is built beside it.
+        let writesJobLog = session.diagnostics.writeExportJobLog
         let (target, _, fellBack, fellBackReason) = resolveTarget(recipe)
         var job = JobLog()
         job.note(.info, "export.start", jobHeader(session: session, recipe: recipe, out: out,
@@ -179,9 +183,9 @@ enum Exporter {
                 .init("files", result.urls.count),
                 .init("ev", result.appliedEV ?? Double.nan),
             ])
-            try? job.write(beside: logAnchor)
+            if writesJobLog { try? job.write(beside: logAnchor) }
             noteExport(session, recipe: recipe, result: result, elapsedMs: elapsed,
-                       fellBack: fellBack, job: job)
+                       fellBack: fellBack, job: writesJobLog ? job : nil)
             // §3: after an export is a memory boundary — the full-tier render
             // it just made is the biggest thing the app allocates.
             session.sampleMemory("export")
@@ -192,8 +196,12 @@ enum Exporter {
                 .init("error", "\(error)"),
                 .init("raw", EngineMessage.technical(error)),
             ])
-            try? job.write(beside: logAnchor)
-            session.noteFailure(error, operation: "export", frame: source.lastPathComponent)
+            if writesJobLog { try? job.write(beside: logAnchor) }
+            // A stopped batch is the person's decision, not a failure to
+            // report back to them as one.
+            if !(error is CancellationError) {
+                session.noteFailure(error, operation: "export", frame: source.lastPathComponent)
+            }
             throw error
         }
     }
@@ -202,7 +210,7 @@ enum Exporter {
     /// elapsed, and the applied EV — "so an export can be reconciled with the
     /// canvas that was approved".
     private static func noteExport(_ session: Session, recipe: ExportRecipe, result: Result,
-                                   elapsedMs: Double, fellBack: Bool, job: JobLog) {
+                                   elapsedMs: Double, fellBack: Bool, job: JobLog?) {
         let format = recipe.format
         var fields: [LogField] = [
             .init("format", format.rawValue),
@@ -219,15 +227,16 @@ enum Exporter {
             .init("elapsed_ms", elapsedMs),
             .init("files", result.urls.count),
             .init("frame", session.selection?.lastPathComponent ?? "-"),
-            .init("job_log", JobLog.url(beside: result.urls[0]).lastPathComponent),
         ]
+        if job != nil {
+            fields.append(.init("job_log", JobLog.url(beside: result.urls[0]).lastPathComponent))
+        }
         if let pixels = result.pixels {
             fields.append(.init("w", pixels.w)); fields.append(.init("h", pixels.h))
             fields.append(.init("px", pixels.w * pixels.h))
         }
         if let ev = result.appliedEV { fields.append(.init("ev", ev)) }
         session.log.info(.export, "export", fields)
-        _ = job
     }
 
     /// The space this export will actually be in: a `CGColorSpace`, the
@@ -578,8 +587,15 @@ enum Exporter {
             small = redraw(preview, in: preview.colorSpace ?? CGColorSpaceCreateDeviceRGB(),
                            bitsPerComponent: 8)
         }
+        // Written beside the destination under a hidden name and moved into
+        // place once finalised, so a crash or a full disk mid-write never
+        // leaves a truncated file under the real name — which a `.skip`
+        // recipe would then keep forever as "already exists".
+        let partial = url.deletingLastPathComponent()
+            .appending(path: ".\(url.lastPathComponent).partial-\(UUID().uuidString.prefix(8))")
+        defer { try? FileManager.default.removeItem(at: partial) }
         guard let dest = CGImageDestinationCreateWithURL(
-            url as CFURL, format.utType.identifier as CFString, small == nil ? 1 : 2, nil) else {
+            partial as CFURL, format.utType.identifier as CFString, small == nil ? 1 : 2, nil) else {
             throw ExportError.write(url)
         }
         var props: [CFString: Any] = [:]
@@ -592,6 +608,15 @@ enum Exporter {
         CGImageDestinationAddImage(dest, cg, props as CFDictionary)
         if let small { CGImageDestinationAddImage(dest, small, nil) }
         guard CGImageDestinationFinalize(dest) else { throw ExportError.write(url) }
+        do {
+            if FileManager.default.fileExists(atPath: url.path) {
+                _ = try FileManager.default.replaceItemAt(url, withItemAt: partial)
+            } else {
+                try FileManager.default.moveItem(at: partial, to: url)
+            }
+        } catch {
+            throw ExportError.write(url)
+        }
         return url
     }
 

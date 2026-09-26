@@ -501,6 +501,15 @@ final class Session: CanvasHost {
     var serviceReady = false
     var lastError: String?
     var exportProgress: Double?
+    /// A batch export is walking the picked set (`ExportPage.run`).
+    ///
+    /// The exporter writes **whatever frame is open**, and the run opens each
+    /// frame in turn with `select`. While this is set, every *person's* way of
+    /// changing the open frame or the set — `click`, `open(_:)`, `togglePick`,
+    /// `open(urls:)`, the arrow keys through `click` — is a no-op, so a click
+    /// mid-batch cannot put a different frame under the file being written.
+    /// `select` itself is not gated: it is the run's own door.
+    var batchExporting = false
     var lastRenderMs: Double = 0
     private var statusBase: String?
     var stockWarning: String?
@@ -1099,6 +1108,7 @@ final class Session: CanvasHost {
     // MARK: - library
 
     func open(urls: [URL]) {
+        guard !batchExporting else { status = "An export is running."; return }
         let new = Library.frames(from: urls)
         guard !new.isEmpty else { status = "Nothing openable in the selection."; return }
         if let selection, !new.contains(where: { $0.id == selection }) {
@@ -1218,6 +1228,7 @@ final class Session: CanvasHost {
     /// what a ⌘-click does is testable without synthesising one — the reading
     /// itself stays in the gesture, once, at each call site.
     func click(_ url: URL, command: Bool = false) {
+        guard !batchExporting else { return }
         guard command else {
             picked = [url]
             select(url)
@@ -1237,6 +1248,7 @@ final class Session: CanvasHost {
     /// no-op rather than an unselect, and the way to drop it is to open
     /// another frame.
     func togglePick(_ url: URL) {
+        guard !batchExporting else { return }
         guard picked.contains(url) else { picked.insert(url); return }
         guard url != selection else { return }
         picked.remove(url)
@@ -1249,7 +1261,10 @@ final class Session: CanvasHost {
     /// where the set *is* the page's content. Not `select` either: `select` is
     /// the internal load, and the export run calls it deliberately for that
     /// reason. This is the person's gesture on a page whose list is the batch.
-    func open(_ url: URL) { guard picked.contains(url) else { return }; select(url) }
+    func open(_ url: URL) {
+        guard !batchExporting, picked.contains(url) else { return }
+        select(url)
+    }
 
     func select(_ url: URL) {
         guard url != selection || decoded == nil else { return }
@@ -3125,7 +3140,7 @@ final class Session: CanvasHost {
     /// the service never needs to know, and grain is baked into its cached
     /// negative so a reprint is stable (HANDOFF §5).
     func undo() {
-        guard selection != nil, let previous = undoStack.popLast() else { return }
+        guard !batchExporting, selection != nil, let previous = undoStack.popLast() else { return }
         let current = sidecar
         sidecar = previous
         renderer.layer2 = previous.adjustments.uniforms

@@ -756,6 +756,26 @@ struct Geometry: Codable, Equatable, Sendable {
         return u
     }
 
+    /// `sourcePoint(forOutput:imageSize:)` as one affine map, in **pixels**
+    /// with a top-left origin: output pixel → source pixel, for an output of
+    /// `outputSize(for: imageSize)`. Every step of that mapping (flips,
+    /// quarter turns, the straighten) is affine, so three points fix it.
+    ///
+    /// For drawing a small picture through the crop on the CPU — the
+    /// navigator's thumbnail — without a second copy of the arithmetic.
+    func outputToSourceTransform(imageSize: CGSize) -> CGAffineTransform {
+        let out = outputSize(for: imageSize)
+        let w = max(imageSize.width, 1), h = max(imageSize.height, 1)
+        func px(_ p: CGPoint) -> CGPoint {
+            let s = sourcePoint(forOutput: p, imageSize: imageSize)
+            return CGPoint(x: s.x * w, y: s.y * h)
+        }
+        let o = px(.zero), ex = px(CGPoint(x: 1, y: 0)), ey = px(CGPoint(x: 0, y: 1))
+        return CGAffineTransform(a: (ex.x - o.x) / out.width, b: (ex.y - o.y) / out.width,
+                                 c: (ey.x - o.x) / out.height, d: (ey.y - o.y) / out.height,
+                                 tx: o.x, ty: o.y)
+    }
+
     // MARK: the uniform the shader gets
     //
     // Packed so the kernel does no trigonometry per pixel: the rotation is

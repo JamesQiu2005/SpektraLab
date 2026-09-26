@@ -24,6 +24,26 @@ final class EXIFRoundTripTests: XCTestCase {
         XCTAssertTrue(CGImageDestinationFinalize(destination))
     }
 
+    /// An export is written under a hidden name and moved into place, so the
+    /// folder never holds a half-written file under the real name — and the
+    /// partial is gone afterwards, including when an existing file is
+    /// overwritten.
+    func testAnExportLandsWholeAndLeavesNoPartial() throws {
+        let directory = FileManager.default.temporaryDirectory
+            .appending(path: "spk-atomic-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        addTeardownBlock { try? FileManager.default.removeItem(at: directory) }
+        let output = directory.appending(path: "frame.jpg")
+        try Exporter.write(image(), to: output, format: .jpeg)
+        try Data("stale".utf8).write(to: output)
+        try Exporter.write(image(), to: output, format: .jpeg)
+        let names = try FileManager.default.contentsOfDirectory(atPath: directory.path)
+        XCTAssertEqual(names, ["frame.jpg"], "the export left something beside its file")
+        let source = try XCTUnwrap(CGImageSourceCreateWithURL(output as CFURL, nil))
+        XCTAssertNotNil(CGImageSourceCreateImageAtIndex(source, 0, nil),
+                        "the overwrite did not replace the stale file with an image")
+    }
+
     func testSourceEXIFIsCopiedUnchangedToFinishedExport() throws {
         let directory = FileManager.default.temporaryDirectory
             .appending(path: "spk-exif-(UUID().uuidString)")

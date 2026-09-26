@@ -280,6 +280,23 @@ final class Diagnostics {
         }
     }
 
+    /// Whether an export writes its `JobLog` beside the file (RFC-016 §11.4).
+    ///
+    /// **Off by default** since 2026-09-26, by the user's decision: a
+    /// `.joblog.jsonl` next to every JPEG is clutter in a folder of prints,
+    /// and the same export is already a record in the session log. This is
+    /// the opt-in for whoever wants the folder to carry its own evidence.
+    var writeExportJobLog: Bool {
+        didSet {
+            guard writeExportJobLog != oldValue else { return }
+            defaults.set(writeExportJobLog, forKey: Keys.writeExportJobLog)
+        }
+    }
+
+    nonisolated static let exportJobLogNote =
+        "Writes a .joblog.jsonl beside each exported file: the recipe, the engine build, the timing "
+        + "and the applied EV. The session log records every export either way."
+
     /// "The user has already said yes to a frame that does not fit." Set by the
     /// warning's own button (§11.5); it suppresses the warning for the rest of
     /// the session, which is what an override is.
@@ -369,6 +386,7 @@ final class Diagnostics {
         logDirectory = defaults.string(forKey: Keys.logDirectory)
             .map { URL(fileURLWithPath: $0) } ?? Diagnostics.defaultLogDirectory
         includeFileNamesInBundle = defaults.object(forKey: Keys.includeFileNames) as? Bool ?? true
+        writeExportJobLog = defaults.bool(forKey: Keys.writeExportJobLog)
         allowOverReserve = defaults.bool(forKey: Keys.allowOverReserve)
         applyMemoryLimits()
     }
@@ -392,6 +410,7 @@ final class Diagnostics {
         static let diskCacheCapMegabytes = "diag.diskCacheCapMB"
         static let includeFileNames = "diag.includeFileNamesInBundle"
         static let allowOverReserve = "diag.allowOverReserve"
+        static let writeExportJobLog = "diag.writeExportJobLog"
     }
 
     // MARK: - the app's two lines

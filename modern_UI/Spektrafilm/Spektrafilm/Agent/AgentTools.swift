@@ -94,6 +94,11 @@ enum AgentTools {
     static func call(_ name: String, _ args: JSONValue, in ws: AgentWorkspace) async throws -> AgentResult {
         guard AgentAccess.enabled else { throw AgentError.refused(AgentAccess.refusal) }
         guard let tool = named(name) else { throw AgentError.refused("No tool named \(name).") }
+        // A batch export owns the open frame until it finishes; anything that
+        // opens, edits or exports would change what the run is writing.
+        if ws.session.batchExporting, !["get_schema", "list_stocks", "list_recipes"].contains(name) {
+            throw AgentError.refused("A batch export is running in the app. Try again when it finishes.")
+        }
         let a = args.object ?? [:]
         if let extra = a.keys.first(where: { tool.properties[$0] == nil }) {
             throw AgentError.refused("\(name) takes no argument \(extra).")
