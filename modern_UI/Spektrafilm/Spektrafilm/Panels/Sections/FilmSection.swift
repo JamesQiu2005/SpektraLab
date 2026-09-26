@@ -55,23 +55,8 @@ struct FilmSection: View {
         }
     }
 
-    /// Choosing a film also follows its **declared** paper, unless the user
-    /// has already made a pairing of their own.
-    private func select(_ id: String) {
-        var p = session.params
-        p.filmStock = id
-        if let target = session.catalog.stock(id)?.targetPrint,
-           session.catalog.stock(target) != nil,
-           !session.catalog.isDeclaredPairing(film: p.filmStock, paper: p.printStock) {
-            p.printStock = target
-        }
-        session.params = p
-        // A slide film has no print stage. A positive declares no
-        // `targetPrint`, so the branch above leaves `printStock` where it
-        // was — which is the point: coming back to a negative restores the
-        // paper rather than landing on a default.
-        session.applyFilmStageRule()
-    }
+    /// The rule is `Session.selectFilmStock`, which the agent layer shares.
+    private func select(_ id: String) { session.selectFilmStock(id) }
 
     private var menu: some View {
         // The header's arrow is this item; both say the same thing in words,

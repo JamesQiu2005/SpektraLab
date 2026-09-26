@@ -23,10 +23,12 @@
 //    sentence", and a tooltip only says it to somebody who already suspected
 //    there was something to hover over.
 //
-//  Visually this is the app's right panel: `PanelSection` headers, rail rows,
-//  hairlines and `Theme` tokens, with no second card/well language inside the
-//  rail. Not an AppKit-standard
-//  preferences window, because the rest of the interface is not one either.
+//  **Pages, since 1.1.1 (RFC-026).** The sections had grown to nine in one
+//  scrolling column, so they are grouped the way Capture One's preferences
+//  are: a toolbar of icon tabs (General, Rendering, Memory, Diagnostics,
+//  Agents), and on each page plain groups — a small title and a hairline, not
+//  collapsible, because a settings page is read, not worked in. The rows
+//  inside are the editor's own: rail rows, pills, toggles and `Theme` tokens.
 //
 //  **Language and Interface are localized, and the diagnostic sections are
 //  not.** That is deliberate and it is written down:
@@ -57,20 +59,37 @@ struct SettingsWindow: View {
     @State private var ticker: Timer?
     @AppStorage(Session.decoupleEffectsKey) private var decoupleEffects = false
 
+    /// The page on screen, remembered between openings like the editor's
+    /// own layout.
+    @AppStorage(Session.uiKey + "settingsPage") private var page: SettingsPage = .general
+
     var body: some View {
-        ScrollView {
-            VStack(spacing: 0) {
-                languageSection
-                appearanceSection
-                renderingSection
-                diagnosticsSection
-                memorySection
-                diskCacheSection
-                logsSection
-                bundleSection
-                machineSection
+        VStack(spacing: 0) {
+            SettingsTabBar(selection: $page)
+            Hairline()
+            ScrollView {
+                VStack(spacing: Theme.Metric.Settings.groupSpacing) {
+                    switch page {
+                    case .general:
+                        languageSection
+                        appearanceSection
+                        machineSection
+                    case .rendering:
+                        renderingSection
+                    case .memory:
+                        memorySection
+                        diskCacheSection
+                    case .diagnostics:
+                        diagnosticsSection
+                        logsSection
+                        bundleSection
+                    case .agents:
+                        AgentsSettingsPage()
+                    }
+                }
+                .padding(.vertical, Theme.Metric.Settings.verticalInset)
             }
-            .padding(.vertical, Theme.Metric.Settings.verticalInset)
+            .id(page)
         }
         .frame(width: Theme.Metric.Settings.width, height: Theme.Metric.Settings.height)
         .background(Theme.card)
@@ -104,7 +123,7 @@ struct SettingsWindow: View {
     /// a pure function of a captured value.
     private var languageSection: some View {
         let active = Localization.shared.resolved
-        return PanelSection(L(.setLanguage), systemImage: "globe", key: "setLanguage") {
+        return SettingsGroup(L(.setLanguage)) {
             SettingsRows {
                 VStack(spacing: 4) {
                     PillMenu(label: L(.setLanguage),
@@ -121,19 +140,15 @@ struct SettingsWindow: View {
     // MARK: - appearance
 
     private var appearanceSection: some View {
-        let chinese = Localization.shared.resolved == .simplifiedChinese
-        return PanelSection(chinese ? "界面" : "Interface",
-                            systemImage: "textformat.size", key: "setAppearance") {
+        SettingsGroup(L(.setInterface)) {
             SettingsRows {
                 VStack(spacing: Theme.Metric.Settings.rowSpacing) {
-                    PillMenu(label: chinese ? "缩放" : "Scale",
+                    PillMenu(label: L(.setScale),
                              options: InterfaceScale.allCases,
                              title: { $0.label },
                              selection: Binding(get: { InterfaceScaleStore.shared.scale },
                                                 set: { InterfaceScaleStore.shared.scale = $0 }))
-                    caption(chinese
-                            ? "同步调整主界面、设置与导出页的字体大小；更改立即生效。"
-                            : "Scales type across the editor, Settings and Export. Changes apply immediately.")
+                    caption(L(.setScaleCaption))
                     HStack {
                         Button(L(.setResetLayout)) { SectionLayoutStore.resetAllLayout() }
                             .buttonStyle(.plain).font(Theme.Font.caption).foregroundStyle(Theme.accent)
@@ -147,8 +162,8 @@ struct SettingsWindow: View {
 
     // MARK: - rendering
 
-    private var renderingSection: some View {
-        PanelSection("Rendering", systemImage: "slider.horizontal.3", key: "setRendering") {
+    @ViewBuilder private var renderingSection: some View {
+        SettingsGroup("Preview") {
             SettingsRows {
                 VStack(spacing: 4) {
                     PillMenu(label: "Preview", options: Session.previewEdgeChoices,
@@ -158,6 +173,12 @@ struct SettingsWindow: View {
                     caption("The resolution every interactive edit renders at. The frame's own resolution is rendered separately once an edit settles, so this trades responsiveness while dragging against nothing in the finished picture. The recorded cost of a reprint on a 45 MP frame is 13.7 ms at 2560 px, and rises roughly with the pixels.")
                     ToggleRow(label: "Fast stock preview", isOn: $session.fastStockPreview)
                     caption("When a print stock is picked, show the LUT applied to the negative already on the canvas instead of waiting for the full reprint. It is the same table, so the preview and the print agree.")
+                }
+            }
+        }
+        SettingsGroup("Film effects") {
+            SettingsRows {
+                VStack(spacing: 4) {
                     ToggleRow(label: "Crop re-maps the frame",
                               isOn: Binding(get: { Session.recalculateEffectsAfterCrop },
                                             set: { Session.recalculateEffectsAfterCrop = $0
@@ -173,7 +194,7 @@ struct SettingsWindow: View {
     // MARK: - diagnostics
 
     private var diagnosticsSection: some View {
-        PanelSection("Diagnostics", systemImage: "stethoscope", key: "setDiagnostics") {
+        SettingsGroup("Diagnostics") {
             SettingsRows {
                 VStack(spacing: 4) {
                     PillMenu(label: "Log level", options: LogLevelSetting.allCases,
@@ -202,7 +223,7 @@ struct SettingsWindow: View {
     /// a warning is easy and forgetting it was granted is easier, so this is
     /// where it is visible and revocable.
     private var memorySection: some View {
-        PanelSection("Memory", systemImage: "memorychip", key: "setMemory") {
+        SettingsGroup("Memory") {
             SettingsRows {
                 VStack(alignment: .leading, spacing: 3) {
                     if let m = diagnostics.memory {
@@ -266,7 +287,7 @@ struct SettingsWindow: View {
     /// over the memory cap the app evicts to keep working, over this one it
     /// evicts to stop growing.
     private var diskCacheSection: some View {
-        PanelSection("Disk cache", systemImage: "internaldrive", key: "setDiskCache") {
+        SettingsGroup("Disk cache") {
             SettingsRows {
                 VStack(alignment: .leading, spacing: 3) {
                     if session.hasDiskCache {
@@ -313,7 +334,7 @@ struct SettingsWindow: View {
     // MARK: - logs
 
     private var logsSection: some View {
-        PanelSection("Logs", systemImage: "doc.text", key: "setLogs") {
+        SettingsGroup("Logs") {
             SettingsRows {
                 VStack(spacing: 4) {
                     intRow("Keep for", diagnostics.retentionDays, "days", 1...365) {
@@ -358,7 +379,7 @@ struct SettingsWindow: View {
     // MARK: - the bundle
 
     private var bundleSection: some View {
-        PanelSection("Diagnostic bundle", systemImage: "shippingbox", key: "setBundle") {
+        SettingsGroup("Diagnostic bundle") {
             SettingsRows {
                 VStack(spacing: 4) {
                     ToggleRow(label: "Include image file names",
@@ -387,7 +408,7 @@ struct SettingsWindow: View {
     /// evidence is a *missing* record, so if this page did not say so nothing
     /// would.
     private var machineSection: some View {
-        PanelSection("This session", systemImage: "info.circle", key: "setMachine") {
+        SettingsGroup("This session") {
             SettingsRows {
                 VStack(alignment: .leading, spacing: 3) {
                     readout("App", Diagnostics.bundleInfo.version)
@@ -571,7 +592,7 @@ struct SettingsWindow: View {
 /// Settings content sits directly on the rail, like the editor's controls.
 /// Keeping the inset and spacing in `Theme` prevents this window from growing
 /// a parallel preferences-page visual system.
-private struct SettingsRows<Content: View>: View {
+struct SettingsRows<Content: View>: View {
     @ViewBuilder var content: () -> Content
 
     var body: some View {
@@ -579,5 +600,96 @@ private struct SettingsRows<Content: View>: View {
             .padding(.horizontal, Theme.Metric.rowInset)
             .padding(.vertical, Theme.Metric.Settings.rowSpacing)
             .frame(maxWidth: .infinity, alignment: .leading)
+    }
+}
+
+// MARK: - pages, tabs and groups (Capture One's preferences, RFC-026)
+
+enum SettingsPage: String, CaseIterable, Identifiable {
+    case general, rendering, memory, diagnostics, agents
+    var id: String { rawValue }
+
+    @MainActor var title: String {
+        switch self {
+        case .general: L(.setTabGeneral)
+        case .rendering: L(.setTabRendering)
+        case .memory: L(.setTabMemory)
+        case .diagnostics: L(.setTabDiagnostics)
+        case .agents: L(.setTabAgents)
+        }
+    }
+
+    var systemImage: String {
+        switch self {
+        case .general: "gearshape"
+        case .rendering: "slider.horizontal.3"
+        case .memory: "memorychip"
+        case .diagnostics: "stethoscope"
+        case .agents: "terminal"
+        }
+    }
+}
+
+/// The toolbar: an icon over its name per page, the chosen one on a plate
+/// with its icon in the accent, as Capture One draws it.
+struct SettingsTabBar: View {
+    @Binding var selection: SettingsPage
+
+    var body: some View {
+        HStack(spacing: 2) {
+            ForEach(SettingsPage.allCases) { page in
+                let on = page == selection
+                Button { selection = page } label: {
+                    VStack(spacing: 3) {
+                        Image(systemName: page.systemImage)
+                            .font(.system(size: 16 * InterfaceScaleStore.shared.scale.factor))
+                            .foregroundStyle(on ? Theme.accent : Theme.secondaryText)
+                            .frame(height: 20 * InterfaceScaleStore.shared.scale.factor)
+                        Text(page.title)
+                            .font(Theme.Font.caption)
+                            .foregroundStyle(on ? Theme.text : Theme.dim)
+                            .lineLimit(1)
+                    }
+                    .frame(minWidth: Theme.Metric.Settings.tabWidth)
+                    .padding(.vertical, 6)
+                    .padding(.horizontal, 4)
+                    .background(on ? Theme.ground : .clear,
+                                in: RoundedRectangle(cornerRadius: Theme.Metric.Settings.tabRadius))
+                    .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .accessibilityAddTraits(on ? .isSelected : [])
+            }
+        }
+        .frame(maxWidth: .infinity)
+        .padding(.vertical, 8)
+    }
+}
+
+/// One group on a page: a small grey title, a hairline, and its rows. Not
+/// collapsible — the page is short enough to read whole, which is the point
+/// of having pages.
+struct SettingsGroup<Content: View>: View {
+    let title: String
+    @ViewBuilder var content: () -> Content
+
+    init(_ title: String, @ViewBuilder content: @escaping () -> Content) {
+        self.title = title
+        self.content = content
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            HStack(spacing: 8) {
+                Text(title)
+                    .font(Theme.Font.caption.weight(.semibold))
+                    .foregroundStyle(Theme.dim)
+                    .fixedSize()
+                Hairline().opacity(0.35)
+            }
+            .padding(.horizontal, Theme.Metric.rowInset)
+            .padding(.top, 4)
+            content()
+        }
     }
 }

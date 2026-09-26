@@ -104,6 +104,15 @@ enum S: String, CaseIterable, Sendable {
 
     // MARK: frontend v4 (2026-09-26 drawing)
     case latitudeUnmeasurable, latitudeNoLight, filmFormatSize, railFilmAndPrint, railParameters, tabPreDev, tabPostDev, sectionNavigator, sectionEnlarger, sectionLatitude, sectionScenePlacement, sectionToneMask, printEffects, filmGrainStrength, filmHalationStrength, filmScatterStrength, filmCouplersStrength, filmGlareStrength, latitudeBelow, latitudeWithin, latitudeAbove, latitudeHeld, latitudeFullSeparation, latitudeEmpty, placementHighlight, placementShadow, maskEnable, maskHighlights, maskShadows, maskCore, maskRadius, maskCurveCaption, enlargerPreflash, helpResetFilmFormat, helpResetPlacement, helpResetToneMask, helpResetEnlarger, helpSubLayerGrain, reasonPrintEffectsOff, reasonNotDeveloped, setResetLayout, setResetLayoutCaption
+
+    // MARK: Settings as pages, and the Agents page (RFC-026)
+    case setTabGeneral, setTabRendering, setTabMemory, setTabDiagnostics, setTabAgents
+    case setInterface, setScale, setScaleCaption
+    case setAgentsAccess, setAgentsToggle, setAgentsToggleCaption
+    case setAgentsCommandLine, setAgentsInstall, setAgentsReinstall, setAgentsUninstall
+    case setAgentsInstalled, setAgentsNotInstalled, setAgentsInstalledOther, setAgentsInstallCaption
+    case setAgentsMCP, setAgentsClaudeCode, setAgentsClaudeDesktop, setAgentsMCPCaption
+    case setAgentsCopy, setAgentsCopied, setAgentsTools
 }
 
 // MARK: - the table
@@ -157,6 +166,32 @@ extension S {
         case .reasonNotDeveloped: "Develop the frame first."
         case .setResetLayout: "Reset All Layout"
         case .setResetLayoutCaption: "Panel widths, section heights and which sections are open, back to the drawing."
+        case .setTabGeneral: "General"
+        case .setTabRendering: "Rendering"
+        case .setTabMemory: "Memory"
+        case .setTabDiagnostics: "Diagnostics"
+        case .setTabAgents: "Agents"
+        case .setInterface: "Interface"
+        case .setScale: "Scale"
+        case .setScaleCaption: "Scales type across the editor, Settings and Export. Changes apply immediately."
+        case .setAgentsAccess: "Access"
+        case .setAgentsToggle: "Allow command line and agent access"
+        case .setAgentsToggleCaption: "Lets the spektralab command and MCP agents (Claude Code, Claude Desktop, any MCP client) open, edit, process and export photographs on this Mac — the same edits this window makes, saved where it reads them. Off, every call is refused, including one from an agent already connected. Local only: nothing listens on the network, and originals are never written."
+        case .setAgentsCommandLine: "Command line"
+        case .setAgentsInstall: "Install spektralab"
+        case .setAgentsReinstall: "Reinstall"
+        case .setAgentsUninstall: "Remove"
+        case .setAgentsInstalled: "Installed"
+        case .setAgentsNotInstalled: "Not installed"
+        case .setAgentsInstalledOther: "Installed for another copy of the app"
+        case .setAgentsInstallCaption: "Writes a two-line script to ~/.local/bin/spektralab that runs this app without a window. Try `spektralab help`; every command prints JSON."
+        case .setAgentsMCP: "MCP server"
+        case .setAgentsClaudeCode: "Claude Code"
+        case .setAgentsClaudeDesktop: "Claude Desktop"
+        case .setAgentsMCPCaption: "Add SpektraLab to an agent with one of these. The agent starts the server itself over stdio when it needs it; nothing runs in the background."
+        case .setAgentsCopy: "Copy"
+        case .setAgentsCopied: "Copied"
+        case .setAgentsTools: "Tools"
         case .sectionCamera: "Input / Camera"
         case .sectionFilm: "Film"
         case .sectionPrint: "Print"
@@ -358,6 +393,32 @@ extension S {
         case .reasonNotDeveloped: "请先显影。"
         case .setResetLayout: "重置全部布局"
         case .setResetLayoutCaption: "将面板宽度、各部分高度与展开状态恢复为默认。"
+        case .setTabGeneral: "常规"
+        case .setTabRendering: "渲染"
+        case .setTabMemory: "内存"
+        case .setTabDiagnostics: "诊断"
+        case .setTabAgents: "智能体"
+        case .setInterface: "界面"
+        case .setScale: "缩放"
+        case .setScaleCaption: "同步调整主界面、设置与导出页的字体大小；更改立即生效。"
+        case .setAgentsAccess: "访问"
+        case .setAgentsToggle: "允许命令行与智能体访问"
+        case .setAgentsToggleCaption: "允许 spektralab 命令与 MCP 智能体（Claude Code、Claude Desktop 或任何 MCP 客户端）在本机打开、编辑、冲印与导出照片——与本窗口的编辑完全相同，并保存在本窗口读取的位置。关闭时所有调用都会被拒绝，包括已连接的智能体。仅限本机：不监听网络，也从不改写原片。"
+        case .setAgentsCommandLine: "命令行"
+        case .setAgentsInstall: "安装 spektralab"
+        case .setAgentsReinstall: "重新安装"
+        case .setAgentsUninstall: "移除"
+        case .setAgentsInstalled: "已安装"
+        case .setAgentsNotInstalled: "未安装"
+        case .setAgentsInstalledOther: "已为另一份应用安装"
+        case .setAgentsInstallCaption: "在 ~/.local/bin/spektralab 写入一个两行脚本，以无窗口方式运行本应用。可先试 `spektralab help`；每条命令都输出 JSON。"
+        case .setAgentsMCP: "MCP 服务"
+        case .setAgentsClaudeCode: "Claude Code"
+        case .setAgentsClaudeDesktop: "Claude Desktop"
+        case .setAgentsMCPCaption: "用以下任一方式把 SpektraLab 添加给智能体。服务由智能体在需要时通过 stdio 自行启动，不在后台常驻。"
+        case .setAgentsCopy: "复制"
+        case .setAgentsCopied: "已复制"
+        case .setAgentsTools: "工具"
         case .sectionCamera: "输入 / 相机"
         case .sectionFilm: "胶片"
         case .sectionPrint: "印相"

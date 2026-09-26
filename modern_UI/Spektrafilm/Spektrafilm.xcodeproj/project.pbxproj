@@ -5,6 +5,27 @@
 	};
 	objectVersion = 56;
 	objects = {
+		AE70E61D58C8511384C45D65 /* AgentAccess.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "AgentAccess.swift"; sourceTree = "<group>"; };
+		788D6173F59CE514C7ABF744 /* AgentCLI.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "AgentCLI.swift"; sourceTree = "<group>"; };
+		37834F309631EDDF552EEDE0 /* AgentSchema.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "AgentSchema.swift"; sourceTree = "<group>"; };
+		5D5656E54E4E0FCA15A6E385 /* AgentTools.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "AgentTools.swift"; sourceTree = "<group>"; };
+		FE1C55C032E624649ECCF435 /* AgentWorkspace.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "AgentWorkspace.swift"; sourceTree = "<group>"; };
+		289061D1542FA5C983606512 /* JSONValue.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "JSONValue.swift"; sourceTree = "<group>"; };
+		4A6A8509D23271E17BB3C34E /* MCPServer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "MCPServer.swift"; sourceTree = "<group>"; };
+		7A3683AAE552F19C52489403 /* Agent */ = {
+			isa = PBXGroup;
+			children = (
+				AE70E61D58C8511384C45D65 /* AgentAccess.swift */,
+				788D6173F59CE514C7ABF744 /* AgentCLI.swift */,
+				37834F309631EDDF552EEDE0 /* AgentSchema.swift */,
+				5D5656E54E4E0FCA15A6E385 /* AgentTools.swift */,
+				FE1C55C032E624649ECCF435 /* AgentWorkspace.swift */,
+				289061D1542FA5C983606512 /* JSONValue.swift */,
+				4A6A8509D23271E17BB3C34E /* MCPServer.swift */
+			);
+			path = "Agent";
+			sourceTree = "<group>";
+		};
 		3375270C81BEA0B1B8896473 /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = "Assets.xcassets"; sourceTree = "<group>"; };
 		3CC9377A61A47BF9746521A9 /* ColourManagement.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "ColourManagement.swift"; sourceTree = "<group>"; };
 		AE9DF7CC994C0A44902731CA /* CompareOverlay.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CompareOverlay.swift"; sourceTree = "<group>"; };
@@ -242,6 +263,7 @@
 			sourceTree = "<group>";
 		};
 		9F23C3316C10DCB824FB61A8 /* AboutWindow.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "AboutWindow.swift"; sourceTree = "<group>"; };
+		EB1385C1FE7F75D9B22BE1F2 /* AgentsSettingsPage.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "AgentsSettingsPage.swift"; sourceTree = "<group>"; };
 		09F0E1278E0E11D0A2B20BCA /* BootWindow.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "BootWindow.swift"; sourceTree = "<group>"; };
 		1314FC9749243D900B18259C /* CollapseTab.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CollapseTab.swift"; sourceTree = "<group>"; };
 		ADC8065A5E52A589C2F6AE42 /* EditorWindow.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "EditorWindow.swift"; sourceTree = "<group>"; };
@@ -253,6 +275,7 @@
 			isa = PBXGroup;
 			children = (
 				9F23C3316C10DCB824FB61A8 /* AboutWindow.swift */,
+				EB1385C1FE7F75D9B22BE1F2 /* AgentsSettingsPage.swift */,
 				09F0E1278E0E11D0A2B20BCA /* BootWindow.swift */,
 				1314FC9749243D900B18259C /* CollapseTab.swift */,
 				ADC8065A5E52A589C2F6AE42 /* EditorWindow.swift */,
@@ -270,6 +293,7 @@
 		3C3DC463728E9522781A7805 /* Spektrafilm */ = {
 			isa = PBXGroup;
 			children = (
+				7A3683AAE552F19C52489403 /* Agent */,
 				3375270C81BEA0B1B8896473 /* Assets.xcassets */,
 				F2592FDD5EA53DA4A185D88F /* Canvas */,
 				8BA0238B9B43478A480FB02A /* Controls */,
@@ -292,6 +316,7 @@
 			path = "Spektrafilm";
 			sourceTree = "<group>";
 		};
+		701C800DBBB33B39A15D78A5 /* AgentTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "AgentTests.swift"; sourceTree = "<group>"; };
 		52AA7B49AA76968939624751 /* CachePolicyTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CachePolicyTests.swift"; sourceTree = "<group>"; };
 		5F3A463963EF5A09D20AC677 /* CanvasViewTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CanvasViewTests.swift"; sourceTree = "<group>"; };
 		5D0BCE2DDC98DEFB449D8048 /* ColorBalanceTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "ColorBalanceTests.swift"; sourceTree = "<group>"; };
@@ -339,6 +364,7 @@
 		6C750F429B304AF107F89FFD /* SpektrafilmTests */ = {
 			isa = PBXGroup;
 			children = (
+				701C800DBBB33B39A15D78A5 /* AgentTests.swift */,
 				52AA7B49AA76968939624751 /* CachePolicyTests.swift */,
 				5F3A463963EF5A09D20AC677 /* CanvasViewTests.swift */,
 				5D0BCE2DDC98DEFB449D8048 /* ColorBalanceTests.swift */,
@@ -491,6 +517,13 @@
 			);
 			sourceTree = "<group>";
 		};
+		A6881B9964972BFCB9868B97 /* AgentAccess.swift */ = {isa = PBXBuildFile; fileRef = AE70E61D58C8511384C45D65; };
+		919C205A2DBCE6A2F77C9736 /* AgentCLI.swift */ = {isa = PBXBuildFile; fileRef = 788D6173F59CE514C7ABF744; };
+		62DB8D676B13DAF92BAB23BA /* AgentSchema.swift */ = {isa = PBXBuildFile; fileRef = 37834F309631EDDF552EEDE0; };
+		BB32A93F13C64264E0A0E76C /* AgentTools.swift */ = {isa = PBXBuildFile; fileRef = 5D5656E54E4E0FCA15A6E385; };
+		722D321E07ADA6275817D9B6 /* AgentWorkspace.swift */ = {isa = PBXBuildFile; fileRef = FE1C55C032E624649ECCF435; };
+		5C1C1099E8520CC61F5A4C8A /* JSONValue.swift */ = {isa = PBXBuildFile; fileRef = 289061D1542FA5C983606512; };
+		075BB3FC17E1D07FC0587A6B /* MCPServer.swift */ = {isa = PBXBuildFile; fileRef = 4A6A8509D23271E17BB3C34E; };
 		F443D4211A905991F59FAF70 /* ColourManagement.swift */ = {isa = PBXBuildFile; fileRef = 3CC9377A61A47BF9746521A9; };
 		CDAFF5BAC779CA0E91DCC89D /* CompareOverlay.swift */ = {isa = PBXBuildFile; fileRef = AE9DF7CC994C0A44902731CA; };
 		A9FFB83C7123E9F7C95F636A /* CropOverlay.swift */ = {isa = PBXBuildFile; fileRef = DA37ABB15B5AE3CB099586C8; };
@@ -565,6 +598,7 @@
 		7DE68917EFE0387EB6CA31CE /* Theme.swift */ = {isa = PBXBuildFile; fileRef = E9A855B54DCFEA59C4405355; };
 		8111223953FAA398DB461ED3 /* UpdateCheck.swift */ = {isa = PBXBuildFile; fileRef = 60EC177B720E7F60B0465202; };
 		7485388DD7C86A4BB6126DD2 /* AboutWindow.swift */ = {isa = PBXBuildFile; fileRef = 9F23C3316C10DCB824FB61A8; };
+		96CDFA98F80E78DD0F842FA4 /* AgentsSettingsPage.swift */ = {isa = PBXBuildFile; fileRef = EB1385C1FE7F75D9B22BE1F2; };
 		11E93F8098E4781E687D3B40 /* BootWindow.swift */ = {isa = PBXBuildFile; fileRef = 09F0E1278E0E11D0A2B20BCA; };
 		9F226DBBF6D9A09997010B68 /* CollapseTab.swift */ = {isa = PBXBuildFile; fileRef = 1314FC9749243D900B18259C; };
 		30D807F890E0D613B37D2F53 /* EditorWindow.swift */ = {isa = PBXBuildFile; fileRef = ADC8065A5E52A589C2F6AE42; };
@@ -598,6 +632,13 @@
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				A6881B9964972BFCB9868B97 /* AgentAccess.swift */,
+				919C205A2DBCE6A2F77C9736 /* AgentCLI.swift */,
+				62DB8D676B13DAF92BAB23BA /* AgentSchema.swift */,
+				BB32A93F13C64264E0A0E76C /* AgentTools.swift */,
+				722D321E07ADA6275817D9B6 /* AgentWorkspace.swift */,
+				5C1C1099E8520CC61F5A4C8A /* JSONValue.swift */,
+				075BB3FC17E1D07FC0587A6B /* MCPServer.swift */,
 				F443D4211A905991F59FAF70 /* ColourManagement.swift */,
 				CDAFF5BAC779CA0E91DCC89D /* CompareOverlay.swift */,
 				A9FFB83C7123E9F7C95F636A /* CropOverlay.swift */,
@@ -672,6 +713,7 @@
 				7DE68917EFE0387EB6CA31CE /* Theme.swift */,
 				8111223953FAA398DB461ED3 /* UpdateCheck.swift */,
 				7485388DD7C86A4BB6126DD2 /* AboutWindow.swift */,
+				96CDFA98F80E78DD0F842FA4 /* AgentsSettingsPage.swift */,
 				11E93F8098E4781E687D3B40 /* BootWindow.swift */,
 				9F226DBBF6D9A09997010B68 /* CollapseTab.swift */,
 				30D807F890E0D613B37D2F53 /* EditorWindow.swift */,
@@ -725,6 +767,7 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
+		D9C3C8DCFE21EC997B8F9448 /* AgentTests.swift */ = {isa = PBXBuildFile; fileRef = 701C800DBBB33B39A15D78A5; };
 		0475C190194643CFAEE4F9BD /* CachePolicyTests.swift */ = {isa = PBXBuildFile; fileRef = 52AA7B49AA76968939624751; };
 		5E11C56528BFC0565D351F2E /* CanvasViewTests.swift */ = {isa = PBXBuildFile; fileRef = 5F3A463963EF5A09D20AC677; };
 		D0EC5471A9EE06B8B044D2AD /* ColorBalanceTests.swift */ = {isa = PBXBuildFile; fileRef = 5D0BCE2DDC98DEFB449D8048; };
@@ -769,6 +812,13 @@
 		C75BB18A94E8AF5DC533FCEC /* UpdateCheckTests.swift */ = {isa = PBXBuildFile; fileRef = E519422FCB997EFAA37EF9BA; };
 		79E5DF91AA1045E525966216 /* ViewportStateTests.swift */ = {isa = PBXBuildFile; fileRef = 19533F295FB7423FCE62C8DD; };
 		1AF1357ED1527EBC8166745C /* WhiteBalanceTests.swift */ = {isa = PBXBuildFile; fileRef = F5302C66459D988E5FC47CA3; };
+		8AA25BB76485FFA99E0A4A64 /* AgentAccess.swift */ = {isa = PBXBuildFile; fileRef = AE70E61D58C8511384C45D65; };
+		5B41797719DB0E6D416B8D2F /* AgentCLI.swift */ = {isa = PBXBuildFile; fileRef = 788D6173F59CE514C7ABF744; };
+		0531E49606C4CF744953B5E0 /* AgentSchema.swift */ = {isa = PBXBuildFile; fileRef = 37834F309631EDDF552EEDE0; };
+		A0EBA7F8B9F8E178B79AEE85 /* AgentTools.swift */ = {isa = PBXBuildFile; fileRef = 5D5656E54E4E0FCA15A6E385; };
+		5781C3C2C3F0BE7BEC4CCE45 /* AgentWorkspace.swift */ = {isa = PBXBuildFile; fileRef = FE1C55C032E624649ECCF435; };
+		BF02421F7C58B3717CC29BAF /* JSONValue.swift */ = {isa = PBXBuildFile; fileRef = 289061D1542FA5C983606512; };
+		D008FBE9D65E1B095ED2F8B4 /* MCPServer.swift */ = {isa = PBXBuildFile; fileRef = 4A6A8509D23271E17BB3C34E; };
 		8CDECFAE3D708A987D5F23D1 /* ColourManagement.swift */ = {isa = PBXBuildFile; fileRef = 3CC9377A61A47BF9746521A9; };
 		047A7D7877482487B6E36B80 /* CompareOverlay.swift */ = {isa = PBXBuildFile; fileRef = AE9DF7CC994C0A44902731CA; };
 		22C990CC86531976E3AEE1E6 /* CropOverlay.swift */ = {isa = PBXBuildFile; fileRef = DA37ABB15B5AE3CB099586C8; };
@@ -843,6 +893,7 @@
 		B37DF42FDDF1115FF10B93AC /* Theme.swift */ = {isa = PBXBuildFile; fileRef = E9A855B54DCFEA59C4405355; };
 		2AF8C98E7896A9A4668F18FA /* UpdateCheck.swift */ = {isa = PBXBuildFile; fileRef = 60EC177B720E7F60B0465202; };
 		079BA19AF46D3C795867E568 /* AboutWindow.swift */ = {isa = PBXBuildFile; fileRef = 9F23C3316C10DCB824FB61A8; };
+		3D2BBCE9222E3EA99D27172C /* AgentsSettingsPage.swift */ = {isa = PBXBuildFile; fileRef = EB1385C1FE7F75D9B22BE1F2; };
 		E173521E6D3C6C05CEBB9055 /* BootWindow.swift */ = {isa = PBXBuildFile; fileRef = 09F0E1278E0E11D0A2B20BCA; };
 		47529647F3D60BBE8CE96974 /* CollapseTab.swift */ = {isa = PBXBuildFile; fileRef = 1314FC9749243D900B18259C; };
 		6BE641FE29553FD2270F5946 /* EditorWindow.swift */ = {isa = PBXBuildFile; fileRef = ADC8065A5E52A589C2F6AE42; };
@@ -875,6 +926,7 @@
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				D9C3C8DCFE21EC997B8F9448 /* AgentTests.swift */,
 				0475C190194643CFAEE4F9BD /* CachePolicyTests.swift */,
 				5E11C56528BFC0565D351F2E /* CanvasViewTests.swift */,
 				D0EC5471A9EE06B8B044D2AD /* ColorBalanceTests.swift */,
@@ -919,6 +971,13 @@
 				C75BB18A94E8AF5DC533FCEC /* UpdateCheckTests.swift */,
 				79E5DF91AA1045E525966216 /* ViewportStateTests.swift */,
 				1AF1357ED1527EBC8166745C /* WhiteBalanceTests.swift */,
+				8AA25BB76485FFA99E0A4A64 /* AgentAccess.swift */,
+				5B41797719DB0E6D416B8D2F /* AgentCLI.swift */,
+				0531E49606C4CF744953B5E0 /* AgentSchema.swift */,
+				A0EBA7F8B9F8E178B79AEE85 /* AgentTools.swift */,
+				5781C3C2C3F0BE7BEC4CCE45 /* AgentWorkspace.swift */,
+				BF02421F7C58B3717CC29BAF /* JSONValue.swift */,
+				D008FBE9D65E1B095ED2F8B4 /* MCPServer.swift */,
 				8CDECFAE3D708A987D5F23D1 /* ColourManagement.swift */,
 				047A7D7877482487B6E36B80 /* CompareOverlay.swift */,
 				22C990CC86531976E3AEE1E6 /* CropOverlay.swift */,
@@ -993,6 +1052,7 @@
 				B37DF42FDDF1115FF10B93AC /* Theme.swift */,
 				2AF8C98E7896A9A4668F18FA /* UpdateCheck.swift */,
 				079BA19AF46D3C795867E568 /* AboutWindow.swift */,
+				3D2BBCE9222E3EA99D27172C /* AgentsSettingsPage.swift */,
 				E173521E6D3C6C05CEBB9055 /* BootWindow.swift */,
 				47529647F3D60BBE8CE96974 /* CollapseTab.swift */,
 				6BE641FE29553FD2270F5946 /* EditorWindow.swift */,

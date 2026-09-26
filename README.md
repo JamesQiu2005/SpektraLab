@@ -85,6 +85,14 @@ page shows that file at its own resolution before you write it —
 measured identical to the file, pixel for pixel. `ARCHITECTURE.md` §7.5 is the
 chain; `rfc/RFC-018` is why.
 
+**Three front doors on the same binary.** Launched normally it is the window.
+`SpektraLab cli <command>` (installed as `spektralab` by Settings ▸ Agents) and
+`SpektraLab mcp` (a Model Context Protocol server on stdio) drive the same
+`Session` with no window. So an agent can open, edit, process, preview and
+export a photograph by the same code and rules a person uses, and saves to
+the same sidecar. Access is off until it is turned on in Settings.
+`rfc/RFC-026` is the design; `spektralab help` lists the commands.
+
 ---
 
 ## Build

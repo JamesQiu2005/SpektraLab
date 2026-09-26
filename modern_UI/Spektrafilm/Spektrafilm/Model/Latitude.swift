@@ -139,17 +139,41 @@ extension Session {
                 self.latitude.pendingPlacement = nil
                 guard let reply = await self.probeLatitude(highlight: want.highlight, shadow: want.shadow)
                 else { break }
-                if reply.fit.valid {
-                    var p = self.params
-                    p.sceneLatitude.apply(reply.fit)
-                    self.params = p
-                    self.latitude.refuse(nil)
-                } else {
-                    self.latitude.refuse(reply.fit.issues.first)
-                }
+                self.commitPlacement(reply)
             }
             self?.latitude.placementTask = nil
         }
+    }
+
+    /// Commit a fit, or keep its refusal. The one place a placement lands.
+    private func commitPlacement(_ reply: SceneLatitudeResponse) {
+        if reply.fit.valid {
+            var p = params
+            p.sceneLatitude.apply(reply.fit)
+            params = p
+            latitude.refuse(nil)
+        } else {
+            latitude.refuse(reply.fit.issues.first)
+        }
+    }
+
+    /// The agent layer's `latitude` (RFC-026): the same probe the section
+    /// draws, at the frame's current placement, awaited. Nil when the frame
+    /// cannot be measured; `latitude.failure` says why.
+    func measureLatitude() async -> SceneLatitudeResponse? {
+        await probeLatitude(highlight: params.sceneLatitude.highlightPullBack,
+                            shadow: params.sceneLatitude.shadowPullBack)
+    }
+
+    /// The agent layer's `place`: one placement through the Fit, awaited, and
+    /// committed exactly as a slider release commits it. Both at 0 is the
+    /// reset, which is not a Fit and cannot be refused.
+    func placeSceneNow(highlight: Double, shadow: Double) async -> SceneLatitudeResponse? {
+        guard highlight > 0 || shadow > 0 else { resetScenePlacement(); return await measureLatitude() }
+        guard let reply = await probeLatitude(highlight: max(0, highlight), shadow: max(0, shadow))
+        else { return nil }
+        commitPlacement(reply)
+        return reply
     }
 
     /// Both sides off: the identity curve. Not a Fit — there is nothing to

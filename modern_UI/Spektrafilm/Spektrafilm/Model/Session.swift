@@ -1887,7 +1887,7 @@ final class Session: CanvasHost {
     /// first operation that needs scene-linear pixels — develop, white-balance
     /// sampling, neutral picking, export — comes through here and turns the
     /// preview-only landing into a real decode.
-    private func ensureDecoded() async -> DecodedImage? {
+    func ensureDecoded() async -> DecodedImage? {
         guard let url = selection else { return nil }
 
         while true {
@@ -2516,6 +2516,25 @@ final class Session: CanvasHost {
         p.printStock = stock
         p.scanFilm = false
         params = p
+    }
+
+    /// Choosing a film also follows its **declared** paper, unless the user
+    /// has already made a pairing of their own. The film list's rule, here so
+    /// the agent layer (RFC-026) chooses a film exactly as a click does.
+    func selectFilmStock(_ id: String) {
+        var p = params
+        p.filmStock = id
+        if let target = catalog.stock(id)?.targetPrint,
+           catalog.stock(target) != nil,
+           !catalog.isDeclaredPairing(film: p.filmStock, paper: p.printStock) {
+            p.printStock = target
+        }
+        params = p
+        // A slide film has no print stage. A positive declares no
+        // `targetPrint`, so the branch above leaves `printStock` where it
+        // was — which is the point: coming back to a negative restores the
+        // paper rather than landing on a default.
+        applyFilmStageRule()
     }
 
     /// Choosing a film decides whether there is a print stage at all.

@@ -1,4 +1,6 @@
-//  SpektrafilmApp.swift — @main. One window, one session, one service.
+//  SpektrafilmApp.swift — @main. One window, one session, one service; or,
+//  with `cli` or `mcp` as the first argument, the same session without a
+//  window (RFC-026).
 //
 //  `--snapshot WxH out.png [--open path] [--wait s] [--folded left|right|both]`
 //  renders the window at
@@ -8,7 +10,30 @@
 import AppKit
 import SwiftUI
 
+/// Three front doors on one binary (RFC-026 §2). `cli …` and `mcp` never
+/// create an `NSApplication`, so an agent's call opens no window and puts no
+/// icon in the Dock; anything else is the app. This file is the one the test
+/// target leaves out, which is why the switch lives here.
 @main
+enum SpektraLabEntry {
+    static func main() {
+        let args = Array(CommandLine.arguments.dropFirst())
+        guard let door = args.first, door == "cli" || door == "mcp" else {
+            SpektrafilmApp.main()
+            return
+        }
+        AgentOutput.takeStdout()
+        let argv = door == "cli" ? Array(args.dropFirst()) : ["mcp"]
+        Task { @MainActor in
+            let code = await AgentCLI.run(argv)
+            exit(code)
+        }
+        // The main actor is the main queue; the run loop drains it and keeps
+        // Core Image's and the engine's main-thread callbacks working.
+        RunLoop.main.run()
+    }
+}
+
 struct SpektrafilmApp: App {
     /// One session for the app's lifetime; the delegate reaches it here.
     @MainActor static let session = Session()
@@ -258,6 +283,9 @@ struct SnapshotRequest {
     /// transition have one.
     var export = false
     var exportGrid = false
+    /// `--settings general|rendering|memory|diagnostics|agents` — capture
+    /// that page of Settings (RFC-026's paged window).
+    var settings: SettingsPage?
     /// `--folded left|right|both` — capture with a rail folded.
     ///
     /// The 2026-09-17 PRD makes one requirement about state rather than
@@ -293,6 +321,9 @@ struct SnapshotRequest {
         r.original = args.contains("--original")
         r.exportGrid = args.contains("--export-grid")
         r.export = r.exportGrid || args.contains("--export")
+        if let j = args.firstIndex(of: "--settings"), args.count > j + 1 {
+            r.settings = SettingsPage(rawValue: args[j + 1])
+        }
         if let j = args.firstIndex(of: "--compare") {
             r.compare = args.count > j + 1 ? (Double(args[j + 1]) ?? 0.5) : 0.5
         }
@@ -391,7 +422,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         guard let session else { snapshotExit(2) }
         // Own window, own hosting view: the capture must not depend on when
         // (or whether) the SwiftUI scene's window is ordered in.
-        let host = NSHostingView(rootView: req.export
+        if let page = req.settings {
+            UserDefaults.standard.set(page.rawValue, forKey: Session.uiKey + "settingsPage")
+        }
+        let host = NSHostingView(rootView: req.settings != nil
+            ? AnyView(SettingsWindow(session: session))
+            : req.export
             ? AnyView(ExportWindow(session: session, startIn: req.exportGrid ? .grid : .viewer))
             : AnyView(EditorWindow(session: session).environment(\.snapshotMode, true)))
         // Borderless, and never `center()`. A titled window is constrained to

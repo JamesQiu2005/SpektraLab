@@ -684,6 +684,10 @@ enum Theme {
             static let height: CGFloat = 640
             static let verticalInset: CGFloat = 12
             static let rowSpacing: CGFloat = 6
+            /// Between two groups on a page (RFC-026's paged Settings).
+            static let groupSpacing: CGFloat = 14
+            static let tabWidth: CGFloat = 64
+            static let tabRadius: CGFloat = 6
         }
 
         /// The export page's own geometry (RFC-018 §6).
