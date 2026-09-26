@@ -65,6 +65,11 @@ struct SceneStats {
     size_t samples = 0;
 };
 SceneStats scene_stats(std::vector<double> E);
+// The scene's histogram after the curve `p`: each bin's fraction carried to
+// where `mapped` lands it, in eight sub-steps per bin so a compressed range
+// does not quantise into a comb. A curve with both rooms at 0 returns the
+// input unchanged. For the UI's latitude graph -- the render never reads it.
+std::vector<double> placed_histogram(const SceneStats& scene, const SceneLatitudeParams& p);
 
 struct Side {
     bool on = false;

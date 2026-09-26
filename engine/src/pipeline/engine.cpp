@@ -1922,6 +1922,13 @@ spk_status spk_scene_latitude(spk_session* session, const char* request_json, ch
     hist.set("hi_ev", Json(slm::SceneStats::kHi));
     for (double v : scene.histogram) bins.push(Json(v));
     hist.set("fractions", std::move(bins));
+    // The same frame after the requested pull-backs (the UI's latitude graph),
+    // on the same bins. Absent for a refused fit: there is no curve to show.
+    if (f.valid()) {
+        Json placed = Json::array();
+        for (double v : slm::placed_histogram(scene, f.params)) placed.push(Json(v));
+        hist.set("placed_fractions", std::move(placed));
+    }
     sc.set("histogram", std::move(hist));
 
     Json sg = Json::object();

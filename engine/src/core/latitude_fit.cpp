@@ -117,6 +117,24 @@ SceneStats scene_stats(std::vector<double> E) {
     return s;
 }
 
+std::vector<double> placed_histogram(const SceneStats& scene, const SceneLatitudeParams& p) {
+    if (!(p.highlight_room > 0.0) && !(p.shadow_room > 0.0)) return scene.histogram;
+    constexpr int kSub = 8;
+    const double width = (SceneStats::kHi - SceneStats::kLo) / SceneStats::kBins;
+    std::vector<double> out(SceneStats::kBins, 0.0);
+    for (int b = 0; b < SceneStats::kBins && size_t(b) < scene.histogram.size(); ++b) {
+        const double f = scene.histogram[size_t(b)];
+        if (f == 0.0) continue;
+        for (int k = 0; k < kSub; ++k) {
+            const double e = SceneStats::kLo + (b + (k + 0.5) / kSub) * width;
+            const int to = std::clamp(int(std::floor((mapped(e, p) - SceneStats::kLo) / width)),
+                                      0, SceneStats::kBins - 1);
+            out[size_t(to)] += f / kSub;
+        }
+    }
+    return out;
+}
+
 Fit fit(const Medium& medium, const SceneStats& scene, double highlight_pull_back,
         double shadow_pull_back, const SceneLatitudeParams& base, const Extremes& at) {
     Fit out;

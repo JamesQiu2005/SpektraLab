@@ -417,7 +417,13 @@ struct SceneLatitudeResponse: Decodable, Sendable {
             let hiEV: Double
             /// Fraction of the frame per bin; 128 bins across [loEV, hiEV].
             let fractions: [Double]
-            enum CodingKeys: String, CodingKey { case loEV = "lo_ev", hiEV = "hi_ev", fractions }
+            /// The same bins after the requested pull-backs' curve. Absent
+            /// when the fit was refused. Equal to `fractions` with both
+            /// sides off.
+            let placedFractions: [Double]?
+            enum CodingKeys: String, CodingKey {
+                case loEV = "lo_ev", hiEV = "hi_ev", fractions, placedFractions = "placed_fractions"
+            }
         }
         let norm: String
         let samples: Double

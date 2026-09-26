@@ -268,6 +268,19 @@ final class EngineClientTests: XCTestCase {
         XCTAssertTrue(solved.fit.valid, "\(solved.fit.issues)")
         XCTAssertTrue(solved.fit.highlight.on)
         XCTAssertLessThan(solved.fit.highlight.landingEV, solved.fit.highlight.mediumBoundaryEV)
+
+        // The latitude graph's placed histogram: the frame itself with both
+        // sides off, and with the top pulled back, its top bin lower -- the
+        // same mass, moved rather than lost. A pull-back of n + 0.75 stops is
+        // at least two of these quarter-stop bins.
+        let off = try await client.sceneLatitude(SceneLatitudeRequest(highlightPullBack: 0,
+                                                                      shadowPullBack: 0))
+        XCTAssertEqual(off.scene.histogram.placedFractions, off.scene.histogram.fractions)
+        let placed = try XCTUnwrap(solved.scene.histogram.placedFractions)
+        let original = solved.scene.histogram.fractions
+        let top = { (f: [Double]) in f.lastIndex { $0 > 0 } ?? 0 }
+        XCTAssertLessThanOrEqual(top(placed), top(original) - 2, "the pull-back moved nothing")
+        XCTAssertEqual(placed.reduce(0, +), original.reduce(0, +), accuracy: 1e-9)
         var p = FilmParams.default
         XCTAssertTrue(p.sceneLatitude.apply(solved.fit))
         XCTAssertEqual(p.sceneLatitude.highlightPullBack, n, accuracy: 1e-9)
