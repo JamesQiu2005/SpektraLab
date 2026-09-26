@@ -1,10 +1,14 @@
 # AGENTS.md — working notes for AI sessions on SpektraLab
 
 The macOS desktop product built on the **spektrafilm** engine. Extracted from
-the `spektrafilm` fork into its own repository on 2026-09-11; `README.md` says
-what is here and what is deliberately not. This file records conventions and,
-more importantly, the traps that cost real debugging time. Read the traps
-section before touching the pipeline.
+the `spektrafilm` fork into its own repository on 2026-09-11; current as of
+1.1.1 + main, 2026-09-26. This file records conventions and, more importantly,
+the traps that cost real debugging time.
+
+**Read first:** `ARCHITECTURE.md` §0 (the map), §7 (the app, including §7.7
+*surfaces that show the frame* and §7.8 *export*), then the traps below —
+trap 26 before trusting any green run, trap 33 before trusting any green
+surface.
 
 ---
 
@@ -118,43 +122,19 @@ Do not change these without a reason; every recorded number assumes them.
 | grain sampler | `exact` (RFC-002); `--sampler scipy` for the old stream |
 | working precision | `float32` (the default since RFC-006; `float64` is the validation baseline) |
 
-> **`tests/baseline/` no longer exists.** The user deleted it and
-> `HANDOFF-GPU-WIRING.md` §3.3 says **do not restore it**. Every command this
-> section used to give — `make_baseline.py`, `run_reference.py`,
-> `tests/baseline/compare.py`, and the 16 MP linear ProPhoto TIFF that most
-> recorded numbers in this file and in `ARCHITECTURE.md` were measured against
-> — is gone with it. Those numbers stay as history; you cannot reproduce them
-> as written, and a number you cannot reproduce is not a baseline to compare
-> against. The five `tests/test_regression_baselines.py` cases that need its
-> `.npz` fixtures **skip**, with the regeneration command in the skip message.
->
-> The smoke image survived at a new path, and the suite looks in both places
-> (`tests/test_rfc012_engine_seam.py:24`). Use `tests/Test_image/_smoke_1mp.tif`
-> for anything that needs a small frame, and the Nikon NEF above for anything
-> that needs a real one.
+The engine's parity harnesses are `engine/tests/parity_*.py`, driven against
+the upstream Python oracle through `PYTHONPATH` (README, "Parity harnesses").
+Use the **1 MP** frame for them: parity is a correctness question, and a check
+you can afford on every change beats one you run at the end.
 
-Parity against the numba reference — this is the harness that replaced the
-above, and the one RFC-011 held every ported node to at float32 storage
-epsilon:
+The Python-era measurement kit (`scripts/gpu_native/`, `compare.py`,
+`tests/baseline/`) lives in the fork, not here, and `tests/baseline/` is gone
+for good — **do not restore it**. Numbers in this file measured against it
+stay as history; they cannot be reproduced as written.
 
-```bash
-.venv/bin/python -W ignore scripts/gpu_native/parity.py \
-    tests/Test_image/_smoke_1mp.tif                 # every implemented node
-.venv/bin/python -W ignore scripts/gpu_native/parity.py \
-    tests/Test_image/_smoke_1mp.tif --node filming.expose.upsample --end-to-end
-```
-
-Use the **1 MP** frame, not the 45 MP one: parity is a correctness question, a
-run takes seconds, and a check you can afford on every change is worth more
-than one you run at the end. The rest of `scripts/gpu_native/` —
-`profile_render.py`, `tier_timings.py`, `grain_moments.py`,
-`concurrency_check.py` — is the measurement kit that replaced the deleted
-`run_reference.py`.
-
-Whole-app timings, including the render, come from the frontend's own
-instrument — see "The frontend and the service" above. It is usually the right
-tool even for a backend change, because it measures what the user experiences
-rather than what a script measures.
+Whole-app timings come from the app's own instrument (`Session.LoadClock`,
+`SPEKTRAFILM_CANVAS_LOG=1`, "The app" below): it measures what the user
+experiences rather than what a script measures.
 
 ---
 
@@ -221,7 +201,7 @@ python3 Tools/gen-project.py        # REGENERATE after adding/removing any sourc
 xcodebuild -project Spektrafilm.xcodeproj -scheme Spektrafilm \
     -configuration Debug -derivedDataPath build/DerivedData build
 xcodebuild -project Spektrafilm.xcodeproj -scheme SpektrafilmTests \
-    -configuration Debug -derivedDataPath build/DerivedData test   # full suite; ~390 s with fixtures
+    -configuration Debug -derivedDataPath build/DerivedData test   # full suite; ~430 tests, ~420 s with fixtures
 ```
 
 **Test gates.** Do not run the full `SpektrafilmTests` target after every small
@@ -233,7 +213,7 @@ real integration boundary:
   regression test should be shown red on the old or deliberately broken
   behavior before it is shown green.
 - After a coherent group of commits, or before merging/pushing a branch, run
-  the full `SpektrafilmTests` target once. A real run with fixtures is ~390 s;
+  the full `SpektrafilmTests` target once. A real run with fixtures is ~420 s (it was ~390 at 277 tests);
   anything under a minute means the fixture-dependent cases were skipped
   (trap 26), not that the suite became fast.
 - Run the engine parity harnesses only when engine inputs, kernels, resources,
@@ -934,151 +914,112 @@ emulsion did not record the colour and nothing downstream can return it.
 The measurement is cheap and reusable: `rfc/probes/rfc023-slm-probe.py`
 (`probe_medium`, plus the Lab helpers in RFC-023 §16).
 
+### 32. AppKit offers a key to the menu before the focused text field
+
+Measured 2026-09-26 with a bare `NSMenu` and an `NSTextField`: a menu item
+whose key equivalent is a modifier-free **←** fires while the field has focus,
+and the caret never moves. The app's Capture One shortcuts are exactly that —
+←/→ step frames — so renaming a recipe and pressing ← switched photographs. A
+plain letter happened to reach the field in the same experiment; nothing
+promises it, and SwiftUI builds its own menu items.
+
+`Windows/TypingKeyGuard.swift` is the fix: a local key monitor that hands
+typing keys (characters, arrows, delete) straight to a focused editable
+`NSTextView` before the menu is asked, and leaves ⌘/⌃ combinations and
+Return/Enter/Esc/Tab to the menu. **Adding a single-key shortcut needs no
+extra work**; removing the monitor brings the bug back, and
+`TypingKeyGuardTests` has a control that shows it.
+
+The canvas's own `keyDown` (`MetalCanvasView`) was already guarded; the menu
+was not. Two key paths, one checked — the same shape as trap 16.
+
+### 33. A green unit is not a correct surface
+
+The navigator shipped (1.1.0) showing the **uncropped** photograph after a
+crop, with every suite green. Nothing was wrong with any unit: the thumbnail
+was a correct thumbnail, the geometry correct geometry. The surface read its
+picture from a different source than the canvas does, and no component test
+can see that.
+
+The audit that followed found a second one immediately: the canvas
+**histogram** counts the uncropped print, because `Renderer.encodeHistogram`
+reads the Layer 2 texture and geometry is applied only when the canvas
+samples. It is pinned, not fixed (`XCTExpectFailure(strict: true)` — the test
+goes red the day it is fixed, so remove the marker then).
+
+The rule: **every surface that shows the frame must show the canvas's frame**,
+and it is tested by giving the frame a crop *and* a quarter turn, reading the
+surface, and comparing with the canvas — `SpektrafilmTests/
+SurfaceAgreementTests.swift`. A new panel, readout, file or agent tool that
+shows the frame gets a case there. `ARCHITECTURE.md` §7.7 is the table of
+which surface shows what, and why the filmstrip deliberately differs from the
+navigator.
+
+### 34. The exporter writes whatever frame is open
+
+`Exporter.export` reads `session.selection`; a batch opens each frame in turn
+with `select`. Until 2026-09-26 nothing stopped a click, an arrow key or an
+agent call from moving the open frame between the run's `select` and its
+write, which put one frame's render under another's file name. Now
+`Session.batchExporting` holds it: `click`, `open(_:)`, `togglePick`,
+`open(urls:)` and undo are no-ops, the editor takes no hits, agent tools that
+touch a frame are refused. **Anything new that changes the open frame on a
+person's behalf must check `batchExporting`**; `select` itself must not, since
+it is the run's own door.
+
+### 35. Sidecars are not beside the photograph
+
+Easy to assume, and wrong since 06847ab (2026-09-13): a frame's edits live in
+`~/Library/Application Support/SpektraLab/Sidecars/<file>-<sha256(path)[:16]>.spektra.json`,
+with a fingerprint so a moved file is recognised. `<image>.spektra.json` beside
+the photo is the *old* home, migrated (moved) on first read. So "the app
+writes nothing into the user's folder but exports" is true, and a
+`find … -name '*.spektra.json'` in a photo folder finds only leftovers. The
+per-frame geometry the thumbnails need is read from these at `open(urls:)`
+into `Session.savedGeometry` — one read per frame, shared with `frameStates`.
+
+---
+
 ## Conventions
 
-- Match surrounding style: the codebase uses NumPy-style docstrings, explicit
-  named parameters, and numba `@njit(parallel=True, cache=True)` for hot loops.
-- New backends go behind a `settings.*_backend` string. The spectral backend
-  default is now `'mlx'` (MLX-first, RFC-001); if MLX is unavailable the
-  render raises loudly rather than silently using the CPU path. Never change
-  a default that alters output without saying so.
-- The GUI (`spektrafilm_gui.params_mapper`) forces `spectral_backend='mlx'`
-  so persisted states cannot revert to a CPU path. MLX launches require real
-  Metal access, so GPU work (and the GUI itself) must run outside the sandbox.
-- RFC-003 pipeline decoupling has landed: `runtime/pipeline.py` builds ~24
-  effect-level `Node`s (e.g. `filming.expose.upsample` ... `scanning.cctf`)
-  instead of the six monoliths, with the monolith methods kept as thin
-  wrappers over the same effect methods. It is a pure refactor (output is
-  bit-identical; `tests/test_rfc003_split.py` guards the structure). The split
-  itself does **not** cut peak memory at float64 (measured 12.38 GB / 275 B/px
-  at 45 MP vs 12.58 GB / 280 B/px pre-split): the biggest temporaries are
-  float64 *inside* the kernels (spectral upsampling colour conversion,
-  halation blurs, grain sublayers, CAM16 gamut compression). Real memory
-  reduction needs kernel-level float32 / per-node precision, which is deferred
-  (measured ΔE max 2.42 / MS-SSIM 0.9955 on the GUI config — fails the strict
-  bar). Effect labels above are also the timing keys `get_timings()` returns.
-- RFC-004 GPU port has landed its P0–P2 kernels: `backends/mlx_ops.py` has the
-  device wrapper/residency primitive plus float32 pointwise kernels
-  (`gpu_scale`/`gpu_log10`/`gpu_boost`/`gpu_cctf_srgb`) and a separable Gaussian
-  Metal kernel (`gpu_separable_gaussian`). They are wired into the pipeline
-  behind `settings.gpu_backend='mlx'` (default `''` = CPU reference, unchanged).
-  Validation (deterministic, ProPhoto→Display P3): GPU vs CPU float64 gives ΔE
-  max 6.1e-5, PSNR 150 dB, MS-SSIM 1.0 — visually identical. The `Node` GPU body
-  is `run_mlx` (single-read/write); per-node GPU runs upload+download, so the
-  P0 residency *grouping* (a device-resident run) is still to be added, and only
-  exposure/boost/log/lens_blur/scanner_blur/cctf are ported (the dominant
-  `upsample`, `halation`, `grain`, `gamut_compress` are P3/P4/P5). Keep grain +
-  glare OFF for any CPU-vs-GPU ΔE comparison (RFC-001 6.0/6.1): the stochastic
-  grain realisation differs once upstream floats to float32.
-- RFC-004 P1 pointwise color stages added: `gpu_xyz_to_rgb` (3x3 matmul; the
-  matrix is `colour.XYZ_to_RGB(np.eye(3), cs, illuminant=...)`, and the node
-  result is `xyz @ matrix`) and `gpu_curve_interp` (a small Metal LUT kernel
-  matching `fast_interp`: endpoint clamp, binary search, right-biased exact
-  match). Curves and XYZ→RGB are now GPU-wired. At 45 MP (deterministic,
-  ProPhoto→Display P3) the GPU path is ΔE max 0.000086 / MS-SSIM 1.0, time
-  ~22.6 s vs ~25.4 s CPU, peak 12.2 GB. The precision map (float64 CPU color
-  reference vs float32 GPU) is the deliberate RFC-004 policy: `upsample` and
-  `gamut_compress` (CAM16) stay float64 for color accuracy; grain/glare stay
-  exact (off in A/B).
-  **Trap:** the curve `x_axis` must be `(K, 3)` — the scalar density-curve
-  gamma must be expanded to 3 channels (`np.repeat(gamma, 3)`), otherwise the
-  axis is `(K, 1)` and the kernel reads 3 columns of garbage (measured 2.05
-  error). Mirror `interpolate_exposure_to_density`'s `gamma_factor` expansion.
-- RFC-005 (dispatch + kernel quality) landed. Four things to know:
-  **(1) A GPU tag was silently a precision decision.** A node with
-  `backend=('mlx',)` returned float32, which propagated into every downstream
-  CPU stage — so removing a tag changed *numerics*, not just placement.
-  `Node.precision` is now honoured by the dispatcher and the float32 taps are
-  declared explicitly. Never add or remove a `backend` tag without checking
-  what it does to the tap dtype.
-  **(2) `prune_identity_nodes` aliases taps.** Dead-node elimination must
-  rewrite downstream `reads` through the dropped node's read tap, or the
-  successor can never fire. Four nodes are pruned at default params (both
-  blurs, diffusion filter, unsharp).
-  **(3) `to_device` passes `mx.array` through.** Calling it on a device array
-  used to round-trip via host (37.5 ms at 45 MP); a single blur did four.
-  **(4) Bare-Metal/metal-cpp was measured and rejected**: a Python →
-  `mx.fast.metal_kernel` launch is 157 µs, ~0.07% of the render.
-  `mx.fast.metal_kernel` already compiles hand-written MSL — those kernels
-  *are* bare Metal.
-- RFC-007 A (CPU fusion) landed: `utils/fused_gamut_cam16.py` and
-  `utils/fused_tc_b.py`. 45 MP interleaved A/B: **18.93 s → 12.93 s (-31.7%)**,
-  dE2000 max 0.000041, 0 of 16.0 M pixels above dE 0.1. `upsample` 3.97 → 0.59 s,
-  `gamut_compress` 4.32 → 1.38 s. The pattern: **colour-science stays at setup
-  time** (matrices via the identity trick, viewing-condition constants, the
-  C_max table), and only per-pixel math is fused. Use `_FORCE_REFERENCE_CAM16` /
-  `_FORCE_REFERENCE_TC_B` to A/B the two paths in one process.
-  **Traps, all of which produced plausible-looking wrong output:**
-  the CIECAM02 inverse (a,b) solve carries 460/1403, 220/1403, 27/1403 and
-  6300/1403 factors (omitting them: dE 33); colour uses a *sign-preserving*
-  power for J, so negative achromatic response gives negative J, not 0;
-  the GUI default sets `lightness_compression`, so a kernel that skips it
-  falls back to the reference and becomes **dead code on every real render**
-  while unit tests pass — the A/B is what caught it; the reference accepts any
-  `(..., 3)` shape, not just `(H, W, 3)`.
-  **Never call a `parallel=True` numba kernel from inside `parallel_pointwise`**
-  — numba's `workqueue` layer is not threadsafe and aborts the process.
-  `_scan_gamut_compress` bypasses the thread pool for the fused path.
-- **RFC-006 landed: `working_precision='float32'` is the default.** The
-  invariant is in `utils/precision.py`: full-resolution buffers follow their
-  input's dtype, per-pixel arithmetic still runs in float64 registers (a
-  float32 load times a float64 constant promotes inside the numba kernel, so
-  CAM16 / Hanatos / the spectral integral do the same arithmetic they always
-  did — only the *stored* result narrows). Measured at 45 MP, grain on
-  (`exact`), glare off: **18.34 s / 12.55 GB at float64 vs 14.25 s / 7.15 GB
-  at float32**, dE2000 max 0.00024, MS-SSIM 1.000000, grain PSD correlation
-  0.999993. Held across five film/print stock pairs.
-  **Trap:** `working_precision='float64'` used to be spelled `precision=None`
-  in `run_topology` — "leave every dtype alone". That was only equivalent to
-  float64 because every kernel promoted internally. Once the kernels stopped
-  promoting, the taps RFC-005 declared `precision='float32'` leaked downstream
-  into `grain`, where a rounded input flips Poisson draws and gives a
-  *different realisation* — dE max 37.9 against the baseline, which looks like
-  a catastrophic colour bug and is actually one node's worth of noise.
-  `run_topology` now widens node inputs to the working precision as well as
-  narrowing outputs. Side effect: the float64 path is now genuinely float64
-  (it previously carried accidental float32 rounding in exposure/boost/
-  halation), which moved the float64 baseline by dE max 0.000188 / PSNR 151 dB.
-- The 45 MP profile after RFC-007 A is **spatial-dominated**: halation 3.30 s
-  (26%), dir_couplers 2.40 s (19%), scan_spectral 1.58 s (12%). Neither of the
-  top two fuses the way the pointwise stages did (halation is `support=inf`).
-  Estimates written against the old pointwise-heavy profile are stale.
-- **Measure interleaved, never sequentially.** This machine drifts: the same
-  unchanged commit measured 23.3 s and 18.9 s hours apart. Stash/pop or use the
-  `_FORCE_REFERENCE_*` switches and alternate arms within one session.
-- **RFC-011 landed: the render core is Metal.** `settings.gpu_backend='metal'`
-  runs the whole topology on `backends/metal/` (45 MP, 14.15 s → 1.03 s), held
-  to float32 storage epsilon against numba. **numba is the reference and stays
-  forever** — it stopped being the runtime, not the truth. Every ported node
-  has a `scripts/gpu_native/parity.py` row. 20 of the 21 default nodes are on
-  Metal; `preprocess.crop_rescale` has no Metal body (ARCHITECTURE §8.2).
-- **RFC-012 landed steps 1, 3 and 4.** The engine is split from the wire
-  (`service/engine.py` vs `service/service.py`, "the engine returns pixels, the
-  service turns pixels into paths", guarded by an AST check in
-  `tests/test_rfc012_engine_seam.py`); the colour constants are baked
-  (`model/colour_baked.py`, 21.9 KiB for ~148 MB of dependencies); and a C++
-  gate proved MLX kernels are byte-identical from `libmlx.dylib`. **Step 5, the
-  native host, is unstarted.** Do not put rendering logic in an RPC handler —
-  that seam is what makes option D a deletion rather than a rewrite.
-- **Re-take `screenshots/` when the interface moves**, and say in the same
-  commit what moved. They are the product's only picture outside the code and
-  they carry a date; a stale one is a false claim about today. Capture the
-  running app (fullscreen, ⌃⌘F), not the snapshot harness —
-  `modern_UI/design/snapshots/` is the *layout* record, measured against the
-  drawing, while `screenshots/` is what a person sees. The 1:1 grain capture
-  must not be resampled or JPEG'd: at and above 100 % the canvas samples
-  nearest, so those pixels are the engine's grain, and resizing the file
-  resizes the evidence. `screenshots/README.md` carries the provenance of each.
-- Anything claiming a speed or memory win must come with a measurement in the
-  same message. `tracemalloc` for allocation, `resource.getrusage` for RSS.
-- Quality claims need a ΔE number from `compare.py`, not an eyeball.
+- **Match the file you are in.** Comments here explain *why* and record what
+  was measured; keep that density. Swift is `@Observable` + `@MainActor` for
+  model state, actors for anything shared across threads (`EngineClient`,
+  `DiskCacheStore`, `PrintWriteback`). C++ is C++20, `noexcept` at the ABI.
+- **Run `Tools/gen-project.py` after adding or removing any file**, Swift or
+  engine `.cpp`. A missing Swift file reads as `cannot find X in scope`; a
+  missing `.cpp` as a link error.
+- **Test gates** (see "The app"): the narrowest classes while working, the full
+  `SpektrafilmTests` (~430 tests, ~420 s) before a push. Record the gate in the
+  commit message. Show a new regression test red before green.
+- **Anything that shows the frame gets a `SurfaceAgreementTests` case** (trap
+  33). Anything that changes the open frame checks `batchExporting` (trap 34).
+- **A test owns its inputs**: inject a `UserDefaults` suite (trap 24), copy
+  fixtures before opening them (a develop writes a sidecar), never read the
+  shared store for a persisted setting.
+- **Measure, then claim.** A speed or memory claim comes with its measurement
+  in the same message; memory is `footprint -p <pid>`, not RSS, which cannot
+  see the Metal pool (`rfc020-measurement-traps`). This machine drifts —
+  measure interleaved, never sequentially.
+- **Releases are ad-hoc zips** by the user's decision (no Developer ID; do not
+  re-propose). A fix that is not a release does not bump `MARKETING_VERSION`.
+- **`screenshots/` must match the interface**; when it moves, say so in the
+  commit. Captures are of the running app, not the snapshot harness; never
+  resample the 1:1 grain capture. The main captures are the user's own
+  (`Screenshot_English.png`, `Screenshot_ZH_HANS.png`, one per README) —
+  ask before replacing them.
+  `Tools/capture-live.sh` force-quits every running SpektraLab — if the user
+  has one open, launch a second copy by hand instead.
+- **Do not delete the history, but do not follow it.** RFC-001…RFC-012 and
+  traps 1–13 describe the Python/MLX engine that stayed upstream. They are why
+  the port looks the way it does; their commands do not run here.
 
 ## Do not
 
 - Do not commit or push unless asked.
 - Do not edit `AGENTS.md`, `ARCHITECTURE.md`, `API-SPEC-*` or `CONTRACT-*`
-  without telling the other session — contract §4 makes them shared, and a
-  unilateral edit makes the other side's context wrong.
+  without saying so first — they belong to nobody in particular, and a peer
+  session may be reading them.
 - Do not restore `tests/baseline/`. See "Fixed experimental setup".
 - Do not delete `Session.LoadClock` (the open-path instrument) or the
   `core=native-metal` line it prints.
@@ -1095,7 +1036,9 @@ The measurement is cheap and reusable: `rfc/probes/rfc023-slm-probe.py`
   that is what the *validated* Metal core measures on the same frame; no GPU
   path over 21 nodes meets epsilon (`ARCHITECTURE.md` §8.6).
 - Do not add GPL-incompatible dependencies. The code is GPL-3.0-or-later; the
-  profiles under `data/profiles/` are CC BY-SA 4.0 with separate attribution
+  profiles under `engine/resources/profiles/` are CC BY-SA 4.0 with separate attribution
   obligations.
-- Do not change `SPECTRAL_SHAPE`, the profile data, or `LOG_EXPOSURE` — every
-  baseline assumes them.
+- Do not change the spectral shape (81 × 5 nm), the profile data, or the
+  log-exposure axis — every parity bar assumes them.
+- Do not remove the `XCTExpectFailure(strict: true)` marker on the histogram
+  case except in the commit that fixes the histogram (trap 33).

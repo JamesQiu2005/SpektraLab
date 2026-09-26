@@ -2,7 +2,7 @@
 //
 //      swiftc -O Tools/render-icon.swift -o /tmp/render-icon
 //      /tmp/render-icon "$PWD/build/DerivedData/Build/Products/Debug/SpektraLab.app" \
-//                       ../../screenshots/app-icon.png 1024
+//                       /tmp/app-icon.png 1024
 //
 //  Why the built app and not `Spektrafilm/SpektraLab.icon`: the Icon Composer
 //  document is layers, a shadow and a translucency value, not a picture. What
