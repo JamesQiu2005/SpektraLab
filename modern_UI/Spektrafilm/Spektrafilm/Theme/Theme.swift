@@ -219,6 +219,17 @@ enum Theme {
     static let knob = Color(hex: 0xFBF8F3)
     static let canvasSurround = ground
 
+    /// The Latitude graph (v4; `design/prototypes/latitude-graph-prototype.svg`).
+    /// Inside the medium's window the histogram is a light fill with a lighter
+    /// edge; beyond it the fill drops to near the plot and the edge turns
+    /// accent — those pixels print, flattened.
+    static let latitudeInside = Color(hex: 0x9C9C9A)
+    static let latitudeInsideEdge = Color(hex: 0xD6D5D2)
+    static let latitudeBeyond = Color(hex: 0x3F3F3D)
+    static let plotMidGrey = Color(hex: 0x4A4B49)
+    /// The navigator's well, a step under the plot ground so a dark frame
+    /// still has an edge.
+    static let navigatorWell = Color(hex: 0x1A1A19)
     static let histR = Color(hex: 0xE8524E)
     static let histG = Color(hex: 0x62C462)
     static let histB = Color(hex: 0x5D7DE8)
@@ -438,6 +449,38 @@ enum Theme {
         /// same string wider, so the column is 74 — a truncated label is
         /// worse than a column six points wide.
         static let sliderLabelWidth: CGFloat = 84
+        /// The Parameters rail's label column (v4): the widest label it
+        /// holds, "Halation Strength", is 94.9 pt at 10.5 pt bold. One column
+        /// for every slider, pill and field on that rail — see
+        /// `SliderMetrics.parameters`. **It scales with the type**: at the
+        /// 130 % interface scale the same word is 123 pt, and a fixed column
+        /// truncated every strength row to "Grain Stren…".
+        @MainActor static var parameterLabelWidth: CGFloat { 96 * InterfaceScaleStore.shared.scale.factor }
+
+        // --- v4 (2026-09-26): the navigator, Latitude and the Tone Mask ---
+        /// The navigator's well: v4 draws it 230 × 183 at a 12.5 pt inset.
+        static let navigatorHeight: CGFloat = 183
+        static let navigatorInset: CGFloat = 12.5
+        static let navigatorButtonGap: CGFloat = 6
+        /// Latitude: plot, the gap and band under it, and the axis labels —
+        /// the prototype's 120 / 10 / 12 / 36 at 2×.
+        static let latitudePlotHeight: CGFloat = 60
+        static let latitudeBandGap: CGFloat = 5
+        static let latitudeBandHeight: CGFloat = 6
+        static let latitudeAxisHeight: CGFloat = 14
+        /// The Tone Mask's curve.
+        static let maskPlotHeight: CGFloat = 44
+        /// The Parameters header's two tabs: 83.5 × 19 capsules 11 apart, the
+        /// first 9 after the rail's name (v4, measured at 2×).
+        static let tabSize = CGSize(width: 83.5, height: 19)
+        static let tabGap: CGFloat = 11
+        static let tabLeadingGap: CGFloat = 9
+        /// v4's top bar: glyphs in a cluster 2 apart (import/export 30 pt
+        /// centre to centre, select/crop 28), clusters 20 apart, and 60 from the
+        /// tools to the Process capsule.
+        static let barIconGap: CGFloat = 2
+        static let barClusterGap: CGFloat = 20
+        static let barActionLeading: CGFloat = 60
         /// Camera's own label column. v3 puts its track and menu at x 86.35
         /// and its labels at 16, so 70 — narrower than the shared 84, and
         /// `Film Exposure` is the string that has to fit. Film's rows keep
@@ -745,7 +788,10 @@ enum Theme {
             /// the text optical size the system hands a 10.5 pt face. Four
             /// points is the whole of the difference, and a truncated label is
             /// worse than a column four points wide.
-            static let labelWidth: CGFloat = 68.5
+            /// Scaled with the type, like the Parameters rail's column: at the
+            /// 130 % interface scale a fixed 68.5 cut "Subfolder" to
+            /// "Subfold…" and "Open With" to "Open…".
+            @MainActor static var labelWidth: CGFloat { 68.5 * InterfaceScaleStore.shared.scale.factor }
             static let rowHeight: CGFloat = 14.7
             static let rowSpacing: CGFloat = 16.5
 

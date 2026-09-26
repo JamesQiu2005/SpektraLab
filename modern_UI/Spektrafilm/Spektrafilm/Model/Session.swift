@@ -366,6 +366,9 @@ final class Session: CanvasHost {
     /// draw handles in view coordinates. The renderer is not `@Observable`
     /// and should not become so — it is touched per draw.
     private(set) var viewportSnapshot = ViewportState()
+    /// The Latitude section's measurement and Scene Placement's refusals
+    /// (`Model/Latitude.swift`).
+    let latitude = LatitudeModel()
     /// The crop tool's pivot, mirrored from the renderer for the same reason
     /// and the same audience: the overlay draws in edit space, which is a
     /// rotation about this point. The renderer owns it — it feeds the uniform
@@ -1257,6 +1260,7 @@ final class Session: CanvasHost {
         }
         loadTask?.cancel()
         selection = url
+        latitude.clear()
         previewSoft = false
         sourceLongEdge = 0
         // A new frame invalidates the previous frame's native render; the
@@ -2175,6 +2179,7 @@ final class Session: CanvasHost {
         sidecar.state = .processed
         scheduleSave()
         updateThumbnail(url, from: tex)
+        scheduleLatitudeRefresh()
         if firstPrint { sampleMemory("first_print") }
         // The native render is the next step. A resident one made from
         // *different* parameters is no longer the print on screen, and showing
@@ -2843,6 +2848,20 @@ final class Session: CanvasHost {
     func zoomToFit() {
         guard !zoomLocked else { return }
         renderer.viewport.fit(); viewportChanged(); renderer.needsDraw?()
+    }
+    /// The navigator's click and drag: put the frame's normalised point `n` at
+    /// the centre of the canvas, at the current zoom. The one clamp still
+    /// applies, so near an edge the view stops at the edge rather than showing
+    /// the surround. Nothing to do at fit, where there is nowhere to go.
+    func centreView(onNormalised n: CGPoint) {
+        guard !zoomLocked else { return }
+        var v = renderer.viewport
+        guard !v.isFit else { return }
+        v.offset = CGPoint(x: v.viewport.width / 2 - n.x * v.image.width * v.scale,
+                           y: v.viewport.height / 2 - n.y * v.image.height * v.scale)
+        v.clamp()
+        renderer.viewport = v
+        viewportChanged(); renderer.needsDraw?()
     }
     func zoomTo(fraction: CGFloat) {
         guard !zoomLocked else { return }

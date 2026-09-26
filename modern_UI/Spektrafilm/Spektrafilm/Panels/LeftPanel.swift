@@ -1,23 +1,18 @@
-//  LeftPanel.swift — the darkroom rail: a header row, then the sections in
-//  the drawing's order, each one closed by a hairline. To add a section:
-//  write a view in Panels/Sections and add one line to the stack.
+//  LeftPanel.swift — the material rail (v4, 2026-09-26): **Film and Print**.
 //
-//  **v3 (2026-09-18) gave the header a name.** It reads **Develop**, set in
-//  `Theme.Font.railTitle`, with import and export at the *trailing* end — the
-//  older layout had the two glyphs leading and nothing else on the row. It is
-//  a label and not a mode button: there is no second rail to switch to, and a
-//  word that looks pressable and is not is worse than a word.
+//  v4 made this rail the choices of *material* and nothing else: the
+//  navigator at the top, then the film, the paper, the crop and the enlarger.
+//  Everything that is a *parameter* of those choices — Camera, Film Format,
+//  Scene Placement, the Tone Mask — moved to the Parameters rail.
 //
-//  It is also the row the three window buttons are placed on, so it opens
-//  with their clearance rather than with v3's 10 pt
-//  (`Theme.Metric.trafficLightClearance`). v3's artwork contains neither the
-//  window buttons nor the sidebar toggles; handoff §8.2 says to keep both and
-//  **record the deviation rather than hide the functionality**, which is what
-//  this row does — the title sits after the buttons' clearance, and
-//  `sidebar.left` stays at the far end past import and export.
+//  The header is the rail's name after the window buttons' clearance. Import,
+//  export and `sidebar.left` moved to the top bar, which is on screen whether
+//  or not this rail is, so the PRD's "on screen at any given time" holds
+//  without the bar having to take them over when the rail folds.
 //
-//  Import and export are here rather than on the top bar. The bar is a
-//  *canvas* control, and opening a file is not a thing you do to the picture.
+//  Sections are separated by `SectionDivider`: drag one to give the section
+//  above it more or less of the rail. To add a section, write a view in
+//  Panels/Sections and add one line to the list.
 
 import SwiftUI
 
@@ -29,37 +24,18 @@ struct LeftPanel: View {
             header
             Hairline()
             ScrollView(.vertical, showsIndicators: false) {
-                // A hairline **between** sections, never after the last one.
-                //
-                // The stack used to be `Section(); Hairline()` repeated, which
-                // draws a rule under the final section against empty rail —
-                // a bottom border, not a separator, and the rail has no
-                // bottom to border. With a collapsed Crop last it also put
-                // two rules 31 pt apart, which is a band, and a column of
-                // equal bands is exactly the "looks like a spreadsheet" the
-                // drawing does not have: it carries three rules where this
-                // carried five.
-                //
-                // Written as a separated list so the invariant is structural
-                // and adding a section cannot reintroduce the trailing rule.
                 VStack(spacing: 0) {
                     let sections: [(String, AnyView)] =
-                        [("camera", AnyView(CameraSection(session: session))),
+                        [("navigator", AnyView(NavigatorSection(session: session))),
                          ("film", AnyView(FilmSection(session: session))),
                          ("print", AnyView(PrintProfileSection(session: session))),
-                         ("crop", AnyView(CropSection(session: session)))]
-                        // The enlarger is **not in the drawing** and is behind
-                        // a flag now rather than merely last: it put a fifth
-                        // section into a rail the drawing gives four, and its
-                        // Yellow/Magenta rows are the gap the reconstruction
-                        // handoff §9 still lists as open. `print_exposure` is
-                        // unchanged behind `FeatureFlags.enlarger`.
-                        + (FeatureFlags.enlarger
-                           ? [("enlarger", AnyView(EnlargerSection(session: session)))] : [])
-                        + (FeatureFlags.masks
-                           ? [("masks", AnyView(MasksSection(session: session)))] : [])
+                         ("crop", AnyView(CropSection(session: session))),
+                         ("enlarger", AnyView(EnlargerSection(session: session)))]
+                    // A divider **between** sections, never after the last:
+                    // a rule under the final section is a bottom border
+                    // against empty rail, not a separator.
                     ForEach(Array(sections.enumerated()), id: \.element.0) { index, entry in
-                        if index > 0 { Hairline() }
+                        if index > 0 { SectionDivider(above: sections[index - 1].0) }
                         entry.1
                     }
                 }
@@ -72,36 +48,17 @@ struct LeftPanel: View {
         HStack(spacing: 0) {
             // The three window buttons live here (Windows/TrafficLights.swift).
             // They are *placed* in window coordinates, so this is a reservation
-            // and not a container — which is why folding the rail does not move
-            // them: the bar takes over the same reservation.
+            // and not a container.
             Spacer().frame(width: Theme.Metric.trafficLightClearance)
-            Text(L(.railDevelop))
+            Text(L(.railFilmAndPrint))
                 .font(Theme.Font.railTitle)
                 .foregroundStyle(Theme.text)
                 .lineLimit(1)
-            Spacer(minLength: 4)
-            // v3 draws a square-and-arrow container for import, not the tray
-            // the 2026-09-17 pass used, and pairs it with the export glyph
-            // that was already right.
-            // The shortcut is appended here rather than living in the table:
-            // the spec's rule is that the key is the phrase and the shortcut
-            // is added by whatever owns shortcuts, so a translation never has
-            // to reproduce `(⌘O)` or decide where it goes in a Chinese
-            // sentence.
-            PanelIconButton(systemImage: "square.and.arrow.down", help: L(.helpOpen) + " (⌘O)") {
-                session.openPanel()
-            }
-            PanelIconButton(systemImage: "square.and.arrow.up", help: L(.helpExport) + " (⌘E)",
-                            enabled: session.selection != nil) {
-                session.showExport = true
-            }
-            SidebarToggle(edge: .leading, collapsed: $session.leftCollapsed)
-                .padding(.trailing, Theme.Metric.panelHeaderTrailing)
+            Spacer(minLength: 0)
         }
         .frame(height: Theme.Metric.panelHeaderHeight)
         // The header row is the window's drag surface, as a sidebar header is
-        // in Xcode. It is a background so that the glyphs above it still take
-        // their own clicks.
+        // in Xcode.
         .background(WindowDragHandle())
     }
 }

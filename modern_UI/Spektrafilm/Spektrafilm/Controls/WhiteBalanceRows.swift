@@ -48,8 +48,7 @@ struct WhiteBalanceRows: View {
                                        set: { session.setTemperature($0) }),
                         range: 2000...12000, zero: asShot?.temperature ?? 5500, snap: 100,
                         format: { "\(Int($0))" },
-                        trackGradient: [Color(hex: 0x005982), Color(hex: 0x8FA83C), Color(hex: 0xFFF100)],
-                        metrics: .camera)
+                        trackGradient: [Color(hex: 0x005982), Color(hex: 0x8FA83C), Color(hex: 0xFFF100)])
 
             ScrubSlider(label: L(.cameraTint),
                         sublabelView: asShotLine(Binding(get: { boxes.tint },
@@ -58,8 +57,7 @@ struct WhiteBalanceRows: View {
                                        set: { session.setTint($0) }),
                         range: -150...150, zero: asShot?.tint ?? 0, snap: 5,
                         format: { String(format: "%+.1f", $0) },
-                        trackGradient: [Color(hex: 0x00A93A), Color(hex: 0x8AA45E), Color(hex: 0xE4007F)],
-                        metrics: .camera)
+                        trackGradient: [Color(hex: 0x00A93A), Color(hex: 0x8AA45E), Color(hex: 0xE4007F)])
         }
         // v3 draws **one** As Shot line under the pair rather than one per
         // axis. Handoff §8.4 is explicit that the two axes stay independent

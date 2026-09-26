@@ -99,6 +99,8 @@ struct UnitField: View {
     @Binding var unit: SideUnit
     var enabled: Bool
     var reason: String = ""
+    /// The rail's label column, as `PillMenu` takes it.
+    var labelWidth: CGFloat = Theme.Metric.sliderLabelWidth
 
     @State private var editing = false
     @State private var text = ""
@@ -112,8 +114,16 @@ struct UnitField: View {
         HStack(spacing: 0) {
             Text(label).font(Theme.Font.label).foregroundStyle(Theme.Ink.secondary)
                 .lineLimit(1)
-                .frame(width: Theme.Metric.sliderLabelWidth, alignment: .leading)
+                .frame(width: labelWidth, alignment: .leading)
             Spacer(minLength: 0)
+            // **One group, the pickers' width, at the trailing edge.** The
+            // field and the unit used to sit either side of a flexible spacer,
+            // so a wider rail shared its extra width between two gaps and the
+            // field slid across the row while every pill above it stayed put.
+            // The drawing puts the field's leading edge on the pickers' leading
+            // edge and the unit's trailing edge on theirs; this is that, at
+            // any rail width.
+            HStack(spacing: 0) {
             field
                 .frame(width: Theme.Metric.fieldWidth, height: Theme.Metric.controlHeight)
                 .background(Theme.pill,
@@ -145,6 +155,8 @@ struct UnitField: View {
                 .contentShape(Capsule())
             }
             .menuStyle(.button).buttonStyle(.plain).menuIndicator(.hidden).fixedSize()
+            }
+            .frame(width: Theme.Metric.pickerWidth)
         }
         .frame(height: Theme.Metric.rowHeight)
         // The **unit** stays live when the length does not: a 135 frame is

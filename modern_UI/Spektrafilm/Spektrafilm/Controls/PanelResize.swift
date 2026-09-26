@@ -164,11 +164,23 @@ final class PanelWidthStore {
     /// `name` is the panel, e.g. "editor.left". A stored value outside the
     /// range — because the range was tightened in a later build — is clamped
     /// on read rather than honoured, so a bound is always a bound.
+    static let keyPrefix = "ui.panelWidth."
+
     init(name: String, range: PanelWidthRange, defaults: UserDefaults = .standard) {
         self.range = range
-        self.key = "ui.panelWidth." + name
+        self.key = Self.keyPrefix + name
         self.defaults = defaults
         let stored = defaults.object(forKey: key) as? Double
         self.width = range.clamp(stored.map { CGFloat($0) } ?? range.standard)
+        // Settings ▸ Reset All Layout. The key is already gone; this puts the
+        // live width back without writing it (the drawing's width is the
+        // default, and a stored default would outlive the next redraw of it).
+        NotificationCenter.default.addObserver(forName: .layoutReset, object: nil, queue: .main) { [weak self] _ in
+            MainActor.assumeIsolated {
+                guard let self else { return }
+                self.width = self.range.standard
+                self.defaults.removeObject(forKey: self.key)
+            }
+        }
     }
 }

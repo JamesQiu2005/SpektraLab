@@ -1,80 +1,104 @@
-//  RightPanel.swift — the grade rail. Its header reads **Edit** and carries
-//  `sidebar.right` at the far end.
+//  RightPanel.swift — the Parameters rail (v4, 2026-09-26).
 //
-//  **v3 (2026-09-18) replaced the glyph with the word.** The row used to open
-//  with an inert `slider.horizontal.3` — the rail's name written as a
-//  picture, because the 2026-09-17 drawing wrote it as a picture. v3 writes
-//  it as a word, which is the better answer to the same problem: the glyph
-//  had to be an `Image` rather than a button so that it could not be clicked,
-//  and a symbol that exists only to be unclickable is a symbol nobody can
-//  read. `Edit` is a label, not a mode button; there is no other mode.
+//  Its header reads **Parameters** and carries two tabs, **Pre-Dev** and
+//  **Post-Dev** — before and after the print is developed:
 //
-//  It used to carry a third thing: a dotted-circle button that bypassed the
-//  whole adjustment layer. It is gone. It was not in the drawing, it never
-//  said what it was, and an unlabelled glyph whose entire job is to change
-//  the picture in a way you cannot attribute to it is worse than no control —
-//  the user's verdict was "I still have no idea what it can do and why it
-//  exists". The capability is untouched and lives where a mode belongs, on
-//  the menu with its own words and a shortcut: **View ▸ Bypass Adjustments
-//  (⇧⌘B)**.
+//  - Pre-Dev is everything that decides the negative and how it is printed:
+//    Latitude (the measurement), Input / Camera, Film Format, Scene Placement
+//    and the Tone Mask.
+//  - Post-Dev is the grade on the finished scan: White Balance, Exposure,
+//    Curve and Color Balance — the rail's contents before v4.
 //
-//  Its sections are separated by the same hairline the left rail uses, and
-//  there is no menu on the header row: the drawing has none, and each section
-//  already carries its own "•••".
+//  The tab is a view choice, remembered across launches; neither tab's
+//  sections stop existing while the other is shown, so an edit is never lost
+//  by switching. Every slider on the rail shares one grid
+//  (`SliderMetrics.parameters`), set once here through the environment.
+//
+//  The sections are separated by `SectionDivider`, so the user can give any
+//  of them more or less of the rail; Settings ▸ Reset All Layout undoes it.
+//  `sidebar.right` moved to the top bar with v4, which leaves this header to
+//  the name and the tabs as drawn.
 
 import SwiftUI
 
+enum ParametersTab: String, CaseIterable, Identifiable {
+    case preDev, postDev
+    var id: String { rawValue }
+    @MainActor var title: String { self == .preDev ? L(.tabPreDev) : L(.tabPostDev) }
+}
+
 struct RightPanel: View {
     @Bindable var session: Session
+    @AppStorage(Session.uiKey + "parametersTab") private var tabRaw = ParametersTab.preDev.rawValue
+    private var tab: ParametersTab { ParametersTab(rawValue: tabRaw) ?? .preDev }
 
     var body: some View {
         VStack(spacing: 0) {
             header
             Hairline()
             ScrollView(.vertical, showsIndicators: false) {
-                // Between sections, never after the last — the left rail's
-                // rule, applied here too. This stack still ended with a
-                // `Hairline()` under Color Balance, which drew a rule across
-                // empty rail below the colour wheel.
                 VStack(spacing: 0) {
-                    let sections: [(String, AnyView)] =
-                        // The histogram is not here: it describes the finished
-                        // picture and heads the canvas's badge stack instead.
-                        [("whiteBalance", AnyView(WhiteBalanceSection(session: session))),
-                         ("exposure", AnyView(ExposureSection(session: session))),
-                         ("curve", AnyView(CurveSection(session: session))),
-                         ("colorBalance", AnyView(ColorBalanceSection(session: session)))]
-                        // Withdrawn while the mask system is redesigned; the
-                        // section itself is intact (`FeatureFlags.masks`).
-                        + (FeatureFlags.masks
-                           ? [("masks", AnyView(MasksSection(session: session)))] : [])
+                    let sections: [(String, AnyView)] = tab == .preDev
+                        ? [("latitude", AnyView(LatitudeSection(session: session))),
+                           ("camera", AnyView(CameraSection(session: session))),
+                           ("filmFormat", AnyView(FilmFormatSection(session: session))),
+                           ("scenePlacement", AnyView(ScenePlacementSection(session: session))),
+                           ("toneMask", AnyView(ToneMaskSection(session: session)))]
+                        : [("wb2", AnyView(WhiteBalanceSection(session: session))),
+                           ("exposure2", AnyView(ExposureSection(session: session))),
+                           ("curve", AnyView(CurveSection(session: session))),
+                           ("colorbalance", AnyView(ColorBalanceSection(session: session)))]
+                           // Withdrawn while the mask system is redesigned;
+                           // the section itself is intact (`FeatureFlags.masks`).
+                           + (FeatureFlags.masks
+                              ? [("masks", AnyView(MasksSection(session: session)))] : [])
+                    // Between sections, never after the last, and each one a
+                    // handle on the section above it.
                     ForEach(Array(sections.enumerated()), id: \.element.0) { index, entry in
-                        if index > 0 { Hairline() }
+                        if index > 0 { SectionDivider(above: sections[index - 1].0) }
                         entry.1
                     }
                 }
             }
         }
+        .environment(\.railSliderMetrics, .parameters)
         .railCard()
     }
 
     private var header: some View {
-        HStack(spacing: 0) {
-            // The rail's name. Alone on this end of the row — a label beside
-            // a button reads as a button, which is half of why the glyph that
-            // used to sit next to one was unreadable.
-            Text(L(.railEdit))
+        HStack(spacing: Theme.Metric.tabGap) {
+            Text(L(.railParameters))
                 .font(Theme.Font.railTitle)
                 .foregroundStyle(Theme.text)
                 .lineLimit(1)
-                .padding(.leading, Theme.Metric.panelHeaderLeading)
+                // The name is never the thing that gives way: the tabs shrink
+                // first, down to their words.
+                .fixedSize()
+                .layoutPriority(1)
+                .padding(.trailing, Theme.Metric.tabLeadingGap - Theme.Metric.tabGap)
+            ForEach(ParametersTab.allCases) { t in
+                Button { tabRaw = t.rawValue } label: {
+                    Text(t.title)
+                        .font(Theme.Font.railTitle)
+                        .foregroundStyle(t == tab ? Theme.accent : Theme.Ink.tertiary)
+                        .lineLimit(1)
+                        .minimumScaleFactor(0.8)
+                        .padding(.horizontal, 6)
+                        .frame(maxWidth: Theme.Metric.tabSize.width)
+                        .frame(height: Theme.Metric.tabSize.height)
+                        .overlay(Capsule().stroke(t == tab ? Theme.accent : Theme.Ink.tertiary.opacity(0.6),
+                                                  lineWidth: 1))
+                        .contentShape(Capsule())
+                }
+                .buttonStyle(.plain)
+            }
             Spacer(minLength: 0)
-            SidebarToggle(edge: .trailing, collapsed: $session.rightCollapsed)
-                .padding(.trailing, Theme.Metric.panelHeaderTrailing)
         }
+        .padding(.leading, Theme.Metric.rowInset)
+        .padding(.trailing, Theme.Metric.panelHeaderTrailing)
         .frame(height: Theme.Metric.panelHeaderHeight)
-        // The same drag surface the left rail's header is, for the same
-        // reason: with the titlebar hidden this row is where one would be.
+        // The same drag surface the left rail's header is: with the titlebar
+        // hidden this row is where one would be.
         .background(WindowDragHandle())
     }
 }

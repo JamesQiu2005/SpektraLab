@@ -420,7 +420,7 @@ struct FilmParams: Codable, Equatable, Sendable {
         case filmStock, printStock, exposureCompensationEV, autoExposureMethod, autoExposure
         case filmFormatMM, filmFrame, filmSide, sideLengthMM, grainActive, halationActive
         case printBrightnessStops, yFilterShift, mFilterShift, glareActive, scanFilm
-        case extendedDynamicRange, preflashExposure, contrastMask, sceneLatitude, effects
+        case extendedDynamicRange, preflashExposure, contrastMask, sceneLatitude, effects, printEffects
     }
 
     // --- stock (shoot for film, print for paper) ---
@@ -512,6 +512,12 @@ struct FilmParams: Codable, Equatable, Sendable {
     var sceneLatitude = SceneLatitudeSettings()
     /// RFC-025. Shoot layer except glare, which is the print's.
     var effects = EffectStrengths()
+    /// The Print section's **Print Effects** switch: off leaves the paper's
+    /// colour transformation and nothing else -- no glare, no pre-flash, no
+    /// Tone Mask -- without forgetting any of their settings. A gate on the
+    /// wire, like `effectiveExtendedDynamicRange`, so turning it back on
+    /// restores exactly what was there.
+    var printEffects = true
 
     init() {
         filmStock = "kodak_portra_400"
@@ -535,6 +541,7 @@ struct FilmParams: Codable, Equatable, Sendable {
         contrastMask = ContrastMaskSettings()
         sceneLatitude = SceneLatitudeSettings()
         effects = EffectStrengths()
+        printEffects = true
     }
 
     /// Keep sidecars written before EDR readable. Stored properties with
@@ -569,6 +576,7 @@ struct FilmParams: Codable, Equatable, Sendable {
         sceneLatitude = try c.decodeIfPresent(SceneLatitudeSettings.self, forKey: .sceneLatitude)
             ?? SceneLatitudeSettings()
         effects = try c.decodeIfPresent(EffectStrengths.self, forKey: .effects) ?? EffectStrengths()
+        printEffects = try c.decodeIfPresent(Bool.self, forKey: .printEffects) ?? true
     }
 
     static let `default` = FilmParams()
@@ -599,14 +607,14 @@ struct FilmParams: Codable, Equatable, Sendable {
             ("print_exposure", .double(FilmParams.printExposure(stops: printBrightnessStops)), .print),
             ("y_filter_shift", .double(yFilterShift), .print),
             ("m_filter_shift", .double(mFilterShift), .print),
-            ("glare_active", .bool(glareActive), .print),
+            ("glare_active", .bool(glareActive && printEffects), .print),
             ("scan_film", .bool(scanFilm), .print),
             ("extended_dynamic_range", .bool(effectiveExtendedDynamicRange), .print),
-            ("preflash_exposure", .double(preflashExposure), .print),
+            ("preflash_exposure", .double(printEffects ? preflashExposure : 0), .print),
             // RFC-024 (API-SPEC §11). Sent always: the defaults are the
             // engine's, and off is a structural bypass, so a legacy frame
             // renders byte for byte as before.
-            ("contrast_mask_active", .bool(contrastMask.active), .print),
+            ("contrast_mask_active", .bool(contrastMask.active && printEffects), .print),
             ("contrast_mask_highlights", .double(contrastMask.highlights), .print),
             ("contrast_mask_shadows", .double(contrastMask.shadows), .print),
             ("contrast_mask_core", .double(contrastMask.core), .print),

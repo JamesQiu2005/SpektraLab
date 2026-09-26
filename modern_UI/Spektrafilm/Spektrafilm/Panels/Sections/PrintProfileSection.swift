@@ -39,9 +39,9 @@
 import SwiftUI
 
 struct PrintProfileSection: View {
-    /// Rows of the print well on screen before it scrolls. **Odd** — see
-    /// `StockList.visibleRows`, and `testStockListShowsAnOddNumberOfRows`.
-    static let wellRows = 5
+    /// Rows of the print list on screen before it scrolls, at the section's
+    /// own height: v4 shows eight papers.
+    static let wellRows = 8
 
     @Bindable var session: Session
 
@@ -119,6 +119,17 @@ struct PrintProfileSection: View {
                 // checkbox among those could be any of the three. The
                 // sublabel settles it without moving it.
                 RailRows {
+                    // v4's **Print Effects**: everything the print stage adds
+                    // on top of the paper's colour — glare, pre-flash, the
+                    // Tone Mask — off in one place, and back exactly as it
+                    // was (`FilmParams.printEffects` gates the wire and forgets
+                    // nothing).
+                    ToggleRow(label: L(.printEffects), isOn: param(\.printEffects),
+                              labelFont: Theme.Font.edrLabel,
+                              enabled: !session.params.scanFilm,
+                              reason: L(.reasonEDRDisabledInScanFilm),
+                              help: "Glare, pre-flash and the Tone Mask. Off leaves the paper's colour "
+                              + "transformation and nothing else; their settings are kept.")
                     ToggleRow(label: L(.printEDR),
                               isOn: param(\.extendedDynamicRange),
                               labelFont: Theme.Font.edrLabel,
@@ -131,7 +142,6 @@ struct PrintProfileSection: View {
                               + "canvas is what the exported file carries.")
                 }
                 .padding(.top, Theme.Metric.rowSpacing + 5)
-                actions.padding(.top, Theme.Metric.rowSpacing + 5)
             }
         }
     }
@@ -146,59 +156,6 @@ struct PrintProfileSection: View {
     private func helpFor(_ stock: String) -> String {
         guard session.fastStockPreview, let entry = session.printLUTStocks[stock] else { return "" }
         return "Fast flip available — baked against \(entry.pairedFilm)."
-    }
-
-    /// Solve / Original, in v3's two-capsule row: 82.86 × 18.52 each,
-    /// `rx 9.26`, 12.18 apart, the pair inset 13.33 from the rail's leading
-    /// edge. Two capsules at their own width, not two halves of the rail.
-    ///
-    /// This row used to be Developed / Original, a two-state view selector —
-    /// which left Solve, the one action that prints the frame, in the "…"
-    /// menu where nobody found it. So the left capsule is Solve and the
-    /// right one is Original as a **toggle**: pressed, it shows the RAW;
-    /// pressed again, the developed print. Space still does the same while
-    /// held on the canvas.
-    ///
-    /// **No plate.** v3 fills neither capsule. Solve is an accent outline
-    /// whenever it can run; Original is accent while it is showing and muted
-    /// otherwise. A muted Original is *not* a disabled one — `rowEnabled`
-    /// carries disablement separately, so with no frame open both grey.
-    private var actions: some View {
-        HStack(spacing: Theme.Metric.actionGap) {
-            action(L(.actionSolve),
-                   help: "Auto-exposure and the enlarger filter pack for this paper — print this frame.",
-                   active: session.canSolve, enabled: session.canSolve) {
-                session.solveNow()
-            }
-            action(L(.actionOriginal),
-                   help: session.showingOriginal
-                       ? "Showing the original — press to go back to the developed print."
-                       : "Show the RAW as Apple's decoder renders it, before any film simulation (⎵ does the same, while held).",
-                   active: session.showingOriginal, enabled: session.selection != nil) {
-                session.toggledOriginal(!session.showingOriginal)
-            }
-            Spacer(minLength: 0)
-        }
-        .padding(.leading, Theme.Metric.actionLeading)
-    }
-
-    private func action(_ title: String, help: String, active: Bool, enabled: Bool,
-                        _ perform: @escaping () -> Void) -> some View {
-        Button(action: perform) {
-            Text(title)
-                .font(Theme.Font.action)
-                .foregroundStyle(active ? Theme.accent : Theme.Ink.tertiary)
-                .lineLimit(1)
-                .frame(width: Theme.Metric.actionSize.width,
-                       height: Theme.Metric.actionSize.height)
-                .overlay(RoundedRectangle(cornerRadius: Theme.Metric.actionRadius, style: .continuous)
-                    .stroke(active ? Theme.accent : Theme.Ink.tertiary, lineWidth: 1))
-                .frame(height: Theme.Metric.actionHitHeight)
-                .contentShape(Rectangle())
-        }
-        .buttonStyle(.plain)
-        .rowEnabled(enabled)
-        .help(help)
     }
 
     private var menu: some View {

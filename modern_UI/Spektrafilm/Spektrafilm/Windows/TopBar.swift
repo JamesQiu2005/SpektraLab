@@ -1,5 +1,13 @@
-//  TopBar.swift — the canvas's own bar: select · pan · crop …… before/after
-//  · [100 %] · zoom-out · zoom-in · full screen.
+//  TopBar.swift — the canvas's own bar.
+//
+//  **v4 (2026-09-26):** ◧ · import · export · select · crop · [Process]
+//  [Original] …… before/after · [100 %] · zoom-out · zoom-in · ◨. Process and
+//  Original came up from the Print section, import and export from the left
+//  rail's header, and both sidebar toggles live here permanently, which keeps
+//  them on screen whichever rail is folded. The hand and full-screen glyphs are
+//  not drawn; H, Space-drag and ⌃⌘F still do both. The notes below are v3's
+//  and still describe the bar's geometry.
+//
 //
 //  **v3 (2026-09-18) flattened it and re-ordered it.** It was a rounded pill
 //  floating on ground; it is now a plain rectangle filling the centre
@@ -45,43 +53,41 @@ import SwiftUI
 struct TopBar: View {
     @Bindable var session: Session
 
-    /// Whether the window is in fullscreen, so the one expand button can show
-    /// which way it goes. Read off the window rather than kept as a flag of
-    /// our own: fullscreen is also left with ⌃⌘F and by the green button, and
-    /// a second copy of that state would be wrong exactly when it mattered.
-    @State private var fullScreen = false
-
     var body: some View {
         HStack(spacing: 0) {
-            // Everything here is spaced from the bar's leading edge, and that
-            // edge is either the bar's own padding or the room the window
-            // buttons need — they are on this row whenever the left rail is
-            // not (Windows/TrafficLights.swift).
+            // The leading edge is either the bar's own padding or the room the
+            // window buttons need — they are on this row whenever the left
+            // rail is not (Windows/TrafficLights.swift).
             Spacer()
                 .frame(width: session.leftCollapsed ? Theme.Metric.barLeadingWithButtons
-                                                    : Theme.Metric.barPadding)
-            if session.leftCollapsed {
-                SidebarToggle(edge: .leading, collapsed: $session.leftCollapsed)
-                    .padding(.trailing, 14)
+                                                    : Theme.Metric.barPadding - 14)
+            // v4's order: the rail toggle, the file, the tools, then the one
+            // action that prints the frame and the view that compares it.
+            SidebarToggle(edge: .leading, collapsed: $session.leftCollapsed)
+            iconButton("square.and.arrow.down", L(.helpOpen) + " (⌘O)") { session.openPanel() }
+                .padding(.leading, Theme.Metric.barClusterGap)
+            iconButton("square.and.arrow.up", L(.helpExport) + " (⌘E)", disabled: session.selection == nil) {
+                session.showExport = true
             }
-            // Shortcuts are appended at the call site rather than stored in the
-            // table — the spec's rule, and it is what keeps a translation from
-            // having to place `(V)` inside a Chinese phrase.
-            //
-            // **Crop has no key.** The spec lists Select and Pan among the
-            // toolbar's tools and gives Crop no row; its Chinese in the table
-            // (裁剪) belongs to the *section*, and reusing it here would be the
-            // global-English-replacement the spec forbids. So this one stays
-            // English, as a boundary of the spec's scope rather than a miss.
+            .padding(.leading, Theme.Metric.barIconGap)
+            // **Pan is H and the hand, not a button.** v4 draws two tools;
+            // the hand stays one key away (View ▸ Hand, H) and a drag with
+            // Space held on the canvas.
             toolButton("cursorarrow", .select, L(.helpSelect) + " (V)")
-            // v3 draws a tilted hand with curved motion marks around it, which
-            // is not `hand.raised` and is not any SF Symbol — §6 of the
-            // handoff calls it custom and says to trace the vector rather
-            // than crop the bitmap. Until that asset exists this is the
-            // nearest symbol, and the deviation is recorded here rather than
-            // silently closed.
-            toolButton("hand.raised", .hand, L(.helpPan) + " (H)").padding(.leading, Theme.Metric.toolGap)
-            toolButton("crop", .crop, "Crop (C)").padding(.leading, Theme.Metric.toolGap)
+                .padding(.leading, Theme.Metric.barClusterGap)
+            toolButton("crop", .crop, "Crop (C)").padding(.leading, Theme.Metric.barIconGap)
+            action(L(.actionSolve),
+                   help: "Auto-exposure and the enlarger filter pack for this paper — print this frame.",
+                   active: session.canSolve, enabled: session.canSolve) { session.solveNow() }
+                .padding(.leading, Theme.Metric.barActionLeading)
+            action(L(.actionOriginal),
+                   help: session.showingOriginal
+                       ? "Showing the original — press to go back to the developed print."
+                       : "Show the RAW as Apple's decoder renders it, before any film simulation (⎵ does the same, while held).",
+                   active: session.showingOriginal, enabled: session.selection != nil) {
+                session.toggledOriginal(!session.showingOriginal)
+            }
+            .padding(.leading, Theme.Metric.actionGap)
             if session.working {
                 ProgressView().controlSize(.small).scaleEffect(0.7).padding(.leading, 18)
             }
@@ -96,23 +102,9 @@ struct TopBar: View {
             // The empty middle of the bar is the window's drag surface: the
             // titlebar is hidden, and this is where a toolbar would be.
             WindowDragHandle().frame(minWidth: 8, maxWidth: .infinity)
-            // "full" once the frame is on the canvas at its own resolution,
-            // accented while that render is still on its way. Nothing here is
-            // about zoom any more: the canvas settles at the frame's own size
-            // after every edit, whatever the zoom.
-            if session.fullPending || session.renderer.showsFullRender {
-                Text(session.renderer.showsFullRender ? L(.statusFull) : L(.statusFullPending))
-                    .font(Theme.Font.caption)
-                    .foregroundStyle(session.fullPending ? Theme.accent : Theme.dim)
-                    .help(session.renderer.showsFullRender
-                          ? "The canvas is showing this frame at its own resolution."
-                          : "Rendering this frame at its own resolution…")
-            }
-            // Before/after, immediately left of the zoom controls — the
-            // reference layout's position
-            // (`reference_layout/before_and_after/`). It belongs with zoom
-            // rather than with the tools because it changes how the canvas is
-            // *displayed*, not what a click on it does.
+            // Before/after, immediately left of the zoom controls. It belongs
+            // with zoom rather than with the tools because it changes how the
+            // canvas is *displayed*, not what a click on it does.
             Button { session.comparing.toggle() } label: {
                 BeforeAfterIcon(color: session.comparing ? Theme.accent : Theme.text)
                     .frame(width: Theme.Metric.beforeAfterIcon.width,
@@ -123,49 +115,45 @@ struct TopBar: View {
             .buttonStyle(.plain)
             .disabled(!session.canCompare)
             .opacity(session.canCompare ? 1 : 0.4)
-            // The spec's row is the phrase only. Its "drag the line on the
-            // canvas" clause has no row and an English sentence cannot be
-            // appended to a Chinese one, so the tooltip is the phrase plus the
-            // shortcut the spec says to append. The clause is a copy decision,
-            // named in the hand-off report rather than dropped quietly.
             .help(L(.helpBeforeAfter) + " (⌥\\)")
             .padding(.trailing, Theme.Metric.beforeAfterGap)
-            // v3's order: the value, then out, then in.
+            // The value, then out, then in. Full screen is ⌃⌘F and the
+            // window's own green button; v4 draws no glyph for it.
             zoomPill.rowEnabled(!session.zoomLocked)
             iconButton("minus.magnifyingglass", L(.helpZoomOut) + " (⌘−)", disabled: session.zoomLocked) { session.zoomStep(-1) }
                 .padding(.leading, Theme.Metric.zoomGap)
             iconButton("plus.magnifyingglass", L(.helpZoomIn) + " (⌘+)", disabled: session.zoomLocked) { session.zoomStep(1) }
-            // One button, both ways (PRD §1). Fit and fullscreen were only
-            // ever two buttons because fullscreen had nowhere else to be —
-            // they are not two halves of one idea. Fit keeps its ⌘0, its View
-            // menu item and its entry in the pill's own menu, which is what
-            // the drawing's single diagonal-arrows glyph assumes.
-            iconButton(fullScreen ? "arrow.down.right.and.arrow.up.left" : "arrow.up.left.and.arrow.down.right",
-                       (fullScreen ? L(.helpFullScreenLeave) : L(.helpFullScreenEnter)) + " (⌃⌘F)") {
-                NSApp.keyWindow?.toggleFullScreen(nil)
-            }
-            .padding(.leading, Theme.Metric.fullScreenGap)
-            if session.rightCollapsed {
-                SidebarToggle(edge: .trailing, collapsed: $session.rightCollapsed)
-                    .padding(.leading, 14)
-            }
-            Spacer().frame(width: Theme.Metric.barPadding)
+            SidebarToggle(edge: .trailing, collapsed: $session.rightCollapsed)
+                .padding(.leading, Theme.Metric.barClusterGap)
+            Spacer().frame(width: Theme.Metric.barPadding - 14)
         }
         .frame(height: Theme.Metric.topBarHeight)
         .barCard()
-        // The whole bar is a window drag surface behind its controls, not
-        // just the gap in the middle: with the titlebar hidden and the bar
-        // now flush with the window's top edge, this row *is* where a
-        // titlebar would be, and a flush bar whose only draggable part is an
-        // 8 pt gap between two clusters is a window that feels nailed down.
+        // The whole bar is a window drag surface behind its controls: with the
+        // titlebar hidden this row *is* where a titlebar would be.
         .background(WindowDragHandle())
-        .onAppear { fullScreen = NSApp.keyWindow?.styleMask.contains(.fullScreen) ?? false }
-        .onReceive(NotificationCenter.default.publisher(for: NSWindow.didEnterFullScreenNotification)) { _ in
-            fullScreen = true
+    }
+
+    /// Process / Original: v3's two capsules, moved up from the Print section
+    /// by v4. **No plate**: Process is an accent outline whenever it can run;
+    /// Original is accent while it is showing and muted otherwise. A muted
+    /// Original is *not* a disabled one — `rowEnabled` carries that.
+    private func action(_ title: String, help: String, active: Bool, enabled: Bool,
+                        _ perform: @escaping () -> Void) -> some View {
+        Button(action: perform) {
+            Text(title)
+                .font(Theme.Font.action)
+                .foregroundStyle(active ? Theme.accent : Theme.Ink.tertiary)
+                .lineLimit(1)
+                .frame(width: Theme.Metric.actionSize.width, height: Theme.Metric.actionSize.height)
+                .overlay(RoundedRectangle(cornerRadius: Theme.Metric.actionRadius, style: .continuous)
+                    .stroke(active ? Theme.accent : Theme.Ink.tertiary, lineWidth: 1))
+                .frame(height: Theme.Metric.actionHitHeight)
+                .contentShape(Rectangle())
         }
-        .onReceive(NotificationCenter.default.publisher(for: NSWindow.didExitFullScreenNotification)) { _ in
-            fullScreen = false
-        }
+        .buttonStyle(.plain)
+        .rowEnabled(enabled)
+        .help(help)
     }
 
     private var statusText: String {

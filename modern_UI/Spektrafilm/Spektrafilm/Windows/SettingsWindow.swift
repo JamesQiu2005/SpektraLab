@@ -134,6 +134,12 @@ struct SettingsWindow: View {
                     caption(chinese
                             ? "同步调整主界面、设置与导出页的字体大小；更改立即生效。"
                             : "Scales type across the editor, Settings and Export. Changes apply immediately.")
+                    HStack {
+                        Button(L(.setResetLayout)) { SectionLayoutStore.resetAllLayout() }
+                            .buttonStyle(.plain).font(Theme.Font.caption).foregroundStyle(Theme.accent)
+                        Spacer(minLength: 0)
+                    }
+                    caption(L(.setResetLayoutCaption))
                 }
             }
         }

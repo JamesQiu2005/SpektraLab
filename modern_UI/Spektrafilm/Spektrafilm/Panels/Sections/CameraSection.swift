@@ -8,8 +8,12 @@
 //  arrow on the header**, beside the "•••". Its scope is left open by §8.3,
 //  so it is wired to the one reset this section already had a name for —
 //  film exposure — and the tooltip says exactly that rather than implying it
-//  resets the section. Camera's labels are set at 9 pt in a 70 pt column,
-//  which is v3's measurement and narrower than the rail's shared 84.
+//  resets the section.
+//
+//  **v4 moved it to the Parameters rail** (Pre-Dev), and its rows onto that
+//  rail's one grid: the 9 pt labels in a 70 pt column that v3 gave Camera
+//  alone are gone, so Film Exposure's track starts where every other
+//  slider's on the rail does (`SliderMetrics.parameters`).
 //
 //  The 2026-09-17 drawing's first section, and every row of it is a row of
 //  the drawing. No well: controls sit directly on the rail, which is what
@@ -61,24 +65,20 @@ struct CameraSection: View {
                          title: { L($0.key) },
                          selection: Binding(get: { session.aeMethod },
                                             set: { session.aeMethod = $0 }),
-                         labelWidth: Theme.Metric.cameraLabelWidth,
-                         font: Theme.Font.cameraLabel)
+                         labelWidth: Theme.Metric.parameterLabelWidth)
                 ScrubSlider(label: L(.cameraFilmExposure),
                             sublabelView: asShotLine,
                             value: Binding(get: { session.params.exposureCompensationEV },
                                            set: { var p = session.params; p.exposureCompensationEV = $0; session.params = p }),
-                            range: -4...4, snap: 1 / 3, format: { String(format: "%+.1f", $0) },
-                            metrics: .camera)
+                            range: -4...4, snap: 1 / 3, format: { String(format: "%+.1f", $0) })
                 WhiteBalanceRows(session: session)
                 ScrubSlider(label: L(.cameraVignetting),
                             value: Binding(get: { session.adjustments.vignette.amount },
                                            set: { var a = session.adjustments; a.vignette.amount = $0; session.adjustments = a }),
-                            range: -100...100, snap: 5, format: { String(format: "%+.0f", $0) },
-                            metrics: .camera)
+                            range: -100...100, snap: 5, format: { String(format: "%+.0f", $0) })
                 ToggleRow(label: L(.cameraLensCorrection),
                           isOn: Binding(get: { session.decode.lensCorrection },
                                         set: { session.setLensCorrection($0) }),
-                          labelFont: Theme.Font.cameraLabel,
                           enabled: session.lensCorrectionEnabled,
                           reason: session.lensCorrectionReason)
             }

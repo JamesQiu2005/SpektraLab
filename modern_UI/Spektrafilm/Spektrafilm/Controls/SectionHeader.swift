@@ -66,6 +66,9 @@ struct SectionHeader: View {
     var action: SectionAction? = nil
     var menu: (() -> AnyView)? = nil
     var metrics = SectionMetrics()
+    /// Metadata at the header's trailing end, before its buttons — what a
+    /// measurement was taken on (Latitude's film and paper).
+    var note: String? = nil
 
     var body: some View {
         HStack(spacing: 0) {
@@ -92,6 +95,11 @@ struct SectionHeader: View {
                 .padding(.leading, Theme.Metric.headerTitleGap)
                 .lineLimit(1)
             Spacer(minLength: 4)
+            if let note {
+                Text(note).font(Theme.Font.meta).foregroundStyle(Theme.Ink.tertiary)
+                    .lineLimit(1).truncationMode(.middle)
+                    .padding(.trailing, action == nil && menu == nil ? Theme.Metric.headerTrailing : 2)
+            }
             if let action {
                 Button(action: action.perform) {
                     Image(systemName: action.systemImage)
@@ -201,13 +209,16 @@ struct PanelSection<Content: View>: View {
     var menu: (() -> AnyView)? = nil
     /// See `SectionMetrics` — the editor's panels unless a page says otherwise.
     var metrics = SectionMetrics()
+    var note: String? = nil
     @ViewBuilder var content: () -> Content
     @AppStorage private var expanded: Bool
 
     init(_ title: String, systemImage: String? = nil, key: String, initiallyExpanded: Bool = true,
          action: SectionAction? = nil,
          menu: (() -> AnyView)? = nil, metrics: SectionMetrics = SectionMetrics(),
+         note: String? = nil,
          @ViewBuilder content: @escaping () -> Content) {
+        self.note = note
         self.title = title; self.systemImage = systemImage; self.key = key
         self.initiallyExpanded = initiallyExpanded; self.action = action
         self.menu = menu; self.metrics = metrics
@@ -218,15 +229,20 @@ struct PanelSection<Content: View>: View {
     var body: some View {
         VStack(spacing: 0) {
             SectionHeader(title: title, systemImage: systemImage, expanded: $expanded,
-                          action: action, menu: menu, metrics: metrics)
+                          action: action, menu: menu, metrics: metrics, note: note)
             // A **collapsed** section is its header and nothing else. The
             // drawing's two shut sections are 30 pt apart, which is the
             // header, so bottom padding here would put air under a row that
             // has nothing under it.
             if expanded {
+                // The user's height when a divider has been dragged
+                // (`SectionLayout.swift`); intrinsic, and measured, otherwise.
                 content()
                     .padding(.top, metrics.headerToWell)
                     .padding(.bottom, metrics.wellToHeader)
+                    .sectionSized(key, header: metrics.headerHeight) { total in
+                        SectionLayoutStore.shared.measured[key] = total
+                    }
             }
         }
     }

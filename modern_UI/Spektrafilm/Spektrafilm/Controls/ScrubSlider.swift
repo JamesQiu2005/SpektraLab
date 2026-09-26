@@ -11,6 +11,17 @@ import SwiftUI
 /// editor's rails, which is what every caller but the export page wants; the
 /// export page's drawing has a narrower label column, a thinner track and a
 /// shorter row. The knob is not here because both drawings agree on it.
+private struct RailSliderMetricsKey: EnvironmentKey { static let defaultValue = SliderMetrics() }
+
+extension EnvironmentValues {
+    /// The slider grid of the rail a slider sits on. The Parameters rail sets
+    /// `.parameters`; everything else keeps the default.
+    var railSliderMetrics: SliderMetrics {
+        get { self[RailSliderMetricsKey.self] }
+        set { self[RailSliderMetricsKey.self] = newValue }
+    }
+}
+
 struct SliderMetrics {
     /// The rails' default: an 84 pt label column at 10.5 pt.
     static let rail = SliderMetrics()
@@ -19,6 +30,13 @@ struct SliderMetrics {
     /// them less room than Film's, not the same room in a smaller face.
     static let camera = SliderMetrics(labelWidth: Theme.Metric.cameraLabelWidth,
                                       labelFont: Theme.Font.cameraLabel)
+    /// **The Parameters rail's one grid** (v4). Every slider on the right rail
+    /// — Camera's, Film Format's strengths, Scene Placement, the Tone Mask and
+    /// the Post-Dev grade — shares this label column, so their tracks start
+    /// on one line and their values end on another. v4's drawing had two
+    /// (Camera at 9 pt in 70, Film Format at 10.5 pt pushed out by "Halation
+    /// Strength"), which is what made the strength rows look off-grid.
+    @MainActor static var parameters: SliderMetrics { SliderMetrics(labelWidth: Theme.Metric.parameterLabelWidth) }
 
     var labelWidth: CGFloat = Theme.Metric.sliderLabelWidth
     var valueWidth: CGFloat = Theme.Metric.sliderValueWidth
@@ -46,10 +64,18 @@ struct ScrubSlider: View {
     var format: (Double) -> String = { String(format: "%.1f", $0) }
     var parse: (String) -> Double? = { Double($0.replacingOccurrences(of: ",", with: ".")) }
     var trackGradient: [Color]? = nil
+    /// A span of the range that would be refused (Scene Placement's pull-backs
+    /// below the Fit's minimum). Drawn as a dimmed stretch of the track, so
+    /// the dead zone is visible before anyone drags into it.
+    var blocked: ClosedRange<Double>? = nil
     var disabled = false
-    /// See `SliderMetrics` — the editor's panels unless a page says otherwise.
-    var metrics = SliderMetrics()
+    /// See `SliderMetrics`. Nil takes the rail's (`\.railSliderMetrics`), which
+    /// is how every slider on the Parameters rail lands on one grid without
+    /// each call site having to say so.
+    var metrics: SliderMetrics? = nil
     var onCommit: () -> Void = {}
+    @Environment(\.railSliderMetrics) private var railMetrics
+    private var m: SliderMetrics { metrics ?? railMetrics }
 
     @State private var dragStart: Double?
     @State private var editing = false
@@ -62,16 +88,16 @@ struct ScrubSlider: View {
         VStack(alignment: .leading, spacing: 0) {
             HStack(spacing: 0) {
                 Text(label)
-                    .font(metrics.labelFont)
+                    .font(m.labelFont)
                     .foregroundStyle(Theme.Ink.secondary)
-                    .frame(width: metrics.labelWidth, alignment: .leading)
+                    .frame(width: m.labelWidth, alignment: .leading)
                     .lineLimit(1)
                 track
                     .padding(.trailing, Theme.Metric.sliderValueGap)
                 valueField
-                    .frame(width: metrics.valueWidth)
+                    .frame(width: m.valueWidth)
             }
-            .frame(height: metrics.rowHeight)
+            .frame(height: m.rowHeight)
             // The second line is the drawing's own: "As Shot" and its box sit
             // **under the label**, not beside the value, so they line up with
             // the label column rather than floating in the middle of the row.
@@ -121,8 +147,17 @@ struct ScrubSlider: View {
                         Capsule().fill(Theme.ground)
                     }
                 }
-                .frame(height: metrics.trackHeight)
+                .frame(height: m.trackHeight)
                 .padding(.horizontal, knobW / 2)
+                if let blocked, blocked.upperBound > range.lowerBound {
+                    let span = range.upperBound - range.lowerBound
+                    let lo = CGFloat((max(blocked.lowerBound, range.lowerBound) - range.lowerBound) / span)
+                    let hi = CGFloat((min(blocked.upperBound, range.upperBound) - range.lowerBound) / span)
+                    Capsule().fill(Theme.Ink.tertiary.opacity(0.35))
+                        .frame(width: max((hi - lo) * (w - knobW), 0), height: 5)
+                        .offset(x: lo * (w - knobW) + knobW / 2)
+                        .allowsHitTesting(false)
+                }
                 // Zero tick, only when zero is not at an end.
                 if zeroFraction > 0.001 && zeroFraction < 0.999 && abs(fraction - zeroFraction) > 0.02 {
                     Rectangle().fill(Theme.text.opacity(0.55)).frame(width: 1, height: 6)
@@ -159,7 +194,7 @@ struct ScrubSlider: View {
             )
             .simultaneousGesture(TapGesture(count: 2).onEnded { value = zero; onCommit() })
         }
-        .frame(height: metrics.rowHeight)
+        .frame(height: m.rowHeight)
     }
 
     private var valueField: some View {
@@ -167,7 +202,7 @@ struct ScrubSlider: View {
             if editing {
                 TextField("", text: $text)
                     .textFieldStyle(.plain)
-                    .font(metrics.valueFont)
+                    .font(m.valueFont)
                     .multilineTextAlignment(.center)
                     .foregroundStyle(Theme.text)
                     .focused($focused)
@@ -175,7 +210,7 @@ struct ScrubSlider: View {
                     .onChange(of: focused) { _, f in if !f { commitText() } }
             } else {
                 Text(format(value))
-                    .font(metrics.valueFont)
+                    .font(m.valueFont)
                     .foregroundStyle(Theme.text)
                     .contentShape(Rectangle())
                     .onTapGesture { text = format(value); editing = true; focused = true }
@@ -183,9 +218,9 @@ struct ScrubSlider: View {
         }
         .lineLimit(1)
         .frame(maxWidth: .infinity)
-        .frame(height: metrics.valueInPill ? Theme.Metric.controlHeight : nil)
+        .frame(height: m.valueInPill ? Theme.Metric.controlHeight : nil)
         .background {
-            if metrics.valueInPill {
+            if m.valueInPill {
                 RoundedRectangle(cornerRadius: Theme.Metric.fieldRadius, style: .continuous)
                     .fill(Theme.pill)
             }
