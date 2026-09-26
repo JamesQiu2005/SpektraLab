@@ -103,7 +103,7 @@ enum S: String, CaseIterable, Sendable {
     case setLanguage, setLanguageCaption, languageFollowSystem
 
     // MARK: frontend v4 (2026-09-26 drawing)
-    case filmFormatSize, railFilmAndPrint, railParameters, tabPreDev, tabPostDev, sectionNavigator, sectionEnlarger, sectionLatitude, sectionScenePlacement, sectionToneMask, printEffects, filmGrainStrength, filmHalationStrength, filmScatterStrength, filmCouplersStrength, filmGlareStrength, latitudeBelow, latitudeWithin, latitudeAbove, latitudeHeld, latitudeFullSeparation, latitudeEmpty, placementHighlight, placementShadow, maskEnable, maskHighlights, maskShadows, maskCore, maskRadius, maskCurveCaption, enlargerPreflash, helpResetFilmFormat, helpResetPlacement, helpResetToneMask, helpResetEnlarger, helpSubLayerGrain, reasonPrintEffectsOff, reasonNotDeveloped, setResetLayout, setResetLayoutCaption
+    case latitudeUnmeasurable, latitudeNoLight, filmFormatSize, railFilmAndPrint, railParameters, tabPreDev, tabPostDev, sectionNavigator, sectionEnlarger, sectionLatitude, sectionScenePlacement, sectionToneMask, printEffects, filmGrainStrength, filmHalationStrength, filmScatterStrength, filmCouplersStrength, filmGlareStrength, latitudeBelow, latitudeWithin, latitudeAbove, latitudeHeld, latitudeFullSeparation, latitudeEmpty, placementHighlight, placementShadow, maskEnable, maskHighlights, maskShadows, maskCore, maskRadius, maskCurveCaption, enlargerPreflash, helpResetFilmFormat, helpResetPlacement, helpResetToneMask, helpResetEnlarger, helpSubLayerGrain, reasonPrintEffectsOff, reasonNotDeveloped, setResetLayout, setResetLayoutCaption
 }
 
 // MARK: - the table
@@ -115,6 +115,8 @@ extension S {
         // rails and sections
         case .railDevelop: "Develop"
         case .railEdit: "Edit"
+        case .latitudeUnmeasurable: "This film and paper do not print a rising tone scale, so there is no latitude to measure. A slide printed onto print film comes out as a negative."
+        case .latitudeNoLight: "The frame has no light in it to measure."
         case .filmFormatSize: "Size"
         case .railFilmAndPrint: "Film and Print"
         case .railParameters: "Parameters"
@@ -314,6 +316,8 @@ extension S {
         // rails and sections
         case .railDevelop: "显影"
         case .railEdit: "调整"
+        case .latitudeUnmeasurable: "当前胶片与相纸的输出不随曝光递增，无法测量宽容度。反转片印到电影正片上会得到负像。"
+        case .latitudeNoLight: "画面中没有可测量的光。"
         case .filmFormatSize: "尺寸"
         case .railFilmAndPrint: "胶片与相纸"
         case .railParameters: "参数"

@@ -293,6 +293,33 @@ final class EngineClientTests: XCTestCase {
         await client.stop()
     }
 
+    /// A slide printed onto print film comes out as a negative, so its medium
+    /// has no rising tone scale and the probe refuses it — with the words
+    /// `Session.probeLatitude` matches to say so in the Latitude section. The
+    /// same slide scanned directly (Positive, `scan_film`) measures.
+    func testLatitudeRefusesAnInvertedMediumAndMeasuresTheScannedSlide() async throws {
+        let gpu = try device()
+        var printed = FilmParams.default
+        printed.filmStock = "fujifilm_provia_100f"; printed.printStock = "kodak_2383"
+        let client = EngineClient(device: gpu)
+        _ = try await client.open(try makeFrame(96, device: gpu), paramsDelta: printed.fullDelta)
+        do {
+            _ = try await client.sceneLatitude(SceneLatitudeRequest())
+            XCTFail("a slide printed onto 2383 has no latitude to measure")
+        } catch {
+            XCTAssertTrue("\(error)".contains("boundaries do not lie inside"), "\(error)")
+        }
+        await client.stop()
+
+        var scanned = printed
+        scanned.scanFilm = true
+        let second = EngineClient(device: gpu)
+        _ = try await second.open(try makeFrame(96, device: gpu), paramsDelta: scanned.fullDelta)
+        let reply = try await second.sceneLatitude(SceneLatitudeRequest())
+        XCTAssertLessThan(reply.medium.shadowEV, reply.medium.highlightEV)
+        await second.stop()
+    }
+
     /// RFC-024's field: refused before the tier has a negative, empty with the
     /// mask off, and the grid in the frame's aspect with it on.
     func testTheMaskFieldFollowsTheMask() async throws {

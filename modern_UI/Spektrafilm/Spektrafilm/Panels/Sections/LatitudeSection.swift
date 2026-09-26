@@ -55,7 +55,8 @@ struct LatitudeSection: View {
                                + Theme.Metric.latitudeBandHeight + Theme.Metric.latitudeAxisHeight)
                     readouts(readout).padding(.top, Theme.Metric.rowSpacing)
                 } else {
-                    Text(L(.latitudeEmpty))
+                    Text(session.latitude.frame == session.selection
+                         ? session.latitude.failure ?? L(.latitudeEmpty) : L(.latitudeEmpty))
                         .font(Theme.Font.caption).foregroundStyle(Theme.Ink.tertiary)
                         .frame(maxWidth: .infinity, minHeight: Theme.Metric.latitudePlotHeight, alignment: .center)
                         .multilineTextAlignment(.center)

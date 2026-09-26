@@ -25,6 +25,10 @@ final class LatitudeModel {
     private(set) var frame: URL?
     /// Why the last placement was refused, if it was.
     private(set) var refusal: SceneLatitudeResponse.Fit.Issue?
+    /// Why the frame on screen could not be measured, in words; nil when it
+    /// was, or has not been tried. The section says this instead of going
+    /// quietly blank.
+    private(set) var failure: String?
 
     fileprivate var refreshTask: Task<Void, Never>?
     fileprivate var placementTask: Task<Void, Never>?
@@ -33,13 +37,20 @@ final class LatitudeModel {
     fileprivate func take(_ reply: SceneLatitudeResponse, frame: URL) {
         self.reply = reply
         self.frame = frame
+        failure = nil
+    }
+
+    fileprivate func fail(_ why: String, frame: URL) {
+        reply = nil
+        self.frame = frame
+        failure = why
     }
 
     fileprivate func refuse(_ issue: SceneLatitudeResponse.Fit.Issue?) { refusal = issue }
 
     func clear() {
         refreshTask?.cancel()
-        reply = nil; frame = nil; refusal = nil
+        reply = nil; frame = nil; refusal = nil; failure = nil
     }
 
     /// The side a refusal is about, so each row shows only its own.
@@ -162,10 +173,16 @@ extension Session {
             latitude.take(reply, frame: url)
             return reply
         } catch {
-            // A frame the probe cannot read (no positive pixels) keeps the
-            // last graph off rather than an old frame's: say nothing, draw
-            // nothing, and let the section's empty state speak.
-            if latitude.frame != url { latitude.clear() }
+            // Say why, rather than going blank. The engine's two expected
+            // refusals get plain words; anything else is passed on as it is.
+            // Not cached engine-side, so the probe tries again after the next
+            // render — cheap (~6 ms measured), and right once the pair changes.
+            guard selection == url else { return nil }
+            let text = "\(error)"
+            let why = text.contains("boundaries do not lie inside") ? L(.latitudeUnmeasurable)
+                    : text.contains("no positive pixels") ? L(.latitudeNoLight)
+                    : text
+            latitude.fail(why, frame: url)
             return nil
         }
     }
