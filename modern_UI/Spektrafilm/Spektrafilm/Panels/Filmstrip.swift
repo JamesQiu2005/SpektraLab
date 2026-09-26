@@ -29,6 +29,7 @@ struct Filmstrip: View {
                     LazyHStack(spacing: 14) {
                         ForEach(session.frames) { frame in
                             FilmstripCell(frame: frame,
+                                          geometry: session.thumbnailGeometry(for: frame.id),
                                           framing: session.framing(of: frame.id),
                                           state: session.frameStates[frame.id] ?? .unprocessed)
                                 .id(frame.id)
@@ -45,7 +46,7 @@ struct Filmstrip: View {
                                     Button(L(.helpRevealInFinder)) { NSWorkspace.shared.activateFileViewerSelecting([frame.id]) }
                                     Button(L(.helpResetDefaults)) {
                                         if frame.id == session.selection { session.resetParams(); session.resetAdjustments() }
-                                        else { Sidecar.remove(for: frame.id) }
+                                        else { Sidecar.remove(for: frame.id); session.refreshState(for: frame.id) }
                                     }
                                 }
                         }
@@ -86,15 +87,22 @@ struct Filmstrip: View {
 
 struct FilmstripCell: View {
     let frame: Frame
+    /// The frame's crop, turn and flips, drawn over its thumbnail.
+    var geometry: Geometry = .default
     /// Whether this cell is on the canvas, in the picked set, or neither —
     /// one value from `Session.framing(of:)` rather than two booleans, so the
     /// strip and the grid cannot spell the same state two ways.
     let framing: FrameFraming
     /// Unread by this cell; kept as the guard test's construction seam.
     let state: FrameState
-    @State private var image: CGImage?
-
     var body: some View {
+        CropMaskedThumbnail(url: frame.id, geometry: geometry) { image in
+            cell(image)
+        }
+        .help(frame.name)
+    }
+
+    private func cell(_ image: CGImage?) -> some View {
         ZStack {
             Group {
                 if let image {
@@ -109,14 +117,6 @@ struct FilmstripCell: View {
             .overlay(RoundedRectangle(cornerRadius: 2)
                 .stroke(Theme.selectionFrame, lineWidth: framing.lineWidth)
                 .opacity(framing.opacity))
-        }
-        .help(frame.name)
-        .task(id: frame.id) {
-            image = await ThumbnailCache.shared.thumbnail(for: frame.id)
-        }
-        .onReceive(NotificationCenter.default.publisher(for: .thumbnailUpdated)) { n in
-            guard (n.object as? URL) == frame.id else { return }
-            Task { image = await ThumbnailCache.shared.thumbnail(for: frame.id) }
         }
     }
 

@@ -1451,7 +1451,8 @@ struct ExportPage: View {
                             ExportGridCell(frame: frame,
                                            chosen: frame.id == session.selection,
                                            state: session.frameStates[frame.id] ?? .unprocessed,
-                                           width: cell)
+                                           width: cell,
+                                           geometry: session.thumbnailGeometry(for: frame.id))
                                 .onTapGesture { tap(frame) }
                                 .contextMenu {
                                     Button("Reveal in Finder") {
@@ -1485,7 +1486,8 @@ struct ExportPage: View {
                     ForEach(worklist) { frame in
                         ExportStripCell(frame: frame,
                                         chosen: frame.id == session.selection,
-                                        state: session.frameStates[frame.id] ?? .unprocessed)
+                                        state: session.frameStates[frame.id] ?? .unprocessed,
+                                        geometry: session.thumbnailGeometry(for: frame.id))
                             .onTapGesture { tap(frame) }
                     }
                 }
@@ -1740,7 +1742,8 @@ private struct ExportStripCell: View {
     let chosen: Bool
     /// Unread by this cell; kept as the guard test's construction seam.
     let state: FrameState
-    @State private var image: CGImage?
+    /// The frame's crop, turn and flips, drawn over its thumbnail.
+    var geometry: Geometry = .default
 
     /// Keep the frame on the fitted image, not on the strip's fixed-height
     /// layout box.  The latter is what made a portrait thumbnail look as if
@@ -1752,6 +1755,13 @@ private struct ExportStripCell: View {
     }
 
     var body: some View {
+        CropMaskedThumbnail(url: frame.id, geometry: geometry, maxPixel: 1024) { image in
+            cell(image)
+        }
+        .help(frame.name)
+    }
+
+    private func cell(_ image: CGImage?) -> some View {
         VStack(spacing: 6) {
             GeometryReader { geometry in
                 let box = CGSize(width: geometry.size.width,
@@ -1783,14 +1793,6 @@ private struct ExportStripCell: View {
                 .foregroundStyle(Theme.text)
                 .lineLimit(1).truncationMode(.middle)
         }
-        .help(frame.name)
-        .task(id: frame.id) {
-            image = await ThumbnailCache.shared.thumbnail(for: frame.id, maxPixel: 1024)
-        }
-        .onReceive(NotificationCenter.default.publisher(for: .thumbnailUpdated)) { n in
-            guard (n.object as? URL) == frame.id else { return }
-            Task { image = await ThumbnailCache.shared.thumbnail(for: frame.id, maxPixel: 1024) }
-        }
     }
 }
 
@@ -1818,7 +1820,8 @@ private struct ExportGridCell: View {
     let state: FrameState
     /// The column's thumbnail width, from the card's width and the slider.
     let width: CGFloat
-    @State private var image: CGImage?
+    /// The frame's crop, turn and flips, drawn over its thumbnail.
+    var geometry: Geometry = .default
 
     /// The box a picture is fitted into, and the cell's own width. Nearly
     /// square, and slightly taller — the drawing's two example frames are a
@@ -1838,6 +1841,13 @@ private struct ExportGridCell: View {
     }
 
     var body: some View {
+        CropMaskedThumbnail(url: frame.id, geometry: geometry, maxPixel: 1024) { image in
+            cell(image)
+        }
+        .help(frame.name)
+    }
+
+    private func cell(_ image: CGImage?) -> some View {
         VStack(spacing: 6) {
             ZStack {
                 Color.clear
@@ -1866,14 +1876,6 @@ private struct ExportGridCell: View {
                 .lineLimit(1)
                 .truncationMode(.middle)
                 .frame(width: box.width)
-        }
-        .help(frame.name)
-        .task(id: frame.id) {
-            image = await ThumbnailCache.shared.thumbnail(for: frame.id, maxPixel: 1024)
-        }
-        .onReceive(NotificationCenter.default.publisher(for: .thumbnailUpdated)) { n in
-            guard (n.object as? URL) == frame.id else { return }
-            Task { image = await ThumbnailCache.shared.thumbnail(for: frame.id, maxPixel: 1024) }
         }
     }
 }

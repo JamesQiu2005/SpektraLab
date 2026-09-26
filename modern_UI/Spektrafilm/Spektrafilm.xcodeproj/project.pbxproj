@@ -211,6 +211,7 @@
 			path = "Sections";
 			sourceTree = "<group>";
 		};
+		6B9FBE8501886FCAB3FC35BF /* CropMaskedThumbnail.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CropMaskedThumbnail.swift"; sourceTree = "<group>"; };
 		E5F0DD211AC8BBD623882342 /* Filmstrip.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Filmstrip.swift"; sourceTree = "<group>"; };
 		FBAC6D9C1B679D6F2364EDAC /* LeftPanel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "LeftPanel.swift"; sourceTree = "<group>"; };
 		464261EAAE2E1731D8109766 /* RightPanel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "RightPanel.swift"; sourceTree = "<group>"; };
@@ -218,6 +219,7 @@
 			isa = PBXGroup;
 			children = (
 				6D96546C1610FE27FA9014C7 /* Sections */,
+				6B9FBE8501886FCAB3FC35BF /* CropMaskedThumbnail.swift */,
 				E5F0DD211AC8BBD623882342 /* Filmstrip.swift */,
 				FBAC6D9C1B679D6F2364EDAC /* LeftPanel.swift */,
 				464261EAAE2E1731D8109766 /* RightPanel.swift */
@@ -271,6 +273,7 @@
 		E24ECFF23445AA5E689E9456 /* SettingsWindow.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "SettingsWindow.swift"; sourceTree = "<group>"; };
 		70E6C16EAA039CB5BD2F90EA /* TopBar.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "TopBar.swift"; sourceTree = "<group>"; };
 		AE0AED7BA06FE8D91BD0CAB3 /* TrafficLights.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "TrafficLights.swift"; sourceTree = "<group>"; };
+		2A05FDAA4201BFEDE4281BFC /* TypingKeyGuard.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "TypingKeyGuard.swift"; sourceTree = "<group>"; };
 		B32EB60C18534A921EE88FB5 /* Windows */ = {
 			isa = PBXGroup;
 			children = (
@@ -282,7 +285,8 @@
 				F67B2F725579EC801242F867 /* ExportWindow.swift */,
 				E24ECFF23445AA5E689E9456 /* SettingsWindow.swift */,
 				70E6C16EAA039CB5BD2F90EA /* TopBar.swift */,
-				AE0AED7BA06FE8D91BD0CAB3 /* TrafficLights.swift */
+				AE0AED7BA06FE8D91BD0CAB3 /* TrafficLights.swift */,
+				2A05FDAA4201BFEDE4281BFC /* TypingKeyGuard.swift */
 			);
 			path = "Windows";
 			sourceTree = "<group>";
@@ -359,6 +363,7 @@
 		A22F896FD4B37B60574E621A /* SurfaceAgreementTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "SurfaceAgreementTests.swift"; sourceTree = "<group>"; };
 		E39626358BE4F0374CF79AF2 /* ThumbnailBadgeTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "ThumbnailBadgeTests.swift"; sourceTree = "<group>"; };
 		5C8CA97F6949FD495BBE87BE /* ThumbnailCacheTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "ThumbnailCacheTests.swift"; sourceTree = "<group>"; };
+		F7A3E595E891C5B80D358334 /* TypingKeyGuardTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "TypingKeyGuardTests.swift"; sourceTree = "<group>"; };
 		E519422FCB997EFAA37EF9BA /* UpdateCheckTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "UpdateCheckTests.swift"; sourceTree = "<group>"; };
 		19533F295FB7423FCE62C8DD /* ViewportStateTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "ViewportStateTests.swift"; sourceTree = "<group>"; };
 		F5302C66459D988E5FC47CA3 /* WhiteBalanceTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "WhiteBalanceTests.swift"; sourceTree = "<group>"; };
@@ -408,6 +413,7 @@
 				A22F896FD4B37B60574E621A /* SurfaceAgreementTests.swift */,
 				E39626358BE4F0374CF79AF2 /* ThumbnailBadgeTests.swift */,
 				5C8CA97F6949FD495BBE87BE /* ThumbnailCacheTests.swift */,
+				F7A3E595E891C5B80D358334 /* TypingKeyGuardTests.swift */,
 				E519422FCB997EFAA37EF9BA /* UpdateCheckTests.swift */,
 				19533F295FB7423FCE62C8DD /* ViewportStateTests.swift */,
 				F5302C66459D988E5FC47CA3 /* WhiteBalanceTests.swift */
@@ -590,6 +596,7 @@
 		1009C9B8473A8FBBE2957EAD /* ParameterSections.swift */ = {isa = PBXBuildFile; fileRef = 31604E276003EFAFDCC77A76; };
 		384534AC4F4E049FF3365CE8 /* PrintProfileSection.swift */ = {isa = PBXBuildFile; fileRef = CBC3A4A2D1A91A9075EFE386; };
 		5EE5B3916E48CC0C5AA7CA44 /* RightSections.swift */ = {isa = PBXBuildFile; fileRef = 31CECD7A983BF62235F8F909; };
+		D10D12A1E58E8FF4886C03E1 /* CropMaskedThumbnail.swift */ = {isa = PBXBuildFile; fileRef = 6B9FBE8501886FCAB3FC35BF; };
 		5B7419D000CA2224A11A3D08 /* Filmstrip.swift */ = {isa = PBXBuildFile; fileRef = E5F0DD211AC8BBD623882342; };
 		E57183AE0AB2E1BF0A2E645F /* LeftPanel.swift */ = {isa = PBXBuildFile; fileRef = FBAC6D9C1B679D6F2364EDAC; };
 		C6B42D61DC9D694270735A98 /* RightPanel.swift */ = {isa = PBXBuildFile; fileRef = 464261EAAE2E1731D8109766; };
@@ -608,6 +615,7 @@
 		D49716FD05732E27DBDFFF79 /* SettingsWindow.swift */ = {isa = PBXBuildFile; fileRef = E24ECFF23445AA5E689E9456; };
 		9D0538240A70E96E63507B06 /* TopBar.swift */ = {isa = PBXBuildFile; fileRef = 70E6C16EAA039CB5BD2F90EA; };
 		48D483F6B3F3E8CEACE48D45 /* TrafficLights.swift */ = {isa = PBXBuildFile; fileRef = AE0AED7BA06FE8D91BD0CAB3; };
+		7369093CCD37AB361117D9B0 /* TypingKeyGuard.swift */ = {isa = PBXBuildFile; fileRef = 2A05FDAA4201BFEDE4281BFC; };
 		3F0E536FD7C961A2E1031408 /* SpektrafilmApp.swift */ = {isa = PBXBuildFile; fileRef = B6BB833CC74B7C08C952AD44; };
 		A6D07A88A37E3C80855CF55F /* blob.cpp */ = {isa = PBXBuildFile; fileRef = CC3210C775C0FB9779F6838C; };
 		0F30A014F4BA62E1C14EB021 /* cam16.cpp */ = {isa = PBXBuildFile; fileRef = 215930583F367EC69222620A; };
@@ -705,6 +713,7 @@
 				1009C9B8473A8FBBE2957EAD /* ParameterSections.swift */,
 				384534AC4F4E049FF3365CE8 /* PrintProfileSection.swift */,
 				5EE5B3916E48CC0C5AA7CA44 /* RightSections.swift */,
+				D10D12A1E58E8FF4886C03E1 /* CropMaskedThumbnail.swift */,
 				5B7419D000CA2224A11A3D08 /* Filmstrip.swift */,
 				E57183AE0AB2E1BF0A2E645F /* LeftPanel.swift */,
 				C6B42D61DC9D694270735A98 /* RightPanel.swift */,
@@ -723,6 +732,7 @@
 				D49716FD05732E27DBDFFF79 /* SettingsWindow.swift */,
 				9D0538240A70E96E63507B06 /* TopBar.swift */,
 				48D483F6B3F3E8CEACE48D45 /* TrafficLights.swift */,
+				7369093CCD37AB361117D9B0 /* TypingKeyGuard.swift */,
 				3F0E536FD7C961A2E1031408 /* SpektrafilmApp.swift */,
 				A6D07A88A37E3C80855CF55F /* blob.cpp */,
 				0F30A014F4BA62E1C14EB021 /* cam16.cpp */,
@@ -812,6 +822,7 @@
 		886E981C9232825E1654C23F /* SurfaceAgreementTests.swift */ = {isa = PBXBuildFile; fileRef = A22F896FD4B37B60574E621A; };
 		5D3A40EA08E206BFB85BE486 /* ThumbnailBadgeTests.swift */ = {isa = PBXBuildFile; fileRef = E39626358BE4F0374CF79AF2; };
 		FC2399FEC6F794F7D648B010 /* ThumbnailCacheTests.swift */ = {isa = PBXBuildFile; fileRef = 5C8CA97F6949FD495BBE87BE; };
+		9F291F8FE6D9833514B42091 /* TypingKeyGuardTests.swift */ = {isa = PBXBuildFile; fileRef = F7A3E595E891C5B80D358334; };
 		C75BB18A94E8AF5DC533FCEC /* UpdateCheckTests.swift */ = {isa = PBXBuildFile; fileRef = E519422FCB997EFAA37EF9BA; };
 		79E5DF91AA1045E525966216 /* ViewportStateTests.swift */ = {isa = PBXBuildFile; fileRef = 19533F295FB7423FCE62C8DD; };
 		1AF1357ED1527EBC8166745C /* WhiteBalanceTests.swift */ = {isa = PBXBuildFile; fileRef = F5302C66459D988E5FC47CA3; };
@@ -886,6 +897,7 @@
 		167E76A7FC4DDCE7012A39C0 /* ParameterSections.swift */ = {isa = PBXBuildFile; fileRef = 31604E276003EFAFDCC77A76; };
 		9476B966137052CD34C19AE8 /* PrintProfileSection.swift */ = {isa = PBXBuildFile; fileRef = CBC3A4A2D1A91A9075EFE386; };
 		131A1550D28F76CE987D3BA4 /* RightSections.swift */ = {isa = PBXBuildFile; fileRef = 31CECD7A983BF62235F8F909; };
+		473524AAA6EE61537B35C232 /* CropMaskedThumbnail.swift */ = {isa = PBXBuildFile; fileRef = 6B9FBE8501886FCAB3FC35BF; };
 		3A9D6F08175C3700BE7F4D44 /* Filmstrip.swift */ = {isa = PBXBuildFile; fileRef = E5F0DD211AC8BBD623882342; };
 		188809DA051764CC0BDE9340 /* LeftPanel.swift */ = {isa = PBXBuildFile; fileRef = FBAC6D9C1B679D6F2364EDAC; };
 		6B1CA4C281141671EFCC0777 /* RightPanel.swift */ = {isa = PBXBuildFile; fileRef = 464261EAAE2E1731D8109766; };
@@ -904,6 +916,7 @@
 		DD739A4935AF06B66C19D2AE /* SettingsWindow.swift */ = {isa = PBXBuildFile; fileRef = E24ECFF23445AA5E689E9456; };
 		B3D386513DEDDEBD0B22E5D6 /* TopBar.swift */ = {isa = PBXBuildFile; fileRef = 70E6C16EAA039CB5BD2F90EA; };
 		6812CE43DD294C24BA4370E9 /* TrafficLights.swift */ = {isa = PBXBuildFile; fileRef = AE0AED7BA06FE8D91BD0CAB3; };
+		FA99BD5D4ADBF355D8355AAE /* TypingKeyGuard.swift */ = {isa = PBXBuildFile; fileRef = 2A05FDAA4201BFEDE4281BFC; };
 		3CCFD80BAD6FDA62EB93692E /* blob.cpp */ = {isa = PBXBuildFile; fileRef = CC3210C775C0FB9779F6838C; };
 		ECA0DD54952585BB6E1183F2 /* cam16.cpp */ = {isa = PBXBuildFile; fileRef = 215930583F367EC69222620A; };
 		61D521516170F106DD5E1A00 /* colour.cpp */ = {isa = PBXBuildFile; fileRef = 6DC1D74BE67AD1075040BAA8; };
@@ -972,6 +985,7 @@
 				886E981C9232825E1654C23F /* SurfaceAgreementTests.swift */,
 				5D3A40EA08E206BFB85BE486 /* ThumbnailBadgeTests.swift */,
 				FC2399FEC6F794F7D648B010 /* ThumbnailCacheTests.swift */,
+				9F291F8FE6D9833514B42091 /* TypingKeyGuardTests.swift */,
 				C75BB18A94E8AF5DC533FCEC /* UpdateCheckTests.swift */,
 				79E5DF91AA1045E525966216 /* ViewportStateTests.swift */,
 				1AF1357ED1527EBC8166745C /* WhiteBalanceTests.swift */,
@@ -1046,6 +1060,7 @@
 				167E76A7FC4DDCE7012A39C0 /* ParameterSections.swift */,
 				9476B966137052CD34C19AE8 /* PrintProfileSection.swift */,
 				131A1550D28F76CE987D3BA4 /* RightSections.swift */,
+				473524AAA6EE61537B35C232 /* CropMaskedThumbnail.swift */,
 				3A9D6F08175C3700BE7F4D44 /* Filmstrip.swift */,
 				188809DA051764CC0BDE9340 /* LeftPanel.swift */,
 				6B1CA4C281141671EFCC0777 /* RightPanel.swift */,
@@ -1064,6 +1079,7 @@
 				DD739A4935AF06B66C19D2AE /* SettingsWindow.swift */,
 				B3D386513DEDDEBD0B22E5D6 /* TopBar.swift */,
 				6812CE43DD294C24BA4370E9 /* TrafficLights.swift */,
+				FA99BD5D4ADBF355D8355AAE /* TypingKeyGuard.swift */,
 				3CCFD80BAD6FDA62EB93692E /* blob.cpp */,
 				ECA0DD54952585BB6E1183F2 /* cam16.cpp */,
 				61D521516170F106DD5E1A00 /* colour.cpp */,

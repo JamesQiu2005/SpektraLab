@@ -510,6 +510,20 @@ final class Session: CanvasHost {
     /// mid-batch cannot put a different frame under the file being written.
     /// `select` itself is not gated: it is the run's own door.
     var batchExporting = false
+
+    /// Every library frame's geometry as last saved, for the thumbnails that
+    /// mask each frame's crop (`CropMaskedThumbnail`). Read from the sidecars
+    /// `open(urls:)` already loads, and kept by `flushSave` and
+    /// `refreshState`. The open frame is not read from here — see
+    /// `thumbnailGeometry(for:)`.
+    private(set) var savedGeometry: [URL: Geometry] = [:]
+
+    /// The geometry a frame's thumbnail is drawn with: the live one for the
+    /// frame on the canvas, so a crop drag shows in the strip as it happens,
+    /// and the saved one for every other.
+    func thumbnailGeometry(for url: URL) -> Geometry {
+        url == selection ? geometry : (savedGeometry[url] ?? .default)
+    }
     var lastRenderMs: Double = 0
     private var statusBase: String?
     var stockWarning: String?
@@ -1116,7 +1130,10 @@ final class Session: CanvasHost {
         }
         ThumbnailCache.shared.clear()
         frames = new
-        frameStates = Dictionary(uniqueKeysWithValues: new.map { ($0.id, Sidecar.load(for: $0.id)?.state ?? .unprocessed) })
+        // One read per frame, for both things the library shows of it.
+        let saved = new.map { ($0.id, Sidecar.load(for: $0.id)) }
+        frameStates = Dictionary(uniqueKeysWithValues: saved.map { ($0.0, $0.1?.state ?? .unprocessed) })
+        savedGeometry = Dictionary(uniqueKeysWithValues: saved.map { ($0.0, $0.1?.geometry ?? .default) })
         libraryTitle = urls.count == 1 ? urls[0].lastPathComponent : "\(new.count) files"
         renderer.store.removeAll()
         // A new folder is a new set: whatever was picked belongs to the
@@ -1181,7 +1198,9 @@ final class Session: CanvasHost {
 
     /// Re-read a frame's sidecar state — used after a reset from the grid.
     func refreshState(for url: URL) {
-        frameStates[url] = Sidecar.load(for: url)?.state ?? .unprocessed
+        let saved = Sidecar.load(for: url)
+        frameStates[url] = saved?.state ?? .unprocessed
+        savedGeometry[url] = saved?.geometry ?? .default
         if url == selection { sidecar = Sidecar.load(for: url) ?? Sidecar() }
     }
 
@@ -2396,6 +2415,7 @@ final class Session: CanvasHost {
         saveTask?.cancel()
         guard let url = selection else { return }
         try? sidecar.save(for: url)
+        savedGeometry[url] = sidecar.geometry
     }
 
     // MARK: - white balance

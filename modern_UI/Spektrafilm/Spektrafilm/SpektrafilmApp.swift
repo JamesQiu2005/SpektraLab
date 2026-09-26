@@ -346,8 +346,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     var session: Session? { SpektrafilmApp.session }
     var snapshot: SnapshotRequest?
     private let boot = BootWindowController()
+    /// Typing keys go to the field being typed into, not to the menu's
+    /// single-key shortcuts (`TypingKeyGuard`).
+    private var typingKeyGuard: Any?
 
     func applicationDidFinishLaunching(_ notification: Notification) {
+        typingKeyGuard = TypingKeyGuard.install()
         // First statement, before anything else can want to log: `start()`
         // opens the session file, and records written before it (the static
         // session's own warm-up) land in the ring buffer only.
