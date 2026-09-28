@@ -1736,11 +1736,21 @@ bool probe_medium(spk_session* session, slm::Medium& out, std::string& error) {
     if (!in.buf || !pipeline.run_film(in, negative, nullptr, error) ||
         !pipeline.run_print(negative, rgb, nullptr, error) || !gpu->flush(error)) return false;
     const float* px = static_cast<const float*>(gpu->contents(rgb.buf.get()));
+    // RFC-028: a Digital Intermediate writes Cineon log codes, not light. The
+    // medium is then the DI itself -- the film's toe and the encoding's own
+    // 10-bit ends -- so the codes are decoded before the luminance is taken.
+    const bool di = probe.io.digital_intermediate && !probe.io.scan_film &&
+                    !probe.film.info.is_positive();
+    auto light = [&](float v) -> double {
+        if (!di) return double(v);
+        return std::pow(10.0, (double(v) * kDiCineonMax - kDiCineonWhite) / kDiCineonPerDecade);
+    };
     out.y.assign(kRampSamples, 0.0);
     for (uint32_t i = 0; i < rgb.h; ++i)
         for (uint32_t j = 0; j < rgb.w && j < kRampSamples; ++j) {
             const float* q = px + (size_t(i) * rgb.w + j) * rgb.c;
-            out.y[j] += (to_xyz.m[1][0] * q[0] + to_xyz.m[1][1] * q[1] + to_xyz.m[1][2] * q[2]) / double(rgb.h);
+            out.y[j] += (to_xyz.m[1][0] * light(q[0]) + to_xyz.m[1][1] * light(q[1]) +
+                         to_xyz.m[1][2] * light(q[2])) / double(rgb.h);
         }
     return slm::read_boundaries(out, error);
 }

@@ -102,7 +102,10 @@ final class ParamsTests: XCTestCase {
                                   // switch were declared all along; the rest are
                                   // native-only (parity_schema's NATIVE_ONLY).
                                   "halation_amount", "halation_scatter_amount", "grain_amount",
-                                  "dir_couplers_active", "dir_couplers_amount", "glare_amount"]
+                                  "dir_couplers_active", "dir_couplers_amount", "glare_amount",
+                                  // RFC-028, native-only: the Digital
+                                  // Intermediate and its blue compensation.
+                                  "digital_intermediate", "digital_intermediate_blue_compensation"]
         XCTAssertEqual(Set(FilmParams.default.wire.map(\.name)), known)
     }
 

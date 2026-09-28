@@ -423,6 +423,7 @@ struct FilmParams: Codable, Equatable, Sendable {
         case filmFormatMM, filmFrame, filmSide, sideLengthMM, grainActive, halationActive
         case printBrightnessStops, yFilterShift, mFilterShift, glareActive, scanFilm
         case extendedDynamicRange, preflashExposure, contrastMask, sceneLatitude, effects, printEffects
+        case digitalIntermediate
     }
 
     // --- stock (shoot for film, print for paper) ---
@@ -490,6 +491,28 @@ struct FilmParams: Codable, Equatable, Sendable {
     /// into one field. Keeping them apart is also what lets the user's paper
     /// choice survive toggling the Positive row on and off.
     var scanFilm: Bool = false
+    /// RFC-028's **Digital Intermediate** (数字中间片): the negative read in
+    /// printing density with its orange mask removed per wavelength, reversed
+    /// on the film's own neutral curve, and written as Cineon-style log. It
+    /// takes the paper's place the way `scanFilm` does, and like it is a
+    /// switch beside `printStock` rather than a paper id, so the paper choice
+    /// survives turning it on and off. `scanFilm` wins if both are set, and a
+    /// slide film ignores it (it has no mask and no paper). Print layer.
+    var digitalIntermediate: Bool = false
+    /// True when the DI is what the engine renders: the switch, on a negative,
+    /// with no film scan in front of it. The film's polarity lives in the
+    /// catalogue, so the caller supplies it.
+    func digitalIntermediateActive(filmIsPositive: Bool) -> Bool {
+        digitalIntermediate && !scanFilm && !filmIsPositive
+    }
+    /// RFC-028 §10: the optional blue-sector correction of the DI's colour
+    /// step. An app setting (Settings ▸ Rendering), off by default by the
+    /// user's decision of 2026-09-29 -- read here so the wire, the print cache
+    /// stamp and every export carry it without a second path.
+    nonisolated static let diBlueCompensationKey = "ui2.diBlueCompensation"
+    nonisolated static var diBlueCompensation: Bool {
+        UserDefaults.standard.bool(forKey: diBlueCompensationKey)
+    }
     /// Preserve the extended range while rendering a selected print profile.
     /// This is a print-layer choice, so it reprints the cached negative. The
     /// preference is retained when `scanFilm` is selected, but is made
@@ -500,7 +523,7 @@ struct FilmParams: Codable, Equatable, Sendable {
     /// user's preference in the sidecar while making the wire value false for
     /// the Positive / No Print Profile path, so a persisted preference cannot
     /// change direct film scanning.
-    var effectiveExtendedDynamicRange: Bool { extendedDynamicRange && !scanFilm }
+    var effectiveExtendedDynamicRange: Bool { extendedDynamicRange && !scanFilm && !digitalIntermediate }
 
     /// The enlarger's pre-flash: a uniform paper exposure of this many times
     /// the light through the film's clear base, added before development
@@ -538,6 +561,7 @@ struct FilmParams: Codable, Equatable, Sendable {
         mFilterShift = 0
         glareActive = true
         scanFilm = false
+        digitalIntermediate = false
         extendedDynamicRange = false
         preflashExposure = 0
         contrastMask = ContrastMaskSettings()
@@ -571,6 +595,7 @@ struct FilmParams: Codable, Equatable, Sendable {
         mFilterShift = try c.decode(Double.self, forKey: .mFilterShift)
         glareActive = try c.decode(Bool.self, forKey: .glareActive)
         scanFilm = try c.decode(Bool.self, forKey: .scanFilm)
+        digitalIntermediate = try c.decodeIfPresent(Bool.self, forKey: .digitalIntermediate) ?? false
         extendedDynamicRange = try c.decodeIfPresent(Bool.self, forKey: .extendedDynamicRange) ?? false
         preflashExposure = try c.decodeIfPresent(Double.self, forKey: .preflashExposure) ?? 0
         contrastMask = try c.decodeIfPresent(ContrastMaskSettings.self, forKey: .contrastMask)
@@ -641,6 +666,12 @@ struct FilmParams: Codable, Equatable, Sendable {
             ("dir_couplers_active", .bool(effects.couplersActive), .shoot),
             ("dir_couplers_amount", .double(effects.couplers.clamped(to: EffectStrengths.couplersRange)), .shoot),
             ("glare_amount", .double(effects.glare.clamped(to: EffectStrengths.glareRange)), .print),
+            // RFC-028. The DI is sent always, like the rest (off is the
+            // paper, exactly). The blue compensation only while the DI is on,
+            // so the Settings switch cannot move any other frame's stamp.
+            ("digital_intermediate", .bool(digitalIntermediate), .print),
+            ("digital_intermediate_blue_compensation",
+             .bool(digitalIntermediate && FilmParams.diBlueCompensation), .print),
         ]
         return fields
     }

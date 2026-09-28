@@ -34,6 +34,7 @@
 #include "cam16.hpp"
 #include "colour.hpp"
 #include "curves.hpp"
+#include "digital_intermediate.hpp"
 #include "hanatos.hpp"
 #include "image.hpp"
 #include "params.hpp"
@@ -606,6 +607,8 @@ private:
     void release_contrast_mask();
     bool node_contrast_mask_epilogue(const Image& in, Image& out, std::string& error);
     bool node_scan_spectral(const Image& in, Image& out, std::string& error);
+    // RFC-028: the Digital Intermediate, in place of the whole paper and scan.
+    bool node_digital_intermediate(const Image& in, Image& out, std::string& error);
     bool node_bw_correction(const Image& in, Image& out, std::string& error);
     bool node_glare(const Image& in, Image& out, std::string& error);
     bool node_xyz_to_rgb(const Image& in, Image& out, std::string& error);
@@ -693,7 +696,15 @@ private:
         gpu::BufferRef cam16_m2x, cam16_m2r, cam16_cmax, cam16_k;
         size_t cam16_nl = 0, cam16_nh = 0;
         bool cam16_lightness = false;
+
+        // RFC-028's Digital Intermediate
+        gpu::BufferRef di_chd, di_zero_base, di_ixs;
+        gpu::BufferRef di_curve_x, di_curve_inv, di_curve_y;
     } baked_;
+
+    // RFC-028: on when the DI replaces the paper (negative film, no scan_film).
+    bool di_active_ = false;
+    DiConstants di_;
 
     // --- derived on the host, refreshed per run --------------------------
     Vec film_sensitivity_;

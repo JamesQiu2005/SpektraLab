@@ -910,6 +910,11 @@ final class Session: CanvasHost {
         }
         renderer.onHistogram = { [weak self] h in self?.histogram = h }
         renderer.onViewportChanged = { [weak self] in self?.viewportChanged() }
+        // RFC-028: a Digital Intermediate is a master for grading elsewhere,
+        // and its pixels are Cineon codes rather than a working-space picture,
+        // so neither the Post-Dev grade nor a local mask applies to it -- on
+        // the canvas or in the file (`Exporter.filePixels` does the same).
+        renderer.layer2Bypass = { [weak self] in self?.digitalIntermediateActive ?? false }
         renderer.layer2 = sidecar.adjustments.uniforms
         Session.removeLegacyLinearCache()
         if let cache {
@@ -2577,6 +2582,48 @@ final class Session: CanvasHost {
     /// and nothing read it until now.
     var filmIsPositive: Bool { catalog.stock(params.filmStock)?.isPositive ?? false }
 
+    /// RFC-028: whether this frame renders as a Digital Intermediate.
+    var digitalIntermediateActive: Bool {
+        params.digitalIntermediateActive(filmIsPositive: filmIsPositive)
+    }
+
+    /// Choose the Digital Intermediate in the print list. Like "No Print
+    /// Profile" it leaves the paper where it was, so choosing a paper again
+    /// comes back to it.
+    func selectDigitalIntermediate() {
+        guard !filmIsPositive else { return }
+        var p = params
+        p.digitalIntermediate = true
+        p.scanFilm = false
+        params = p
+    }
+
+    /// Settings ▸ Rendering: the DI's optional blue-sector compensation. An
+    /// app setting (`FilmParams.diBlueCompensation`), so the open frame is
+    /// pushed and reprinted here; every other frame reads it at open.
+    var diBlueCompensation: Bool {
+        get { FilmParams.diBlueCompensation }
+        set {
+            guard newValue != FilmParams.diBlueCompensation else { return }
+            UserDefaults.standard.set(newValue, forKey: FilmParams.diBlueCompensationKey)
+            diBlueCompensationRevision += 1
+            guard digitalIntermediateActive, let sid = serviceSessionID, selection != nil else { return }
+            Task { [weak self] in
+                guard let self else { return }
+                _ = try? await self.client.call(.setParams,
+                    SetParamsRequest(sessionID: sid,
+                                     paramsDelta: ["digital_intermediate_blue_compensation": .bool(newValue)]),
+                    as: SetParamsResponse.self)
+                guard self.serviceSessionID == sid, self.selection != nil else { return }
+                if let rr = try? await self.client.render(.reprint, RenderRequest(sessionID: sid)) {
+                    self.applyRender(rr, generation: self.serviceGeneration)
+                }
+            }
+        }
+    }
+    /// Observation hook for the Settings toggle; the value lives in defaults.
+    private(set) var diBlueCompensationRevision = 0
+
     func selectPrintStock(_ stock: String) {
         // The one gate. `PrintProfileSection` greys the rows so the interface
         // says why, but the rule lives here so that a menu item, a sidecar or
@@ -2586,6 +2633,7 @@ final class Session: CanvasHost {
         var p = params
         p.printStock = stock
         p.scanFilm = false
+        p.digitalIntermediate = false
         params = p
     }
 
@@ -2892,7 +2940,8 @@ final class Session: CanvasHost {
                   let texture = outcome.texture else { return }
             await MainActor.run {
                 guard let self, self.selection == url, self.rendersLanded == landed,
-                      self.params.printStock == stock, !self.params.scanFilm else { return }
+                      self.params.printStock == stock, !self.params.scanFilm,
+                      !self.params.digitalIntermediate else { return }
                 // Not `store.setPrint`: this is not the print, and caching it
                 // as one would hand it back on the next frame switch as
                 // though the pipeline had produced it. It goes on the canvas

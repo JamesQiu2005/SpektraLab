@@ -141,7 +141,9 @@ final class AgentWorkspace {
                        .number((aspect >= 1 ? long / aspect : long).rounded())],
             "state": .string("\(session.frameStates[url] ?? .unprocessed)"),
             "film": .string(session.catalog.stock(p.filmStock)?.name ?? p.filmStock),
-            "paper": .string(p.scanFilm ? "none (film scan)" : session.catalog.stock(p.printStock)?.name ?? p.printStock),
+            "paper": .string(p.scanFilm ? "none (film scan)"
+                             : session.digitalIntermediateActive ? "Digital Intermediate"
+                             : session.catalog.stock(p.printStock)?.name ?? p.printStock),
             "filmIsSlide": .bool(session.filmIsPositive),
             "lensCorrectionAvailable": .bool(session.lensCorrectionEnabled),
         ]

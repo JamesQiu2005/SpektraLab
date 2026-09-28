@@ -43,6 +43,7 @@ struct LatitudeSection: View {
         }
         let film = short(session.params.filmStock)
         guard !session.params.scanFilm, !session.filmIsPositive else { return film }
+        if session.digitalIntermediateActive { return "\(film) · \(L(.printDigitalIntermediate))" }
         return "\(film) · \(short(session.params.printStock))"
     }
 

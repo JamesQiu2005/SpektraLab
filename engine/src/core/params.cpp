@@ -130,6 +130,11 @@ const SchemaField kFields[] = {
     {"halation_scatter_amount",  "film_render.halation.scatter_amount",   F, SHOOT, true, 0.0, 1.0, false},
     {"grain_amount",             "film_render.grain.amount",              F, SHOOT, true, 0.0, 2.0, false},
     {"glare_amount",             "print_render.glare.amount",             F, PRINT, true, 0.0, 4.0, false},
+    // RFC-028's Digital Intermediate, native-only and placed like the rest.
+    // PRINT layer: it replaces the paper and reads the cached negative.
+    {"digital_intermediate",     "io.digital_intermediate",               B, PRINT, false, 0, 0, false},
+    {"digital_intermediate_blue_compensation", "io.digital_intermediate_blue_compensation",
+                                                                          B, PRINT, false, 0, 0, false},
     // The app's *preview resolution*: the `live` tier's long edge, and so the
     // size every interactive edit renders at. PRINT layer, because it is a
     // decision about the canvas rather than about the film -- but it is one of
@@ -201,6 +206,9 @@ bool* bool_slot(Params& p, const std::string& path) {
     if (path == "scanner.black_correction") return &p.scanner.black_correction;
     if (path == "io.output_cctf_encoding") return &p.io.output_cctf_encoding;
     if (path == "io.scan_film") return &p.io.scan_film;
+    if (path == "io.digital_intermediate") return &p.io.digital_intermediate;
+    if (path == "io.digital_intermediate_blue_compensation")
+        return &p.io.digital_intermediate_blue_compensation;
     if (path == "settings.striped") return &p.settings.striped;
     if (path == "print_render.contrast_mask.active") return &p.print_render.contrast_mask.active;
     if (path == "camera.scene_latitude.active") return &p.camera.scene_latitude.active;
@@ -511,6 +519,12 @@ bool init_params(const std::string& resources_dir, const std::string& film_stock
                  Params& out, std::string& error) {
     if (!load_profile(resources_dir, film_stock, out.film, error)) return false;
     if (!load_profile(resources_dir, print_stock, out.print, error)) return false;
+    // RFC-028: the DI's printing density is the film's own paper's. A film
+    // with none named (the positives, which the DI ignores) falls back to the
+    // session's paper so the profile is always loadable.
+    const std::string di_paper = out.film.info.target_print.empty() ? print_stock
+                                                                     : out.film.info.target_print;
+    if (!load_profile(resources_dir, di_paper, out.di_paper, error)) return false;
     out.film_stock = out.film.info.stock.empty() ? film_stock : out.film.info.stock;
     out.print_stock = out.print.info.stock.empty() ? print_stock : out.print.info.stock;
     return digest(out, neutral_filters, error);

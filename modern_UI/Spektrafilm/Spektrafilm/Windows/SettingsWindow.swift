@@ -176,6 +176,17 @@ struct SettingsWindow: View {
                 }
             }
         }
+        SettingsGroup(L("Digital Intermediate", zh: "数字中间片")) {
+            SettingsRows {
+                VStack(spacing: 4) {
+                    ToggleRow(label: L("Blue compensation", zh: "蓝色补偿"),
+                              isOn: Binding(get: { _ = session.diBlueCompensationRevision
+                                                   return session.diBlueCompensation },
+                                            set: { session.diBlueCompensation = $0 }))
+                    caption(L("Saturated blues drift toward violet in the Digital Intermediate: the colour the camera recorded has to be guessed as a spectrum, and the film's blue layer sees that guess differently from your eye. This corrects the drift after the film, in the blue-to-violet hues only, by an amount the engine measures for each film on its own chain — not for any camera, which could not be calibrated one by one. Greys and every other hue are untouched. Off by default.", zh: "数字中间片里高饱和的蓝会偏向紫色：相机记录的颜色必须先被推测成光谱，而胶片的蓝感光层看这个推测的方式和人眼不同。此项在胶片之后、只在蓝到紫的色相范围内修正这种偏移，修正量由引擎针对每种胶片在它自己的处理链上测得，而不是针对某台相机（相机无法逐台校准）。灰阶和其他色相不受影响。默认关闭。"))
+                }
+            }
+        }
         SettingsGroup(L("Film effects", zh: "胶片效果")) {
             SettingsRows {
                 VStack(spacing: 4) {

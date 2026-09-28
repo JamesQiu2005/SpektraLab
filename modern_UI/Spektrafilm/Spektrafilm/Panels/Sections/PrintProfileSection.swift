@@ -11,6 +11,11 @@
 //  nobody wants — and it is also the only way to look at what the film stage
 //  actually produced, orange mask and all.
 //
+//  Above it, the Digital group holds RFC-028's Digital Intermediate (数字中间片):
+//  the negative with its orange mask removed and reversed on its own neutral
+//  curve, as Cineon-style log. Like the Positive row it is a switch beside the
+//  paper (`FilmParams.digitalIntermediate`), not a paper id.
+//
 //  It is `scan_film`, not a paper. Selecting it therefore does not clear the
 //  paper: turn it off again and the print comes back on whatever was chosen
 //  before, which is what makes it usable as a comparison rather than a
@@ -50,6 +55,8 @@ struct PrintProfileSection: View {
     /// for why that separation is load-bearing — and this is the id the list
     /// uses to spell it without either side inventing a stock name.
     private static let positiveID = "__scan_film__"
+    /// The Digital Intermediate's row, for the same reason.
+    private static let digitalID = "__digital_intermediate__"
 
     /// Whether the chosen film is a slide film, in which case no paper on the
     /// list may be chosen.
@@ -82,6 +89,11 @@ struct PrintProfileSection: View {
         // slide. The spec lists Positive as a *film* category (胶片分类) and
         // gives this one no row, so it is left as it is rather than collapsed
         // onto `filmGroupPositive`.
+        out.append(StockList.Row(id: "__group_Digital", name: L(.printGroupDigital), isHeader: true))
+        out.append(StockList.Row(id: Self.digitalID, name: L(.printDigitalIntermediate),
+                                 help: filmIsPositive ? "" : L(.printDigitalIntermediateHelp),
+                                 enabled: !filmIsPositive,
+                                 disabledReason: filmIsPositive ? Self.positiveOnlyReason : ""))
         out.append(StockList.Row(id: "__group_Positive", name: "Positive", isHeader: true))
         out.append(StockList.Row(id: Self.positiveID, name: L(.printNone),
                                  help: "Scan the developed film instead of printing it — a slide film reads as a positive, a negative film as the negative it is."))
@@ -93,10 +105,15 @@ struct PrintProfileSection: View {
             VStack(alignment: .leading, spacing: 0) {
                 StockList(rows: rows,
                           selected: session.params.scanFilm || filmIsPositive
-                                    ? Self.positiveID : session.params.printStock,
+                                    ? Self.positiveID
+                                    : session.params.digitalIntermediate ? Self.digitalID
+                                    : session.params.printStock,
                           visibleRows: Self.wellRows) { id in
                     if id == Self.positiveID {
-                        var p = session.params; p.scanFilm = true; session.params = p
+                        var p = session.params; p.scanFilm = true; p.digitalIntermediate = false
+                        session.params = p
+                    } else if id == Self.digitalID {
+                        session.selectDigitalIntermediate()
                     } else {
                         // `rowEnabled` already withholds the click; this is the
                         // second door, because the row's own gesture is not the
@@ -126,15 +143,17 @@ struct PrintProfileSection: View {
                     // nothing).
                     ToggleRow(label: L(.printEffects), isOn: param(\.printEffects),
                               labelFont: Theme.Font.edrLabel,
-                              enabled: !session.params.scanFilm,
-                              reason: L(.reasonEDRDisabledInScanFilm),
+                              enabled: !session.params.scanFilm && !session.digitalIntermediateActive,
+                              reason: session.digitalIntermediateActive
+                                  ? L(.reasonDisabledInDigitalIntermediate) : L(.reasonEDRDisabledInScanFilm),
                               help: "Glare, pre-flash and the Tone Mask. Off leaves the paper's colour "
                               + "transformation and nothing else; their settings are kept.")
                     ToggleRow(label: L(.printEDR),
                               isOn: param(\.extendedDynamicRange),
                               labelFont: Theme.Font.edrLabel,
-                              enabled: !session.params.scanFilm,
-                              reason: L(.reasonEDRDisabledInScanFilm),
+                              enabled: !session.params.scanFilm && !session.digitalIntermediateActive,
+                              reason: session.digitalIntermediateActive
+                                  ? L(.reasonDisabledInDigitalIntermediate) : L(.reasonEDRDisabledInScanFilm),
                               sublabel: L(.statusEDRScope),
                               help: "A calibrated per-paper profile with more room in the "
                               + "highlight shoulder and the toe. It is part of the print "
@@ -162,7 +181,8 @@ struct PrintProfileSection: View {
         Group {
             Button(L(.helpUseFilmPaper)) {
                 if let t = session.catalog.stock(session.params.filmStock)?.targetPrint {
-                    var p = session.params; p.printStock = t; p.scanFilm = false; session.params = p
+                    var p = session.params; p.printStock = t; p.scanFilm = false
+                    p.digitalIntermediate = false; session.params = p
                 }
             }
             // A positive declares none, so this would do nothing; saying so is

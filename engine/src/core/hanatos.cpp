@@ -191,6 +191,31 @@ bool tc_b_matrix(const Colour& colour, const Blob& blob, const std::string& colo
     return colour.matrix_RGB_to_XYZ(color_space, xy, "CAT16", out, error);
 }
 
+bool tc_lut_weights(const Colour& colour, const Blob& blob, const Profile& film,
+                    const SettingsParams& settings, const Vec& sensitivity, Vec& weights,
+                    std::string& error) {
+    // The window is normalised per channel so it preserves white balance.
+    const size_t n_lambda = kNumWavelengths;
+    weights = sensitivity;
+    if (settings.apply_hanatos2025_adaptation_window && !film.data.adaptation_window_params.empty()) {
+        Vec window;
+        spectral_bandpass_window(colour.wavelengths(), film.data.adaptation_window_params, window);
+        Vec illuminant;
+        if (!standard_illuminant(colour, blob, film.info.reference_illuminant, illuminant, error)) return false;
+        double num[3] = {0, 0, 0}, den[3] = {0, 0, 0};
+        for (size_t l = 0; l < n_lambda; ++l)
+            for (int c = 0; c < 3; ++c) {
+                num[c] += sensitivity[3 * l + size_t(c)] * illuminant[l] * window[3 * l + size_t(c)];
+                den[c] += sensitivity[3 * l + size_t(c)] * illuminant[l];
+            }
+        for (size_t l = 0; l < n_lambda; ++l)
+            for (int c = 0; c < 3; ++c)
+                weights[3 * l + size_t(c)] = sensitivity[3 * l + size_t(c)] *
+                                             (window[3 * l + size_t(c)] / (num[c] / den[c]));
+    }
+    return true;
+}
+
 bool build_tc_lut(const Colour& colour, const Blob& blob, const Profile& film,
                   const SettingsParams& settings, const GamutCompressSpec& compress,
                   const Vec& sensitivity, Vec& out, size_t& side, std::string& error) {
@@ -234,25 +259,9 @@ bool build_tc_lut(const Colour& colour, const Blob& blob, const Profile& film,
         }
     }
 
-    // sensitivity, optionally through the film's own spectral window, which is
-    // normalised per channel so it preserves white balance.
-    Vec weights = sensitivity;
-    if (settings.apply_hanatos2025_adaptation_window && !film.data.adaptation_window_params.empty()) {
-        Vec window;
-        spectral_bandpass_window(colour.wavelengths(), film.data.adaptation_window_params, window);
-        Vec illuminant;
-        if (!standard_illuminant(colour, blob, film.info.reference_illuminant, illuminant, error)) return false;
-        double num[3] = {0, 0, 0}, den[3] = {0, 0, 0};
-        for (size_t l = 0; l < n_lambda; ++l)
-            for (int c = 0; c < 3; ++c) {
-                num[c] += sensitivity[3 * l + size_t(c)] * illuminant[l] * window[3 * l + size_t(c)];
-                den[c] += sensitivity[3 * l + size_t(c)] * illuminant[l];
-            }
-        for (size_t l = 0; l < n_lambda; ++l)
-            for (int c = 0; c < 3; ++c)
-                weights[3 * l + size_t(c)] = sensitivity[3 * l + size_t(c)] *
-                                             (window[3 * l + size_t(c)] / (num[c] / den[c]));
-    }
+    // sensitivity, optionally through the film's own spectral window.
+    Vec weights;
+    if (!tc_lut_weights(colour, blob, film, settings, sensitivity, weights, error)) return false;
 
     // raw_lut[i, j, m] = sum_l spectra[i, j, l] * weights[l, m]
     out.assign(side * side * 3, 0.0);

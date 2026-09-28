@@ -2,7 +2,7 @@
 
 | | |
 |---|---|
-| **Status** | **Research only, 2026-09-29.** No engine or app code changed. Measurements are from the shipping dylib at `cd62b78`. |
+| **Status** | **Implemented 2026-09-29 (§13)** as the print-list choice *Digital Intermediate / 数字中间片*, Cineon log, with an optional blue compensation (off by default). §1–§12 are the research, measured on the dylib at `cd62b78`; §7.3's cause was corrected after it (§7.4). The display tone curve is RFC-029's (research only). |
 | **Author** | Overnight research session, at the user's request (§0). |
 | **Branch** | `rfc-028-digital-scan`, worktree `filmify-rfc028`. |
 | **Companion** | `rfc/probes/rfc028-demask-probe.py` reproduces every number in §4–§8. `rfc/figures/rfc028/` holds the frames in §8. |
@@ -274,7 +274,7 @@ The DIR couplers make up about half the saturation of the digital scan. They liv
 
 The print's familiar signature (sky toward cyan, foliage toward yellow, rich dark skin) is the **paper's**; the scan does not have it.
 
-The scan has one defect: **blue moves toward violet** (+14°). It is visible on the street sign in `frames_DSC2663.jpg`. Portra's blue layer peaks at 400 nm, so the film sees violet as strongly blue, and a 3×3 cannot put that back.
+The scan has one defect: **blue moves toward violet** (+14°). It is visible on the street sign in `frames_DSC2663.jpg`. The first explanation written here, "Portra's blue layer peaks at 400 nm and a 3×3 cannot put that back", was only partly right; §7.4 measures where it comes from.
 
 Whether that is "film colour tendency" or a matrix artefact depends on the matrix. The matrix is a design choice, not physics. The range of options:
 - an exact inverse through the upsampler, which returns the camera's own colour and so un-does the film's spectral response;
@@ -282,6 +282,19 @@ Whether that is "film colour tendency" or a matrix artefact depends on the matri
 - the paper.
 
 This is the second decision for the user (§10).
+
+### 7.4 Where the violet actually comes from (measured after §7.3)
+
+The user suspected the spectral reconstruction of the input. That is part of it, and it is the smaller part:
+
+- **The reconstruction does push energy into the violet.** For the ColorChecker's blue patch, the Hanatos metamer puts **44 %** of its energy below 430 nm; the real paint puts 11 %. Portra's blue layer peaks at 400 nm.
+- **Upstream already compensates at the input.** Every profile carries a spectral window that cuts the film's sensitivity below about 433 nm (×0.14 at 400 nm on Portra). The engine applies it by default (`apply_hanatos2025_adaptation_window`).
+- **At the exposure stage, the metamer accounts for about 4°.** Blue patch, Portra 400, film exposures through the 3×3: real reflectance +1.2°, Hanatos metamer +5.3°, even without the window.
+- **The rest appears downstream:** DIR couplers, the film curves and the scanner's crosstalk take it to +13° and chroma ×2.06. The paper path takes the same input to −8°.
+
+So it is an artefact of this path, not a film trait. The user's decision (2026-09-29): leave the window alone, since re-tuning it only swaps one mapping for another, and compensate after the film, optionally, off by default (§13.3).
+
+The reconstruction also *smooths away* real film quirks, in the other direction: a real red paint shifts +29.6° on Portra at the exposure stage, and its metamer +9.9°. A RAW never recorded the spectrum, so that part of "film colour" is out of reach anyway.
 
 ---
 
@@ -378,3 +391,60 @@ The frames were decoded with rawpy (`half_size`, linear, camera WB, ProPhoto) fr
 - [SMPTE ST 2065-3, ADX](https://ieeexplore.ieee.org/document/9286953); [ACES ADX documentation](https://docs.acescentral.com/encodings/adx/).
 - [darktable negadoctor manual](https://docs.darktable.org/usermanual/development/en/module-reference/processing-modules/negadoctor/).
 - Prior in-tree attempt, which this RFC supersedes in method: `spektrafilm/scripts/scan_negative_demasked.py` (von Kries on the base white, no reversal) and PRD-callable-render-api Appendix A.
+
+---
+
+## 13. What was built (2026-09-29)
+
+The user accepted §10 as "the DI we actually want" and chose **Cineon log** for the canvas and the export until RFC-029's tone curve exists.
+
+### 13.1 Engine
+
+- **`core/digital_intermediate.{hpp,cpp}`**, built per film at pipeline build (about 10 ms):
+  - **Printing density.** The film's `target_print` paper sensitivity under that paper's lamp. It is loaded as `Params::di_paper` whatever paper the session shows, so the DI does not depend on a hidden choice.
+  - **The neutral wedge.** −14 to +14 stops in 0.05-stop steps, run on the host through exactly what a flat field meets: the pipeline's own `tc_b` and tc_lut, the curves and the DIR couplers.
+  - **The "curve kept" reversal (§6.2)**, as one table per channel with the same output column, so a grey is neutral at every exposure.
+  - **The 3×3 of §7.** It is fitted through the same film eye the tc_lut uses, including the window.
+  - **The blue fit** (§13.3).
+- **Per pixel, three kernels.** The existing `spk_spectral_epilogue` with a zero base, the existing `spk_curves`, and the new `spk_di_encode`, which does the matrix, the optional compensation and `code = (685 + 300·log10 x) / 1023`. Everything after the paper is skipped: glare, the scan, gamut compression, EDR and the transfer function.
+- **Wire.** `digital_intermediate` and `digital_intermediate_blue_compensation`, both print layer and native-only (`parity_schema.py`). `scan_film` wins, and a positive film ignores the DI.
+- **Live print controls.** Print brightness is one true stop per stop. Y/M are matched to the print's measured mid-grey response: +1 gives +0.05 stop of blue, and +0.03 stop of green.
+- **Scene Latitude** decodes the codes, so its readout is the DI's own range.
+
+### 13.2 Verified
+
+| | |
+|---|---|
+| neutral wedge −8 … +8, four films, through the dylib | ≤ 0.0022 stop |
+| mid grey | code 0.4540 (Cineon for 0.184), exact |
+| striped vs whole frame | bit-identical |
+| `parity_render` (the print path is untouched) | 27 cases, 0 failed |
+| `parity_schema`, `parity_setup` (the tc_lut weight refactor) | 0 failures, 227 quantities |
+| app suite | 473 tests; the one failure was the pinned wire-name list, updated |
+| the neutrality test fires | per-channel reversal mutated in: 0.03–0.28 stop errors, failed |
+
+The latitude readout on `_DSC2663`: 11.32 stops held (−5.49 … +5.84), 99.1 % of the frame inside.
+
+### 13.3 The blue compensation (optional; Settings ▸ Rendering; off by default)
+
+It is camera-independent by design: cameras cannot be calibrated one by one, but this chain can.
+
+At build, synthetic blues are generated in Oklab around the blue–violet sector and run through the host film and the DI at 0 EV. The engine then fits one hue rotation and one chroma scale per film, weighted on the output. In the kernel it acts only inside a raised-cosine window (hue 280° ± 55° Oklab) above a chroma floor, so greys and every other hue are exact.
+
+| ColorChecker, through the dylib | DI | DI + compensation | print |
+|---|---|---|---|
+| Portra 400: blue Δh / chroma | +13.0° / ×2.06 | **+1.5° / ×1.16** | −8.4° / ×1.14 |
+| Portra 400: ΔE00 mean | 6.14 | **5.08** | 6.60 |
+| Pro 400H: ΔE00 mean | 4.52 | **3.84** | 6.95 |
+| Ektar 100: blue Δh | +17.8° | +5.7° | −7.5° |
+
+Skin, foliage and red are unchanged to 0.1°.
+
+### 13.4 Known limits
+
+- **The Cineon ceiling clips highlights.** 10-bit Cineon holds −5.1 … +6.2 stops around grey, and Portra reaches +7.3 at scene +8 (found by the RFC-029 session, confirmed: +7 and +9 both encode to 1.0). A wider log would hold it and lose the standard Cineon decode. That is the user's call.
+- **The canvas shows the log codes as ProPhoto values**, as the rest of the app shows its working space. ProPhoto's blue primary is deep violet, so a saturated blue reads more purple on the canvas than it is (with the compensation on, blue-violet). The export writes the same codes unchanged, tagged ProPhoto, so file = canvas and a Cineon decode returns the scene. RFC-029 recommends the canvas show the tone-mapped DI instead.
+- **Post-Dev (Layer 2) and local masks do not apply to a DI**, on the canvas or in the file. It is a master for grading elsewhere.
+- **The Tone Mask (RFC-024) does not apply.** It is defined on the enlarger's log exposure.
+- **The old "Digital Intermediate Package" export format** (negative + paper `.cube`) is untouched and now shares a name with this. Rename or retire it: a decision for the user.
+

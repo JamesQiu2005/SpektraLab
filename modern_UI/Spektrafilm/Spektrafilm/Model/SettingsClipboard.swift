@@ -31,7 +31,8 @@ enum ClipboardGroup: String, CaseIterable, Codable, Sendable, Identifiable {
     var paths: [String] {
         switch self {
         case .filmAndPaper:
-            ["params.filmStock", "params.printStock", "params.scanFilm", "params.extendedDynamicRange"]
+            ["params.filmStock", "params.printStock", "params.scanFilm", "params.digitalIntermediate",
+             "params.extendedDynamicRange"]
         case .exposure:
             // The enlarger's brightness is the print's exposure (user, 2026-09-28).
             ["params.autoExposure", "params.autoExposureMethod", "params.exposureCompensationEV",
@@ -106,6 +107,7 @@ struct SettingsClip: Equatable, Sendable {
             out.params.filmStock = s.params.filmStock
             out.params.printStock = s.params.printStock
             out.params.scanFilm = s.params.scanFilm
+            out.params.digitalIntermediate = s.params.digitalIntermediate
             out.params.extendedDynamicRange = s.params.extendedDynamicRange
         }
         if groups.contains(.exposure) {

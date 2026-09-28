@@ -64,6 +64,8 @@ enum S: String, CaseIterable, Sendable {
 
     // MARK: Print
     case printGroupStill, printGroupCine, printNone, printEDR
+    // RFC-028
+    case printGroupDigital, printDigitalIntermediate, printDigitalIntermediateHelp
 
     // MARK: Curve
     case curveLuma, curveRed, curveGreen, curveBlue, curveInput, curveOutput
@@ -98,6 +100,7 @@ enum S: String, CaseIterable, Sendable {
     case statusEDRScope, statusRightRailWBScope
     case reasonDecodeWBDisabled, reasonNonCustomSideLength, reasonEffectOff
     case reasonPositiveFilmDisablesPaper, reasonEDRDisabledInScanFilm
+    case reasonDisabledInDigitalIntermediate
 
     // MARK: the Settings page's Language section
     case setLanguage, setLanguageCaption, languageFollowSystem
@@ -268,6 +271,12 @@ extension S {
         case .printGroupCine: "Cine"
         case .printNone: "No Print Profile"
         case .printEDR: "Extended Dynamic Range (EDR)"
+        case .printGroupDigital: "Digital"
+        case .printDigitalIntermediate: "Digital Intermediate"
+        case .printDigitalIntermediateHelp:
+            "The negative with its orange mask removed and reversed on the film's own neutral curve, "
+            + "kept as Cineon log for grading elsewhere. Grain, halation and the film's colour stay; "
+            + "the paper does not."
 
         // Curve
         case .curveLuma: "Luma"
@@ -361,6 +370,8 @@ extension S {
             + "Choose a negative film to print onto paper."
         case .reasonEDRDisabledInScanFilm:
             "Extended Dynamic Range applies to selected print profiles."
+        case .reasonDisabledInDigitalIntermediate:
+            "The Digital Intermediate has no paper, so print effects and EDR do not apply."
 
         // Settings ▸ Language
         case .setLanguage: "Language"
@@ -517,6 +528,11 @@ extension S {
         case .printGroupCine: "电影"
         case .printNone: "不使用相纸配置"
         case .printEDR: "扩展动态范围（EDR）"
+        case .printGroupDigital: "数字"
+        case .printDigitalIntermediate: "数字中间片"
+        case .printDigitalIntermediateHelp:
+            "去除橙色色罩、按胶片自身的中性曲线反转后的负片，以 Cineon 对数保存，供其他软件调色。"
+            + "保留颗粒、光晕与胶片的色彩，不含相纸。"
 
         // Curve
         case .curveLuma: "明度"
@@ -593,6 +609,7 @@ extension S {
         case .reasonEffectOff: "开启该效果后可调节强度。"
         case .reasonPositiveFilmDisablesPaper: "正片无需相纸印相。选择负片后可使用相纸配置。"
         case .reasonEDRDisabledInScanFilm: "扩展动态范围仅适用于相纸印相。"
+        case .reasonDisabledInDigitalIntermediate: "数字中间片没有相纸，印相效果与扩展动态范围不适用。"
 
         // Settings ▸ Language
         case .setLanguage: "语言"

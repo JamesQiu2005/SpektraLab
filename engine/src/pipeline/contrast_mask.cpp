@@ -151,7 +151,7 @@ bool Pipeline::contrast_mask_wanted() const {
     // RFC-024 §7.5: a directly scanned negative is not printed, and V1 covers
     // ordinary negative-to-paper printing only -- a positive print material or
     // the LUT path gets the unmasked render, not an approximation of a mask.
-    return m.active && (m.highlights > 0.0 || m.shadows > 0.0) && !params_.io.scan_film &&
+    return m.active && (m.highlights > 0.0 || m.shadows > 0.0) && !params_.io.scan_film && !di_active_ &&
            !params_.print.info.is_positive() && !params_.debug.lut_mode;
 }
 

@@ -337,6 +337,7 @@
 		C99D979200D504188AA630A4 /* DecodeSeparationTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "DecodeSeparationTests.swift"; sourceTree = "<group>"; };
 		44EA726F9F26A195F56BB1DE /* DetentSliderTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "DetentSliderTests.swift"; sourceTree = "<group>"; };
 		F3918A05EE13A2A1E4E5C6BB /* DiagnosticsTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "DiagnosticsTests.swift"; sourceTree = "<group>"; };
+		7E7C9884E1F28D34FD31BDFE /* DigitalIntermediateTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "DigitalIntermediateTests.swift"; sourceTree = "<group>"; };
 		EED6A6C9BDFFC2A7407D2297 /* DiskCacheStoreTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "DiskCacheStoreTests.swift"; sourceTree = "<group>"; };
 		1A34D31C5C249B7AE3393289 /* EngineClientTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "EngineClientTests.swift"; sourceTree = "<group>"; };
 		4272CA1F50A56E2865BC7E8D /* EvictionReportTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "EvictionReportTests.swift"; sourceTree = "<group>"; };
@@ -390,6 +391,7 @@
 				C99D979200D504188AA630A4 /* DecodeSeparationTests.swift */,
 				44EA726F9F26A195F56BB1DE /* DetentSliderTests.swift */,
 				F3918A05EE13A2A1E4E5C6BB /* DiagnosticsTests.swift */,
+				7E7C9884E1F28D34FD31BDFE /* DigitalIntermediateTests.swift */,
 				EED6A6C9BDFFC2A7407D2297 /* DiskCacheStoreTests.swift */,
 				1A34D31C5C249B7AE3393289 /* EngineClientTests.swift */,
 				4272CA1F50A56E2865BC7E8D /* EvictionReportTests.swift */,
@@ -470,6 +472,7 @@
 		215930583F367EC69222620A /* cam16.cpp */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.cpp; name = "cam16.cpp"; path = "../../engine/src/core/cam16.cpp"; sourceTree = SOURCE_ROOT; };
 		6DC1D74BE67AD1075040BAA8 /* colour.cpp */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.cpp; name = "colour.cpp"; path = "../../engine/src/core/colour.cpp"; sourceTree = SOURCE_ROOT; };
 		77D9C5C0A25442DE67A9B1DE /* curves.cpp */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.cpp; name = "curves.cpp"; path = "../../engine/src/core/curves.cpp"; sourceTree = SOURCE_ROOT; };
+		EA8352F54C0DA5761E29342C /* digital_intermediate.cpp */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.cpp; name = "digital_intermediate.cpp"; path = "../../engine/src/core/digital_intermediate.cpp"; sourceTree = SOURCE_ROOT; };
 		9F7B85F45EBDF1CE3728F27D /* hanatos.cpp */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.cpp; name = "hanatos.cpp"; path = "../../engine/src/core/hanatos.cpp"; sourceTree = SOURCE_ROOT; };
 		9DFC1577C6F351347984BBA6 /* json.cpp */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.cpp; name = "json.cpp"; path = "../../engine/src/core/json.cpp"; sourceTree = SOURCE_ROOT; };
 		5F12CEA67BE4CABCBD8A194F /* latitude_fit.cpp */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.cpp; name = "latitude_fit.cpp"; path = "../../engine/src/core/latitude_fit.cpp"; sourceTree = SOURCE_ROOT; };
@@ -494,6 +497,7 @@
 				215930583F367EC69222620A /* cam16.cpp */,
 				6DC1D74BE67AD1075040BAA8 /* colour.cpp */,
 				77D9C5C0A25442DE67A9B1DE /* curves.cpp */,
+				EA8352F54C0DA5761E29342C /* digital_intermediate.cpp */,
 				9F7B85F45EBDF1CE3728F27D /* hanatos.cpp */,
 				9DFC1577C6F351347984BBA6 /* json.cpp */,
 				5F12CEA67BE4CABCBD8A194F /* latitude_fit.cpp */,
@@ -636,6 +640,7 @@
 		0F30A014F4BA62E1C14EB021 /* cam16.cpp */ = {isa = PBXBuildFile; fileRef = 215930583F367EC69222620A; };
 		2B521A13252EB54427CCCF01 /* colour.cpp */ = {isa = PBXBuildFile; fileRef = 6DC1D74BE67AD1075040BAA8; };
 		AB8C3928053AAB9AB77EA40D /* curves.cpp */ = {isa = PBXBuildFile; fileRef = 77D9C5C0A25442DE67A9B1DE; };
+		86B6D04E6F59871A2E4744D8 /* digital_intermediate.cpp */ = {isa = PBXBuildFile; fileRef = EA8352F54C0DA5761E29342C; };
 		4B244FF0BD1A80C0B7D36387 /* hanatos.cpp */ = {isa = PBXBuildFile; fileRef = 9F7B85F45EBDF1CE3728F27D; };
 		405222C6C44FB7336C0C5250 /* json.cpp */ = {isa = PBXBuildFile; fileRef = 9DFC1577C6F351347984BBA6; };
 		32433A8A6DF71B84C3183326 /* latitude_fit.cpp */ = {isa = PBXBuildFile; fileRef = 5F12CEA67BE4CABCBD8A194F; };
@@ -756,6 +761,7 @@
 				0F30A014F4BA62E1C14EB021 /* cam16.cpp */,
 				2B521A13252EB54427CCCF01 /* colour.cpp */,
 				AB8C3928053AAB9AB77EA40D /* curves.cpp */,
+				86B6D04E6F59871A2E4744D8 /* digital_intermediate.cpp */,
 				4B244FF0BD1A80C0B7D36387 /* hanatos.cpp */,
 				405222C6C44FB7336C0C5250 /* json.cpp */,
 				32433A8A6DF71B84C3183326 /* latitude_fit.cpp */,
@@ -808,6 +814,7 @@
 		B90B294431E9D713F31ADA9F /* DecodeSeparationTests.swift */ = {isa = PBXBuildFile; fileRef = C99D979200D504188AA630A4; };
 		E8E2932C83D2DB247FE64D0C /* DetentSliderTests.swift */ = {isa = PBXBuildFile; fileRef = 44EA726F9F26A195F56BB1DE; };
 		4013845AB83CE4A5F3A79671 /* DiagnosticsTests.swift */ = {isa = PBXBuildFile; fileRef = F3918A05EE13A2A1E4E5C6BB; };
+		F61F1AC4FB07EB24D87796A5 /* DigitalIntermediateTests.swift */ = {isa = PBXBuildFile; fileRef = 7E7C9884E1F28D34FD31BDFE; };
 		8E53CE847694C3966F389B68 /* DiskCacheStoreTests.swift */ = {isa = PBXBuildFile; fileRef = EED6A6C9BDFFC2A7407D2297; };
 		A5617565080D6659115024D0 /* EngineClientTests.swift */ = {isa = PBXBuildFile; fileRef = 1A34D31C5C249B7AE3393289; };
 		CDE6A6EEBA05479B03794B4E /* EvictionReportTests.swift */ = {isa = PBXBuildFile; fileRef = 4272CA1F50A56E2865BC7E8D; };
@@ -945,6 +952,7 @@
 		ECA0DD54952585BB6E1183F2 /* cam16.cpp */ = {isa = PBXBuildFile; fileRef = 215930583F367EC69222620A; };
 		61D521516170F106DD5E1A00 /* colour.cpp */ = {isa = PBXBuildFile; fileRef = 6DC1D74BE67AD1075040BAA8; };
 		5DC6EE808B8B0BFFF9804FCE /* curves.cpp */ = {isa = PBXBuildFile; fileRef = 77D9C5C0A25442DE67A9B1DE; };
+		B4EB984940511B4E30007EFC /* digital_intermediate.cpp */ = {isa = PBXBuildFile; fileRef = EA8352F54C0DA5761E29342C; };
 		846920E85821D5CB35A22269 /* hanatos.cpp */ = {isa = PBXBuildFile; fileRef = 9F7B85F45EBDF1CE3728F27D; };
 		962A62FDFE65F3D694D84DB2 /* json.cpp */ = {isa = PBXBuildFile; fileRef = 9DFC1577C6F351347984BBA6; };
 		F8636519E12B3F0CD9687393 /* latitude_fit.cpp */ = {isa = PBXBuildFile; fileRef = 5F12CEA67BE4CABCBD8A194F; };
@@ -977,6 +985,7 @@
 				B90B294431E9D713F31ADA9F /* DecodeSeparationTests.swift */,
 				E8E2932C83D2DB247FE64D0C /* DetentSliderTests.swift */,
 				4013845AB83CE4A5F3A79671 /* DiagnosticsTests.swift */,
+				F61F1AC4FB07EB24D87796A5 /* DigitalIntermediateTests.swift */,
 				8E53CE847694C3966F389B68 /* DiskCacheStoreTests.swift */,
 				A5617565080D6659115024D0 /* EngineClientTests.swift */,
 				CDE6A6EEBA05479B03794B4E /* EvictionReportTests.swift */,
@@ -1114,6 +1123,7 @@
 				ECA0DD54952585BB6E1183F2 /* cam16.cpp */,
 				61D521516170F106DD5E1A00 /* colour.cpp */,
 				5DC6EE808B8B0BFFF9804FCE /* curves.cpp */,
+				B4EB984940511B4E30007EFC /* digital_intermediate.cpp */,
 				846920E85821D5CB35A22269 /* hanatos.cpp */,
 				962A62FDFE65F3D694D84DB2 /* json.cpp */,
 				F8636519E12B3F0CD9687393 /* latitude_fit.cpp */,

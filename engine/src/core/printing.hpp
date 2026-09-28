@@ -63,6 +63,11 @@ bool print_constants(const Colour& colour, const Blob& blob, const Params& param
 // The print-exposure gain the log node applies: the slider times the
 // black/white correction. Split out because the correction needs the scanner's
 // own constants, which the pipeline owns.
+// The Mitchell bicubic `spk_lut2d_cubic` evaluates, on the host: the tc_lut
+// sampled at one chromaticity. Shared with the Digital Intermediate's build
+// (RFC-028), which runs a handful of uniform colours through the film.
+void lut2d_cubic_host(const Vec& lut, size_t L, const double tc[2], double out[3]);
+
 double print_exposure_bw_gain(const Params& params, double y_black, double y_white,
                               double black_level, double white_level);
 

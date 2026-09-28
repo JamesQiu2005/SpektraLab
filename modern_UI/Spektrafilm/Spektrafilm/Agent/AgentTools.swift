@@ -148,7 +148,8 @@ enum AgentTools {
             // The whole document is one `get_edit` away.
             let doc = try ws.document
             var now: [String: JSONValue] = [:]
-            for path in written + ["params.printStock", "params.scanFilm", "params.filmFormatMM"] {
+            for path in written + ["params.printStock", "params.scanFilm", "params.digitalIntermediate",
+                                   "params.filmFormatMM"] {
                 now[path] = path.split(separator: ".").reduce(Optional(doc)) { $0?[String($1)] }
             }
             if written.contains(where: { $0.hasPrefix("geometry.") }) { now["geometry.crop"] = doc["geometry"]?["crop"] }

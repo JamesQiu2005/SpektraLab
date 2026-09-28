@@ -262,8 +262,26 @@ bool Pipeline::build(const Params& params, std::string& error) {
             return false;
     }
 
+    // --- RFC-028: the Digital Intermediate --------------------------------
+    // It replaces the paper exactly as `scan_film` does, and `scan_film` wins.
+    // A positive has no mask and no paper, so the switch means nothing there.
+    di_active_ = params_.io.digital_intermediate && !params_.io.scan_film && !film.info.is_positive();
+    if (di_active_) {
+        if (!di_constants(*colour_, *blob_, params_, tc_lut_host_, baked_.tc_lut_side, tc_b_host_,
+                          film_sensitivity_, di_, error)) return false;
+        const Vec zero(kNumWavelengths, 0.0);
+        baked_.di_chd = gpu_->upload_persistent_f32(di_.chd.data(), di_.chd.size(), error);
+        baked_.di_zero_base = gpu_->upload_persistent_f32(zero.data(), zero.size(), error);
+        baked_.di_ixs = gpu_->upload_persistent_f32(di_.ixs.data(), di_.ixs.size(), error);
+        baked_.di_curve_x = gpu_->upload_persistent_f32(di_.curve.x.data(), di_.curve.x.size(), error);
+        baked_.di_curve_inv = gpu_->upload_persistent_f32(di_.curve.inv.data(), di_.curve.inv.size(), error);
+        baked_.di_curve_y = gpu_->upload_persistent_f32(di_.curve.y.data(), di_.curve.y.size(), error);
+        if (!baked_.di_chd || !baked_.di_zero_base || !baked_.di_ixs || !baked_.di_curve_x ||
+            !baked_.di_curve_inv || !baked_.di_curve_y) return false;
+    }
+
     // --- print curves -------------------------------------------------------
-    if (!params_.io.scan_film) {
+    if (!params_.io.scan_film && !di_active_) {
         Vec morphed;
         if (!print_curves_morph(print.data.log_exposure, print.data.model,
                                 params_.print_render.density_curves_morph,
@@ -332,7 +350,7 @@ bool Pipeline::build(const Params& params, std::string& error) {
     // CCTF encoding. Each print profile carries its measured native-Y ->
     // extended-Y table. No table means no calibrated EDR; never substitute
     // another paper.
-    if (params_.print_render.edr_enabled && !params_.io.scan_film) {
+    if (params_.print_render.edr_enabled && !params_.io.scan_film && !di_active_) {
         const EdrToneMap& edr = params_.print.data.edr_tone_map;
         if (!edr.available()) {
             error = "print profile '" + params_.print.info.stock + "' has no calibrated EDR tone map";
@@ -417,6 +435,9 @@ bool Pipeline::build(const Params& params, std::string& error) {
     node_count_ += 1;                                                    // develop.curves
     node_count_ += params_.film_render.dir_couplers.active ? 1 : 0;      // dir_couplers
     node_count_ += params_.film_render.grain.active ? 1 : 0;             // grain
+    if (di_active_) {
+        node_count_ += 1;                                                // digital_intermediate
+    } else {
     if (!params_.io.scan_film) node_count_ += 3;                         // the printing stage
     node_count_ += contrast_mask_wanted() ? 1 : 0;                       // RFC-024 analysis
     node_count_ += 5;                                                    // scan..gamut_compress
@@ -425,6 +446,7 @@ bool Pipeline::build(const Params& params, std::string& error) {
     node_count_ += (params_.scanner.unsharp_mask[0] > 0.0 &&
                     params_.scanner.unsharp_mask[1] > 0.0) ? 1 : 0;      // unsharp
     node_count_ += 1;                                                    // cctf
+    }
 
     built_ = true;
     return true;
@@ -1518,6 +1540,49 @@ bool Pipeline::node_scan_spectral(const Image& in, Image& out, std::string& erro
                     /*log_out=*/false, kNumWavelengths, out, error);
 }
 
+// RFC-028. The negative read in printing density with the base removed per
+// wavelength (the existing spectral kernel with a zero base), each channel
+// reversed on the film's own neutral curve (the existing curve kernel), then
+// one pass for the colour step, the optional blue-sector compensation and the
+// Cineon-style log encode. The live print controls arrive as log offsets.
+bool Pipeline::node_digital_intermediate(const Image& in, Image& out, std::string& error) {
+    Timer t(this, "scanning.digital_intermediate");
+    double gain[3], offset[3];
+    fill3(gain, 1.0);
+    fill3(offset, 0.0);
+    Image log_t, positive;
+    if (!spectral(in, baked_.di_chd, baked_.di_zero_base, baked_.di_ixs, gain, offset,
+                  /*log_out=*/true, kNumWavelengths, log_t, error)) return false;
+    if (!curve_interp(log_t, baked_.di_curve_x, baked_.di_curve_inv, baked_.di_curve_y,
+                      di_.curve.k, positive, error)) return false;
+    double live[3];
+    di_live_offsets(params_, live);
+    const bool comp = params_.io.digital_intermediate_blue_compensation;
+    float p[40] = {};
+    for (int i = 0; i < 9; ++i) p[i] = float(di_.matrix[i]);
+    for (int i = 0; i < 3; ++i) p[9 + i] = float(live[i]);
+    for (int i = 0; i < 9; ++i) p[12 + i] = float(di_.to_lms[i]);
+    for (int i = 0; i < 9; ++i) p[21 + i] = float(di_.from_lms[i]);
+    p[30] = comp ? 1.0f : 0.0f;
+    p[31] = float(di_.blue_delta_deg);
+    p[32] = float(di_.blue_kappa);
+    p[33] = float(kDiBlueHueCentre);
+    p[34] = float(kDiBlueHueHalfWidth);
+    p[35] = float(kDiBlueChromaLo);
+    p[36] = float(kDiBlueChromaHi);
+    p[37] = float(kDiCineonWhite);
+    p[38] = float(kDiCineonPerDecade);
+    p[39] = float(kDiCineonMax);
+    gpu::BufferRef p_buf = gpu_->upload(p, sizeof p, error);
+    if (!p_buf) return false;
+    if (!alloc_like(positive, out, error)) return false;
+    const uint32_t n[1] = {uint32_t(positive.pixels())};
+    return gpu_->dispatch("spk_di_encode",
+                          {gpu::Arg::buf(positive.buf), gpu::Arg::buf(p_buf), gpu::Arg::inline_bytes(n, 1),
+                           gpu::Arg::buf(out.buf)},
+                          positive.pixels(), error);
+}
+
 bool Pipeline::node_bw_correction(const Image& in, Image& out, std::string& error) {
     if (!bw_active_) { out = in; return true; }
     if (params_.io.scan_film && !params_.film.info.is_positive()) { out = in; return true; }
@@ -1539,7 +1604,7 @@ bool Pipeline::node_bw_correction(const Image& in, Image& out, std::string& erro
 }
 
 bool Pipeline::node_glare(const Image& in, Image& out, std::string& error) {
-    if (params_.io.scan_film) { out = in; return true; }
+    if (params_.io.scan_film || di_active_) { out = in; return true; }
     const GlareParams& glare = params_.print_render.glare;
     // RFC-025: the strength scales `percent`, so a mean and a spread move
     // together, as a hazier enlarger's would. × 1.0 is exact.
@@ -1810,6 +1875,12 @@ bool Pipeline::film_grain(const Chain& in, Chain& out, std::string& error) {
 
 bool Pipeline::print_spectral(const Chain& in, Chain& out, std::string& error) {
     Image cur = in.cur, next;
+    if (di_active_) {
+        SPK_NODE(node_digital_intermediate(cur, next, error)); cur = next;
+        out = in;
+        out.cur = cur;
+        return true;
+    }
     if (!params_.io.scan_film) {
         if (mask_on_) { SPK_NODE(node_contrast_mask_epilogue(cur, next, error)); cur = next; }
         else { SPK_NODE(node_enlarger_spectral(cur, next, error)); cur = next; }
@@ -1830,6 +1901,7 @@ bool Pipeline::print_glare(const Chain& in, Chain& out, std::string& error) {
 }
 
 bool Pipeline::print_linear(const Chain& in, Chain& out, std::string& error) {
+    if (di_active_) { out = in; return true; }   // the DI is already its own encoded output
     Image cur = in.cur, next;
     SPK_NODE(node_xyz_to_rgb(cur, next, error)); cur = next;
     SPK_NODE(node_gamut_compress(cur, next, error)); cur = next;
@@ -1839,6 +1911,7 @@ bool Pipeline::print_linear(const Chain& in, Chain& out, std::string& error) {
 }
 
 bool Pipeline::print_scan_finish(const Chain& in, Chain& out, std::string& error) {
+    if (di_active_) { out = in; return true; }   // the DI is already its own encoded output
     Image cur = in.cur, next;
     SPK_NODE(node_scanner_blur(cur, next, error)); cur = next;
     SPK_NODE(node_unsharp(cur, next, error)); cur = next;
@@ -1848,6 +1921,7 @@ bool Pipeline::print_scan_finish(const Chain& in, Chain& out, std::string& error
 }
 
 bool Pipeline::print_output(const Chain& in, Chain& out, std::string& error) {
+    if (di_active_) { out = in; return true; }   // the DI is already its own encoded output
     // Calibrations observe the completed linear print scan. Apply EDR after
     // spatial scanner corrections so those stages cannot bend its joins or
     // reduce its requested tail separation, and immediately before encoding.
@@ -2163,7 +2237,7 @@ bool Pipeline::print_prefix(std::string& error) {
     // The enlarger's cheap constants are re-derived on every print run,
     // because `print_exposure` and the two filter shifts are live-mutable: the
     // service writes them straight onto this pipeline between renders.
-    if (!params_.io.scan_film && !refresh_print_constants(error)) return false;
+    if (!params_.io.scan_film && !di_active_ && !refresh_print_constants(error)) return false;
 
     // The print side's one seed for this run, on the same terms as the film
     // side's: `node_glare`'s field is a realisation of the *frame*, so a draw

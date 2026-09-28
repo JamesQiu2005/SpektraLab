@@ -56,6 +56,14 @@ void compress_xy_radial(const double xy[2], const double white_xy[2], const Vec&
 bool film_sensitivity(const Colour& colour, const Blob& blob, const Profile& film,
                       const CameraParams& camera, Vec& out, std::string& error);
 
+// What the film "sees" through the upsampler: the sensitivity times the film's
+// own spectral window when `settings` applies it. `build_tc_lut` contracts the
+// spectra against this; the Digital Intermediate's colour fit (RFC-028) needs
+// the same film eye, so it is one function. (81, 3) row-major.
+bool tc_lut_weights(const Colour& colour, const Blob& blob, const Profile& film,
+                    const SettingsParams& settings, const Vec& sensitivity, Vec& weights,
+                    std::string& error);
+
 // The whole of `compute_hanatos2025_tc_lut`, compression included.
 // `out` is (192, 192, 3) row-major.
 bool build_tc_lut(const Colour& colour, const Blob& blob, const Profile& film,

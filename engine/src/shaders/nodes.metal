@@ -365,3 +365,57 @@ kernel void spk_edr(device const float* rgb [[buffer(0)]],
     out[3u * i + 1u] = g * scale;
     out[3u * i + 2u] = b * scale;
 }
+
+// RFC-028's Digital Intermediate, the last of its three passes. In: the
+// positive as log10 per film channel. p: [0..8] film RGB -> working RGB (x @ M),
+// [9..11] the live log10 offsets, [12..20] working RGB -> Oklab LMS and
+// [21..29] back (M @ v), [30] compensation on, [31] hue rotation (deg),
+// [32] chroma scale, [33..36] hue centre, half width, chroma lo/hi,
+// [37..39] Cineon white, codes per decade, max code.
+kernel void spk_di_encode(device const float* y [[buffer(0)]],
+                          device const float* p [[buffer(1)]],
+                          device const uint* n [[buffer(2)]],
+                          device float* out [[buffer(3)]],
+                          uint3 thread_position_in_grid [[thread_position_in_grid]]) {
+    uint i = thread_position_in_grid.x;
+    if (i >= n[0]) return;
+    float3 pos = float3(pow(10.0f, y[3u * i] + p[9]),
+                        pow(10.0f, y[3u * i + 1u] + p[10]),
+                        pow(10.0f, y[3u * i + 2u] + p[11]));
+    float3 lin = float3(pos.x * p[0] + pos.y * p[3] + pos.z * p[6],
+                        pos.x * p[1] + pos.y * p[4] + pos.z * p[7],
+                        pos.x * p[2] + pos.y * p[5] + pos.z * p[8]);
+    if (p[30] != 0.0f) {
+        // Oklab (Ottosson 2020); the window sits on the output hue and fades
+        // out below a chroma floor, so greys and every other hue are exact.
+        float3 lms = float3(p[12] * lin.x + p[13] * lin.y + p[14] * lin.z,
+                            p[15] * lin.x + p[16] * lin.y + p[17] * lin.z,
+                            p[18] * lin.x + p[19] * lin.y + p[20] * lin.z);
+        lms = pow(max(lms, 0.0f), 1.0f / 3.0f);
+        float L = 0.2104542553f * lms.x + 0.7936177850f * lms.y - 0.0040720468f * lms.z;
+        float a = 1.9779984951f * lms.x - 2.4285922050f * lms.y + 0.4505937099f * lms.z;
+        float b = 0.0259040371f * lms.x + 0.7827717662f * lms.y - 0.8086757660f * lms.z;
+        float C = sqrt(a * a + b * b);
+        float h = atan2(b, a) * 57.29577951308232f;
+        float d = fmod(h - p[33] + 540.0f, 360.0f) - 180.0f;
+        float w = abs(d) < p[34] ? 0.5f * (1.0f + cos(3.14159265358979f * d / p[34])) : 0.0f;
+        float g = clamp((C - p[35]) / (p[36] - p[35]), 0.0f, 1.0f);
+        w *= g * g * (3.0f - 2.0f * g);
+        if (w > 0.0f) {
+            float h2 = (h + w * p[31]) * 0.017453292519943295f;
+            float C2 = C * (1.0f + w * (p[32] - 1.0f));
+            a = C2 * cos(h2);
+            b = C2 * sin(h2);
+            float3 l_ = float3(L + 0.3963377774f * a + 0.2158037573f * b,
+                               L - 0.1055613458f * a - 0.0638541728f * b,
+                               L - 0.0894841775f * a - 1.2914855480f * b);
+            lms = l_ * l_ * l_;
+            lin = float3(p[21] * lms.x + p[22] * lms.y + p[23] * lms.z,
+                         p[24] * lms.x + p[25] * lms.y + p[26] * lms.z,
+                         p[27] * lms.x + p[28] * lms.y + p[29] * lms.z);
+        }
+    }
+    float3 code = (p[37] + p[38] * log10(max(lin, 1e-6f))) / p[39];
+    code = clamp(code, 0.0f, 1.0f);
+    out[3u * i] = code.x; out[3u * i + 1u] = code.y; out[3u * i + 2u] = code.z;
+}

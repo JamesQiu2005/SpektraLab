@@ -47,6 +47,8 @@ void base_frac(double coord, int L, int& base, double& frac) {
     frac = coord - double(base);
 }
 
+}  // namespace
+
 void lut2d_cubic_host(const Vec& lut, size_t L, const double tc[2], double out[3]) {
     const double scale = double(L - 1);
     int xb, yb;
@@ -69,7 +71,6 @@ void lut2d_cubic_host(const Vec& lut, size_t L, const double tc[2], double out[3
     for (int c = 0; c < 3; ++c) out[c] = wsum != 0.0 ? acc[c] / wsum : acc[c];
 }
 
-}  // namespace
 
 bool print_constants(const Colour& colour, const Blob& blob, const Params& params,
                      const Vec& tc_lut, size_t tc_lut_side,

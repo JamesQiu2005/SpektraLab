@@ -292,6 +292,15 @@ struct IOParams {
     GeometryParams geometry;
     double upscale_factor = 1.0;
     bool scan_film = false;
+    /// RFC-028: the Digital Intermediate. The negative is read in printing
+    /// density with its base removed per wavelength, reversed on the film's
+    /// own neutral curve, and written as Cineon-style log. It replaces the
+    /// paper exactly as `scan_film` does, and `scan_film` wins if both are set.
+    /// Ignored for a positive film, which has no mask and no paper.
+    bool digital_intermediate = false;
+    /// RFC-028 §10: the optional blue-sector correction of the DI's colour
+    /// step. Off by default, by the user's decision of 2026-09-29.
+    bool digital_intermediate_blue_compensation = false;
     /// The long edge of the `live` tier, i.e. the size every interactive edit
     /// renders at — the app's **preview resolution**, and a user setting.
     /// `engine.cpp` resolves the `live` row of its tier table from here, so
@@ -347,6 +356,11 @@ struct DebugParams {
 
 struct Params {
     Profile film, print;
+    /// The paper whose spectral sensitivity defines the DI's printing density:
+    /// the film's own `target_print`, the paper it was balanced for, loaded
+    /// whether or not the DI is on so switching to it is a print-layer change.
+    /// It is never the session's `print_stock`, which the DI hides.
+    Profile di_paper;
     std::string film_stock = "kodak_portra_400";
     std::string print_stock = "kodak_portra_endura";
     FilmRenderParams film_render;

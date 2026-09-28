@@ -171,8 +171,13 @@ enum Exporter {
             // Merged rather than set, because the DI route has a note of its
             // own (a film/paper mismatch) and losing it to a colour note would
             // be trading one silent substitution for another.
-            if let fellBackReason {
+            if let fellBackReason, !(session.digitalIntermediateActive && format != .di) {
                 result.note = result.note.map { "\($0) \(fellBackReason)" } ?? fellBackReason
+            }
+            if session.digitalIntermediateActive && format != .di {
+                let di = L("Digital Intermediate: Cineon log codes in ProPhoto RGB primaries, written unchanged. The recipe's colour space is not applied.",
+                           zh: "数字中间片：以 ProPhoto RGB 原色存储的 Cineon 对数码值，原样写入，不套用配方的色彩空间。")
+                result.note = result.note.map { "\($0) \(di)" } ?? di
             }
             let elapsed = Date().timeIntervalSince(started) * 1000
             for url in result.urls {
@@ -344,7 +349,15 @@ enum Exporter {
     /// Throws `CancellationError` if the task is cancelled — a superseded
     /// proof is not a stale picture, it is no picture.
     static func filePixels(session: Session, recipe: ExportRecipe, sessionID: String) async throws -> Rendered {
-        let (target, _, _, _) = resolveTarget(recipe)
+        // RFC-028: a Digital Intermediate's pixels are Cineon log codes in the
+        // working space's primaries. They are written **as they are**, tagged
+        // as the working space the canvas shows them in -- so the file matches
+        // the canvas and a colourist's Cineon decode returns the scene. No
+        // grade (the renderer bypasses Layer 2 for it) and no conversion into
+        // the recipe's space, which would rewrite the codes.
+        let digitalIntermediate = session.digitalIntermediateActive
+        let target = digitalIntermediate ? (ImageDecoder.workingSpace ?? resolveTarget(recipe).space)
+                                         : resolveTarget(recipe).space
         let outcome = try await session.client.render(
             .export, RenderRequest(sessionID: sessionID, tier: "full"))
         try Task.checkCancellation()
@@ -405,6 +418,13 @@ enum Exporter {
                 current = resizedDestination
                 currentScratch = resizedScratch
             }
+        }
+        if digitalIntermediate {
+            return Rendered(texture: current,
+                            stats: OutputTransformStats(movedFraction: 0, clippedFraction: 0,
+                                                        outsideFraction: 0),
+                            target: target, pixels: (current.width, current.height),
+                            appliedEV: outcome.progress?.autoExposureEV, scratch: currentScratch)
         }
         // The one conversion, at the end, out of the working space and into
         // the destination — the same kernel the canvas and the soft proof run.

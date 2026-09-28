@@ -158,6 +158,16 @@ NATIVE_ONLY = {
         "path": "print_render.glare.amount", "type": "float", "layer": "print",
         "default": 1.0, "live": False, "range": [0.0, 4.0],
     },
+    # RFC-028's Digital Intermediate: replaces the paper, so print layer; the
+    # blue-sector compensation is off by default (the user's decision).
+    "digital_intermediate": {
+        "path": "io.digital_intermediate", "type": "bool", "layer": "print",
+        "default": False, "live": False, "range": None,
+    },
+    "digital_intermediate_blue_compensation": {
+        "path": "io.digital_intermediate_blue_compensation", "type": "bool", "layer": "print",
+        "default": False, "live": False, "range": None,
+    },
 }
 
 
