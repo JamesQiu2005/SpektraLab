@@ -701,12 +701,27 @@ final class Session: CanvasHost {
     private var fullTask: Task<Void, Never>?
     private var fullGeneration = 0
 
-    /// Clipboard for ⌘C/⌘V. Film, print and Layer 2 settings only: the decode
-    /// block is per-frame (a lens filter) and the crop is framing. Every field
-    /// is an offset, so pasting means "same recipe, each frame solves its own
-    /// exposure" (frontend SPEC §5.5).
-    struct SettingsClip: Sendable { var params: FilmParams; var adjustments: Adjustments }
-    private var clipboard: SettingsClip?
+    /// The settings clipboard (RFC-027): what ⇧⌘C took, with the groups it was
+    /// taken with. In memory; a relaunch starts empty.
+    private(set) var clipboard: SettingsClip?
+
+    /// The Settings Clipboard section's seven boxes: which groups the *next*
+    /// copy takes. Persisted, and all seven by default, which is what ⇧⌘V
+    /// copied before the groups existed.
+    var clipboardGroups: Set<ClipboardGroup> = Session.storedClipboardGroups() {
+        didSet {
+            UserDefaults.standard.set(clipboardGroups.map(\.rawValue).sorted(),
+                                      forKey: Self.clipboardGroupsKey)
+        }
+    }
+
+    nonisolated static let clipboardGroupsKey = uiKey + "clipboard.groups"
+
+    private static func storedClipboardGroups() -> Set<ClipboardGroup> {
+        guard let raw = UserDefaults.standard.stringArray(forKey: clipboardGroupsKey)
+        else { return Set(ClipboardGroup.allCases) }
+        return Set(raw.compactMap(ClipboardGroup.init(rawValue:)))
+    }
 
     // MARK: undo and the work clock
 
@@ -770,6 +785,10 @@ final class Session: CanvasHost {
 
     /// Whether this frame's develop has been asked for.
     private var wantsDevelop = false
+    /// Tests only: called after the develop's `open` delta is built and before
+    /// it is sent, which is the one point where an edit lands on a session the
+    /// engine is being handed without it (RFC-027 §5.1).
+    @ObservationIgnored var afterOpenDeltaForTesting: (() -> Void)?
     /// What each of RFC-015 §2.3's four intents would choose for the frame on
     /// screen, as the last develop's `solve` reported them.
     ///
@@ -1308,6 +1327,11 @@ final class Session: CanvasHost {
         developTask?.cancel(); developTask = nil
         renderer.dropFullRender()
         sidecar = Sidecar.load(for: url) ?? Sidecar()
+        // Except a frame with an edit the engine has not rendered — a paste
+        // made while another frame was on the canvas (RFC-027 §4). That edit
+        // asked for a develop as surely as a slider does, and without one the
+        // frame would open onto its bare decode. Nothing else saves `.stale`.
+        if sidecar.state == .stale { wantsDevelop = true }
         renderer.layer2 = sidecar.adjustments.uniforms
         renderer.setCurves(sidecar.adjustments.curves)
         renderer.geometry = sidecar.geometry
@@ -1742,7 +1766,11 @@ final class Session: CanvasHost {
         let settings = sidecar.decode
         let device = renderer.device
         let edge = previewLongEdge
-        if !requiresDecode, let picture = await cachedPrint(for: url) {
+        // The two cache shortcuts end the open at a picture. A frame that has
+        // already asked for its develop (a paste made while it was off the
+        // canvas, RFC-027 §4) needs the decode anyway, so it skips them —
+        // otherwise it would stop at the cached picture and never develop.
+        if !requiresDecode, !wantsDevelop, let picture = await cachedPrint(for: url) {
             guard !Task.isCancelled, selection == url else { return }
             sourceLongEdge = max(picture.sourceSize.width, picture.sourceSize.height)
             displaySourceSize = picture.sourceSize
@@ -1759,7 +1787,7 @@ final class Session: CanvasHost {
             status = "\(url.lastPathComponent)  ·  restored print"
             return
         }
-        if !requiresDecode, let picture = await displayPicture(for: url, settings: settings) {
+        if !requiresDecode, !wantsDevelop, let picture = await displayPicture(for: url, settings: settings) {
             guard !Task.isCancelled, selection == url else { return }
             displayCacheHitCount += 1
             sourceLongEdge = max(picture.sourceSize.width, picture.sourceSize.height)
@@ -2048,6 +2076,12 @@ final class Session: CanvasHost {
         defer { busy = wasBusy }
         do {
             let r: OpenResponse
+            // What the open actually carries. The scheduler is reset to *this*,
+            // not to the sidecar after the await: an edit made while the engine
+            // was being handed the frame is not on the engine, and recording it
+            // as sent is how a paste showed the new film over the old print
+            // (RFC-027 §5.1). The `request` at the end of the develop sends it.
+            var opened = sidecar.params
             do {
                 // Its own scope, so the 727 MB buffer is gone before the solve
                 // and the first render run — at -Onone too, where a value is
@@ -2059,9 +2093,10 @@ final class Session: CanvasHost {
                 }.value
                 clock.lap("frame")
                 guard selection == url, !Task.isCancelled else { return nil }
-                r = try await client.open(
-                    frame,
-                    paramsDelta: Self.openDelta(sidecar: sidecar, previewLongEdge: previewLongEdge))
+                opened = sidecar.params
+                let delta = Self.openDelta(sidecar: sidecar, previewLongEdge: previewLongEdge)
+                afterOpenDeltaForTesting?()
+                r = try await client.open(frame, paramsDelta: delta)
             }
             // The client holds one session; open replaces it. The handle follows
             // the session, not the develop, so an open only ever replaces this
@@ -2087,7 +2122,7 @@ final class Session: CanvasHost {
             // app can find out which one it got.
             noteWorkingSpace(r.params["output_color_space"]?.stringValue
                              ?? Self.defaultWorkingSpace)
-            serviceGeneration = scheduler.reset(sessionID: r.sessionID, params: sidecar.params)
+            serviceGeneration = scheduler.reset(sessionID: r.sessionID, params: opened)
             // What the engine's own auto-exposure chose for this frame. The
             // Exp. Comp. slider is an offset from it, so the UI has to know
             // the baseline to show it (HANDOFF §4). `solve(target:"exposure")`
@@ -2214,6 +2249,7 @@ final class Session: CanvasHost {
         scheduleSave()
         updateThumbnail(url, from: tex)
         scheduleLatitudeRefresh()
+        resolvePendingPlacement()
         if firstPrint { sampleMemory("first_print") }
         // The native render is the next step. A resident one made from
         // *different* parameters is no longer the print on screen, and showing
@@ -2908,7 +2944,7 @@ final class Session: CanvasHost {
         hundred.target = self; hundred.isEnabled = !zoomLocked
         m.addItem(.separator())
         let copy = m.addItem(withTitle: "Copy Settings", action: #selector(copyMenu), keyEquivalent: "")
-        copy.target = self; copy.isEnabled = selection != nil
+        copy.target = self; copy.isEnabled = canCopySettings
         let paste = m.addItem(withTitle: "Paste Settings", action: #selector(pasteMenu), keyEquivalent: "")
         paste.target = self; paste.isEnabled = canPasteSettings
         m.addItem(.separator())
@@ -3213,30 +3249,103 @@ final class Session: CanvasHost {
         status = "Undo — \(undoStack.count) step\(undoStack.count == 1 ? "" : "s") left."
     }
 
-    var canPasteSettings: Bool { clipboard != nil && selection != nil }
+    var canCopySettings: Bool { selection != nil && !clipboardGroups.isEmpty }
+    var canPasteSettings: Bool { clipboard != nil && selection != nil && !batchExporting }
 
-    func copySettings() {
-        guard selection != nil else { return }
-        clipboard = SettingsClip(params: sidecar.params, adjustments: sidecar.adjustments)
-        status = "Copied film, print and adjustment settings."
+    /// Where a paste goes: every picked frame, which always includes the one
+    /// on the canvas (`togglePick`), or that frame alone.
+    var pasteTargets: [URL] {
+        let picked = selectedFrames
+        if !picked.isEmpty { return picked }
+        return selection.map { [$0] } ?? []
     }
 
-    /// Offsets only (frontend SPEC §5.5): the decode block is per-frame and
-    /// the crop is framing, so neither is copied.
+    /// Take the ticked groups from the frame on the canvas (RFC-027 §3).
+    func copySettings() {
+        guard let url = selection, !clipboardGroups.isEmpty else { return }
+        clipboard = SettingsClip(groups: clipboardGroups, settings: sidecar,
+                                 sourceName: url.lastPathComponent)
+        status = "Copied \(clipboardGroups.count) of \(ClipboardGroup.allCases.count) groups from \(url.lastPathComponent)."
+    }
+
+    /// Write what the clipboard holds onto every paste target (RFC-027 §4).
+    /// The frame on the canvas takes it live and undoably; the others take it
+    /// on disk and develop with it when they are opened.
     func pasteSettings() {
-        guard let clip = clipboard, selection != nil else { return }
+        guard let clip = clipboard, let open = selection, !batchExporting else { return }
+        let targets = pasteTargets
+        var written = 0
+        for url in targets where url != open {
+            if pasteOffline(clip, to: url) { written += 1 }
+        }
+        if targets.contains(open), pasteLive(clip) { written += 1 }
+        status = written == 0
+            ? "Nothing to paste — the frames already have these settings."
+            : "Pasted \(clip.groups.count) group\(clip.groups.count == 1 ? "" : "s") onto \(written) frame\(written == 1 ? "" : "s")."
+    }
+
+    /// The paste on the frame on the canvas: one undo step, then each side
+    /// effect the individual setters would have had.
+    @discardableResult
+    private func pasteLive(_ clip: SettingsClip) -> Bool {
+        let next = clip.applied(to: sidecar)
+        guard next != sidecar else { return false }
         pushUndo()
-        sidecar.params = clip.params
-        sidecar.adjustments = clip.adjustments
-        // The clip carries a Tone, so the label has to follow the paste the
-        // same way it follows the pill (see `retargetSolvedEV`).
-        retargetSolvedEV()
-        renderer.layer2 = clip.adjustments.uniforms
-        renderer.setCurves(clip.adjustments.curves)
+        let decodeChanged = next.decode != sidecar.decode
+        sidecar = next
+        if clip.groups.contains(.filmEffects) { recomputeFilmFormat(beforeOpen: true) }
+        // The clip carries a Tone, so the label follows the paste the same way
+        // it follows the pill.
+        if clip.groups.contains(.exposure) { retargetSolvedEV() }
+        if clip.groups.contains(.masks) {
+            selectedMaskID = sidecar.masks.first?.id
+            syncMasks()
+        }
+        if decodeChanged {
+            previewSoft = true
+            scheduleReopen()
+        } else {
+            requestPrint()
+        }
+        markStale()
+        scheduleSave()
+        // A developed frame can fit at once; one that is not yet will when its
+        // first render lands (`applyRender`).
+        resolvePendingPlacement()
+        return true
+    }
+
+    /// The Fit that completes a pasted Scene Placement (`resolvePendingPlacement`).
+    ///
+    /// Written straight to the sidecar with **no undo step**: it is the second
+    /// half of the paste, not an edit of its own. The undo snapshot the paste
+    /// pushed has the flag clear, so ⌘Z goes back past both halves at once and
+    /// can never land on a state that fits again.
+    func finishPastedPlacement(_ placement: SceneLatitudeSettings) {
+        sidecar.params.sceneLatitude = placement
+        sidecar.placementNeedsFit = false
         requestPrint()
         markStale()
         scheduleSave()
-        status = "Pasted settings — each frame keeps its own exposure solve."
+    }
+
+    /// The paste on a frame that is not on the canvas: written to its sidecar
+    /// now, rendered when it is next opened. Its resident print is the old
+    /// look and `select` would show it first, so it goes (PRD R2).
+    private func pasteOffline(_ clip: SettingsClip, to url: URL) -> Bool {
+        let current = Sidecar.load(for: url) ?? Sidecar()
+        var next = clip.applied(to: current)
+        guard next != current else { return false }
+        next.state = .stale
+        do {
+            try next.save(for: url)
+        } catch {
+            noteFailure(error, operation: "paste", frame: url.lastPathComponent)
+            return false
+        }
+        renderer.store.setPrint(nil, for: url)
+        frameStates[url] = .stale
+        return true
     }
 
     // MARK: - solve, and looking at the original

@@ -126,13 +126,18 @@ struct Sidecar: Codable, Equatable, Sendable {
     /// The solve the service returned for this frame (EV, filter neutrals),
     /// kept so the UI can show the sliders as offsets from it.
     var solvedEV: Double?
+    /// A pasted Scene Placement whose curve has not been fitted on *this*
+    /// frame yet (RFC-027 §2.3). Frame state, like `solvedEV`, not an edit:
+    /// the first render with the pasted fields on the engine runs the Fit and
+    /// clears it.
+    var placementNeedsFit = false
     var state: FrameState = .unprocessed
     /// Which file this belongs to, and enough about it to find it again after
     /// it is moved or renamed. Nil in a sidecar written before the store.
     var source: Source?
 
     private enum CodingKeys: String, CodingKey {
-        case schemaVersion, decoder, decode, params, adjustments, geometry, masks, solvedEV, state
+        case schemaVersion, decoder, decode, params, adjustments, geometry, masks, solvedEV, placementNeedsFit, state
         /// Which file these settings belong to (`Source`). Written from the
         /// store's first version; absent in every sidecar that predates it.
         case source
@@ -154,6 +159,7 @@ struct Sidecar: Codable, Equatable, Sendable {
         params = try c.decodeIfPresent(FilmParams.self, forKey: .params) ?? .default
         adjustments = try c.decodeIfPresent(Adjustments.self, forKey: .adjustments) ?? .default
         solvedEV = try c.decodeIfPresent(Double.self, forKey: .solvedEV)
+        placementNeedsFit = try c.decodeIfPresent(Bool.self, forKey: .placementNeedsFit) ?? false
         state = try c.decodeIfPresent(FrameState.self, forKey: .state) ?? .unprocessed
         masks = try c.decodeIfPresent([EditMask].self, forKey: .masks) ?? []
         source = try c.decodeIfPresent(Source.self, forKey: .source)
@@ -180,6 +186,7 @@ struct Sidecar: Codable, Equatable, Sendable {
         if !masks.isEmpty { try c.encode(masks, forKey: .masks) }
         try c.encodeIfPresent(source, forKey: .source)
         try c.encodeIfPresent(solvedEV, forKey: .solvedEV)
+        if placementNeedsFit { try c.encode(placementNeedsFit, forKey: .placementNeedsFit) }
         try c.encode(state, forKey: .state)
     }
 

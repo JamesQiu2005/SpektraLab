@@ -105,6 +105,12 @@ enum S: String, CaseIterable, Sendable {
     // MARK: frontend v4 (2026-09-26 drawing)
     case latitudeUnmeasurable, latitudeNoLight, filmFormatSize, railFilmAndPrint, railParameters, tabPreDev, tabPostDev, sectionNavigator, sectionEnlarger, sectionLatitude, sectionScenePlacement, sectionToneMask, printEffects, filmGrainStrength, filmHalationStrength, filmScatterStrength, filmCouplersStrength, filmGlareStrength, latitudeBelow, latitudeWithin, latitudeAbove, latitudeHeld, latitudeFullSeparation, latitudeEmpty, placementHighlight, placementShadow, maskEnable, maskHighlights, maskShadows, maskCore, maskRadius, maskCurveCaption, enlargerPreflash, helpResetFilmFormat, helpResetPlacement, helpResetToneMask, helpResetEnlarger, helpSubLayerGrain, reasonPrintEffectsOff, reasonNotDeveloped, setResetLayout, setResetLayoutCaption
 
+    // MARK: the settings clipboard (RFC-027)
+    case sectionClipboard, clipCopy, clipPaste, clipPasteTo, clipHolds, clipEmpty
+    case clipFilmAndPaper, clipExposure, clipWhiteBalance, clipFilmEffects, clipPrintEffects, clipScenePlacement, clipMasks
+    case clipFilmAndPaperHelp, clipExposureHelp, clipWhiteBalanceHelp, clipFilmEffectsHelp, clipPrintEffectsHelp, clipScenePlacementHelp, clipMasksHelp
+    case clipCopyHelp, clipPasteHelp
+
     // MARK: Settings as pages, and the Agents page (RFC-026)
     case setTabGeneral, setTabRendering, setTabMemory, setTabDiagnostics, setTabAgents
     case setInterface, setScale, setScaleCaption
@@ -166,6 +172,28 @@ extension S {
         case .reasonNotDeveloped: "Develop the frame first."
         case .setResetLayout: "Reset All Layout"
         case .setResetLayoutCaption: "Panel widths, section heights and which sections are open, back to the drawing."
+        case .sectionClipboard: "Settings Clipboard"
+        case .clipCopy: "Copy"
+        case .clipPaste: "Paste"
+        case .clipPasteTo: "Paste to %d"
+        case .clipHolds: "Holds: %@ · %d of 7"
+        case .clipEmpty: "The clipboard is empty."
+        case .clipFilmAndPaper: "Film & Paper"
+        case .clipExposure: "Exposure"
+        case .clipWhiteBalance: "White Balance"
+        case .clipFilmEffects: "Film Effects"
+        case .clipPrintEffects: "Print Effects"
+        case .clipScenePlacement: "Scene Placement"
+        case .clipMasks: "Masks"
+        case .clipFilmAndPaperHelp: "Film, paper, No Print Profile and EDR."
+        case .clipExposureHelp: "Metering method, film exposure and enlarger brightness. Each frame meters itself."
+        case .clipWhiteBalanceHelp: "Camera white balance and the enlarger's yellow and magenta filters. As Shot stays each frame's own camera value."
+        case .clipFilmEffectsHelp: "Film format, grain, halation, glare, scatter and couplers."
+        case .clipPrintEffectsHelp: "The Print Effects switch and pre-flash."
+        case .clipScenePlacementHelp: "Highlight and shadow pull-back. The curve is fitted again on each frame."
+        case .clipMasksHelp: "The Tone Mask and the local masks."
+        case .clipCopyHelp: "Copy the ticked groups from the frame on the canvas (⇧⌘C)."
+        case .clipPasteHelp: "Paste what the clipboard holds onto every picked frame (⇧⌘V)."
         case .setTabGeneral: "General"
         case .setTabRendering: "Rendering"
         case .setTabMemory: "Memory"
@@ -393,6 +421,28 @@ extension S {
         case .reasonNotDeveloped: "请先显影。"
         case .setResetLayout: "重置全部布局"
         case .setResetLayoutCaption: "将面板宽度、各部分高度与展开状态恢复为默认。"
+        case .sectionClipboard: "设置剪贴板"
+        case .clipCopy: "复制"
+        case .clipPaste: "粘贴"
+        case .clipPasteTo: "粘贴到 %d 张"
+        case .clipHolds: "剪贴板：%@ · %d/7 项"
+        case .clipEmpty: "剪贴板为空。"
+        case .clipFilmAndPaper: "胶片&相纸"
+        case .clipExposure: "曝光"
+        case .clipWhiteBalance: "白平衡"
+        case .clipFilmEffects: "胶片效果"
+        case .clipPrintEffects: "相纸效果"
+        case .clipScenePlacement: "场景置位"
+        case .clipMasks: "遮罩"
+        case .clipFilmAndPaperHelp: "胶片、相纸、不使用相纸配置与 EDR。"
+        case .clipExposureHelp: "测光方式、胶片曝光与放大机亮度。每张照片各自测光。"
+        case .clipWhiteBalanceHelp: "相机白平衡与放大机的黄、品滤色。“拍摄时设置”保持每张照片自己的相机值。"
+        case .clipFilmEffectsHelp: "胶片画幅、颗粒、光晕、耀光、散射与耦合剂。"
+        case .clipPrintEffectsHelp: "相纸效果开关与预闪。"
+        case .clipScenePlacementHelp: "高光与阴影的回拉量。曲线在每张照片上重新拟合。"
+        case .clipMasksHelp: "影调蒙版与局部蒙版。"
+        case .clipCopyHelp: "从画布上的照片复制勾选的项目（⇧⌘C）。"
+        case .clipPasteHelp: "把剪贴板里的内容粘贴到所有选中的照片（⇧⌘V）。"
         case .setTabGeneral: "常规"
         case .setTabRendering: "渲染"
         case .setTabMemory: "内存"

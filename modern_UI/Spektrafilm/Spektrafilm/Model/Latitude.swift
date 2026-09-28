@@ -33,6 +33,9 @@ final class LatitudeModel {
     fileprivate var refreshTask: Task<Void, Never>?
     fileprivate var placementTask: Task<Void, Never>?
     fileprivate var pendingPlacement: (highlight: Double, shadow: Double)?
+    /// The Fit completing a pasted placement (RFC-027 §4.1), apart from the
+    /// sliders' loop so a drag during it is not swallowed.
+    fileprivate var pastedFitTask: Task<Void, Never>?
 
     fileprivate func take(_ reply: SceneLatitudeResponse, frame: URL) {
         self.reply = reply
@@ -148,6 +151,9 @@ extension Session {
     /// Commit a fit, or keep its refusal. The one place a placement lands.
     private func commitPlacement(_ reply: SceneLatitudeResponse) {
         if reply.fit.valid {
+            // The user has placed the scene themselves; a pasted placement
+            // still waiting for its Fit is superseded.
+            sidecar.placementNeedsFit = false
             var p = params
             p.sceneLatitude.apply(reply.fit)
             params = p
@@ -179,10 +185,44 @@ extension Session {
     /// Both sides off: the identity curve. Not a Fit — there is nothing to
     /// solve — so it cannot be refused.
     func resetScenePlacement() {
+        sidecar.placementNeedsFit = false
         var p = params
         p.sceneLatitude = SceneLatitudeSettings()
         params = p
         latitude.refuse(nil)
+    }
+
+    /// Fit a pasted Scene Placement on *this* frame (RFC-027 §4.1).
+    ///
+    /// A paste carries the pull-back, never the source's curve, so the frame
+    /// renders the identity until this lands. It runs from `applyRender` and
+    /// right after a live paste, and only once the engine has every pasted
+    /// field (`!scheduler.pending`) — the Fit reads the medium and the scene
+    /// the session holds, and fitting against the old film would be the
+    /// defect this replaces. A refusal leaves the placement off, with the
+    /// reason where the section already shows one.
+    func resolvePendingPlacement() {
+        guard sidecar.placementNeedsFit, serviceReady, serviceSessionIDForExport != nil,
+              !scheduler.pending, latitude.pastedFitTask == nil, let url = selection else { return }
+        let want = params.sceneLatitude
+        latitude.pastedFitTask = Task { [weak self] in
+            guard let self else { return }
+            defer { self.latitude.pastedFitTask = nil }
+            let reply = await self.probeLatitude(highlight: want.highlightPullBack,
+                                                 shadow: want.shadowPullBack)
+            // Superseded: another frame, or the user placed it meanwhile.
+            guard self.selection == url, self.sidecar.placementNeedsFit,
+                  self.params.sceneLatitude == want else { return }
+            var placed = want
+            if let reply, placed.apply(reply.fit) {
+                self.latitude.refuse(nil)
+            } else {
+                if let reply { self.latitude.refuse(reply.fit.issues.first) }
+                placed.highlightPullBack = 0
+                placed.shadowPullBack = 0
+            }
+            self.finishPastedPlacement(placed)
+        }
     }
 
     @discardableResult

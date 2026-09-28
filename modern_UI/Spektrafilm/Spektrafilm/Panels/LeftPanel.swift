@@ -27,6 +27,7 @@ struct LeftPanel: View {
                 VStack(spacing: 0) {
                     let sections: [(String, AnyView)] =
                         [("navigator", AnyView(NavigatorSection(session: session))),
+                         ("clipboard", AnyView(ClipboardSection(session: session))),
                          ("film", AnyView(FilmSection(session: session))),
                          ("print", AnyView(PrintProfileSection(session: session))),
                          ("crop", AnyView(CropSection(session: session))),

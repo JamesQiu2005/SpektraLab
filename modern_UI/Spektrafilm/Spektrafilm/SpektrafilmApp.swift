@@ -129,7 +129,7 @@ struct EditorCommands: Commands {
             Button("Copy Settings") { session.copySettings() }
                 // Capture One's adjustment clipboard uses ⇧⌘C / ⇧⌘V. Keep
                 // plain ⌘C / ⌘V available for the system pasteboard.
-                .keyboardShortcut("c", modifiers: [.command, .shift]).disabled(session.selection == nil)
+                .keyboardShortcut("c", modifiers: [.command, .shift]).disabled(!session.canCopySettings)
             Button("Paste Settings") { session.pasteSettings() }
                 .keyboardShortcut("v", modifiers: [.command, .shift]).disabled(!session.canPasteSettings)
         }
