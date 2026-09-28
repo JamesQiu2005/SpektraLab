@@ -41,8 +41,10 @@ struct PillMenu<T: Hashable>: View {
     var body: some View {
         HStack(spacing: 0) {
             Text(label).font(font).foregroundStyle(Theme.Ink.secondary)
-                .lineLimit(1)
-                .frame(width: labelWidth, alignment: .leading)
+                // A column, not a cage: at least the column, never truncated.
+                .fixedSize()
+                .padding(.trailing, 6)
+                .frame(minWidth: labelWidth, alignment: .leading)
             if !fill { Spacer(minLength: 0) }
             Menu {
                 ForEach(options, id: \.self) { o in
@@ -113,8 +115,10 @@ struct UnitField: View {
     var body: some View {
         HStack(spacing: 0) {
             Text(label).font(Theme.Font.label).foregroundStyle(Theme.Ink.secondary)
-                .lineLimit(1)
-                .frame(width: labelWidth, alignment: .leading)
+                // A column, not a cage: at least the column, never truncated.
+                .fixedSize()
+                .padding(.trailing, 6)
+                .frame(minWidth: labelWidth, alignment: .leading)
             Spacer(minLength: 0)
             // **One group, the pickers' width, at the trailing edge.** The
             // field and the unit used to sit either side of a flexible spacer,
@@ -150,7 +154,9 @@ struct UnitField: View {
                         .frame(width: 7, height: 4.5)
                         .padding(.trailing, 5)
                 }
-                .frame(width: Theme.Metric.unitWidth, height: Theme.Metric.controlHeight)
+                // The drawing's 38.3 pt is the minimum; "inch" in full is wider.
+                .frame(minWidth: Theme.Metric.unitWidth, minHeight: Theme.Metric.controlHeight,
+                       maxHeight: Theme.Metric.controlHeight)
                 .background(Theme.pill, in: Capsule())
                 .contentShape(Capsule())
             }

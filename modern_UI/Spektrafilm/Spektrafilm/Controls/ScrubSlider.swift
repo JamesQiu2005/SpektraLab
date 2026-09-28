@@ -90,8 +90,11 @@ struct ScrubSlider: View {
                 Text(label)
                     .font(m.labelFont)
                     .foregroundStyle(Theme.Ink.secondary)
-                    .frame(width: m.labelWidth, alignment: .leading)
-                    .lineLimit(1)
+                    // A column, not a cage (2026-09-28): the label is at least
+                    // the column wide and grows past it rather than truncate.
+                    .fixedSize()
+                    .padding(.trailing, 6)
+                    .frame(minWidth: m.labelWidth, alignment: .leading)
                 track
                     .padding(.trailing, Theme.Metric.sliderValueGap)
                 valueField
@@ -105,7 +108,7 @@ struct ScrubSlider: View {
                 sublabelView.frame(height: Theme.Metric.subRowHeight, alignment: .leading)
             } else if let sublabel {
                 Text(sublabel).font(Theme.Font.sublabel).foregroundStyle(Theme.Ink.tertiary)
-                    .lineLimit(1)
+                    .fixedSize()
                     .frame(height: Theme.Metric.subRowHeight, alignment: .leading)
             }
         }

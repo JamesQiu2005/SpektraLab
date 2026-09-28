@@ -84,9 +84,11 @@ final class LayoutTests: XCTestCase {
         // The percentage plate: x 2769.98…2852.56, y 17.63…59.01.
         XCTAssertEqual(m.zoomPill.width, (2852.56 - 2769.98) / 2, accuracy: 0.05)
         XCTAssertEqual(m.zoomPill.height, (59.01 - 17.63) / 2, accuracy: 0.05)
-        // A section: the right rail's two collapsed headers measure 29.05 and
-        // 31.05 between hairlines, so a header row is 30.
-        XCTAssertEqual(m.headerHeight, 30, accuracy: 1.1)
+        // A section header: the drawing's was 30 (its collapsed headers
+        // measure 29.05 and 31.05 between hairlines). The 2026-09-28 density
+        // pass took it to 26 at the user's request — Capture One's density,
+        // type unchanged — so this pins the new value, not the drawing's.
+        XCTAssertEqual(m.headerHeight, 26)
         // A row: v3's labels start at 15.61…17.12, so the row is inset 16.
         XCTAssertEqual(m.rowInset, 16, accuracy: 0.8)
         XCTAssertEqual(m.controlHeight, 27.8 / 2, accuracy: 0.05)

@@ -115,7 +115,9 @@ enum FilmSide: String, CaseIterable, Identifiable, Sendable {
 enum SideUnit: String, CaseIterable, Identifiable, Sendable {
     case mm, cm, inch
     var id: String { rawValue }
-    var title: String { self == .inch ? "in" : rawValue }
+    /// "inch" in full since 2026-09-28; millimetres and centimetres keep
+    /// their SI symbols, which are units, not abbreviations of a word.
+    var title: String { self == .inch ? "inch" : rawValue }
     /// Millimetres per unit.
     var perMM: Double {
         switch self {

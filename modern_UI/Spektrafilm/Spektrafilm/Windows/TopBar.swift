@@ -91,8 +91,11 @@ struct TopBar: View {
             if session.working {
                 ProgressView().controlSize(.small).scaleEffect(0.7).padding(.leading, 18)
             }
-            Text(statusText).font(Theme.Font.caption).foregroundStyle(Theme.dim).lineLimit(1)
+            FittingLine(text: statusText, size: 9, color: Theme.dim)
                 .padding(.leading, 12)
+                // First call on the bar's spare width, ahead of the drag
+                // surface. Outermost, or the HStack never sees it.
+                .layoutPriority(1)
             if !session.serviceReady, session.selection != nil {
                 Button(L(.actionRestart)) { session.restartService() }
                     .buttonStyle(.plain).font(Theme.Font.caption).foregroundStyle(Theme.accent)
@@ -208,10 +211,17 @@ struct TopBar: View {
             // knowing, so it is said in the tooltip and by the check mark in
             // this menu rather than by a string that would either truncate
             // the number or size the plate for a case that is usually absent.
+            //
+            // **Sized to its number** (2026-09-28): the drawing's 41.29 pt is
+            // the pill's *minimum*, and "100 %", "1600 %" widen it rather than
+            // truncate to "100…".
             Text(session.zoomPercent == 0 ? "—" : "\(session.zoomPercent) %")
                 .font(Theme.Font.zoomValue)
                 .foregroundStyle(Theme.text)
-                .frame(width: Theme.Metric.zoomPill.width, height: Theme.Metric.zoomPill.height)
+                .fixedSize()
+                .padding(.horizontal, 7)
+                .frame(minWidth: Theme.Metric.zoomPill.width, minHeight: Theme.Metric.zoomPill.height,
+                       maxHeight: Theme.Metric.zoomPill.height)
                 // No outline. The previous drawing stroked this capsule in
                 // white; the new one draws it as a plain `.st13` pill, like
                 // every other pill in the interface.
@@ -223,3 +233,4 @@ struct TopBar: View {
                             : "Zoom — \(session.zoomPercent) %")
     }
 }
+

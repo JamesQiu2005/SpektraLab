@@ -67,6 +67,7 @@
 //  The derivation of every number, and the drawing coordinate it came from,
 //  is `modern_UI/design/TOKENS-main-2026-09-17.md`.
 
+import AppKit
 import Observation
 import SwiftUI
 
@@ -399,14 +400,21 @@ enum Theme {
         // below the rule above them, which is the same 30 within the
         // drawing's own noise.
 
-        static let headerHeight: CGFloat = 30
+        ///
+        /// **2026-09-28, Capture One density.** The user asked for the rails
+        /// to be as dense as Capture One's without the type getting smaller:
+        /// every gap below gave back air, no font moved. The header went from
+        /// the drawing's 30 to 26, which is still clear of the 12 pt title and
+        /// the 26 pt hit targets of its buttons.
+        static let headerHeight: CGFloat = 26
         /// Air under a section's content, before the next hairline. The
         /// drawing's are 14.6 (Camera), 10 (Film) and 10.75 (Print) — but
         /// those are the gaps *below* content that already sits on roomier
         /// rows. Taken with `rowSpacing` below, 16 is what reproduces the
         /// drawing's own breathing: its largest gap inside the left rail
         /// measures 35.5 pt against the built rail's 24.
-        static let sectionBottom: CGFloat = 16
+        /// 10 since the 2026-09-28 density pass (was 16).
+        static let sectionBottom: CGFloat = 10
         /// Leading inset of the disclosure triangle's 18 pt box, so the
         /// triangle itself lands on the drawing's x 11.
         static let headerLeading: CGFloat = 7
@@ -440,7 +448,9 @@ enum Theme {
         /// closed 36 pt earlier than the drawing's; 22/9 is that 36 pt given
         /// back to the gaps rather than to the rows, because the drawing's
         /// rows are not tall — its *spaces* are.
-        static let rowSpacing: CGFloat = 9
+        /// 5 since the 2026-09-28 density pass (was 9): Capture One's rows
+        /// are close to their type, and the air between is the row box's own.
+        static let rowSpacing: CGFloat = 5
         /// The second line of a slider row: "As Shot" and its box.
         static let subRowHeight: CGFloat = 16
         /// The label column. The drawing's is 68.35 (its labels start at
@@ -517,7 +527,10 @@ enum Theme {
         /// A label-and-checkbox row (Grain / Halation / Glare / Lens
         /// Correction): the drawing's pitch is 21.25–22.25, and 17 was under
         /// the bottom of that range rather than in it.
-        static let toggleRowHeight: CGFloat = 28
+        /// 22 since the 2026-09-28 density pass (was 28): the drawing's own
+        /// pitch. The checkbox keeps its 28 pt pointer target, which may
+        /// overhang the row box; a target is not ink.
+        static let toggleRowHeight: CGFloat = 22
         /// Corner radius of a control that is **not** a capsule: the value
         /// pills and the Side Length field, drawn `rx 8.5` against the
         /// menus' `rx 13.9` (= half their height, i.e. a capsule).
@@ -783,7 +796,7 @@ enum Theme {
             /// well keeps before the next header.
             static let headerHeight: CGFloat = 18
             static let headerToWell: CGFloat = 5
-            static let wellToHeader: CGFloat = 11
+            static let wellToHeader: CGFloat = 7
 
             /// The label column a well's controls start after. The drawing's is
             /// 64.5, and "Existing File" and "Color Space" fit it *there*
@@ -796,8 +809,22 @@ enum Theme {
             /// 130 % interface scale a fixed 68.5 cut "Subfolder" to
             /// "Subfold…" and "Open With" to "Open…".
             @MainActor static var labelWidth: CGFloat { 68.5 * InterfaceScaleStore.shared.scale.factor }
+            /// The label column that holds every one of `labels` whole, and
+            /// never less than the drawing's `labelWidth`.
+            ///
+            /// A fixed column scaled with the type was not enough: in English
+            /// "Existing File" and "Color Space" ran into their pills at every
+            /// scale, and a translation is a different width again. So the
+            /// column is measured off the strings actually on the page, in the
+            /// language and at the scale in use, plus the gap a label keeps
+            /// from its control.
+            @MainActor static func labelWidth(fitting labels: [String]) -> CGFloat {
+                let widest = labels.map { Theme.textWidth($0, size: 11) }.max() ?? 0
+                return max(labelWidth, widest + 10)
+            }
             static let rowHeight: CGFloat = 14.7
-            static let rowSpacing: CGFloat = 16.5
+            /// 9 since the 2026-09-28 density pass (was 16.5).
+            static let rowSpacing: CGFloat = 9
 
             /// The naming chips and the colour-space pill.
             static let chipHeight: CGFloat = 14.7
@@ -950,6 +977,16 @@ enum Theme {
     // instruction (handoff §5) — the PDF's embedded `SFPro-Regular` name and
     // its weight-400 metadata are artefacts of the export and do not
     // override it.
+
+    /// The width `text` sets at in the interface's system face: `size` is
+    /// the role's size before the interface scale, as `Font` declares it, and
+    /// the scale in use is applied here. Rounded up, so a column built from it
+    /// holds the string rather than rounding it into an ellipsis.
+    @MainActor static func textWidth(_ text: String, size: CGFloat,
+                                     weight: NSFont.Weight = .bold) -> CGFloat {
+        let font = NSFont.systemFont(ofSize: size * InterfaceScaleStore.shared.scale.factor, weight: weight)
+        return ceil((text as NSString).size(withAttributes: [.font: font]).width)
+    }
 
     enum Font {
         private static func scaled(_ size: CGFloat, weight: SwiftUI.Font.Weight = .bold) -> SwiftUI.Font {

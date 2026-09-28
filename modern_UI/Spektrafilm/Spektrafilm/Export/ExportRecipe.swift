@@ -77,7 +77,7 @@ extension ExportFormat {
         case .jpeg: "JPEG"
         case .png: "PNG"
         case .tiff: "TIFF"
-        case .di: "DI package"
+        case .di: "Digital Intermediate"
         }
     }
 
@@ -228,12 +228,12 @@ enum NameToken: String, Codable, CaseIterable, Identifiable, Sendable {
 
     var id: String { rawValue }
 
-    /// The chip's own text — the drawing's abbreviation, because four of these
-    /// share one row and `notes.md`'s "Original Name" is half again as wide as
-    /// the chip it would have to fit in.
+    /// The chip's own text, in full (2026-09-28: the app does not abbreviate).
+    /// It was the drawing's "Org. Name" because four chips shared one fixed
+    /// row; the row wraps now (`FlowLayout`).
     var label: String {
         switch self {
-        case .originalName: "Org. Name"
+        case .originalName: "Original Name"
         case .filmStock: "Film"
         case .printStock: "Print"
         case .date: "Date"
@@ -691,12 +691,19 @@ struct ExportRecipe: Codable, Identifiable, Hashable, Sendable {
         return (CGColorSpace(name: CGColorSpace.displayP3), true)
     }
 
+    /// The built-in digital intermediate recipe's name. It shipped as
+    /// "DI package"; a file still carrying that exact built-in name is read
+    /// with this one (`RecipeStore.load`), and a name the user chose is never
+    /// touched.
+    static let digitalIntermediateName = "Digital Intermediate Package"
+    static let legacyDigitalIntermediateName = "DI package"
+
     static let defaults: [ExportRecipe] = [
         ExportRecipe(name: "JPEG — Display P3", format: .jpeg, colorSpace: .displayP3),
         ExportRecipe(name: "TIFF 16-bit — ProPhoto", format: .tiff,
                      colorSpace: .builtIn(CGColorSpace.rommrgb as String)),
         ExportRecipe(name: "PNG 8-bit — sRGB", format: .png, colorSpace: .sRGB),
-        ExportRecipe(name: "DI package", format: .di, colorSpace: .displayP3, subfolder: "_prints"),
+        ExportRecipe(name: ExportRecipe.digitalIntermediateName, format: .di, colorSpace: .displayP3, subfolder: "_prints"),
     ]
 }
 
@@ -756,7 +763,13 @@ final class ExportRecipeStore {
         }
         do {
             let data = try Data(contentsOf: url)
-            let decoded = try JSONDecoder().decode([ExportRecipe].self, from: data)
+            let decoded = try JSONDecoder().decode([ExportRecipe].self, from: data).map { r in
+                var r = r
+                if r.format == .di, r.name == ExportRecipe.legacyDigitalIntermediateName {
+                    r.name = ExportRecipe.digitalIntermediateName
+                }
+                return r
+            }
             // An empty array is a file that says "no recipes", which is not a
             // state the UI can do anything with.
             return decoded.isEmpty ? (ExportRecipe.defaults, nil) : (decoded, nil)

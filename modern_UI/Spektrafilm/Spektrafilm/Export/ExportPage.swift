@@ -93,9 +93,18 @@ struct ExportPage: View {
         headerHeight: M.headerHeight, headerToWell: M.headerToWell,
         wellToHeader: M.wellToHeader, titleFont: F.sectionTitle)
 
-    private static let sliderMetrics = SliderMetrics(
-        labelWidth: M.labelWidth, valueWidth: 40, rowHeight: M.rowHeight,
-        trackHeight: M.trackHeight, labelFont: F.label, valueFont: F.value)
+    /// Every label in the page's label column, so the column can be measured
+    /// off them (`Theme.Metric.Export.labelWidth(fitting:)`). A label added to
+    /// a row goes here too; `LayoutTests` checks the column holds them all.
+    static let columnLabels = ["Folder", "Subfolder", "Existing File", "Format", "File name",
+                               "Color Space", "Quality", "Size", "Open With", "Preview"]
+
+    /// The label column: wide enough for the widest label at the scale in use.
+    @MainActor static var labelColumn: CGFloat { M.labelWidth(fitting: columnLabels) }
+
+    private static var sliderMetrics: SliderMetrics { SliderMetrics(
+        labelWidth: labelColumn, valueWidth: 40, rowHeight: M.rowHeight,
+        trackHeight: M.trackHeight, labelFont: F.label, valueFont: F.value) }
 
     enum Mode: String, CaseIterable, Identifiable {
         case grid, viewer
@@ -624,10 +633,12 @@ struct ExportPage: View {
         return Text(r.name)
             .font(F.listItem)
             .foregroundStyle(on ? Theme.onSelection : Theme.Ink.secondary)
-            .lineLimit(1)
+            // A recipe's name is the user's; it wraps rather than truncates.
+            .fixedSize(horizontal: false, vertical: true)
             .frame(maxWidth: .infinity, alignment: .leading)
             .padding(.leading, 15)
-            .frame(height: M.recipeRowHeight)
+            .padding(.trailing, 8)
+            .frame(minHeight: M.recipeRowHeight)
             .background(on ? Theme.selection : Color.clear)
             .contentShape(Rectangle())
             .onTapGesture { store.selectedID = r.id }
@@ -658,10 +669,9 @@ struct ExportPage: View {
         }, metrics: Self.sectionMetrics) {
             Well(padding: M.wellPadding, vertical: M.wellVertical, inset: M.wellInset, fill: false) {
                 VStack(spacing: M.rowSpacing) {
-                    HStack(spacing: 6) {
+                    HStack(spacing: 0) {  // the label column carries the gap
                         Text("Folder").font(F.label).foregroundStyle(Theme.Ink.secondary)
-                            .lineLimit(1)
-                            .frame(width: M.labelWidth, alignment: .leading)
+                            .fixedSize().frame(minWidth: ExportPage.labelColumn, alignment: .leading)
                         PillField(title: folderLabel(recipe.wrappedValue.folder), font: F.label,
                                   help: folderHelp) {
                             Button("Beside the original") {
@@ -687,7 +697,7 @@ struct ExportPage: View {
                     }
                     PillMenu(label: "Existing File", options: ExistingFilePolicy.allCases,
                              title: { $0.label }, selection: recipe.existing,
-                             labelWidth: M.labelWidth, font: F.label)
+                             labelWidth: ExportPage.labelColumn, font: F.label)
                     destinationLine
                 }
             }
@@ -699,7 +709,8 @@ struct ExportPage: View {
         HStack(alignment: .firstTextBaseline, spacing: 6) {
             Text(destinationSummary)
                 .font(F.value).foregroundStyle(Theme.Ink.tertiary)
-                .lineLimit(2).truncationMode(.head)
+                // Every character of it: it wraps as far as it has to.
+                .fixedSize(horizontal: false, vertical: true)
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .help(destinationHelp)
             Button("Reveal") { reveal(destinationFolders.first) }
@@ -823,8 +834,7 @@ struct ExportPage: View {
     private var resolvedNameRow: some View {
         HStack(alignment: .firstTextBaseline, spacing: 0) {
             Text("File name").font(F.label).foregroundStyle(Theme.Ink.secondary)
-                .lineLimit(1)
-                .frame(width: M.labelWidth, alignment: .leading)
+                .fixedSize().frame(minWidth: ExportPage.labelColumn, alignment: .leading)
             Text(sampleName)
                 .font(F.value).foregroundStyle(Theme.text)
                 .textSelection(.enabled)
@@ -839,7 +849,9 @@ struct ExportPage: View {
     }
 
     private var tokenRow: some View {
-        HStack(spacing: M.chipSpacing) {
+        // Wraps (2026-09-28): the chips' words are in full now, and four of
+        // them are wider than the row at a large interface scale.
+        FlowLayout(spacing: M.chipSpacing, lineSpacing: 3) {
             ForEach(recipe.wrappedValue.naming.chips) { t in tokenChip(t) }
         }
     }
@@ -886,9 +898,9 @@ struct ExportPage: View {
         PanelSection("Format and Size", key: "exportFormat", metrics: Self.sectionMetrics) {
             Well(padding: M.wellPadding, vertical: M.wellVertical, inset: M.wellInset, fill: false) {
                 VStack(spacing: M.rowSpacing) {
-                    HStack(spacing: 12) {
+                    HStack(spacing: 0) {  // the label column carries the gap
                         Text("Format").font(F.label).foregroundStyle(Theme.Ink.secondary)
-                            .frame(width: M.labelWidth, alignment: .leading)
+                            .fixedSize().frame(minWidth: ExportPage.labelColumn, alignment: .leading)
                         PillField(title: recipe.wrappedValue.format.shortLabel, font: F.label) {
                             ForEach(ExportFormat.allCases) { f in
                                 Button(f.shortLabel) { recipe.wrappedValue.format = f }
@@ -898,7 +910,7 @@ struct ExportPage: View {
                         // rest of the row. Sharing it evenly truncated "DI
                         // package" to "DI pack…" to make room for a pill that
                         // says "16 bit" and cannot be changed.
-                        depthPill.fixedSize()
+                        depthPill.fixedSize().padding(.leading, 12)
                     }
                     .frame(height: M.rowHeight)
                     if recipe.wrappedValue.format == .di { diNote }
@@ -911,7 +923,7 @@ struct ExportPage: View {
                         PillMenu(label: "Color Space", options: ColorSpaceCatalog.all.map(\.space),
                                  title: { ColorSpaceCatalog.name(for: $0) ?? "Unknown profile" },
                                  selection: recipe.colorSpace,
-                                 labelWidth: M.labelWidth, font: F.label)
+                                 labelWidth: ExportPage.labelColumn, font: F.label)
                             .help(ColorSpaceCatalog.name(for: recipe.wrappedValue.colorSpace)
                                   ?? "This profile is not on this machine")
                     }
@@ -1012,10 +1024,9 @@ struct ExportPage: View {
     /// out is a size control you check after the export instead of before.
     private var sizeRows: some View {
         VStack(alignment: .leading, spacing: 3) {
-            HStack(spacing: 6) {
+            HStack(spacing: 0) {  // the label column carries the gap
                 Text("Size").font(F.label).foregroundStyle(Theme.Ink.secondary)
-                    .lineLimit(1)
-                    .frame(width: M.labelWidth, alignment: .leading)
+                    .fixedSize().frame(minWidth: ExportPage.labelColumn, alignment: .leading)
                 PillField(title: sizeModeLabel, font: F.label,
                           help: "Original keeps each frame's own pixels. "
                           + "Long edge resamples every frame so its longer side is the "
@@ -1025,14 +1036,14 @@ struct ExportPage: View {
                         recipe.wrappedValue.outputSize = OutputSize.clamped(currentLongEdge)
                     }
                 }
-                if recipe.wrappedValue.outputSize.edge != nil { longEdgeField }
+                if recipe.wrappedValue.outputSize.edge != nil { longEdgeField.padding(.leading, 6) }
             }
             .frame(height: M.rowHeight)
             Text(resultingSizeLine)
                 .font(F.value).foregroundStyle(Theme.Ink.tertiary)
                 .fixedSize(horizontal: false, vertical: true)
                 .frame(maxWidth: .infinity, alignment: .leading)
-                .padding(.leading, M.labelWidth)
+                .padding(.leading, ExportPage.labelColumn)
                 .help(resultingSizeHelp)
         }
     }
@@ -1112,9 +1123,9 @@ struct ExportPage: View {
     /// them invisible until opened. This is the explicit one and the other two
     /// are gone.
     private var openWithRow: some View {
-        HStack(spacing: 6) {
+        HStack(spacing: 0) {  // the label column carries the gap
             Text("Open With").font(F.label).foregroundStyle(Theme.Ink.secondary)
-                .frame(width: M.labelWidth, alignment: .leading)
+                .fixedSize().frame(minWidth: ExportPage.labelColumn, alignment: .leading)
             PillField(title: recipe.wrappedValue.openWith?.name ?? "None", font: F.label,
                       help: "Hand the finished files to this application when the export ends.") {
                 openWithItems
@@ -1517,7 +1528,11 @@ struct ExportPage: View {
     private func folderLabel(_ f: ExportFolder) -> String {
         switch f {
         case .besideOriginal: "Beside the original"
-        case .fixed(let p): (p as NSString).abbreviatingWithTildeInPath
+        // The folder's own name (2026-09-28). The whole path did not fit the
+        // pill and truncated to "~/Documents/Summer 2026/SpektraL…"; it is
+        // stated in full, wrapped, on the line under the rows and in this
+        // pill's menu.
+        case .fixed(let p): (p as NSString).lastPathComponent
         }
     }
 
@@ -1555,9 +1570,9 @@ struct ExportPage: View {
             "Size  \(resultingSizeLine)",
         ]
         if r.format.takesColorSpace {
-            lines.append("Colour space  \(ColorSpaceCatalog.name(for: r.colorSpace) ?? "Unknown profile")")
+            lines.append("Color Space  \(ColorSpaceCatalog.name(for: r.colorSpace) ?? "Unknown profile")")
         } else {
-            lines.append("Colour space  untagged (density)")
+            lines.append("Color Space  untagged (density)")
         }
         if let proof, session.selection != nil { lines.append("Proof  \(proof.targetName)") }
         lines.append("Folder  \(destinationSummary)")
@@ -1586,8 +1601,7 @@ struct ExportPage: View {
             // this page had stayed behind. `PillMenu`'s own rows were already
             // secondary, so the well did not even agree with itself.
             Text(label).font(F.label).foregroundStyle(Theme.Ink.secondary)
-                .lineLimit(1)
-                .frame(width: M.labelWidth, alignment: .leading)
+                .fixedSize().frame(minWidth: ExportPage.labelColumn, alignment: .leading)
             content()
             Spacer(minLength: 0)
         }
@@ -1791,7 +1805,8 @@ private struct ExportStripCell: View {
             Text(frame.name)
                 .font(Theme.Font.Export.label)
                 .foregroundStyle(Theme.text)
-                .lineLimit(1).truncationMode(.middle)
+                .multilineTextAlignment(.center)
+                .fixedSize(horizontal: false, vertical: true)
         }
     }
 }
@@ -1873,8 +1888,8 @@ private struct ExportGridCell: View {
             Text(frame.name)
                 .font(Theme.Font.Export.label)
                 .foregroundStyle(Theme.text)
-                .lineLimit(1)
-                .truncationMode(.middle)
+                .multilineTextAlignment(.center)
+                .fixedSize(horizontal: false, vertical: true)
                 .frame(width: box.width)
         }
     }

@@ -189,7 +189,10 @@ struct StockRow: View {
                 // being said; the selected one is the answer and takes the
                 // near-black ink against the white capsule.
                 .foregroundStyle(selected ? Theme.onSelection : Theme.Ink.secondary)
-                .lineLimit(1)
+                // Wraps rather than truncates (2026-09-28): a narrow rail at a
+                // large interface scale is a two-line row, never "Kodak
+                // Professional Endura Pr…".
+                .fixedSize(horizontal: false, vertical: true)
             Spacer(minLength: 0)
             if row.isCine { CinePill().padding(.trailing, Theme.Metric.cinePillTrailing) }
         }
@@ -200,7 +203,7 @@ struct StockRow: View {
         // The **row** is the pitch and the **capsule** is the mark, and they
         // are deliberately not the same height: 18 against 15.27. A mark as
         // tall as its own row is a filled cell.
-        .frame(height: Theme.Metric.listRowHeight)
+        .frame(minHeight: Theme.Metric.listRowHeight)
         .background(alignment: .leading) {
             if selected {
                 GeometryReader { geo in
@@ -210,9 +213,9 @@ struct StockRow: View {
                         .frame(width: max(0, geo.size.width
                                              - Theme.Metric.stockLeadingInset
                                              - Theme.Metric.stockTrailingInset),
-                               height: Theme.Metric.stockSelectionHeight)
+                               height: markHeight(geo.size.height))
                         .offset(x: Theme.Metric.stockLeadingInset,
-                                y: (geo.size.height - Theme.Metric.stockSelectionHeight) / 2)
+                                y: (geo.size.height - markHeight(geo.size.height)) / 2)
                 }
             }
         }
@@ -220,5 +223,11 @@ struct StockRow: View {
         .onTapGesture(perform: action)
         .rowEnabled(row.enabled, because: row.disabledReason)
         .help(row.help)
+    }
+
+    /// The selection capsule: the drawing's 15.27 in an 18 pt row, and the
+    /// same margin in a row that wrapped to two lines.
+    private func markHeight(_ rowHeight: CGFloat) -> CGFloat {
+        rowHeight - (Theme.Metric.listRowHeight - Theme.Metric.stockSelectionHeight)
     }
 }

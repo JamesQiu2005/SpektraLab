@@ -93,12 +93,12 @@ struct SectionHeader: View {
                 .font(metrics.titleFont)
                 .foregroundStyle(Theme.text)
                 .padding(.leading, Theme.Metric.headerTitleGap)
-                .lineLimit(1)
+                .fixedSize()
             Spacer(minLength: 4)
             if let note {
-                Text(note).font(Theme.Font.meta).foregroundStyle(Theme.Ink.tertiary)
-                    .lineLimit(1).truncationMode(.middle)
+                FittingLine(text: note, size: 9, color: Theme.Ink.tertiary, alignment: .trailing)
                     .padding(.trailing, action == nil && menu == nil ? Theme.Metric.headerTrailing : 2)
+                    .layoutPriority(1)
             }
             if let action {
                 Button(action: action.perform) {
@@ -244,6 +244,85 @@ struct PanelSection<Content: View>: View {
                         SectionLayoutStore.shared.measured[key] = total
                     }
             }
+        }
+    }
+}
+
+
+/// One line of `·`-separated parts that is never clipped (2026-09-28).
+///
+/// The parts come in falling order of importance — a file, then its size,
+/// colour and render time; a film, then its paper — so when there is not
+/// room for all of them the line drops parts from the end, whole parts and
+/// never letters, down to nothing. The whole line is always the tooltip.
+///
+/// The choice is made **in the layout pass** (`LongestThatFits`), against the
+/// width actually offered. Two earlier versions did not hold: `ViewThatFits`
+/// kept choosing a shorter line than the space allowed, and a measured
+/// `@State` width chose one layout pass late, so the bar settled on the
+/// shortest line.
+struct FittingLine: View {
+    let text: String
+    /// The role's size before the interface scale, as `Theme.Font` declares it.
+    var size: CGFloat = 9
+    let color: Color
+    var alignment: Alignment = .leading
+
+    static func candidates(_ text: String) -> [String] {
+        let parts = text.components(separatedBy: " · ")
+            .map { $0.trimmingCharacters(in: .whitespaces) }
+            .filter { !$0.isEmpty }
+        guard parts.count > 1 else { return [text] }
+        return (1...parts.count).reversed().map { parts.prefix($0).joined(separator: "  ·  ") }
+    }
+
+    var body: some View {
+        LongestThatFits(alignment: alignment) {
+            ForEach(Array(Self.candidates(text).enumerated()), id: \.offset) { _, line in
+                Text(line)
+                    .font(.system(size: size * InterfaceScaleStore.shared.scale.factor, weight: .bold))
+                    .foregroundStyle(color)
+                    .lineLimit(1)
+                    .fixedSize()
+            }
+        }
+        .clipped()
+        .help(text)
+    }
+}
+
+/// Shows the first subview whose ideal width fits the width it is offered,
+/// or none. Takes all the width it is offered; the rest are parked outside
+/// its bounds, where the `.clipped()` of its user hides them.
+struct LongestThatFits: Layout {
+    var alignment: Alignment = .leading
+
+    private func chosen(_ subviews: Subviews, width: CGFloat) -> Int? {
+        subviews.indices.first { subviews[$0].sizeThatFits(.unspecified).width <= width + 0.5 }
+    }
+
+    func sizeThatFits(proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) -> CGSize {
+        let height = subviews.map { $0.sizeThatFits(.unspecified).height }.max() ?? 0
+        // Flexible: whatever it is offered, and nothing when asked its ideal.
+        return CGSize(width: proposal.width ?? 0, height: height)
+    }
+
+    func placeSubviews(in bounds: CGRect, proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) {
+        let pick = chosen(subviews, width: bounds.width)
+        for index in subviews.indices {
+            let size = subviews[index].sizeThatFits(.unspecified)
+            guard index == pick else {
+                subviews[index].place(at: CGPoint(x: bounds.maxX + 10_000, y: bounds.minY),
+                                      proposal: ProposedViewSize(size))
+                continue
+            }
+            let x: CGFloat = switch alignment.horizontal {
+            case .trailing: bounds.maxX - size.width
+            case .center: bounds.midX - size.width / 2
+            default: bounds.minX
+            }
+            subviews[index].place(at: CGPoint(x: x, y: bounds.midY - size.height / 2),
+                                  proposal: ProposedViewSize(size))
         }
     }
 }
