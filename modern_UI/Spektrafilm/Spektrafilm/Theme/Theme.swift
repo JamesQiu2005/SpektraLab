@@ -438,9 +438,18 @@ enum Theme {
         static let rowInset: CGFloat = 16
         /// The line box one control sits in.
         static let rowHeight: CGFloat = 22
-        /// A control's own height — every pill, field and menu in the
-        /// interface (27.8 / 2 = 13.9, which v3 confirms).
-        static let controlHeight: CGFloat = 13.9
+        /// A control's own height in the drawing — every pill, field and menu
+        /// in the interface (27.8 / 2 = 13.9, which v3 confirms).
+        static let controlHeightDrawn: CGFloat = 13.9
+        /// A control's own height **as built**: the drawing's, or the line
+        /// height of the largest type a pill holds (the 10.5 pt label role)
+        /// plus a point above and below, whichever is taller. At the 130 %
+        /// interface scale the drawing's 13.9 was shorter than its own text,
+        /// and the words ran out of the top and bottom of their pills
+        /// (2026-09-28).
+        @MainActor static var controlHeight: CGFloat {
+            max(controlHeightDrawn, Theme.lineHeight(size: 10.5) + 2)
+        }
         /// Between two row blocks.
         ///
         /// This and `rowHeight` are where "everything is vertically
@@ -822,12 +831,15 @@ enum Theme {
                 let widest = labels.map { Theme.textWidth($0, size: 11) }.max() ?? 0
                 return max(labelWidth, widest + 10)
             }
-            static let rowHeight: CGFloat = 14.7
+            /// The drawing's row, and as built: never shorter than the page's
+            /// 11 pt type plus a point above and below (see `controlHeight`).
+            static let rowHeightDrawn: CGFloat = 14.7
+            @MainActor static var rowHeight: CGFloat { max(rowHeightDrawn, Theme.lineHeight(size: 11) + 2) }
             /// 9 since the 2026-09-28 density pass (was 16.5).
             static let rowSpacing: CGFloat = 9
 
             /// The naming chips and the colour-space pill.
-            static let chipHeight: CGFloat = 14.7
+            @MainActor static var chipHeight: CGFloat { rowHeight }
             static let chipSpacing: CGFloat = 2.1
 
             /// A recipe row in the Export Formula list, and the list's own
@@ -982,6 +994,13 @@ enum Theme {
     /// the role's size before the interface scale, as `Font` declares it, and
     /// the scale in use is applied here. Rounded up, so a column built from it
     /// holds the string rather than rounding it into an ellipsis.
+    /// The height one line of the system face takes at `size` (before the
+    /// interface scale): ascender to descender, rounded up.
+    @MainActor static func lineHeight(size: CGFloat, weight: NSFont.Weight = .bold) -> CGFloat {
+        let font = NSFont.systemFont(ofSize: size * InterfaceScaleStore.shared.scale.factor, weight: weight)
+        return ceil(font.ascender - font.descender)
+    }
+
     @MainActor static func textWidth(_ text: String, size: CGFloat,
                                      weight: NSFont.Weight = .bold) -> CGFloat {
         let font = NSFont.systemFont(ofSize: size * InterfaceScaleStore.shared.scale.factor, weight: weight)

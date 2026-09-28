@@ -91,7 +91,10 @@ final class LayoutTests: XCTestCase {
         XCTAssertEqual(m.headerHeight, 26)
         // A row: v3's labels start at 15.61…17.12, so the row is inset 16.
         XCTAssertEqual(m.rowInset, 16, accuracy: 0.8)
-        XCTAssertEqual(m.controlHeight, 27.8 / 2, accuracy: 0.05)
+        XCTAssertEqual(m.controlHeightDrawn, 27.8 / 2, accuracy: 0.05)
+        // As built it is never shorter than the text a pill holds.
+        XCTAssertGreaterThanOrEqual(m.controlHeight, m.controlHeightDrawn)
+        XCTAssertGreaterThanOrEqual(m.controlHeight, Theme.lineHeight(size: 10.5) + 2)
         XCTAssertEqual(m.sliderValueWidth, 87.46 / 2, accuracy: 0.05)
         XCTAssertEqual(m.sliderValueGap, (383.67 - 353.56) / 2, accuracy: 0.05)
         // Camera's own column, narrower than the shared one: its labels are

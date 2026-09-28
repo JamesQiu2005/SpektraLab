@@ -135,8 +135,8 @@ extension S {
         case .filmFormatSize: "Size"
         case .railFilmAndPrint: "Film and Print"
         case .railParameters: "Parameters"
-        case .tabPreDev: "Before Development"
-        case .tabPostDev: "After Development"
+        case .tabPreDev: "Pre-Dev"
+        case .tabPostDev: "Post-Dev"
         case .sectionNavigator: "Navigator"
         case .sectionEnlarger: "Enlarger"
         case .sectionLatitude: "Latitude"
@@ -620,6 +620,21 @@ extension S {
 /// a build error and the only way to reach the fallback is an entry that was
 /// deliberately or accidentally left blank — which is what the emptiness check
 /// below is for. It never returns an empty string.
+/// A string kept at its point of use, in both languages (2026-09-28).
+///
+/// The table above is for strings used in more than one place. Settings holds
+/// some eighty that each appear once — captions, readouts, button titles —
+/// and a pair written where the string is shown keeps the English and the
+/// Chinese side by side for review, which the table cannot. An empty Chinese
+/// string falls back to the English, as the table does.
+@MainActor
+func L(_ english: String, zh chinese: String) -> String {
+    switch Localization.shared.resolved {
+    case .english: english
+    case .simplifiedChinese: chinese.isEmpty ? english : chinese
+    }
+}
+
 @MainActor
 func L(_ key: S) -> String {
     switch Localization.shared.resolved {

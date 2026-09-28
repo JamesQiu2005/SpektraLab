@@ -1,8 +1,7 @@
 //  RightPanel.swift — the Parameters rail (v4, 2026-09-26).
 //
-//  Its header reads **Parameters** and carries two tabs, **Before
-//  Development** and **After Development** (显影前 / 显影后; "Pre-Dev" and
-//  "Post-Dev" until 2026-09-28, when the app stopped abbreviating):
+//  Its header reads **Parameters** and carries two tabs, **Pre-Dev** and
+//  **Post-Dev** (显影前 / 显影后) — before and after the print is developed:
 //
 //  - Pre-Dev is everything that decides the negative and how it is printed:
 //    Latitude (the measurement), Input / Camera, Film Format, Scene Placement
@@ -69,9 +68,8 @@ struct RightPanel: View {
     }
 
     /// The rail's name and its two tabs, laid out by arithmetic on the rail's
-    /// real width (2026-09-28). The English tabs are "Before Development" and
-    /// "After Development" in full, and neither they nor the name may shrink
-    /// or truncate, so the header takes the first of three shapes that fits:
+    /// real width (2026-09-28). Neither the tabs nor the name may shrink or
+    /// truncate, so the header takes the first of three shapes that fits:
     /// one row; the name beside the two tabs stacked; the name over the tabs
     /// stacked. `ViewThatFits` was tried and misjudged the second by a few
     /// points, falling through to the third on a rail where the second fits.
@@ -147,7 +145,7 @@ struct RightPanel: View {
                     .fixedSize()
                     .padding(.horizontal, Self.tabPadding)
                     .frame(minWidth: Theme.Metric.tabSize.width)
-                    .frame(height: Theme.Metric.tabSize.height)
+                    .frame(height: max(Theme.Metric.tabSize.height, Theme.lineHeight(size: 12) + 2))
                     .overlay(Capsule().stroke(t == tab ? Theme.accent : Theme.Ink.tertiary.opacity(0.6),
                                               lineWidth: 1))
                     .contentShape(Capsule())

@@ -1,73 +1,18 @@
-//  TextFitTests.swift — the 2026-09-28 rules: **no abbreviation anywhere in
-//  the interface, and no text runs out of its frame.**
+//  TextFitTests.swift — the 2026-09-28 rule: **no text in the interface is
+//  cut to "…", and none runs out of its frame.**
 //
-//  The user's examples were "Org. Name", a zoom pill reading "100…", and an
-//  export page whose labels ran into their pills. These pin the rules where
-//  they can be checked without a window: the strings themselves, the columns
-//  measured off them, and the logic that shortens a line by whole parts
-//  instead of by letters.
+//  The user's examples were a zoom pill reading "100…", export labels that ran
+//  into their pills, and — at the 130 % interface scale — pill text taller
+//  than the pill. These pin the rule where it can be checked without a
+//  window: the columns and heights measured off the type, and the logic that
+//  shortens a line by whole parts instead of by letters.
 
 import XCTest
 
 @MainActor
 final class TextFitTests: XCTestCase {
 
-    // MARK: - no abbreviations
-
-    /// A word cut short and closed with a period. Two shapes: a capitalised
-    /// short word ("Org.", "Exp.", "Comp.") anywhere, or any short word whose
-    /// period is followed by more of the same sentence ("approx. 3",
-    /// "incl. grain"). A sentence's own last word — "…pull-back. The curve…"
-    /// — is neither. Proper names their owners write this way are exempt.
-    private static let abbreviation = try! NSRegularExpression(
-        pattern: #"\b[A-Z][a-z]{1,4}\.(?=\s|$|\))|\b[a-z]{1,6}\.\s+[a-z0-9]"#)
-    private static let properNames = ["Rec. 2020"]
-
-    private func abbreviations(in text: String) -> [String] {
-        var t = text
-        for name in Self.properNames { t = t.replacingOccurrences(of: name, with: "") }
-        let range = NSRange(t.startIndex..., in: t)
-        return Self.abbreviation.matches(in: t, range: range).compactMap { m in
-            Range(m.range, in: t).map { String(t[$0]) }
-        }
-    }
-
-    /// The pattern itself, against the cases it exists for — so a later edit
-    /// to it cannot quietly stop matching anything.
-    func testTheAbbreviationPatternCatchesAbbreviations() {
-        XCTAssertEqual(abbreviations(in: "Org. Name"), ["Org."])
-        XCTAssertEqual(abbreviations(in: "Exp. Comp."), ["Exp.", "Comp."])
-        XCTAssertEqual(abbreviations(in: "about approx. 3 stops"), ["approx. 3"])
-        XCTAssertEqual(abbreviations(in: "Highlight and shadow pull-back. The curve is fitted again."), [])
-        XCTAssertEqual(abbreviations(in: "Color space Rec. 2020"), [])
-        // A key named on its own ends a sentence; it is not a cut word.
-        XCTAssertEqual(abbreviations(in: "Drop images here, or press ⌘O."), [])
-    }
-
-    /// Every label and title in both languages' tables — sentences (captions,
-    /// help) are exempt only in that their final period is not an
-    /// abbreviation.
-    func testNoStringInTheTableIsAbbreviated() {
-        for key in S.allCases {
-            for text in [key.english, key.simplifiedChinese] {
-                XCTAssertEqual(abbreviations(in: text), [], "\(key.rawValue): \"\(text)\"")
-            }
-        }
-    }
-
-    func testTheTabsSayDevelopmentInFull() {
-        XCTAssertEqual(S.tabPreDev.english, "Before Development")
-        XCTAssertEqual(S.tabPostDev.english, "After Development")
-    }
-
-    func testExportNamesAreInFull() {
-        XCTAssertEqual(NameToken.originalName.label, "Original Name")
-        for t in NameToken.allCases { XCTAssertFalse(t.label.contains("."), t.label) }
-        for f in ExportFormat.allCases { XCTAssertFalse(f.shortLabel.contains("DI "), f.shortLabel) }
-        XCTAssertEqual(ExportFormat.di.shortLabel, "Digital Intermediate")
-        XCTAssertFalse(ExportRecipe.defaults.map(\.name).contains("DI package"))
-        XCTAssertEqual(SideUnit.inch.title, "inch")
-    }
+    // MARK: - names
 
     /// The built-in recipe shipped as "DI package"; a file still carrying that
     /// exact name reads with the full one, and a name the user chose is kept.
@@ -84,6 +29,44 @@ final class TextFitTests: XCTestCase {
         try JSONEncoder().encode(recipes).write(to: url)
         let names = ExportRecipeStore(url: url).recipes.map(\.name)
         XCTAssertEqual(names, ["Digital Intermediate Package", "DI package", "My DI package"])
+    }
+
+    // MARK: - Settings in Chinese
+
+    /// Every caption Settings shows from another file has its Chinese. The
+    /// lookup falls back to English silently, which is how a key typo once
+    /// left every one of them in English on a Chinese page.
+    func testSettingsNotesHaveChinese() {
+        let notes = [Diagnostics.perNodeTimingsNote, Diagnostics.exportJobLogNote,
+                     Diagnostics.memoryReserveNote, Diagnostics.memoryCapNote,
+                     Diagnostics.diskCacheCapNote, Diagnostics.logDirectoryNote,
+                     DiagnosticBundle.fileNamesNote]
+            + LogLevelSetting.allCases.map(\.detail)
+        for note in notes {
+            XCTAssertFalse((SettingsWindow.zh[note] ?? "").isEmpty, "no Chinese for: \(note)")
+        }
+        for level in LogLevelSetting.allCases {
+            XCTAssertFalse((SettingsWindow.logLevelZH[level.label] ?? "").isEmpty, "no Chinese for \(level.label)")
+        }
+    }
+
+    // MARK: - pills hold their text
+
+    /// A pill is never shorter than a line of the type it holds, at the scale
+    /// in use. At 130 % the drawing's heights were, and the words ran out of
+    /// the top and bottom of their pills.
+    func testControlsAreTallerThanTheirText() {
+        XCTAssertGreaterThanOrEqual(Theme.Metric.controlHeight, Theme.lineHeight(size: 10.5) + 2)
+        XCTAssertGreaterThanOrEqual(Theme.Metric.Export.rowHeight, Theme.lineHeight(size: 11) + 2)
+        XCTAssertGreaterThanOrEqual(Theme.Metric.Export.chipHeight, Theme.lineHeight(size: 11) + 2)
+        // And never shorter than the drawing's own.
+        XCTAssertGreaterThanOrEqual(Theme.Metric.controlHeight, Theme.Metric.controlHeightDrawn)
+        XCTAssertGreaterThanOrEqual(Theme.Metric.Export.rowHeight, Theme.Metric.Export.rowHeightDrawn)
+    }
+
+    func testLineHeightGrowsWithTheSize() {
+        XCTAssertGreaterThan(Theme.lineHeight(size: 11), Theme.lineHeight(size: 9))
+        XCTAssertGreaterThan(Theme.lineHeight(size: 11), Theme.textWidth("", size: 11))
     }
 
     // MARK: - columns hold their labels

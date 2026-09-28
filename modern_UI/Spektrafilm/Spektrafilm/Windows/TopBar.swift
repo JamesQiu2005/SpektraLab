@@ -147,8 +147,12 @@ struct TopBar: View {
             Text(title)
                 .font(Theme.Font.action)
                 .foregroundStyle(active ? Theme.accent : Theme.Ink.tertiary)
-                .lineLimit(1)
-                .frame(width: Theme.Metric.actionSize.width, height: Theme.Metric.actionSize.height)
+                .fixedSize()
+                .padding(.horizontal, 8)
+                // The drawing's plate is the minimum; the word and a line of
+                // its type (at the interface scale) are what it must hold.
+                .frame(minWidth: Theme.Metric.actionSize.width)
+                .frame(height: max(Theme.Metric.actionSize.height, Theme.lineHeight(size: 13.11) + 2))
                 .overlay(RoundedRectangle(cornerRadius: Theme.Metric.actionRadius, style: .continuous)
                     .stroke(active ? Theme.accent : Theme.Ink.tertiary, lineWidth: 1))
                 .frame(height: Theme.Metric.actionHitHeight)
