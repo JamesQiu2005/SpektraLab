@@ -517,26 +517,44 @@ struct Geometry: Codable, Equatable, Sendable {
     /// Move the crop by a normalised delta, keeping it inside the frame.
     /// Moving is clamped rather than shrunk: a drag that would leave the
     /// frame stops at the edge instead of quietly making the crop smaller.
+    ///
+    /// **Each axis is clamped on its own**, so a crop pushed against an edge
+    /// slides along it. This used to walk back along the delta to the last
+    /// position that fitted, and that is two bugs from the canvas, which
+    /// passes the delta from where the drag *started*:
+    ///
+    /// - a crop with no room on one axis — 1:1 on a 3:2 frame is exactly full
+    ///   height — has no fitting point on any ray with the slightest
+    ///   component along that axis, so a horizontal drag with a pixel of
+    ///   vertical hand jitter walked all the way back to the start of the
+    ///   drag: stuck, and snapped back ("卡住然后弹回去"), until the crop was
+    ///   made smaller;
+    /// - against an edge, where the walk stopped depended on the ray's
+    ///   direction, which changes with every event, so the frame shook.
+    ///
+    /// The clamp is closed-form for the same reason as `maxScale`: an
+    /// oriented rectangle is inside the frame iff its axis-aligned bounding
+    /// box is, and that box's half-extents do not depend on where it is.
     func moved(by delta: CGSize, in imageSize: CGSize) -> Geometry {
-        var g = self
-        g.crop.x += delta.width
-        g.crop.y += delta.height
-        guard !g.fits(in: imageSize) else { return g }
-        // Walk back along the delta to the last position that fits. Cheaper
-        // to reason about than solving for the contact edge, and exact to
-        // within a pixel at any sane image size.
-        var lo = 0.0, hi = 1.0
-        for _ in 0..<30 {
-            let mid = (lo + hi) / 2
-            var t = self
-            t.crop.x += delta.width * mid
-            t.crop.y += delta.height * mid
-            if t.fits(in: imageSize) { lo = mid } else { hi = mid }
+        let w = max(imageSize.width, 1), h = max(imageSize.height, 1)
+        let a = crop.width * w / 2, b = crop.height * h / 2
+        let radians = angle * .pi / 180
+        let ca = abs(cos(radians)), sa = abs(sin(radians))
+        // The bounding box's half-extents, normalised back to the source.
+        let hx = (a * ca + b * sa) / w, hy = (a * sa + b * ca) / h
+        func clamp(_ v: Double, _ half: Double, _ current: Double) -> Double {
+            // A crop that is wider than the frame on this axis (only an old
+            // sidecar could be) has nowhere to go on it; leave it be.
+            guard half <= 0.5 else { return current }
+            return v.clamped(to: half...(1 - half))
         }
-        var out = self
-        out.crop.x += delta.width * lo
-        out.crop.y += delta.height * lo
-        return out
+        let c = centre
+        let x = clamp(c.x + delta.width, hx, c.x)
+        let y = clamp(c.y + delta.height, hy, c.y)
+        var g = self
+        g.crop.x = x - crop.width / 2
+        g.crop.y = y - crop.height / 2
+        return g
     }
 
     /// Apply the current aspect to the crop, keeping `anchor` (normalised, in
@@ -602,12 +620,8 @@ struct Geometry: Codable, Equatable, Sendable {
         let from = CGPoint(x: handle.movesLeading ? crop.x : crop.x + crop.width,
                            y: handle.movesTop ? crop.y : crop.y + crop.height)
 
-        /// The rectangle a drag that got `t` of the way to `destination` asks
-        /// for. `t` = 1 is the drag itself; smaller values are the same drag
-        /// stopped short, which is what lets the search below walk it back.
-        func asked(_ t: Double, to destination: CGPoint) -> Geometry {
-            let p = CGPoint(x: from.x + (destination.x - from.x) * t,
-                            y: from.y + (destination.y - from.y) * t)
+        /// The rectangle the handle asks for when it is at `p`.
+        func asked(at p: CGPoint) -> Geometry {
             var minX = crop.x, minY = crop.y
             var maxX = crop.x + crop.width, maxY = crop.y + crop.height
             if handle.movesLeading { minX = p.x }
@@ -626,13 +640,34 @@ struct Geometry: Codable, Equatable, Sendable {
                 let anchor = handle.oppositeAnchor
                 let pw = g.crop.width * w, ph = g.crop.height * h
                 var nw = pw, nh = ph
-                if handle.isCorner { nh = pw / ratio; if nh < Geometry.minSide { nh = Geometry.minSide; nw = nh * ratio } }
+                // A corner follows whichever axis asks for more, so the
+                // crop's corner stays under the pointer. Deriving from the
+                // width alone left a 1:1 corner dragged straight down doing
+                // nothing at all.
+                if handle.isCorner {
+                    nw = max(pw, ph * ratio); nh = nw / ratio
+                    if nh < Geometry.minSide { nh = Geometry.minSide; nw = nh * ratio }
+                }
                 else if handle.movesLeading || handle.movesTrailing { nh = pw / ratio }
                 else { nw = ph * ratio }
                 let ax = g.crop.x + g.crop.width * anchor.x
                 let ay = g.crop.y + g.crop.height * anchor.y
                 g.crop = CropRect(x: ax - (nw / w) * anchor.x, y: ay - (nh / h) * anchor.y,
                                   width: nw / w, height: nh / h)
+            }
+            // `g.crop` is laid out in *this* crop's unrotated frame, which is
+            // a rotation about this crop's centre — but a crop is rotated
+            // about its own, and a resize moves the centre. Stored as it is,
+            // the new rectangle would turn about the new centre and the
+            // corner that is meant to be pinned would drift across the
+            // photograph (and across the screen, in the crop tool) by
+            // `(R(θ) − I)·Δcentre`. Carrying the centre back through this
+            // crop's rotation puts every corner where the unrotated frame
+            // said it was. At 0° it is the identity.
+            if angle != 0 {
+                let c = rotated(g.centre, in: imageSize)
+                g.crop.x = c.x - g.crop.width / 2
+                g.crop.y = c.y - g.crop.height / 2
             }
             return g
         }
@@ -651,7 +686,7 @@ struct Geometry: Codable, Equatable, Sendable {
         // back along the *ray* would stop there, leaving the second edge short
         // of the frame. A person pushing a corner into the corner means both.
         let target = CGPoint(x: point.x.clamped(to: 0...1), y: point.y.clamped(to: 0...1))
-        let want = asked(1, to: target)
+        let want = asked(at: target)
         if want.fits(in: imageSize) { return want.rememberingSize() }
 
         // It still does not fit, which with an aspect lock it need not: the
@@ -662,18 +697,40 @@ struct Geometry: Codable, Equatable, Sendable {
         // the derived one stops with it. `fits` is the predicate at any
         // straighten angle, and `moved(by:)` above is the same shape for the
         // same reason.
-        var lo = 0.0, hi = 1.0
-        for _ in 0..<30 {
-            let mid = (lo + hi) / 2
-            if asked(mid, to: target).fits(in: imageSize) { lo = mid } else { hi = mid }
+        /// The furthest point on `start`→`end` whose rectangle fits, found by
+        /// bisection. `start` must fit; `fits` is monotone along the segment
+        /// because every rectangle on it grows away from a pinned anchor.
+        func furthest(from start: CGPoint, to end: CGPoint) -> CGPoint {
+            func at(_ t: Double) -> CGPoint {
+                CGPoint(x: start.x + (end.x - start.x) * t, y: start.y + (end.y - start.y) * t)
+            }
+            var lo = 0.0, hi = 1.0
+            for _ in 0..<30 {
+                let mid = (lo + hi) / 2
+                if asked(at: at(mid)).fits(in: imageSize) { lo = mid } else { hi = mid }
+            }
+            return at(lo)
         }
+        // With no aspect lock the two axes are independent, so they are
+        // walked back one at a time — x with y held where it was, then y with
+        // that x — and a corner pushed out of a straightened frame slides
+        // along the edge it met instead of stopping dead where the ray first
+        // touched. The ray's stopping point also depends on its direction,
+        // which changes with every event, and that is what made the frame
+        // shake against an edge.
+        if aspect.ratio(sourceAspect: w / h) == nil {
+            let x = furthest(from: from, to: CGPoint(x: target.x, y: from.y))
+            let p = furthest(from: x, to: CGPoint(x: x.x, y: target.y))
+            return asked(at: p).rememberingSize()
+        }
+        let stop = furthest(from: from, to: target)
         // Dragging a handle is the user saying how big the crop should be;
         // whatever came out is the new remembered size. `fitted` is **not**
         // called here — both paths above have already guaranteed the fit, and
         // calling it would be the shrink this function exists to avoid. It
         // stays the right answer for `straighten`, where shrinking about the
         // centre is exactly what turning the picture under a fixed crop means.
-        return asked(lo, to: target).rememberingSize()
+        return asked(at: stop).rememberingSize()
     }
 
     /// Coarse rotation. The crop rides along: turning the frame right must

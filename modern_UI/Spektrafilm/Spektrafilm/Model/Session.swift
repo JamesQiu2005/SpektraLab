@@ -2686,8 +2686,7 @@ final class Session: CanvasHost {
         if frame.id != FilmFrame.custom.id {
             p.sideLengthMM = frame.side(filmSide)
         }
-        p.filmFormatMM = Self.filmFormatMM(side: filmSide, sideLengthMM: p.sideLengthMM,
-                                           aspect: physicalAspect)
+        p.filmFormatMM = derivedFilmFormatMM(side: filmSide, sideLengthMM: p.sideLengthMM)
         params = p
     }
 
@@ -2697,8 +2696,7 @@ final class Session: CanvasHost {
         if p.filmFrame != FilmFrame.custom.id {
             p.sideLengthMM = FilmFrame.named(p.filmFrame).side(side)
         }
-        p.filmFormatMM = Self.filmFormatMM(side: side, sideLengthMM: p.sideLengthMM,
-                                           aspect: physicalAspect)
+        p.filmFormatMM = derivedFilmFormatMM(side: side, sideLengthMM: p.sideLengthMM)
         params = p
     }
 
@@ -2709,8 +2707,7 @@ final class Session: CanvasHost {
         var p = params
         p.filmFrame = FilmFrame.custom.id
         p.sideLengthMM = mm.clamped(to: 1...500)
-        p.filmFormatMM = Self.filmFormatMM(side: filmSide, sideLengthMM: p.sideLengthMM,
-                                           aspect: physicalAspect)
+        p.filmFormatMM = derivedFilmFormatMM(side: filmSide, sideLengthMM: p.sideLengthMM)
         params = p
     }
 
@@ -2726,8 +2723,7 @@ final class Session: CanvasHost {
     /// found). The value still reaches the engine, because `openDelta` is
     /// built from the sidecar a moment later and now carries it.
     func recomputeFilmFormat(beforeOpen: Bool = false) {
-        let mm = Self.filmFormatMM(side: filmSide, sideLengthMM: params.sideLengthMM,
-                                   aspect: physicalAspect)
+        let mm = derivedFilmFormatMM(side: filmSide, sideLengthMM: params.sideLengthMM)
         guard abs(mm - params.filmFormatMM) > 0.001 else { return }
         if beforeOpen {
             sidecar.params.filmFormatMM = mm
@@ -2749,28 +2745,65 @@ final class Session: CanvasHost {
     /// statement — that the cropped rectangle *is* the frame, re-mapped — and
     /// it is what someone shooting a 6×17 out of a 3:2 file wants.
     var physicalAspect: Double {
-        guard let size = decoded?.pixelSize, size.width > 0, size.height > 0 else { return 3.0 / 2.0 }
+        let (w, h) = physicalFrame
+        guard w > 0, h > 0 else { return 3.0 / 2.0 }
+        return max(w, h) / min(w, h)
+    }
+
+    /// How many times the frame's long edge the crop's long edge is, when the
+    /// crop is the frame; 1 when it is not.
+    ///
+    /// The engine never sees the crop — it develops the whole source and the
+    /// crop is cut afterwards — and it derives the pixel pitch from the
+    /// **source's** long edge (`pipeline.cpp`, `preprocess.crop_rescale`).
+    /// So "the crop is a 36 mm frame" has to be said as "the source is
+    /// 36 mm × this": the crop's own pixels at the crop's own pitch. Without
+    /// it only the crop's *shape* reached the engine, so a crop to half the
+    /// frame at the same ratio changed nothing at all, and a full-height 1:1
+    /// out of a 3:2 135 frame — a 24 × 24 mm square of the same negative,
+    /// whose grain should not change — came out 1.5× coarser.
+    var cropScale: Double {
+        guard Session.recalculateEffectsAfterCrop,
+              let size = decoded?.pixelSize, size.width > 0, size.height > 0 else { return 1 }
+        let (w, h) = physicalFrame
+        guard w > 0, h > 0 else { return 1 }
+        return max(Double(size.width), Double(size.height)) / max(w, h)
+    }
+
+    /// The frame the physical scale is measured on, in pixels: the source,
+    /// or the crop when the setting says the crop is the frame. The crop's
+    /// size in pixels is the same at any straighten angle.
+    private var physicalFrame: (Double, Double) {
+        guard let size = decoded?.pixelSize, size.width > 0, size.height > 0 else { return (0, 0) }
         var w = Double(size.width), h = Double(size.height)
         if Session.recalculateEffectsAfterCrop {
             let c = sidecar.geometry.crop
             w *= c.width; h *= c.height
         }
-        guard w > 0, h > 0 else { return 3.0 / 2.0 }
-        return max(w, h) / min(w, h)
+        return (w, h)
+    }
+
+    /// `film_format_mm` for this frame, from the user's side and length.
+    func derivedFilmFormatMM(side: FilmSide, sideLengthMM: Double) -> Double {
+        Self.filmFormatMM(side: side, sideLengthMM: sideLengthMM,
+                          aspect: physicalAspect, cropScale: cropScale)
     }
 
     /// The engine's number, from the user's. It wants the frame's **long
     /// edge**; Side = Short means the length describes the other one, so the
-    /// aspect is what closes the gap.
+    /// aspect is what closes the gap. `cropScale` carries a crop's physical
+    /// frame out to the source's long edge (see `cropScale`).
     ///
     /// Clamped to the service's own 4…200: an extreme aspect with a 56 mm
     /// short side is arithmetic the engine would refuse, and a refused
     /// `set_params` is a render that does not happen rather than a frame that
-    /// looks wrong.
+    /// looks wrong. It is also where the crop-is-the-frame mode stops: a crop
+    /// under about a fifth of a 135 frame's long edge asks for more than
+    /// 200 mm, and its grain stops growing there.
     nonisolated static func filmFormatMM(side: FilmSide, sideLengthMM: Double,
-                                         aspect: Double) -> Double {
+                                         aspect: Double, cropScale: Double = 1) -> Double {
         let long = side == .long ? sideLengthMM : sideLengthMM * max(aspect, 1)
-        return long.clamped(to: 4...200)
+        return (long * max(cropScale, 1)).clamped(to: 4...200)
     }
 
     /// "Recalculate film effects after a crop" — `physicalAspect`'s switch,

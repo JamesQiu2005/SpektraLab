@@ -185,6 +185,97 @@ final class GeometryTests: XCTestCase {
         XCTAssertEqual(moved.crop.x + moved.crop.width, 1.0, accuracy: 1e-3, "it stops against the edge")
     }
 
+    /// The report: "切换了画幅比例比如 1:1，在拖动裁剪框的时候会卡住然后弹回去".
+    /// 1:1 on a 3:2 frame is exactly full height, so it has no room to move
+    /// vertically, and a sideways drag always carries a pixel of vertical
+    /// jitter. Walking back along the drag's ray found no fitting point on it
+    /// and returned the crop to where the drag began.
+    func testAFullHeightSquareSlidesSidewaysThroughVerticalJitter() {
+        var g = Geometry.default
+        g.aspect = .square
+        g = g.constrained(in: size)
+        XCTAssertEqual(g.crop.height, 1, accuracy: 1e-5, "the precondition: no vertical room")
+        for jitter in [0.002, -0.002, 0.0001] {
+            let out = g.moved(by: CGSize(width: -0.1, height: jitter), in: size)
+            XCTAssertTrue(out.fits(in: size))
+            XCTAssertEqual(out.centre.x, g.centre.x - 0.1, accuracy: 1e-9,
+                           "jitter \(jitter): the crop did not follow the drag")
+            XCTAssertEqual(out.centre.y, g.centre.y, accuracy: 1e-6)
+        }
+    }
+
+    /// Against an edge the crop slides along it, and where it ends up depends
+    /// on the target alone — not on the direction the drag came from, which
+    /// is what made the frame shake while it was pinned to an edge.
+    func testAMovePastAnEdgeSlidesAlongItAtAnyAngle() {
+        for angle in [0.0, 7.5, -20] {
+            var g = Geometry.default
+            g.crop = CropRect(x: 0.35, y: 0.35, width: 0.3, height: 0.3)
+            g = g.straightened(to: angle, in: size)
+            let a = g.moved(by: CGSize(width: 5, height: 0.05), in: size)
+            let b = g.moved(by: CGSize(width: 0.9, height: 0.05), in: size)
+            XCTAssertTrue(a.fits(in: size), "\(angle)°")
+            XCTAssertEqual(a.centre.y, g.centre.y + 0.05, accuracy: 1e-9, "\(angle)°: y did not follow")
+            XCTAssertEqual(a.centre.x, b.centre.x, accuracy: 1e-9, "\(angle)°: the stop depends on the path")
+            // Tangent: one step further right does not fit.
+            var further = a
+            further.crop.x += 1e-4
+            XCTAssertFalse(further.fits(in: size), "\(angle)°: stopped short of the edge")
+            XCTAssertEqual(a.crop.width, g.crop.width, accuracy: 1e-12, "a move must never resize")
+        }
+    }
+
+    /// An aspect-locked corner follows the pointer on either axis. It used
+    /// to derive everything from the width, so a square's corner dragged
+    /// straight down did nothing.
+    func testAnAspectLockedCornerFollowsAVerticalDrag() {
+        var g = Geometry.default
+        g.crop = CropRect(x: 0.3, y: 0.3, width: 0.2, height: 0.2)
+        g.aspect = .square
+        g = g.constrained(in: size)
+        let corner = CGPoint(x: g.crop.x + g.crop.width, y: g.crop.y + g.crop.height)
+        let out = g.resized(handle: .bottomRight, to: CGPoint(x: corner.x, y: corner.y + 0.1), in: size)
+        XCTAssertEqual(out.crop.y + out.crop.height, corner.y + 0.1, accuracy: 1e-9)
+        XCTAssertEqual(out.crop.width * size.width, out.crop.height * size.height, accuracy: 1e-6)
+        XCTAssertEqual(out.crop.x, g.crop.x, accuracy: 1e-12, "the opposite corner moved")
+    }
+
+    /// On a straightened crop the corner opposite the handle stays where it
+    /// is on the photograph. The rectangle used to be laid out about the old
+    /// centre and then turned about the new one, so the pinned corner drifted
+    /// by `(R(θ) − I)·Δcentre` — on screen too, in the crop tool.
+    func testTheOppositeCornerIsPinnedOnAStraightenedCrop() {
+        for handle in CropHandle.allCases where handle.isCorner {
+            var g = Geometry.default
+            g.crop = CropRect(x: 0.35, y: 0.35, width: 0.2, height: 0.2)
+            g = g.straightened(to: 8, in: size).redrawn(as: CropRect(x: 0.35, y: 0.35, width: 0.2, height: 0.2), in: size)
+            let size = self.size
+            let pinned = { (g: Geometry) in g.corners(in: size)[handle.oppositeCornerIndex] }
+            let before = pinned(g)
+            let grip = g.unrotated(g.corners(in: size)[handle.cornerIndex], in: size)
+            let out = g.resized(handle: handle, to: CGPoint(x: grip.x + (handle.movesTrailing ? 0.05 : -0.05),
+                                                            y: grip.y + (handle.movesBottom ? 0.04 : -0.04)),
+                                in: size)
+            XCTAssertTrue(out.fits(in: size), "\(handle)")
+            XCTAssertEqual(pinned(out).x, before.x, accuracy: 1e-9, "\(handle): the pinned corner moved across")
+            XCTAssertEqual(pinned(out).y, before.y, accuracy: 1e-9, "\(handle): the pinned corner moved down")
+        }
+    }
+
+    /// A free corner pushed out of a straightened frame keeps following the
+    /// pointer on the axis that still has room.
+    func testAFreeCornerOnAStraightenedFrameSlidesAlongTheEdgeItMet() {
+        var g = Geometry.default
+        g.crop = CropRect(x: 0.3, y: 0.3, width: 0.2, height: 0.2)
+        g = g.straightened(to: 5, in: size).redrawn(as: g.crop, in: size)
+        let start = g.unrotated(CGPoint(x: g.crop.x + g.crop.width, y: g.crop.y + g.crop.height), in: size)
+        let lo = g.resized(handle: .bottomRight, to: CGPoint(x: 1, y: start.y + 0.05), in: size)
+        let hi = g.resized(handle: .bottomRight, to: CGPoint(x: 1, y: start.y + 0.10), in: size)
+        XCTAssertTrue(lo.fits(in: size)); XCTAssertTrue(hi.fits(in: size))
+        XCTAssertGreaterThan(hi.crop.height, lo.crop.height + 0.04,
+                             "pinned on x, the corner must still follow the pointer down")
+    }
+
     // MARK: aspect
 
     func testAspectReshapesWithoutChangingTheArea() {
@@ -800,4 +891,17 @@ final class GeometryTests: XCTestCase {
         let n = Double(w * h) * 255
         return (r / n, g / n, b / n)
     }
+}
+
+private extension CropHandle {
+    /// Index into `Geometry.corners(in:)`, clockwise from top-left.
+    var cornerIndex: Int {
+        switch self {
+        case .topLeft: 0
+        case .topRight: 1
+        case .bottomRight: 2
+        default: 3
+        }
+    }
+    var oppositeCornerIndex: Int { (cornerIndex + 2) % 4 }
 }

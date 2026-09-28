@@ -421,7 +421,10 @@ final class CanvasNSView: MTKView, MTKViewDelegate {
             let size = host.sourceImageSize
             switch drag {
             case .handle(.body, let origin, let grab):
-                let n = clampedSourcePoint(atView: p, renderer, host)
+                // Unclamped: `moved` clamps the crop's centre per axis, which
+                // is exact at any angle; clamping the pointer as well would be
+                // a second, different limit on the same move.
+                let n = sourcePoint(atView: p, renderer, host)
                 let target = CGPoint(x: n.x - grab.width, y: n.y - grab.height)
                 let delta = CGSize(width: target.x - origin.centre.x, height: target.y - origin.centre.y)
                 host.geometryChanged(origin.moved(by: delta, in: size))

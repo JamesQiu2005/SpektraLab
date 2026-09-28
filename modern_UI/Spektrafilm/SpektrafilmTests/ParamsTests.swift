@@ -270,7 +270,7 @@ final class ParamsTests: XCTestCase {
     /// The physical frame: the user says a type, a side and a length, and the
     /// engine gets a **long edge**.
     func testTheFrameDerivesTheEngineSLongEdge() {
-        let m = Session.filmFormatMM
+        let m = { Session.filmFormatMM(side: $0, sideLengthMM: $1, aspect: $2) }
         // 135, short side 24, on a 3:2 photograph — the drawing's own row, and
         // it has to come out at the 36 the old single-number Format sent.
         XCTAssertEqual(m(.short, 24, 3.0 / 2.0), 36, accuracy: 1e-9)
@@ -289,6 +289,25 @@ final class ParamsTests: XCTestCase {
         // And the service's range is a range: 200 is the ceiling, 4 the floor.
         XCTAssertEqual(m(.short, 56, 20), 200, accuracy: 1e-9)
         XCTAssertEqual(m(.long, 1, 1), 4, accuracy: 1e-9)
+    }
+
+    /// "Crop re-maps the frame": the crop is the frame the user described,
+    /// and the engine — which develops the whole source — has to be told the
+    /// source's long edge at the crop's pitch.
+    func testACropThatIsTheFrameScalesTheSourceSLongEdge() {
+        let m = { Session.filmFormatMM(side: $0, sideLengthMM: 24, aspect: $1, cropScale: $2) }
+        // A crop to half the frame at the same 3:2: its long edge is 36 mm,
+        // so the source's is 72. Before this, only the shape reached the
+        // engine and this came out 36 — the crop changed nothing.
+        XCTAssertEqual(m(.short, 3.0 / 2.0, 2), 72, accuracy: 1e-9)
+        // A full-height 1:1 out of 3:2 is a 24 × 24 square of the same
+        // negative: the source is still 36 mm, exactly as with the mode off.
+        XCTAssertEqual(m(.short, 1, 3.0 / 2.0), 36, accuracy: 1e-9)
+        XCTAssertEqual(m(.long, 1, 1), 24, accuracy: 1e-9)
+        // No crop, or the mode off, is a scale of 1 — the old number.
+        XCTAssertEqual(m(.short, 3.0 / 2.0, 1), 36, accuracy: 1e-9)
+        // The ceiling still holds.
+        XCTAssertEqual(m(.short, 3.0 / 2.0, 10), 200, accuracy: 1e-9)
     }
 
     /// Every preset lands inside the service's 4…200 on an ordinary
