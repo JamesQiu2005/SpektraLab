@@ -541,3 +541,8 @@ The engine node and its tests remain.
 - The file's ceiling is still +6.2 st: Cineon's 10-bit range.
 - The DI's constants (~11.6 ms) are rebuilt, not cached, when the film changes.
 - The app bundle grows by 15 MB for the two `.cube` files.
+
+### 13.7 Superseded in part by RFC-030 §2 (2026-09-29)
+
+The reversal no longer divides by each film's own γ_green. It divides by Cineon's 0.6, so the DI keeps the film's contrast (γ/0.6) instead of reproducing the scene's. §13.1's "tone is the scene's" is no longer true; neutrality, the mid-grey anchor and the curve's toe and shoulder are unchanged.
+

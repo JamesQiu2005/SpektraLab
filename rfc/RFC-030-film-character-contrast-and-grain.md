@@ -1,6 +1,6 @@
 # RFC-030: Film character: per-stock contrast in the DI, and per-film grain
 
-**Status:** draft, 2026-09-29. §2 is the next step, awaiting go. §4 is gated on real data.
+**Status:** §2 implemented 2026-09-29 for 1.2.1 (see §2.1). §3 is the option A handoff. §4 is gated on real data and not implemented.
 **Follows:** RFC-028 (the Digital Intermediate) and `handoff/HANDOFF-DI-SCAN-TIFF.md` (option A, local-only).
 
 ## 1. Why: "every Vision3 DI looks the same"
@@ -64,6 +64,27 @@ The Vision3 family is near-identical in its data, and the paper makes the films 
 - The blue compensation re-fits on the chain unchanged. The view LUT's knee is in decoded stops and is unchanged.
 
 **Tests.** Keep the neutral wedge and the mid-grey anchor. Add one test: the DI ramp's slope over ±2 stops equals γ_green/0.6 for two films with different gammas (Vision3 and X-Tra). Show that it fails on today's code.
+
+### 2.1 Implemented (2026-09-29, for 1.2.1)
+
+The change is one divisor:
+- `digital_intermediate.cpp`, the table loop, now divides by `kDiCineonNegativeGamma` (= 0.002 × 300 = 0.6, defined beside the other Cineon constants in `digital_intermediate.hpp`);
+- `gamma_green` is still measured, for the "no usable contrast" guard.
+
+**Measured DI tone slope** (decoded green, log2, fitted over −2…+2 stops; base subtraction steepens the −2 patch slightly):
+
+| Film | before (own γ) | now (Cineon 0.6) |
+|---|---|---|
+| Vision3 50D | ≈ 1.04 | 0.94 |
+| Vision3 250D / 200T / 500T | ≈ 1.0 | 0.92 / 0.91 / 0.92 |
+| Portra 400 | ≈ 1.07 | 1.01 |
+| Ektar 100 | not measured | 1.07 |
+| Fujifilm C200 | not measured | 1.12 |
+| X-Tra 400 | ≈ 1.10 | 1.20 |
+
+**Colour spread between films** (the §1 probe): Vision3 2.03 → 1.89, stills 2.24 → 2.48. As §2 predicted, the change separates film *families* by contrast. It does not separate the Vision3 stocks from each other: their data is within 3 %.
+
+**Test.** `DigitalIntermediateTests.testTheDIKeepsEachFilmsContrast` requires 50D < 0.98, X-Tra > 1.1 and a gap > 0.15. On the old divisor it fails all three (1.04, 1.096, 0.056); it passes on the new one. The neutral wedge test (Portra) is unchanged and green.
 
 ## 3. Option A: the DI as float inside the app
 

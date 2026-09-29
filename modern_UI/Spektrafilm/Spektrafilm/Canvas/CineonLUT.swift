@@ -20,8 +20,9 @@
 //      smooth-min shoulder to display white. The knee is *solved*, not set: the
 //      softest one that lands the DI's top code (+6.2 stops over grey) 1/16
 //      stop under white, so every highlight the file holds is on screen. Mid
-//      grey and everything below the knee are untouched (contrast 1.0: the
-//      scene's own, the DI's promise). Applied as `x · T(Y)/Y`, so a colour
+//      grey and everything below the knee are untouched: the view adds no
+//      contrast of its own, so what shows is the film's, which the DI keeps
+//      (RFC-030 §2). Applied as `x · T(Y)/Y`, so a colour
 //      keeps its hue and saturation — per-channel curves turn bright skin
 //      +13.6° toward yellow (RFC-029 §6.2).
 //   3. **Path to white** — a colour the destination cannot hold at that

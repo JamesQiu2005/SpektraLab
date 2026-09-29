@@ -7,6 +7,10 @@
 // scanner can do. It then reverses each channel on the film's own neutral
 // curve, so a grey is exactly neutral at every exposure, maps the film's
 // channels to the working space with one 3x3, and writes Cineon-style log.
+// The reversal's slope is Cineon's own negative gamma (0.6), not the film's,
+// so the film's contrast survives as a scanner's printing density keeps it
+// (RFC-030 §2): a gamma-0.53 Vision3 decodes flatter than the scene, a
+// gamma-0.67 X-Tra punchier.
 //
 // Everything here is derived from data at build time; nothing is estimated
 // from the picture (RFC-028 §3 is the comparison with NLP / negadoctor).
@@ -41,6 +45,10 @@ constexpr double kDiCineonWhite = 685.0;
 constexpr double kDiCineonBlack = 95.0;
 constexpr double kDiCineonPerDecade = 300.0;
 constexpr double kDiCineonMax = 1023.0;
+// The negative gamma the convention assumes: 0.002 density per code at 300
+// codes per decade. Reversing on it (rather than on the film's own gamma)
+// makes the file printing density at 0.002 D per code, as a scanner writes it.
+constexpr double kDiCineonNegativeGamma = 0.002 * kDiCineonPerDecade;
 // b above: the linear value of the black code before the offset is removed.
 inline double di_cineon_black_offset() {
     return std::pow(10.0, (kDiCineonBlack - kDiCineonWhite) / kDiCineonPerDecade);
@@ -67,7 +75,8 @@ struct DiConstants {
     double matrix[9] = {1, 0, 0, 0, 1, 0, 0, 0, 1};   // film RGB -> working RGB, x @ M
     double matrix_fit_rms = 0.0;  // relative, over the fit set; a sanity figure
     double positive_floor = 0.0;  // the positive of clear film base, subtracted so the base is black
-    double gamma_green = 0.0;     // the reversal's gamma (green, over -2..+2 stops)
+    double gamma_green = 0.0;     // the film's printing-density gamma (green, -2..+2 stops); the
+                                  // reversal's slope is kDiCineonNegativeGamma, not this
     double density_green_mid = 0.0;
     // The optional blue-sector correction, fitted per film on the chain itself.
     double blue_delta_deg = 0.0;

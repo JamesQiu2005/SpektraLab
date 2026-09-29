@@ -240,13 +240,15 @@ bool di_constants(const Colour& colour, const Blob& blob, const Params& params,
     // y = the positive, the same for every channel at a given stop -- which is
     // what makes a grey exactly neutral. A flat run at the film's own ends is
     // nudged strictly increasing; there the output is the end value anyway.
+    // y is green's density on Cineon's 0.6, not on the film's own gamma: mid
+    // grey is pinned to 0.18 and the film's contrast (gamma / 0.6) is kept.
     out.curve.k = n;
     out.curve.x.assign(n * 3, 0.0);
     out.curve.y.assign(n * 3, 0.0);
     out.curve.inv.assign((n - 1) * 3, 0.0);
     for (size_t r = 0; r < n; ++r) {
         const size_t i = n - 1 - r;   // descending stops
-        const double y = std::log10(slm::kMidgray) + (dens[3 * i + 1] - out.density_green_mid) / out.gamma_green;
+        const double y = std::log10(slm::kMidgray) + (dens[3 * i + 1] - out.density_green_mid) / kDiCineonNegativeGamma;
         for (int c = 0; c < 3; ++c) {
             double xv = -dens[3 * i + size_t(c)];
             if (r > 0) xv = std::fmax(xv, out.curve.x[3 * (r - 1) + size_t(c)] + 1e-9);

@@ -186,14 +186,9 @@ final class DigitalIntermediateTests: XCTestCase {
 
     // MARK: - through the engine
 
-    /// A black patch and a grey wedge, −6 … +6 stops, through the engine the
-    /// app links, with the DI on. Every patch must be neutral — the reversal is
-    /// built on this film's own neutral curve; black (clear film base) must be
-    /// Cineon's reference black, code 95; and mid grey must decode, through the
-    /// standard Cineon decode, to 0.184 less the base's own positive (a few
-    /// thousandths). Grain is off because it is a realisation, not a colour;
-    /// auto exposure off so stop 0 is 0.184.
-    func testAGreyIsNeutralAndMidGreyLandsOnItsCode() async throws {
+    /// A black patch then grey at -6…+6 stops over 0.184, through `film` as a
+    /// DI with grain and metering off; the Cineon codes (0…1) of each patch.
+    private func diWedge(film: String) async throws -> (stops: [Int], codes: [[Double]]) {
         let gpu = try XCTUnwrap(MTLCreateSystemDefaultDevice())
         let stops = Array(-6...6)          // plus a black patch in front
         let patch = 16
@@ -214,7 +209,7 @@ final class DigitalIntermediateTests: XCTestCase {
         let frame = try ImageDecoder.engineFrame(from: image, device: gpu)
 
         var p = FilmParams.default
-        p.filmStock = "kodak_portra_400"
+        p.filmStock = film
         p.digitalIntermediate = true
         p.grainActive = false
         p.autoExposure = false
@@ -237,6 +232,19 @@ final class DigitalIntermediateTests: XCTestCase {
             let i = (row * texture.width + x) * 4
             codes.append((0..<3).map { Double(px[i + $0]) / 65535 })
         }
+        return (stops, codes)
+    }
+
+    /// A black patch and a grey wedge, −6 … +6 stops, through the engine the
+    /// app links, with the DI on. Every patch must be neutral — the reversal is
+    /// built on this film's own neutral curve; black (clear film base) must be
+    /// Cineon's reference black, code 95; and mid grey must decode, through the
+    /// standard Cineon decode, to 0.184 less the base's own positive (a few
+    /// thousandths). Grain is off because it is a realisation, not a colour;
+    /// auto exposure off so stop 0 is 0.184.
+    func testAGreyIsNeutralAndMidGreyLandsOnItsCode() async throws {
+        let (stops, wedge) = try await diWedge(film: "kodak_portra_400")
+        var codes = wedge
         // 1/300 of a stop: invisible, and far below the per-channel gamma
         // error (0.08–0.43 stop inside ±4) the reversal exists to remove.
         let black = codes.removeFirst()
@@ -251,5 +259,26 @@ final class DigitalIntermediateTests: XCTestCase {
         XCTAssertGreaterThan(mid, 0.17, "mid grey less the base's positive, a few thousandths")
         // and it is a positive: brighter scene, higher code
         for k in 1..<codes.count { XCTAssertGreaterThan(codes[k][1], codes[k - 1][1]) }
+    }
+
+    /// RFC-030 §2: the reversal's slope is Cineon's 0.6, not each film's own
+    /// gamma, so the film's contrast survives. Vision3 50D (printing-density
+    /// gamma ≈ 0.54) must decode flatter than the scene and X-Tra 400 (≈ 0.67)
+    /// punchier. Reversing on each film's own gamma put both near 1.0.
+    func testTheDIKeepsEachFilmsContrast() async throws {
+        func slope(_ film: String) async throws -> Double {
+            let (stops, codes) = try await diWedge(film: film)
+            let window = stops.indices.filter { abs(stops[$0]) <= 2 }
+            let xs = window.map { Double(stops[$0]) }
+            let ys = window.map { log2(CineonLUT.decode(codes[$0 + 1][1])) }   // codes[0] is black
+            let mx = xs.reduce(0, +) / Double(xs.count), my = ys.reduce(0, +) / Double(ys.count)
+            let num = zip(xs, ys).map { ($0 - mx) * ($1 - my) }.reduce(0, +)
+            return num / xs.map { ($0 - mx) * ($0 - mx) }.reduce(0, +)
+        }
+        let vision = try await slope("kodak_vision3_50d")
+        let xtra = try await slope("fujifilm_xtra_400")
+        XCTAssertLessThan(vision, 0.98, "Vision3 50D keeps its low contrast")
+        XCTAssertGreaterThan(xtra, 1.1, "X-Tra 400 keeps its high contrast")
+        XCTAssertGreaterThan(xtra - vision, 0.15, "the two films' DIs differ in contrast")
     }
 }
