@@ -1558,7 +1558,7 @@ bool Pipeline::node_digital_intermediate(const Image& in, Image& out, std::strin
     double live[3];
     di_live_offsets(params_, live);
     const bool comp = params_.io.digital_intermediate_blue_compensation;
-    float p[40] = {};
+    float p[42] = {};
     for (int i = 0; i < 9; ++i) p[i] = float(di_.matrix[i]);
     for (int i = 0; i < 3; ++i) p[9 + i] = float(live[i]);
     for (int i = 0; i < 9; ++i) p[12 + i] = float(di_.to_lms[i]);
@@ -1573,6 +1573,8 @@ bool Pipeline::node_digital_intermediate(const Image& in, Image& out, std::strin
     p[37] = float(kDiCineonWhite);
     p[38] = float(kDiCineonPerDecade);
     p[39] = float(kDiCineonMax);
+    p[40] = float(di_.positive_floor);
+    p[41] = float(di_cineon_black_offset());
     gpu::BufferRef p_buf = gpu_->upload(p, sizeof p, error);
     if (!p_buf) return false;
     if (!alloc_like(positive, out, error)) return false;

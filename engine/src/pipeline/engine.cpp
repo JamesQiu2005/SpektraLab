@@ -1743,6 +1743,10 @@ bool probe_medium(spk_session* session, slm::Medium& out, std::string& error) {
                     !probe.film.info.is_positive();
     auto light = [&](float v) -> double {
         if (!di) return double(v);
+        // The codes' own log scale, without Cineon's black offset: with it
+        // the film base decodes to exactly 0, and a medium whose black is 0
+        // has no boundary to read. This is the DI's range as the 10 bits hold
+        // it -- base (code 95) to the top code.
         return std::pow(10.0, (double(v) * kDiCineonMax - kDiCineonWhite) / kDiCineonPerDecade);
     };
     out.y.assign(kRampSamples, 0.0);

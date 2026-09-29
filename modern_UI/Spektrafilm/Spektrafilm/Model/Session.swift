@@ -2315,7 +2315,7 @@ final class Session: CanvasHost {
     private func updateThumbnail(_ url: URL, from tex: MTLTexture) {
         let maxEdge = 320
         let long = max(tex.width, tex.height)
-        let source: MTLTexture
+        var source: MTLTexture
         if long > maxEdge {
             let scale = Double(maxEdge) / Double(long)
             let w = max(1, Int((Double(tex.width) * scale).rounded()))
@@ -2325,6 +2325,9 @@ final class Session: CanvasHost {
         } else {
             source = tex
         }
+        // RFC-028: a DI's texture holds Cineon codes. The thumbnail and the
+        // Navigator show what the canvas shows, through the same table.
+        if digitalIntermediateActive, let decoded = renderer.applyLayer2(to: source) { source = decoded }
         let box = TextureBox(source)
         Task.detached(priority: .utility) {
             guard let cg = box.texture?.makeCGImage() else { return }

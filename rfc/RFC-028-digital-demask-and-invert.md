@@ -448,3 +448,38 @@ Skin, foliage and red are unchanged to 0.1°.
 - **The Tone Mask (RFC-024) does not apply.** It is defined on the enlarger's log exposure.
 - **The old "Digital Intermediate Package" export format** (negative + paper `.cube`) is untouched and now shares a name with this. Rename or retire it: a decision for the user.
 
+### 13.5 Revision, the same day: a true Cineon master, and a ProPhoto canvas
+
+The user's model, adopted:
+- **Inside the app everything is ProPhoto RGB.** The canvas, the Navigator and the thumbnails read the DI through one Cineon → ProPhoto table.
+- **The export is the DI, in Cineon log.** Any Cineon-aware LUT then works on it.
+
+**Encoding, now exactly Kodak's**, as colour-science `log_encoding_Cineon` implements it (formula difference 0.0):
+
+`code = (685 + 300·log10(L(1−b) + b)) / 1023`, with `b = 10^((95−685)/300)`
+
+`L` is the positive with the film base subtracted, so:
+
+| | before (§13.1) | now |
+|---|---|---|
+| clear film base | code 22 (−4.9 st, "lifted") | **code 95.00, Cineon black** |
+| mid grey | code 464 | 464.6–467.9 (colour-science puts 0.18 at 467.8) |
+| decoded mid grey | 0.184 | 0.175–0.180 (0.184 less the base's positive) |
+| standard Cineon decoder | shadows below its black: crushed | returns `L`; neutral to 0.0002 st |
+| top of range | +6.2 st | ~+6.2 st (unchanged: the 10-bit ceiling) |
+
+**What changed in the picture.** Making the base black is what every Cineon decoder assumes, and it darkens the deep toe. On Portra 400, scene −3 st now decodes to −3.55 st. The codes still hold the separation.
+
+**The canvas.** The Layer 2 pass reads a DI through a 4096-entry Cineon → ROMM table (`Canvas/CineonLUT.swift`, interpolated by hand), with no grade and no mask. The purple of §13.4 is gone: it came from showing log codes as ProPhoto values. The view is scene-linear with no tone curve, so highlights above reference white clip on screen; that is RFC-029's job.
+
+**The export.**
+- The file is the engine's codes, 16-bit, **untagged**. The EXIF `ColorSpace` is set to Uncalibrated, because a camera's `sRGB` tag otherwise makes ImageIO name an sRGB profile. The new export test caught this.
+- **Two `.cube` files are written beside it once per folder:** Cineon → ProPhoto RGB, and Cineon → Rec.709 γ2.4.
+  - Both are 3D 65³, because Photoshop reads no 1D `.cube`.
+  - Against the exact curve: mean error 0.04 of an 8-bit step; worst 2.1 steps, at the clip corner (code 685).
+  - The Rec.709 matrix is ProPhoto → BT.709 (Bradford), rows normalised so grey stays grey.
+
+**Scene Latitude** reads the codes on their own log scale, without the black offset (with it, the base's 0 leaves no boundary). The frame reads 10.97 stops held.
+
+**Verified:** app suite 476 tests, 0 failures, including `DigitalIntermediateExportTests`, which exports a real ARW as a DI and checks the untagged 16-bit file, the base at ≥ 94, a mid-range median and both LUTs.
+

@@ -118,7 +118,9 @@ struct Layer2Uniforms: Sendable {
     var midGrey: Float = Layer2Uniforms.proPhotoMidGrey
     var curvesActive: UInt32 = 0
     var enabled: UInt32 = 1
-    var _pad: UInt32 = 0
+    /// RFC-028: read the source through the Cineon → ProPhoto table first.
+    /// Set by the renderer for a Digital Intermediate, never by an edit.
+    var inputDecode: UInt32 = 0
 
     /// `pow(0.18, 1/1.8)` — mid-grey through ROMM γ1.8, the working space's
     /// own curve since RFC-018. The number `layer2Tone` pivots on.

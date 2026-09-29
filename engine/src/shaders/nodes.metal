@@ -371,7 +371,8 @@ kernel void spk_edr(device const float* rgb [[buffer(0)]],
 // [9..11] the live log10 offsets, [12..20] working RGB -> Oklab LMS and
 // [21..29] back (M @ v), [30] compensation on, [31] hue rotation (deg),
 // [32] chroma scale, [33..36] hue centre, half width, chroma lo/hi,
-// [37..39] Cineon white, codes per decade, max code.
+// [37..39] Cineon white, codes per decade, max code, [40] the positive of
+// clear base (subtracted: the base is black), [41] Cineon's black offset.
 kernel void spk_di_encode(device const float* y [[buffer(0)]],
                           device const float* p [[buffer(1)]],
                           device const uint* n [[buffer(2)]],
@@ -382,6 +383,9 @@ kernel void spk_di_encode(device const float* y [[buffer(0)]],
     float3 pos = float3(pow(10.0f, y[3u * i] + p[9]),
                         pow(10.0f, y[3u * i + 1u] + p[10]),
                         pow(10.0f, y[3u * i + 2u] + p[11]));
+    // The base is black: the same floor on every channel, scaled with the
+    // live gain so brightness and the filters never lift it.
+    pos -= float3(p[40]) * float3(pow(10.0f, p[9]), pow(10.0f, p[10]), pow(10.0f, p[11]));
     float3 lin = float3(pos.x * p[0] + pos.y * p[3] + pos.z * p[6],
                         pos.x * p[1] + pos.y * p[4] + pos.z * p[7],
                         pos.x * p[2] + pos.y * p[5] + pos.z * p[8]);
@@ -415,7 +419,8 @@ kernel void spk_di_encode(device const float* y [[buffer(0)]],
                          p[27] * lms.x + p[28] * lms.y + p[29] * lms.z);
         }
     }
-    float3 code = (p[37] + p[38] * log10(max(lin, 1e-6f))) / p[39];
+    // Kodak's Cineon encode with the black offset (`log_encoding_Cineon`).
+    float3 code = (p[37] + p[38] * log10(max(lin, 0.0f) * (1.0f - p[41]) + p[41])) / p[39];
     code = clamp(code, 0.0f, 1.0f);
     out[3u * i] = code.x; out[3u * i + 1u] = code.y; out[3u * i + 2u] = code.z;
 }

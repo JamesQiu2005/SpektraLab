@@ -161,6 +161,7 @@ void di_linear(const DiConstants& k, const double log_t[3], double lin[3]) {
         }
         pos[c] = std::pow(10.0, interp(log_t[c], xs.data(), ys.data(), k.curve.k));
     }
+    for (int c = 0; c < 3; ++c) pos[c] -= k.positive_floor;
     for (int j = 0; j < 3; ++j)
         lin[j] = pos[0] * k.matrix[j] + pos[1] * k.matrix[3 + j] + pos[2] * k.matrix[6 + j];
 }
@@ -258,6 +259,11 @@ bool di_constants(const Colour& colour, const Blob& blob, const Params& params,
             const double dx = out.curve.x[3 * (r + 1) + size_t(c)] - out.curve.x[3 * r + size_t(c)];
             out.curve.inv[3 * r + size_t(c)] = dx != 0.0 ? 1.0 / dx : 0.0;
         }
+    // Clear base (cmy = 0, x = 0) is past the clear end of the table, so every
+    // channel clamps to that end's value: this is the positive of film base,
+    // the same on all three. Subtracted, it makes the base black -- Cineon's
+    // code 95 -- as the black offset of every Cineon decoder assumes.
+    out.positive_floor = std::pow(10.0, out.curve.y[3 * (n - 1) + 1]);
 
     // --- the colour step: film RGB -> working RGB --------------------------
     // Least squares over the upsampler's own spectra inside Pointer's gamut,

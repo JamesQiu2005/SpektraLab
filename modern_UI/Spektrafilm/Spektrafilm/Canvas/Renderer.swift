@@ -358,8 +358,12 @@ final class Renderer: NSObject {
     var layer2 = Layer2Uniforms() { didSet { layer2Dirty = true } }
     /// RFC-028: asked at encode time, so it follows the frame the texture is
     /// of. True for a Digital Intermediate, whose pixels are Cineon codes: the
-    /// layer then copies them through, masks and all.
+    /// layer reads them through the Cineon → ProPhoto table
+    /// (`CineonLUT`), and applies no grade and no mask — a DI is a master,
+    /// and the file it exports is the codes themselves.
     var layer2Bypass: (() -> Bool)?
+    /// The Cineon → ProPhoto table, made once.
+    private lazy var cineonTable: MTLTexture? = CineonLUT.makeTexture(device: device)
     /// The masks, already packed. Set from `Session` whenever the mask list
     /// changes; at most `EditMask.maxCount`.
     var masks: [MaskUniform] = [] { didSet { layer2Dirty = true; needsDraw?() } }
@@ -534,7 +538,8 @@ final class Renderer: NSObject {
         enc.setTexture(maskRasters ?? emptyRasterArray, index: 3)
         let bypass = layer2Bypass?() ?? false
         var u = layer2
-        if bypass { u.enabled = 0 }
+        if bypass { u.enabled = 0; u.inputDecode = 1 }
+        enc.setTexture(cineonTable, index: 4)
         enc.setBytes(&u, length: MemoryLayout<Layer2Uniforms>.stride, index: 0)
         var list = bypass ? [] : Array(masks.prefix(EditMask.maxCount))
         var count = UInt32(list.count)

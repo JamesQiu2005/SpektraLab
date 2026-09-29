@@ -109,22 +109,52 @@ final class DigitalIntermediateTests: XCTestCase {
         XCTAssertFalse(exposureOnly.applied(to: Sidecar()).params.digitalIntermediate)
     }
 
+    // MARK: - the Cineon transform
+
+    /// Kodak's reference points, and the table the canvas reads.
+    func testTheCineonDecodeIsKodaks() {
+        XCTAssertEqual(CineonLUT.decode(95 / 1023), 0, accuracy: 1e-12, "reference black is the film base")
+        XCTAssertEqual(CineonLUT.decode(685 / 1023), 1, accuracy: 1e-12, "reference white is 1.0")
+        // colour-science 0.4.7: log_encoding_Cineon(0.18) = 0.4573196...
+        XCTAssertEqual(CineonLUT.decode(0.4573196), 0.18, accuracy: 1e-6)
+        let table = CineonLUT.proPhotoTable()
+        for k in 1..<table.count { XCTAssertGreaterThanOrEqual(table[k], table[k - 1]) }
+        XCTAssertEqual(table.first, 0)
+        XCTAssertEqual(table.last, 1)
+    }
+
+    func testTheCubesAreWholeAndAgreeWithTheCanvas() {
+        let text = CineonLUT.cube(.proPhoto, size: 9)
+        let rows = text.split(separator: "\n").filter { $0.first.map { $0.isNumber } ?? false }
+        XCTAssertEqual(rows.count, 9 * 9 * 9)
+        XCTAssertTrue(text.contains("LUT_3D_SIZE 9"))
+        // The grey axis of the ProPhoto cube is the canvas table, entry for entry.
+        let mid = CineonLUT.map(SIMD3(repeating: 0.5), to: .proPhoto)
+        XCTAssertEqual(mid.x, CineonLUT.rommEncode(CineonLUT.decode(0.5)), accuracy: 1e-12)
+        XCTAssertEqual(mid.x, mid.y, accuracy: 1e-12)
+        // Rec.709 keeps a grey grey (the matrix maps white to white).
+        let g = CineonLUT.map(SIMD3(repeating: 0.45), to: .rec709)
+        XCTAssertEqual(g.x, g.y, accuracy: 1e-6); XCTAssertEqual(g.y, g.z, accuracy: 1e-6)
+    }
+
     // MARK: - through the engine
 
-    /// A grey wedge, −6 … +6 stops, through the engine the app links, with the
-    /// DI on. Every patch must be neutral — the reversal is built on this
-    /// film's own neutral curve — and mid grey must land on the Cineon code of
-    /// 0.184 (`(685 + 300·log10 0.184) / 1023`). Grain is off because it is a
-    /// realisation, not a colour; auto exposure off so stop 0 is 0.184.
+    /// A black patch and a grey wedge, −6 … +6 stops, through the engine the
+    /// app links, with the DI on. Every patch must be neutral — the reversal is
+    /// built on this film's own neutral curve; black (clear film base) must be
+    /// Cineon's reference black, code 95; and mid grey must decode, through the
+    /// standard Cineon decode, to 0.184 less the base's own positive (a few
+    /// thousandths). Grain is off because it is a realisation, not a colour;
+    /// auto exposure off so stop 0 is 0.184.
     func testAGreyIsNeutralAndMidGreyLandsOnItsCode() async throws {
         let gpu = try XCTUnwrap(MTLCreateSystemDefaultDevice())
-        let stops = Array(-6...6)
+        let stops = Array(-6...6)          // plus a black patch in front
         let patch = 16
-        let width = patch * stops.count, height = patch
+        let width = patch * (stops.count + 1), height = patch
         var rgba = [Float](repeating: 1, count: width * height * 4)
         for y in 0..<height {
             for x in 0..<width {
-                let v = Float(0.184 * pow(2.0, Double(stops[x / patch])))
+                let v = x < patch ? 0 : Float(0.184 * pow(2.0, Double(stops[x / patch - 1])))
                 let i = (y * width + x) * 4
                 rgba[i] = v; rgba[i + 1] = v; rgba[i + 2] = v
             }
@@ -153,21 +183,25 @@ final class DigitalIntermediateTests: XCTestCase {
         await client.stop()
 
         let row = texture.height / 2
-        let perPatch = texture.width / stops.count
+        let perPatch = texture.width / (stops.count + 1)
         var codes: [[Double]] = []
-        for k in stops.indices {
+        for k in 0...stops.count {
             let x = k * perPatch + perPatch / 2
             let i = (row * texture.width + x) * 4
             codes.append((0..<3).map { Double(px[i + $0]) / 65535 })
         }
         // 1/300 of a stop: invisible, and far below the per-channel gamma
         // error (0.08–0.43 stop inside ±4) the reversal exists to remove.
+        let black = codes.removeFirst()
+        for c in black { XCTAssertEqual(c * 1023, 95, accuracy: 0.05, "clear base is Cineon black") }
         for (k, c) in codes.enumerated() {
-            let stopsOff = (c.max()! - c.min()!) * 1023 / 300 / log10(2)
-            XCTAssertLessThan(stopsOff, 1.0 / 300, "patch \(stops[k]) stops is not neutral: \(c)")
+            let lin = c.map(CineonLUT.decode)
+            let stopsOff = log2(lin.max()! / lin.min()!)
+            XCTAssertLessThan(stopsOff, 0.01, "patch \(stops[k]) stops is not neutral: \(c)")
         }
-        let mid = codes[stops.firstIndex(of: 0)!][1]
-        XCTAssertEqual(mid, (685 + 300 * log10(0.184)) / 1023, accuracy: 2e-4)
+        let mid = CineonLUT.decode(codes[stops.firstIndex(of: 0)!][1])
+        XCTAssertLessThanOrEqual(mid, 0.184)
+        XCTAssertGreaterThan(mid, 0.17, "mid grey less the base's positive, a few thousandths")
         // and it is a positive: brighter scene, higher code
         for k in 1..<codes.count { XCTAssertGreaterThan(codes[k][1], codes[k - 1][1]) }
     }

@@ -166,7 +166,7 @@ enum Exporter {
                 : try await exportPrint(session: session, to: out, format: format,
                                         quality: recipe.quality, recipe: recipe,
                                         sessionID: sessionID,
-                                        sourceEXIF: session.decoded?.sourceEXIF)
+                                        sourceEXIF: exifFor(session))
             // The fallback's reason, if the route did not have one of its own.
             // Merged rather than set, because the DI route has a note of its
             // own (a film/paper mismatch) and losing it to a colour note would
@@ -175,8 +175,9 @@ enum Exporter {
                 result.note = result.note.map { "\($0) \(fellBackReason)" } ?? fellBackReason
             }
             if session.digitalIntermediateActive && format != .di {
-                let di = L("Digital Intermediate: Cineon log codes in ProPhoto RGB primaries, written unchanged. The recipe's colour space is not applied.",
-                           zh: "数字中间片：以 ProPhoto RGB 原色存储的 Cineon 对数码值，原样写入，不套用配方的色彩空间。")
+                _ = try? CineonLUT.writeBeside(directory: out.deletingLastPathComponent())
+                let di = L("Digital Intermediate: Cineon log (ProPhoto primaries), written unchanged and untagged. Two LUTs are beside it: Cineon to ProPhoto RGB, and Cineon to Rec.709.",
+                           zh: "数字中间片：Cineon 对数（ProPhoto 原色），原样写入，不嵌入色彩配置。旁边附两个 LUT：Cineon 转 ProPhoto RGB，Cineon 转 Rec.709。")
                 result.note = result.note.map { "\($0) \(di)" } ?? di
             }
             let elapsed = Date().timeIntervalSince(started) * 1000
@@ -356,8 +357,11 @@ enum Exporter {
         // grade (the renderer bypasses Layer 2 for it) and no conversion into
         // the recipe's space, which would rewrite the codes.
         let digitalIntermediate = session.digitalIntermediateActive
-        let target = digitalIntermediate ? (ImageDecoder.workingSpace ?? resolveTarget(recipe).space)
-                                         : resolveTarget(recipe).space
+        // Untagged: Cineon log is not a display space, and a profile would make
+        // every viewer "correct" the codes. The canvas reads them through
+        // `CineonLUT`; the two `.cube` files written beside the export do the
+        // same anywhere else.
+        let target = digitalIntermediate ? CGColorSpaceCreateDeviceRGB() : resolveTarget(recipe).space
         let outcome = try await session.client.render(
             .export, RenderRequest(sessionID: sessionID, tier: "full"))
         try Task.checkCancellation()
@@ -378,9 +382,11 @@ enum Exporter {
 
         let (adjustedDestination, adjustedScratch) = try destination(width: full.width,
                                                                      height: full.height)
-        guard let adjusted = session.renderer.applyLayer2(to: full,
-                                                          uniforms: session.adjustments.uniforms,
-                                                          into: adjustedDestination)
+        // A DI is written as the engine's codes: no decode, no grade.
+        guard let adjusted = digitalIntermediate
+                ? full
+                : session.renderer.applyLayer2(to: full, uniforms: session.adjustments.uniforms,
+                                               into: adjustedDestination)
             else { throw ExportError.noPixels }
         var current = adjusted
         var currentScratch = adjustedScratch
@@ -472,6 +478,16 @@ enum Exporter {
         try write(image, to: out, format: format, quality: quality, preview: preview,
                   sourceEXIF: sourceEXIF)
         return Result(urls: [out], note: nil, appliedEV: r.appliedEV, pixels: r.pixels)
+    }
+
+    /// The source EXIF, passed through — except that a Digital Intermediate's
+    /// is marked **Uncalibrated** (0xFFFF). The camera's `ColorSpace = sRGB`
+    /// tag otherwise travels into the file and ImageIO names an sRGB profile
+    /// for it, which would make viewers "correct" the Cineon codes.
+    private static func exifFor(_ session: Session) -> [CFString: Any]? {
+        guard var exif = session.decoded?.sourceEXIF else { return nil }
+        if session.digitalIntermediateActive { exif[kCGImagePropertyExifColorSpace] = 0xFFFF }
+        return exif
     }
 
     // MARK: - the DI package

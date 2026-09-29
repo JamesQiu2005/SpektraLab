@@ -16,6 +16,7 @@
 //   spk_curves            (`curve` below)                 -> log10 positive
 //   spk_di_encode         (`matrix`, the blue compensation, the log encode)
 #pragma once
+#include <cmath>
 #include <string>
 
 #include "blob.hpp"
@@ -26,13 +27,28 @@
 
 namespace spk {
 
-// Cineon's convention (Kodak, 1990s): code = 685 + 300 * log10(linear), 10-bit,
-// so the standard Cineon-to-linear decode (reference white 685, negative gamma
-// 0.6, 0.002 density per code) returns the DI's scene-referred positive. The
-// range this holds is ~-5.1 .. +6.2 stops around mid grey.
+// Kodak's Cineon convention, exactly as the standard decoders apply it
+// (Kodak's log-to-linear, Nuke, colour-science's `log_encoding_Cineon`):
+//
+//     code = (685 + 300 * log10(L * (1 - b) + b)) / 1023,  b = 10^((95 - 685) / 300)
+//
+// reference white 685 (L = 1), reference black 95 (L = 0: the film base),
+// 0.002 density per code and a negative gamma of 0.6 (300 codes per decade).
+// L is the DI's positive with the film base subtracted, so the base lands on
+// code 95 exactly as it does on a scanned negative, mid grey near 467, and a
+// standard Cineon decode returns L. It holds up to ~+6.2 stops over grey.
 constexpr double kDiCineonWhite = 685.0;
+constexpr double kDiCineonBlack = 95.0;
 constexpr double kDiCineonPerDecade = 300.0;
 constexpr double kDiCineonMax = 1023.0;
+// b above: the linear value of the black code before the offset is removed.
+inline double di_cineon_black_offset() {
+    return std::pow(10.0, (kDiCineonBlack - kDiCineonWhite) / kDiCineonPerDecade);
+}
+inline double di_cineon_decode(double code01) {
+    const double b = di_cineon_black_offset();
+    return (std::pow(10.0, (code01 * kDiCineonMax - kDiCineonWhite) / kDiCineonPerDecade) - b) / (1.0 - b);
+}
 
 // The blue-sector window of the optional compensation, in Oklab hue degrees.
 // Centred between blue (~264) and the violet the DI drifts toward; wide enough
@@ -50,6 +66,7 @@ struct DiConstants {
     InterpTables curve;           // x: log10 T (ascending), y: log10 positive, per channel
     double matrix[9] = {1, 0, 0, 0, 1, 0, 0, 0, 1};   // film RGB -> working RGB, x @ M
     double matrix_fit_rms = 0.0;  // relative, over the fit set; a sanity figure
+    double positive_floor = 0.0;  // the positive of clear film base, subtracted so the base is black
     double gamma_green = 0.0;     // the reversal's gamma (green, over -2..+2 stops)
     double density_green_mid = 0.0;
     // The optional blue-sector correction, fitted per film on the chain itself.
