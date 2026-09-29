@@ -483,3 +483,61 @@ The user's model, adopted:
 
 **Verified:** app suite 476 tests, 0 failures, including `DigitalIntermediateExportTests`, which exports a real ARW as a DI and checks the untagged 16-bit file, the base at ≥ 94, a mid-range median and both LUTs.
 
+
+### 13.6 Second revision: one DI path, a view that keeps the highlights, nothing new to copy
+
+Three decisions by the user (2026-09-29):
+1. Delete the old DI path and keep the one true Digital Intermediate (option B).
+2. The highlights matter: the dynamic range is kept, but the plain Cineon → ProPhoto decode clipped it on screen.
+3. The DI path introduces no new copyable parameter. Only the grey paper effect and Scene Placement go, and the Tone Mask goes too, for this release.
+
+**Option B: the export.**
+- The *Digital Intermediate* export format is `spk_render_digital_intermediate`: a Cineon 16-bit TIFF (`<stem>_DI.tif`) plus the two view `.cube` files.
+- It works for any negative frame, whatever paper is chosen.
+- It renders its own full-tier pipeline from the session's negative. It is bit-identical to a DI print, and the session's paper render is untouched (0 difference with glare off).
+- Slide films are refused.
+- JPEG, TIFF and PNG export what the canvas shows, DI frames included, through the ordinary Layer 2 route.
+- Removed: the old "Digital Intermediate Package" writer (`exportDI` / `writeCube` in the app). Its recipe names are read as legacy aliases.
+- `spk_export_di` stays in the C ABI as a research tap, for `parity_lut.py`, the RFC-022 solver and this RFC's probe.
+
+**The DI view: RFC-029's findings, placed in the LUT instead of the engine.** The view `Canvas/CineonLUT.swift` runs four steps:
+1. Decode the Cineon.
+2. Apply a tone scale on luminance (ProPhoto Y), as `x·T(Y)/Y`.
+   - It is identity up to a *solved* knee, then RFC-023's m = 2 smooth-min shoulder.
+   - The knee is the softest one that lands the file's top code (+6.2 st) 1/16 stop under white: **0.9203 st over grey 0.18**.
+   - Contrast is 1.0, so grey and everything below the knee are unchanged.
+3. Take a path to white at constant Oklab L and hue.
+4. Encode ROMM, or Rec.709 γ2.4.
+
+The shipped files are baked, not written at export time:
+- `Resources/DI/SpektraLab DI view, Cineon to {ProPhoto RGB, Rec709}.cube`, 65³, 7.4 MB each.
+- The canvas samples the ProPhoto file as a 3D texture in the Layer 2 pass (texture 4, `inputDecode`).
+- `testTheShippedViewLUTsAreCurrent` fails if the code and the files drift apart. Regenerate them with `TEST_RUNNER_SPK_REGEN_DI_LUTS=1`.
+
+What RFC-029 proposed and was **not** taken:
+- the engine node;
+- the Contrast control (default 1.3);
+- any wire field.
+The view has no parameters, so the canvas and the shipped LUT cannot disagree.
+
+**Post-Dev applies to a DI.** Layer 2 runs on the decoded view, like any other frame. The navigator and the thumbnails use the view alone.
+
+**Gated on a DI frame:**
+- **Scene Placement** is greyed with a reason, and `scene_latitude_active` is false on the wire. It moves the print's placement, and a DI has no print.
+- **Print Effects** and **EDR** remain greyed as before.
+
+**The Tone Mask is withdrawn** behind `FeatureFlags.toneMask = false`:
+- its section is hidden;
+- `contrast_mask_active` is off the wire whatever a sidecar says;
+- the clipboard offers no mask group while no mask flag is on.
+The engine node and its tests remain.
+
+**Verified:**
+- app suite 473 tests, 0 failures (plus one pinned expected failure);
+- `parity_schema` 0 failures;
+- a live snapshot of a Portra 400 DI frame shows the sky whole, Latitude reading 10.97 stops held, and Scene Placement greyed.
+
+**Open:**
+- The file's ceiling is still +6.2 st: Cineon's 10-bit range.
+- The DI's constants (~11.6 ms) are rebuilt, not cached, when the film changes.
+- The app bundle grows by 15 MB for the two `.cube` files.

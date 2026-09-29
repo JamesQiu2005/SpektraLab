@@ -274,7 +274,12 @@ spk_status spk_print_lut_table(spk_engine* engine, const char* print_stock,
 spk_status spk_preview_stock_lut(spk_session* session, const char* print_stock,
                                  const char* tier, spk_result* out, char** out_json);
 
-/* The DI package's picture half: the full-tier negative normalised to [0, 1]
+/* **Not the product's Digital Intermediate** (that is
+ * `spk_render_digital_intermediate`, RFC-028): the app retired the "DI package"
+ * that used this on 2026-09-29. It stays as the engine's tap on the developed
+ * negative, which `parity_lut.py`, RFC-022's solver and RFC-028's probe read.
+ *
+ * The full-tier negative normalised to [0, 1]
  * by the LUT's own per-channel density axes, so the `.cube` the caller writes
  * from `spk_print_lut_table` has domain 0..1 and needs no DOMAIN_MIN/MAX
  * support in whatever opens it.
@@ -285,6 +290,17 @@ spk_status spk_preview_stock_lut(spk_session* session, const char* print_stock,
  * it: it is pre-print by definition. */
 spk_status spk_export_di(spk_session* session, const char* print_stock,
                          spk_result* out, char** out_json);
+
+/* RFC-028: the frame's **Digital Intermediate**, full tier, whatever paper the
+ * session shows. The session's negative (cached when warm) is read in printing
+ * density with the film base removed per wavelength, reversed on the film's
+ * own neutral curve, and encoded as Kodak Cineon log in the session's working
+ * primaries: code = (685 + 300 log10(L(1-b) + b)) / 1023, b = 10^((95-685)/300),
+ * film base on code 95. `out` is a texture as `spk_reprint` leaves one. The
+ * session's own pipeline and its cached prints are not touched. A slide film
+ * has none: SPK_ERR_USER. `out_json` carries `encoding`, `primaries` and the
+ * paper whose sensitivity defines the printing density. */
+spk_status spk_render_digital_intermediate(spk_session* session, spk_result* out, char** out_json);
 
 /* --- the output transform (RFC-018 §5.2) ------------------------------
  *

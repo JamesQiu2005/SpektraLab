@@ -35,8 +35,9 @@ struct Layer2Uniforms {           // must match Adjustments.swift
     float midGrey;
     uint curvesActive; uint enabled;
     // RFC-028: the frame is a Digital Intermediate, whose pixels are Cineon
-    // codes. They are read through `inputLUT` (Cineon → ProPhoto, see
-    // CineonLUT.swift) before anything else, so the canvas shows ProPhoto.
+    // codes. They are read through `inputLUT` — the DI view, the shipped
+    // Cineon → ProPhoto .cube (CineonLUT.swift) — before anything else, so
+    // the canvas, Post-Dev and every export work in ProPhoto as for a print.
     uint inputDecode;
 };
 
@@ -315,7 +316,7 @@ kernel void layer2(texture2d<float, access::read> src [[texture(0)]],
                    texture2d<float, access::write> dst [[texture(1)]],
                    texture2d<float> curves [[texture(2)]],
                    texture2d_array<float> maskRasters [[texture(3)]],
-                   texture1d<float> inputLUT [[texture(4)]],
+                   texture3d<float> inputLUT [[texture(4)]],
                    constant Layer2Uniforms &u [[buffer(0)]],
                    constant MaskUniform *masks [[buffer(1)]],
                    constant uint &maskCount [[buffer(2)]],
@@ -325,16 +326,10 @@ kernel void layer2(texture2d<float, access::read> src [[texture(0)]],
     if (gid.x >= dst.get_width() || gid.y >= dst.get_height()) return;
     float3 c = src.read(gid).rgb;
     if (u.inputDecode != 0) {
-        // Linear interpolation between table entries, by hand: exact on
-        // every GPU, where a float texture's hardware filter may not be.
-        uint n = inputLUT.get_width();
-        float3 x = clamp(c, 0.0, 1.0) * float(n - 1);
-        uint3 i0 = uint3(floor(x));
-        uint3 i1 = min(i0 + 1u, uint3(n - 1u));
-        float3 f = x - floor(x);
-        c = float3(mix(inputLUT.read(i0.r).r, inputLUT.read(i1.r).r, f.r),
-                   mix(inputLUT.read(i0.g).r, inputLUT.read(i1.g).r, f.g),
-                   mix(inputLUT.read(i0.b).r, inputLUT.read(i1.b).r, f.b));
+        // Trilinear between the grid's texel centres, as any .cube host does.
+        constexpr sampler lutSampler(filter::linear, address::clamp_to_edge, coord::normalized);
+        float n = float(inputLUT.get_width());
+        c = inputLUT.sample(lutSampler, (clamp(c, 0.0, 1.0) * (n - 1.0) + 0.5) / n).rgb;
     }
     if (u.enabled == 0 && maskCount == 0) { dst.write(float4(c, 1), gid); return; }
 

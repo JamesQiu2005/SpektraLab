@@ -134,7 +134,7 @@ final class ExportRecipeTests: XCTestCase {
         XCTAssertEqual(ExportFormat.withDepth(16, like: .png), .tiff)
         XCTAssertEqual(ExportFormat.withDepth(8, like: .tiff), .png)
         XCTAssertNil(ExportFormat.withDepth(16, like: .jpeg), "JPEG has no 16-bit form")
-        XCTAssertNil(ExportFormat.withDepth(8, like: .di), "the DI package is one thing at one depth")
+        XCTAssertNil(ExportFormat.withDepth(8, like: .di), "the Digital Intermediate is one thing at one depth")
 
         XCTAssertTrue(ExportFormat.png.depthIsChoosable)
         XCTAssertTrue(ExportFormat.tiff.depthIsChoosable)
@@ -299,9 +299,9 @@ final class ExportRecipeTests: XCTestCase {
         }
     }
 
-    /// The DI package's channels are densities, not colours, and the `.cube`
-    /// beside it indexes exactly those numbers. So it offers no profile, and
-    /// resolves to none.
+    /// The Digital Intermediate's channels are Cineon codes, not colours, and
+    /// the view LUTs beside it read exactly those numbers. So it offers no
+    /// profile, and resolves to none.
     func testTheDIPackageTakesNoColourSpace() {
         var r = ExportRecipe()
         r.format = .di

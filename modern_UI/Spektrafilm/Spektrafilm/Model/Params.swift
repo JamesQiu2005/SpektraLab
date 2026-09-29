@@ -641,7 +641,7 @@ struct FilmParams: Codable, Equatable, Sendable {
             // RFC-024 (API-SPEC §11). Sent always: the defaults are the
             // engine's, and off is a structural bypass, so a legacy frame
             // renders byte for byte as before.
-            ("contrast_mask_active", .bool(contrastMask.active && printEffects), .print),
+            ("contrast_mask_active", .bool(contrastMask.active && printEffects && FeatureFlags.toneMask), .print),
             ("contrast_mask_highlights", .double(contrastMask.highlights), .print),
             ("contrast_mask_shadows", .double(contrastMask.shadows), .print),
             ("contrast_mask_core", .double(contrastMask.core), .print),
@@ -649,7 +649,10 @@ struct FilmParams: Codable, Equatable, Sendable {
             ("contrast_mask_scheme", .string(contrastMask.scheme), .print),
             // RFC-023 (API-SPEC §12): the resolved curve only; the pull-backs
             // are UI state and stay in the sidecar.
-            ("scene_latitude_active", .bool(sceneLatitude.active), .shoot),
+            // Off under the Digital Intermediate (RFC-028): placement fits a
+            // scene into a paper's range, and the DI keeps the film's whole
+            // one. The pull-backs stay in the sidecar for when a paper returns.
+            ("scene_latitude_active", .bool(sceneLatitude.active && !(digitalIntermediate && !scanFilm)), .shoot),
             ("scene_latitude_norm", .string(sceneLatitude.norm), .shoot),
             ("scene_latitude_highlight_knee", .double(sceneLatitude.highlightKnee), .shoot),
             ("scene_latitude_highlight_room", .double(sceneLatitude.highlightRoom), .shoot),

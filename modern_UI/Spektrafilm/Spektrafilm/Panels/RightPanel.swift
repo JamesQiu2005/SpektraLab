@@ -44,8 +44,10 @@ struct RightPanel: View {
                         ? [("latitude", AnyView(LatitudeSection(session: session))),
                            ("camera", AnyView(CameraSection(session: session))),
                            ("filmFormat", AnyView(FilmFormatSection(session: session))),
-                           ("scenePlacement", AnyView(ScenePlacementSection(session: session))),
-                           ("toneMask", AnyView(ToneMaskSection(session: session)))]
+                           ("scenePlacement", AnyView(ScenePlacementSection(session: session)))]
+                           // Withdrawn for the next version (`FeatureFlags.toneMask`).
+                           + (FeatureFlags.toneMask
+                              ? [("toneMask", AnyView(ToneMaskSection(session: session)))] : [])
                         : [("wb2", AnyView(WhiteBalanceSection(session: session))),
                            ("exposure2", AnyView(ExposureSection(session: session))),
                            ("curve", AnyView(CurveSection(session: session))),

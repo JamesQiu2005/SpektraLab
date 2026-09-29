@@ -5,23 +5,19 @@
 //      cropped, straightened and turned. The engine renders the print at full
 //      resolution into a texture; the client applies Layer 2 and the geometry
 //      in Metal and writes through ImageIO with a P3 tag.
-//    - DI package: the negative as normalised density (16-bit TIFF) plus the
-//      print stock's `.cube` — grade the flat file in Photoshop under a Color
-//      Lookup layer, or convert the cube to an ICC for Capture One. Layer 2
-//      does not apply; it is pre-print by definition.
+//    - Digital Intermediate (RFC-028): the frame's DI as Kodak Cineon log,
+//      16-bit TIFF, untagged, for any negative whatever paper the canvas
+//      shows — plus the two DI-view `.cube` files beside it, once per folder.
+//      Post-Dev does not apply; the DI is the master a grade starts from.
 //
-//  **Both routes are native now.** They used to call a Python service that
-//  wrote files into a workspace and returned paths; the engine returns
-//  textures and a pointer to the LUT table, and the DI package's two files —
-//  the density TIFF and the `.cube` — are written here. That is where they
-//  belong: ImageIO is already how the finished formats are written, and
-//  `writeCube` is thirty lines of text formatting that no C++ file writer
-//  needs to exist for.
+//  A frame the print list has on the Digital Intermediate exports its *view*
+//  through the finished route like any print: the canvas reads the DI through
+//  the shipped view LUT, Post-Dev applies in ProPhoto, and the recipe's colour
+//  space is honoured.
 //
-//  Filenames: `<original>_<film>_<paper>.<ext>` in `<source dir>/_prints/`,
-//  and for the DI package inside `<stem>/` under that, because the TIFF and
-//  its cube are one artifact and would otherwise share a filename with the
-//  finished TIFF (`ExportRecipe.destinationPath`).
+//  Filenames: `<original>_<film>_<paper>.<ext>` in `<source dir>/_prints/`;
+//  a DI is `<stem>_DI.tif`, so it can share a folder with a finished TIFF
+//  (`ExportRecipe.destinationPath`).
 
 import AppKit
 import Foundation
@@ -149,7 +145,7 @@ enum Exporter {
         // inside a package the user asked to be one TIFF and one cube. One
         // level up is still "beside" — the same `_prints/` folder every other
         // export's log lands in, under the same name it has today.
-        let logAnchor = format == .di ? leaf : out
+        let logAnchor = out
         // Opt-in since 2026-09-26 (`Diagnostics.writeExportJobLog`). The job
         // is still assembled either way: it costs nothing, and the session
         // log's `export` record is built beside it.
@@ -162,23 +158,17 @@ enum Exporter {
         let started = Date()
         do {
             var result = format == .di
-                ? try await exportDI(session: session, to: out)
+                ? try await exportDigitalIntermediate(session: session, to: out)
                 : try await exportPrint(session: session, to: out, format: format,
                                         quality: recipe.quality, recipe: recipe,
                                         sessionID: sessionID,
-                                        sourceEXIF: exifFor(session))
+                                        sourceEXIF: session.decoded?.sourceEXIF)
             // The fallback's reason, if the route did not have one of its own.
             // Merged rather than set, because the DI route has a note of its
             // own (a film/paper mismatch) and losing it to a colour note would
             // be trading one silent substitution for another.
-            if let fellBackReason, !(session.digitalIntermediateActive && format != .di) {
+            if let fellBackReason, format != .di {
                 result.note = result.note.map { "\($0) \(fellBackReason)" } ?? fellBackReason
-            }
-            if session.digitalIntermediateActive && format != .di {
-                _ = try? CineonLUT.writeBeside(directory: out.deletingLastPathComponent())
-                let di = L("Digital Intermediate: Cineon log (ProPhoto primaries), written unchanged and untagged. Two LUTs are beside it: Cineon to ProPhoto RGB, and Cineon to Rec.709.",
-                           zh: "数字中间片：Cineon 对数（ProPhoto 原色），原样写入，不嵌入色彩配置。旁边附两个 LUT：Cineon 转 ProPhoto RGB，Cineon 转 Rec.709。")
-                result.note = result.note.map { "\($0) \(di)" } ?? di
             }
             let elapsed = Date().timeIntervalSince(started) * 1000
             for url in result.urls {
@@ -291,10 +281,10 @@ enum Exporter {
     }
 
     /// What the log and the job log call the export's colour space. The DI
-    /// file is deliberately untagged-ish: its channels are densities, not
-    /// colours (see `exportDI`), and it has no profile to name.
+    /// is deliberately untagged: its channels are Cineon codes, not colours
+    /// (see `exportDigitalIntermediate`), and it has no profile to name.
     private static func colourSpace(_ recipe: ExportRecipe) -> String {
-        guard recipe.format.takesColorSpace else { return "device RGB (density)" }
+        guard recipe.format.takesColorSpace else { return "Cineon log, ProPhoto primaries (untagged)" }
         return ColorSpaceCatalog.name(for: recipe.colorSpace) ?? "unresolved profile"
     }
 
@@ -350,18 +340,11 @@ enum Exporter {
     /// Throws `CancellationError` if the task is cancelled — a superseded
     /// proof is not a stale picture, it is no picture.
     static func filePixels(session: Session, recipe: ExportRecipe, sessionID: String) async throws -> Rendered {
-        // RFC-028: a Digital Intermediate's pixels are Cineon log codes in the
-        // working space's primaries. They are written **as they are**, tagged
-        // as the working space the canvas shows them in -- so the file matches
-        // the canvas and a colourist's Cineon decode returns the scene. No
-        // grade (the renderer bypasses Layer 2 for it) and no conversion into
-        // the recipe's space, which would rewrite the codes.
-        let digitalIntermediate = session.digitalIntermediateActive
-        // Untagged: Cineon log is not a display space, and a profile would make
-        // every viewer "correct" the codes. The canvas reads them through
-        // `CineonLUT`; the two `.cube` files written beside the export do the
-        // same anywhere else.
-        let target = digitalIntermediate ? CGColorSpaceCreateDeviceRGB() : resolveTarget(recipe).space
+        // A frame on the Digital Intermediate comes out of the engine as Cineon
+        // codes; the Layer 2 pass below reads them through the DI view first
+        // (`Renderer.layer2DecodesCineon`), so from there on it is ProPhoto
+        // like any print.
+        let (target, _, _, _) = resolveTarget(recipe)
         let outcome = try await session.client.render(
             .export, RenderRequest(sessionID: sessionID, tier: "full"))
         try Task.checkCancellation()
@@ -382,11 +365,9 @@ enum Exporter {
 
         let (adjustedDestination, adjustedScratch) = try destination(width: full.width,
                                                                      height: full.height)
-        // A DI is written as the engine's codes: no decode, no grade.
-        guard let adjusted = digitalIntermediate
-                ? full
-                : session.renderer.applyLayer2(to: full, uniforms: session.adjustments.uniforms,
-                                               into: adjustedDestination)
+        guard let adjusted = session.renderer.applyLayer2(to: full,
+                                                          uniforms: session.adjustments.uniforms,
+                                                          into: adjustedDestination)
             else { throw ExportError.noPixels }
         var current = adjusted
         var currentScratch = adjustedScratch
@@ -424,13 +405,6 @@ enum Exporter {
                 current = resizedDestination
                 currentScratch = resizedScratch
             }
-        }
-        if digitalIntermediate {
-            return Rendered(texture: current,
-                            stats: OutputTransformStats(movedFraction: 0, clippedFraction: 0,
-                                                        outsideFraction: 0),
-                            target: target, pixels: (current.width, current.height),
-                            appliedEV: outcome.progress?.autoExposureEV, scratch: currentScratch)
         }
         // The one conversion, at the end, out of the working space and into
         // the destination — the same kernel the canvas and the soft proof run.
@@ -480,105 +454,39 @@ enum Exporter {
         return Result(urls: [out], note: nil, appliedEV: r.appliedEV, pixels: r.pixels)
     }
 
-    /// The source EXIF, passed through — except that a Digital Intermediate's
-    /// is marked **Uncalibrated** (0xFFFF). The camera's `ColorSpace = sRGB`
-    /// tag otherwise travels into the file and ImageIO names an sRGB profile
-    /// for it, which would make viewers "correct" the Cineon codes.
-    private static func exifFor(_ session: Session) -> [CFString: Any]? {
-        guard var exif = session.decoded?.sourceEXIF else { return nil }
-        if session.digitalIntermediateActive { exif[kCGImagePropertyExifColorSpace] = 0xFFFF }
-        return exif
-    }
+    // MARK: - the Digital Intermediate
 
-    // MARK: - the DI package
-
-    /// **Two files, in one folder of their own**: the normalised-density
-    /// negative and the print stock's `.cube`. The folder is
-    /// `ExportRecipe.destinationPath`'s — `<stem>/` inside the recipe's own
-    /// subfolder — and it exists because a package is one artifact: the cube's
-    /// domain *is* the TIFF's numbers.
+    /// RFC-028: **the frame's DI**, whatever paper the canvas shows — the
+    /// engine renders it from the session's own negative through a pipeline of
+    /// its own (`spk_render_digital_intermediate`), so choosing this export
+    /// never touches the print on screen.
     ///
-    /// The print preview used to be a third file beside them. It is now **IFD1
-    /// of the density TIFF** — the same picture, inside the file whose numbers
-    /// it is a picture *of*, and no longer a file that could be separated from
-    /// them. Two things about that are load-bearing:
+    /// Written as Kodak Cineon log, 16-bit, **untagged**: Cineon is not a
+    /// display space, and a profile invites every viewer to "correct" the
+    /// codes. The camera's EXIF travels, with its `ColorSpace` marked
+    /// Uncalibrated (0xFFFF) — left as `sRGB`, ImageIO names an sRGB profile
+    /// for it. The file's second page is the DI *view* (the canvas's own
+    /// transform), so the TIFF has a picture for whoever opens it; the two
+    /// view `.cube` files are copied beside it once per folder.
     ///
-    ///  * `kCGImageDestinationEmbedThumbnail` does **nothing** for TIFF.
-    ///    Measured: the file comes out byte-identical with and without it. A
-    ///    second page is the mechanism TIFF actually has;
-    ///  * the preview carries its own profile and IFD0 does not, so the
-    ///    density channels stay untagged (`testTheDIFileIsNotTaggedAsAColour`)
-    ///    and the cube's domain does not move.
-    ///
-    /// The geometry is already in the negative — `node_geometry` runs on the
-    /// film side, before the density curves — so the crop and the straighten
-    /// are baked in and nothing is applied here. Layer 2 is not, and must not
-    /// be: it lives after the print and the DI file is before it.
-    private static func exportDI(session: Session, to out: URL) async throws -> Result {
-        let di = try await session.client.exportDI()
-        guard let texture = di.texture else { throw ExportError.noPixels }
-        // Device RGB, not Display P3. These are not colours: each channel is
-        // a film density normalised by the LUT's own axis, and the `.cube`
-        // beside it indexes exactly those numbers. Tagging the file with a
-        // rendering space invites whatever opens it to convert the values and
-        // silently move the cube's domain out from under it, so this asks
-        // ImageIO for the most nearly untagged thing it will write.
-        guard let cg = texture.makeCGImage(space: CGColorSpaceCreateDeviceRGB())
+    /// Geometry is already in the negative (`node_geometry` runs on the film
+    /// side). Post-Dev is not, and must not be: the DI is where a grade starts.
+    private static func exportDigitalIntermediate(session: Session, to out: URL) async throws -> Result {
+        let di = try await session.client.renderDigitalIntermediate()
+        guard let texture = di.texture,
+              let cg = texture.makeCGImage(space: CGColorSpaceCreateDeviceRGB())
             else { throw ExportError.noPixels }
-
-        // The same table applied to the same negative, which is what
-        // `preview_stock_lut` is. At the **live** tier, not the full one: a
-        // preview's job is to be small, and a full-tier one would add a second
-        // full-resolution image to the file. Its failure is not the export's —
-        // the two things that carry the grade are the density TIFF and the
-        // cube — so a missing preview is a preview-less package and not a
-        // failed one.
-        let preview = (try? await session.client.previewStockLUT(di.meta.printStock, tier: "live"))
-            .flatMap { $0.texture?.makeCGImage() }
-
-        try write(cg, to: out, format: .tiff, preview: preview)
-
-        let stem = out.deletingPathExtension().lastPathComponent
-        let cube = out.deletingLastPathComponent().appending(path: "\(stem)_\(di.meta.printStock).cube")
-        let table = try await session.client.printLUTTable(di.meta.printStock)
-        try writeCube(table.table, size: table.size, to: cube,
-                      title: "spektrafilm \(di.meta.printStock) print (from \(di.meta.pairedFilm))")
-
-        return Result(urls: [out, cube], note: di.meta.warning,
-                      appliedEV: di.progress?.autoExposureEV,
+        let preview = session.renderer.applyCineonView(to: texture)
+            .flatMap { $0.makeCGImage() }
+            .flatMap { self.preview(of: $0) }
+        var exif = session.decoded?.sourceEXIF
+        exif?[kCGImagePropertyExifColorSpace] = 0xFFFF
+        try write(cg, to: out, format: .tiff, preview: preview, sourceEXIF: exif)
+        let luts = (try? CineonLUT.copyBeside(directory: out.deletingLastPathComponent())) ?? []
+        let note = L("Digital Intermediate: Cineon log in ProPhoto primaries, 16-bit and untagged. The two DI-view LUTs beside it (to ProPhoto RGB, to Rec.709) show it as the canvas does.",
+                     zh: "数字中间片：ProPhoto 原色的 Cineon 对数，16 位，不嵌入色彩配置。旁边的两个数字中间片视图 LUT（转 ProPhoto RGB、转 Rec.709）按画布的方式显示它。")
+        return Result(urls: [out] + luts, note: note, appliedEV: di.progress?.autoExposureEV,
                       pixels: (di.width, di.height))
-    }
-
-    /// A plain 3D `.cube`: `LUT_3D_SIZE N`, domain 0..1, red fastest.
-    ///
-    /// `table` is (N, N, N, 3) indexed [r, g, b] — the bake's own axis order
-    /// — so iterating blue outermost and red innermost gives the cube's
-    /// ordering. The domain is 0..1 because the DI file beside it was
-    /// normalised by the same axes, which is what lets this carry no
-    /// `DOMAIN_MIN`/`DOMAIN_MAX` for a host to misread.
-    static func writeCube(_ table: [Float], size n: Int, to url: URL, title: String) throws {
-        guard table.count == n * n * n * 3 else { throw ExportError.noPixels }
-        var text = """
-        TITLE "\(title)"
-        LUT_3D_SIZE \(n)
-        DOMAIN_MIN 0.0 0.0 0.0
-        DOMAIN_MAX 1.0 1.0 1.0
-
-
-        """
-        text.reserveCapacity(n * n * n * 26 + 128)
-        for b in 0..<n {
-            for g in 0..<n {
-                for r in 0..<n {
-                    let i = ((r * n + g) * n + b) * 3
-                    text += String(format: "%.6f %.6f %.6f\n",
-                                   min(max(table[i], 0), 1),
-                                   min(max(table[i + 1], 0), 1),
-                                   min(max(table[i + 2], 0), 1))
-                }
-            }
-        }
-        try text.write(to: url, atomically: true, encoding: .utf8)
     }
 
     /// Write one image.
@@ -696,11 +604,9 @@ enum Exporter {
     ///
     /// Two routes answer it differently, and each for its own reason. An
     /// ordinary TIFF's is the recipe's — **off by default**, so no existing
-    /// recipe's bytes move. The DI package's is unconditional, whatever the
-    /// flag says: its other two files are density and a `.cube`, so the
-    /// preview is the only rendered picture in it (`exportDI`, and the field's
-    /// own doc comment, which says this so nobody later "fixes" the
-    /// inconsistency).
+    /// recipe's bytes move. The Digital Intermediate's is unconditional,
+    /// whatever the flag says: its pixels are Cineon codes, so the preview is
+    /// the only rendered picture in it (`exportDigitalIntermediate`).
     static func writesPreviewPage(_ recipe: ExportRecipe) -> Bool {
         recipe.format == .di || (recipe.embedsPreview && recipe.format.carriesPreviewPage)
     }

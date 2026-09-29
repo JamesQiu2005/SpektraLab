@@ -18,6 +18,14 @@
 import Foundation
 
 enum ClipboardGroup: String, CaseIterable, Codable, Sendable, Identifiable {
+    /// The boxes the section shows. 遮罩 (the Tone Mask and local masks) is not
+    /// offered while both are withdrawn (`FeatureFlags`): a box for settings
+    /// that cannot be seen or changed would be a box that lies. The group stays
+    /// in the model, so its fields keep their one owner.
+    static var offered: [ClipboardGroup] {
+        allCases.filter { $0 != .masks || FeatureFlags.masks || FeatureFlags.toneMask }
+    }
+
     case filmAndPaper, exposure, whiteBalance, filmEffects, printEffects, scenePlacement, masks
 
     var id: String { rawValue }

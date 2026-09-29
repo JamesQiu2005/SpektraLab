@@ -178,7 +178,9 @@ struct ScenePlacementSection: View {
                     session.placeScene(highlight: dragging.highlight ?? session.params.sceneLatitude.highlightPullBack, shadow: v)
                 } end: { dragging.shadow = nil }
             }
-            .rowEnabled(developed, because: L(.reasonNotDeveloped))
+            .rowEnabled(developed && !session.digitalIntermediateActive,
+                        because: session.digitalIntermediateActive ? L(.reasonPlacementInDigitalIntermediate)
+                                                                   : L(.reasonNotDeveloped))
         }
     }
 
@@ -210,7 +212,10 @@ struct ToneMaskSection: View {
     @Bindable var session: Session
 
     private var mask: ContrastMaskSettings { session.params.contrastMask }
-    private var allowed: Bool { session.params.printEffects }
+    private var allowed: Bool { session.params.printEffects && !session.digitalIntermediateActive }
+    private var reason: String {
+        session.digitalIntermediateActive ? L(.reasonDisabledInDigitalIntermediate) : L(.reasonPrintEffectsOff)
+    }
 
     var body: some View {
         PanelSection(L(.sectionToneMask), key: "toneMask",
@@ -220,7 +225,7 @@ struct ToneMaskSection: View {
                      }) {
             RailRows {
                 ToggleRow(label: L(.maskEnable), isOn: bind(\.active),
-                          enabled: allowed, reason: L(.reasonPrintEffectsOff))
+                          enabled: allowed, reason: reason)
                 Group {
                     ScrubSlider(label: L(.maskHighlights), value: bind(\.highlights), range: 0...3, snap: 0.25,
                                 format: { String(format: "%.2f", $0) })
@@ -245,7 +250,7 @@ struct ToneMaskSection: View {
                         .fixedSize(horizontal: false, vertical: true)
                 }
                 .rowEnabled(allowed && mask.active,
-                            because: allowed ? "" : L(.reasonPrintEffectsOff))
+                            because: allowed ? "" : reason)
             }
         }
     }

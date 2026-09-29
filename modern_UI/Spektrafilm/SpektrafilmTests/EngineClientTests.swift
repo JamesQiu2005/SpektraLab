@@ -340,8 +340,12 @@ final class EngineClientTests: XCTestCase {
         p.contrastMask.highlights = 2
         p.contrastMask.shadows = 2
         p.contrastMask.core = 0
+        // The engine's field, not the app's switch: the Tone Mask is withdrawn
+        // behind `FeatureFlags.toneMask`, which keeps it off the wire.
+        var delta = p.delta(from: .default).delta
+        delta["contrast_mask_active"] = .bool(true)
         let _: SetParamsResponse = try await client.call(
-            .setParams, SetParamsRequest(sessionID: open.sessionID, paramsDelta: p.delta(from: .default).delta),
+            .setParams, SetParamsRequest(sessionID: open.sessionID, paramsDelta: delta),
             as: SetParamsResponse.self)
         let on = try await client.contrastMaskField(tier: "live")
         XCTAssertFalse(on.isEmpty)

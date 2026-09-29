@@ -358,11 +358,12 @@ final class Renderer: NSObject {
     var layer2 = Layer2Uniforms() { didSet { layer2Dirty = true } }
     /// RFC-028: asked at encode time, so it follows the frame the texture is
     /// of. True for a Digital Intermediate, whose pixels are Cineon codes: the
-    /// layer reads them through the Cineon → ProPhoto table
-    /// (`CineonLUT`), and applies no grade and no mask — a DI is a master,
-    /// and the file it exports is the codes themselves.
-    var layer2Bypass: (() -> Bool)?
-    /// The Cineon → ProPhoto table, made once.
+    /// layer reads them through the DI view (`CineonLUT`) first, and Post-Dev
+    /// then works in ProPhoto exactly as it does on a print.
+    var layer2DecodesCineon: (() -> Bool)?
+    /// Set only inside `applyCineonView`, which decodes whatever the frame is.
+    private var forceCineonDecode = false
+    /// The DI view, the shipped ProPhoto `.cube`, loaded once.
     private lazy var cineonTable: MTLTexture? = CineonLUT.makeTexture(device: device)
     /// The masks, already packed. Set from `Session` whenever the mask list
     /// changes; at most `EditMask.maxCount`.
@@ -536,12 +537,12 @@ final class Renderer: NSObject {
         enc.setTexture(dst, index: 1)
         enc.setTexture(curveTable, index: 2)
         enc.setTexture(maskRasters ?? emptyRasterArray, index: 3)
-        let bypass = layer2Bypass?() ?? false
+        let decode = forceCineonDecode || (layer2DecodesCineon?() ?? false)
         var u = layer2
-        if bypass { u.enabled = 0; u.inputDecode = 1 }
+        u.inputDecode = decode ? 1 : 0
         enc.setTexture(cineonTable, index: 4)
         enc.setBytes(&u, length: MemoryLayout<Layer2Uniforms>.stride, index: 0)
-        var list = bypass ? [] : Array(masks.prefix(EditMask.maxCount))
+        var list = Array(masks.prefix(EditMask.maxCount))
         var count = UInt32(list.count)
         var overlay = maskOverlay
         if list.isEmpty {
@@ -851,6 +852,18 @@ final class Renderer: NSObject {
         cb.commit()
         cb.waitUntilCompleted()
         return dst
+    }
+
+    /// A Digital Intermediate texture (Cineon codes) through the DI view and
+    /// nothing else — no grade, no mask. The DI export's preview page.
+    func applyCineonView(to src: MTLTexture) -> MTLTexture? {
+        var viewOnly = Layer2Uniforms()
+        viewOnly.enabled = 0
+        let savedMasks = masks
+        forceCineonDecode = true
+        masks = []
+        defer { forceCineonDecode = false; masks = savedMasks }
+        return applyLayer2(to: src, uniforms: viewOnly)
     }
 
     /// Apply crop, straighten, quarter turns and flips to a texture at its

@@ -1,11 +1,10 @@
 //  DigitalIntermediateExportTests.swift — RFC-028, the file a DI export writes.
 //
-//  A real frame, developed as a Digital Intermediate, exported as a 16-bit
-//  TIFF. The export is the Cineon master, so: the file is untagged (a profile
-//  would make viewers "correct" the codes), the film base sits on Cineon black
-//  (code 95), the two LUTs are written beside it once, and decoding the file
-//  through the canvas's own table gives a sensible positive — mid tones where
-//  a scene's mid tones are, not log greys.
+//  A real frame on a paper, exported with the Digital Intermediate recipe:
+//  the DI comes out whatever paper is chosen, as the Cineon master — untagged
+//  (a profile would make viewers "correct" the codes), the film base on Cineon
+//  black, the two view LUTs beside it, a mid-range median. The same frame on
+//  the DI, exported as an ordinary TIFF, is its *view*: tagged, like a print.
 
 import ImageIO
 import XCTest
@@ -51,16 +50,15 @@ final class DigitalIntermediateExportTests: XCTestCase {
         var p = session.params
         p.filmStock = "kodak_portra_400"
         session.params = p
-        session.selectDigitalIntermediate()
-        XCTAssertTrue(session.digitalIntermediateActive)
+        XCTAssertFalse(session.digitalIntermediateActive, "the frame starts on a paper")
         session.solveNow()
-        try await waitUntil("the DI to land", timeout: 240) {
+        try await waitUntil("the print to land", timeout: 240) {
             session.serviceSessionIDForExport != nil
                 && session.frameStates[url] == .processed && !session.busy
         }
 
         var recipe = ExportRecipe()
-        recipe.format = .tiff
+        recipe.format = .di
         recipe.folder = .fixed(path: folder.path)
         recipe.subfolder = ""
         recipe.colorSpace = .displayP3
@@ -81,6 +79,7 @@ final class DigitalIntermediateExportTests: XCTestCase {
             XCTAssertTrue(FileManager.default.fileExists(atPath: lut.path), "\(target.fileName) is missing")
         }
         XCTAssertTrue(note?.contains("Cineon") ?? false, "the export page should say what it wrote")
+        XCTAssertTrue(file.lastPathComponent.hasSuffix("_DI.tif"), file.lastPathComponent)
 
         // Untagged, 16 bits.
         let src = try XCTUnwrap(CGImageSourceCreateWithURL(file as CFURL, nil))
@@ -105,5 +104,44 @@ final class DigitalIntermediateExportTests: XCTestCase {
         XCTAssertTrue((250...700).contains(median), "median code \(median) is not a picture's middle")
         let decoded = CineonLUT.decode(median / 1023)
         XCTAssertTrue((0.005...1.0).contains(decoded), "median decodes to \(decoded)")
+    }
+
+    func testADIFrameExportsItsViewLikeAPrint() async throws {
+        let url = try frame()
+        let folder = url.deletingLastPathComponent().appending(path: "view")
+        try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+        let session = Session()
+        session.open(urls: [url])
+        try await waitUntil("the frame to decode", timeout: 120) { session.decoded != nil }
+        try await waitUntil("the engine to warm up", timeout: 120) { session.serviceReady }
+        session.selectDigitalIntermediate()
+        XCTAssertTrue(session.digitalIntermediateActive)
+        session.solveNow()
+        try await waitUntil("the DI to land", timeout: 240) {
+            session.serviceSessionIDForExport != nil
+                && session.frameStates[url] == .processed && !session.busy
+        }
+        var recipe = ExportRecipe()
+        recipe.format = .tiff
+        recipe.folder = .fixed(path: folder.path)
+        recipe.subfolder = ""
+        recipe.colorSpace = .displayP3
+        let context = NamingRule.Context(
+            originalName: url.deletingPathExtension().lastPathComponent,
+            filmStock: session.params.filmStock, printStock: session.params.printStock,
+            pixelSize: CGSize(width: 6000, height: 4000), counter: 1, date: Date())
+        let outcome = try await Exporter.export(
+            session: session, recipe: recipe, context: context,
+            sessionID: try XCTUnwrap(session.serviceSessionIDForExport))
+        guard case .wrote(let files, _, _) = outcome, let file = files.first else {
+            return XCTFail("the export wrote nothing: \(outcome)")
+        }
+        let src = try XCTUnwrap(CGImageSourceCreateWithURL(file as CFURL, nil))
+        let props = CGImageSourceCopyPropertiesAtIndex(src, 0, nil) as? [CFString: Any]
+        XCTAssertEqual(props?[kCGImagePropertyProfileName] as? String, "Display P3",
+                       "the view is a picture, and goes out in the recipe's space")
+        XCTAssertFalse(FileManager.default.fileExists(
+            atPath: folder.appending(path: CineonLUT.Target.proPhoto.fileName).path),
+            "a view export is a print; it carries no LUTs")
     }
 }

@@ -111,30 +111,77 @@ final class DigitalIntermediateTests: XCTestCase {
 
     // MARK: - the Cineon transform
 
-    /// Kodak's reference points, and the table the canvas reads.
+    /// Kodak's reference points.
     func testTheCineonDecodeIsKodaks() {
         XCTAssertEqual(CineonLUT.decode(95 / 1023), 0, accuracy: 1e-12, "reference black is the film base")
         XCTAssertEqual(CineonLUT.decode(685 / 1023), 1, accuracy: 1e-12, "reference white is 1.0")
         // colour-science 0.4.7: log_encoding_Cineon(0.18) = 0.4573196...
         XCTAssertEqual(CineonLUT.decode(0.4573196), 0.18, accuracy: 1e-6)
-        let table = CineonLUT.proPhotoTable()
-        for k in 1..<table.count { XCTAssertGreaterThanOrEqual(table[k], table[k - 1]) }
-        XCTAssertEqual(table.first, 0)
-        XCTAssertEqual(table.last, 1)
     }
 
-    func testTheCubesAreWholeAndAgreeWithTheCanvas() {
-        let text = CineonLUT.cube(.proPhoto, size: 9)
-        let rows = text.split(separator: "\n").filter { $0.first.map { $0.isNumber } ?? false }
-        XCTAssertEqual(rows.count, 9 * 9 * 9)
-        XCTAssertTrue(text.contains("LUT_3D_SIZE 9"))
-        // The grey axis of the ProPhoto cube is the canvas table, entry for entry.
-        let mid = CineonLUT.map(SIMD3(repeating: 0.5), to: .proPhoto)
-        XCTAssertEqual(mid.x, CineonLUT.rommEncode(CineonLUT.decode(0.5)), accuracy: 1e-12)
-        XCTAssertEqual(mid.x, mid.y, accuracy: 1e-12)
-        // Rec.709 keeps a grey grey (the matrix maps white to white).
-        let g = CineonLUT.map(SIMD3(repeating: 0.45), to: .rec709)
-        XCTAssertEqual(g.x, g.y, accuracy: 1e-6); XCTAssertEqual(g.y, g.z, accuracy: 1e-6)
+    /// The DI view's promises: mid grey and everything under the knee are
+    /// untouched, a grey stays grey, the top code lands 1/16 stop under
+    /// white, and it rises all the way (no clip hiding what the file holds).
+    func testTheViewKeepsGreyAndShowsEveryHighlight() {
+        func code(_ linear: Double) -> Double {
+            (685 + 300 * log10(linear * (1 - CineonLUT.blackOffset) + CineonLUT.blackOffset)) / 1023
+        }
+        let greyOut = CineonLUT.view(SIMD3(repeating: code(0.18)), to: .proPhoto)
+        XCTAssertEqual(greyOut.x, CineonLUT.rommEncode(0.18), accuracy: 1e-9, "mid grey moved")
+        XCTAssertEqual(greyOut.x, greyOut.y, accuracy: 1e-12); XCTAssertEqual(greyOut.y, greyOut.z, accuracy: 1e-12)
+        XCTAssertGreaterThanOrEqual(CineonLUT.knee, 0, "the knee must not sit below grey")
+        let top = CineonLUT.tone(CineonLUT.decode(1))
+        XCTAssertEqual(log2(1 / top), CineonLUT.ceilingMargin, accuracy: 1e-6)
+        var last = -1.0
+        for k in 95...1023 {
+            let v = CineonLUT.view(SIMD3(repeating: Double(k) / 1023), to: .proPhoto).x
+            XCTAssertGreaterThan(v, last, "the grey axis flattens at code \(k)"); last = v
+        }
+        // A colour under the knee keeps its linear ratios exactly: hue kept.
+        let c = SIMD3(code(0.10), code(0.18), code(0.05))
+        let o = CineonLUT.view(c, to: .proPhoto)
+        let lin = SIMD3(pow(o.x, 1.8), pow(o.y, 1.8), pow(o.z, 1.8))
+        XCTAssertEqual(lin.x / lin.y, CineonLUT.decode(c.x) / CineonLUT.decode(c.y), accuracy: 1e-9)
+        // A bright colour past white comes back inside with its hue, not
+        // clipped per channel; one at the file's very top goes to white.
+        let hot = CineonLUT.view(SIMD3(0.85, 0.75, 0.65), to: .proPhoto)
+        XCTAssertLessThanOrEqual(hot.max(), 1); XCTAssertGreaterThan(hot.x, hot.y); XCTAssertGreaterThan(hot.y, hot.z)
+        XCTAssertEqual(CineonLUT.view(SIMD3(1, 0.7, 0.5), to: .proPhoto), SIMD3(repeating: 1))
+    }
+
+    /// The shipped files are what this code generates. They are checked on a
+    /// sparse sample (every 97th entry) so the check is quick; set
+    /// `TEST_RUNNER_SPK_REGEN_DI_LUTS=1` on `xcodebuild test` to rewrite them.
+    func testTheShippedViewLUTsAreCurrent() throws {
+        let dir = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent()
+            .appending(path: "Spektrafilm/Resources/DI")
+        if ProcessInfo.processInfo.environment["SPK_REGEN_DI_LUTS"] == "1" {
+            try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+            for t in CineonLUT.Target.allCases {
+                try CineonLUT.cube(t).write(to: dir.appending(path: t.fileName), atomically: true, encoding: .utf8)
+            }
+        }
+        let n = CineonLUT.size
+        for t in CineonLUT.Target.allCases {
+            let text = try String(contentsOf: dir.appending(path: t.fileName), encoding: .utf8)
+            let (size, rgba) = try XCTUnwrap(CineonLUT.parse(text), "\(t.fileName) does not parse")
+            XCTAssertEqual(size, n)
+            for i in stride(from: 0, to: n * n * n, by: 97) {
+                let r = i % n, g = (i / n) % n, b = i / (n * n)
+                let want = CineonLUT.view(SIMD3(Double(r), Double(g), Double(b)) / Double(n - 1), to: t)
+                for c in 0..<3 {
+                    XCTAssertEqual(Double(rgba[4 * i + c]), want[c], accuracy: 2e-6,
+                                   "\(t.fileName) entry \(i) is stale: regenerate the view LUTs")
+                }
+            }
+        }
+    }
+
+    func testTheCanvasLoadsTheShippedView() throws {
+        let gpu = try XCTUnwrap(MTLCreateSystemDefaultDevice())
+        let t = try XCTUnwrap(CineonLUT.makeTexture(device: gpu), "the canvas has no DI view")
+        XCTAssertEqual(t.textureType, .type3D)
+        XCTAssertEqual(t.width, CineonLUT.size)
     }
 
     // MARK: - through the engine

@@ -1568,6 +1568,69 @@ spk_status spk_export_di(spk_session* session, const char* print_stock, spk_resu
     return SPK_OK;
 }
 
+spk_status spk_render_digital_intermediate(spk_session* session, spk_result* out, char** out_json) {
+    if (!session || !out) { g_error = "session or result is null"; return SPK_ERR_INVALID_ARG; }
+    std::lock_guard<std::mutex> guard(session->lock);
+    g_error.clear();
+    std::memset(out, 0, sizeof *out);
+    if (session->params.film.info.is_positive()) {
+        g_error = "a slide film has no orange mask and no negative to reverse, so it has no "
+                  "Digital Intermediate";
+        return SPK_ERR_USER;
+    }
+
+    spk_engine* engine = session->engine;
+    gpu::Gpu* gpu = engine->gpu;
+    const auto started = std::chrono::steady_clock::now();
+    session->progress = Progress{};
+    session->progress.progress_id = "p" + std::to_string(next_id());
+
+    // The session's own negative at full tier (cached when warm), through a
+    // pipeline of its own with the DI switched on -- so the export does not
+    // care which paper the canvas shows, and the session's pipeline and its
+    // cached prints are untouched.
+    Params params = session->params;
+    params.io.digital_intermediate = true;
+    params.io.scan_film = false;
+    gpu->begin_frame();
+    std::string error;
+    Image tier_source, negative, rgb;
+    Pipeline pipeline(gpu, &engine->colour, &engine->blob, &engine->setup_cache);
+    bool ok = tier_image(session, kTiers[2], tier_source, error);
+    if (ok) {
+        const uint32_t edge = std::max(tier_source.h, tier_source.w);
+        const uint32_t frame = std::max(session->source.h, session->source.w);
+        session->pipeline->set_source_long_edge(edge, frame);
+        ok = negative_for(session, kTiers[2], &session->progress, negative, error) &&
+             pipeline.build(params, error);
+        if (ok) {
+            pipeline.set_source_long_edge(edge, frame);
+            ok = (params.settings.striped ? pipeline.run_print_striped(negative, rgb, nullptr, error)
+                                          : pipeline.run_print(negative, rgb, nullptr, error)) &&
+                 gpu->flush(error);
+        }
+    }
+    if (ok) ok = materialise(session, rgb, out, error);
+    gpu->end_frame();
+    if (!ok) { g_error = error; return SPK_ERR_GPU; }
+
+    out->elapsed_ms = std::chrono::duration<double, std::milli>(
+        std::chrono::steady_clock::now() - started).count();
+    out->reprint = 1;
+    out->negative_was_cached = 1;
+    std::snprintf(out->progress_id, sizeof out->progress_id, "%s",
+                  session->progress.progress_id.c_str());
+    session->progress.done = true;
+    if (out_json) {
+        Json reply = Json::object();
+        reply.set("encoding", Json(std::string("cineon")));
+        reply.set("primaries", Json(params.io.output_color_space));
+        reply.set("printing_density_paper", Json(params.di_paper.info.stock));
+        *out_json = dup_json(reply);
+    }
+    return SPK_OK;
+}
+
 spk_status spk_set_params(spk_session* session, const char* params_delta_json, char** out_json) {
     if (!session) { g_error = "session is null"; return SPK_ERR_INVALID_ARG; }
     g_error.clear();

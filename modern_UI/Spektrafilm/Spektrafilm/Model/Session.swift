@@ -910,11 +910,11 @@ final class Session: CanvasHost {
         }
         renderer.onHistogram = { [weak self] h in self?.histogram = h }
         renderer.onViewportChanged = { [weak self] in self?.viewportChanged() }
-        // RFC-028: a Digital Intermediate is a master for grading elsewhere,
-        // and its pixels are Cineon codes rather than a working-space picture,
-        // so neither the Post-Dev grade nor a local mask applies to it -- on
-        // the canvas or in the file (`Exporter.filePixels` does the same).
-        renderer.layer2Bypass = { [weak self] in self?.digitalIntermediateActive ?? false }
+        // RFC-028: a Digital Intermediate's pixels are Cineon codes. The
+        // canvas, Post-Dev and every rendered export read them through the DI
+        // view (`CineonLUT`); only the Digital Intermediate export writes the
+        // codes themselves.
+        renderer.layer2DecodesCineon = { [weak self] in self?.digitalIntermediateActive ?? false }
         renderer.layer2 = sidecar.adjustments.uniforms
         Session.removeLegacyLinearCache()
         if let cache {
@@ -2327,7 +2327,10 @@ final class Session: CanvasHost {
         }
         // RFC-028: a DI's texture holds Cineon codes. The thumbnail and the
         // Navigator show what the canvas shows, through the same table.
-        if digitalIntermediateActive, let decoded = renderer.applyLayer2(to: source) { source = decoded }
+        if digitalIntermediateActive {
+            var viewOnly = Layer2Uniforms(); viewOnly.enabled = 0
+            if let decoded = renderer.applyLayer2(to: source, uniforms: viewOnly) { source = decoded }
+        }
         let box = TextureBox(source)
         Task.detached(priority: .utility) {
             guard let cg = box.texture?.makeCGImage() else { return }

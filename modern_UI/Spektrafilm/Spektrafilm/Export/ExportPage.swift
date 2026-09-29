@@ -942,32 +942,21 @@ struct ExportPage: View {
         }
     }
 
-    /// What a DI package **is**, on the page, because nothing else on it says.
-    ///
-    /// Every other format is a file whose name you recognise. This one is two
-    /// files and a convention, and the pill that selects it says "DI package"
-    /// — which tells someone who already knows exactly what they already knew.
-    /// Both halves matter and neither is guessable: the TIFF is not a picture
-    /// (it is untagged normalised density and looks wrong opened as one), and
-    /// it is only half the export without the cube beside it.
-    ///
-    /// The last line is the **next step**, which is the part a person actually
-    /// needs: these two files are an input to a grading system, not a
-    /// deliverable.
+    /// What the Digital Intermediate **is**, on the page, because nothing else
+    /// on it says (RFC-028). The file is Cineon log, not a picture, and the
+    /// last line is the next step: it is an input to a grading system.
     private var diNote: some View {
         VStack(alignment: .leading, spacing: 2) {
-            Text("Two files: a 16-bit TIFF of normalised film density, untagged, "
-                 + "and the print profile as a 3D .cube LUT, in a folder named for the export.")
-            Text("Next: load both into Resolve, Baselight or Nuke and apply the cube to the "
-                 + "TIFF. Opened on its own the TIFF is density, not a picture.")
+            Text(L("The frame's Digital Intermediate, whatever paper is chosen: the negative with its orange mask removed, as 16-bit Cineon log in ProPhoto primaries, untagged.",
+                   zh: "这张照片的数字中间片，与所选相纸无关：去除橙色色罩的负片，以 ProPhoto 原色的 16 位 Cineon 对数保存，不嵌入色彩配置。"))
+            Text(L("Next: open it in Resolve, Nuke or Photoshop with one of the two view LUTs beside it (to ProPhoto RGB, to Rec.709) — the view the canvas shows.",
+                   zh: "下一步：在 Resolve、Nuke 或 Photoshop 中打开，并套用旁边两个视图 LUT 之一（转 ProPhoto RGB、转 Rec.709），即画布上看到的样子。"))
         }
         .font(F.value).foregroundStyle(Theme.Ink.tertiary)
         .fixedSize(horizontal: false, vertical: true)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .help("The TIFF carries the film's density normalised by the LUT's own axes and is "
-              + "written in device RGB on purpose, so nothing converts the numbers the cube "
-              + "indexes. The cube is the paper's transform, domain 0–1, and it carries a "
-              + "preview page so the package has something a person can look at.")
+        .help(L("Cineon: white 685, black 95 (the film base), 0.002 density per code. The file's second page is the DI view, so it has a picture for whoever opens it. A slide film has no Digital Intermediate.",
+                zh: "Cineon：白点 685，黑点 95（片基），每码值 0.002 密度。文件第二页是数字中间片视图，打开即可看到画面。正片没有数字中间片。"))
     }
 
     /// The bit depth is not a free choice: `ExportFormat` *is* the format and

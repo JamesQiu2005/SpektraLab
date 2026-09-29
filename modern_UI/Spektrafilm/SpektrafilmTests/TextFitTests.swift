@@ -14,8 +14,9 @@ final class TextFitTests: XCTestCase {
 
     // MARK: - names
 
-    /// The built-in recipe shipped as "DI package"; a file still carrying that
-    /// exact name reads with the full one, and a name the user chose is kept.
+    /// The built-in recipe shipped as "DI package", then "Digital
+    /// Intermediate Package"; a file still carrying either exact name reads
+    /// with today's, and a name the user chose is kept.
     func testTheShippedDigitalIntermediateNameIsReadInFull() throws {
         let dir = FileManager.default.temporaryDirectory.appending(path: "spk-textfit-\(UUID().uuidString)")
         try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
@@ -23,12 +24,13 @@ final class TextFitTests: XCTestCase {
         let url = dir.appending(path: "export-recipes.json")
         let recipes = [
             ExportRecipe(name: "DI package", format: .di, colorSpace: .displayP3),
+            ExportRecipe(name: "Digital Intermediate Package", format: .di, colorSpace: .displayP3),
             ExportRecipe(name: "DI package", format: .jpeg, colorSpace: .displayP3),
             ExportRecipe(name: "My DI package", format: .di, colorSpace: .displayP3),
         ]
         try JSONEncoder().encode(recipes).write(to: url)
         let names = ExportRecipeStore(url: url).recipes.map(\.name)
-        XCTAssertEqual(names, ["Digital Intermediate Package", "DI package", "My DI package"])
+        XCTAssertEqual(names, ["Digital Intermediate", "Digital Intermediate", "DI package", "My DI package"])
     }
 
     // MARK: - Settings in Chinese

@@ -17,7 +17,7 @@ struct ClipboardSection: View {
     var body: some View {
         PanelSection(L(.sectionClipboard), key: "clipboard", initiallyExpanded: false) {
             RailRows {
-                ForEach(ClipboardGroup.allCases) { group in
+                ForEach(ClipboardGroup.offered) { group in
                     ToggleRow(label: group.title,
                               isOn: Binding(get: { session.clipboardGroups.contains(group) },
                                             set: { on in

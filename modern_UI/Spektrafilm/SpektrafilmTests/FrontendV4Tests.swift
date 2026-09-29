@@ -27,7 +27,8 @@ final class FrontendV4Tests: XCTestCase {
         let back = Dictionary(uniqueKeysWithValues: p.wire.map { ($0.name, $0.value) })
         XCTAssertEqual(back["glare_active"], .bool(true))
         XCTAssertEqual(back["preflash_exposure"], .double(0.01))
-        XCTAssertEqual(back["contrast_mask_active"], .bool(true))
+        XCTAssertEqual(back["contrast_mask_active"], .bool(FeatureFlags.toneMask),
+                       "withdrawn behind its flag, the mask stays off the wire")
     }
 
     /// A sidecar from before the switch reads as on, and the default wire is

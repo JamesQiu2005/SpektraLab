@@ -130,6 +130,9 @@ class Engine:
         lib.spk_preview_stock_lut.argtypes = [ctypes.c_void_p, ctypes.c_char_p, ctypes.c_char_p,
                                               ctypes.POINTER(SpkResult),
                                               ctypes.POINTER(ctypes.c_char_p)]
+        lib.spk_render_digital_intermediate.restype = ctypes.c_int32
+        lib.spk_render_digital_intermediate.argtypes = [ctypes.c_void_p, ctypes.POINTER(SpkResult),
+                                                        ctypes.POINTER(ctypes.c_char_p)]
         lib.spk_export_di.restype = ctypes.c_int32
         lib.spk_export_di.argtypes = [ctypes.c_void_p, ctypes.c_char_p,
                                       ctypes.POINTER(SpkResult),
@@ -304,6 +307,14 @@ class Session:
         if self._engine._lib.spk_export_di(self._handle,
                                            print_stock.encode() if print_stock else None,
                                            ctypes.byref(result), ctypes.byref(out)) != SPK_OK:
+            raise EngineError(self._engine._last_error())
+        return self._take_result(result), self._engine._take_json(out)
+
+    def render_digital_intermediate(self) -> tuple[np.ndarray, dict]:
+        """RFC-028: the frame's DI (Cineon log), full tier, whatever the paper."""
+        result, out = SpkResult(), ctypes.c_char_p()
+        if self._engine._lib.spk_render_digital_intermediate(self._handle, ctypes.byref(result),
+                                                             ctypes.byref(out)) != SPK_OK:
             raise EngineError(self._engine._last_error())
         return self._take_result(result), self._engine._take_json(out)
 

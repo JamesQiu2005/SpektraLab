@@ -100,7 +100,7 @@ enum S: String, CaseIterable, Sendable {
     case statusEDRScope, statusRightRailWBScope
     case reasonDecodeWBDisabled, reasonNonCustomSideLength, reasonEffectOff
     case reasonPositiveFilmDisablesPaper, reasonEDRDisabledInScanFilm
-    case reasonDisabledInDigitalIntermediate
+    case reasonDisabledInDigitalIntermediate, reasonPlacementInDigitalIntermediate
 
     // MARK: the Settings page's Language section
     case setLanguage, setLanguageCaption, languageFollowSystem
@@ -371,7 +371,9 @@ extension S {
         case .reasonEDRDisabledInScanFilm:
             "Extended Dynamic Range applies to selected print profiles."
         case .reasonDisabledInDigitalIntermediate:
-            "The Digital Intermediate has no paper, so print effects and EDR do not apply."
+            "The Digital Intermediate has no paper, so print effects, the Tone Mask and EDR do not apply."
+        case .reasonPlacementInDigitalIntermediate:
+            "Scene Placement fits a scene into a paper's range. The Digital Intermediate keeps the film's whole range."
 
         // Settings ▸ Language
         case .setLanguage: "Language"
@@ -609,7 +611,8 @@ extension S {
         case .reasonEffectOff: "开启该效果后可调节强度。"
         case .reasonPositiveFilmDisablesPaper: "正片无需相纸印相。选择负片后可使用相纸配置。"
         case .reasonEDRDisabledInScanFilm: "扩展动态范围仅适用于相纸印相。"
-        case .reasonDisabledInDigitalIntermediate: "数字中间片没有相纸，印相效果与扩展动态范围不适用。"
+        case .reasonDisabledInDigitalIntermediate: "数字中间片没有相纸，印相效果、影调蒙版与扩展动态范围不适用。"
+        case .reasonPlacementInDigitalIntermediate: "场景置位是把场景放进相纸的宽容度里。数字中间片保留胶片的全部宽容度。"
 
         // Settings ▸ Language
         case .setLanguage: "语言"

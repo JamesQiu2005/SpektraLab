@@ -49,12 +49,11 @@ private let colorSyncRGBSignature = kColorSyncSigRgbData.takeUnretainedValue() a
 extension ExportFormat: Codable {}
 
 extension ExportFormat {
-    /// Whether a colour space can be chosen at all. The DI package is
-    /// normalised film density with a `.cube` beside it indexing exactly
-    /// those numbers — tagging it with a rendering space invites whatever
-    /// opens it to convert the values and move the cube's domain out from
-    /// under it (`Exporter.exportDI`). So the choice is withheld rather than
-    /// offered and ignored.
+    /// Whether a colour space can be chosen at all. The Digital Intermediate
+    /// is Cineon log in ProPhoto primaries, untagged, with the view LUTs
+    /// beside it — a rendering space would invite whatever opens it to
+    /// convert the codes (`Exporter.exportDigitalIntermediate`). So the choice
+    /// is withheld rather than offered and ignored.
     var takesColorSpace: Bool { self != .di }
     /// Whether this container can hold a preview beside the picture.
     ///
@@ -88,7 +87,7 @@ extension ExportFormat {
 
     /// The format that writes `depth` bits, when `format` has a counterpart at
     /// that depth. Only PNG and TIFF differ by depth and only from each other:
-    /// JPEG has no 16-bit form, the DI package is one thing at one depth, and
+    /// JPEG has no 16-bit form, the Digital Intermediate is one thing at one depth, and
     /// asking a format for the depth it already has is not a move. `nil` in
     /// all of those, which is what `depthIsChoosable` says in advance.
     static func withDepth(_ depth: Int, like format: ExportFormat) -> ExportFormat? {
@@ -611,21 +610,16 @@ struct ExportRecipe: Codable, Identifiable, Hashable, Sendable {
     /// able to *name* the file — and so does anything describing a destination
     /// before deciding to write one.
     ///
-    /// **The DI package gets a folder of its own**, named for the export, and
-    /// the rule lives here rather than in `Exporter` so that the exists-check,
-    /// the job log and the written files all agree on where the package is.
-    /// Two reasons, and the second is why it is not merely tidy:
-    ///
-    ///  * a package is one artifact in two files. The `.cube`'s domain *is*
-    ///    the density TIFF's numbers, so they travel together or they are
-    ///    worthless apart;
-    ///  * a DI TIFF and a finished TIFF are the **same filename** — same stem,
-    ///    same `.tif` — so `_prints/` used to hold both only by luck. The
-    ///    folder is what makes that collision impossible rather than unlikely.
+    /// **A Digital Intermediate is `<stem>_DI.tif`**, beside the recipe's
+    /// other files, and the rule lives here rather than in `Exporter` so the
+    /// exists-check, the job log and the written file agree. A DI TIFF and a
+    /// finished TIFF would otherwise be the same filename; the suffix makes the
+    /// collision impossible, and keeping DIs in one folder lets that folder
+    /// carry one pair of view LUTs (`CineonLUT.copyBeside`).
     func destinationPath(for source: URL, context: NamingRule.Context, stem: String) -> URL {
         let dir = directory(for: source)
         guard format == .di else { return dir.appending(path: "\(stem).\(format.ext)") }
-        return dir.appending(path: stem).appending(path: "\(stem).\(format.ext)")
+        return dir.appending(path: "\(stem)_DI.\(format.ext)")
     }
 
     /// The full destination, honouring `existing`. Returns `nil` only for
@@ -691,12 +685,13 @@ struct ExportRecipe: Codable, Identifiable, Hashable, Sendable {
         return (CGColorSpace(name: CGColorSpace.displayP3), true)
     }
 
-    /// The built-in digital intermediate recipe's name. It shipped as
-    /// "DI package"; a file still carrying that exact built-in name is read
-    /// with this one (`RecipeStore.load`), and a name the user chose is never
-    /// touched.
-    static let digitalIntermediateName = "Digital Intermediate Package"
-    static let legacyDigitalIntermediateName = "DI package"
+    /// The built-in Digital Intermediate recipe's name (RFC-028). It shipped
+    /// as "DI package" and then "Digital Intermediate Package", when the
+    /// format was the negative plus a paper `.cube`; a file still carrying
+    /// either exact built-in name is read with this one (`RecipeStore.load`),
+    /// and a name the user chose is never touched.
+    static let digitalIntermediateName = "Digital Intermediate"
+    static let legacyDigitalIntermediateNames = ["DI package", "Digital Intermediate Package"]
 
     static let defaults: [ExportRecipe] = [
         ExportRecipe(name: "JPEG — Display P3", format: .jpeg, colorSpace: .displayP3),
@@ -765,7 +760,7 @@ final class ExportRecipeStore {
             let data = try Data(contentsOf: url)
             let decoded = try JSONDecoder().decode([ExportRecipe].self, from: data).map { r in
                 var r = r
-                if r.format == .di, r.name == ExportRecipe.legacyDigitalIntermediateName {
+                if r.format == .di, ExportRecipe.legacyDigitalIntermediateNames.contains(r.name) {
                     r.name = ExportRecipe.digitalIntermediateName
                 }
                 return r

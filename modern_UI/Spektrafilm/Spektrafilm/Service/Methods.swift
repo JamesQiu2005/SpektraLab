@@ -284,22 +284,17 @@ struct ExportRequest: Encodable, Sendable {
     enum CodingKeys: String, CodingKey { case sessionID = "session_id", format, bitDepth = "bit_depth", output }
 }
 
-/// `export_di`'s reply, pixels aside.
-///
-/// The three files are the client's business now, so no paths cross: the
-/// engine returns the normalised-density picture as a texture and the LUT as
-/// a pointer (`spk_print_lut_table`), and `Exporter` writes the TIFF, the
-/// `.cube` and the optional print preview from those.
-struct ExportDIResponse: Decodable, Sendable {
-    let printStock: String
-    let lutSize: Int
-    let pairedFilm: String
-    let declaredPairing: Bool
-    let warning: String?
+/// `spk_render_digital_intermediate`'s reply, pixels aside (RFC-028).
+struct DigitalIntermediateResponse: Decodable, Sendable {
+    /// Always "cineon": Kodak's log, white 685, black 95 (the film base).
+    let encoding: String
+    /// The working primaries the log is in (ProPhoto RGB).
+    let primaries: String
+    /// The paper whose sensitivity defines the printing density read.
+    let printingDensityPaper: String
     enum CodingKeys: String, CodingKey {
-        case warning
-        case printStock = "print_stock", lutSize = "lut_size"
-        case pairedFilm = "paired_film", declaredPairing = "declared_pairing"
+        case encoding, primaries
+        case printingDensityPaper = "printing_density_paper"
     }
 }
 
@@ -316,7 +311,8 @@ struct ServiceError: Error, Decodable, Sendable, CustomStringConvertible {
 enum Method: String, Sendable {
     case capabilities, paramsSchema = "params_schema", open, getParams = "get_params"
     case setParams = "set_params", solve, previewRender = "preview_render", reprint, export
-    case previewStockLUT = "preview_stock_lut", progress, cancel, exportDI = "export_di"
+    case previewStockLUT = "preview_stock_lut", progress, cancel
+    case digitalIntermediate = "digital_intermediate"
     /// `close` is deliberately absent: the engine has a `close()` but it is
     /// not dispatchable over the wire, and a `Method` case for it would be a
     /// call that always fails.
