@@ -30,20 +30,16 @@ struct WhiteBalanceSection: View {
         PanelSection(L(.sectionWhiteBalance), key: "wb2", initiallyExpanded: false, menu: { AnyView(Button(L(.helpReset)) {
             var a = session.adjustments; a.temperature = 0; a.tint = 0; session.adjustments = a }) }, metrics: .right) {
             RailRows {
-                // **Temp. and Tint stay English, and are not the Camera
-                // pair.** `design/LOCALIZATION-zh-Hans.md` lists 色温 once, for
-                // the decode block in Camera, and its prose is explicit that
-                // two stages must not share a name — which is the rule the
-                // comment above already follows for them. Wiring these to
-                // `cameraTemperature`/`cameraTint` would give the print stage
-                // the decode stage's name in Chinese. This is a known boundary
-                // of the spec's scope, not an oversight: its last section says
-                // the main editor's tables are not a whole language pack, and
-                // keys for these are a copy decision rather than a lookup.
-                ScrubSlider(label: "Temp.", value: adj(\.temperature), range: -100...100, snap: 5,
+                // **Not the Camera pair.** `design/LOCALIZATION-zh-Hans.md`
+                // gives 色温 / 色调 to the decode block in Camera and says two
+                // stages must not share a name, so these are their own pairs
+                // (1.2.2): 色温偏移 / 色调偏移, because this white balance is
+                // an offset on the finished print. They used to stay English,
+                // which a Chinese user then saw in the middle of the rail.
+                ScrubSlider(label: L("Temp.", zh: "色温偏移"), value: adj(\.temperature), range: -100...100, snap: 5,
                             format: { String(format: "%+.0f", $0) },
                             trackGradient: [Color(hex: 0x005982), Color(hex: 0x8FA83C), Color(hex: 0xFFF100)])
-                ScrubSlider(label: "Tint", value: adj(\.tint), range: -100...100, snap: 5,
+                ScrubSlider(label: L("Tint", zh: "色调偏移"), value: adj(\.tint), range: -100...100, snap: 5,
                             format: { String(format: "%+.0f", $0) },
                             trackGradient: [Color(hex: 0x00A93A), Color(hex: 0x8AA45E), Color(hex: 0xE4007F)])
                 // The other white balance in this window is the decode block
@@ -69,10 +65,10 @@ struct ExposureSection: View {
             session.adjustments = a }) }, metrics: .right) {
             RailRows {
                 // The slider is `Exposure`, which the spec does not list — it
-                // gives the *section* that name (曝光). Same boundary as Temp.
-                // and Tint above: it would need its own key, because the spec
-                // forbids collapsing two strings that share a spelling.
-                ScrubSlider(label: "Exposure", value: adj(\.exposure), range: -3...3, snap: 0.25, format: { String(format: "%+.2f", $0) })
+                // gives the *section* that name (曝光). Its own pair, not the
+                // section's key: the spec forbids collapsing two strings that
+                // share a spelling, not two that share a translation.
+                ScrubSlider(label: L("Exposure", zh: "曝光"), value: adj(\.exposure), range: -3...3, snap: 0.25, format: { String(format: "%+.2f", $0) })
                 ScrubSlider(label: L(.exposureContrast), value: adj(\.contrast), range: -50...50, snap: 5, format: { String(format: "%+.0f", $0) })
                 ScrubSlider(label: L(.exposureBrightness), value: adj(\.brightness), range: -50...50, snap: 5, format: { String(format: "%+.0f", $0) })
                 ScrubSlider(label: L(.exposureSaturation), value: adj(\.saturation), range: -100...100, snap: 5, format: { String(format: "%+.0f", $0) })

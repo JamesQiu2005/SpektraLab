@@ -205,11 +205,16 @@ struct UnitField: View {
 /// plate. It follows a cinema film stock in the list and a cine format in the
 /// Film Type pill.
 struct CinePill: View {
+    /// On a selected list row: the row's near-black ink, as the name beside
+    /// it takes, instead of the accent on white.
+    var inverted = false
+
     var body: some View {
+        let ink = inverted ? Theme.onSelection : Theme.accent
         Text("CINE")
             .font(Theme.Font.cine)
-            .foregroundStyle(Theme.accent)
+            .foregroundStyle(ink)
             .frame(width: Theme.Metric.cinePill.width, height: Theme.Metric.cinePill.height)
-            .overlay(Capsule().stroke(Theme.accent, lineWidth: 1))
+            .overlay(Capsule().stroke(ink, lineWidth: 1))
     }
 }

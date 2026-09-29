@@ -107,9 +107,14 @@ struct ScrubSlider: View {
             if let sublabelView {
                 sublabelView.frame(height: Theme.Metric.subRowHeight, alignment: .leading)
             } else if let sublabel {
+                // Wraps, never widens the row (1.2.2). This line carries
+                // messages as well as units — Scene Placement's refusal is a
+                // sentence — and a `.fixedSize()` sentence made the whole
+                // Parameters rail wider than the window, pushing every value
+                // off its right edge (reported from Xiaohongshu, 2026-09-30).
                 Text(sublabel).font(Theme.Font.sublabel).foregroundStyle(Theme.Ink.tertiary)
-                    .fixedSize()
-                    .frame(height: Theme.Metric.subRowHeight, alignment: .leading)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .frame(maxWidth: .infinity, minHeight: Theme.Metric.subRowHeight, alignment: .leading)
             }
         }
         .rowEnabled(!disabled)

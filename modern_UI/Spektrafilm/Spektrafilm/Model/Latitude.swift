@@ -56,10 +56,39 @@ final class LatitudeModel {
         reply = nil; frame = nil; refusal = nil; failure = nil
     }
 
-    /// The side a refusal is about, so each row shows only its own.
+    /// The side a refusal is about, so each row shows only its own, in the
+    /// interface's language (1.2.2). The engine's own sentence is English and
+    /// speaks of "the medium"; the row says what to do and names the number
+    /// the dimmed stretch of the slider already shows. A code this table does
+    /// not know falls back to the engine's words rather than to nothing.
     func refusalMessage(for side: String) -> String? {
         guard let refusal, refusal.side == side || refusal.side == "both" else { return nil }
-        return refusal.message
+        let top = side != "shadow"
+        switch refusal.code {
+        case "pull_back_below_minimum":
+            let minimum = top ? reply?.fit.highlight.minimumPullBack : reply?.fit.shadow.minimumPullBack
+            if let minimum, minimum > 0 {
+                let n = String(format: "%.2f", minimum)
+                return top
+                    ? L("Pull back more than \(n) stops: any less still puts the scene's brightest part past the latitude's edge.",
+                        zh: "回拉需大于 \(n) 档，否则场景最亮处仍在宽容度边界之外。")
+                    : L("Pull back more than \(n) stops: any less still puts the scene's darkest part past the latitude's edge.",
+                        zh: "回拉需大于 \(n) 档，否则场景最暗处仍在宽容度边界之外。")
+            }
+            return top
+                ? L("Pull back further: the scene's brightest part is still past the latitude's edge.",
+                    zh: "回拉不足，场景最亮处仍在宽容度边界之外。")
+                : L("Pull back further: the scene's darkest part is still past the latitude's edge.",
+                    zh: "回拉不足，场景最暗处仍在宽容度边界之外。")
+        case "pull_back_exceeds_max_lift":
+            return L("Pull back less: this is past the most the shadows can be lifted.",
+                     zh: "回拉过多，已超出阴影可提升的上限。")
+        case "knees_cross":
+            return L("The highlight and shadow curves would cross: pull back less on one side.",
+                     zh: "高光与阴影的曲线会交叉，请减少其中一侧的回拉。")
+        default:
+            return refusal.message
+        }
     }
 }
 

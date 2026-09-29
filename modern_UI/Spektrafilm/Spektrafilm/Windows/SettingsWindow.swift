@@ -740,7 +740,7 @@ struct SettingsGroup<Content: View>: View {
                     .font(Theme.Font.caption.weight(.semibold))
                     .foregroundStyle(Theme.dim)
                     .fixedSize()
-                Hairline().opacity(0.35)
+                Hairline()
             }
             .padding(.horizontal, Theme.Metric.rowInset)
             .padding(.top, 4)

@@ -149,7 +149,7 @@ struct CropSection: View {
         let out = g.outputSize(for: size)
         let w = Int((out.width * scale).rounded()), h = Int((out.height * scale).rounded())
         let mp = Double(w * h) / 1_000_000
-        return g.isIdentity ? "\(w) × \(h)  ·  full frame"
+        return g.isIdentity ? "\(w) × \(h)  ·  " + L("full frame", zh: "未裁剪")
                             : String(format: "%d × %d  ·  %.1f MP", w, h, mp)
     }
 

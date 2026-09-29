@@ -17,7 +17,7 @@
 //  The sections are separated by `SectionDivider`, so the user can give any
 //  of them more or less of the rail; Settings ▸ Reset All Layout undoes it.
 //  `sidebar.right` moved to the top bar with v4, which leaves this header to
-//  the name and the tabs as drawn.
+//  the name and, under it, the switch between the two tabs (1.2.2).
 
 import SwiftUI
 
@@ -31,8 +31,6 @@ struct RightPanel: View {
     @Bindable var session: Session
     @AppStorage(Session.uiKey + "parametersTab") private var tabRaw = ParametersTab.preDev.rawValue
     private var tab: ParametersTab { ParametersTab(rawValue: tabRaw) ?? .preDev }
-    /// The header's content width, measured; drives `headerShape`.
-    @State private var headerWidth: CGFloat = 0
 
     var body: some View {
         VStack(spacing: 0) {
@@ -69,90 +67,40 @@ struct RightPanel: View {
         .railCard()
     }
 
-    /// The rail's name and its two tabs, laid out by arithmetic on the rail's
-    /// real width (2026-09-28). Neither the tabs nor the name may shrink or
-    /// truncate, so the header takes the first of three shapes that fits:
-    /// one row; the name beside the two tabs stacked; the name over the tabs
-    /// stacked. `ViewThatFits` was tried and misjudged the second by a few
-    /// points, falling through to the third on a rail where the second fits.
+    /// The rail's name, and under it the Pre-Dev / Post-Dev switch (1.2.2).
+    ///
+    /// The user chose this place — the row under the name, which the header
+    /// used to fall back to only when the rail was too narrow for one row —
+    /// and option A for the drawing: one segmented switch across the rail
+    /// (`SegmentedSwitch`). The name and the switch are one header block, so
+    /// no rule runs between them; the one below closes the header. There is
+    /// no width arithmetic any more: two equal halves of the rail hold either
+    /// language's titles at any interface scale.
     private var header: some View {
-        Group {
-            switch headerShape {
-            case .row:
-                HStack(spacing: Theme.Metric.tabGap) {
-                    title.padding(.trailing, Theme.Metric.tabLeadingGap - Theme.Metric.tabGap)
-                    tabs
-                    Spacer(minLength: 0)
-                }
+        VStack(alignment: .leading, spacing: 0) {
+            Text(L(.railParameters))
+                .font(Theme.Font.railTitle)
+                .foregroundStyle(Theme.text)
+                .fixedSize()
                 .frame(height: Theme.Metric.panelHeaderHeight)
-            case .beside:
-                HStack(spacing: Self.besideGap) {
-                    title
-                    VStack(alignment: .leading, spacing: 4) { tabs }
-                    Spacer(minLength: 0)
-                }
-                .padding(.vertical, 7)
-            case .stacked:
-                VStack(alignment: .leading, spacing: 4) {
-                    title.frame(height: Theme.Metric.panelHeaderHeight - 8, alignment: .bottom)
-                    tabs
-                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+                // The same drag surface the left rail's header is: with the
+                // titlebar hidden this row is where one would be.
+                .background(WindowDragHandle())
+            SegmentedSwitch(options: ParametersTab.allCases,
+                            selection: Binding(get: { tab }, set: { tabRaw = $0.rawValue }),
+                            title: { $0.title },
+                            marked: { $0 == .postDev && postDevEdited },
+                            markHelp: L("The grade is not neutral.", zh: "调色不是中性的。"))
                 .padding(.bottom, 8)
-            }
         }
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .background(GeometryReader { g in
-            Color.clear
-                .onAppear { headerWidth = g.size.width }
-                .onChange(of: g.size.width) { _, w in headerWidth = w }
-        })
         .padding(.leading, Theme.Metric.rowInset)
         .padding(.trailing, Theme.Metric.panelHeaderTrailing)
-        // The same drag surface the left rail's header is: with the titlebar
-        // hidden this row is where one would be.
-        .background(WindowDragHandle())
     }
 
-    enum HeaderShape { case row, beside, stacked }
-    static let besideGap: CGFloat = 6
-    static let tabPadding: CGFloat = 5
-
-    /// Which shape fits `headerWidth`, from the strings' own widths.
-    private var headerShape: HeaderShape {
-        let titleWidth = Theme.textWidth(L(.railParameters), size: 12)
-        let tabWidth = ParametersTab.allCases
-            .map { max(Theme.textWidth($0.title, size: 12) + 2 * Self.tabPadding, Theme.Metric.tabSize.width) }
-            .max() ?? 0
-        // Before the first measurement, assume the rail's standard width.
-        let available = headerWidth > 0 ? headerWidth
-            : Theme.Metric.rightPanelWidth - Theme.Metric.rowInset - Theme.Metric.panelHeaderTrailing
-        if titleWidth + Theme.Metric.tabLeadingGap + 2 * tabWidth + Theme.Metric.tabGap <= available { return .row }
-        if titleWidth + Self.besideGap + tabWidth <= available { return .beside }
-        return .stacked
-    }
-
-    private var title: some View {
-        Text(L(.railParameters))
-            .font(Theme.Font.railTitle)
-            .foregroundStyle(Theme.text)
-            .fixedSize()
-    }
-
-    @ViewBuilder private var tabs: some View {
-        ForEach(ParametersTab.allCases) { t in
-            Button { tabRaw = t.rawValue } label: {
-                Text(t.title)
-                    .font(Theme.Font.railTitle)
-                    .foregroundStyle(t == tab ? Theme.accent : Theme.Ink.tertiary)
-                    .fixedSize()
-                    .padding(.horizontal, Self.tabPadding)
-                    .frame(minWidth: Theme.Metric.tabSize.width)
-                    .frame(height: max(Theme.Metric.tabSize.height, Theme.lineHeight(size: 12) + 2))
-                    .overlay(Capsule().stroke(t == tab ? Theme.accent : Theme.Ink.tertiary.opacity(0.6),
-                                              lineWidth: 1))
-                    .contentShape(Capsule())
-            }
-            .buttonStyle(.plain)
-        }
+    /// Post-Dev is out of sight most of the time, and it changes every file;
+    /// the switch says when it is not the identity.
+    private var postDevEdited: Bool {
+        session.adjustments.enabled && !session.adjustments.isNeutral
     }
 }

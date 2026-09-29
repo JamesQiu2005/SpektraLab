@@ -22,10 +22,10 @@ struct FilmSection: View {
         PanelSection(L(.sectionFilm), key: "film",
                      // The reset arrow's scope is a *named* stock, and a film
                      // name is a profile name — the spec keeps those as they
-                     // are. Left in English on purpose, and it is not
-                     // `helpResetFilmExposure`: this resets the stock, that
-                     // one resets the exposure.
-                     action: SectionAction(help: "Reset the film stock to Portra 400") {
+                     // are, so only the sentence around it is translated. It
+                     // is not `helpResetFilmExposure`: this resets the stock,
+                     // that one resets the exposure.
+                     action: SectionAction(help: L("Reset the film stock to Portra 400", zh: "将胶片重置为 Portra 400")) {
                          var p = session.params; p.filmStock = "kodak_portra_400"; session.params = p
                          session.applyFilmStageRule()
                      },
@@ -62,7 +62,7 @@ struct FilmSection: View {
         // The header's arrow is this item; both say the same thing in words,
         // which is the point of §8.3 — a reset affordance whose scope is not
         // named is the ellipsis problem again.
-        Button("Reset the film stock to Portra 400") {
+        Button(L("Reset the film stock to Portra 400", zh: "将胶片重置为 Portra 400")) {
             var p = session.params; p.filmStock = "kodak_portra_400"; session.params = p
             session.applyFilmStageRule()
         }
@@ -194,7 +194,7 @@ struct StockRow: View {
                 // Professional Endura Pr…".
                 .fixedSize(horizontal: false, vertical: true)
             Spacer(minLength: 0)
-            if row.isCine { CinePill().padding(.trailing, Theme.Metric.cinePillTrailing) }
+            if row.isCine { CinePill(inverted: selected).padding(.trailing, Theme.Metric.cinePillTrailing) }
         }
         // The text sits inside the capsule, not flush with it: v3 puts the
         // capsule's leading edge at 16.79 and the glyphs at 21.33.

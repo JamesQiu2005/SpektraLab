@@ -124,7 +124,8 @@ struct SectionDivider: View {
                             }
                         }
                     )
-                    .help("Drag to resize the section above. Double-click to return it to its own height.")
+                    .help(L("Drag to resize the section above. Double-click to return it to its own height.",
+                             zh: "拖动以调整上方分区的高度；双击恢复它原本的高度。"))
             }
             .zIndex(1)
     }

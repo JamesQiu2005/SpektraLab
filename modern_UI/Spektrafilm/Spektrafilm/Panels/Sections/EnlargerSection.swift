@@ -24,16 +24,16 @@ struct EnlargerSection: View {
                      action: SectionAction(help: L(.helpResetEnlarger)) { reset() },
                      menu: { AnyView(menu) }) {
             RailRows {
-                ScrubSlider(label: "Brightness", sublabel: "stops",
+                ScrubSlider(label: L("Brightness", zh: "亮度"), sublabel: L("stops", zh: "档"),
                             value: Binding(get: { session.params.printBrightnessStops },
                                            set: { var p = session.params; p.printBrightnessStops = $0; session.params = p }),
                             range: -3...3, snap: 0.25, format: { String(format: "%+.2f", $0) })
-                ScrubSlider(label: "Yellow", sublabel: "← blue",
+                ScrubSlider(label: L("Yellow", zh: "黄"), sublabel: L("← blue", zh: "← 蓝"),
                             value: Binding(get: { session.params.yFilterShift },
                                            set: { var p = session.params; p.yFilterShift = $0; session.params = p }),
                             range: -1...1, snap: 0.05, format: { String(format: "%+.2f", $0) },
                             trackGradient: [Color(hex: 0x6F7FB0), Color(hex: 0x8A8A8A), Color(hex: 0xB8A860)])
-                ScrubSlider(label: "Magenta", sublabel: "← green",
+                ScrubSlider(label: L("Magenta", zh: "品红"), sublabel: L("← green", zh: "← 绿"),
                             value: Binding(get: { session.params.mFilterShift },
                                            set: { var p = session.params; p.mFilterShift = $0; session.params = p }),
                             range: -1...1, snap: 0.05, format: { String(format: "%+.2f", $0) },

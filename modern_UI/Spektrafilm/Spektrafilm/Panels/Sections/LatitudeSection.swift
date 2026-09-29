@@ -84,23 +84,34 @@ struct LatitudeSection: View {
         }
     }
 
+    /// Label and value as **one run of text with a real space** (1.2.2). They
+    /// were two views 3 pt apart, a gap that did not grow with the interface
+    /// scale, so at 130 % "Below2.9 %" read as one word. One run also shares
+    /// one baseline and wraps rather than truncates on a narrow rail.
     private func share(_ label: String, _ v: Double, warn: Bool) -> some View {
-        HStack(spacing: 3) {
-            Text(label).font(Theme.Font.meta).foregroundStyle(Theme.Ink.tertiary)
-            Text(String(format: "%.1f %%", v * 100))
-                .font(Theme.Font.value)
-                .foregroundStyle(warn && v >= 0.005 ? Theme.accent : Theme.text)
-        }
-        .lineLimit(1)
+        let value = Text(String(format: "%.1f %%", v * 100))
+            .font(Theme.Font.value)
+            .foregroundStyle(warn && v >= 0.005 ? Theme.accent : Theme.text)
+        return Text("\(Text(label).font(Theme.Font.meta).foregroundStyle(Theme.Ink.tertiary)) \(value)")
+            .fixedSize(horizontal: false, vertical: true)
     }
 
+    /// Wraps only at the " · " between its parts (1.2.2). Each part is made
+    /// unbreakable — no-break spaces, and a word joiner between characters so
+    /// Chinese does not break inside 完整层次 either — so a narrow rail never
+    /// leaves "−2.52" on one line and "– +1.79" on the next.
     private func summary(_ r: LatitudeReadout) -> String {
-        var s = String(format: "%.2f %@ · %@ – %@", r.highlightEV - r.shadowEV, L(.latitudeHeld),
-                       Self.stops(r.shadowEV), Self.stops(r.highlightEV))
+        var parts = [String(format: "%.2f %@", r.highlightEV - r.shadowEV, L(.latitudeHeld)),
+                     "\(Self.stops(r.shadowEV)) – \(Self.stops(r.highlightEV))"]
         if let c = r.core {
-            s += " · \(L(.latitudeFullSeparation)) \(Self.stops(c.lowerBound)) – \(Self.stops(c.upperBound))"
+            parts.append("\(L(.latitudeFullSeparation)) \(Self.stops(c.lowerBound)) – \(Self.stops(c.upperBound))")
         }
-        return s
+        return parts.map(Self.unbreakable).joined(separator: " · ")
+    }
+
+    static func unbreakable(_ s: String) -> String {
+        s.replacingOccurrences(of: " ", with: "\u{00A0}")
+            .map(String.init).joined(separator: "\u{2060}")
     }
 
     static func stops(_ v: Double) -> String {
@@ -199,8 +210,14 @@ struct LatitudePlot: View {
                            style: StrokeStyle(lineWidth: 0.75, dash: [2, 1.5]))
                 let label = ctx.resolve(Text(LatitudeSection.stops(ev)).font(Theme.Font.meta)
                     .foregroundStyle(Theme.secondaryText))
-                ctx.draw(label, at: CGPoint(x: x(ev) + (leading ? -3 : 3), y: 2),
-                         anchor: leading ? .topTrailing : .topLeading)
+                // Outside the line, unless that would run past the plot's
+                // edge — a boundary near −8 or +8 put "−6.94" half off the
+                // rail (1.2.2) — in which case it flips to the line's inside.
+                let w = label.measure(in: size).width
+                let outside = leading ? x(ev) - 3 - w >= 2 : x(ev) + 3 + w <= size.width - 2
+                let before = leading == outside
+                ctx.draw(label, at: CGPoint(x: x(ev) + (before ? -3 : 3), y: 2),
+                         anchor: before ? .topTrailing : .topLeading)
             }
 
             // The axis: stops from the metered mid-grey.

@@ -87,16 +87,17 @@ struct PrintProfileSection: View {
         // A third "Positive" header, and a different string from the film
         // list's Positive: this one heads the paper list when the film is a
         // slide. The spec lists Positive as a *film* category (胶片分类) and
-        // gives this one no row, so it is left as it is rather than collapsed
-        // onto `filmGroupPositive`.
+        // gives this one no row, so it is its own pair rather than collapsed
+        // onto `filmGroupPositive` (it was left English until 1.2.2).
         out.append(StockList.Row(id: "__group_Digital", name: L(.printGroupDigital), isHeader: true))
         out.append(StockList.Row(id: Self.digitalID, name: L(.printDigitalIntermediate),
                                  help: filmIsPositive ? "" : L(.printDigitalIntermediateHelp),
                                  enabled: !filmIsPositive,
                                  disabledReason: filmIsPositive ? Self.positiveOnlyReason : ""))
-        out.append(StockList.Row(id: "__group_Positive", name: "Positive", isHeader: true))
+        out.append(StockList.Row(id: "__group_Positive", name: L("Positive", zh: "正片"), isHeader: true))
         out.append(StockList.Row(id: Self.positiveID, name: L(.printNone),
-                                 help: "Scan the developed film instead of printing it — a slide film reads as a positive, a negative film as the negative it is."))
+                                 help: L("Scan the developed film instead of printing it — a slide film reads as a positive, a negative film as the negative it is.",
+                                          zh: "不印相，直接扫描冲洗后的胶片：正片扫出正像，负片扫出负像。")))
         return out
     }
 
@@ -146,8 +147,9 @@ struct PrintProfileSection: View {
                               enabled: !session.params.scanFilm && !session.digitalIntermediateActive,
                               reason: session.digitalIntermediateActive
                                   ? L(.reasonDisabledInDigitalIntermediate) : L(.reasonEDRDisabledInScanFilm),
-                              help: "Glare, pre-flash and the Tone Mask. Off leaves the paper's colour "
-                              + "transformation and nothing else; their settings are kept.")
+                              help: L("Glare and pre-flash. Off leaves the paper's colour transformation "
+                                      + "and nothing else; their settings are kept.",
+                                      zh: "耀光与预曝光。关闭后只保留相纸的色彩转换，它们的设置会被保留。"))
                     ToggleRow(label: L(.printEDR),
                               isOn: param(\.extendedDynamicRange),
                               labelFont: Theme.Font.edrLabel,
@@ -155,10 +157,12 @@ struct PrintProfileSection: View {
                               reason: session.digitalIntermediateActive
                                   ? L(.reasonDisabledInDigitalIntermediate) : L(.reasonEDRDisabledInScanFilm),
                               sublabel: L(.statusEDRScope),
-                              help: "A calibrated per-paper profile with more room in the "
-                              + "highlight shoulder and the toe. It is part of the print "
-                              + "stage, not a way of looking at it: what you see on the "
-                              + "canvas is what the exported file carries.")
+                              help: L("A calibrated per-paper profile with more room in the "
+                                      + "highlight shoulder and the toe. It is part of the print "
+                                      + "stage, not a way of looking at it: what you see on the "
+                                      + "canvas is what the exported file carries.",
+                                      zh: "按相纸逐一校准的配置，在高光肩部与暗部趾部留出更多余量。它属于印相环节，"
+                                      + "而不是一种查看方式：画布上看到的就是导出文件的内容。"))
                 }
                 .padding(.top, Theme.Metric.rowSpacing + 5)
             }

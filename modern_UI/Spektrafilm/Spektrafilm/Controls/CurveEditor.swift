@@ -261,7 +261,7 @@ struct CurveEditor: View {
                     .frame(width: 22, height: 18)
             }
             .buttonStyle(.plain)
-            .help("Pick a point from the image")
+            .help(L("Pick a point from the image", zh: "从图像中取点"))
         }
         .font(Theme.Font.value)
         .foregroundStyle(Theme.secondaryText)

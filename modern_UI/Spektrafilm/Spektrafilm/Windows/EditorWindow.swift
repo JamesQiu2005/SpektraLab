@@ -184,10 +184,10 @@ struct EditorWindow: View {
                 // ground: there is nothing behind it to show through.
                 .padding(.horizontal, Theme.Metric.barInset)
                 .padding(.vertical, Theme.Metric.barTop)
-            Hairline()
+            Hairline(tier: .region)
             CanvasArea(session: session)
             if !session.filmstripCollapsed {
-                Hairline()
+                Hairline(tier: .region)
                 // **No vertical hairlines here any more.** They used to be
                 // the filmstrip's own, drawn only where rail and strip share
                 // a colour; v3's dividers run the whole window height and are
@@ -291,12 +291,12 @@ struct CanvasArea: View {
                     Image(systemName: "exclamationmark.triangle")
                         .font(.system(size: 22, weight: .regular))
                         .foregroundStyle(Theme.accent)
-                    Text("The render service cannot be used")
+                    Text(L("The render service cannot be used", zh: "渲染服务无法使用"))
                         .font(Theme.Font.sectionTitle).foregroundStyle(Theme.text)
                     Text(why)
                         .font(Theme.Font.caption).foregroundStyle(Theme.secondaryText)
                         .multilineTextAlignment(.center).frame(maxWidth: 380)
-                    Button("Restart the render service") { session.restartService() }
+                    Button(L("Restart the render service", zh: "重启渲染服务")) { session.restartService() }
                         .buttonStyle(.plain).font(Theme.Font.caption).foregroundStyle(Theme.accent)
                         .padding(.top, 2)
                 }

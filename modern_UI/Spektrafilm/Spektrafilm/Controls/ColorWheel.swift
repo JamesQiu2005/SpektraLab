@@ -135,14 +135,14 @@ struct ColorBalanceEditor: View {
     private var threeWay: some View {
         let layout = ColorBalanceLayout.threeWay(width: width)
         return VStack(spacing: 6) {
-            ZoneWheel(zone: zone(\.midtones), wheel: layout.midtone, label: "Midtone")
+            ZoneWheel(zone: zone(\.midtones), wheel: layout.midtone, label: L("Midtone", zh: "中间调"))
             HStack(spacing: layout.gap) {
                 // The two lower labels sit *above* their wheels: the row below
                 // the midtone wheel is where its own label is, and a label under
                 // a lower wheel would be the last thing in the panel, under the
                 // wheel the user is dragging.
-                ZoneWheel(zone: zone(\.shadows), wheel: layout.side, label: "Shadow", labelFirst: true)
-                ZoneWheel(zone: zone(\.highlights), wheel: layout.side, label: "Highlight", labelFirst: true)
+                ZoneWheel(zone: zone(\.shadows), wheel: layout.side, label: L("Shadow", zh: "阴影"), labelFirst: true)
+                ZoneWheel(zone: zone(\.highlights), wheel: layout.side, label: L("Highlight", zh: "高光"), labelFirst: true)
             }
         }
     }

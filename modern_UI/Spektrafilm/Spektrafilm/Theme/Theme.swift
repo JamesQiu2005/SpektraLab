@@ -149,11 +149,19 @@ enum Theme {
     /// as the rail. That is what made the page's controls look like three
     /// different species — some capsules, some bare text.
     static let field = card
-    /// `.st1` stroke, `#b5b5b6` at 2 units → **1 pt**. The hairline that
-    /// separates one section from the next, and the rails from the filmstrip.
-    /// It runs the full width of the rail — no inset — which is what makes
-    /// the column read as a stack of rooms rather than a list of cards.
-    static let rule = Color(hex: 0xB5B6B6)   // v3 sample
+    /// The 1 pt hairline between one section and the next — full width, no
+    /// inset, which is what makes a rail read as a stack of rooms rather than
+    /// a list of cards. **Two tiers since 1.2.2** (the user: darker separator
+    /// lines; v3's `#b5b5b6` was the brightest thing on the rail, louder than
+    /// the text it separated). Both are colours the app already had:
+    ///
+    /// - `rule` (`plotGrid`'s `#3A3B39`): between sections inside a rail, and
+    ///   inside the export page and Settings — present, never louder than text.
+    /// - `ruleRegion` (`navigatorWell`'s `#1A1A19`): the walls between the
+    ///   window's regions — rail | canvas, bar | canvas, canvas | filmstrip —
+    ///   a groove darker than the rails, as Capture One draws its panes.
+    static let rule = Color(hex: 0x3A3B39)
+    static let ruleRegion = Color(hex: 0x1A1A19)
     /// `.st12` — primary text and glyphs.
     static let text = Color(hex: 0xF9F7F3)   // v3 sample
     /// `.st6` — dim captions and anything the interface is not asking you to
@@ -600,7 +608,12 @@ enum Theme {
         /// The `CINE` pill after a cinema stock (v3 vector bounds), a 1 pt
         /// accent stroke, no fill.
         static let cinePill = CGSize(width: 21.59, height: 8.07)
-        static let cinePillTrailing: CGFloat = 11
+        /// **Inside the selection capsule since 1.2.2**: 4 pt before its end.
+        /// The drawing put it 11 pt off the rail's edge, which straddled the
+        /// capsule's rounded end (26.48) by 6 pt, so a selected CINE stock
+        /// wore half a badge on the white. Inside, the badge inverts with the
+        /// row's text instead, and clears the list's scroll indicator.
+        static let cinePillTrailing: CGFloat = stockTrailingInset + 4
 
         // MARK: the two actions under the print list
 
@@ -1137,7 +1150,7 @@ extension Comparable {
     func clamped(to r: ClosedRange<Self>) -> Self { min(max(self, r.lowerBound), r.upperBound) }
 }
 
-/// The 1 pt `#b5b5b6` line the drawing separates every function with.
+/// The 1 pt line the drawing separates every function with (`Theme.rule`).
 ///
 /// Full bleed, always: the drawing runs it from `x -4` to `x 505.9` on a rail
 /// whose own edges are 0 and 254, which is a person drawing "edge to edge"
@@ -1145,8 +1158,11 @@ extension Comparable {
 /// a rule without one reads as a wall, and a wall is what the new layout is
 /// made of.
 struct Hairline: View {
+    enum Tier { case section, region }
+    var tier: Tier = .section
+
     var body: some View {
-        Rectangle().fill(Theme.rule)
+        Rectangle().fill(tier == .region ? Theme.ruleRegion : Theme.rule)
             .frame(height: Theme.Metric.rule)
             .frame(maxWidth: .infinity)
     }
@@ -1162,7 +1178,7 @@ struct Hairline: View {
 /// 1 pt wide does not make the three-column arithmetic 2 pt wrong.
 struct VerticalHairline: View {
     var body: some View {
-        Rectangle().fill(Theme.rule)
+        Rectangle().fill(Theme.ruleRegion)
             .frame(width: Theme.Metric.rule)
             .frame(maxHeight: .infinity)
     }
