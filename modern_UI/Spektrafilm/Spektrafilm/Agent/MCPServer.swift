@@ -121,7 +121,7 @@ final class MCPServer {
     (this meters and neutralises the print). Choose a film and paper (list_stocks) for the look asked for, \
     then refine with small edit_image patches, looking at each returned preview before the next. Prefer \
     the physical controls — film, paper, Film Exposure, enlarger exposure and Y/M filters, Scene Placement \
-    (measure_latitude, place_scene), Tone Mask — over the grade (adjustments), which is the scan's. \
+    (measure_latitude, place_scene) — over the grade (adjustments), which is the scan's. \
     Export only when asked.
     """
 

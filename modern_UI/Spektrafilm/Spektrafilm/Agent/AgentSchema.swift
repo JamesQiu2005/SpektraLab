@@ -111,10 +111,10 @@ enum AgentSchema {
             .init("params.mFilterShift", .number(-1...1), "Enlarger magenta filter offset from the solved neutral (magenta ↔ green)."),
             .init("params.glareActive", .bool, "The print's veiling glare."),
             .init("params.scanFilm", .bool, "No print: scan the developed film. Always true for a slide film."),
-            .init("params.digitalIntermediate", .bool, "Digital Intermediate (RFC-028): the negative de-masked and reversed on its own neutral curve, as Cineon log, in place of the paper. Ignored while scanFilm and for a slide film."),
+            .init("params.digitalIntermediate", .bool, "Digital Intermediate (RFC-028): the negative de-masked and reversed on its own neutral curve, as Cineon log, in place of the paper. Scene Placement does not apply to it. Ignored while scanFilm and for a slide film."),
             .init("params.extendedDynamicRange", .bool, "Keep the print's extended range (ignored while scanFilm or digitalIntermediate)."),
             .init("params.preflashExposure", .number(0...0.03), "Pre-flash, as a fraction of the light through clear base."),
-            .init("params.printEffects", .bool, "Off keeps only the paper's colour transform: no glare, pre-flash or Tone Mask."),
+            .init("params.printEffects", .bool, "Off keeps only the paper's colour transform: no glare or pre-flash."),
             .init("params.contrastMask.active", .bool, "Tone Mask (RFC-024)."),
             .init("params.contrastMask.highlights", .number(0...3), "Tone Mask: stops the print's highlights are raised."),
             .init("params.contrastMask.shadows", .number(0...3), "Tone Mask: stops the print's shadows are lowered."),
@@ -195,6 +195,17 @@ enum AgentSchema {
             .init("decode.tint", .number(-150...150), "Decode tint (makes whiteBalance Custom)."),
             .init("decode.lensCorrection", .bool, "The RAW's own lens correction. RAW files that carry one only."),
         ]
+        // The Tone Mask is withdrawn behind its flag, and off the wire with it:
+        // its fields stay listed (they are stored) but cannot be written, so an
+        // agent is told why rather than setting a control that changes nothing.
+        if !FeatureFlags.toneMask {
+            f = f.map {
+                $0.path.hasPrefix("params.contrastMask.")
+                    ? AgentField($0.path, $0.kind, $0.doc,
+                                 readOnly: "The Tone Mask is withdrawn in this version and does not render.")
+                    : $0
+            }
+        }
         return f
     }()
 

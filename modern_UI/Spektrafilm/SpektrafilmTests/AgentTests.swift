@@ -69,6 +69,9 @@ final class AgentSchemaTests: XCTestCase {
         refused(["params": ["exposureCompensationEV": .null]], "must be a number")
         refused(["params": ["filmFormatMM": 50]], "read-only")
         refused(["params": ["sceneLatitude": ["highlightKnee": 1]]], "place")
+        if !FeatureFlags.toneMask {
+            refused(["params": ["contrastMask": ["active": true]]], "withdrawn")
+        }
         refused(["params": ["filmStock": "kodak_2383"]], "a film id")
         refused(["params": ["printStock": "kodak_portra_400"]], "a paper id")
         refused(["geometry": ["quarterTurns": 1.5]], "integer")
