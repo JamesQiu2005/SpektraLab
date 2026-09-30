@@ -1,6 +1,6 @@
 # RFC-030: Film character: per-stock contrast in the DI, and per-film grain
 
-**Status:** §2 implemented 2026-09-29 for 1.2.1 (see §2.1). §3 is the option A handoff. §4 is gated on real data and not implemented.
+**Status:** §2 implemented 2026-09-29 for 1.2.1 (see §2.1). §3 is the option A handoff. §4 and §5 are gated on real data and not implemented.
 **Follows:** RFC-028 (the Digital Intermediate) and `handoff/HANDOFF-DI-SCAN-TIFF.md` (option A, local-only).
 
 ## 1. Why: "every Vision3 DI looks the same"
@@ -122,9 +122,37 @@ Measured std of log2 Y on flat grey, grain on:
 - Which sheets to collect first (the Vision3 four and Portra 400 are the obvious start).
 - Whether a stock without data should be marked in the Film list.
 
-## 5. Reproduce
+## 5. Profile data defects (gated on real data; nothing may be invented)
+
+Found on 2026-09-30, while checking the user's question of whether every negative shares one film base. **It does not.** 21 of the 24 profiles typed `negative` have their own `base_density`, and their mean-normalised shapes differ too. The only close shapes are within a family (Provia/Velvia, C200/X-Tra, Vision3), as shared mask chemistry would give. The engine and the Python reference use each film's own base on every path.
+
+**The DI does not read the base at all.** It integrates with a zero base (`pipeline.cpp`, `di_zero_base`). The base only marks which wavelengths are valid (`digital_intermediate.cpp`, the `valid` test). What the DI shares within a family is its reading "eye", the target paper's sensitivity × lamp:
+- Portra Endura reads the 8 Kodak stills;
+- 2383 reads the 5 Kodak cine stocks;
+- Crystal Archive Type II reads the 3 Fujifilm negatives.
+That is the definition of printing density, not a copy of film data.
+
+**What is actually wrong in the data** (`rfc/probes/rfc030-profile-data.py`):
+
+| Defect | Fields | Affects |
+|---|---|---|
+| Fujifilm Crystal Archive Type II's base is Kodak Supra Endura's, value for value | `base_density` | prints on Crystal Archive; not the DI |
+| Kodak Supra Endura's sensitivity is Portra Endura's, value for value | `log_sensitivity` | prints on Supra Endura; not the DI, which reads Kodak stills through Portra Endura |
+| Still negatives' base is undefined at the ends: 380–400 nm and from 685–725 nm up to 780 nm (Vision3: 380–395 nm only; 50D also 760–780) | `base_density` NaN | every integral that zeroes a wavelength with any NaN input: the scan, the enlarger (RFC-028 §9: 26.9 % of the paper's red weight for Portra 400, 51.1 % for Ektar), **and the DI's read**, which drops the same wavelengths through the same paper |
+
+Not a defect: Portra 800 Push 1 and Push 2 share Portra 800's base, sensitivity and dye spectra and differ only in their curves, which is what a push is.
+
+**What is needed:**
+- The two paper duplications need each paper's own published spectral data: Crystal Archive Type II's minimum density, and Supra Endura's spectral sensitivity. Until then they stay as they are, and the release notes should not claim more than that.
+- The truncated base needs the film's minimum-density spectrum out to 780 nm, which the still datasheets do not draw. It must not be extrapolated. The alternatives are:
+  - a published measurement;
+  - measuring a strip of processed clear base with a spectrophotometer, with the source recorded as for §4.
+- Changing any of these moves every render of the affected stocks. Each needs a parity story like §4's, because the Python reference ships the same data.
+
+## 6. Reproduce
 
 Both need `engine/build.sh dylib` first, because `bundle` leaves the ctypes dylib stale. Run them with `../spektrafilm/.venv/bin/python`.
 
 - `rfc/probes/rfc030-film-spread.py`: colour spread, grey ramp, grain, and the stale-constants check (§1, §4).
 - `rfc/probes/rfc030-printing-gamma.py`: the printing-density gamma table (§2), through the RFC-028 probe's `Inversion`.
+- `rfc/probes/rfc030-profile-data.py`: the duplicated fields and the undefined base ranges (§5). Standard library only; plain `python3`, no dylib.
