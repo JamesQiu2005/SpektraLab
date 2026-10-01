@@ -699,8 +699,8 @@ and RFC-031 (the date back).
 | `overscan_holes` | `…overscan.holes` | str | `"light"` | `light` \| `print` | what shows through the perforations and past the film's edge: a scan's light, or a darkroom print's black |
 | `overscan_camera_seed` | `…overscan.camera_seed` | int | `1` | 0–2³¹−1 | **the body**: gate shape and radii, burrs, gate-to-emulsion gap, where the frame sits on the perforations, fog, flare |
 | `overscan_frame_seed` | `…overscan.frame_seed` | int | `1` | 0–2³¹−1 | **the advance and the scan**: weave, advance error, scan rotation, leaks, which numbers are on the edge |
-| `overscan_fog` | `…overscan.fog` | float | `1.0` | 0–4 | spool edge fog; 0 = none |
-| `overscan_leaks` | `…overscan.leaks` | float | `0.0` | 0–4 | spool light leaks; 0 = none |
+| `overscan_fog` | `…overscan.fog` | float | `1.0` | 0–4 | edge fog's strength; 0 = none (see *Edge light* below) |
+| `overscan_leaks` | `…overscan.leaks` | float | `0.0` | 0–4 | spool light leaks: their count and strength; 0 = none (see *Edge light* below) |
 | `overscan_edge_text` | `…overscan.edge_text` | str | `""` | — | the stock's edge print. **The host chooses** real names (desktop) or display names (mobile, `STOCK-NAMES.md`) |
 | `overscan_f_number` | `…overscan.f_number` | float | `0.0` | 0–64 | from EXIF; sets the gate's penumbra. 0 = unknown (f/5.6) |
 
@@ -717,6 +717,34 @@ and RFC-031 (the date back).
 | `date_imprint_inset_y` | `…date_imprint.inset_y` | float | `2.4` | 0–30 | mm from the gate's top/bottom to the text |
 | `date_imprint_size` | `…date_imprint.size` | float | `1.0` | 0.4–3 | a scale on the face's own height (lcd 1.3 mm, dots 0.95 mm, data 0.50 mm on 135 / 0.55 mm on 645) |
 | `date_imprint_ev` | `…date_imprint.exposure_ev` | float | `3.5` | −2–8 | the LED's exposure, stops over 18 % grey |
+
+**Edge light: fog, spool leaks and gate flare (the random light)**
+
+All three are light added to the raw exposure before halation. They develop,
+halate and grain like the picture.
+Two settings drive them; the rest is drawn from the seeds. Measurements and
+reasoning: RFC-032 §25, §27.
+
+| effect | what it is | amount | shape | drawn from |
+|---|---|---|---|---|
+| **Edge fog** | the spool's light piping into the film's edges (135: the cassette lips; 120: the backing paper's edges) | at the edge: `overscan_fog` × 18 % grey × 2^(0.3 ± 0.4) stops | decays inward from the nearer long edge, `exp(−d / w)`, w = 0.8–1.8 mm (135) or 1.2–2.6 mm (120); along the film it swells and fades as 0.3 + 0.7 × two-octave noise with a 5–11 mm period | strength, width and period: **camera**; where the swells fall: **frame** |
+| **Spool leaks** | brighter blobs at the edge where light got past the spool, as in the owner's IMG_6473 | count = round(1 + 2 × `overscan_leaks`), at most 6 (`leaks` = 0: none; 1: three); each `overscan_leaks` × 18 % grey × 2^(0.5–2.5) stops | Gaussian along the film (σ 1.2–4 mm), decaying inward from its edge (0.4–1.3 mm); on 120 (2.5 mm of rebate) a strong one reaches into the picture | which edge the body leaks from (50/50 per body): **camera**; each leak's position anywhere along the canvas, edge (80 % the body's side), strength and size: **frame** |
+| **Gate flare** | the gate's bevel reflecting the scene onto the film just outside the frame: a thin rim that is bright where the picture is bright | 0.10–0.35 × the scene's own light just inside the gate | decays outward from the gate's edge over 0.03–0.08 mm, following the gate's shape | **camera** (no setting) |
+
+- **Colour.** Fog and leaks share one light: a 2800 K source from the front,
+  weighted through *this film's* own spectral sensitivity, so the colour
+  follows the stock with no per-stock table. Gate flare has the scene's
+  colour.
+- **Same seeds, same light**, as with the rest of the overscan. A new frame
+  seed moves the leaks and the fog's swells but keeps the body's character:
+  its leaky side, fog strength and width.
+- **Fog only shows where it reaches mid-grey.** A print stays black until the
+  negative has mid-grey-like exposure, which is why the edge level sits at
+  ~+0.3 stops (measured by sweeping it, RFC-032 §27). Halving
+  `overscan_fog` takes a full stop off the edge level.
+- **Off means off.** `overscan_fog = 0` zeroes the fog's amplitude and
+  `overscan_leaks = 0` draws no leaks, so neither adds any exposure. Gate
+  flare stays: it is part of the gate.
 
 **Rules a host relies on**
 
