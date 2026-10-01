@@ -676,3 +676,90 @@ The shadow pull-back is the **bounded** lift: `landing_ev` is where the render
 really puts the extreme, because the Fit solves the curve for the lift that
 `max_lift`'s bound brings back to the pull-back. A pull-back at or beyond
 `max_lift` is refused.
+
+## 13. RFC-032/031 overscan and the date back — wire fields (2026-10-01)
+
+**Status: specified, not yet in this engine.** Implemented first in the mobile repo (`SpektraLab_mobile` `1d4a3ba`, `engine/src/pipeline/overscan.cpp`, `shaders/overscan.metal`), whose `UPSTREAM.md` records it for the sync here. Until that sync, this engine refuses these names (`unknown parameter`). The section is the shared contract: the mobile `API-SPEC.md` §15 carries the same text, and the desktop and mobile frontends build against it.
+
+Twenty native-only fields, all **shoot layer** and **not live**. Every mark
+(gate shadow, fog, leaks, edge print, DX code, date) is exposure on the
+negative, so an edit re-develops it (`negative_was_cached` is 0 on the next
+render). The fields sit before `preview_long_edge` with the other native
+fields. Design and measurements: RFC-032 §26–§29 (`SpektraLab_mobile/rfc/`)
+and RFC-031 (the date back).
+
+**Overscan: the film outside the frame**
+
+| field | path | type | default | range | meaning |
+|---|---|---|---|---|---|
+| `overscan_active` | `film_render.overscan.active` | bool | `false` | — | the switch; `false` dispatches nothing (byte-identical to the pre-RFC build) |
+| `overscan_format` | `…overscan.format` | str | `"135"` | `135` \| `120_645` \| `120_6x6` \| `120_6x7` \| `120_6x8` \| `120_6x9` | the film and its gate. Nothing larger than 6×9, by the owner's decision |
+| `overscan_mode` | `…overscan.mode` | str | `"strip"` | `strip` \| `filed` | the whole film width, or a filed-out carrier's sliver of rebate |
+| `overscan_gate` | `…overscan.gate` | str | `"auto"` | `auto` \| `square` \| `rounded` \| `eared` \| `shouldered` \| `kicked` | the gate's shape family (RFC-032 §29.2); `auto` lets the camera seed pick one the format's real cameras have |
+| `overscan_holes` | `…overscan.holes` | str | `"light"` | `light` \| `print` | what shows through the perforations and past the film's edge: a scan's light, or a darkroom print's black |
+| `overscan_camera_seed` | `…overscan.camera_seed` | int | `1` | 0–2³¹−1 | **the body**: gate shape and radii, burrs, gate-to-emulsion gap, where the frame sits on the perforations, fog, flare |
+| `overscan_frame_seed` | `…overscan.frame_seed` | int | `1` | 0–2³¹−1 | **the advance and the scan**: weave, advance error, scan rotation, leaks, which numbers are on the edge |
+| `overscan_fog` | `…overscan.fog` | float | `1.0` | 0–4 | spool edge fog; 0 = none |
+| `overscan_leaks` | `…overscan.leaks` | float | `0.0` | 0–4 | spool light leaks; 0 = none |
+| `overscan_edge_text` | `…overscan.edge_text` | str | `""` | — | the stock's edge print. **The host chooses** real names (desktop) or display names (mobile, `STOCK-NAMES.md`) |
+| `overscan_f_number` | `…overscan.f_number` | float | `0.0` | 0–64 | from EXIF; sets the gate's penumbra. 0 = unknown (f/5.6) |
+
+**The date back: one mechanism, three faces**
+
+| field | path | type | default | range | meaning |
+|---|---|---|---|---|---|
+| `date_imprint_active` | `film_render.date_imprint.active` | bool | `false` | — | the switch; works with overscan off (in the frame) or on |
+| `date_imprint_style` | `…date_imprint.style` | str | `"lcd"` | `lcd` \| `dots` \| `data` | seven segments, slanted; an upright 5×7 dot matrix; shooting data in a 5×7 face |
+| `date_imprint_text` | `…date_imprint.text` | str | `""` | — | **formatted by the host**: `'26 10 1`, or `Av 1/125 F2.8 +1.0Ev 45mm SPOT ISO 200` for `data`. The 5×7 face draws 0–9, A–Z, m v s and `. / - + : ' ( )`; anything else is a space |
+| `date_imprint_placement` | `…date_imprint.placement` | str | `"frame"` | `frame` \| `rebate` | `lcd`/`dots`: in the picture, or between frames (needs overscan) |
+| `date_imprint_corner` | `…date_imprint.corner` | str | `"br"` | `br` \| `bl` \| `tr` \| `tl` | frame placement, in the **picture's** axes (a portrait frame's `tl` is its top left) |
+| `date_imprint_inset_x` | `…date_imprint.inset_x` | float | `3.0` | 0–30 | mm from the gate's side to the text |
+| `date_imprint_inset_y` | `…date_imprint.inset_y` | float | `2.4` | 0–30 | mm from the gate's top/bottom to the text |
+| `date_imprint_size` | `…date_imprint.size` | float | `1.0` | 0.4–3 | a scale on the face's own height (lcd 1.3 mm, dots 0.95 mm, data 0.50 mm on 135 / 0.55 mm on 645) |
+| `date_imprint_ev` | `…date_imprint.exposure_ev` | float | `3.5` | −2–8 | the LED's exposure, stops over 18 % grey |
+
+**Rules a host relies on**
+
+- **The output grows.** With overscan on, `spk_result.width/height` are the
+  film canvas, not the source: e.g. a 2400×1600 135 frame renders at
+  2514×2333. Never assume the source size.
+- **The frame's pixel pitch is the format's.** Overscan sets the frame's long
+  edge to the format's gate (36, 56, 69.5, 76 or 84 mm) and overrides
+  `film_format_mm`, so grain and halation are at the format's scale. Picture
+  aspect is the host's crop. The engine reads the film's direction from it
+  (a landscape 645 or a portrait 6×7 runs vertically).
+- **The scan crops just inside the film's edges** (~0.14 mm a side on 135).
+  The canvas size depends on the source size and the frame spacing. Spacing
+  is the camera seed's (0.75–0.95 mm on 135). On 120 it also moves
+  ±0.25 mm with the frame seed. A host reads the size from every result.
+- **Seeds are the host's to keep.** `camera_seed` per body or per user;
+  `frame_seed` per photo, stored with the edit. The same seeds always give
+  the same film. A new frame seed never moves the body's draws (gate,
+  perforation phase, fog). A new camera seed re-draws the frame's too,
+  because the frame stream is keyed on both.
+- **Where a face is drawn:** `lcd` and `dots` on 135 only. `data` goes on
+  135 (rotated, between frames) and 645 (one line in the margin beside the
+  frame). On any other format the date is silently not drawn.
+- **DX code** (135): ISO 1007, 13 mm, drawn from the stock's real DX number
+  (Portra 400 = 1277, …). Stocks with no DX code (Vision3, Kodachrome) print
+  no bars. The bars are the same on desktop and mobile; only `edge_text`
+  differs.
+- **Refusals:** an unknown enum value is refused by name with the valid list.
+  Overscan on the striped executor (`striped = true`) is refused. A host
+  must render whole-frame when overscan is on.
+- **Tests:** `engine/tests/overscan_checks.py` (27 checks). They include a DX
+  code read back off the rendered pixels.
+
+**Proposed, not implemented** (for the frontend contract):
+
+1. `spk_overscan_geometry(session, tier, char** out_json)` returns the
+   canvas size, mm per pixel, the picture's quad in canvas pixels, the film's
+   direction and the gate family drawn. A host needs it to keep the crop
+   overlay, histogram region and tap-to-meter on the picture and off the
+   rebate.
+2. A per-render diagnostic when a date is asked for but not drawn (wrong
+   format or style), so the UI can grey the control instead of failing
+   silently.
+3. `overscan_holes` acts only in the print stages and could become
+   `print`-layer (a reprint, not a re-develop). It stays `shoot` until a
+   reprint is shown to keep the overscan layout across a pipeline rebuild.
