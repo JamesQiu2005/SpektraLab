@@ -693,7 +693,7 @@ and RFC-031 (the date back).
 | field | path | type | default | range | meaning |
 |---|---|---|---|---|---|
 | `overscan_active` | `film_render.overscan.active` | bool | `false` | — | the switch; `false` dispatches nothing (byte-identical to the pre-RFC build) |
-| `overscan_format` | `…overscan.format` | str | `"135"` | `135` \| `120_645` \| `120_6x6` \| `120_6x7` \| `120_6x8` \| `120_6x9` | the film and its gate. Nothing larger than 6×9, by the owner's decision |
+| `overscan_format` | `…overscan.format` | str | `"135"` | `135` \| `135_half` \| `120_645` \| `120_6x6` \| `120_6x7` \| `120_6x8` \| `120_6x9` | the film and its gate (`135_half`: 18 × 24 mm half frame, below). Nothing larger than 6×9, by the owner's decision |
 | `overscan_mode` | `…overscan.mode` | str | `"strip"` | `strip` \| `filed` | the whole film width, or a filed-out carrier's sliver of rebate |
 | `overscan_gate` | `…overscan.gate` | str | `"auto"` | `auto` \| `square` \| `rounded` \| `eared` \| `shouldered` \| `kicked` | the gate's shape family (RFC-032 §29.2, §30.2); `auto` lets the camera seed pick one the format's real cameras have. `shouldered` (6×8) also seats the gate at the stock-name edge, with its ears ~1.2 mm from it and the edge print in the recess between them |
 | `overscan_holes` | `…overscan.holes` | str | `"white"` | `white` \| `black` | what shows through the perforations and past the film's edge. `white`: the picture's white (a scan's light). `black`: a black backing or a darkroom print. Either way the cut is not a perfectly vertical knife: a slight rounding of the base shows as a faint, patchy shoulder just outside each hole (1-6 % lift, ~0.03 mm), different on every hole, plus per-hole punch tolerances, roughness and burrs (RFC-032 §30.5, §31.5) |
@@ -712,7 +712,7 @@ and RFC-031 (the date back).
 | `date_imprint_style` | `…date_imprint.style` | str | `"lcd"` | `lcd` \| `dots` \| `data` | seven segments, slanted; an upright 5×7 dot matrix; shooting data in a 5×7 face |
 | `date_imprint_text` | `…date_imprint.text` | str | `""` | — | **formatted by the host**: `'26 10 1`, or `Av 1/125 F2.8 +1.0Ev 45mm SPOT ISO 200` for `data`. The 5×7 face draws 0–9, A–Z, m v s and `. / - + : ' ( )`; anything else is a space |
 | `date_imprint_placement` | `…date_imprint.placement` | str | `"frame"` | `frame` \| `rebate` | `lcd`/`dots`: in the picture, or between frames (needs overscan) |
-| `date_imprint_corner` | `…date_imprint.corner` | str | `"br"` | `br` \| `bl` \| `tr` \| `tl` | frame placement, in the **picture's** axes (a portrait frame's `tl` is its top left) |
+| `date_imprint_corner` | `…date_imprint.corner` | str | `"br"` | `br` \| `bl` \| `tr` \| `tl` | frame placement, in the **film's** frame (the camera held level), never the picture's: on a turned full frame the date turns with the camera (below) |
 | `date_imprint_inset_x` | `…date_imprint.inset_x` | float | `3.0` | 0–30 | mm from the gate's side to the text |
 | `date_imprint_inset_y` | `…date_imprint.inset_y` | float | `2.4` | 0–30 | mm from the gate's top/bottom to the text |
 | `date_imprint_size` | `…date_imprint.size` | float | `1.0` | 0.4–3 | a scale on the face's own height (lcd 1.3 mm, dots 0.95 mm, data 0.50 mm on 135 / 0.55 mm on 645) |
@@ -746,13 +746,69 @@ reasoning: RFC-032 §25, §27.
   `overscan_leaks = 0` draws no leaks, so neither adds any exposure. Gate
   flare stays: it is part of the gate.
 
+**The date back: how a date is printed, and where**
+
+- **What it is:** a light inside the camera's back, behind the film, shining
+  through a mask. The engine draws the mask (seven segments for `lcd`, a 5×7
+  dot matrix for `dots` and `data`) and adds it as exposure on the negative
+  before halation. So it develops, halates and grains with the picture, and
+  prints from behind the film (no blue layer, which is why it is
+  orange-red).
+- **Strength and softness:** the light is `date_imprint_ev` stops over
+  18 % grey, through RFC-031's 2700 K LED and orange light guide. The mask
+  is softened by 0.015 mm (the projection's blur).
+- **It belongs to the camera, not the picture.** Every placement is in the
+  film's own frame: along the film, across it, with "down" the camera's
+  down when held level. `date_imprint_corner` (`br` default) and
+  `date_imprint_inset_x/_y` name a corner and its insets *in that frame*.
+- **When the camera is turned:**
+
+| how it was shot | picture | where `br` lands | how it reads |
+|---|---|---|---|
+| full frame held level | landscape | lower right | upright, along the film |
+| full frame turned (portrait) | portrait, film runs down the picture | lower left, beside the picture | rotated a quarter turn, running down the film; never upright |
+| half frame held level | portrait, film runs across it | lower right | upright |
+| half frame turned | landscape, film runs down the picture | along the film | rotated |
+
+  An upright date in the corner of a portrait full frame is impossible on
+  film, and the engine does not draw one.
+- **The date alone (overscan off)** draws on the bare frame. The film's
+  direction comes from the frame's shape and `overscan_format`: a `135`
+  frame taller than wide, or a `135_half` frame wider than tall, was shot
+  turned. Set `film_format_mm` to the format's long edge (36, or 24 for half
+  frame).
+- **The quarter turn:** for a turned camera it is always the same one, the
+  one the overscan layout uses (the stock name reads down the picture's
+  right edge).
+
+**135 half frame (`135_half`)**
+
+- **The frame:** 18 × 24 mm, advancing 4 perforations (19.00 mm) a frame
+  instead of 8 (38.00 mm). 72 frames on a 36-exposure roll, ~1 mm between
+  frames.
+- **Held level** the frame is portrait, 18 along the film by 24 across it.
+  Turned, it is landscape.
+- **Same film:** 35 mm wide, KS perforations, the same DX code and edge
+  print. The film marks every 19 mm (`12`, `12A`, …), and the DX code
+  repeats there with its half-frame bit. That is two per full frame, so a
+  whole code survives the lab's cut between frames, and on half frame it
+  means one per frame. Each half frame carries one number and about half
+  the edge print, so on a half-frame strip the stock name or a number
+  shows, not both.
+- **Overscan:** the canvas is the film's width across and the frame plus
+  ~0.45 mm a side along (the 1 mm gap). The frame's pixel pitch is set from
+  its 24 mm long edge.
+- **Date faces:** `lcd` and `dots` as for 135, placed by the rules above.
+  `data` between frames uses the 1 mm gap, so keep its `date_imprint_size`
+  at or under 1.
+
 **Rules a host relies on**
 
 - **The output grows.** With overscan on, `spk_result.width/height` are the
   film canvas, not the source: e.g. a 2400×1600 135 frame renders at
   2514×2333. Never assume the source size.
 - **The frame's pixel pitch is the format's.** Overscan sets the frame's long
-  edge to the format's gate (36, 56, 69.5, 76 or 84 mm) and overrides
+  edge to the format's gate (36, 24 for half frame, 56, 69.5, 76 or 84 mm) and overrides
   `film_format_mm`, so grain and halation are at the format's scale. Picture
   aspect is the host's crop. The engine reads the film's direction from it
   (a landscape 645 or a portrait 6×7 runs vertically).
@@ -765,7 +821,7 @@ reasoning: RFC-032 §25, §27.
   the same film. A new frame seed never moves the body's draws (gate,
   perforation phase, fog). A new camera seed re-draws the frame's too,
   because the frame stream is keyed on both.
-- **Where a face is drawn:** `lcd` and `dots` on 135 only. `data` goes on
+- **Where a face is drawn:** `lcd` and `dots` on 135 and 135 half frame only. `data` goes on
   135 (rotated, between frames) and 645 (one line in the margin beside the
   frame). On any other format the date is silently not drawn.
 - **DX code** (135): ISO 1007, 13 mm, drawn from the stock's real DX number
@@ -777,7 +833,8 @@ reasoning: RFC-032 §25, §27.
   must render whole-frame when overscan is on.
 - **Tests:** `engine/tests/overscan_checks.py`. They include a DX
   code read back off the rendered pixels; white hole interiors; edges that
-  differ from hole to hole; black holes that still read as holes. 30 checks.
+  differ from hole to hole; black holes that still read as holes; the date
+  turning with the camera; the half-frame canvas. 34 checks.
 
 **Proposed, not implemented** (for the frontend contract):
 
