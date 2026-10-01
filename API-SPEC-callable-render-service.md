@@ -695,8 +695,8 @@ and RFC-031 (the date back).
 | `overscan_active` | `film_render.overscan.active` | bool | `false` | — | the switch; `false` dispatches nothing (byte-identical to the pre-RFC build) |
 | `overscan_format` | `…overscan.format` | str | `"135"` | `135` \| `120_645` \| `120_6x6` \| `120_6x7` \| `120_6x8` \| `120_6x9` | the film and its gate. Nothing larger than 6×9, by the owner's decision |
 | `overscan_mode` | `…overscan.mode` | str | `"strip"` | `strip` \| `filed` | the whole film width, or a filed-out carrier's sliver of rebate |
-| `overscan_gate` | `…overscan.gate` | str | `"auto"` | `auto` \| `square` \| `rounded` \| `eared` \| `shouldered` \| `kicked` | the gate's shape family (RFC-032 §29.2); `auto` lets the camera seed pick one the format's real cameras have |
-| `overscan_holes` | `…overscan.holes` | str | `"light"` | `light` \| `print` | what shows through the perforations and past the film's edge: a scan's light, or a darkroom print's black |
+| `overscan_gate` | `…overscan.gate` | str | `"auto"` | `auto` \| `square` \| `rounded` \| `eared` \| `shouldered` \| `kicked` | the gate's shape family (RFC-032 §29.2, §30.2); `auto` lets the camera seed pick one the format's real cameras have. `shouldered` (6×8) also seats the gate at the stock-name edge, with its ears ~1.2 mm from it and the edge print in the recess between them |
+| `overscan_holes` | `…overscan.holes` | str | `"light"` | `light` \| `print` | what shows through the perforations and past the film's edge. `light`: the scanner's D65 panel through the scan (never a flat white: per-scan tint and level, panel falloff, a warm cut-face fringe, dust; RFC-032 §30.3). `print`: a darkroom print's black |
 | `overscan_camera_seed` | `…overscan.camera_seed` | int | `1` | 0–2³¹−1 | **the body**: gate shape and radii, burrs, gate-to-emulsion gap, where the frame sits on the perforations, fog, flare |
 | `overscan_frame_seed` | `…overscan.frame_seed` | int | `1` | 0–2³¹−1 | **the advance and the scan**: weave, advance error, scan rotation, leaks, which numbers are on the edge |
 | `overscan_fog` | `…overscan.fog` | float | `1.0` | 0–4 | edge fog's strength; 0 = none (see *Edge light* below) |
@@ -775,8 +775,9 @@ reasoning: RFC-032 §25, §27.
 - **Refusals:** an unknown enum value is refused by name with the valid list.
   Overscan on the striped executor (`striped = true`) is refused. A host
   must render whole-frame when overscan is on.
-- **Tests:** `engine/tests/overscan_checks.py` (27 checks). They include a DX
-  code read back off the rendered pixels.
+- **Tests:** `engine/tests/overscan_checks.py` (29 checks). They include a DX
+  code read back off the rendered pixels, and the holes' light checked for
+  not being a flat fill.
 
 **Proposed, not implemented** (for the frontend contract):
 
