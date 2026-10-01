@@ -372,13 +372,22 @@ struct SceneLatitudeSettings: Codable, Equatable, Sendable {
 /// or not Settings shows them). The *Decouple effects* setting only decides
 /// whether the Film section shows the sliders; hiding them must not change a
 /// picture that was made with them.
+///
+/// **RFC-034: an area multiplier, not a radius.** For the two effects that are
+/// a *glow around a highlight* — halation and glare — the number means how much
+/// of the effect there is, and that is the same as saying how much of the frame
+/// it covers: the light scales with the number and so does the area it covers,
+/// so every sigma takes the square root. 2 is twice the area, not twice the
+/// radius, which would be four times it. Halation's is a glow the film itself
+/// draws (65 µm wide on the negative), glare's is the paper's veiling flare.
 struct EffectStrengths: Codable, Equatable, Sendable {
     /// `grain_amount`: the grained density mixed over the clean one.
     var grain = 1.0                // 0…2
     /// `grain_sublayers_active`, which the Grain switch used to set too: the
     /// three-sub-layer model against the single-layer one.
     var grainLayered = true
-    /// `halation_amount`: the back-reflection off the base.
+    /// `halation_amount`: the back-reflection off the base, as an area
+    /// multiplier (RFC-034). 1 is the film's own halo.
     var halation = 1.0             // 0…4
     /// `halation_scatter_amount`: the in-emulsion scatter, a mix weight.
     var scatter = 1.0              // 0…1
@@ -386,8 +395,9 @@ struct EffectStrengths: Codable, Equatable, Sendable {
     /// inhibition that gives a stock its colour separation.
     var couplersActive = true
     var couplers = 1.0             // 0…1.5
-    /// `glare_amount`: the print's veil.
-    var glare = 1.0                // 0…4
+    /// `glare_amount`: the print's veil, as an area multiplier (RFC-034). 1 is
+    /// the paper's own.
+    var glare = 1.0                // 0…30
 
     static let grainRange = 0.0...2.0
     static let halationRange = 0.0...4.0
@@ -396,7 +406,15 @@ struct EffectStrengths: Codable, Equatable, Sendable {
     /// stops being monotonic (AGENTS.md trap 22) and the output is no longer
     /// the model's, so the slider stops short of it.
     static let couplersRange = 0.0...1.5
-    static let glareRange = 0.0...4.0
+    /// **0…30, not 0…4** (RFC-034). The paper's own glare is 0.03 percent of
+    /// the illuminant, so 4 times it is still a whisper — measured, 0.65 of a
+    /// count out of 255 across the frame, which is nothing to look at. The
+    /// reference's own calibration sweep (`glare_ramp`) only ever asks for
+    /// 0.4 percent, 13 times the paper's own; 30 reaches 0.9 percent, a veil
+    /// that lifts the frame by ~4 counts and moves a third of its pixels by
+    /// more than 4. The slider is honest about what it multiplies, so its
+    /// neutral tick sits near the left end.
+    static let glareRange = 0.0...30.0
 
     static let `default` = EffectStrengths()
     var isDefault: Bool { self == .default }
@@ -660,9 +678,11 @@ struct FilmParams: Codable, Equatable, Sendable {
             ("scene_latitude_shadow_room", .double(sceneLatitude.shadowRoom), .shoot),
             ("scene_latitude_rolloff", .double(sceneLatitude.rolloff), .shoot),
             ("scene_latitude_max_lift", .double(sceneLatitude.maxLift), .shoot),
-            // RFC-025. Sent always, like RFC-024's: every default is the
-            // engine's and 1 is a bypass, so the picture of a legacy frame is
-            // unchanged (its stamp is not -- new fields miss the cache once).
+            // RFC-025, whose halation and glare rows RFC-034 turned into area
+            // multipliers (`EffectStrengths`). Sent always, like RFC-024's:
+            // every default is the engine's and 1 is a bypass, so the picture
+            // of a legacy frame is unchanged (its stamp is not -- new fields
+            // miss the cache once).
             ("halation_amount", .double(effects.halation.clamped(to: EffectStrengths.halationRange)), .shoot),
             ("halation_scatter_amount", .double(effects.scatter.clamped(to: EffectStrengths.scatterRange)), .shoot),
             ("grain_amount", .double(effects.grain.clamped(to: EffectStrengths.grainRange)), .shoot),

@@ -52,6 +52,15 @@ struct HalationParams {
     bool active = true;
     double scatter_amount = 1.0;
     double scatter_spatial_scale = 1.0;
+    /// RFC-034 (amending RFC-025): an **area multiplier** on the back-reflection
+    /// halo. It scales the light the base throws back and the area that light
+    /// covers together, so every sigma — `halation_first_sigma_um` and the
+    /// bounces built on it — takes this value's square root. 1 is the film's
+    /// own halo (byte for byte), 2 is twice its area, 0 is off.
+    ///
+    /// The reference's `halation_amount` scales only the light; see RFC-034 §2
+    /// for why this engine deliberately diverges, and `parity_render.py`'s
+    /// `expect_divergence` case for how that is held.
     double halation_amount = 1.0;
     double halation_spatial_scale = 1.0;
     double scatter_core_um[3] = {2.2, 2.0, 1.6};
@@ -101,6 +110,17 @@ struct GlareParams {
     double blur = 0.5;
     /// RFC-025. Native-only multiplier on `percent` -- and so on the field's
     /// spread too, which is `roughness * percent` -- read where `percent` is.
+    ///
+    /// RFC-034: an **area multiplier**, on halation's own rule. It scales the
+    /// veil's light (`percent`) and the area its blobs cover, so `blur` — in
+    /// pixels at the full tier — takes the square root. 1 is the paper's own
+    /// glare, byte for byte, and 0 is off.
+    ///
+    /// **The paper's own glare is a whisper**: `percent` is 0.03, divided by
+    /// 100 where the field is added, so 1 is a 3-part-in-10 000 veil — and the
+    /// reference's own calibration sweep (`utils/calibration_targets.py`,
+    /// `glare_ramp`) only ever asks for 0.02 % to 0.4 %. The app's slider
+    /// therefore reaches past ×4; see RFC-034 §3.
     double amount = 1.0;
 };
 

@@ -154,9 +154,12 @@ NATIVE_ONLY = {
         "path": "film_render.grain.amount", "type": "float", "layer": "shoot",
         "default": 1.0, "live": False, "range": [0.0, 2.0],
     },
+    # RFC-034: 30 rather than 4. The paper's own glare is 0.03 percent of the
+    # illuminant; nothing at or below 4x it is visible, and the reference's own
+    # glare sweep stops at 0.4 percent (13x). See `params.cpp`'s row.
     "glare_amount": {
         "path": "print_render.glare.amount", "type": "float", "layer": "print",
-        "default": 1.0, "live": False, "range": [0.0, 4.0],
+        "default": 1.0, "live": False, "range": [0.0, 30.0],
     },
     # RFC-028's Digital Intermediate: replaces the paper, so print layer; the
     # blue-sector compensation is off by default (the user's decision).

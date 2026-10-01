@@ -129,7 +129,13 @@ const SchemaField kFields[] = {
     // only way to turn off -- and it is a mix weight, so above 1 it sharpens.
     {"halation_scatter_amount",  "film_render.halation.scatter_amount",   F, SHOOT, true, 0.0, 1.0, false},
     {"grain_amount",             "film_render.grain.amount",              F, SHOOT, true, 0.0, 2.0, false},
-    {"glare_amount",             "print_render.glare.amount",             F, PRINT, true, 0.0, 4.0, false},
+    // RFC-034: the range is the *veil's* range, not halation's. The paper's own
+    // glare is 0.03 percent of the illuminant before the field's own /100 --
+    // the reference's calibration sweep never asks for more than 0.4 percent --
+    // so a ceiling of 4 is a whisper and a slider that ends there cannot be
+    // seen at all. 30 is 0.9 percent: a veil that lifts the frame by about 4
+    // counts out of 255 and moves a third of its pixels by more than 4.
+    {"glare_amount",             "print_render.glare.amount",             F, PRINT, true, 0.0, 30.0, false},
     // RFC-028's Digital Intermediate, native-only and placed like the rest.
     // PRINT layer: it replaces the paper and reads the cached negative.
     {"digital_intermediate",     "io.digital_intermediate",               B, PRINT, false, 0, 0, false},

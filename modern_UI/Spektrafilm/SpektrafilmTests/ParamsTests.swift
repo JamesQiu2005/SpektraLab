@@ -159,6 +159,24 @@ final class ParamsTests: XCTestCase {
         XCTAssertLessThan(EffectStrengths.couplersRange.upperBound, 1.736)
     }
 
+    /// RFC-034: halation's and glare's sliders are **area** multipliers, and
+    /// their ranges are the ranges of the effects, not a house style.
+    ///
+    /// Halation's glow is the film's own 65 µm halo, which at a 35 mm frame's
+    /// pixel size is a handful of pixels wide: 4 is already a halo twice the
+    /// film's own radius. Glare's is the paper's veil at 0.03 percent of the
+    /// illuminant — at 4 times it the frame moves by 0.65 of a count out of
+    /// 255, which is nothing to look at — so its slider reaches 30, where the
+    /// veil is 0.9 percent. 1 is the film's own in both, and both ranges
+    /// contain it, because that is the only value a frame from before RFC-025
+    /// can mean.
+    func testTheGlowEffectSlidersAreAreaMultipliersWithReachableRanges() {
+        XCTAssertEqual(EffectStrengths.halationRange.upperBound, 4)
+        XCTAssertEqual(EffectStrengths.glareRange.upperBound, 30)
+        XCTAssertTrue(EffectStrengths.halationRange.contains(1))
+        XCTAssertTrue(EffectStrengths.glareRange.contains(1))
+    }
+
     /// The mask and pre-flash are enlarger edits: a reprint of the cached
     /// negative. Scene Latitude sits before the film: a re-develop.
     func testMaskAndPreflashArePrintEditsAndSceneLatitudeIsAShootEdit() {

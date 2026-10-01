@@ -41,6 +41,32 @@ final class EngineClientTests: XCTestCase {
         return try ImageDecoder.engineFrame(from: image, device: device)
     }
 
+    /// A dark field with one blown disc in the middle: halation's own subject.
+    /// The disc is 20× the background, so the film's shoulder clips it and the
+    /// light the base throws back has somewhere dark to land.
+    private func makeHighlightFrame(_ size: Int = 288, device: MTLDevice) throws -> EngineFrame {
+        let width = size * 4 / 3
+        var rgba = [Float](repeating: 0, count: width * size * 4)
+        for y in 0..<size {
+            for x in 0..<width {
+                let i = (y * width + x) * 4
+                let dx = Float(x) - Float(width) / 2, dy = Float(y) - Float(size) / 2
+                let disc = max(0, 1 - (dx * dx + dy * dy).squareRoot() / (Float(size) / 16))
+                let v = 0.05 + 20 * disc * disc
+                rgba[i] = v
+                rgba[i + 1] = v * 0.8
+                rgba[i + 2] = v * 0.6
+                rgba[i + 3] = 1
+            }
+        }
+        let space = try XCTUnwrap(ImageDecoder.linearProPhoto)
+        let image = try XCTUnwrap(rgba.withUnsafeBufferPointer { buffer in
+            CIImage(bitmapData: Data(buffer: buffer), bytesPerRow: width * 16,
+                    size: CGSize(width: width, height: size), format: .RGBAf, colorSpace: space)
+        })
+        return try ImageDecoder.engineFrame(from: image, device: device)
+    }
+
     /// The orientation of the frame the engine is handed.
     ///
     /// This exists because getting it wrong is invisible to every other test:
@@ -419,6 +445,101 @@ final class EngineClientTests: XCTestCase {
         XCTAssertEqual(glareAtZero, reference, "glare at strength 0 is glare off")
         let someGlare = try await render(["glare_amount": .double(2)])
         XCTAssertNotEqual(someGlare, reference, "glare at 2 added no veil")
+        await client.stop()
+    }
+
+    /// RFC-034: `halation_amount` is an **area** multiplier. It scales the
+    /// light the base throws back and the area that light covers together, so
+    /// the sigmas take its square root — 2 is twice the area, where doubling a
+    /// radius would be four times it.
+    ///
+    /// The assertion is the property that tells those apart: the *area* the
+    /// halo moves grows with the number. At 4 mm of film on a 384 px frame a
+    /// pixel is ~10 µm, so a 65 µm halo covers whole pixels and its area can be
+    /// counted; on a 36 mm frame it would be a couple of pixels wide and this
+    /// test would pass by measuring almost nothing.
+    func testHalationStrengthIsAnAreaMultiplier() async throws {
+        let gpu = try device()
+        let client = EngineClient(device: gpu)
+
+        func pixels(_ outcome: RenderOutcome) throws -> [UInt16] {
+            let texture = try XCTUnwrap(outcome.texture)
+            var rgba = [UInt16](repeating: 0, count: texture.width * texture.height * 4)
+            rgba.withUnsafeMutableBytes {
+                texture.getBytes($0.baseAddress!, bytesPerRow: texture.width * 8,
+                                 from: MTLRegionMake2D(0, 0, texture.width, texture.height),
+                                 mipmapLevel: 0)
+            }
+            return rgba
+        }
+
+        var base = FilmParams.default
+        base.grainActive = false
+        base.glareActive = false
+        base.autoExposure = false
+        var open = base.fullDelta
+        open["film_format_mm"] = .double(4)
+        let session = try await client.open(try makeHighlightFrame(288, device: gpu), paramsDelta: open)
+
+        func shot(_ amount: Double) async throws -> [UInt16] {
+            let _: SetParamsResponse = try await client.call(
+                .setParams, SetParamsRequest(sessionID: session.sessionID,
+                                             paramsDelta: ["halation_amount": .double(amount)]),
+                as: SetParamsResponse.self)
+            return try pixels(try await client.render(.previewRender,
+                                                      RenderRequest(sessionID: session.sessionID)))
+        }
+
+        /// Samples moved by more than 3 counts of 255 — the halo's footprint.
+        func footprint(_ a: [UInt16], _ b: [UInt16]) -> Int {
+            zip(a, b).reduce(0) { $0 + (abs(Int($1.0) - Int($1.1)) > 3 * 257 ? 1 : 0) }
+        }
+
+        let off = try await shot(0)
+        let one = try await shot(1)
+        let two = try await shot(2)
+        let four = try await shot(4)
+
+        let a1 = footprint(one, off), a2 = footprint(two, off), a4 = footprint(four, off)
+        XCTAssertGreaterThan(a1, 0, "the film's own halo moved nothing: the test is measuring nothing")
+        XCTAssertGreaterThan(a2, a1 * 3 / 2, "2 did not grow the halo's area")
+        XCTAssertGreaterThan(a4, a2 * 3 / 2, "4 did not grow the halo's area again")
+        // Twice the radius four times over would be sixteen times the area;
+        // an area multiplier lands near the number itself.
+        XCTAssertLessThan(a4, a1 * 10, "4 grew the halo like a radius multiplier, not an area one")
+        // And 1 is still the film as modelled, byte for byte.
+        let backToOne = try await shot(1)
+        XCTAssertEqual(backToOne, one)
+
+        // **Glare, on the frame where glare is judged** (RFC-034 §3). The
+        // paper's own veil is 0.03 percent of the illuminant, so nothing at or
+        // below ×4 is a veil anyone can see — and `NotEqual`, the guard the
+        // first RFC-025 test used, passes on a single count. The shadow side of
+        // a blown disc is where a veil shows, so the numbers here are the
+        // frame's own: ×30 must lift the picture by counts, not by bits, and
+        // must be several times what ×4 manages.
+        let noVeil = try pixels(try await client.render(.reprint,
+                                                        RenderRequest(sessionID: session.sessionID)))
+
+        func veilLift(_ amount: Double) async throws -> Double {
+            let _: SetParamsResponse = try await client.call(
+                .setParams, SetParamsRequest(sessionID: session.sessionID,
+                                             paramsDelta: ["glare_active": .bool(true),
+                                                           "glare_amount": .double(amount)]),
+                as: SetParamsResponse.self)
+            let image = try pixels(try await client.render(.reprint,
+                                                           RenderRequest(sessionID: session.sessionID)))
+            return zip(image, noVeil).reduce(0.0) {
+                $0 + Double(abs(Int($1.0) - Int($1.1))) / 257.0
+            } / Double(image.count)
+        }
+
+        let veilAtFour = try await veilLift(4)
+        let veilAtTop = try await veilLift(EffectStrengths.glareRange.upperBound)
+        XCTAssertGreaterThan(veilAtTop, 3.0,
+                             "glare at the top of its range is not a veil anyone can see")
+        XCTAssertGreaterThan(veilAtTop, veilAtFour * 4,
+                             "the top of glare's range is not meaningfully more than ×4")
         await client.stop()
     }
 

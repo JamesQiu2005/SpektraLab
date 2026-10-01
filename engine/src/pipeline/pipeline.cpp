@@ -988,12 +988,22 @@ Pipeline::HalationBlurs Pipeline::halation_blurs() const {
 
     // Back-reflection: N bounces off the base, each a wider Gaussian, with a
     // geometric decay normalised to sum 1.
+    //
+    // **`halation_amount` is an area multiplier** (RFC-034, amending RFC-025):
+    // it scales the light the base throws back *and* the area that light
+    // covers, which is one statement — the halo's own intensity is the film's,
+    // and what the number buys is how far it reaches. So every sigma, this one
+    // and the bounces built on it, takes its square root. Doubling the number
+    // doubles the area; scaling the radius instead would quadruple it, and a
+    // slider whose 2 quadrupled the effect is not what "twice the halation"
+    // means. 1 is the film's own halo, exactly as before, and 0 is off.
     const double h_amount = hal.halation_amount, h_scale = hal.halation_spatial_scale;
+    const double h_radius = std::sqrt(std::max(h_amount, 0.0));
     double sigma_h[3];
     bool any_strength = false, any_sigma = false;
     for (int c = 0; c < 3; ++c) {
         const double a_tot = double(float(hal.halation_strength[c]) * float(h_amount));
-        sigma_h[c] = hal.halation_first_sigma_um[c] * h_scale / px;
+        sigma_h[c] = hal.halation_first_sigma_um[c] * h_scale * h_radius / px;
         any_strength |= a_tot > 0.0;
         any_sigma |= sigma_h[c] > 0.0;
     }
@@ -1610,6 +1620,10 @@ bool Pipeline::node_glare(const Image& in, Image& out, std::string& error) {
     const GlareParams& glare = params_.print_render.glare;
     // RFC-025: the strength scales `percent`, so a mean and a spread move
     // together, as a hazier enlarger's would. × 1.0 is exact.
+    //
+    // RFC-034 adds the other half, on the same rule as halation: the amount is
+    // an area multiplier, so the veil's own scale — the blobs the field is
+    // made of, `blur` in pixels at the full tier — takes its square root.
     const double percent = glare.percent * glare.amount;
     if (!glare.active || percent <= 0.0) { out = in; return true; }
     Timer t(this, "scanning.glare");
@@ -1621,9 +1635,10 @@ bool Pipeline::node_glare(const Image& in, Image& out, std::string& error) {
     // fraction of the frame, not of the film (see `GlareParams::blur`), so the
     // export is exactly what it always was and the canvas is what moves.
     const double ratio = tier_ratio();
+    const double radius = std::sqrt(std::max(glare.amount, 0.0));
     if (glare.blur > 0.0) {
         double sigma[3];
-        fill3(sigma, glare.blur * ratio);
+        fill3(sigma, glare.blur * ratio * radius);
         Image blurred;
         if (!blur_.gaussian(field, sigma, blurred, error)) return false;
         field = blurred;

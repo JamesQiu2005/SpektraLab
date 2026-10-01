@@ -2,7 +2,7 @@
 
 | | |
 |---|---|
-| **Status** | **Implemented 2026-09-25 on `main`.** Engine, wire, app and Settings all landed. The two engine promises in §4 are tested through the C ABI. The sliders have not been looked at on a real photograph yet (§7). |
+| **Status** | **Implemented 2026-09-25 on `main`.** Engine, wire, app and Settings all landed. The two engine promises in §4 are tested through the C ABI. The sliders were looked at on 2026-10-01, which is what §7 asked for — and §2's arithmetic did not survive it: `halation_amount` and `glare_amount` are now **area multipliers** and glare's range is 0…30, per **RFC-034**, which amends §1's range table, §2's glare paragraph and §5's slider rows. Grain, scatter and the couplers are as written here. |
 | **Decision** | Each film effect gets a strength that multiplies what the chosen film would do. 1 is always "this film, as modelled", and every default is the engine's, so no existing frame changes. A Settings switch, **Decouple effects**, shows the strengths. It is a view preference, not an edit. |
 | **Scope** | Grain, halation, halation's scatter, DIR couplers and glare: a strength for each, plus grain's sub-layer model as its own switch. |
 | **Not in scope** | Changing any profile's effect parameters; per-channel strengths; lens blur (trap 22: it does nothing on the reference); a grain *size* control (§3.1). |

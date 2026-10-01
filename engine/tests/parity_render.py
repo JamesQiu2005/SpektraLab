@@ -12,7 +12,7 @@ stages, their realisation is drawn from a different generator by construction
 that a correct port looks broken without this. Their *distributions* are
 checked separately by `grain_moments.py`.
 
-Two divergences are expected and are not failures. Both are marked
+Three divergences are expected and are not failures. All are marked
 `expect_divergence=True`, so the harness fails if the two ever *agree* there --
 which for the first would mean the port had inherited a bug.
 
@@ -28,6 +28,13 @@ product of numpy's internal binary search rather than of the model, so neither
 engine is right and agreeing would be a coincidence. The wire allows the
 parameter up to 4.0, which is worth knowing: the schema's range is wider than
 the maths supports.
+
+`halation_amount` off 1.0 (RFC-034): this engine's number is an **area
+multiplier** -- the halo's light scales with it and the area that light covers
+scales with it too, so the sigmas take its square root, which is what makes the
+app's slider mean "twice the halation" rather than "twice the radius". The
+reference multiplies the light only. At 1.0 both are the identity, which is why
+every other case still agrees.
 
 Usage:
     engine/tests/parity_render.py [--case NAME] [--size N] [--verbose]
@@ -100,7 +107,11 @@ CASES = [
               "domain and the reference's output there is an artefact of its internal search; "
               "the wire allows up to 4.0"),
     Case("no_halation", {"halation_active": False}),
-    Case("halation_amount", {"halation_amount": 2.5}),
+    Case("halation_amount", {"halation_amount": 2.5}, expect_divergence=True,
+         note="RFC-034: this engine's `halation_amount` is an area multiplier -- the halo's "
+              "light scales with it and so does the area that light covers, so every sigma "
+              "takes its square root. The reference scales the light only. The two must not "
+              "agree off 1.0; at 1.0 the arithmetic is the identity in both."),
     Case("boost", {"halation_boost_ev": 3.0}),
     Case("print_exposure", {"print_exposure": 1.6}),
     Case("filter_shift", {"m_filter_shift": 0.4, "y_filter_shift": -0.3}),
