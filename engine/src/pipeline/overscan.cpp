@@ -352,6 +352,19 @@ double Pipeline::overscan_gate_long_mm() const {
     return f ? std::max(f->across, f->along) : params_.camera.film_format_mm;
 }
 
+void Pipeline::overscan_frame(uint32_t& frame_w, uint32_t& frame_h) const {
+    const bool laid = overscan_wanted() && overscan_.valid;
+    frame_w = laid ? overscan_.frame_w : 0;
+    frame_h = laid ? overscan_.frame_h : 0;
+}
+
+bool Pipeline::set_overscan_frame(uint32_t frame_w, uint32_t frame_h, std::string& error) {
+    if (!overscan_wanted() || frame_w == 0 || frame_h == 0) return true;
+    if (overscan_.valid && overscan_.frame_w == frame_w && overscan_.frame_h == frame_h &&
+        overscan_.px == pixel_size_um_ / 1000.0) return true;
+    return overscan_layout(frame_w, frame_h, error);
+}
+
 bool Pipeline::overscan_layout(uint32_t frame_w, uint32_t frame_h, std::string& error) {
     const OverscanParams& o = params_.film_render.overscan;
     const Format* fmt = find_format(o.format);

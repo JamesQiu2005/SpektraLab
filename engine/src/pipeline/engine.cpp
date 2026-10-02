@@ -204,6 +204,9 @@ struct spk_session {
         uint32_t image_long_edge = 0;
         Image negative;   // Tap.CMY_FILM
         bool has_negative = false;
+        /// RFC-032 §27: the frame `negative`'s film canvas was laid out for,
+        /// so a reprint can lay it out again. Zero without overscan.
+        uint32_t overscan_frame_w = 0, overscan_frame_h = 0;
         std::optional<double> applied_ev;   // what the node applied to `negative`
     };
     std::unordered_map<std::string, TierState> tiers;
@@ -1066,6 +1069,7 @@ bool negative_for(spk_session* session, const Tier& tier, Progress* progress, Im
     Image negative;
     if (!run_film_for(session, source, negative, progress, error)) return false;
     state.applied_ev = session->pipeline->last_auto_exposure_ev();
+    session->pipeline->overscan_frame(state.overscan_frame_w, state.overscan_frame_h);
     if (progress) progress->auto_exposure_ev = state.applied_ev;
     // The negative is what every subsequent slider drag reprints from, so it
     // has to outlive the frame arena. Copying it here is also what makes a
@@ -1170,6 +1174,13 @@ spk_status render_tier(spk_session* session, const char* tier_name, bool use_rep
     if (ok) session->pipeline->set_source_long_edge(std::max(tier_source.h, tier_source.w),
                                                   std::max(session->source.h, session->source.w));
     if (ok) ok = negative_for(session, *tier, &session->progress, negative, error);
+    // After the negative, which a film run lays out for itself: this is for
+    // the cached one, whose layout the pipeline may never have made (a
+    // print-layer rebuild) or may have replaced with another tier's.
+    if (ok) {
+        const spk_session::TierState& state = session->tiers[tier->name];
+        ok = session->pipeline->set_overscan_frame(state.overscan_frame_w, state.overscan_frame_h, error);
+    }
     if (ok) ok = run_print_for(session, negative, rgb, &session->progress, error);
     if (ok) ok = materialise(session, rgb, out, error);
     gpu->end_frame();
@@ -1605,6 +1616,10 @@ spk_status spk_render_digital_intermediate(spk_session* session, spk_result* out
              pipeline.build(params, error);
         if (ok) {
             pipeline.set_source_long_edge(edge, frame);
+            const spk_session::TierState& state = session->tiers[kTiers[2].name];
+            ok = pipeline.set_overscan_frame(state.overscan_frame_w, state.overscan_frame_h, error);
+        }
+        if (ok) {
             ok = (params.settings.striped ? pipeline.run_print_striped(negative, rgb, nullptr, error)
                                           : pipeline.run_print(negative, rgb, nullptr, error)) &&
                  gpu->flush(error);

@@ -836,7 +836,10 @@ reasoning: RFC-032 §25, §27.
 - **Tests:** `engine/tests/overscan_checks.py`. They include a DX
   code read back off the rendered pixels; white hole interiors; edges that
   differ from hole to hole; black holes that still read as holes; the date
-  turning with the camera; the half-frame canvas. 34 checks.
+  turning with the camera; the half-frame canvas; a reprint of a film
+  canvas, on the live tier after the full one has rendered and after a
+  print-layer edit has rebuilt the pipeline, equal to a fresh render pixel
+  for pixel. 41 checks.
 
 **Proposed, not implemented** (for the frontend contract):
 

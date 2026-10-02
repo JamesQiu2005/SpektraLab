@@ -133,6 +133,54 @@ final class FilmEdgeSessionTests: XCTestCase {
                        session.latitude.failure ?? "")
     }
 
+    /// A film canvas reprints. The engine lays the film out when it develops,
+    /// and a print edit reprints the cached negative: on the live tier after
+    /// the full render has landed, and after a paper change has rebuilt the
+    /// pipeline. Both failed with "the negative does not match this
+    /// pipeline's overscan layout", and so did the export that followed.
+    func testAFilmCanvasReprintsAfterTheFullRenderAndAPaperChange() async throws {
+        let url = try copied("tests/Test_image/A7m3/DSC03710.ARW")
+        let session = try await developedSession(url)
+        var before = session.renderer.live
+        edit(session) { $0.filmEdge.active = true }
+        try await waitForPrint(session, after: before) { session.engineFraming != nil }
+        try await waitUntil("the full render", timeout: 120) { session.renderer.fullRender != nil }
+        let film = try XCTUnwrap(session.renderer.live)
+
+        for (what, change) in [
+            ("Brightness", { (p: inout FilmParams) in p.printBrightnessStops = 1 }),
+            ("the paper", { (p: inout FilmParams) in p.printStock = "kodak_portra_endura" }),
+            ("the Digital Intermediate", { (p: inout FilmParams) in p.digitalIntermediate = true }),
+            ("the paper again", { (p: inout FilmParams) in p.digitalIntermediate = false }),
+        ] as [(String, (inout FilmParams) -> Void)] {
+            before = session.renderer.live
+            edit(session, change)
+            try await waitForPrint(session, after: before) { true }
+            let print = try XCTUnwrap(session.renderer.live)
+            XCTAssertFalse(print === before, "\(what): no new print; status: \(session.status)")
+            XCTAssertEqual(CGSize(width: print.width, height: print.height),
+                           CGSize(width: film.width, height: film.height), "\(what): the same film canvas")
+            XCTAssertFalse(session.status.contains("overscan"), "\(what): \(session.status)")
+        }
+
+        let dir = FileManager.default.temporaryDirectory.appending(path: "spk-filmedge-out-\(UUID().uuidString)")
+        addTeardownBlock { try? FileManager.default.removeItem(at: dir) }
+        for format in [ExportFormat.jpeg, .di] {
+            var recipe = ExportRecipe()
+            recipe.format = format
+            recipe.folder = .fixed(path: dir.path)
+            recipe.subfolder = ""
+            recipe.outputSize = .longEdge(1600)
+            let context = NamingRule.Context(
+                originalName: "film", filmStock: session.params.filmStock, printStock: session.params.printStock,
+                pixelSize: session.printPixelSize, counter: 1, date: Date())
+            let sid = try XCTUnwrap(session.serviceSessionIDForExport)
+            let outcome = try await Exporter.export(session: session, recipe: recipe, context: context, sessionID: sid)
+            guard case .wrote(let urls, _, _) = outcome else { return XCTFail("\(format): \(outcome)") }
+            XCTAssertFalse(urls.isEmpty, "\(format) wrote a file")
+        }
+    }
+
     /// The renderer's half, with no engine: a print of another shape drawn
     /// into the frame of the last one.
     func testARendererTakesTheShapeOfAPrintOfAnotherShape() throws {

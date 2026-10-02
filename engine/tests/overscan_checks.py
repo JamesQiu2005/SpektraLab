@@ -279,6 +279,58 @@ def main():
         except spk.EngineError as err:
             check("an unknown date style is refused", "neon" in str(err), str(err)[:80])
 
+        # A reprint of a film canvas. The print side masks the holes with the
+        # layout of the frame it is printing, and one session reprints several:
+        # the live tier after the full one has rendered, and any tier after a
+        # print-layer edit has rebuilt the pipeline. Every case is compared
+        # with a fresh session rendering the same parameters, pixel for pixel.
+        # A frame larger than the live tier, so the two tiers' canvases differ.
+        big = frame(3000, 2000)
+
+        def reprint_case(name, steps, final):
+            s = e.open(big, dict(BASE, **S135))
+            try:
+                try:
+                    out = steps(s)
+                except spk.EngineError as err:
+                    check(name, False, str(err)[:90])
+                    return
+            finally:
+                s.close()
+            want = render(e, big, dict(S135, **final), tier="live")
+            check(name, out.shape == want.shape and np.array_equal(out, want), f"{out.shape[:2]}")
+
+        def live_after_full(s):
+            s.render("live"); s.render("full")
+            return s.render("live", reprint=True)[0]
+        reprint_case("the live tier reprints after the full tier has rendered", live_after_full, {})
+
+        def live_edit_after_full(s):
+            s.render("live"); s.render("full")
+            s.set_params({"print_exposure": 0.7})
+            return s.render("live", reprint=True)[0]
+        reprint_case("a live print edit reprints after the full tier has rendered", live_edit_after_full,
+                     {"print_exposure": 0.7})
+
+        for field, value in (("print_stock", "kodak_portra_endura"), ("scan_film", True),
+                             ("digital_intermediate", True), ("extended_dynamic_range", True)):
+            def rebuilt(s, field=field, value=value):
+                s.render("live")
+                s.set_params({field: value})
+                return s.render("live", reprint=True)[0]
+            reprint_case(f"a reprint after {field} rebuilt the pipeline", rebuilt, {field: value})
+
+        s = e.open(big, dict(BASE, **S135))
+        try:
+            s.render("live")
+            di, _ = s.render_digital_intermediate()
+            want = render(e, big, dict(S135, digital_intermediate=True), tier="full")
+            check("the Digital Intermediate export of a film canvas", di.shape == want.shape, f"{di.shape[:2]}")
+        except spk.EngineError as err:
+            check("the Digital Intermediate export of a film canvas", False, str(err)[:90])
+        finally:
+            s.close()
+
     print(f"{failures} failure(s)")
     return 1 if failures else 0
 

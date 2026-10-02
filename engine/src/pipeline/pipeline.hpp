@@ -307,6 +307,16 @@ public:
     // 46,080 bisections, which is why `warm_up` exists to pay it early.
     bool build(const Params& params, std::string& error);
 
+    // RFC-032 §27: the film canvas's layout for the frame a negative was made
+    // from, set before a print run that may not follow this pipeline's own
+    // film run -- a reprint after a print-layer rebuild, or of another tier's
+    // negative. The layout is drawn from the seeds, the frame's size and the
+    // pitch, so making it again is making the same one. `overscan_frame` is
+    // the frame the last film run laid out (zero without overscan), which is
+    // what the caller keeps beside the negative. Call the setter after
+    // `set_source_long_edge`.
+    void overscan_frame(uint32_t& frame_w, uint32_t& frame_h) const;
+    bool set_overscan_frame(uint32_t frame_w, uint32_t frame_h, std::string& error);
     // The film's pixel pitch, from the frame this pipeline is about to render.
     //
     // It must be set before *any* run, not just before `run_film`, and that is
