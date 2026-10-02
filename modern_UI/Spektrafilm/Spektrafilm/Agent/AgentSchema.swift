@@ -162,6 +162,10 @@ enum AgentSchema {
                   readOnly: "Free text has no schema type yet; set it in the Date Back section."),
             .init("params.dateBack.camera", .choice([FilmEdgeFormat.f135, .f135Half, .f645].map(\.rawValue)),
                   "The camera printing the date with no film edge, from Film Format.", readOnly: resolved),
+            .init("params.dateBack.framing", .choice([]),
+                  "The crop the engine's frame is cut with for the date alone; empty for the whole frame.", readOnly: resolved),
+            .init("params.dateBack.frameScale", .number(0...1),
+                  "The cut frame's long edge over the photograph's.", readOnly: resolved),
         ]
         for (name, doc) in [("highlightPullBack", "Stops the scene's top is pulled back."),
                             ("shadowPullBack", "Stops the scene's bottom is pulled up."),

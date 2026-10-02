@@ -115,6 +115,9 @@ final class Session: CanvasHost {
         set { guard newValue != sidecar.geometry else { return }
               pushUndo()
               sidecar.geometry = newValue
+              // Before the canvas is told: whether the engine's frame is cut
+              // by this geometry is resolved from it (`dateBack.framing`).
+              resolveFilmEdge()
               renderer.geometry = canvasGeometry
               // A crop changes the physical scale only if the user has said
               // it should (`physicalAspect`). Off — the default — this is a
@@ -125,9 +128,10 @@ final class Session: CanvasHost {
               if Session.recalculateEffectsAfterCrop && !sidecar.params.filmEdge.effective {
                   recomputeFilmFormat()
               }
-              // With a film edge the crop is in the negative: a new one is a
-              // develop — once, when the crop tool lets go of it.
-              if sidecar.params.filmEdge.effective && tool != .crop { requestPrint(); markStale() }
+              // With a film edge, or the date alone, the crop is in the
+              // negative: a new one is a develop — once, when the crop tool
+              // lets go of it.
+              if geometryIsInTheNegative && tool != .crop { requestPrint(); markStale() }
               scheduleSave() }
     }
     /// The live tier's pixel size, which is what the geometry is normalised
@@ -351,9 +355,10 @@ final class Session: CanvasHost {
             // mouse and coming back — only Esc discards, and only back to
             // where this session of the tool started.
             cropEntryGeometry = tool == .crop ? geometry : nil
-            // With a film edge the crop tool frames the picture over the
-            // undeveloped decode, and leaving it develops the framing.
-            if sidecar.params.filmEdge.effective {
+            // With a film edge, or the date alone, the crop tool frames the
+            // picture over the undeveloped decode, and leaving it develops
+            // the framing.
+            if geometryIsInTheNegative {
                 renderer.showOriginal = showingOriginal || filmEdgeFraming
                 renderer.geometry = canvasGeometry
                 // The viewport follows what is shown: the photograph while
@@ -1203,7 +1208,7 @@ final class Session: CanvasHost {
         let saved = new.map { ($0.id, Sidecar.load(for: $0.id)) }
         frameStates = Dictionary(uniqueKeysWithValues: saved.map { ($0.0, $0.1?.state ?? .unprocessed) })
         savedGeometry = Dictionary(uniqueKeysWithValues: saved.map { ($0.0, $0.1?.geometry ?? .default) })
-        filmEdgeThumbnails = Set(saved.filter { $0.1?.params.filmEdge.effective == true }.map(\.0))
+        filmEdgeThumbnails = Set(saved.filter { $0.1?.params.cutsFrame == true }.map(\.0))
         libraryTitle = urls.count == 1 ? urls[0].lastPathComponent : "\(new.count) files"
         renderer.store.removeAll()
         // A new folder is a new set: whatever was picked belongs to the
@@ -2310,7 +2315,7 @@ final class Session: CanvasHost {
         )
         // The frame's own size, and only when it is known: passing nil leaves
         // whatever the decode established (D4).
-        renderer.setLive(tex, logical: scheduler.sent.filmEdge.effective
+        renderer.setLive(tex, logical: scheduler.sent.cutsFrame
                          ? filmCanvasLogicalSize(for: tex, frame: nativeSourceSize) : nativeSourceSize)
         // This print is at the **preview resolution**. For a frame bigger than
         // that it is interpolated at 100 %, so it is not the finished picture
@@ -2551,7 +2556,7 @@ final class Session: CanvasHost {
         guard let url = selection else { return }
         try? sidecar.save(for: url)
         savedGeometry[url] = sidecar.geometry
-        if sidecar.params.filmEdge.effective { filmEdgeThumbnails.insert(url) } else { filmEdgeThumbnails.remove(url) }
+        if sidecar.params.cutsFrame { filmEdgeThumbnails.insert(url) } else { filmEdgeThumbnails.remove(url) }
     }
 
     // MARK: - white balance
@@ -3200,7 +3205,8 @@ final class Session: CanvasHost {
         // With a film edge the crop is in the negative (`Session+FilmEdge`),
         // so the print is a different picture for every framing. Off, the
         // stamp is exactly what it always was.
-        return p.filmEdge.effective ? stamp + ";overscan_framing=\(p.filmEdge.framing)" : stamp
+        if p.filmEdge.effective { return stamp + ";overscan_framing=\(p.filmEdge.framing)" }
+        return p.cutsFrame ? stamp + ";date_framing=\(p.dateBack.framing)" : stamp
     }
 
     /// What the *service* currently holds — not `sidecar.params`, which may

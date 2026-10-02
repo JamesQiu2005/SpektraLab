@@ -219,6 +219,7 @@ extension Session {
         p.filmEdge.edgeText = edgeText(for: stock)
         p.filmEdge.fNumber = shooting.fNumber ?? 0
         p.filmEdge.framing = framingKey(geometry)
+        p.dateBack.framing = geometry.isIdentity ? "" : framingKey(geometry)
         p.dateBack.text = p.dateBack.face == .data
             ? shooting.dataText : shooting.dateText(order: p.dateBack.order)
         return p
@@ -233,6 +234,10 @@ extension Session {
             r.dateBack.camera = Self.dateBackCamera(longMM: long, shortMM: short)
         } else {
             r.dateBack.camera = r.filmEdge.format
+        }
+        if let frame = nativeSourceSize, frame.width > 0, frame.height > 0 {
+            let cut = sidecar.geometry.outputSize(for: frame)
+            r.dateBack.frameScale = max(cut.width, cut.height) / max(frame.width, frame.height)
         }
         return r
     }
@@ -333,27 +338,36 @@ extension Session {
 
     // MARK: what the canvas draws
 
-    /// True while the canvas shows the film rather than the photograph: a
-    /// film edge is on and the crop tool is not framing it.
-    var filmEdgeShowsFilm: Bool { params.filmEdge.effective && tool != .crop }
+    /// True while the canvas shows the engine's own cut of the picture rather
+    /// than the photograph with the crop applied on top: a film edge, or the
+    /// date alone under a crop, a turn or a flip (`FilmParams.cutsFrame`),
+    /// while the crop tool is not framing it.
+    var filmEdgeShowsFilm: Bool { params.cutsFrame && tool != .crop }
 
-    /// True while the crop tool frames the picture in the gate.
-    var filmEdgeFraming: Bool { params.filmEdge.effective && tool == .crop }
+    /// True while the crop tool frames a picture the engine is handed cut.
+    var filmEdgeFraming: Bool { params.cutsFrame && tool == .crop }
+
+    /// True when a change of geometry is a change of the negative: the frame
+    /// is cut before the engine, or would be once the geometry is not the
+    /// identity (the date alone).
+    var geometryIsInTheNegative: Bool {
+        params.filmEdge.effective || params.dateBack.effective(filmEdge: params.filmEdge)
+    }
 
     /// The geometry the canvas, the thumbnails and the export apply to the
     /// print: none while it is the film canvas (the crop is already in it).
     var canvasGeometry: Geometry { filmEdgeShowsFilm ? .default : geometry }
 
     /// The geometry an exported print takes: the film canvas is already cut.
-    var printGeometry: Geometry { params.filmEdge.effective ? .default : geometry }
+    var printGeometry: Geometry { params.cutsFrame ? .default : geometry }
 
     /// The crop the engine's frame is cut with, or nil for the whole decode.
-    var filmEdgeCut: Geometry? { params.filmEdge.effective ? geometry : nil }
+    var filmEdgeCut: Geometry? { params.cutsFrame ? geometry : nil }
 
     /// The framing key the engine's frame must have been cut with for the
     /// session it holds to still be this frame (nil: the whole decode).
     var wantedEngineFraming: String? {
-        params.filmEdge.effective ? params.filmEdge.framing : nil
+        params.engineFramingKey
     }
 
     /// The linear decode as the engine is to take it: whole, or cut by the
@@ -402,7 +416,7 @@ extension Session {
     /// The size the viewport is expressed against for a print made from `p`:
     /// the frame's own pixels, or the film canvas.
     func printLogicalSize(for print: MTLTexture, params p: FilmParams, frame: CGSize?) -> CGSize? {
-        p.filmEdge.effective ? filmCanvasLogicalSize(for: print, frame: frame) : frame
+        p.cutsFrame ? filmCanvasLogicalSize(for: print, frame: frame) : frame
     }
 
     /// The print's own pixels, as a file of it would be: the crop at the
@@ -410,7 +424,7 @@ extension Session {
     /// native render's when it has landed, else the estimate from the live
     /// print). For naming and captions; the export measures its own texture.
     var printPixelSize: CGSize {
-        if params.filmEdge.effective {
+        if params.cutsFrame {
             if let full = renderer.fullRender { return CGSize(width: full.width, height: full.height) }
             if let live = renderer.live { return filmCanvasLogicalSize(for: live, frame: nativeSourceSize) }
         }

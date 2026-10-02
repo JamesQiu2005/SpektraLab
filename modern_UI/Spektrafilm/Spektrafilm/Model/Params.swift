@@ -651,7 +651,7 @@ struct FilmParams: Codable, Equatable, Sendable {
             // Sent always, unlike the method: it has a default here and the
             // default is the engine's, so a legacy frame is unchanged by it.
             ("auto_exposure", .bool(autoExposure), .shoot),
-            ("film_format_mm", .double(filmFormatMM), .shoot),
+            ("film_format_mm", .double(wireFilmFormatMM), .shoot),
             ("grain_active", .bool(grainActive), .shoot),
             // `&&`, not the setting alone: with grain off this is what it has
             // always been, so a legacy frame's stamp does not move.
@@ -707,7 +707,7 @@ struct FilmParams: Codable, Equatable, Sendable {
         // RFC-032/031 (API-SPEC §13). The two switches always, the rest only
         // while each is on (`FilmEdgeSettings.wire`).
         fields += filmEdge.wire
-        fields += dateBack.wire(filmEdge: filmEdge)
+        fields += dateBack.wire(filmEdge: filmEdge, scale: dateScale)
         return fields
     }
 

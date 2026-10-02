@@ -240,6 +240,17 @@ struct DateBackSettings: Codable, Equatable, Sendable {
     /// that had a date back, and then nothing is drawn. With a film edge the
     /// film edge's format is the camera, whatever this says.
     var camera: FilmEdgeFormat? = .f135
+    /// The crop the engine's frame is cut with while the date is on without a
+    /// film edge, as a key (`Session.framingKey`), or empty for the whole
+    /// frame. Resolved by the session. The engine prints the date in the
+    /// corner of the frame it is handed, so a cropped, turned or flipped
+    /// picture has to be that frame; handed the whole decode, the date was
+    /// cropped away, turned onto its side or mirrored with the picture.
+    var framing = ""
+    /// The cut frame's long edge over the photograph's, resolved with
+    /// `framing`: what keeps the pixel pitch when the engine is handed less
+    /// of the frame (`FilmParams.wireFilmFormatMM`). 1 for the whole frame.
+    var frameScale = 1.0
 
     static let insetRange = 0.0...30.0
     static let sizeRange = 0.4...3.0
@@ -266,6 +277,8 @@ struct DateBackSettings: Codable, Equatable, Sendable {
         text = try c.decodeIfPresent(String.self, forKey: .text) ?? d.text
         customText = try c.decodeIfPresent(String.self, forKey: .customText)
         camera = (try? c.decodeIfPresent(FilmEdgeFormat.self, forKey: .camera)) ?? d.camera
+        framing = try c.decodeIfPresent(String.self, forKey: .framing) ?? d.framing
+        frameScale = try c.decodeIfPresent(Double.self, forKey: .frameScale) ?? d.frameScale
     }
 
     /// The date as a date back writes it: no leading zeros, a two-digit year
@@ -299,11 +312,18 @@ struct DateBackSettings: Codable, Equatable, Sendable {
         filmEdge.effective ? filmEdge.format : camera
     }
 
+    /// True when the date alone has the engine's frame cut by the crop.
+    func cutsFrame(filmEdge: FilmEdgeSettings) -> Bool {
+        !filmEdge.effective && effective(filmEdge: filmEdge) && !framing.isEmpty
+    }
+
     /// `date_imprint_active` always; the rest only while it is on (see
     /// `FilmEdgeSettings.wire`). The camera's format rides on
     /// `overscan_format` even with the film edge off, because the engine
-    /// reads the film's direction from it.
-    func wire(filmEdge: FilmEdgeSettings) -> [(name: String, value: ParamValue, layer: ParamLayer)] {
+    /// reads the film's direction from it. `scale` is the cut picture against
+    /// the camera's whole frame (`FilmParams.dateScale`): the date keeps its
+    /// size and its insets in the picture, not on the negative.
+    func wire(filmEdge: FilmEdgeSettings, scale: Double = 1) -> [(name: String, value: ParamValue, layer: ParamLayer)] {
         let on = effective(filmEdge: filmEdge)
         var fields: [(name: String, value: ParamValue, layer: ParamLayer)] = [
             ("date_imprint_active", .bool(on), .shoot),
@@ -318,11 +338,40 @@ struct DateBackSettings: Codable, Equatable, Sendable {
             ("date_imprint_text", .string(printedText), .shoot),
             ("date_imprint_placement", .string(placement.rawValue), .shoot),
             ("date_imprint_corner", .string(corner.rawValue), .shoot),
-            ("date_imprint_inset_x", .double(insetXMM.clamped(to: Self.insetRange)), .shoot),
-            ("date_imprint_inset_y", .double(insetYMM.clamped(to: Self.insetRange)), .shoot),
-            ("date_imprint_size", .double(wireSize(on: camera)), .shoot),
+            ("date_imprint_inset_x", .double((insetXMM * scale).clamped(to: Self.insetRange)), .shoot),
+            ("date_imprint_inset_y", .double((insetYMM * scale).clamped(to: Self.insetRange)), .shoot),
+            ("date_imprint_size", .double((wireSize(on: camera) * scale).clamped(to: Self.sizeRange)), .shoot),
             ("date_imprint_ev", .double(brightnessEV.clamped(to: Self.brightnessRange)), .shoot),
         ]
         return fields
+    }
+}
+
+extension FilmParams {
+    /// True when the engine is handed the picture already cut by the crop
+    /// rather than the whole decode: a film edge (the frame is the gate), or
+    /// the date alone on a frame whose geometry is not the identity.
+    var cutsFrame: Bool { filmEdge.effective || dateBack.cutsFrame(filmEdge: filmEdge) }
+
+    /// The framing the engine's frame must have been cut with, or nil for the
+    /// whole decode.
+    var engineFramingKey: String? {
+        if filmEdge.effective { return filmEdge.framing }
+        return dateBack.cutsFrame(filmEdge: filmEdge) ? dateBack.framing : nil
+    }
+
+    /// `film_format_mm` as sent. The engine takes it as the long edge of the
+    /// frame it is handed; when the date has that frame cut, the cut's own
+    /// long edge keeps the pitch, so the grain does not move with the date.
+    var wireFilmFormatMM: Double {
+        dateBack.cutsFrame(filmEdge: filmEdge) ? filmFormatMM * dateBack.frameScale : filmFormatMM
+    }
+
+    /// The cut picture's long edge against the camera's own frame, which the
+    /// date's size and insets follow. 1 for the whole frame, and 1 when the
+    /// crop is itself the frame (`Session.recalculateEffectsAfterCrop`).
+    var dateScale: Double {
+        guard dateBack.cutsFrame(filmEdge: filmEdge), let camera = dateBack.camera else { return 1 }
+        return (wireFilmFormatMM / camera.gateMM.long).clamped(to: 0.05...1)
     }
 }

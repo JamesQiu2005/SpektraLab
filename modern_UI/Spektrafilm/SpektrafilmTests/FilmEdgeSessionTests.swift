@@ -181,6 +181,84 @@ final class FilmEdgeSessionTests: XCTestCase {
         }
     }
 
+    /// The date back alone prints in the picture's own corner, upright,
+    /// whatever the crop, the turn or the flip. The engine exposes the date on
+    /// the frame it is handed, so the frame has to be the picture: handed the
+    /// whole decode, a crop cut the date away, a quarter turn carried it round
+    /// to another corner on its side, and a flip mirrored it.
+    func testTheDateAloneFollowsTheCropTheTurnAndTheFlip() async throws {
+        let url = try copied("tests/Test_image/A7m3/DSC03710.ARW")
+        let session = try await developedSession(url)
+
+        // The date's place on the canvas: where a print with it differs from
+        // one whose date back is on with nothing to print (the same frame in
+        // the engine, so nothing else moves), as a box in the drawn picture's
+        // own unit square.
+        func dateBox(_ geometry: Geometry, _ what: String) async throws -> CGRect {
+            var images: [[UInt16]] = []
+            var size = CGSize.zero
+            for on in [false, true] {
+                edit(session) { $0.dateBack.active = true; $0.dateBack.customText = on ? "'88 8 8" : " "; $0.dateBack.brightnessEV = 8 }
+                if session.geometry != geometry { session.geometry = geometry }
+                // An edit may or may not develop (the first pass changes
+                // nothing); either way the canvas is settled after this.
+                try await Task.sleep(for: .seconds(3))
+                try await waitUntil("\(what): idle, date \(on)", timeout: 120) { !session.busy }
+                session.renderer.hideFullRender()
+                session.renderer.viewport.resize(viewport: CGSize(width: 900, height: 900),
+                                                 image: session.renderer.viewport.image)
+                session.renderer.viewport.fit()
+                let frame = session.renderer.viewport.imageFrame
+                let tex = try XCTUnwrap(session.renderer.renderOffscreen(size: CGSize(width: 900, height: 900),
+                                                                         backingScale: 1))
+                var px = [UInt16](repeating: 0, count: 900 * 900 * 4)
+                tex.getBytes(&px, bytesPerRow: 900 * 8, from: MTLRegionMake2D(0, 0, 900, 900), mipmapLevel: 0)
+                images.append(px)
+                size = frame.size
+                XCTAssertGreaterThan(frame.width, 100, what)
+                // Everything outside the picture is the same in both; keep the frame for the box.
+                if on {
+                    var minX = 900, maxX = -1, minY = 900, maxY = -1
+                    for y in 0..<900 { for x in 0..<900 {
+                        let i = (y * 900 + x) * 4
+                        let d = abs(Int(images[0][i]) - Int(px[i])) + abs(Int(images[0][i + 1]) - Int(px[i + 1]))
+                        if d > 6000 { minX = min(minX, x); maxX = max(maxX, x); minY = min(minY, y); maxY = max(maxY, y) }
+                    } }
+                    guard maxX >= 0 else { XCTFail("\(what): no date on the canvas"); return .zero }
+                    return CGRect(x: (CGFloat(minX) - frame.minX) / frame.width,
+                                  y: (CGFloat(minY) - frame.minY) / frame.height,
+                                  width: CGFloat(maxX - minX) / frame.width,
+                                  height: CGFloat(maxY - minY) / frame.height)
+                }
+            }
+            _ = size
+            return .zero
+        }
+
+        func assertLowerRightUpright(_ box: CGRect, _ what: String, picture: CGSize) {
+            XCTAssertGreaterThan(box.midX, 0.6, "\(what): the date is in the right of the picture: \(box)")
+            XCTAssertGreaterThan(box.midY, 0.7, "\(what): the date is at the bottom of the picture: \(box)")
+            XCTAssertLessThan(box.maxX, 1.01, "\(what): inside the picture: \(box)")
+            XCTAssertGreaterThan(box.width * picture.width, 2 * box.height * picture.height,
+                                 "\(what): the date reads along the picture, upright: \(box)")
+        }
+
+        var g = Geometry.default
+        let whole = try await dateBox(g, "the whole frame")
+        assertLowerRightUpright(whole, "the whole frame", picture: CGSize(width: 3, height: 2))
+
+        g.crop = CropRect(x: 0.05, y: 0.05, width: 0.5, height: 0.5)
+        let cropped = try await dateBox(g, "a crop of the upper left")
+        assertLowerRightUpright(cropped, "a crop of the upper left", picture: CGSize(width: 3, height: 2))
+        XCTAssertEqual(cropped.width, whole.width, accuracy: 0.25 * whole.width,
+                       "the date is as large in the cropped picture as in the whole one")
+
+        g = .default
+        g.flipH = true
+        let flipped = try await dateBox(g, "flipped")
+        assertLowerRightUpright(flipped, "flipped", picture: CGSize(width: 3, height: 2))
+    }
+
     /// The renderer's half, with no engine: a print of another shape drawn
     /// into the frame of the last one.
     func testARendererTakesTheShapeOfAPrintOfAnotherShape() throws {
