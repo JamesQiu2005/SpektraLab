@@ -122,6 +122,9 @@ enum S: String, CaseIterable, Sendable {
     case setAgentsInstalled, setAgentsNotInstalled, setAgentsInstalledOther, setAgentsInstallCaption
     case setAgentsMCP, setAgentsClaudeCode, setAgentsClaudeDesktop, setAgentsMCPCaption
     case setAgentsCopy, setAgentsCopied, setAgentsTools
+
+    // MARK: Film Edge and Date Back (RFC-032, RFC-031; 2026-10-01 drawings)
+    case sectionFilmEdge, sectionDateBack, edgeFormat, edgeFormatHalf, edgeGroup135, edgeGroup120, edgeGroupPanoramic, edgeView, edgeViewStrip, edgeViewFiled, edgeGateAndScan, edgeGate, edgeGateAuto, edgeGateSquare, edgeGateRounded, edgeGateEared, edgeGateShouldered, edgeGateKicked, edgeHoles, edgeHolesWhite, edgeHolesBlack, edgeBody, edgeAnother, edgeAdvance, edgeAnotherFrame, edgeLight, edgeFog, edgeLeaks, edgeOff, edgeHeldByFilmEdge, edgeSetByFilmEdge, edgeMeteredOnPicture, dateFace, dateFaceDots, dateFaceData, dateDate, dateImprint, dateFromEXIF, dateWhere, dateInFrame, dateBetween, dateCorner, dateSize, dateBrightness, dateStops, dateOrderJapan, dateOrderUS, reasonBetweenNeedsFilmEdge
 }
 
 // MARK: - the table
@@ -381,6 +384,56 @@ extension S {
             "Film, paper, camera and lens names stay in English, as do technical abbreviations. "
             + "The change applies immediately — nothing needs restarting."
         case .languageFollowSystem: "Follow the system"
+
+        // Film Edge and Date Back
+        case .sectionFilmEdge: "Film Edge"
+        case .sectionDateBack: "Date Back"
+        case .edgeFormat: "Format"
+        case .edgeFormatHalf: "Half"
+        case .edgeGroup135: "35 mm"
+        case .edgeGroup120: "120"
+        case .edgeGroupPanoramic: "Panoramic"
+        case .edgeView: "View"
+        case .edgeViewStrip: "Strip"
+        case .edgeViewFiled: "Filed"
+        case .edgeGateAndScan: "GATE AND SCAN"
+        case .edgeGate: "Gate"
+        case .edgeGateAuto: "Auto"
+        case .edgeGateSquare: "Square"
+        case .edgeGateRounded: "Rounded"
+        case .edgeGateEared: "Eared"
+        case .edgeGateShouldered: "Shouldered"
+        case .edgeGateKicked: "Kicked"
+        case .edgeHoles: "Holes"
+        case .edgeHolesWhite: "White"
+        case .edgeHolesBlack: "Black"
+        case .edgeBody: "Body"
+        case .edgeAnother: "Another"
+        case .edgeAdvance: "Advance"
+        case .edgeAnotherFrame: "Another frame"
+        case .edgeLight: "LIGHT"
+        case .edgeFog: "Edge fog"
+        case .edgeLeaks: "Spool leaks"
+        case .edgeOff: "Off"
+        case .edgeHeldByFilmEdge: "Held by Film Edge"
+        case .edgeSetByFilmEdge: "Set by Film Edge"
+        case .edgeMeteredOnPicture: "Metered on the picture, never the rebate."
+        case .dateFace: "Face"
+        case .dateFaceDots: "Dots"
+        case .dateFaceData: "Data"
+        case .dateDate: "Date"
+        case .dateImprint: "Imprint"
+        case .dateFromEXIF: "from EXIF"
+        case .dateWhere: "Where"
+        case .dateInFrame: "In frame"
+        case .dateBetween: "Between"
+        case .dateCorner: "Corner"
+        case .dateSize: "Size"
+        case .dateBrightness: "Brightness"
+        case .dateStops: "stops"
+        case .dateOrderJapan: "Year Month Day"
+        case .dateOrderUS: "Month Day Year"
+        case .reasonBetweenNeedsFilmEdge: "Between needs Film Edge."
         }
     }
 
@@ -619,6 +672,56 @@ extension S {
         case .setLanguageCaption:
             "胶片、相纸、相机与镜头名称以及技术缩写保持英文。切换立即生效，无需重新启动。"
         case .languageFollowSystem: "跟随系统"
+
+        // 片边与日期后背。新词待确认：见 RFC-032/031 的桌面实现报告。
+        case .sectionFilmEdge: "片边"
+        case .sectionDateBack: "日期后背"
+        case .edgeFormat: "画幅"
+        case .edgeFormatHalf: "半格"
+        case .edgeGroup135: "35 mm"
+        case .edgeGroup120: "120"
+        case .edgeGroupPanoramic: "宽幅"
+        case .edgeView: "视图"
+        case .edgeViewStrip: "片条"
+        case .edgeViewFiled: "单格"
+        case .edgeGateAndScan: "片门与扫描"
+        case .edgeGate: "片门"
+        case .edgeGateAuto: "自动"
+        case .edgeGateSquare: "方角"
+        case .edgeGateRounded: "圆角"
+        case .edgeGateEared: "带耳"
+        case .edgeGateShouldered: "带肩"
+        case .edgeGateKicked: "外撇"
+        case .edgeHoles: "齿孔"
+        case .edgeHolesWhite: "白色"
+        case .edgeHolesBlack: "黑色"
+        case .edgeBody: "机身"
+        case .edgeAnother: "换一台"
+        case .edgeAdvance: "过片"
+        case .edgeAnotherFrame: "换一格"
+        case .edgeLight: "漏光与灰雾"
+        case .edgeFog: "边缘灰雾"
+        case .edgeLeaks: "片轴漏光"
+        case .edgeOff: "关"
+        case .edgeHeldByFilmEdge: "由片边决定"
+        case .edgeSetByFilmEdge: "由片边设定"
+        case .edgeMeteredOnPicture: "只对画面测光，不计片边。"
+        case .dateFace: "字体"
+        case .dateFaceDots: "点阵"
+        case .dateFaceData: "数据"
+        case .dateDate: "日期"
+        case .dateImprint: "印字"
+        case .dateFromEXIF: "来自 EXIF"
+        case .dateWhere: "位置"
+        case .dateInFrame: "画面内"
+        case .dateBetween: "片格间"
+        case .dateCorner: "角落"
+        case .dateSize: "大小"
+        case .dateBrightness: "亮度"
+        case .dateStops: "档"
+        case .dateOrderJapan: "年 月 日"
+        case .dateOrderUS: "月 日 年"
+        case .reasonBetweenNeedsFilmEdge: "片格间需要开启片边。"
         }
     }
 }
@@ -737,6 +840,52 @@ extension CurveChannel {
         case .rgb: nil
         }
     }
+}
+
+extension FilmEdgeView {
+    var key: S { self == .strip ? .edgeViewStrip : .edgeViewFiled }
+}
+
+extension FilmEdgeHoles {
+    var key: S { self == .white ? .edgeHolesWhite : .edgeHolesBlack }
+}
+
+extension FilmEdgeGate {
+    var key: S {
+        switch self {
+        case .auto: .edgeGateAuto
+        case .square: .edgeGateSquare
+        case .rounded: .edgeGateRounded
+        case .eared: .edgeGateEared
+        case .shouldered: .edgeGateShouldered
+        case .kicked: .edgeGateKicked
+        }
+    }
+}
+
+extension FilmEdgeFormat {
+    /// `nil` for every format but half frame: `135`, `645`, `6×7` and `XPan`
+    /// are format names, which the spec keeps as they are.
+    var key: S? { self == .f135Half ? .edgeFormatHalf : nil }
+}
+
+extension DateBackFace {
+    /// `nil` for `lcd`, an abbreviation the spec keeps.
+    var key: S? {
+        switch self {
+        case .lcd: nil
+        case .dots: .dateFaceDots
+        case .data: .dateFaceData
+        }
+    }
+}
+
+extension DateBackPlacement {
+    var key: S { self == .frame ? .dateInFrame : .dateBetween }
+}
+
+extension DateBackOrder {
+    var key: S { self == .japan ? .dateOrderJapan : .dateOrderUS }
 }
 
 // MARK: - catalogue group headers

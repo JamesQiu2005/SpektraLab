@@ -130,6 +130,39 @@ enum AgentSchema {
             .init("params.effects.couplers", .number(EffectStrengths.couplersRange), "DIR coupler strength."),
             .init("params.effects.glare", .number(EffectStrengths.glareRange), "Glare strength, × the paper's own."),
         ]
+        // RFC-032's film edge and RFC-031's date back (API-SPEC §13). Shoot
+        // layer: every edit re-develops. What the session resolves for the
+        // engine is listed and cannot be written.
+        let resolved = "Resolved by the app from the frame, its EXIF and its stock."
+        f += [
+            .init("params.filmEdge.active", .bool, "Film Edge: the film around the frame. On, the crop is held at the gate's aspect and the result is the film canvas, larger than the picture."),
+            .init("params.filmEdge.format", .choice(FilmEdgeFormat.allCases.filter(\.isAvailable).map(\.rawValue)), "The film and its gate."),
+            .init("params.filmEdge.view", .choice(FilmEdgeView.allCases.map(\.rawValue)), "The whole film width, or a filed carrier's sliver of rebate."),
+            .init("params.filmEdge.gate", .choice(FilmEdgeGate.allCases.map(\.rawValue)), "The gate's shape family; auto lets the body pick."),
+            .init("params.filmEdge.holes", .choice(FilmEdgeHoles.allCases.map(\.rawValue)), "What shows through the perforations."),
+            .init("params.filmEdge.cameraSeed", .integer(FilmEdgeSettings.seedRange), "The camera body: gate, margins, holes, fog."),
+            .init("params.filmEdge.frameSeed", .integer(FilmEdgeSettings.seedRange), "This frame's advance and scan: weave, leaks, numbers."),
+            .init("params.filmEdge.fog", .number(FilmEdgeSettings.fogRange), "Edge fog strength; 0 is none."),
+            .init("params.filmEdge.leaks", .number(FilmEdgeSettings.leaksRange), "Spool light leaks; 0 is none."),
+            .init("params.filmEdge.edgeText", .choice([]), "The stock's edge print.", readOnly: resolved),
+            .init("params.filmEdge.fNumber", .number(0...64), "The lens f-number, from EXIF; 0 is unknown.", readOnly: resolved),
+            .init("params.filmEdge.framing", .choice([]), "The crop the engine's frame was cut with.", readOnly: resolved),
+            .init("params.filmEdge.seeded", .bool, "Whether the frame has been given its seeds.", readOnly: resolved),
+            .init("params.dateBack.active", .bool, "Date Back: a date or the shooting data exposed onto the film."),
+            .init("params.dateBack.face", .choice(DateBackFace.allCases.map(\.rawValue)), "Seven segments, a 5×7 dot matrix, or shooting data."),
+            .init("params.dateBack.order", .choice(DateBackOrder.allCases.map(\.rawValue)), "The date's order: month day year, or year month day."),
+            .init("params.dateBack.placement", .choice(DateBackPlacement.allCases.map(\.rawValue)), "In the frame, or between frames (needs Film Edge)."),
+            .init("params.dateBack.corner", .choice(DateBackCorner.allCases.map(\.rawValue)), "The corner, in the camera's frame held level."),
+            .init("params.dateBack.insetXMM", .number(DateBackSettings.insetRange), "mm from the gate's side."),
+            .init("params.dateBack.insetYMM", .number(DateBackSettings.insetRange), "mm from the gate's top or bottom."),
+            .init("params.dateBack.size", .number(DateBackSettings.sizeRange), "A scale on the face's own height."),
+            .init("params.dateBack.brightnessEV", .number(DateBackSettings.brightnessRange), "The lamp's exposure, stops over 18 % grey."),
+            .init("params.dateBack.text", .choice([]), "What is printed: the EXIF date, or the shooting data.", readOnly: resolved),
+            .init("params.dateBack.customText", .choice([]), "The user's own text, in place of the resolved one.",
+                  readOnly: "Free text has no schema type yet; set it in the Date Back section."),
+            .init("params.dateBack.camera", .choice([FilmEdgeFormat.f135, .f135Half, .f645].map(\.rawValue)),
+                  "The camera printing the date with no film edge, from Film Format.", readOnly: resolved),
+        ]
         for (name, doc) in [("highlightPullBack", "Stops the scene's top is pulled back."),
                             ("shadowPullBack", "Stops the scene's bottom is pulled up."),
                             ("shadowPercentile", "The robust shadow extreme the Fit targets."),
@@ -183,6 +216,8 @@ enum AgentSchema {
             .init("geometry.flipH", .bool, "Flip horizontally."),
             .init("geometry.flipV", .bool, "Flip vertically."),
             .init("geometry.aspect", .choice(CropAspect.allCases.map(\.rawValue)), "The crop's aspect lock."),
+            .init("geometry.lockedRatio", .number(0.1...10), "The gate's ratio the crop is held to while Film Edge is on.",
+                  readOnly: "Set by Film Edge's format."),
             .init("geometry.intendedSize", .size, "The size a crop was last set to by hand.",
                   readOnly: "Kept by crop edits, as a drag keeps it."),
         ]

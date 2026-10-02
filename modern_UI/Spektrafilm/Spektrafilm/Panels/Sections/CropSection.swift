@@ -26,7 +26,12 @@ struct CropSection: View {
     // new system, everything else works fine there." So the rows are the
     // rows, moved onto the rail — no well, no section icon, the new insets.
     var body: some View {
-        PanelSection(L(.sectionCrop), key: "crop", initiallyExpanded: false, menu: { AnyView(menu) }) {
+        // **Held while Film Edge is on**: the picture is then framed in the
+        // gate, at the gate's aspect, and this crop is kept for when the film
+        // edge comes off (RFC-032 §17.5).
+        PanelSection(L(.sectionCrop), key: "crop", initiallyExpanded: false,
+                     menu: session.filmEdgeHoldsFrame ? nil : { AnyView(menu) },
+                     note: session.filmEdgeHoldsFrame ? L(.edgeHeldByFilmEdge) : nil) {
             RailRows {
                 aspectRow
                 // Scrubbed through `scrubStraighten`, not written straight
@@ -44,6 +49,9 @@ struct CropSection: View {
                     .font(Theme.Font.caption).foregroundStyle(Theme.dim)
                     .frame(maxWidth: .infinity, alignment: .leading)
             }
+            .rowEnabled(!session.filmEdgeHoldsFrame,
+                        because: L("Film Edge frames the picture in its gate. Switch it off to crop.",
+                                   zh: "片边在片门中取景。关闭片边后可裁剪。"))
         }
     }
 

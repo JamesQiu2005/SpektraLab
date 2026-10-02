@@ -29,6 +29,11 @@ struct LeftPanel: View {
                         [("navigator", AnyView(NavigatorSection(session: session))),
                          ("clipboard", AnyView(ClipboardSection(session: session))),
                          ("film", AnyView(FilmSection(session: session))),
+                         // Under Film, before Print: both belong to the film
+                         // and depend on neither the paper nor the DI
+                         // (2026-10-01 drawings).
+                         (FilmEdgeSection.key, AnyView(FilmEdgeSection(session: session))),
+                         (DateBackSection.key, AnyView(DateBackSection(session: session))),
                          ("print", AnyView(PrintProfileSection(session: session))),
                          ("crop", AnyView(CropSection(session: session))),
                          ("enlarger", AnyView(EnlargerSection(session: session)))]

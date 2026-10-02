@@ -60,7 +60,9 @@ struct DecodedImage: @unchecked Sendable {
     let sourceURL: URL
     /// The source file's EXIF dictionary, kept outside the render pipeline.
     /// It is copied back to the finished export without interpreting or
-    /// rewriting it. The engine never sees metadata.
+    /// rewriting it. The engine never sees the dictionary: the only metadata
+    /// that makes pixels is the handful of typed shooting values the date
+    /// back and the film edge print (`ShootingData`, RFC-033, answer E10).
     let sourceEXIF: [CFString: Any]?
     /// As-shot values reported by the RAW filter (nil for flat files).
     let asShotTemperature: Double?
@@ -181,8 +183,12 @@ enum ImageDecoder {
             : try decodeFlat(url, sourceEXIF: sourceEXIF, checkpoint: checkpoint)
     }
 
-    /// Read metadata once at the door. This is deliberately a side channel:
-    /// no metadata is sent through `EngineClient` or used to make pixels.
+    /// Read metadata once at the door. A side channel, with one exception:
+    /// RFC-033 (answer E10) replaced "no metadata makes pixels" with "typed
+    /// fields only". `ShootingData` resolves the capture date, shutter,
+    /// aperture, mode, compensation and 35 mm focal length into the date
+    /// back's text and the gate's f-number; nothing else crosses into the
+    /// engine, and a field the file lacks is left out, never invented.
     static func sourceEXIF(from url: URL) -> [CFString: Any]? {
         guard let source = CGImageSourceCreateWithURL(url as CFURL, nil),
               let properties = CGImageSourceCopyPropertiesAtIndex(source, 0, nil)

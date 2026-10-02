@@ -69,6 +69,11 @@ struct SectionHeader: View {
     /// Metadata at the header's trailing end, before its buttons — what a
     /// measurement was taken on (Latitude's film and paper).
     var note: String? = nil
+    /// **The section's own switch**, as a checkbox at the trailing end: Film
+    /// Edge and Date Back (2026-10-01 drawings), each of which is a thing the
+    /// frame has or has not, and whose rows mean nothing while it has not.
+    var toggle: Binding<Bool>? = nil
+    var toggleHelp: String = ""
 
     var body: some View {
         HStack(spacing: 0) {
@@ -97,8 +102,18 @@ struct SectionHeader: View {
             Spacer(minLength: 4)
             if let note {
                 FittingLine(text: note, size: 9, color: Theme.Ink.tertiary, alignment: .trailing)
-                    .padding(.trailing, action == nil && menu == nil ? Theme.Metric.headerTrailing : 2)
+                    .padding(.trailing, action == nil && menu == nil && toggle == nil ? Theme.Metric.headerTrailing : 2)
                     .layoutPriority(1)
+            }
+            if let toggle {
+                // The box's ink sits on the rows' trailing inset, so it lines
+                // up with every checkbox in the section under it; its target
+                // is wider than its ink, which is the pull-back.
+                CheckBox(isOn: toggle)
+                    .help(toggleHelp)
+                    .padding(.trailing, action == nil && menu == nil
+                             ? Theme.Metric.rowInset - (Theme.Metric.controlHitTarget - Theme.Metric.checkbox) / 2
+                             : 0)
             }
             if let action {
                 Button(action: action.perform) {
@@ -210,15 +225,24 @@ struct PanelSection<Content: View>: View {
     /// See `SectionMetrics` — the editor's panels unless a page says otherwise.
     var metrics = SectionMetrics()
     var note: String? = nil
+    /// What the header says **while the section is folded**: the one-line
+    /// summary a switched section folds to (`135 · Strip`, `LCD · ’26 10 1`).
+    /// `note` wins when both are set.
+    var foldedNote: String? = nil
+    var toggle: Binding<Bool>? = nil
+    var toggleHelp: String = ""
     @ViewBuilder var content: () -> Content
     @AppStorage private var expanded: Bool
 
     init(_ title: String, systemImage: String? = nil, key: String, initiallyExpanded: Bool = true,
          action: SectionAction? = nil,
          menu: (() -> AnyView)? = nil, metrics: SectionMetrics = SectionMetrics(),
-         note: String? = nil,
+         note: String? = nil, foldedNote: String? = nil,
+         toggle: Binding<Bool>? = nil, toggleHelp: String = "",
          @ViewBuilder content: @escaping () -> Content) {
         self.note = note
+        self.foldedNote = foldedNote
+        self.toggle = toggle; self.toggleHelp = toggleHelp
         self.title = title; self.systemImage = systemImage; self.key = key
         self.initiallyExpanded = initiallyExpanded; self.action = action
         self.menu = menu; self.metrics = metrics
@@ -229,7 +253,9 @@ struct PanelSection<Content: View>: View {
     var body: some View {
         VStack(spacing: 0) {
             SectionHeader(title: title, systemImage: systemImage, expanded: $expanded,
-                          action: action, menu: menu, metrics: metrics, note: note)
+                          action: action, menu: menu, metrics: metrics,
+                          note: note ?? (expanded ? nil : foldedNote),
+                          toggle: toggle, toggleHelp: toggleHelp)
             // A **collapsed** section is its header and nothing else. The
             // drawing's two shut sections are 30 pt apart, which is the
             // header, so bottom padding here would put air under a row that

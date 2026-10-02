@@ -446,6 +446,7 @@ final class Renderer: NSObject {
 
     func setLive(_ texture: MTLTexture?, logical: CGSize? = nil) {
         log("setLive \(texture.map { "\($0.width)x\($0.height)" } ?? "nil"), needsDraw=\(needsDraw != nil)")
+        let previous = live
         live = texture
         if texture == nil { showsFullRender = false; sourceSize = nil }
         layer2Dirty = true
@@ -454,8 +455,35 @@ final class Renderer: NSObject {
         // and every detail swap pass nil so the view does not move.
         if let logical { sourceSize = logical }
         else if sourceSize == nil, let texture { sourceSize = CGSize(width: texture.width, height: texture.height) }
+        else if let texture, let previous { conformSourceSize(to: texture, previous: previous) }
         refreshLogicalSize()
         needsDraw?()
+    }
+
+    /// Keep the frame the viewport is expressed against in the proportion of
+    /// the texture it is drawn from. A print of another shape than the last —
+    /// a film edge's canvas, which grows with the format, the view and even
+    /// the camera seed — would otherwise be drawn into the old rectangle,
+    /// stretched. The scale from texture to frame pixels is kept (the tier
+    /// has not changed), so a 1254 px canvas becoming 1250 px moves the view
+    /// by that and no more. Within a pixel of the old shape nothing moves.
+    private func conformSourceSize(to texture: MTLTexture, previous: MTLTexture) {
+        // Framing a film edge shows the decode over the film print; the frame
+        // is the decode's then, whatever print lands under it.
+        guard !(editingCrop && showOriginal) else { return }
+        guard let size = sourceSize, previous.width > 0, texture.height > 0 else { return }
+        guard !Renderer.sameShape(size, CGSize(width: texture.width, height: texture.height)) else { return }
+        let k = size.width / CGFloat(previous.width)
+        sourceSize = CGSize(width: (CGFloat(texture.width) * k).rounded(),
+                            height: (CGFloat(texture.height) * k).rounded())
+    }
+
+    /// Whether a frame of `size` draws a `texture`-sized image without
+    /// stretching it by more than one texture pixel along either side.
+    static func sameShape(_ size: CGSize, _ texture: CGSize) -> Bool {
+        guard size.width > 0, size.height > 0, texture.width > 0, texture.height > 0 else { return true }
+        let drawnHeight = texture.width * size.height / size.width
+        return abs(drawnHeight - texture.height) <= 1
     }
 
     /// Re-express the viewport against whatever the output currently is — the
@@ -475,6 +503,13 @@ final class Renderer: NSObject {
     func setFullRender(_ texture: MTLTexture?) {
         fullRender = texture
         showsFullRender = texture != nil
+        // The native render is the frame's own pixels, so when its shape is
+        // not the frame's the frame is it (see `conformSourceSize`).
+        if let texture, let size = sourceSize, !editingCrop || !showOriginal,
+           !Renderer.sameShape(size, CGSize(width: texture.width, height: texture.height)) {
+            sourceSize = CGSize(width: texture.width, height: texture.height)
+            refreshLogicalSize()
+        }
         layer2Dirty = true
         needsDraw?()
     }

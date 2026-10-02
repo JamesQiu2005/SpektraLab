@@ -532,6 +532,16 @@ enum Theme {
         /// after it (76.6 / 2).
         static let fieldWidth: CGFloat = 49.77
         static let unitWidth: CGFloat = 38.32
+        /// Film Edge and Date Back (2026-10-01 drawings): the Format and Date
+        /// pills are drawn 80 wide with their note after them, *Another* 86,
+        /// the corner pad 46 × 30, and the format menu 236.
+        static let edgeFormatPillWidth: CGFloat = 80
+        static let edgeAnotherWidth: CGFloat = 86
+        static let edgeFormatMenuWidth: CGFloat = 236
+        static let dateCornerPad = CGSize(width: 46, height: 30)
+        /// Air above a caption that heads a group of rows inside a section
+        /// (*Gate and scan*, *Light*): the drawing's 10 pt over the row pitch.
+        static let subheadTop: CGFloat = 6
         /// Trailing inset of Film's own controls: v3 ends their right edges
         /// at x 231.10 on a 254 pt rail. Wider than `rowInset` on purpose —
         /// the pickers are right-aligned and the drawing holds them further

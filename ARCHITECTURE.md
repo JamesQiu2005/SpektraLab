@@ -412,7 +412,9 @@ surface applies the geometry itself.
   `.<name>.partial-*` and moves it into place, so a crash never leaves a
   truncated file that a `.skip` recipe would keep as "already exists".
 - **The source EXIF rides through** as a side channel; ImageIO rewrites the
-  pixel dimensions to the file's own.
+  pixel dimensions to the file's own. Only typed shooting values ever make
+  pixels — the date back's text and the gate's f-number (`ShootingData`,
+  RFC-033, answer E10); the dictionary itself never reaches the engine.
 
 ### 7.9 Agents (RFC-026)
 

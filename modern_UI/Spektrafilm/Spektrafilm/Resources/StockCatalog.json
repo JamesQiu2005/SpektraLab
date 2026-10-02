@@ -9,7 +9,10 @@
    "targetPrint": "fujifilm_crystal_archive_typeii",
    "hasPreviewLUT": false,
    "pairedFilm": null,
-   "cover": null
+   "cover": null,
+   "formats": [
+    "135"
+   ]
   },
   {
    "id": "fujifilm_crystal_archive_typeii",
@@ -31,7 +34,11 @@
    "targetPrint": "fujifilm_crystal_archive_typeii",
    "hasPreviewLUT": false,
    "pairedFilm": null,
-   "cover": null
+   "cover": null,
+   "formats": [
+    "135",
+    "120"
+   ]
   },
   {
    "id": "fujifilm_provia_100f",
@@ -42,7 +49,11 @@
    "targetPrint": null,
    "hasPreviewLUT": false,
    "pairedFilm": null,
-   "cover": "fujifilm_provia_100f.jpg"
+   "cover": "fujifilm_provia_100f.jpg",
+   "formats": [
+    "135",
+    "120"
+   ]
   },
   {
    "id": "fujifilm_velvia_100",
@@ -53,7 +64,11 @@
    "targetPrint": null,
    "hasPreviewLUT": false,
    "pairedFilm": null,
-   "cover": "fujifilm_velvia_100.jpg"
+   "cover": "fujifilm_velvia_100.jpg",
+   "formats": [
+    "135",
+    "120"
+   ]
   },
   {
    "id": "fujifilm_xtra_400",
@@ -64,7 +79,11 @@
    "targetPrint": "fujifilm_crystal_archive_typeii",
    "hasPreviewLUT": false,
    "pairedFilm": null,
-   "cover": "fujifilm_xtra_400.jpg"
+   "cover": "fujifilm_xtra_400.jpg",
+   "formats": [
+    "135",
+    "120"
+   ]
   },
   {
    "id": "kodak_2383",
@@ -97,7 +116,13 @@
    "targetPrint": null,
    "hasPreviewLUT": false,
    "pairedFilm": null,
-   "cover": "kodak_ektachrome_100.jpg"
+   "cover": "kodak_ektachrome_100.jpg",
+   "formats": [
+    "135",
+    "120",
+    "16mm",
+    "super8"
+   ]
   },
   {
    "id": "kodak_ektacolor_edge",
@@ -119,7 +144,11 @@
    "targetPrint": "kodak_portra_endura",
    "hasPreviewLUT": false,
    "pairedFilm": null,
-   "cover": null
+   "cover": null,
+   "formats": [
+    "135",
+    "120"
+   ]
   },
   {
    "id": "kodak_endura_premier",
@@ -141,7 +170,11 @@
    "targetPrint": "kodak_portra_endura",
    "hasPreviewLUT": false,
    "pairedFilm": null,
-   "cover": "kodak_gold_200.jpg"
+   "cover": "kodak_gold_200.jpg",
+   "formats": [
+    "135",
+    "120"
+   ]
   },
   {
    "id": "kodak_kodachrome_64",
@@ -152,7 +185,11 @@
    "targetPrint": null,
    "hasPreviewLUT": false,
    "pairedFilm": null,
-   "cover": null
+   "cover": null,
+   "formats": [
+    "135",
+    "120"
+   ]
   },
   {
    "id": "kodak_portra_160",
@@ -163,7 +200,11 @@
    "targetPrint": "kodak_portra_endura",
    "hasPreviewLUT": false,
    "pairedFilm": null,
-   "cover": "kodak_portra_160.jpg"
+   "cover": "kodak_portra_160.jpg",
+   "formats": [
+    "135",
+    "120"
+   ]
   },
   {
    "id": "kodak_portra_400",
@@ -174,7 +215,11 @@
    "targetPrint": "kodak_portra_endura",
    "hasPreviewLUT": false,
    "pairedFilm": null,
-   "cover": "kodak_portra_400.jpg"
+   "cover": "kodak_portra_400.jpg",
+   "formats": [
+    "135",
+    "120"
+   ]
   },
   {
    "id": "kodak_portra_800",
@@ -185,7 +230,11 @@
    "targetPrint": "kodak_portra_endura",
    "hasPreviewLUT": false,
    "pairedFilm": null,
-   "cover": "kodak_portra_800.jpg"
+   "cover": "kodak_portra_800.jpg",
+   "formats": [
+    "135",
+    "120"
+   ]
   },
   {
    "id": "kodak_portra_800_push1",
@@ -196,7 +245,11 @@
    "targetPrint": "kodak_portra_endura",
    "hasPreviewLUT": false,
    "pairedFilm": null,
-   "cover": "kodak_portra_800_push1.jpg"
+   "cover": "kodak_portra_800_push1.jpg",
+   "formats": [
+    "135",
+    "120"
+   ]
   },
   {
    "id": "kodak_portra_800_push2",
@@ -207,7 +260,11 @@
    "targetPrint": "kodak_portra_endura",
    "hasPreviewLUT": false,
    "pairedFilm": null,
-   "cover": "kodak_portra_800_push2.jpg"
+   "cover": "kodak_portra_800_push2.jpg",
+   "formats": [
+    "135",
+    "120"
+   ]
   },
   {
    "id": "kodak_portra_endura",
@@ -251,7 +308,10 @@
    "targetPrint": "kodak_portra_endura",
    "hasPreviewLUT": false,
    "pairedFilm": null,
-   "cover": "kodak_ultramax_400.jpg"
+   "cover": "kodak_ultramax_400.jpg",
+   "formats": [
+    "135"
+   ]
   },
   {
    "id": "kodak_verita_200d",
@@ -262,7 +322,11 @@
    "targetPrint": "kodak_2383",
    "hasPreviewLUT": false,
    "pairedFilm": null,
-   "cover": null
+   "cover": null,
+   "formats": [
+    "16mm",
+    "35mm_motion"
+   ]
   },
   {
    "id": "kodak_vision3_200t",
@@ -273,7 +337,12 @@
    "targetPrint": "kodak_2383",
    "hasPreviewLUT": false,
    "pairedFilm": null,
-   "cover": null
+   "cover": null,
+   "formats": [
+    "16mm",
+    "super8",
+    "35mm_motion"
+   ]
   },
   {
    "id": "kodak_vision3_250d",
@@ -284,7 +353,11 @@
    "targetPrint": "kodak_2383",
    "hasPreviewLUT": false,
    "pairedFilm": null,
-   "cover": null
+   "cover": null,
+   "formats": [
+    "16mm",
+    "35mm_motion"
+   ]
   },
   {
    "id": "kodak_vision3_500t",
@@ -295,7 +368,12 @@
    "targetPrint": "kodak_2383",
    "hasPreviewLUT": false,
    "pairedFilm": null,
-   "cover": null
+   "cover": null,
+   "formats": [
+    "16mm",
+    "super8",
+    "35mm_motion"
+   ]
   },
   {
    "id": "kodak_vision3_50d",
@@ -306,7 +384,12 @@
    "targetPrint": "kodak_2383",
    "hasPreviewLUT": false,
    "pairedFilm": null,
-   "cover": null
+   "cover": null,
+   "formats": [
+    "16mm",
+    "super8",
+    "35mm_motion"
+   ]
   }
  ]
 }

@@ -135,9 +135,15 @@ struct Sidecar: Codable, Equatable, Sendable {
     /// Which file this belongs to, and enough about it to find it again after
     /// it is moved or renamed. Nil in a sidecar written before the store.
     var source: Source?
+    /// The user's own crop, kept while Film Edge holds the frame in its gate
+    /// (`Session.filmEdgeWillChange`): `geometry` is then the framing, and
+    /// this comes back, exactly, when the film edge is switched off
+    /// (RFC-032 §17.5). Nil whenever nothing is held.
+    var heldCrop: Geometry?
 
     private enum CodingKeys: String, CodingKey {
         case schemaVersion, decoder, decode, params, adjustments, geometry, masks, solvedEV, placementNeedsFit, state
+        case heldCrop
         /// Which file these settings belong to (`Source`). Written from the
         /// store's first version; absent in every sidecar that predates it.
         case source
@@ -163,6 +169,7 @@ struct Sidecar: Codable, Equatable, Sendable {
         state = try c.decodeIfPresent(FrameState.self, forKey: .state) ?? .unprocessed
         masks = try c.decodeIfPresent([EditMask].self, forKey: .masks) ?? []
         source = try c.decodeIfPresent(Source.self, forKey: .source)
+        heldCrop = try c.decodeIfPresent(Geometry.self, forKey: .heldCrop)
         if let g = try c.decodeIfPresent(Geometry.self, forKey: .geometry) {
             geometry = g
         } else if let legacy = try c.decodeIfPresent(CropRect.self, forKey: .crop) {
@@ -186,6 +193,7 @@ struct Sidecar: Codable, Equatable, Sendable {
         if !masks.isEmpty { try c.encode(masks, forKey: .masks) }
         try c.encodeIfPresent(source, forKey: .source)
         try c.encodeIfPresent(solvedEV, forKey: .solvedEV)
+        try c.encodeIfPresent(heldCrop, forKey: .heldCrop)
         if placementNeedsFit { try c.encode(placementNeedsFit, forKey: .placementNeedsFit) }
         try c.encode(state, forKey: .state)
     }

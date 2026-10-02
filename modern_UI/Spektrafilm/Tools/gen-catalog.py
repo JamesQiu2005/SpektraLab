@@ -41,6 +41,38 @@ COVERS = {
 }
 
 
+# Film stock -> the film gauges its manufacturer made it in, ever (current or
+# discontinued; third-party respooling does not count). From
+# SpektraLab_mobile/research/overscan/availability.md (2026-10-01), where every
+# cell is sourced; that table is the reference, this is its "yes" and
+# "discontinued" cells. Gauges: "135", "120", "16mm", "super8", "35mm_motion".
+# Format availability is not profile data (RFC-032 §22), so it lives here and
+# not in the CC BY-SA profiles. A stock missing from this table gets no
+# `formats` key, which the app reads as "not known: offer every format".
+FORMATS = {
+    "fujifilm_c200": ["135"],
+    "fujifilm_pro_400h": ["135", "120"],
+    "fujifilm_provia_100f": ["135", "120"],
+    "fujifilm_velvia_100": ["135", "120"],
+    "fujifilm_xtra_400": ["135", "120"],
+    "kodak_ektachrome_100": ["135", "120", "16mm", "super8"],
+    "kodak_ektar_100": ["135", "120"],
+    "kodak_gold_200": ["135", "120"],
+    "kodak_kodachrome_64": ["135", "120"],
+    "kodak_portra_160": ["135", "120"],
+    "kodak_portra_400": ["135", "120"],
+    "kodak_portra_800": ["135", "120"],
+    "kodak_portra_800_push1": ["135", "120"],
+    "kodak_portra_800_push2": ["135", "120"],
+    "kodak_ultramax_400": ["135"],
+    "kodak_verita_200d": ["16mm", "35mm_motion"],
+    "kodak_vision3_200t": ["16mm", "super8", "35mm_motion"],
+    "kodak_vision3_250d": ["16mm", "35mm_motion"],
+    "kodak_vision3_500t": ["16mm", "super8", "35mm_motion"],
+    "kodak_vision3_50d": ["16mm", "super8", "35mm_motion"],
+}
+
+
 def main() -> None:
     (OUT / "FilmCovers").mkdir(parents=True, exist_ok=True)
     luts = json.loads(PRINT_LUTS.read_text())
@@ -57,7 +89,7 @@ def main() -> None:
                 if not dst.exists():
                     subprocess.run(["sips", "-Z", "160", str(src), "--out", str(dst)],
                                    check=True, capture_output=True)
-        stocks.append({
+        entry = {
             "id": sid,
             "name": info.get("name", sid),
             "stage": info.get("stage"),            # filming | printing
@@ -67,7 +99,10 @@ def main() -> None:
             "hasPreviewLUT": sid in luts,
             "pairedFilm": luts[sid]["paired_film"] if sid in luts else None,
             "cover": cover,
-        })
+        }
+        if sid in FORMATS:
+            entry["formats"] = FORMATS[sid]
+        stocks.append(entry)
     (OUT / "StockCatalog.json").write_text(json.dumps({"stocks": stocks}, indent=1))
     print(f"wrote {len(stocks)} stocks")
 

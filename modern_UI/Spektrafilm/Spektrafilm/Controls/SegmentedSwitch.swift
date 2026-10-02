@@ -22,6 +22,11 @@ struct SegmentedSwitch<Option: Hashable & Identifiable>: View {
     /// A dot after the title: this side holds edits.
     var marked: (Option) -> Bool = { _ in false }
     var markHelp: String = ""
+    /// Whether a side can be chosen. A side that cannot greys and stops taking
+    /// the click, with `reason` as its tooltip — Date Back's *Between* without
+    /// a film edge, a face the format has no back for.
+    var enabled: (Option) -> Bool = { _ in true }
+    var reason: (Option) -> String = { _ in "" }
 
     @Namespace private var thumb
 
@@ -57,6 +62,7 @@ struct SegmentedSwitch<Option: Hashable & Identifiable>: View {
                     guard !on else { return }
                     withAnimation(.easeOut(duration: 0.15)) { selection = option }
                 }
+                .rowEnabled(enabled(option), because: reason(option))
                 .accessibilityElement(children: .combine)
                 .accessibilityAddTraits(on ? [.isButton, .isSelected] : .isButton)
             }

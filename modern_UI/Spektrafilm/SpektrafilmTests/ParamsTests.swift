@@ -105,7 +105,11 @@ final class ParamsTests: XCTestCase {
                                   "dir_couplers_active", "dir_couplers_amount", "glare_amount",
                                   // RFC-028, native-only: the Digital
                                   // Intermediate and its blue compensation.
-                                  "digital_intermediate", "digital_intermediate_blue_compensation"]
+                                  "digital_intermediate", "digital_intermediate_blue_compensation",
+                                  // RFC-032/031 (API-SPEC §13), native-only:
+                                  // the two switches always; the rest only
+                                  // while each is on (`FilmEdgeTests`).
+                                  "overscan_active", "date_imprint_active"]
         XCTAssertEqual(Set(FilmParams.default.wire.map(\.name)), known)
     }
 

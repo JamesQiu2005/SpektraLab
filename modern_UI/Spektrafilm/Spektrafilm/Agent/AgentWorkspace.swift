@@ -256,13 +256,10 @@ final class AgentWorkspace {
 
     private func write(_ recipe: ExportRecipe) async throws -> [URL] {
         guard let url, let sid = session.serviceSessionIDForExport else { throw AgentError.refused("No frame is open.") }
-        let out = session.geometry.outputSize(for: session.sourceImageSize)
-        let scale = session.sourceLongEdge > 0
-            ? session.sourceLongEdge / max(session.sourceImageSize.width, session.sourceImageSize.height) : 1
         let context = NamingRule.Context(
             originalName: url.deletingPathExtension().lastPathComponent,
             filmStock: session.params.filmStock, printStock: session.params.printStock,
-            pixelSize: CGSize(width: (out.width * scale).rounded(), height: (out.height * scale).rounded()),
+            pixelSize: session.printPixelSize,
             counter: 1, date: Date())
         do {
             switch try await Exporter.export(session: session, recipe: recipe, context: context, sessionID: sid) {

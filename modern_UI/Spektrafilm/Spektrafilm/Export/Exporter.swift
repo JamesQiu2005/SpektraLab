@@ -376,12 +376,15 @@ enum Exporter {
         // transform written a second time. The old path cropped with
         // `CGImage.cropping` and could not rotate at all, so a straightened
         // frame exported unstraightened and nothing in the app said so.
-        if !session.geometry.isIdentity {
-            let out = session.geometry.outputSize(for: CGSize(width: current.width,
-                                                              height: current.height))
+        // With a film edge the engine's print is the film canvas, already cut
+        // from the crop (`Session.printGeometry`), and is written whole.
+        let geometry = session.printGeometry
+        if !geometry.isIdentity {
+            let out = geometry.outputSize(for: CGSize(width: current.width,
+                                                      height: current.height))
             let (framedDestination, framedScratch) = try destination(width: Int(out.width),
                                                                      height: Int(out.height))
-            guard session.renderer.applyGeometry(session.geometry, to: current,
+            guard session.renderer.applyGeometry(geometry, to: current,
                                                  into: framedDestination) != nil
             else { throw ExportError.noPixels }
             currentScratch?.giveBack()

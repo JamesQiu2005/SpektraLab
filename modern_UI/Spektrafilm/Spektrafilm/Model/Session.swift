@@ -83,7 +83,13 @@ final class Session: CanvasHost {
         get { sidecar.params }
         set { guard newValue != sidecar.params else { return }
               pushUndo()
-              sidecar.params = newValue; requestPrint(); markStale(); scheduleSave() }
+              // The film edge takes the crop into its gate and gives it back
+              // (`Session+FilmEdge.swift`); the geometry moves before the
+              // params land, so the develop below cuts the new framing.
+              filmEdgeWillChange(from: sidecar.params, to: newValue)
+              sidecar.params = newValue
+              renderer.geometry = canvasGeometry
+              requestPrint(); markStale(); scheduleSave() }
     }
     var adjustments: Adjustments {
         get { sidecar.adjustments }
@@ -109,17 +115,31 @@ final class Session: CanvasHost {
         set { guard newValue != sidecar.geometry else { return }
               pushUndo()
               sidecar.geometry = newValue
-              renderer.geometry = newValue
+              renderer.geometry = canvasGeometry
               // A crop changes the physical scale only if the user has said
               // it should (`physicalAspect`). Off — the default — this is a
               // no-op, and the check is here rather than inside so that the
               // common case does not walk the arithmetic on every drag event.
-              if Session.recalculateEffectsAfterCrop { recomputeFilmFormat() }
+              // Not under a film edge: the engine sizes the film from the
+              // gate then and ignores `film_format_mm` (API-SPEC §13).
+              if Session.recalculateEffectsAfterCrop && !sidecar.params.filmEdge.effective {
+                  recomputeFilmFormat()
+              }
+              // With a film edge the crop is in the negative: a new one is a
+              // develop — once, when the crop tool lets go of it.
+              if sidecar.params.filmEdge.effective && tool != .crop { requestPrint(); markStale() }
               scheduleSave() }
     }
     /// The live tier's pixel size, which is what the geometry is normalised
     /// against. Zero before the first image lands.
-    var sourceImageSize: CGSize { renderer.sourceSize ?? .zero }
+    ///
+    /// While the canvas shows a film edge the renderer's frame is the film
+    /// canvas, which the geometry knows nothing about: the crop is still the
+    /// photograph's, so it is measured against the photograph.
+    var sourceImageSize: CGSize {
+        if filmEdgeShowsFilm, let native = nativeSourceSize { return native }
+        return renderer.sourceSize ?? .zero
+    }
 
     /// The frame's **own** pixels, whatever tier is on the canvas, or nil
     /// before a decode has landed.
@@ -129,7 +149,7 @@ final class Session: CanvasHost {
     /// pixel per device pixel while a 1600 px live tier of a 6000 px frame is
     /// on screen, not one *texture* pixel. A nil means "the frame's size is
     /// not known yet", and the callers pass it as "leave the size alone".
-    private var nativeSourceSize: CGSize? { decoded?.pixelSize ?? displaySourceSize }
+    var nativeSourceSize: CGSize? { decoded?.pixelSize ?? displaySourceSize }
 
     // MARK: masks (蒙版) — Layer 2, local
     //
@@ -331,6 +351,19 @@ final class Session: CanvasHost {
             // mouse and coming back — only Esc discards, and only back to
             // where this session of the tool started.
             cropEntryGeometry = tool == .crop ? geometry : nil
+            // With a film edge the crop tool frames the picture over the
+            // undeveloped decode, and leaving it develops the framing.
+            if sidecar.params.filmEdge.effective {
+                renderer.showOriginal = showingOriginal || filmEdgeFraming
+                renderer.geometry = canvasGeometry
+                // The viewport follows what is shown: the photograph while
+                // framing, the film canvas after.
+                if let live = renderer.live {
+                    renderer.setLive(live, logical: filmEdgeFraming ? nativeSourceSize
+                                     : filmCanvasLogicalSize(for: live, frame: nativeSourceSize))
+                }
+                if oldValue == .crop { requestPrint(); markStale() }
+            }
             renderer.needsDraw?()
         }
     }
@@ -485,7 +518,11 @@ final class Session: CanvasHost {
     }
     /// There has to be something to compare against: the decode preview, which
     /// arrives with the frame.
-    var canCompare: Bool { selection != nil && renderer.canCompare }
+    /// Not while the canvas shows a film edge: the original is the bare
+    /// photograph and the print is the film around a cut of it, so a split
+    /// would set two different framings side by side (the gate's place in
+    /// the canvas needs `spk_overscan_geometry`).
+    var canCompare: Bool { selection != nil && renderer.canCompare && !filmEdgeShowsFilm }
     var histogram: [Float] = Array(repeating: 0, count: 1024)
     var hoverValue: SIMD3<Float>?      // encoded RGB under the cursor, for the curve readout
     var status = "Open a folder or an image to begin."
@@ -517,12 +554,16 @@ final class Session: CanvasHost {
     /// `refreshState`. The open frame is not read from here — see
     /// `thumbnailGeometry(for:)`.
     private(set) var savedGeometry: [URL: Geometry] = [:]
+    /// The frames whose prints are film canvases: their thumbnails are drawn
+    /// whole, since the crop is already inside them. Read with `savedGeometry`.
+    private(set) var filmEdgeThumbnails: Set<URL> = []
 
     /// The geometry a frame's thumbnail is drawn with: the live one for the
     /// frame on the canvas, so a crop drag shows in the strip as it happens,
     /// and the saved one for every other.
     func thumbnailGeometry(for url: URL) -> Geometry {
-        url == selection ? geometry : (savedGeometry[url] ?? .default)
+        url == selection ? canvasGeometry
+            : (filmEdgeThumbnails.contains(url) ? .default : (savedGeometry[url] ?? .default))
     }
     var lastRenderMs: Double = 0
     private var statusBase: String?
@@ -764,6 +805,10 @@ final class Session: CanvasHost {
     var log: Log { diagnostics.log }
     let catalog = StockCatalog.shared
     private var serviceSessionID: String?
+    /// The film-edge framing the engine's frame was cut with (`framingKey`),
+    /// or nil for the whole decode. Compared with `wantedEngineFraming` on
+    /// every request: a different cut is a different frame (`requestPrint`).
+    private(set) var engineFraming: String?
     private var engineArenaHandle: MemoryArena.Handle?
     /// Approximate engine session footprint for a 45 MP frame (PRD/IMPL-RFC-019-memory.md §3.2);
     /// this is an accounting estimate, not a live measurement.
@@ -838,7 +883,7 @@ final class Session: CanvasHost {
     /// capabilities. Metal publishes no such property (D1), and over it
     /// `MTLTextureDescriptor` asserts rather than returning nil, so the app
     /// must stay inside it. Nil until capabilities land.
-    private var maxTextureEdge: Int?
+    private(set) var maxTextureEdge: Int?
     /// The background render of the *native* original (D3). One per selected
     /// frame: it is a full-resolution texture (363 MB at 45 MP, 1.2 GB at
     /// 151 MP), so it is replaced rather than accumulated, and the preview
@@ -1158,6 +1203,7 @@ final class Session: CanvasHost {
         let saved = new.map { ($0.id, Sidecar.load(for: $0.id)) }
         frameStates = Dictionary(uniqueKeysWithValues: saved.map { ($0.0, $0.1?.state ?? .unprocessed) })
         savedGeometry = Dictionary(uniqueKeysWithValues: saved.map { ($0.0, $0.1?.geometry ?? .default) })
+        filmEdgeThumbnails = Set(saved.filter { $0.1?.params.filmEdge.effective == true }.map(\.0))
         libraryTitle = urls.count == 1 ? urls[0].lastPathComponent : "\(new.count) files"
         renderer.store.removeAll()
         // A new folder is a new set: whatever was picked belongs to the
@@ -1215,6 +1261,7 @@ final class Session: CanvasHost {
         scheduler.invalidate()
         releaseEngineAccounting()
         serviceSessionID = nil
+        engineFraming = nil
         status = "\(frames.count) frames · pick one in the filmstrip to develop."
     }
 
@@ -1337,9 +1384,12 @@ final class Session: CanvasHost {
         // asked for a develop as surely as a slider does, and without one the
         // frame would open onto its bare decode. Nothing else saves `.stale`.
         if sidecar.state == .stale { wantsDevelop = true }
+        exif = EXIFReadout.read(url)
+        seedFilmEdge(for: url)
+        resolveFilmEdge()
         renderer.layer2 = sidecar.adjustments.uniforms
         renderer.setCurves(sidecar.adjustments.curves)
-        renderer.geometry = sidecar.geometry
+        renderer.geometry = canvasGeometry
         selectedMaskID = sidecar.masks.first?.id
         syncMasks()
         decodeResidency.clear()
@@ -1347,7 +1397,6 @@ final class Session: CanvasHost {
         decodeIsStale = false
         exposureEvByMethod = nil
         openClock = nil
-        exif = EXIFReadout.read(url)
         stockWarning = nil
         // Both belong to the frame that is going away (§11.5): a refusal and a
         // memory warning are statements about *that* frame's pixels, and
@@ -1360,7 +1409,8 @@ final class Session: CanvasHost {
         // against what is on screen, and `load` corrects it when the decode
         // lands (`refreshLogicalSize` refits, because the view was fitted).
         if let cached = renderer.store.print(for: url) {
-            renderer.setLive(cached, logical: nativeSourceSize ?? CGSize(width: cached.width, height: cached.height)); previewSoft = true
+            renderer.setLive(cached, logical: printLogicalSize(for: cached, params: sidecar.params, frame: nativeSourceSize)
+                             ?? CGSize(width: cached.width, height: cached.height)); previewSoft = true
         } else if let src = renderer.store.source(for: url) {
             renderer.setLive(src, logical: nativeSourceSize ?? CGSize(width: src.width, height: src.height)); previewSoft = true
         } else {
@@ -1372,6 +1422,7 @@ final class Session: CanvasHost {
         scheduler.invalidate()
         releaseEngineAccounting()
         serviceSessionID = nil
+        engineFraming = nil
         // A memory boundary (§3): what switching frames costs is the question
         // behind "switching frames is slow".
         sampleMemory("frame_switch")
@@ -1785,7 +1836,8 @@ final class Session: CanvasHost {
                 sourceWidth: Int(picture.sourceSize.width.rounded()),
                 sourceHeight: Int(picture.sourceSize.height.rounded())
             )
-            renderer.setLive(picture.texture, logical: picture.sourceSize)
+            renderer.setLive(picture.texture, logical: printLogicalSize(for: picture.texture, params: sidecar.params,
+                                                                        frame: picture.sourceSize))
             previewSoft = false
             clock.lap("print-cache")
             noteOpen(clock, url: url, mode: "print-cache", pixels: picture.sourceSize)
@@ -2035,6 +2087,10 @@ final class Session: CanvasHost {
     /// here — a parameter edit, an undo, a paste, an export, a capture.
     func requestPrint() {
         wantsDevelop = true
+        resolveFilmEdge()
+        // A film edge changes which frame the engine holds (the decode cut by
+        // the crop), and that is an open, not a delta.
+        if serviceSessionID != nil, engineFraming != wantedEngineFraming { releaseEngineFrame() }
         guard serviceSessionID == nil else { scheduler.request(params); return }
         Task { await ensureDeveloped() }
     }
@@ -2070,7 +2126,16 @@ final class Session: CanvasHost {
         // cost, measured against what is free. A forecast that does not fit is
         // said out loud in the window and written down either way — the app may
         // not sail into a swap storm silently.
-        noteProjection(pixels: Int(d.pixelSize.width * d.pixelSize.height), operation: "develop")
+        resolveFilmEdge()
+        noteProjection(pixels: developForecastPixels(d.pixelSize), operation: "develop")
+        // Overscan renders whole-frame only (the striped executor refuses
+        // it), so a film too wide for one texture is refused here, in words,
+        // before the engine is asked.
+        if let tooLarge = filmEdgeRefusal(d.pixelSize) {
+            noteFailure(tooLarge, operation: "develop", frame: url.lastPathComponent,
+                        pixels: developForecastPixels(d.pixelSize))
+            return nil
+        }
         status = "Developing…"
         // Preserved rather than cleared: Solve sets it around the develop *and*
         // the solve that follows, and clearing it here would open a window in
@@ -2081,6 +2146,7 @@ final class Session: CanvasHost {
         defer { busy = wasBusy }
         do {
             let r: OpenResponse
+            var framing: String?
             // What the open actually carries. The scheduler is reset to *this*,
             // not to the sidecar after the await: an edit made while the engine
             // was being handed the frame is not on the engine, and recording it
@@ -2093,8 +2159,11 @@ final class Session: CanvasHost {
                 // otherwise kept to the end of the function. The engine keeps
                 // nothing of it (`spk_open_device` borrows for the call).
                 let device = renderer.device
+                let cut = filmEdgeCut
+                framing = wantedEngineFraming
                 let frame = try await Task.detached(priority: .userInitiated) {
-                    try ImageDecoder.engineFrame(from: d, device: device)
+                    try ImageDecoder.engineFrame(
+                        from: Session.engineImage(d.linear, size: d.pixelSize, cut: cut), device: device)
                 }.value
                 clock.lap("frame")
                 guard selection == url, !Task.isCancelled else { return nil }
@@ -2120,6 +2189,7 @@ final class Session: CanvasHost {
             guard selection == url, !Task.isCancelled else { return nil }
             serviceReady = true
             serviceSessionID = r.sessionID
+            engineFraming = framing
             // Before the first render can reach the canvas, so nothing is ever
             // drawn in a space the layer cannot show. §5.1: the space comes
             // from the reply, because an explicit `io.output_color_space` in a
@@ -2240,7 +2310,8 @@ final class Session: CanvasHost {
         )
         // The frame's own size, and only when it is known: passing nil leaves
         // whatever the decode established (D4).
-        renderer.setLive(tex, logical: nativeSourceSize)
+        renderer.setLive(tex, logical: scheduler.sent.filmEdge.effective
+                         ? filmCanvasLogicalSize(for: tex, frame: nativeSourceSize) : nativeSourceSize)
         // This print is at the **preview resolution**. For a frame bigger than
         // that it is interpolated at 100 %, so it is not the finished picture
         // yet — the native render that follows is, and this flag is what says
@@ -2388,6 +2459,22 @@ final class Session: CanvasHost {
         }
     }
 
+    /// Drop the engine's frame and keep the decode: the next request opens
+    /// the engine again on the frame as it now has to be cut (a film edge
+    /// switched, or its framing moved). `scheduleReopen` without the decode.
+    func releaseEngineFrame() {
+        developTask?.cancel(); developTask = nil
+        scheduler.invalidate()
+        releaseEngineAccounting()
+        serviceSessionID = nil
+        engineFraming = nil
+        fullPending = false
+        fullTask?.cancel(); fullTask = nil
+        fullGeneration += 1
+        renderer.dropFullRender()
+        renderer.store.dropFullRender()
+    }
+
     private func scheduleReopen() {
         reopenTask?.cancel()
         reopenTask = Task {
@@ -2417,6 +2504,7 @@ final class Session: CanvasHost {
             scheduler.invalidate()
             releaseEngineAccounting()
         serviceSessionID = nil
+        engineFraming = nil
             // The native render is made from the engine's frame too, so it
             // would otherwise keep the old white balance. Both copies have to
             // go: the renderer's is the one on screen now, and the store's is
@@ -2463,6 +2551,7 @@ final class Session: CanvasHost {
         guard let url = selection else { return }
         try? sidecar.save(for: url)
         savedGeometry[url] = sidecar.geometry
+        if sidecar.params.filmEdge.effective { filmEdgeThumbnails.insert(url) } else { filmEdgeThumbnails.remove(url) }
     }
 
     // MARK: - white balance
@@ -2516,7 +2605,10 @@ final class Session: CanvasHost {
     }
 
     func pickNeutral(at n: CGPoint) {
-        guard let url = selection else { return }
+        // The point is on the film canvas, not on the photograph, while a
+        // film edge is shown; where the picture sits in it is the engine's
+        // to say (`spk_overscan_geometry`), so the picker does not guess.
+        guard let url = selection, !filmEdgeShowsFilm else { return }
         Task {
             guard let dec = await ensureDecoded(), dec.isRAW else { return }
             let result = await Task.detached(priority: .userInitiated) {
@@ -2965,8 +3057,10 @@ final class Session: CanvasHost {
     func straightenPreview(_ line: StraightenLine?) { straightenPreview = line }
     func stepFrame(_ delta: Int) { selectRelative(delta) }
     func toggledOriginal(_ on: Bool) {
+        // Not over a film edge, for the reason `canCompare` gives.
+        if on && filmEdgeShowsFilm { return }
         if on { leaveCropTool() }
-        renderer.showOriginal = on
+        renderer.showOriginal = on || filmEdgeFraming
         showingOriginal = on
     }
 
@@ -3102,7 +3196,11 @@ final class Session: CanvasHost {
     /// still the truth is a question about *data* rather than about which
     /// callback happened to run last.
     nonisolated static func printStamp(_ p: FilmParams) -> String {
-        p.wire.map { "\($0.name)=\($0.value)" }.joined(separator: ";")
+        let stamp = p.wire.map { "\($0.name)=\($0.value)" }.joined(separator: ";")
+        // With a film edge the crop is in the negative (`Session+FilmEdge`),
+        // so the print is a different picture for every framing. Off, the
+        // stamp is exactly what it always was.
+        return p.filmEdge.effective ? stamp + ";overscan_framing=\(p.filmEdge.framing)" : stamp
     }
 
     /// What the *service* currently holds — not `sidecar.params`, which may
@@ -3116,6 +3214,11 @@ final class Session: CanvasHost {
     /// resolution may already cover — a native render would spend 360 MB on
     /// detail the crop threw away.
     private var croppedLongEdge: CGFloat {
+        // With a film edge the engine's frame *is* the crop.
+        if let size = decoded?.pixelSize, filmEdgeCut != nil {
+            let picture = enginePictureSize(size)
+            return max(picture.width, picture.height)
+        }
         guard let live = renderer.sourceSize, max(live.width, live.height) > 0 else { return sourceLongEdge }
         let out = renderer.geometry.outputSize(for: live)
         return sourceLongEdge * max(out.width, out.height) / max(live.width, live.height)
@@ -3224,7 +3327,7 @@ final class Session: CanvasHost {
         // is the last cheap moment to say so; the crop only ever makes it
         // smaller, which is why the forecast uses the frame's own pixels.
         if let size = decoded?.pixelSize {
-            noteProjection(pixels: Int(size.width * size.height), operation: "full")
+            noteProjection(pixels: developForecastPixels(size), operation: "full")
         }
         canvasLog("full render requested for \(url.lastPathComponent)")
         defer { fullPending = false }
@@ -3289,7 +3392,7 @@ final class Session: CanvasHost {
         sidecar = previous
         renderer.layer2 = previous.adjustments.uniforms
         renderer.setCurves(previous.adjustments.curves)
-        renderer.geometry = previous.geometry
+        renderer.geometry = canvasGeometry
         selectedMaskID = previous.masks.first { $0.id == selectedMaskID }?.id ?? previous.masks.last?.id
         syncMasks()
         if current.decode != previous.decode {
@@ -3485,6 +3588,7 @@ final class Session: CanvasHost {
             serviceReady = false
             releaseEngineAccounting()
         serviceSessionID = nil
+        engineFraming = nil
             scheduler.invalidate()
             renderer.dropFullRender()
             renderer.store.dropFullRender()
@@ -3696,11 +3800,14 @@ extension EngineClient {
 /// ISO / shutter / aperture for the histogram caption, via ImageIO.
 struct EXIFReadout: Sendable {
     var iso: String?, shutter: String?, aperture: String?
+    /// What the date back and the film edge may print (`ShootingData`).
+    var shooting = ShootingData()
     static func read(_ url: URL) -> EXIFReadout? {
         guard let src = CGImageSourceCreateWithURL(url as CFURL, nil),
               let props = CGImageSourceCopyPropertiesAtIndex(src, 0, nil) as? [CFString: Any],
               let exif = props[kCGImagePropertyExifDictionary] as? [CFString: Any] else { return nil }
         var r = EXIFReadout()
+        r.shooting = ShootingData(exif: exif)
         if let iso = (exif[kCGImagePropertyExifISOSpeedRatings] as? [Int])?.first { r.iso = "ISO \(iso)" }
         if let t = exif[kCGImagePropertyExifExposureTime] as? Double {
             r.shutter = t >= 1 ? String(format: "%.0f s", t) : "1/\(Int((1 / t).rounded())) s"

@@ -441,7 +441,7 @@ struct FilmParams: Codable, Equatable, Sendable {
         case filmFormatMM, filmFrame, filmSide, sideLengthMM, grainActive, halationActive
         case printBrightnessStops, yFilterShift, mFilterShift, glareActive, scanFilm
         case extendedDynamicRange, preflashExposure, contrastMask, sceneLatitude, effects, printEffects
-        case digitalIntermediate
+        case digitalIntermediate, filmEdge, dateBack
     }
 
     // --- stock (shoot for film, print for paper) ---
@@ -561,6 +561,10 @@ struct FilmParams: Codable, Equatable, Sendable {
     /// wire, like `effectiveExtendedDynamicRange`, so turning it back on
     /// restores exactly what was there.
     var printEffects = true
+    /// RFC-032's film edge and RFC-031's date back (`FilmEdge.swift`). Shoot
+    /// layer: both are exposure on the negative.
+    var filmEdge = FilmEdgeSettings()
+    var dateBack = DateBackSettings()
 
     init() {
         filmStock = "kodak_portra_400"
@@ -586,6 +590,8 @@ struct FilmParams: Codable, Equatable, Sendable {
         sceneLatitude = SceneLatitudeSettings()
         effects = EffectStrengths()
         printEffects = true
+        filmEdge = FilmEdgeSettings()
+        dateBack = DateBackSettings()
     }
 
     /// Keep sidecars written before EDR readable. Stored properties with
@@ -622,6 +628,8 @@ struct FilmParams: Codable, Equatable, Sendable {
             ?? SceneLatitudeSettings()
         effects = try c.decodeIfPresent(EffectStrengths.self, forKey: .effects) ?? EffectStrengths()
         printEffects = try c.decodeIfPresent(Bool.self, forKey: .printEffects) ?? true
+        filmEdge = try c.decodeIfPresent(FilmEdgeSettings.self, forKey: .filmEdge) ?? FilmEdgeSettings()
+        dateBack = try c.decodeIfPresent(DateBackSettings.self, forKey: .dateBack) ?? DateBackSettings()
     }
 
     static let `default` = FilmParams()
@@ -696,6 +704,10 @@ struct FilmParams: Codable, Equatable, Sendable {
             ("digital_intermediate_blue_compensation",
              .bool(digitalIntermediate && FilmParams.diBlueCompensation), .print),
         ]
+        // RFC-032/031 (API-SPEC §13). The two switches always, the rest only
+        // while each is on (`FilmEdgeSettings.wire`).
+        fields += filmEdge.wire
+        fields += dateBack.wire(filmEdge: filmEdge)
         return fields
     }
 

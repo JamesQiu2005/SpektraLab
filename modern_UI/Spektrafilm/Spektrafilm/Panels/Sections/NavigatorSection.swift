@@ -51,8 +51,8 @@ struct NavigatorSection: View {
         }
         .task(id: session.selection) { await load() }
         .task(id: Framing(image: image.map(ObjectIdentifier.init),
-                          geometry: session.tool == .crop ? .default : session.geometry)) {
-            framed = image.flatMap { Self.frame($0, by: session.tool == .crop ? .default : session.geometry) }
+                          geometry: session.tool == .crop ? .default : session.canvasGeometry)) {
+            framed = image.flatMap { Self.frame($0, by: session.tool == .crop ? .default : session.canvasGeometry) }
         }
         .onReceive(NotificationCenter.default.publisher(for: .thumbnailUpdated)) { n in
             guard let url = session.selection, (n.object as? URL) == url else { return }

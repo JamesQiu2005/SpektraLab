@@ -1529,14 +1529,11 @@ struct ExportPage: View {
     /// when there is none — so the page shows a real filename whenever it can.
     private var nameContext: NamingRule.Context {
         guard let sel = session.selection else { return NamingRule.sampleContext }
-        let out = session.geometry.outputSize(for: session.sourceImageSize)
-        let scale = session.sourceLongEdge > 0
-            ? session.sourceLongEdge / max(session.sourceImageSize.width, session.sourceImageSize.height) : 1
         return NamingRule.Context(
             originalName: sel.deletingPathExtension().lastPathComponent,
             filmStock: session.params.filmStock,
             printStock: session.params.printStock,
-            pixelSize: CGSize(width: (out.width * scale).rounded(), height: (out.height * scale).rounded()),
+            pixelSize: session.printPixelSize,
             counter: 1, date: Date())
     }
 

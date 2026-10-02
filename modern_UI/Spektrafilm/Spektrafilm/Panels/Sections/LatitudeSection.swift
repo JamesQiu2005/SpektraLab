@@ -55,6 +55,15 @@ struct LatitudeSection: View {
                         .frame(height: Theme.Metric.latitudePlotHeight + Theme.Metric.latitudeBandGap
                                + Theme.Metric.latitudeBandHeight + Theme.Metric.latitudeAxisHeight)
                     readouts(readout).padding(.top, Theme.Metric.rowSpacing)
+                    // With a film edge the frame is mostly not picture; the
+                    // reading is of the picture alone (2026-10-01 drawings).
+                    if session.filmEdgeHoldsFrame {
+                        Text(L(.edgeMeteredOnPicture))
+                            .font(Theme.Font.meta).foregroundStyle(Theme.Ink.tertiary)
+                            .fixedSize(horizontal: false, vertical: true)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                            .padding(.top, 2)
+                    }
                 } else {
                     Text(session.latitude.frame == session.selection
                          ? session.latitude.failure ?? L(.latitudeEmpty) : L(.latitudeEmpty))

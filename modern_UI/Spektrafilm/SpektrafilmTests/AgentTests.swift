@@ -44,7 +44,10 @@ final class AgentSchemaTests: XCTestCase {
     func testEverySchemaPathIsInTheEncodedDocument() throws {
         var g = Geometry()
         g.intendedSize = CGSize(width: 0.5, height: 0.5)
-        let doc = try AgentDocument(params: FilmParams(), adjustments: Adjustments(),
+        g.lockedRatio = 1.5                     // optional, like intendedSize
+        var p = FilmParams()
+        p.dateBack.customText = "'26 1 1"       // likewise
+        let doc = try AgentDocument(params: p, adjustments: Adjustments(),
                                     geometry: g, decode: DecodeSettings()).json
         for f in AgentSchema.fields {
             let v = f.path.split(separator: ".").reduce(Optional(doc)) { $0?[String($1)] }

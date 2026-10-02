@@ -16,8 +16,24 @@ struct Stock: Codable, Identifiable, Hashable, Sendable {
     let hasPreviewLUT: Bool
     let pairedFilm: String?
     let cover: String?
+    /// The film gauges the manufacturer made this stock in, ever: `135`,
+    /// `120`, `16mm`, `super8`, `35mm_motion` (`Tools/gen-catalog.py`, from
+    /// the sourced availability table). Nil when nobody recorded it.
+    let formats: [String]?
 
     var isFilm: Bool { stage == "filming" }
+
+    /// Whether this stock was ever made on the film a Film Edge format runs
+    /// on (answer D3): the menu greys the rest. A stock with no record is
+    /// not ruled out of anything — an unknown is not a no.
+    func isMade(in format: FilmEdgeFormat) -> Bool {
+        guard let formats else { return true }
+        // 35 mm motion stock is the same film as 135, loaded into cassettes
+        // by hand or by a respooler, so a cine negative is not ruled out of
+        // the 135 formats. It carries no DX code and the engine prints none.
+        if format.gauge == "135", formats.contains("35mm_motion") { return true }
+        return formats.contains(format.gauge)
+    }
     var isPaper: Bool { stage == "printing" }
     var isCine: Bool { use == "cine" }
     /// A reversal (slide) film: Provia, Velvia, Ektachrome, Kodachrome.
@@ -55,6 +71,12 @@ struct StockCatalog: Sendable {
     var films: [Stock] { stocks.filter(\.isFilm) }
     var papers: [Stock] { stocks.filter(\.isPaper) }
     func stock(_ id: String) -> Stock? { stocks.first { $0.id == id } }
+
+    /// `Stock.isMade(in:)` by id; an id the catalogue does not know rules
+    /// nothing out.
+    func isMade(_ id: String, in format: FilmEdgeFormat) -> Bool {
+        stock(id)?.isMade(in: format) ?? true
+    }
 
     /// Films in the order the picker shows them: still first, brand-grouped,
     /// then cine. Within a brand the order is the catalog's (alphabetical).

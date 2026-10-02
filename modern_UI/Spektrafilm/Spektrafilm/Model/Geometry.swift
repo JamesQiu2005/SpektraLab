@@ -186,8 +186,20 @@ struct Geometry: Codable, Equatable, Sendable {
     /// and only an optional decodes from an absent key, so every schema-3
     /// sidecar written before this field existed still opens.
     var intendedSize: CGSize? = nil
+    /// A ratio the crop is held to that no preset names — width ÷ height of
+    /// the crop rectangle in source pixels, before the quarter turns. Set
+    /// while Film Edge frames the picture in its gate (6×7 is 1.241, 645 is
+    /// 1.349), and it wins over `aspect` while set. Optional for the same
+    /// reason `intendedSize` is: an absent key decodes.
+    var lockedRatio: Double? = nil
 
     static let `default` = Geometry()
+
+    /// The ratio every resize and reshape honours: the gate's when one holds
+    /// the crop, else the preset's.
+    func lockRatio(sourceAspect: Double) -> Double? {
+        lockedRatio ?? aspect.ratio(sourceAspect: sourceAspect)
+    }
     static let maxAngle: Double = 45
 
     var isIdentity: Bool {
@@ -563,7 +575,7 @@ struct Geometry: Codable, Equatable, Sendable {
     /// the crop noticeably; it reshapes it.
     func constrained(in imageSize: CGSize, anchor: CGPoint = CGPoint(x: 0.5, y: 0.5)) -> Geometry {
         let w = max(imageSize.width, 1), h = max(imageSize.height, 1)
-        guard let ratio = aspect.ratio(sourceAspect: w / h) else { return fitted(in: imageSize) }
+        guard let ratio = lockRatio(sourceAspect: w / h) else { return fitted(in: imageSize) }
         var g = self
         // Solve in pixels, then normalise back.
         let pw = g.crop.width * w, ph = g.crop.height * h
@@ -634,7 +646,7 @@ struct Geometry: Codable, Equatable, Sendable {
             g.crop = CropRect(x: min(minX, maxX), y: min(minY, maxY),
                               width: max(abs(maxX - minX), Geometry.minSide / w),
                               height: max(abs(maxY - minY), Geometry.minSide / h))
-            if let ratio = aspect.ratio(sourceAspect: w / h) {
+            if let ratio = lockRatio(sourceAspect: w / h) {
                 // Keep the corner opposite the one being dragged pinned, and
                 // derive the other side from the ratio.
                 let anchor = handle.oppositeAnchor
@@ -718,7 +730,7 @@ struct Geometry: Codable, Equatable, Sendable {
         // touched. The ray's stopping point also depends on its direction,
         // which changes with every event, and that is what made the frame
         // shake against an edge.
-        if aspect.ratio(sourceAspect: w / h) == nil {
+        if lockRatio(sourceAspect: w / h) == nil {
             let x = furthest(from: from, to: CGPoint(x: target.x, y: from.y))
             let p = furthest(from: x, to: CGPoint(x: x.x, y: target.y))
             return asked(at: p).rememberingSize()

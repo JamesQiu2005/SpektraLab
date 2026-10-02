@@ -35,20 +35,58 @@ struct FilmFormatSection: View {
                      action: SectionAction(help: L(.helpResetFilmFormat)) { reset() },
                      menu: { AnyView(menu) }) {
             RailRows {
-                PillMenu(label: L(.filmFormatSize), options: FilmFrame.all, title: { $0.id },
-                         selection: Binding(get: { session.filmFrame }, set: { session.setFilmFrame($0) }),
-                         labelWidth: width, fill: false, trailingBadge: { $0.isCine })
-                PillMenu(label: L(.filmFormatSide), options: FilmSide.allCases, title: { L($0.key) },
-                         selection: Binding(get: { session.filmSide }, set: { session.setFilmSide($0) }),
-                         labelWidth: width, fill: false)
-                UnitField(label: L(.filmFormatSideLength),
-                          value: Binding(get: { session.params.sideLengthMM },
-                                         set: { session.setSideLengthMM($0) }),
-                          unit: unit, enabled: isCustom, reason: L(.reasonNonCustomSideLength),
-                          labelWidth: width)
+                if session.filmEdgeHoldsFrame {
+                    setByFilmEdge
+                } else {
+                    PillMenu(label: L(.filmFormatSize), options: FilmFrame.all, title: { $0.id },
+                             selection: Binding(get: { session.filmFrame }, set: { session.setFilmFrame($0) }),
+                             labelWidth: width, fill: false, trailingBadge: { $0.isCine })
+                }
+                Group {
+                    PillMenu(label: L(.filmFormatSide), options: FilmSide.allCases, title: { L($0.key) },
+                             selection: Binding(get: { session.filmSide }, set: { session.setFilmSide($0) }),
+                             labelWidth: width, fill: false)
+                    UnitField(label: L(.filmFormatSideLength),
+                              value: Binding(get: { session.params.sideLengthMM },
+                                             set: { session.setSideLengthMM($0) }),
+                              unit: unit, enabled: isCustom, reason: L(.reasonNonCustomSideLength),
+                              labelWidth: width)
+                }
+                .rowEnabled(!session.filmEdgeHoldsFrame, because: setByFilmEdgeReason)
                 if decoupleEffects { decoupled } else { coupled }
             }
         }
+    }
+
+    /// **While Film Edge is on the frame is its gate**: the engine sizes the
+    /// film from the gate's long edge, so this rail's frame is overridden and
+    /// says by what, rather than offering a choice the render ignores. Off, it
+    /// is live again with the user's own frame, untouched.
+    private var setByFilmEdge: some View {
+        HStack(spacing: 0) {
+            Text(L(.filmFormatSize)).font(Theme.Font.label).foregroundStyle(Theme.Ink.secondary)
+                .fixedSize()
+                .padding(.trailing, 6)
+                .frame(minWidth: width, alignment: .leading)
+            Text(session.params.filmEdge.format.title)
+                .font(Theme.Font.label).foregroundStyle(Theme.text)
+                .lineLimit(1).fixedSize()
+                .padding(.horizontal, 10)
+                .frame(height: Theme.Metric.controlHeight)
+                .background(Theme.pill, in: Capsule())
+                .opacity(Theme.disabledOpacity)
+            Spacer(minLength: 6)
+            Text(L(.edgeSetByFilmEdge))
+                .font(Theme.Font.caption).foregroundStyle(Theme.Ink.secondary)
+                .lineLimit(1).fixedSize()
+        }
+        .frame(height: Theme.Metric.rowHeight)
+        .help(setByFilmEdgeReason)
+    }
+
+    private var setByFilmEdgeReason: String {
+        L("Set by Film Edge: \(session.params.filmEdge.format.title) \(session.params.filmEdge.format.gateLabel). Switch Film Edge off to choose a frame here.",
+          zh: "由片边设定：\(session.params.filmEdge.format.title) \(session.params.filmEdge.format.gateLabel)。关闭片边后可在此选择画幅。")
     }
 
     @ViewBuilder private var coupled: some View {

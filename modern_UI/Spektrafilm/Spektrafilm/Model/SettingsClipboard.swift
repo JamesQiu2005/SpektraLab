@@ -68,6 +68,12 @@ enum ClipboardGroup: String, CaseIterable, Codable, Sendable, Identifiable {
         "decode.lensCorrection": "a property of the lens, not of the look",
         "adjustments": "the Post-Dev grade, outside the 2026-09-23 positioning",
         "geometry": "crop and framing belong to the photograph (PRD §7)",
+        "heldCrop": "the photograph's own crop, kept while Film Edge frames it",
+        // Undecided (answer sheet F10 is open): whether Film Edge and Date Back
+        // become a group of their own. Until then neither is copied, and the
+        // seeds and the resolved text would be the source photograph's anyway.
+        "params.filmEdge": "Film Edge: not copied until a group is decided (F10)",
+        "params.dateBack": "Date Back: not copied until a group is decided (F10)",
         "solvedEV": "a report of the meter, refilled by the target's own develop",
         "state": "whether the frame has been rendered",
         "source": "which file the sidecar belongs to",
