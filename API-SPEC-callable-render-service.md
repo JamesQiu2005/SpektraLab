@@ -679,7 +679,9 @@ really puts the extreme, because the Fit solves the curve for the lift that
 
 ## 13. RFC-032/031 overscan and the date back — wire fields (2026-10-01)
 
-**Status: specified, not yet in this engine.** Implemented first in the mobile repo (`SpektraLab_mobile` `1d4a3ba`, `engine/src/pipeline/overscan.cpp`, `shaders/overscan.metal`), whose `UPSTREAM.md` records it for the sync here. Until that sync, this engine refuses these names (`unknown parameter`). The section is the shared contract: the mobile `API-SPEC.md` §15 carries the same text, and the desktop and mobile frontends build against it.
+**Status: in this engine since 2026-10-02.** Written first in the mobile repo (`SpektraLab_mobile` `371ad16`, `engine/src/pipeline/overscan.cpp`, `shaders/overscan.metal`) and synced here by merging its hunks. The section is the shared contract: the mobile `API-SPEC.md` §15 carries the same text, and the desktop and mobile frontends build against it. Checked at the sync: `overscan_checks.py` (34), `parity_schema.py` (the twenty rows are pinned in `NATIVE_ONLY`), `parity_session.py`, and 18 off-path renders byte-identical to the engine before it.
+
+**With the Digital Intermediate** (RFC-028, which the mobile engine did not have when this was written): `film_present` runs before the DI node, so the film's edge and the gate are in the DI, but the scan's view of the holes (`spk_overscan_light`) has no DI counterpart and the perforations do not show. Open until the mobile repo decides it.
 
 Twenty native-only fields, all **shoot layer** and **not live**. Every mark
 (gate shadow, fog, leaks, edge print, DX code, date) is exposure on the

@@ -39,7 +39,7 @@
 - (c) Both.
 
 rec: (a), unless you meant cine. If (b) or (c), also answer C9–C12.
-**Answer:**
+**Answer:** (a)
 
 **A2. Build order.**
 - (a) **The half-frame pair without Film Edge first** (HFP phases P1–P4). It is Swift only, with no engine
@@ -50,7 +50,7 @@ rec: (a), unless you meant cine. If (b) or (c), also answer C9–C12.
 - (c) Panoramic first.
 
 rec: (a). The mobile engine is mid-merge on the other machine, and the sync can't start until it lands.
-**Answer:**
+**Answer:** (b)
 
 **A3. Where does the new engine work get written?** That means the pair layout (E1), gate coverage out (E2),
 the long-format fix and the carrier enum.
@@ -61,14 +61,14 @@ the long-format fix and the carrier enum.
 
 rec: (a) for now, so all overscan code stays in one place until the sync. The rule needs restating either
 way.
-**Answer:**
+**Answer:** rec
 
 **A4. The mobile session's merge.** On 2026-10-02, `SpektraLab_mobile` showed `UU
 engine/src/pipeline/pipeline.cpp` and staged DI files. Should desktop engine work wait until that machine
 pushes the merge, or will you tell the next session when it is safe?
 
 rec: wait, and don't touch that tree.
-**Answer:**
+**Answer:** rec
 
 **A5. Desktop overscan sync scope.**
 - (a) Everything UPSTREAM.md lists: overscan, date back, and the `data` face.
@@ -79,7 +79,7 @@ The sync rules hold either way: merge hunks, never copy files (copying reverts R
 red first.
 
 rec: (a).
-**Answer:**
+**Answer:** rec
 
 **A6. Review rhythm, since you are wary of bugs.**
 - (a) You look at the running app after each phase (P1…P5) before the next starts.
@@ -89,7 +89,7 @@ Each phase ends with tests, the app launched and looked at, `/code-review`, then
 way.
 
 rec: (a).
-**Answer:**
+**Answer:** (b)
 
 **A7. Design tooling in the repo.** The drawing generators and render scripts are design-only Python, kept
 beside the proposal in `tools/`. CLAUDE.md says "no Python" for building and running the product, and
@@ -99,7 +99,7 @@ beside the proposal in `tools/`. CLAUDE.md says "no Python" for building and run
 - (c) Delete them.
 
 rec: (a), clearly marked design-only.
-**Answer:**
+**Answer:** rec
 
 ---
 
@@ -110,28 +110,28 @@ rec: (a), clearly marked design-only.
 - (b) **+ Overscan** for the Enlarger.
 
 rec: (a).
-**Answer:**
+**Answer:** (b)
 
 **B2 (D2). Which edits carry a scope?**
 - (a) Film Exposure, plus the Enlarger's Brightness, Yellow, Magenta and Pre-flash.
 - (b) Those, plus the Tone Mask.
 
 rec: (a).
-**Answer:**
+**Answer:** (a)
 
 **B3 (D3). What does "+ Overscan" do?**
 - (a) Adds the same delta to the Overscan print.
 - (b) Sets the Overscan equal to the hole's value.
 
 rec: (a).
-**Answer:**
+**Answer:** (a)
 
 **B4 (D4). Should single-frame Film Edge get the same scope control (frame vs rebate)?** It needs the engine.
 - (a) Yes, with the sync.
 - (b) Pairs only.
 
 rec: (a).
-**Answer:**
+**Answer:** rec
 
 **B5 (D5). The shot (metering, Film Exposure, white balance, Scene Placement) lives in the frame's own
 file,** so Film Exposure edited in a pair changes that frame everywhere.
@@ -139,35 +139,35 @@ file,** so Film Exposure edited in a pair changes that frame everywhere.
 - (b) Copy the shot into the hole when the frame is added.
 
 rec: (a).
-**Answer:**
+**Answer:** rec
 
 **B6 (D6). Paper per hole.**
 - (a) Free: each hole may use another paper.
 - (b) Locked with the stock.
 
 rec: (a).
-**Answer:**
+**Answer:** (b)
 
 **B7 (D7). Can a frame be in several pairs?**
 - (a) Yes.
 - (b) One pair per frame.
 
 rec: (a).
-**Answer:**
+**Answer:** (a)
 
 **B8 (D8). Where does a pair sit in the filmstrip?**
 - (a) After its left frame, with an empty pair at the end.
 - (b) All pairs at the end.
 
 rec: (a).
-**Answer:**
+**Answer:** rec
 
 **B9 (D9). Export with an empty hole.**
 - (a) Not allowed: fill both holes first.
 - (b) Export the empty hole as unexposed film.
 
 rec: (a).
-**Answer:**
+**Answer:** (a)
 
 **B10 (D10). Spacing between frames without Film Edge.**
 - (a) 0.5–2.0 mm, default 1.0.
@@ -176,47 +176,47 @@ rec: (a).
 With Film Edge, the camera decides it.
 
 rec: (a).
-**Answer:**
+**Answer:** rec
 
 **B11 (D11). Names, English and zh-Hans.** The English names are *Half-Frame Pair*, *New Half-Frame Pair*
 (⌘J), *Add Frame*, *Film / Left hole / Right hole* and *Applies to: Frame / + Overscan*. The Chinese
 candidates are 半格双拼, 半格对, 双联 and 半格拼对, and *+ Overscan* also needs a Chinese name.
-**Answer:**
+**Answer:** 半格拼接；think of a name for + Overscan
 
 **B12 (D12). Plus gating on desktop.**
 - (a) None.
 - (b) Follow mobile's Plus.
 
 rec: (a).
-**Answer:**
+**Answer:** rec
 
 **B13 (D13). Grain and halation strengths with Film Edge on.**
 - (a) Shared: it is one piece of film.
 - (b) Per hole, from two film renders cut together. Halation would seam at the gap.
 
 rec: (a).
-**Answer:**
+**Answer:** rec
 
 **B14 (D14). Scene Placement with Film Edge on.**
 - (a) Shared until E3 (per-gate Scene Placement) exists.
 - (b) Build E3 before shipping Film Edge pairs.
 
 rec: (a).
-**Answer:**
+**Answer:** rec
 
 **B15 (D15). Which numbers does a pair take?**
 - (a) The engine's grid decides (6 · 6A), and *Another* moves along the roll.
 - (b) Also offer the pair that straddles a number (6A · 7).
 
 rec: (a).
-**Answer:**
+**Answer:** rec
 
 **B16 (D16). Edge print text on desktop.**
 - (a) The display name, `KODA GOLD 200`, as the Film Edge drawings use.
 - (b) The real name, `KODAK GOLD 200`. RFC-032 §26 allows real marks on desktop.
 
 rec: (a), unless you want real marks on desktop.
-**Answer:**
+**Answer:** rec. The same for the following: for desktop keep the real name, false name only on the mobile
 
 **B17. Turned (stacked) pairs.**
 - (a) In the first version, both with and without Film Edge. The scratch engine patch covers held level
@@ -230,7 +230,7 @@ rec: (b).
 frame, not only in pairs?
 
 rec: yes; it is already in the engine's format list.
-**Answer:**
+**Answer:** rec
 
 **B19. The `data` face on half frame** gets only the 1 mm gap, so its size must stay ≤ 1 (R32:1331,
 MAS:333).
@@ -238,13 +238,13 @@ MAS:333).
 - (b) Disable `data` on half frame.
 
 rec: (a).
-**Answer:**
+**Answer:** rec
 
 **B20. The date back on a pair.** Each half frame was its own exposure, so does each carry its own date (two
 dates on the strip)?
 
 rec: yes, each from its own frame's EXIF and placed in its own gate. This is part of E1.
-**Answer:**
+**Answer:** rec
 
 ---
 
@@ -254,7 +254,7 @@ rec: yes, each from its own frame's EXIF and placed in its own gate. This is par
 `120_6x12` (56 × 112) and `120_6x17` (56 × 168). The 6×9 limit is stated at R32 §29.1 (R32:982), MAS:227
 and DAS:696; API-SPEC belongs to nobody in particular, so the edit is announced before it is made. A memory
 note also asks: did "nothing larger than 6×9" ever mean "no date on 120"?
-**Answer:**
+**Answer:** That is overrode with the new 6x17 format; no date print over panoramic mode
 
 **C2. The canvas-trim fix, for every format, not only long ones.**
 - **The bug:** today the edge print can clip at one end, and a sliver of the holes' light can show past the
@@ -266,20 +266,20 @@ note also asks: did "nothing larger than 6×9" ever mean "no date on 120"?
 Accept?
 
 rec: yes.
-**Answer:**
+**Answer:** rec
 
 **C3. What shows past the film's edge (the carrier).**
 - (a) Black: `black` default, with an `open` enum value.
 - (b) Open light by default.
 
 rec: (a). This is RFC-032 §23's open decision 4.
-**Answer:**
+**Answer:** rec
 
 **C4. The tilt cap: 0.27 mm of end travel.** That keeps every existing format's 0.35°, and caps 6×12 at
 0.27° and 6×17 at 0.18°.
 
 rec: yes.
-**Answer:**
+**Answer:** rec
 
 **C5. Gate shapes.** Until XPan, Fuji GX617 and Linhof 617 scans are measured, the three gates are
 `square`.
@@ -287,24 +287,41 @@ rec: yes.
 - (b) Wait for references. If so, please supply scans, or approve a research session.
 
 rec: (a).
-**Answer:**
+**Answer:** rec
 
 **C6. Spool leaks on long film.** The leak count is fixed, so leaks spread thin along 171 mm. Scale the
 count with length?
 
 rec: yes.
-**Answer:**
+**Answer:** rec
 
 **C7. Date back on panoramic.**
 - (a) Off on all three until a source shows a date back on one of these cameras.
 - (b) Allow it.
 
 rec: (a).
-**Answer:**
+**Answer:** (a)
 
 **C8. Is the XPan advance sprocket-locked?** That decides whether 135's small advance error applies. This
 is a fact to check: do you know, or should a session research it?
-**Answer:**
+**Answer:** Let one subagent do the research
+
+**Research result (2026-10-02).** Locked to the perforations, though not by a sprocket wheel.
+- **Mechanism:** a motor advances the film and an infrared sensor counts perforations. A panoramic frame is
+  14 perforations (66.5 mm: the 65 mm frame and a 1.5 mm gap). Source: a repair log that counts "14 signal
+  drops on the IR sensor" per panoramic frame (awayrepairs.livejournal.com/24862.html); a scanning workflow
+  that sets the frame spacing to 66.500 mm for whole rolls.
+- **So the 135 model applies:** a fixed phase against the perforations and a small advance error, with a
+  14-perforation pitch. A failing sensor miscounts by whole perforations (overlapping frames); it does not
+  drift.
+- **Inferred, not sourced:** the 24 × 36 mode is 8 perforations; the edge numbers (every 19 mm) fall at a
+  different place on alternate panoramic frames (133 mm = 2 frames = 7 numbers); the camera pre-winds the
+  roll and shoots back into the cassette (the manual confirms this), so the numbers count down in shooting
+  order.
+- **Not found:** measured gaps off real scans with the rebate showing; a service manual.
+- **The 120 cameras (no perforations):** the Fuji G617/GX617 meters with a roller that drives the counter,
+  and users report uneven spacing when it slips; older Linhof Rollex backs turn the take-up spool a fixed
+  amount, so gaps grow through the roll. Typical gap figures were not found.
 
 **C9. Desktop UI.**
 - the Format menu gets a third group, *Panoramic*;
@@ -312,19 +329,19 @@ is a fact to check: do you know, or should a session research it?
 - canvas fitting already handles 3:1.
 
 Group name *Panoramic*, or another?
-**Answer:**
+**Answer:** Put it all under Panoramic, as the current design
 
 **C10. Gating.** Mobile's Plus proposal makes every format past 135 Plus. Desktop?
 - (a) Not gated, as for B12.
 - (b) Gated.
 
 rec: (a).
-**Answer:**
+**Answer:** Only fucking gate for mobile engine ever
 
 **C11. Grain on a 48 MP 6×17 export (about 21 µm a pixel).** Measure it before shipping.
 
 rec: yes, as a gate on shipping.
-**Answer:**
+**Answer:** rec
 
 **C12. Only if A1 is (b) or (c): Panavision cine.**
 - **Formats:** anamorphic 4-perf 2.39:1 with a 2× squeeze; Super 35 3-perf; Techniscope 2-perf. Which?
@@ -343,12 +360,12 @@ rec: yes, as a gate on shipping.
 (R32:968). Should the engine gain one, or stay print-only with white holes?
 
 rec: not now.
-**Answer:**
+**Answer:** rec
 
 **D2. One nominal 135 width: 35.00 or 34.95 mm** (R32:763).
 
 rec: 35.00.
-**Answer:**
+**Answer:** rec
 
 **D3. A per-stock catalogue of formats,** so the UI can grey out formats a stock was never made in
 (R32:742, OV:148).
@@ -356,36 +373,36 @@ rec: 35.00.
 - (b) Later.
 
 rec: (a). It is small, and greying a wrong format beats offering it.
-**Answer:**
+**Answer:** rec
 
 **D4. Before shipping: render every still negative's rebate on every path,** because some `base_density`
 curves have NaN ranges and the rebate is pure base (R32:714). This is a must-do, not a question; confirm.
-**Answer:**
+**Answer:** Confirmed
 
 **D5. Unverified references.** These ship as approximations unless you object:
 - Helvetica stands in for Kodak's edge typeface;
 - the 6×8 ears come from one back only;
 - the 6×9 gate has no reference.
 
-**Answer:**
+**Answer:** Just approximate them
 
 **D6. `spk_overscan_geometry`** (the gate rectangles out of the engine). The desktop GUIDE mask, the crop
 overlay, the histogram, tap-to-meter and the pair's E2 all need it. Build it in the sync?
 
 rec: yes.
-**Answer:**
+**Answer:** rec
 
 **D7. `overscan_holes` as a print-layer field,** so White/Black changes with a reprint instead of a
 re-develop (OV:230).
 
 rec: yes.
-**Answer:**
+**Answer:** rec
 
 **D8. `overscan_turn` (auto | 0 | 90 | 180 | 270).** It is proposed in OV:199–226 but is in neither
 API-SPEC nor the engine. Add it in the sync?
 
 rec: yes.
-**Answer:**
+**Answer:** rec
 
 ---
 
@@ -393,63 +410,63 @@ rec: yes.
 
 **E1. Date orders.** Which orders are offered, and is `dhm` (day, hour, minute) one of them (R31:142)?
 Note that the engine takes the text already formatted by the host (MAS:244), not the R31 §5 formatter.
-**Answer:**
+**Answer:** Just US and Japan format first
 
 **E2. A brightness control for the date** (R31:144). Desktop draws a Brightness row, and the wire has
 `date_imprint_ev`. Keep it?
 
 rec: yes.
-**Answer:**
+**Answer:** rec
 
 **E3. Date on 6×6 to 6×9.** Shown disabled, with the note *No 6×7 back printed a date* (OV:242).
 
 rec: yes.
-**Answer:**
+**Answer:** No
 
 **E4. Unverified date constants.** These are 2700 K, +3.5 EV, a 1.3 mm character, a (3, 2.4) mm inset, a
 15 µm blur and an 8° slant. There is no tungsten reference. Ship them as they are?
-**Answer:**
+**Answer:** Yes
 
 **E5. `spk_date_imprint_svg`** (R31:115) was never built; CoreText rasterising replaced it.
 - (a) Drop it.
 - (b) Build it so the UI can preview the glyphs.
 
 rec: (a).
-**Answer:**
+**Answer:** rec
 
 **E6. Where shooting data goes: the gap, the rebate, or both?** The engine already draws it between 135
 frames and in the 645 margin (R33:114).
 
 rec: the gap on 135, the margin on 645.
-**Answer:**
+**Answer:** rec
 
 **E7. Shooting data fields.**
 - **ISO:** offered? The engine's test text includes `ISO 200`, but R33:54 says "not by default".
 - **A copyright or name line:** offered (R33:115)?
 
-**Answer:**
+**Answer:** No
 
 **E8. Aperture in the shooting data.**
 - (a) The real f-number.
 - (b) A 135-equivalent.
 
 rec: (a).
-**Answer:**
+**Answer:** rec
 
 **E9. The imprint records the camera's exposure, not the Film Exposure slider.** Confirm (R33:117).
-**Answer:**
+**Answer:** Yes. Only camera exposure comp. Default to 0 if not offered
 
 **E10. "No metadata makes pixels."** That is the `ImageDecoder.sourceEXIF` rule, and shooting data would
 replace it. Accept that desktop code change (R33:38)?
-**Answer:**
+**Answer:** Yes, also update relative docs
 
 **E11. `data` on 645.** That goes beyond R31/R33's "135 only". Keep it?
 
 rec: yes.
-**Answer:**
+**Answer:** rec
 
 **E12. The data face's colour.** Red-orange, as rendered, or the amber of the 645N reference?
-**Answer:**
+**Answer:** Offer both
 
 ---
 

@@ -55,6 +55,18 @@ OVERRIDES: dict[str, object] = {
     "contrast_mask_scheme": "gaussian",
     "scene_latitude_highlight_knee": 4.0,
     "scene_latitude_shadow_knee": -12.0,
+    # RFC-032/031's enumerated strings, each off its default. The walk is
+    # cumulative and `overscan_active` comes first, so by the time the date's
+    # `rebate` placement lands the overscan it needs is on.
+    "overscan_format": "120_645",
+    "overscan_mode": "filed",
+    "overscan_edge_text": "KODA 400",
+    "overscan_gate": "square",
+    "overscan_holes": "black",
+    "date_imprint_text": "'26 10 2",
+    "date_imprint_placement": "rebate",
+    "date_imprint_style": "dots",
+    "date_imprint_corner": "tl",
 }
 
 # Print-layer fields that nevertheless invalidate cached work. The walk below
@@ -64,6 +76,12 @@ OVERRIDES: dict[str, object] = {
 # made at the old size, so `spk_set_params` drops that tier (the reference's
 # `apply_delta` drops it too) and the next live render makes a new one.
 PRINT_LAYER_DROPS_NEGATIVE = {"preview_long_edge"}
+
+# Fields put back to their default straight after their own check. The walk is
+# cumulative, and `striped` comes before RFC-032's overscan, which the striped
+# executor refuses (RFC-032 §27) -- so left on it would fail every field after
+# it with that refusal rather than with anything about the field.
+REVERT_AFTER = {"striped"}
 
 
 def value_for(field: dict):
@@ -133,6 +151,9 @@ def main() -> int:
             elif args.verbose:
                 print(f"ok   {name:26s} = {value!r:24} {got_layer:5s} "
                       f"{'reused' if cached else 're-rendered'} in {result.elapsed_ms:6.1f} ms")
+            if name in REVERT_AFTER:
+                session.set_params({name: field["default"]})
+                session.render("live", reprint=True)
 
         # --- the settable preview resolution (the `live` tier's size) --------
         # The walk above applies the field and checks its layer, but `frame` is

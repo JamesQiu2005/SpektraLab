@@ -171,6 +171,89 @@ NATIVE_ONLY = {
         "path": "io.digital_intermediate_blue_compensation", "type": "bool", "layer": "print",
         "default": False, "live": False, "range": None,
     },
+    # RFC-032's overscan and RFC-031's date back (API-SPEC §13), written in the
+    # mobile repo and synced. Shoot layer and not live: every mark is exposure
+    # on the negative. `overscan_active = false` dispatches nothing.
+    "overscan_active": {
+        "path": "film_render.overscan.active", "type": "bool", "layer": "shoot",
+        "default": False, "live": False, "range": None,
+    },
+    "overscan_format": {
+        "path": "film_render.overscan.format", "type": "str", "layer": "shoot",
+        "default": '135', "live": False, "range": None,
+    },
+    "overscan_mode": {
+        "path": "film_render.overscan.mode", "type": "str", "layer": "shoot",
+        "default": 'strip', "live": False, "range": None,
+    },
+    "overscan_camera_seed": {
+        "path": "film_render.overscan.camera_seed", "type": "int", "layer": "shoot",
+        "default": 1, "live": False, "range": [0, 2147483647],
+    },
+    "overscan_frame_seed": {
+        "path": "film_render.overscan.frame_seed", "type": "int", "layer": "shoot",
+        "default": 1, "live": False, "range": [0, 2147483647],
+    },
+    "overscan_fog": {
+        "path": "film_render.overscan.fog", "type": "float", "layer": "shoot",
+        "default": 1.0, "live": False, "range": [0.0, 4.0],
+    },
+    "overscan_leaks": {
+        "path": "film_render.overscan.leaks", "type": "float", "layer": "shoot",
+        "default": 0.0, "live": False, "range": [0.0, 4.0],
+    },
+    "overscan_edge_text": {
+        "path": "film_render.overscan.edge_text", "type": "str", "layer": "shoot",
+        "default": '', "live": False, "range": None,
+    },
+    "overscan_f_number": {
+        "path": "film_render.overscan.f_number", "type": "float", "layer": "shoot",
+        "default": 0.0, "live": False, "range": [0.0, 64.0],
+    },
+    "overscan_gate": {
+        "path": "film_render.overscan.gate", "type": "str", "layer": "shoot",
+        "default": 'auto', "live": False, "range": None,
+    },
+    "overscan_holes": {
+        "path": "film_render.overscan.holes", "type": "str", "layer": "shoot",
+        "default": 'white', "live": False, "range": None,
+    },
+    "date_imprint_active": {
+        "path": "film_render.date_imprint.active", "type": "bool", "layer": "shoot",
+        "default": False, "live": False, "range": None,
+    },
+    "date_imprint_text": {
+        "path": "film_render.date_imprint.text", "type": "str", "layer": "shoot",
+        "default": '', "live": False, "range": None,
+    },
+    "date_imprint_placement": {
+        "path": "film_render.date_imprint.placement", "type": "str", "layer": "shoot",
+        "default": 'frame', "live": False, "range": None,
+    },
+    "date_imprint_ev": {
+        "path": "film_render.date_imprint.exposure_ev", "type": "float", "layer": "shoot",
+        "default": 3.5, "live": False, "range": [-2.0, 8.0],
+    },
+    "date_imprint_style": {
+        "path": "film_render.date_imprint.style", "type": "str", "layer": "shoot",
+        "default": 'lcd', "live": False, "range": None,
+    },
+    "date_imprint_size": {
+        "path": "film_render.date_imprint.size", "type": "float", "layer": "shoot",
+        "default": 1.0, "live": False, "range": [0.4, 3.0],
+    },
+    "date_imprint_corner": {
+        "path": "film_render.date_imprint.corner", "type": "str", "layer": "shoot",
+        "default": 'br', "live": False, "range": None,
+    },
+    "date_imprint_inset_x": {
+        "path": "film_render.date_imprint.inset_x", "type": "float", "layer": "shoot",
+        "default": 3.0, "live": False, "range": [0.0, 30.0],
+    },
+    "date_imprint_inset_y": {
+        "path": "film_render.date_imprint.inset_y", "type": "float", "layer": "shoot",
+        "default": 2.4, "live": False, "range": [0.0, 30.0],
+    },
 }
 
 

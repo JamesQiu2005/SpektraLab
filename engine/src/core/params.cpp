@@ -141,6 +141,29 @@ const SchemaField kFields[] = {
     {"digital_intermediate",     "io.digital_intermediate",               B, PRINT, false, 0, 0, false},
     {"digital_intermediate_blue_compensation", "io.digital_intermediate_blue_compensation",
                                                                           B, PRINT, false, 0, 0, false},
+    // RFC-032/031 (mobile): overscan and the date back. Native-only, placed
+    // before `preview_long_edge` like every native field. SHOOT layer: both
+    // are exposure on the negative, so an edit re-develops it.
+    {"overscan_active",          "film_render.overscan.active",           B, SHOOT, false, 0, 0, false},
+    {"overscan_format",          "film_render.overscan.format",           S, SHOOT, false, 0, 0, false},
+    {"overscan_mode",            "film_render.overscan.mode",             S, SHOOT, false, 0, 0, false},
+    {"overscan_camera_seed",     "film_render.overscan.camera_seed",      I, SHOOT, true, 0.0, 2147483647.0, false},
+    {"overscan_frame_seed",      "film_render.overscan.frame_seed",       I, SHOOT, true, 0.0, 2147483647.0, false},
+    {"overscan_fog",             "film_render.overscan.fog",              F, SHOOT, true, 0.0, 4.0, false},
+    {"overscan_leaks",           "film_render.overscan.leaks",            F, SHOOT, true, 0.0, 4.0, false},
+    {"overscan_edge_text",       "film_render.overscan.edge_text",        S, SHOOT, false, 0, 0, false},
+    {"overscan_f_number",        "film_render.overscan.f_number",         F, SHOOT, true, 0.0, 64.0, false},
+    {"overscan_gate",            "film_render.overscan.gate",             S, SHOOT, false, 0, 0, false},
+    {"overscan_holes",           "film_render.overscan.holes",            S, SHOOT, false, 0, 0, false},
+    {"date_imprint_active",      "film_render.date_imprint.active",       B, SHOOT, false, 0, 0, false},
+    {"date_imprint_text",        "film_render.date_imprint.text",         S, SHOOT, false, 0, 0, false},
+    {"date_imprint_placement",   "film_render.date_imprint.placement",    S, SHOOT, false, 0, 0, false},
+    {"date_imprint_ev",          "film_render.date_imprint.exposure_ev",  F, SHOOT, true, -2.0, 8.0, false},
+    {"date_imprint_style",       "film_render.date_imprint.style",        S, SHOOT, false, 0, 0, false},
+    {"date_imprint_size",        "film_render.date_imprint.size",         F, SHOOT, true, 0.4, 3.0, false},
+    {"date_imprint_corner",      "film_render.date_imprint.corner",       S, SHOOT, false, 0, 0, false},
+    {"date_imprint_inset_x",     "film_render.date_imprint.inset_x",      F, SHOOT, true, 0.0, 30.0, false},
+    {"date_imprint_inset_y",     "film_render.date_imprint.inset_y",      F, SHOOT, true, 0.0, 30.0, false},
     // The app's *preview resolution*: the `live` tier's long edge, and so the
     // size every interactive edit renders at. PRINT layer, because it is a
     // decision about the canvas rather than about the film -- but it is one of
@@ -193,6 +216,13 @@ double* float_slot(Params& p, const std::string& path) {
     if (path == "camera.scene_latitude.max_lift") return &p.camera.scene_latitude.max_lift;
     if (path == "film_render.halation.scatter_amount") return &p.film_render.halation.scatter_amount;
     if (path == "film_render.grain.amount") return &p.film_render.grain.amount;
+    if (path == "film_render.overscan.fog") return &p.film_render.overscan.fog;
+    if (path == "film_render.overscan.leaks") return &p.film_render.overscan.leaks;
+    if (path == "film_render.overscan.f_number") return &p.film_render.overscan.f_number;
+    if (path == "film_render.date_imprint.exposure_ev") return &p.film_render.date_imprint.exposure_ev;
+    if (path == "film_render.date_imprint.size") return &p.film_render.date_imprint.size;
+    if (path == "film_render.date_imprint.inset_x") return &p.film_render.date_imprint.inset_x;
+    if (path == "film_render.date_imprint.inset_y") return &p.film_render.date_imprint.inset_y;
     if (path == "print_render.glare.amount") return &p.print_render.glare.amount;
     return nullptr;
 }
@@ -218,6 +248,8 @@ bool* bool_slot(Params& p, const std::string& path) {
     if (path == "settings.striped") return &p.settings.striped;
     if (path == "print_render.contrast_mask.active") return &p.print_render.contrast_mask.active;
     if (path == "camera.scene_latitude.active") return &p.camera.scene_latitude.active;
+    if (path == "film_render.overscan.active") return &p.film_render.overscan.active;
+    if (path == "film_render.date_imprint.active") return &p.film_render.date_imprint.active;
     return nullptr;
 }
 
@@ -230,6 +262,15 @@ std::string* str_slot(Params& p, const std::string& path) {
     if (path == "camera.auto_exposure_method") return &p.camera.auto_exposure_method;
     if (path == "camera.scene_latitude.norm") return &p.camera.scene_latitude.norm;
     if (path == "print_render.contrast_mask.scheme") return &p.print_render.contrast_mask.scheme;
+    if (path == "film_render.overscan.format") return &p.film_render.overscan.format;
+    if (path == "film_render.overscan.mode") return &p.film_render.overscan.mode;
+    if (path == "film_render.overscan.edge_text") return &p.film_render.overscan.edge_text;
+    if (path == "film_render.date_imprint.text") return &p.film_render.date_imprint.text;
+    if (path == "film_render.date_imprint.placement") return &p.film_render.date_imprint.placement;
+    if (path == "film_render.date_imprint.style") return &p.film_render.date_imprint.style;
+    if (path == "film_render.date_imprint.corner") return &p.film_render.date_imprint.corner;
+    if (path == "film_render.overscan.gate") return &p.film_render.overscan.gate;
+    if (path == "film_render.overscan.holes") return &p.film_render.overscan.holes;
     return nullptr;
 }
 
@@ -238,6 +279,8 @@ int* int_slot(Params& p, const std::string& path) {
     if (path == "io.preview_long_edge") return &p.io.preview_long_edge;
     if (path == "settings.strip_rows") return &p.settings.strip_rows;
     if (path == "settings.strip_budget_bytes") return &p.settings.strip_budget_bytes;
+    if (path == "film_render.overscan.camera_seed") return &p.film_render.overscan.camera_seed;
+    if (path == "film_render.overscan.frame_seed") return &p.film_render.overscan.frame_seed;
     return nullptr;
 }
 

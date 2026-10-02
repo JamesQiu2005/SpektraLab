@@ -93,7 +93,8 @@ void Pipeline::set_source_long_edge(uint32_t long_edge, uint32_t frame_long_edge
     if (long_edge == 0) return;
     source_long_edge_ = long_edge;
     if (frame_long_edge > 0) frame_long_edge_ = frame_long_edge;
-    pixel_size_um_ = params_.camera.film_format_mm * 1000.0 / double(long_edge);
+    const double long_mm = overscan_wanted() ? overscan_gate_long_mm() : params_.camera.film_format_mm;
+    pixel_size_um_ = long_mm * 1000.0 / double(long_edge);
 }
 
 bool Pipeline::alloc_like(const Image& img, Image& out, std::string& error) {
@@ -430,6 +431,9 @@ bool Pipeline::build(const Params& params, std::string& error) {
     node_count_ += 1;                                                    // exposure
     node_count_ += 1;                                                    // boost
     node_count_ += params_.camera.lens_blur_um > 0.0 ? 1 : 0;            // lens_blur
+    node_count_ += (params_.film_render.overscan.active || params_.film_render.date_imprint.active) ? 1 : 0;  // overscan
+    node_count_ += params_.film_render.overscan.active ? 1 : 0;           // film_present
+    node_count_ += params_.film_render.overscan.active ? 1 : 0;           // the scan's view of the holes
     node_count_ += params_.film_render.halation.active ? 1 : 0;          // halation
     node_count_ += 1;                                                    // expose.log
     node_count_ += 1;                                                    // develop.curves
@@ -1772,7 +1776,10 @@ bool Pipeline::film_prefix(const Image& in, const FrameShape& frame, Image& cur,
     {
         Timer t(this, "preprocess.crop_rescale");
         if (source_long_edge_ == 0) source_long_edge_ = frame.long_edge();
-        pixel_size_um_ = params_.camera.film_format_mm * 1000.0 / double(source_long_edge_);
+        // RFC-032 §27: with overscan on, the frame *is* the format's gate, so
+        // its long edge in millimetres is the format's, not `film_format_mm`.
+        const double long_mm = overscan_wanted() ? overscan_gate_long_mm() : params_.camera.film_format_mm;
+        pixel_size_um_ = long_mm * 1000.0 / double(source_long_edge_);
     }
 
     // The film side's one seed for this run (RFC-020 §4.3, trap 4), drawn here
@@ -1848,6 +1855,17 @@ bool Pipeline::film_boost(const Chain& in, Chain& out, std::string& error) {
     return true;
 }
 
+bool Pipeline::film_overscan(const Chain& in, Chain& out, std::string& error) {
+    // RFC-032 §27: whole-frame, and after `boost` for the same reason `boost`
+    // is its own stage -- metering and the highlight lift are statistics of
+    // the *frame*, so they are taken before the canvas exists.
+    Image cur = in.cur, next;
+    SPK_NODE(node_overscan(cur, next, error)); cur = next;
+    out = in;
+    out.cur = cur;
+    return true;
+}
+
 bool Pipeline::film_blurs(const Chain& in, Chain& out, std::string& error) {
     // Class F, resolved per run: `lens_blur` is one sigma on three channels,
     // halation's two mixtures are where a channel can straddle the crossover,
@@ -1892,6 +1910,11 @@ bool Pipeline::film_grain(const Chain& in, Chain& out, std::string& error) {
 
 bool Pipeline::print_spectral(const Chain& in, Chain& out, std::string& error) {
     Image cur = in.cur, next;
+    // RFC-032 §27 before RFC-028: where there is no film the DI encodes the
+    // hole's density, not the frame's. `node_overscan_light` (the scan's view
+    // of the holes, output RGB) has no DI counterpart yet, so a DI of an
+    // overscan canvas carries flat holes without the cut wall.
+    if (overscan_wanted()) { SPK_NODE(node_overscan_film_present(cur, next, error)); cur = next; }
     if (di_active_) {
         SPK_NODE(node_digital_intermediate(cur, next, error)); cur = next;
         out = in;
@@ -1922,6 +1945,7 @@ bool Pipeline::print_linear(const Chain& in, Chain& out, std::string& error) {
     Image cur = in.cur, next;
     SPK_NODE(node_xyz_to_rgb(cur, next, error)); cur = next;
     SPK_NODE(node_gamut_compress(cur, next, error)); cur = next;
+    if (overscan_wanted()) { SPK_NODE(node_overscan_light(cur, next, error)); cur = next; }
     out = in;
     out.cur = cur;
     return true;
@@ -1959,6 +1983,7 @@ bool Pipeline::print_output(const Chain& in, Chain& out, std::string& error) {
 const Pipeline::Stage Pipeline::kFilmStages[] = {
     {"film_scale_and_expose", StageClass::Pointwise,     &Pipeline::film_scale_and_expose, nullptr},
     {"film_boost",            StageClass::Whole,         &Pipeline::film_boost,            nullptr},
+    {"film_overscan",         StageClass::Whole,         &Pipeline::film_overscan,         nullptr},
     {"film_blurs",            StageClass::Neighbourhood, &Pipeline::film_blurs,            &Pipeline::film_blurs_demand},
     {"film_log_and_curves",   StageClass::Pointwise,     &Pipeline::film_log_and_curves,   nullptr},
     {"film_couplers",         StageClass::Neighbourhood, &Pipeline::film_couplers,         &Pipeline::film_couplers_demand},

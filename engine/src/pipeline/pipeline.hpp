@@ -247,6 +247,55 @@ void transposed(const Mat3& m, double out[9]);
 // decoded with one curve and encoded with another.
 uint32_t cctf_mode_for(const std::string& colour_space);
 
+// RFC-032 §27: every random and geometric choice of one overscan render,
+// drawn once per run from the seeds (`overscan.cpp`). Film millimetres: `s`
+// along the film, `t` across, `t = 0` at the first long edge.
+struct OverscanLayout {
+    bool valid = false;
+    std::string format;
+    double px = 0.0;                      // mm per pixel (the frame's pitch)
+    uint32_t frame_w = 0, frame_h = 0;
+    uint32_t canvas_w = 0, canvas_h = 0;
+    bool vertical = false;                // the film runs along the image's y axis
+    double gate_s0 = 0, gate_t0 = 0, gate_along = 0, gate_across = 0;
+    double corner = 0, penumbra = 0;
+    double wob_a[4][3] = {{0}}, wob_ph[4][3] = {{0}};
+    double film_w = 0;
+    double A[4] = {1, 0, 0, 1};           // canvas mm (about its centre) -> film mm
+    double cu = 0, cv = 0, cs = 0, ct = 0;
+    double scan_rot = 0;
+    bool perforated = false;
+    double perf_pitch = 0, perf_w = 0, perf_h = 0, perf_edge = 0, perf_r = 0, perf_phase = 0;
+    double fog_amp = 0, fog_width = 0.5, fog_period = 8.0;
+    uint32_t fog_seed = 0;
+    struct Leak { double s = 0; int side = 0; double amp = 0, sig_s = 1, sig_t = 1; };
+    std::vector<Leak> leaks;
+    double fog_rgb[3] = {1, 1, 1}, date_rgb[3] = {1, 1, 0}, edge_rgb[3] = {1, 1, 0};
+    double hole_cmy[3] = {0, 0, 0};
+    double flare_amp = 0, flare_width = 0.05;
+    // RFC-032 §29: the gate's own shape -- corner radii (s-,t-), (s+,t-),
+    // (s+,t+), (s-,t+); convex quads added to (+1) or cut from (-1) the
+    // opening, film mm; the machined edge's roughness.
+    std::string gate_family;
+    double gate_r[4] = {0, 0, 0, 0};
+    struct Quad { double pts[8] = {0}; double round = 0; double sign = 1; };
+    std::vector<Quad> quads;
+    double rough_amp = 0, rough_period = 0.15;
+    uint32_t rough_seed = 0;
+    double top_recess = 0;                // how far the t- side's middle sits back from its ears (shouldered)
+    bool holes_light = false;
+    double light_rgb[3] = {1, 1, 1};      // the backlight through the scan, linear output RGB
+    double light_fall = 0, light_dir = 0; // the light panel's falloff across the canvas
+    uint32_t perf_seed = 0;               // per-hole punch tolerances, burrs, wall slant
+    // RFC-032 §31: the base's thickness at a perforation's cut wall
+    double wall_t = 0.13;                 // base thickness, mm
+    double wall_tilt[2] = {0, 0};         // the scan's viewing tilt, tan(angle) along (s, t)
+    double wall_parallax = 0;             // 1 / the scan's viewing distance, 1/mm
+    double base_rgb[3] = {1, 1, 1};       // the base's transmittance colour, linear output RGB
+    double wall_glow = 0;                 // black holes: the wall's rim brightness
+    double wall_scatter = 0.02;           // light scattered in the base widens the wall, mm
+};
+
 class Pipeline {
 public:
     Pipeline(gpu::Gpu* gpu, const Colour* colour, const Blob* blob, SetupCache* cache)
@@ -409,6 +458,7 @@ public:
     // order.
     bool film_scale_and_expose(const Chain& in, Chain& out, std::string& error);
     bool film_boost(const Chain& in, Chain& out, std::string& error);
+    bool film_overscan(const Chain& in, Chain& out, std::string& error);
     bool film_blurs(const Chain& in, Chain& out, std::string& error);
     bool film_log_and_curves(const Chain& in, Chain& out, std::string& error);
     bool film_couplers(const Chain& in, Chain& out, std::string& error);
@@ -580,6 +630,16 @@ private:
     bool node_upsample(const Image& in, Image& out, std::string& error);
     bool node_exposure(const Image& in, Image& out, std::string& error);
     bool node_boost(const Image& in, Image& out, std::string& error);
+    // RFC-032 §27 / RFC-031 (`overscan.cpp`): the film canvas, its imprints,
+    // and the no-film mask at the start of the print side. Not in the graph
+    // while off.
+    bool overscan_wanted() const;
+    double overscan_gate_long_mm() const;
+    bool overscan_layout(uint32_t frame_w, uint32_t frame_h, std::string& error);
+    void overscan_params_block(std::vector<float>& P) const;
+    bool node_overscan(const Image& in, Image& out, std::string& error);
+    bool node_overscan_film_present(const Image& in, Image& out, std::string& error);
+    bool node_overscan_light(const Image& in, Image& out, std::string& error);
     bool node_lens_blur(const Image& in, Image& out, std::string& error);
     bool node_halation(const Image& in, Image& out, std::string& error);
     bool node_expose_log(const Image& in, Image& out, std::string& error);
@@ -667,6 +727,11 @@ private:
     // -- which the hash gate checks rather than assumes.
     uint32_t film_seed_ = 0;
     uint32_t print_seed_ = 0;
+
+    // RFC-032 §27: kept across a reprint of the cached negative, which the
+    // print side's no-film mask must match pixel for pixel.
+    OverscanLayout overscan_;
+    double frame_w_mm_ = 0.0, frame_h_mm_ = 0.0;
 
     // --- baked, persistent ----------------------------------------------
     struct Baked {

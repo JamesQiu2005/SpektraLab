@@ -143,12 +143,57 @@ struct PrintCurvesMorphParams {
     double developer_exhaustion = 0.0;
 };
 
+// RFC-032 (mobile repo, §26-§27): the film outside the frame. Off by default,
+// and off is structural: `film_overscan` is not in the graph, so every render
+// without it is byte for byte what it was. Seeds are the randomness RFC-032
+// §26.1 requires: the camera seed fixes the machine (gate shape, gate gap,
+// frame phase against the perforations, spacing, leak side), the frame seed
+// the film advance (过片) and the scan. Film data (edge print layout) is fixed
+// per stock and format and needs no seed.
+struct OverscanParams {
+    bool active = false;
+    std::string format = "135";      // 135 | 135_half | 120_645 | 120_6x6 | 120_6x7 | 120_6x8 | 120_6x9
+    std::string mode = "strip";      // strip (the whole film width) | filed (a sliver of rebate)
+    int camera_seed = 1;
+    int frame_seed = 1;
+    double fog = 1.0;                // edge fog from the spool, 0 = none
+    double leaks = 0.0;              // spool light leaks, 0 = none
+    std::string edge_text;           // the manufacturer's edge print; the app decides real vs display names
+    double f_number = 0.0;           // EXIF; sets the gate penumbra. 0 = unknown (f/5.6 assumed)
+    // RFC-032 §29: the gate's shape family (auto = the camera seed picks one
+    // that the format's real cameras have), and what the scan sees through
+    // the perforations and past the film's edge: white (a scan's light) or
+    // black (a black backing, or a darkroom print of the strip).
+    std::string gate = "auto";       // auto | square | rounded | eared | shouldered | kicked
+    std::string holes = "white";     // white (a scan: its light) | black (a black backing, or a print)
+};
+
+// RFC-031: the date back, exposed onto the negative from behind. 135 only by
+// the owner's rule; `placement` = frame (lower right, in the picture) or
+// rebate (between frames on 135, the lower rebate on 120 -- needs overscan).
+struct DateImprintParams {
+    bool active = false;
+    std::string text;                // already formatted, e.g. "'26 9 28"
+    std::string placement = "frame";
+    double exposure_ev = 3.5;        // red-layer exposure above 18 % grey (RFC-031 §3.3)
+    // RFC-031 §8 (2026-10-01): three faces of one mechanism. lcd = seven
+    // segments, slanted; dots = a dot-matrix date, upright; data = shooting
+    // data in a 5x7 face between frames (135) or in the margin (645).
+    std::string style = "lcd";       // lcd | dots | data
+    double size = 1.0;               // scale on the style's own character height
+    std::string corner = "br";       // frame placement: br | bl | tr | tl, in the film's frame (the camera held level)
+    double inset_x = 3.0;            // mm from the gate's side to the text (frame placement)
+    double inset_y = 2.4;            // mm from the gate's top/bottom to the text (frame placement)
+};
+
 struct FilmRenderParams {
     double density_curve_gamma = 1.0;
     GrainParams grain;
     HalationParams halation;
     DirCouplersParams dir_couplers;
     GlareParams glare;
+    OverscanParams overscan;
+    DateImprintParams date_imprint;
 };
 
 // RFC-024: the virtual contrast mask, a neutral spatial gain on the

@@ -35,7 +35,9 @@ mkdir -p "$out"
 CXX=${CXX:-clang++}
 cxxflags=(-std=c++20 -O2 -Wall -Wextra)
 includes=(-I"$here/include" -I"$here/src" -I"$here/src/core" -I"$here/third_party/metal-cpp")
-frameworks=(-framework Metal -framework Foundation -framework QuartzCore)
+# CoreText/CoreGraphics: RFC-032 §27 rasterises the edge print and the date in the
+# engine, with the same C API on macOS and iOS.
+frameworks=(-framework Metal -framework Foundation -framework QuartzCore -framework CoreText -framework CoreGraphics)
 math_flags=(-fmetal-math-mode=safe -fmetal-math-fp32-functions=precise)
 # The app's floor is macOS 15 (LSMinimumSystemVersion, MACOSX_DEPLOYMENT_TARGET
 # in gen-project.py). Without this the metal compiler targets the *host* OS, and
