@@ -27,6 +27,7 @@ v2 replaces v1 (`git show 843c6c1`) after the owner's corrections the same day:
 | `sample_135_half_pair_6_6A.jpg` | **the engine's render at full size** (3377 × 3087): street and snow on one Gold 200 strip |
 | `sample_135_half_pair_6_6A_black_holes.jpg` | the same strip with black holes (a black backing, or a print of the strip) |
 | `pair_scratch.patch` | the scratch engine change that rendered it, against SpektraLab_mobile `371ad16`. **Not applied anywhere** |
+| `tools/` | the design-only scripts that drew and rendered all of this (README inside). Open questions for the owner: `PRD/QUESTIONS-2026-10-02-half-frame-film-edge-panoramic.md` |
 | `preview_desktop_v2.png`, `preview_edge_v2.png`, `preview_concept_v2.png` | the first four screens 2×2, the two Film Edge screens, the concept sheet |
 
 **How the drawings were made:**
