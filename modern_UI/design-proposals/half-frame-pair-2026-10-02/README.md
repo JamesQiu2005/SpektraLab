@@ -10,6 +10,9 @@ v2 replaces v1 (`git show 843c6c1`) after the owner's corrections the same day:
 - Exposure edits get a scope: the frame only, or the frame and the overscan.
 - The pair owns its settings.
 - Invert the canvas: the piece of film comes first, and frames are added into its empty holes.
+- Later the same day: **an accurate film edge matters too.** The engine should render the real strip
+  around the pair, with half-frame numbers such as 6 and 6A. §6 covers that path, with a real engine
+  render.
 
 | file | what |
 |---|---|
@@ -18,7 +21,13 @@ v2 replaces v1 (`git show 843c6c1`) after the owner's corrections the same day:
 | `pair_3_film_v2.svg` | the Film layer picked: the one stock, the piece, the overscan |
 | `pair_4_place_v2.svg` | placing the right hole's picture: the hole stays, the picture moves |
 | `pair_concept_v2.svg` | layers, exposure scope, what each layer holds, how it renders |
-| `preview_desktop_v2.png`, `preview_concept_v2.png` | the four screens 2×2, and the concept sheet, flattened |
+| `pair_5_film_edge_v2.svg` | **Film Edge on:** the pair as one strip, frames 6 and 6A, the Film layer picked |
+| `pair_6_scope_edge_v2.svg` | **Film Edge on:** the right hole's print +1.00 at *+ Overscan* |
+| `pair_concept_edge_v2.svg` | why one engine canvas; the scope on the strip, frame vs + overscan |
+| `sample_135_half_pair_6_6A.jpg` | **the engine's render at full size** (3377 × 3087): street and snow on one Gold 200 strip |
+| `sample_135_half_pair_6_6A_black_holes.jpg` | the same strip with black holes (a black backing, or a print of the strip) |
+| `pair_scratch.patch` | the scratch engine change that rendered it, against SpektraLab_mobile `371ad16`. **Not applied anywhere** |
+| `preview_desktop_v2.png`, `preview_edge_v2.png`, `preview_concept_v2.png` | the first four screens 2×2, the two Film Edge screens, the concept sheet |
 
 **How the drawings were made:**
 - **The chrome** is the Film Edge proposal's desktop parts (`SpektraLab_mobile/design/src`: Theme.swift
@@ -83,7 +92,10 @@ A **Half-Frame Pair** is a piece of film with three layers, one picked at a time
 7. **Edit the Film layer.** Changing the stock develops both holes. *Camera* switches between held level
    (holes side by side) and turned (stacked). *Spacing* runs 0.5–2.0 mm (default 1.0). *Swap Left and
    Right*. *Overscan* is the print of the unexposed film.
-8. **Export.** A pair is one item: the whole piece by default, or *Two halves*, or *Both*. Export waits
+8. **Film Edge** (a section of the Film layer, as in the Film Edge proposal) turns the piece into the real
+   strip (§6), with *Format 135 half · pair*, *View*, *Holes*, *Numbers 6 · 6A* and *Body*. The canvas still
+   fits the piece, now the film's full width, and the holes are still where frames are added.
+9. **Export.** A pair is one item: the whole piece by default, or *Two halves*, or *Both*. Export waits
    until both holes are filled.
 
 The hole's menu (right-click on it or its layer row) has *Replace Frame…*, *Remove Frame*, *Swap with
@@ -135,7 +147,73 @@ different values. It is a question for the overscan sync and API-SPEC §13, not 
 - **Before/after** acts on the whole piece. **Copy Settings** from a hole copies that hole. **Paste** onto
   a picked pair pastes onto both holes, and never onto the stock.
 
-## 6. How it renders: no engine change
+## 6. With Film Edge: one engine canvas
+
+**With Film Edge on, the pair is one strip, rendered by the engine.** The camera exposes the same gate
+twice, 19.00 mm apart (one advance of 4 perforations). `sample_135_half_pair_6_6A.jpg` is the engine's own
+render of that, with nothing drawn by hand:
+
+- **The film:** Kodak Gold 200 on Supra Endura, `135_half`, held level, camera No. 19.
+- **The top band:** **6**, then the stock name.
+- **The bottom band:** the DX code once per half frame, then **6** under the first frame and **6A →** under
+  the second.
+- **The rest:** eight perforations, the same gate shape and penumbra twice, and unexposed film between the
+  frames.
+
+**Why one canvas, not two renders butted together:**
+- **Each render has its own scan rotation and weave,** so the strip's edges and perforations would step at
+  the seam.
+- **The numbers can't be made consecutive across two renders.** They walk in half-frame steps across one
+  canvas (`half = 2·n0 + m` in `imprint_groups`), but the frame seed sets `n0` in whole frames.
+- **Halation, edge fog and leaks cross the gap,** as they do on film.
+
+**The scratch build** (`pair_scratch.patch`) is the mobile engine at `371ad16`, exported into a
+scratchpad, plus one change:
+- an `overscan_pair` flag;
+- the input carries both pictures, the second starting 19.00 mm along the film;
+- the gate stays 18 mm, and pixel pitch comes from 37 mm along the film instead of the 24 mm gate;
+- the canvas kernel takes the union of the gate and the same gate one advance on.
+
+It handles held level only and was never applied to either repo.
+
+**Measured on the render:**
+- each gate is 1,615 × 2,148 px: the 1,600 × 2,133 picture plus its penumbra;
+- the gap is 75 px, 0.84 mm: the 1 mm between frames, less the soft edges;
+- the canvas is 3,377 × 3,087 px from a 3,289 × 2,133 input.
+
+**How each hole keeps its own settings on one canvas:**
+
+- **Shot (per hole):** the app builds the engine's input with each picture under its gate.
+  - White balance is applied at decode, which is already the app's job.
+  - Exposure: the app meters each picture alone (`spk_solve("exposure")`), then applies that hole's gain
+    and Film Exposure to its half of the input. The canvas renders with `auto_exposure` off, so the engine
+    does not re-meter across both.
+- **Print (per region):** a print-only change leaves the developed negative identical. So the left gate,
+  the right gate and the overscan are each a **reprint of the same canvas**, cut together along the
+  engine's own gate coverage. Paper, Enlarger, filters and pre-flash stay free per hole.
+  `pair_6_scope_edge_v2.svg` and the concept sheet show exactly that composite, from engine renders. The
+  masks were taken from the engine by rendering a flat input twice and differencing.
+- **Film (shared, because it is one piece of film):** stock, grain and halation. Halation from the snow
+  frame reaches into the gap, as it should. With Film Edge on, the per-hole grain and halation strengths
+  of §5 lock to the pair (§7 D13).
+
+**Exposure scope is plainly visible here.** With *+ Overscan*, the edge print, DX code and rebate lift with
+the right frame's print, and the warm edge fog appears. The left frame is untouched. Without Film Edge,
+the gap alone sits near paper black and barely moves (§4).
+
+**Engine work this needs** (shared engine; it belongs with the overscan sync, after the mobile session's
+current merge, and is not done here):
+
+| # | what | why |
+|---|---|---|
+| E1 | `overscan_pair` for `135_half`: the same gate twice, one advance apart (plus the frame's advance error), held level and turned; the date back per frame | the strip itself; the scratch patch proves held level |
+| E2 | Gate coverage out (the `spk_overscan_geometry` API-SPEC §13 proposes): canvas-space coverage of each gate | per-region reprints, and hit-testing holes on the canvas |
+| E3 | Optional: per-gate Scene Placement | without it, Scene Placement is shared while Film Edge is on (§7 D14) |
+
+API-SPEC §13 would gain these fields. API-SPEC belongs to nobody in particular, so say so before editing
+it.
+
+## 6a. Without Film Edge: no engine change
 
 - **Each filled hole** is one ordinary engine render of its frame: its shot, the pair's stock, and the
   hole's print and effects.
@@ -163,6 +241,10 @@ different values. It is a question for the overscan sync and API-SPEC §13, not 
 | D10 | Spacing | **0.5–2.0 mm, default 1.0** | fixed 1.0 mm |
 | D11 | Names | **Half-Frame Pair, New Half-Frame Pair, Add Frame, Film / Left hole / Right hole, Applies to: Frame / + Overscan.** zh-Hans needs a choice: 半格双拼 / 半格对 / 双联 | — |
 | D12 | Plus | **Not gated on desktop** | follow mobile's Plus |
+| D13 | Grain / halation strengths with Film Edge on | **Shared:** one piece of film | per hole, from two film renders cut together (halation would seam at the gap) |
+| D14 | Scene Placement with Film Edge on | **Shared until E3,** per hole after | build E3 first |
+| D15 | Which number the left frame takes | **The engine's grid decides (6 · 6A).** *Another* moves along the roll | also offer the straddling pair (6A · 7) |
+| D16 | Edge print text on desktop | **Display name** (`KODA GOLD 200`), as the Film Edge drawings do | the real name; desktop may print real marks (RFC-032 §26) |
 
 ## 8. Building it without breaking things
 
@@ -175,6 +257,7 @@ green, the app launched and looked at, a `/code-review` pass, then a commit that
 | P2 | filmstrip/Browse cell, ⌘J, Add Frame picker and drag, the layer list | `framing(of:)` for pair cells; capture-order filling for 0/1/2 picked; dropping onto a hole replaces only that hole |
 | P3 | canvas: compositor, picking a layer by click, placement under the hole, rails following the layer | hole and gap sizes (3289 × 2133, mixed sizes, turned); hit-testing holes vs gap; per-hole `film_format_mm` at 1.00× and 1.18×; switching layers mid-drag never writes the other hole |
 | P4 | export of pairs | output size and metadata; One / Two halves / Both; export disabled with an empty hole; batch peak stays at two developed frames |
+| P5 | Film Edge pairs, after E1/E2 land in the shared engine | the strip's numbers read back as N / NA; each gate's coverage matches its hole; per-region reprints leave the other regions bit-identical |
 
 **What is most likely to break, and the guard for each:**
 
@@ -193,6 +276,6 @@ green, the app launched and looked at, a `/code-review` pass, then a commit that
 
 ## 9. Not in this proposal
 
-- The film edge (sprockets, rebate, edge print) around a pair. The owner chose none.
-- More than two frames, contact sheets, and 135 full-frame neighbours.
+- Pairs on 120, or full-frame 135 neighbours (RFC-032 §23 open item 2).
+- More than two frames, or contact sheets.
 - Pairs in the CLI/MCP (RFC-026) or on mobile.

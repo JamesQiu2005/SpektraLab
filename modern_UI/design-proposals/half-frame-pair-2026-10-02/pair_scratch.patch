@@ -1,0 +1,137 @@
+SCRATCH -- design sample only, applied nowhere. Against SpektraLab_mobile 371ad16, engine/.
+Rendered sample_135_half_pair_6_6A.jpg (half-frame pair proposal v2, 2026-10-02). Held level only.
+To reproduce: git archive 371ad16 engine | tar -x; cd engine; patch -p1 < pair_scratch.patch; build.sh dylib
+
+diff -ru src.orig/core/params.cpp src/core/params.cpp
+--- src.orig/core/params.cpp	2026-10-02 16:08:33
++++ src/core/params.cpp	2026-10-02 16:08:33
+@@ -150,6 +150,7 @@
+     {"overscan_f_number",        "film_render.overscan.f_number",         F, SHOOT, true, 0.0, 64.0, false},
+     {"overscan_gate",            "film_render.overscan.gate",             S, SHOOT, false, 0, 0, false},
+     {"overscan_holes",           "film_render.overscan.holes",            S, SHOOT, false, 0, 0, false},
++    {"overscan_pair",            "film_render.overscan.pair",             B, SHOOT, false, 0, 0, false},
+     {"date_imprint_active",      "film_render.date_imprint.active",       B, SHOOT, false, 0, 0, false},
+     {"date_imprint_text",        "film_render.date_imprint.text",         S, SHOOT, false, 0, 0, false},
+     {"date_imprint_placement",   "film_render.date_imprint.placement",    S, SHOOT, false, 0, 0, false},
+@@ -235,6 +236,7 @@
+     if (path == "print_render.contrast_mask.active") return &p.print_render.contrast_mask.active;
+     if (path == "camera.scene_latitude.active") return &p.camera.scene_latitude.active;
+     if (path == "film_render.overscan.active") return &p.film_render.overscan.active;
++    if (path == "film_render.overscan.pair") return &p.film_render.overscan.pair;
+     if (path == "film_render.date_imprint.active") return &p.film_render.date_imprint.active;
+     return nullptr;
+ }
+diff -ru src.orig/core/params.hpp src/core/params.hpp
+--- src.orig/core/params.hpp	2026-10-02 16:08:33
++++ src/core/params.hpp	2026-10-02 16:08:33
+@@ -146,6 +146,9 @@
+     // black (a black backing, or a darkroom print of the strip).
+     std::string gate = "auto";       // auto | square | rounded | eared | shouldered | kicked
+     std::string holes = "white";     // white (a scan: its light) | black (a black backing, or a print)
++    // SCRATCH (half-frame pair proposal): two half frames one advance (19.00 mm) apart on one
++    // canvas. The input carries both pictures, the second starting 19.00 mm along the film.
++    bool pair = false;
+ };
+ 
+ // RFC-031: the date back, exposed onto the negative from behind. 135 only by
+diff -ru src.orig/pipeline/overscan.cpp src/pipeline/overscan.cpp
+--- src.orig/pipeline/overscan.cpp	2026-10-02 16:08:33
++++ src/pipeline/overscan.cpp	2026-10-02 16:08:33
+@@ -53,7 +53,8 @@
+     P_HOLES_LIGHT = 183, P_LIGHT_R, P_LIGHT_G, P_LIGHT_B,
+     P_PERF_SEED = 187, P_LIGHT_FALL, P_LIGHT_DIR,
+     P_WALL_T = 190, P_WALL_VS, P_WALL_VT, P_WALL_PAR, P_BASE_R, P_BASE_G, P_BASE_B, P_WALL_GLOW, P_WALL_SCATTER,
+-    P_COUNT = 199
++    P_PAIR_ADV = 199,
++    P_COUNT = 200
+ };
+ constexpr int kMaxLeaks = 6;
+ constexpr int kMaxQuads = 8;
+@@ -349,6 +350,7 @@
+ 
+ double Pipeline::overscan_gate_long_mm() const {
+     const Format* f = find_format(params_.film_render.overscan.format);
++    if (f && params_.film_render.overscan.pair) return 2.0 * f->along + (19.0 - f->along);   // SCRATCH: 37 mm along
+     return f ? std::max(f->across, f->along) : params_.camera.film_format_mm;
+ }
+ 
+@@ -377,6 +379,12 @@
+     // 6x7 all run vertically. Square frames run horizontally.
+     L.vertical = std::fabs(img_w - fmt->across) < std::fabs(img_h - fmt->across) && std::fabs(img_w - img_h) > 1e-6;
+     L.gate_along = L.vertical ? img_h : img_w;
++    const double img_along = L.gate_along;
++    if (o.pair) {
++        if (L.format != "135_half" || L.vertical) { error = "overscan: pair is 135_half held level only (scratch)"; return false; }
++        L.pair_adv = 19.0;                 // 4 perforations: sprocket-locked
++        L.gate_along = img_along - L.pair_adv;
++    }
+     L.gate_across = L.vertical ? img_w : img_h;
+ 
+     const uint64_t cam = uint64_t(uint32_t(o.camera_seed)), frm = uint64_t(uint32_t(o.frame_seed));
+@@ -435,7 +443,7 @@
+         // largest scan rotation (0.35 degrees, below) never shows a sliver of
+         // light past the edge, and fixed per format so every frame's canvas
+         // is the same size.
+-        const double inset = 0.5 * (L.gate_along + 2.0 * margin_along) * std::sin(0.35 * M_PI / 180.0) + 0.02;
++        const double inset = 0.5 * (img_along + 2.0 * margin_along) * std::sin(0.35 * M_PI / 180.0) + 0.02;
+         t_lo = inset; t_hi = L.film_w - inset;
+     } else {
+         margin_along = 0.9 + rf.uni(-0.1, 0.1);
+@@ -592,6 +600,7 @@
+     P[P_VERTICAL] = L.vertical ? 1.0f : 0.0f;
+     P[P_GS0] = float(L.gate_s0); P[P_GT0] = float(L.gate_t0);
+     P[P_GW] = float(L.gate_along); P[P_GH] = float(L.gate_across);
++    P[P_PAIR_ADV] = float(L.pair_adv);
+     P[P_CORNER] = float(L.corner); P[P_PENUMBRA] = float(L.penumbra);
+     for (int side = 0; side < 4; ++side)
+         for (int k = 0; k < 3; ++k) {
+diff -ru src.orig/pipeline/pipeline.hpp src/pipeline/pipeline.hpp
+--- src.orig/pipeline/pipeline.hpp	2026-10-02 16:08:33
++++ src/pipeline/pipeline.hpp	2026-10-02 16:08:33
+@@ -257,6 +257,7 @@
+     uint32_t canvas_w = 0, canvas_h = 0;
+     bool vertical = false;                // the film runs along the image's y axis
+     double gate_s0 = 0, gate_t0 = 0, gate_along = 0, gate_across = 0;
++    double pair_adv = 0;                  // SCRATCH: > 0 = the same gate again this far along
+     double corner = 0, penumbra = 0;
+     double wob_a[4][3] = {{0}}, wob_ph[4][3] = {{0}};
+     double film_w = 0;
+diff -ru src.orig/shaders/overscan.metal src/shaders/overscan.metal
+--- src.orig/shaders/overscan.metal	2026-10-02 16:08:33
++++ src/shaders/overscan.metal	2026-10-02 16:08:33
+@@ -29,7 +29,8 @@
+     P_HOLES_LIGHT = 183, P_LIGHT_R, P_LIGHT_G, P_LIGHT_B,
+     P_PERF_SEED = 187, P_LIGHT_FALL, P_LIGHT_DIR,
+     P_WALL_T = 190, P_WALL_VS, P_WALL_VT, P_WALL_PAR, P_BASE_R, P_BASE_G, P_BASE_B, P_WALL_GLOW, P_WALL_SCATTER,
+-    P_COUNT = 199
++    P_PAIR_ADV = 199,
++    P_COUNT = 200
+ };
+ constant uint kQStride = 10u;
+ 
+@@ -150,7 +151,11 @@
+     const float W = P[P_FILM_W];
+     float3 e = float3(0.0f);
+     if (st.y >= 0.0f && st.y <= W) {
+-        const float cov = penumbra(gate_sdf(st, P), P[P_PENUMBRA]);
++        // SCRATCH pair: past the middle of the gap, the second exposure of the same gate.
++        float2 sg = st;
++        float shift = 0.0f;
++        if (P[P_PAIR_ADV] > 0.0f && st.x > P[P_GS0] + 0.5f * (P[P_GW] + P[P_PAIR_ADV])) { shift = P[P_PAIR_ADV]; sg.x -= shift; }
++        const float cov = penumbra(gate_sdf(sg, P), P[P_PENUMBRA]);
+         if (cov > 0.0f) {
+             const float px = P[P_PX];
+             float fx, fy;
+@@ -161,10 +166,10 @@
+         // Gate flare: the gate's bevelled edge reflects scene light onto the
+         // film just outside the frame -- a thin line that follows the scene's
+         // brightness along the edge (bright sky, bright line).
+-        const float d_gate = gate_sdf(st, P);
++        const float d_gate = gate_sdf(sg, P);
+         if (P[P_FLARE_AMP] > 0.0f && d_gate > -0.02f && d_gate < 6.0f * P[P_FLARE_WIDTH]) {
+             const float px = P[P_PX];
+-            const float in_s = clamp(st.x, P[P_GS0] + 0.12f, P[P_GS0] + P[P_GW] - 0.12f);
++            const float in_s = clamp(sg.x, P[P_GS0] + 0.12f, P[P_GS0] + P[P_GW] - 0.12f) + shift;
+             const float in_t = clamp(st.y, P[P_GT0] + 0.12f, P[P_GT0] + P[P_GH] - 0.12f);
+             float fx, fy;
+             if (P[P_VERTICAL] < 0.5f) { fx = (in_s - P[P_GS0]) / px - 0.5f; fy = (in_t - P[P_GT0]) / px - 0.5f; }
