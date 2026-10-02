@@ -1763,6 +1763,9 @@ Params medium_probe_params(const Params& session) {
     p.film_render.grain.active = false;
     p.film_render.grain.sublayers_active = false;
     p.film_render.halation.active = false;
+    // The ramp is the medium, not a frame of film: no rebate, no date.
+    p.film_render.overscan.active = false;
+    p.film_render.date_imprint.active = false;
     p.print_render.glare.active = false;
     p.print_render.contrast_mask.active = false;
     p.print_render.edr_enabled = false;
