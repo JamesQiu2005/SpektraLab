@@ -107,3 +107,18 @@ The owner answered the sheet (build order (b): the sync first). Done and pushed:
 Back; whether cine stocks belong in the 135 formats (they are allowed now).
 
 **Next:** the half-frame pair without Film Edge (HFP P1–P4, Swift only), which needs none of the above.
+
+### Fixes after the bug hunt (2026-10-03)
+
+| commit | what |
+|---|---|
+| `17f48ed` | engine: a film canvas reprints (the live tier after the full one, after a print-layer rebuild, and the DI export). **Written on desktop; it must cross to mobile at the next sync,** with `7be561b` |
+| `7a45fae` | the date alone follows the crop, the turn and the flip: the frame is cut before the engine |
+| `0545ffa` | the data face needs a film edge, and the section says so |
+| `544606a` | the canvas decodes the print it shows, not the one asked for |
+
+**Open from the hunt:**
+- With the date on over a cropped picture the engine meters the crop, so auto exposure can shift when
+  the date goes on. Holding the whole frame's reading needs a meter input in the engine.
+- A very long edge text overprints itself; the date at size 3 with a small inset runs off the frame; the
+  engine accepts a frame that is not the gate's shape (the app always holds the crop).
