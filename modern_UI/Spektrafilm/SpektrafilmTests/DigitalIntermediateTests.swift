@@ -188,6 +188,59 @@ final class DigitalIntermediateTests: XCTestCase {
 
     /// A black patch then grey at -6…+6 stops over 0.184, through `film` as a
     /// DI with grain and metering off; the Cineon codes (0…1) of each patch.
+    /// The canvas reads a print through the DI view when **that print** is a
+    /// Digital Intermediate — not when the settings say the next one will be.
+    /// The settings move first: until the new print lands (and for good, if
+    /// it fails) the paper print on the canvas was decoded as Cineon codes,
+    /// and a DI still on the canvas after choosing a paper was shown as the
+    /// codes themselves.
+    @MainActor
+    func testTheCanvasDecodesThePrintItShowsNotTheOneAskedFor() async throws {
+        let source = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent().deletingLastPathComponent()
+            .deletingLastPathComponent().deletingLastPathComponent()
+            .appending(path: "tests/Test_image/_smoke_1mp.tif")
+        try XCTSkipUnless(FileManager.default.fileExists(atPath: source.path), "the smoke frame is not in this checkout")
+        let dir = FileManager.default.temporaryDirectory.appending(path: "spk-di-canvas-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        addTeardownBlock { try? FileManager.default.removeItem(at: dir) }
+        let url = dir.appending(path: source.lastPathComponent)
+        try FileManager.default.copyItem(at: source, to: url)
+
+        func wait(_ what: String, _ condition: @MainActor () -> Bool) async throws {
+            let deadline = Date().addingTimeInterval(120)
+            while Date() < deadline { if condition() { return }; try await Task.sleep(for: .milliseconds(20)) }
+            XCTFail("timed out waiting for \(what)")
+        }
+        let session = Session()
+        session.open(urls: [url])
+        try await wait("the decode") { session.decoded != nil }
+        session.requestPrint()
+        try await wait("the print") { session.frameStates[url] == .processed && !session.busy }
+        func decodes() throws -> Bool {
+            let shown = try XCTUnwrap(session.renderer.base)
+            return try XCTUnwrap(session.renderer.layer2DecodesCineon)(shown)
+        }
+        XCTAssertFalse(try decodes(), "a paper print")
+
+        let paper = session.renderer.live
+        var p = session.params
+        p.digitalIntermediate = true
+        session.params = p
+        XCTAssertTrue(session.renderer.live === paper, "the DI has not landed yet, so this case proves something")
+        XCTAssertFalse(try decodes(), "the paper print is still on the canvas")
+        try await wait("the DI") { session.renderer.live !== paper && !session.busy }
+        XCTAssertTrue(try decodes(), "the DI is on the canvas")
+
+        let di = session.renderer.live
+        p.digitalIntermediate = false
+        session.params = p
+        XCTAssertTrue(session.renderer.live === di)
+        XCTAssertTrue(try decodes(), "the DI is still on the canvas")
+        try await wait("the paper print") { session.renderer.live !== di && !session.busy }
+        XCTAssertFalse(try decodes(), "a paper print again")
+    }
+
     private func diWedge(film: String) async throws -> (stops: [Int], codes: [[Double]]) {
         let gpu = try XCTUnwrap(MTLCreateSystemDefaultDevice())
         let stops = Array(-6...6)          // plus a black patch in front

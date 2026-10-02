@@ -810,6 +810,9 @@ final class Session: CanvasHost {
     var log: Log { diagnostics.log }
     let catalog = StockCatalog.shared
     private var serviceSessionID: String?
+    /// What `isDigitalIntermediate` last answered for a print of the frame on
+    /// the canvas, by texture; weak, so it holds nothing alive.
+    private let knownPrints = NSMapTable<AnyObject, NSNumber>.weakToStrongObjects()
     /// The film-edge framing the engine's frame was cut with (`framingKey`),
     /// or nil for the whole decode. Compared with `wantedEngineFraming` on
     /// every request: a different cut is a different frame (`requestPrint`).
@@ -964,7 +967,9 @@ final class Session: CanvasHost {
         // canvas, Post-Dev and every rendered export read them through the DI
         // view (`CineonLUT`); only the Digital Intermediate export writes the
         // codes themselves.
-        renderer.layer2DecodesCineon = { [weak self] in self?.digitalIntermediateActive ?? false }
+        renderer.layer2DecodesCineon = { [weak self] texture in
+            self?.isDigitalIntermediate(texture) ?? false
+        }
         renderer.layer2 = sidecar.adjustments.uniforms
         Session.removeLegacyLinearCache()
         if let cache {
@@ -2688,6 +2693,42 @@ final class Session: CanvasHost {
     /// RFC-028: whether this frame renders as a Digital Intermediate.
     var digitalIntermediateActive: Bool {
         params.digitalIntermediateActive(filmIsPositive: filmIsPositive)
+    }
+
+    /// Whether `texture` holds Cineon codes: a question about the print it
+    /// is, not about the settings. The settings move before a print does and
+    /// stay moved if the print fails, and the canvas goes on showing the one
+    /// it has — so a print of this frame answers from the parameters it was
+    /// made with (its stamp in the store), the decode and a paper preview are
+    /// never a DI, and anything else is a render just made from the settings
+    /// (an export's own).
+    func isDigitalIntermediate(_ texture: MTLTexture) -> Bool {
+        if let url = selection {
+            let stamp: String?
+            if let full = renderer.store.fullEntry(for: url), full.texture === texture { stamp = full.stamp }
+            else if let print = renderer.store.printEntry(for: url), print.texture === texture { stamp = print.stamp }
+            else { stamp = nil }
+            if let stamp {
+                let answer = Self.stampIsDigitalIntermediate(stamp, catalog: catalog)
+                knownPrints.setObject(NSNumber(value: answer), forKey: texture)
+                return answer
+            }
+        }
+        // A print the store has let go of while the canvas still shows it.
+        if let known = knownPrints.object(forKey: texture) { return known.boolValue }
+        if texture === renderer.live || texture === renderer.fullRender { return false }
+        return digitalIntermediateActive
+    }
+
+    /// `FilmParams.digitalIntermediateActive`, read back off a print's stamp.
+    nonisolated static func stampIsDigitalIntermediate(_ stamp: String, catalog: StockCatalog) -> Bool {
+        var fields: [Substring: Substring] = [:]
+        for field in stamp.split(separator: ";") {
+            guard let eq = field.firstIndex(of: "=") else { continue }
+            fields[field[..<eq]] = field[field.index(after: eq)...]
+        }
+        guard fields["digital_intermediate"] == "true", fields["scan_film"] != "true" else { return false }
+        return !(catalog.stock(String(fields["film_stock"] ?? ""))?.isPositive ?? false)
     }
 
     /// Choose the Digital Intermediate in the print list. Like "No Print

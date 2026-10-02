@@ -356,11 +356,11 @@ final class Renderer: NSObject {
     /// and what `logicalSize(forSource:)` turns into the viewport's units.
     private(set) var sourceSize: CGSize?
     var layer2 = Layer2Uniforms() { didSet { layer2Dirty = true } }
-    /// RFC-028: asked at encode time, so it follows the frame the texture is
-    /// of. True for a Digital Intermediate, whose pixels are Cineon codes: the
-    /// layer reads them through the DI view (`CineonLUT`) first, and Post-Dev
-    /// then works in ProPhoto exactly as it does on a print.
-    var layer2DecodesCineon: (() -> Bool)?
+    /// RFC-028: asked at encode time, of the texture being encoded. True for
+    /// a Digital Intermediate, whose pixels are Cineon codes: the layer reads
+    /// them through the DI view (`CineonLUT`) first, and Post-Dev then works
+    /// in ProPhoto exactly as it does on a print.
+    var layer2DecodesCineon: ((MTLTexture) -> Bool)?
     /// Set only inside `applyCineonView`, which decodes whatever the frame is.
     private var forceCineonDecode = false
     /// The DI view, the shipped ProPhoto `.cube`, loaded once.
@@ -572,7 +572,7 @@ final class Renderer: NSObject {
         enc.setTexture(dst, index: 1)
         enc.setTexture(curveTable, index: 2)
         enc.setTexture(maskRasters ?? emptyRasterArray, index: 3)
-        let decode = forceCineonDecode || (layer2DecodesCineon?() ?? false)
+        let decode = forceCineonDecode || (layer2DecodesCineon?(src) ?? false)
         var u = layer2
         u.inputDecode = decode ? 1 : 0
         enc.setTexture(cineonTable, index: 4)
