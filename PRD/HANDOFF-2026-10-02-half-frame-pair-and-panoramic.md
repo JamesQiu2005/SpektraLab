@@ -84,3 +84,26 @@ machine.
    under the hole, export.
 3. **Then the desktop overscan sync** (A5 scope). Then E1/E2 in the engine (where A3 says), P5 (Film Edge
    pairs), and panoramic per part C.
+
+## 6. State after 2026-10-03
+
+The owner answered the sheet (build order (b): the sync first). Done and pushed:
+
+| commit | what |
+|---|---|
+| `7ce3334` | the engine sync from `SpektraLab_mobile` `371ad16`, by hunks; `overscan_checks.py` 34/34, the parity harnesses, 18 off-path renders byte-identical, all 20 stocks' rebates without NaN |
+| `7be561b` | the latitude probe switches overscan and the date off. **Written on desktop; it must cross to mobile at the next sync** |
+| `68d249a` | the app: Film Edge and Date Back in the left rail, en and zh-Hans; 503 tests green |
+
+**Waiting on engine work, which is written in the mobile repo first (answer A3):**
+- `spk_overscan_geometry`. Until it exists, compare, the original and the white-balance picker are off on
+  a film canvas, and the histogram counts the rebate.
+- `overscan_turn`, holes as a print-layer field, the carrier enum, the data face's two colours (E12).
+- The panoramic formats (the menu draws them disabled) and the canvas-trim fix (C2).
+- Perforations in a Digital Intermediate: `spk_overscan_light` has no DI counterpart.
+- The Frame / + Overscan scope for a single frame (B4), then the pair's E1 and E2.
+
+**Still open with the owner:** B17 (turned pairs); E3's "No"; the clipboard group for Film Edge and Date
+Back; whether cine stocks belong in the 135 formats (they are allowed now).
+
+**Next:** the half-frame pair without Film Edge (HFP P1–P4, Swift only), which needs none of the above.
