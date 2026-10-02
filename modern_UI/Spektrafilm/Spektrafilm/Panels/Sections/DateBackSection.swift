@@ -28,7 +28,10 @@ struct DateBackSection: View {
     /// on, Film Format's otherwise. Nil when Film Format is no camera that
     /// ever carried one.
     private var camera: FilmEdgeFormat? { session.dateBackCamera }
-    private func draws(_ face: DateBackFace) -> Bool { camera?.draws(face) ?? false }
+    /// A face the camera carries and that has somewhere to print: the data
+    /// face goes between frames or in the margin, so it needs the film edge.
+    private func draws(_ face: DateBackFace) -> Bool { date.prints(face, filmEdge: edge) }
+    private func onCamera(_ face: DateBackFace) -> Bool { camera?.draws(face) ?? false }
     private var cameraHasBack: Bool { DateBackFace.allCases.contains(where: draws) }
 
     var body: some View {
@@ -41,7 +44,14 @@ struct DateBackSection: View {
             RailRows {
                 PillSwitchRow(label: L(.dateFace), options: DateBackFace.allCases,
                               selection: bind(\.face), title: { $0.key.map { L($0) } ?? "LCD" },
-                              enabled: { draws($0) }, reason: { _ in noFaceReason })
+                              enabled: { draws($0) }, reason: { faceReason($0) })
+                if !draws(date.face) {
+                    Text(faceReason(date.face))
+                        .font(Theme.Font.sublabel).foregroundStyle(Theme.Ink.tertiary)
+                        .fixedSize(horizontal: false, vertical: true)
+                        .padding(.leading, Theme.Metric.sliderLabelWidth)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                }
                 textRow
                 if date.face != .data {
                     PillSwitchRow(label: L(.dateWhere), options: DateBackPlacement.allCases,
@@ -184,9 +194,20 @@ struct DateBackSection: View {
             return L("Film Format is no camera with a date back: 135, half frame or 645 has one.",
                      zh: "当前胶片画幅的相机没有日期后背：135、半格和 645 才有。")
         }
+        // The camera has a back, but its only face prints on the film edge.
+        if DateBackFace.allCases.contains(where: onCamera) { return dataNeedsFilmEdge }
         return camera.group == .panoramic
             ? L("No date back on the panoramic formats.", zh: "宽幅画幅没有日期后背。")
             : L("No \(camera.title) camera printed a date.", zh: "\(camera.title) 相机没有日期后背。")
+    }
+
+    private var dataNeedsFilmEdge: String {
+        L("Data prints beside the frame, on the film edge: it needs Film Edge.",
+          zh: "数据印在画面旁的片边上，需要开启片边。")
+    }
+
+    private func faceReason(_ face: DateBackFace) -> String {
+        onCamera(face) ? dataNeedsFilmEdge : noFaceReason
     }
 
     private var noFaceReason: String {

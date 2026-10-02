@@ -299,11 +299,19 @@ struct DateBackSettings: Codable, Equatable, Sendable {
         return face == .data && format == .f135Half ? min(s, Self.halfFrameDataSizeMax) : s
     }
 
-    /// True when the engine draws a date: the switch, a face this format
-    /// carries, and — between frames — a film edge to print it on.
+    /// Whether `face` has somewhere to print: a face the camera carries, and
+    /// for the data face a film edge, because it goes between frames (135) or
+    /// in the margin (645) and neither exists on the bare picture.
+    func prints(_ face: DateBackFace, filmEdge: FilmEdgeSettings) -> Bool {
+        guard let camera = cameraFormat(filmEdge: filmEdge), camera.draws(face) else { return false }
+        return face == .data ? filmEdge.effective : true
+    }
+
+    /// True when the engine draws a date: the switch, a face with somewhere
+    /// to print, and — between frames — a film edge to print it on.
     func effective(filmEdge: FilmEdgeSettings) -> Bool {
-        guard active, let camera = cameraFormat(filmEdge: filmEdge), camera.draws(face) else { return false }
-        return face == .data ? true : (placement == .frame || filmEdge.effective)
+        guard active, prints(face, filmEdge: filmEdge) else { return false }
+        return face == .data || placement == .frame || filmEdge.effective
     }
 
     /// The camera that prints: the film edge's format while it is on, the

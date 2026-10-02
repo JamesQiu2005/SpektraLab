@@ -267,4 +267,28 @@ final class FilmEdgeTests: XCTestCase {
         XCTAssertGreaterThan(moved, 200, "the date is a visible mark, not a rounding")
         XCTAssertEqual(movedOutside, 0, "the date is in the lower-right corner only")
     }
+    /// The data face prints between frames (135) or in the margin (645), and
+    /// both are film outside the picture: without a film edge the engine
+    /// draws nothing (measured: 0 pixels on 135, half frame and 645), so the
+    /// date back is not on, and the wire says so.
+    func testTheDataFaceNeedsAFilmEdge() {
+        var p = FilmParams()
+        p.dateBack.active = true
+        p.dateBack.face = .data
+        p.dateBack.text = "1/250 F5.6"
+        XCTAssertFalse(p.dateBack.effective(filmEdge: p.filmEdge), "no film edge, nowhere to print")
+        XCTAssertEqual(p.fullDelta["date_imprint_active"], .bool(false))
+        XCTAssertFalse(p.dateBack.prints(.data, filmEdge: p.filmEdge))
+        XCTAssertTrue(p.dateBack.prints(.lcd, filmEdge: p.filmEdge), "a date in the frame needs none")
+
+        p.filmEdge.active = true
+        XCTAssertTrue(p.dateBack.effective(filmEdge: p.filmEdge))
+        XCTAssertEqual(p.fullDelta["date_imprint_active"], .bool(true))
+        XCTAssertEqual(p.fullDelta["date_imprint_style"], .string("data"))
+
+        p.filmEdge.format = .f645
+        XCTAssertTrue(p.dateBack.prints(.data, filmEdge: p.filmEdge))
+        XCTAssertFalse(p.dateBack.prints(.lcd, filmEdge: p.filmEdge), "a 645 back has the data face only")
+    }
+
 }
