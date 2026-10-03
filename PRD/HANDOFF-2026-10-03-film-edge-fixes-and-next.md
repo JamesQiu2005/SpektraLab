@@ -129,6 +129,18 @@ frame's place in the session at first seeding. Kodak 120's counting-edge numbers
 §13 needs the field added (not edited). Still open: the 135 name can land across the frame edge in some
 camera phases while all five strips have it inside; and the mobile sync of all of the above.
 
+**Evening:** `4a9ea54` a properly behaved camera -- the 135 phase is pinned so the edge print falls
+inside the frame (Kodak and X-Tra: "NA" mid, "N" at the right end, name 6 mm in; the slides: "N" at the
+left end; Velvia's strip was loaded half a frame off and is not followed). `004b5d7` API-SPEC §13 is
+kept and owned by whoever changes the wire (the "belongs to nobody" rule is gone), and carries today's
+changes. **Mobile sync:** branch `sync/film-edge-2026-10-03` (34e54d6) on `SpektraLab_mobile`, a
+three-way merge against the 7ce3334 sync point onto mobile `52e5967` -- not merged to mobile `main`
+because the mobile checkout at `SpektraLab_mobile/` holds an unfinished merge (`UU pipeline.cpp`, 19
+staged files: DI, printing, hanatos) that is someone else's. The branch builds, `overscan_checks` 63/63,
+`mobile_checks` 0 failures (it now sends gate-shaped frames), `parity_schema` green; not run on a device.
+Not taken on mobile: the vImage blur (mobile's softness is on the GPU, `c715d5c`) and the halation switch
+`9fa3b0d`. Mobile `API-SPEC.md` §15 still needs §13's text. The worktree is `SpektraLab_mobile-sync/`.
+
 ## 6. Waiting on the mobile-first engine work (answer A3)
 
 `spk_overscan_geometry`; `overscan_turn`; holes as a print-layer field; the carrier enum; the data face's
