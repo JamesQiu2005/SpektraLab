@@ -1,8 +1,8 @@
 # Windows feature coverage
 
 Verified on 2026-10-03 with MinGW GCC 15.2 / Vulkan / RTX 5070 Ti.
-The current `build-windows-migration` backend has 34 registered kernels,
-including two diagnostic probes, and passes CTest 10/10.
+The current `build-windows-raw-headroom` backend has 34 registered kernels,
+including two diagnostic probes, and passes CTest 14/14.
 This is a record of exercised paths, not a claim that every public API or
 stock combination is complete. Shared baked profile/resource files are unchanged.
 Whole-image Python/Metal parity remains unverified: the matching external
@@ -27,14 +27,18 @@ reference is still unavailable.
 | Result ownership | `spk_result_free` / C ABI | DLL C++ fixture tests results after session/engine destruction; matrix copies result before freeing and validates dimensions before reading |
 | Device-local compute and explicit transfers | `Gpu::copy/read`, upload/fill/staging readback | Transfer CTest, six-case RAW matrix, CPU result ownership preserved. Phase-1 full-frame old/new equality remains historical evidence of the transfer change; current corrected FIR output uses a new baseline |
 | Existing striped execution | Offset device copies, FIR halo handling and corrected boundary mapping | 35 deterministic parameter/strip-size combinations pass whole/striped/reprint byte equality; full 4688×7028 ARW with 509-row strips and cached reprint also equals the corrected whole frame. These exact comparisons disable grain, glare and AE; other stochastic strip combinations remain unverified |
-| RAW input | External `rawpy_to_f32.py` then `spk_open` | Real ARW AHD demosaic, camera WB, orientation, black/white scaling, linear ProPhoto; this is a Python test bridge, not native C++ RAW support |
+| Native RAW input | `spk_raw_render`, LibRaw 0.22.2, `spk_open` | Full Sony ARW decoded float is byte-identical to existing rawpy 0.22.1 fixture; camera WB, black/white, orientation, requested AHD, clipped 16-bit linear ProPhoto compatibility mode. No Python runtime; other camera formats need positive fixtures |
+| Opt-in RAW headroom | `decode_raw_headroom`, max-normalised WB, float ProPhoto conversion | Full ARW camera-RGB/NumPy float64 oracle max error 2.31e-7; separately decoded ProPhoto16 differs by at most 1 count after rescaling/quantisation. Output range -0.0132823 to 2.1982729. Still uint16 demosaic; sensor/black-level clipping is not recovered; narrow Bayer-only experimental mode |
+| Nikon Z8 HE* NEF | LibRaw metadata + explicit unsupported-format rejection | Supplied 5408x3608 14-bit sample is compression code 14, decoder nikon_he_load_raw. Six tests cover original/Unicode paths and default/explicit modes, with unchanged source and no partial outputs. No Nikon render or speed result is claimed; ordinary lossless NEF still needs a positive fixture |
+| Native sRGB TIFF export | Host `image_writer`, fixed ICC resource | RGB16 pixels match direct C ABI output; independent tags/strip/ICC checks, Unicode filenames, no-overwrite and rollback tests. EDR, other colour spaces, DI file packaging and EXIF copying are pending |
 | Crop / arbitrary rotation / flips | `spk_geometry_resample_df` | 192 direct GPU cases against independent float64 mapping and exact integer rotations/flips, max error `8.16198319e-7`; full RAW turn/flip equals explicit input transforms. Arbitrary crop/rotation C ABI dimensions, invalidation and cached reprint pass |
 | Stock-LUT preview | `spk_lut3d_trilinear` | LUT/DI direct gate: 96 cases, max error `6.96505159e-7`. Eight baked stock tables are byte-identical through the C ABI; all stock synthetic preview calls pass, full RAW Portra Endura passes. Output is encoded Display P3 per catalog, independent of the ordinary render's sRGB setting |
 | DI delivery | `spk_di_normalise` | Direct numerical gate and eight-stock synthetic C ABI calls pass; full RAW Portra Endura passes. RGBA16 holds normalized negative density, not display RGB. This does not implement a TIFF writer or complete native image export |
 | Windows display and native GPU image | Platform output/display layer | CPU RGBA16 ownership handle only; no drawable `VkImage` or Windows UI |
 
 CTest covers core schema/setup, Vulkan smoke, grain, pointwise, resample,
-transfers, geometry, LUT/DI and the DLL C ABI (10/10). Grain gates use exact Philox integers and independent
+transfers, geometry, LUT/DI, the DLL C ABI, TIFF, RAW decode errors, metadata-only
+LibRaw linkage and headroom mathematics (14/14). Grain gates use exact Philox integers and independent
 distribution moments; they do not assert Metal seeded Poisson draw equality.
 The isolated negative controls demonstrate failures for Gaussian substitution,
 rounded long-axis coordinates, wrong arithmetic and overwritten tail guards.
@@ -52,7 +56,7 @@ retain the full rendered size. PNG files have an sRGB chunk and are 8-bit,
 at most 1280 pixels per edge; they are display previews, not grain or parity
 evidence.
 
-RAW bridge limitation: rawpy's 16-bit ProPhoto output clips/quantises RGB.
+RAW compatibility limitation: both rawpy and native 16-bit ProPhoto output clip/quantise RGB.
 Normalisation preserves only [0, 1], not negative values or highlights above
 one. Decoder provenance records this separately from engine validation.
 Core Image versus LibRaw decoding has not been compared.
@@ -88,6 +92,9 @@ Compute memory is device-local; upload/readback staging remains on the host and
 is recorded separately from the existing engine allocation ledger. Neither
 ledger is a measurement of physical VRAM peak.
 
+Initial native RAW and sRGB TIFF evidence is in `../validation/native-raw-phase3/`;
+current compatibility/headroom and Nikon HE* rejection evidence is in
+`../validation/raw-headroom-phase4/`.
 Remaining migration work includes external Metal/Python image comparisons,
-native C++ RAW decoding with an explicit headroom policy, untested parameter
-combinations, Windows display/native GPU images and file export.
+RAW headroom/negative-value policy and camera coverage, untested parameter
+combinations, Windows display/native GPU images and other export formats.

@@ -49,6 +49,7 @@ if(BUILD_TESTING)
 endif()
 
 if(WIN32)
+    option(SPEKTRALAB_BUILD_NATIVE_RAW "Build the native RAW-to-TIFF host" OFF)
     option(SPEKTRALAB_REQUIRE_VULKAN "Fail configuration when the Vulkan toolchain is missing" OFF)
     option(SPEKTRALAB_BUILD_TEST_DLL "Build the C ABI DLL used by parity tests" ${BUILD_TESTING})
     # Accept an installed Vulkan SDK, or explicit paths for a local toolchain.
@@ -107,6 +108,37 @@ if(WIN32)
         target_link_libraries(spektralab_engine PUBLIC
             spektralab_core "${SPEKTRALAB_VULKAN_LIBRARY}")
         add_dependencies(spektralab_engine spektralab_vulkan_resources)
+
+        if(SPEKTRALAB_BUILD_NATIVE_RAW)
+            include(cmake/LibRaw.cmake)
+            add_library(spk_image_io STATIC src/io/raw_decoder.cpp src/io/raw_headroom.cpp src/io/image_writer.cpp)
+            target_compile_features(spk_image_io PUBLIC cxx_std_20)
+            target_include_directories(spk_image_io PUBLIC "${CMAKE_CURRENT_SOURCE_DIR}/src")
+            target_link_libraries(spk_image_io PRIVATE spk_libraw)
+            add_executable(spk_raw_render tools/raw_render.cpp)
+            target_include_directories(spk_raw_render PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/include")
+            target_link_libraries(spk_raw_render PRIVATE spk_image_io spektralab_engine)
+            if(MINGW)
+                target_link_options(spk_raw_render PRIVATE -municode)
+            endif()
+            if(BUILD_TESTING)
+                add_executable(spk_image_writer_test tests/image_writer_test.cpp)
+                target_link_libraries(spk_image_writer_test PRIVATE spk_image_io)
+                add_test(NAME spk_image_writer COMMAND spk_image_writer_test
+                    "${CMAKE_CURRENT_SOURCE_DIR}/resources/io/sRGB.icc"
+                    "${CMAKE_CURRENT_BINARY_DIR}/writer-test")
+                add_executable(spk_raw_decoder_errors tests/raw_decoder_errors.cpp)
+                target_link_libraries(spk_raw_decoder_errors PRIVATE spk_image_io)
+                add_test(NAME spk_raw_decoder_errors COMMAND spk_raw_decoder_errors
+                    "${CMAKE_CURRENT_BINARY_DIR}/raw-errors")
+                add_executable(spk_raw_metadata_link tests/raw_metadata_link.cpp)
+                target_link_libraries(spk_raw_metadata_link PRIVATE spk_libraw)
+                add_test(NAME spk_raw_metadata_link COMMAND spk_raw_metadata_link)
+                add_executable(spk_raw_headroom tests/raw_headroom.cpp)
+                target_link_libraries(spk_raw_headroom PRIVATE spk_image_io)
+                add_test(NAME spk_raw_headroom COMMAND spk_raw_headroom)
+            endif()
+        endif()
 
         if(SPEKTRALAB_BUILD_TEST_DLL)
             # Compile the same pipeline/core as the static engine. Export only

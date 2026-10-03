@@ -10,6 +10,11 @@ The 2026-10-03 resumed migration also covers geometry, stock-LUT preview and
 normalized-density DI delivery, and corrects a FIR boundary error.
 The macOS `build.sh` and Xcode build are unchanged.
 
+The current native host also opens RAW files and writes profiled RGB16 TIFF
+without Python. See [WINDOWS_NATIVE_RAW.md](WINDOWS_NATIVE_RAW.md) for the
+decode/export contract, supported paths, commands and remaining limitations.
+This preserves the pixel-only C API and the current film/print pipeline.
+
 ## Build
 
 Use a C++20 compiler, CMake 3.20+, and the Vulkan SDK (headers, loader import
@@ -24,10 +29,18 @@ verified.
 For the current workspace, the repeatable MinGW build and test entry is:
 
 ```powershell
-& .\engine\build-windows.ps1 -BuildDirectory ..\build-windows-migration -Fresh
+& .\engine\setup-libraw.ps1
+& .\engine\build-windows.ps1 -Fresh
 ```
 
-The default build directory is now `../build-windows-migration`.
+The default build directory is now `../build-windows-raw-headroom`, with native
+RAW enabled. Use `-NativeRaw:$false` for the pixel-only build. LibRaw source can
+be supplied with `-LibRawSourceDirectory`; CMake alone keeps this optional via
+`SPEKTRALAB_BUILD_NATIVE_RAW` and `SPEKTRALAB_LIBRAW_SOURCE`.
+The default decode policy remains `compatible16`; `--decode-mode headroom`
+enables the separately tested float RGB conversion after uint16 demosaicing.
+`../build-windows-native-raw` preserves the first native RAW/TIFF stage;
+`../build-windows-migration` preserves the corrected FIR/geometry/LUT/DI stage.
 `../build-windows-performance` preserves the completed performance stage;
 `../build-windows-validation` preserves the pre-optimization baseline.
 The script accepts explicit CMake, CTest, compiler, make, Vulkan and glslang
@@ -150,7 +163,9 @@ diagnosed and corrected this discrepancy; it is no longer an unresolved gate.
 
 ## Resumed migration and corrected FIR boundaries (current phase 2, 2026-10-03)
 
-`build-windows-migration` is the current 34-kernel build and passes CTest 10/10.
+`build-windows-migration` is the preserved 34-kernel phase-2 build and passes CTest 10/10.
+The current headroom build also tests TIFF, both decode-error paths, metadata-only
+LibRaw linkage and headroom mathematics (CTest 14/14).
 Its new geometry gate covers 192 cases against independent float64 spatial
 mapping and exact integer rotations/flips (maximum absolute error
 `8.16198319e-7`). The LUT/DI gate covers 96 cases (maximum absolute error

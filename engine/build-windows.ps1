@@ -9,6 +9,8 @@ param(
     [string]$VulkanIncludeDirectory,
     [string]$VulkanLibrary,
     [string]$GlslangExecutable,
+    [string]$LibRawSourceDirectory,
+    [switch]$NativeRaw = $true,
     [switch]$Fresh,
     [ValidateRange(1, 64)][int]$Jobs = 4
 )
@@ -90,6 +92,14 @@ try {
         "-DSPEKTRALAB_VULKAN_INCLUDE_DIR=$($VulkanIncludeDirectory.Replace('\', '/'))",
         "-DSPEKTRALAB_VULKAN_LIBRARY=$($VulkanLibrary.Replace('\', '/'))", "-DSPEKTRALAB_GLSLANG=$($GlslangExecutable.Replace('\', '/'))")
     if ($Fresh) { $configureArguments = @('--fresh') + $configureArguments }
+    if ($NativeRaw) {
+        if (-not $LibRawSourceDirectory) { $LibRawSourceDirectory = Join-Path $dependencyDirectory 'LibRaw-0.22.2' }
+        if (-not (Test-Path -LiteralPath (Join-Path $LibRawSourceDirectory 'libraw\libraw.h'))) {
+            throw 'LibRaw is missing; run engine/setup-libraw.ps1 first.'
+        }
+        $LibRawSourceDirectory = (Resolve-Path -LiteralPath $LibRawSourceDirectory).Path
+        $configureArguments += @('-DSPEKTRALAB_BUILD_NATIVE_RAW=ON', "-DSPEKTRALAB_LIBRAW_SOURCE=$($LibRawSourceDirectory.Replace('\', '/'))")
+    } else { $configureArguments += '-DSPEKTRALAB_BUILD_NATIVE_RAW=OFF' }
     & $CMakeExecutable @configureArguments 2>&1 | Tee-Object -FilePath (Join-Path $BuildDirectory 'configure.log')
     if ($LASTEXITCODE -ne 0) { throw "CMake configuration failed ($LASTEXITCODE)." }
     & $CMakeExecutable --build $BuildDirectory --parallel $Jobs 2>&1 | Tee-Object -FilePath (Join-Path $BuildDirectory 'build.log')
@@ -109,9 +119,9 @@ try {
     & $CTestExecutable --test-dir $BuildDirectory --output-on-failure 2>&1 | Tee-Object -FilePath (Join-Path $BuildDirectory 'ctest.log')
     if ($LASTEXITCODE -ne 0) { throw "CTest failed ($LASTEXITCODE)." }
 
-    $sourceFiles = @('CMakeLists.txt', 'engine\CMakeLists.txt', 'engine\windows_exports.def', 'engine\build-windows.ps1') |
+    $sourceFiles = @('CMakeLists.txt', 'engine\CMakeLists.txt', 'engine\windows_exports.def', 'engine\build-windows.ps1', 'engine\setup-libraw.ps1') |
         ForEach-Object { Get-Item -LiteralPath (Join-Path $sourceDirectory $_) }
-    foreach ($subdirectory in @('engine\src', 'engine\include', 'engine\resources', 'engine\tests', 'engine\tools')) {
+    foreach ($subdirectory in @('engine\src', 'engine\include', 'engine\resources', 'engine\tests', 'engine\tools', 'engine\cmake')) {
         $sourceFiles += Get-ChildItem -LiteralPath (Join-Path $sourceDirectory $subdirectory) -File -Recurse |
             Where-Object { $_.FullName -notmatch '[\\/]__pycache__[\\/]' -and $_.Extension -ne '.pyc' }
     }
@@ -141,6 +151,12 @@ try {
         dll = (Join-Path $BuildDirectory 'engine\spektrafilm_engine.dll')
         dll_sha256 = (Get-FileHash -LiteralPath (Join-Path $BuildDirectory 'engine\spektrafilm_engine.dll') -Algorithm SHA256).Hash.ToLowerInvariant()
         ctest_passed = $true
+        native_raw = [bool]$NativeRaw
+        native_raw_executable_sha256 = $(if ($NativeRaw) { (Get-FileHash -LiteralPath (Join-Path $BuildDirectory 'engine\spk_raw_render.exe') -Algorithm SHA256).Hash.ToLowerInvariant() } else { $null })
+        libraw_source_directory = $LibRawSourceDirectory
+        libraw_source_files = @($(if ($NativeRaw) { Get-ChildItem -LiteralPath $LibRawSourceDirectory -File -Recurse | Sort-Object FullName | ForEach-Object {
+            [ordered]@{ path = $_.FullName.Substring($LibRawSourceDirectory.Length + 1).Replace('\', '/'); sha256 = (Get-FileHash -LiteralPath $_.FullName -Algorithm SHA256).Hash.ToLowerInvariant() }
+        } }))
         mingw_runtime = $runtimeManifest
         source_files = @($sourceManifest)
         spirv = @($shaderManifest)
