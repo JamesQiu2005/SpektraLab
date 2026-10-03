@@ -2,7 +2,7 @@
 
 The Windows port uses the existing C++20 film/print pipeline with a Vulkan
 compute backend. It includes a native RAW-to-TIFF command-line host and a
-minimal Win32 viewer. Neither executable requires Python at runtime. The
+minimal Win32 viewer, plus a Qt Quick editor. These executables do not require Python at runtime. The
 macOS `build.sh`, Metal implementation and Xcode frontend retain their own
 build paths.
 
@@ -14,6 +14,7 @@ Python film-model reference.
 
 - [Native RAW and TIFF contracts](WINDOWS_NATIVE_RAW.md)
 - [Minimal Win32 viewer](WINDOWS_DESKTOP.md)
+- [Qt Quick editor and its separate build](../windows_UI/README.md)
 - [Implemented and tested feature coverage](WINDOWS_FEATURE_COVERAGE.md)
 
 ## Requirements and build

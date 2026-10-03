@@ -37,6 +37,7 @@ parity remains unverified.
 | Nikon HE/HE* | Explicit rejection by bundled decoder | Tested Z8 HE* metadata and clean rejection in both modes/Unicode paths; no positive Nikon decode or timing claim |
 | Native TIFF | Uncompressed RGB16 with pinned sRGB ICC | Independent tags, strips, all samples, ICC, no-overwrite and failure cleanup; no HDR, other TIFF colour spaces or EXIF copying |
 | Minimal Win32 viewer | Serial worker and immutable RGBA16/BGRA8 frames | Full RAW open, film/paper/brightness edits, fit/100% pan, same-frame export and failed-open preservation |
+| Qt Quick editor | Shared native host, three-panel layout and single-photo strip | Full RAW/controller/offscreen scene regression; physical 100% samples, repeated texture updates and failure recovery; live display validation pending |
 | Window drawing | sRGB-labelled bitmap and requested GDI ICM | Offscreen handlers/layout and 1:1 BGR pixel checks; visible gestures, calibrated monitor ICC, HDR and multi-monitor acceptance remain pending |
 | Scene latitude analysis | Existing pipeline and explicit probe readback | Real C ABI analysis test; applying scene latitude mapping remains unsupported |
 | New upstream effects | Explicit Windows capability and request rejection | Cineon DI, scene latitude mapping, contrast mask, film edge and date imprint are refused before session mutation; the old normalised-density DI tap remains available |
@@ -72,7 +73,8 @@ tests are additional acceptance runs, not implied by the default CTest count.
 See [WINDOWS.md](WINDOWS.md) for build, CTest, synthetic fixture and feature
 commands; [WINDOWS_NATIVE_RAW.md](WINDOWS_NATIVE_RAW.md) for camera decode,
 TIFF and timing tools; and [WINDOWS_DESKTOP.md](WINDOWS_DESKTOP.md) for the
-offscreen window test. Camera inputs are supplied by the developer and are
+offscreen window test. The [Qt frontend guide](../windows_UI/README.md) covers
+its independent SDK/build and real-RAW scene test. Camera inputs are supplied by the developer and are
 not bundled. Generated output directories must be fresh.
 
 `tools/windows_render_matrix.py` records input/decoder provenance, resolved
