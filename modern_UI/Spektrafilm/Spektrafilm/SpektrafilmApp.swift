@@ -132,6 +132,11 @@ struct EditorCommands: Commands {
                 .keyboardShortcut("c", modifiers: [.command, .shift]).disabled(!session.canCopySettings)
             Button("Paste Settings") { session.pasteSettings() }
                 .keyboardShortcut("v", modifiers: [.command, .shift]).disabled(!session.canPasteSettings)
+            Divider()
+            Button(L(.selectAllPhotos)) { session.selectAllFrames() }
+                .keyboardShortcut("a", modifiers: .command).disabled(!session.canSelectAllFrames)
+            Button(L(.clipSync)) { session.syncSettings() }
+                .disabled(!session.canSyncSettings)
         }
         CommandMenu("View") {
             // Greyed out in the crop tool, where the view is fitted to the

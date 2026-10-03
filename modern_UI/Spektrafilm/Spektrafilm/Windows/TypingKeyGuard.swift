@@ -16,7 +16,7 @@
 //  that *means something to text* — characters, arrows, delete — the event
 //  goes straight to the text view and the menu never sees it.
 //
-//  Deliberately left to the menu: anything with ⌘ or ⌃ (⌘Z in a field is
+//  Deliberately left to the menu: anything with ⌘ or ⌃ except ⌘A (⌘Z in a field is
 //  still Undo, ⌘E still exports), and Return, Enter, Esc and Tab, which are
 //  how a field is committed, cancelled or left — the default button on the
 //  export page must still answer Return.
@@ -37,12 +37,23 @@ enum TypingKeyGuard {
     @MainActor
     static func route(_ event: NSEvent) -> Bool {
         guard let window = event.window ?? NSApp.keyWindow,
-              let text = window.firstResponder as? NSTextView, text.isEditable,
+              let text = window.firstResponder as? NSTextView, text.isSelectable else { return false }
+        // Select All belongs to text even when the photo command is enabled.
+        if isSelectAll(event) {
+            text.selectAll(nil)
+            return true
+        }
+        guard text.isEditable,
               belongsToText(modifiers: event.modifierFlags,
                             characters: event.charactersIgnoringModifiers)
         else { return false }
         text.keyDown(with: event)
         return true
+    }
+
+    private static func isSelectAll(_ event: NSEvent) -> Bool {
+        let modifiers = event.modifierFlags.intersection([.command, .control, .option, .shift])
+        return modifiers == .command && event.charactersIgnoringModifiers?.lowercased() == "a"
     }
 
     /// The pure decision, separate so it is testable without an event.

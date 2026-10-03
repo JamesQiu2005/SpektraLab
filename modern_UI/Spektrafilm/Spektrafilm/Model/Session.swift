@@ -37,9 +37,9 @@ final class Session: CanvasHost {
 
     /// The picked frames, as a set. `selectedFrames` is the read side.
     ///
-    /// `private(set)` on purpose. Four things move it and nothing else may:
-    /// `click`, which is the person; `open(urls:)`, where a new folder is a
-    /// new set; `remove(_:)`, where a frame that goes takes its membership
+    /// `private(set)` on purpose. Only selection operations may move it:
+    /// `click` and `selectAllFrames`, which are the person; `open(urls:)`,
+    /// where a new folder is a new set; `remove(_:)`, where a frame that goes takes its membership
     /// with it; and `select(_:)`'s callers are deliberately *not* among them —
     /// putting a frame on the canvas is not picking it, which is the whole
     /// reason the export run can walk a batch without eating it. Writable from
@@ -752,19 +752,20 @@ final class Session: CanvasHost {
     private(set) var clipboard: SettingsClip?
 
     /// The Settings Clipboard section's seven boxes: which groups the *next*
-    /// copy takes. Persisted, and all seven by default, which is what ⇧⌘V
+    /// copy or sync takes. Persisted, and all seven by default, which is what ⇧⌘V
     /// copied before the groups existed.
-    var clipboardGroups: Set<ClipboardGroup> = Session.storedClipboardGroups() {
+    @ObservationIgnored private let clipboardDefaults: UserDefaults
+    var clipboardGroups: Set<ClipboardGroup> {
         didSet {
-            UserDefaults.standard.set(clipboardGroups.map(\.rawValue).sorted(),
+            clipboardDefaults.set(clipboardGroups.map(\.rawValue).sorted(),
                                       forKey: Self.clipboardGroupsKey)
         }
     }
 
     nonisolated static let clipboardGroupsKey = uiKey + "clipboard.groups"
 
-    private static func storedClipboardGroups() -> Set<ClipboardGroup> {
-        guard let raw = UserDefaults.standard.stringArray(forKey: clipboardGroupsKey)
+    private static func storedClipboardGroups(in defaults: UserDefaults) -> Set<ClipboardGroup> {
+        guard let raw = defaults.stringArray(forKey: clipboardGroupsKey)
         else { return Set(ClipboardGroup.allCases) }
         return Set(raw.compactMap(ClipboardGroup.init(rawValue:)))
     }
@@ -930,7 +931,9 @@ final class Session: CanvasHost {
     nonisolated static var diskCacheRoot: URL { cacheRoot.appending(path: "store") }
 
     init(renderer: Renderer? = nil, diagnostics: Diagnostics = .shared,
-         diskCache: DiskCacheStore? = nil) {
+         diskCache: DiskCacheStore? = nil, clipboardDefaults: UserDefaults = .standard) {
+        self.clipboardDefaults = clipboardDefaults
+        self.clipboardGroups = Self.storedClipboardGroups(in: clipboardDefaults)
         guard let renderer = renderer ?? Renderer(arena: diagnostics.arena) else {
             fatalError("Metal is required")
         }
@@ -1335,6 +1338,16 @@ final class Session: CanvasHost {
             return
         }
         togglePick(url)
+    }
+
+    var canSelectAllFrames: Bool { !batchExporting && !frames.isEmpty }
+
+    /// Keep the current frame as the sync source. A folder with no open frame
+    /// starts with the first in display order; only that frame is loaded.
+    func selectAllFrames() {
+        guard canSelectAllFrames else { return }
+        picked = Set(frames.map(\.id))
+        if selection == nil, let first = frames.first { select(first.id) }
     }
 
     /// One frame in or out of the set, canvas unmoved.
@@ -3457,6 +3470,29 @@ final class Session: CanvasHost {
     var canCopySettings: Bool { selection != nil && !clipboardGroups.isEmpty }
     var canPasteSettings: Bool { clipboard != nil && selection != nil && !batchExporting }
 
+    var syncTargets: [URL] { selectedFrames.filter { $0 != selection } }
+    var canSyncSettings: Bool {
+        !batchExporting && selection != nil && !clipboardGroups.isEmpty && !syncTargets.isEmpty
+    }
+
+    /// Sync takes a fresh snapshot, never the older clipboard. The source is
+    /// left alone (in particular its fitted Scene Placement and undo history).
+    /// Offline targets use the same sidecar/cache path as a settings paste.
+    func syncSettings() {
+        guard canSyncSettings, let source = selection else { return }
+        let clip = SettingsClip(groups: clipboardGroups, settings: sidecar,
+                                sourceName: source.lastPathComponent)
+        var written = 0, failed = 0
+        for url in syncTargets {
+            switch pasteOffline(clip, to: url) {
+            case .written: written += 1
+            case .failed: failed += 1
+            case .unchanged: break
+            }
+        }
+        status = String(format: L(.clipSyncResult), written, failed)
+    }
+
     /// Where a paste goes: every picked frame, which always includes the one
     /// on the canvas (`togglePick`), or that frame alone.
     var pasteTargets: [URL] {
@@ -3481,7 +3517,7 @@ final class Session: CanvasHost {
         let targets = pasteTargets
         var written = 0
         for url in targets where url != open {
-            if pasteOffline(clip, to: url) { written += 1 }
+            if pasteOffline(clip, to: url) == .written { written += 1 }
         }
         if targets.contains(open), pasteLive(clip) { written += 1 }
         status = written == 0
@@ -3537,20 +3573,22 @@ final class Session: CanvasHost {
     /// The paste on a frame that is not on the canvas: written to its sidecar
     /// now, rendered when it is next opened. Its resident print is the old
     /// look and `select` would show it first, so it goes (PRD R2).
-    private func pasteOffline(_ clip: SettingsClip, to url: URL) -> Bool {
+    private enum SettingsWriteResult { case unchanged, written, failed }
+
+    private func pasteOffline(_ clip: SettingsClip, to url: URL) -> SettingsWriteResult {
         let current = Sidecar.load(for: url) ?? Sidecar()
         var next = clip.applied(to: current)
-        guard next != current else { return false }
+        guard next != current else { return .unchanged }
         next.state = .stale
         do {
             try next.save(for: url)
         } catch {
             noteFailure(error, operation: "paste", frame: url.lastPathComponent)
-            return false
+            return .failed
         }
         renderer.store.setPrint(nil, for: url)
         frameStates[url] = .stale
-        return true
+        return .written
     }
 
     // MARK: - solve, and looking at the original

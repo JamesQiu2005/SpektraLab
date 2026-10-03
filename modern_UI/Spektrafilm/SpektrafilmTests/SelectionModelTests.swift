@@ -17,6 +17,7 @@
 //  shares with every other suite (`develop-writes-a-sidecar-copy-the-fixture`).
 
 import AppKit
+import Metal
 import XCTest
 
 @MainActor
@@ -34,7 +35,10 @@ final class SelectionModelTests: XCTestCase {
             // Named so `Library` sorts them, and with an extension it opens.
             try Data().write(to: dir.appending(path: String(format: "frame-%02d.png", i)))
         }
-        let session = Session()
+        let suite = "spk-pick-defaults-\(UUID().uuidString)"
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suite))
+        addTeardownBlock { defaults.removePersistentDomain(forName: suite) }
+        let session = Session(clipboardDefaults: defaults)
         session.open(urls: [dir])
         // The URLs come back **out of** the session rather than being the ones
         // written above: `temporaryDirectory` hands out `/var/…` and the
@@ -234,6 +238,126 @@ final class SelectionModelTests: XCTestCase {
             XCTAssertTrue(try source(file).contains("framing: session.framing(of: frame.id)"),
                           "\(file) does not ask Session how to mark a cell")
         }
+    }
+
+    func testSelectAllKeepsThePrimaryFrameAndDisplayOrder() throws {
+        let (s, urls) = try openedSession()
+        s.click(urls[2])
+        s.selectAllFrames()
+        XCTAssertEqual(s.selectedFrames, urls)
+        XCTAssertEqual(s.selection, urls[2])
+        s.selectAllFrames()
+        XCTAssertEqual(s.selectedFrames, urls, "select all must be idempotent")
+        s.click(urls[1], command: true)
+        XCTAssertEqual(s.selectedFrames, [urls[0], urls[2], urls[3]])
+        XCTAssertEqual(s.selection, urls[2])
+    }
+
+    func testSelectAllFromAFolderOpensOnlyTheFirstFrame() throws {
+        let (s, urls) = try openedSession()
+        XCTAssertNil(s.selection)
+        s.selectAllFrames()
+        XCTAssertEqual(s.selection, urls.first)
+        XCTAssertEqual(s.selectedFrames, urls)
+        let (empty, _) = try openedSession(frameCount: 0)
+        XCTAssertFalse(empty.canSelectAllFrames)
+        empty.selectAllFrames()
+        XCTAssertNil(empty.selection)
+        XCTAssertTrue(empty.selectedFrames.isEmpty)
+    }
+
+    func testSelectAllIsRefusedDuringExport() throws {
+        let (s, urls) = try openedSession()
+        s.click(urls[1])
+        s.batchExporting = true
+        XCTAssertFalse(s.canSelectAllFrames)
+        s.selectAllFrames()
+        XCTAssertEqual(s.selectedFrames, [urls[1]])
+        XCTAssertEqual(s.selection, urls[1])
+    }
+
+    /// No image decode is needed: the offline edit must already be on disk
+    /// before another frame is opened. Own both preferences and sidecars.
+    func testSyncUsesLiveSourceAndOnlyWritesPickedTargets() throws {
+        let (s, urls) = try openedSession()
+        defer { urls.forEach { Sidecar.remove(for: $0) } }
+        s.click(urls[1])
+        s.clipboardGroups = [.exposure]
+        s.sidecar.params.printBrightnessStops = 0.5
+        s.copySettings()
+        let clipboard = s.clipboard
+        s.sidecar.params.printBrightnessStops = 2
+        let source = s.sidecar
+        s.click(urls[0], command: true)
+        s.click(urls[2], command: true)
+        var target = Sidecar()
+        target.params.filmStock = "kodak_gold_200"
+        target.adjustments.exposure = 1
+        target.geometry.quarterTurns = 1
+        try target.save(for: urls[0])
+        let texture = try XCTUnwrap(s.renderer.device.makeTexture(descriptor:
+            MTLTextureDescriptor.texture2DDescriptor(pixelFormat: .rgba16Float,
+                width: 2, height: 2, mipmapped: false)))
+        s.renderer.store.setPrint(texture, for: urls[0])
+        XCTAssertNotNil(s.renderer.store.print(for: urls[0]))
+        XCTAssertTrue(s.canSyncSettings)
+        s.syncSettings()
+        XCTAssertNil(s.renderer.store.print(for: urls[0]), "the old print survived sync")
+        let saved = try XCTUnwrap(Sidecar.load(for: urls[0]))
+        XCTAssertEqual(saved.params.printBrightnessStops, 2)
+        XCTAssertEqual(saved.params.filmStock, target.params.filmStock)
+        XCTAssertEqual(saved.adjustments, target.adjustments)
+        XCTAssertEqual(saved.geometry, target.geometry)
+        XCTAssertEqual(saved.state, .stale)
+        XCTAssertEqual(s.frameStates[urls[0]], .stale)
+        XCTAssertEqual(Sidecar.load(for: urls[2])?.params.printBrightnessStops, 2)
+        XCTAssertNil(Sidecar.load(for: urls[3]), "unselected photo was written")
+        XCTAssertEqual(s.sidecar, source, "sync changed its source")
+        XCTAssertEqual(s.clipboard, clipboard, "sync overwrote the clipboard")
+        XCTAssertFalse(s.canUndo, "offline sync must not add a misleading source undo")
+        XCTAssertEqual(s.selection, urls[1])
+        XCTAssertEqual(s.selectedFrames, [urls[0], urls[1], urls[2]])
+        s.syncSettings()
+        XCTAssertEqual(Sidecar.load(for: urls[0]), saved, "repeated sync changed the settings")
+    }
+
+    func testSyncRequiresASourceTargetsAndGroupsAndRefusesExport() throws {
+        let (s, urls) = try openedSession()
+        defer { urls.forEach { Sidecar.remove(for: $0) } }
+        XCTAssertFalse(s.canSyncSettings)
+        s.click(urls[0])
+        XCTAssertFalse(s.canSyncSettings)
+        s.selectAllFrames()
+        s.clipboardGroups = []
+        XCTAssertFalse(s.canSyncSettings)
+        s.syncSettings()
+        XCTAssertNil(Sidecar.load(for: urls[1]))
+        s.clipboardGroups = [.exposure]
+        s.sidecar.params.printBrightnessStops = 2
+        s.batchExporting = true
+        XCTAssertFalse(s.canSyncSettings)
+        s.syncSettings()
+        XCTAssertNil(Sidecar.load(for: urls[1]))
+    }
+
+    func testSyncReportsAFailedWriteAndContinuesWithOtherTargets() throws {
+        let (s, urls) = try openedSession()
+        defer { urls.forEach { Sidecar.remove(for: $0) } }
+        s.click(urls[0])
+        s.selectAllFrames()
+        s.clipboardGroups = [.exposure]
+        s.sidecar.params.printBrightnessStops = 2
+        // A directory cannot be replaced by Data.write(.atomic). No machine
+        // permissions or global store override are needed to force failure.
+        try FileManager.default.createDirectory(at: Sidecar.url(for: urls[1]),
+                                                withIntermediateDirectories: true)
+        s.syncSettings()
+        XCTAssertNil(Sidecar.load(for: urls[1]))
+        XCTAssertNotEqual(s.frameStates[urls[1]], .stale)
+        XCTAssertEqual(Sidecar.load(for: urls[2])?.params.printBrightnessStops, 2)
+        XCTAssertEqual(Sidecar.load(for: urls[3])?.params.printBrightnessStops, 2)
+        XCTAssertEqual(s.status, String(format: L(.clipSyncResult), 2, 1))
+        XCTAssertNotNil(s.lastError)
     }
 
     // MARK: - helpers

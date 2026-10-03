@@ -113,6 +113,7 @@ enum S: String, CaseIterable, Sendable {
     case clipFilmAndPaper, clipExposure, clipWhiteBalance, clipFilmEffects, clipPrintEffects, clipScenePlacement, clipMasks
     case clipFilmAndPaperHelp, clipExposureHelp, clipWhiteBalanceHelp, clipFilmEffectsHelp, clipPrintEffectsHelp, clipScenePlacementHelp, clipMasksHelp
     case clipCopyHelp, clipPasteHelp
+    case selectAllPhotos, clipSync, clipSyncTo, clipSyncHelp, clipSyncResult
 
     // MARK: Settings as pages, and the Agents page (RFC-026)
     case setTabGeneral, setTabRendering, setTabMemory, setTabDiagnostics, setTabAgents
@@ -181,6 +182,11 @@ extension S {
         case .setResetLayout: "Reset All Layout"
         case .setResetLayoutCaption: "Panel widths, section heights and which sections are open, back to the drawing."
         case .sectionClipboard: "Settings Clipboard"
+        case .selectAllPhotos: "Select All Photos"
+        case .clipSync: "Sync Settings"
+        case .clipSyncTo: "Sync to %d"
+        case .clipSyncHelp: "Apply the ticked groups from the current photo to the other selected photos. Crop and Post-Dev adjustments are not included."
+        case .clipSyncResult: "Synced %d photos; %d failed. Unchanged photos were skipped."
         case .clipCopy: "Copy"
         case .clipPaste: "Paste"
         case .clipPasteTo: "Paste to %d"
@@ -494,6 +500,11 @@ extension S {
         case .setResetLayout: "重置全部布局"
         case .setResetLayoutCaption: "将面板宽度、各部分高度与展开状态恢复为默认。"
         case .sectionClipboard: "设置剪贴板"
+        case .selectAllPhotos: "全选照片"
+        case .clipSync: "同步设置"
+        case .clipSyncTo: "同步到 %d 张"
+        case .clipSyncHelp: "将当前照片中勾选的项目应用到其他选中的照片。不包含裁剪和显影后调整。"
+        case .clipSyncResult: "已同步 %d 张，失败 %d 张；设置相同的照片已跳过。"
         case .clipCopy: "复制"
         case .clipPaste: "粘贴"
         case .clipPasteTo: "粘贴到 %d 张"

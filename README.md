@@ -23,6 +23,23 @@ filter pack — in about a second.
 |---|---|
 | ![Before and after](screenshots/natural_halation.png) | ![Grain at 1:1](screenshots/physically_accurate_grain.png) |
 
+## Select and sync photos
+
+Click a photo to make it the current photo, then Command-click other photos to
+add or remove them without moving the current photo. Command+A (Edit → Select
+All Photos) selects the library and keeps the current photo as the sync source.
+In a newly opened folder it opens the first photo. Command+A inside a text field
+still selects text.
+
+Under Settings Clipboard, tick the groups to transfer and choose **Sync to N**
+(or Edit → Sync Settings). This reads the current photo's latest edits, preserves
+the clipboard and source photo, and saves the other selected photos immediately.
+They develop with those settings when opened. Crop, Post-Dev adjustments, lens
+correction, Film Edge and Date Back stay with each photo, following the existing
+clipboard rules. As Shot white balance and fitted Scene Placement are resolved
+for each target. Sync has no batch undo; the status reports writes and failures.
+Selection and sync are disabled during batch export.
+
 ## Install
 
 Download the latest build from

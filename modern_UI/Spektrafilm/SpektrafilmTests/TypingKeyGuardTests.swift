@@ -73,6 +73,20 @@ final class TypingKeyGuardTests: XCTestCase {
         XCTAssertEqual(target.fired, 1, "the guard swallowed a shortcut with no field focused")
     }
 
+    func testCommandASelectsTextInsteadOfPhotos() throws {
+        let (_, window, field) = try harness()
+        let text = try XCTUnwrap(window.firstResponder as? NSTextView)
+        text.setSelectedRange(NSRange(location: 1, length: 0))
+        let event = try XCTUnwrap(NSEvent.keyEvent(with: .keyDown, location: .zero,
+            modifierFlags: .command, timestamp: 0, windowNumber: window.windowNumber,
+            context: nil, characters: "a", charactersIgnoringModifiers: "a",
+            isARepeat: false, keyCode: 0))
+        XCTAssertTrue(TypingKeyGuard.route(event), "the photo menu would receive Command+A")
+        XCTAssertEqual(text.selectedRange(), NSRange(location: 0, length: field.stringValue.utf16.count))
+        window.makeFirstResponder(window.contentView)
+        XCTAssertFalse(TypingKeyGuard.route(event), "Command+A must reach photos outside text")
+    }
+
     private func harness() throws -> (Target, NSWindow, NSTextField) {
         let app = NSApplication.shared
         let previousMenu = app.mainMenu

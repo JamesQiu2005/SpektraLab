@@ -41,6 +41,13 @@ struct ClipboardSection: View {
                     }
                     Spacer(minLength: 0)
                 }
+                HStack {
+                    pill(String(format: L(.clipSyncTo), session.syncTargets.count),
+                         help: L(.clipSyncHelp), enabled: session.canSyncSettings) {
+                        session.syncSettings()
+                    }
+                    Spacer(minLength: 0)
+                }
             }
         }
     }
