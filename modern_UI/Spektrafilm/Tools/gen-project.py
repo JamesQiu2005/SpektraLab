@@ -309,9 +309,12 @@ def build() -> str:
         p.add(cid, f"{{\n\t\t\tisa = XCBuildConfiguration;\n\t\t\tbuildSettings = {{\n{body}\n\t\t\t}};\n\t\t\tname = {name};\n\t\t}}", name)
         return cid
 
+    # The engine's C++ is -O2 in Debug too (owner, 2026-10-03): at -O0 its
+    # host-side work ran 12x slower (the overscan node 218 -> 2,745 ms) and
+    # the Debug app was judged by that; Swift stays -Onone for debugging.
     debug = {"SWIFT_OPTIMIZATION_LEVEL": '"-Onone"', "DEBUG_INFORMATION_FORMAT": "dwarf",
              "ENABLE_TESTABILITY": "YES", "SWIFT_ACTIVE_COMPILATION_CONDITIONS": "DEBUG",
-             "GCC_OPTIMIZATION_LEVEL": "0"}
+             "GCC_OPTIMIZATION_LEVEL": "2"}
     release = {"SWIFT_OPTIMIZATION_LEVEL": '"-O"', "DEBUG_INFORMATION_FORMAT": '"dwarf-with-dsym"',
                "SWIFT_COMPILATION_MODE": "wholemodule"}
 
