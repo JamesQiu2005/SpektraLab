@@ -1320,12 +1320,21 @@ void imprint_groups(const OverscanLayout& L, const Params& params, double frame_
                 if (n < 1) continue;
                 const std::string ns = std::to_string(n);
                 const double wn = matrix_text(ns, 1.15, xs, false, sn, tb, &top.ops);
+                // The marker is not a triangle on a stem: it is a tack drawn
+                // on the dot-matrix grid, 2.09 mm long, stepping down from a
+                // 1.17 mm base through 0.9 and 0.55 to a 0.25 mm needle, each
+                // step ~0.55 mm (three cells), symmetric about its axis
+                // (Pro400H_6x7.png rows 668-701 at 16.26 px/mm, 2026-10-03).
                 const double a = sn + wn + 1.45, mid = tb - 0.575;
-                Op tri;
-                tri.kind = Op::Poly;
-                tri.pts = {a, mid, a + 1.35, mid - 0.575, a + 1.35, mid + 0.575};
-                top.ops.push_back(tri);
-                top.ops.push_back(rect(a + 1.30, mid - 0.25, a + 2.15, mid + 0.25));
+                Op tack;
+                tack.kind = Op::Poly;
+                tack.pts = {a,        mid - 0.06,  a + 0.44, mid - 0.125, a + 0.44, mid - 0.275,
+                            a + 0.99, mid - 0.275, a + 0.99, mid - 0.40,  a + 1.54, mid - 0.49,
+                            a + 1.54, mid - 0.585, a + 2.09, mid - 0.585, a + 2.09, mid + 0.585,
+                            a + 1.54, mid + 0.585, a + 1.54, mid + 0.49,  a + 0.99, mid + 0.40,
+                            a + 0.99, mid + 0.275, a + 0.44, mid + 0.275, a + 0.44, mid + 0.125,
+                            a,        mid + 0.06};
+                top.ops.push_back(tack);
                 if (!o.edge_text.empty()) {
                     const bool has_code = look.code[0] != 0;
                     const double s0 = a + 4.95;
