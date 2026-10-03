@@ -257,8 +257,26 @@ extension Session {
     /// Write what the host owes the engine into the frame's settings. No undo
     /// step: this is derived state, and it is the same for every snapshot.
     func resolveFilmEdge() {
+        holdFilmEdgeCrop()
         let resolved = resolved(sidecar.params)
         if resolved != sidecar.params { sidecar.params = resolved }
+    }
+
+    /// With a film edge on, the crop is the gate's shape: the `params` setter
+    /// sees to that. A sidecar from elsewhere — hand-written, or from a build
+    /// that did not hold it — can carry a film edge over a crop of another
+    /// shape, which the engine refuses by name. It is held here, before the
+    /// develop, and the crop it had is kept to give back as usual.
+    func holdFilmEdgeCrop() {
+        let p = sidecar.params
+        guard p.filmEdge.effective, let size = nativeSourceSize, size.width > 0, size.height > 0 else { return }
+        let g = sidecar.geometry
+        let pw = g.crop.width * size.width, ph = g.crop.height * size.height
+        guard pw > 0, ph > 0 else { return }
+        let wanted = Self.gateRatio(p.filmEdge.format, landscape: pw >= ph)
+        if abs((pw / ph) / wanted - 1) <= 0.02, g.lockedRatio == wanted { return }
+        if sidecar.heldCrop == nil { sidecar.heldCrop = g }
+        sidecar.geometry = Self.gateFramed(g, format: p.filmEdge.format, imageSize: size)
     }
 
     /// Give a frame its seeds the first time it is opened: a frame seed of its

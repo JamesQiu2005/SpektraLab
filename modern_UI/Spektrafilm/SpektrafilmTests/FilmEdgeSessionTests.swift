@@ -259,6 +259,31 @@ final class FilmEdgeSessionTests: XCTestCase {
         assertLowerRightUpright(flipped, "flipped", picture: CGSize(width: 3, height: 2))
     }
 
+    /// A sidecar from elsewhere can carry a film edge over a crop that was
+    /// never held at the gate (the `params` setter holds it; a hand-written
+    /// file does not). The engine refuses a frame that is not the gate's
+    /// shape, so the session holds the crop before the develop.
+    func testAFilmEdgeFromASidecarHoldsTheCropBeforeItDevelops() async throws {
+        let url = try copied("tests/Test_image/_smoke_1mp.tif")
+        let session = Session()
+        session.open(urls: [url])
+        try await waitUntil("the frame to decode", timeout: 90) { session.decoded != nil }
+        // As a loaded sidecar would be: the film edge on, the crop untouched.
+        session.sidecar.params.filmEdge.active = true
+        session.sidecar.params.filmEdge.format = .f6x6
+        session.requestPrint()
+        try await waitUntil("the print to land", timeout: 120) {
+            session.serviceSessionIDForExport != nil && session.frameStates[url] == .processed && !session.busy
+        }
+        XCTAssertFalse(session.status.contains("gate's shape"), session.status)
+        let size = try XCTUnwrap(session.decoded?.pixelSize)
+        let picture = session.geometry.outputSize(for: size)
+        XCTAssertEqual(picture.width / picture.height, 1, accuracy: 0.01, "the crop is the 6×6 gate's")
+        XCTAssertNotNil(session.sidecar.heldCrop, "the crop it had is kept to give back")
+        let film = try XCTUnwrap(session.renderer.live)
+        XCTAssertGreaterThan(film.width, Int(picture.width) * 799 / Int(size.width), "a film canvas landed")
+    }
+
     /// The renderer's half, with no engine: a print of another shape drawn
     /// into the frame of the last one.
     func testARendererTakesTheShapeOfAPrintOfAnotherShape() throws {
