@@ -100,6 +100,10 @@ struct FilmEdgeSettings: Codable, Equatable, Sendable {
     var cameraSeed = 1
     /// **The advance and the scan.** Per photo, stored with the edit.
     var frameSeed = 1
+    /// **The frame's number** on the edge print (owner, 2026-10-03): 1…99;
+    /// 0 is the frame seed's draw. A new frame takes its place in the session
+    /// (`Session.seedFilmEdge`), so a roll reads 1, 2, 3… untouched.
+    var frameNumber = 0
     var fog = 1.0                  // 0…4
     var leaks = 0.0                // 0…4
     /// The stock's edge print, resolved by the session from the stock in use.
@@ -121,6 +125,7 @@ struct FilmEdgeSettings: Codable, Equatable, Sendable {
     static let fogRange = 0.0...4.0
     static let leaksRange = 0.0...4.0
     static let seedRange = 0...Int(Int32.max)
+    static let frameNumberRange = 0...99
 
     static let `default` = FilmEdgeSettings()
 
@@ -138,6 +143,7 @@ struct FilmEdgeSettings: Codable, Equatable, Sendable {
         holes = (try? c.decodeIfPresent(FilmEdgeHoles.self, forKey: .holes)) ?? d.holes
         cameraSeed = try c.decodeIfPresent(Int.self, forKey: .cameraSeed) ?? d.cameraSeed
         frameSeed = try c.decodeIfPresent(Int.self, forKey: .frameSeed) ?? d.frameSeed
+        frameNumber = try c.decodeIfPresent(Int.self, forKey: .frameNumber) ?? d.frameNumber
         fog = try c.decodeIfPresent(Double.self, forKey: .fog) ?? d.fog
         leaks = try c.decodeIfPresent(Double.self, forKey: .leaks) ?? d.leaks
         edgeText = try c.decodeIfPresent(String.self, forKey: .edgeText) ?? d.edgeText
@@ -182,6 +188,7 @@ struct FilmEdgeSettings: Codable, Equatable, Sendable {
             ("overscan_holes", .string(holes.rawValue), .shoot),
             ("overscan_camera_seed", .double(Double(cameraSeed.clamped(to: Self.seedRange))), .shoot),
             ("overscan_frame_seed", .double(Double(frameSeed.clamped(to: Self.seedRange))), .shoot),
+            ("overscan_frame_number", .double(Double(frameNumber.clamped(to: Self.frameNumberRange))), .shoot),
             ("overscan_fog", .double(fog.clamped(to: Self.fogRange)), .shoot),
             ("overscan_leaks", .double(leaks.clamped(to: Self.leaksRange)), .shoot),
             ("overscan_edge_text", .string(edgeText), .shoot),

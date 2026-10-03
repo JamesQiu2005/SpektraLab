@@ -26,6 +26,22 @@ final class FilmEdgeTests: XCTestCase {
         XCTAssertEqual(wire["overscan_frame_seed"], .double(7))
     }
 
+    /// The frame number goes as a whole double too, clamped to the engine's
+    /// 0…99; 0 (the seed's draw) is sent, so clearing a number reaches the engine.
+    func testFrameNumberGoesOnTheWire() {
+        var p = FilmParams.default
+        p.filmEdge.active = true
+        p.filmEdge.frameNumber = 23
+        var wire = Dictionary(uniqueKeysWithValues: p.wire.map { ($0.name, $0.value) })
+        XCTAssertEqual(wire["overscan_frame_number"], .double(23))
+        p.filmEdge.frameNumber = 250
+        wire = Dictionary(uniqueKeysWithValues: p.wire.map { ($0.name, $0.value) })
+        XCTAssertEqual(wire["overscan_frame_number"], .double(99))
+        p.filmEdge.frameNumber = 0
+        wire = Dictionary(uniqueKeysWithValues: p.wire.map { ($0.name, $0.value) })
+        XCTAssertEqual(wire["overscan_frame_number"], .double(0))
+    }
+
     /// A frame without a film edge renders byte for byte as before: its stamp
     /// carries no framing, and the wire only the two switches, both off.
     func testAFrameWithoutAFilmEdgeKeepsItsStamp() throws {

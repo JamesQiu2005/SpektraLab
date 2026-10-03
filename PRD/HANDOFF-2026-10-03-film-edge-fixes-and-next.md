@@ -117,6 +117,18 @@ Comparison sheets (reference | before | after): the session scratchpad `edge/cmp
 hunks. Mobile's host text is display names, so it does not take `653fe52`. API-SPEC §13 needs the edit
 listed in that commit's report (36 → 36.25 gate, per-stock edges, the DX numbers); not edited here.
 
+**Later the same day (owner's review of the sheets):** `3a26463` Pro 400H's marker is a stepped tack
+(2.09 mm, base 1.17 → 0.9 → 0.55 → 0.25 needle), not a triangle; `1b263d3` the Kodak 120 name is
+centred between the numbers (it sat a fixed 10.8 mm on) and 135 prints the suffix where a strip shows it
+("KODAK GB 200-7", "KODAK PORTRA 800-3"); `61bfc49` the widened bold numerals are tracked apart (0.30 mm
+on 120, 0.25 on 135) — before, every two-digit number developed into one shape ("38"). `2108544` +
+the app commit after it: **`overscan_frame_number`** (int 0..99, SHOOT, native-only, after
+`antihalation_removed` in both tables; 0 = the seed's draw) — the frame's own mark on every layout that
+numbers frames; the app's `filmEdge.frameNumber`, a "Frame no." slider (Auto at 0), defaulting to the
+frame's place in the session at first seeding. Kodak 120's counting-edge numbers stay seeded. API-SPEC
+§13 needs the field added (not edited). Still open: the 135 name can land across the frame edge in some
+camera phases while all five strips have it inside; and the mobile sync of all of the above.
+
 ## 6. Waiting on the mobile-first engine work (answer A3)
 
 `spk_overscan_geometry`; `overscan_turn`; holes as a print-layer field; the carrier enum; the data face's

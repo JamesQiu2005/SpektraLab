@@ -310,11 +310,17 @@ extension Session {
     }
 
     /// Give a frame its seeds the first time it is opened: a frame seed of its
-    /// own, and the user's body (`FilmEdgeSettings.bodySeed`).
+    /// own, the user's body (`FilmEdgeSettings.bodySeed`), and its number on
+    /// the roll -- its place in the session, so a folder of 36 reads 1…36
+    /// without a hand on the stepper (a frame opened on its own keeps 0, the
+    /// seed's draw).
     func seedFilmEdge(for url: URL, defaults: UserDefaults = .standard) {
         guard !sidecar.params.filmEdge.seeded else { return }
         sidecar.params.filmEdge.frameSeed = Self.frameSeed(for: url)
         sidecar.params.filmEdge.cameraSeed = FilmEdgeSettings.bodySeed(in: defaults)
+        if let i = frames.firstIndex(where: { $0.id == url }) {
+            sidecar.params.filmEdge.frameNumber = i % 99 + 1
+        }
         sidecar.params.filmEdge.seeded = true
     }
 

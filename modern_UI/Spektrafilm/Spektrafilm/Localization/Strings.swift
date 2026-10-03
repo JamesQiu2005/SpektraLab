@@ -124,7 +124,7 @@ enum S: String, CaseIterable, Sendable {
     case setAgentsCopy, setAgentsCopied, setAgentsTools
 
     // MARK: Film Edge and Date Back (RFC-032, RFC-031; 2026-10-01 drawings)
-    case sectionFilmEdge, sectionDateBack, edgeFormat, edgeFormatHalf, edgeGroup135, edgeGroup120, edgeGroupPanoramic, edgeView, edgeViewStrip, edgeViewFiled, edgeGateAndScan, edgeGate, edgeGateAuto, edgeGateSquare, edgeGateRounded, edgeGateEared, edgeGateShouldered, edgeGateKicked, edgeHoles, edgeHolesWhite, edgeHolesBlack, edgeBody, edgeAnother, edgeAdvance, edgeAnotherFrame, edgeLight, edgeFog, edgeLeaks, edgeOff, edgeHeldByFilmEdge, edgeSetByFilmEdge, edgeMeteredOnPicture, dateFace, dateFaceDots, dateFaceData, dateDate, dateImprint, dateFromEXIF, dateWhere, dateInFrame, dateBetween, dateCorner, dateSize, dateBrightness, dateStops, dateOrderJapan, dateOrderUS, reasonBetweenNeedsFilmEdge
+    case sectionFilmEdge, sectionDateBack, edgeFormat, edgeFormatHalf, edgeGroup135, edgeGroup120, edgeGroupPanoramic, edgeView, edgeViewStrip, edgeViewFiled, edgeGateAndScan, edgeGate, edgeGateAuto, edgeGateSquare, edgeGateRounded, edgeGateEared, edgeGateShouldered, edgeGateKicked, edgeHoles, edgeHolesWhite, edgeHolesBlack, edgeBody, edgeAnother, edgeAdvance, edgeAnotherFrame, edgeFrameNumber, edgeFrameNumberAuto, edgeLight, edgeFog, edgeLeaks, edgeOff, edgeHeldByFilmEdge, edgeSetByFilmEdge, edgeMeteredOnPicture, dateFace, dateFaceDots, dateFaceData, dateDate, dateImprint, dateFromEXIF, dateWhere, dateInFrame, dateBetween, dateCorner, dateSize, dateBrightness, dateStops, dateOrderJapan, dateOrderUS, reasonBetweenNeedsFilmEdge
 }
 
 // MARK: - the table
@@ -413,6 +413,8 @@ extension S {
         case .edgeAnother: "Another"
         case .edgeAdvance: "Advance"
         case .edgeAnotherFrame: "Another frame"
+        case .edgeFrameNumber: "Frame no."
+        case .edgeFrameNumberAuto: "Auto"
         case .edgeLight: "LIGHT"
         case .edgeFog: "Edge fog"
         case .edgeLeaks: "Spool leaks"
@@ -703,6 +705,8 @@ extension S {
         case .edgeAnother: "换一台"
         case .edgeAdvance: "过片"
         case .edgeAnotherFrame: "换一格"
+        case .edgeFrameNumber: "片号"
+        case .edgeFrameNumberAuto: "自动"
         case .edgeLight: "漏光与灰雾"
         case .edgeFog: "边缘灰雾"
         case .edgeLeaks: "片轴漏光"

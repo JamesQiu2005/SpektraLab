@@ -57,6 +57,15 @@ struct FilmEdgeSection: View {
                               selection: bind(\.holes), title: { L($0.key) })
                 bodyRow
                 advanceRow
+                // The frame's number on the edge print. 0 reads "Auto": the
+                // seed's draw, what a frame from before the field had.
+                ScrubSlider(label: L(.edgeFrameNumber),
+                            value: Binding(get: { Double(edge.frameNumber) },
+                                           set: { set(\.frameNumber, Int($0.rounded())) }),
+                            range: Double(FilmEdgeSettings.frameNumberRange.lowerBound)...Double(FilmEdgeSettings.frameNumberRange.upperBound),
+                            zero: 0, snap: 1,
+                            format: { $0 < 0.5 ? L(.edgeFrameNumberAuto) : String(Int($0.rounded())) },
+                            parse: { Int($0).map(Double.init) ?? ($0.isEmpty ? 0 : nil) })
 
                 RailSubhead(L(.edgeLight))
                 ScrubSlider(label: L(.edgeFog), value: bind(\.fog), range: FilmEdgeSettings.fogRange,
