@@ -509,7 +509,8 @@ bool Pipeline::device_max(const Image& img, double& out, std::string& error) {
     // optional: `boost_highlights` solves for its constants from the frame's
     // own maximum.
     if (!gpu_->flush(error)) return false;
-    const float* p = static_cast<const float*>(gpu_->contents(partials.get()));
+    float p[groups];
+    if (!gpu_->read(partials.get(), 0, p, sizeof p, error)) return false;
     float best = p[0];
     for (size_t i = 1; i < groups; ++i) best = std::fmax(best, p[i]);
     out = double(best);
@@ -519,8 +520,7 @@ bool Pipeline::device_max(const Image& img, double& out, std::string& error) {
 bool Pipeline::read_back(const Image& img, std::vector<float>& out, std::string& error) {
     if (!gpu_->flush(error)) return false;
     out.resize(img.elements());
-    std::memcpy(out.data(), gpu_->contents(img.buf.get()), img.bytes());
-    return true;
+    return gpu_->read(img.buf.get(), 0, out.data(), img.bytes(), error);
 }
 
 // ---------------------------------------------------------------------------
@@ -1445,6 +1445,13 @@ bool Pipeline::update_bw_references(std::string& error) {
     // the paper's *raw* curves, then read their Y through the scanner.
     const Profile& print = params_.print;
     const size_t k = print.data.n_exposure;
+    // Read the already-narrowed float32 tables once per update, outside the
+    // two-pixel calculation. Reconstructing from double setup constants would
+    // change the scanner's rounding and the black/white correction.
+    float chd[kNumWavelengths * 3], base[kNumWavelengths], ixs[kNumWavelengths * 3];
+    if (!gpu_->read(baked_.scan_chd.get(), 0, chd, sizeof chd, error) ||
+        !gpu_->read(baked_.scan_base.get(), 0, base, sizeof base, error) ||
+        !gpu_->read(baked_.scan_ixs.get(), 0, ixs, sizeof ixs, error)) return false;
     auto develop_and_y = [&](const Vec& log_raw) -> double {
         double cmy[3];
         for (int c = 0; c < 3; ++c) {
@@ -1457,9 +1464,6 @@ bool Pipeline::update_bw_references(std::string& error) {
         }
         // The scanner's spectral integral on one pixel, with the constants the
         // build already prepared.
-        const float* chd = static_cast<const float*>(gpu_->contents(baked_.scan_chd.get()));
-        const float* base = static_cast<const float*>(gpu_->contents(baked_.scan_base.get()));
-        const float* ixs = static_cast<const float*>(gpu_->contents(baked_.scan_ixs.get()));
         double acc = 0.0;
         for (size_t l = 0; l < kNumWavelengths; ++l) {
             double d = double(base[l]);
@@ -2099,9 +2103,8 @@ bool Pipeline::band_from(const Image& plane, const StripSpan& span, uint32_t hal
     out.buf = gpu_->alloc(out.bytes(), error);
     if (!out.buf) return false;
     const size_t row = size_t(plane.w) * plane.c;
-    std::memcpy(gpu_->contents(out.buf.get()),
-                static_cast<const float*>(gpu_->contents(plane.buf.get())) + size_t(read.y0) * row,
-                size_t(read.rows) * row * sizeof(float));
+    if (!gpu_->copy(out.buf.get(), 0, plane.buf.get(), size_t(read.y0) * row * sizeof(float),
+                    size_t(read.rows) * row * sizeof(float), error)) return false;
     if (!gpu_->flush(error)) return false;
     return true;
 }
@@ -2116,10 +2119,9 @@ bool Pipeline::band_into(const Image& band, const BandRead& read, Image& plane,
         return false;
     }
     if (!gpu_->flush(error)) return false;
-    std::memcpy(static_cast<float*>(gpu_->contents(plane.buf.get())) + size_t(span.y0) * row,
-                static_cast<const float*>(gpu_->contents(band.buf.get())) + size_t(read.offset()) * row,
-                size_t(span.rows) * row * sizeof(float));
-    return true;
+    return gpu_->copy(plane.buf.get(), size_t(span.y0) * row * sizeof(float),
+                      band.buf.get(), size_t(read.offset()) * row * sizeof(float),
+                      size_t(span.rows) * row * sizeof(float), error);
 }
 
 bool Pipeline::run_film_striped(const Image& in, Image& out, Progress* progress,

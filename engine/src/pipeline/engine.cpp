@@ -50,6 +50,12 @@ using namespace spk;
 
 namespace {
 
+#ifdef _WIN32
+constexpr const char* kRenderCore = "native-vulkan";
+#else
+constexpr const char* kRenderCore = "native-metal";
+#endif
+
 // API-SPEC §6's three tiers, by long edge in pixels. `live` targets the
 // interaction budget for a print-side slider drag; `preview` is deliberately
 // large enough to read grain and halation, which are invisible at contact
@@ -284,7 +290,7 @@ struct spk_engine {
         // what the process could reach. `render_core` was a probe of
         // availability, and that hid a session silently demoted to the CPU
         // while capabilities still said metal.
-        backend.set("render_core", Json(std::string("native-metal")));
+        backend.set("render_core", Json(std::string(kRenderCore)));
         backend.set("host", Json(std::string("native")));
         backend.set("math_mode", Json(math_mode));
         // Concurrent entry is safe: there is no numba here, and renders on
@@ -498,10 +504,14 @@ extern "C" {
 const char* spk_build_info(void) {
     // The build stamp is what a bug report quotes, so it names the three
     // things that decide whether two builds render the same picture: the
-    // engine's own version, the compiler date, and the Metal math mode the
-    // kernels were compiled with.
+    // engine's own version, the compiler date, and the backend math probe.
+#ifdef _WIN32
+    static const std::string info =
+        std::string("spektrafilm-native 0.1.0 (") + __DATE__ " " __TIME__ ", math=probed)";
+#else
     static const std::string info =
         std::string("spektrafilm-native 0.1.0 (") + __DATE__ " " __TIME__ ", math=safe)";
+#endif
     return info.c_str();
 }
 
@@ -536,7 +546,12 @@ spk_engine* spk_engine_create(const char* resources_dir, void* device) {
 
     if (!engine->print_luts.init(engine->resources_dir, error)) { g_error = error; return nullptr; }
 
+#ifdef _WIN32
+    if (device) { g_error = "Windows device-buffer input is not implemented yet; pass null"; return nullptr; }
+    engine->gpu = gpu::Gpu::create_vulkan(engine->resources_dir + "/vulkan", error);
+#else
     engine->gpu = gpu::Gpu::create_metal(device, engine->resources_dir + "/spektrafilm.metallib", error);
+#endif
     if (!engine->gpu) { g_error = error; return nullptr; }
 
     // RFC-014 §5.1 trap 1, checked rather than trusted. A build flag is the
@@ -627,7 +642,7 @@ spk_status spk_warm_up(spk_engine* engine, const char* film_stock, const char* p
 
         if (built) {
             // Run a small frame all the way through, so every kernel's
-            // `MTLComputePipelineState` exists before the user's first frame
+            // The compute pipeline exists before the user's first frame
             // needs it.
             //
             // Measured, because the obvious claim for this is wrong: it does
@@ -674,7 +689,7 @@ spk_status spk_warm_up(spk_engine* engine, const char* film_stock, const char* p
     out.set("film_stock", Json(film));
     out.set("print_stock", Json(print));
     out.set("already_warm", Json(false));
-    out.set("render_core", Json(std::string("native-metal")));
+    out.set("render_core", Json(std::string(kRenderCore)));
     out.set("total_ms", Json(std::round(std::chrono::duration<double, std::milli>(
         std::chrono::steady_clock::now() - started).count() * 100.0) / 100.0));
     out.set("steps", std::move(steps));
@@ -755,7 +770,7 @@ spk_session* open_frame(spk_engine* engine, const FrameIn& frame, const char* pa
             engine->pool_frame_w = frame.width;
             engine->pool_frame_h = frame.height;
         }
-        // Outside the lock: this releases Metal buffers, which is not work to
+        // Outside the lock: this releases GPU buffers, which is not work to
         // hold the session list across.
         if (trim && engine->gpu) engine->gpu->trim_pool(0);
     }
@@ -962,8 +977,9 @@ bool tier_image(spk_session* session, const Tier& tier, Image& out, std::string&
         if (!gpu->flush(error)) return false;
         Image kept;
         kept.h = scaled.h; kept.w = scaled.w; kept.c = 3;
-        kept.buf = gpu->upload_persistent(gpu->contents(scaled.buf.get()), scaled.bytes(), error);
-        if (!kept.buf) return false;
+        kept.buf = gpu->alloc_persistent(scaled.bytes(), error);
+        if (!kept.buf || !gpu->copy(kept.buf.get(), 0, scaled.buf.get(), 0,
+                                    scaled.bytes(), error)) return false;
         state.image = kept;
     }
     state.image_long_edge = edge;
@@ -1056,8 +1072,9 @@ bool negative_for(spk_session* session, const Tier& tier, Progress* progress, Im
     // The cached negative is the other holding RFC-020 §4.7 names: every
     // reprint reads it, it lives as long as the session, and at the full
     // tier it is the second 1.22 GB plane.
-    kept.buf = gpu->upload_file_backed(gpu->contents(negative.buf.get()), negative.bytes(), error);
-    if (!kept.buf) return false;
+    kept.buf = gpu->alloc_file_backed(negative.bytes(), error);
+    if (!kept.buf || !gpu->copy(kept.buf.get(), 0, negative.buf.get(), 0,
+                                negative.bytes(), error)) return false;
     state.negative = kept;
     state.has_negative = true;
     out = kept;
@@ -1090,12 +1107,20 @@ bool materialise(spk_session* session, const Image& rgb, spk_result* out, std::s
                              gpu::Arg::buf(buffer)},
                             rgb.pixels(), error) && gpu->flush(error);
     if (ok) {
-        out->rgba16 = static_cast<const uint16_t*>(gpu->contents(buffer.get()));
         out->width = rgb.w;
         out->height = rgb.h;
         out->row_stride_px = stride;
         out->texture = gpu->texture(buffer.get(), rgb.w, rgb.h, stride, error);
         ok = out->texture != nullptr;
+#ifdef _WIN32
+        // The headless Vulkan result owns a separate CPU copy. The dispatch
+        // buffer is released when this function returns.
+        if (ok) out->rgba16 = static_cast<const uint16_t*>(out->texture);
+#else
+        // Metal textures retain shared storage; this view stays valid for
+        // exactly the texture's lifetime without a host readback.
+        if (ok) out->rgba16 = static_cast<const uint16_t*>(gpu->contents(buffer.get()));
+#endif
     }
     // Drop the engine's reference either way. On success the texture still
     // holds one, so the buffer lives; on failure it dies here.
@@ -1475,7 +1500,7 @@ spk_status spk_preview_stock_lut(spk_session* session, const char* print_stock,
         reply.set("print_stock", Json(lut->stock));
         reply.set("tier", Json(std::string(tier->name)));
         reply.set("apply_ms", Json(apply_ms));
-        reply.set("apply_backend", Json(std::string("native-metal")));
+        reply.set("apply_backend", Json(std::string(kRenderCore)));
         reply.set("lut_source", Json(std::string("shipped")));
         reply.set("paired_film", Json(lut->paired_film));
         reply.set("declared_pairing", Json(lut->declared_pairing));

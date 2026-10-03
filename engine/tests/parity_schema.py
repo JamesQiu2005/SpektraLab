@@ -25,6 +25,8 @@ from pathlib import Path
 
 import numpy as np
 
+from spk_test_paths import add_resource_argument, default_binary, resolve_resources
+
 ENGINE = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ENGINE.parent / "src"))
 
@@ -245,9 +247,10 @@ def check_pairs(got: dict) -> int:
 
 def main() -> int:
     ap = argparse.ArgumentParser()
-    ap.add_argument("--binary", type=Path, default=ENGINE / "build" / "dump_json")
+    ap.add_argument("--binary", type=Path, default=default_binary("dump_json"))
+    add_resource_argument(ap)
     args = ap.parse_args()
-    out = subprocess.run([str(args.binary), str(ENGINE / "resources")],
+    out = subprocess.run([str(args.binary), str(resolve_resources(args.resources))],
                          check=True, capture_output=True, text=True).stdout
     got = json.loads(out)
     failures = check_schema(got["schema"]) + check_pairs(got["pairs"])

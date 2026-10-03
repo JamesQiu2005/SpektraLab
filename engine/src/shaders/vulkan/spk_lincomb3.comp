@@ -1,0 +1,19 @@
+#version 450
+
+// Per-channel linear combination, including the blur-mixture and unsharp
+// mask paths. Matches blur.metal's scalar operation and binding order.
+layout(local_size_x = 256) in;
+layout(set = 0, binding = 0, std430) readonly buffer X { float value[]; } x_data;
+layout(set = 0, binding = 1, std430) readonly buffer Y { float value[]; } y_data;
+layout(set = 0, binding = 2, std430) readonly buffer A { float value[]; } a_data;
+layout(set = 0, binding = 3, std430) readonly buffer B { float value[]; } b_data;
+layout(set = 0, binding = 4, std430) readonly buffer Count { uint value[]; } count_data;
+layout(set = 0, binding = 5, std430) writeonly buffer Output { float value[]; } output_data;
+
+void main() {
+    uint i = gl_GlobalInvocationID.x;
+    if (i >= count_data.value[0]) return;
+    uint channel = i % 3u;
+    output_data.value[i] = a_data.value[channel] * x_data.value[i]
+                         + b_data.value[channel] * y_data.value[i];
+}

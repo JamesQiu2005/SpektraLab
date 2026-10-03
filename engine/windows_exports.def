@@ -1,0 +1,27 @@
+LIBRARY spektrafilm_engine
+EXPORTS
+    spk_engine_create
+    spk_engine_destroy
+    spk_capabilities
+    spk_params_schema
+    spk_memory_report
+    spk_warm_up
+    spk_open
+    spk_open_device
+    spk_set_params
+    spk_get_params
+    spk_solve
+    spk_reprint
+    spk_render
+    spk_print_lut_catalog
+    spk_print_lut_table
+    spk_preview_stock_lut
+    spk_export_di
+    spk_output_transform
+    spk_result_free
+    spk_session_release
+    spk_cancel
+    spk_progress
+    spk_string_free
+    spk_last_error
+    spk_build_info

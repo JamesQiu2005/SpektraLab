@@ -1,0 +1,105 @@
+#version 450
+
+// nodes.metal::spk_geometry_resample_df, packed RGB and the same float-pair
+// coordinate arithmetic. Do not collapse the pairs to float32: long axes lose
+// fractional coordinates. Only the explicit fma in two_prod may be fused.
+layout(local_size_x = 256) in;
+layout(set = 0, binding = 0, std430) readonly buffer Input { float value[]; } image_data;
+layout(set = 0, binding = 1, std430) readonly buffer Geometry { float value[]; } geometry;
+layout(set = 0, binding = 2, std430) readonly buffer Meta { uint value[]; } meta;
+layout(set = 0, binding = 3, std430) writeonly buffer Output { float value[]; } output_data;
+
+vec2 two_sum(float a, float b) {
+    precise float s = a + b;
+    precise float bb = s - a;
+    precise float e = (a - (s - bb)) + (b - bb);
+    return vec2(s, e);
+}
+
+vec2 quick_two_sum(float a, float b) {
+    precise float s = a + b;
+    precise float e = b - (s - a);
+    return vec2(s, e);
+}
+
+vec2 two_prod(float a, float b) {
+    precise float p = a * b;
+    precise float e = fma(a, b, -p);
+    return vec2(p, e);
+}
+
+vec2 df_add(vec2 a, vec2 b) {
+    vec2 s = two_sum(a.x, b.x);
+    vec2 t = two_sum(a.y, b.y);
+    precise float lo = s.y + t.x;
+    s = quick_two_sum(s.x, lo);
+    precise float final_lo = s.y + t.y;
+    return quick_two_sum(s.x, final_lo);
+}
+
+vec2 df_sub(vec2 a, vec2 b) { return df_add(a, -b); }
+
+vec2 df_mul(vec2 a, vec2 b) {
+    vec2 p = two_prod(a.x, b.x);
+    precise float cross_terms = a.x * b.y + a.y * b.x;
+    precise float lo = p.y + cross_terms;
+    return quick_two_sum(p.x, lo);
+}
+
+vec2 df_mul_f(vec2 a, float b) {
+    vec2 p = two_prod(a.x, b);
+    precise float lo = p.y + a.y * b;
+    return quick_two_sum(p.x, lo);
+}
+
+vec2 pair_at(uint index) {
+    return vec2(geometry.value[2u * index], geometry.value[2u * index + 1u]);
+}
+
+void main() {
+    uint i = gl_GlobalInvocationID.x;
+    uint sh = meta.value[0], sw = meta.value[1];
+    uint oh = meta.value[2], ow = meta.value[3];
+    uint turns = meta.value[4], flips = meta.value[5];
+    if (i >= oh * ow) return;
+    uint oy = i / ow, ox = i % ow;
+    precise float u = float(ox) + 0.5;
+    precise float v = float(oy) + 0.5;
+    if ((flips & 1u) != 0u) u = float(ow) - u;
+    if ((flips & 2u) != 0u) v = float(oh) - v;
+    float t;
+    switch (turns) {
+        case 1u: t = u; u = v; v = float(ow) - t; break;
+        case 2u: u = float(ow) - u; v = float(oh) - v; break;
+        case 3u: t = u; u = float(oh) - v; v = t; break;
+        default: break;
+    }
+    vec2 px = df_sub(df_mul_f(pair_at(0u), u), pair_at(2u));
+    vec2 py = df_sub(df_mul_f(pair_at(1u), v), pair_at(3u));
+    vec2 ca = pair_at(6u), sa = pair_at(7u);
+    vec2 fx = df_add(pair_at(4u), df_sub(df_mul(px, ca), df_mul(py, sa)));
+    vec2 fy = df_add(pair_at(5u), df_add(df_mul(px, sa), df_mul(py, ca)));
+    float w1 = float(sw) - 1.0, h1 = float(sh) - 1.0;
+    float x0f, y0f;
+    precise float tx, ty;
+    // Match Metal's high-word boundary decisions, including a high word that
+    // rounds to an integer while the residual lies immediately below it.
+    if (fx.x <= 0.0) { x0f = 0.0; tx = 0.0; }
+    else if (fx.x >= w1) { x0f = w1; tx = 0.0; }
+    else { x0f = floor(fx.x); tx = clamp((fx.x - x0f) + fx.y, 0.0, 1.0); }
+    if (fy.x <= 0.0) { y0f = 0.0; ty = 0.0; }
+    else if (fy.x >= h1) { y0f = h1; ty = 0.0; }
+    else { y0f = floor(fy.x); ty = clamp((fy.x - y0f) + fy.y, 0.0, 1.0); }
+    uint x0 = uint(x0f), y0 = uint(y0f);
+    uint x1 = min(x0 + 1u, sw - 1u), y1 = min(y0 + 1u, sh - 1u);
+    for (uint c = 0u; c < 3u; ++c) {
+        float a = image_data.value[3u * (y0 * sw + x0) + c];
+        float b = image_data.value[3u * (y0 * sw + x1) + c];
+        float d = image_data.value[3u * (y1 * sw + x0) + c];
+        float e = image_data.value[3u * (y1 * sw + x1) + c];
+        precise float top = a * (1.0 - tx) + b * tx;
+        precise float bot = d * (1.0 - tx) + e * tx;
+        precise float result = top * (1.0 - ty) + bot * ty;
+        output_data.value[3u * i + c] = result;
+    }
+}

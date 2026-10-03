@@ -1,4 +1,4 @@
-// blob.hpp -- the baked constants, mmapped and looked up by name.
+// blob.hpp -- the baked constants, mapped and looked up by name.
 //
 // `engine/tools/bake_resources.py` writes it; this reads it. Every entry is
 // returned as float64 whatever it was stored as, because the reference
@@ -52,7 +52,12 @@ private:
 
     const uint8_t* base_ = nullptr;
     size_t size_ = 0;
+#ifdef _WIN32
+    void* file_handle_ = nullptr;
+    void* mapping_handle_ = nullptr;
+#else
     int fd_ = -1;
+#endif
     std::vector<BlobEntry> entries_;
 };
 

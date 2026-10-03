@@ -1,11 +1,20 @@
 #include "blob.hpp"
 
+#ifdef _WIN32
+#ifndef NOMINMAX
+#define NOMINMAX
+#endif
+#include <windows.h>
+#else
 #include <fcntl.h>
 #include <sys/mman.h>
 #include <sys/stat.h>
 #include <unistd.h>
+#endif
 
+#include <cmath>
 #include <cstring>
+#include <limits>
 
 namespace spk {
 
@@ -28,21 +37,61 @@ double half_to_double(uint16_t h) {
     const uint32_t man = uint32_t(h) & 0x3FFu;
     double value;
     if (exp == 0) value = man == 0 ? 0.0 : double(man) * 5.9604644775390625e-08;  // 2^-24
-    else if (exp == 31) value = man == 0 ? __builtin_inf() : __builtin_nan("");
+    else if (exp == 31) value = man == 0 ? std::numeric_limits<double>::infinity()
+                                       : std::numeric_limits<double>::quiet_NaN();
     else {
         const int e = int(exp) - 15;
-        value = (1.0 + double(man) / 1024.0) * __builtin_ldexp(1.0, e);
+        value = (1.0 + double(man) / 1024.0) * std::ldexp(1.0, e);
     }
     return sign ? -value : value;
 }
 }  // namespace
 
 Blob::~Blob() {
+#ifdef _WIN32
+    if (base_) ::UnmapViewOfFile(base_);
+    if (mapping_handle_) ::CloseHandle(static_cast<HANDLE>(mapping_handle_));
+    if (file_handle_) ::CloseHandle(static_cast<HANDLE>(file_handle_));
+#else
     if (base_) ::munmap(const_cast<uint8_t*>(base_), size_);
     if (fd_ >= 0) ::close(fd_);
+#endif
 }
 
 bool Blob::open(const std::string& path, std::string& error) {
+#ifdef _WIN32
+    // The C API passes UTF-8 paths. Keep Windows conversion at the file boundary.
+    const int length = ::MultiByteToWideChar(CP_UTF8, MB_ERR_INVALID_CHARS,
+                                             path.c_str(), -1, nullptr, 0);
+    if (length == 0) { error = "invalid UTF-8 path: " + path; return false; }
+    std::wstring wide(static_cast<size_t>(length), L'\0');
+    if (::MultiByteToWideChar(CP_UTF8, MB_ERR_INVALID_CHARS, path.c_str(), -1,
+                              wide.data(), length) == 0) {
+        error = "invalid UTF-8 path: " + path;
+        return false;
+    }
+    file_handle_ = ::CreateFileW(wide.c_str(), GENERIC_READ, FILE_SHARE_READ, nullptr,
+                                 OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, nullptr);
+    if (file_handle_ == INVALID_HANDLE_VALUE) {
+        file_handle_ = nullptr;
+        error = "cannot open " + path;
+        return false;
+    }
+    LARGE_INTEGER file_size {};
+    if (!::GetFileSizeEx(static_cast<HANDLE>(file_handle_), &file_size) ||
+        file_size.QuadPart < 16 ||
+        static_cast<uint64_t>(file_size.QuadPart) > std::numeric_limits<size_t>::max()) {
+        error = "cannot stat " + path;
+        return false;
+    }
+    size_ = static_cast<size_t>(file_size.QuadPart);
+    mapping_handle_ = ::CreateFileMappingW(static_cast<HANDLE>(file_handle_), nullptr,
+                                            PAGE_READONLY, 0, 0, nullptr);
+    if (!mapping_handle_) { error = "cannot map " + path; return false; }
+    base_ = static_cast<const uint8_t*>(
+        ::MapViewOfFile(static_cast<HANDLE>(mapping_handle_), FILE_MAP_READ, 0, 0, 0));
+    if (!base_) { error = "cannot map " + path; return false; }
+#else
     fd_ = ::open(path.c_str(), O_RDONLY);
     if (fd_ < 0) { error = "cannot open " + path; return false; }
     struct stat st {};
@@ -51,6 +100,7 @@ bool Blob::open(const std::string& path, std::string& error) {
     void* m = ::mmap(nullptr, size_, PROT_READ, MAP_PRIVATE, fd_, 0);
     if (m == MAP_FAILED) { error = "cannot map " + path; return false; }
     base_ = static_cast<const uint8_t*>(m);
+#endif
 
     if (std::memcmp(base_, kMagic, 4) != 0) { error = path + ": not a spektrafilm resource blob"; return false; }
     uint32_t version, count;
