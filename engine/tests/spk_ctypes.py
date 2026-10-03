@@ -262,6 +262,14 @@ class Session:
             return np.zeros((0, 0), np.float32)
         return np.ctypeslib.as_array(ptr, shape=(gh.value * gw.value,)).reshape(gh.value, gw.value).copy()
 
+    def overscan_geometry(self) -> dict:
+        out = ctypes.c_char_p()
+        self._engine._lib.spk_overscan_geometry.restype = ctypes.c_int32
+        self._engine._lib.spk_overscan_geometry.argtypes = [ctypes.c_void_p, ctypes.POINTER(ctypes.c_char_p)]
+        if self._engine._lib.spk_overscan_geometry(self._handle, ctypes.byref(out)) != SPK_OK:
+            raise EngineError(self._engine._last_error())
+        return self._engine._take_json(out)
+
     def scene_latitude(self, request: dict | None = None) -> dict:
         out = ctypes.c_char_p()
         body = json.dumps(request).encode() if request else None

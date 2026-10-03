@@ -225,6 +225,15 @@ spk_status spk_contrast_mask_field(spk_session* session, const char* tier, const
  * sends to `spk_set_params` to commit it (API-SPEC §12). */
 spk_status spk_scene_latitude(spk_session* session, const char* request_json, char** out_json);
 
+/* RFC-032: where the gates are on the film canvas the session's last render
+ * laid out (API-SPEC §13). `out_json`: `{"valid": false}` with overscan off or
+ * before a render; else `canvas_w`, `canvas_h`, `mm_per_px`, `vertical`,
+ * `format`, `gate_mm`, `penumbra_mm` and `gates` -- one quad per gate (two for
+ * a pair), eight numbers each: its corners normalised to the canvas, in the
+ * film's order (s0,t0), (s1,t0), (s1,t1), (s0,t1). Normalised, so the same
+ * quads hold at every tier. Never renders. */
+spk_status spk_overscan_geometry(spk_session* session, char** out_json);
+
 /* Tiers are the three API-SPEC §6 names: "live", "preview", "full". */
 spk_status spk_reprint(spk_session* session, const char* tier, spk_result* out);
 spk_status spk_render(spk_session* session, const char* tier, spk_result* out);

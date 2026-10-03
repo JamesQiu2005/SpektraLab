@@ -178,6 +178,10 @@ struct OverscanParams {
     // What a strip scan shows past the film's long edges (answer sheet C3):
     // black (a carrier) | open (the scan's light).
     std::string carrier = "black";
+    // A half-frame pair (135_half, held level): the input carries both
+    // pictures, the second starting one advance (19.00 mm) along the film,
+    // and the gate is exposed twice on one strip.
+    bool pair = false;
 };
 
 // RFC-031: the date back, exposed onto the negative from behind. 135 only by
@@ -186,6 +190,7 @@ struct OverscanParams {
 struct DateImprintParams {
     bool active = false;
     std::string text;                // already formatted, e.g. "'26 9 28"
+    std::string text_b;              // a pair's second frame's date; empty = none on it
     std::string placement = "frame";
     double exposure_ev = 3.5;        // red-layer exposure above 18 % grey (RFC-031 §3.3)
     // RFC-031 §8 (2026-10-01): three faces of one mechanism. lcd = seven

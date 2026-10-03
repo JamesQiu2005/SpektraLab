@@ -703,6 +703,7 @@ and RFC-031 (the date back).
 | `overscan_frame_seed` | `…overscan.frame_seed` | int | `1` | 0–2³¹−1 | **the advance and the scan**: weave, advance error, scan rotation, leaks, and which numbers are on the edge when `overscan_frame_number` is 0 |
 | `overscan_frame_number` | `…overscan.frame_number` | int | `0` | 0–99 | **the frame's number on the edge print** (2026-10-03). `0`: the frame seed's draw, byte for byte. Set: this frame's own mark — the 135 `N`/`NA` pair, the digit by Kodak 120's triangle, Fujifilm 120's number — with its neighbours counting from it and nothing drawn below 1. Kodak 120's counting-edge numbers ("51 / 52") are the roll's, not the frame's, and stay seeded. The last native field, after `antihalation_removed` |
 | `overscan_carrier` | `…overscan.carrier` | str | `"black"` | `black` \| `open` | **what a strip scan shows past the film's long edges** (2026-10-03). The canvas reaches 0.40 mm past each edge; `black` is a carrier, `open` the scan's light. Nothing on the film changes with it. `filed` never reaches the edge |
+| `overscan_pair` | `…overscan.pair` | bool | `false` | — | **a half-frame pair on one strip** (2026-10-03). `135_half` only, held level only (anything else is refused). The input carries both pictures at the gate's height: the first 18 mm wide, the second starting **19.00 mm** (one advance of 4 perforations) along, so the frame is 37 × 24. The gate is exposed twice; the gap between is unexposed film; the edge print, fog, leaks and halation run across both as on one piece of film |
 | `overscan_fog` | `…overscan.fog` | float | `1.0` | 0–4 | edge fog's strength; 0 = none (see *Edge light* below) |
 | `overscan_leaks` | `…overscan.leaks` | float | `0.0` | 0–4 | spool light leaks: their count and strength; 0 = none (see *Edge light* below) |
 | `overscan_edge_text` | `…overscan.edge_text` | str | `""` | — | the stock's edge print. **The host chooses** real names (desktop) or display names (mobile, `STOCK-NAMES.md`) |
@@ -715,6 +716,7 @@ and RFC-031 (the date back).
 | `date_imprint_active` | `film_render.date_imprint.active` | bool | `false` | — | the switch; works with overscan off (in the frame) or on |
 | `date_imprint_style` | `…date_imprint.style` | str | `"lcd"` | `lcd` \| `dots` \| `data` | seven segments, slanted; an upright 5×7 dot matrix; shooting data in a 5×7 face |
 | `date_imprint_text` | `…date_imprint.text` | str | `""` | — | **formatted by the host**: `'26 10 1`, or `Av 1/125 F2.8 +1.0Ev 45mm SPOT ISO 200` for `data`. The 5×7 face draws 0–9, A–Z, m v s and `. / - + : ' ( )`; anything else is a space |
+| `date_imprint_text_b` | `…date_imprint.text_b` | str | `""` | — | a pair's second frame's date, placed in its own gate with the same face, corner and insets. Empty: none on it. Ignored without `overscan_pair` |
 | `date_imprint_placement` | `…date_imprint.placement` | str | `"frame"` | `frame` \| `rebate` | `lcd`/`dots`: in the picture, or between frames (needs overscan) |
 | `date_imprint_corner` | `…date_imprint.corner` | str | `"br"` | `br` \| `bl` \| `tr` \| `tl` | frame placement, in the **film's** frame (the camera held level), never the picture's: on a turned full frame the date turns with the camera (below) |
 | `date_imprint_inset_x` | `…date_imprint.inset_x` | float | `3.0` | 0–30 | mm from the gate's side to the text |
@@ -878,13 +880,20 @@ reasoning: RFC-032 §25, §27.
   seed's draw, a number set changes the edge, two numbers differ) on three
   layouts. 63 checks.
 
+**`spk_overscan_geometry(session, char** out_json)`** (2026-10-03) returns where
+the gates are on the canvas the session's last render laid out: `valid`,
+`canvas_w`, `canvas_h`, `mm_per_px`, `vertical`, `format`, `gate_mm`,
+`penumbra_mm` and `gates` -- one quad per gate (two for a pair), eight numbers
+each: the corners normalised to the canvas (so they hold at every tier), in
+the film's order (s0,t0), (s1,t0), (s1,t1), (s0,t1). `{"valid": false}` with
+overscan off or before a render. It never renders. A host uses it to keep a
+crop overlay, a meter or a per-gate print cut on the picture and off the
+rebate. The quad is the gate's nominal rectangle; the gate's own corners, ears
+and penumbra are inside a few tenths of a millimetre of it.
+
 **Proposed, not implemented** (for the frontend contract):
 
-1. `spk_overscan_geometry(session, tier, char** out_json)` returns the
-   canvas size, mm per pixel, the picture's quad in canvas pixels, the film's
-   direction and the gate family drawn. A host needs it to keep the crop
-   overlay, histogram region and tap-to-meter on the picture and off the
-   rebate.
+1. A per-gate Scene Placement for a pair (the half-frame pair's E3).
 2. A per-render diagnostic when a date is asked for but not drawn (wrong
    format or style), so the UI can grey the control instead of failing
    silently.

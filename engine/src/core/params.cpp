@@ -177,6 +177,10 @@ const SchemaField kFields[] = {
     // What a strip scan shows past the film's long edges. Native-only, SHOOT,
     // after `overscan_frame_number`.
     {"overscan_carrier",         "film_render.overscan.carrier",          S, SHOOT, false, 0, 0, false},
+    // A half-frame pair on one strip, and its second frame's date. Native-only,
+    // SHOOT, after `overscan_carrier`.
+    {"overscan_pair",            "film_render.overscan.pair",             B, SHOOT, false, 0, 0, false},
+    {"date_imprint_text_b",      "film_render.date_imprint.text_b",       S, SHOOT, false, 0, 0, false},
     // The app's *preview resolution*: the `live` tier's long edge, and so the
     // size every interactive edit renders at. PRINT layer, because it is a
     // decision about the canvas rather than about the film -- but it is one of
@@ -264,6 +268,7 @@ bool* bool_slot(Params& p, const std::string& path) {
     if (path == "print_render.contrast_mask.active") return &p.print_render.contrast_mask.active;
     if (path == "camera.scene_latitude.active") return &p.camera.scene_latitude.active;
     if (path == "film_render.overscan.active") return &p.film_render.overscan.active;
+    if (path == "film_render.overscan.pair") return &p.film_render.overscan.pair;
     if (path == "film_render.date_imprint.active") return &p.film_render.date_imprint.active;
     return nullptr;
 }
@@ -281,6 +286,7 @@ std::string* str_slot(Params& p, const std::string& path) {
     if (path == "film_render.overscan.mode") return &p.film_render.overscan.mode;
     if (path == "film_render.overscan.edge_text") return &p.film_render.overscan.edge_text;
     if (path == "film_render.date_imprint.text") return &p.film_render.date_imprint.text;
+    if (path == "film_render.date_imprint.text_b") return &p.film_render.date_imprint.text_b;
     if (path == "film_render.date_imprint.placement") return &p.film_render.date_imprint.placement;
     if (path == "film_render.date_imprint.style") return &p.film_render.date_imprint.style;
     if (path == "film_render.date_imprint.corner") return &p.film_render.date_imprint.corner;

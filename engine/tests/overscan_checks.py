@@ -436,6 +436,60 @@ def main():
             ll = rr[..., :3].astype(float).mean(-1)
             worst = max(worst, (ll[0] > 0.02 * 65535).mean(), (ll[-1] > 0.02 * 65535).mean())
         check("6x17 never tilts its film out of the carrier (24 frames)", worst < 0.15, f"{worst:.3f} of an edge row")
+        # --- the half-frame pair: two exposures of one gate on one strip, and
+        # where the gates are (spk_overscan_geometry) ---------------------------
+        def geometry(img_, extra):
+            p = dict(BASE); p.update(extra)
+            s = e.open(img_, p)
+            try:
+                r_, _ = s.render("live")
+                return r_, s.overscan_geometry()
+            finally:
+                s.close()
+        hw, hh = 450, 600                                   # one half frame, 18 x 24
+        adv = int(round(19.0 / (18.0 / hw)))                # the advance, in picture pixels
+        both = np.zeros((hh, adv + hw, 3), np.float32)
+        both[:, :hw] = frame(hw, hh, 1); both[:, adv:] = 0.6 * frame(hw, hh, 2)
+        PAIR = {"overscan_active": True, "overscan_format": "135_half", "overscan_pair": True,
+                "overscan_edge_text": "KODAK PORTRA 400"}
+        pr, pg = geometry(both, PAIR)
+        check("a pair renders one strip with two gates", pg.get("valid") and len(pg["gates"]) == 2, str(pg)[:120])
+        ch_, cw_ = pr.shape[:2]
+        widths = [(g[2] - g[0]) * cw_ for g in pg["gates"]]
+        heights = [(g[7] - g[1]) * ch_ for g in pg["gates"]]
+        check("each gate is one half frame on the canvas", all(abs(w_ - hw) < 3 for w_ in widths) and all(abs(h_ - hh) < 3 for h_ in heights),
+              f"{widths} x {heights}")
+        step = (pg["gates"][1][0] - pg["gates"][0][0]) * cw_
+        check("the gates are one advance apart", abs(step - adv) < 2, f"{step:.1f} px for {adv}")
+        # the gap between them is unexposed film: as dark as the rebate, and the pictures are not
+        lum = pr[..., :3].astype(float).mean(-1)
+        gx = int((pg["gates"][0][2] + pg["gates"][1][0]) * 0.5 * cw_)
+        gy0, gy1 = int(pg["gates"][0][1] * ch_) + 20, int(pg["gates"][0][7] * ch_) - 20
+        inside = lum[gy0:gy1, int(pg["gates"][0][0] * cw_) + 20:int(pg["gates"][0][2] * cw_) - 20].mean()
+        check("the gap between the frames is unexposed film", lum[gy0:gy1, gx].mean() < 0.35 * inside,
+              f"gap {lum[gy0:gy1, gx].mean():.0f}, picture {inside:.0f}")
+        _, sg = geometry(frame(hw, hh), {"overscan_active": True, "overscan_format": "135_half"})
+        check("a single frame has one gate", sg.get("valid") and len(sg["gates"]) == 1)
+        _, og = geometry(img, {})
+        check("no geometry with overscan off", og == {"valid": False}, str(og))
+        d0 = render(e, both, dict(PAIR, date_imprint_active=True, date_imprint_text="'26 10 1"))
+        d1 = render(e, both, dict(PAIR, date_imprint_active=True, date_imprint_text="'26 10 1", date_imprint_text_b="'26 10 3"))
+        dd = np.abs(d1.astype(int) - d0.astype(int))[..., :3].sum(-1)
+        ys, xs = np.nonzero(dd > 2000)
+        check("the second frame carries its own date, in its own gate",
+              len(xs) > 30 and xs.min() > pg["gates"][1][0] * cw_ and xs.max() < pg["gates"][1][2] * cw_,
+              f"{len(xs)} px, x {xs.min() if len(xs) else -1}-{xs.max() if len(xs) else -1}")
+        for bad, why in ((dict(PAIR, overscan_format="135"), "135_half"), ):
+            try:
+                render(e, both, bad)
+                check("a pair on another format is refused", False, "it rendered")
+            except spk.EngineError as err:
+                check("a pair on another format is refused", why in str(err), str(err)[:80])
+        try:
+            render(e, np.ascontiguousarray(both.transpose(1, 0, 2)), PAIR)
+            check("a turned pair is refused (held level only)", False, "it rendered")
+        except spk.EngineError as err:
+            check("a turned pair is refused (held level only)", "held level" in str(err) or "shape" in str(err), str(err)[:80])
 
     print(f"{failures} failure(s)")
     return 1 if failures else 0

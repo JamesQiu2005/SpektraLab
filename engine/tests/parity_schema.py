@@ -270,6 +270,15 @@ NATIVE_ONLY = {
         "path": "film_render.overscan.carrier", "type": "str", "layer": "shoot",
         "default": "black", "live": False, "range": None,
     },
+    # A half-frame pair on one strip, and its second frame's date.
+    "overscan_pair": {
+        "path": "film_render.overscan.pair", "type": "bool", "layer": "shoot",
+        "default": False, "live": False, "range": None,
+    },
+    "date_imprint_text_b": {
+        "path": "film_render.date_imprint.text_b", "type": "str", "layer": "shoot",
+        "default": '', "live": False, "range": None,
+    },
 }
 
 

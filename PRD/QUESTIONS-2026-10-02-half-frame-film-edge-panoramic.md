@@ -224,7 +224,7 @@ rec: (a), unless you want real marks on desktop.
 - (b) Held level first, turned later.
 
 rec: (b).
-**Answer:**
+**Answer:** (b) — held level first (2026-10-03)
 
 **B18. Single half frames.** Should `135_half` also appear in the desktop Film Edge Format menu for a single
 frame, not only in pairs?

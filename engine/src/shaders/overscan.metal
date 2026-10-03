@@ -31,7 +31,8 @@ enum : uint {
     P_WALL_T = 190, P_WALL_VS, P_WALL_VT, P_WALL_PAR, P_BASE_R, P_BASE_G, P_BASE_B, P_WALL_GLOW, P_WALL_SCATTER,
     P_CARRIER = 199,
     P_LEAKS = 200,          // up to 12 x (s, side, amp, sigma_s, sigma_t)
-    P_COUNT = 260
+    P_PAIR_ADV = 260,       // > 0: the same gate exposed again this far along (a half-frame pair)
+    P_COUNT = 261
 };
 constant uint kQStride = 10u;
 
@@ -152,7 +153,11 @@ kernel void spk_overscan_canvas(device const float* frame [[buffer(0)]],
     const float W = P[P_FILM_W];
     float3 e = float3(0.0f);
     if (st.y >= 0.0f && st.y <= W) {
-        const float cov = penumbra(gate_sdf(st, P), P[P_PENUMBRA]);
+        // A pair: past the middle of the gap, the second exposure of the same gate.
+        float2 sg = st;
+        float shift = 0.0f;
+        if (P[P_PAIR_ADV] > 0.0f && st.x > P[P_GS0] + 0.5f * (P[P_GW] + P[P_PAIR_ADV])) { shift = P[P_PAIR_ADV]; sg.x -= shift; }
+        const float cov = penumbra(gate_sdf(sg, P), P[P_PENUMBRA]);
         if (cov > 0.0f) {
             const float px = P[P_PX];
             float fx, fy;
@@ -163,10 +168,10 @@ kernel void spk_overscan_canvas(device const float* frame [[buffer(0)]],
         // Gate flare: the gate's bevelled edge reflects scene light onto the
         // film just outside the frame -- a thin line that follows the scene's
         // brightness along the edge (bright sky, bright line).
-        const float d_gate = gate_sdf(st, P);
+        const float d_gate = gate_sdf(sg, P);
         if (P[P_FLARE_AMP] > 0.0f && d_gate > -0.02f && d_gate < 6.0f * P[P_FLARE_WIDTH]) {
             const float px = P[P_PX];
-            const float in_s = clamp(st.x, P[P_GS0] + 0.12f, P[P_GS0] + P[P_GW] - 0.12f);
+            const float in_s = clamp(sg.x, P[P_GS0] + 0.12f, P[P_GS0] + P[P_GW] - 0.12f) + shift;
             const float in_t = clamp(st.y, P[P_GT0] + 0.12f, P[P_GT0] + P[P_GH] - 0.12f);
             float fx, fy;
             if (P[P_VERTICAL] < 0.5f) { fx = (in_s - P[P_GS0]) / px - 0.5f; fy = (in_t - P[P_GT0]) / px - 0.5f; }

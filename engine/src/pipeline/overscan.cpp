@@ -57,11 +57,14 @@ enum OsP : int {
     P_WALL_T = 190, P_WALL_VS, P_WALL_VT, P_WALL_PAR, P_BASE_R, P_BASE_G, P_BASE_B, P_WALL_GLOW, P_WALL_SCATTER,
     P_CARRIER = 199,
     P_LEAKS = 200,          // up to kMaxLeaks x (s, side, amp, sigma_s, sigma_t)
-    P_COUNT = 260
+    P_PAIR_ADV = 260,       // > 0: the same gate exposed again this far along (a half-frame pair)
+    P_COUNT = 261
 };
 constexpr int kMaxLeaks = 12;
 // How far past each long edge of the film a strip scan reaches, mm.
 constexpr double kCarrierMM = 0.40;
+// A half-frame camera advances 4 perforations between exposures.
+constexpr double kPairAdvanceMM = 19.0;
 constexpr int kMaxQuads = 8;
 constexpr double kMidGrey = 0.184;
 
@@ -449,6 +452,9 @@ bool Pipeline::overscan_wanted() const {
 
 double Pipeline::overscan_gate_long_mm() const {
     const Format* f = find_format(params_.film_render.overscan.format);
+    // A half-frame pair: the input carries both pictures, the second one
+    // advance along, so its long edge is the gate and the advance together.
+    if (f && params_.film_render.overscan.pair) return f->along + kPairAdvanceMM;
     return f ? std::max(f->across, f->along) : params_.camera.film_format_mm;
 }
 
@@ -483,7 +489,13 @@ bool Pipeline::overscan_layout(uint32_t frame_w, uint32_t frame_h, std::string& 
     // to be the gate's, either way up. Any other shape was laid out as if it
     // were, and the picture was cut by the film's width.
     {
-        const double gate_long = std::max(fmt->along, fmt->across), gate_short = std::min(fmt->along, fmt->across);
+        const bool pair = o.pair;
+        if (pair && std::string(fmt->name) != "135_half") {
+            error = "overscan: a pair is two half frames; overscan_pair needs overscan_format = 135_half";
+            return false;
+        }
+        const double gate_long = pair ? fmt->along + kPairAdvanceMM : std::max(fmt->along, fmt->across);
+        const double gate_short = pair ? fmt->across : std::min(fmt->along, fmt->across);
         const double frame_long = std::max(frame_w, frame_h), frame_short = std::max(1u, std::min(frame_w, frame_h));
         const double ratio = (frame_long / frame_short) / (gate_long / gate_short);
         if (std::fabs(ratio - 1.0) > 0.05) {
@@ -506,6 +518,13 @@ bool Pipeline::overscan_layout(uint32_t frame_w, uint32_t frame_h, std::string& 
     // 6x7 all run vertically. Square frames run horizontally.
     L.vertical = std::fabs(img_w - fmt->across) < std::fabs(img_h - fmt->across) && std::fabs(img_w - img_h) > 1e-6;
     L.gate_along = L.vertical ? img_h : img_w;
+    if (o.pair) {
+        // Held level only (answer B17): the two frames side by side, the film
+        // running across the picture.
+        if (L.vertical) { error = "overscan: a pair is rendered held level (the film along the picture's long edge)"; return false; }
+        L.pair_adv = kPairAdvanceMM;
+        L.gate_along -= L.pair_adv;
+    }
     L.gate_across = L.vertical ? img_w : img_h;
 
     const uint64_t cam = uint64_t(uint32_t(o.camera_seed)), frm = uint64_t(uint32_t(o.frame_seed));
@@ -771,6 +790,7 @@ void Pipeline::overscan_params_block(std::vector<float>& P) const {
     P[P_ROUGH_AMP] = float(L.rough_amp); P[P_ROUGH_PERIOD] = float(L.rough_period); P[P_ROUGH_SEED] = float(L.rough_seed);
     P[P_HOLES_LIGHT] = L.holes_light ? 1.0f : 0.0f;
     P[P_CARRIER] = L.carrier_open ? 1.0f : 0.0f;
+    P[P_PAIR_ADV] = float(L.pair_adv);
     for (int c = 0; c < 3; ++c) P[P_LIGHT_R + c] = float(L.light_rgb[c]);
     P[P_PERF_SEED] = float(L.perf_seed); P[P_LIGHT_FALL] = float(L.light_fall); P[P_LIGHT_DIR] = float(L.light_dir);
     P[P_WALL_T] = float(L.wall_t); P[P_WALL_VS] = float(L.wall_tilt[0]); P[P_WALL_VT] = float(L.wall_tilt[1]);
@@ -1538,7 +1558,7 @@ void imprint_groups(const OverscanLayout& L, const Params& params, double frame_
 
     const double gw = L.valid ? L.gate_along : frame_w_mm, gh = L.valid ? L.gate_across : frame_h_mm;
     const double gs = L.valid ? L.gate_s0 : 0.0, gt = L.valid ? L.gate_t0 : 0.0;
-    const double gap = L.valid ? std::max(0.6, (L.vertical ? L.canvas_h : L.canvas_w) * L.px - L.gate_along) * 0.5 : 0.0;
+    const double gap = L.valid ? std::max(0.6, (L.vertical ? L.canvas_h : L.canvas_w) * L.px - L.gate_along - L.pair_adv) * 0.5 : 0.0;
     if (data && fmt == "120_645") {
         // 645N: one line in the margin beside the frame, reading along the
         // film, ~0.3 mm off the gate, on the side away from the stock name.
@@ -1589,6 +1609,38 @@ void imprint_groups(const OverscanLayout& L, const Params& params, double frame_
 }
 
 }  // namespace
+
+// Where the gates are on the canvas the last film run laid out, for a host
+// that has to keep its own marks -- a crop overlay, a meter, a print cut per
+// gate -- on the picture and off the rebate. Corners are normalised to the
+// canvas (0..1, so they hold at every tier), in the order the film sees them:
+// (s0, t0), (s1, t0), (s1, t1), (s0, t1). One gate, or two for a pair.
+std::string Pipeline::overscan_geometry_json() const {
+    const OverscanLayout& L = overscan_;
+    if (!overscan_wanted() || !L.valid || L.canvas_w == 0 || L.canvas_h == 0) return "{\"valid\":false}";
+    char buf[256];
+    std::string s = "{\"valid\":true";
+    std::snprintf(buf, sizeof buf, ",\"canvas_w\":%u,\"canvas_h\":%u,\"mm_per_px\":%.9g,\"vertical\":%s,\"format\":\"%s\"",
+                  L.canvas_w, L.canvas_h, L.px, L.vertical ? "true" : "false", L.format.c_str());
+    s += buf;
+    std::snprintf(buf, sizeof buf, ",\"gate_mm\":[%.6g,%.6g],\"penumbra_mm\":%.6g,\"gates\":[", L.gate_along, L.gate_across, L.penumbra);
+    s += buf;
+    const int n = L.pair_adv > 0.0 ? 2 : 1;
+    for (int k = 0; k < n; ++k) {
+        const double s0 = L.gate_s0 + k * L.pair_adv, s1 = s0 + L.gate_along, t0 = L.gate_t0, t1 = t0 + L.gate_across;
+        const double cs[4] = {s0, s1, s1, s0}, ct[4] = {t0, t0, t1, t1};
+        s += k ? ",[" : "[";
+        for (int i = 0; i < 4; ++i) {
+            double x, y;
+            film_to_canvas_px(L, cs[i], ct[i], x, y);
+            std::snprintf(buf, sizeof buf, "%s%.9g,%.9g", i ? "," : "", x / L.canvas_w, y / L.canvas_h);
+            s += buf;
+        }
+        s += "]";
+    }
+    s += "]}";
+    return s;
+}
 
 // ---------------------------------------------------------------------------
 // The nodes.
@@ -1652,6 +1704,21 @@ bool Pipeline::node_overscan(const Image& in, Image& out, std::string& error) {
 
     std::vector<Group> groups;
     imprint_groups(overscan_, params_, frame_w_mm_, frame_h_mm_, groups);
+    // A pair's second frame was its own exposure and carries its own date
+    // (answer B20): the same back, one advance along. Drawn by laying the
+    // date out against the second gate and keeping only that group.
+    if (overscan_wanted() && overscan_.pair_adv > 0.0 && di.active && !di.text_b.empty()) {
+        OverscanLayout second = overscan_;
+        second.gate_s0 += second.pair_adv;
+        Params pb_ = params_;
+        pb_.film_render.date_imprint.active = false;
+        std::vector<Group> without, with;
+        imprint_groups(second, pb_, frame_w_mm_, frame_h_mm_, without);
+        pb_.film_render.date_imprint.active = true;
+        pb_.film_render.date_imprint.text = di.text_b;
+        imprint_groups(second, pb_, frame_w_mm_, frame_h_mm_, with);
+        if (with.size() > without.size()) groups.push_back(with.back());
+    }
     for (const Group& gg : groups) {
         std::vector<float> cov;
         int x0, y0, w, h;

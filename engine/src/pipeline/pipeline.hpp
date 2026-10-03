@@ -258,6 +258,7 @@ struct OverscanLayout {
     uint32_t canvas_w = 0, canvas_h = 0;
     bool vertical = false;                // the film runs along the image's y axis
     double gate_s0 = 0, gate_t0 = 0, gate_along = 0, gate_across = 0;
+    double pair_adv = 0;                  // > 0: a half-frame pair, the same gate again this far along
     double corner = 0, penumbra = 0;
     double wob_a[4][3] = {{0}}, wob_ph[4][3] = {{0}};
     double film_w = 0;
@@ -317,6 +318,7 @@ public:
     // what the caller keeps beside the negative. Call the setter after
     // `set_source_long_edge`.
     void overscan_frame(uint32_t& frame_w, uint32_t& frame_h) const;
+    std::string overscan_geometry_json() const;
     bool set_overscan_frame(uint32_t frame_w, uint32_t frame_h, std::string& error);
     // The film's pixel pitch, from the frame this pipeline is about to render.
     //

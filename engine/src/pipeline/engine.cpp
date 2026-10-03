@@ -1896,6 +1896,18 @@ spk_status spk_contrast_mask_field(spk_session* session, const char* tier, const
     return SPK_OK;
 }
 
+spk_status spk_overscan_geometry(spk_session* session, char** out_json) {
+    if (!session || !out_json) { g_error = "session or out_json is null"; return SPK_ERR_INVALID_ARG; }
+    std::lock_guard<std::mutex> guard(session->lock);
+    g_error.clear();
+    Json reply;
+    std::string parse_error;
+    const std::string text = session->pipeline ? session->pipeline->overscan_geometry_json() : std::string("{\"valid\":false}");
+    if (!Json::parse(text, reply, parse_error)) { g_error = "overscan geometry: " + parse_error; return SPK_ERR_INTERNAL; }
+    *out_json = dup_json(reply);
+    return SPK_OK;
+}
+
 spk_status spk_scene_latitude(spk_session* session, const char* request_json, char** out_json) {
     if (!session) { g_error = "session is null"; return SPK_ERR_INVALID_ARG; }
     Json request = Json::object();
