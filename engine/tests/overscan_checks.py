@@ -97,10 +97,15 @@ def main():
 
         on = render(e, img, {"overscan_active": True, "overscan_format": "135", "overscan_edge_text": "KODAK PORTRA 400"})
         H, W = on.shape[:2]
-        px = 36.0 / 1200                                    # the 135 gate's long edge over the frame
+        px = 36.25 / 1200                                   # the 135 gate's long edge over the frame (a camera's, measured)
         # the scan crops inside the film's edges by up to ~0.15 mm a side (RFC-032 §29)
         check("135 canvas spans the film's width", 34.6 < H * px <= 35.0, f"{H * px:.3f} mm")
-        check("135 canvas is the frame plus two part-gaps", 36.0 + 1.4 < W * px < 36.0 + 2.0, f"{W * px:.3f} mm")
+        check("135 canvas is the frame plus two part-gaps", 36.25 + 1.4 < W * px < 36.25 + 2.0, f"{W * px:.3f} mm")
+        # The gate is a camera's (reference_film/135: 0.47-0.67 mm from the
+        # perforations, whose inner edge is 4.8 mm in; the scan crops ~0.13 mm
+        # off the edge). A 24.0 mm gate leaves 5.41 mm from the canvas's edge.
+        edge_to_gate = (H - 800) / 2 * px
+        check("135 gate sits ~0.6 mm inside the perforations", 5.2 < edge_to_gate < 5.35, f"{edge_to_gate:.3f} mm")
 
         again = render(e, img, {"overscan_active": True, "overscan_format": "135", "overscan_edge_text": "KODAK PORTRA 400"})
         check("same seeds, same film", np.array_equal(on, again))
@@ -136,13 +141,29 @@ def main():
 
         # --- RFC-032 §29 -------------------------------------------------------
         S135 = {"overscan_active": True, "overscan_format": "135", "overscan_edge_text": "KODAK PORTRA 400"}
-        px = 36.0 / 1200
+        px = 36.25 / 1200
         dx = decode_dx(on, px)
         check("the DX code reads back as Portra 400 (1277) with good parity",
               dx is not None and dx[0] == 1277 and dx[3], str(dx))
         gold = render(e, img, dict(S135, film_stock="kodak_gold_200"))
         dxg = decode_dx(gold, px)
-        check("another stock, another DX number (Gold 200 = 1250)", dxg is not None and dxg[0] == 1250, str(dxg))
+        # 1548, read back off the real Gold 200 strip in reference_film/135 (the database said 1250)
+        check("another stock, another DX number (Gold 200 = 1548)", dxg is not None and dxg[0] == 1548, str(dxg))
+        # the DX code is 12.7 mm on Kodak-made film, 14.1 on Fujifilm's X-Tra 400
+        xt = render(e, img, dict(S135, film_stock="fujifilm_xtra_400", overscan_edge_text="S-400"))
+        dxx = decode_dx(xt, px)
+        check("X-Tra 400's own, longer DX code reads back (628)", dxx is not None and dxx[0] == 628, str(dxx))
+        # Fujifilm's slides print no bars, and their edge is not Kodak's
+        for stock in ("fujifilm_provia_100f", "fujifilm_velvia_100"):
+            sl = render(e, img, dict(S135, film_stock=stock, scan_film=True, overscan_edge_text="RVP100"))
+            check(f"{stock} prints no DX bars", decode_dx(sl, px) is None)
+        # the film edge is the stock's own: the same text on a Fujifilm and a Kodak stock differs
+        sq2 = frame(1000, 1000)
+        fk = render(e, sq2, dict(S135, overscan_format="120_6x6", overscan_edge_text="PRO400H"))
+        ff = render(e, sq2, dict(S135, film_stock="fujifilm_pro_400h", overscan_format="120_6x6", overscan_edge_text="PRO400H"))
+        band = lambda r: r[: int(1.9 / (56.0 / 1000)), :, :3].astype(float).mean(-1)
+        check("a Fujifilm 120 edge is not Kodak's layout", fk.shape == ff.shape and
+              np.abs(band(fk) - band(ff)).mean() > 500, f"{np.abs(band(fk) - band(ff)).mean():.0f}")
         # the reader must be able to say no: a stock with no DX code prints none
         vis = render(e, img, dict(S135, film_stock="kodak_vision3_250d"))
         check("a stock without a DX code prints none (the reader finds nothing)", decode_dx(vis, px) is None)

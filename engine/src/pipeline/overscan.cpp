@@ -93,7 +93,11 @@ struct Format {
     const char* families;   // gate families its real cameras have (RFC-032 §29), for gate = auto
 };
 constexpr Format kFormats[] = {
-    {"135",     35.0, 24.0, 36.0, true,  "square"},            // ISO 1007; 36 x 24 on 8 perforations
+    // 135: 8 perforations a frame. The gate is a camera's, not ISO's 36 x 24:
+    // measured on seven strips in reference_film/135 it is 36.0-36.6 by
+    // 24.0-24.8 (means 36.25 x 24.3), 0.47-0.67 mm from the perforations
+    // (mean 0.55; a 24.0 gate would leave 0.70). Still 3:2 within 0.6 %.
+    {"135",     35.0, 24.3, 36.25, true,  "square"},
     {"135_half", 35.0, 24.0, 18.0, true, "square"},            // half frame: 18 x 24 on 4 perforations, portrait when held level
     {"120_645", 61.0, 56.0, 41.5, false, "eared rounded"},     // ISO 732 nominal width; Mamiya spec frame sizes
     {"120_6x6", 61.0, 56.0, 56.0, false, "kicked square"},
@@ -108,6 +112,88 @@ const Format* find_format(const std::string& name) {
     return nullptr;
 }
 
+// --- the film edge, per stock (reference_film/, measured 2026-10-03) --------
+// What the manufacturer printed on the rebate before the film left the
+// factory: which layout, and the printer's light. Measured on the owner's
+// scans of real strips in `reference_film/` the way RFC-032 §29.2 measured
+// Kodak: px/mm from the perforation pitch (4.75 mm) on 135 and from the film's
+// 61 mm on 120, then cap heights, baselines and pitches in film millimetres.
+// A stock with no reference of its own borrows its maker's and says so here;
+// a stock not listed keeps the Kodak layout.
+enum class Edge135 {
+    Kodak,      // DX bars, Helvetica: Gold 200, Portra 160/800, UltraMax 400 (and C200, Kodak-made)
+    FujiSlide,  // no bars; 5x7 face, bold numbers on both edges, "36 => 12A": RVP50, RDPIII
+    FujiNeg,    // 14.1 mm DX bars, condensed numbers on both edges: X-Tra 400
+    Cine,       // "EASTMAN 5207 ..." beside one row of perforations, dashes, no bars: Vision3 250D
+};
+enum class Edge120 {
+    Kodak,      // numbers and the name on one edge, triangles and digits on the other
+    Fuji,       // one edge only, 5x7 face: "FUJI", "13 <", the stock, a roll number
+};
+struct EdgeLook {
+    const char* stock;
+    Edge135 k135;
+    Edge120 k120;
+    double layer[3];    // the printer's light per layer (red-, green-, blue-sensitive), through 4500 K
+    double ev;          // its exposure, stops over 18 % grey
+    bool light_numbers; // Kodak layout: regular-weight numbers and name tail (C200)
+    const char* code;   // Fuji 120: the code after the stock name ("EFCDCD" on Pro 400H), or ""
+};
+// Colours: the references' marks against their own rebate, as (R, G, B) of
+// the brightest third of the ink, normalised to the largest. Kodak negatives
+// read tan to peach -- Portra 800 (1, .74, .35), UltraMax (1, .80, .57),
+// Portra 160 (1, .82, .43), C200 (1, .77, .51); on 120 Portra 400 (1, .83, .6),
+// Ektar (1, .77, .46), Gold (1, .83, .68) -- so their printer exposes all
+// three layers, the blue one least. Fujifilm's are yellow to orange (X-Tra
+// (1, .95, .57); Pro 400H (1, .78, .21)); its slides orange (RVP (1, .89, .41)
+// on 135 and (1, .62, .18) on 120, RDPIII (1, .80, .32) and (1, .65, .25)):
+// little or no blue-layer exposure. Kodak's E100 is white (1, .95, .92) and
+// Vision3 a bluish white (.86, .86, 1). The weights below are fitted so a
+// render through each film lands on those ratios, at the print's white
+// (~200 of 255 here, so levels are not matched, only hue).
+constexpr EdgeLook kEdgeLooks[] = {
+    // Kodak negatives: Gold 200 (135), Portra 160 (135, 120), Portra 800 (135),
+    // UltraMax 400 (135), Portra 400, Ektar 100 and Gold 200 (120).
+    {"kodak_gold_200",        Edge135::Kodak, Edge120::Kodak, {1.0, 0.40, 0.26}, 5.3, false, ""},
+    {"kodak_portra_160",      Edge135::Kodak, Edge120::Kodak, {1.0, 0.40, 0.26}, 5.3, false, ""},
+    {"kodak_portra_400",      Edge135::Kodak, Edge120::Kodak, {1.0, 0.40, 0.26}, 5.3, false, ""},
+    {"kodak_portra_800",      Edge135::Kodak, Edge120::Kodak, {1.0, 0.40, 0.26}, 5.3, false, ""},
+    {"kodak_portra_800_push1", Edge135::Kodak, Edge120::Kodak, {1.0, 0.40, 0.26}, 5.3, false, ""},
+    {"kodak_portra_800_push2", Edge135::Kodak, Edge120::Kodak, {1.0, 0.40, 0.26}, 5.3, false, ""},
+    {"kodak_ultramax_400",    Edge135::Kodak, Edge120::Kodak, {1.0, 0.40, 0.26}, 5.3, false, ""},
+    {"kodak_ektar_100",       Edge135::Kodak, Edge120::Kodak, {1.0, 0.40, 0.26}, 5.3, false, ""},
+    // E100: the 120 reference (white marks); no 135 reference, so its 135
+    // layout stays Kodak's and is unverified.
+    {"kodak_ektachrome_100",  Edge135::Kodak, Edge120::Kodak, {1.0, 0.62, 0.70}, 5.7, false, ""},
+    // C200 (Fujicolor 200 since Kodak makes it): Kodak's layout and DX (it
+    // reads back as Gold 200's part 1), in a regular weight; the 135 reference.
+    {"fujifilm_c200",         Edge135::Kodak, Edge120::Kodak, {1.0, 0.33, 0.27}, 5.3, true, ""},
+    // X-Tra 400: the 135 reference. Never made in 120.
+    {"fujifilm_xtra_400",     Edge135::FujiNeg, Edge120::Fuji, {1.0, 0.72, 0.40}, 5.3, false, ""},
+    // Pro 400H: the 120 reference (6x7). **No 135 reference**: its 135 edge
+    // borrows X-Tra 400's (Fujifilm's own negative layout), unverified.
+    {"fujifilm_pro_400h",     Edge135::FujiNeg, Edge120::Fuji, {1.0, 0.51, 0.025}, 6.0, false, "EFCDCD"},
+    // Provia 100F: RDPIII on both 135 and 120 (645).
+    {"fujifilm_provia_100f",  Edge135::FujiSlide, Edge120::Fuji, {1.0, 0.10, 0.026}, 6.4, false, ""},
+    // Velvia 100: the references are Velvia 50 (RVP50) on 135 and 120 (6x6);
+    // the same maker's line, borrowed for Velvia 100.
+    {"fujifilm_velvia_100",   Edge135::FujiSlide, Edge120::Fuji, {1.0, 0.20, 0.08}, 5.8, false, ""},
+    // Vision3 250D: the 135 reference (5207). The other Vision3 stocks borrow
+    // its layout (the same Eastman edge print, their own product number in
+    // the host's text), unverified.
+    {"kodak_vision3_250d",    Edge135::Cine, Edge120::Kodak, {0.58, 0.60, 1.0}, 4.5, false, ""},
+    {"kodak_vision3_50d",     Edge135::Cine, Edge120::Kodak, {0.58, 0.60, 1.0}, 4.5, false, ""},
+    {"kodak_vision3_200t",    Edge135::Cine, Edge120::Kodak, {0.58, 0.60, 1.0}, 4.5, false, ""},
+    {"kodak_vision3_500t",    Edge135::Cine, Edge120::Kodak, {0.58, 0.60, 1.0}, 4.5, false, ""},
+};
+// Anything else -- Kodachrome, Verita, a stock added later -- has no
+// reference: Kodak's layout and its negative colour.
+constexpr EdgeLook kEdgeLookDefault = {"", Edge135::Kodak, Edge120::Kodak, {1.0, 0.40, 0.26}, 5.3, false, ""};
+const EdgeLook& edge_look_for(const std::string& stock) {
+    for (const EdgeLook& e : kEdgeLooks) if (stock == e.stock) return e;
+    return kEdgeLookDefault;
+}
+
 // --- imprint drawing ops, in film millimetres (s along, t across, t down) ----
 struct Op {
     enum Kind { Text, Poly, Circle } kind = Text;   // Circle: pts = {s, t}, radius = size_mm
@@ -118,6 +204,7 @@ struct Op {
     double rot_deg = 0;         // about (s, t)
     double tracking_mm = 0;
     double skew = 0;            // horizontal shear (seven-segment slant)
+    double hscale = 1.0;        // Text: glyphs widened along the baseline (Kodak's wide numerals)
     std::vector<double> pts;    // Poly: s0,t0,s1,t1,... in film mm
     double gain = 1.0;          // this mark's share of the group's exposure (printing variance)
 };
@@ -413,7 +500,10 @@ bool Pipeline::overscan_layout(uint32_t frame_w, uint32_t frame_h, std::string& 
 
     // --- film and gate ---------------------------------------------------
     L.film_w = fmt->film_w + (fmt->perforated ? 0.0 : rc.uni(-0.15, 0.15));
-    const double t_off = rc.uni(-0.10, 0.10) + rf.normal() * 0.025;      // camera centring + weave
+    // Camera centring + weave. A 120 gate sits up to ~0.5 mm off the film's
+    // middle (reference_film/120: rebates of 2.26/3.28, 2.48/2.60, 2.51/2.99,
+    // 2.4/3.1 and 1.9/2.64 mm); a 135 gate is held by the perforations.
+    const double t_off = (fmt->perforated ? rc.uni(-0.10, 0.10) : rc.uni(-0.45, 0.45)) + rf.normal() * 0.025;
     L.gate_t0 = 0.5 * (L.film_w - L.gate_across) + t_off;
     L.gate_s0 = 0.0;
     for (int side = 0; side < 4; ++side)
@@ -525,7 +615,8 @@ bool Pipeline::overscan_layout(uint32_t frame_w, uint32_t frame_h, std::string& 
 
     // --- light colours, through this film's own sensitivity ----------------
     const std::string& ref = params_.film.info.reference_illuminant;
-    const double rear[3] = {1.0, 1.0, 0.0}, front[3] = {1.0, 1.0, 1.0}, edge_t[3] = {1.0, 1.0, 0.3};
+    const double rear[3] = {1.0, 1.0, 0.0}, front[3] = {1.0, 1.0, 1.0};
+    const double* edge_t = edge_look_for(params_.film.info.stock).layer;   // the maker's edge printer
     light_weights(*colour_, *blob_, film_sensitivity_, ref, 2800.0, false, front, L.fog_rgb);
     light_weights(*colour_, *blob_, film_sensitivity_, ref, 2700.0, true, rear, L.date_rgb);
     light_weights(*colour_, *blob_, film_sensitivity_, ref, 4500.0, false, edge_t, L.edge_rgb);
@@ -707,7 +798,7 @@ bool rasterise(const OverscanLayout& L, const Group& g, std::vector<float>& cov,
             grow(op.pts[0] - op.size_mm, op.pts[1] - op.size_mm);
             grow(op.pts[0] + op.size_mm, op.pts[1] + op.size_mm);
         } else {
-            const double len = (0.75 * op.size_mm + op.tracking_mm) * double(op.text.size()) + op.size_mm;
+            const double len = (0.75 * op.size_mm * op.hscale + op.tracking_mm) * double(op.text.size()) + op.size_mm;
             const double r = op.rot_deg * M_PI / 180.0;
             const double ex = std::cos(r), ey = std::sin(r);
             for (double a : {-0.3 * op.size_mm, len})
@@ -769,7 +860,7 @@ bool rasterise(const OverscanLayout& L, const Group& g, std::vector<float>& cov,
         CGContextSaveGState(ctx);
         CGContextTranslateCTM(ctx, op.s, op.t);
         CGContextRotateCTM(ctx, op.rot_deg * M_PI / 180.0);
-        CGContextSetTextMatrix(ctx, CGAffineTransformMakeScale(1.0, -1.0));   // t is down; glyphs are up
+        CGContextSetTextMatrix(ctx, CGAffineTransformMakeScale(op.hscale, -1.0));   // t is down; glyphs are up
         CGContextSetTextPosition(ctx, 0, 0);
         CTLineDraw(line, ctx);
         CGContextRestoreGState(ctx);
@@ -882,27 +973,80 @@ void dx_bits(int dx_extract, int frame, bool half, int bits[23]) {
 // Database (dxdatabase, CC BY-SA 4.0) as excerpted by NegativeConverter's
 // `dxFilmTable.js`. A stock with no DX code (motion-picture film, Kodachrome
 // here) prints no bars -- an empty edge is truer than an invented code.
+// Four were read back off the real strips in reference_film/135 instead (by
+// the same reader `overscan_checks.py` uses; each code's frame number and
+// half-frame bit match the numbers printed beside it, and its parity holds):
+// Gold 200 (GB 200-7) 1548 = 96/12, not 1250; Portra 160 1534 = 95/14, not
+// 1275; C200 1550 = 96/14, not 625 (Gold 200's part 1: Kodak makes it now);
+// X-Tra 400 628 = 39/4, not 626. The rest are the database's, unverified.
 int dx_extract_for(const std::string& stock) {
     static const struct { const char* id; int dx; } kDx[] = {
         {"kodak_portra_400", 1277}, {"kodak_portra_800", 1278}, {"kodak_portra_800_push1", 1278},
-        {"kodak_portra_800_push2", 1278}, {"kodak_portra_160", 1275}, {"kodak_gold_200", 1250},
+        {"kodak_portra_800_push2", 1278}, {"kodak_portra_160", 1534}, {"kodak_gold_200", 1548},
         {"kodak_ektar_100", 1307}, {"kodak_ultramax_400", 1313}, {"kodak_ektachrome_100", 382},
-        {"fujifilm_c200", 625}, {"fujifilm_xtra_400", 626}, {"fujifilm_pro_400h", 584},
+        {"fujifilm_c200", 1550}, {"fujifilm_xtra_400", 628}, {"fujifilm_pro_400h", 584},
         {"fujifilm_provia_100f", 557}, {"fujifilm_velvia_100", 523},
     };
     for (const auto& e : kDx) if (stock == e.id) return e.dx;
     return -1;
 }
 
-// **We assumed it wrong for every Fujifilm stock** (owner, 2026-10-03). The
-// film data below -- the edge print's typeface, size and placement, the
-// frame numbering, the DX code's layout and the 120 markers -- was measured
-// on Kodak film and is drawn for every stock the same way. Fujifilm's edge
-// marks are not Kodak's: C200, X-Tra 400, Pro 400H, Provia 100F and Velvia
-// 100 render with Kodak's layout and are wrong. C200 is likely made by Kodak
-// and so nearer to it, but was not checked either. The owner is supplying
-// references for RVP (Velvia), RDP (Provia) and Pro 400H; until a per-stock
-// layout exists, treat every Fujifilm film edge as a placeholder.
+// The 5x7 face as an edge printer's (Fujifilm's numbers and names, the
+// Eastman line): each lit run of cells along a row is one rectangle, cells
+// `xscale` times as wide as tall; `bold` widens every stroke by one cell to
+// the right, as Fujifilm's frame numbers are. The text's left is at `s0`,
+// its baseline at `base_t`, glyphs up (toward smaller t). Returns the width;
+// with `out` null it only measures.
+double matrix_text(const std::string& text, double cap, double xscale, bool bold, double s0, double base_t,
+                   std::vector<Op>* out) {
+    const double p = cap / 7.0, cw = p * xscale, ov = 0.02 * p;
+    const int ncol = bold ? 6 : 5;
+    double x = 0.0;
+    for (char ch : text) {
+        // an edge printer's 0 has no slash (the date backs' does)
+        static const uint8_t kZero[7] = {0x0E, 0x11, 0x11, 0x11, 0x11, 0x11, 0x0E};
+        const uint8_t* g = ch == '0' ? kZero : glyph5x7(ch);
+        if (ch == ' ' || !g) { x += 4.0 * cw; continue; }
+        for (int row = 0; out && row < 7; ++row) {
+            const unsigned bits = bold ? ((unsigned(g[row]) << 1) | g[row]) : g[row];
+            const unsigned top = bold ? 0x20u : 0x10u;
+            for (int c = 0; c < ncol;) {
+                if (!(bits & (top >> c))) { ++c; continue; }
+                int e = c;
+                while (e < ncol && (bits & (top >> e))) ++e;
+                Op op;
+                op.kind = Op::Poly;
+                const double sa = s0 + x + c * cw - ov, sb = s0 + x + e * cw + ov;
+                const double ta = base_t - (7 - row) * p - ov, tb = base_t - (6 - row) * p + ov;
+                op.pts = {sa, ta, sb, ta, sb, tb, sa, tb};
+                out->push_back(op);
+                c = e;
+            }
+        }
+        x += (ncol + 1) * cw;
+    }
+    return std::max(0.0, x - cw);
+}
+
+// A Helvetica-family string's advance in film mm, as CoreText lays it out.
+double text_width(const char* font, double size_mm, const std::string& text, double tracking_mm, double hscale) {
+    Op op;
+    op.font = font; op.size_mm = size_mm; op.text = text; op.tracking_mm = tracking_mm;
+    CFStringRef fname = CFStringCreateWithCString(nullptr, font, kCFStringEncodingUTF8);
+    CTFontRef f = CTFontCreateWithName(fname, size_mm, nullptr);
+    CFRelease(fname);
+    CFAttributedStringRef as = make_text(op, f, 1.0);
+    CTLineRef line = CTLineCreateWithAttributedString(as);
+    const double w = CTLineGetTypographicBounds(line, nullptr, nullptr, nullptr);
+    CFRelease(line); CFRelease(as); CFRelease(f);
+    return w * hscale;
+}
+
+// The film edge -- the stock's own (`edge_look_for`), measured on the owner's
+// strips in reference_film/ (2026-10-03). Until then every stock carried
+// Kodak's marks ("we assumed it wrong", the owner, 2026-10-03); now Fujifilm's
+// slides, its negatives, Kodak's cine stock and Kodak's own each have their
+// layout, and a stock with no reference says whose it borrows (kEdgeLooks).
 void imprint_groups(const OverscanLayout& L, const Params& params, double frame_w_mm, double frame_h_mm,
                     std::vector<Group>& out) {
     const OverscanParams& o = params.film_render.overscan;
@@ -912,8 +1056,8 @@ void imprint_groups(const OverscanLayout& L, const Params& params, double frame_
 
     const double s_min = L.cs - 0.75 * (L.vertical ? L.canvas_h : L.canvas_w) * L.px;
     const double s_max = L.cs + 0.75 * (L.vertical ? L.canvas_h : L.canvas_w) * L.px;
-    const double edge_ev = 3.2;                                   // fitted to the owner's 120 references
-    const double e_edge = kMidGrey * std::pow(2.0, edge_ev);
+    const EdgeLook& look = edge_look_for(params.film.info.stock);
+    const double e_edge = kMidGrey * std::pow(2.0, look.ev);
 
     auto group_for = [&](const double rgb[3], double e, double blur_mm) {
         Group g;
@@ -925,6 +1069,20 @@ void imprint_groups(const OverscanLayout& L, const Params& params, double frame_
         Op op;
         op.kind = Op::Poly;
         op.pts = {s0, t0, s1, t0, s1, t1, s0, t1};
+        return op;
+    };
+    // a stroke from (s0, t0) to (s1, t1), `w` wide
+    auto seg = [](double s0, double t0, double s1, double t1, double w) {
+        const double len = std::max(1e-6, std::hypot(s1 - s0, t1 - t0));
+        const double ns = -(t1 - t0) / len * 0.5 * w, nt = (s1 - s0) / len * 0.5 * w;
+        Op op;
+        op.kind = Op::Poly;
+        op.pts = {s0 + ns, t0 + nt, s1 + ns, t1 + nt, s1 - ns, t1 - nt, s0 - ns, t0 - nt};
+        return op;
+    };
+    auto helv = [](const char* font, double cap_mm, double cap_per_em, double hscale, double tracking) {
+        Op op;
+        op.font = font; op.size_mm = cap_mm / cap_per_em; op.hscale = hscale; op.tracking_mm = tracking;
         return op;
     };
 
@@ -941,125 +1099,287 @@ void imprint_groups(const OverscanLayout& L, const Params& params, double frame_
         if (cut != std::string::npos && cut > 0) return text.substr(0, cut);
         return text.substr(0, max_chars);
     };
+    // The same for the 5x7 face, whose advance is fixed.
+    auto fit_matrix_text = [](std::string text, double slot_mm, double cap, double xscale, bool bold) {
+        while (!text.empty() && matrix_text(text, cap, xscale, bold, 0, 0, nullptr) > slot_mm) {
+            const size_t cut = text.rfind(' ');
+            text = (cut != std::string::npos && cut > 0) ? text.substr(0, cut) : text.substr(0, text.size() - 1);
+        }
+        return text;
+    };
     if (L.valid && L.perforated) {
         // Film data on a half-frame grid (4 perforations = 19.00 mm) anchored
-        // to the perforations. Sizes and positions measured on a real Kodak
-        // strip (RFC-032 §29.2, 23.1 px/mm): the top band carries the stock
-        // name and the full-frame numbers, cap 1.15 mm, baseline 1.43 mm from
-        // the edge; the bottom band carries the DX code -- 13 mm long, the
-        // whole 2.2 mm between the perforations and the edge -- then the
-        // frame number: "13" at cap 1.3 mm, or "12A" at cap 0.72 mm over an arrow.
-        const int n0 = 1 + int(uint64_t(uint32_t(o.frame_seed)) % 34u);    // film data: which frame this is
+        // to the perforations; `n0` is which frame this is.
+        const int n0 = 1 + int(uint64_t(uint32_t(o.frame_seed)) % 34u);
         const double grid0 = L.perf_phase + 0.62;
         Group top = group_for(L.edge_rgb, e_edge, 0.022);
         Group bot = group_for(L.edge_rgb, e_edge, 0.022);
         const double W = L.film_w, kCap = 0.714;                 // Helvetica Neue's cap height per em
-        const double t_top = 1.43;
-        const int dx = dx_extract_for(params.film.info.stock);
-        const double mod = 13.0 / 31.0;
+        const bool fuji_neg = look.k135 == Edge135::FujiNeg;
+        const int dx = (look.k135 == Edge135::Kodak || fuji_neg) ? dx_extract_for(params.film.info.stock) : -1;
+        // The DX code (ISO 1007): 31 modules. Read back off the references it
+        // is 12.64-12.78 mm long on Kodak-made film (Gold 200, Portra 160,
+        // C200) and 14.1 mm on Fujifilm's X-Tra 400 -- not the 13.0 assumed.
+        const double mod = (fuji_neg ? 14.1 : 12.7) / 31.0;
         const double clock_t0 = W - 2.17, data_t0 = W - 0.87, data_t1 = W + 0.10;
         const int m_lo = int(std::floor((s_min - grid0) / 19.0)) - 1, m_hi = int(std::ceil((s_max - grid0) / 19.0)) + 1;
+        auto dx_code = [&](double s, int num, bool a_half) {
+            if (dx < 0) return;
+            // as runs of black modules so neighbours do not seam
+            int bits[23];
+            dx_bits(dx, std::max(0, num), a_half, bits);
+            int clock[31], data[31];
+            for (int i = 0; i < 31; ++i) {
+                clock[i] = (i < 5 || i >= 28) ? 1 : ((i - 5) % 2);
+                data[i] = i < 5 ? (i % 2 == 0) : (i >= 28 ? ((i - 28) % 2 == 0) : bits[i - 5]);
+            }
+            for (int track = 0; track < 2; ++track) {
+                const int* row = track == 0 ? clock : data;
+                const double ta = track == 0 ? clock_t0 : data_t0, tb = track == 0 ? data_t0 : data_t1;
+                for (int i = 0; i < 31;) {
+                    if (!row[i]) { ++i; continue; }
+                    int j = i;
+                    while (j < 31 && row[j]) ++j;
+                    bot.ops.push_back(rect(s + i * mod, ta, s + j * mod, tb + (track == 0 ? 0.01 : 0.0)));
+                    i = j;
+                }
+            }
+        };
+        // an arrow along the film, pointing the way it winds on
+        auto wind_arrow = [&](double a0, double a1, double tc, double head, double half_h) {
+            bot.ops.push_back(rect(a0, tc - 0.09, a1 - 0.75 * head, tc + 0.09));
+            Op h;
+            h.kind = Op::Poly;
+            h.pts = {a1 - head, tc - half_h, a1, tc, a1 - head, tc + half_h};
+            bot.ops.push_back(h);
+        };
         for (int m = m_lo; m <= m_hi; ++m) {
             const double s = grid0 + 19.0 * m;
             const int half = 2 * n0 + m;
             const int num = half / 2 - (half < 0 && half % 2 ? 1 : 0);
             const bool a_half = (half % 2) != 0;
-            Op op;
-            op.font = "HelveticaNeue-Bold";
-            op.size_mm = 1.15 / kCap;
-            op.tracking_mm = 0.04;
-            if (!a_half) {
-                op.text = std::to_string(num); op.s = s + 14.6; op.t = t_top; top.ops.push_back(op);
-            } else if (!o.edge_text.empty()) {
-                // From s + 1.5 to the next number at s + 19 + 14.6, less a space.
-                op.text = fit_edge_text(o.edge_text, 19.0 + 14.6 - 1.5 - 2.0, op.size_mm, 0.06);
-                op.s = s + 1.5; op.t = t_top; op.tracking_mm = 0.06; top.ops.push_back(op);
-            }
-            // The DX code, as runs of black modules so neighbours do not seam.
-            if (dx >= 0) {
-                int bits[23];
-                dx_bits(dx, std::max(0, num), a_half, bits);
-                int clock[31], data[31];
-                for (int i = 0; i < 31; ++i) {
-                    clock[i] = (i < 5 || i >= 28) ? 1 : ((i - 5) % 2);
-                    data[i] = i < 5 ? (i % 2 == 0) : (i >= 28 ? ((i - 28) % 2 == 0) : bits[i - 5]);
+            if (look.k135 == Edge135::Kodak) {
+                // Measured on Gold 200, Portra 160, Portra 800 and UltraMax 400
+                // (and C200): the stock name and the full-frame numbers on the
+                // top band, caps 1.18-1.26 mm (1.22) on a baseline 1.48-1.58 mm
+                // from the edge (1.53); each number 0.9 mm along from the one
+                // under it, the name starting 8.1-8.9 mm after a number. The
+                // numerals are wider than Helvetica Bold's (x1.25, every strip).
+                // C200 prints them in a regular weight, caps 1.07 mm at 1.69.
+                const bool light = look.light_numbers;
+                const double cap_t = light ? 1.07 : 1.22, base_t = light ? 1.69 : 1.53;
+                Op op = helv(light ? "HelveticaNeue" : "HelveticaNeue-Bold", cap_t, kCap, light ? 1.0 : 1.25, 0.04);
+                if (!a_half) {
+                    op.text = std::to_string(num); op.s = s + 16.9; op.t = base_t; top.ops.push_back(op);
+                } else if (!o.edge_text.empty()) {
+                    // From the name to the next number at s + 19 + 16.9, less a space.
+                    const double s0 = s + (light ? 5.1 : 6.4);
+                    Op tx = helv("HelveticaNeue-Bold", cap_t, kCap, 1.0, 0.06);
+                    tx.text = fit_edge_text(o.edge_text, 19.0 + 16.9 - (s0 - s) - 2.0, tx.size_mm, 0.06);
+                    tx.s = s0; tx.t = base_t;
+                    const size_t sp = tx.text.find(' ');
+                    if (light && sp != std::string::npos) {
+                        // "FUJI" bold, "200" regular, 1.3 mm apart
+                        Op rest = tx;
+                        rest.font = "HelveticaNeue";
+                        rest.text = tx.text.substr(sp + 1);
+                        tx.text = tx.text.substr(0, sp);
+                        rest.s = s0 + text_width(tx.font, tx.size_mm, tx.text, tx.tracking_mm, 1.0) + 1.3;
+                        top.ops.push_back(rest);
+                    }
+                    top.ops.push_back(tx);
                 }
-                for (int track = 0; track < 2; ++track) {
-                    const int* row = track == 0 ? clock : data;
-                    const double ta = track == 0 ? clock_t0 : data_t0, tb = track == 0 ? data_t0 : data_t1;
-                    for (int i = 0; i < 31;) {
-                        if (!row[i]) { ++i; continue; }
-                        int j = i;
-                        while (j < 31 && row[j]) ++j;
-                        bot.ops.push_back(rect(s + i * mod, ta, s + j * mod, tb + (track == 0 ? 0.01 : 0.0)));
-                        i = j;
+                // The bottom band: the DX code, then the frame number -- "13"
+                // at caps 1.40 mm on a baseline 0.14 mm from the edge, or "12A"
+                // at caps 0.90 mm 0.84 mm from it over an arrow 3.6 mm long
+                // centred 0.28 mm from it (Gold 200, Portra 160); the number
+                // 3.3 mm past the code's end, "12A" 2.6 mm, the arrow 1.8 mm.
+                dx_code(s, num, a_half);
+                Op nb = helv(light ? "HelveticaNeue" : "HelveticaNeue-Bold", 1.40, kCap, light ? 1.0 : 1.25, 0.03);
+                if (a_half) {
+                    nb.text = std::to_string(num) + "A";
+                    nb.size_mm = 0.90 / kCap; nb.s = s + 15.3; nb.t = W - 0.84;
+                    bot.ops.push_back(nb);
+                    wind_arrow(s + 14.47, s + 18.07, W - 0.28, 0.6, 0.26);
+                } else {
+                    nb.text = std::to_string(num);
+                    nb.s = s + 16.0; nb.t = W - 0.14;
+                    bot.ops.push_back(nb);
+                }
+            } else if (fuji_neg) {
+                // X-Tra 400 (32.0 px/mm): numbers on both bands -- "11" caps
+                // 1.41 mm, "10A" 1.25 mm, condensed -- the full ones 15.25 mm
+                // after a code's start on the bottom band and 15.75 on the
+                // top, the A ones after an arrow ("->10A"). The top band also
+                // carries the stock's code in a thin 5x7 face, caps ~0.8 mm,
+                // 5.5 mm into every other half frame ("S-400"); the half
+                // frames between carry a batch code ("H74") that is not drawn,
+                // since we have one strip and no rule for it. The red and green
+                // lines along that strip's perforations are its camera's, not
+                // the film's.
+                const char* cond = "HelveticaNeue-CondensedBold";
+                const double kCapC = 0.721;
+                Op tn = helv(cond, a_half ? 1.25 : 1.41, kCapC, 1.1, 0.03);
+                tn.text = std::to_string(num) + (a_half ? "A" : "");
+                tn.s = s + (a_half ? 16.38 : 15.75); tn.t = 1.60;
+                top.ops.push_back(tn);
+                if (a_half && !o.edge_text.empty()) {
+                    const std::string tx = fit_matrix_text(o.edge_text, 9.8, 0.80, 1.12, false);
+                    matrix_text(tx, 0.80, 1.12, false, s + 5.5, 1.50, &top.ops);
+                }
+                dx_code(s, num, a_half);
+                Op nb = tn;
+                nb.t = a_half ? W - 0.41 : W - 0.31;
+                nb.s = s + (a_half ? 16.1 : 15.25);
+                bot.ops.push_back(nb);
+                if (a_half) wind_arrow(s + 14.6, s + 15.85, W - 1.0, 0.55, 0.3);
+            } else if (look.k135 == Edge135::FujiSlide) {
+                // RVP50 (31.2 px/mm) and RDPIII (21.5): no DX bars. A 5x7
+                // face throughout; the frame number in bold on both bands at
+                // the same place (caps 1.64 mm, baselines 1.80 mm from the top
+                // edge and 0.27 from the bottom one), its left 0.43 mm before
+                // a perforation's centre; the stock name thin (caps 0.93,
+                // baseline 1.77) 16.0 mm after it; at the half frame, on the
+                // bottom band only, "36" (the roll's length), a hollow arrow
+                // and "12A" (caps 1.2 mm).
+                const double sn = L.perf_phase + 0.56 + 19.0 * m;
+                if (!a_half) {
+                    const std::string n = std::to_string(num);
+                    matrix_text(n, 1.64, 0.97, true, sn, 1.80, &top.ops);
+                    matrix_text(n, 1.64, 0.97, true, sn + 0.1, W - 0.27, &bot.ops);
+                    if (!o.edge_text.empty()) {
+                        const std::string tx = fit_matrix_text(o.edge_text, 21.0, 0.93, 1.1, false);
+                        matrix_text(tx, 0.93, 1.1, false, sn + 16.0, 1.77, &top.ops);
+                    }
+                } else {
+                    const double sa = sn - 19.0;                 // the full frame this half belongs to
+                    matrix_text("36", 0.40, 1.0, false, sa + 14.6, W - 0.45, &bot.ops);
+                    // the hollow arrow: a pentagon outline, 2.5 x 0.96 mm, 0.18 mm strokes
+                    const double a0 = sa + 15.9, a1 = sa + 18.4, tc = W - 1.05, hh = 0.48, ab = a1 - 0.8, w = 0.18;
+                    bot.ops.push_back(seg(a0, tc - hh + 0.5 * w, ab, tc - hh + 0.5 * w, w));
+                    bot.ops.push_back(seg(a0, tc + hh - 0.5 * w, ab, tc + hh - 0.5 * w, w));
+                    bot.ops.push_back(seg(a0 + 0.5 * w, tc - hh, a0 + 0.5 * w, tc + hh, w));
+                    bot.ops.push_back(seg(ab - 0.05, tc - hh + 0.5 * w, a1 - 0.1, tc, w));
+                    bot.ops.push_back(seg(ab - 0.05, tc + hh - 0.5 * w, a1 - 0.1, tc, w));
+                    matrix_text(std::to_string(num) + "A", 1.20, 0.97, true, sa + 18.8, W - 0.40, &bot.ops);
+                }
+            } else {
+                // Cine (Eastman 5207, 22.8 px/mm): one line beside the bottom
+                // perforations -- the host's text in a square 5x7 face, caps
+                // 0.88 mm on a baseline 0.47 mm from the edge, 0.70 mm a
+                // character -- and a dash (1.16 x 0.22 mm, centred 0.80 from
+                // the edge) every 38 mm, 8 perforations. The text starts
+                // 10.1 mm after a dash. Its own period is at least 41.5 mm
+                // (the strip shows one line and no second); every other dash
+                // is assumed. No frame numbers, no bars, nothing on the top band.
+                if (half % 2 == 0) {
+                    const double sd = s + 2.06;
+                    bot.ops.push_back(rect(sd, W - 0.91, sd + 1.16, W - 0.69));
+                    if (((half / 2) % 2 + 2) % 2 == 0 && !o.edge_text.empty()) {
+                        const std::string tx = fit_matrix_text(o.edge_text, 27.4, 0.88, 0.93, false);
+                        matrix_text(tx, 0.88, 0.93, false, sd + 10.1, W - 0.47, &bot.ops);
                     }
                 }
-            }
-            Op nb = op;
-            nb.tracking_mm = 0.03;
-            if (a_half) {
-                nb.text = std::to_string(num) + "A";
-                nb.size_mm = 0.72 / kCap; nb.s = s + 13.0 + 2.7; nb.t = W - 0.95;
-                bot.ops.push_back(nb);
-                // the arrow under it, pointing the way the film winds on
-                const double a0 = s + 13.0 + 1.9, a1 = s + 13.0 + 5.4, ta = W - 0.47, th = 0.09;
-                bot.ops.push_back(rect(a0, ta - th, a1 - 0.45, ta + th));
-                Op head;
-                head.kind = Op::Poly;
-                head.pts = {a1 - 0.6, ta - 0.26, a1, ta, a1 - 0.6, ta + 0.26};
-                bot.ops.push_back(head);
-            } else {
-                nb.text = std::to_string(num);
-                nb.size_mm = 1.30 / kCap; nb.s = s + 13.0 + 3.1; nb.t = W - 0.22;
-                bot.ops.push_back(nb);
             }
         }
         out.push_back(top);
         out.push_back(bot);
     } else if (L.valid) {
-        // 120 (measured on the owner's IMG_6472-6474): top band, stock text
-        // between numbers that count along the roll, period ~49.5 mm; bottom
-        // band, ► markers, some followed by a digit. Not sprocket-locked, so
-        // where they land relative to the frame is the frame's draw.
+        // 120. Not sprocket-locked, so where the marks land relative to the
+        // frame is the frame's draw. The print is the film's, at a fixed
+        // distance from its edge, whatever the gate (except a shouldered
+        // gate's recess, where it runs between the ears).
         Group top = group_for(L.edge_rgb, e_edge, 0.038);
         Group bot = group_for(L.edge_rgb, e_edge, 0.038);
-        const double period = 49.5, cap = 1.3, size = cap / 0.714;
-        const double roll = rf.uni(0.0, period);
-        const int n0 = 12 + int(rf.uni(0.0, 40.0));
-        // The stock name's baseline sits ~0.85 mm above the gate's edge where
-        // it runs: the recess, on a shouldered gate (measured: 1.84 mm from the
-        // film's edge on the 6x8 reference), so the ears reach into its band.
-        const double t_top = std::max(0.9, L.gate_t0 + L.top_recess - 0.85);
-        const double t_bot = L.film_w - std::max(0.35, 0.5 * (L.film_w - L.gate_t0 - L.gate_across) - 0.6);
-        const int j_lo = int(std::floor((s_min + roll) / period)) - 1, j_hi = int(std::ceil((s_max + roll) / period)) + 1;
-        for (int j = j_lo; j <= j_hi; ++j) {
-            const double s = -roll + j * period;
-            Op num;
-            num.size_mm = size; num.tracking_mm = 0.05;
-            num.text = std::to_string(n0 + j); num.s = s; num.t = t_top;
-            top.ops.push_back(num);
-            if (!o.edge_text.empty()) {
-                Op tx = num;
-                tx.text = fit_edge_text(o.edge_text, period - 10.8 - 3.0, size, 0.14);
-                tx.s = s + 10.8; tx.tracking_mm = 0.14;
-                top.ops.push_back(tx);
+        if (look.k120 == Edge120::Fuji) {
+            // Pro 400H (6x7, 16.3 px/mm), RVP50 (6x6) and RDPIII (645): one
+            // edge only, in a thin 5x7 face, caps 1.15-1.17 mm on a baseline
+            // ~1.6 mm from the edge. Every 41.1 mm a frame number, a filled
+            // marker pointing back at it 1.45 mm on (2.15 x 1.15 mm, a tail
+            // behind the triangle), the stock name 4.95 mm after the marker,
+            // and on Pro 400H a code ("EFCDCD", caps 0.86) 13.2 mm after the
+            // name. Ending 3.7 mm before each number: "FUJI" before the even
+            // ones, a three-digit roll number (525, 145, 076 on the three
+            // strips; drawn per frame here) before the odd ones.
+            const double P = 41.1, xs = 0.94;
+            const double roll = rf.uni(0.0, 2.0 * P);
+            const int n0 = 1 + int(rf.uni(0.0, 14.0));
+            const int lot = int(rf.uni(0.0, 1000.0)) % 1000;
+            const double tb = L.top_recess > 0 ? std::max(0.9, L.gate_t0 + L.top_recess - 0.85) : 1.60;
+            const int j_lo = int(std::floor((s_min + roll) / P)) - 1, j_hi = int(std::ceil((s_max + roll) / P)) + 1;
+            for (int j = j_lo; j <= j_hi; ++j) {
+                const double sn = -roll + j * P;
+                const int n = n0 + j;
+                char lotbuf[8];
+                std::snprintf(lotbuf, sizeof lotbuf, "%03d", lot);
+                const std::string before = (n % 2 == 0) ? std::string("FUJI") : std::string(lotbuf);
+                const double wb = matrix_text(before, 1.15, xs, false, 0, 0, nullptr);
+                matrix_text(before, 1.15, xs, false, sn - 3.7 - wb, tb, &top.ops);
+                if (n < 1) continue;
+                const std::string ns = std::to_string(n);
+                const double wn = matrix_text(ns, 1.15, xs, false, sn, tb, &top.ops);
+                const double a = sn + wn + 1.45, mid = tb - 0.575;
+                Op tri;
+                tri.kind = Op::Poly;
+                tri.pts = {a, mid, a + 1.35, mid - 0.575, a + 1.35, mid + 0.575};
+                top.ops.push_back(tri);
+                top.ops.push_back(rect(a + 1.30, mid - 0.25, a + 2.15, mid + 0.25));
+                if (!o.edge_text.empty()) {
+                    const bool has_code = look.code[0] != 0;
+                    const double s0 = a + 4.95;
+                    const std::string tx = fit_matrix_text(o.edge_text, has_code ? 12.0 : P - 3.7 - 4.5 - (s0 - sn) - 1.0,
+                                                           1.17, xs, false);
+                    matrix_text(tx, 1.17, xs, false, s0, tb, &top.ops);
+                    if (has_code) matrix_text(look.code, 0.86, 0.92, false, s0 + 13.2, tb, &top.ops);
+                }
             }
-        }
-        const double mark_period = 29.0, mroll = rf.uni(0.0, mark_period);
-        const int k_lo = int(std::floor((s_min + mroll) / mark_period)) - 1, k_hi = int(std::ceil((s_max + mroll) / mark_period)) + 1;
-        const double mh = 0.95;
-        for (int k = k_lo; k <= k_hi; ++k) {
-            const double s = -mroll + k * mark_period;
-            Op tri;
-            tri.kind = Op::Poly;
-            tri.pts = {s, t_bot - mh, s + 1.9 * mh, t_bot - 0.5 * mh, s, t_bot};
-            bot.ops.push_back(tri);
-            if (((k % 2) + 2) % 2 == 0) {
-                Op dg;
-                dg.size_mm = 1.0 / 0.714; dg.text = std::to_string(1 + ((k / 2) % 9 + 9) % 9);
-                dg.s = s + 2.9; dg.t = t_bot;
-                bot.ops.push_back(dg);
+        } else {
+            // Kodak (Portra 400, E100, Ektar 100 in 6x6; Gold 200, Portra 160
+            // in 6x7): on one edge numbers counting along the roll every
+            // ~49.5 mm with the stock name between them (from 10.2-11.3 mm
+            // after a number on Portra 400 and Ektar), caps 1.10-1.15 mm on a
+            // baseline ~1.55 mm from the edge, the numerals wide (x1.25); on the
+            // other, triangles every ~29 mm (27-34 on the strips), 2.05 x
+            // 1.12 mm, 0.54-1.70 mm from the edge, every other one followed by
+            // a digit (caps 1.15).
+            const double period = 49.5, cap = 1.13, size = cap / 0.714;
+            const double roll = rf.uni(0.0, period);
+            const int n0 = 12 + int(rf.uni(0.0, 40.0));
+            // The stock name's baseline sits ~0.85 mm above the gate's edge where
+            // it runs: the recess, on a shouldered gate (measured: 1.84 mm from the
+            // film's edge on the 6x8 reference), so the ears reach into its band.
+            const double t_top = L.top_recess > 0 ? std::max(0.9, L.gate_t0 + L.top_recess - 0.85) : 1.60;
+            const double t_bot = L.film_w - 0.54;
+            const int j_lo = int(std::floor((s_min + roll) / period)) - 1, j_hi = int(std::ceil((s_max + roll) / period)) + 1;
+            for (int j = j_lo; j <= j_hi; ++j) {
+                const double s = -roll + j * period;
+                Op num;
+                num.size_mm = size; num.tracking_mm = 0.05; num.hscale = 1.25;
+                num.text = std::to_string(n0 + j); num.s = s; num.t = t_top;
+                top.ops.push_back(num);
+                if (!o.edge_text.empty()) {
+                    Op tx = num;
+                    tx.hscale = 1.0;
+                    tx.text = fit_edge_text(o.edge_text, period - 10.8 - 3.0, size, 0.30);
+                    tx.s = s + 10.8; tx.tracking_mm = 0.30;
+                    top.ops.push_back(tx);
+                }
+            }
+            const double mark_period = 29.0, mroll = rf.uni(0.0, mark_period);
+            const int k_lo = int(std::floor((s_min + mroll) / mark_period)) - 1, k_hi = int(std::ceil((s_max + mroll) / mark_period)) + 1;
+            const double mh = 1.12;
+            for (int k = k_lo; k <= k_hi; ++k) {
+                const double s = -mroll + k * mark_period;
+                Op tri;
+                tri.kind = Op::Poly;
+                tri.pts = {s, t_bot - mh, s + 1.83 * mh, t_bot - 0.5 * mh, s, t_bot};
+                bot.ops.push_back(tri);
+                if (((k % 2) + 2) % 2 == 0) {
+                    Op dg;
+                    dg.size_mm = 1.15 / 0.714; dg.hscale = 1.25; dg.text = std::to_string(1 + ((k / 2) % 9 + 9) % 9);
+                    dg.s = s + 2.8; dg.t = t_bot;
+                    bot.ops.push_back(dg);
+                }
             }
         }
         out.push_back(top);
