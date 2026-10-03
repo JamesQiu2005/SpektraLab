@@ -1369,10 +1369,19 @@ void imprint_groups(const OverscanLayout& L, const Params& params, double frame_
                 num.text = std::to_string(n0 + j); num.s = s; num.t = t_top;
                 top.ops.push_back(num);
                 if (!o.edge_text.empty()) {
+                    // The name sits centred between one number and the next,
+                    // not at a fixed offset: "KODAK PORTRA 400" (27 mm) runs
+                    // 12 mm after "49" and 13 mm before "50" on the 6x6 strip,
+                    // "KODAK 200" (13 mm) 17.5 mm after "51" and 17.2 mm before
+                    // "52" on Gold200_6x7.png. A fixed 10.8 mm put the short
+                    // name at the wrong end of its gap (owner, 2026-10-03).
                     Op tx = num;
                     tx.hscale = 1.0;
                     tx.text = fit_edge_text(o.edge_text, period - 10.8 - 3.0, size, 0.30);
-                    tx.s = s + 10.8; tx.tracking_mm = 0.30;
+                    tx.tracking_mm = 0.30;
+                    const double wnum = text_width(num.font, size, num.text, num.tracking_mm, num.hscale);
+                    const double wtx = text_width(tx.font, size, tx.text, tx.tracking_mm, tx.hscale);
+                    tx.s = s + wnum + 0.5 * (period - wnum - wtx);
                     top.ops.push_back(tx);
                 }
             }

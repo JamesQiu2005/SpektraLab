@@ -68,14 +68,15 @@ final class FilmEdgeTests: XCTestCase {
     func testEdgeTextIsTheRealNameWithoutThePush() {
         let catalog = StockCatalog.shared
         XCTAssertEqual(Session.edgeText(for: catalog.stock("kodak_portra_400")), "KODAK PORTRA 400")
-        XCTAssertEqual(Session.edgeText(for: catalog.stock("kodak_portra_800_push1")), "KODAK PORTRA 800")
+        XCTAssertEqual(Session.edgeText(for: catalog.stock("kodak_portra_800_push1")), "KODAK PORTRA 800-3")
+        XCTAssertEqual(Session.edgeText(for: catalog.stock("kodak_portra_800_push1"), gauge: "120"), "KODAK PORTRA 800")
         XCTAssertEqual(Session.edgeText(for: nil), "")
     }
 
     /// The film's own words where they are not its name (reference_film/, 2026-10-03).
     func testEdgeTextIsWhatTheFilmPrints() {
         let catalog = StockCatalog.shared
-        XCTAssertEqual(Session.edgeText(for: catalog.stock("kodak_gold_200")), "KODAK GB 200")
+        XCTAssertEqual(Session.edgeText(for: catalog.stock("kodak_gold_200")), "KODAK GB 200-7")
         XCTAssertEqual(Session.edgeText(for: catalog.stock("kodak_gold_200"), gauge: "120"), "KODAK 200")
         XCTAssertEqual(Session.edgeText(for: catalog.stock("fujifilm_provia_100f")), "FUJI RDPIII")
         XCTAssertEqual(Session.edgeText(for: catalog.stock("fujifilm_provia_100f"), gauge: "120"), "RDPIII")
