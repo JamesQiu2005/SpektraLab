@@ -291,4 +291,19 @@ final class FilmEdgeTests: XCTestCase {
         XCTAssertFalse(p.dateBack.prints(.lcd, filmEdge: p.filmEdge), "a 645 back has the data face only")
     }
 
+    /// A crop held at the gate's aspect lies inside the frame, exactly: the
+    /// 6×6 gate on a 3:2 frame came out at y = −1e-6, height 1.000002.
+    func testAGateHeldCropLiesInsideTheFrame() {
+        for (format, size) in [(FilmEdgeFormat.f6x6, CGSize(width: 6000, height: 4000)),
+                               (.f135, CGSize(width: 4000, height: 6000)),
+                               (.f6x7, CGSize(width: 799, height: 1200)),
+                               (.f135Half, CGSize(width: 6000, height: 4000))] {
+            let g = Session.gateFramed(.default, format: format, imageSize: size)
+            XCTAssertGreaterThanOrEqual(g.crop.x, 0, "\(format) on \(size)")
+            XCTAssertGreaterThanOrEqual(g.crop.y, 0, "\(format) on \(size)")
+            XCTAssertLessThanOrEqual(g.crop.x + g.crop.width, 1, "\(format) on \(size)")
+            XCTAssertLessThanOrEqual(g.crop.y + g.crop.height, 1, "\(format) on \(size)")
+        }
+    }
+
 }

@@ -249,7 +249,7 @@ struct Geometry: Codable, Equatable, Sendable {
         // A centre outside the frame has no valid crop at any scale.
         g.crop.x = (g.crop.x + g.crop.width / 2).clamped(to: 0...1) - g.crop.width / 2
         g.crop.y = (g.crop.y + g.crop.height / 2).clamped(to: 0...1) - g.crop.height / 2
-        if g.fits(in: imageSize) { return g }
+        if g.fits(in: imageSize) { return g.snappedToFrame() }
 
         let c = g.centre
         var lo = 0.0, hi = 1.0
@@ -262,6 +262,22 @@ struct Geometry: Codable, Equatable, Sendable {
         }
         g.crop = CropRect(x: c.x - g.crop.width * lo / 2, y: c.y - g.crop.height * lo / 2,
                           width: g.crop.width * lo, height: g.crop.height * lo)
+        return g.snappedToFrame()
+    }
+
+    /// `fits` allows a millionth past the frame, and a level crop decided at
+    /// that tolerance can come out with an edge at −1e-6 or a height of
+    /// 1.000002 — which a cut frame then resamples as a row of nothing. An
+    /// edge within that tolerance of the frame is put on it.
+    func snappedToFrame(epsilon: Double = 1e-5) -> Geometry {
+        guard angle == 0 else { return self }
+        var g = self
+        func snap(_ origin: inout Double, _ length: inout Double) {
+            if origin < 0, origin > -epsilon { length += origin; origin = 0 }
+            if origin + length > 1, origin + length < 1 + epsilon { length = 1 - origin }
+        }
+        snap(&g.crop.x, &g.crop.width)
+        snap(&g.crop.y, &g.crop.height)
         return g
     }
 
