@@ -541,7 +541,12 @@ bool Pipeline::overscan_layout(uint32_t frame_w, uint32_t frame_h, std::string& 
     L.perforated = fmt->perforated;
     if (L.perforated) {
         L.perf_pitch = 4.75; L.perf_w = 1.98; L.perf_h = 2.80; L.perf_edge = 2.00; L.perf_r = 0.50;
-        L.perf_phase = std::fmod(rc.uni(0.0, 4.75) + rf.normal() * 0.08 + 47.5, 4.75) - 4.75;
+        // A properly behaved camera (owner, 2026-10-03): the frame sits on the
+        // perforation grid so the edge print falls inside it -- on Gold 200 and
+        // Portra 800 the full-frame number ends at the frame's right edge
+        // (perf_phase -3.2) and the name starts 6 mm in. Drawn within +-0.7 mm
+        // of that, not across the whole pitch; the advance error stays the frame's.
+        L.perf_phase = std::clamp(-3.3 + rc.uni(-0.7, 0.7) + rf.normal() * 0.08, -4.1, -2.6);
     }
 
     // --- canvas ------------------------------------------------------------
@@ -1157,7 +1162,11 @@ void imprint_groups(const OverscanLayout& L, const Params& params, double frame_
             bot.ops.push_back(h);
         };
         for (int m = m_lo; m <= m_hi; ++m) {
-            const double s = grid0 + 19.0 * m;
+            // Kodak's and X-Tra's grids are half a frame on from the perforation
+            // the DX code starts at: "18A" under the frame's middle, "19" at its
+            // right end (Gold 200, Portra 800; "10A" / "11" on X-Tra 400), with
+            // the name inside the frame; the slides put "N" at the left end.
+            const double s = grid0 + 19.0 * m + ((look.k135 == Edge135::Kodak || fuji_neg) ? 19.0 : 0.0);
             const int half = 2 * n0 + m;
             const int num = half / 2 - (half < 0 && half % 2 ? 1 : 0);
             const bool a_half = (half % 2) != 0;
@@ -1247,7 +1256,10 @@ void imprint_groups(const OverscanLayout& L, const Params& params, double frame_
                 // baseline 1.77) 16.0 mm after it; at the half frame, on the
                 // bottom band only, "36" (the roll's length), a hollow arrow
                 // and "12A" (caps 1.2 mm).
-                const double sn = L.perf_phase + 0.56 + 19.0 * m;
+                // +3.5: with the camera's phase pinned (above) the number starts
+                // 0-1.5 mm into the frame, as "27" does on RDPIII.png (RVP50.png
+                // was shot on a camera loaded half a frame off; Provia's is used).
+                const double sn = L.perf_phase + 0.56 + 3.5 + 19.0 * m;
                 if (!a_half) {
                     const std::string n = std::to_string(num);
                     matrix_text(n, 1.64, 0.97, true, sn, 1.80, &top.ops);
