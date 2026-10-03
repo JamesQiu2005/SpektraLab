@@ -2,6 +2,7 @@
 // kernels, then create an engine and open a C-ABI session.
 #include <algorithm>
 #include <array>
+#include <bit>
 #include <cmath>
 #include <cstdio>
 #include <cstring>
@@ -16,6 +17,40 @@
 #include "spektrafilm/spk_engine.h"
 
 namespace {
+
+bool check_fma_vectors(spk::gpu::Gpu* gpu, std::string& error) {
+    // Exact binary32 bit patterns derived with integer/rational arithmetic,
+    // independent of the host C runtime's fmaf. Cover small residuals, both
+    // round-to-even ties, an exact product and legacy MinGW failure cases.
+    constexpr uint32_t cases[][3] = {
+        {0x3f800001, 0x3f800001, 0x28800000},
+        {0x3f800800, 0x3f800800, 0x33800000},
+        {0x3f800800, 0x3f801800, 0xb3800000},
+        {0x3fc00000, 0x40000000, 0x00000000},
+        {0x40a8f5c3, 0x4068f5c3, 0xb5425aee},
+        {0x40cc7ae1, 0x40863d70, 0x3357dc00},
+    };
+    constexpr size_t count = std::size(cases);
+    std::array<float, count * 2> input;
+    for (size_t i = 0; i < count; ++i) {
+        input[2 * i] = std::bit_cast<float>(cases[i][0]);
+        input[2 * i + 1] = std::bit_cast<float>(cases[i][1]);
+    }
+    auto src = gpu->upload(input.data(), sizeof input, error);
+    auto dst = gpu->alloc(count * sizeof(float), error);
+    if (!src || !dst || !gpu->dispatch("spk_math_probe",
+        {spk::gpu::Arg::buf(src), spk::gpu::Arg::buf(dst)}, count, error)) return false;
+    std::vector<float> actual;
+    if (!read_test_buffer(gpu, dst, actual, error)) return false;
+    for (size_t i = 0; i < count; ++i) {
+        if (std::bit_cast<uint32_t>(actual[i]) != cases[i][2]) {
+            error = "FMA known-bit vector mismatch at " + std::to_string(i);
+            return false;
+        }
+    }
+    std::printf("FMA residual: %zu exact known-bit vectors\n", count);
+    return true;
+}
 
 // Independent integer oracle: repeatedly reflect at the two walls rather
 // than reproducing the shader's period/modulus implementation.
@@ -272,6 +307,12 @@ int main(int argc, char** argv) {
         return 1;
     }
     std::printf("math mode: %s\n", math.c_str());
+
+    if (!check_fma_vectors(gpu, error)) {
+        std::fprintf(stderr, "FMA residual: %s\n", error.c_str());
+        delete gpu;
+        return 1;
+    }
 
     if (!check_fir_boundaries(gpu, error)) {
         std::fprintf(stderr, "FIR boundary oracle: %s\n", error.c_str());

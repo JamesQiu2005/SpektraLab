@@ -220,10 +220,19 @@ public:
         }
         size_t nonzero = 0;
         for (size_t i = 0; i < n; ++i) {
-            const float want = std::fma(input[2 * i], input[2 * i + 1],
-                                        -(input[2 * i] * input[2 * i + 1]));
+            // These bounded, positive binary32 inputs have an exact binary64
+            // product (at most 48 significant bits). Subtracting its binary32
+            // rounding is exact by Sterbenz's lemma. This is the exact FMA
+            // residual for this probe, not a general-purpose FMA replacement.
+            // Some MinGW/MSVCRT fmaf implementations give an incorrect answer
+            // here; neither their result nor a tolerance is a valid GPU gate.
+            static_assert(std::numeric_limits<float>::digits == 24);
+            static_assert(std::numeric_limits<double>::digits >= 48);
+            const float a = input[2 * i], b = input[2 * i + 1];
+            const float rounded = a * b;
+            const float want = float(double(a) * double(b) - double(rounded));
             if (got[i] != want) {
-                detail = "Vulkan math probe differs from host fma at index " + std::to_string(i);
+                detail = "Vulkan math probe differs from exact product residual at index " + std::to_string(i);
                 return false;
             }
             if (got[i] != 0.0f) ++nonzero;

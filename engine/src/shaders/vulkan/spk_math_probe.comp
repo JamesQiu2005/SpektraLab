@@ -1,7 +1,7 @@
 #version 450
 
 // The rounded product must stay separate from the fused operation. This is
-// checked against the host's std::fma result when the engine starts.
+// checked against an exact binary64 product residual when the engine starts.
 // Metal dispatches exactly 64 threads for this probe. A one-thread workgroup
 // preserves that extent without adding an argument to the existing Gpu call.
 layout(local_size_x = 1) in;
