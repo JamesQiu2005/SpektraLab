@@ -1170,7 +1170,9 @@ void imprint_groups(const OverscanLayout& L, const Params& params, double frame_
                 // C200 prints them in a regular weight, caps 1.07 mm at 1.69.
                 const bool light = look.light_numbers;
                 const double cap_t = light ? 1.07 : 1.22, base_t = light ? 1.69 : 1.53;
-                Op op = helv(light ? "HelveticaNeue" : "HelveticaNeue-Bold", cap_t, kCap, light ? 1.0 : 1.25, 0.04);
+                // The widened bold numerals are tracked apart (0.25 mm), or the develop
+                // blooms "22" into one shape; the strips' "19", "24", "25" keep a gap.
+                Op op = helv(light ? "HelveticaNeue" : "HelveticaNeue-Bold", cap_t, kCap, light ? 1.0 : 1.25, light ? 0.04 : 0.25);
                 if (!a_half) {
                     op.text = std::to_string(num); op.s = s + 16.9; op.t = base_t; top.ops.push_back(op);
                 } else if (!o.edge_text.empty()) {
@@ -1197,7 +1199,7 @@ void imprint_groups(const OverscanLayout& L, const Params& params, double frame_
                 // centred 0.28 mm from it (Gold 200, Portra 160); the number
                 // 3.3 mm past the code's end, "12A" 2.6 mm, the arrow 1.8 mm.
                 dx_code(s, num, a_half);
-                Op nb = helv(light ? "HelveticaNeue" : "HelveticaNeue-Bold", 1.40, kCap, light ? 1.0 : 1.25, 0.03);
+                Op nb = helv(light ? "HelveticaNeue" : "HelveticaNeue-Bold", 1.40, kCap, light ? 1.0 : 1.25, light ? 0.03 : 0.25);
                 if (a_half) {
                     nb.text = std::to_string(num) + "A";
                     nb.size_mm = 0.90 / kCap; nb.s = s + 15.3; nb.t = W - 0.84;
@@ -1353,6 +1355,11 @@ void imprint_groups(const OverscanLayout& L, const Params& params, double frame_
             // other, triangles every ~29 mm (27-34 on the strips), 2.05 x
             // 1.12 mm, 0.54-1.70 mm from the edge, every other one followed by
             // a digit (caps 1.15).
+            // The numerals are tracked apart: at 0.05 mm the widened bold
+            // digits bloom into one blob through the develop ("38" read as a
+            // ligature in the app, 2026-10-03); on Gold200_6x7.png "52" is
+            // 2.39 mm long with a 0.14 mm gap left between the digits.
+            const double kNumTrack = 0.30;
             const double period = 49.5, cap = 1.13, size = cap / 0.714;
             const double roll = rf.uni(0.0, period);
             const int n0 = 12 + int(rf.uni(0.0, 40.0));
@@ -1365,7 +1372,7 @@ void imprint_groups(const OverscanLayout& L, const Params& params, double frame_
             for (int j = j_lo; j <= j_hi; ++j) {
                 const double s = -roll + j * period;
                 Op num;
-                num.size_mm = size; num.tracking_mm = 0.05; num.hscale = 1.25;
+                num.size_mm = size; num.tracking_mm = kNumTrack; num.hscale = 1.25;
                 num.text = std::to_string(n0 + j); num.s = s; num.t = t_top;
                 top.ops.push_back(num);
                 if (!o.edge_text.empty()) {
@@ -1396,7 +1403,7 @@ void imprint_groups(const OverscanLayout& L, const Params& params, double frame_
                 bot.ops.push_back(tri);
                 if (((k % 2) + 2) % 2 == 0) {
                     Op dg;
-                    dg.size_mm = 1.15 / 0.714; dg.hscale = 1.25; dg.text = std::to_string(1 + ((k / 2) % 9 + 9) % 9);
+                    dg.size_mm = 1.15 / 0.714; dg.hscale = 1.25; dg.tracking_mm = kNumTrack; dg.text = std::to_string(1 + ((k / 2) % 9 + 9) % 9);
                     dg.s = s + 2.8; dg.t = t_bot;
                     bot.ops.push_back(dg);
                 }
