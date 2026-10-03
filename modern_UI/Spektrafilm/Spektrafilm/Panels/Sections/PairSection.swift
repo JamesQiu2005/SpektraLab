@@ -112,6 +112,9 @@ struct PairSection: View {
             ScrubSlider(label: L("Exposure", zh: "曝光"), sublabel: L("stops", zh: "档"),
                         value: Binding(get: { hole.exposureEV }, set: { session.setHoleExposure(side, $0) }),
                         range: -3...3, snap: 0.25, format: { String(format: "%+.2f", $0) })
+            PillSwitchRow(label: L("Applies to", zh: "作用于"), options: HalfFramePair.Scope.allCases,
+                          selection: Binding(get: { session.exposureScope }, set: { session.exposureScope = $0 }),
+                          title: { $0 == .frame ? L("Frame", zh: "仅画面") : L("+ Film", zh: "含片基") })
             RailSubhead(L("Crop under the hole", zh: "格内裁剪"))
             HStack(spacing: 8) {
                 pill(session.pairPlacing ? L("Done", zh: "完成") : L("Crop on the Canvas", zh: "在画布上裁剪"),

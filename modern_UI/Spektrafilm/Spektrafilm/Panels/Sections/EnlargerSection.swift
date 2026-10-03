@@ -24,23 +24,30 @@ struct EnlargerSection: View {
                      action: SectionAction(help: L(.helpResetEnlarger)) { reset() },
                      menu: { AnyView(menu) }) {
             RailRows {
+                // On a frame of a pair: whose print this is, and whether the
+                // film around the frame moves with it (answers B1–B3).
+                if session.pickedHole != nil {
+                    PillSwitchRow(label: L("Applies to", zh: "作用于"), options: HalfFramePair.Scope.allCases,
+                                  selection: Binding(get: { session.enlargerScope }, set: { session.enlargerScope = $0 }),
+                                  title: { $0 == .frame ? L("Frame", zh: "仅画面") : L("+ Film", zh: "含片基") })
+                }
                 ScrubSlider(label: L("Brightness", zh: "亮度"), sublabel: L("stops", zh: "档"),
-                            value: Binding(get: { session.params.printBrightnessStops },
-                                           set: { var p = session.params; p.printBrightnessStops = $0; session.params = p }),
+                            value: Binding(get: { session.enlargerValue(.brightness) },
+                                           set: { session.setEnlarger(.brightness, $0) }),
                             range: -3...3, snap: 0.25, format: { String(format: "%+.2f", $0) })
                 ScrubSlider(label: L("Yellow", zh: "黄"), sublabel: L("← blue", zh: "← 蓝"),
-                            value: Binding(get: { session.params.yFilterShift },
-                                           set: { var p = session.params; p.yFilterShift = $0; session.params = p }),
+                            value: Binding(get: { session.enlargerValue(.yellow) },
+                                           set: { session.setEnlarger(.yellow, $0) }),
                             range: -1...1, snap: 0.05, format: { String(format: "%+.2f", $0) },
                             trackGradient: [Color(hex: 0x6F7FB0), Color(hex: 0x8A8A8A), Color(hex: 0xB8A860)])
                 ScrubSlider(label: L("Magenta", zh: "品红"), sublabel: L("← green", zh: "← 绿"),
-                            value: Binding(get: { session.params.mFilterShift },
-                                           set: { var p = session.params; p.mFilterShift = $0; session.params = p }),
+                            value: Binding(get: { session.enlargerValue(.magenta) },
+                                           set: { session.setEnlarger(.magenta, $0) }),
                             range: -1...1, snap: 0.05, format: { String(format: "%+.2f", $0) },
                             trackGradient: [Color(hex: 0x7CA87C), Color(hex: 0x8A8A8A), Color(hex: 0xB07CAE)])
                 ScrubSlider(label: L(.enlargerPreflash), sublabel: "×100",
-                            value: Binding(get: { session.params.preflashExposure * 100 },
-                                           set: { var p = session.params; p.preflashExposure = ($0 / 100).clamped(to: 0...0.03); session.params = p }),
+                            value: Binding(get: { session.enlargerValue(.preflash) * 100 },
+                                           set: { session.setEnlarger(.preflash, ($0 / 100).clamped(to: 0...0.03)) }),
                             range: 0...3, snap: 0.25, format: { String(format: "%.2f", $0) },
                             disabled: !session.params.printEffects)
                     .help(session.params.printEffects ? "" : L(.reasonPrintEffectsOff))
@@ -48,11 +55,7 @@ struct EnlargerSection: View {
         }
     }
 
-    private func reset() {
-        var p = session.params
-        p.printBrightnessStops = 0; p.yFilterShift = 0; p.mFilterShift = 0; p.preflashExposure = 0
-        session.params = p
-    }
+    private func reset() { session.resetEnlarger() }
 
     private var menu: some View {
         Group {

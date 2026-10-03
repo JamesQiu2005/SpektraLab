@@ -371,7 +371,11 @@ struct DateBackSettings: Codable, Equatable, Sendable {
             ("date_imprint_size", .double((wireSize(on: camera) * scale).clamped(to: Self.sizeRange)), .shoot),
             ("date_imprint_ev", .double(brightnessEV.clamped(to: Self.brightnessRange)), .shoot),
         ]
-        if filmEdge.effective, filmEdge.pair {
+        if filmEdge.pair {
+            // Each frame of a pair carries its own date. Without a film edge
+            // the engine is told it is a pair here, since the film edge's own
+            // rows are not sent.
+            if !filmEdge.effective { fields.append(("overscan_pair", .bool(true), .shoot)) }
             fields.append(("date_imprint_text_b", .string(customText ?? textB), .shoot))
         }
         return fields

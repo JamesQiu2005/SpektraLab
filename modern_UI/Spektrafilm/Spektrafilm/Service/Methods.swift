@@ -364,8 +364,11 @@ struct SceneLatitudeRequest: Encodable, Equatable, Sendable {
     var shadowPercentile: Double?
     /// 99.9 or 99.
     var highlightPercentile: Double?
+    /// One frame of a half-frame pair: x0, y0, x1, y1, normalised to the
+    /// frame the engine was handed. Absent: the whole frame.
+    var region: [Double]?
     enum CodingKeys: String, CodingKey {
-        case rolloff, norm, margin
+        case rolloff, norm, margin, region
         case highlightPullBack = "highlight_pull_back", shadowPullBack = "shadow_pull_back"
         case maxLift = "max_lift", shadowPercentile = "shadow_percentile"
         case highlightPercentile = "highlight_percentile"
@@ -376,6 +379,7 @@ struct SceneLatitudeRequest: Encodable, Equatable, Sendable {
     func encode(to encoder: Encoder) throws {
         var c = encoder.container(keyedBy: CodingKeys.self)
         try c.encodeIfPresent(highlightPullBack, forKey: .highlightPullBack)
+        try c.encodeIfPresent(region, forKey: .region)
         try c.encodeIfPresent(shadowPullBack, forKey: .shadowPullBack)
         try c.encodeIfPresent(rolloff, forKey: .rolloff)
         try c.encodeIfPresent(maxLift, forKey: .maxLift)

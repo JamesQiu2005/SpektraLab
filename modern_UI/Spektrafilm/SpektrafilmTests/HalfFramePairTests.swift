@@ -400,6 +400,161 @@ final class HalfFramePairTests: XCTestCase {
         XCTAssertFalse(session.working)
     }
 
+    // MARK: - each frame its own
+
+    /// The second frame's Scene Placement and date ride on the pair's own
+    /// rows; picking the other frame trades the two placements and changes
+    /// nothing the engine is sent.
+    func testEachFrameHasItsOwnPlacementAndDateOnTheWire() throws {
+        let (s, urls) = try openedSession(frameCount: 3)
+        s.click(urls[0]); s.click(urls[1], command: true)
+        s.newPair()
+        let pairURL = try XCTUnwrap(s.selection)
+        addTeardownBlock { try? FileManager.default.removeItem(at: pairURL); Sidecar.remove(for: pairURL) }
+        func wire() -> [String: ParamValue] { Dictionary(uniqueKeysWithValues: s.sidecar.params.wire.map { ($0.name, $0.value) }) }
+        s.resolveFilmEdge()
+        let split = try XCTUnwrap(wire()["scene_latitude_split"])
+        XCTAssertEqual(split, .double(s.sidecar.params.pairSplit))
+        XCTAssertEqual(s.sidecar.params.pairSplit, 0.5, accuracy: 0.001, "the middle of the gap")
+
+        // A placement set with the left frame picked is the first frame's.
+        s.pairLayer = .left
+        var p = s.sidecar.params
+        p.sceneLatitude.active = true; p.sceneLatitude.highlightRoom = 1.5
+        s.sidecar.params = p
+        XCTAssertEqual(wire()["scene_latitude_highlight_room"], .double(1.5))
+        XCTAssertEqual(wire()["scene_latitude_b_active"], .bool(false))
+        XCTAssertEqual(s.pairFitRegion?[0] ?? -1, 0, accuracy: 1e-9)
+        let before = wire()
+        // Picking the right frame shows *its* placement and sends the same thing.
+        s.pairLayer = .right
+        XCTAssertFalse(s.sidecar.params.sceneLatitude.active, "the right frame has no placement yet")
+        XCTAssertEqual(s.sidecar.params.sceneLatitudeOther.highlightRoom, 1.5)
+        XCTAssertEqual(wire(), before, "picking a frame changed what the engine is sent")
+        XCTAssertGreaterThan(s.pairFitRegion?[0] ?? 0, 0.5, "the Fit measures the picked frame")
+        p = s.sidecar.params
+        p.sceneLatitude.active = true; p.sceneLatitude.shadowRoom = 0.75
+        s.sidecar.params = p
+        XCTAssertEqual(wire()["scene_latitude_b_active"], .bool(true))
+        XCTAssertEqual(wire()["scene_latitude_b_shadow_room"], .double(0.75))
+        XCTAssertEqual(wire()["scene_latitude_highlight_room"], .double(1.5), "the first frame's curve moved")
+        // Swapped, each placement goes with its frame.
+        s.swapHoles()
+        XCTAssertEqual(wire()["scene_latitude_shadow_room"], .double(0.75))
+        XCTAssertEqual(wire()["scene_latitude_b_highlight_room"], .double(1.5))
+        // A frame replaced starts with no placement.
+        s.setHole(.left, to: urls[2])
+        XCTAssertEqual(wire()["scene_latitude_active"], .bool(false))
+        XCTAssertEqual(wire()["scene_latitude_b_highlight_room"], .double(1.5))
+
+        // The date with no film edge: the engine is told it is a pair, and
+        // the second frame has its own text.
+        p = s.sidecar.params
+        p.dateBack.active = true
+        p.dateBack.customText = "'26 10 4"
+        s.sidecar.params = p
+        s.resolveFilmEdge()
+        let dated = wire()
+        XCTAssertEqual(dated["date_imprint_active"], .bool(true))
+        XCTAssertEqual(dated["overscan_pair"], .bool(true))
+        XCTAssertEqual(dated["overscan_format"], .string("135_half"))
+        XCTAssertNotNil(dated["date_imprint_text_b"])
+        // A frame is never sent any of it.
+        s.click(urls[0])
+        s.resolveFilmEdge()
+        XCTAssertNil(wire()["scene_latitude_split"])
+        XCTAssertNil(wire()["overscan_pair"])
+    }
+
+    /// One negative, three prints: a frame's own enlarger and grade change
+    /// that frame; *+ Film* moves the film around it by the same amount.
+    func testAFramesOwnPrintAndGradeChangeThatFrameOnly() async throws {
+        let frames = try copies(2)
+        let session = Session(clipboardDefaults: try defaults())
+        session.open(urls: [frames[0].deletingLastPathComponent()])
+        let urls = session.frames.map(\.id)
+        session.click(urls[0]); session.click(urls[1], command: true)
+        session.newPair()
+        let pairURL = try XCTUnwrap(session.selection)
+        addTeardownBlock { try? FileManager.default.removeItem(at: pairURL); Sidecar.remove(for: pairURL) }
+        try await waitUntil("the pair to develop", timeout: 180) {
+            session.serviceSessionIDForExport != nil && session.frameStates[pairURL] == .processed && !session.busy
+        }
+        func means() throws -> (first: Double, second: Double) {
+            let t = try XCTUnwrap(session.renderer.live)
+            let rects = session.pairHoleRects
+            return (try mean(t, try XCTUnwrap(rects[.left])), try mean(t, try XCTUnwrap(rects[.right])))
+        }
+        func settle(after previous: MTLTexture?) async throws {
+            try await waitUntil("a new print", timeout: 120) {
+                session.renderer.live !== previous && !session.busy && session.frameStates[pairURL] == .processed
+            }
+        }
+        let start = try means()
+        XCTAssertEqual(start.first, start.second, accuracy: start.first * 0.02, "the same frame twice prints the same")
+
+        // The second frame alone, a stop and a half brighter.
+        session.pairLayer = .right
+        session.enlargerScope = .frame
+        var before = session.renderer.live
+        session.setEnlarger(.brightness, 1.5)
+        try await settle(after: before)
+        let own = try means()
+        XCTAssertEqual(own.first, start.first, accuracy: start.first * 0.01, "the first frame moved with the second's print")
+        XCTAssertGreaterThan(own.second, start.second * 1.15, "the second frame's own print did not show")
+        XCTAssertEqual(session.sidecar.params.printBrightnessStops, 0, "Frame scope moved the film's print")
+        XCTAssertEqual(session.enlargerValue(.brightness), 1.5)
+        session.pairLayer = .left
+        XCTAssertEqual(session.enlargerValue(.brightness), 0, "the Enlarger shows the picked frame's value")
+
+        // + Film on the first frame: it and the film go up a stop; the second
+        // frame, which has a print of its own, stays.
+        session.enlargerScope = .film
+        before = session.renderer.live
+        session.setEnlarger(.brightness, 1.0)
+        try await settle(after: before)
+        let both = try means()
+        XCTAssertGreaterThan(both.first, own.first * 1.1)
+        XCTAssertEqual(both.second, own.second, accuracy: own.second * 0.01, "+ Film moved the other frame")
+        XCTAssertEqual(session.sidecar.params.printBrightnessStops, 1.0, "the film's print follows by the same amount")
+
+        // The second frame's own grade.
+        session.pairLayer = .right
+        before = session.renderer.live
+        var grade = session.layerAdjustments
+        grade.exposure = -1
+        session.layerAdjustments = grade
+        try await settle(after: before)
+        let graded = try means()
+        XCTAssertLessThan(graded.second, both.second * 0.8, "the frame's own grade did not show")
+        XCTAssertEqual(graded.first, both.first, accuracy: both.first * 0.01, "the grade landed on the other frame")
+        XCTAssertEqual(session.sidecar.adjustments, Adjustments(), "the film's grade was edited instead")
+        XCTAssertEqual(HalfFramePair.load(pairURL)?.right?.adjustments?.exposure, -1)
+
+        // ⌘Z takes the grade back off the frame.
+        before = session.renderer.live
+        session.undo()
+        XCTAssertNil(session.pair?.right?.adjustments)
+    }
+
+    private func mean(_ t: MTLTexture, _ n: CGRect) throws -> Double {
+        let bytes = t.rgba16Bytes()
+        try XCTSkipIf(bytes.isEmpty, "the print is not a 16-bit texture")
+        let x0 = Int(n.minX * CGFloat(t.width)) + 12, x1 = Int(n.maxX * CGFloat(t.width)) - 12
+        let y0 = Int(n.minY * CGFloat(t.height)) + 12, y1 = Int(n.maxY * CGFloat(t.height)) - 12
+        var sum = 0.0, count = 0.0
+        bytes.withUnsafeBytes { raw in
+            let p = raw.bindMemory(to: UInt16.self)
+            for y in stride(from: y0, to: y1, by: 4) {
+                for x in stride(from: x0, to: x1, by: 4) {
+                    let i = (y * t.width + x) * 4
+                    sum += Double(p[i]) + Double(p[i + 1]) + Double(p[i + 2]); count += 3
+                }
+            }
+        }
+        return sum / max(count, 1)
+    }
+
     // MARK: - helpers
 
     private func defaults() throws -> UserDefaults {

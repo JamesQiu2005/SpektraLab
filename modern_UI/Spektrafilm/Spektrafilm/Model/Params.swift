@@ -460,6 +460,7 @@ struct FilmParams: Codable, Equatable, Sendable {
         case printBrightnessStops, yFilterShift, mFilterShift, glareActive, scanFilm
         case extendedDynamicRange, preflashExposure, contrastMask, sceneLatitude, effects, printEffects
         case digitalIntermediate, filmEdge, dateBack
+        case sceneLatitudeOther, placementIsRight, pairSplit
     }
 
     // --- stock (shoot for film, print for paper) ---
@@ -571,6 +572,32 @@ struct FilmParams: Codable, Equatable, Sendable {
     var contrastMask = ContrastMaskSettings()
     /// RFC-023. Shoot layer.
     var sceneLatitude = SceneLatitudeSettings()
+    /// A half-frame pair has a placement per frame. `sceneLatitude` is always
+    /// the one the Scene Placement section is showing — the picked frame's —
+    /// and this is the other frame's; `placementIsRight` says which frame
+    /// `sceneLatitude` belongs to. Swapping the two with the flag changes
+    /// nothing on the wire, so picking the other frame costs no render.
+    var sceneLatitudeOther = SceneLatitudeSettings()
+    var placementIsRight = false
+    /// The first (left, or upper) frame's placement, and the second's.
+    var firstPlacement: SceneLatitudeSettings { placementIsRight ? sceneLatitudeOther : sceneLatitude }
+    var secondPlacement: SceneLatitudeSettings { placementIsRight ? sceneLatitude : sceneLatitudeOther }
+    /// The second frame's rows, on a pair only: a frame's stamp is unchanged.
+    var pairPlacementWire: [(name: String, value: ParamValue, layer: ParamLayer)] {
+        guard pairSplit > 0 else { return [] }
+        let b = secondPlacement
+        return [
+            ("scene_latitude_split", .double(pairSplit.clamped(to: 0...1)), .shoot),
+            ("scene_latitude_b_active", .bool(b.active && !(digitalIntermediate && !scanFilm)), .shoot),
+            ("scene_latitude_b_highlight_knee", .double(b.highlightKnee), .shoot),
+            ("scene_latitude_b_highlight_room", .double(b.highlightRoom), .shoot),
+            ("scene_latitude_b_shadow_knee", .double(b.shadowKnee), .shoot),
+            ("scene_latitude_b_shadow_room", .double(b.shadowRoom), .shoot),
+        ]
+    }
+    /// Where the pair's second frame starts along the piece's long edge, as a
+    /// fraction of it; 0 for a frame. Resolved by the session.
+    var pairSplit = 0.0
     /// RFC-025. Shoot layer except glare, which is the print's.
     var effects = EffectStrengths()
     /// The Print section's **Print Effects** switch: off leaves the paper's
@@ -606,6 +633,7 @@ struct FilmParams: Codable, Equatable, Sendable {
         preflashExposure = 0
         contrastMask = ContrastMaskSettings()
         sceneLatitude = SceneLatitudeSettings()
+        sceneLatitudeOther = SceneLatitudeSettings()
         effects = EffectStrengths()
         printEffects = true
         filmEdge = FilmEdgeSettings()
@@ -644,6 +672,10 @@ struct FilmParams: Codable, Equatable, Sendable {
             ?? ContrastMaskSettings()
         sceneLatitude = try c.decodeIfPresent(SceneLatitudeSettings.self, forKey: .sceneLatitude)
             ?? SceneLatitudeSettings()
+        sceneLatitudeOther = try c.decodeIfPresent(SceneLatitudeSettings.self, forKey: .sceneLatitudeOther)
+            ?? SceneLatitudeSettings()
+        placementIsRight = try c.decodeIfPresent(Bool.self, forKey: .placementIsRight) ?? false
+        pairSplit = try c.decodeIfPresent(Double.self, forKey: .pairSplit) ?? 0
         effects = try c.decodeIfPresent(EffectStrengths.self, forKey: .effects) ?? EffectStrengths()
         printEffects = try c.decodeIfPresent(Bool.self, forKey: .printEffects) ?? true
         filmEdge = try c.decodeIfPresent(FilmEdgeSettings.self, forKey: .filmEdge) ?? FilmEdgeSettings()
@@ -696,14 +728,14 @@ struct FilmParams: Codable, Equatable, Sendable {
             // Off under the Digital Intermediate (RFC-028): placement fits a
             // scene into a paper's range, and the DI keeps the film's whole
             // one. The pull-backs stay in the sidecar for when a paper returns.
-            ("scene_latitude_active", .bool(sceneLatitude.active && !(digitalIntermediate && !scanFilm)), .shoot),
-            ("scene_latitude_norm", .string(sceneLatitude.norm), .shoot),
-            ("scene_latitude_highlight_knee", .double(sceneLatitude.highlightKnee), .shoot),
-            ("scene_latitude_highlight_room", .double(sceneLatitude.highlightRoom), .shoot),
-            ("scene_latitude_shadow_knee", .double(sceneLatitude.shadowKnee), .shoot),
-            ("scene_latitude_shadow_room", .double(sceneLatitude.shadowRoom), .shoot),
-            ("scene_latitude_rolloff", .double(sceneLatitude.rolloff), .shoot),
-            ("scene_latitude_max_lift", .double(sceneLatitude.maxLift), .shoot),
+            ("scene_latitude_active", .bool(firstPlacement.active && !(digitalIntermediate && !scanFilm)), .shoot),
+            ("scene_latitude_norm", .string(firstPlacement.norm), .shoot),
+            ("scene_latitude_highlight_knee", .double(firstPlacement.highlightKnee), .shoot),
+            ("scene_latitude_highlight_room", .double(firstPlacement.highlightRoom), .shoot),
+            ("scene_latitude_shadow_knee", .double(firstPlacement.shadowKnee), .shoot),
+            ("scene_latitude_shadow_room", .double(firstPlacement.shadowRoom), .shoot),
+            ("scene_latitude_rolloff", .double(firstPlacement.rolloff), .shoot),
+            ("scene_latitude_max_lift", .double(firstPlacement.maxLift), .shoot),
             // RFC-025, whose halation and glare rows RFC-034 turned into area
             // multipliers (`EffectStrengths`). Sent always, like RFC-024's:
             // every default is the engine's and 1 is a bypass, so the picture
@@ -731,6 +763,7 @@ struct FilmParams: Codable, Equatable, Sendable {
         ]
         // RFC-032/031 (API-SPEC §13). The two switches always, the rest only
         // while each is on (`FilmEdgeSettings.wire`).
+        fields += pairPlacementWire
         fields += filmEdge.wire
         fields += dateBack.wire(filmEdge: filmEdge, scale: dateScale)
         return fields

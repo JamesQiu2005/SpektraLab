@@ -419,6 +419,32 @@ kernel void geometryResample(texture2d<float, access::sample> src [[texture(0)]]
     dst.write(float4(src.sample(lin, geometryMap(ouv, g)).rgb, 1), gid);
 }
 
+//  A half-frame pair's print, cut together from three prints of one negative:
+//  the film's own (`base`), and each frame's where it differs. `a` and `b`
+//  are the frames' rectangles in pixels (x0, y0, x1, y1); a frame with no
+//  print of its own has `use` 0 and takes the base.
+struct PairRects { float4 a; float4 b; float feather; float useA; float useB; float pad; };
+
+static float pairCoverage(float2 p, float4 r, float feather) {
+    float d = min(min(p.x - r.x, r.z - p.x), min(p.y - r.y, r.w - p.y));
+    return clamp(d / max(feather, 1e-3) + 0.5, 0.0, 1.0);
+}
+
+kernel void pairComposite(texture2d<float, access::read> base [[texture(0)]],
+                          texture2d<float, access::read> la [[texture(1)]],
+                          texture2d<float, access::read> lb [[texture(2)]],
+                          texture2d<float, access::write> dst [[texture(3)]],
+                          constant PairRects &u [[buffer(0)]],
+                          uint2 gid [[thread_position_in_grid]])
+{
+    if (gid.x >= dst.get_width() || gid.y >= dst.get_height()) return;
+    float2 p = float2(gid) + 0.5;
+    float3 c = base.read(gid).rgb;
+    c = mix(c, la.read(gid).rgb, u.useA * pairCoverage(p, u.a, u.feather));
+    c = mix(c, lb.read(gid).rgb, u.useB * pairCoverage(p, u.b, u.feather));
+    dst.write(float4(c, 1), gid);
+}
+
 struct QuadOut { float4 position [[position]]; float2 uv; };
 
 vertex QuadOut canvasVertex(uint vid [[vertex_id]]) {

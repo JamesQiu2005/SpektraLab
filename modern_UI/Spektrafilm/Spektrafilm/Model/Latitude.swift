@@ -258,6 +258,7 @@ extension Session {
     private func probeLatitude(highlight: Double, shadow: Double) async -> SceneLatitudeResponse? {
         guard serviceReady, let url = selection, serviceSessionIDForExport != nil else { return nil }
         var request = params.sceneLatitude.request
+        request.region = pairFitRegion
         request.highlightPullBack = highlight
         request.shadowPullBack = shadow
         do {

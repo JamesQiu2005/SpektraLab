@@ -276,7 +276,16 @@ extension Session {
             r.filmEdge.format = .f135Half
             let second = pairRightExif?.shooting ?? ShootingData()
             r.dateBack.textB = r.dateBack.face == .data ? second.dataText : second.dateText(order: r.dateBack.order)
-            r.dateBack.camera = r.filmEdge.effective ? .f135Half : nil
+            // A half-frame camera's back, with or without the film around it.
+            r.dateBack.camera = .f135Half
+            // The middle of the gap, along the piece's long edge: where the
+            // second frame's Scene Placement takes over.
+            let l = HalfFramePair.layout(holeHeight: 2400, spacingMM: pair?.effectiveSpacingMM ?? 1,
+                                         turned: pair?.turned ?? false)
+            let a = l.normalisedRect(.left), b = l.normalisedRect(.right)
+            r.pairSplit = l.turned ? Double((a.maxY + b.minY) / 2) : Double((a.maxX + b.minX) / 2)
+        } else {
+            r.pairSplit = 0
         }
         if let frame = nativeSourceSize, frame.width > 0, frame.height > 0 {
             let cut = sidecar.geometry.outputSize(for: frame)

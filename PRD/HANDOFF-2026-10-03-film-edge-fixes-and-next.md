@@ -201,3 +201,20 @@ Also: the piece is capped at one frame's worth of pixels (two 45 MP frames made 
 Seen in the running app: held level with an empty hole, and turned with Film Edge on (two NEFs). Not seen: the *Enter Half-Frame Pair* row itself, the menu, the crop drag (all exercised through the session in `HalfFramePairTests`, 12 cases). Later the same night: ⌘Z undoes the piece's own edits (a frame added, removed or swapped is a step of its own; a slider drag is one step), a filmstrip thumbnail dragged onto the canvas goes into the hole under it, and the crop drag shows the frame's preview where the drag has it. None of the three was seen in the window; each is exercised through the session in `HalfFramePairTests`.
 
 Still open from §9: per-hole print and scope, per-hole Post-Dev, Two halves / Both.
+
+## 11. 2026-10-04: each frame of a pair is its own
+
+The owner's four, with *Two halves* export dropped by them ("if someone wants to export single ones they would not pair them in the beginning"):
+
+| asked | how |
+|---|---|
+| per-frame print, and the Frame / + Film scope (B1–B3) | one negative printed up to three times (`EngineClient.renderLayers`, one actor call so no render sees the settings in between), graded, and cut along the frames' rectangles (`Renderer.compositePair`; the engine's gates on a strip). The Enlarger shows the picked frame's value; *Applies to: Frame / + Film* (仅画面 / 含片基) — + Film moves the film's print by the same delta. The Enlarger starts on + Film, the frame's Exposure on Frame. Until a frame is given a print of its own the piece prints as one |
+| per-frame Post-Dev | `Hole.adjustments`; the Post-Dev rail edits `Session.layerAdjustments`. A pair's grade is baked into the picture it composes, so the canvas and the export apply none of their own |
+| per-frame Scene Placement | engine: `scene_latitude_split` + `scene_latitude_b_*`, and `region` on the Fit. App: `params.sceneLatitude` is always the picked frame's and `sceneLatitudeOther` the other's; picking a frame trades them (`placementIsRight`), which changes nothing on the wire |
+| date back with no film edge | engine: `overscan_pair` with the film edge off draws each frame's own date in its own corner |
+
+Seen in the running app: the right frame with a print of its own (+1.5 stops, yellow) beside an untouched left frame, on the strip with two dates and with no film edge. A date over a white part of the picture does not show (the film is saturated there), which is the engine's own behaviour on a frame too.
+
+Not seen in the window: the scope switch being used, a frame's own grade, a frame's own Scene Placement (each is asserted through the session and the engine in `HalfFramePairTests` and `overscan_checks.py`).
+
+Open: roll-off, lift bound and norm are shared by a pair's two placements; the three prints of a full-tier pair cost three reprints; mobile has none of this.

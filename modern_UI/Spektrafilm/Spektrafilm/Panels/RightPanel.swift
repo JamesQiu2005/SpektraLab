@@ -115,6 +115,6 @@ struct RightPanel: View {
     /// Post-Dev is out of sight most of the time, and it changes every file;
     /// the switch says when it is not the identity.
     private var postDevEdited: Bool {
-        session.adjustments.enabled && !session.adjustments.isNeutral
+        session.layerAdjustments.enabled && !session.layerAdjustments.isNeutral
     }
 }

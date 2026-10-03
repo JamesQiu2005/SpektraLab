@@ -184,7 +184,16 @@ enum AgentSchema {
             f.append(.init("params.sceneLatitude.\(name)", name == "active" ? .bool
                            : name == "norm" ? .choice(["power"]) : .number(-20...20),
                            "Scene Placement: \(doc)", readOnly: viaPlace))
+            f.append(.init("params.sceneLatitudeOther.\(name)", name == "active" ? .bool
+                           : name == "norm" ? .choice(["power"]) : .number(-20...20),
+                           "Scene Placement of a half-frame pair's other frame: \(doc)", readOnly: resolved))
         }
+        f += [
+            .init("params.placementIsRight", .bool,
+                  "On a half-frame pair, whether sceneLatitude is the second frame's.", readOnly: resolved),
+            .init("params.pairSplit", .number(0...1),
+                  "Where a half-frame pair's second frame starts along the piece; 0 for a frame.", readOnly: resolved),
+        ]
 
         // --- adjustments: Layer 2, the grade on the finished print ---
         f += [

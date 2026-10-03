@@ -39,6 +39,17 @@ struct HalfFramePair: Codable, Equatable, Sendable {
         /// The frame's own decode (white balance, lens correction), read from
         /// its sidecar when the pair is opened: the shot stays the frame's.
         var decode = DecodeSettings()
+        /// This frame's own print: the enlarger's brightness, filters and
+        /// pre-flash. Nil until a frame is given one; it then prints as the
+        /// film does (the pair's own settings).
+        var print: PrintTrim?
+        /// This frame's own Post-Dev grade; nil follows the film's.
+        var adjustments: Adjustments?
+        /// Where an edit of this frame lands (answers B1–B3): on the frame
+        /// only, or on the frame and the film around it by the same amount.
+        /// The enlarger starts on the film as well, exposure on the frame.
+        var printScope = Scope.film
+        var exposureScope = Scope.frame
 
         var url: URL { URL(fileURLWithPath: path) }
         var exists: Bool { FileManager.default.fileExists(atPath: path) }
@@ -55,6 +66,42 @@ struct HalfFramePair: Codable, Equatable, Sendable {
             meteredEV = try c.decodeIfPresent(Double.self, forKey: .meteredEV)
             meteredFor = try c.decodeIfPresent(String.self, forKey: .meteredFor)
             decode = try c.decodeIfPresent(DecodeSettings.self, forKey: .decode) ?? DecodeSettings()
+            print = try c.decodeIfPresent(PrintTrim.self, forKey: .print)
+            adjustments = try c.decodeIfPresent(Adjustments.self, forKey: .adjustments)
+            printScope = (try? c.decodeIfPresent(Scope.self, forKey: .printScope)) ?? .film
+            exposureScope = (try? c.decodeIfPresent(Scope.self, forKey: .exposureScope)) ?? .frame
+        }
+    }
+
+    /// Frame, or + Film: whether an edit of one frame also moves the film
+    /// around it — the gap, the rebate, the edge print.
+    enum Scope: String, Codable, CaseIterable, Identifiable, Sendable {
+        case frame, film
+        var id: String { rawValue }
+    }
+
+    /// The enlarger's four values that a frame may have for itself.
+    struct PrintTrim: Codable, Equatable, Sendable {
+        var brightnessStops = 0.0
+        var yFilterShift = 0.0
+        var mFilterShift = 0.0
+        var preflashExposure = 0.0
+
+        init() {}
+        init(_ p: FilmParams) {
+            brightnessStops = p.printBrightnessStops
+            yFilterShift = p.yFilterShift
+            mFilterShift = p.mFilterShift
+            preflashExposure = p.preflashExposure
+        }
+        /// `p` printed with these values.
+        func applied(to p: FilmParams) -> FilmParams {
+            var p = p
+            p.printBrightnessStops = brightnessStops
+            p.yFilterShift = yFilterShift
+            p.mFilterShift = mFilterShift
+            p.preflashExposure = preflashExposure
+            return p
         }
     }
 

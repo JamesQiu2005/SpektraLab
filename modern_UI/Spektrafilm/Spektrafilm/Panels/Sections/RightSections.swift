@@ -28,7 +28,7 @@ struct WhiteBalanceSection: View {
         // must not share a name, and these two do not — Camera's rows are
         // Temperature and Tint, this one's are Temp. and Tint on the print.
         PanelSection(L(.sectionWhiteBalance), key: "wb2", initiallyExpanded: false, menu: { AnyView(Button(L(.helpReset)) {
-            var a = session.adjustments; a.temperature = 0; a.tint = 0; session.adjustments = a }) }, metrics: .right) {
+            var a = session.layerAdjustments; a.temperature = 0; a.tint = 0; session.layerAdjustments = a }) }, metrics: .right) {
             RailRows {
                 // **Not the Camera pair.** `design/LOCALIZATION-zh-Hans.md`
                 // gives 色温 / 色调 to the decode block in Camera and says two
@@ -51,7 +51,7 @@ struct WhiteBalanceSection: View {
         }
     }
     private func adj(_ kp: WritableKeyPath<Adjustments, Double>) -> Binding<Double> {
-        Binding(get: { session.adjustments[keyPath: kp] }, set: { var a = session.adjustments; a[keyPath: kp] = $0; session.adjustments = a })
+        Binding(get: { session.layerAdjustments[keyPath: kp] }, set: { var a = session.layerAdjustments; a[keyPath: kp] = $0; session.layerAdjustments = a })
     }
 }
 
@@ -59,10 +59,10 @@ struct ExposureSection: View {
     @Bindable var session: Session
     var body: some View {
         PanelSection(L(.sectionExposure), key: "exposure2", initiallyExpanded: false, menu: { AnyView(Button(L(.helpReset)) {
-            var a = session.adjustments
+            var a = session.layerAdjustments
             a.exposure = 0; a.contrast = 0; a.brightness = 0; a.saturation = 0
             a.highlights = 0; a.shadows = 0; a.blackPoint = 0; a.whitePoint = 0
-            session.adjustments = a }) }, metrics: .right) {
+            session.layerAdjustments = a }) }, metrics: .right) {
             RailRows {
                 // The slider is `Exposure`, which the spec does not list — it
                 // gives the *section* that name (曝光). Its own pair, not the
@@ -84,7 +84,7 @@ struct ExposureSection: View {
         }
     }
     private func adj(_ kp: WritableKeyPath<Adjustments, Double>) -> Binding<Double> {
-        Binding(get: { session.adjustments[keyPath: kp] }, set: { var a = session.adjustments; a[keyPath: kp] = $0; session.adjustments = a })
+        Binding(get: { session.layerAdjustments[keyPath: kp] }, set: { var a = session.layerAdjustments; a[keyPath: kp] = $0; session.layerAdjustments = a })
     }
 }
 
@@ -92,7 +92,7 @@ struct CurveSection: View {
     @Bindable var session: Session
     var body: some View {
         PanelSection(L(.sectionCurve), key: "curve", menu: { AnyView(Button(L(.helpResetChannels)) {
-            var a = session.adjustments; a.curves = CurveSet(); session.adjustments = a }) }, metrics: .right) {
+            var a = session.layerAdjustments; a.curves = CurveSet(); session.layerAdjustments = a }) }, metrics: .right) {
             CurveEditor(session: session)
                 .padding(.horizontal, Theme.Metric.plotInset)
         }
@@ -103,7 +103,7 @@ struct ColorBalanceSection: View {
     @Bindable var session: Session
     var body: some View {
         PanelSection(L(.sectionColorBalance), key: "colorbalance", initiallyExpanded: false, menu: { AnyView(Button(L(.helpReset)) {
-            var a = session.adjustments; a.colorBalance = ColorBalance(); session.adjustments = a }) }, metrics: .right) {
+            var a = session.layerAdjustments; a.colorBalance = ColorBalance(); session.layerAdjustments = a }) }, metrics: .right) {
             // In a well, like Exposure and Print White Balance beside it. The
             // triangle is fitted to the width the **panel** has, which
             // `EditorWindow` passes down as `\.colorBalanceWidth` — the wheels

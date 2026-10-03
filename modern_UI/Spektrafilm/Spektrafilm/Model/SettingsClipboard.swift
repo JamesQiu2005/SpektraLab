@@ -74,6 +74,11 @@ enum ClipboardGroup: String, CaseIterable, Codable, Sendable, Identifiable {
         // seeds and the resolved text would be the source photograph's anyway.
         "params.filmEdge": "Film Edge: not copied until a group is decided (F10)",
         "params.dateBack": "Date Back: not copied until a group is decided (F10)",
+        // A half-frame pair's second placement and which frame is which: they
+        // belong to the piece's two frames, and a frame has neither.
+        "params.sceneLatitudeOther": "a half-frame pair's other frame's placement",
+        "params.placementIsRight": "which frame of a pair the placement is shown for",
+        "params.pairSplit": "resolved from the pair's layout",
         "solvedEV": "a report of the meter, refilled by the target's own develop",
         "state": "whether the frame has been rendered",
         "source": "which file the sidecar belongs to",

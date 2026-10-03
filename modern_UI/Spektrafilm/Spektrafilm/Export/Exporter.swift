@@ -350,7 +350,13 @@ enum Exporter {
         let outcome = try await session.client.render(
             .export, RenderRequest(sessionID: sessionID, tier: "full"))
         try Task.checkCancellation()
-        guard let full = outcome.texture else { throw ExportError.noPixels }
+        guard var full = outcome.texture else { throw ExportError.noPixels }
+        // A pair: each frame printed and graded as its own, cut together, as
+        // the canvas shows it. The grade below is then none.
+        if session.pair != nil, let layered = await session.pairLayered(base: full, tier: "full") {
+            full = layered
+        }
+        try Task.checkCancellation()
 
         func destination(width: Int, height: Int)
             throws -> (texture: MTLTexture, scratch: TextureStore.Scratch?) {
@@ -368,7 +374,7 @@ enum Exporter {
         let (adjustedDestination, adjustedScratch) = try destination(width: full.width,
                                                                      height: full.height)
         guard let adjusted = session.renderer.applyLayer2(to: full,
-                                                          uniforms: session.adjustments.uniforms,
+                                                          uniforms: session.exportAdjustments.uniforms,
                                                           into: adjustedDestination)
             else { throw ExportError.noPixels }
         var current = adjusted

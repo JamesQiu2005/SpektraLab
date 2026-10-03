@@ -556,6 +556,29 @@ actor EngineClient {
         return try decode(out, as: SceneLatitudeResponse.self)
     }
 
+    /// Prints of the session's negative at several print settings, one after
+    /// the other with nothing in between: each layer's delta is set, the tier
+    /// reprinted, and `restore` put back at the end, so the session is left
+    /// exactly as it was found. One actor call, so no other render can see
+    /// the settings in between. A half-frame pair prints each frame this way.
+    func renderLayers(sessionID: String, tier: String, layers: [[String: ParamValue]],
+                      restore: [String: ParamValue]) throws -> [RenderOutcome] {
+        if state != .running { try start() }
+        var out: [RenderOutcome] = []
+        defer {
+            if !restore.isEmpty, let session, let json = try? encode(restore) {
+                var reply: UnsafeMutablePointer<CChar>?
+                _ = json.withCString { spk_set_params(session, $0, &reply) }
+                if let reply { spk_string_free(reply) }
+            }
+        }
+        for delta in layers {
+            let r = try renderTexture(.reprint, RenderRequest(sessionID: sessionID, paramsDelta: delta, tier: tier))
+            out.append(r)
+        }
+        return out
+    }
+
     /// Where the gates are on the film canvas the last render laid out
     /// (API-SPEC §13), as rectangles normalised to the canvas with y down;
     /// empty with no film edge or before a render.

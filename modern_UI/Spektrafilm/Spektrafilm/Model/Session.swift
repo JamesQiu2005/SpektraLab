@@ -82,12 +82,16 @@ final class Session: CanvasHost {
     /// The half-frame pair on the canvas, when the open item is one (its file
     /// is `selection`), and the layer its section is showing.
     private(set) var pair: HalfFramePair?
-    var pairLayer = PairLayer.film
+    var pairLayer = PairLayer.film { didSet { if pairLayer != oldValue { pairLayerChanged() } } }
     /// The right hole's frame's EXIF: its date, for the strip's second imprint.
     private(set) var pairRightExif: EXIFReadout?
     @ObservationIgnored private var pairExposureTask: Task<Void, Never>?
     /// `openInService` calls in flight, and what `busy` was before the first.
     @ObservationIgnored private var openDepth = 0
+    /// The engine's last print of the pair and the generation it landed with:
+    /// what a frame's print or grade is composed over again.
+    @ObservationIgnored private var pairLastRender: (outcome: RenderOutcome, generation: Int)?
+    @ObservationIgnored private var pairComposeTask: Task<Void, Never>?
     @ObservationIgnored private var busyBeforeOpen = false
     /// Placement mode on a pair, the drag in flight, and where the engine put
     /// the gates on the strip (normalised to the canvas).
@@ -112,6 +116,14 @@ final class Session: CanvasHost {
         get { sidecar.adjustments }
         set { guard newValue != sidecar.adjustments else { return }
               pushUndo()
+              // A pair's grade is in the picture it composes, frame by frame;
+              // the canvas draws that picture with none of its own.
+              if pair != nil {
+                  sidecar.adjustments = newValue
+                  scheduleSave()
+                  recomposePair()
+                  return
+              }
               let curvesChanged = newValue.curves != sidecar.adjustments.curves
               sidecar.adjustments = newValue
               renderer.layer2 = newValue.uniforms
@@ -1447,8 +1459,7 @@ final class Session: CanvasHost {
         exif = EXIFReadout.read(pair?.left?.url ?? url)
         seedFilmEdge(for: url)
         resolveFilmEdge()
-        renderer.layer2 = sidecar.adjustments.uniforms
-        renderer.setCurves(sidecar.adjustments.curves)
+        pushLayer2(sidecar.adjustments)
         renderer.geometry = canvasGeometry
         selectedMaskID = sidecar.masks.first?.id
         syncMasks()
@@ -2351,7 +2362,13 @@ final class Session: CanvasHost {
         log.info(.engine, "working_space", [.init("space", source)])
     }
 
-    private func applyRender(_ outcome: RenderOutcome, generation: Int) {
+    private func applyRender(_ outcome: RenderOutcome, generation: Int, composed: Bool = false) {
+        // A pair's print is cut together from its frames' own prints first
+        // (`composePairRender`), and comes back here as `composed`.
+        if pair != nil, !composed {
+            Task { await composePairRender(outcome, generation: generation) }
+            return
+        }
         rendersLanded += 1
         let r = outcome.response
         guard generation == serviceGeneration else {
@@ -2547,6 +2564,14 @@ final class Session: CanvasHost {
         fullGeneration += 1
         renderer.dropFullRender()
         renderer.store.dropFullRender()
+    }
+
+    /// The canvas's own grade: the frame's, or none for a pair (its picture
+    /// is already graded frame by frame).
+    private func pushLayer2(_ adjustments: Adjustments) {
+        let shown = pair != nil ? Adjustments() : adjustments
+        renderer.layer2 = shown.uniforms
+        renderer.setCurves(shown.curves)
     }
 
     /// `scheduleReopen` for the pair's own writes (`updatePair`).
@@ -3467,7 +3492,12 @@ final class Session: CanvasHost {
             // a different decode, and storing it under a stamp that still
             // matches would serve the old colour on the next edit.
             guard gen == fullGeneration, selection == url, sid == serviceSessionID,
-                  let tex = outcome.texture, let w = r.width, let h = r.height else { return }
+                  var tex = outcome.texture, let w = r.width, let h = r.height else { return }
+            // A pair at its own resolution: the same cut of the same prints.
+            if pair != nil {
+                if let layered = await pairLayered(base: tex, tier: "full") { tex = layered }
+                guard gen == fullGeneration, selection == url, sid == serviceSessionID else { return }
+            }
             let sourceSize = decoded?.pixelSize
             let key = Self.printCacheKey(
                 url: url, params: scheduler.sent, tier: .full,
@@ -3517,8 +3547,7 @@ final class Session: CanvasHost {
         let current = sidecar
         let piece = undoPairs.popLast() ?? nil
         sidecar = previous
-        renderer.layer2 = previous.adjustments.uniforms
-        renderer.setCurves(previous.adjustments.curves)
+        pushLayer2(previous.adjustments)
         renderer.geometry = canvasGeometry
         selectedMaskID = previous.masks.first { $0.id == selectedMaskID }?.id ?? previous.masks.last?.id
         syncMasks()
@@ -4113,7 +4142,8 @@ extension Session {
 
     /// One write path for the piece: save the file, drop what was rendered
     /// from the old one, and decode again (`redecode`) or only expose again.
-    func updatePair(redecode: Bool = true, step: Bool = false, _ change: (inout HalfFramePair) -> Void) {
+    func updatePair(redecode: Bool = true, rerender: Bool = true, step: Bool = false,
+                    _ change: (inout HalfFramePair) -> Void) {
         guard var p = pair, let url = selection, !batchExporting else { return }
         change(&p)
         guard p != pair else { return }
@@ -4131,6 +4161,9 @@ extension Session {
         exif = EXIFReadout.read(p.left?.url ?? url)
         refreshPairThumbnail(url)
         renderer.store.invalidatePrint(for: url)
+        // A frame's own print or grade: the negative stands, and the caller
+        // composes the picture again.
+        guard rerender else { scheduleSave(); return }
         wantsDevelop = true
         sidecar.state = .stale
         frameStates[url] = .stale
@@ -4153,11 +4186,15 @@ extension Session {
 
     func setHole(_ side: HalfFramePair.Side, to frame: URL?) {
         updatePair(step: true) { $0[side] = frame.map(Self.hole(for:)) }
+        resetPlacement(of: side)
         if frame != nil { pairLayer = side == .left ? .left : .right }
     }
 
     func swapHoles() {
         updatePair(step: true) { let l = $0.left; $0.left = $0.right; $0.right = l }
+        // Each placement goes with its frame.
+        sidecar.params.placementIsRight.toggle()
+        pairLayerChanged()
     }
 
     func setPlacement(_ side: HalfFramePair.Side, _ change: (inout HalfFramePair.Placement) -> Void) {
@@ -4172,7 +4209,19 @@ extension Session {
     }
 
     func setHoleExposure(_ side: HalfFramePair.Side, _ ev: Double) {
-        updatePair(redecode: false) { $0[side]?.exposureEV = ev.clamped(to: -5...5) }
+        let was = pair?[side]?.exposureEV ?? 0
+        let now = ev.clamped(to: -5...5)
+        // + Film: the film's print brightness moves by the same stops, so the
+        // rebate follows the frame (answer B3). It is set first, without a
+        // render of its own: the develop this exposure asks for carries it.
+        if pair?[side]?.exposureScope == .film, now != was {
+            let film = HalfFramePair.PrintTrim(sidecar.params)
+            for s in HalfFramePair.Side.allCases where pair?[s] != nil && pair?[s]?.print == nil {
+                updatePair(redecode: false, rerender: false) { $0[s]?.print = film }
+            }
+            sidecar.params.printBrightnessStops = (sidecar.params.printBrightnessStops + (now - was)).clamped(to: -3...3)
+        }
+        updatePair(redecode: false) { $0[side]?.exposureEV = now }
     }
 
     func setPairSpacing(_ mm: Double) {
@@ -4478,6 +4527,39 @@ extension Session {
         return true
     }
 
+    /// The picked frame's Scene Placement is the one the section shows:
+    /// `params.sceneLatitude` and `sceneLatitudeOther` trade places when the
+    /// other frame is picked. The wire is the same before and after, so this
+    /// renders nothing; the Latitude readout is measured again for the frame.
+    func pairLayerChanged() {
+        guard pair != nil, let side = pairLayer.side else { return }
+        let wantRight = side == .right
+        guard sidecar.params.placementIsRight != wantRight else { return }
+        let shown = sidecar.params.sceneLatitude
+        sidecar.params.sceneLatitude = sidecar.params.sceneLatitudeOther
+        sidecar.params.sceneLatitudeOther = shown
+        sidecar.params.placementIsRight = wantRight
+        scheduleSave()
+        scheduleLatitudeRefresh()
+    }
+
+    /// The frame the Scene Placement section is about, as the Fit's region:
+    /// the picked one, or the one last picked while the film is.
+    var pairFitRegion: [Double]? {
+        guard let p = pair else { return nil }
+        let l = HalfFramePair.layout(holeHeight: 2400, spacingMM: p.effectiveSpacingMM, turned: p.turned)
+        let r = l.normalisedRect(sidecar.params.placementIsRight ? .right : .left)
+        return [Double(r.minX), Double(r.minY), Double(r.maxX), Double(r.maxY)]
+    }
+
+    /// A frame put into, or taken out of, a hole starts with no placement:
+    /// the curve was fitted to the scene that was there.
+    func resetPlacement(of side: HalfFramePair.Side) {
+        let isShown = (side == .right) == sidecar.params.placementIsRight
+        if isShown { sidecar.params.sceneLatitude = SceneLatitudeSettings() }
+        else { sidecar.params.sceneLatitudeOther = SceneLatitudeSettings() }
+    }
+
     /// Held level (side by side) or turned (one above the other).
     func setPairTurned(_ turned: Bool) {
         updatePair(step: true) { $0.turned = turned }
@@ -4540,4 +4622,203 @@ extension Session {
     @objc private func pairMenuTurnCamera() { setPairTurned(!(pair?.turned ?? false)) }
     @objc private func pairMenuFit() { zoomToFit() }
     @objc private func pairMenuExport() { showExport = true }
+}
+
+// MARK: - a pair's frames, each with its own print and grade
+//
+// One negative, printed up to three times: the film's own print (the pair's
+// settings), and each frame's where it differs. The three are graded — the
+// film's Post-Dev, or the frame's own — and cut together along the frames'
+// rectangles (`Renderer.compositePair`). The canvas draws the result with no
+// grade of its own, and the export writes the same picture.
+
+/// The enlarger's values a frame may have for itself.
+enum EnlargerField: Sendable {
+    case brightness, yellow, magenta, preflash
+}
+
+extension Session {
+    private func value(_ f: EnlargerField, of t: HalfFramePair.PrintTrim) -> Double {
+        switch f {
+        case .brightness: t.brightnessStops
+        case .yellow: t.yFilterShift
+        case .magenta: t.mFilterShift
+        case .preflash: t.preflashExposure
+        }
+    }
+
+    private func set(_ f: EnlargerField, _ v: Double, in t: inout HalfFramePair.PrintTrim) {
+        switch f {
+        case .brightness: t.brightnessStops = v
+        case .yellow: t.yFilterShift = v
+        case .magenta: t.mFilterShift = v
+        case .preflash: t.preflashExposure = v
+        }
+    }
+
+    /// The film's own print: the pair's settings (a frame's, for a frame).
+    private var filmPrint: HalfFramePair.PrintTrim { HalfFramePair.PrintTrim(sidecar.params) }
+
+    /// The picked frame of a pair, when the rails are showing one.
+    var pickedHole: HalfFramePair.Side? {
+        guard let p = pair, let side = pairLayer.side, p[side] != nil else { return nil }
+        return side
+    }
+
+    /// What the Enlarger shows: the picked frame's value, else the film's.
+    func enlargerValue(_ f: EnlargerField) -> Double {
+        if let side = pickedHole, let own = pair?[side]?.print { return value(f, of: own) }
+        return value(f, of: filmPrint)
+    }
+
+    /// An Enlarger edit. On a frame of a pair it is that frame's; with the
+    /// scope on *+ Film* the film's print moves by the same amount (answer
+    /// B3), so the frame and the film around it stay as far apart as they
+    /// were. Anywhere else it is the one print there is.
+    func setEnlarger(_ f: EnlargerField, _ v: Double) {
+        guard let side = pickedHole else {
+            var t = filmPrint
+            set(f, v, in: &t)
+            // The first edit of the film's print with frames that follow it
+            // moves them too: until a frame is given a print of its own the
+            // piece prints as one.
+            params = t.applied(to: params)
+            return
+        }
+        let was = enlargerValue(f)
+        guard v != was else { return }
+        let scope = pair?[side]?.printScope ?? .film
+        let film = filmPrint
+        updatePair(redecode: false, rerender: false) { p in
+            // Both frames get a print of their own first, so the other one
+            // does not ride along with the film.
+            for s in HalfFramePair.Side.allCases where p[s] != nil && p[s]?.print == nil { p[s]?.print = film }
+            guard var own = p[side]?.print else { return }
+            self.set(f, v, in: &own)
+            p[side]?.print = own
+        }
+        if scope == .film {
+            var t = film
+            var moved = value(f, of: film) + (v - was)
+            if f == .preflash { moved = moved.clamped(to: 0...0.03) }
+            set(f, moved, in: &t)
+            params = t.applied(to: params)          // renders, and the frames follow
+        } else {
+            recomposePair()
+        }
+    }
+
+    /// Reset Enlarger: the picked frame's print back to neutral, else the film's.
+    func resetEnlarger() {
+        if let side = pickedHole {
+            let film = filmPrint
+            updatePair(redecode: false, rerender: false, step: true) { p in
+                for s in HalfFramePair.Side.allCases where p[s] != nil && p[s]?.print == nil { p[s]?.print = film }
+                p[side]?.print = HalfFramePair.PrintTrim()
+            }
+            recomposePair()
+        } else {
+            params = HalfFramePair.PrintTrim().applied(to: params)
+        }
+    }
+
+    var enlargerScope: HalfFramePair.Scope {
+        get { pickedHole.flatMap { pair?[$0]?.printScope } ?? .film }
+        set { if let side = pickedHole { updatePair(redecode: false, rerender: false) { $0[side]?.printScope = newValue } } }
+    }
+
+    var exposureScope: HalfFramePair.Scope {
+        get { pickedHole.flatMap { pair?[$0]?.exposureScope } ?? .frame }
+        set { if let side = pickedHole { updatePair(redecode: false, rerender: false) { $0[side]?.exposureScope = newValue } } }
+    }
+
+    /// The grade the Post-Dev rail is editing: the picked frame's own (the
+    /// film's until it is given one), else the film's.
+    var layerAdjustments: Adjustments {
+        get { pickedHole.flatMap { pair?[$0]?.adjustments } ?? sidecar.adjustments }
+        set {
+            guard let side = pickedHole else { adjustments = newValue; return }
+            guard newValue != layerAdjustments else { return }
+            updatePair(redecode: false, rerender: false) { $0[side]?.adjustments = newValue }
+            recomposePair()
+        }
+    }
+
+    /// The grade the export applies after the engine: none on a pair, whose
+    /// frames are already graded in the picture it is handed.
+    var exportAdjustments: Adjustments { pair != nil ? Adjustments() : adjustments }
+
+    /// The pair's picture at `tier`, from the engine's print of it: each
+    /// frame printed and graded as its own, cut together. Nil when it could
+    /// not be made, and the caller keeps the print it has.
+    func pairLayered(base: MTLTexture, tier: String) async -> MTLTexture? {
+        guard let p = pair, let sid = serviceSessionID, let url = selection else { return nil }
+        let film = scheduler.sent
+        var deltas: [[String: ParamValue]] = [], sides: [HalfFramePair.Side] = []
+        var restore: [String: ParamValue] = [:]
+        for side in HalfFramePair.Side.allCases {
+            guard let own = p[side]?.print, own != HalfFramePair.PrintTrim(film) else { continue }
+            let printed = own.applied(to: film)
+            deltas.append(printed.delta(from: film).delta)
+            restore.merge(film.delta(from: printed).delta) { a, _ in a }
+            sides.append(side)
+        }
+        var prints: [HalfFramePair.Side: MTLTexture] = [:]
+        if !deltas.isEmpty {
+            // Each delta is from the film's print, so each layer is set from
+            // the film's values: put them back between layers too.
+            var layers: [[String: ParamValue]] = []
+            for d in deltas { layers.append(restore.merging(d) { _, new in new }) }
+            guard let textures = try? await client.renderLayers(sessionID: sid, tier: tier, layers: layers,
+                                                                restore: restore) else { return nil }
+            for (side, t) in zip(sides, textures) { if let texture = t.texture { prints[side] = texture } }
+        }
+        guard selection == url, pair != nil else { return nil }
+        var rects = pairHoleRects
+        if sidecar.params.filmEdge.effective {
+            let gates = (try? await client.overscanGates()) ?? []
+            guard selection == url else { return nil }
+            pairGates = gates
+            rects = pairHoleRects
+        }
+        guard let ra = rects[.left], let rb = rects[.right] else { return nil }
+        // Grade: the film's own, and each frame's where it has one (or a
+        // print of its own to grade).
+        let filmGrade = sidecar.adjustments
+        guard let graded = renderer.applyAdjustments(filmGrade, to: base) else { return nil }
+        func layer(_ side: HalfFramePair.Side) -> MTLTexture? {
+            let own = p[side]?.adjustments
+            guard prints[side] != nil || (own != nil && own != filmGrade) else { return nil }
+            return renderer.applyAdjustments(own ?? filmGrade, to: prints[side] ?? base)
+        }
+        return renderer.compositePair(base: graded, first: layer(.left), firstRect: ra,
+                                      second: layer(.right), secondRect: rb)
+    }
+
+    /// The print on the canvas made again from the engine's last one: a
+    /// frame's print or grade changed and the negative did not.
+    func recomposePair() {
+        guard pair != nil, let last = pairLastRender else { requestPrint(); return }
+        pairComposeTask?.cancel()
+        pairComposeTask = Task {
+            // A drag sets the value dozens of times; one print per pause.
+            try? await Task.sleep(for: .milliseconds(60))
+            guard !Task.isCancelled else { return }
+            await composePairRender(last.outcome, generation: last.generation)
+        }
+    }
+
+    /// An engine print of a pair, on its way to the canvas.
+    func composePairRender(_ outcome: RenderOutcome, generation: Int) async {
+        guard let base = outcome.texture, generation == serviceGeneration else {
+            applyRender(outcome, generation: generation, composed: true)
+            return
+        }
+        pairLastRender = (outcome, generation)
+        let composite = await pairLayered(base: base, tier: outcome.response.tier)
+        guard generation == serviceGeneration, pair != nil else { return }
+        applyRender(RenderOutcome(response: outcome.response, texture: composite ?? base,
+                                  progress: outcome.progress),
+                    generation: generation, composed: true)
+    }
 }

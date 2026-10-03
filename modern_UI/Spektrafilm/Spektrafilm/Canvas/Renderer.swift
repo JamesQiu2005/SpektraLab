@@ -114,6 +114,7 @@ final class Renderer: NSObject {
     private let transformPipeline: MTLComputePipelineState
     private let histogramPipeline: MTLComputePipelineState
     private let geometryPipeline: MTLComputePipelineState
+    private let pairPipeline: MTLComputePipelineState
     private let quadPipelineDrawable: MTLRenderPipelineState
     private let quadPipelineOffscreen: MTLRenderPipelineState
     private let curveTable: MTLTexture
@@ -416,6 +417,7 @@ final class Renderer: NSObject {
               let xform = lib.makeFunction(name: "outputTransform"),
               let hist = lib.makeFunction(name: "histogram"),
               let geo = lib.makeFunction(name: "geometryResample"),
+              let pairFn = lib.makeFunction(name: "pairComposite"),
               let vs = lib.makeFunction(name: "canvasVertex"),
               let fs = lib.makeFunction(name: "canvasFragment") else { return nil }
         do {
@@ -423,6 +425,7 @@ final class Renderer: NSObject {
             transformPipeline = try device.makeComputePipelineState(function: xform)
             histogramPipeline = try device.makeComputePipelineState(function: hist)
             geometryPipeline = try device.makeComputePipelineState(function: geo)
+            pairPipeline = try device.makeComputePipelineState(function: pairFn)
             let rd = MTLRenderPipelineDescriptor()
             rd.vertexFunction = vs
             rd.fragmentFunction = fs
@@ -535,6 +538,7 @@ final class Renderer: NSObject {
     }
 
     func setCurves(_ curves: CurveSet) {
+        currentCurves = curves
         store.upload(curves: curves, into: curveTable)
         layer2Dirty = true
         needsDraw?()
@@ -887,6 +891,54 @@ final class Renderer: NSObject {
         cb.commit()
         cb.waitUntilCompleted()
         return dst
+    }
+
+    /// The curves the canvas is drawing with (`setCurves`), so an offscreen
+    /// grade with other curves can put them back.
+    private var currentCurves = CurveSet()
+
+    /// One grade over a texture, its curves included, without disturbing the
+    /// canvas's own: a half-frame pair grades each frame by itself.
+    func applyAdjustments(_ adjustments: Adjustments, to src: MTLTexture) -> MTLTexture? {
+        store.upload(curves: adjustments.curves, into: curveTable)
+        defer { store.upload(curves: currentCurves, into: curveTable); layer2Dirty = true }
+        return applyLayer2(to: src, uniforms: adjustments.uniforms)
+    }
+
+    /// `base` with each frame's rectangle taken from that frame's own texture
+    /// (nil: the base's). Rectangles are normalised, y down; all three
+    /// textures are the same size.
+    func compositePair(base: MTLTexture, first: MTLTexture?, firstRect: CGRect,
+                       second: MTLTexture?, secondRect: CGRect) -> MTLTexture? {
+        let w = base.width, h = base.height
+        func fits(_ t: MTLTexture?) -> Bool { t.map { $0.width == w && $0.height == h } ?? true }
+        guard fits(first), fits(second),
+              let dst = store.makeWritable(width: w, height: h),
+              let cb = queue.makeCommandBuffer(), let enc = cb.makeComputeCommandEncoder() else { return nil }
+        func px(_ r: CGRect) -> SIMD4<Float> {
+            SIMD4(Float(r.minX) * Float(w), Float(r.minY) * Float(h), Float(r.maxX) * Float(w), Float(r.maxY) * Float(h))
+        }
+        var u = PairRects(a: px(firstRect), b: px(secondRect), feather: 1.5,
+                          useA: first == nil ? 0 : 1, useB: second == nil ? 0 : 1, pad: 0)
+        enc.setComputePipelineState(pairPipeline)
+        enc.setTexture(base, index: 0)
+        enc.setTexture(first ?? base, index: 1)
+        enc.setTexture(second ?? base, index: 2)
+        enc.setTexture(dst, index: 3)
+        enc.setBytes(&u, length: MemoryLayout<PairRects>.stride, index: 0)
+        let tg = MTLSize(width: 16, height: 16, depth: 1)
+        enc.dispatchThreadgroups(MTLSize(width: (w + 15) / 16, height: (h + 15) / 16, depth: 1),
+                                 threadsPerThreadgroup: tg)
+        enc.endEncoding()
+        cb.commit()
+        cb.waitUntilCompleted()
+        return dst
+    }
+
+    /// The kernel's uniform (`Shaders.metal`, `PairRects`).
+    private struct PairRects {
+        var a: SIMD4<Float>, b: SIMD4<Float>
+        var feather: Float, useA: Float, useB: Float, pad: Float
     }
 
     /// A Digital Intermediate texture (Cineon codes) through the DI view and

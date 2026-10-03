@@ -311,6 +311,8 @@ struct SnapshotRequest {
     /// `--film-edge` — capture with the film edge on. `--pair-layer film|left|right`
     /// — capture a half-frame pair with that layer picked.
     var filmEdge = false
+    /// `--date-back` — capture with the date back on.
+    var dateBack = false
     var pairLayer: PairLayer?
 
     static func parse(_ args: [String]) -> SnapshotRequest? {
@@ -334,6 +336,7 @@ struct SnapshotRequest {
         }
         r.original = args.contains("--original")
         r.filmEdge = args.contains("--film-edge")
+        r.dateBack = args.contains("--date-back")
         if let j = args.firstIndex(of: "--pair-layer"), args.count > j + 1 { r.pairLayer = PairLayer(rawValue: args[j + 1]) }
         r.exportGrid = args.contains("--export-grid")
         r.export = r.exportGrid || args.contains("--export")
@@ -514,6 +517,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             if req.filmEdge {
                 var p = session.params
                 p.filmEdge.active = true
+                session.params = p
+            }
+            if req.dateBack {
+                var p = session.params
+                p.dateBack.active = true
                 session.params = p
             }
             if let layer = req.pairLayer { session.pairLayer = layer }
