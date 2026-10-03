@@ -1,8 +1,8 @@
 # Windows feature coverage
 
 Verified on 2026-10-03 with MinGW GCC 15.2 / Vulkan / RTX 5070 Ti.
-The current `build-windows-raw-headroom` backend has 34 registered kernels,
-including two diagnostic probes, and passes CTest 14/14.
+The current `build-windows-desktop` backend has 34 registered kernels,
+including two diagnostic probes, and passes CTest 15/15.
 This is a record of exercised paths, not a claim that every public API or
 stock combination is complete. Shared baked profile/resource files are unchanged.
 Whole-image Python/Metal parity remains unverified: the matching external
@@ -34,11 +34,12 @@ reference is still unavailable.
 | Crop / arbitrary rotation / flips | `spk_geometry_resample_df` | 192 direct GPU cases against independent float64 mapping and exact integer rotations/flips, max error `8.16198319e-7`; full RAW turn/flip equals explicit input transforms. Arbitrary crop/rotation C ABI dimensions, invalidation and cached reprint pass |
 | Stock-LUT preview | `spk_lut3d_trilinear` | LUT/DI direct gate: 96 cases, max error `6.96505159e-7`. Eight baked stock tables are byte-identical through the C ABI; all stock synthetic preview calls pass, full RAW Portra Endura passes. Output is encoded Display P3 per catalog, independent of the ordinary render's sRGB setting |
 | DI delivery | `spk_di_normalise` | Direct numerical gate and eight-stock synthetic C ABI calls pass; full RAW Portra Endura passes. RGBA16 holds normalized negative density, not display RGB. This does not implement a TIFF writer or complete native image export |
-| Windows display and native GPU image | Platform output/display layer | CPU RGBA16 ownership handle only; no drawable `VkImage` or Windows UI |
+| Windows minimal desktop window | Win32, serial worker, shared immutable RGBA16/BGRA8 Frame | Full ARW open, film/paper/brightness edits, fit/100% pan and current-frame TIFF; failed NEF open retains previous session/frame. Offscreen window at 144 DPI checks real handlers, selected-label painting and 4,308,255 visible BGR channel values at 1:1. No live user-gesture/monitor-ICC/HDR/multi-monitor acceptance yet |
+| Windows colour/display format | Tagged sRGB BITMAPV5 + requested GDI ICM | SDR 8-bit display copy; original RGB16 export retained. A successful ICM request is not a verified monitor transform. CPU result handle remains; no drawable VkImage or direct Vulkan display interop |
 
 CTest covers core schema/setup, Vulkan smoke, grain, pointwise, resample,
 transfers, geometry, LUT/DI, the DLL C ABI, TIFF, RAW decode errors, metadata-only
-LibRaw linkage and headroom mathematics (14/14). Grain gates use exact Philox integers and independent
+LibRaw linkage, headroom mathematics and desktop pixel/viewport boundaries (15/15). Grain gates use exact Philox integers and independent
 distribution moments; they do not assert Metal seeded Poisson draw equality.
 The isolated negative controls demonstrate failures for Gaussian substitution,
 rounded long-axis coordinates, wrong arithmetic and overwritten tail guards.

@@ -11,6 +11,7 @@ param(
     [string]$GlslangExecutable,
     [string]$LibRawSourceDirectory,
     [switch]$NativeRaw = $true,
+    [switch]$Desktop = $true,
     [switch]$Fresh,
     [ValidateRange(1, 64)][int]$Jobs = 4
 )
@@ -92,6 +93,7 @@ try {
         "-DSPEKTRALAB_VULKAN_INCLUDE_DIR=$($VulkanIncludeDirectory.Replace('\', '/'))",
         "-DSPEKTRALAB_VULKAN_LIBRARY=$($VulkanLibrary.Replace('\', '/'))", "-DSPEKTRALAB_GLSLANG=$($GlslangExecutable.Replace('\', '/'))")
     if ($Fresh) { $configureArguments = @('--fresh') + $configureArguments }
+    $configureArguments += "-DSPEKTRALAB_BUILD_DESKTOP=$(if ($Desktop -and $NativeRaw) { 'ON' } else { 'OFF' })"
     if ($NativeRaw) {
         if (-not $LibRawSourceDirectory) { $LibRawSourceDirectory = Join-Path $dependencyDirectory 'LibRaw-0.22.2' }
         if (-not (Test-Path -LiteralPath (Join-Path $LibRawSourceDirectory 'libraw\libraw.h'))) {
@@ -152,6 +154,8 @@ try {
         dll_sha256 = (Get-FileHash -LiteralPath (Join-Path $BuildDirectory 'engine\spektrafilm_engine.dll') -Algorithm SHA256).Hash.ToLowerInvariant()
         ctest_passed = $true
         native_raw = [bool]$NativeRaw
+        desktop = [bool]($Desktop -and $NativeRaw)
+        desktop_executable_sha256 = $(if ($Desktop -and $NativeRaw) { (Get-FileHash -LiteralPath (Join-Path $BuildDirectory 'engine\SpektraLab.exe') -Algorithm SHA256).Hash.ToLowerInvariant() } else { $null })
         native_raw_executable_sha256 = $(if ($NativeRaw) { (Get-FileHash -LiteralPath (Join-Path $BuildDirectory 'engine\spk_raw_render.exe') -Algorithm SHA256).Hash.ToLowerInvariant() } else { $null })
         libraw_source_directory = $LibRawSourceDirectory
         libraw_source_files = @($(if ($NativeRaw) { Get-ChildItem -LiteralPath $LibRawSourceDirectory -File -Recurse | Sort-Object FullName | ForEach-Object {

@@ -1,4 +1,4 @@
-# Windows headless port: incremental Vulkan gate
+# Windows port: Vulkan engine, native RAW and minimal desktop viewer
 
 The Windows build keeps the existing C++ core and pipeline. The current Vulkan
 backend creates a real compute device and runs 34 registered kernels, including
@@ -14,6 +14,8 @@ The current native host also opens RAW files and writes profiled RGB16 TIFF
 without Python. See [WINDOWS_NATIVE_RAW.md](WINDOWS_NATIVE_RAW.md) for the
 decode/export contract, supported paths, commands and remaining limitations.
 This preserves the pixel-only C API and the current film/print pipeline.
+The minimal native viewer is `SpektraLab.exe`; see
+[WINDOWS_DESKTOP.md](WINDOWS_DESKTOP.md) for usage and display validation limits.
 
 ## Build
 
@@ -33,13 +35,15 @@ For the current workspace, the repeatable MinGW build and test entry is:
 & .\engine\build-windows.ps1 -Fresh
 ```
 
-The default build directory is now `../build-windows-raw-headroom`, with native
-RAW enabled. Use `-NativeRaw:$false` for the pixel-only build. LibRaw source can
+The default build directory is now `../build-windows-desktop`, with native
+RAW and the desktop viewer enabled. Use `-Desktop:$false` to omit the viewer,
+or `-NativeRaw:$false` for the pixel-only build. LibRaw source can
 be supplied with `-LibRawSourceDirectory`; CMake alone keeps this optional via
 `SPEKTRALAB_BUILD_NATIVE_RAW` and `SPEKTRALAB_LIBRAW_SOURCE`.
 The default decode policy remains `compatible16`; `--decode-mode headroom`
 enables the separately tested float RGB conversion after uint16 demosaicing.
 `../build-windows-native-raw` preserves the first native RAW/TIFF stage;
+`../build-windows-raw-headroom` preserves the tested headroom stage;
 `../build-windows-migration` preserves the corrected FIR/geometry/LUT/DI stage.
 `../build-windows-performance` preserves the completed performance stage;
 `../build-windows-validation` preserves the pre-optimization baseline.
@@ -165,7 +169,7 @@ diagnosed and corrected this discrepancy; it is no longer an unresolved gate.
 
 `build-windows-migration` is the preserved 34-kernel phase-2 build and passes CTest 10/10.
 The current headroom build also tests TIFF, both decode-error paths, metadata-only
-LibRaw linkage and headroom mathematics (CTest 14/14).
+LibRaw linkage, headroom mathematics and desktop pixel/viewport boundaries (CTest 15/15).
 Its new geometry gate covers 192 cases against independent float64 spatial
 mapping and exact integer rotations/flips (maximum absolute error
 `8.16198319e-7`). The LUT/DI gate covers 96 cases (maximum absolute error
