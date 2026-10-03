@@ -265,6 +265,11 @@ NATIVE_ONLY = {
         "path": "film_render.overscan.frame_number", "type": "int", "layer": "shoot",
         "default": 0, "live": False, "range": [0, 99],
     },
+    # What a strip scan shows past the film's long edges: black | open.
+    "overscan_carrier": {
+        "path": "film_render.overscan.carrier", "type": "str", "layer": "shoot",
+        "default": "black", "live": False, "range": None,
+    },
 }
 
 

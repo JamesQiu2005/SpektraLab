@@ -562,28 +562,29 @@ extension FilmEdgeFormat {
         return "\(gateLabel) mm · \(ratio)"
     }
 
-    /// Film pixels per picture pixel: camera 19's canvases, from the port
-    /// (`SpektraLab_mobile/design/overscan/README.md` §2, and the drawing's
-    /// menu for the panoramic three). Another body differs by a percent or
-    /// two, since the margins along the film are drawn per camera. Nil where
-    /// nothing was measured.
+    /// Film pixels per picture pixel: camera 19's canvases, measured off the
+    /// engine (2026-10-03, with the 0.40 mm of carrier a strip scan shows past
+    /// each long edge). Another body differs by a percent or two, since the
+    /// margins along the film are drawn per camera. Nil where nothing was
+    /// measured.
     func filmCost(_ view: FilmEdgeView) -> Double? {
         switch (self, view) {
-        case (.f135, .strip): 1.52
-        case (.f135Half, .strip): 1.53
-        case (.f645, .strip): 1.19
-        case (.f6x6, .strip): 1.16
-        case (.f6x7, .strip), (.f6x8, .strip): 1.14
-        case (.f6x9, .strip): 1.13
-        case (.xpan, .strip): 1.48
-        case (.f6x12, .strip): 1.13
-        case (.f6x17, .strip): 1.10
+        case (.f135, .strip): 1.55
+        case (.f135Half, .strip): 1.57
+        case (.f645, .strip): 1.22
+        case (.f6x6, .strip): 1.19
+        case (.f6x7, .strip): 1.17
+        case (.f6x8, .strip), (.f6x9, .strip): 1.16
+        case (.xpan, .strip): 1.53
+        case (.f6x12, .strip): 1.14
+        case (.f6x17, .strip): 1.13
         case (.f135, .filed): 1.15
         case (.f135Half, .filed): 1.20
-        case (.f645, .filed): 1.08
+        case (.f645, .filed): 1.09
         case (.f6x6, .filed), (.f6x7, .filed): 1.07
-        case (.f6x8, .filed), (.f6x9, .filed): 1.06
-        case (.xpan, .filed), (.f6x12, .filed), (.f6x17, .filed): nil
+        case (.f6x8, .filed), (.f6x9, .filed), (.f6x12, .filed): 1.06
+        case (.xpan, .filed): 1.12
+        case (.f6x17, .filed): 1.05
         }
     }
 }

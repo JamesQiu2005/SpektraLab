@@ -46,7 +46,7 @@ enum OsP : int {
     P_WOB_A = 20, P_WOB_PH = 32,
     P_FILM_W = 44, P_FOG_AMP, P_FOG_WIDTH, P_FOG_SEED, P_FOG_PERIOD,
     P_FOG_R, P_FOG_G, P_FOG_B,
-    P_N_LEAKS = 52, P_LEAKS = 53,
+    P_N_LEAKS = 52,
     P_PERFORATED = 83, P_PERF_PITCH, P_PERF_W, P_PERF_H, P_PERF_EDGE, P_PERF_R, P_PERF_PHASE,
     P_HOLE_C = 90, P_HOLE_M, P_HOLE_Y,
     P_FLARE_AMP = 93, P_FLARE_WIDTH,
@@ -55,9 +55,13 @@ enum OsP : int {
     P_HOLES_LIGHT = 183, P_LIGHT_R, P_LIGHT_G, P_LIGHT_B,
     P_PERF_SEED = 187, P_LIGHT_FALL, P_LIGHT_DIR,
     P_WALL_T = 190, P_WALL_VS, P_WALL_VT, P_WALL_PAR, P_BASE_R, P_BASE_G, P_BASE_B, P_WALL_GLOW, P_WALL_SCATTER,
-    P_COUNT = 199
+    P_CARRIER = 199,
+    P_LEAKS = 200,          // up to kMaxLeaks x (s, side, amp, sigma_s, sigma_t)
+    P_COUNT = 260
 };
-constexpr int kMaxLeaks = 6;
+constexpr int kMaxLeaks = 12;
+// How far past each long edge of the film a strip scan reaches, mm.
+constexpr double kCarrierMM = 0.40;
 constexpr int kMaxQuads = 8;
 constexpr double kMidGrey = 0.184;
 
@@ -105,8 +109,15 @@ constexpr Format kFormats[] = {
     {"120_6x7", 61.0, 56.0, 69.5, false, "square"},
     {"120_6x8", 61.0, 56.0, 76.0, false, "shouldered"},
     {"120_6x9", 61.0, 56.0, 84.0, false, "square"},
+    // The panoramic long formats (answer sheet C1, C5): square gates until an
+    // XPan, a GX617 and a Linhof 617 strip are measured. The XPan advances 14
+    // perforations (66.5 mm) for its 65 mm gate, counted off the perforations
+    // (C8), so the 135 phase and advance error hold.
+    {"135_xpan", 35.0, 24.0, 65.0, true, "square"},
+    {"120_6x12", 61.0, 56.0, 112.0, false, "square"},
+    {"120_6x17", 61.0, 56.0, 168.0, false, "square"},
 };
-constexpr const char* kFormatNames = "135, 135_half, 120_645, 120_6x6, 120_6x7, 120_6x8, 120_6x9";
+constexpr const char* kFormatNames = "135, 135_half, 120_645, 120_6x6, 120_6x7, 120_6x8, 120_6x9, 135_xpan, 120_6x12, 120_6x17";
 constexpr const char* kGateFamilies[] = {"square", "rounded", "eared", "shouldered", "kicked"};
 const Format* find_format(const std::string& name) {
     for (const Format& f : kFormats) if (name == f.name) return &f;
@@ -463,6 +474,7 @@ bool Pipeline::overscan_layout(uint32_t frame_w, uint32_t frame_h, std::string& 
     for (const char* f : kGateFamilies) family_ok = family_ok || o.gate == f;
     if (!family_ok) { error = "overscan: unknown gate '" + o.gate + "' (auto, square, rounded, eared, shouldered, kicked)"; return false; }
     if (o.holes != "white" && o.holes != "black") { error = "overscan: unknown holes '" + o.holes + "' (white, black)"; return false; }
+    if (o.carrier != "black" && o.carrier != "open") { error = "overscan: unknown carrier '" + o.carrier + "' (black, open)"; return false; }
     if (params_.settings.striped) {
         error = "overscan: not supported by the striped executor yet (RFC-032 §27); render with striped = false";
         return false;
@@ -535,6 +547,7 @@ bool Pipeline::overscan_layout(uint32_t frame_w, uint32_t frame_h, std::string& 
         gate_shape(L, family, fmt->perforated, rg);
     }
     L.holes_light = o.holes == "white";
+    L.carrier_open = o.carrier == "open";
 
     // --- perforations (135): the frame's place on the grid is the camera's,
     // the advance error is the frame's; sprocket-locked, so it is small.
@@ -556,12 +569,11 @@ bool Pipeline::overscan_layout(uint32_t frame_w, uint32_t frame_h, std::string& 
         // a side shows. Half frame advances 4 (19 mm) for 18 mm: ~0.5 mm a side.
         margin_along = fmt->perforated ? (fmt->along < 20.0 ? rc.uni(0.40, 0.50) : rc.uni(0.75, 0.95))
                                        : rc.uni(1.3, 2.1) + rf.uni(-0.25, 0.25);
-        // The scan crops a hair inside the film's edges: enough that the
-        // largest scan rotation (0.35 degrees, below) never shows a sliver of
-        // light past the edge, and fixed per format so every frame's canvas
-        // is the same size.
-        const double inset = 0.5 * (L.gate_along + 2.0 * margin_along) * std::sin(0.35 * M_PI / 180.0) + 0.02;
-        t_lo = inset; t_hi = L.film_w - inset;
+        // The scan reaches past the film's long edges and shows its carrier
+        // there (answer sheet C2): nothing printed on the film can be cut at
+        // any length or tilt, and no sliver of the holes' light shows past the
+        // edge. Fixed, so every frame's canvas is the same size.
+        t_lo = -kCarrierMM; t_hi = L.film_w + kCarrierMM;
     } else {
         margin_along = 0.9 + rf.uni(-0.1, 0.1);
         t_lo = L.gate_t0 - 1.1; t_hi = L.gate_t0 + L.gate_across + 1.1;
@@ -577,7 +589,13 @@ bool Pipeline::overscan_layout(uint32_t frame_w, uint32_t frame_h, std::string& 
     const double s_origin = -double(m_px) * L.px;
 
     // --- scan registration (per frame): the whole film sits a hair off square.
-    L.scan_rot = std::clamp(rf.normal() * 0.14, -0.35, 0.35) * M_PI / 180.0;
+    // Capped by how far it moves the film's ends, not by an angle (C4): 0.27 mm,
+    // the most 6x9 reached at 0.35 degrees. Every format up to 6x9 keeps its
+    // 0.35; 6x12 is held to 0.27 and 6x17 to 0.18 -- a long strip in a holder
+    // does not sit like a wedge.
+    const double half_along = 0.5 * along_px * L.px;
+    const double tilt_lim = std::min(0.35, std::asin(std::min(1.0, 0.27 / half_along)) * 180.0 / M_PI);
+    L.scan_rot = std::clamp(rf.normal() * 0.14, -tilt_lim, tilt_lim) * M_PI / 180.0;
     const double ds = rf.normal() * 0.08, dt = rf.normal() * 0.06;
     const double cu = 0.5 * L.canvas_w * L.px, cv = 0.5 * L.canvas_h * L.px;
     const double c = std::cos(L.scan_rot), sn = std::sin(L.scan_rot);
@@ -606,7 +624,10 @@ bool Pipeline::overscan_layout(uint32_t frame_w, uint32_t frame_h, std::string& 
     L.flare_width = rc.uni(0.03, 0.08);
     L.fog_seed = uint32_t(rf.next() & 0xFFFFFFu);
     L.fog_period = rc.uni(5.0, 11.0);
-    const int n_leaks = o.leaks > 0 ? std::min(kMaxLeaks, int(std::lround(1.0 + 2.0 * o.leaks))) : 0;
+    // A count per length of film (C6): the same up to 6x9's canvas, more on a
+    // longer one, so 171 mm of film is not as clean as 88.
+    const double leak_len = std::max(1.0, along_px * L.px / 90.0);
+    const int n_leaks = o.leaks > 0 ? std::min(kMaxLeaks, int(std::lround(std::min(6.0, 1.0 + 2.0 * o.leaks) * leak_len))) : 0;
     const int leak_side = rc.uni() < 0.5 ? 0 : 1;
     const double s_lo = s_origin, s_hi = s_origin + along_px * L.px;
     for (int k = 0; k < n_leaks; ++k) {
@@ -749,6 +770,7 @@ void Pipeline::overscan_params_block(std::vector<float>& P) const {
     }
     P[P_ROUGH_AMP] = float(L.rough_amp); P[P_ROUGH_PERIOD] = float(L.rough_period); P[P_ROUGH_SEED] = float(L.rough_seed);
     P[P_HOLES_LIGHT] = L.holes_light ? 1.0f : 0.0f;
+    P[P_CARRIER] = L.carrier_open ? 1.0f : 0.0f;
     for (int c = 0; c < 3; ++c) P[P_LIGHT_R + c] = float(L.light_rgb[c]);
     P[P_PERF_SEED] = float(L.perf_seed); P[P_LIGHT_FALL] = float(L.light_fall); P[P_LIGHT_DIR] = float(L.light_dir);
     P[P_WALL_T] = float(L.wall_t); P[P_WALL_VS] = float(L.wall_tilt[0]); P[P_WALL_VT] = float(L.wall_tilt[1]);

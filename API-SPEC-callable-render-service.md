@@ -695,13 +695,14 @@ and RFC-031 (the date back).
 | field | path | type | default | range | meaning |
 |---|---|---|---|---|---|
 | `overscan_active` | `film_render.overscan.active` | bool | `false` | — | the switch; `false` dispatches nothing (byte-identical to the pre-RFC build) |
-| `overscan_format` | `…overscan.format` | str | `"135"` | `135` \| `135_half` \| `120_645` \| `120_6x6` \| `120_6x7` \| `120_6x8` \| `120_6x9` | the film and its gate (`135_half`: 18 × 24 mm half frame, below). Nothing larger than 6×9, by the owner's decision |
+| `overscan_format` | `…overscan.format` | str | `"135"` | `135` \| `135_half` \| `120_645` \| `120_6x6` \| `120_6x7` \| `120_6x8` \| `120_6x9` \| `135_xpan` \| `120_6x12` \| `120_6x17` | the film and its gate (`135_half`: 18 × 24 mm half frame, below). The panoramic long formats (2026-10-03, reversing "nothing larger than 6×9"): `135_xpan` 24 × 65 on 14 perforations, `120_6x12` 56 × 112, `120_6x17` 56 × 168; their gates are `square` until real strips are measured, and none carries a date |
 | `overscan_mode` | `…overscan.mode` | str | `"strip"` | `strip` \| `filed` | the whole film width, or a filed-out carrier's sliver of rebate |
 | `overscan_gate` | `…overscan.gate` | str | `"auto"` | `auto` \| `square` \| `rounded` \| `eared` \| `shouldered` \| `kicked` | the gate's shape family (RFC-032 §29.2, §30.2); `auto` lets the camera seed pick one the format's real cameras have. `shouldered` (6×8) also seats the gate at the stock-name edge, with its ears ~1.2 mm from it and the edge print in the recess between them |
-| `overscan_holes` | `…overscan.holes` | str | `"white"` | `white` \| `black` | what shows through the perforations and past the film's edge. `white`: the picture's white (a scan's light). `black`: a black backing or a darkroom print. Either way the cut is not a perfectly vertical knife: a slight rounding of the base shows as a faint, patchy shoulder just outside each hole (1-6 % lift, ~0.03 mm), different on every hole, plus per-hole punch tolerances, roughness and burrs (RFC-032 §30.5, §31.5) |
+| `overscan_holes` | `…overscan.holes` | str | `"white"` | `white` \| `black` | what shows through the perforations (past the film's long edges is `overscan_carrier`'s). `white`: the picture's white (a scan's light). `black`: a black backing or a darkroom print. Either way the cut is not a perfectly vertical knife: a slight rounding of the base shows as a faint, patchy shoulder just outside each hole (1-6 % lift, ~0.03 mm), different on every hole, plus per-hole punch tolerances, roughness and burrs (RFC-032 §30.5, §31.5) |
 | `overscan_camera_seed` | `…overscan.camera_seed` | int | `1` | 0–2³¹−1 | **the body**: gate shape and radii, burrs, gate-to-emulsion gap, where the frame sits on the perforations, fog, flare |
 | `overscan_frame_seed` | `…overscan.frame_seed` | int | `1` | 0–2³¹−1 | **the advance and the scan**: weave, advance error, scan rotation, leaks, and which numbers are on the edge when `overscan_frame_number` is 0 |
 | `overscan_frame_number` | `…overscan.frame_number` | int | `0` | 0–99 | **the frame's number on the edge print** (2026-10-03). `0`: the frame seed's draw, byte for byte. Set: this frame's own mark — the 135 `N`/`NA` pair, the digit by Kodak 120's triangle, Fujifilm 120's number — with its neighbours counting from it and nothing drawn below 1. Kodak 120's counting-edge numbers ("51 / 52") are the roll's, not the frame's, and stay seeded. The last native field, after `antihalation_removed` |
+| `overscan_carrier` | `…overscan.carrier` | str | `"black"` | `black` \| `open` | **what a strip scan shows past the film's long edges** (2026-10-03). The canvas reaches 0.40 mm past each edge; `black` is a carrier, `open` the scan's light. Nothing on the film changes with it. `filed` never reaches the edge |
 | `overscan_fog` | `…overscan.fog` | float | `1.0` | 0–4 | edge fog's strength; 0 = none (see *Edge light* below) |
 | `overscan_leaks` | `…overscan.leaks` | float | `0.0` | 0–4 | spool light leaks: their count and strength; 0 = none (see *Edge light* below) |
 | `overscan_edge_text` | `…overscan.edge_text` | str | `""` | — | the stock's edge print. **The host chooses** real names (desktop) or display names (mobile, `STOCK-NAMES.md`) |
@@ -731,7 +732,7 @@ reasoning: RFC-032 §25, §27.
 | effect | what it is | amount | shape | drawn from |
 |---|---|---|---|---|
 | **Edge fog** | the spool's light piping into the film's edges (135: the cassette lips; 120: the backing paper's edges) | at the edge: `overscan_fog` × 18 % grey × 2^(0.3 ± 0.4) stops | decays inward from the nearer long edge, `exp(−d / w)`, w = 0.8–1.8 mm (135) or 1.2–2.6 mm (120); along the film it swells and fades as 0.3 + 0.7 × two-octave noise with a 5–11 mm period | strength, width and period: **camera**; where the swells fall: **frame** |
-| **Spool leaks** | brighter blobs at the edge where light got past the spool, as in the owner's IMG_6473 | count = round(1 + 2 × `overscan_leaks`), at most 6 (`leaks` = 0: none; 1: three); each `overscan_leaks` × 18 % grey × 2^(0.5–2.5) stops | Gaussian along the film (σ 1.2–4 mm), decaying inward from its edge (0.4–1.3 mm); on 120 (2.5 mm of rebate) a strong one reaches into the picture | which edge the body leaks from (50/50 per body): **camera**; each leak's position anywhere along the canvas, edge (80 % the body's side), strength and size: **frame** |
+| **Spool leaks** | brighter blobs at the edge where light got past the spool, as in the owner's IMG_6473 | count = round(1 + 2 × `overscan_leaks`), at most 6 (`leaks` = 0: none; 1: three), times canvas length / 90 mm on a canvas longer than that (6×12 ×1.3, 6×17 ×1.9; at most 12); each `overscan_leaks` × 18 % grey × 2^(0.5–2.5) stops | Gaussian along the film (σ 1.2–4 mm), decaying inward from its edge (0.4–1.3 mm); on 120 (2.5 mm of rebate) a strong one reaches into the picture | which edge the body leaks from (50/50 per body): **camera**; each leak's position anywhere along the canvas, edge (80 % the body's side), strength and size: **frame** |
 | **Gate flare** | the gate's bevel reflecting the scene onto the film just outside the frame: a thin rim that is bright where the picture is bright | 0.10–0.35 × the scene's own light just inside the gate | decays outward from the gate's edge over 0.03–0.08 mm, following the gate's shape | **camera** (no setting) |
 
 - **Colour.** Fog and leaks share one light: a 2800 K source from the front,
@@ -817,7 +818,12 @@ reasoning: RFC-032 §25, §27.
   `film_format_mm`, so grain and halation are at the format's scale. Picture
   aspect is the host's crop. The engine reads the film's direction from it
   (a landscape 645 or a portrait 6×7 runs vertically).
-- **The scan crops just inside the film's edges** (~0.14 mm a side on 135).
+- **A strip scan reaches 0.40 mm past each long edge of the film** and
+  shows its carrier there (`overscan_carrier`), so nothing printed on the
+  film is cut at any length or tilt (2026-10-03; it used to crop ~0.14 mm
+  inside, which clipped the edge print at one end and let a sliver of the
+  holes' light show). The scan's tilt is capped by how far it moves the
+  film's ends, 0.27 mm: 0.35° up to 6×9, 0.27° on 6×12, 0.18° on 6×17.
   The canvas size depends on the source size and the frame spacing. Spacing
   is the camera seed's (0.75–0.95 mm on 135). On 120 it also moves
   ±0.25 mm with the frame seed. A host reads the size from every result.

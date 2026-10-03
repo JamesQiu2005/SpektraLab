@@ -284,6 +284,7 @@ struct OverscanLayout {
     uint32_t rough_seed = 0;
     double top_recess = 0;                // how far the t- side's middle sits back from its ears (shouldered)
     bool holes_light = false;
+    bool carrier_open = false;            // past the film's long edges: the scan's light, not a black carrier
     double light_rgb[3] = {1, 1, 1};      // the backlight through the scan, linear output RGB
     double light_fall = 0, light_dir = 0; // the light panel's falloff across the canvas
     uint32_t perf_seed = 0;               // per-hole punch tolerances, burrs, wall slant

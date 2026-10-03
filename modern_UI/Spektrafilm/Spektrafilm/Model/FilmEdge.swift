@@ -14,10 +14,9 @@ enum FilmEdgeFormat: String, CaseIterable, Identifiable, Codable, Sendable {
     case f6x7 = "120_6x7"
     case f6x8 = "120_6x8"
     case f6x9 = "120_6x9"
-    /// The panoramic long formats (answer sheet C1, C9). **Not in the engine
-    /// yet** — it refuses the names — so `isAvailable` is false and the menu
-    /// draws them disabled. They become real when the long-format engine work
-    /// lands in the mobile repo and is synced (answer A3).
+    /// The panoramic long formats (answer sheet C1, C9): in the engine since
+    /// 2026-10-03, with square gates until real strips are measured (C5) and
+    /// no date back (C7).
     case xpan = "135_xpan"
     case f6x12 = "120_6x12"
     case f6x17 = "120_6x17"
@@ -58,8 +57,9 @@ enum FilmEdgeFormat: String, CaseIterable, Identifiable, Codable, Sendable {
     /// The film's width across, mm (the engine's `kFormats`; D2: 35.00).
     var filmWidthMM: Double { gauge == "135" ? 35 : 61 }
 
-    /// What the engine will take today.
-    var isAvailable: Bool { group != .panoramic }
+    /// What the engine will take today: every format, since the long ones
+    /// landed. Kept so a format drawn ahead of the engine has somewhere to say so.
+    var isAvailable: Bool { true }
     var isPerforated: Bool { self == .f135 || self == .f135Half || self == .xpan }
 
     /// Which date faces the engine draws on this format (API-SPEC §13, "Where

@@ -273,6 +273,24 @@ final class FilmEdgeTests: XCTestCase {
         XCTAssertEqual(off.w, 600); XCTAssertEqual(off.h, 400)
     }
 
+    /// The panoramic long formats develop (they were drawn disabled until the
+    /// engine had them, 2026-10-03), on a canvas the estimate covers.
+    func testThePanoramicFormatsDevelop() async throws {
+        for (format, w, h) in [(FilmEdgeFormat.xpan, 650, 240), (.f6x12, 600, 300), (.f6x17, 600, 200)] {
+            var p = FilmParams.default
+            p.grainActive = false; p.glareActive = false
+            p.filmEdge.active = true
+            p.filmEdge.format = format
+            p.filmEdge.cameraSeed = 19; p.filmEdge.frameSeed = 5
+            let on = try await render(p, w, h)
+            XCTAssertGreaterThan(on.w, w, "\(format): no film along the frame")
+            XCTAssertGreaterThan(Double(on.h), Double(h) * format.filmWidthMM / format.gateMM.short, "\(format): no film across the frame")
+            let est = FilmCanvasEstimate.size(picture: CGSize(width: w, height: h), format: format, view: .strip)
+            XCTAssertGreaterThanOrEqual(Int(est.width), on.w, "\(format)")
+            XCTAssertGreaterThanOrEqual(Int(est.height), on.h, "\(format)")
+        }
+    }
+
     func testTheDateAloneKeepsTheSizeAndPrintsInTheCorner() async throws {
         var p = FilmParams.default
         p.grainActive = false; p.glareActive = false

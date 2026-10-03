@@ -43,11 +43,11 @@ def decode_dx(rgba, px):
     (dx_extract, frame, half, parity_ok) for the first complete code, or None."""
     lum = rgba[..., :3].astype(float).mean(-1)
     H = lum.shape[0]
-    # rows by distance from the canvas's bottom edge (which the scan crops
-    # ~0.14 mm inside the film's): the clock track below the perforations,
-    # the data track at the edge
-    clock = lum[H - 1 - int(round(1.45 / px))]
-    data = lum[H - 1 - int(round(0.35 / px))]
+    # rows by distance from the canvas's bottom edge, which is the carrier
+    # 0.40 mm past the film's: the clock track below the perforations, the
+    # data track at the edge (1.59 and 0.49 mm into the film)
+    clock = lum[H - 1 - int(round(1.99 / px))]
+    data = lum[H - 1 - int(round(0.89 / px))]
 
     def threshold(row):
         ink = row[row < 0.9 * 65535]          # the scan's light through a hole is not ink
@@ -98,14 +98,14 @@ def main():
         on = render(e, img, {"overscan_active": True, "overscan_format": "135", "overscan_edge_text": "KODAK PORTRA 400"})
         H, W = on.shape[:2]
         px = 36.25 / 1200                                   # the 135 gate's long edge over the frame (a camera's, measured)
-        # the scan crops inside the film's edges by up to ~0.15 mm a side (RFC-032 §29)
-        check("135 canvas spans the film's width", 34.6 < H * px <= 35.0, f"{H * px:.3f} mm")
+        # the scan shows 0.40 mm of carrier past each long edge (answer sheet C2)
+        check("135 canvas spans the film's width and its carrier", 35.6 < H * px <= 36.0, f"{H * px:.3f} mm")
         check("135 canvas is the frame plus two part-gaps", 36.25 + 1.4 < W * px < 36.25 + 2.0, f"{W * px:.3f} mm")
         # The gate is a camera's (reference_film/135: 0.47-0.67 mm from the
-        # perforations, whose inner edge is 4.8 mm in; the scan crops ~0.13 mm
-        # off the edge). A 24.0 mm gate leaves 5.41 mm from the canvas's edge.
+        # perforations, whose inner edge is 4.8 mm in; the canvas starts 0.40 mm
+        # before the film). A 24.0 mm gate leaves 5.9 mm from the canvas's edge.
         edge_to_gate = (H - 800) / 2 * px
-        check("135 gate sits ~0.6 mm inside the perforations", 5.2 < edge_to_gate < 5.35, f"{edge_to_gate:.3f} mm")
+        check("135 gate sits ~0.6 mm inside the perforations", 5.7 < edge_to_gate < 5.85, f"{edge_to_gate:.3f} mm")
 
         again = render(e, img, {"overscan_active": True, "overscan_format": "135", "overscan_edge_text": "KODAK PORTRA 400"})
         check("same seeds, same film", np.array_equal(on, again))
@@ -118,7 +118,7 @@ def main():
         sq = frame(1000, 1000)
         m = render(e, sq, {"overscan_active": True, "overscan_format": "120_6x6", "overscan_edge_text": "KODAK 200"})
         px = 56.0 / 1000
-        check("120 canvas spans the film's width", 60.2 < m.shape[0] * px < 61.2, f"{m.shape[0] * px:.2f} mm")
+        check("120 canvas spans the film's width and its carrier", 61.6 < m.shape[0] * px < 62.0, f"{m.shape[0] * px:.2f} mm")
 
         date = render(e, img, {"date_imprint_active": True, "date_imprint_text": "'26 9 28", "film_format_mm": 36.0})
         check("date alone keeps the frame's size", date.shape[:2] == (800, 1200))
@@ -240,7 +240,7 @@ def main():
             except spk.EngineError as err:
                 check(f"an unknown {field} is refused", bad in str(err), str(err)[:80])
         m68 = render(e, sq_img := frame(1520, 1120), dict(S135, overscan_format="120_6x8", overscan_edge_text="KODAK EKTAR 100"))
-        check("120_6x8 renders the film's width", 60.2 < m68.shape[0] * (76.0 / 1520) < 61.2 or 60.2 < m68.shape[1] * (76.0 / 1520) < 61.2,
+        check("120_6x8 renders the film's width", 61.6 < m68.shape[0] * (76.0 / 1520) < 62.0 or 61.6 < m68.shape[1] * (76.0 / 1520) < 62.0,
               str(m68.shape))
 
         # The date back's faces, corners and size, on the frame alone.
@@ -280,7 +280,7 @@ def main():
         half = render(e, himg, dict(S135, overscan_format="135_half"))
         hpx = 24.0 / 1200
         check("135_half canvas: the film's width across, the frame plus ~1 mm along",
-              34.6 < half.shape[0] * hpx <= 35.0 and 18.7 < half.shape[1] * hpx < 19.1,
+              35.6 < half.shape[0] * hpx <= 36.0 and 18.7 < half.shape[1] * hpx < 19.1,
               f"{half.shape[1] * hpx:.2f} x {half.shape[0] * hpx:.2f} mm")
         # with overscan on, a turned full frame's date also runs along the film
         pov = render(e, pimg, dict(S135))
@@ -397,6 +397,45 @@ def main():
             # the lcd face at size 3 is ~3.9 mm tall and ~26 mm wide: all of it in the 36 x 24 frame
             check(f"the date at {name} stays inside the frame", len(xs) > 500 and xs.max() < 1200 - 2 and ys.max() < 800 - 2
                   and (xs.max() - xs.min()) * px > 6.0, f"{len(xs)} px, x {xs.min() if len(xs) else -1}-{xs.max() if len(xs) else -1}")
+        # --- the panoramic long formats and the carrier (answer sheet C1-C7) ---
+        for fmt, (gl, gs), film_w in (("135_xpan", (65.0, 24.0), 35.0), ("120_6x12", (112.0, 56.0), 61.0),
+                                      ("120_6x17", (168.0, 56.0), 61.0)):
+            fw = 1200
+            fh = int(round(fw * gs / gl))
+            pimg_ = frame(fw, fh)
+            P = {"overscan_active": True, "overscan_format": fmt, "overscan_edge_text": "KODAK PORTRA 400"}
+            r = render(e, pimg_, P)
+            ppx = gl / fw
+            across, along = r.shape[0] * ppx, r.shape[1] * ppx
+            check(f"{fmt} renders the film's width, its carrier, and the frame along",
+                  film_w + 0.5 < across < film_w + 1.0 and gl + 1.0 < along < gl + 5.0, f"{along:.2f} x {across:.2f} mm")
+            lum = r[..., :3].astype(float).mean(-1)
+            # the outermost rows are the carrier: black on every column, however the scan sits
+            check(f"{fmt} shows a black carrier past both long edges",
+                  lum[0].max() < 0.02 * 65535 and lum[-1].max() < 0.02 * 65535, f"{lum[0].max():.0f}, {lum[-1].max():.0f}")
+            op = render(e, pimg_, dict(P, overscan_carrier="open"))
+            lo = op[..., :3].astype(float).mean(-1)
+            check(f"{fmt} with an open carrier shows the scan's light there",
+                  lo[0].min() > 0.9 * 65535 and lo[-1].min() > 0.9 * 65535, f"{lo[0].min():.0f}, {lo[-1].min():.0f}")
+            inner = slice(int(1.5 / ppx), -int(1.5 / ppx))
+            check(f"{fmt}: the carrier changes nothing on the film", np.array_equal(r[inner], op[inner]))
+            dated = render(e, pimg_, dict(P, date_imprint_active=True, date_imprint_text="'26 10 1"))
+            check(f"{fmt} carries no date", np.array_equal(r, dated))
+        try:
+            render(e, img, dict(S135, overscan_carrier="grey"))
+            check("an unknown carrier is refused", False, "it rendered")
+        except spk.EngineError as err:
+            check("an unknown carrier is refused", "carrier" in str(err), str(err)[:80])
+        # The tilt is capped by end travel (0.27 mm of the 0.40 mm carrier): over
+        # many frames a 6x17 strip reaches the canvas's edge at a corner at most,
+        # never along a length of it. At the old 0.35 degrees it travelled 0.52.
+        worst = 0.0
+        p617 = frame(1200, 400)
+        for seed in range(1, 25):
+            rr = render(e, p617, {"overscan_active": True, "overscan_format": "120_6x17", "overscan_frame_seed": seed})
+            ll = rr[..., :3].astype(float).mean(-1)
+            worst = max(worst, (ll[0] > 0.02 * 65535).mean(), (ll[-1] > 0.02 * 65535).mean())
+        check("6x17 never tilts its film out of the carrier (24 frames)", worst < 0.15, f"{worst:.3f} of an edge row")
 
     print(f"{failures} failure(s)")
     return 1 if failures else 0

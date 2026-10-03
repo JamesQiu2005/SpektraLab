@@ -174,6 +174,9 @@ const SchemaField kFields[] = {
     // Native-only, SHOOT, after `antihalation_removed` (parity_schema reads
     // the two tables in order).
     {"overscan_frame_number",    "film_render.overscan.frame_number",     I, SHOOT, true, 0.0, 99.0, false},
+    // What a strip scan shows past the film's long edges. Native-only, SHOOT,
+    // after `overscan_frame_number`.
+    {"overscan_carrier",         "film_render.overscan.carrier",          S, SHOOT, false, 0, 0, false},
     // The app's *preview resolution*: the `live` tier's long edge, and so the
     // size every interactive edit renders at. PRINT layer, because it is a
     // decision about the canvas rather than about the film -- but it is one of
@@ -283,6 +286,7 @@ std::string* str_slot(Params& p, const std::string& path) {
     if (path == "film_render.date_imprint.corner") return &p.film_render.date_imprint.corner;
     if (path == "film_render.overscan.gate") return &p.film_render.overscan.gate;
     if (path == "film_render.overscan.holes") return &p.film_render.overscan.holes;
+    if (path == "film_render.overscan.carrier") return &p.film_render.overscan.carrier;
     return nullptr;
 }
 

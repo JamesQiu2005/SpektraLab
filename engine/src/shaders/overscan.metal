@@ -19,7 +19,7 @@ enum : uint {
     P_WOB_PH = 32,                // 4 sides x 3 harmonics
     P_FILM_W = 44, P_FOG_AMP, P_FOG_WIDTH, P_FOG_SEED, P_FOG_PERIOD,
     P_FOG_R, P_FOG_G, P_FOG_B,
-    P_N_LEAKS = 52, P_LEAKS = 53, // up to 6 x (s, side, amp, sigma_s, sigma_t)
+    P_N_LEAKS = 52,
     P_PERFORATED = 83, P_PERF_PITCH, P_PERF_W, P_PERF_H, P_PERF_EDGE, P_PERF_R, P_PERF_PHASE,
     P_HOLE_C = 90, P_HOLE_M, P_HOLE_Y,
     P_FLARE_AMP = 93, P_FLARE_WIDTH,
@@ -29,7 +29,9 @@ enum : uint {
     P_HOLES_LIGHT = 183, P_LIGHT_R, P_LIGHT_G, P_LIGHT_B,
     P_PERF_SEED = 187, P_LIGHT_FALL, P_LIGHT_DIR,
     P_WALL_T = 190, P_WALL_VS, P_WALL_VT, P_WALL_PAR, P_BASE_R, P_BASE_G, P_BASE_B, P_WALL_GLOW, P_WALL_SCATTER,
-    P_COUNT = 199
+    P_CARRIER = 199,
+    P_LEAKS = 200,          // up to 12 x (s, side, amp, sigma_s, sigma_t)
+    P_COUNT = 260
 };
 constant uint kQStride = 10u;
 
@@ -175,7 +177,8 @@ kernel void spk_overscan_canvas(device const float* frame [[buffer(0)]],
         }
         // Edge fog: warm exposure decaying inward from each long edge, slowly
         // varying along the length; and the spool leaks, seeded blobs on an edge.
-        const float d_top = st.y, d_bot = W - st.y;
+        // (clamped: the canvas reaches past the film, where there is none to fog)
+        const float d_top = max(st.y, 0.0f), d_bot = max(W - st.y, 0.0f);
         const uint seed = uint(P[P_FOG_SEED]);
         const float period = max(P[P_FOG_PERIOD], 0.1f);
         const float nz = 0.6f * value_noise(st.x / period, seed) +
@@ -346,7 +349,12 @@ kernel void spk_overscan_light(device const float* rgb [[buffer(0)]],
             c += fl * exp(-d / 0.025f) * light;
         }
     }
-    const float3 r3 = mix(light, c, a);
+    // Past the film's long edges is the scan's carrier, not a hole: black, or
+    // the scan's open light.
+    const float W = P[P_FILM_W], px = P[P_PX];
+    const float on_strip = clamp(min(st.y, W - st.y) / px + 0.5f, 0.0f, 1.0f);
+    const float in_film = on_strip > 0.0f ? a / on_strip : 0.0f;
+    const float3 r3 = mix(float3(P[P_CARRIER]), mix(light, c, in_film), on_strip);
     out[3u * i] = r3.x;
     out[3u * i + 1u] = r3.y;
     out[3u * i + 2u] = r3.z;

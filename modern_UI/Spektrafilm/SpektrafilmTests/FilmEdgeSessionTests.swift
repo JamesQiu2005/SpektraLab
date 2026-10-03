@@ -39,6 +39,17 @@ final class FilmEdgeSessionTests: XCTestCase {
         try await waitForPrint(session, after: before) { true }
         try assertCanvasMatchesPrint(session, "Film Edge on (645)")
 
+        // A panoramic format through the whole session: the gate cuts the
+        // picture to 3:1 and the film around it is longer still.
+        before = session.renderer.live
+        edit(session) { $0.filmEdge.format = .f6x17 }
+        try await waitForPrint(session, after: before) { true }
+        let long = try XCTUnwrap(session.renderer.live)
+        XCTAssertNil(session.lastError, "6x17 was refused")
+        XCTAssertGreaterThan(Double(max(long.width, long.height)) / Double(min(long.width, long.height)), 2.5,
+                             "6x17's film is \(long.width)x\(long.height)")
+        try assertCanvasMatchesPrint(session, "Film Edge on (6x17)")
+
         // Another body: the canvas moves by a few pixels, and still is not stretched.
         before = session.renderer.live
         edit(session) { $0.filmEdge.cameraSeed += 17 }
@@ -76,10 +87,10 @@ final class FilmEdgeSessionTests: XCTestCase {
                        "\(picture) is not a 36 × 24 gate")
         XCTAssertLessThanOrEqual(picture.width, decoded.width)
         XCTAssertLessThanOrEqual(picture.height, decoded.height)
-        // The engine was handed that picture: the film is wider than it by 35/24 at most.
+        // The engine was handed that picture: the film and its carrier are wider than it by 35.8/24 at most.
         let film = try XCTUnwrap(session.renderer.live)
         XCTAssertLessThanOrEqual(Double(min(film.width, film.height)),
-                                 Double(min(picture.width, picture.height)) * 35 / 24 + 2)
+                                 Double(min(picture.width, picture.height)) * 35.8 / 24 + 2)
         before = session.renderer.live
         edit(session) { $0.filmEdge.active = false }
         try await waitForPrint(session, after: before) { session.engineFraming == nil }

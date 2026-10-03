@@ -175,6 +175,9 @@ struct OverscanParams {
     // triangle, Fujifilm's number). The roll's own counts (Kodak 120's
     // "51/52") are not the frame's and stay seeded.
     int frame_number = 0;
+    // What a strip scan shows past the film's long edges (answer sheet C3):
+    // black (a carrier) | open (the scan's light).
+    std::string carrier = "black";
 };
 
 // RFC-031: the date back, exposed onto the negative from behind. 135 only by

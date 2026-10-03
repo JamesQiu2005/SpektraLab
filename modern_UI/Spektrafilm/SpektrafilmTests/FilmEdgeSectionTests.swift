@@ -67,7 +67,8 @@ final class FilmEdgeSectionTests: XCTestCase {
 
     func testTheMenuOffersWhatTheEngineHas() {
         XCTAssertEqual(FilmEdgeFormat.allCases.filter(\.isAvailable).map(\.rawValue),
-                       ["135", "135_half", "120_645", "120_6x6", "120_6x7", "120_6x8", "120_6x9"])
+                       ["135", "135_half", "120_645", "120_6x6", "120_6x7", "120_6x8", "120_6x9",
+                        "135_xpan", "120_6x12", "120_6x17"])
         XCTAssertEqual(FilmEdgeFormat.allCases.filter { $0.group == .panoramic }.count, 3)
         for f in FilmEdgeFormat.allCases where f.isAvailable {
             XCTAssertNotNil(f.filmCost(.strip), "\(f) has no measured cost")
