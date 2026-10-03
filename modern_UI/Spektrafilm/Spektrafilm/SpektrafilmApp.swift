@@ -133,9 +133,9 @@ struct EditorCommands: Commands {
             Button("Paste Settings") { session.pasteSettings() }
                 .keyboardShortcut("v", modifiers: [.command, .shift]).disabled(!session.canPasteSettings)
             Divider()
-            Button(L(.selectAllPhotos)) { session.selectAllFrames() }
+            Button("Select All Photos") { session.selectAllFrames() }
                 .keyboardShortcut("a", modifiers: .command).disabled(!session.canSelectAllFrames)
-            Button(L(.clipSync)) { session.syncSettings() }
+            Button("Sync Settings") { session.syncSettings() }
                 .disabled(!session.canSyncSettings)
         }
         CommandMenu("View") {

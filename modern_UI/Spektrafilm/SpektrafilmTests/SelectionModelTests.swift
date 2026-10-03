@@ -317,8 +317,10 @@ final class SelectionModelTests: XCTestCase {
         XCTAssertFalse(s.canUndo, "offline sync must not add a misleading source undo")
         XCTAssertEqual(s.selection, urls[1])
         XCTAssertEqual(s.selectedFrames, [urls[0], urls[1], urls[2]])
+        XCTAssertEqual(s.status, String(format: L(.clipSyncDone), 2))
         s.syncSettings()
         XCTAssertEqual(Sidecar.load(for: urls[0]), saved, "repeated sync changed the settings")
+        XCTAssertEqual(s.status, L(.clipSyncNothing))
     }
 
     func testSyncRequiresASourceTargetsAndGroupsAndRefusesExport() throws {

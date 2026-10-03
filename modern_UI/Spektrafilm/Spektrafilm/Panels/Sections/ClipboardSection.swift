@@ -42,8 +42,7 @@ struct ClipboardSection: View {
                     Spacer(minLength: 0)
                 }
                 HStack {
-                    pill(String(format: L(.clipSyncTo), session.syncTargets.count),
-                         help: L(.clipSyncHelp), enabled: session.canSyncSettings) {
+                    pill(syncTitle, help: L(.clipSyncHelp), enabled: session.canSyncSettings) {
                         session.syncSettings()
                     }
                     Spacer(minLength: 0)
@@ -60,6 +59,11 @@ struct ClipboardSection: View {
     private var pasteTitle: String {
         let n = session.pasteTargets.count
         return n > 1 ? String(format: L(.clipPasteTo), n) : L(.clipPaste)
+    }
+
+    private var syncTitle: String {
+        let n = session.syncTargets.count
+        return n > 0 ? String(format: L(.clipSyncTo), n) : L(.clipSync)
     }
 
     /// The Navigator's *Fit* pill, the rail's one button shape.

@@ -16,6 +16,16 @@ macOS 上的胶片与放大相纸模拟器。打开一张 RAW，选好胶片和�
 |---|---|
 | ![前后对比](screenshots/natural_halation.png) | ![1:1 颗粒](screenshots/physically_accurate_grain.png) |
 
+## 安装
+
+从 [Releases](https://github.com/JamesQiu2005/SpektraLab/releases) 下载最新版本。应用为 ad-hoc 签名，首次运行前需解除隔离：
+
+```bash
+xattr -d -r com.apple.quarantine /Applications/SpektraLab.app
+```
+
+需要 Apple 芯片、macOS 15 或更高版本。
+
 ## 多选与同步照片
 
 单击照片将其设为当前照片，再按住 Command 单击其他照片即可增选或取消选择，
@@ -28,16 +38,6 @@ macOS 上的胶片与放大相纸模拟器。打开一张 RAW，选好胶片和�
 并在打开它们时重新显影。沿用现有剪贴板规则，裁剪、显影后调整、镜头校正、
 Film Edge 和 Date Back 不参与同步；拍摄时白平衡和场景放置拟合由目标照片自行解析。
 同步没有批量撤销，状态栏会报告写入和失败数量。批量导出期间禁止修改选择和同步。
-
-## 安装
-
-从 [Releases](https://github.com/JamesQiu2005/SpektraLab/releases) 下载最新版本。应用为 ad-hoc 签名，首次运行前需解除隔离：
-
-```bash
-xattr -d -r com.apple.quarantine /Applications/SpektraLab.app
-```
-
-需要 Apple 芯片、macOS 15 或更高版本。
 
 ## 构建
 

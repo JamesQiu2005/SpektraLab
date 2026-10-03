@@ -3490,7 +3490,9 @@ final class Session: CanvasHost {
             case .unchanged: break
             }
         }
-        status = String(format: L(.clipSyncResult), written, failed)
+        status = failed > 0 ? String(format: L(.clipSyncResult), written, failed)
+            : written > 0 ? String(format: L(.clipSyncDone), written)
+            : L(.clipSyncNothing)
     }
 
     /// Where a paste goes: every picked frame, which always includes the one

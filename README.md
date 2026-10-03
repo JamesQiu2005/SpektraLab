@@ -23,6 +23,18 @@ filter pack — in about a second.
 |---|---|
 | ![Before and after](screenshots/natural_halation.png) | ![Grain at 1:1](screenshots/physically_accurate_grain.png) |
 
+## Install
+
+Download the latest build from
+[Releases](https://github.com/JamesQiu2005/SpektraLab/releases). It is
+ad-hoc signed, so clear the quarantine once:
+
+```bash
+xattr -d -r com.apple.quarantine /Applications/SpektraLab.app
+```
+
+Apple silicon, macOS 15 or later.
+
 ## Select and sync photos
 
 Click a photo to make it the current photo, then Command-click other photos to
@@ -39,18 +51,6 @@ correction, Film Edge and Date Back stay with each photo, following the existing
 clipboard rules. As Shot white balance and fitted Scene Placement are resolved
 for each target. Sync has no batch undo; the status reports writes and failures.
 Selection and sync are disabled during batch export.
-
-## Install
-
-Download the latest build from
-[Releases](https://github.com/JamesQiu2005/SpektraLab/releases). It is
-ad-hoc signed, so clear the quarantine once:
-
-```bash
-xattr -d -r com.apple.quarantine /Applications/SpektraLab.app
-```
-
-Apple silicon, macOS 15 or later.
 
 ## Build
 
