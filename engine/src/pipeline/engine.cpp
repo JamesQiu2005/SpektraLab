@@ -1969,13 +1969,24 @@ spk_status spk_scene_latitude(spk_session* session, const char* request_json, ch
         const double ev = cam.auto_exposure ? session->meter.evs.of(cam.auto_exposure_method) : 0.0;
         char ev_text[64];
         std::snprintf(ev_text, sizeof ev_text, "%.17g", ev);
-        const std::string scene_key = meter_key(session->params) + base.norm + "|" + ev_text;
+        // One frame of a pair: the scene is measured inside `region` only
+        // (x0, y0, x1, y1, normalised to the frame the engine was handed).
+        double region[4] = {0, 0, 1, 1};
+        bool has_region = false;
+        if (request.at("region").is_array() && request.at("region").items().size() == 4) {
+            has_region = true;
+            for (size_t k = 0; k < 4; ++k) region[k] = request.at("region").items()[k].as_double(k < 2 ? 0.0 : 1.0);
+        }
+        char region_text[160];
+        std::snprintf(region_text, sizeof region_text, "|%.6f,%.6f,%.6f,%.6f", region[0], region[1], region[2], region[3]);
+        const std::string scene_key = meter_key(session->params) + base.norm + "|" + ev_text +
+                                      (has_region ? region_text : "");
         if (cache.scene_key != scene_key) {
             Image small;
             std::vector<double> E;
             ok = meter_frame(session, small, error);
             if (ok && base.norm == session->params.camera.scene_latitude.norm) {
-                ok = session->pipeline->scene_latitude_sample(small, ev, E, error);
+                ok = session->pipeline->scene_latitude_sample(small, ev, E, error, has_region ? region : nullptr);
             } else if (ok) {
                 // The sample reads the norm from its pipeline's params, so a
                 // "what if" on another norm gets a pipeline of its own rather
@@ -1984,7 +1995,7 @@ spk_status spk_scene_latitude(spk_session* session, const char* request_json, ch
                 p.camera.scene_latitude.norm = base.norm;
                 Pipeline sampler(gpu, &session->engine->colour, &session->engine->blob,
                                  &session->engine->setup_cache);
-                ok = sampler.build(p, error) && sampler.scene_latitude_sample(small, ev, E, error);
+                ok = sampler.build(p, error) && sampler.scene_latitude_sample(small, ev, E, error, has_region ? region : nullptr);
             }
             if (ok) {
                 cache.scene = slm::scene_stats(std::move(E));

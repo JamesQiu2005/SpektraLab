@@ -279,6 +279,31 @@ NATIVE_ONLY = {
         "path": "film_render.date_imprint.text_b", "type": "str", "layer": "shoot",
         "default": '', "live": False, "range": None,
     },
+    # A pair's second frame's Scene Placement.
+    "scene_latitude_split": {
+        "path": "camera.scene_latitude.split", "type": "float", "layer": "shoot",
+        "default": 0.0, "live": False, "range": [0.0, 1.0],
+    },
+    "scene_latitude_b_active": {
+        "path": "camera.scene_latitude.b_active", "type": "bool", "layer": "shoot",
+        "default": False, "live": False, "range": None,
+    },
+    "scene_latitude_b_highlight_knee": {
+        "path": "camera.scene_latitude.b_highlight_knee", "type": "float", "layer": "shoot",
+        "default": 2.0, "live": False, "range": [-24.0, 24.0],
+    },
+    "scene_latitude_b_highlight_room": {
+        "path": "camera.scene_latitude.b_highlight_room", "type": "float", "layer": "shoot",
+        "default": 0.0, "live": False, "range": [0.0, 24.0],
+    },
+    "scene_latitude_b_shadow_knee": {
+        "path": "camera.scene_latitude.b_shadow_knee", "type": "float", "layer": "shoot",
+        "default": -2.0, "live": False, "range": [-24.0, 24.0],
+    },
+    "scene_latitude_b_shadow_room": {
+        "path": "camera.scene_latitude.b_shadow_room", "type": "float", "layer": "shoot",
+        "default": 0.0, "live": False, "range": [0.0, 24.0],
+    },
 }
 
 

@@ -181,6 +181,14 @@ const SchemaField kFields[] = {
     // SHOOT, after `overscan_carrier`.
     {"overscan_pair",            "film_render.overscan.pair",             B, SHOOT, false, 0, 0, false},
     {"date_imprint_text_b",      "film_render.date_imprint.text_b",       S, SHOOT, false, 0, 0, false},
+    // A pair's second frame's Scene Placement (RFC-023 on a pair). Native-only,
+    // SHOOT, after `date_imprint_text_b`.
+    {"scene_latitude_split",            "camera.scene_latitude.split",            F, SHOOT, true, 0.0, 1.0, false},
+    {"scene_latitude_b_active",         "camera.scene_latitude.b_active",         B, SHOOT, false, 0, 0, false},
+    {"scene_latitude_b_highlight_knee", "camera.scene_latitude.b_highlight_knee", F, SHOOT, true, -24.0, 24.0, false},
+    {"scene_latitude_b_highlight_room", "camera.scene_latitude.b_highlight_room", F, SHOOT, true, 0.0, 24.0, false},
+    {"scene_latitude_b_shadow_knee",    "camera.scene_latitude.b_shadow_knee",    F, SHOOT, true, -24.0, 24.0, false},
+    {"scene_latitude_b_shadow_room",    "camera.scene_latitude.b_shadow_room",    F, SHOOT, true, 0.0, 24.0, false},
     // The app's *preview resolution*: the `live` tier's long edge, and so the
     // size every interactive edit renders at. PRINT layer, because it is a
     // decision about the canvas rather than about the film -- but it is one of
@@ -231,6 +239,11 @@ double* float_slot(Params& p, const std::string& path) {
     if (path == "camera.scene_latitude.shadow_room") return &p.camera.scene_latitude.shadow_room;
     if (path == "camera.scene_latitude.rolloff") return &p.camera.scene_latitude.rolloff;
     if (path == "camera.scene_latitude.max_lift") return &p.camera.scene_latitude.max_lift;
+    if (path == "camera.scene_latitude.split") return &p.camera.scene_latitude.split;
+    if (path == "camera.scene_latitude.b_highlight_knee") return &p.camera.scene_latitude.b_highlight_knee;
+    if (path == "camera.scene_latitude.b_highlight_room") return &p.camera.scene_latitude.b_highlight_room;
+    if (path == "camera.scene_latitude.b_shadow_knee") return &p.camera.scene_latitude.b_shadow_knee;
+    if (path == "camera.scene_latitude.b_shadow_room") return &p.camera.scene_latitude.b_shadow_room;
     if (path == "film_render.halation.scatter_amount") return &p.film_render.halation.scatter_amount;
     if (path == "film_render.grain.amount") return &p.film_render.grain.amount;
     if (path == "film_render.overscan.fog") return &p.film_render.overscan.fog;
@@ -267,6 +280,7 @@ bool* bool_slot(Params& p, const std::string& path) {
     if (path == "settings.striped") return &p.settings.striped;
     if (path == "print_render.contrast_mask.active") return &p.print_render.contrast_mask.active;
     if (path == "camera.scene_latitude.active") return &p.camera.scene_latitude.active;
+    if (path == "camera.scene_latitude.b_active") return &p.camera.scene_latitude.b_active;
     if (path == "film_render.overscan.active") return &p.film_render.overscan.active;
     if (path == "film_render.overscan.pair") return &p.film_render.overscan.pair;
     if (path == "film_render.date_imprint.active") return &p.film_render.date_imprint.active;

@@ -703,7 +703,7 @@ and RFC-031 (the date back).
 | `overscan_frame_seed` | `…overscan.frame_seed` | int | `1` | 0–2³¹−1 | **the advance and the scan**: weave, advance error, scan rotation, leaks, and which numbers are on the edge when `overscan_frame_number` is 0 |
 | `overscan_frame_number` | `…overscan.frame_number` | int | `0` | 0–99 | **the frame's number on the edge print** (2026-10-03). `0`: the frame seed's draw, byte for byte. Set: this frame's own mark — the 135 `N`/`NA` pair, the digit by Kodak 120's triangle, Fujifilm 120's number — with its neighbours counting from it and nothing drawn below 1. Kodak 120's counting-edge numbers ("51 / 52") are the roll's, not the frame's, and stay seeded. The last native field, after `antihalation_removed` |
 | `overscan_carrier` | `…overscan.carrier` | str | `"black"` | `black` \| `open` | **what a strip scan shows past the film's long edges** (2026-10-03). The canvas reaches 0.40 mm past each edge; `black` is a carrier, `open` the scan's light. Nothing on the film changes with it. `filed` never reaches the edge |
-| `overscan_pair` | `…overscan.pair` | bool | `false` | — | **a half-frame pair on one strip** (2026-10-03). `135_half` only, held level only (anything else is refused). The input carries both pictures at the gate's height: the first 18 mm wide, the second starting **19.00 mm** (one advance of 4 perforations) along, so the frame is 37 × 24. The gate is exposed twice; the gap between is unexposed film; the edge print, fog, leaks and halation run across both as on one piece of film |
+| `overscan_pair` | `…overscan.pair` | bool | `false` | — | **a half-frame pair on one strip** (2026-10-03). `135_half` only (another format is refused), held level or turned. The input carries both pictures at the gate's height: the first 18 mm wide, the second starting **19.00 mm** (one advance of 4 perforations) along, so the frame is 37 × 24. The gate is exposed twice; the gap between is unexposed film; the edge print, fog, leaks and halation run across both as on one piece of film |
 | `overscan_fog` | `…overscan.fog` | float | `1.0` | 0–4 | edge fog's strength; 0 = none (see *Edge light* below) |
 | `overscan_leaks` | `…overscan.leaks` | float | `0.0` | 0–4 | spool light leaks: their count and strength; 0 = none (see *Edge light* below) |
 | `overscan_edge_text` | `…overscan.edge_text` | str | `""` | — | the stock's edge print. **The host chooses** real names (desktop) or display names (mobile, `STOCK-NAMES.md`) |
@@ -879,6 +879,13 @@ reasoning: RFC-032 §25, §27.
   for pixel; the marks' limits; the gate's shape; the frame number (0 is the
   seed's draw, a number set changes the edge, two numbers differ) on three
   layouts. 63 checks.
+
+**A pair's two frames, each its own** (2026-10-04):
+
+- **The date with no film edge.** `overscan_pair = true` with `overscan_active = false` and the date on: the frame is the piece (both pictures along its long edge, either way up), and each frame gets its own date in its own corner -- `date_imprint_text` on the first, `date_imprint_text_b` on the second (empty: none). `overscan_format` must be `135_half`.
+- **Scene Placement per frame.** `scene_latitude_split` (float 0–1, default 0 = one curve for the frame) is where the second frame starts along the frame's long edge, as a fraction of it; from there the node uses `scene_latitude_b_active`, `scene_latitude_b_highlight_knee`, `_b_highlight_room`, `_b_shadow_knee`, `_b_shadow_room` instead of the first set. Roll-off, the lift bound and the norm are shared. All six are native-only SHOOT fields.
+- **The Fit on one frame.** `spk_scene_latitude`'s request takes `region`: `[x0, y0, x1, y1]`, normalised to the frame the engine was handed. The scene is then measured inside it only; the reply's `params_delta` still names the first set, and the host maps it onto the frame it asked about.
+- A turned pair (the film running down the picture) renders: the first frame is the upper one.
 
 **`spk_overscan_geometry(session, char** out_json)`** (2026-10-03) returns where
 the gates are on the canvas the session's last render laid out: `valid`,

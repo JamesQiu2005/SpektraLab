@@ -367,7 +367,7 @@ public:
     // and the auto-exposure gain `ev`. Leaves the pipeline's pitch as it was,
     // as `measure_meter_evs` does.
     bool scene_latitude_sample(const Image& in, double ev, std::vector<double>& E,
-                               std::string& error);
+                               std::string& error, const double* region = nullptr);
 
     // The EV the auto-exposure node applies instead of metering its own
     // input. The session sets it before every film render, so every tier is

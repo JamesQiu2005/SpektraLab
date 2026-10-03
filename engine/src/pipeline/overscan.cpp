@@ -1702,8 +1702,31 @@ bool Pipeline::node_overscan(const Image& in, Image& out, std::string& error) {
         if (!blur_.affine(in, s, z, canvas, error)) return false;
     }
 
+    // Each group with the layout it is rasterised through: a pair without a
+    // film edge draws each frame's date against that frame alone.
     std::vector<Group> groups;
-    imprint_groups(overscan_, params_, frame_w_mm_, frame_h_mm_, groups);
+    std::vector<OverscanLayout> placed;
+    const bool bare_pair = date_only && params_.film_render.overscan.pair;
+    if (bare_pair) {
+        // The piece is two 18 x 24 frames along its long edge, the second one
+        // advance along; each is a frame of its own to its date back.
+        const bool down = in.h > in.w;
+        const double along = down ? frame_h_mm_ : frame_w_mm_, across = down ? frame_w_mm_ : frame_h_mm_;
+        const double hole = across * 18.0 / 24.0, advance = along - hole;
+        for (int k = 0; k < 2; ++k) {
+            const std::string& text = k == 0 ? di.text : di.text_b;
+            if (text.empty()) continue;
+            OverscanLayout frame = overscan_;
+            (down ? frame.ct : frame.cs) = -double(k) * advance;
+            Params pk = params_;
+            pk.film_render.date_imprint.text = text;
+            std::vector<Group> one;
+            imprint_groups(frame, pk, down ? across : hole, down ? hole : across, one);
+            for (Group& g : one) { groups.push_back(g); placed.push_back(frame); }
+        }
+    } else {
+        imprint_groups(overscan_, params_, frame_w_mm_, frame_h_mm_, groups);
+    }
     // A pair's second frame was its own exposure and carries its own date
     // (answer B20): the same back, one advance along. Drawn by laying the
     // date out against the second gate and keeping only that group.
@@ -1719,10 +1742,11 @@ bool Pipeline::node_overscan(const Image& in, Image& out, std::string& error) {
         imprint_groups(second, pb_, frame_w_mm_, frame_h_mm_, with);
         if (with.size() > without.size()) groups.push_back(with.back());
     }
-    for (const Group& gg : groups) {
+    for (size_t gi = 0; gi < groups.size(); ++gi) {
+        const Group& gg = groups[gi];
         std::vector<float> cov;
         int x0, y0, w, h;
-        if (!rasterise(overscan_, gg, cov, x0, y0, w, h)) continue;
+        if (!rasterise(gi < placed.size() ? placed[gi] : overscan_, gg, cov, x0, y0, w, h)) continue;
         gpu::BufferRef mb = gpu_->upload(cov.data(), cov.size() * sizeof(float), error);
         if (!mb) return false;
         const float M[9] = {float(x0), float(y0), float(w), float(h), float(canvas.w), float(canvas.h),

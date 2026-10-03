@@ -8,7 +8,7 @@ turns them off; what is compared is the overscan's own randomness, which is
 seeded. Against an engine from before RFC-032 the first check fails
 (`unknown parameter 'overscan_active'`) -- that is the red this was shown.
 """
-import argparse, sys
+import argparse, json, sys
 from pathlib import Path
 import numpy as np
 
@@ -501,6 +501,49 @@ def main():
         check("the gap of a turned pair is unexposed film",
               tl[gyt, x0_:x1_].mean() < 0.35 * tl[int(ys_[0] * th_) + 20:int(ys_[-1] * th_) - 20, x0_:x1_].mean(),
               f"gap {tl[gyt, x0_:x1_].mean():.0f}")
+        # --- a pair's two frames, each with its own Scene Placement and date ----
+        BARE = {"film_format_mm": 37.0}
+        none = render(e, both, BARE)
+        SL = {"scene_latitude_highlight_knee": 0.5, "scene_latitude_highlight_room": 1.0,
+              "scene_latitude_shadow_knee": -0.5, "scene_latitude_shadow_room": 1.0}
+        SLB = {"scene_latitude_b_highlight_knee": 0.5, "scene_latitude_b_highlight_room": 1.0,
+               "scene_latitude_b_shadow_knee": -0.5, "scene_latitude_b_shadow_room": 1.0}
+        split = (adv - 0.5 * (adv - hw)) / (adv + hw)            # the middle of the gap
+        first = render(e, both, dict(BARE, scene_latitude_active=True, scene_latitude_split=split, **SL))
+        second = render(e, both, dict(BARE, scene_latitude_split=split, scene_latitude_b_active=True, **SLB))
+        whole = render(e, both, dict(BARE, scene_latitude_active=True, **SL))
+        L_, R_ = slice(10, hw - 10), slice(adv + 10, adv + hw - 10)
+        d = lambda a, b, s: int(np.abs(a[:, s, :3].astype(int) - b[:, s, :3].astype(int)).max())
+        # (a few codes cross the gap: halation and diffusion are the film's, and one piece of film)
+        check("the first frame's placement changes the first frame only",
+              d(first, none, L_) > 500 and d(first, none, R_) <= 8, f"left {d(first, none, L_)}, right {d(first, none, R_)}")
+        check("the second frame's placement changes the second frame only",
+              d(second, none, R_) > 500 and d(second, none, L_) <= 8, f"left {d(second, none, L_)}, right {d(second, none, R_)}")
+        check("without a split one curve covers the piece", d(whole, none, L_) > 500 and d(whole, none, R_) > 500)
+        check("a split frame's own half matches the unsplit curve", d(first, whole, L_) <= 2, f"{d(first, whole, L_)} codes")
+        s = e.open(both, dict(BASE, **BARE))
+        try:
+            s.render("live")
+            fl = s.scene_latitude({"region": [0.0, 0.0, hw / (adv + hw), 1.0]})
+            fr = s.scene_latitude({"region": [adv / (adv + hw), 0.0, 1.0, 1.0]})
+            fa = s.scene_latitude({})
+        finally:
+            s.close()
+        key = lambda f: json.dumps(f.get("scene"), sort_keys=True)
+        check("the Fit measures one frame of a pair when given its region",
+              key(fl) != key(fr) and key(fl) != key(fa), key(fl)[:90])
+        # The date on a pair with no film edge: each frame's own, in its own frame.
+        DP = dict(BARE, overscan_format="135_half", overscan_pair=True, date_imprint_active=True)
+        d_none = render(e, both, dict(BARE))
+        d_two = render(e, both, dict(DP, date_imprint_text="'26 10 1", date_imprint_text_b="'26 10 3"))
+        d_one = render(e, both, dict(DP, date_imprint_text="'26 10 1"))
+        on = lambda a: np.nonzero(np.abs(a.astype(int) - d_none.astype(int))[..., :3].sum(-1) > 2000)[1]
+        x2, x1 = on(d_two), on(d_one)
+        check("a pair without a film edge carries a date in each frame",
+              len(x2) > 100 and (x2 < hw).sum() > 30 and (x2 >= adv).sum() > 30 and ((x2 >= hw) & (x2 < adv)).sum() == 0,
+              f"{len(x2)} px: {(x2 < hw).sum()} left, {(x2 >= adv).sum()} right")
+        check("with no second text only the first frame is dated", len(x1) > 30 and (x1 >= adv).sum() == 0 and x1.max() < hw,
+              f"{len(x1)} px, x up to {x1.max() if len(x1) else -1}")
 
     print(f"{failures} failure(s)")
     return 1 if failures else 0

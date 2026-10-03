@@ -24,6 +24,7 @@
 //   0 K_h   1 H_h (0 = off)   2 K_s   3 H_s (0 = off)
 //   4 m     5 L_max           6 norm (0 power, 1 Y, 2 max)
 //   7..9 the Y row of the working space's RGB -> XYZ   10 n_ref
+//   11 width  12 height  13 split (0 = none)  14..17 the second frame's K_h H_h K_s H_s
 #include "spk_common.h"
 
 // g_m(D) - D, the branch's departure, in the forms that do not cancel near the
@@ -64,8 +65,16 @@ kernel void spk_scene_latitude(device const float* rgb [[buffer(0)]],
         float n_ref = p[10];
         float E = clamp(log2(max(v, n_ref * exp2(-24.0f)) / n_ref), -24.0f, 24.0f);
         float d = 0.0f;
-        if (p[1] > 0.0f && E > p[0]) d = slm_departure(E - p[0], p[1], p[4]);
-        else if (p[3] > 0.0f && E < p[2]) d = -slm_departure(p[2] - E, p[3], p[4]);
+        // A half-frame pair: from `split` along the long edge, the second
+        // frame's own knees and rooms (p[14..17]).
+        float Kh = p[0], Hh = p[1], Ks = p[2], Hs = p[3];
+        if (p[13] > 0.0f) {
+            uint w = uint(p[11]), h = uint(p[12]);
+            float along = w >= h ? (float(i % w) + 0.5f) / float(w) : (float(i / w) + 0.5f) / float(h);
+            if (along >= p[13]) { Kh = p[14]; Hh = p[15]; Ks = p[16]; Hs = p[17]; }
+        }
+        if (Hh > 0.0f && E > Kh) d = slm_departure(E - Kh, Hh, p[4]);
+        else if (Hs > 0.0f && E < Ks) d = -slm_departure(Ks - E, Hs, p[4]);
         if (d > 0.0f) { float L = p[5]; d = d * L / sqrt(L * L + d * d); }
         k = clamp(exp2(d), exp2(-30.0f), exp2(30.0f));
     }

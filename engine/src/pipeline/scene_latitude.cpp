@@ -22,7 +22,9 @@ bool Pipeline::scene_latitude_wanted() const {
     const SceneLatitudeParams& s = params_.camera.scene_latitude;
     // The print LUT bake renders a neutral chain; a scene transform has no
     // place in a table that stands for the paper.
-    return s.active && (s.highlight_room > 0.0 || s.shadow_room > 0.0) && !params_.debug.lut_mode;
+    const bool first = s.active && (s.highlight_room > 0.0 || s.shadow_room > 0.0);
+    const bool second = s.split > 0.0 && s.b_active && (s.b_highlight_room > 0.0 || s.b_shadow_room > 0.0);
+    return (first || second) && !params_.debug.lut_mode;
 }
 
 namespace {
@@ -34,12 +36,19 @@ float norm_id(const std::string& norm) { return norm == "y" ? 1.0f : norm == "ma
 bool Pipeline::node_scene_latitude(const Image& in, Image& out, std::string& error) {
     Timer t(this, "filming.expose.scene_latitude");
     const SceneLatitudeParams& s = params_.camera.scene_latitude;
-    const float p[11] = {
-        float(s.highlight_knee), float(s.highlight_room),
-        float(s.shadow_knee), float(s.shadow_room),
+    // A side that is off is a room of zero, which the kernel skips. On a
+    // half-frame pair the second frame's curve applies from `split` along the
+    // piece's long edge.
+    const bool second = s.split > 0.0 && s.b_active;
+    const float p[18] = {
+        float(s.highlight_knee), float(s.active ? s.highlight_room : 0.0),
+        float(s.shadow_knee), float(s.active ? s.shadow_room : 0.0),
         float(s.rolloff), float(s.max_lift), norm_id(s.norm),
         float(rgb_to_xyz_ae_.m[1][0]), float(rgb_to_xyz_ae_.m[1][1]), float(rgb_to_xyz_ae_.m[1][2]),
-        float(slm::kMidgray)};
+        float(slm::kMidgray),
+        float(in.w), float(in.h), float(s.split),
+        float(s.b_highlight_knee), float(second ? s.b_highlight_room : 0.0),
+        float(s.b_shadow_knee), float(second ? s.b_shadow_room : 0.0)};
     gpu::BufferRef p_buf = gpu_->upload(p, sizeof p, error);
     if (!p_buf || !alloc_like(in, out, error)) return false;
     const uint32_t n[1] = {uint32_t(in.pixels())};
@@ -50,7 +59,7 @@ bool Pipeline::node_scene_latitude(const Image& in, Image& out, std::string& err
 }
 
 bool Pipeline::scene_latitude_sample(const Image& in, double ev, std::vector<double>& E,
-                                     std::string& error) {
+                                     std::string& error, const double* region) {
     // The node's own upstream nodes, as `measure_meter_evs` runs them: the
     // sample sees what the node would, decoded, cropped and turned.
     const uint32_t saved_long_edge = source_long_edge_;
@@ -77,6 +86,12 @@ bool Pipeline::scene_latitude_sample(const Image& in, double ev, std::vector<dou
     E.clear();
     E.reserve(count);
     for (size_t i = 0; i < count; ++i) {
+        // A region (x0, y0, x1, y1, normalised to the frame): one frame of a
+        // pair, measured by itself.
+        if (region && framed.w > 0 && framed.h > 0) {
+            const double x = (double(i % framed.w) + 0.5) / framed.w, y = (double(i / framed.w) + 0.5) / framed.h;
+            if (x < region[0] || x >= region[2] || y < region[1] || y >= region[3]) continue;
+        }
         const double r = std::max(double(host[3 * i]) * gain, 0.0);
         const double g = std::max(double(host[3 * i + 1]) * gain, 0.0);
         const double b = std::max(double(host[3 * i + 2]) * gain, 0.0);

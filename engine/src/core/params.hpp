@@ -269,6 +269,13 @@ struct SceneLatitudeParams {
     double shadow_room = 0.0;       ///< H_s, stops; 0 = the shadow side is off
     double rolloff = 2.0;           ///< m, the roll-off order (§5.5)
     double max_lift = 4.0;          ///< L_max, stops: the smooth bound on the shadow lift (§15.5)
+    // A half-frame pair: the second frame's own curve. `split` is where the
+    // second frame starts along the piece's long edge, as a fraction of it
+    // (0 = one frame, one curve). Roll-off, bound and norm are shared.
+    double split = 0.0;
+    bool b_active = false;
+    double b_highlight_knee = 2.0, b_highlight_room = 0.0;
+    double b_shadow_knee = -2.0, b_shadow_room = 0.0;
 };
 
 bool is_known_scene_latitude_norm(const std::string& norm);
