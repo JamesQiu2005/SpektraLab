@@ -308,6 +308,10 @@ struct SnapshotRequest {
     /// measurement). This asks for the state on purpose.
     var foldLeft = false
     var foldRight = false
+    /// `--film-edge` — capture with the film edge on. `--pair-layer film|left|right`
+    /// — capture a half-frame pair with that layer picked.
+    var filmEdge = false
+    var pairLayer: PairLayer?
 
     static func parse(_ args: [String]) -> SnapshotRequest? {
         guard let i = args.firstIndex(of: "--snapshot"), args.count > i + 2 else { return nil }
@@ -329,6 +333,8 @@ struct SnapshotRequest {
             }
         }
         r.original = args.contains("--original")
+        r.filmEdge = args.contains("--film-edge")
+        if let j = args.firstIndex(of: "--pair-layer"), args.count > j + 1 { r.pairLayer = PairLayer(rawValue: args[j + 1]) }
         r.exportGrid = args.contains("--export-grid")
         r.export = r.exportGrid || args.contains("--export")
         if let j = args.firstIndex(of: "--settings"), args.count > j + 1 {
@@ -505,6 +511,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             // A capture is of the *print*. The app itself opens onto the
             // decode and waits for a person to ask for the develop, and a
             // snapshot has nobody at the keyboard — so it asks here.
+            if req.filmEdge {
+                var p = session.params
+                p.filmEdge.active = true
+                session.params = p
+            }
+            if let layer = req.pairLayer { session.pairLayer = layer }
             session.requestPrint()
         }
         let deadline = Date().addingTimeInterval(req.wait)

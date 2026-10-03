@@ -181,3 +181,21 @@ The owner moved the engine work to desktop (A3 no longer holds: write here, carr
 - Export *Two halves / Both*; turned pairs (B17 = later); date back on a pair without Film Edge.
 - A moved frame is not re-found (the hole reads "Missing").
 - Seen in the running app without Film Edge (two NEFs, 83 MP piece). Film Edge on a pair was seen as an engine render and asserted through a session, not in the window.
+
+## 10. Night of 2026-10-03: the pair's UX redone after the owner's review
+
+The owner's verdict on §9's stage one: "it works, with terrible bug, and the UX is shit". Their brief, and what was built for it:
+
+| asked | built |
+|---|---|
+| the clock counted forever after entering a pair, engine idle | two develops overlapped (Film Edge switched on in a pair asked for one from the `params` setter and one from the pair's own write); each saved and restored `busy`, and the second restore left it set. `openInService` now counts its calls, and the pair's write no longer asks twice. `testOverlappingDevelopsLeaveTheSessionIdle` hangs on the old code |
+| the way in under **Half** | *Enter Half-Frame Pair* under Format in Film Edge while it reads Half: the frame becomes the first hole (its half-frame crop becomes its placement), the look and the film edge carry over, the second hole is empty |
+| the canvas shows two holes, **both orientations**, a **+** on the empty one | held level (side by side) and turned (stacked): `HalfFramePair.turned`, the engine renders a turned pair, a landscape first frame turns the camera. `PairOverlay` draws the + and the picked hole's frame (on the engine's own gates when the strip is on) |
+| right-click a frame to switch it or crop it | a click picks the hole under it; a right click opens that hole's menu: Replace / Add, Crop This Frame, Turn Picture, Reset Crop, Remove, Open Frame Alone, Swap, Level / Turned |
+| crop over that frame | the crop tool (button, C) on a pair is the picked frame's crop: drag moves the picture under the fixed hole, scroll scales it, Return / Esc / Done leaves. Committed on release; no live preview while dragging |
+| the Navigator | shows the whole piece, strip included; the pair's thumbnail is rebuilt on every change |
+| the tool under the Navigator | moved; it holds Camera (Level / Turned), Spacing, Swap, and the picked frame's Exposure and crop numbers |
+
+Also: the piece is capped at one frame's worth of pixels (two 45 MP frames made an 83 MP piece, 127 MP with its edge; now 44 MP), which is what the "low headroom" and the long full renders came from.
+
+Seen in the running app: held level with an empty hole, and turned with Film Edge on (two NEFs). Not seen: the *Enter Half-Frame Pair* row itself, the menu, the crop drag (all exercised through the session in `HalfFramePairTests`, 12 cases). Still open from §9: per-hole print and scope, per-hole Post-Dev, undo for the piece's edits, Two halves / Both, drag from the filmstrip.

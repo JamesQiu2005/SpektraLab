@@ -49,6 +49,29 @@ protocol CanvasHost: AnyObject {
     func contextMenu() -> NSMenu?
     func hovered(normalised: CGPoint?)
     func stepFrame(_ delta: Int)
+    // Picking and placing on the canvas (defaults below: neither).
+    func clicked(normalised: CGPoint?)
+    func placementBegan(at normalised: CGPoint) -> Bool
+    func placementMoved(to normalised: CGPoint)
+    func placementEnded()
+    func placementScrolled(_ delta: CGFloat, at normalised: CGPoint) -> Bool
+    func endPlacement() -> Bool
+}
+
+/// What a host with something to pick or to place on the canvas answers; the
+/// defaults are a canvas with neither. A half-frame pair uses them: a click
+/// picks a hole, and in its placement mode a drag moves the picture under the
+/// hole and the wheel scales it.
+extension CanvasHost {
+    func clicked(normalised: CGPoint?) {}
+    /// True when the host takes this drag; the view then reports its moves
+    /// instead of panning.
+    func placementBegan(at normalised: CGPoint) -> Bool { false }
+    func placementMoved(to normalised: CGPoint) {}
+    func placementEnded() {}
+    /// True when the host took the scroll.
+    func placementScrolled(_ delta: CGFloat, at normalised: CGPoint) -> Bool { false }
+    func endPlacement() -> Bool { false }
 }
 
 /// The view is its own `MTKViewDelegate`. A separate coordinator object has
@@ -59,6 +82,10 @@ final class CanvasNSView: MTKView, MTKViewDelegate {
     weak var host: CanvasHost?
     private var drawScheduled = false
     private var dragStart: CGPoint?
+    /// Where the button went down, to tell a click from a drag; and whether
+    /// the host has taken this drag for its own (`placementBegan`).
+    private var pressPoint: CGPoint?
+    private var placing = false
     /// The crop gesture in flight. `.none` when the crop tool is not being
     /// dragged; the rest carry what the drag needs to be idempotent — every
     /// mouse move recomputes from `origin` rather than accumulating, so a
@@ -231,6 +258,10 @@ final class CanvasNSView: MTKView, MTKViewDelegate {
         // wheel does nothing at all there rather than fighting the lock.
         guard host?.tool != .crop else { return }
         let p = local(e)
+        if let host, !e.modifierFlags.contains(.command), !e.modifierFlags.contains(.option) {
+            let dy = e.hasPreciseScrollingDeltas ? e.scrollingDeltaY : e.scrollingDeltaY * 4
+            if host.placementScrolled(dy, at: unclampedNormalised(atView: p, renderer)) { return }
+        }
         if e.modifierFlags.contains(.command) || e.modifierFlags.contains(.option) {
             let dy = e.hasPreciseScrollingDeltas ? e.scrollingDeltaY : e.scrollingDeltaY * 4
             let factor = pow(1.0025, -dy)
@@ -325,8 +356,18 @@ final class CanvasNSView: MTKView, MTKViewDelegate {
             // A mask grip claims the drag before the pan does, and only
             // within the same 10 pt it is drawn inside.
             if let h = maskHandle(near: p) { maskDrag = h; return }
+            pressPoint = p
+            if host.placementBegan(at: unclampedNormalised(atView: p, renderer)) { placing = true; return }
             dragStart = p
         }
+    }
+
+    /// The image-normalised point under a view point, without the 0…1 guard:
+    /// a drag that leaves the picture is still a drag.
+    private func unclampedNormalised(atView p: CGPoint, _ renderer: Renderer) -> CGPoint {
+        let v = renderer.viewport
+        let ip = v.imagePoint(atView: p)
+        return CGPoint(x: ip.x / max(v.image.width, 1), y: ip.y / max(v.image.height, 1))
     }
 
     /// The mask grip under a view point, if any. Positions come from the
@@ -409,6 +450,7 @@ final class CanvasNSView: MTKView, MTKViewDelegate {
     override func mouseDragged(with e: NSEvent) {
         guard let renderer, let host else { return }
         let p = local(e)
+        if placing { host.placementMoved(to: unclampedNormalised(atView: p, renderer)); return }
         if let h = maskDrag {
             // Through the crop: the grip is anchored to the source and the
             // canvas is showing the output.
@@ -485,6 +527,12 @@ final class CanvasNSView: MTKView, MTKViewDelegate {
     }
 
     override func mouseUp(with e: NSEvent) {
+        if placing { placing = false; pressPoint = nil; host?.placementEnded(); return }
+        if let down = pressPoint, let renderer, let host, e.clickCount == 1 {
+            let p = local(e)
+            if hypot(p.x - down.x, p.y - down.y) < 3 { host.clicked(normalised: renderer.viewport.normalised(atView: p)) }
+        }
+        pressPoint = nil
         dragStart = nil
         maskDrag = nil
         if case .straighten(let from, let origin) = cropDrag, let host, let renderer {
@@ -608,6 +656,8 @@ final class CanvasNSView: MTKView, MTKViewDelegate {
     }
 
     override func rightMouseDown(with e: NSEvent) {
+        // The thing under the pointer is what the menu is about.
+        if let renderer { host?.clicked(normalised: renderer.viewport.normalised(atView: local(e))) }
         if let menu = host?.contextMenu() { NSMenu.popUpContextMenu(menu, with: e, for: self) }
     }
 
@@ -651,6 +701,8 @@ final class CanvasNSView: MTKView, MTKViewDelegate {
             host.commitCrop()
         case 53 where host.tool == .crop:                                // esc
             host.cancelCrop()
+        case 36, 76, 53:
+            if !host.endPlacement() { super.keyDown(with: e) }
         default: super.keyDown(with: e)
         }
     }

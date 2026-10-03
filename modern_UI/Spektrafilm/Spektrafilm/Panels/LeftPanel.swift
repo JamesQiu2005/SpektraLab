@@ -23,11 +23,11 @@ struct LeftPanel: View {
     /// checker has no long expression to solve.
     private var sections: [(String, AnyView)] {
         var s: [(String, AnyView)] = []
-        // A pair lists its layers first, and has no crop of its own: each
-        // picture is placed under its hole there.
+        // A pair's own tool sits under the Navigator, and it has no crop
+        // section: each picture is cropped under its own hole.
         let isPair = session.pair != nil
-        if isPair { s.append((PairSection.key, AnyView(PairSection(session: session)))) }
         s.append(("navigator", AnyView(NavigatorSection(session: session))))
+        if isPair { s.append((PairSection.key, AnyView(PairSection(session: session)))) }
         s.append(("clipboard", AnyView(ClipboardSection(session: session))))
         s.append(("film", AnyView(FilmSection(session: session))))
         // Under Film, before Print: both belong to the film and depend on

@@ -485,11 +485,22 @@ def main():
                 check("a pair on another format is refused", False, "it rendered")
             except spk.EngineError as err:
                 check("a pair on another format is refused", why in str(err), str(err)[:80])
-        try:
-            render(e, np.ascontiguousarray(both.transpose(1, 0, 2)), PAIR)
-            check("a turned pair is refused (held level only)", False, "it rendered")
-        except spk.EngineError as err:
-            check("a turned pair is refused (held level only)", "held level" in str(err) or "shape" in str(err), str(err)[:80])
+        # The camera turned: the film runs down the picture and the two frames
+        # sit one above the other, the first at the top.
+        tr, tg = geometry(np.ascontiguousarray(both.transpose(1, 0, 2)), PAIR)
+        th_, tw_ = tr.shape[:2]
+        tops = sorted(g[1] * th_ for g in tg.get("gates", []))
+        check("a turned pair renders two gates, one above the other",
+              tg.get("valid") and tg.get("vertical") and len(tops) == 2 and abs((tops[1] - tops[0]) - adv) < 2,
+              f"tops {tops} for an advance of {adv}")
+        tl = tr[..., :3].astype(float).mean(-1)
+        gyt = int((tg["gates"][0][5] + tg["gates"][1][1]) * 0.5 * th_) if len(tops) == 2 else 0
+        g0 = tg["gates"][0]
+        xs_ = sorted(g0[0::2]); x0_, x1_ = int(xs_[0] * tw_) + 20, int(xs_[-1] * tw_) - 20
+        ys_ = sorted(g0[1::2])
+        check("the gap of a turned pair is unexposed film",
+              tl[gyt, x0_:x1_].mean() < 0.35 * tl[int(ys_[0] * th_) + 20:int(ys_[-1] * th_) - 20, x0_:x1_].mean(),
+              f"gap {tl[gyt, x0_:x1_].mean():.0f}")
 
     print(f"{failures} failure(s)")
     return 1 if failures else 0

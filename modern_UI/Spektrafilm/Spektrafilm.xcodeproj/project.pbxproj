@@ -33,6 +33,7 @@
 		DA37ABB15B5AE3CB099586C8 /* CropOverlay.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CropOverlay.swift"; sourceTree = "<group>"; };
 		46075402D0B9D2BA48F0BE15 /* MaskOverlay.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "MaskOverlay.swift"; sourceTree = "<group>"; };
 		D520629C88EB987F0C407670 /* MetalCanvasView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "MetalCanvasView.swift"; sourceTree = "<group>"; };
+		B97DAB336698EA10C283D351 /* PairOverlay.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "PairOverlay.swift"; sourceTree = "<group>"; };
 		B0ACA442889C10451541AE53 /* Renderer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Renderer.swift"; sourceTree = "<group>"; };
 		45A2278A553E7F675C711BDF /* Shaders.metal */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.metal; path = "Shaders.metal"; sourceTree = "<group>"; };
 		3596117B90D8381030422780 /* TextureStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "TextureStore.swift"; sourceTree = "<group>"; };
@@ -46,6 +47,7 @@
 				DA37ABB15B5AE3CB099586C8 /* CropOverlay.swift */,
 				46075402D0B9D2BA48F0BE15 /* MaskOverlay.swift */,
 				D520629C88EB987F0C407670 /* MetalCanvasView.swift */,
+				B97DAB336698EA10C283D351 /* PairOverlay.swift */,
 				B0ACA442889C10451541AE53 /* Renderer.swift */,
 				45A2278A553E7F675C711BDF /* Shaders.metal */,
 				3596117B90D8381030422780 /* TextureStore.swift */,
@@ -586,6 +588,7 @@
 		A9FFB83C7123E9F7C95F636A /* CropOverlay.swift */ = {isa = PBXBuildFile; fileRef = DA37ABB15B5AE3CB099586C8; };
 		8431707FE1E29D1A6768003F /* MaskOverlay.swift */ = {isa = PBXBuildFile; fileRef = 46075402D0B9D2BA48F0BE15; };
 		B1E5C09D7DE57FD941B4795F /* MetalCanvasView.swift */ = {isa = PBXBuildFile; fileRef = D520629C88EB987F0C407670; };
+		B810150D6A8E5C5342C091A0 /* PairOverlay.swift */ = {isa = PBXBuildFile; fileRef = B97DAB336698EA10C283D351; };
 		0D2505B667DDAFA353935A7A /* Renderer.swift */ = {isa = PBXBuildFile; fileRef = B0ACA442889C10451541AE53; };
 		5D85BEFE331A36C24B5B536E /* Shaders.metal */ = {isa = PBXBuildFile; fileRef = 45A2278A553E7F675C711BDF; };
 		85D1E032EFD5BDC74795F31F /* TextureStore.swift */ = {isa = PBXBuildFile; fileRef = 3596117B90D8381030422780; };
@@ -717,6 +720,7 @@
 				A9FFB83C7123E9F7C95F636A /* CropOverlay.swift */,
 				8431707FE1E29D1A6768003F /* MaskOverlay.swift */,
 				B1E5C09D7DE57FD941B4795F /* MetalCanvasView.swift */,
+				B810150D6A8E5C5342C091A0 /* PairOverlay.swift */,
 				0D2505B667DDAFA353935A7A /* Renderer.swift */,
 				5D85BEFE331A36C24B5B536E /* Shaders.metal */,
 				85D1E032EFD5BDC74795F31F /* TextureStore.swift */,
@@ -925,6 +929,7 @@
 		22C990CC86531976E3AEE1E6 /* CropOverlay.swift */ = {isa = PBXBuildFile; fileRef = DA37ABB15B5AE3CB099586C8; };
 		CC2AE2258FA6A084866E6BE2 /* MaskOverlay.swift */ = {isa = PBXBuildFile; fileRef = 46075402D0B9D2BA48F0BE15; };
 		B244C1A7096587CAC12C533A /* MetalCanvasView.swift */ = {isa = PBXBuildFile; fileRef = D520629C88EB987F0C407670; };
+		790933AC1A438E605AF31E7E /* PairOverlay.swift */ = {isa = PBXBuildFile; fileRef = B97DAB336698EA10C283D351; };
 		A8116A5497828BC44A237D44 /* Renderer.swift */ = {isa = PBXBuildFile; fileRef = B0ACA442889C10451541AE53; };
 		44672454991CCD80FEA733AF /* Shaders.metal */ = {isa = PBXBuildFile; fileRef = 45A2278A553E7F675C711BDF; };
 		B326A05681DA1C98238F21A8 /* TextureStore.swift */ = {isa = PBXBuildFile; fileRef = 3596117B90D8381030422780; };
@@ -1112,6 +1117,7 @@
 				22C990CC86531976E3AEE1E6 /* CropOverlay.swift */,
 				CC2AE2258FA6A084866E6BE2 /* MaskOverlay.swift */,
 				B244C1A7096587CAC12C533A /* MetalCanvasView.swift */,
+				790933AC1A438E605AF31E7E /* PairOverlay.swift */,
 				A8116A5497828BC44A237D44 /* Renderer.swift */,
 				44672454991CCD80FEA733AF /* Shaders.metal */,
 				B326A05681DA1C98238F21A8 /* TextureStore.swift */,

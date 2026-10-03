@@ -34,8 +34,12 @@ struct FilmEdgeSection: View {
                                    zh: "在画面四周印出胶片：片基、齿孔与边码")) {
             RailRows {
                 // A pair is always 135 half, exposed twice; its pictures are
-                // placed in the Half-Frame Pair section, not cropped here.
-                if session.pair == nil { formatRow }
+                // cropped under their holes, not here. A half frame offers the
+                // way into a pair right under its format.
+                if session.pair == nil {
+                    formatRow
+                    if edge.format == .f135Half { enterPairRow }
+                }
                 PillSwitchRow(label: L(.edgeView), options: FilmEdgeView.allCases,
                               selection: bind(\.view), title: { L($0.key) })
                 if session.pair == nil {
@@ -90,6 +94,30 @@ struct FilmEdgeSection: View {
     }
 
     // MARK: rows
+
+    /// Under Format, while it reads Half: this frame becomes the first of a
+    /// half-frame pair, and the canvas shows the second hole with a + on it.
+    private var enterPairRow: some View {
+        // From the row's start, not under the pill: the English title is as
+        // wide as the rail allows, and the rail must not grow for it.
+        HStack(spacing: 0) {
+            Button { session.enterPair() } label: {
+                Text(L("Enter Half-Frame Pair", zh: "进入半格拼接"))
+                    .font(Theme.Font.value).foregroundStyle(Theme.text)
+                    .lineLimit(1).fixedSize()
+                    .padding(.horizontal, 12)
+                    .frame(height: Theme.Metric.controlHeight)
+                    .background(Theme.pill, in: Capsule())
+                    .contentShape(Capsule())
+            }
+            .buttonStyle(.plain)
+            .rowEnabled(session.canEnterPair)
+            .help(L("Two half frames on one piece of film: this frame, and a second one you add",
+                    zh: "同一条胶片上的两张半格：当前这张，再添加一张"))
+            Spacer(minLength: 0)
+        }
+        .frame(height: Theme.Metric.rowHeight)
+    }
 
     /// A pill that opens the formats as a list of films (`FilmEdgeFormatMenu`),
     /// and the gate's size at the row's end, as Crop's Aspect is drawn.

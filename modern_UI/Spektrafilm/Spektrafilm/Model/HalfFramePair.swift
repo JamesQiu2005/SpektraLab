@@ -91,6 +91,10 @@ struct HalfFramePair: Codable, Equatable, Sendable {
     /// Whether the pair is laid out for the engine's strip (Film Edge on),
     /// mirrored from the pair's sidecar so the composer needs only this file.
     var onStrip = false
+    /// The camera turned for a landscape: the two frames are 24 × 18 and sit
+    /// one above the other, the film running down the piece. Held level they
+    /// are 18 × 24, side by side.
+    var turned = false
 
     static let spacingRange = 0.5...2.0
     nonisolated static let holeMM = (along: 18.0, across: 24.0)
@@ -105,6 +109,7 @@ struct HalfFramePair: Codable, Equatable, Sendable {
         right = try c.decodeIfPresent(Hole.self, forKey: .right)
         spacingMM = try c.decodeIfPresent(Double.self, forKey: .spacingMM) ?? 1
         onStrip = try c.decodeIfPresent(Bool.self, forKey: .onStrip) ?? false
+        turned = try c.decodeIfPresent(Bool.self, forKey: .turned) ?? false
     }
 
     enum Side: Int, CaseIterable, Sendable { case left, right }
@@ -123,38 +128,52 @@ struct HalfFramePair: Codable, Equatable, Sendable {
 
     // MARK: - layout
 
-    /// The piece in pixels: two holes `hole` each, the second `advance` along.
+    /// The piece in pixels: two holes `hole` each, the second `advance` along
+    /// the film -- across the piece held level, down it when turned.
     struct Layout: Equatable, Sendable {
         let hole: CGSize
         let advance: Int
-        var size: CGSize { CGSize(width: CGFloat(advance) + hole.width, height: hole.height) }
-        /// Top-left origin, as the canvas and the rails count.
+        var turned = false
+        var size: CGSize {
+            turned ? CGSize(width: hole.width, height: CGFloat(advance) + hole.height)
+                   : CGSize(width: CGFloat(advance) + hole.width, height: hole.height)
+        }
+        /// Top-left origin, as the canvas and the rails count. The first hole
+        /// (`.left`) is the left one, or the upper one when turned.
         func rect(_ side: Side) -> CGRect {
-            CGRect(x: side == .left ? 0 : CGFloat(advance), y: 0, width: hole.width, height: hole.height)
+            let d = side == .left ? 0 : CGFloat(advance)
+            return CGRect(x: turned ? 0 : d, y: turned ? d : 0, width: hole.width, height: hole.height)
+        }
+        /// The hole's rectangle normalised to the piece, y down.
+        func normalisedRect(_ side: Side) -> CGRect {
+            let r = rect(side), s = size
+            return CGRect(x: r.minX / s.width, y: r.minY / s.height, width: r.width / s.width, height: r.height / s.height)
         }
         /// A point on the piece, normalised 0…1 with y down: which hole, or
         /// nil in the gap.
         func side(atNormalised p: CGPoint) -> Side? {
-            let x = p.x * size.width
-            if x < hole.width { return .left }
-            if x >= CGFloat(advance) { return .right }
-            return nil
+            Side.allCases.first { normalisedRect($0).contains(p) }
         }
     }
 
-    /// The layout for holes `holeHeight` pixels tall.
-    nonisolated static func layout(holeHeight: Int, spacingMM: Double) -> Layout {
-        let h = max(holeHeight, 8)
-        let w = max(Int((Double(h) * holeMM.along / holeMM.across).rounded()), 6)
-        let advance = Int((Double(w) * (holeMM.along + spacingMM) / holeMM.along).rounded())
-        return Layout(hole: CGSize(width: w, height: h), advance: advance)
+    /// The layout for holes `across` pixels across the film (their height
+    /// held level, their width when turned).
+    nonisolated static func layout(holeHeight across: Int, spacingMM: Double, turned: Bool = false) -> Layout {
+        let a = max(across, 8)
+        let along = max(Int((Double(a) * holeMM.along / holeMM.across).rounded()), 6)
+        let advance = Int((Double(along) * (holeMM.along + spacingMM) / holeMM.along).rounded())
+        return Layout(hole: turned ? CGSize(width: a, height: along) : CGSize(width: along, height: a),
+                      advance: advance, turned: turned)
     }
+
+    /// The hole's shape, width over height.
+    var holeAspect: Double { turned ? Self.holeMM.across / Self.holeMM.along : Self.holeMM.along / Self.holeMM.across }
 
     /// The rectangle of `source` (already turned) that fills the hole at this
     /// placement, in source pixels, y down.
-    nonisolated static func sourceRect(for placement: Placement, source: CGSize) -> CGRect {
+    nonisolated static func sourceRect(for placement: Placement, source: CGSize,
+                                       aspect: Double = holeMM.along / holeMM.across) -> CGRect {
         guard source.width > 0, source.height > 0 else { return .zero }
-        let aspect = holeMM.along / holeMM.across
         var w = source.width, h = source.height
         if w / h > aspect { w = h * aspect } else { h = w / aspect }
         let s = placement.scale.clamped(to: Placement.scaleRange)

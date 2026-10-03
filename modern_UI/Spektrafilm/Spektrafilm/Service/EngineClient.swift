@@ -556,6 +556,23 @@ actor EngineClient {
         return try decode(out, as: SceneLatitudeResponse.self)
     }
 
+    /// Where the gates are on the film canvas the last render laid out
+    /// (API-SPEC §13), as rectangles normalised to the canvas with y down;
+    /// empty with no film edge or before a render.
+    func overscanGates() async throws -> [CGRect] {
+        guard state == .running, let session else { return [] }
+        var out: UnsafeMutablePointer<CChar>?
+        guard spk_overscan_geometry(session, &out) == SPK_OK else { throw ClientError.engine(lastError()) }
+        struct Reply: Decodable { let valid: Bool; let gates: [[Double]]? }
+        let reply = try decode(out, as: Reply.self)
+        guard reply.valid else { return [] }
+        return (reply.gates ?? []).compactMap { q in
+            guard q.count == 8 else { return nil }
+            let xs = stride(from: 0, to: 8, by: 2).map { q[$0] }, ys = stride(from: 1, to: 8, by: 2).map { q[$0] }
+            return CGRect(x: xs.min()!, y: ys.min()!, width: xs.max()! - xs.min()!, height: ys.max()! - ys.min()!)
+        }
+    }
+
     /// RFC-024's mask as a picture, for the canvas overlay (API-SPEC §11).
     /// The tier must have been rendered: the field is analysed on its cached
     /// negative. Copied out, because the engine's buffer is only valid until

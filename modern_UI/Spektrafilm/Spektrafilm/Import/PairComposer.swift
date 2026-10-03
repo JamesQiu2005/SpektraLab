@@ -44,17 +44,28 @@ enum PairComposer {
                             asShotTemperature: nil, asShotTint: nil)
     }
 
-    /// The piece's pixel layout: the holes are as tall as the smaller of the
-    /// two pictures is across its hole, so neither is enlarged. An empty pair
-    /// takes a nominal size.
+    /// The piece's pixel layout. The holes are as large as the smaller of the
+    /// two pictures is across its hole, so neither is enlarged -- and the
+    /// piece is never longer than the longer picture: two half frames are
+    /// one frame's worth of film, and a pair of 45 MP frames laid out at
+    /// their own size was an 83 MP piece (127 MP with its film edge). An
+    /// empty pair takes a nominal size.
     static func layout(for pair: HalfFramePair, sizes: [HalfFramePair.Side: CGSize]) -> HalfFramePair.Layout {
-        let heights = HalfFramePair.Side.allCases.compactMap { side -> CGFloat? in
-            guard let hole = pair[side], let size = sizes[side] else { return nil }
+        var across: [CGFloat] = [], longest: CGFloat = 0
+        for side in HalfFramePair.Side.allCases {
+            guard let hole = pair[side], let size = sizes[side] else { continue }
             let turned = HalfFramePair.turned(size, by: hole.placement)
-            return HalfFramePair.sourceRect(for: hole.placement, source: turned).height
+            let cut = HalfFramePair.sourceRect(for: hole.placement, source: turned, aspect: pair.holeAspect)
+            across.append(pair.turned ? cut.width : cut.height)
+            longest = max(longest, size.width, size.height)
         }
-        let h = Int((heights.min() ?? 2400).rounded(.down))
-        return HalfFramePair.layout(holeHeight: h, spacingMM: pair.effectiveSpacingMM)
+        var a = across.min() ?? 2400
+        if longest > 0 {
+            let pieceLong = (HalfFramePair.holeMM.along * 2 + pair.effectiveSpacingMM) / HalfFramePair.holeMM.across
+            a = min(a, longest / pieceLong)
+        }
+        return HalfFramePair.layout(holeHeight: Int(a.rounded(.down)), spacingMM: pair.effectiveSpacingMM,
+                                    turned: pair.turned)
     }
 
     /// Both pictures under their holes, over black, `layout.size` large with
@@ -66,7 +77,7 @@ enum PairComposer {
         for side in HalfFramePair.Side.allCases {
             guard let hole = pair[side], let (image, size) = images[side] else { continue }
             let placed = place(image, size: size, placement: hole.placement, into: layout.rect(side),
-                               pieceHeight: layout.size.height)
+                               pieceHeight: layout.size.height, aspect: pair.holeAspect)
             out = placed.composited(over: out)
         }
         return out.cropped(to: full)
@@ -76,7 +87,8 @@ enum PairComposer {
     /// placement's rectangle and scaled into `hole` — a top-left rectangle on
     /// a piece `pieceHeight` tall, placed in Core Image's bottom-left space.
     static func place(_ image: CIImage, size: CGSize, placement: HalfFramePair.Placement,
-                      into hole: CGRect, pieceHeight: CGFloat) -> CIImage {
+                      into hole: CGRect, pieceHeight: CGFloat,
+                      aspect: Double = HalfFramePair.holeMM.along / HalfFramePair.holeMM.across) -> CIImage {
         var img = image.transformed(by: .init(translationX: -image.extent.origin.x, y: -image.extent.origin.y))
         var turnedSize = size
         let turns = ((placement.quarterTurns % 4) + 4) % 4
@@ -86,7 +98,7 @@ enum PairComposer {
             img = img.transformed(by: .init(translationX: -img.extent.origin.x, y: -img.extent.origin.y))
             turnedSize = HalfFramePair.turned(size, by: placement)
         }
-        let cut = HalfFramePair.sourceRect(for: placement, source: turnedSize)       // y down
+        let cut = HalfFramePair.sourceRect(for: placement, source: turnedSize, aspect: aspect)       // y down
         let cutCI = CGRect(x: cut.minX, y: turnedSize.height - cut.maxY, width: cut.width, height: cut.height)
         let scale = hole.height / max(cut.height, 1)
         let holeCI = CGRect(x: hole.minX, y: pieceHeight - hole.maxY, width: hole.width, height: hole.height)
@@ -140,7 +152,8 @@ enum PairComposer {
     /// frames' own previews under their holes, the gap and an empty hole dark.
     static func thumbnail(_ url: URL, maxPixel: Int) -> CGImage? {
         guard let pair = HalfFramePair.load(url) else { return nil }
-        let layout = HalfFramePair.layout(holeHeight: max(maxPixel * 24 / 37, 24), spacingMM: pair.effectiveSpacingMM)
+        let layout = HalfFramePair.layout(holeHeight: max(maxPixel * 24 / 37, 24), spacingMM: pair.effectiveSpacingMM,
+                                          turned: pair.turned)
         let w = Int(layout.size.width), h = Int(layout.size.height)
         guard let ctx = CGContext(data: nil, width: w, height: h, bitsPerComponent: 8, bytesPerRow: 0,
                                   space: CGColorSpace(name: CGColorSpace.sRGB)!,
@@ -158,7 +171,7 @@ enum PairComposer {
                   ] as CFDictionary) else { continue }
             let ci = CIImage(cgImage: image)
             let placed = place(ci, size: ci.extent.size, placement: hole.placement, into: layout.rect(side),
-                               pieceHeight: layout.size.height)
+                               pieceHeight: layout.size.height, aspect: pair.holeAspect)
             let r = layout.rect(side)
             let rectCI = CGRect(x: r.minX, y: layout.size.height - r.maxY, width: r.width, height: r.height)
             guard let cg = ImageDecoder.context.createCGImage(placed, from: rectCI) else { continue }

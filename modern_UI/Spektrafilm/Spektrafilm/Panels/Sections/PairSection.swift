@@ -1,16 +1,16 @@
-//  PairSection.swift — the Half-Frame Pair, at the top of the left rail.
+//  PairSection.swift — the Half-Frame Pair's tool, under the Navigator.
 //
-//  The piece's three layers as the design lists them (proposal §2–§3): Film,
-//  Left hole, Right hole. One is picked at a time and the rows under the list
-//  are that layer's. Film holds what the piece shares; a hole holds its frame
-//  and where the picture sits under it. Built from the rail's own parts.
+//  The pair is worked on the canvas: a click picks a frame, the + on an empty
+//  hole adds one, a right click replaces or crops it. This section is what the
+//  canvas cannot say — which way the camera was held, how far apart the frames
+//  are — and the picked frame's numbers: its exposure and its crop under the
+//  hole. Built from the rail's own parts.
 
 import SwiftUI
 
 struct PairSection: View {
     @Bindable var session: Session
     static let key = "pair"
-    @State private var adding: HalfFramePair.Side?
 
     private var pair: HalfFramePair { session.pair ?? HalfFramePair(folder: "") }
 
@@ -46,8 +46,9 @@ struct PairSection: View {
                         .font(.system(size: 9, weight: .medium)).foregroundStyle(Theme.Ink.tertiary))
                 }
             }
-            .frame(width: 18, height: 24)
+            .frame(width: pair.turned ? 24 : 18, height: pair.turned ? 18 : 24)
             .clipShape(RoundedRectangle(cornerRadius: 2, style: .continuous))
+            .frame(width: 24, height: 24)
             VStack(alignment: .leading, spacing: 1) {
                 Text(title(layer)).font(Theme.Font.label).foregroundStyle(Theme.text)
                 Text(subtitle(layer)).font(Theme.Font.meta).foregroundStyle(Theme.Ink.tertiary)
@@ -67,8 +68,8 @@ struct PairSection: View {
     private func title(_ layer: PairLayer) -> String {
         switch layer {
         case .film: L("Film", zh: "胶片")
-        case .left: L("Left hole", zh: "左格")
-        case .right: L("Right hole", zh: "右格")
+        case .left: pair.turned ? L("Top frame", zh: "上格") : L("Left frame", zh: "左格")
+        case .right: pair.turned ? L("Bottom frame", zh: "下格") : L("Right frame", zh: "右格")
         }
     }
 
@@ -84,6 +85,10 @@ struct PairSection: View {
     // MARK: the Film layer
 
     @ViewBuilder private var filmRows: some View {
+        PillSwitchRow(label: L("Camera", zh: "相机"), options: PairHold.allCases,
+                      selection: Binding(get: { pair.turned ? .turned : .level },
+                                         set: { session.setPairTurned($0 == .turned) }),
+                      title: { $0 == .turned ? L("Turned", zh: "竖持") : L("Level", zh: "横持") })
         ScrubSlider(label: L("Spacing", zh: "间距"), sublabel: "mm",
                     value: Binding(get: { pair.effectiveSpacingMM }, set: { session.setPairSpacing($0) }),
                     range: HalfFramePair.spacingRange, zero: 1.0, snap: 0.1,
@@ -91,23 +96,31 @@ struct PairSection: View {
             .help(pair.onStrip ? L("With Film Edge on, the camera's advance sets the gap.",
                                    zh: "开启片边后，间距由相机过片决定。") : "")
         HStack(spacing: 8) {
-            pill(L("Swap Left and Right", zh: "左右对调"), enabled: pair.left != nil || pair.right != nil) {
+            pill(L("Swap the Two Frames", zh: "两格对调"), enabled: pair.left != nil || pair.right != nil) {
                 session.swapHoles()
             }
             Spacer(minLength: 0)
         }
-        note(L("Stock, paper, enlarger and Film Edge are the piece's: one film, one print. Each hole keeps its own frame, placement and exposure.",
-               zh: "胶片、相纸、放大机与片边属于整条胶片：一条胶片，一次印放。每一格保留各自的照片、位置与曝光。"))
+        note(L("Click a frame on the canvas to pick it; right-click it to replace or crop it.",
+               zh: "在画布上点击一格即可选中；右键可替换或裁剪。"))
     }
 
-    // MARK: a hole
+    // MARK: a frame in its hole
 
     @ViewBuilder private func holeRows(_ side: HalfFramePair.Side) -> some View {
         if let hole = pair[side] {
             ScrubSlider(label: L("Exposure", zh: "曝光"), sublabel: L("stops", zh: "档"),
                         value: Binding(get: { hole.exposureEV }, set: { session.setHoleExposure(side, $0) }),
                         range: -3...3, snap: 0.25, format: { String(format: "%+.2f", $0) })
-            RailSubhead(L("Placement under the hole", zh: "画面在格内的位置"))
+            RailSubhead(L("Crop under the hole", zh: "格内裁剪"))
+            HStack(spacing: 8) {
+                pill(session.pairPlacing ? L("Done", zh: "完成") : L("Crop on the Canvas", zh: "在画布上裁剪"),
+                     enabled: hole.exists) { session.togglePairPlacing() }
+                pill(L("Turn", zh: "旋转")) {
+                    session.setPlacement(side) { $0.quarterTurns = ($0.quarterTurns + 1) % 4 }
+                }
+                Spacer(minLength: 0)
+            }
             ScrubSlider(label: L("Scale", zh: "缩放"), sublabel: "×",
                         value: Binding(get: { hole.placement.scale },
                                        set: { v in session.setPlacement(side) { $0.scale = v } }),
@@ -122,47 +135,19 @@ struct PairSection: View {
                                        set: { v in session.setPlacement(side) { $0.y = v } }),
                         range: -1...1, snap: 0.05, format: { String(format: "%+.2f", $0) })
             HStack(spacing: 8) {
-                pill(L("Turn", zh: "旋转")) {
-                    session.setPlacement(side) { $0.quarterTurns = ($0.quarterTurns + 1) % 4 }
-                }
-                pill(L("Reset", zh: "复位"), enabled: hole.placement != HalfFramePair.Placement()) {
-                    session.setPlacement(side) { $0 = HalfFramePair.Placement() }
-                }
-                Spacer(minLength: 0)
-            }
-            RailSubhead(L("Frame", zh: "照片"))
-            HStack(spacing: 8) {
-                pill(L("Replace…", zh: "替换…")) { adding = side }
-                    .popover(isPresented: picking(side), arrowEdge: .trailing) { picker(side) }
+                pill(L("Replace…", zh: "替换…")) { session.pairPicker = side }
                 pill(L("Remove", zh: "移除")) { session.setHole(side, to: nil) }
                 Spacer(minLength: 0)
             }
-            HStack(spacing: 8) {
-                pill(L("Open Frame Alone", zh: "单独打开照片"), enabled: hole.exists) { session.click(hole.url) }
-                Spacer(minLength: 0)
-            }
-            note(L("White balance and lens correction are the frame's own: open it alone to change them.",
-                   zh: "白平衡与镜头校正跟随照片本身：单独打开照片即可修改。"))
+            note(L("White balance and lens correction are the frame's own: open it alone (right-click) to change them.",
+                   zh: "白平衡与镜头校正跟随照片本身：右键“单独打开照片”即可修改。"))
         } else {
             HStack(spacing: 8) {
-                pill(L("Add Frame…", zh: "添加照片…")) { adding = side }
-                    .popover(isPresented: picking(side), arrowEdge: .trailing) { picker(side) }
+                pill(L("Add Frame…", zh: "添加照片…")) { session.pairPicker = side }
                 Spacer(minLength: 0)
             }
-            note(L("An empty hole is unexposed film. Fill both holes to export the pair.",
+            note(L("An empty hole is unexposed film. Fill both to export the pair.",
                    zh: "空格是未曝光的胶片。两格都放入照片后才能导出。"))
-        }
-    }
-
-    private func picking(_ side: HalfFramePair.Side) -> Binding<Bool> {
-        Binding(get: { adding == side }, set: { if !$0 { adding = nil } })
-    }
-
-    private func picker(_ side: HalfFramePair.Side) -> some View {
-        PairFramePicker(frames: session.pairCandidates,
-                        used: Set([pair.left?.path, pair.right?.path].compactMap { $0 })) { url in
-            adding = nil
-            session.setHole(side, to: url)
         }
     }
 
@@ -181,6 +166,7 @@ struct PairSection: View {
             Text(title)
                 .font(Theme.Font.value)
                 .foregroundStyle(Theme.text)
+                .lineLimit(1).fixedSize()
                 .padding(.horizontal, 12)
                 .frame(height: Theme.Metric.controlHeight)
                 .background(Theme.pill, in: Capsule())
@@ -189,6 +175,13 @@ struct PairSection: View {
         .buttonStyle(.plain)
         .rowEnabled(enabled)
     }
+}
+
+/// How the camera was held for a pair: level (frames side by side) or turned
+/// (one above the other).
+enum PairHold: String, CaseIterable, Identifiable, Sendable {
+    case level, turned
+    var id: String { rawValue }
 }
 
 /// Add Frame: the open folder's frames, drawn as the filmstrip draws them,

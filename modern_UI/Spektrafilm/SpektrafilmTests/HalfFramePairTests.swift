@@ -56,6 +56,44 @@ final class HalfFramePairTests: XCTestCase {
         XCTAssertEqual(HalfFramePair.turned(source, by: p), CGSize(width: 4000, height: 6000))
     }
 
+    func testTurnedThePieceIsStackedAndTheHolesAreLandscape() {
+        let l = HalfFramePair.layout(holeHeight: 2400, spacingMM: 1.0, turned: true)
+        XCTAssertEqual(l.hole, CGSize(width: 2400, height: 1800))
+        XCTAssertEqual(l.size, CGSize(width: 2400, height: 3700))
+        XCTAssertEqual(l.rect(.left).minY, 0); XCTAssertEqual(l.rect(.right).minY, 1900)
+        XCTAssertEqual(l.side(atNormalised: CGPoint(x: 0.5, y: 0.2)), .left, "the first frame is the upper one")
+        XCTAssertEqual(l.side(atNormalised: CGPoint(x: 0.5, y: 0.8)), .right)
+        XCTAssertNil(l.side(atNormalised: CGPoint(x: 0.5, y: 0.5)))
+        var pair = HalfFramePair(folder: "")
+        pair.turned = true
+        XCTAssertEqual(pair.holeAspect, 24.0 / 18.0, accuracy: 1e-9)
+        // A 3:2 landscape frame fills a landscape hole from its middle.
+        let r = HalfFramePair.sourceRect(for: .init(), source: CGSize(width: 6000, height: 4000), aspect: pair.holeAspect)
+        XCTAssertEqual(r.height, 4000, accuracy: 0.001)
+        XCTAssertEqual(r.width, 4000 * 24.0 / 18.0, accuracy: 0.001)
+        XCTAssertEqual(r.midX, 3000, accuracy: 0.001)
+    }
+
+    func testADragMovesThePictureWithThePointerAndStopsAtItsEdge() {
+        let source = CGSize(width: 6000, height: 4000)
+        let origin = HalfFramePair.Placement()
+        // Half a hole to the right: the picture follows, so the cut goes left.
+        let moved = Session.placement(origin, draggedBy: CGSize(width: 0.25, height: 0), source: source)
+        let before = HalfFramePair.sourceRect(for: origin, source: source)
+        let after = HalfFramePair.sourceRect(for: moved, source: source)
+        XCTAssertEqual(after.minX, before.minX - 0.25 * before.width, accuracy: 0.5)
+        XCTAssertEqual(after.minY, before.minY, accuracy: 0.001, "a 3:2 frame has no slack down a portrait hole at 1.00×")
+        let far = Session.placement(origin, draggedBy: CGSize(width: 9, height: 0), source: source)
+        XCTAssertEqual(HalfFramePair.sourceRect(for: far, source: source).minX, 0, accuracy: 0.001, "held at the picture's edge")
+        // A level crop becomes the same rectangle under the hole.
+        var g = Geometry.default
+        g.crop = CropRect(x: 0.5, y: 0.25, width: 0.25, height: 0.5)
+        let p = Session.placement(from: g, source: source, aspect: 0.75)
+        let cut = HalfFramePair.sourceRect(for: p, source: source)
+        XCTAssertEqual(cut.minX, 3000, accuracy: 1); XCTAssertEqual(cut.minY, 1000, accuracy: 1)
+        XCTAssertEqual(cut.height, 2000, accuracy: 1)
+    }
+
     // MARK: - the file
 
     func testThePairIsAFileThatBelongsToItsFolder() throws {
@@ -144,10 +182,53 @@ final class HalfFramePairTests: XCTestCase {
         // No crop tool on a pair: each picture is placed under its own hole.
         s.tool = .crop
         XCTAssertEqual(s.tool, .select)
+        XCTAssertTrue(s.pairPlacing, "the crop tool on a pair crops the filled hole")
+        XCTAssertEqual(s.pairLayer, .right)
+        XCTAssertTrue(s.endPlacement())
         // A frame opened afterwards is a frame: nothing of the pair stays.
         s.click(urls[0])
         XCTAssertNil(s.pair)
         XCTAssertFalse(s.sidecar.params.filmEdge.pair)
+    }
+
+    func testAHalfFrameEntersAPairAndTheCanvasPicksItsHoles() throws {
+        let (s, urls) = try openedSession(frameCount: 3)
+        s.click(urls[1])
+        XCTAssertFalse(s.canEnterPair, "the way in is offered under the Half format only")
+        var p = s.sidecar.params
+        p.filmEdge.format = .f135Half
+        s.sidecar.params = p
+        XCTAssertTrue(s.canEnterPair)
+        s.enterPair()
+        let pairURL = try XCTUnwrap(s.selection)
+        addTeardownBlock { try? FileManager.default.removeItem(at: pairURL); Sidecar.remove(for: pairURL) }
+        let pair = try XCTUnwrap(s.pair)
+        XCTAssertEqual(pair.left?.path, urls[1].standardizedFileURL.path, "the frame it was entered from is the first one")
+        XCTAssertNil(pair.right, "the second hole is empty, for the + on the canvas")
+        XCTAssertEqual(s.pairLayer, .right, "the empty hole is the one to fill")
+        XCTAssertEqual(s.frames.map(\.id), [urls[0], urls[1], pairURL, urls[2]])
+        XCTAssertFalse(s.canEnterPair, "a pair is not entered from a pair")
+        // A click on the canvas picks the hole under it; the gap picks the film.
+        XCTAssertEqual(s.pairHoleRects.count, 2)
+        s.clicked(normalised: CGPoint(x: 0.2, y: 0.5)); XCTAssertEqual(s.pairLayer, .left)
+        s.clicked(normalised: CGPoint(x: 0.5, y: 0.5)); XCTAssertEqual(s.pairLayer, .film)
+        s.clicked(normalised: CGPoint(x: 0.8, y: 0.5)); XCTAssertEqual(s.pairLayer, .right)
+        // Its menu is about that hole: empty, it offers a frame; and the picker opens on it.
+        let empty = s.pairContextMenu().items.map(\.title)
+        XCTAssertTrue(empty.first == "Add Frame…" || empty.first == "添加照片…", "\(empty)")
+        s.clicked(normalised: CGPoint(x: 0.2, y: 0.5))
+        let filled = s.pairContextMenu().items.map(\.title)
+        XCTAssertTrue(filled.contains { $0 == "Replace Frame…" || $0 == "替换照片…" }, "\(filled)")
+        XCTAssertTrue(filled.contains { $0 == "Crop This Frame" || $0 == "裁剪这一格" }, "\(filled)")
+        // Turned, the holes are one above the other.
+        s.setPairTurned(true)
+        s.clicked(normalised: CGPoint(x: 0.5, y: 0.2)); XCTAssertEqual(s.pairLayer, .left)
+        s.clicked(normalised: CGPoint(x: 0.5, y: 0.8)); XCTAssertEqual(s.pairLayer, .right)
+        // The crop mode is the picked, filled hole's; Return or Esc leaves it.
+        s.clicked(normalised: CGPoint(x: 0.5, y: 0.2))
+        s.tool = .crop
+        XCTAssertTrue(s.pairPlacing)
+        XCTAssertTrue(s.endPlacement()); XCTAssertFalse(s.pairPlacing)
     }
 
     func testAnEmptyPairAndAPairDuringExport() throws {
@@ -176,9 +257,13 @@ final class HalfFramePairTests: XCTestCase {
 
         let d = try ImageDecoder.decode(url, settings: DecodeSettings())
         let one = try ImageDecoder.decode(frames[0], settings: DecodeSettings())
-        let cut = HalfFramePair.sourceRect(for: HalfFramePair.Placement(), source: one.pixelSize)
-        let layout = HalfFramePair.layout(holeHeight: Int(cut.height), spacingMM: 1.0)
-        XCTAssertEqual(d.pixelSize, layout.size, "neither picture is enlarged")
+        let layout = PairComposer.layout(for: pair, sizes: [.left: one.pixelSize, .right: one.pixelSize])
+        XCTAssertEqual(d.pixelSize, layout.size)
+        // Two half frames are one frame's worth of film: the piece is no longer
+        // than the frame it was made from, and neither picture is enlarged.
+        XCTAssertLessThanOrEqual(max(layout.size.width, layout.size.height),
+                                 max(one.pixelSize.width, one.pixelSize.height))
+        XCTAssertLessThanOrEqual(layout.hole.height, HalfFramePair.sourceRect(for: .init(), source: one.pixelSize).height)
         XCTAssertEqual(d.linear.extent, CGRect(origin: .zero, size: layout.size))
 
         func mean(_ image: CIImage, _ r: CGRect) -> Float {
@@ -250,8 +335,14 @@ final class HalfFramePairTests: XCTestCase {
         let strip = try XCTUnwrap(session.renderer.live)
         XCTAssertTrue(session.sidecar.params.filmEdge.pair)
         XCTAssertEqual(session.sidecar.params.filmEdge.format, .f135Half)
-        XCTAssertGreaterThan(Double(strip.height) / Double(strip.width), Double(print.height) / Double(print.width) * 1.25,
-                             "35 mm of film across a 24 mm gate")
+        func squareness(_ t: MTLTexture) -> Double { Double(min(t.width, t.height)) / Double(max(t.width, t.height)) }
+        XCTAssertGreaterThan(squareness(strip), squareness(print) * 1.25, "35 mm of film across a 24 mm gate")
+        // The clock stops: a develop started while another was unwinding left
+        // `busy` set for good, and the status counted with the engine idle.
+        try await waitUntil("the session to go idle", timeout: 60) { !session.working }
+        try await Task.sleep(for: .milliseconds(1500))
+        XCTAssertFalse(session.working, "the session is still counting with nothing running")
+        XCTAssertEqual(session.pairHoleRects.count, 2, "the engine's gates are known on the strip")
         XCTAssertEqual(session.pair?.onStrip, true)
 
         // An empty hole is not exported (answer B9).
@@ -264,6 +355,36 @@ final class HalfFramePairTests: XCTestCase {
             XCTFail("a pair with an empty hole was exported")
         } catch Exporter.ExportError.incompletePair {
         } catch { XCTFail("\(error)") }
+    }
+
+    /// A develop asked for while another is still unwinding. Each used to save
+    /// `busy` on the way in and put it back on the way out; the second saved
+    /// `true`, the first put back `false`, the second put back `true` — for
+    /// good, and the status clock counted with the engine idle. That is what
+    /// a pair did when its Film Edge was switched on (owner, 2026-10-03).
+    func testOverlappingDevelopsLeaveTheSessionIdle() async throws {
+        let frames = try copies(1)
+        let session = Session(clipboardDefaults: try defaults())
+        session.open(urls: [frames[0]])
+        let url = try XCTUnwrap(session.selection)
+        try await waitUntil("the frame to decode", timeout: 90) { session.decoded != nil }
+        var overlapped = false
+        session.afterOpenDeltaForTesting = { [weak session] in
+            // Inside the first develop, with the engine about to be handed the
+            // frame: drop it and ask again, as an edit landing mid-develop does.
+            guard !overlapped, let session else { return }
+            overlapped = true
+            session.releaseEngineFrame()
+            session.requestPrint()
+        }
+        session.requestPrint()
+        try await waitUntil("the second develop to land", timeout: 120) {
+            overlapped && session.serviceSessionIDForExport != nil && session.frameStates[url] == .processed
+        }
+        try await waitUntil("the session to go idle", timeout: 30) { !session.working }
+        try await Task.sleep(for: .milliseconds(1500))
+        XCTAssertFalse(session.busy, "busy was left set by two overlapping develops")
+        XCTAssertFalse(session.working)
     }
 
     // MARK: - helpers

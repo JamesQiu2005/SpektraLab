@@ -233,6 +233,9 @@ struct CanvasArea: View {
             // capture where the line does not sit on the seam is the only
             // thing that catches them disagreeing.
             CompareOverlay(session: session)
+            // A pair's own marks: the + on an empty hole, the picked hole's
+            // frame, the frame picker.
+            if session.pair != nil { PairOverlay(session: session) }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         // Everything in this stack is positioned in **view coordinates**, and

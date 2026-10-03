@@ -519,9 +519,9 @@ bool Pipeline::overscan_layout(uint32_t frame_w, uint32_t frame_h, std::string& 
     L.vertical = std::fabs(img_w - fmt->across) < std::fabs(img_h - fmt->across) && std::fabs(img_w - img_h) > 1e-6;
     L.gate_along = L.vertical ? img_h : img_w;
     if (o.pair) {
-        // Held level only (answer B17): the two frames side by side, the film
-        // running across the picture.
-        if (L.vertical) { error = "overscan: a pair is rendered held level (the film along the picture's long edge)"; return false; }
+        // Held level the two frames sit side by side; with the camera turned
+        // the film runs down the picture and they sit one above the other.
+        // Either way the first picture is at the start of the frame.
         L.pair_adv = kPairAdvanceMM;
         L.gate_along -= L.pair_adv;
     }

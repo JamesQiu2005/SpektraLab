@@ -86,6 +86,16 @@ final class Session: CanvasHost {
     /// The right hole's frame's EXIF: its date, for the strip's second imprint.
     private(set) var pairRightExif: EXIFReadout?
     @ObservationIgnored private var pairExposureTask: Task<Void, Never>?
+    /// `openInService` calls in flight, and what `busy` was before the first.
+    @ObservationIgnored private var openDepth = 0
+    @ObservationIgnored private var busyBeforeOpen = false
+    /// Placement mode on a pair, the drag in flight, and where the engine put
+    /// the gates on the strip (normalised to the canvas).
+    var pairPlacing = false
+    /// The hole whose Add Frame picker is open on the canvas.
+    var pairPicker: HalfFramePair.Side?
+    private(set) var pairDrag: PairDrag?
+    private(set) var pairGates: [CGRect] = []
     var params: FilmParams {
         get { sidecar.params }
         set { guard newValue != sidecar.params else { return }
@@ -350,8 +360,9 @@ final class Session: CanvasHost {
     var tool: CanvasTool = .select {
         didSet {
             guard oldValue != tool else { return }
-            // A pair has no crop: each picture is placed under its own hole.
-            if tool == .crop, pair != nil { tool = oldValue; return }
+            // A pair has no crop: the tool's button and key are its placement
+            // mode, where each picture is moved under its own hole.
+            if tool == .crop, pair != nil { tool = oldValue; togglePairPlacing(); return }
             // Entering the crop tool shows the whole frame; leaving it fits
             // the crop. The renderer does both from this one flag.
             renderer.editingCrop = tool == .crop
@@ -2185,10 +2196,18 @@ final class Session: CanvasHost {
         // Preserved rather than cleared: Solve sets it around the develop *and*
         // the solve that follows, and clearing it here would open a window in
         // which the button looks ready while the engine is still working.
-        let wasBusy = busy
+        // Counted, not saved-and-restored per call: a develop that starts while
+        // a cancelled one is still unwinding saw `busy` already true, and the
+        // two restores then left it true for good -- the clock counted with
+        // the engine idle (a pair with Film Edge switched on, 2026-10-03).
+        if openDepth == 0 { busyBeforeOpen = busy }
+        openDepth += 1
         busy = true
         startClock()
-        defer { busy = wasBusy }
+        defer {
+            openDepth -= 1
+            if openDepth == 0 { busy = busyBeforeOpen }
+        }
         do {
             let r: OpenResponse
             var framing: String?
@@ -2369,6 +2388,7 @@ final class Session: CanvasHost {
         // reason it must not clear until the native render lands.
         previewSoft = wantsFullRender
         lastRenderMs = r.elapsedMs
+        if pair != nil { refreshPairGates() }
         if let base = statusBase { status = "\(base)  ·  \(r.reprint ? "reprint" : "render") \(Int(r.elapsedMs)) ms" }
         frameStates[url] = .processed
         sidecar.state = .processed
@@ -3185,6 +3205,7 @@ final class Session: CanvasHost {
         hoverValue = Session.sample(base, at: n)
     }
     func contextMenu() -> NSMenu? {
+        if pair != nil { return pairContextMenu() }
         let m = NSMenu()
         let fit = m.addItem(withTitle: "Zoom to Fit", action: #selector(zoomFit), keyEquivalent: "")
         fit.target = self; fit.isEnabled = !zoomLocked
@@ -3988,6 +4009,9 @@ extension Session {
         guard var p = HalfFramePair.load(url) else {
             pair = nil
             pairRightExif = nil
+            pairPlacing = false
+            pairDrag = nil
+            pairGates = []
             return
         }
         // The shot stays the frame's: its white balance and lens correction
@@ -4007,6 +4031,10 @@ extension Session {
         }
         pair = p
         pairLayer = .film
+        pairPlacing = false
+        pairDrag = nil
+        pairGates = []
+        pairPicker = nil
         pairRightExif = p.right.flatMap { EXIFReadout.read($0.url) }
         // One strip, one meter reading per hole (`pairExposure`): the engine's
         // own meter would read both pictures and the gap as one scene.
@@ -4022,32 +4050,12 @@ extension Session {
     /// empty. The pair's look starts as its first frame's.
     func newPair() {
         guard canMakePair else { return }
-        let picks = selectedFrames.filter { !HalfFramePair.isPair($0) }.prefix(2)
-        guard let anchor = picks.first ?? frames.first(where: { !HalfFramePair.isPair($0.id) })?.id else { return }
-        let folder = anchor.deletingLastPathComponent()
-        var p = HalfFramePair(folder: folder.standardizedFileURL.path)
-        for (side, frame) in zip(HalfFramePair.Side.allCases, picks) { p[side] = Self.hole(for: frame) }
-        let url = HalfFramePair.newURL(in: folder)
-        var look = Sidecar()
-        if let first = picks.first, let own = first == selection ? sidecar : Sidecar.load(for: first) {
-            look.params = own.params
-        }
-        look.params.autoExposure = false
-        look.params.exposureCompensationEV = 0
-        look.params.filmEdge = FilmEdgeSettings()
-        look.params.dateBack = DateBackSettings()
-        look.state = .stale
-        do {
-            try p.save(to: url)
-            try look.save(for: url)
-        } catch {
-            noteFailure(error, operation: "pair", frame: url.lastPathComponent)
-            return
-        }
-        let after = picks.first.flatMap { f in frames.firstIndex { $0.id == f } }
-        insertFrame(Frame(id: url), at: after.map { $0 + 1 } ?? frames.count)
-        click(url)
-        status = L("New half-frame pair.", zh: "已新建半格拼接。")
+        let picks = Array(selectedFrames.filter { !HalfFramePair.isPair($0) }.prefix(2))
+        let own = picks.first.flatMap { $0 == selection ? sidecar : Sidecar.load(for: $0) }
+        // A landscape first frame is the camera turned: the holes are stacked.
+        let size = picks.first.flatMap(Self.pixelSize(of:)) ?? .zero
+        makePair(first: picks.first, second: picks.count > 1 ? picks[1] : nil, look: own,
+                 turned: size.width > size.height)
     }
 
     nonisolated static func hole(for frame: URL) -> HalfFramePair.Hole {
@@ -4145,16 +4153,25 @@ extension Session {
     /// Film Edge went on or off on a pair: on a strip the camera decides the
     /// gap, so the piece is laid out again when that changes it.
     func pairFilmEdgeChanged(to on: Bool) {
-        guard let p = pair, p.onStrip != on else { return }
-        var next = p
-        next.onStrip = on
-        updatePair(redecode: next.effectiveSpacingMM != p.effectiveSpacingMM) { $0.onStrip = on }
+        guard var p = pair, p.onStrip != on, let url = selection else { return }
+        let before = p.effectiveSpacingMM
+        p.onStrip = on
+        if p.effectiveSpacingMM != before {
+            updatePair { $0.onStrip = on }
+        } else {
+            // The same piece: only the note of it changes. The `params` setter
+            // that called this asks for the develop itself; asking again here
+            // ran two at once.
+            try? p.save(to: url)
+            pair = p
+        }
     }
 
     /// The piece's layout for a decode of it.
     func pairLayout(for decodedSize: CGSize) -> HalfFramePair.Layout? {
         guard let p = pair else { return nil }
-        return HalfFramePair.layout(holeHeight: Int(decodedSize.height), spacingMM: p.effectiveSpacingMM)
+        return HalfFramePair.layout(holeHeight: Int(p.turned ? decodedSize.width : decodedSize.height),
+                                    spacingMM: p.effectiveSpacingMM, turned: p.turned)
     }
 
     /// Each hole's exposure on the strip, in stops: what the engine's meter
@@ -4208,4 +4225,277 @@ extension Session {
         }
         return stops
     }
+}
+
+// MARK: - the pair on the canvas: picking a hole, placing its picture
+
+extension Session {
+    /// Where the holes are on the canvas, normalised with y down. Without a
+    /// film edge the piece is the canvas, so they are the layout's; on a strip
+    /// they are the engine's gates (`refreshPairGates`).
+    var pairHoleRects: [HalfFramePair.Side: CGRect] {
+        guard let p = pair else { return [:] }
+        if sidecar.params.filmEdge.effective {
+            guard pairGates.count == 2 else { return [:] }
+            let sorted = pairGates.sorted { p.turned ? $0.minY < $1.minY : $0.minX < $1.minX }
+            return [.left: sorted[0], .right: sorted[1]]
+        }
+        let l = HalfFramePair.layout(holeHeight: 2400, spacingMM: p.effectiveSpacingMM, turned: p.turned)
+        return Dictionary(uniqueKeysWithValues: HalfFramePair.Side.allCases.map { ($0, l.normalisedRect($0)) })
+    }
+
+    /// Ask the engine where it put the gates, after a strip render.
+    func refreshPairGates() {
+        guard pair != nil, sidecar.params.filmEdge.effective, let url = selection else { pairGates = []; return }
+        Task {
+            let gates = (try? await client.overscanGates()) ?? []
+            guard selection == url else { return }
+            pairGates = gates
+        }
+    }
+
+    /// A click on the canvas: the hole under it becomes the picked layer, and
+    /// anywhere else on the piece picks the film.
+    func clicked(normalised: CGPoint?) {
+        guard pair != nil, let n = normalised else { return }
+        let hit = pairHoleRects.first { $0.value.contains(n) }?.key
+        pairLayer = hit == .left ? .left : hit == .right ? .right : .film
+    }
+
+    /// Placement mode (the crop tool's button and key, on a pair): the picked
+    /// hole's picture moves under the fixed hole.
+    func togglePairPlacing() {
+        guard let p = pair else { pairPlacing = false; return }
+        if pairPlacing { pairPlacing = false; return }
+        // The picked frame, or the first hole that has one; nothing to crop in
+        // an empty pair.
+        if pairLayer.side.flatMap({ p[$0] }) == nil {
+            guard let filled = HalfFramePair.Side.allCases.first(where: { p[$0] != nil }) else { return }
+            pairLayer = filled == .left ? .left : .right
+        }
+        pairPlacing = true
+    }
+
+    func endPlacement() -> Bool {
+        guard pairPlacing else { return false }
+        pairPlacing = false
+        pairDrag = nil
+        return true
+    }
+
+    /// The frame's pixel size as ImageIO reports it (turned by its EXIF
+    /// orientation), for how far a drag moves the picture.
+    nonisolated static func pixelSize(of url: URL) -> CGSize? {
+        guard let src = CGImageSourceCreateWithURL(url as CFURL, nil),
+              let props = CGImageSourceCopyPropertiesAtIndex(src, 0, nil) as? [CFString: Any],
+              let w = props[kCGImagePropertyPixelWidth] as? Double,
+              let h = props[kCGImagePropertyPixelHeight] as? Double, w > 0, h > 0 else { return nil }
+        let turned = ((props[kCGImagePropertyOrientation] as? Int) ?? 1) >= 5
+        return turned ? CGSize(width: h, height: w) : CGSize(width: w, height: h)
+    }
+
+    /// `origin` after the picture is dragged by `d` — a fraction of the hole,
+    /// x right and y down. The picture follows the pointer, so the rectangle
+    /// cut from the source moves the other way.
+    nonisolated static func placement(_ origin: HalfFramePair.Placement, draggedBy d: CGSize,
+                                      source: CGSize, aspect: Double = 0.75) -> HalfFramePair.Placement {
+        let turned = HalfFramePair.turned(source, by: origin)
+        let cut = HalfFramePair.sourceRect(for: origin, source: turned, aspect: aspect)
+        var p = origin
+        let slackX = (turned.width - cut.width) / 2, slackY = (turned.height - cut.height) / 2
+        if slackX > 0.5 { p.x = (origin.x - Double(d.width * cut.width / slackX)).clamped(to: -1...1) }
+        if slackY > 0.5 { p.y = (origin.y - Double(d.height * cut.height / slackY)).clamped(to: -1...1) }
+        return p
+    }
+
+    func placementBegan(at n: CGPoint) -> Bool {
+        guard pairPlacing, let side = pairLayer.side, let hole = pair?[side], hole.exists,
+              let rect = pairHoleRects[side], rect.contains(n),
+              let source = Self.pixelSize(of: hole.url) else { return false }
+        pairDrag = PairDrag(side: side, start: n, origin: hole.placement, source: source, live: hole.placement)
+        return true
+    }
+
+    func placementMoved(to n: CGPoint) {
+        guard var drag = pairDrag, let rect = pairHoleRects[drag.side], rect.width > 0, rect.height > 0 else { return }
+        let d = CGSize(width: (n.x - drag.start.x) / rect.width, height: (n.y - drag.start.y) / rect.height)
+        drag.live = Self.placement(drag.origin, draggedBy: d, source: drag.source, aspect: pair?.holeAspect ?? 0.75)
+        pairDrag = drag
+    }
+
+    func placementEnded() {
+        guard let drag = pairDrag else { return }
+        pairDrag = nil
+        setPlacement(drag.side) { $0 = drag.live }
+    }
+
+    func placementScrolled(_ delta: CGFloat, at n: CGPoint) -> Bool {
+        guard pairPlacing, let side = pairLayer.side, pair?[side] != nil,
+              let rect = pairHoleRects[side], rect.contains(n) else { return false }
+        setPlacement(side) { $0.scale *= pow(1.004, Double(delta)) }
+        return true
+    }
+}
+
+/// A placement drag in flight: where it started and what it has made so far.
+struct PairDrag: Equatable, Sendable {
+    let side: HalfFramePair.Side
+    let start: CGPoint
+    let origin: HalfFramePair.Placement
+    let source: CGSize
+    var live: HalfFramePair.Placement
+}
+
+// MARK: - entering a pair from a half frame, and the hole's own menu
+
+extension Session {
+    /// A half frame with its Film Edge format on "Half" can become the first
+    /// frame of a pair: this is what the row under Format offers.
+    var canEnterPair: Bool {
+        guard pair == nil, let url = selection, !HalfFramePair.isPair(url), !batchExporting else { return false }
+        return sidecar.params.filmEdge.format == .f135Half
+    }
+
+    /// Enter Half-Frame Pair: the frame on the canvas becomes the first hole
+    /// of a new piece, cut as its half-frame crop cut it; the second hole is
+    /// empty, with a + on it. The piece takes the frame's look, film edge
+    /// included, and its orientation (a landscape half frame is the camera
+    /// turned, so the holes are stacked).
+    func enterPair() {
+        guard canEnterPair, let frame = selection else { return }
+        flushSave()
+        let size = nativeSourceSize ?? Self.pixelSize(of: frame) ?? .zero
+        let cut = sidecar.geometry.outputSize(for: size)
+        makePair(first: frame, second: nil, look: sidecar,
+                 turned: sidecar.params.filmEdge.effective ? cut.width > cut.height : size.width > size.height,
+                 placement: sidecar.params.filmEdge.effective ? sidecar.geometry : nil, source: size,
+                 keepFilmEdge: true)
+    }
+
+    /// The one place a pair is made: its file, its own settings, its place in
+    /// the filmstrip, and then it is on the canvas.
+    func makePair(first: URL?, second: URL?, look own: Sidecar?, turned: Bool,
+                  placement: Geometry? = nil, source: CGSize = .zero, keepFilmEdge: Bool = false) {
+        guard !batchExporting,
+              let anchor = first ?? frames.first(where: { !HalfFramePair.isPair($0.id) })?.id else { return }
+        let folder = anchor.deletingLastPathComponent()
+        var p = HalfFramePair(folder: folder.standardizedFileURL.path)
+        p.turned = turned
+        if let first {
+            var hole = Self.hole(for: first)
+            if let g = placement { hole.placement = Self.placement(from: g, source: source, aspect: p.holeAspect) }
+            p.left = hole
+        }
+        p.right = second.map(Self.hole(for:))
+        var look = Sidecar()
+        if let own { look.params = own.params }
+        look.params.autoExposure = false
+        look.params.exposureCompensationEV = 0
+        if keepFilmEdge {
+            look.params.filmEdge.format = .f135Half
+        } else {
+            look.params.filmEdge = FilmEdgeSettings()
+        }
+        look.params.dateBack.textB = ""
+        p.onStrip = look.params.filmEdge.active
+        look.state = .stale
+        let url = HalfFramePair.newURL(in: folder)
+        do {
+            try p.save(to: url)
+            try look.save(for: url)
+        } catch {
+            noteFailure(error, operation: "pair", frame: url.lastPathComponent)
+            return
+        }
+        let after = first.flatMap { f in frames.firstIndex { $0.id == f } }
+        insertFrame(Frame(id: url), at: after.map { $0 + 1 } ?? frames.count)
+        click(url)
+        if p.left != nil, p.right == nil { pairLayer = .right }
+        status = L("Half-frame pair: add the second frame with the + on the empty hole.",
+                   zh: "半格拼接：点击空格上的 + 添加第二张照片。")
+    }
+
+    /// A frame's crop as a placement under a hole of `aspect`: the same
+    /// rectangle where the crop is level and unflipped, the middle otherwise.
+    nonisolated static func placement(from g: Geometry, source: CGSize, aspect: Double) -> HalfFramePair.Placement {
+        var p = HalfFramePair.Placement()
+        guard source.width > 0, source.height > 0, g.quarterTurns % 4 == 0, !g.flipH, !g.flipV,
+              abs(g.angle) < 0.01, !g.crop.isFull else {
+            p.quarterTurns = ((g.quarterTurns % 4) + 4) % 4
+            return p
+        }
+        let fit = HalfFramePair.sourceRect(for: p, source: source, aspect: aspect)
+        let ch = g.crop.height * source.height, cw = ch * aspect
+        p.scale = (fit.height / max(ch, 1)).clamped(to: HalfFramePair.Placement.scaleRange)
+        let cut = HalfFramePair.sourceRect(for: p, source: source, aspect: aspect)
+        let cx = (g.crop.x + g.crop.width / 2) * source.width, cy = (g.crop.y + g.crop.height / 2) * source.height
+        let slackX = (source.width - cut.width) / 2, slackY = (source.height - cut.height) / 2
+        _ = cw
+        if slackX > 0.5 { p.x = Double((cx - source.width / 2) / slackX).clamped(to: -1...1) }
+        if slackY > 0.5 { p.y = Double((cy - source.height / 2) / slackY).clamped(to: -1...1) }
+        return p
+    }
+
+    /// Held level (side by side) or turned (one above the other).
+    func setPairTurned(_ turned: Bool) {
+        updatePair { $0.turned = turned }
+    }
+
+    /// Leave the pair for one of its frames, opened by itself.
+    func openHoleAlone(_ side: HalfFramePair.Side) {
+        guard let hole = pair?[side], hole.exists,
+              let listed = frames.first(where: { $0.id.standardizedFileURL.path == hole.path }) else { return }
+        click(listed.id)
+    }
+
+    /// The menu of the hole under the pointer (a right click picks it first).
+    func pairContextMenu() -> NSMenu {
+        let m = NSMenu()
+        func add(_ title: String, _ action: Selector, enabled: Bool = true) {
+            let item = m.addItem(withTitle: title, action: action, keyEquivalent: "")
+            item.target = self
+            item.isEnabled = enabled
+        }
+        m.autoenablesItems = false
+        if let side = pairLayer.side {
+            if let hole = pair?[side] {
+                add(L("Replace Frame…", zh: "替换照片…"), #selector(pairMenuPick))
+                add(pairPlacing ? L("Done Cropping", zh: "完成裁剪") : L("Crop This Frame", zh: "裁剪这一格"),
+                    #selector(pairMenuPlace), enabled: hole.exists)
+                add(L("Turn Picture 90°", zh: "画面旋转 90°"), #selector(pairMenuTurnPicture))
+                add(L("Reset Crop", zh: "重置裁剪"), #selector(pairMenuResetPlacement),
+                    enabled: hole.placement != HalfFramePair.Placement())
+                add(L("Remove Frame", zh: "移除照片"), #selector(pairMenuRemove))
+                m.addItem(.separator())
+                add(L("Open Frame Alone", zh: "单独打开照片"), #selector(pairMenuOpenAlone), enabled: hole.exists)
+            } else {
+                add(L("Add Frame…", zh: "添加照片…"), #selector(pairMenuPick))
+            }
+            m.addItem(.separator())
+        }
+        add(L("Swap the Two Frames", zh: "两格对调"), #selector(pairMenuSwap),
+            enabled: pair?.left != nil || pair?.right != nil)
+        add(pair?.turned == true ? L("Hold the Camera Level (Side by Side)", zh: "相机横持（左右并排）")
+                                 : L("Turn the Camera (One Above the Other)", zh: "相机竖持（上下排列）"),
+            #selector(pairMenuTurnCamera))
+        m.addItem(.separator())
+        add("Zoom to Fit", #selector(pairMenuFit), enabled: !zoomLocked)
+        add("Export…", #selector(pairMenuExport), enabled: pair?.isComplete == true)
+        return m
+    }
+
+    @objc private func pairMenuPick() { pairPicker = pairLayer.side }
+    @objc private func pairMenuPlace() { togglePairPlacing() }
+    @objc private func pairMenuTurnPicture() {
+        if let s = pairLayer.side { setPlacement(s) { $0.quarterTurns = ($0.quarterTurns + 1) % 4 } }
+    }
+    @objc private func pairMenuResetPlacement() {
+        if let s = pairLayer.side { setPlacement(s) { $0 = HalfFramePair.Placement() } }
+    }
+    @objc private func pairMenuRemove() { if let s = pairLayer.side { setHole(s, to: nil) } }
+    @objc private func pairMenuOpenAlone() { if let s = pairLayer.side { openHoleAlone(s) } }
+    @objc private func pairMenuSwap() { swapHoles() }
+    @objc private func pairMenuTurnCamera() { setPairTurned(!(pair?.turned ?? false)) }
+    @objc private func pairMenuFit() { zoomToFit() }
+    @objc private func pairMenuExport() { showExport = true }
 }
