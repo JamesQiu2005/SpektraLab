@@ -157,3 +157,27 @@ belong in the 135 formats (allowed now); the UI placeholder note for Fujifilm ed
 
 The slowness is measured and fixed (§3); the Fujifilm edge layouts are done (§5). Next the
 half-frame pair without Film Edge (HFP P1–P4, Swift only), which needs none of §6.
+
+## 9. Late 2026-10-03: panoramic, the pair's engine, the pair in the app (first stage)
+
+The owner moved the engine work to desktop (A3 no longer holds: write here, carry to the mobile sync branch).
+
+| commit | what |
+|---|---|
+| `122c5fb` | panoramic: `135_xpan`, `120_6x12`, `120_6x17`; the canvas reaches 0.40 mm past the film (`overscan_carrier` black \| open); tilt capped by end travel; leaks per length. Every strip render changed. C11 measured: no banding at 21 µm a pixel |
+| `4767b48` | engine: `overscan_pair`, `date_imprint_text_b`, `spk_overscan_geometry` |
+| (this one) | the half-frame pair in the app, stage one |
+
+**How the pair is built (it differs from proposal §6a).** A pair is a file (`….spektrapair`, in `Sidecars/Pairs/`) whose URL is a filmstrip item, and whose *decode* is both pictures on one piece of film (`PairComposer`, Core Image). So the engine, canvas, thumbnail, caches and export handle it as one frame, with and without Film Edge: without, the gap is black input and develops to the stock's base; with, it is `overscan_pair`. The proposal's "two renders and a Metal compositor" was not built: the app holds one decode and one engine session at a time.
+
+**What a pair has today:** ⌘J / the filmstrip menu (picked frames fill the holes in filmstrip order), the Half-Frame Pair section (Film / Left hole / Right hole; Add, Replace, Remove, Swap, Open Frame Alone; per-hole Exposure, Scale, Across, Up/down, Turn; Spacing 0.5–2.0 mm), per-hole metering (the engine's meter is exactly a gain on the input, so each hole is metered alone once and the strip develops with the meter off), Film Edge on a pair (one strip, a date per frame), export as one image (refused with an empty hole). `HalfFramePairTests` (8).
+
+**Not built, against the proposal and the answers:**
+- Per-hole print and the exposure scope (B1–B3: Frame / + Overscan). The enlarger, paper and effects are the piece's. `spk_overscan_geometry` is there for the per-region reprints.
+- Per-hole Post-Dev, masks and Scene Placement (shared).
+- The hole's Film Exposure is a plain gain owned by the pair, not the frame's re-timed Film Exposure (B5). White balance and lens correction are the frame's.
+- Placement by dragging on the canvas, picking a layer by clicking the canvas, the Add Frame overlay on an empty hole, drag from the filmstrip.
+- Undo for the piece's own edits (holes, placement, spacing, exposure). Look edits undo as usual.
+- Export *Two halves / Both*; turned pairs (B17 = later); date back on a pair without Film Edge.
+- A moved frame is not re-found (the hole reads "Missing").
+- Seen in the running app without Film Edge (two NEFs, 83 MP piece). Film Edge on a pair was seen as an engine render and asserted through a session, not in the window.

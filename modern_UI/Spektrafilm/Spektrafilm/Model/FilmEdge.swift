@@ -117,6 +117,10 @@ struct FilmEdgeSettings: Codable, Equatable, Sendable {
     /// given as the gate), so the crop is part of the negative and the print
     /// stamp carries it (`Session.printStamp`).
     var framing = ""
+    /// A half-frame pair (`HalfFramePair`): the engine's frame carries both
+    /// pictures and the strip is `135_half` exposed twice. Resolved by the
+    /// session from what is open, never set by hand.
+    var pair = false
     /// Whether this frame has been given its seeds (`Session.seedFilmEdge`).
     /// A frame from before the film edge existed has none, and gets a frame
     /// seed of its own and the user's body the first time it is opened.
@@ -148,6 +152,7 @@ struct FilmEdgeSettings: Codable, Equatable, Sendable {
         leaks = try c.decodeIfPresent(Double.self, forKey: .leaks) ?? d.leaks
         edgeText = try c.decodeIfPresent(String.self, forKey: .edgeText) ?? d.edgeText
         fNumber = try c.decodeIfPresent(Double.self, forKey: .fNumber) ?? d.fNumber
+        pair = try c.decodeIfPresent(Bool.self, forKey: .pair) ?? d.pair
         framing = try c.decodeIfPresent(String.self, forKey: .framing) ?? d.framing
         // A record that carries a frame seed was seeded by whoever wrote it.
         seeded = try c.decodeIfPresent(Bool.self, forKey: .seeded) ?? c.contains(.frameSeed)
@@ -169,6 +174,10 @@ struct FilmEdgeSettings: Codable, Equatable, Sendable {
     nonisolated static func setBodySeed(_ seed: Int, in defaults: UserDefaults) {
         defaults.set(seed.clamped(to: seedRange), forKey: bodySeedKey)
     }
+
+    /// The shape the engine's frame has to have: the format's gate, or for a
+    /// pair the gate and one advance (18 + 19 mm) by the film's 24.
+    var gateMM: (long: Double, short: Double) { pair ? (37, 24) : format.gateMM }
 
     /// True when the engine draws the film: the switch, on a format it has.
     var effective: Bool { active && format.isAvailable }
@@ -194,6 +203,7 @@ struct FilmEdgeSettings: Codable, Equatable, Sendable {
             ("overscan_edge_text", .string(edgeText), .shoot),
             ("overscan_f_number", .double(fNumber.clamped(to: 0...64)), .shoot),
         ]
+        if pair { fields.append(("overscan_pair", .bool(true), .shoot)) }
         return fields
     }
 }
@@ -239,6 +249,8 @@ struct DateBackSettings: Codable, Equatable, Sendable {
     /// date from EXIF in `order` for `lcd`/`dots`, the shooting data for
     /// `data` (RFC-033; answers E7–E9). Empty prints nothing.
     var text = ""
+    /// A pair's second frame's date, resolved like `text` from that frame.
+    var textB = ""
     /// The user's own text, which wins over the resolved one when set.
     var customText: String?
     /// The camera the date is printed by while there is no film edge,
@@ -282,6 +294,7 @@ struct DateBackSettings: Codable, Equatable, Sendable {
         size = try c.decodeIfPresent(Double.self, forKey: .size) ?? d.size
         brightnessEV = try c.decodeIfPresent(Double.self, forKey: .brightnessEV) ?? d.brightnessEV
         text = try c.decodeIfPresent(String.self, forKey: .text) ?? d.text
+        textB = try c.decodeIfPresent(String.self, forKey: .textB) ?? d.textB
         customText = try c.decodeIfPresent(String.self, forKey: .customText)
         camera = (try? c.decodeIfPresent(FilmEdgeFormat.self, forKey: .camera)) ?? d.camera
         framing = try c.decodeIfPresent(String.self, forKey: .framing) ?? d.framing
@@ -358,6 +371,9 @@ struct DateBackSettings: Codable, Equatable, Sendable {
             ("date_imprint_size", .double((wireSize(on: camera) * scale).clamped(to: Self.sizeRange)), .shoot),
             ("date_imprint_ev", .double(brightnessEV.clamped(to: Self.brightnessRange)), .shoot),
         ]
+        if filmEdge.effective, filmEdge.pair {
+            fields.append(("date_imprint_text_b", .string(customText ?? textB), .shoot))
+        }
         return fields
     }
 }

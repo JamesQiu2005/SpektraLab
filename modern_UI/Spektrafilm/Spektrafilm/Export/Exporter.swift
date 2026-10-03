@@ -107,6 +107,8 @@ enum Exporter {
     static func export(session: Session, recipe: ExportRecipe,
                        context: NamingRule.Context, sessionID: String) async throws -> Outcome {
         guard let source = session.selection else { throw ExportError.nothingOpen }
+        // A pair with an empty hole is not exported (answer B9).
+        if let pair = session.pair, !pair.isComplete { throw ExportError.incompletePair }
         let format = recipe.format
         // The directory is created here rather than while *describing* a
         // destination: this is the only place that can tell the user it could
@@ -640,11 +642,12 @@ enum Exporter {
     }
 
     enum ExportError: Error, LocalizedError {
-        case nothingOpen, noPixels, write(URL), directory(URL, String), colourSpace(String)
+        case nothingOpen, noPixels, incompletePair, write(URL), directory(URL, String), colourSpace(String)
         var errorDescription: String? {
             switch self {
             case .nothingOpen: "Nothing is open."
             case .noPixels: "The render came back empty."
+            case .incompletePair: "Fill both holes of the half-frame pair before exporting it."
             case .colourSpace(let why): "Could not convert to the recipe's colour space: \(why)."
             case .write(let u): "Could not write \(u.lastPathComponent)."
             case .directory(let u, let why):

@@ -143,10 +143,11 @@ struct ShootingData: Equatable, Sendable {
 /// it errs large: it is for the memory forecast and the texture-limit refusal,
 /// which must not under-count, and never for placing anything on the picture.
 enum FilmCanvasEstimate {
-    static func size(picture: CGSize, format: FilmEdgeFormat, view: FilmEdgeView) -> CGSize {
+    static func size(picture: CGSize, format: FilmEdgeFormat, view: FilmEdgeView, pair: Bool = false) -> CGSize {
         let w = Double(picture.width), h = Double(picture.height)
         guard w > 0, h > 0 else { return .zero }
-        let gate = format.gateMM
+        // A pair's picture is both holes and the advance between them.
+        let gate = pair ? (long: 37.0, short: 24.0) : format.gateMM
         let px = gate.long / max(w, h)                        // mm per pixel
         // The film runs along the picture axis that is not the gate's across
         // size (the engine's `vertical`).
@@ -267,6 +268,16 @@ extension Session {
         } else {
             r.dateBack.camera = r.filmEdge.format
         }
+        // A pair is `135_half` exposed twice on one strip, each frame with its
+        // own date; without a strip there is nothing for a date back to be
+        // printed by. A frame never carries the flag.
+        r.filmEdge.pair = pair != nil
+        if pair != nil {
+            r.filmEdge.format = .f135Half
+            let second = pairRightExif?.shooting ?? ShootingData()
+            r.dateBack.textB = r.dateBack.face == .data ? second.dataText : second.dateText(order: r.dateBack.order)
+            r.dateBack.camera = r.filmEdge.effective ? .f135Half : nil
+        }
         if let frame = nativeSourceSize, frame.width > 0, frame.height > 0 {
             let cut = sidecar.geometry.outputSize(for: frame)
             r.dateBack.frameScale = max(cut.width, cut.height) / max(frame.width, frame.height)
@@ -301,14 +312,14 @@ extension Session {
     /// develop, and the crop it had is kept to give back as usual.
     func holdFilmEdgeCrop() {
         let p = sidecar.params
-        guard p.filmEdge.effective, let size = nativeSourceSize, size.width > 0, size.height > 0 else { return }
+        guard p.filmEdge.effective, pair == nil, let size = nativeSourceSize, size.width > 0, size.height > 0 else { return }
         let g = sidecar.geometry
         let pw = g.crop.width * size.width, ph = g.crop.height * size.height
         guard pw > 0, ph > 0 else { return }
-        let wanted = Self.gateRatio(p.filmEdge.format, landscape: pw >= ph)
+        let wanted = Self.gateRatio(p.filmEdge, landscape: pw >= ph)
         if abs((pw / ph) / wanted - 1) <= 0.02, g.lockedRatio == wanted { return }
         if sidecar.heldCrop == nil { sidecar.heldCrop = g }
-        sidecar.geometry = Self.gateFramed(g, format: p.filmEdge.format, imageSize: size)
+        sidecar.geometry = Self.gateFramed(g, format: p.filmEdge, imageSize: size)
     }
 
     /// Give a frame its seeds the first time it is opened: a frame seed of its
@@ -338,14 +349,20 @@ extension Session {
     /// crop rectangle in source pixels. A landscape crop gets the gate on its
     /// side, a portrait one gets it upright; either is the format (a portrait
     /// 135 runs the film down the picture).
-    nonisolated static func gateRatio(_ format: FilmEdgeFormat, landscape: Bool) -> Double {
-        let g = format.gateMM
+    nonisolated static func gateRatio(_ edge: FilmEdgeSettings, landscape: Bool) -> Double {
+        let g = edge.gateMM
         return landscape ? g.long / g.short : g.short / g.long
     }
 
     /// `g` reshaped to the gate's aspect, about its centre, in the crop's
     /// current orientation, and held there (`Geometry.lockedRatio`).
-    nonisolated static func gateFramed(_ g: Geometry, format: FilmEdgeFormat,
+    nonisolated static func gateFramed(_ g: Geometry, format: FilmEdgeFormat, imageSize: CGSize) -> Geometry {
+        var edge = FilmEdgeSettings()
+        edge.format = format
+        return gateFramed(g, format: edge, imageSize: imageSize)
+    }
+
+    nonisolated static func gateFramed(_ g: Geometry, format: FilmEdgeSettings,
                                        imageSize: CGSize) -> Geometry {
         guard imageSize.width > 0, imageSize.height > 0 else { return g }
         let pw = g.crop.width * imageSize.width, ph = g.crop.height * imageSize.height
@@ -362,16 +379,22 @@ extension Session {
         if new.filmEdge.cameraSeed != old.filmEdge.cameraSeed {
             FilmEdgeSettings.setBodySeed(new.filmEdge.cameraSeed, in: .standard)
         }
+        // A pair's picture is the whole piece, already the gate's shape: there
+        // is no crop to hold, only the spacing to hand to the camera.
+        if pair != nil {
+            pairFilmEdgeChanged(to: new.filmEdge.effective)
+            return
+        }
         let was = old.filmEdge.effective, now = new.filmEdge.effective
         let size = sourceImageSize
         if !was && now {
             sidecar.heldCrop = sidecar.geometry
-            sidecar.geometry = Self.gateFramed(sidecar.geometry, format: new.filmEdge.format, imageSize: size)
+            sidecar.geometry = Self.gateFramed(sidecar.geometry, format: new.filmEdge, imageSize: size)
         } else if was && !now {
             sidecar.geometry = sidecar.heldCrop ?? Self.unheld(sidecar.geometry)
             sidecar.heldCrop = nil
         } else if now && new.filmEdge.format != old.filmEdge.format {
-            sidecar.geometry = Self.gateFramed(sidecar.geometry, format: new.filmEdge.format, imageSize: size)
+            sidecar.geometry = Self.gateFramed(sidecar.geometry, format: new.filmEdge, imageSize: size)
         }
     }
 
@@ -388,7 +411,7 @@ extension Session {
         guard params.filmEdge.effective else { return }
         var g = geometry
         let landscape = (g.lockedRatio ?? 1) >= 1
-        g.lockedRatio = Self.gateRatio(params.filmEdge.format, landscape: !landscape)
+        g.lockedRatio = Self.gateRatio(params.filmEdge, landscape: !landscape)
         geometry = g.constrained(in: sourceImageSize)
     }
 
@@ -528,7 +551,7 @@ extension Session {
         let picture = enginePictureSize(decodedSize)
         let edge = params.filmEdge
         guard edge.effective else { return Int(picture.width * picture.height) }
-        let canvas = FilmCanvasEstimate.size(picture: picture, format: edge.format, view: edge.view)
+        let canvas = FilmCanvasEstimate.size(picture: picture, format: edge.format, view: edge.view, pair: edge.pair)
         return Int(canvas.width * canvas.height)
     }
 
@@ -539,7 +562,7 @@ extension Session {
         let edge = params.filmEdge
         guard edge.effective, let limit = maxTextureEdge else { return nil }
         let canvas = FilmCanvasEstimate.size(picture: enginePictureSize(decodedSize),
-                                             format: edge.format, view: edge.view)
+                                             format: edge.format, view: edge.view, pair: edge.pair)
         guard max(canvas.width, canvas.height) > CGFloat(limit) else { return nil }
         return FilmEdgeTooLarge(canvas: canvas, limit: limit, format: edge.format)
     }

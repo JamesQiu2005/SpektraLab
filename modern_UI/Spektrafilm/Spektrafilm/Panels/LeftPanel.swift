@@ -25,8 +25,12 @@ struct LeftPanel: View {
             Hairline()
             ScrollView(.vertical, showsIndicators: false) {
                 VStack(spacing: 0) {
+                    // A pair lists its layers first, and has no crop of its
+                    // own: each picture is placed under its hole there.
+                    let isPair = session.pair != nil
                     let sections: [(String, AnyView)] =
-                        [("navigator", AnyView(NavigatorSection(session: session))),
+                        (isPair ? [(PairSection.key, AnyView(PairSection(session: session)))] : [])
+                        + [("navigator", AnyView(NavigatorSection(session: session))),
                          ("clipboard", AnyView(ClipboardSection(session: session))),
                          ("film", AnyView(FilmSection(session: session))),
                          // Under Film, before Print: both belong to the film
@@ -34,9 +38,9 @@ struct LeftPanel: View {
                          // (2026-10-01 drawings).
                          (FilmEdgeSection.key, AnyView(FilmEdgeSection(session: session))),
                          (DateBackSection.key, AnyView(DateBackSection(session: session))),
-                         ("print", AnyView(PrintProfileSection(session: session))),
-                         ("crop", AnyView(CropSection(session: session))),
-                         ("enlarger", AnyView(EnlargerSection(session: session)))]
+                         ("print", AnyView(PrintProfileSection(session: session)))]
+                        + (isPair ? [] : [("crop", AnyView(CropSection(session: session)))])
+                        + [("enlarger", AnyView(EnlargerSection(session: session)))]
                     // A divider **between** sections, never after the last:
                     // a rule under the final section is a bottom border
                     // against empty rail, not a separator.

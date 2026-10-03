@@ -39,10 +39,14 @@ struct RightPanel: View {
             ScrollView(.vertical, showsIndicators: false) {
                 VStack(spacing: 0) {
                     let sections: [(String, AnyView)] = tab == .preDev
-                        ? [("latitude", AnyView(LatitudeSection(session: session))),
-                           ("camera", AnyView(CameraSection(session: session))),
-                           ("filmFormat", AnyView(FilmFormatSection(session: session))),
-                           ("scenePlacement", AnyView(ScenePlacementSection(session: session)))]
+                        // A pair is metered and white-balanced per frame, and its
+                        // format is the piece's: Input / Camera and Film Format
+                        // have nothing to say about it.
+                        ? [("latitude", AnyView(LatitudeSection(session: session)))]
+                           + (session.pair != nil ? []
+                              : [("camera", AnyView(CameraSection(session: session))),
+                                 ("filmFormat", AnyView(FilmFormatSection(session: session)))])
+                           + [("scenePlacement", AnyView(ScenePlacementSection(session: session)))]
                            // Withdrawn for the next version (`FeatureFlags.toneMask`).
                            + (FeatureFlags.toneMask
                               ? [("toneMask", AnyView(ToneMaskSection(session: session)))] : [])

@@ -177,6 +177,8 @@ enum ImageDecoder {
 
     static func decode(_ url: URL, settings: DecodeSettings,
                        checkpoint: () throws -> Void = {}) throws -> DecodedImage {
+        // A half-frame pair decodes as its two frames on one piece of film.
+        if HalfFramePair.isPair(url) { return try PairComposer.decode(url, checkpoint: checkpoint) }
         let sourceEXIF = sourceEXIF(from: url)
         return rawExtensions.contains(url.pathExtension.lowercased())
             ? try decodeRAW(url, settings: settings, sourceEXIF: sourceEXIF, checkpoint: checkpoint)

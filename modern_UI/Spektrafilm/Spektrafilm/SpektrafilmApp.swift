@@ -189,6 +189,11 @@ struct EditorCommands: Commands {
             Button("Next") { session.selectRelative(1) }
                 .keyboardShortcut(.rightArrow, modifiers: [])
             Divider()
+            // Two neighbouring half frames on one piece of film: the picked
+            // frames fill its holes (design-proposals/half-frame-pair-2026-10-02).
+            Button("New Half-Frame Pair") { session.newPair() }
+                .keyboardShortcut("j", modifiers: .command).disabled(!session.canMakePair)
+            Divider()
             // These three were the left rail header's "•••" until the
             // 2026-09-17 drawing took the menu off that row. They are frame
             // commands rather than panel commands — each one is about the

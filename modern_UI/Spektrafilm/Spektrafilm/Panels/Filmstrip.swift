@@ -44,6 +44,15 @@ struct Filmstrip: View {
                                 }
                                 .contextMenu {
                                     Button(L(.helpRevealInFinder)) { NSWorkspace.shared.activateFileViewerSelecting([frame.id]) }
+                                    if HalfFramePair.isPair(frame.id) {
+                                        Button(L("Delete Pair", zh: "删除半格拼接")) { session.deletePair(frame.id) }
+                                    } else {
+                                        Button(L("New Half-Frame Pair", zh: "新建半格拼接")) {
+                                            if !session.isPicked(frame.id) { session.click(frame.id) }
+                                            session.newPair()
+                                        }
+                                        .disabled(!session.canMakePair)
+                                    }
                                     Button(L(.helpResetDefaults)) {
                                         if frame.id == session.selection { session.resetParams(); session.resetAdjustments() }
                                         else { Sidecar.remove(for: frame.id); session.refreshState(for: frame.id) }

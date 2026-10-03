@@ -218,6 +218,7 @@ final class ThumbnailCache: @unchecked Sendable {
     var cachedBytes: Int { storage.bytes }
 
     private static func decodeEmbedded(_ url: URL, _ maxPixel: Int) async -> CGImage? {
+        if HalfFramePair.isPair(url) { return PairComposer.thumbnail(url, maxPixel: maxPixel) }
         guard let src = CGImageSourceCreateWithURL(url as CFURL, nil) else { return nil }
         let opts: [CFString: Any] = [
             kCGImageSourceCreateThumbnailFromImageIfAbsent: true,

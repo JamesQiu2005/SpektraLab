@@ -79,6 +79,13 @@ final class Session: CanvasHost {
 
     // MARK: the current frame
     var sidecar = Sidecar()
+    /// The half-frame pair on the canvas, when the open item is one (its file
+    /// is `selection`), and the layer its section is showing.
+    private(set) var pair: HalfFramePair?
+    var pairLayer = PairLayer.film
+    /// The right hole's frame's EXIF: its date, for the strip's second imprint.
+    private(set) var pairRightExif: EXIFReadout?
+    @ObservationIgnored private var pairExposureTask: Task<Void, Never>?
     var params: FilmParams {
         get { sidecar.params }
         set { guard newValue != sidecar.params else { return }
@@ -343,6 +350,8 @@ final class Session: CanvasHost {
     var tool: CanvasTool = .select {
         didSet {
             guard oldValue != tool else { return }
+            // A pair has no crop: each picture is placed under its own hole.
+            if tool == .crop, pair != nil { tool = oldValue; return }
             // Entering the crop tool shows the whole frame; leaving it fits
             // the crop. The renderer does both from this one flag.
             renderer.editingCrop = tool == .crop
@@ -1205,8 +1214,18 @@ final class Session: CanvasHost {
 
     func open(urls: [URL]) {
         guard !batchExporting else { status = "An export is running."; return }
-        let new = Library.frames(from: urls)
-        guard !new.isEmpty else { status = "Nothing openable in the selection."; return }
+        // A pair opened by its own file: its folder's filmstrip, with the pair
+        // on the canvas.
+        if let pairURL = urls.first(where: HalfFramePair.isPair), let p = HalfFramePair.load(pairURL) {
+            open(urls: [URL(fileURLWithPath: p.folder)])
+            if let listed = frames.first(where: { $0.id.standardizedFileURL == pairURL.standardizedFileURL }) {
+                click(listed.id)
+            }
+            return
+        }
+        let files = Library.frames(from: urls)
+        guard !files.isEmpty else { status = "Nothing openable in the selection."; return }
+        let new = Self.withPairs(files)
         if let selection, !new.contains(where: { $0.id == selection }) {
             enqueuePrintWriteback(for: selection)
         }
@@ -1217,7 +1236,7 @@ final class Session: CanvasHost {
         frameStates = Dictionary(uniqueKeysWithValues: saved.map { ($0.0, $0.1?.state ?? .unprocessed) })
         savedGeometry = Dictionary(uniqueKeysWithValues: saved.map { ($0.0, $0.1?.geometry ?? .default) })
         filmEdgeThumbnails = Set(saved.filter { $0.1?.params.cutsFrame == true }.map(\.0))
-        libraryTitle = urls.count == 1 ? urls[0].lastPathComponent : "\(new.count) files"
+        libraryTitle = urls.count == 1 ? urls[0].lastPathComponent : "\(files.count) files"
         renderer.store.removeAll()
         // A new folder is a new set: whatever was picked belongs to the
         // library that was open, and carrying it across would leave the batch
@@ -1232,8 +1251,8 @@ final class Session: CanvasHost {
         // rendered the alphabetically-first frame there, spending seven seconds
         // and 363 MB on a guess (HANDOFF §2). Now it renders nothing until a
         // frame is chosen.
-        if new.count == 1 {
-            click(new[0].id)
+        if files.count == 1 {
+            click(files[0].id)
         } else {
             unloadSelection()
         }
@@ -1248,6 +1267,8 @@ final class Session: CanvasHost {
     private func unloadSelection() {
         if let selection { enqueuePrintWriteback(for: selection) }
         selection = nil
+        pair = nil
+        pairRightExif = nil
         renderer.store.dropIdleScratch()
         decodeResidency.clear()
         displaySourceSize = nil
@@ -1407,7 +1428,8 @@ final class Session: CanvasHost {
         // asked for a develop as surely as a slider does, and without one the
         // frame would open onto its bare decode. Nothing else saves `.stale`.
         if sidecar.state == .stale { wantsDevelop = true }
-        exif = EXIFReadout.read(url)
+        adoptPair(for: url)
+        exif = EXIFReadout.read(pair?.left?.url ?? url)
         seedFilmEdge(for: url)
         resolveFilmEdge()
         renderer.layer2 = sidecar.adjustments.uniforms
@@ -2182,11 +2204,16 @@ final class Session: CanvasHost {
                 // otherwise kept to the end of the function. The engine keeps
                 // nothing of it (`spk_open_device` borrows for the call).
                 let device = renderer.device
+                // A pair: each hole exposed as the meter would expose it alone.
+                let stops = await pairExposure(d, for: url)
+                let layout = pairLayout(for: d.pixelSize)
+                guard selection == url, !Task.isCancelled else { return nil }
                 let cut = filmEdgeCut
                 framing = wantedEngineFraming
                 let frame = try await Task.detached(priority: .userInitiated) {
-                    try ImageDecoder.engineFrame(
-                        from: Session.engineImage(d.linear, size: d.pixelSize, cut: cut), device: device)
+                    var image = Session.engineImage(d.linear, size: d.pixelSize, cut: cut)
+                    if let stops, let layout { image = PairComposer.exposed(image, layout: layout, stops: stops) }
+                    return try ImageDecoder.engineFrame(from: image, device: device)
                 }.value
                 clock.lap("frame")
                 guard selection == url, !Task.isCancelled else { return nil }
@@ -2496,6 +2523,16 @@ final class Session: CanvasHost {
         fullGeneration += 1
         renderer.dropFullRender()
         renderer.store.dropFullRender()
+    }
+
+    /// `scheduleReopen` for the pair's own writes (`updatePair`).
+    func schedulePairReopen() { scheduleReopen() }
+
+    /// Put a new item in the filmstrip (a pair made in this session).
+    func insertFrame(_ frame: Frame, at index: Int) {
+        guard !frames.contains(where: { $0.id == frame.id }) else { return }
+        frames.insert(frame, at: min(max(index, 0), frames.count))
+        frameStates[frame.id] = .stale
     }
 
     private func scheduleReopen() {
@@ -2964,7 +3001,10 @@ final class Session: CanvasHost {
     /// found). The value still reaches the engine, because `openDelta` is
     /// built from the sidecar a moment later and now carries it.
     func recomputeFilmFormat(beforeOpen: Bool = false) {
-        let mm = derivedFilmFormatMM(side: filmSide, sideLengthMM: params.sideLengthMM)
+        // A pair is 18 + 18 mm of picture and the gap between: the piece's own
+        // long edge, whatever Film Format describes.
+        let mm = pair.map { 36 + $0.effectiveSpacingMM }
+            ?? derivedFilmFormatMM(side: filmSide, sideLengthMM: params.sideLengthMM)
         guard abs(mm - params.filmFormatMM) > 0.001 else { return }
         if beforeOpen {
             sidecar.params.filmFormatMM = mm
@@ -3909,4 +3949,263 @@ extension Session {
     /// it is still only decoded. An export is a request for the picture, so it
     /// is also a request for the develop.
     func currentServiceSession() async -> String? { await ensureDeveloped() }
+}
+
+// MARK: - the half-frame pair
+//
+// A pair is a filmstrip item whose file is a `HalfFramePair` and whose decode
+// is both pictures on one piece of film (`PairComposer`). The session opens
+// it as it opens a frame; what is here is the part a frame does not have:
+// which frame is in which hole, where each picture sits, and how each hole is
+// exposed.
+
+/// The pair's layers (the design's Film / Left hole / Right hole): which one
+/// the Half-Frame Pair section is showing the controls of.
+enum PairLayer: String, CaseIterable, Sendable {
+    case film, left, right
+    var side: HalfFramePair.Side? { self == .left ? .left : self == .right ? .right : nil }
+}
+
+extension Session {
+    /// Frames, with each folder's pairs put after their left frame (answer
+    /// B8); a pair with no left frame goes at the end.
+    nonisolated static func withPairs(_ files: [Frame]) -> [Frame] {
+        var out = files
+        var seen = Set<String>()
+        for folder in files.map({ $0.id.deletingLastPathComponent() }) where seen.insert(folder.path).inserted {
+            for (url, pair) in HalfFramePair.pairs(in: folder) {
+                let after = pair.left.flatMap { hole in out.firstIndex { $0.id.standardizedFileURL.path == hole.path } }
+                out.insert(Frame(id: url), at: after.map { $0 + 1 } ?? out.count)
+            }
+        }
+        return out
+    }
+
+    /// Take up the pair at `url`, or put the last one down. Called by
+    /// `select` once the pair's own sidecar is loaded.
+    func adoptPair(for url: URL) {
+        pairExposureTask?.cancel()
+        guard var p = HalfFramePair.load(url) else {
+            pair = nil
+            pairRightExif = nil
+            return
+        }
+        // The shot stays the frame's: its white balance and lens correction
+        // are read from its own sidecar every time the pair is opened.
+        var changed = false
+        for side in HalfFramePair.Side.allCases {
+            guard var hole = p[side] else { continue }
+            let decode = Sidecar.load(for: hole.url)?.decode ?? DecodeSettings()
+            if decode != hole.decode { hole.decode = decode; p[side] = hole; changed = true }
+        }
+        let strip = sidecar.params.filmEdge.active
+        if p.onStrip != strip { p.onStrip = strip; changed = true }
+        if changed {
+            try? p.save(to: url)
+            renderer.store.invalidatePrint(for: url)
+            wantsDevelop = true
+        }
+        pair = p
+        pairLayer = .film
+        pairRightExif = p.right.flatMap { EXIFReadout.read($0.url) }
+        // One strip, one meter reading per hole (`pairExposure`): the engine's
+        // own meter would read both pictures and the gap as one scene.
+        sidecar.params.autoExposure = false
+        sidecar.geometry = .default
+        sidecar.heldCrop = nil
+    }
+
+    var canMakePair: Bool { !batchExporting && frames.contains { !HalfFramePair.isPair($0.id) } }
+
+    /// New Half-Frame Pair (⌘J): the picked frames fill the holes in the
+    /// filmstrip's order — two fill both, one fills Left, none leaves both
+    /// empty. The pair's look starts as its first frame's.
+    func newPair() {
+        guard canMakePair else { return }
+        let picks = selectedFrames.filter { !HalfFramePair.isPair($0) }.prefix(2)
+        guard let anchor = picks.first ?? frames.first(where: { !HalfFramePair.isPair($0.id) })?.id else { return }
+        let folder = anchor.deletingLastPathComponent()
+        var p = HalfFramePair(folder: folder.standardizedFileURL.path)
+        for (side, frame) in zip(HalfFramePair.Side.allCases, picks) { p[side] = Self.hole(for: frame) }
+        let url = HalfFramePair.newURL(in: folder)
+        var look = Sidecar()
+        if let first = picks.first, let own = first == selection ? sidecar : Sidecar.load(for: first) {
+            look.params = own.params
+        }
+        look.params.autoExposure = false
+        look.params.exposureCompensationEV = 0
+        look.params.filmEdge = FilmEdgeSettings()
+        look.params.dateBack = DateBackSettings()
+        look.state = .stale
+        do {
+            try p.save(to: url)
+            try look.save(for: url)
+        } catch {
+            noteFailure(error, operation: "pair", frame: url.lastPathComponent)
+            return
+        }
+        let after = picks.first.flatMap { f in frames.firstIndex { $0.id == f } }
+        insertFrame(Frame(id: url), at: after.map { $0 + 1 } ?? frames.count)
+        click(url)
+        status = L("New half-frame pair.", zh: "已新建半格拼接。")
+    }
+
+    nonisolated static func hole(for frame: URL) -> HalfFramePair.Hole {
+        var hole = HalfFramePair.Hole(url: frame)
+        hole.decode = Sidecar.load(for: frame)?.decode ?? DecodeSettings()
+        return hole
+    }
+
+    /// Delete a pair: its file and its own settings. The frames it showed
+    /// are untouched — a pair references frames, it does not own them.
+    func deletePair(_ url: URL) {
+        guard HalfFramePair.isPair(url), !batchExporting else { return }
+        remove(url)
+        if pair != nil, selection == nil { pair = nil }
+        try? FileManager.default.removeItem(at: url)
+        Sidecar.remove(for: url)
+    }
+
+    /// The filmstrip's picture of the pair, from its frames' own previews,
+    /// until a render replaces it.
+    func refreshPairThumbnail(_ url: URL) {
+        Task.detached(priority: .utility) {
+            guard let image = PairComposer.thumbnail(url, maxPixel: 320) else { return }
+            ThumbnailCache.shared.store(image, for: url)
+            await MainActor.run { NotificationCenter.default.post(name: .thumbnailUpdated, object: url) }
+        }
+    }
+
+    /// The frames a hole can take: the open folder's, never a pair.
+    var pairCandidates: [Frame] { frames.filter { !HalfFramePair.isPair($0.id) } }
+
+    /// One write path for the piece: save the file, drop what was rendered
+    /// from the old one, and decode again (`redecode`) or only expose again.
+    func updatePair(redecode: Bool = true, _ change: (inout HalfFramePair) -> Void) {
+        guard var p = pair, let url = selection, !batchExporting else { return }
+        change(&p)
+        guard p != pair else { return }
+        do { try p.save(to: url) } catch {
+            noteFailure(error, operation: "pair", frame: url.lastPathComponent)
+            return
+        }
+        pair = p
+        pairRightExif = p.right.flatMap { EXIFReadout.read($0.url) }
+        exif = EXIFReadout.read(p.left?.url ?? url)
+        refreshPairThumbnail(url)
+        renderer.store.invalidatePrint(for: url)
+        wantsDevelop = true
+        sidecar.state = .stale
+        frameStates[url] = .stale
+        scheduleSave()
+        if redecode {
+            // Nothing may develop the old piece meanwhile: its shape may be
+            // one the engine refuses now.
+            decodeIsStale = true
+            schedulePairReopen()
+        } else {
+            pairExposureTask?.cancel()
+            pairExposureTask = Task {
+                try? await Task.sleep(for: .milliseconds(250))
+                guard !Task.isCancelled, selection == url else { return }
+                releaseEngineFrame()
+                requestPrint()
+            }
+        }
+    }
+
+    func setHole(_ side: HalfFramePair.Side, to frame: URL?) {
+        updatePair { $0[side] = frame.map(Self.hole(for:)) }
+        if frame != nil { pairLayer = side == .left ? .left : .right }
+    }
+
+    func swapHoles() {
+        updatePair { let l = $0.left; $0.left = $0.right; $0.right = l }
+    }
+
+    func setPlacement(_ side: HalfFramePair.Side, _ change: (inout HalfFramePair.Placement) -> Void) {
+        updatePair { p in
+            guard var hole = p[side] else { return }
+            change(&hole.placement)
+            hole.placement.scale = hole.placement.scale.clamped(to: HalfFramePair.Placement.scaleRange)
+            hole.placement.x = hole.placement.x.clamped(to: -1...1)
+            hole.placement.y = hole.placement.y.clamped(to: -1...1)
+            p[side] = hole
+        }
+    }
+
+    func setHoleExposure(_ side: HalfFramePair.Side, _ ev: Double) {
+        updatePair(redecode: false) { $0[side]?.exposureEV = ev.clamped(to: -5...5) }
+    }
+
+    func setPairSpacing(_ mm: Double) {
+        updatePair { $0.spacingMM = mm.clamped(to: HalfFramePair.spacingRange) }
+    }
+
+    /// Film Edge went on or off on a pair: on a strip the camera decides the
+    /// gap, so the piece is laid out again when that changes it.
+    func pairFilmEdgeChanged(to on: Bool) {
+        guard let p = pair, p.onStrip != on else { return }
+        var next = p
+        next.onStrip = on
+        updatePair(redecode: next.effectiveSpacingMM != p.effectiveSpacingMM) { $0.onStrip = on }
+    }
+
+    /// The piece's layout for a decode of it.
+    func pairLayout(for decodedSize: CGSize) -> HalfFramePair.Layout? {
+        guard let p = pair else { return nil }
+        return HalfFramePair.layout(holeHeight: Int(decodedSize.height), spacingMM: p.effectiveSpacingMM)
+    }
+
+    /// Each hole's exposure on the strip, in stops: what the engine's meter
+    /// chooses for that picture alone, plus the hole's own setting. A hole is
+    /// metered once (for its frame, decode and intent) and the reading is
+    /// kept in the pair's file.
+    func pairExposure(_ d: DecodedImage, for url: URL) async -> [HalfFramePair.Side: Double]? {
+        guard var p = pair, let layout = pairLayout(for: d.pixelSize) else { return nil }
+        let method = sidecar.params.autoExposureMethod ?? "legacy"
+        var stops: [HalfFramePair.Side: Double] = [:]
+        var metered = false
+        for side in HalfFramePair.Side.allCases {
+            guard var hole = p[side], hole.exists else { continue }
+            let key = HalfFramePair.meterKey(hole: hole, method: method)
+            if hole.meteredFor != key || hole.meteredEV == nil {
+                let device = renderer.device
+                let image = PairComposer.meterImage(d.linear, layout: layout, side: side)
+                var alone = sidecar
+                alone.params.autoExposure = true
+                alone.params.exposureCompensationEV = 0
+                alone.params.filmEdge.active = false
+                alone.params.dateBack.active = false
+                alone.params.filmFormatMM = 24
+                let delta = Self.openDelta(sidecar: alone, previewLongEdge: previewLongEdge)
+                guard let frame = try? await Task.detached(priority: .userInitiated, operation: {
+                          try ImageDecoder.engineFrame(from: image, device: device)
+                      }).value,
+                      let r = try? await client.open(frame, paramsDelta: delta),
+                      let solved = try? await client.call(.solve, SolveRequest(sessionID: r.sessionID, target: "exposure"),
+                                                          as: SolveResponse.self),
+                      let ev = solved.solvedParams["exposure_compensation_ev"]
+                else { continue }
+                guard selection == url, !Task.isCancelled else { return nil }
+                hole.meteredEV = ev
+                hole.meteredFor = key
+                p[side] = hole
+                metered = true
+            }
+            stops[side] = (hole.meteredEV ?? 0) + hole.exposureEV
+        }
+        if metered, selection == url {
+            // The reading, not an edit: carried over onto whatever the user
+            // changed while the meter ran.
+            var live = pair ?? p
+            for side in HalfFramePair.Side.allCases where live[side]?.path == p[side]?.path {
+                live[side]?.meteredEV = p[side]?.meteredEV
+                live[side]?.meteredFor = p[side]?.meteredFor
+            }
+            try? live.save(to: url)
+            pair = live
+        }
+        return stops
+    }
 }

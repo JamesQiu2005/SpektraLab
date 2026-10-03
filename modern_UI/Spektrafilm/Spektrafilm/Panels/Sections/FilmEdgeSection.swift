@@ -33,9 +33,12 @@ struct FilmEdgeSection: View {
                      toggleHelp: L("Print the film around the picture: rebate, holes and edge print",
                                    zh: "在画面四周印出胶片：片基、齿孔与边码")) {
             RailRows {
-                formatRow
+                // A pair is always 135 half, exposed twice; its pictures are
+                // placed in the Half-Frame Pair section, not cropped here.
+                if session.pair == nil { formatRow }
                 PillSwitchRow(label: L(.edgeView), options: FilmEdgeView.allCases,
                               selection: bind(\.view), title: { L($0.key) })
+                if session.pair == nil {
                 framingRow
                 // The held crop's straighten, scrubbed the way Crop's is: the
                 // refit happens once, on release.
@@ -45,6 +48,7 @@ struct FilmEdgeSection: View {
                             range: -Geometry.maxAngle...Geometry.maxAngle, snap: 1,
                             format: { String(format: "%+.1f°", $0) },
                             onCommit: { session.straightenScrubEnded() })
+                }
                 Text(sizeCaption)
                     .font(Theme.Font.caption).foregroundStyle(Theme.Ink.tertiary)
                     .fixedSize(horizontal: false, vertical: true)
@@ -226,7 +230,7 @@ struct FilmEdgeSection: View {
         // No-break spaces: a size wraps as a whole, never as "8,692 / × 8,027".
         let picture = "\(Self.grouped(px.w))\u{00A0}×\u{00A0}\(Self.grouped(px.h))"
         let film = FilmCanvasEstimate.size(picture: CGSize(width: px.w, height: px.h),
-                                           format: edge.format, view: edge.view)
+                                           format: edge.format, view: edge.view, pair: edge.pair)
         guard film.width > 0 else { return picture }
         let canvas = "\(Self.grouped(Int(film.width)))\u{00A0}×\u{00A0}\(Self.grouped(Int(film.height)))"
         let mp = String(format: "%.1f", film.width * film.height / 1_000_000)
