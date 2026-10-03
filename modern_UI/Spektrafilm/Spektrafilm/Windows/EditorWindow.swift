@@ -238,6 +238,7 @@ struct CanvasArea: View {
             if session.pair != nil { PairOverlay(session: session) }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .modifier(PairDrop(session: session))
         // Everything in this stack is positioned in **view coordinates**, and
         // a view coordinate at high zoom is off the canvas: the crop frame's
         // corners, its grips and the mask handles all ran past the canvas edge

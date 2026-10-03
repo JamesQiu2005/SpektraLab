@@ -793,6 +793,10 @@ final class Session: CanvasHost {
     // MARK: undo and the work clock
 
     private var undoStack: [Sidecar] = []
+    /// The piece each snapshot was taken with, in step with `undoStack`: a
+    /// pair's own edits (its frames, their crops, the spacing) undo with the
+    /// look. Nil for a frame.
+    private var undoPairs: [(url: URL, pair: HalfFramePair)?] = []
     private var lastUndoAt = Date.distantPast
     private(set) var workSeconds: Double = 0
     private var workStarted: Date?
@@ -3499,7 +3503,8 @@ final class Session: CanvasHost {
         guard now.timeIntervalSince(lastUndoAt) > 0.5 else { return }
         lastUndoAt = now
         undoStack.append(sidecar)
-        if undoStack.count > 60 { undoStack.removeFirst() }
+        undoPairs.append(pair.flatMap { p in selection.map { ($0, p) } })
+        if undoStack.count > 60 { undoStack.removeFirst(); undoPairs.removeFirst() }
     }
 
     var canUndo: Bool { !undoStack.isEmpty }
@@ -3510,12 +3515,31 @@ final class Session: CanvasHost {
     func undo() {
         guard !batchExporting, selection != nil, let previous = undoStack.popLast() else { return }
         let current = sidecar
+        let piece = undoPairs.popLast() ?? nil
         sidecar = previous
         renderer.layer2 = previous.adjustments.uniforms
         renderer.setCurves(previous.adjustments.curves)
         renderer.geometry = canvasGeometry
         selectedMaskID = previous.masks.first { $0.id == selectedMaskID }?.id ?? previous.masks.last?.id
         syncMasks()
+        // The piece as it was, if this step changed it: its file goes back and
+        // the pair is laid out again.
+        if let piece, let url = selection, piece.url == url, let now = pair, now != piece.pair {
+            try? piece.pair.save(to: url)
+            pair = piece.pair
+            pairRightExif = piece.pair.right.flatMap { EXIFReadout.read($0.url) }
+            exif = EXIFReadout.read(piece.pair.left?.url ?? url)
+            renderer.store.invalidatePrint(for: url)
+            refreshPairThumbnail(url)
+            wantsDevelop = true
+            decodeIsStale = true
+            scheduleReopen()
+            markStale()
+            scheduleSave()
+            lastUndoAt = .distantPast
+            status = "Undo — \(undoStack.count) step\(undoStack.count == 1 ? "" : "s") left."
+            return
+        }
         if current.decode != previous.decode {
             previewSoft = true
             scheduleReopen()
@@ -4089,10 +4113,15 @@ extension Session {
 
     /// One write path for the piece: save the file, drop what was rendered
     /// from the old one, and decode again (`redecode`) or only expose again.
-    func updatePair(redecode: Bool = true, _ change: (inout HalfFramePair) -> Void) {
+    func updatePair(redecode: Bool = true, step: Bool = false, _ change: (inout HalfFramePair) -> Void) {
         guard var p = pair, let url = selection, !batchExporting else { return }
         change(&p)
         guard p != pair else { return }
+        // A slider drag is one undo step (`pushUndo` coalesces); adding,
+        // removing or swapping a frame is a step of its own however fast it
+        // follows the last.
+        if step { lastUndoAt = .distantPast }
+        pushUndo()
         do { try p.save(to: url) } catch {
             noteFailure(error, operation: "pair", frame: url.lastPathComponent)
             return
@@ -4123,12 +4152,12 @@ extension Session {
     }
 
     func setHole(_ side: HalfFramePair.Side, to frame: URL?) {
-        updatePair { $0[side] = frame.map(Self.hole(for:)) }
+        updatePair(step: true) { $0[side] = frame.map(Self.hole(for:)) }
         if frame != nil { pairLayer = side == .left ? .left : .right }
     }
 
     func swapHoles() {
-        updatePair { let l = $0.left; $0.left = $0.right; $0.right = l }
+        updatePair(step: true) { let l = $0.left; $0.left = $0.right; $0.right = l }
     }
 
     func setPlacement(_ side: HalfFramePair.Side, _ change: (inout HalfFramePair.Placement) -> Void) {
@@ -4436,9 +4465,22 @@ extension Session {
         return p
     }
 
+    /// A frame dropped on the canvas: into the hole under the pointer, or the
+    /// first empty one, or — both full and dropped on the gap — nowhere.
+    @discardableResult
+    func dropFrame(_ url: URL, atNormalised n: CGPoint?) -> Bool {
+        guard let p = pair, !batchExporting,
+              let listed = pairCandidates.first(where: { $0.id.standardizedFileURL == url.standardizedFileURL })
+        else { return false }
+        let under = n.flatMap { point in pairHoleRects.first { $0.value.contains(point) }?.key }
+        guard let side = under ?? HalfFramePair.Side.allCases.first(where: { p[$0] == nil }) else { return false }
+        setHole(side, to: listed.id)
+        return true
+    }
+
     /// Held level (side by side) or turned (one above the other).
     func setPairTurned(_ turned: Bool) {
-        updatePair { $0.turned = turned }
+        updatePair(step: true) { $0.turned = turned }
     }
 
     /// Leave the pair for one of its frames, opened by itself.

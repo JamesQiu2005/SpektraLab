@@ -33,6 +33,9 @@ struct Filmstrip: View {
                                           framing: session.framing(of: frame.id),
                                           state: session.frameStates[frame.id] ?? .unprocessed)
                                 .id(frame.id)
+                                // Dragged onto a pair's hole on the canvas, a
+                                // frame goes into it (`PairDrop`).
+                                .onDrag { NSItemProvider(object: frame.id as NSURL) }
                                 // The modifier is read here rather than
                                 // declared as a second gesture: a plain
                                 // `TapGesture` on macOS matches a ⌘-click too,

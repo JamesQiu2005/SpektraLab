@@ -198,4 +198,6 @@ The owner's verdict on §9's stage one: "it works, with terrible bug, and the UX
 
 Also: the piece is capped at one frame's worth of pixels (two 45 MP frames made an 83 MP piece, 127 MP with its edge; now 44 MP), which is what the "low headroom" and the long full renders came from.
 
-Seen in the running app: held level with an empty hole, and turned with Film Edge on (two NEFs). Not seen: the *Enter Half-Frame Pair* row itself, the menu, the crop drag (all exercised through the session in `HalfFramePairTests`, 12 cases). Still open from §9: per-hole print and scope, per-hole Post-Dev, undo for the piece's edits, Two halves / Both, drag from the filmstrip.
+Seen in the running app: held level with an empty hole, and turned with Film Edge on (two NEFs). Not seen: the *Enter Half-Frame Pair* row itself, the menu, the crop drag (all exercised through the session in `HalfFramePairTests`, 12 cases). Later the same night: ⌘Z undoes the piece's own edits (a frame added, removed or swapped is a step of its own; a slider drag is one step), a filmstrip thumbnail dragged onto the canvas goes into the hole under it, and the crop drag shows the frame's preview where the drag has it. None of the three was seen in the window; each is exercised through the session in `HalfFramePairTests`.
+
+Still open from §9: per-hole print and scope, per-hole Post-Dev, Two halves / Both.

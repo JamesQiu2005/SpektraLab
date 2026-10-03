@@ -53,6 +53,15 @@ struct PairOverlay: View {
                 .position(x: r.midX, y: r.midY)
                 .allowsHitTesting(false)
         }
+        // While its picture is dragged: the frame's own preview where the
+        // drag has it, so the move is seen before it is developed.
+        if let drag = session.pairDrag, drag.side == side, let held = pair[side] {
+            PairDragPreview(url: held.url, placement: drag.live, aspect: pair.holeAspect)
+                .frame(width: r.width, height: r.height)
+                .clipped()
+                .position(x: r.midX, y: r.midY)
+                .allowsHitTesting(false)
+        }
         if empty {
             Button { session.pairLayer = side == .left ? .left : .right; session.pairPicker = side } label: {
                 VStack(spacing: 8) {
@@ -103,5 +112,69 @@ struct PairOverlay: View {
         .padding(.horizontal, 14).frame(height: 34)
         .background(Theme.card.opacity(0.94), in: Capsule())
         .fixedSize()
+    }
+}
+
+/// A filmstrip thumbnail dropped on the canvas goes into the hole under it
+/// (or the first empty one). Only a pair takes the drop; for a frame the
+/// window's own handler opens whatever was dropped, as before.
+struct PairDrop: ViewModifier {
+    @Bindable var session: Session
+
+    func body(content: Content) -> some View {
+        if session.pair != nil {
+            content.onDrop(of: [.fileURL], delegate: Target(session: session))
+        } else {
+            content
+        }
+    }
+
+    private struct Target: DropDelegate {
+        let session: Session
+
+        func validateDrop(info: DropInfo) -> Bool { info.hasItemsConforming(to: [.fileURL]) }
+
+        func dropUpdated(info: DropInfo) -> DropProposal? {
+            let n = session.viewportSnapshot.normalised(atView: info.location)
+            session.clicked(normalised: n)
+            return DropProposal(operation: .copy)
+        }
+
+        func performDrop(info: DropInfo) -> Bool {
+            guard let provider = info.itemProviders(for: [.fileURL]).first else { return false }
+            let n = session.viewportSnapshot.normalised(atView: info.location)
+            _ = provider.loadObject(ofClass: URL.self) { url, _ in
+                guard let url else { return }
+                Task { @MainActor in _ = session.dropFrame(url, atNormalised: n) }
+            }
+            return true
+        }
+    }
+}
+
+/// The frame's embedded preview under a hole at a placement: what the crop
+/// drag shows while it is in flight. Not the developed picture — the develop
+/// follows the release — but the same rectangle of the same frame.
+struct PairDragPreview: View {
+    let url: URL
+    let placement: HalfFramePair.Placement
+    let aspect: Double
+    @State private var image: CGImage?
+
+    var body: some View {
+        GeometryReader { geo in
+            if let image, placement.quarterTurns % 4 == 0 {
+                let source = CGSize(width: image.width, height: image.height)
+                let cut = HalfFramePair.sourceRect(for: placement, source: source, aspect: aspect)
+                let k = geo.size.height / max(cut.height, 1)
+                Image(decorative: image, scale: 1)
+                    .resizable()
+                    .frame(width: source.width * k, height: source.height * k)
+                    .offset(x: -cut.minX * k, y: -cut.minY * k)
+                    .frame(width: geo.size.width, height: geo.size.height, alignment: .topLeading)
+                    .opacity(0.9)
+            }
+        }
+        .task(id: url) { image = await ThumbnailCache.shared.thumbnail(for: url, maxPixel: 640) }
     }
 }

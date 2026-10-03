@@ -174,6 +174,12 @@ final class HalfFramePairTests: XCTestCase {
         s.setHole(.left, to: nil)
         XCTAssertNil(s.pair?.left)
         XCTAssertEqual(s.pair?.isComplete, false)
+        // ⌘Z puts the frame back in its hole: the piece undoes with the look.
+        XCTAssertTrue(s.canUndo)
+        s.undo()
+        XCTAssertEqual(s.pair?.left?.path, urls[1].standardizedFileURL.path, "undo did not restore the removed frame")
+        XCTAssertEqual(HalfFramePair.load(pairURL), s.pair)
+        s.setHole(.left, to: nil)
 
         s.setPairSpacing(9)
         XCTAssertEqual(s.pair?.spacingMM, 2.0, "spacing is held to 0.5–2.0 mm")
@@ -220,6 +226,13 @@ final class HalfFramePairTests: XCTestCase {
         let filled = s.pairContextMenu().items.map(\.title)
         XCTAssertTrue(filled.contains { $0 == "Replace Frame…" || $0 == "替换照片…" }, "\(filled)")
         XCTAssertTrue(filled.contains { $0 == "Crop This Frame" || $0 == "裁剪这一格" }, "\(filled)")
+        // A frame dropped on a hole goes into it; on the gap, into the empty one.
+        XCTAssertTrue(s.dropFrame(urls[2], atNormalised: CGPoint(x: 0.5, y: 0.5)))
+        XCTAssertEqual(s.pair?.right?.path, urls[2].standardizedFileURL.path)
+        XCTAssertTrue(s.dropFrame(urls[0], atNormalised: CGPoint(x: 0.2, y: 0.5)))
+        XCTAssertEqual(s.pair?.left?.path, urls[0].standardizedFileURL.path, "the drop replaced the frame under it")
+        XCTAssertFalse(s.dropFrame(urls[1], atNormalised: CGPoint(x: 0.5, y: 0.5)), "both full, dropped on the gap")
+        XCTAssertFalse(s.dropFrame(pairURL, atNormalised: CGPoint(x: 0.2, y: 0.5)), "a pair is not a frame")
         // Turned, the holes are one above the other.
         s.setPairTurned(true)
         s.clicked(normalised: CGPoint(x: 0.5, y: 0.2)); XCTAssertEqual(s.pairLayer, .left)
