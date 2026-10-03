@@ -826,6 +826,14 @@ reasoning: RFC-032 §25, §27.
 - **Where a face is drawn:** `lcd` and `dots` on 135 and 135 half frame only. `data` goes on
   135 (rotated, between frames) and 645 (one line in the margin beside the
   frame). On any other format the date is silently not drawn.
+- **We assumed it wrong for every Fujifilm stock** (owner, 2026-10-03): the
+  edge print's typeface, size and placement, the frame numbering, the DX
+  code's layout and the 120 markers were measured on Kodak film and are
+  drawn for every stock the same way. C200, X-Tra 400, Pro 400H, Provia 100F
+  and Velvia 100 therefore carry Kodak's edge marks and are wrong (C200 is
+  likely Kodak-made and so nearer, but unchecked). References for RVP, RDP
+  and Pro 400H are to come; until then every Fujifilm film edge is a
+  placeholder, on desktop and mobile.
 - **DX code** (135): ISO 1007, 13 mm, drawn from the stock's real DX number
   (Portra 400 = 1277, …). Stocks with no DX code (Vision3, Kodachrome) print
   no bars. The bars are the same on desktop and mobile; only `edge_text`

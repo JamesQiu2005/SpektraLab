@@ -117,6 +117,13 @@ Back; whether cine stocks belong in the 135 formats (they are allowed now).
 | `0545ffa` | the data face needs a film edge, and the section says so |
 | `544606a` | the canvas decodes the print it shows, not the one asked for |
 
+**We assumed it wrong — every Fujifilm stock's film edge** (owner, 2026-10-03). The edge marks (typeface,
+size, placement, numbering, DX layout, 120 markers) were measured on Kodak film and drawn for every stock
+the same way, so C200, X-Tra 400, Pro 400H, Provia 100F and Velvia 100 are wrong (C200 is likely
+Kodak-made and nearer, but unchecked). The owner is supplying references for RVP, RDP and Pro 400H; a
+per-stock edge layout is the work that follows. The spectral film profiles are spektrafilm's measured
+data and are not what this is about.
+
 **Open from the hunt:**
 - With the date on over a cropped picture the engine meters the crop, so auto exposure can shift when
   the date goes on. Holding the whole frame's reading needs a meter input in the engine.

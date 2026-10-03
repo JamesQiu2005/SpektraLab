@@ -894,6 +894,15 @@ int dx_extract_for(const std::string& stock) {
     return -1;
 }
 
+// **We assumed it wrong for every Fujifilm stock** (owner, 2026-10-03). The
+// film data below -- the edge print's typeface, size and placement, the
+// frame numbering, the DX code's layout and the 120 markers -- was measured
+// on Kodak film and is drawn for every stock the same way. Fujifilm's edge
+// marks are not Kodak's: C200, X-Tra 400, Pro 400H, Provia 100F and Velvia
+// 100 render with Kodak's layout and are wrong. C200 is likely made by Kodak
+// and so nearer to it, but was not checked either. The owner is supplying
+// references for RVP (Velvia), RDP (Provia) and Pro 400H; until a per-stock
+// layout exists, treat every Fujifilm film edge as a placeholder.
 void imprint_groups(const OverscanLayout& L, const Params& params, double frame_w_mm, double frame_h_mm,
                     std::vector<Group>& out) {
     const OverscanParams& o = params.film_render.overscan;
