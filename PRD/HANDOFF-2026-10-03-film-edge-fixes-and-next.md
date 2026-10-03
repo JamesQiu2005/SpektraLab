@@ -37,44 +37,44 @@ byte-identical to the engine before the sync.
 of the gate's shape; the mobile copies must follow, and the mobile UI must be checked for sending an
 uncropped picture (it would be refused).
 
-## 3. The owner's observation: the app felt extremely slow
+## 3. The owner's observation: the app felt extremely slow — measured, and fixed
 
-**Reported by the owner on 2026-10-03, with the app running on a 16 GB MacBook, not measured by anyone
-yet:** "with some actual running log the app felt extremely slow". The owner's assumption is **RAM**.
-Nothing in this session measured it; treat it as the first thing to measure, not as a conclusion.
+**Reported 2026-10-03 on a 16 GB MacBook (Mac18,5, Debug build); measured the same afternoon.** It was
+not RAM and not a duplicated develop. It was the overscan node's CPU work running unoptimised: the
+Debug build compiles every `engine/src/*.cpp` at `GCC_OPTIMIZATION_LEVEL=0` (`Tools/gen-project.py`),
+and `rasterise()` in `overscan.cpp` blurred each mark group's coverage mask with two scalar loops. The
+two edge-print bands are full-width boxes (8,189 × 512 px at the full tier of a 45 MP frame, σ ≈ 5 px):
+95 ms each at -O2, ~1.2 s each at -O0.
 
-What is known that points the same way:
+Measured with `SPEKTRAFILM_NODE_TIMINGS=1` through `spk_ctypes.py`, 7831 × 5220 picture → 8189 × 7555
+canvas, full tier:
 
-- Every capture of the 8,256 × 5,504 frame with Film Edge on showed the **`low memory headroom`** badge
-  (`Session.memoryWarning`). The film canvas is larger than the picture — up to ~1.5× its pixels — and the
-  full render of it is a second copy at that size (6,298 × 5,788 for a 6,000 × 4,000 picture; the
-  Debug-build caption read 69.8 MP for the 8,256 × 5,504 frame).
-- With Film Edge on (and now with the date under a crop, `7a45fae`), the decode is **cut by Core Image
-  before the engine** (`Session.engineImage`), which is a further linear copy while the frame is handed
-  over.
-- The engine's arena estimate is still `Session.engineArenaEstimateBytes = 1.2 GB` per open; the memory
-  forecast for a film edge is `Session.developForecastPixels`, and the refusal `FilmEdgeTooLarge` is on
-  an estimate of the canvas, not a measurement.
-- Memory notes to read before measuring: `full-tier-peak-is-unflushed-buffers`, `rfc020-measurement-traps`
-  (RSS cannot see a Metal pool; reclaimed pages arrive late), `rfc020-outcome-confirmed` (the app's own
-  boundary samples under-report by ~1 GB), `kept-pool-is-erratic-on-the-live-tier`.
+| engine | wall | `filming.expose.overscan` |
+|---|---|---|
+| edge off, -O2 | 1,007 ms | — |
+| edge on, -O2, before | 1,735 ms | 218 ms |
+| edge on, **-O0** (Debug), before | **4,323 ms** | **2,745 ms** |
+| edge on, -O2, after | 1,813 ms | 36 ms |
+| edge on, -O0, after | 1,770 ms | 160 ms |
 
-How to measure it (the instruments exist):
+Every GPU node is identical between -O2 and -O0. The app log's 5.3–6.2 s full renders with the edge
+on (vs 1.5–2.5 s off) match the -O0 row. Edge + date costs 10–20 ms over edge alone: the stage table
+pastes the picture into the canvas once (`film_overscan`) and everything downstream runs once on it.
 
-1. `Diagnostics` (RFC-016) — start logging, open the slow frame with Film Edge on, do the slow thing, stop;
-   the log carries the `MemorySampler` boundary samples and the engine's `spk_memory_report`.
-2. `engine/tests/memory_report.py` and `frame_switch_footprint.py` for the engine alone, with
-   `overscan_active = true` on a frame of the owner's size (the probes were written before overscan; add
-   the fields).
-3. Compare against the same frame with Film Edge off: the difference is the feature's cost. The
-   `low memory headroom` threshold and what triggers it are in `Session.memoryWarning`.
-4. If it is swap (a 16 GB machine at 13.7 GB peak on a 102 MP frame was already measured in
-   `rfc020-outcome-confirmed`), the levers are: the full render of the film canvas (drop or defer it on low
-   headroom), the cut copy (cut on the GPU rather than through Core Image), and the live tier's canvas size.
+**The fix:** the mask blur goes through vImage (`vImageConvolve_PlanarF`, separable, edges extended),
+which is optimised whatever the build setting; `Accelerate` is linked in `build.sh` and
+`gen-project.py`. Against the old loops: max 1 code of 65,535 on < 0.04 % of pixels (summation
+order). `overscan_checks.py` 54/54, `parity_schema`, `parity_render` (27) green.
 
-**Do not** tune anything before the log says where the time goes: "felt slow" could as well be the
-re-develop every film-edge edit costs (every field is shoot layer, so each is a full develop, ~1 s at
-45 MP), which is not memory at all. The log distinguishes them.
+**What is still true:** with the edge on the footprint reaches 11 GB on this frame (6.4 GB off) and
+"projected peak does not fit" fires on every render — a second factor on a 16 GB machine, not the
+time. The time "outside any node" also doubles at -O0 (135 → 232 ms live): host copies and the meter.
+An option not taken: compiling the engine's C++ at -O2 in Debug (one line in `gen-project.py`), which
+would make the Debug app perform like Release — the owner's call.
+
+**Log trap:** the `develop` record's `frame_ms` (`Session.LoadClock`) laps from the *previous lap* and
+the clock lives across re-develops of one frame, so a second develop reports idle time (40–48 s in the
+12:33 log) and `total_ms` is cumulative. Only the `render` records' `ms` are per-event truth.
 
 ## 4. Still open from the bug hunt
 
@@ -131,5 +131,5 @@ belong in the 135 formats (allowed now); the UI placeholder note for Fujifilm ed
 
 ## 8. Next, in the owner's order
 
-Measure the slowness first (§3). The Fujifilm edge layouts are done (§5). Then the
+The slowness is measured and fixed (§3); the Fujifilm edge layouts are done (§5). Next the
 half-frame pair without Film Edge (HFP P1–P4, Swift only), which needs none of §6.

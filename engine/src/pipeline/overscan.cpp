@@ -20,6 +20,7 @@
 //                 numbers land.
 // Text is rasterised with CoreText/CoreGraphics -- the same C API on macOS and
 // iOS -- so both apps get the same glyphs from the same code.
+#include <Accelerate/Accelerate.h>
 #include <CoreGraphics/CoreGraphics.h>
 #include <CoreText/CoreText.h>
 
@@ -871,6 +872,11 @@ bool rasterise(const OverscanLayout& L, const Group& g, std::vector<float>& cov,
     cov.resize(px.size());
     for (size_t i = 0; i < px.size(); ++i) cov[i] = float(px[i]) * (1.0f / 255.0f);
     // The projection's softness (RFC-031 §3.4): a small Gaussian on the mask.
+    // Separable, edges extended, through vImage rather than two scalar loops:
+    // the edge-print bands are full-width boxes (8,189 x 512 px at the full
+    // tier of a 45 MP frame, sigma ~5 px), and the loops cost 95 ms each at
+    // -O2 and ~1.2 s each in the Debug build's -O0 -- the whole of "Film Edge
+    // is slow" (2026-10-03). vImage is optimised whatever the build setting.
     const double sigma = g.blur_mm / L.px;
     if (sigma > 0.3) {
         const int r = int(std::ceil(3.0 * sigma));
@@ -879,18 +885,14 @@ bool rasterise(const OverscanLayout& L, const Group& g, std::vector<float>& cov,
         for (int i = -r; i <= r; ++i) { k[size_t(i + r)] = float(std::exp(-0.5 * i * i / (sigma * sigma))); sum += k[size_t(i + r)]; }
         for (float& v : k) v = float(v / sum);
         std::vector<float> tmp(cov.size(), 0.0f);
-        for (int y = 0; y < h; ++y)
-            for (int x = 0; x < w; ++x) {
-                float acc = 0;
-                for (int i = -r; i <= r; ++i) { const int xx = std::clamp(x + i, 0, w - 1); acc += k[size_t(i + r)] * cov[size_t(y) * size_t(w) + size_t(xx)]; }
-                tmp[size_t(y) * size_t(w) + size_t(x)] = acc;
-            }
-        for (int y = 0; y < h; ++y)
-            for (int x = 0; x < w; ++x) {
-                float acc = 0;
-                for (int i = -r; i <= r; ++i) { const int yy = std::clamp(y + i, 0, h - 1); acc += k[size_t(i + r)] * tmp[size_t(yy) * size_t(w) + size_t(x)]; }
-                cov[size_t(y) * size_t(w) + size_t(x)] = acc;
-            }
+        vImage_Buffer src{cov.data(), vImagePixelCount(h), vImagePixelCount(w), size_t(w) * sizeof(float)};
+        vImage_Buffer dst{tmp.data(), vImagePixelCount(h), vImagePixelCount(w), size_t(w) * sizeof(float)};
+        const uint32_t taps = uint32_t(2 * r + 1);
+        if (vImageConvolve_PlanarF(&src, &dst, nullptr, 0, 0, k.data(), 1, taps, 0.0f, kvImageEdgeExtend)
+                != kvImageNoError ||
+            vImageConvolve_PlanarF(&dst, &src, nullptr, 0, 0, k.data(), taps, 1, 0.0f, kvImageEdgeExtend)
+                != kvImageNoError)
+            return false;
     }
     return true;
 }

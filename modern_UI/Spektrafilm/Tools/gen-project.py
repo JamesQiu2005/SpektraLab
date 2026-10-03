@@ -246,8 +246,9 @@ def build() -> str:
         ) + "\t\t\t\t)",
         "SWIFT_OBJC_BRIDGING_HEADER": f'"{APP}/Service/{APP}-Bridging-Header.h"',
         # CoreText/CoreGraphics: RFC-032 §27 rasterises the edge print and the
-        # date in the engine (`overscan.cpp`), as `engine/build.sh` links them.
-        "OTHER_LDFLAGS": '"-framework Metal -framework QuartzCore -framework CoreText -framework CoreGraphics"',
+        # date in the engine (`overscan.cpp`), as `engine/build.sh` links them;
+        # Accelerate blurs the masks (vImage).
+        "OTHER_LDFLAGS": '"-framework Metal -framework QuartzCore -framework CoreText -framework CoreGraphics -framework Accelerate"',
         # metal-cpp's headers use `objc_msgSend` directly and manage their own
         # retain/release; ARC must not be applied to them. The Swift side is
         # unaffected -- Swift's memory management is not this setting.

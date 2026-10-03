@@ -1289,7 +1289,7 @@
 				MTL_ENABLE_DEBUG_INFO = INCLUDE_SOURCE;
 				MTL_FAST_MATH = YES;
 				ONLY_ACTIVE_ARCH = YES;
-				OTHER_LDFLAGS = "-framework Metal -framework QuartzCore -framework CoreText -framework CoreGraphics";
+				OTHER_LDFLAGS = "-framework Metal -framework QuartzCore -framework CoreText -framework CoreGraphics -framework Accelerate";
 				PRODUCT_BUNDLE_IDENTIFIER = com.hanze.filmify;
 				PRODUCT_NAME = SpektraLab;
 				SDKROOT = macosx;
@@ -1336,7 +1336,7 @@
 				MTL_ENABLE_DEBUG_INFO = INCLUDE_SOURCE;
 				MTL_FAST_MATH = YES;
 				ONLY_ACTIVE_ARCH = YES;
-				OTHER_LDFLAGS = "-framework Metal -framework QuartzCore -framework CoreText -framework CoreGraphics";
+				OTHER_LDFLAGS = "-framework Metal -framework QuartzCore -framework CoreText -framework CoreGraphics -framework Accelerate";
 				PRODUCT_BUNDLE_IDENTIFIER = com.hanze.filmify;
 				PRODUCT_NAME = SpektraLab;
 				SDKROOT = macosx;
@@ -1409,7 +1409,7 @@
 				MTL_ENABLE_DEBUG_INFO = INCLUDE_SOURCE;
 				MTL_FAST_MATH = YES;
 				ONLY_ACTIVE_ARCH = YES;
-				OTHER_LDFLAGS = "-framework Metal -framework QuartzCore -framework CoreText -framework CoreGraphics";
+				OTHER_LDFLAGS = "-framework Metal -framework QuartzCore -framework CoreText -framework CoreGraphics -framework Accelerate";
 				PRODUCT_BUNDLE_IDENTIFIER = com.hanze.filmify.tests;
 				PRODUCT_NAME = SpektrafilmTests;
 				SDKROOT = macosx;
@@ -1453,7 +1453,7 @@
 				MTL_ENABLE_DEBUG_INFO = INCLUDE_SOURCE;
 				MTL_FAST_MATH = YES;
 				ONLY_ACTIVE_ARCH = YES;
-				OTHER_LDFLAGS = "-framework Metal -framework QuartzCore -framework CoreText -framework CoreGraphics";
+				OTHER_LDFLAGS = "-framework Metal -framework QuartzCore -framework CoreText -framework CoreGraphics -framework Accelerate";
 				PRODUCT_BUNDLE_IDENTIFIER = com.hanze.filmify.tests;
 				PRODUCT_NAME = SpektrafilmTests;
 				SDKROOT = macosx;
