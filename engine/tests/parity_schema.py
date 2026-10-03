@@ -254,6 +254,12 @@ NATIVE_ONLY = {
         "path": "film_render.date_imprint.inset_y", "type": "float", "layer": "shoot",
         "default": 2.4, "live": False, "range": [0.0, 30.0],
     },
+    # The film without its anti-halation layer: the profile's tag read as
+    # `no`. The reference has the preset but no way to ask for it by switch.
+    "antihalation_removed": {
+        "path": "film_render.halation.antihalation_removed", "type": "bool", "layer": "shoot",
+        "default": False, "live": False, "range": None,
+    },
 }
 
 

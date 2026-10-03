@@ -103,6 +103,9 @@ final class ParamsTests: XCTestCase {
                                   // native-only (parity_schema's NATIVE_ONLY).
                                   "halation_amount", "halation_scatter_amount", "grain_amount",
                                   "dir_couplers_active", "dir_couplers_amount", "glare_amount",
+                                  // The anti-halation layer (native-only) and
+                                  // the highlight boost (declared all along).
+                                  "antihalation_removed", "halation_boost_ev",
                                   // RFC-028, native-only: the Digital
                                   // Intermediate and its blue compensation.
                                   "digital_intermediate", "digital_intermediate_blue_compensation",
@@ -131,6 +134,10 @@ final class ParamsTests: XCTestCase {
             XCTAssertEqual(wire[name], .double(1), name)
         }
         XCTAssertEqual(wire["dir_couplers_active"], .bool(true))
+        // The film keeps its anti-halation layer and nothing is boosted: both
+        // are the engine's own defaults, so a legacy frame's picture is its own.
+        XCTAssertEqual(wire["antihalation_removed"], .bool(false))
+        XCTAssertEqual(wire["halation_boost_ev"], .double(0))
 
         // `grain_sublayers_active` used to be `grain_active` itself; with the
         // sub-layer model left on it still is, in both states.

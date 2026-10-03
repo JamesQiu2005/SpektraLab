@@ -92,8 +92,22 @@ struct FilmFormatSection: View {
     @ViewBuilder private var coupled: some View {
         ToggleRow(label: L(.filmGrain), isOn: param(\.grainActive))
         ToggleRow(label: L(.filmHalation), isOn: param(\.halationActive))
+        antihalationRow
         ToggleRow(label: L(.filmGlare), isOn: param(\.glareActive),
                   enabled: session.params.printEffects, reason: L(.reasonPrintEffectsOff))
+    }
+
+    /// The film's anti-halation layer, as a property of the film rather than
+    /// a strength, so it is shown whether or not the strengths are. On is the
+    /// film as its profile tags it; off is the same film with the layer
+    /// removed.
+    private var antihalationRow: some View {
+        ToggleRow(label: L(.filmAntihalationLayer),
+                  isOn: Binding(get: { !session.params.effects.antihalationRemoved },
+                                set: { var p = session.params
+                                       p.effects.antihalationRemoved = !$0
+                                       session.params = p }),
+                  enabled: session.params.halationActive)
     }
 
     /// RFC-025's rows, named as v4 draws them. A strength greys, rather than
@@ -103,8 +117,13 @@ struct FilmFormatSection: View {
         ToggleRow(label: L(.filmGrain), isOn: param(\.grainActive))
         strength(L(.filmGrainStrength), \.grain, EffectStrengths.grainRange, enabled: p.grainActive)
         ToggleRow(label: L(.filmHalation), isOn: param(\.halationActive))
+        antihalationRow
         strength(L(.filmHalationStrength), \.halation, EffectStrengths.halationRange, enabled: p.halationActive)
         strength(L(.filmScatterStrength), \.scatter, EffectStrengths.scatterRange, enabled: p.halationActive)
+        // Stops, not a multiple: its neutral is 0 and it is off there.
+        ScrubSlider(label: L(.filmHighlightBoost), value: effect(\.highlightBoost),
+                    range: EffectStrengths.highlightBoostRange, zero: 0, snap: 0.5,
+                    format: { String(format: "%.1f", $0) }, disabled: !p.halationActive)
         ToggleRow(label: L(.filmCouplers), isOn: effect(\.couplersActive))
         strength(L(.filmCouplersStrength), \.couplers, EffectStrengths.couplersRange,
                  enabled: p.effects.couplersActive)

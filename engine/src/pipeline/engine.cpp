@@ -1703,6 +1703,9 @@ spk_status spk_set_params(spk_session* session, const char* params_delta_json, c
         session->params = fresh;
     } else {
         apply_delta(session->params, delta);
+        // The one field whose meaning is a preset rather than a number: no
+        // digest runs on this path, so the preset is re-read here.
+        if (delta.has("antihalation_removed")) apply_halation_preset(session->params);
     }
 
     if (rebuild) {

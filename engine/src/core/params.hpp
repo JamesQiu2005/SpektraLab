@@ -62,6 +62,9 @@ struct HalationParams {
     /// for why this engine deliberately diverges, and `parity_render.py`'s
     /// `expect_divergence` case for how that is held.
     double halation_amount = 1.0;
+    /// The film without its anti-halation layer: `apply_halation_preset` reads
+    /// the profile's tag as `no`. False is the film as its profile tags it.
+    bool antihalation_removed = false;
     double halation_spatial_scale = 1.0;
     double scatter_core_um[3] = {2.2, 2.0, 1.6};
     double scatter_tail_um[3] = {9.3, 9.7, 9.1};
@@ -487,6 +490,11 @@ Json read_params(const Params& params);
 // preview/lut/debug switches, then the stock-specific overrides and the
 // halation preset. Must run before a pipeline is built.
 bool digest(Params& params, const Json& neutral_filters, std::string& error);
+
+// The halation preset `digest` applies, keyed by the film's `use` and its
+// `antihalation` tag (or `no`, under `antihalation_removed`). Exposed because
+// `spk_set_params` changes that switch without a digest.
+void apply_halation_preset(Params& params);
 
 // `init_params` + `digest`, with the profiles loaded from `resources_dir`.
 bool init_params(const std::string& resources_dir, const std::string& film_stock,

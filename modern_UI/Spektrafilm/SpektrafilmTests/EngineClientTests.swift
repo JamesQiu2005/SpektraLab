@@ -458,6 +458,70 @@ final class EngineClientTests: XCTestCase {
     /// pixel is ~10 µm, so a 65 µm halo covers whole pixels and its area can be
     /// counted; on a 36 mm frame it would be a couple of pixels wide and this
     /// test would pass by measuring almost nothing.
+    /// The anti-halation switch and the highlight boost, each measured at the
+    /// setting a user reaches against the film's own picture, not against
+    /// halation off: `antihalation_removed` must multiply the halo's footprint,
+    /// and the top of the boost's range must move it by counts. Red on the
+    /// engine before the switch existed (`unknown parameter
+    /// 'antihalation_removed'`); the floors are a fraction of what this frame
+    /// measured when the test was written, and are printed for the next reader.
+    func testRemovingTheAntihalationLayerIsVisibleAndReversible() async throws {
+        let gpu = try device()
+        let client = EngineClient(device: gpu)
+
+        func pixels(_ outcome: RenderOutcome) throws -> [UInt16] {
+            let texture = try XCTUnwrap(outcome.texture)
+            var rgba = [UInt16](repeating: 0, count: texture.width * texture.height * 4)
+            rgba.withUnsafeMutableBytes {
+                texture.getBytes($0.baseAddress!, bytesPerRow: texture.width * 8,
+                                 from: MTLRegionMake2D(0, 0, texture.width, texture.height),
+                                 mipmapLevel: 0)
+            }
+            return rgba
+        }
+
+        var base = FilmParams.default
+        base.grainActive = false
+        base.glareActive = false
+        base.autoExposure = false
+        var open = base.fullDelta
+        open["film_format_mm"] = .double(4)
+        let session = try await client.open(try makeHighlightFrame(288, device: gpu), paramsDelta: open)
+
+        func shot(_ delta: [String: ParamValue]) async throws -> [UInt16] {
+            let _: SetParamsResponse = try await client.call(
+                .setParams, SetParamsRequest(sessionID: session.sessionID, paramsDelta: delta),
+                as: SetParamsResponse.self)
+            return try pixels(try await client.render(.previewRender,
+                                                      RenderRequest(sessionID: session.sessionID)))
+        }
+        /// Samples moved by more than 3 counts of 255.
+        func footprint(_ a: [UInt16], _ b: [UInt16]) -> Int {
+            zip(a, b).reduce(0) { $0 + (abs(Int($1.0) - Int($1.1)) > 3 * 257 ? 1 : 0) }
+        }
+
+        let none = try await shot(["halation_amount": .double(0)])
+        let own = try await shot(["halation_amount": .double(1)])
+        let removed = try await shot(["antihalation_removed": .bool(true)])
+        let ownHalo = footprint(own, none), removedHalo = footprint(removed, none)
+        let step = footprint(removed, own)
+        print("antihalation: own halo \(ownHalo), removed halo \(removedHalo), removed vs own \(step)")
+        XCTAssertGreaterThan(ownHalo, 0, "the film's own halo moved nothing: the test is measuring nothing")
+        XCTAssertGreaterThan(removedHalo, ownHalo * 2, "removing the layer did not widen the halo")
+        // Measured 6612 here (own halo 1032, removed 6778).
+        XCTAssertGreaterThan(step, 2000, "removing the layer is not visible against the film's own")
+
+        let boosted = try await shot(["halation_boost_ev": .double(EffectStrengths.highlightBoostRange.upperBound)])
+        let boost = footprint(boosted, removed)
+        print("antihalation: boost at the top of its range vs 0: \(boost)")
+        // Measured 11994.
+        XCTAssertGreaterThan(boost, 3000, "the top of the boost's range is not visible against 0")
+
+        // And both come back: the preset is re-read when the switch goes off.
+        let back = try await shot(["halation_boost_ev": .double(0), "antihalation_removed": .bool(false)])
+        XCTAssertEqual(back, own)
+    }
+
     func testHalationStrengthIsAnAreaMultiplier() async throws {
         let gpu = try device()
         let client = EngineClient(device: gpu)

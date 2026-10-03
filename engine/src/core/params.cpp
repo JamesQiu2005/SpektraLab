@@ -164,6 +164,12 @@ const SchemaField kFields[] = {
     {"date_imprint_corner",      "film_render.date_imprint.corner",       S, SHOOT, false, 0, 0, false},
     {"date_imprint_inset_x",     "film_render.date_imprint.inset_x",      F, SHOOT, true, 0.0, 30.0, false},
     {"date_imprint_inset_y",     "film_render.date_imprint.inset_y",      F, SHOOT, true, 0.0, 30.0, false},
+    // The film with its anti-halation layer taken off (a cine negative with
+    // the remjet removed is the case that has a name). Native-only, placed like
+    // the rest. It overrides the profile's `antihalation` tag with `no`, the
+    // preset no stock in the catalogue carries; false is the film's own layer,
+    // exactly. SHOOT: the halo is exposure on the negative.
+    {"antihalation_removed",     "film_render.halation.antihalation_removed", B, SHOOT, false, 0, 0, false},
     // The app's *preview resolution*: the `live` tier's long edge, and so the
     // size every interactive edit renders at. PRINT layer, because it is a
     // decision about the canvas rather than about the film -- but it is one of
@@ -230,6 +236,8 @@ double* float_slot(Params& p, const std::string& path) {
 bool* bool_slot(Params& p, const std::string& path) {
     if (path == "camera.auto_exposure") return &p.camera.auto_exposure;
     if (path == "film_render.halation.active") return &p.film_render.halation.active;
+    if (path == "film_render.halation.antihalation_removed")
+        return &p.film_render.halation.antihalation_removed;
     if (path == "film_render.grain.active") return &p.film_render.grain.active;
     if (path == "film_render.grain.sublayers_active") return &p.film_render.grain.sublayers_active;
     if (path == "film_render.dir_couplers.active") return &p.film_render.dir_couplers.active;
@@ -446,13 +454,27 @@ namespace {
 void set3(double dst[3], double a, double b, double c) { dst[0] = a; dst[1] = b; dst[2] = c; }
 void set2(double dst[2], double a, double b) { dst[0] = a; dst[1] = b; }
 
+}  // namespace
+
 // `params_builder._HALATION_PRESETS`, keyed by (use, antihalation). sigma_h is
 // set by the base material and halation_strength by the antihalation layer;
 // the user-facing amounts stay at 1.0 on top.
+//
+// Not in the anonymous namespace: `spk_set_params` applies a delta without a
+// fresh digest, so a session that flips `antihalation_removed` has to run this
+// again. That is also why it starts from the struct's own defaults -- an
+// unknown tag "leaves the defaults", and on a second call the defaults would
+// otherwise be whatever the first call wrote.
 void apply_halation_preset(Params& p) {
     if (p.film.info.support != "film") return;
+    const HalationParams defaults;
+    for (int c = 0; c < 3; ++c) {
+        p.film_render.halation.halation_strength[c] = defaults.halation_strength[c];
+        p.film_render.halation.halation_first_sigma_um[c] = defaults.halation_first_sigma_um[c];
+    }
     const std::string& use = p.film.info.use;
-    const std::string& ah = p.film.info.antihalation;
+    const std::string ah = p.film_render.halation.antihalation_removed ? std::string("no")
+                                                                       : p.film.info.antihalation;
     const double sigma = use == "cine" ? 50.0 : 65.0;
     double s0, s1, s2;
     if (ah == "strong") { s0 = 0.015; s1 = 0.005; s2 = 0.0; }
@@ -463,6 +485,8 @@ void apply_halation_preset(Params& p) {
     set3(p.film_render.halation.halation_first_sigma_um, sigma, sigma, sigma);
     set3(p.film_render.halation.halation_strength, s0, s1, s2);
 }
+
+namespace {
 
 void apply_film_specifics(Params& p) {
     DirCouplersParams& dc = p.film_render.dir_couplers;

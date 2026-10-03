@@ -125,6 +125,8 @@ enum AgentSchema {
             .init("params.effects.grain", .number(EffectStrengths.grainRange), "Grain strength, × the film's own."),
             .init("params.effects.grainLayered", .bool, "Three-sub-layer grain model."),
             .init("params.effects.halation", .number(EffectStrengths.halationRange), "Halation strength, × the film's own."),
+            .init("params.effects.antihalationRemoved", .bool, "The film without its anti-halation layer (a cine negative with the remjet removed)."),
+            .init("params.effects.highlightBoost", .number(EffectStrengths.highlightBoostRange), "Stops added to the highlights before the halo is drawn; 0 is off."),
             .init("params.effects.scatter", .number(EffectStrengths.scatterRange), "In-emulsion scatter weight."),
             .init("params.effects.couplersActive", .bool, "DIR couplers."),
             .init("params.effects.couplers", .number(EffectStrengths.couplersRange), "DIR coupler strength."),

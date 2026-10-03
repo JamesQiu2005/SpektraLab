@@ -389,6 +389,19 @@ struct EffectStrengths: Codable, Equatable, Sendable {
     /// `halation_amount`: the back-reflection off the base, as an area
     /// multiplier (RFC-034). 1 is the film's own halo.
     var halation = 1.0             // 0…4
+    /// `antihalation_removed`: the film with its anti-halation layer taken
+    /// off, which is what turns a cine negative into the stock sold without
+    /// its remjet. The engine reads the profile's tag as `no`; false is the
+    /// film as its profile tags it. This, not the strength, is the large
+    /// lever: measured on a night frame, 0.07 % of pixels moved with 500T's
+    /// own layer and 10 % without it.
+    var antihalationRemoved = false
+    /// `halation_boost_ev`: stops added to the highlights *before* the halo is
+    /// drawn, standing in for the energy a clipped RAW no longer holds. It is
+    /// not a strength: it brightens the halo and does not widen it, and it is
+    /// normalised by the frame's brightest pixel, so one hot pixel can leave
+    /// it with nothing to do. 0 is off, exactly.
+    var highlightBoost = 0.0       // 0…8 EV
     /// `halation_scatter_amount`: the in-emulsion scatter, a mix weight.
     var scatter = 1.0              // 0…1
     /// `dir_couplers_active` / `dir_couplers_amount`: the inter-layer
@@ -402,6 +415,8 @@ struct EffectStrengths: Codable, Equatable, Sendable {
     static let grainRange = 0.0...2.0
     static let halationRange = 0.0...4.0
     static let scatterRange = 0.0...1.0
+    /// The wire's own range, in stops.
+    static let highlightBoostRange = 0.0...8.0
     /// Not the wire's 0…4. Above ≈1.736 the coupler inverse's exposure axis
     /// stops being monotonic (AGENTS.md trap 22) and the output is no longer
     /// the model's, so the slider stops short of it.
@@ -429,6 +444,9 @@ struct EffectStrengths: Codable, Equatable, Sendable {
         grainLayered = try c.decodeIfPresent(Bool.self, forKey: .grainLayered) ?? d.grainLayered
         halation = try c.decodeIfPresent(Double.self, forKey: .halation) ?? d.halation
         scatter = try c.decodeIfPresent(Double.self, forKey: .scatter) ?? d.scatter
+        antihalationRemoved = try c.decodeIfPresent(Bool.self, forKey: .antihalationRemoved)
+            ?? d.antihalationRemoved
+        highlightBoost = try c.decodeIfPresent(Double.self, forKey: .highlightBoost) ?? d.highlightBoost
         couplersActive = try c.decodeIfPresent(Bool.self, forKey: .couplersActive) ?? d.couplersActive
         couplers = try c.decodeIfPresent(Double.self, forKey: .couplers) ?? d.couplers
         glare = try c.decodeIfPresent(Double.self, forKey: .glare) ?? d.glare
@@ -697,6 +715,13 @@ struct FilmParams: Codable, Equatable, Sendable {
             ("dir_couplers_active", .bool(effects.couplersActive), .shoot),
             ("dir_couplers_amount", .double(effects.couplers.clamped(to: EffectStrengths.couplersRange)), .shoot),
             ("glare_amount", .double(effects.glare.clamped(to: EffectStrengths.glareRange)), .print),
+            // The anti-halation layer and the highlight boost. Sent always,
+            // on the same rule: false and 0 are the engine's defaults and
+            // exact bypasses, and a field that is only sometimes sent would
+            // leave its last value on the session when it stops being sent.
+            ("antihalation_removed", .bool(effects.antihalationRemoved), .shoot),
+            ("halation_boost_ev",
+             .double(effects.highlightBoost.clamped(to: EffectStrengths.highlightBoostRange)), .shoot),
             // RFC-028. The DI is sent always, like the rest (off is the
             // paper, exactly). The blue compensation only while the DI is on,
             // so the Settings switch cannot move any other frame's stamp.
