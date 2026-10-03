@@ -683,7 +683,7 @@ really puts the extreme, because the Fit solves the curve for the lift that
 
 **With the Digital Intermediate** (RFC-028, which the mobile engine did not have when this was written): `film_present` runs before the DI node, so the film's edge and the gate are in the DI, but the scan's view of the holes (`spk_overscan_light`) has no DI counterpart and the perforations do not show. Open until the mobile repo decides it.
 
-Twenty native-only fields, all **shoot layer** and **not live**. Every mark
+Twenty-one native-only fields, all **shoot layer** and **not live**. Every mark
 (gate shadow, fog, leaks, edge print, DX code, date) is exposure on the
 negative, so an edit re-develops it (`negative_was_cached` is 0 on the next
 render). The fields sit before `preview_long_edge` with the other native
@@ -700,7 +700,8 @@ and RFC-031 (the date back).
 | `overscan_gate` | `…overscan.gate` | str | `"auto"` | `auto` \| `square` \| `rounded` \| `eared` \| `shouldered` \| `kicked` | the gate's shape family (RFC-032 §29.2, §30.2); `auto` lets the camera seed pick one the format's real cameras have. `shouldered` (6×8) also seats the gate at the stock-name edge, with its ears ~1.2 mm from it and the edge print in the recess between them |
 | `overscan_holes` | `…overscan.holes` | str | `"white"` | `white` \| `black` | what shows through the perforations and past the film's edge. `white`: the picture's white (a scan's light). `black`: a black backing or a darkroom print. Either way the cut is not a perfectly vertical knife: a slight rounding of the base shows as a faint, patchy shoulder just outside each hole (1-6 % lift, ~0.03 mm), different on every hole, plus per-hole punch tolerances, roughness and burrs (RFC-032 §30.5, §31.5) |
 | `overscan_camera_seed` | `…overscan.camera_seed` | int | `1` | 0–2³¹−1 | **the body**: gate shape and radii, burrs, gate-to-emulsion gap, where the frame sits on the perforations, fog, flare |
-| `overscan_frame_seed` | `…overscan.frame_seed` | int | `1` | 0–2³¹−1 | **the advance and the scan**: weave, advance error, scan rotation, leaks, which numbers are on the edge |
+| `overscan_frame_seed` | `…overscan.frame_seed` | int | `1` | 0–2³¹−1 | **the advance and the scan**: weave, advance error, scan rotation, leaks, and which numbers are on the edge when `overscan_frame_number` is 0 |
+| `overscan_frame_number` | `…overscan.frame_number` | int | `0` | 0–99 | **the frame's number on the edge print** (2026-10-03). `0`: the frame seed's draw, byte for byte. Set: this frame's own mark — the 135 `N`/`NA` pair, the digit by Kodak 120's triangle, Fujifilm 120's number — with its neighbours counting from it and nothing drawn below 1. Kodak 120's counting-edge numbers ("51 / 52") are the roll's, not the frame's, and stay seeded. The last native field, after `antihalation_removed` |
 | `overscan_fog` | `…overscan.fog` | float | `1.0` | 0–4 | edge fog's strength; 0 = none (see *Edge light* below) |
 | `overscan_leaks` | `…overscan.leaks` | float | `0.0` | 0–4 | spool light leaks: their count and strength; 0 = none (see *Edge light* below) |
 | `overscan_edge_text` | `…overscan.edge_text` | str | `""` | — | the stock's edge print. **The host chooses** real names (desktop) or display names (mobile, `STOCK-NAMES.md`) |
@@ -808,9 +809,11 @@ reasoning: RFC-032 §25, §27.
 
 - **The output grows.** With overscan on, `spk_result.width/height` are the
   film canvas, not the source: e.g. a 2400×1600 135 frame renders at
-  2514×2333. Never assume the source size.
+  about 2514×2333 (the exact size follows the gate and the camera seed).
+  Never assume the source size.
 - **The frame's pixel pitch is the format's.** Overscan sets the frame's long
-  edge to the format's gate (36, 24 for half frame, 56, 69.5, 76 or 84 mm) and overrides
+  edge to the format's gate (36.25 × 24.3 for 135 — the mean of seven real strips, 2026-10-03 —
+  24 for half frame, 56, 69.5, 76 or 84 mm) and overrides
   `film_format_mm`, so grain and halation are at the format's scale. Picture
   aspect is the host's crop. The engine reads the film's direction from it
   (a landscape 645 or a portrait 6×7 runs vertically).
@@ -826,16 +829,27 @@ reasoning: RFC-032 §25, §27.
 - **Where a face is drawn:** `lcd` and `dots` on 135 and 135 half frame only. `data` goes on
   135 (rotated, between frames) and 645 (one line in the margin beside the
   frame). On any other format the date is silently not drawn.
-- **We assumed it wrong for every Fujifilm stock** (owner, 2026-10-03): the
-  edge print's typeface, size and placement, the frame numbering, the DX
-  code's layout and the 120 markers were measured on Kodak film and are
-  drawn for every stock the same way. C200, X-Tra 400, Pro 400H, Provia 100F
-  and Velvia 100 therefore carry Kodak's edge marks and are wrong (C200 is
-  likely Kodak-made and so nearer, but unchecked). References for RVP, RDP
-  and Pro 400H are to come; until then every Fujifilm film edge is a
-  placeholder, on desktop and mobile.
-- **DX code** (135): ISO 1007, 13 mm, drawn from the stock's real DX number
-  (Portra 400 = 1277, …). Stocks with no DX code (Vision3, Kodachrome) print
+- **Every stock's own film edge** (2026-10-03, from the owner's scans in
+  `reference_film/`, which stay untracked): a per-stock look table
+  (`kEdgeLooks`, `overscan.cpp`) keyed like the DX table. Kodak negatives:
+  the measured Kodak layout (12.7 mm DX, caps 1.22 top / 1.40 bottom,
+  numerals widened ×1.25 and tracked apart, tan). Fujifilm slides (Provia,
+  Velvia): no DX bars, orange 5×7 dot-matrix face, bold numbers on both
+  edges, "36 ▷ 27A". X-Tra 400: 14.1 mm DX reading 628, condensed numbers,
+  "S-400". Pro 400H (120): one edge, "FUJI"/roll number, frame number, a
+  stepped tack marker, "PRO400H", "EFCDCD". C200: Kodak's layout in a
+  regular weight (it is Kodak-made: DX part 1 = Gold's). Vision3: one
+  "EASTMAN 52xx" keycode line and dashes, no numbers or bars. E100: white
+  marks. On Kodak 120 the name is centred between consecutive numbers.
+  **Borrowed, no reference:** Pro 400H on 135 (X-Tra's layout), Velvia 100
+  (Velvia 50's), E100 on 135 (Kodak's), every half-frame layout. The host's
+  `edge_text` is the film's own words, with the emulsion suffix where a strip
+  shows one ("KODAK GB 200-7", "KODAK PORTRA 800-3").
+- **DX code** (135): ISO 1007, 12.7 mm on Kodak (measured 12.64–12.78),
+  14.1 mm on X-Tra 400, drawn from the stock's DX number — read off the
+  strips where one could be (Gold 200 = 1548, Portra 160 = 1534, C200 =
+  1550, X-Tra = 628), the database's otherwise (Portra 400 = 1277, …).
+  Stocks with no DX code (Vision3, Kodachrome, the Fujifilm slides) print
   no bars. The bars are the same on desktop and mobile; only `edge_text`
   differs.
 - **Refusals:** an unknown enum value is refused by name with the valid list.
@@ -854,7 +868,9 @@ reasoning: RFC-032 §25, §27.
   turning with the camera; the half-frame canvas; a reprint of a film
   canvas, on the live tier after the full one has rendered and after a
   print-layer edit has rebuilt the pipeline, equal to a fresh render pixel
-  for pixel; the marks' limits; the gate's shape. 49 checks.
+  for pixel; the marks' limits; the gate's shape; the frame number (0 is the
+  seed's draw, a number set changes the edge, two numbers differ) on three
+  layouts. 63 checks.
 
 **Proposed, not implemented** (for the frontend contract):
 

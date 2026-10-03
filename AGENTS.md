@@ -60,8 +60,13 @@ backend on `src/**`, `tests/**`, `scripts/**`, `rfc/**`. The backend half of
 that split belonged to the Python engine, which stayed behind in the fork. What
 came across is one product with one owner, so §4 no longer routes anything.
 The contract is still worth reading for **§1, the wire**, which has not changed.
-`AGENTS.md`, `ARCHITECTURE.md`, `API-SPEC-*` and `CONTRACT-*` still belong to
-nobody in particular — **say so before editing one.**
+`AGENTS.md`, `ARCHITECTURE.md`, `API-SPEC-*` and `CONTRACT-*` are **kept, and
+owned by whoever changes what they describe** (owner's decision, 2026-10-03;
+the "say so before editing" rule was the split's and is gone). In particular
+`API-SPEC-callable-render-service.md` is the live wire contract — cited by
+`params.cpp`, `engine.cpp`, `parity_schema.py`, `Params.swift` and the tests —
+so **a wire change edits its section in the same commit**, and the mobile
+`API-SPEC.md` takes the same text at the next sync.
 
 **`native/` is gone.** It was the stdio proxy host, from before the engine
 existed and superseded by it (RFC-014 §6 step 6). It was deliberately not
