@@ -32,32 +32,42 @@ struct RightPanel: View {
     @AppStorage(Session.uiKey + "parametersTab") private var tabRaw = ParametersTab.preDev.rawValue
     private var tab: ParametersTab { ParametersTab(rawValue: tabRaw) ?? .preDev }
 
+    /// The tab's sections, in order. Built a statement at a time: as one
+    /// expression it was more than the type checker would finish on the CI
+    /// runner (2026-10-03).
+    private var sections: [(String, AnyView)] {
+        var s: [(String, AnyView)] = []
+        if tab == .preDev {
+            s.append(("latitude", AnyView(LatitudeSection(session: session))))
+            // A pair is metered and white-balanced per frame, and its format
+            // is the piece's: Input / Camera and Film Format have nothing to
+            // say about it.
+            if session.pair == nil {
+                s.append(("camera", AnyView(CameraSection(session: session))))
+                s.append(("filmFormat", AnyView(FilmFormatSection(session: session))))
+            }
+            s.append(("scenePlacement", AnyView(ScenePlacementSection(session: session))))
+            // Withdrawn for the next version (`FeatureFlags.toneMask`).
+            if FeatureFlags.toneMask { s.append(("toneMask", AnyView(ToneMaskSection(session: session)))) }
+        } else {
+            s.append(("wb2", AnyView(WhiteBalanceSection(session: session))))
+            s.append(("exposure2", AnyView(ExposureSection(session: session))))
+            s.append(("curve", AnyView(CurveSection(session: session))))
+            s.append(("colorbalance", AnyView(ColorBalanceSection(session: session))))
+            // Withdrawn while the mask system is redesigned; the section
+            // itself is intact (`FeatureFlags.masks`).
+            if FeatureFlags.masks { s.append(("masks", AnyView(MasksSection(session: session)))) }
+        }
+        return s
+    }
+
     var body: some View {
         VStack(spacing: 0) {
             header
             Hairline()
             ScrollView(.vertical, showsIndicators: false) {
                 VStack(spacing: 0) {
-                    let sections: [(String, AnyView)] = tab == .preDev
-                        // A pair is metered and white-balanced per frame, and its
-                        // format is the piece's: Input / Camera and Film Format
-                        // have nothing to say about it.
-                        ? [("latitude", AnyView(LatitudeSection(session: session)))]
-                           + (session.pair != nil ? []
-                              : [("camera", AnyView(CameraSection(session: session))),
-                                 ("filmFormat", AnyView(FilmFormatSection(session: session)))])
-                           + [("scenePlacement", AnyView(ScenePlacementSection(session: session)))]
-                           // Withdrawn for the next version (`FeatureFlags.toneMask`).
-                           + (FeatureFlags.toneMask
-                              ? [("toneMask", AnyView(ToneMaskSection(session: session)))] : [])
-                        : [("wb2", AnyView(WhiteBalanceSection(session: session))),
-                           ("exposure2", AnyView(ExposureSection(session: session))),
-                           ("curve", AnyView(CurveSection(session: session))),
-                           ("colorbalance", AnyView(ColorBalanceSection(session: session)))]
-                           // Withdrawn while the mask system is redesigned;
-                           // the section itself is intact (`FeatureFlags.masks`).
-                           + (FeatureFlags.masks
-                              ? [("masks", AnyView(MasksSection(session: session)))] : [])
+                    let sections = sections
                     // Between sections, never after the last, and each one a
                     // handle on the section above it.
                     ForEach(Array(sections.enumerated()), id: \.element.0) { index, entry in

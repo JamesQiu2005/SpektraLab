@@ -19,28 +19,34 @@ import SwiftUI
 struct LeftPanel: View {
     @Bindable var session: Session
 
+    /// The rail's sections, in order. A statement at a time, so the type
+    /// checker has no long expression to solve.
+    private var sections: [(String, AnyView)] {
+        var s: [(String, AnyView)] = []
+        // A pair lists its layers first, and has no crop of its own: each
+        // picture is placed under its hole there.
+        let isPair = session.pair != nil
+        if isPair { s.append((PairSection.key, AnyView(PairSection(session: session)))) }
+        s.append(("navigator", AnyView(NavigatorSection(session: session))))
+        s.append(("clipboard", AnyView(ClipboardSection(session: session))))
+        s.append(("film", AnyView(FilmSection(session: session))))
+        // Under Film, before Print: both belong to the film and depend on
+        // neither the paper nor the DI (2026-10-01 drawings).
+        s.append((FilmEdgeSection.key, AnyView(FilmEdgeSection(session: session))))
+        s.append((DateBackSection.key, AnyView(DateBackSection(session: session))))
+        s.append(("print", AnyView(PrintProfileSection(session: session))))
+        if !isPair { s.append(("crop", AnyView(CropSection(session: session)))) }
+        s.append(("enlarger", AnyView(EnlargerSection(session: session))))
+        return s
+    }
+
     var body: some View {
         VStack(spacing: 0) {
             header
             Hairline()
             ScrollView(.vertical, showsIndicators: false) {
                 VStack(spacing: 0) {
-                    // A pair lists its layers first, and has no crop of its
-                    // own: each picture is placed under its hole there.
-                    let isPair = session.pair != nil
-                    let sections: [(String, AnyView)] =
-                        (isPair ? [(PairSection.key, AnyView(PairSection(session: session)))] : [])
-                        + [("navigator", AnyView(NavigatorSection(session: session))),
-                         ("clipboard", AnyView(ClipboardSection(session: session))),
-                         ("film", AnyView(FilmSection(session: session))),
-                         // Under Film, before Print: both belong to the film
-                         // and depend on neither the paper nor the DI
-                         // (2026-10-01 drawings).
-                         (FilmEdgeSection.key, AnyView(FilmEdgeSection(session: session))),
-                         (DateBackSection.key, AnyView(DateBackSection(session: session))),
-                         ("print", AnyView(PrintProfileSection(session: session)))]
-                        + (isPair ? [] : [("crop", AnyView(CropSection(session: session)))])
-                        + [("enlarger", AnyView(EnlargerSection(session: session)))]
+                    let sections = sections
                     // A divider **between** sections, never after the last:
                     // a rule under the final section is a bottom border
                     // against empty rail, not a separator.
