@@ -87,20 +87,35 @@ re-develop every film-edge edit costs (every field is shoot layer, so each is a 
   light marks), and the app always scans a positive. Unverified against a real E-6 strip: the edge
   print's colour (olive-yellow in the render) and the date's (dim yellow-grey; a real one is orange-red).
 
-## 5. We assumed it wrong — every Fujifilm stock's film edge
+## 5. We assumed it wrong — every Fujifilm stock's film edge (done 2026-10-03, `4fbbe96`, `653fe52`)
 
-The owner, 2026-10-03: the Fujifilm stocks' film edges were copied straight from Kodak. The edge print's
-typeface, size and placement, the frame numbering, the DX code's layout and the 120 markers were measured
-on Kodak film (RFC-032 §29.2) and `imprint_groups` draws them for every stock. So **C200, X-Tra 400,
-Pro 400H, Provia 100F and Velvia 100 are wrong**; C200 is likely Kodak-made and so nearer, but was not
-checked. The owner is supplying references for **RVP (Velvia), RDP (Provia) and Pro 400H**.
+The owner, 2026-10-03: the Fujifilm stocks' film edges were copied straight from Kodak. The owner then
+supplied 16 scans in `reference_film/` (135: RVP50, RDPIII, X-Tra 400, C200, Portra 160/800, UltraMax,
+Gold 200, 5207; 120: RVP50 6x6, Pro 400H 6x7, RDPIII 645, E100/Portra 400/Ektar 6x6, Gold/Portra 160 6x7;
+**untracked**, the owner's to commit or not). Measured as RFC-032 §29.2 measured Kodak (px/mm from the
+4.75 mm perforation pitch, or the 61 mm film), and the edge is now the stock's own (`kEdgeLooks`,
+`overscan.cpp`):
 
-The work that follows: measure each reference as RFC-032 §29.2 measured Kodak (px/mm, cap height,
-baseline, pitch, the number style), add a per-stock edge layout keyed like `dx_extract_for`, and keep the
-Kodak path byte-identical. Never invent a layout for a stock without a reference. The owner has not said
-whether the UI should flag a Fujifilm edge as a placeholder in the meantime (asked, unanswered).
+| stock | layout now | reference |
+|---|---|---|
+| Provia 100F | Fujifilm slide: no DX bars, 5x7 face, bold numbers (caps 1.64) on both edges, name 16 mm on, "36 ▷12A"; 120: Fujifilm 120 | RDPIII 135 + 645 |
+| Velvia 100 | the same; host text "RVP100" | **RVP50** only (borrowed) |
+| X-Tra 400 | Fujifilm negative: 14.1 mm DX (628), condensed numbers on both edges, "S-400" | X-Tra 400 135 |
+| Pro 400H | 120: one edge, "FUJI"/roll no., "13 ◀", "PRO400H", "EFCDCD"; **135 borrows X-Tra's** | 120 6x7 only |
+| C200 | Kodak's layout (it is Kodak-made: DX part 1 = Gold's), regular weight, "FUJI 200", DX 1550 | C200 135 |
+| Vision3 | one "EASTMAN 52xx" line + dashes, no numbers/bars; the line's period is ≥41.5 mm, 76 assumed | 5207 135 (others borrow) |
+| Kodak negatives | fixed: DX 12.7 mm (was 13), sizes/positions, wide numerals, tan colour (was olive), DX numbers read off the strips (Gold 1548, Portra 160 1534) | 4 × 135, 5 × 120 |
+| E100 | white marks (was olive); 135 layout still Kodak's, **unverified** | E100 120 only |
 
-This is the film edge only. The spectral film profiles are spektrafilm's measured data.
+Also: the 135 gate is 36.25 × 24.3 mm (measured mean; it sat 0.70 mm from the perforations, real ones
+0.47–0.67), and a 120 gate is centred ±0.45 mm (was ±0.1). Not reproduced, on purpose: the red/green lines
+on the X-Tra strip (its camera's), the X-Tra "H74" batch code, Kodak's "KO.DAK" dot, emulsion suffixes
+("-7"), and real roll numbers. Colours match the references' hue, not their level (scan-dependent).
+Comparison sheets (reference | before | after): the session scratchpad `edge/cmp_*.png`.
+
+**Must cross to mobile at the next sync:** `4fbbe96` (by hunks) and the matching `overscan_checks.py`
+hunks. Mobile's host text is display names, so it does not take `653fe52`. API-SPEC §13 needs the edit
+listed in that commit's report (36 → 36.25 gate, per-stock edges, the DX numbers); not edited here.
 
 ## 6. Waiting on the mobile-first engine work (answer A3)
 
@@ -116,5 +131,5 @@ belong in the 135 formats (allowed now); the UI placeholder note for Fujifilm ed
 
 ## 8. Next, in the owner's order
 
-Measure the slowness first (§3). Then the Fujifilm edge layouts when the references arrive (§5). Then the
+Measure the slowness first (§3). The Fujifilm edge layouts are done (§5). Then the
 half-frame pair without Film Edge (HFP P1–P4, Swift only), which needs none of §6.
