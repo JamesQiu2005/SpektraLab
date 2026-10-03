@@ -169,6 +169,12 @@ struct OverscanParams {
     // black (a black backing, or a darkroom print of the strip).
     std::string gate = "auto";       // auto | square | rounded | eared | shouldered | kicked
     std::string holes = "white";     // white (a scan: its light) | black (a black backing, or a print)
+    // The frame's number as the edge print carries it (owner, 2026-10-03):
+    // 0 = the frame seed's draw, as before; 1..99 = this number, on every
+    // mark that is the frame's (135: "N" and "NA"; 120: the digit by the
+    // triangle, Fujifilm's number). The roll's own counts (Kodak 120's
+    // "51/52") are not the frame's and stay seeded.
+    int frame_number = 0;
 };
 
 // RFC-031: the date back, exposed onto the negative from behind. 135 only by

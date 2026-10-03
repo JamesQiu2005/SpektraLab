@@ -170,6 +170,10 @@ const SchemaField kFields[] = {
     // preset no stock in the catalogue carries; false is the film's own layer,
     // exactly. SHOOT: the halo is exposure on the negative.
     {"antihalation_removed",     "film_render.halation.antihalation_removed", B, SHOOT, false, 0, 0, false},
+    // The frame number the edge print carries; 0 = the frame seed's draw.
+    // Native-only, SHOOT, after `antihalation_removed` (parity_schema reads
+    // the two tables in order).
+    {"overscan_frame_number",    "film_render.overscan.frame_number",     I, SHOOT, true, 0.0, 99.0, false},
     // The app's *preview resolution*: the `live` tier's long edge, and so the
     // size every interactive edit renders at. PRINT layer, because it is a
     // decision about the canvas rather than about the film -- but it is one of
@@ -289,6 +293,7 @@ int* int_slot(Params& p, const std::string& path) {
     if (path == "settings.strip_budget_bytes") return &p.settings.strip_budget_bytes;
     if (path == "film_render.overscan.camera_seed") return &p.film_render.overscan.camera_seed;
     if (path == "film_render.overscan.frame_seed") return &p.film_render.overscan.frame_seed;
+    if (path == "film_render.overscan.frame_number") return &p.film_render.overscan.frame_number;
     return nullptr;
 }
 

@@ -296,6 +296,19 @@ def main():
         gate_x0 = (dat.shape[1] - 1200) / 2
         check("data style prints between frames, outside the picture", len(xs) > 50 and xs.max() < gate_x0 + 2,
               f"{len(xs)} px, x <= {xs.max() if len(xs) else -1}")
+        # The owner's frame number (2026-10-03): 0 is the seed's draw, byte for
+        # byte; a number set changes the marks on every layout that numbers
+        # frames, and two numbers differ from each other.
+        for fmt, img_, stock in (("135", img, "kodak_portra_400"), ("120_6x7", frame(725, 900), "kodak_gold_200"),
+                                 ("120_6x7", frame(725, 900), "fujifilm_pro_400h")):
+            base_ = dict(S135, overscan_format=fmt, film_stock=stock)
+            n0 = render(e, img_, base_)
+            n0b = render(e, img_, dict(base_, overscan_frame_number=0))
+            n7 = render(e, img_, dict(base_, overscan_frame_number=7))
+            n8 = render(e, img_, dict(base_, overscan_frame_number=8))
+            check(f"frame number 0 is the seeded draw ({stock}, {fmt})", np.array_equal(n0, n0b))
+            check(f"frame number 7 changes the edge ({stock}, {fmt})", not np.array_equal(n0, n7))
+            check(f"frame numbers 7 and 8 differ ({stock}, {fmt})", not np.array_equal(n7, n8))
         try:
             render(e, frame(1800, 600), S135)
             check("a frame that is not the gate's shape is refused", False, "it rendered")

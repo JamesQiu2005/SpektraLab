@@ -1112,7 +1112,8 @@ void imprint_groups(const OverscanLayout& L, const Params& params, double frame_
     if (L.valid && L.perforated) {
         // Film data on a half-frame grid (4 perforations = 19.00 mm) anchored
         // to the perforations; `n0` is which frame this is.
-        const int n0 = 1 + int(uint64_t(uint32_t(o.frame_seed)) % 34u);
+        // The owner's number when set (`overscan_frame_number`), else the seed's.
+        const int n0 = o.frame_number > 0 ? o.frame_number : 1 + int(uint64_t(uint32_t(o.frame_seed)) % 34u);
         const double grid0 = L.perf_phase + 0.62;
         Group top = group_for(L.edge_rgb, e_edge, 0.022);
         Group bot = group_for(L.edge_rgb, e_edge, 0.022);
@@ -1307,8 +1308,11 @@ void imprint_groups(const OverscanLayout& L, const Params& params, double frame_
             // strips; drawn per frame here) before the odd ones.
             const double P = 41.1, xs = 0.94;
             const double roll = rf.uni(0.0, 2.0 * P);
-            const int n0 = 1 + int(rf.uni(0.0, 14.0));
+            int n0 = 1 + int(rf.uni(0.0, 14.0));
             const int lot = int(rf.uni(0.0, 1000.0)) % 1000;
+            // With a number set, it goes on this frame's mark: the first one
+            // along the picture (s >= 0), the rest counting from it.
+            if (o.frame_number > 0) n0 = o.frame_number - int(std::ceil(roll / P));
             const double tb = L.top_recess > 0 ? std::max(0.9, L.gate_t0 + L.top_recess - 0.85) : 1.60;
             const int j_lo = int(std::floor((s_min + roll) / P)) - 1, j_hi = int(std::ceil((s_max + roll) / P)) + 1;
             for (int j = j_lo; j <= j_hi; ++j) {
@@ -1394,6 +1398,11 @@ void imprint_groups(const OverscanLayout& L, const Params& params, double frame_
             }
             const double mark_period = 29.0, mroll = rf.uni(0.0, mark_period);
             const int k_lo = int(std::floor((s_min + mroll) / mark_period)) - 1, k_hi = int(std::ceil((s_max + mroll) / mark_period)) + 1;
+            // With a number set, it goes by this frame's triangle: the first
+            // numbered one along the picture (s >= 0; every other triangle
+            // carries a digit), the rest counting from it, none below 1.
+            int k_first = int(std::ceil(mroll / mark_period));
+            if (((k_first % 2) + 2) % 2 != 0) ++k_first;
             const double mh = 1.12;
             for (int k = k_lo; k <= k_hi; ++k) {
                 const double s = -mroll + k * mark_period;
@@ -1402,8 +1411,11 @@ void imprint_groups(const OverscanLayout& L, const Params& params, double frame_
                 tri.pts = {s, t_bot - mh, s + 1.83 * mh, t_bot - 0.5 * mh, s, t_bot};
                 bot.ops.push_back(tri);
                 if (((k % 2) + 2) % 2 == 0) {
+                    const int digit = o.frame_number > 0 ? o.frame_number + (k - k_first) / 2
+                                                         : 1 + ((k / 2) % 9 + 9) % 9;
+                    if (digit < 1) continue;
                     Op dg;
-                    dg.size_mm = 1.15 / 0.714; dg.hscale = 1.25; dg.tracking_mm = kNumTrack; dg.text = std::to_string(1 + ((k / 2) % 9 + 9) % 9);
+                    dg.size_mm = 1.15 / 0.714; dg.hscale = 1.25; dg.tracking_mm = kNumTrack; dg.text = std::to_string(digit);
                     dg.s = s + 2.8; dg.t = t_bot;
                     bot.ops.push_back(dg);
                 }

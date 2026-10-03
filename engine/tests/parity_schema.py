@@ -260,6 +260,11 @@ NATIVE_ONLY = {
         "path": "film_render.halation.antihalation_removed", "type": "bool", "layer": "shoot",
         "default": False, "live": False, "range": None,
     },
+    # The frame number the edge print carries; 0 = the frame seed's draw.
+    "overscan_frame_number": {
+        "path": "film_render.overscan.frame_number", "type": "int", "layer": "shoot",
+        "default": 0, "live": False, "range": [0, 99],
+    },
 }
 
 
