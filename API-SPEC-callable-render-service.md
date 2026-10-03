@@ -832,14 +832,21 @@ reasoning: RFC-032 §25, §27.
   differs.
 - **Refusals:** an unknown enum value is refused by name with the valid list.
   Overscan on the striped executor (`striped = true`) is refused. A host
-  must render whole-frame when overscan is on.
+  must render whole-frame when overscan is on. **The frame is the gate:** a
+  frame whose shape is not the format's gate (either way up, within 5 %) is
+  refused — `a 1800 x 600 frame is not the 135 gate's shape (36 x 24); crop
+  the picture to the gate first` — because it was laid out as if it were and
+  the picture was cut by the film's width (2026-10-03). The host crops first.
+- **Marks stay in their place:** an edge text longer than its slot between
+  the frame numbers is cut back to the words that fit, and a date too large
+  or too far inset for the frame is kept inside it (2026-10-03).
 - **Tests:** `engine/tests/overscan_checks.py`. They include a DX
   code read back off the rendered pixels; white hole interiors; edges that
   differ from hole to hole; black holes that still read as holes; the date
   turning with the camera; the half-frame canvas; a reprint of a film
   canvas, on the live tier after the full one has rendered and after a
   print-layer edit has rebuilt the pipeline, equal to a fresh render pixel
-  for pixel. 41 checks.
+  for pixel; the marks' limits; the gate's shape. 49 checks.
 
 **Proposed, not implemented** (for the frontend contract):
 

@@ -205,10 +205,12 @@ def main():
         check("hole edges differ from hole to hole (the cut's shoulder)",
               len(sh) >= 4 and sh.std() / max(sh.mean(), 1e-9) > 0.25, f"{len(sh)} holes, mean lift {np.round(sh, 0)}")
 
-        # Gate families: each renders, and each changes the gate.
-        sq = render(e, img, dict(S135, overscan_format="120_645", overscan_gate="square"))
+        # Gate families: each renders, and each changes the gate. On a frame
+        # of the 645 gate's shape (56 x 41.5), since the frame is the gate.
+        img645 = frame(1200, 889)
+        sq = render(e, img645, dict(S135, overscan_format="120_645", overscan_gate="square"))
         for fam in ("rounded", "eared", "kicked", "shouldered"):
-            r = render(e, img, dict(S135, overscan_format="120_645", overscan_gate=fam))
+            r = render(e, img645, dict(S135, overscan_format="120_645", overscan_gate=fam))
             check(f"gate {fam} differs from square", r.shape == sq.shape and not np.array_equal(r, sq))
         for bad, field in (("hexagon", "overscan_gate"), ("light", "overscan_holes")):
             try:
@@ -274,6 +276,17 @@ def main():
         check("data style prints between frames, outside the picture", len(xs) > 50 and xs.max() < gate_x0 + 2,
               f"{len(xs)} px, x <= {xs.max() if len(xs) else -1}")
         try:
+            render(e, frame(1800, 600), S135)
+            check("a frame that is not the gate's shape is refused", False, "it rendered")
+        except spk.EngineError as err:
+            check("a frame that is not the gate's shape is refused", "gate's shape" in str(err), str(err)[:90])
+        for fmt, (w, h) in (("135_half", (900, 1200)), ("120_645", (900, 667)), ("120_6x6", (700, 700)), ("120_6x7", (725, 900))):
+            try:
+                render(e, frame(w, h), {"overscan_active": True, "overscan_format": fmt})
+                check(f"a {w} x {h} frame is the {fmt} gate's shape", True)
+            except spk.EngineError as err:
+                check(f"a {w} x {h} frame is the {fmt} gate's shape", False, str(err)[:90])
+        try:
             render(e, img, dict(DATE, date_imprint_style="neon"))
             check("an unknown date style is refused", False, "it rendered")
         except spk.EngineError as err:
@@ -330,6 +343,26 @@ def main():
             check("the Digital Intermediate export of a film canvas", False, str(err)[:90])
         finally:
             s.close()
+
+        # Marks stay where they belong: a long edge text ends before the next
+        # frame number, and a date too large or too far inset for the frame
+        # stays inside it instead of running off its edge.
+        # The 135 slot is 30.1 mm at 1.15 mm caps (~1.16 mm a character with
+        # tracking): 26 characters, cut back to the last whole word.
+        long_ = render(e, img, dict(S135, overscan_edge_text="KODAK " * 50))
+        cut = render(e, img, dict(S135, overscan_edge_text="KODAK KODAK KODAK KODAK"))
+        other = render(e, img, dict(S135, overscan_edge_text="KODAK KODAK KODAK KODA"))
+        check("a long edge text is cut to the words that fit its slot",
+              np.array_equal(long_, cut) and not np.array_equal(long_, other))
+        big = render(e, img, dict(DATE, date_imprint_size=3.0, date_imprint_inset_x=0.0, date_imprint_inset_y=0.0))
+        far = render(e, img, dict(DATE, date_imprint_inset_x=30.0, date_imprint_inset_y=30.0))
+        bare = render(e, img, {"film_format_mm": 36.0})
+        for name, r in (("size 3 at inset 0", big), ("inset 30 mm", far)):
+            dd = np.abs(r.astype(int) - bare.astype(int))[..., :3].sum(-1)
+            ys, xs = np.nonzero(dd > 2000)
+            # the lcd face at size 3 is ~3.9 mm tall and ~26 mm wide: all of it in the 36 x 24 frame
+            check(f"the date at {name} stays inside the frame", len(xs) > 500 and xs.max() < 1200 - 2 and ys.max() < 800 - 2
+                  and (xs.max() - xs.min()) * px > 6.0, f"{len(xs)} px, x {xs.min() if len(xs) else -1}-{xs.max() if len(xs) else -1}")
 
     print(f"{failures} failure(s)")
     return 1 if failures else 0

@@ -25,6 +25,7 @@
 
 #include <algorithm>
 #include <cmath>
+#include <cstdio>
 #include <cstring>
 
 #include "pipeline.hpp"
@@ -377,6 +378,21 @@ bool Pipeline::overscan_layout(uint32_t frame_w, uint32_t frame_h, std::string& 
     if (params_.settings.striped) {
         error = "overscan: not supported by the striped executor yet (RFC-032 §27); render with striped = false";
         return false;
+    }
+    // The frame is the gate: its long edge is the format's, and its shape has
+    // to be the gate's, either way up. Any other shape was laid out as if it
+    // were, and the picture was cut by the film's width.
+    {
+        const double gate_long = std::max(fmt->along, fmt->across), gate_short = std::min(fmt->along, fmt->across);
+        const double frame_long = std::max(frame_w, frame_h), frame_short = std::max(1u, std::min(frame_w, frame_h));
+        const double ratio = (frame_long / frame_short) / (gate_long / gate_short);
+        if (std::fabs(ratio - 1.0) > 0.05) {
+            char buf[160];
+            std::snprintf(buf, sizeof buf, "overscan: a %u x %u frame is not the %s gate's shape (%g x %g); crop the picture to the gate first",
+                          frame_w, frame_h, fmt->name, gate_long, gate_short);
+            error = buf;
+            return false;
+        }
     }
     OverscanLayout& L = overscan_;
     L = OverscanLayout{};
@@ -903,6 +919,19 @@ void imprint_groups(const OverscanLayout& L, const Params& params, double frame_
         return op;
     };
 
+    // The edge print has a slot between the numbers; text longer than the
+    // slot would run under the next number and over itself. Helvetica's caps
+    // average ~0.68 em, so that is the width taken: whole words are dropped
+    // from the end until it fits, and the first word is cut if it alone does
+    // not. A stock's name fits; this is for a host that sends anything.
+    auto fit_edge_text = [](std::string text, double slot_mm, double size_mm, double tracking_mm) {
+        const double per_char = 0.68 * size_mm + tracking_mm;
+        const size_t max_chars = size_t(std::max(1.0, std::floor(slot_mm / per_char)));
+        if (text.size() <= max_chars) return text;
+        const size_t cut = text.rfind(' ', max_chars);
+        if (cut != std::string::npos && cut > 0) return text.substr(0, cut);
+        return text.substr(0, max_chars);
+    };
     if (L.valid && L.perforated) {
         // Film data on a half-frame grid (4 perforations = 19.00 mm) anchored
         // to the perforations. Sizes and positions measured on a real Kodak
@@ -933,7 +962,9 @@ void imprint_groups(const OverscanLayout& L, const Params& params, double frame_
             if (!a_half) {
                 op.text = std::to_string(num); op.s = s + 14.6; op.t = t_top; top.ops.push_back(op);
             } else if (!o.edge_text.empty()) {
-                op.text = o.edge_text; op.s = s + 1.5; op.t = t_top; op.tracking_mm = 0.06; top.ops.push_back(op);
+                // From s + 1.5 to the next number at s + 19 + 14.6, less a space.
+                op.text = fit_edge_text(o.edge_text, 19.0 + 14.6 - 1.5 - 2.0, op.size_mm, 0.06);
+                op.s = s + 1.5; op.t = t_top; op.tracking_mm = 0.06; top.ops.push_back(op);
             }
             // The DX code, as runs of black modules so neighbours do not seam.
             if (dx >= 0) {
@@ -1001,7 +1032,8 @@ void imprint_groups(const OverscanLayout& L, const Params& params, double frame_
             top.ops.push_back(num);
             if (!o.edge_text.empty()) {
                 Op tx = num;
-                tx.text = o.edge_text; tx.s = s + 10.8; tx.tracking_mm = 0.14;
+                tx.text = fit_edge_text(o.edge_text, period - 10.8 - 3.0, size, 0.14);
+                tx.s = s + 10.8; tx.tracking_mm = 0.14;
                 top.ops.push_back(tx);
             }
         }
@@ -1139,8 +1171,12 @@ void imprint_groups(const OverscanLayout& L, const Params& params, double frame_
             fw = turned ? frame_h_mm : frame_w_mm;
             fh = turned ? frame_w_mm : frame_h_mm;
         }
-        const double s0 = right ? fs + fw - d.inset_x - w : fs + d.inset_x;
-        const double base = bottom ? ft + fh - d.inset_y : ft + d.inset_y + h;
+        // Kept inside the frame: a large face or an inset past the frame's
+        // middle would otherwise carry the text off its edge. Text wider than
+        // the frame starts at its left and is clipped by the gate.
+        const double over = (d.style == "lcd" ? h * std::tan(8.0 * M_PI / 180.0) : 0.0) + 0.1;   // the slant, and the blur
+        const double s0 = std::clamp(right ? fs + fw - d.inset_x - w : fs + d.inset_x, fs + 0.1, std::max(fs + 0.1, fs + fw - w - over));
+        const double base = std::clamp(bottom ? ft + fh - d.inset_y : ft + d.inset_y + h, std::min(ft + h + 0.1, ft + fh - 0.1), ft + fh - 0.1);
         draw(h, [&](double x, double y, double& ss, double& tt) {
             const double sf = s0 + x, tf = base - y;
             if (!turned) { ss = sf; tt = tf; }

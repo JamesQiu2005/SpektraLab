@@ -58,7 +58,7 @@ OVERRIDES: dict[str, object] = {
     # RFC-032/031's enumerated strings, each off its default. The walk is
     # cumulative and `overscan_active` comes first, so by the time the date's
     # `rebate` placement lands the overscan it needs is on.
-    "overscan_format": "120_645",
+    "overscan_format": "120_6x9",       # the walk's frame is 3:2, and the frame is the gate
     "overscan_mode": "filed",
     "overscan_edge_text": "KODA 400",
     "overscan_gate": "square",
@@ -110,7 +110,8 @@ def main() -> int:
     from spk_ctypes import Engine
 
     rng = np.random.default_rng(11)
-    frame = (rng.random((300, 400, 3)) * 0.4).astype(np.float32)
+    # 3:2, the 135 gate's shape: with overscan on, the frame is the gate.
+    frame = (rng.random((300, 450, 3)) * 0.4).astype(np.float32)
 
     failures = 0
     with Engine() as engine:
