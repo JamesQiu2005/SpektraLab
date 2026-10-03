@@ -72,6 +72,16 @@ final class FilmEdgeTests: XCTestCase {
         XCTAssertEqual(Session.edgeText(for: nil), "")
     }
 
+    /// The film's own words where they are not its name (reference_film/, 2026-10-03).
+    func testEdgeTextIsWhatTheFilmPrints() {
+        let catalog = StockCatalog.shared
+        XCTAssertEqual(Session.edgeText(for: catalog.stock("kodak_gold_200")), "KODAK GB 200")
+        XCTAssertEqual(Session.edgeText(for: catalog.stock("kodak_gold_200"), gauge: "120"), "KODAK 200")
+        XCTAssertEqual(Session.edgeText(for: catalog.stock("fujifilm_provia_100f")), "FUJI RDPIII")
+        XCTAssertEqual(Session.edgeText(for: catalog.stock("fujifilm_provia_100f"), gauge: "120"), "RDPIII")
+        XCTAssertEqual(Session.edgeText(for: catalog.stock("fujifilm_xtra_400")), "S-400")
+    }
+
     func testTheDateIsTheCaptureDayInTheChosenOrder() {
         let s = ShootingData(exif: [kCGImagePropertyExifDateTimeOriginal: "2026:10:01 14:03:22"])
         XCTAssertEqual(s.dateText(order: .japan), "'26 10 1")

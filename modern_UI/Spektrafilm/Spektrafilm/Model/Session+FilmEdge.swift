@@ -194,8 +194,32 @@ extension Session {
     /// The stock's edge print, as desktop prints it: the real name (answer
     /// B16), in capitals the way the film carries it. A push is a processing
     /// choice, not another film, so `(Push 1)` is not printed.
-    nonisolated static func edgeText(for stock: Stock?) -> String {
+    ///
+    /// Where the film itself prints something other than its marketing name,
+    /// the film's own words, read off the strips in `reference_film/`
+    /// (2026-10-03): Gold 200 is "GB 200" on 135 and "KODAK 200" on 120,
+    /// UltraMax "GC 400", Ektachrome "E100", C200 "FUJI 200", X-Tra "S-400",
+    /// Pro 400H "PRO400H", Provia "FUJI RDPIII" (the engine prints "FUJI" on
+    /// its own on 120), Velvia "RVP100" (the references are RVP50), and a
+    /// Vision3 stock its Eastman product number. Emulsion suffixes ("-7",
+    /// "-3") and roll numbers vary by batch and are not printed.
+    nonisolated static func edgeText(for stock: Stock?, gauge: String = "135") -> String {
         guard let stock else { return "" }
+        let own: [String: (String, String)] = [   // (135, 120)
+            "kodak_gold_200": ("KODAK GB 200", "KODAK 200"),
+            "kodak_ultramax_400": ("KODAK GC 400", "KODAK GC 400"),
+            "kodak_ektachrome_100": ("KODAK E100", "KODAK E100"),
+            "fujifilm_c200": ("FUJI 200", "FUJI 200"),
+            "fujifilm_xtra_400": ("S-400", "S-400"),
+            "fujifilm_pro_400h": ("PRO400H", "PRO400H"),
+            "fujifilm_provia_100f": ("FUJI RDPIII", "RDPIII"),
+            "fujifilm_velvia_100": ("RVP100", "RVP100"),
+            "kodak_vision3_50d": ("EASTMAN 5203", "EASTMAN 5203"),
+            "kodak_vision3_250d": ("EASTMAN 5207", "EASTMAN 5207"),
+            "kodak_vision3_200t": ("EASTMAN 5213", "EASTMAN 5213"),
+            "kodak_vision3_500t": ("EASTMAN 5219", "EASTMAN 5219"),
+        ]
+        if let t = own[stock.id] { return gauge == "120" ? t.1 : t.0 }
         var name = stock.name
         if let open = name.firstIndex(of: "(") { name = String(name[..<open]) }
         return name.trimmingCharacters(in: .whitespaces).uppercased()
@@ -216,7 +240,7 @@ extension Session {
     nonisolated static func resolvedFilmEdge(_ p: FilmParams, geometry: Geometry,
                                              shooting: ShootingData, stock: Stock?) -> FilmParams {
         var p = p
-        p.filmEdge.edgeText = edgeText(for: stock)
+        p.filmEdge.edgeText = edgeText(for: stock, gauge: p.filmEdge.format.gauge)
         p.filmEdge.fNumber = shooting.fNumber ?? 0
         p.filmEdge.framing = framingKey(geometry)
         p.dateBack.framing = geometry.isIdentity ? "" : framingKey(geometry)
