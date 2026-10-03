@@ -1,0 +1,41 @@
+#version 450
+
+// Transfer modes and exact breakpoints follow nodes.metal/core/colour.cpp.
+layout(local_size_x = 256) in;
+layout(set = 0, binding = 0, std430) readonly buffer Input { float value[]; } input_data;
+layout(set = 0, binding = 1, std430) readonly buffer Meta { uint value[]; } meta;
+layout(set = 0, binding = 2, std430) writeonly buffer Output { float value[]; } output_data;
+
+float signed_power(float value, float exponent) {
+    float sign_value = value < 0.0 ? -1.0 : (value > 0.0 ? 1.0 : 0.0);
+    return sign_value * pow(abs(value), exponent);
+}
+
+float decode(float value, uint mode) {
+    switch (mode) {
+        case 0u: return 0.040449936 >= value ? value / 12.92
+                      : signed_power((value + 0.055) / 1.055, 2.4);
+        case 1u: return value < 16.0 * (1.0 / 512.0) ? value / 16.0 : pow(value, 1.8);
+        // Metal's ordinary non-integral pow returns NaN for a negative base.
+        // GLSL leaves that domain undefined, so reproduce the result explicitly.
+        case 2u: return value < 0.0 ? uintBitsToFloat(0x7fc00000u)
+                                  : pow(value, 563.0 / 256.0);
+        case 3u: {
+            // Keep alpha/beta as float operations. glslang otherwise folds
+            // const expressions in its wider parser precision, which shifts
+            // this breakpoint by several float ULPs and selects the wrong
+            // side of BT.709's small discontinuity next to the join.
+            float alpha = 1.099, beta = 0.018;
+            float breakpoint = alpha * pow(beta, 0.45) - (alpha - 1.0);
+            return breakpoint > value ? value / 4.5
+                      : signed_power((value + (alpha - 1.0)) / alpha, 1.0 / 0.45);
+        }
+        default: return value;
+    }
+}
+
+void main() {
+    uint i = gl_GlobalInvocationID.x;
+    if (i >= meta.value[0]) return;
+    output_data.value[i] = decode(input_data.value[i], meta.value[1]);
+}

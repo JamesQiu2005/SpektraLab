@@ -106,8 +106,16 @@ def uid(key: str) -> str:
 
 
 def engine_sources() -> list[Path]:
-    """Every engine translation unit, in a stable order."""
-    return sorted((ENGINE / "src").rglob("*.cpp"))
+    """The macOS engine translation units, in a stable order."""
+    # The Windows hosts use LibRaw/native TIFF I/O and a separate desktop
+    # controller. They must not add those dependencies to the Core Image app.
+    # Keep every upstream Mac source; exclude only the Windows additions.
+    windows_dirs = {"io", "desktop"}
+    windows_files = {"gpu/vulkan_gpu.cpp", "pipeline/windows_unported.cpp"}
+    root = ENGINE / "src"
+    return sorted(p for p in root.rglob("*.cpp")
+                  if p.relative_to(root).parts[0] not in windows_dirs
+                  and p.relative_to(root).as_posix() not in windows_files)
 
 
 def relative_to_project(path: Path) -> str:
@@ -124,7 +132,8 @@ def relative_to_project(path: Path) -> str:
     every byte except all 1,400 ids, and every merge between them conflicted
     over a change neither side had made.
     """
-    return os.path.relpath(path, ROOT)
+    # Keep Xcode paths and the IDs derived from them identical on Windows.
+    return Path(os.path.relpath(path, ROOT)).as_posix()
 
 
 def file_type(p: Path) -> str:

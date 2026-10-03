@@ -10,10 +10,11 @@ from __future__ import annotations
 
 import ctypes
 import json
-import os
 from pathlib import Path
 
 import numpy as np
+
+from spk_test_paths import LIBRARY_ENV, resolve_library, resolve_resources
 
 ENGINE = Path(__file__).resolve().parents[1]
 
@@ -48,27 +49,19 @@ class EngineError(RuntimeError):
 
 
 class Engine:
-    def __init__(self, dylib: Path | None = None, resources: Path | None = None):
-        self._lib = ctypes.CDLL(str(dylib or ENGINE / "build" / "libspektrafilm_engine.dylib"))
+    def __init__(self, dylib: Path | str | None = None, resources: Path | str | None = None,
+                 *, library: Path | str | None = None):
+        if dylib is not None and library is not None:
+            raise ValueError("pass library or the legacy dylib argument, not both")
+        selected = library if library is not None else dylib
+        self.library_path = resolve_library(selected)
+        self.resources_path = resolve_resources(resources, selected)
+        if not self.library_path.is_file():
+            raise FileNotFoundError(f"engine library not found: {self.library_path}; "
+                                    f"pass --library or set {LIBRARY_ENV}")
+        self._lib = ctypes.CDLL(str(self.library_path))
         self._declare()
-        # `SPEKTRAFILM_ENGINE_RESOURCES` is the same override `EngineClient`
-        # honours first, and it is here for the same reason: it is what lets a
-        # harness be pointed at the resources *inside a built .app* rather
-        # than at the checkout's. That is the only way to check that what
-        # shipped is what was tested -- `engine/build.sh bundle` is an rsync,
-        # and an rsync that did not run leaves a stale bundle rather than an
-        # empty one.
-        env = os.environ.get("SPEKTRAFILM_ENGINE_RESOURCES")
-        # **A dylib and a metallib are a pair.** The kernels live in
-        # `resources/spektrafilm.metallib` and a dylib dispatches them by name,
-        # so an old dylib against a new metallib is not a comparison, it is
-        # `no kernel 'spk_transpose3'`. Every probe's `--dylib` is meant for
-        # exactly that comparison -- a worktree build against the current tree
-        # -- so when a dylib is named, its own `../resources` is used unless
-        # the caller or the environment says otherwise.
-        beside = dylib.parent.parent / "resources" if dylib else None
-        self._resources = str(resources or env
-                              or (beside if beside and beside.is_dir() else ENGINE / "resources"))
+        self._resources = str(self.resources_path)
         self._handle = self._lib.spk_engine_create(self._resources.encode(), None)
         if not self._handle:
             raise EngineError(self._last_error())
@@ -149,10 +142,11 @@ class Engine:
     def _take_json(self, buf: ctypes.c_char_p) -> dict:
         if not buf:
             return {}
-        text = ctypes.cast(buf, ctypes.c_char_p).value or b"{}"
-        parsed = json.loads(text)
-        self._lib.spk_string_free(buf)
-        return parsed
+        try:
+            text = ctypes.cast(buf, ctypes.c_char_p).value or b"{}"
+            return json.loads(text)
+        finally:
+            self._lib.spk_string_free(buf)
 
     # --- the method surface, one to one with the C ABI -------------------
 

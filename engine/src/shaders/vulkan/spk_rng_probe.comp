@@ -1,0 +1,27 @@
+// Test-only probe. mode 0: Philox counter/key vector; 1: uniform;
+// 2: exact Poisson(p[0]); 3: layer_draw(p[0..3]); 4: standard normal.
+#version 450
+#extension GL_GOOGLE_include_directive : require
+#include "spk_rng.glsl"
+layout(local_size_x = 256) in;
+layout(std430, binding = 0) readonly buffer CounterKey { uint ctrkey[]; };
+layout(std430, binding = 1) readonly buffer Params { float p[]; };
+layout(std430, binding = 2) readonly buffer Meta { uint meta[]; };
+layout(std430, binding = 3) writeonly buffer Out { uint dst[]; };
+void main() {
+    uint i = gl_GlobalInvocationID.x;
+    if (i >= meta[0]) return;
+    if (meta[3] == 0u) {
+        uint j = i * 6u;
+        uvec4 v = philox4x32_10(uvec4(ctrkey[j], ctrkey[j+1u], ctrkey[j+2u], ctrkey[j+3u]), uvec2(ctrkey[j+4u], ctrkey[j+5u]));
+        dst[4u*i] = v.x; dst[4u*i+1u] = v.y; dst[4u*i+2u] = v.z; dst[4u*i+3u] = v.w;
+    } else {
+        Rng rng = rng_init(i, meta[2], meta[1]);
+        float v;
+        if (meta[3] == 1u) v = rng_next(rng);
+        else if (meta[3] == 2u) v = poisson(rng, p[0]);
+        else if (meta[3] == 3u) v = layer_draw(rng, p[0], p[1], p[2], p[3]);
+        else v = rng_normal(rng);
+        dst[i] = floatBitsToUint(v);
+    }
+}

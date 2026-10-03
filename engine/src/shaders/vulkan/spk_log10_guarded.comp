@@ -1,0 +1,14 @@
+#version 450
+
+layout(local_size_x = 256) in;
+layout(set = 0, binding = 0, std430) readonly buffer Input { float value[]; } input_data;
+layout(set = 0, binding = 1, std430) readonly buffer Gain { float value[]; } gain_data;
+layout(set = 0, binding = 2, std430) readonly buffer Count { uint value[]; } count_data;
+layout(set = 0, binding = 3, std430) writeonly buffer Output { float value[]; } output_data;
+
+void main() {
+    uint i = gl_GlobalInvocationID.x;
+    if (i >= count_data.value[0]) return;
+    float value = max(input_data.value[i] * gain_data.value[i % 3u], 0.0) + 1e-10;
+    output_data.value[i] = log(value) * 0.4342944819032518;
+}

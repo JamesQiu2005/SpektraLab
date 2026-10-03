@@ -2,6 +2,10 @@
 
 [English](README.md) · **简体中文**
 
+**Windows 开发版：**本分支增加了 C++/Vulkan 后端、原生 LibRaw 解码、RGB16 TIFF 导出和最小 Windows 窗口。
+构建方法见 [Windows 说明](engine/WINDOWS.md)，已验证功能及限制见 [功能覆盖表](engine/WINDOWS_FEATURE_COVERAGE.md)。
+下文介绍的 macOS 产品还包含尚未完成 Windows 迁移的界面与显示功能。
+
 macOS 上的胶片与放大相纸模拟器。打开一张 RAW，选好胶片和相纸，约一秒内得到一张按物理过程建模的照片——颗粒、光晕、成色剂耦合、放大机滤色，一样不少。
 
 ![SpektraLab：曼哈顿下城，Kodak Portra 160 胶片，Kodak Vision 2383 放映拷贝片](screenshots/Screenshot_ZH_HANS.png)

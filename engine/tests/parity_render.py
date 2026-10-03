@@ -49,6 +49,8 @@ from pathlib import Path
 
 import numpy as np
 
+from spk_test_paths import add_engine_arguments, engine_options
+
 ENGINE = Path(__file__).resolve().parents[1]
 REPO = ENGINE.parent
 sys.path.insert(0, str(REPO / "src"))
@@ -308,6 +310,7 @@ def main() -> int:
     ap.add_argument("--verbose", "-v", action="store_true")
     ap.add_argument("--no-strips", action="store_true",
                     help="skip RFC-020 §6's strip-count axis")
+    add_engine_arguments(ap)
     args = ap.parse_args()
 
     from spk_ctypes import Engine
@@ -319,7 +322,7 @@ def main() -> int:
 
     cases = [c for c in CASES if not args.case or c.name in args.case]
     failures = 0
-    with Engine() as engine:
+    with Engine(**engine_options(args)) as engine:
         print(f"engine: {engine.build_info}")
         caps = engine.capabilities()
         print(f"core:   {caps['backend']['render_core']} on {caps['backend']['gpu']}, "

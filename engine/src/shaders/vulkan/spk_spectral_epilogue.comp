@@ -1,0 +1,37 @@
+#version 450
+
+// Fused spectral integral and the three-channel epilogue from nodes.metal.
+// Keeping the wavelength reduction in registers avoids a spectral image plane.
+layout(local_size_x = 256) in;
+layout(set = 0, binding = 0, std430) readonly buffer Input { float value[]; } input_data;
+layout(set = 0, binding = 1, std430) readonly buffer Characteristic { float value[]; } characteristic;
+layout(set = 0, binding = 2, std430) readonly buffer Base { float value[]; } base_data;
+layout(set = 0, binding = 3, std430) readonly buffer Integral { float value[]; } integral_data;
+layout(set = 0, binding = 4, std430) readonly buffer Epilogue { float value[]; } epilogue;
+layout(set = 0, binding = 5, std430) readonly buffer Meta { uint value[]; } meta;
+layout(set = 0, binding = 6, std430) writeonly buffer Output { float value[]; } output_data;
+
+void main() {
+    uint pixel = gl_GlobalInvocationID.x;
+    if (pixel >= meta.value[0]) return;
+    float c0 = input_data.value[3u * pixel];
+    float c1 = input_data.value[3u * pixel + 1u];
+    float c2 = input_data.value[3u * pixel + 2u];
+    vec3 accumulated = vec3(0.0);
+    for (uint wavelength = 0u; wavelength < meta.value[1]; ++wavelength) {
+        float density = c0 * characteristic.value[3u * wavelength]
+                      + c1 * characteristic.value[3u * wavelength + 1u]
+                      + c2 * characteristic.value[3u * wavelength + 2u]
+                      + base_data.value[wavelength];
+        float transmission = exp2(-density * 3.321928094887362);
+        accumulated.x += transmission * integral_data.value[3u * wavelength];
+        accumulated.y += transmission * integral_data.value[3u * wavelength + 1u];
+        accumulated.z += transmission * integral_data.value[3u * wavelength + 2u];
+    }
+    for (uint channel = 0u; channel < 3u; ++channel) {
+        float value = max(accumulated[channel] * epilogue.value[channel]
+                          + epilogue.value[3u + channel], 0.0) + 1e-10;
+        if (meta.value[2] == 0u) value = log(value) * 0.4342944819032518;
+        output_data.value[3u * pixel + channel] = value;
+    }
+}

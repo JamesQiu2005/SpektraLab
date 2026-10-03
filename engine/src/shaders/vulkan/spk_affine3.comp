@@ -1,0 +1,17 @@
+#version 450
+
+// Per-channel scale and offset; the same buffer order as util.metal.
+layout(local_size_x = 256) in;
+layout(set = 0, binding = 0, std430) readonly buffer Input { float value[]; } input_data;
+layout(set = 0, binding = 1, std430) readonly buffer Scale { float value[]; } scale_data;
+layout(set = 0, binding = 2, std430) readonly buffer Offset { float value[]; } offset_data;
+layout(set = 0, binding = 3, std430) readonly buffer Meta { uint value[]; } meta;
+layout(set = 0, binding = 4, std430) writeonly buffer Output { float value[]; } output_data;
+
+void main() {
+    uint i = gl_GlobalInvocationID.x;
+    if (i >= meta.value[0]) return;
+    uint channel = i % 3;
+    output_data.value[i] = input_data.value[i] * scale_data.value[channel]
+                         + offset_data.value[channel];
+}

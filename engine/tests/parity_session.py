@@ -31,6 +31,8 @@ from pathlib import Path
 
 import numpy as np
 
+from spk_test_paths import add_engine_arguments, engine_options
+
 ENGINE = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ENGINE.parent / "src"))
 sys.path.insert(0, str(ENGINE / "tests"))
@@ -105,6 +107,7 @@ def value_for(field: dict):
 def main() -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("--verbose", "-v", action="store_true")
+    add_engine_arguments(ap)
     args = ap.parse_args()
 
     from spk_ctypes import Engine
@@ -114,7 +117,7 @@ def main() -> int:
     frame = (rng.random((300, 450, 3)) * 0.4).astype(np.float32)
 
     failures = 0
-    with Engine() as engine:
+    with Engine(**engine_options(args)) as engine:
         schema = engine.params_schema()
         fields = schema["fields"]
         print(f"{len(fields)} declared fields, applied one at a time to one open session\n")
