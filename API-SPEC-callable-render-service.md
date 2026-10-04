@@ -854,19 +854,22 @@ reasoning: RFC-032 §25, §27.
   "EASTMAN 52xx" keycode line and dashes, no numbers or bars. E100: white
   marks. On Kodak 120 the name is centred between consecutive numbers.
   **The lettering, re-measured 2026-10-04** (the owner's real-against-rendered
-  pairs; 1.3.1). Fujifilm prints two faces of its own, neither the date back's
-  5×7: frame numbers in a bold face on a 13 × 15 grid (stems four cells, corners
-  stepped), names and codes in the 5×7 skeleton on a grid twice as fine with
-  cells wider than tall (×1.28 on the 135 slides: caps 0.935 mm, a character
-  every 1.03 mm; ×1.075 on 120: caps 1.05 mm, every 0.967 mm, zeros slashed),
-  diagonals stepping by half a cell. A text's closing "III" is the film's
-  one-cell numeral, so the host still sends "FUJI RDPIII". Both are drawn with
-  the ink held back from each open edge (0.03-0.05 mm) so that a stroke comes
-  out of the develop as wide as the scans show it. X-Tra 400's numbers are
-  these faces too, not a condensed Helvetica. Kodak 120: the first word and the
-  numbers are an extended black face (Helvetica Neue Bold ×1.3 along the line,
-  "KODAK" 7.3 mm at caps 1.13), the rest of the name follows 2.5 mm on in an
-  ordinary bold (Medium on Portra) — a gap, not a word space.
+  pairs; 1.3.1). Fujifilm's print is a dot matrix and is drawn as one: every
+  mark is a pattern of dots 0.1155 mm apart along the film and 0.0984 mm
+  across it, each dot a disc 0.11 mm across, so strokes stay beaded. Its
+  faces were read off the strips dot by dot: names 7 × 9 with one-dot strokes
+  (a character every nine dots), frame numbers 12 × 16 with three-dot stems,
+  the half frame's "36A" 8 × 12 with two-dot strokes, the roll length 3 × 5,
+  and the arrow itself 22 × 12 dots. A text's closing "III" is the film's
+  one-cell numeral, so the host still sends "FUJI RDPIII". Fujifilm 120 is a
+  plain 5 × 7 matrix of larger dots (0.161 × 0.148 mm apart, zeros slashed,
+  caps 1.05 mm) with its marker in the same dots; the code after the name
+  ("EFCDCD") is 5 × 7 on the 135 grid. X-Tra 400's numbers are the two-dot
+  face, not a condensed Helvetica; its bars and arrow are still drawn solid.
+  Kodak 120: the first word and the numbers are an extended black face
+  (Helvetica Neue Bold ×1.3 along the line, "KODAK" 7.3 mm at caps 1.13), the
+  rest of the name follows 2.5 mm on in an ordinary bold (Medium on Portra) —
+  a gap, not a word space.
   **Borrowed, no reference:** Pro 400H on 135 (X-Tra's layout), Velvia 100
   (Velvia 50's), E100 on 135 (Kodak's), every half-frame layout. The host's
   `edge_text` is the film's own words, with the emulsion suffix where a strip

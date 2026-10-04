@@ -137,13 +137,13 @@ const Format* find_format(const std::string& name) {
 // a stock not listed keeps the Kodak layout.
 enum class Edge135 {
     Kodak,      // DX bars, Helvetica: Gold 200, Portra 160/800, UltraMax 400 (and C200, Kodak-made)
-    FujiSlide,  // no bars; Fujifilm's matrix faces, bold numbers on both edges, "36 => 12A": RVP50, RDPIII
+    FujiSlide,  // no bars; Fujifilm's dot faces, bold numbers on both edges, "36 => 12A": RVP50, RDPIII
     FujiNeg,    // 14.1 mm DX bars, condensed numbers on both edges: X-Tra 400
     Cine,       // "EASTMAN 5207 ..." beside one row of perforations, dashes, no bars: Vision3 250D
 };
 enum class Edge120 {
     Kodak,      // numbers and the name on one edge, triangles and digits on the other
-    Fuji,       // one edge only, the names' face: the maker's mark (the host's), "13 <", the stock, a roll number
+    Fuji,       // one edge only, 5x7 dots: the maker's mark (the host's), "13 <", the stock, a roll number
 };
 struct EdgeLook {
     const char* stock;
@@ -1084,178 +1084,242 @@ double matrix_text(const std::string& text, double cap, double xscale, bool bold
     return std::max(0.0, x - cw);
 }
 
-// Fujifilm's two edge-print faces, read off the owner's strips pixel by pixel
-// (You_Still_Fucked_Film_Simulation/, 2026-10-04: "actual RDP III.jpg" at
-// 31 px/mm, RVP50.png, RDPIII.png, Actual_Pro400h.jpg). Until then both were
-// the date back's 5x7 face, the bold one made by smearing every cell one to
-// the right -- "the way pixel font is formulated is not correct" (the owner).
+// Fujifilm's edge print is a dot matrix: one printer, one grid of dots, and
+// every mark on the film -- names, numbers, the arrow -- is a pattern of
+// those dots. Read off the owner's strips dot by dot (2026-10-04,
+// You_Still_Fucked_Film_Simulation/: "actual RDP III.jpg" at 31 px/mm,
+// RVP50.png, RDPIII.png, Actual_Pro400h.jpg) by sampling each glyph at the
+// dots' centres: the dots are 0.1155 mm apart along the film (a character of
+// the names' face every 9 dots = 32 px) and 0.0984 mm across it (nine rows
+// and a dot's footprint in 29 px).
 //
-// The frame numbers' face is its own design on a 13 x 15 grid of square
-// cells: stems four cells wide, the top and bottom bars three rows with both
-// outer corners stepped in twice, the middle bar two rows. "3" and "6" are
-// off the RDP III strip (51 px tall, 45 wide), "4" off RVP50, "2", "7" and
-// "A" off RDPIII.png; 0, 1, 5, 8 and 9 are drawn to the same rules, no strip
-// showing them.
-const char* const* fuji_bold_glyph(char ch) {
-    static const char* const k0[15] = {"..#########..", ".###########.", "#############", "#####...#####", "####.....####",
-                                       "####.....####", "####.....####", "####.....####", "####.....####", "####.....####",
-                                       "####.....####", "#####...#####", "#############", ".###########.", "..#########.."};
-    static const char* const k1[15] = {".....####....", "....#####....", "...######....", "..#######....", "..#######....",
-                                       ".....####....", ".....####....", ".....####....", ".....####....", ".....####....",
-                                       ".....####....", ".....####....", "..#########..", "..#########..", "..#########.."};
-    static const char* const k2[15] = {"..#########..", ".###########.", "#############", "#####...#####", "####.....####",
-                                       ".........####", "........#####", "......######.", "....######...", "..######.....",
-                                       ".#####.......", "#####........", "#############", "#############", "#############"};
-    static const char* const k3[15] = {"..#########..", ".###########.", "#############", "#####...#####", "####.....####",
-                                       ".........####", "........#####", "....#########", "....########.", "........#####",
-                                       "####.....####", "#####...#####", "#############", ".###########.", "..#########.."};
-    static const char* const k4[15] = {".......####..", "......#####..", ".....######..", "....#######..", "...########..",
-                                       "..#########..", ".##########..", "#####..####..", "####...####..", "####...####..",
-                                       "#############", "#############", "#############", ".......####..", ".......####.."};
-    static const char* const k5[15] = {"#############", "#############", "#############", "####.........", "####.........",
-                                       "###########..", "############.", "#############", "........#####", ".........####",
-                                       "####.....####", "#####...#####", "#############", ".###########.", "..#########.."};
-    static const char* const k6[15] = {"..#########..", ".###########.", "#############", "#####...#####", "####.....####",
-                                       "####.........", "###########..", "############.", "#############", "#####...#####",
-                                       "####.....####", "#####...#####", "#############", ".###########.", "..#########.."};
-    static const char* const k7[15] = {"#############", "#############", "#############", ".........####", ".........####",
-                                       "........####.", ".......####..", "......####...", ".....####....", ".....####....",
-                                       "....####.....", "....####.....", "....####.....", "....####.....", "....####....."};
-    static const char* const k8[15] = {"..#########..", ".###########.", "#############", "#####...#####", "####.....####",
-                                       "#####...#####", ".###########.", ".###########.", "#############", "#####...#####",
-                                       "####.....####", "#####...#####", "#############", ".###########.", "..#########.."};
-    static const char* const k9[15] = {"..#########..", ".###########.", "#############", "#####...#####", "####.....####",
-                                       "#####...#####", "#############", ".############", "..###########", ".........####",
-                                       "####.....####", "#####...#####", "#############", ".###########.", "..#########.."};
-    static const char* const kA[15] = {"....#####....", "...#######...", "..#########..", ".###########.", "#####...#####",
-                                       "####.....####", "####.....####", "####.....####", "#############", "#############",
-                                       "#############", "####.....####", "####.....####", "####.....####", "####.....####"};
+// Twice it was drawn as something else. First as the date back's 5x7 face
+// with the bold made by smearing each cell to the right; then (the first
+// 1.3.1 attempt) as bars on a doubled grid -- "fujifilm ones are dotted and
+// yours are just connected lines with some pixelated part" (the owner). The
+// faces below are the film's own, and each lit dot is drawn as a dot.
+constexpr double kDotS = 0.1155, kDotT = 0.0984, kDotFill = 1.2;
+
+struct DotFace {
+    int ncol, nrow, advance;                      // glyph cells, and dots from one character to the next
+    const char* const* (*glyph)(const std::string& text, size_t& i);   // rows of '#'/'.'; advances i past what it read
+};
+
+// The names' face, 7 x 9, strokes one dot wide. F U J I R D P and the
+// one-cell III are off the RDP III strip, R V P 5 0 off RVP50.png (the 0 is
+// not slashed, U and J turn their corners in two steps, D's stem stands a
+// dot in from its serifs); the rest are drawn to the same rules.
+const char* const* names_glyph(const std::string& text, size_t& i) {
+    struct G { char c; const char* r[9]; };
+    static const G k[] = {
+        {'A', {"...#...", "..#.#..", ".#...#.", "#.....#", "#.....#", "#######", "#.....#", "#.....#", "#.....#"}},
+        {'B', {"######.", "#.....#", "#.....#", "#.....#", "######.", "#.....#", "#.....#", "#.....#", "######."}},
+        {'C', {".#####.", "#.....#", "#......", "#......", "#......", "#......", "#......", "#.....#", ".#####."}},
+        {'D', {"#####..", ".#...#.", ".#....#", ".#....#", ".#....#", ".#....#", ".#....#", ".#...#.", "#####.."}},
+        {'E', {"#######", "#......", "#......", "#......", "#####..", "#......", "#......", "#......", "#######"}},
+        {'F', {"#######", "#......", "#......", "#......", "#####..", "#......", "#......", "#......", "#......"}},
+        {'G', {".#####.", "#.....#", "#......", "#......", "#..####", "#.....#", "#.....#", "#.....#", ".#####."}},
+        {'H', {"#.....#", "#.....#", "#.....#", "#.....#", "#######", "#.....#", "#.....#", "#.....#", "#.....#"}},
+        {'I', {".###...", "..#....", "..#....", "..#....", "..#....", "..#....", "..#....", "..#....", ".###..."}},
+        {'J', {"....###", ".....#.", ".....#.", ".....#.", ".....#.", ".....#.", "#....#.", ".#..#..", "..##..."}},
+        {'K', {"#.....#", "#....#.", "#...#..", "#..#...", "###....", "#..#...", "#...#..", "#....#.", "#.....#"}},
+        {'L', {"#......", "#......", "#......", "#......", "#......", "#......", "#......", "#......", "#######"}},
+        {'M', {"#.....#", "##...##", "#.#.#.#", "#..#..#", "#..#..#", "#.....#", "#.....#", "#.....#", "#.....#"}},
+        {'N', {"#.....#", "##....#", "#.#...#", "#.#...#", "#..#..#", "#...#.#", "#...#.#", "#....##", "#.....#"}},
+        {'O', {".#####.", "#.....#", "#.....#", "#.....#", "#.....#", "#.....#", "#.....#", "#.....#", ".#####."}},
+        {'P', {"######.", "#.....#", "#.....#", "#.....#", "######.", "#......", "#......", "#......", "#......"}},
+        {'Q', {".#####.", "#.....#", "#.....#", "#.....#", "#.....#", "#.....#", "#...#.#", "#....#.", ".####.#"}},
+        {'R', {"######.", "#.....#", "#.....#", "#.....#", "######.", "#..#...", "#...#..", "#....#.", "#.....#"}},
+        {'S', {".#####.", "#.....#", "#......", "#......", ".#####.", "......#", "......#", "#.....#", ".#####."}},
+        {'T', {"#######", "...#...", "...#...", "...#...", "...#...", "...#...", "...#...", "...#...", "...#..."}},
+        {'U', {"#.....#", "#.....#", "#.....#", "#.....#", "#.....#", "#.....#", "#.....#", ".#...#.", "..###.."}},
+        {'V', {"#.....#", "#.....#", "#.....#", ".#...#.", ".#...#.", "..#.#..", "..#.#..", "...#...", "...#..."}},
+        {'W', {"#.....#", "#.....#", "#.....#", "#.....#", "#..#..#", "#..#..#", "#.#.#.#", "##...##", "#.....#"}},
+        {'X', {"#.....#", "#.....#", ".#...#.", "..#.#..", "...#...", "..#.#..", ".#...#.", "#.....#", "#.....#"}},
+        {'Y', {"#.....#", "#.....#", ".#...#.", "..#.#..", "...#...", "...#...", "...#...", "...#...", "...#..."}},
+        {'Z', {"#######", "......#", ".....#.", "....#..", "...#...", "..#....", ".#.....", "#......", "#######"}},
+        {'0', {".#####.", "#.....#", "#.....#", "#.....#", "#.....#", "#.....#", "#.....#", "#.....#", ".#####."}},
+        {'1', {"...#...", "..##...", ".#.#...", "...#...", "...#...", "...#...", "...#...", "...#...", ".#####."}},
+        {'2', {".#####.", "#.....#", "......#", ".....#.", "....#..", "...#...", "..#....", ".#.....", "#######"}},
+        {'3', {".#####.", "#.....#", "......#", "......#", "..####.", "......#", "......#", "#.....#", ".#####."}},
+        {'4', {".....#.", "....##.", "...#.#.", "..#..#.", ".#...#.", "#....#.", "#######", ".....#.", ".....#."}},
+        {'5', {"#######", "#......", "#......", "#......", "######.", "......#", "......#", "#.....#", ".#####."}},
+        {'6', {".#####.", "#.....#", "#......", "#......", "######.", "#.....#", "#.....#", "#.....#", ".#####."}},
+        {'7', {"#######", "......#", ".....#.", "....#..", "...#...", "...#...", "..#....", "..#....", "..#...."}},
+        {'8', {".#####.", "#.....#", "#.....#", "#.....#", ".#####.", "#.....#", "#.....#", "#.....#", ".#####."}},
+        {'9', {".#####.", "#.....#", "#.....#", "#.....#", ".######", "......#", "......#", "#.....#", ".#####."}},
+        {'-', {".......", ".......", ".......", ".......", ".#####.", ".......", ".......", ".......", "......."}},
+        {'+', {".......", "...#...", "...#...", "...#...", "#######", "...#...", "...#...", "...#...", "......."}},
+        {'.', {".......", ".......", ".......", ".......", ".......", ".......", ".......", "..##...", "..##..."}},
+        {'/', {"......#", ".....#.", ".....#.", "....#..", "...#...", "..#....", ".#.....", ".#.....", "#......"}},
+    };
+    static const char* const kRoman3[9] = {"#######", ".#.#.#.", ".#.#.#.", ".#.#.#.", ".#.#.#.", ".#.#.#.", ".#.#.#.", ".#.#.#.", "#######"};
+    // "III" closing a word is the film's one-cell numeral ("FUJI RDPIII" prints RDP and one glyph)
+    if (text.compare(i, 3, "III") == 0 && (i + 3 == text.size() || text[i + 3] == ' ') && i > 0 &&
+        text[i - 1] != ' ' && text[i - 1] != 'I') {
+        i += 3;
+        return kRoman3;
+    }
+    const char ch = text[i++];
+    const char up = (ch >= 'a' && ch <= 'z') ? char(ch - 'a' + 'A') : ch;
+    for (const G& g : k) if (g.c == up) return g.r;
+    return nullptr;
+}
+
+// The frame numbers' face, 12 x 16, stems three dots wide, the top and bottom
+// bars three rows with both corners stepped in twice, the middle bar two.
+// 3 and 6 are off the RDP III strip, 4 off RVP50.png, 2 and 7 off RDPIII.png;
+// 0, 1, 5, 8, 9 and A are drawn to the same rules, no strip showing them.
+const char* const* numbers_glyph(const std::string& text, size_t& i) {
+    static const char* const k0[16] = {"..########..", ".##########.", "############", "####....####", "###......###", "###......###",
+                                       "###......###", "###......###", "###......###", "###......###", "###......###", "###......###",
+                                       "####....####", "############", ".##########.", "..########.."};
+    static const char* const k1[16] = {".....###....", "....####....", "...#####....", "..######....", "..######....", ".....###....",
+                                       ".....###....", ".....###....", ".....###....", ".....###....", ".....###....", ".....###....",
+                                       ".....###....", "..#########.", "..#########.", "..#########."};
+    static const char* const k2[16] = {"..########..", ".##########.", "############", "####....####", "###......###", ".........###",
+                                       "........####", ".......####.", ".....#####..", "...#####....", "..#####.....", ".####.......",
+                                       "####........", "############", "############", "############"};
+    static const char* const k3[16] = {"..########..", ".##########.", "############", "####....####", "###......###", ".........###",
+                                       "........####", "....#######.", "....#######.", "........####", ".........###", "###......###",
+                                       "####....####", "############", ".##########.", "..########.."};
+    static const char* const k4[16] = {".......###..", "......####..", ".....#####..", "....######..", "...#######..", "..####.###..",
+                                       ".####..###..", "####...###..", "###....###..", "###....###..", "###....###..", "############",
+                                       "############", "############", ".......###..", ".......###.."};
+    static const char* const k5[16] = {"############", "############", "############", "###.........", "###.........", "###.........",
+                                       "##########..", "###########.", "############", "........####", ".........###", "###......###",
+                                       "####....####", "############", ".##########.", "..########.."};
+    static const char* const k6[16] = {"..########..", ".##########.", "############", "####....####", "###......###", "###.........",
+                                       "##########..", "###########.", "############", "####....####", "###......###", "###......###",
+                                       "####....####", "############", ".##########.", "..########.."};
+    static const char* const k7[16] = {"############", "############", "############", ".........###", ".........###", "........####",
+                                       ".......####.", "......####..", "......####..", ".....####...", ".....####...", "....####....",
+                                       "....####....", "....####....", "....####....", "....####...."};
+    static const char* const k8[16] = {"..########..", ".##########.", "############", "####....####", "###......###", "####....####",
+                                       ".##########.", ".##########.", "############", "####....####", "###......###", "###......###",
+                                       "####....####", "############", ".##########.", "..########.."};
+    static const char* const k9[16] = {"..########..", ".##########.", "############", "####....####", "###......###", "###......###",
+                                       "####....####", "############", ".###########", "..##########", ".........###", "###......###",
+                                       "####....####", "############", ".##########.", "..########.."};
+    static const char* const kA[16] = {"....####....", "...######...", "..########..", ".####..####.", "####....####", "###......###",
+                                       "###......###", "###......###", "###......###", "############", "############", "############",
+                                       "###......###", "###......###", "###......###", "###......###"};
     static const char* const* const kDigits[10] = {k0, k1, k2, k3, k4, k5, k6, k7, k8, k9};
+    const char ch = text[i++];
     if (ch >= '0' && ch <= '9') return kDigits[ch - '0'];
     if (ch == 'A' || ch == 'a') return kA;
     return nullptr;
 }
 
-// One glyph of a matrix face as rectangles, a lit run of cells along a row at
-// a time. `lit(row, col)` reads the glyph; its top-left cell is at (s0, t0),
-// cells `cw` x `p` mm. `inset` (mm) pulls the ink back from every edge that
-// has no lit neighbour, so a stroke is drawn that much thinner on each side
-// than its cells: the develop and the print spread it back out, and with the
-// cells drawn full a 0.16 mm stroke came out 0.31 mm wide where the scans
-// show 0.20 (Actual_Pro400h.jpg against a render at its 14.5 px/mm).
-template <class Lit>
-void matrix_cells(Lit lit, int nrow, int ncol, double s0, double t0, double cw, double p, double inset,
-                  std::vector<Op>* out) {
-    auto on = [&](int r, int c) { return r >= 0 && r < nrow && c >= 0 && c < ncol && lit(r, c); };
-    for (int r = 0; r < nrow; ++r)
-        for (int c = 0; c < ncol;) {
-            if (!on(r, c)) { ++c; continue; }
-            // a run shares its top and bottom neighbours' state, so its edges are straight
-            const bool up = on(r - 1, c), dn = on(r + 1, c);
-            int e = c + 1;
-            while (e < ncol && on(r, e) && on(r - 1, e) == up && on(r + 1, e) == dn) ++e;
-            const double sa = s0 + c * cw + (on(r, c - 1) ? -0.01 * cw : inset);
-            const double sb = s0 + e * cw - (on(r, e) ? -0.01 * cw : inset);
-            const double ta = t0 + r * p + (up ? -0.01 * p : inset);
-            const double tb = t0 + (r + 1) * p - (dn ? -0.01 * p : inset);
-            Op op;
-            op.kind = Op::Poly;
-            op.pts = {sa, ta, sb, ta, sb, tb, sa, tb};
-            out->push_back(op);
-            c = e;
-        }
+// The half frame's "36A" and X-Tra 400's numbers: 8 x 12, strokes two dots
+// wide. 3, 6 and A off the RDP III strip, 4 off RVP50.png, 2 and 7 off
+// RDPIII.png; the rest to the same rules.
+const char* const* small_numbers_glyph(const std::string& text, size_t& i) {
+    static const char* const k0[12] = {".######.", "########", "##....##", "##....##", "##....##", "##....##", "##....##", "##....##",
+                                       "##....##", "##....##", "########", ".######."};
+    static const char* const k1[12] = {"...##...", "..###...", ".####...", "...##...", "...##...", "...##...", "...##...", "...##...",
+                                       "...##...", "...##...", ".######.", ".######."};
+    static const char* const k2[12] = {".######.", "########", "##....##", "......##", ".....###", "....###.", "...###..", "..###...",
+                                       ".###....", "###.....", "########", "########"};
+    static const char* const k3[12] = {".######.", "########", "##....##", "......##", "......##", "..######", "..######", "......##",
+                                       "......##", "##....##", "########", ".######."};
+    static const char* const k4[12] = {".....###", "....####", "...#####", "..######", ".###.###", "###..###", "###..###", "###..###",
+                                       "########", "########", ".....###", ".....###"};
+    static const char* const k5[12] = {"########", "########", "##......", "##......", "#######.", "########", "......##", "......##",
+                                       "......##", "##....##", "########", ".######."};
+    static const char* const k6[12] = {".######.", "########", "##....##", "##......", "##......", "#######.", "########", "##....##",
+                                       "##....##", "##....##", "########", ".######."};
+    static const char* const k7[12] = {"########", "########", "......##", "......##", ".....###", "....###.", "....##..", "...###..",
+                                       "...##...", "...##...", "...##...", "...##..."};
+    static const char* const k8[12] = {".######.", "########", "##....##", "##....##", "##....##", ".######.", ".######.", "##....##",
+                                       "##....##", "##....##", "########", ".######."};
+    static const char* const k9[12] = {".######.", "########", "##....##", "##....##", "##....##", "########", ".#######", "......##",
+                                       "......##", "##....##", "########", ".######."};
+    static const char* const kA[12] = {"...##...", "..####..", ".######.", "###..###", "##....##", "##....##", "########", "########",
+                                       "##....##", "##....##", "##....##", "##....##"};
+    static const char* const* const kDigits[10] = {k0, k1, k2, k3, k4, k5, k6, k7, k8, k9};
+    const char ch = text[i++];
+    if (ch >= '0' && ch <= '9') return kDigits[ch - '0'];
+    if (ch == 'A' || ch == 'a') return kA;
+    return nullptr;
 }
 
-// Frame numbers in Fujifilm's bold face: `cap` tall (15 rows), cells `xscale`
-// times as wide as tall (0.98 on the slides, 0.74 on X-Tra 400's condensed
-// numbers), a character every 15 cells (50 px of the 45 a glyph is wide, on
-// "36"). A character the face lacks takes its place and prints nothing. Left
-// at `s0`, baseline `base_t`, glyphs toward smaller t; returns the width, and
-// only measures with `out` null.
-double fuji_bold(const std::string& text, double cap, double xscale, double inset, double s0, double base_t,
-                 std::vector<Op>* out) {
-    const double p = cap / 15.0, cw = p * xscale;
-    double x = 0.0;
-    for (char ch : text) {
-        const char* const* g = fuji_bold_glyph(ch);
-        if (g && out)
-            matrix_cells([&](int r, int c) { return g[r][c] == '#'; }, 15, 13, s0 + x, base_t - cap, cw, p,
-                         std::min(inset, 0.3 * p), out);
-        x += 15.0 * cw;
-    }
-    return std::max(0.0, x - 2.0 * cw);
+// The roll's length before the arrow ("36"): 3 x 5 dots.
+const char* const* tiny_glyph(const std::string& text, size_t& i) {
+    static const char* const k[10][5] = {
+        {"###", "#.#", "#.#", "#.#", "###"}, {".#.", "##.", ".#.", ".#.", "###"}, {"###", "..#", "###", "#..", "###"},
+        {"###", "..#", ".##", "..#", "###"}, {"#.#", "#.#", "###", "..#", "..#"}, {"###", "#..", "###", "..#", "###"},
+        {".##", "#..", "###", "#.#", "###"}, {"###", "..#", ".#.", ".#.", ".#."}, {"###", "#.#", "###", "#.#", "###"},
+        {"###", "#.#", "###", "..#", "##."}};
+    const char ch = text[i++];
+    return (ch >= '0' && ch <= '9') ? k[ch - '0'] : nullptr;
 }
 
-// Names, codes and Fujifilm's 120 numbers: the 5x7 skeleton on a grid twice
-// as fine (10 x 14), strokes two fine cells thick. Where two cells of the
-// skeleton meet only at a corner, the fine cell on each side of the joint is
-// lit, so a diagonal steps by half a cell and "U", "J" and the leg of "R"
-// round as the strips' do (the U of "FUJI" on RDP III: the stem a fine cell
-// wider on its last fine row, the bar a fine cell longer on its first).
-struct FujiThin {
-    double cap;         // cap height, mm (14 fine rows)
-    double xscale;      // a cell's width over its height: 1.28 on the 135 slides, 1.075 on 120
-    bool slashed_zero;  // 120 prints "PRO4ØØH"; the 135 slides' "RVP50" has a plain 0
-    bool slide_forms;   // the 135 slides' J (no top bar) and D (stem a cell in from its serifs)
-    double space;       // a word space, in skeleton columns ("FUJI RDPIII": 8.1 on RDP III)
-    double inset;       // mm of ink held back from each open edge (matrix_cells)
-};
-
-// One character's 14 fine rows, bit 9 = the left fine column. `roman3` asks
-// for the single-cell "III" the film prints after RDP.
-void fuji_thin_rows(char ch, const FujiThin& f, bool roman3, uint16_t rows[14]) {
-    for (int i = 0; i < 14; ++i) rows[i] = 0;
-    if (roman3) {
-        // bars across the top and bottom, three stems two fine cells wide a fine cell apart
-        for (int i = 0; i < 14; ++i) rows[i] = (i < 2 || i >= 12) ? 0x3FF : 0x1B6;
-        return;
-    }
-    if (ch == 'I' || ch == 'i') {
-        // serifs four fine cells wide (12 px of a 26 px cell on RDP III), not the skeleton's three cells
-        for (int i = 0; i < 14; ++i) rows[i] = (i < 2 || i >= 12) ? 0x078 : 0x030;
-        return;
-    }
-    static const uint8_t kPlainZero[7] = {0x0E, 0x11, 0x11, 0x11, 0x11, 0x11, 0x0E};
-    static const uint8_t kSlideJ[7] = {0x02, 0x02, 0x02, 0x02, 0x02, 0x12, 0x0C};
-    static const uint8_t kSlideD[7] = {0x1E, 0x09, 0x09, 0x09, 0x09, 0x09, 0x1E};
+// Fujifilm's 120 print is the plain 5 x 7 dot matrix (the date back's
+// skeleton, zero slashed: sampling "PRO400H" and "145 3" on a 5 x 7 grid
+// gives exactly those glyphs, on 7 x 9 it gives mush), with RDP's III in one cell.
+const char* const* matrix57_glyph(const std::string& text, size_t& i) {
+    static char buf[7][6];
+    static const char* rows[7];
+    static const uint8_t kRoman3[7] = {0x1F, 0x15, 0x15, 0x15, 0x15, 0x15, 0x1F};
     static const uint8_t kSquareD[7] = {0x1E, 0x11, 0x11, 0x11, 0x11, 0x11, 0x1E};
-    const char up = (ch >= 'a' && ch <= 'z') ? char(ch - 'a' + 'A') : ch;
-    const uint8_t* g = glyph5x7(ch);
-    if (up == '0' && !f.slashed_zero) g = kPlainZero;
-    if (up == 'J' && f.slide_forms) g = kSlideJ;
-    if (up == 'D') g = f.slide_forms ? kSlideD : kSquareD;
-    if (!g) return;
-    auto lit = [&](int r, int c) { return r >= 0 && r < 7 && c >= 0 && c < 5 && (g[r] & (0x10 >> c)); };
-    auto set = [&](int fr, int fc) { rows[fr] |= uint16_t(0x200 >> fc); };
-    for (int r = 0; r < 7; ++r)
-        for (int c = 0; c < 5; ++c)
-            if (lit(r, c)) { set(2 * r, 2 * c); set(2 * r, 2 * c + 1); set(2 * r + 1, 2 * c); set(2 * r + 1, 2 * c + 1); }
-    for (int r = 0; r < 6; ++r)
-        for (int c = 0; c < 4; ++c) {
-            const bool a = lit(r, c), b = lit(r, c + 1), d = lit(r + 1, c), e = lit(r + 1, c + 1);
-            if (a && e && !b && !d) { set(2 * r + 1, 2 * c + 2); set(2 * r + 2, 2 * c + 1); }
-            if (b && d && !a && !e) { set(2 * r + 1, 2 * c + 1); set(2 * r + 2, 2 * c + 2); }
-        }
+    const uint8_t* g = nullptr;
+    if (text.compare(i, 3, "III") == 0 && (i + 3 == text.size() || text[i + 3] == ' ') && i > 0 &&
+        text[i - 1] != ' ' && text[i - 1] != 'I') {
+        i += 3;
+        g = kRoman3;
+    } else {
+        const char ch = text[i++];
+        g = (ch == 'D' || ch == 'd') ? kSquareD : glyph5x7(ch);
+    }
+    if (!g) return nullptr;
+    for (int r = 0; r < 7; ++r) {
+        for (int c = 0; c < 5; ++c) buf[r][c] = (g[r] & (0x10 >> c)) ? '#' : '.';
+        buf[r][5] = 0;
+        rows[r] = buf[r];
+    }
+    return rows;
 }
 
-double fuji_thin(const std::string& text, const FujiThin& f, double s0, double base_t, std::vector<Op>* out) {
-    const double p = f.cap / 14.0, cw = p * f.xscale;
+constexpr DotFace kFaceNames = {7, 9, 9, names_glyph};
+constexpr DotFace kFaceNumbers = {12, 16, 14, numbers_glyph};
+constexpr DotFace kFaceSmall = {8, 12, 10, small_numbers_glyph};
+constexpr DotFace kFaceTiny = {3, 5, 4, tiny_glyph};
+constexpr DotFace kFace57 = {5, 7, 6, matrix57_glyph};
+
+// One dot of the print: a disc `d` mm across at (s, t).
+void dot(double s, double t, double d, std::vector<Op>* out) {
+    Op op;
+    op.kind = Op::Circle;
+    op.pts = {s, t};
+    op.size_mm = 0.5 * d;
+    out->push_back(op);
+}
+
+// A pattern of dots: rows of '#', its top-left dot's centre at (s0, t0).
+void dot_rows(const char* const* rows, int nrow, int ncol, double s0, double t0, double ps, double pt, double d,
+              std::vector<Op>* out) {
+    for (int r = 0; r < nrow; ++r)
+        for (int c = 0; c < ncol && rows[r][c]; ++c)
+            if (rows[r][c] == '#') dot(s0 + c * ps, t0 + r * pt, d, out);
+}
+
+// `text` in a dot face: dots `ps` mm apart along the film and `pt` across it,
+// each `d` mm across; the ink's left edge at `s0`, its foot on `base_t`,
+// glyphs toward smaller t; a word space is `space` dots. A character the face
+// lacks takes its place and prints nothing. Returns the ink's length, and
+// only measures with `out` null.
+double dot_text(const std::string& text, const DotFace& f, double ps, double pt, double d, double space, double s0,
+                double base_t, std::vector<Op>* out) {
     double x = 0.0;
-    for (size_t i = 0; i < text.size(); ++i) {
-        const char ch = text[i];
-        if (ch == ' ') { x += 2.0 * f.space * cw; continue; }
-        // "III" closing a word is the film's one-cell numeral
-        const bool roman3 = text.compare(i, 3, "III") == 0 && (i + 3 == text.size() || text[i + 3] == ' ') &&
-                            i > 0 && text[i - 1] != ' ' && text[i - 1] != 'I';
-        uint16_t rows[14];
-        fuji_thin_rows(ch, f, roman3, rows);
-        if (out)
-            matrix_cells([&](int r, int c) { return (rows[r] & (0x200 >> c)) != 0; }, 14, 10, s0 + x,
-                         base_t - f.cap, cw, p, std::min(f.inset, 0.6 * p), out);
-        x += 12.0 * cw;
-        if (roman3) i += 2;
+    for (size_t i = 0; i < text.size();) {
+        if (text[i] == ' ') { x += space * ps; ++i; continue; }
+        const char* const* g = f.glyph(text, i);
+        if (g && out)
+            dot_rows(g, f.nrow, f.ncol, s0 + x + 0.5 * d, base_t - 0.5 * d - (f.nrow - 1) * pt, ps, pt, d, out);
+        x += f.advance * ps;
     }
-    return std::max(0.0, x - 2.0 * cw);
+    return std::max(0.0, x - (f.advance - f.ncol + 1) * ps + d);
 }
 
 // A Helvetica-family string's advance in film mm, as CoreText lays it out.
@@ -1301,15 +1365,6 @@ void imprint_groups(const OverscanLayout& L, const Params& params, double frame_
         op.pts = {s0, t0, s1, t0, s1, t1, s0, t1};
         return op;
     };
-    // a stroke from (s0, t0) to (s1, t1), `w` wide
-    auto seg = [](double s0, double t0, double s1, double t1, double w) {
-        const double len = std::max(1e-6, std::hypot(s1 - s0, t1 - t0));
-        const double ns = -(t1 - t0) / len * 0.5 * w, nt = (s1 - s0) / len * 0.5 * w;
-        Op op;
-        op.kind = Op::Poly;
-        op.pts = {s0 + ns, t0 + nt, s1 + ns, t1 + nt, s1 - ns, t1 - nt, s0 - ns, t0 - nt};
-        return op;
-    };
     auto helv = [](const char* font, double cap_mm, double cap_per_em, double hscale, double tracking) {
         Op op;
         op.font = font; op.size_mm = cap_mm / cap_per_em; op.hscale = hscale; op.tracking_mm = tracking;
@@ -1337,8 +1392,9 @@ void imprint_groups(const OverscanLayout& L, const Params& params, double frame_
         }
         return text;
     };
-    auto fit_thin = [](std::string text, double slot_mm, const FujiThin& f) {
-        while (!text.empty() && fuji_thin(text, f, 0, 0, nullptr) > slot_mm) {
+    // The same for a dot face.
+    auto fit_dots = [](std::string text, double slot_mm, const DotFace& f, double ps, double d, double space) {
+        while (!text.empty() && dot_text(text, f, ps, 1.0, d, space, 0, 0, nullptr) > slot_mm) {
             const size_t cut = text.rfind(' ');
             text = (cut != std::string::npos && cut > 0) ? text.substr(0, cut) : text.substr(0, text.size() - 1);
         }
@@ -1350,11 +1406,18 @@ void imprint_groups(const OverscanLayout& L, const Params& params, double frame_
         // The owner's number when set (`overscan_frame_number`), else the seed's.
         const int n0 = o.frame_number > 0 ? o.frame_number : 1 + int(uint64_t(uint32_t(o.frame_seed)) % 34u);
         const double grid0 = L.perf_phase + 0.62;
-        Group top = group_for(L.edge_rgb, e_edge, 0.022);
-        Group bot = group_for(L.edge_rgb, e_edge, 0.022);
+        // Discs 0.11 mm across on a 0.1155 x 0.0984 mm grid cover 0.84 of the
+        // area a solid mark would: a band that is all dots is exposed that much
+        // more, so the print is as dense as the strip it was measured on.
+        const double e_135 = look.k135 == Edge135::FujiSlide ? e_edge * kDotFill : e_edge;
+        Group top = group_for(L.edge_rgb, e_135, 0.022);
+        Group bot = group_for(L.edge_rgb, e_135, 0.022);
         const double W = L.film_w, kCap = 0.714;                 // Helvetica Neue's cap height per em
-        // ink held back from the Fujifilm faces' open edges (matrix_cells), mm
-        const double kInkT = 0.035, kInkB = 0.05;
+        // A dot of Fujifilm's print, mm across: smaller than the dots' spacing,
+        // so that the develop spreads it to the 0.145 mm footprint the strips
+        // show (a one-dot stroke 5 px wide at 31 px/mm) and no further -- the
+        // strokes stay beaded at their edges instead of fusing into bars.
+        const double kDot = 0.11;
         const bool fuji_neg = look.k135 == Edge135::FujiNeg;
         const int dx = (look.k135 == Edge135::Kodak || fuji_neg) ? dx_extract_for(params.film.info.stock) : -1;
         // The DX code (ISO 1007): 31 modules. Read back off the references it
@@ -1456,65 +1519,68 @@ void imprint_groups(const OverscanLayout& L, const Params& params, double frame_
                 // X-Tra 400 (32.0 px/mm): numbers on both bands, the full
                 // ones 15.25 mm after a code's start on the bottom band and
                 // 15.75 on the top, the A ones after an arrow ("->10A"). They
-                // are Fujifilm's matrix faces, not a condensed Helvetica (as
-                // drawn until 2026-10-04): the top band's in the bold face,
-                // condensed ("10A" 2.64 mm long, "11" 2.05), caps 1.25-1.41 mm;
-                // the bottom band's in the names' face at that size ("10A"
-                // 2.7 mm long, strokes a seventh of the cap). The top band
-                // also carries the stock's code in the names' face, caps
-                // ~0.8 mm, 5.5 mm into every other half frame ("S-400"); the
-                // half frames between carry a batch code ("H74") that is not
+                // are Fujifilm's dots (0.113 mm apart on this strip's bars),
+                // not a condensed Helvetica as drawn until 2026-10-04. The top
+                // band also carries the stock's code in the names' face,
+                // 5.5 mm into every other half frame ("S-400"); the half
+                // frames between carry a batch code ("H74") that is not
                 // drawn, since we have one strip and no rule for it. The red
                 // and green lines along that strip's perforations are its
-                // camera's, not the film's.
+                // camera's, not the film's. Its bars and its arrow are dotted
+                // on the strip too; they are still drawn solid.
+                // One cropped strip: its numbers are the two-dot face on both
+                // bands, closer set than the slides' ("10A" 2.7 mm long, a
+                // character every 0.9 mm), twelve rows 1.2 mm tall.
                 const std::string n = std::to_string(num) + (a_half ? "A" : "");
-                const double cap_n = a_half ? 1.25 : 1.41;
-                fuji_bold(n, cap_n, 0.74, kInkB, s + (a_half ? 16.38 : 15.75), 1.60, &top.ops);
-                if (a_half && !o.edge_text.empty()) {
-                    const FujiThin code{0.80, 1.15, false, false, 3.0, kInkT};
-                    fuji_thin(fit_thin(o.edge_text, 9.8, code), code, s + 5.5, 1.50, &top.ops);
-                }
+                const double ps = 0.090;
+                dot_text(n, kFaceSmall, ps, kDotT, kDot, 4.0, s + (a_half ? 16.38 : 15.75), 1.60, &top.ops);
+                if (a_half && !o.edge_text.empty())
+                    dot_text(fit_dots(o.edge_text, 9.8, kFaceNames, kDotS, kDot, 4.0), kFaceNames, kDotS, kDotT, kDot, 4.0,
+                             s + 5.5, 1.50, &top.ops);
                 dx_code(s, num, a_half);
-                const FujiThin low{cap_n, 0.90, false, false, 3.0, 0.0};
-                fuji_thin(n, low, s + (a_half ? 16.1 : 15.25), a_half ? W - 0.41 : W - 0.31, &bot.ops);
+                dot_text(n, kFaceSmall, ps, kDotT, kDot, 4.0, s + (a_half ? 16.1 : 15.25), a_half ? W - 0.41 : W - 0.31,
+                         &bot.ops);
                 if (a_half) wind_arrow(s + 14.6, s + 15.85, W - 1.0, 0.55, 0.3);
             } else if (look.k135 == Edge135::FujiSlide) {
                 // RVP50 (31.2 px/mm), RDPIII (21.5) and the owner's RDP III
-                // strip (31.0): no DX bars. The frame number in the bold face
-                // on both bands at the same place (caps 1.645 mm -- 51 px of
-                // 31 -- baselines 1.80 mm from the top edge and 0.27 from the
-                // bottom one), its left 0.43 mm before a perforation's centre;
-                // the stock name in the names' face 16.0-16.3 mm after it:
-                // caps 0.935 mm (29 px), a character every 1.03 mm (32 px), so
-                // its cells are 1.28 times as wide as tall -- they were drawn
-                // 1.1 times, eleven narrow characters where the film has nine
-                // wide ones ("the proportion is not correct", the owner,
-                // 2026-10-04); at the half frame, on the bottom band only, "36"
-                // (the roll's length, caps 0.42), a hollow arrow and "12A"
-                // (caps 1.17 mm) 0.28 mm past its point.
+                // strip (31.0): no DX bars, everything in dots. The frame
+                // number in the numbers' face on both bands at the same place
+                // (16 rows, 51 px of 31 tall; baselines 1.80 mm from the top
+                // edge and 0.27 from the bottom one), its left 0.43 mm before
+                // a perforation's centre; the stock name in the names' face
+                // 16.0-16.3 mm after it (9 rows, a character every nine dots,
+                // 1.04 mm; the words ten dots apart); at the half frame, on
+                // the bottom band only, "36" (the roll's length, 3 x 5 dots),
+                // the arrow and "12A" in the two-dot face, 0.28 mm past its
+                // point.
                 // +3.5: with the camera's phase pinned (above) the number starts
                 // 0-1.5 mm into the frame, as "27" does on RDPIII.png (RVP50.png
                 // was shot on a camera loaded half a frame off; Provia's is used).
                 const double sn = L.perf_phase + 0.56 + 3.5 + 19.0 * m;
                 if (!a_half) {
                     const std::string n = std::to_string(num);
-                    fuji_bold(n, 1.645, 0.98, kInkB, sn, 1.80, &top.ops);
-                    fuji_bold(n, 1.645, 0.98, kInkB, sn + 0.1, W - 0.27, &bot.ops);
-                    if (!o.edge_text.empty()) {
-                        const FujiThin name{0.935, 1.28, false, true, 8.0, kInkT};
-                        fuji_thin(fit_thin(o.edge_text, 21.0, name), name, sn + 16.0, 1.77, &top.ops);
-                    }
+                    dot_text(n, kFaceNumbers, kDotS, kDotT, kDot, 4.0, sn, 1.80, &top.ops);
+                    dot_text(n, kFaceNumbers, kDotS, kDotT, kDot, 4.0, sn + 0.1, W - 0.27, &bot.ops);
+                    if (!o.edge_text.empty())
+                        dot_text(fit_dots(o.edge_text, 21.0, kFaceNames, kDotS, kDot, 10.0), kFaceNames, kDotS, kDotT, kDot,
+                                 10.0, sn + 16.0, 1.77, &top.ops);
                 } else {
                     const double sa = sn - 19.0;                 // the full frame this half belongs to
-                    fuji_bold("36", 0.42, 0.98, 0.0, sa + 14.7, W - 0.42, &bot.ops);
-                    // the hollow arrow: a pentagon outline, 2.56 x 1.0 mm, 0.19 mm strokes
-                    const double a0 = sa + 16.05, a1 = sa + 18.6, tc = W - 1.05, hh = 0.50, ab = a1 - 1.0, w = 0.19;
-                    bot.ops.push_back(seg(a0, tc - hh + 0.5 * w, ab, tc - hh + 0.5 * w, w));
-                    bot.ops.push_back(seg(a0, tc + hh - 0.5 * w, ab, tc + hh - 0.5 * w, w));
-                    bot.ops.push_back(seg(a0 + 0.5 * w, tc - hh, a0 + 0.5 * w, tc + hh, w));
-                    bot.ops.push_back(seg(ab - 0.05, tc - hh + 0.5 * w, a1 - 0.1, tc, w));
-                    bot.ops.push_back(seg(ab - 0.05, tc + hh - 0.5 * w, a1 - 0.1, tc, w));
-                    fuji_bold(std::to_string(num) + "A", 1.17, 0.98, kInkB, sa + 18.88, W - 0.40, &bot.ops);
+                    dot_text("36", kFaceTiny, 0.135, kDotT, kDot, 4.0, sa + 14.75, W - 0.40, &bot.ops);
+                    // The arrow is dots too -- 22 across, 12 down, read off the
+                    // RDP III strip and RVP50.png: a box two dots thick, open
+                    // toward a head whose sides are five or six dots thick and
+                    // step two dots a row to a point. It was drawn as a thin
+                    // pentagon outline in 0.19 mm strokes ("the arrow is not
+                    // correct", the owner, 2026-10-04).
+                    static const char* const kArrow[12] = {
+                        "#############.........", "###############.......", "##.........######.....", "##...........######...",
+                        "##.............######.", "##...............#####", "##...............#####", "##.............######.",
+                        "##...........######...", "##.........######.....", "###############.......", "#############.........",
+                    };
+                    const double foot = W - 0.40;                // the arrow and "12A" stand on one line
+                    dot_rows(kArrow, 12, 22, sa + 16.05 + 0.5 * kDot, foot - 0.5 * kDot - 11 * kDotT, kDotS, kDotT, kDot, &bot.ops);
+                    dot_text(std::to_string(num) + "A", kFaceSmall, kDotS, kDotT, kDot, 4.0, sa + 18.88, foot, &bot.ops);
                 }
             } else {
                 // Cine (Eastman 5207, 22.8 px/mm): one line beside the bottom
@@ -1542,16 +1608,17 @@ void imprint_groups(const OverscanLayout& L, const Params& params, double frame_
         // frame is the frame's draw. The print is the film's, at a fixed
         // distance from its edge, whatever the gate (except a shouldered
         // gate's recess, where it runs between the ears).
-        Group top = group_for(L.edge_rgb, e_edge, 0.038);
-        Group bot = group_for(L.edge_rgb, e_edge, 0.038);
+        const double e_120 = look.k120 == Edge120::Fuji ? e_edge * kDotFill : e_edge;
+        Group top = group_for(L.edge_rgb, e_120, 0.038);
+        Group bot = group_for(L.edge_rgb, e_120, 0.038);
         if (look.k120 == Edge120::Fuji) {
             // Pro 400H (6x7, 16.3 px/mm; Actual_Pro400h.jpg, 14.5), RVP50
-            // (6x6) and RDPIII (645): one edge only, in the names' face --
+            // (6x6) and RDPIII (645): one edge only, in a 5x7 dot matrix --
             // caps 1.05 mm (16 px of 14.5, a pixel of it the scan's blur), a
             // character every 0.967 mm (14 px), zeros slashed ("PRO4ØØH") --
             // on a baseline ~1.6 mm from the edge. Drawn at 1.15-1.17 mm with
-            // every cell filled until 2026-10-04, the letters stood a tenth
-            // too tall and their counters closed in the develop. Every 41.1 mm a frame number, a filled
+            // every cell a full square until 2026-10-04, the letters stood a
+            // tenth too tall and their counters closed in the develop. Every 41.1 mm a frame number, a filled
             // marker pointing back at it 1.45 mm on (2.15 x 1.15 mm, a tail
             // behind the triangle), the stock name 4.95 mm after the marker,
             // and on Pro 400H a code ("EFCDCD", caps 0.86) 13.2 mm after the
@@ -1569,9 +1636,14 @@ void imprint_groups(const OverscanLayout& L, const Params& params, double frame_
                 const size_t rest = name.find_first_not_of(' ', sp);
                 name = rest == std::string::npos ? std::string() : name.substr(rest);
             }
-            const double P = 41.1, kInk120 = 0.03;
-            const FujiThin face{1.05, 1.075, true, false, 3.0, kInk120};   // 12 fine columns of 0.0806 mm = 0.967 mm
-            const FujiThin code_face{0.72, 1.12, true, false, 3.0, 0.6 * kInk120};  // "EFCDCD": 11 px tall, 10 px a character
+            // The 120 print's dots are larger and further apart than the 135
+            // one's: a character every 0.967 mm (six dots of 0.161) and seven
+            // rows 1.05 mm tall (0.148 apart). The code after the name
+            // ("EFCDCD") is on the 135 grid: 0.74 mm tall, a character every 0.69.
+            const double P = 41.1, ps = 0.161, pt = 0.148, d120 = 0.14, dcode = 0.11;
+            auto big = [&](const std::string& tx, double s0, double base, std::vector<Op>* out_ops) {
+                return dot_text(tx, kFace57, ps, pt, d120, 4.0, s0, base, out_ops);
+            };
             const double roll = rf.uni(0.0, 2.0 * P);
             int n0 = 1 + int(rf.uni(0.0, 14.0));
             const int lot = int(rf.uni(0.0, 1000.0)) % 1000;
@@ -1586,33 +1658,28 @@ void imprint_groups(const OverscanLayout& L, const Params& params, double frame_
                 char lotbuf[8];
                 std::snprintf(lotbuf, sizeof lotbuf, "%03d", lot);
                 const std::string before = (n % 2 == 0) ? maker : std::string(lotbuf);
-                const double wb = before.empty() ? 0.0 : fuji_thin(before, face, 0, 0, nullptr);
-                if (!before.empty()) fuji_thin(before, face, sn - 3.7 - wb, tb, &top.ops);
+                const double wb = before.empty() ? 0.0 : big(before, 0, 0, nullptr);
+                if (!before.empty()) big(before, sn - 3.7 - wb, tb, &top.ops);
                 if (n < 1) continue;
                 const std::string ns = std::to_string(n);
-                const double wn = fuji_thin(ns, face, sn, tb, &top.ops);
-                // The marker is not a triangle on a stem: it is a tack drawn
-                // on the dot-matrix grid, 2.09 mm long, stepping down from a
-                // 1.17 mm base through 0.9 and 0.55 to a 0.25 mm needle, each
-                // step ~0.55 mm (three cells), symmetric about its axis
-                // (Pro400H_6x7.png rows 668-701 at 16.26 px/mm, 2026-10-03).
-                const double a = sn + wn + 1.45, mid = tb - 0.525;
-                Op tack;
-                tack.kind = Op::Poly;
-                const double kh = 1.05 / 1.17;   // the tack is as tall as the caps beside it
-                tack.pts = {a,        mid - 0.06 * kh,  a + 0.44, mid - 0.125 * kh, a + 0.44, mid - 0.275 * kh,
-                            a + 0.99, mid - 0.275 * kh, a + 0.99, mid - 0.40 * kh,  a + 1.54, mid - 0.49 * kh,
-                            a + 1.54, mid - 0.585 * kh, a + 2.09, mid - 0.585 * kh, a + 2.09, mid + 0.585 * kh,
-                            a + 1.54, mid + 0.585 * kh, a + 1.54, mid + 0.49 * kh,  a + 0.99, mid + 0.40 * kh,
-                            a + 0.99, mid + 0.275 * kh, a + 0.44, mid + 0.275 * kh, a + 0.44, mid + 0.125 * kh,
-                            a,        mid + 0.06 * kh};
-                top.ops.push_back(tack);
+                const double wn = big(ns, sn, tb, &top.ops);
+                // The marker is a tack in the same dots, 13 across and 7 down
+                // (2.1 x 1.05 mm, as tall as the caps): a needle three dots
+                // long, then three steps of three or four dots, each two rows
+                // taller (Actual_Pro400h.jpg rows 288-303 at 14.5 px/mm; the
+                // dots show on RVP50_6x6.png).
+                static const char* const kTack[7] = {"..........###", "......#######", "...##########", "#############",
+                                                     "...##########", "......#######", "..........###"};
+                const double a = sn + wn + 1.45;
+                dot_rows(kTack, 7, 13, a + 0.5 * d120, tb - 0.5 * d120 - 6 * pt, ps, pt, d120, &top.ops);
                 if (!name.empty()) {
                     const bool has_code = look.code[0] != 0;
                     const double s0 = a + 4.95;
-                    const std::string tx = fit_thin(name, has_code ? 12.0 : P - 3.7 - 4.5 - (s0 - sn) - 1.0, face);
-                    fuji_thin(tx, face, s0, tb, &top.ops);
-                    if (has_code) fuji_thin(look.code, code_face, s0 + 13.2, tb, &top.ops);
+                    std::string tx = name;
+                    const double slot = has_code ? 12.0 : P - 3.7 - 4.5 - (s0 - sn) - 1.0;
+                    while (!tx.empty() && big(tx, 0, 0, nullptr) > slot) tx.pop_back();
+                    big(tx, s0, tb, &top.ops);
+                    if (has_code) dot_text(look.code, kFace57, kDotS, kDotT, dcode, 4.0, s0 + 13.2, tb, &top.ops);
                 }
             }
         } else {
@@ -1721,8 +1788,12 @@ void imprint_groups(const OverscanLayout& L, const Params& params, double frame_
 
     // The manufacturer's printing is not uniform: each mark's density varies a
     // little (film data would fix it per roll; the frame's draw stands in).
+    // A dot-matrix print's dots are one mark between them: they vary a little
+    // each, not as much as one mark from the next.
     for (Group& g : out)
-        for (Op& op : g.ops) op.gain = std::clamp(0.80 + 0.2 * rf.uni() + 0.05 * rf.normal(), 0.6, 1.0);
+        for (Op& op : g.ops)
+            op.gain = op.kind == Op::Circle ? std::clamp(0.92 + 0.03 * rf.normal(), 0.8, 1.0)
+                                            : std::clamp(0.80 + 0.2 * rf.uni() + 0.05 * rf.normal(), 0.6, 1.0);
 
     // The date back (RFC-031 §8): one mechanism -- a light behind the film
     // through a mask -- in three faces. lcd and dots go in the picture (or

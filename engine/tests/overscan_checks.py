@@ -678,8 +678,8 @@ def main():
         cap = (lit_rows[-1] - lit_rows[0] + 1) * mm
         check("Fujifilm 120: the print stands 1.0-1.25 mm tall", 1.0 <= cap <= 1.25, f"{cap:.2f} mm")
         # Fujifilm's 135 slides (actual RDP III.jpg, 31 px/mm): "FUJI RDPIII" is eight glyphs --
-        # the III is one -- a character every 1.03 mm, the words 1.8 mm apart. 1.3.0 drew
-        # ten runs (three separate I's), 0.88 mm a character, 0.8 mm between the words.
+        # the III is one -- a character every nine dots (1.03 mm), the words 1.8 mm apart. 1.3.0
+        # drew ten runs (three separate I's), 0.88 mm a character, 0.8 mm between the words.
         sl, mm = edge(frame(2400, 1600), dict(film_stock="fujifilm_provia_100f", scan_film=True, overscan_format="135",
                                               overscan_edge_text="FUJI RDPIII", overscan_frame_number=36))
         gl = runs(sl, mm, 1.1, 2.4, 6.0, 34.0, join=0.05)
@@ -689,6 +689,22 @@ def main():
                   1.00 <= gl[1][0] - gl[0][0] <= 1.06, f"{gl[1][0] - gl[0][0]:.3f} mm")
             check("Fujifilm 135 slide: the words stand 1.5-2.1 mm apart", 1.5 <= gl[4][0] - gl[3][1] <= 2.1,
                   f"{gl[4][0] - gl[3][1]:.2f} mm")
+        # ... and it is printed in dots ("fujifilm ones are dotted and yours are just connected
+        # lines", the owner): along a bar of the frame number the ink dips between one dot and
+        # the next, every 0.1155 mm, and that beat is the strongest thing in the bar. Bars drawn
+        # as rectangles -- 1.3.0, and the first attempt at this -- have no beat there (0.003 and
+        # 0.0004 of the ink against 0.012), and something else is stronger.
+        band_ = sl[int(0.6 / mm):int(2.4 / mm), int(0.7 / mm):int(4.0 / mm)]
+        row = band_[int(np.argmax(band_.sum(1)))]
+        lit_ = np.flatnonzero(row > 0.5 * row.max())
+        bar = max(np.split(lit_, np.flatnonzero(np.diff(lit_) > 1) + 1), key=len)[3:-3]
+        prof = row[bar] / row[bar].mean() - 1.0
+        spec = np.abs(np.fft.rfft(prof * np.hanning(len(prof)), 4096)) / len(prof)
+        per = mm / np.maximum(np.fft.rfftfreq(4096), 1e-9)          # mm per cycle
+        beat = spec[(per > 0.108) & (per < 0.123)].max()
+        other = spec[((per > 0.03) & (per < 0.09)) | ((per > 0.16) & (per < 0.6))].max()
+        check("Fujifilm 135 slide: the frame number is dots 0.1155 mm apart", beat > 0.006 and beat > 2 * other,
+              f"beat {beat:.4f}, strongest elsewhere {other:.4f}")
 
     print(f"{failures} failure(s)")
     return 1 if failures else 0
