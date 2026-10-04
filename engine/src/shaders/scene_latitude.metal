@@ -25,6 +25,7 @@
 //   4 m     5 L_max           6 norm (0 power, 1 Y, 2 max)
 //   7..9 the Y row of the working space's RGB -> XYZ   10 n_ref
 //   11 width  12 height  13 split (0 = none)  14..17 the second frame's K_h H_h K_s H_s
+//   18 the image's first row in the frame (RFC-035 §9: a band; RFC-020: a strip; 0 for a whole render)
 #include "spk_common.h"
 
 // g_m(D) - D, the branch's departure, in the forms that do not cancel near the
@@ -70,7 +71,7 @@ kernel void spk_scene_latitude(device const float* rgb [[buffer(0)]],
         float Kh = p[0], Hh = p[1], Ks = p[2], Hs = p[3];
         if (p[13] > 0.0f) {
             uint w = uint(p[11]), h = uint(p[12]);
-            float along = w >= h ? (float(i % w) + 0.5f) / float(w) : (float(i / w) + 0.5f) / float(h);
+            float along = w >= h ? (float(i % w) + 0.5f) / float(w) : (float(i / w) + p[18] + 0.5f) / float(h);
             if (along >= p[13]) { Kh = p[14]; Hh = p[15]; Ks = p[16]; Hs = p[17]; }
         }
         if (Hh > 0.0f && E > Kh) d = slm_departure(E - Kh, Hh, p[4]);

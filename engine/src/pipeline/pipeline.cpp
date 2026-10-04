@@ -2131,6 +2131,7 @@ bool Pipeline::run_stages_striped(const Stage* stages, size_t count, Chain& chai
 
                 Chain cur = band_in;
                 band_row0_ = read.y0;
+                strip_plane_h_ = frame_h;
                 for (size_t k = i; k < j; ++k) {
                     Chain next;
                     if (!(this->*stages[k].run)(cur, next, error)) return false;
@@ -2171,6 +2172,7 @@ bool Pipeline::run_stages_striped(const Stage* stages, size_t count, Chain& chai
                 }
             }
             band_row0_ = 0;
+            strip_plane_h_ = 0;
             chain = plane_out;
             i = j;
         } else {

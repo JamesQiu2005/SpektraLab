@@ -546,6 +546,20 @@ def main():
               d(second, none, R_) > 500 and d(second, none, L_) <= 8, f"left {d(second, none, L_)}, right {d(second, none, R_)}")
         check("without a split one curve covers the piece", d(whole, none, L_) > 500 and d(whole, none, R_) > 500)
         check("a split frame's own half matches the unsplit curve", d(first, whole, L_) <= 2, f"{d(first, whole, L_)} codes")
+        # In strips (RFC-020) a strip is part of the piece: where the second
+        # frame starts is a place in the frame, and a strip of a piece held
+        # upright is wider than it is tall. Read by its own shape, the second
+        # curve fell across the picture instead of along it.
+        for held, piece in (("level", both), ("turned", np.ascontiguousarray(both.transpose(1, 0, 2)))):
+            placed = dict(BARE, scene_latitude_split=split, scene_latitude_b_active=True, **SLB)
+            unstriped = render(e, piece, placed, tier="full")
+            for rows in (64, piece.shape[0] // 3 + 1):
+                striped = render(e, piece, dict(placed, striped=True, strip_rows=rows), tier="full")
+                off = (np.abs(striped[..., :3].astype(int) - unstriped[..., :3].astype(int))
+                       if striped.shape == unstriped.shape else None)
+                check(f"a {held} pair's second placement in {rows}-row strips is the whole render's",
+                      off is not None and int(off.max()) == 0,
+                      "shapes differ" if off is None else f"max {int(off.max())} codes, {100 * (off > 0).mean():.1f}% of samples")
         s = e.open(both, dict(BASE, **BARE))
         try:
             s.render("live")

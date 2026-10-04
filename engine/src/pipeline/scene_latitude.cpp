@@ -40,15 +40,25 @@ bool Pipeline::node_scene_latitude(const Image& in, Image& out, std::string& err
     // half-frame pair the second frame's curve applies from `split` along the
     // piece's long edge.
     const bool second = s.split > 0.0 && s.b_active;
-    const float p[18] = {
+    // A strip of RFC-020's executor is part of the piece: full-width, and wider
+    // than it is tall on a piece held upright, so read by its own shape the
+    // second curve fell across the picture instead of along it. The split is
+    // measured along the frame: the plane's height and the strip's first row
+    // are the executor's (`strip_plane_h_`, `band_row0_`; both 0 when it is not
+    // running, which leaves a whole render as it was, to the bit).
+    const uint32_t fw = in.w;
+    const uint32_t fh = strip_plane_h_ ? strip_plane_h_ : in.h;
+    const uint32_t row0 = band_row0_;
+    const float p[19] = {
         float(s.highlight_knee), float(s.active ? s.highlight_room : 0.0),
         float(s.shadow_knee), float(s.active ? s.shadow_room : 0.0),
         float(s.rolloff), float(s.max_lift), norm_id(s.norm),
         float(rgb_to_xyz_ae_.m[1][0]), float(rgb_to_xyz_ae_.m[1][1]), float(rgb_to_xyz_ae_.m[1][2]),
         float(slm::kMidgray),
-        float(in.w), float(in.h), float(s.split),
+        float(fw), float(fh), float(s.split),
         float(s.b_highlight_knee), float(second ? s.b_highlight_room : 0.0),
-        float(s.b_shadow_knee), float(second ? s.b_shadow_room : 0.0)};
+        float(s.b_shadow_knee), float(second ? s.b_shadow_room : 0.0),
+        float(row0)};
     gpu::BufferRef p_buf = gpu_->upload(p, sizeof p, error);
     if (!p_buf || !alloc_like(in, out, error)) return false;
     const uint32_t n[1] = {uint32_t(in.pixels())};

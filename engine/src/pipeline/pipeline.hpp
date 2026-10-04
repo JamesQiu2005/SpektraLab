@@ -816,6 +816,10 @@ private:
     // node that needs a frame coordinate reads it rather than every stage
     // growing a `Strip` argument.
     uint32_t band_row0_ = 0;
+    // The height of that plane, with it; 0 on the un-striped path. A pair's
+    // Scene Placement reads it: where its second frame starts is a fraction of
+    // the frame, not of the strip.
+    uint32_t strip_plane_h_ = 0;
 
     // black/white references
     bool bw_active_ = false;
