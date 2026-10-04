@@ -9,8 +9,11 @@ QtObject {
     readonly property color accent: "#e1a95f"
     readonly property color line: "#858582"
     readonly property color well: "#484846"
-    readonly property int leftWidth: 254
+    readonly property color wellDark: "#1e1e1c"
+    readonly property color selection: "#f1f0eb"
+    readonly property color selectionText: "#252523"
+    readonly property int leftWidth: 246
     readonly property int rightWidth: 288
     readonly property int topHeight: 38
-    readonly property int stripHeight: 132
+    readonly property int stripHeight: 160
 }

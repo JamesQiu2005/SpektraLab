@@ -18,9 +18,27 @@ struct RenderSettings {
     std::string film_stock = "kodak_portra_400";
     std::string print_stock = "kodak_portra_endura";
     double print_exposure = 1.0;
+    // Film exposure places the scene on the characteristic curve. The
+    // enlarger compensates its mid-grey; print_exposure controls brightness.
+    double film_exposure_ev = 0.0;
+    // Preserve the engine's existing 35 mm default, including grain scale.
+    double film_format_mm = 35.0;
+    bool grain_active = true;
+    double grain_amount = 1.0;
+    bool halation_active = true;
+    double halation_amount = 1.0;
+    bool glare_active = true;
+    double glare_amount = 1.0;
+    double y_filter_shift = 0.0;
+    double m_filter_shift = 0.0;
+
+    bool operator==(const RenderSettings&) const = default;
 };
 
-struct Stock { std::string id, label; };
+struct Stock {
+    std::string id, label;
+    bool is_positive = false;
+};
 struct Catalog { std::vector<Stock> films, papers; };
 
 // Wall-clock calls, including CPU result readback in render_ms. total_ms is
@@ -43,6 +61,9 @@ public:
     std::filesystem::path source;
     DecodeMode decode_mode = DecodeMode::compatible16;
     RenderSettings settings;
+    // Resolved from the selected film's catalog metadata, not a separate
+    // user setting. Slide film is viewed directly without the paper stage.
+    bool scan_film = false;
     io::RawMetadata metadata;
     io::RawDecodeTimings decode_timings;
     Timings timings;

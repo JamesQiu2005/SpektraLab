@@ -22,6 +22,8 @@ qt_standard_project_setup(REQUIRES 6.8)
 
 qt_add_executable(SpektraLabQt WIN32
     src/main.cpp src/PreviewController.hpp src/PreviewController.cpp
+    src/FrameOutput.hpp src/FrameOutput.cpp
+    src/EditStore.hpp src/EditStore.cpp
     src/FrameCanvas.hpp src/FrameCanvas.cpp)
 target_compile_features(SpektraLabQt PRIVATE cxx_std_20)
 target_link_libraries(SpektraLabQt PRIVATE
@@ -42,3 +44,41 @@ add_custom_target(spektralab_qt_resources ALL
     VERBATIM)
 add_dependencies(spektralab_qt_resources spektralab_vulkan_resources)
 add_dependencies(SpektraLabQt spektralab_qt_resources)
+
+if(BUILD_TESTING)
+    qt_add_executable(spk_qt_frame_output_test tests/frame_output.cpp src/FrameOutput.cpp)
+    target_include_directories(spk_qt_frame_output_test PRIVATE src)
+    target_compile_features(spk_qt_frame_output_test PRIVATE cxx_std_20)
+    target_link_libraries(spk_qt_frame_output_test PRIVATE spk_desktop_host Qt6::Core Qt6::Gui)
+    add_test(NAME spk_qt_frame_output COMMAND spk_qt_frame_output_test "$<TARGET_FILE_DIR:SpektraLabQt>/resources")
+
+    qt_add_executable(spk_qt_library_workflow_test tests/library_workflow.cpp
+        src/PreviewController.hpp src/PreviewController.cpp src/FrameOutput.cpp src/EditStore.cpp)
+    target_include_directories(spk_qt_library_workflow_test PRIVATE src)
+    target_compile_features(spk_qt_library_workflow_test PRIVATE cxx_std_20)
+    target_link_libraries(spk_qt_library_workflow_test PRIVATE spk_desktop_host Qt6::Core Qt6::Gui)
+    qt_add_executable(spk_qt_edit_store_test tests/edit_store.cpp src/EditStore.cpp)
+    target_include_directories(spk_qt_edit_store_test PRIVATE src)
+    target_compile_features(spk_qt_edit_store_test PRIVATE cxx_std_20)
+    target_link_libraries(spk_qt_edit_store_test PRIVATE spk_desktop_host Qt6::Core Qt6::Gui)
+    add_test(NAME spk_qt_edit_store COMMAND spk_qt_edit_store_test)
+    if(WIN32)
+        # Specify each test's DLL search path: CTest on this Windows host can
+        # restore the pre-launch PATH between tests. Ambient PATH alone makes
+        # the second Qt test fail to load even when it passes in isolation.
+        set(qt_test_runtime_path "PATH=path_list_prepend:$<TARGET_FILE_DIR:Qt6::Core>")
+        if(MINGW)
+            get_filename_component(qt_test_compiler_directory "${CMAKE_CXX_COMPILER}" DIRECTORY)
+            list(APPEND qt_test_runtime_path "PATH=path_list_prepend:${qt_test_compiler_directory}")
+        endif()
+        set_tests_properties(spk_qt_frame_output spk_qt_edit_store PROPERTIES
+            ENVIRONMENT_MODIFICATION "${qt_test_runtime_path}")
+    endif()
+    qt_add_executable(spk_qt_editing_workflow_test tests/editing_workflow.cpp
+        src/PreviewController.hpp src/PreviewController.cpp src/FrameOutput.cpp src/EditStore.cpp)
+    target_include_directories(spk_qt_editing_workflow_test PRIVATE src)
+    target_compile_features(spk_qt_editing_workflow_test PRIVATE cxx_std_20)
+    target_link_libraries(spk_qt_editing_workflow_test PRIVATE spk_desktop_host Qt6::Core Qt6::Gui)
+    # Full-RAW fixtures and a fresh output directory are explicit test arguments;
+    # no absent-fixture skip can masquerade as a green CTest run.
+endif()

@@ -3,6 +3,7 @@
 #include "desktop/preview_host.hpp"
 #include "desktop/viewport.hpp"
 #include "core/json.hpp"
+#include "core/params.hpp"
 
 #include <algorithm>
 #include <array>
@@ -72,6 +73,24 @@ std::uint64_t frame_fingerprint(const Frame& frame) {
         hash = fingerprint(pixels.rgba16 + std::size_t(y) * pixels.row_stride_px * 4,
                            std::size_t(pixels.width) * 4 * sizeof(std::uint16_t), hash);
     return hash;
+}
+
+void settings_defaults() {
+    // A second host default must agree with the engine's own parameter tree;
+    // a UI format label such as "35 mm" is not licence to substitute 36.
+    const RenderSettings settings;
+    const spk::Params engine;
+    check(settings.print_exposure == engine.enlarger.print_exposure, "desktop print default differs from engine");
+    check(settings.film_exposure_ev == engine.camera.exposure_compensation_ev, "desktop film exposure default differs from engine");
+    check(settings.film_format_mm == engine.camera.film_format_mm, "desktop film format default differs from engine");
+    check(settings.grain_active == engine.film_render.grain.active && settings.grain_amount == engine.film_render.grain.amount,
+          "desktop grain defaults differ from engine");
+    check(settings.halation_active == engine.film_render.halation.active && settings.halation_amount == engine.film_render.halation.halation_amount,
+          "desktop halation defaults differ from engine");
+    check(settings.glare_active == engine.print_render.glare.active && settings.glare_amount == engine.print_render.glare.amount,
+          "desktop glare defaults differ from engine");
+    check(settings.y_filter_shift == engine.enlarger.y_filter_shift && settings.m_filter_shift == engine.enlarger.m_filter_shift,
+          "desktop enlarger defaults differ from engine");
 }
 
 void conversion() {
@@ -253,6 +272,7 @@ Json frame_report(const Frame& frame) {
     entry.set("width", Json(double(frame.width()))); entry.set("height", Json(double(frame.height())));
     entry.set("film", Json(frame.settings.film_stock)); entry.set("paper", Json(frame.settings.print_stock));
     entry.set("print_exposure", Json(frame.settings.print_exposure));
+    entry.set("scan_film", Json(frame.scan_film));
     entry.set("reprint", Json(frame.reprint())); entry.set("negative_was_cached", Json(frame.negative_was_cached()));
     entry.set("headroom", Json(frame.metadata.headroom_enabled));
     Json timings = Json::object();
@@ -262,6 +282,198 @@ Json frame_report(const Frame& frame) {
     timings.set("display_ms", Json(frame.timings.display_ms)); timings.set("total_ms", Json(frame.timings.total_ms));
     entry.set("timings", std::move(timings));
     return entry;
+}
+
+void edit_controls(const fs::path& resources, const fs::path& raw, const fs::path& destination) {
+    check(fs::create_directory(destination), "edit control destination must be a new directory");
+    PreviewHost host(resources);
+    RenderSettings settings;
+    // Deterministic film and print make the cache comparisons about the
+    // requested edit, never a comparison of two independent random fields.
+    settings.grain_active = false;
+    settings.glare_active = false;
+    auto current = host.open_raw(raw, DecodeMode::compatible16, settings);
+    const auto held = current;
+    const auto held_pixels = frame_fingerprint(*held);
+    Json report = Json::object(), renders = Json::array();
+    struct Range { double RenderSettings::*field; double lo, hi; };
+    const std::array<Range, 8> ranges{{
+        {&RenderSettings::print_exposure, 0.05, 20},
+        {&RenderSettings::film_exposure_ev, -8, 8},
+        {&RenderSettings::film_format_mm, 4, 200},
+        {&RenderSettings::grain_amount, 0, 2},
+        {&RenderSettings::halation_amount, 0, 4},
+        {&RenderSettings::glare_amount, 0, 30},
+        {&RenderSettings::y_filter_shift, -1, 1},
+        {&RenderSettings::m_filter_shift, -1, 1}
+    }};
+    for (const auto& range : ranges) {
+        for (double value : {range.lo - 0.01, range.hi + 0.01,
+                             std::numeric_limits<double>::quiet_NaN(),
+                             std::numeric_limits<double>::infinity()}) {
+            auto invalid = settings;
+            invalid.*(range.field) = value;
+            rejected([&] { host.render(invalid); }, "invalid desktop edit value accepted");
+            check(host.current() == held, "invalid desktop edit replaced the held frame");
+        }
+    }
+    const auto edit = [&](const char* label, bool expect_cache, bool expect_difference) {
+        const auto before = frame_fingerprint(*current);
+        auto next = host.render(settings);
+        check(next->settings == settings, "published frame lost requested edit settings");
+        check(next->reprint() == expect_cache && next->negative_was_cached() == expect_cache,
+              "desktop edit used the wrong film-cache path");
+        if (expect_difference)
+            check(frame_fingerprint(*next) != before, "desktop edit did not change rendered pixels");
+        auto entry = frame_report(*next);
+        entry.set("edit", Json(std::string(label)));
+        renders.push(std::move(entry));
+        current = std::move(next);
+    };
+    settings.film_exposure_ev = 1.75;
+    edit("film exposure", false, true);
+    settings.film_format_mm = 70;
+    edit("film format", false, true);
+    settings.halation_amount = 3.0;
+    edit("halation amount", false, true);
+    settings.halation_active = false;
+    edit("halation off", false, true);
+    settings.grain_amount = 0.7;
+    edit("remember grain amount while disabled", false, false);
+    const auto no_grain = frame_fingerprint(*current);
+    settings.grain_active = true;
+    edit("grain on", false, false);
+    settings.print_exposure = 0.8;
+    edit("paper exposure with same cached film realization", true, true);
+    const auto cached_grain = frame_fingerprint(*current);
+    edit("unchanged settings retain grain realization", true, false);
+    check(frame_fingerprint(*current) == cached_grain, "unchanged settings regenerated the film grain");
+    settings.print_exposure = 1.0;
+    settings.grain_active = false;
+    edit("grain off", false, false);
+    check(frame_fingerprint(*current) == no_grain, "grain on/off failed to restore deterministic film output");
+    settings.y_filter_shift = 0.25;
+    edit("yellow enlarger filter", true, true);
+    settings.m_filter_shift = -0.2;
+    edit("magenta enlarger filter", true, true);
+    const auto no_glare = frame_fingerprint(*current);
+    settings.glare_amount = 20;
+    edit("remember glare amount while disabled", true, false);
+    check(frame_fingerprint(*current) == no_glare, "disabled glare amount changed pixels");
+    settings.glare_active = true;
+    edit("glare on", true, false);
+    settings.glare_active = false;
+    edit("glare off", true, false);
+    check(frame_fingerprint(*current) == no_glare, "glare on/off changed the cached film");
+    settings.print_stock = "fujifilm_crystal_archive_typeii";
+    edit("paper stock", true, true);
+    settings.halation_active = true;
+    edit("halation restored before stock switch", false, true);
+    settings.film_stock = "kodak_ektar_100";
+    edit("film stock preserving all edits", false, true);
+    const auto switched = frame_fingerprint(*current);
+    current = host.open_raw(raw, DecodeMode::compatible16, settings);
+    check(frame_fingerprint(*current) == switched,
+          "stock switch settings differ from a fresh session with the same edits");
+    check(frame_fingerprint(*held) == held_pixels, "desktop edits mutated previously held pixels");
+    report.set("status", Json(std::string("passed")));
+    report.set("checks", Json(double(checks)));
+    report.set("raw", Json(path_text(raw)));
+    report.set("renders", std::move(renders));
+    report.set("pixel_comparison", Json(std::string("Deterministic grain/glare-off comparisons; unchanged cached grain compared to the same realization. No independently stochastic render equality is assumed.")));
+    std::ofstream stream(destination / "edit-controls.json", std::ios::binary);
+    check(bool(stream << report.dump() << '\n') && bool(stream.flush()), "cannot write edit controls report");
+}
+
+void film_policy(const fs::path& resources, const fs::path& raw, const fs::path& destination) {
+    check(fs::create_directory(destination), "film policy destination must be a new directory");
+    // These are the four stocks from the reported regression. Product policy
+    // must use profile metadata, not this list; the list holds that coverage.
+    const std::array<std::string, 4> slides{
+        "fujifilm_provia_100f", "fujifilm_velvia_100", "kodak_ektachrome_100", "kodak_kodachrome_64"};
+    Json report = Json::object(), renders = Json::array();
+    FramePtr held;
+    std::uint64_t held_pixels = 0, held_display = 0;
+    const auto exported = destination / "held-slide.tif";
+    {
+        PreviewHost host(resources);
+        for (const auto& id : slides) {
+            const auto& films = host.catalog().films;
+            const auto stock = std::find_if(films.begin(), films.end(),
+                [&](const Stock& entry) { return entry.id == id; });
+            check(stock != films.end() && stock->is_positive, "reported slide lacks positive catalog metadata");
+        }
+        RenderSettings settings;
+        settings.film_stock = slides.front();
+        auto current = host.open_raw(raw, DecodeMode::compatible16, settings);
+        check(current->scan_film, "opening a slide did not select direct scan");
+        check(!current->reprint() && !current->negative_was_cached(), "positive open claimed a cached render");
+        for (const auto& id : slides) {
+            if (settings.film_stock != id) {
+                settings.film_stock = id;
+                current = host.render(settings);
+                check(!current->reprint() && !current->negative_was_cached(), "slide change reused another film negative");
+            }
+            check(current->settings.film_stock == id, "displayed slide stock differs from selection");
+            check(current->scan_film, "slide transition did not select direct scan");
+            const auto pixels_before = frame_fingerprint(*current);
+            const auto display_before = fingerprint(current->bgra8.data(), current->bgra8.size());
+            // Same cached film realisation, different paper controls: a slide
+            // is scanned directly, so these must be pixel-identical even
+            // though grain remains on. No unrelated random images compared.
+            settings.print_exposure = settings.print_exposure == 1.0 ? 0.65 : 1.0;
+            settings.print_stock = settings.print_stock == "kodak_portra_endura"
+                ? "fujifilm_crystal_archive_typeii" : "kodak_portra_endura";
+            auto unchanged = host.render(settings);
+            check(unchanged->reprint() && unchanged->negative_was_cached(), "slide paper edit missed the cached film");
+            if (frame_fingerprint(*unchanged) != pixels_before ||
+                fingerprint(unchanged->bgra8.data(), unchanged->bgra8.size()) != display_before)
+                throw std::runtime_error("Paper controls changed directly scanned slide pixels: " + id);
+            check(unchanged->settings.print_stock == settings.print_stock &&
+                  unchanged->settings.print_exposure == settings.print_exposure,
+                  "slide discarded remembered paper preferences");
+            renders.push(frame_report(*unchanged));
+            if (!held) {
+                held = current;
+                held_pixels = pixels_before;
+                held_display = display_before;
+            }
+            current = std::move(unchanged);
+        }
+        settings.film_stock = "kodak_portra_400";
+        auto negative = host.render(settings);
+        check(!negative->scan_film, "returning to negative film retained direct scan");
+        check(!negative->reprint() && !negative->negative_was_cached(), "negative transition reused a slide negative");
+        check(negative->settings.print_stock == settings.print_stock &&
+              negative->settings.print_exposure == settings.print_exposure,
+              "negative transition lost remembered paper preferences");
+        const auto negative_pixels = frame_fingerprint(*negative);
+        settings.print_exposure *= 1.5;
+        auto print = host.render(settings);
+        check(print->reprint() && print->negative_was_cached(), "negative paper edit missed the cached film");
+        check(frame_fingerprint(*print) != negative_pixels, "negative transition left paper exposure inactive");
+        report.set("negative_return", frame_report(*print));
+        settings.film_stock = slides.front();
+        auto slide_return = host.render(settings);
+        check(slide_return->scan_film && !slide_return->reprint() && !slide_return->negative_was_cached(),
+              "negative-to-slide transition failed to restore direct scanning with a new film negative");
+        report.set("slide_return", frame_report(*slide_return));
+        host.export_tiff(*held, exported);
+        compare_tiff(exported, *held, resources / "io/sRGB.icc");
+        check(host.current() == slide_return, "held slide export changed the current frame");
+    }
+    check(frame_fingerprint(*held) == held_pixels &&
+          fingerprint(held->bgra8.data(), held->bgra8.size()) == held_display,
+          "film transitions or host destruction mutated held slide pixels");
+    compare_tiff(exported, *held, resources / "io/sRGB.icc");
+    report.set("status", Json(std::string("passed")));
+    report.set("slides", std::move(renders));
+    report.set("checks", Json(double(checks)));
+    report.set("raw", Json(path_text(raw)));
+    report.set("exported_tiff", Json(path_text(exported)));
+    report.set("pixel_comparison", Json(std::string("Paper edits reuse the same film grain realisation and must not change directly scanned slide RGBA16/BGRA8. Held slide TIFF matches every RGB16 sample after film transitions and host destruction.")));
+    std::ofstream stream(destination / "film-policy.json", std::ios::binary);
+    check(bool(stream << report.dump() << '\n') && bool(stream.flush()), "cannot write film policy report");
 }
 
 void integration(const fs::path& resources, const fs::path& arw,
@@ -365,11 +577,22 @@ void integration(const fs::path& resources, const fs::path& arw,
 
 int main(int argc, char** argv) {
     try {
+        settings_defaults();
         conversion();
         viewport_geometry();
-        if (argc != 1) {
+        if (argc == 5 && std::string(argv[1]) == "--film-policy") {
+            film_policy(fs::path(reinterpret_cast<const char8_t*>(argv[2])),
+                        fs::path(reinterpret_cast<const char8_t*>(argv[3])),
+                        fs::path(reinterpret_cast<const char8_t*>(argv[4])));
+        } else if (argc == 5 && std::string(argv[1]) == "--edit-controls") {
+            edit_controls(fs::path(reinterpret_cast<const char8_t*>(argv[2])),
+                          fs::path(reinterpret_cast<const char8_t*>(argv[3])),
+                          fs::path(reinterpret_cast<const char8_t*>(argv[4])));
+        } else if (argc != 1) {
             if (argc != 6 || std::string(argv[1]) != "--integration") {
-                std::cerr << "usage: spk_desktop_preview_test [--integration <resources> <ARW> <NEF> <new-output-directory>]\n";
+                std::cerr << "usage: spk_desktop_preview_test [--integration <resources> <ARW> <NEF> <new-output-directory>]\n"
+                             "       spk_desktop_preview_test --film-policy <resources> <RAW> <new-output-directory>\n"
+                             "       spk_desktop_preview_test --edit-controls <resources> <RAW> <new-output-directory>\n";
                 return 2;
             }
             integration(fs::path(reinterpret_cast<const char8_t*>(argv[2])),
