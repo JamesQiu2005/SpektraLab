@@ -710,6 +710,7 @@ struct FilmParams: Codable, Equatable, Sendable {
             ("print_exposure", .double(FilmParams.printExposure(stops: printBrightnessStops)), .print),
             ("y_filter_shift", .double(yFilterShift), .print),
             ("m_filter_shift", .double(mFilterShift), .print),
+            ("filter_shift_scale", .double(FilmParams.filterShiftCC), .print),
             ("glare_active", .bool(glareActive && printEffects), .print),
             ("scan_film", .bool(scanFilm), .print),
             ("extended_dynamic_range", .bool(effectiveExtendedDynamicRange), .print),
@@ -798,5 +799,11 @@ struct FilmParams: Codable, Equatable, Sendable {
     /// delta either way — but the scheduler uses it to pick the tighter
     /// debounce.
     static let liveMutable: Set<String> = ["print_exposure", "m_filter_shift", "y_filter_shift",
-                                           "preflash_exposure"]
+                                           "preflash_exposure", "filter_shift_scale"]
+
+    /// What the ends of the Yellow and Magenta sliders are, in the enlarger
+    /// head's CC units (`filter_shift_scale`). The wire's shifts are -1…1 and
+    /// the engine adds them to a pack of about 55 / 65 CC, so sent bare the
+    /// whole slider was one CC: a twentieth of a stop, which nobody can see.
+    static let filterShiftCC: Double = 40
 }

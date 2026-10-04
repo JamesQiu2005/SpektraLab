@@ -839,4 +839,105 @@ final class HalfFramePairTests: XCTestCase {
                           "the canvas showed \(s) while the film canvas is \(film)")
         }
     }
+
+    /// A frame's own print is part of what the picture on the canvas is made
+    /// from, so it is part of the stamp a native render is kept under. It was
+    /// not: the Enlarger on a frame of a pair changed the preview and the
+    /// stale native render was put back over it at once.
+    func testAFramesOwnPrintMovesTheStampTheNativeRenderIsKeptUnder() async throws {
+        let frames = try copies(2)
+        let session = Session(clipboardDefaults: try defaults())
+        session.open(urls: [frames[0].deletingLastPathComponent()])
+        let urls = session.frames.map(\.id)
+        session.click(urls[0]); session.click(urls[1], command: true)
+        session.newPair()
+        let pairURL = try XCTUnwrap(session.selection)
+        addTeardownBlock { try? FileManager.default.removeItem(at: pairURL); Sidecar.remove(for: pairURL) }
+        let plain = session.printStamp
+        session.pairLayer = .left
+        session.enlargerScope = .frame
+        session.setEnlarger(.yellow, 0.5)
+        let own = session.printStamp
+        XCTAssertNotEqual(own, plain, "the frame's own filter is not in the stamp")
+        session.setEnlarger(.yellow, 0.75)
+        XCTAssertNotEqual(session.printStamp, own)
+        // A frame's own grade too.
+        var grade = session.layerAdjustments
+        grade.exposure = 0.5
+        session.layerAdjustments = grade
+        XCTAssertNotEqual(session.printStamp, own)
+        // Back to one print for the whole piece: the film's stamp again.
+        session.resetEnlarger()
+        session.layerAdjustments = session.adjustments
+        session.updatePair(redecode: false, rerender: false) { $0.left?.print = nil; $0.right?.print = nil; $0.left?.adjustments = nil }
+        XCTAssertFalse(session.pairIsLayered)
+        XCTAssertEqual(session.printStamp, plain)
+    }
+
+    /// With the film picked the Enlarger is the whole piece's: a frame with a
+    /// print of its own moves with the film and keeps its distance from it.
+    /// It moved only the rebate, and looked dead.
+    func testTheFilmsEnlargerMovesFramesThatPrintForThemselves() throws {
+        let (session, urls) = try openedSession(frameCount: 2)
+        session.click(urls[0]); session.click(urls[1], command: true)
+        session.newPair()
+        let pairURL = try XCTUnwrap(session.selection)
+        addTeardownBlock { try? FileManager.default.removeItem(at: pairURL); Sidecar.remove(for: pairURL) }
+        session.pairLayer = .left
+        session.enlargerScope = .frame
+        session.setEnlarger(.brightness, 1)
+        session.setEnlarger(.yellow, 0.25)
+        XCTAssertEqual(session.pair?.left?.print?.brightnessStops, 1)
+        XCTAssertEqual(session.pair?.right?.print?.brightnessStops, 0)
+        session.pairLayer = .film
+        session.setEnlarger(.brightness, 0.5)
+        session.setEnlarger(.yellow, -0.5)
+        XCTAssertEqual(session.params.printBrightnessStops, 0.5)
+        XCTAssertEqual(session.pair?.left?.print?.brightnessStops, 1.5)
+        XCTAssertEqual(session.pair?.right?.print?.brightnessStops, 0.5)
+        XCTAssertEqual(try XCTUnwrap(session.pair?.left?.print?.yFilterShift), -0.25, accuracy: 1e-9)
+        XCTAssertEqual(try XCTUnwrap(session.pair?.right?.print?.yFilterShift), -0.5, accuracy: 1e-9)
+        // Within the control's range, whatever the film asks.
+        session.setEnlarger(.brightness, 3)
+        XCTAssertEqual(session.pair?.left?.print?.brightnessStops, 3)
+        // Reset on the film is the piece as one print again.
+        session.resetEnlarger()
+        XCTAssertEqual(session.params.printBrightnessStops, 0)
+        XCTAssertNil(session.pair?.left?.print)
+        XCTAssertFalse(session.pairIsLayered)
+    }
+
+    /// White balance and lens correction on a pair are the picked frame's
+    /// own: the piece is two frames laid out and is not a RAW, which greyed
+    /// both for every frame of every pair.
+    func testWhiteBalanceOnAPairIsThePickedFramesOwn() throws {
+        let (session, urls) = try openedSession(frameCount: 2)
+        session.click(urls[0]); session.click(urls[1], command: true)
+        session.newPair()
+        let pairURL = try XCTUnwrap(session.selection)
+        addTeardownBlock { try? FileManager.default.removeItem(at: pairURL); Sidecar.remove(for: pairURL) }
+        let left = try XCTUnwrap(session.pair?.left), right = try XCTUnwrap(session.pair?.right)
+        addTeardownBlock { Sidecar.remove(for: left.url); Sidecar.remove(for: right.url) }
+        // As the pair's decode records each frame's file.
+        PairComposer.shots.set(.init(isRAW: true, lensCorrectionSupported: true, asShotTemperature: 4800, asShotTint: 12),
+                               for: left.path)
+        PairComposer.shots.set(.init(isRAW: false, lensCorrectionSupported: false, asShotTemperature: nil, asShotTint: nil),
+                               for: right.path)
+        session.pairLayer = .left
+        XCTAssertTrue(session.shotIsRAW)
+        XCTAssertTrue(session.lensCorrectionEnabled)
+        XCTAssertEqual(session.asShotWhiteBalance?.temperature, 4800)
+        XCTAssertEqual(session.decode.temperature, 4800, "as shot reads the camera's value")
+        session.setTemperature(6200)
+        XCTAssertEqual(session.pair?.left?.decode.temperature, 6200)
+        XCTAssertEqual(session.pair?.left?.decode.whiteBalance, .custom)
+        XCTAssertEqual(session.pair?.left?.decode.tint, 12, "the other axis stays the camera's")
+        XCTAssertEqual(Sidecar.load(for: left.url)?.decode.temperature, 6200, "the shot is the frame's, in every pair and alone")
+        XCTAssertEqual(session.pair?.right?.decode.whiteBalance, .asShot, "the other frame is untouched")
+        // The other frame: a flat file has no white balance to move.
+        session.pairLayer = .right
+        XCTAssertFalse(session.shotIsRAW)
+        XCTAssertFalse(session.lensCorrectionEnabled)
+        XCTAssertNil(session.asShotWhiteBalance)
+    }
 }

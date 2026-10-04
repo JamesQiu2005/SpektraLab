@@ -256,3 +256,17 @@ Seen (snapshot, `--pair-zoom f s`): the gesture's picture and the develop that f
 **Dragging a thumbnail opened it alone.** The strip's thumbnails are draggable (for a pair's holes), and the window's own file drop took one let go anywhere as a file handed to the app — the folder was replaced by that frame. Now: a thumbnail dragged over another takes its place as it goes (`FrameReorder`, `Session.moveFrame`), and the order is kept for the folder (`FrameOrder`, one small file under `Sidecars/Order`, laid over the listing on open; frames it does not name stay after their neighbour). The window's drop goes through `Session.dropped(files:)`: files from outside are opened as ever (one file = edit this); the strip's own thumbnail is ignored; a file of the open folder dropped from Finder goes on the canvas with the folder still around it.
 
 Not driven by hand: the drag itself in the window (the model under it is tested in `FrameOrderTests`). The Browse grid has no drag.
+
+## 15. 2026-10-04: the Enlarger did nothing, and three pair faults
+
+| reported | cause | now |
+|---|---|---|
+| Yellow and Magenta do nothing | The wire's shifts are −1…1, added to a pack in CC units (~55 / 65): the whole slider was 1 CC, 0.014 stop. The same shape as RFC-025's dead sliders. | Engine field `filter_shift_scale` (native-only, default 1, API-SPEC §14); the app sends 40. Ends measured ±0.3 stop blue/red. Slider tracks recoloured to the print's direction (Yellow up = bluer). |
+| Enlarger dead on a pair until a frame is clicked | A native render is kept under a stamp of the *film's* parameters. A frame's own print is in the pair file, so the stamp did not move and the stale native render was put back over the new picture. | `Session.printStamp` carries the frames' prints and grades when the piece is layered. |
+| (same) with the film picked | Once frames print for themselves the film's Enlarger moved only the rebate. | The film's Enlarger moves every frame's own print by the same amount; its reset makes the piece one print again. |
+| White balance and tint greyed on a pair | The rows ask whether the *decode* is a RAW; a pair's decode is a composed piece. | They ask about the picked frame's own file (`Session.shot`, `PairComposer.shots`); as shot shows the camera's values. |
+| The drag is laggy, in bursts | The crop gesture's picture was scaled whole (up to 4× the hole) and offset on every mouse move; and a thumbnail dragged over a pair wrote `pairLayer` on every move, redrawing both rails. | The picture is cut first and only the hole's worth is scaled; `pairLayer` is written only when it changes. |
+
+`parity_schema` 0 failures, `parity_render` 27 cases, `parity_session` 96 fields, all with the rebuilt engine.
+
+Not driven by hand: any of it in the window. **Mobile needs `filter_shift_scale`** (engine hunks in `params.hpp/.cpp`, `printing.cpp`, `digital_intermediate.cpp`, `parity_schema.py`) — merge hunks, don't copy files.

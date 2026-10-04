@@ -421,8 +421,9 @@ void di_live_offsets(const Params& params, double out[3]) {
     const double k = -std::log10(std::fmax(params.enlarger.print_exposure, 1e-6));
     const double stop = std::log10(2.0);
     out[0] = k;
-    out[1] = k + params.enlarger.m_filter_shift * 0.03 * stop;
-    out[2] = k + params.enlarger.y_filter_shift * 0.05 * stop;
+    const double cc = params.enlarger.filter_shift_scale;
+    out[1] = k + params.enlarger.m_filter_shift * cc * 0.03 * stop;
+    out[2] = k + params.enlarger.y_filter_shift * cc * 0.05 * stop;
 }
 
 }  // namespace spk

@@ -304,6 +304,13 @@ NATIVE_ONLY = {
         "path": "camera.scene_latitude.b_shadow_room", "type": "float", "layer": "shoot",
         "default": 0.0, "live": False, "range": [0.0, 24.0],
     },
+    # The CC a unit of the two filter shifts is. The shifts are the oracle's
+    # and keep its -1..1 (a twentieth of a stop end to end on a ~55/65 pack);
+    # the host's control sets what its ends mean. 1 is the reference.
+    "filter_shift_scale": {
+        "path": "enlarger.filter_shift_scale", "type": "float", "layer": "print",
+        "default": 1.0, "live": True, "range": [1.0, 60.0],
+    },
 }
 
 

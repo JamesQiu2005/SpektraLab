@@ -363,6 +363,7 @@
 		7E7C9884E1F28D34FD31BDFE /* DigitalIntermediateTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "DigitalIntermediateTests.swift"; sourceTree = "<group>"; };
 		EED6A6C9BDFFC2A7407D2297 /* DiskCacheStoreTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "DiskCacheStoreTests.swift"; sourceTree = "<group>"; };
 		1A34D31C5C249B7AE3393289 /* EngineClientTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "EngineClientTests.swift"; sourceTree = "<group>"; };
+		32FAEC590D1214E70CF5D972 /* EnlargerFilterTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "EnlargerFilterTests.swift"; sourceTree = "<group>"; };
 		4272CA1F50A56E2865BC7E8D /* EvictionReportTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "EvictionReportTests.swift"; sourceTree = "<group>"; };
 		14132E8FB6492C522D6E48CC /* EXIFRoundTripTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "EXIFRoundTripTests.swift"; sourceTree = "<group>"; };
 		8556EC82AF397D7481444C46 /* ExportPanelTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "ExportPanelTests.swift"; sourceTree = "<group>"; };
@@ -424,6 +425,7 @@
 				7E7C9884E1F28D34FD31BDFE /* DigitalIntermediateTests.swift */,
 				EED6A6C9BDFFC2A7407D2297 /* DiskCacheStoreTests.swift */,
 				1A34D31C5C249B7AE3393289 /* EngineClientTests.swift */,
+				32FAEC590D1214E70CF5D972 /* EnlargerFilterTests.swift */,
 				4272CA1F50A56E2865BC7E8D /* EvictionReportTests.swift */,
 				14132E8FB6492C522D6E48CC /* EXIFRoundTripTests.swift */,
 				8556EC82AF397D7481444C46 /* ExportPanelTests.swift */,
@@ -880,6 +882,7 @@
 		F61F1AC4FB07EB24D87796A5 /* DigitalIntermediateTests.swift */ = {isa = PBXBuildFile; fileRef = 7E7C9884E1F28D34FD31BDFE; };
 		8E53CE847694C3966F389B68 /* DiskCacheStoreTests.swift */ = {isa = PBXBuildFile; fileRef = EED6A6C9BDFFC2A7407D2297; };
 		A5617565080D6659115024D0 /* EngineClientTests.swift */ = {isa = PBXBuildFile; fileRef = 1A34D31C5C249B7AE3393289; };
+		BF78DF3B0EE521349F9CCC05 /* EnlargerFilterTests.swift */ = {isa = PBXBuildFile; fileRef = 32FAEC590D1214E70CF5D972; };
 		CDE6A6EEBA05479B03794B4E /* EvictionReportTests.swift */ = {isa = PBXBuildFile; fileRef = 4272CA1F50A56E2865BC7E8D; };
 		FD2D82AC3DF47A45CCBE6225 /* EXIFRoundTripTests.swift */ = {isa = PBXBuildFile; fileRef = 14132E8FB6492C522D6E48CC; };
 		5673980378A9EE307FCE236C /* ExportPanelTests.swift */ = {isa = PBXBuildFile; fileRef = 8556EC82AF397D7481444C46; };
@@ -1070,6 +1073,7 @@
 				F61F1AC4FB07EB24D87796A5 /* DigitalIntermediateTests.swift */,
 				8E53CE847694C3966F389B68 /* DiskCacheStoreTests.swift */,
 				A5617565080D6659115024D0 /* EngineClientTests.swift */,
+				BF78DF3B0EE521349F9CCC05 /* EnlargerFilterTests.swift */,
 				CDE6A6EEBA05479B03794B4E /* EvictionReportTests.swift */,
 				FD2D82AC3DF47A45CCBE6225 /* EXIFRoundTripTests.swift */,
 				5673980378A9EE307FCE236C /* ExportPanelTests.swift */,

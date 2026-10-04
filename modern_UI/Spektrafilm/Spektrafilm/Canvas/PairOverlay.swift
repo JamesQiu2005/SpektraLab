@@ -173,13 +173,16 @@ struct PairDragPreview: View {
                 // Already turned (`framedPreview`), so the cut is taken as is.
                 let source = CGSize(width: image.width, height: image.height)
                 let cut = HalfFramePair.sourceRect(for: placement, source: source, aspect: aspect)
-                let k = geo.size.height / max(cut.height, 1)
-                Image(decorative: image, scale: 1)
-                    .resizable()
-                    .interpolation(.medium)
-                    .frame(width: source.width * k, height: source.height * k)
-                    .offset(x: -cut.minX * k, y: -cut.minY * k)
-                    .frame(width: geo.size.width, height: geo.size.height, alignment: .topLeading)
+                // Cut first, then scaled: only the hole's worth of pixels is
+                // resampled on a move. Scaled whole and offset, the picture was
+                // drawn at up to four times the hole's size on every mouse
+                // move, on the main thread, and the drag came in bursts.
+                if let piece = image.cropping(to: cut.integral) {
+                    Image(decorative: piece, scale: 1)
+                        .resizable()
+                        .interpolation(.low)
+                        .frame(width: geo.size.width, height: geo.size.height)
+                }
             }
         }
         .task(id: Key(path: hole.path, geometry: hole.geometry, turns: placement.quarterTurns)) {

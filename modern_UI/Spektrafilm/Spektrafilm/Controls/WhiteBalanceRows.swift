@@ -27,11 +27,7 @@ import SwiftUI
 struct WhiteBalanceRows: View {
     @Bindable var session: Session
 
-    private var isRAW: Bool {
-        session.decoded?.isRAW ?? (session.selection.map {
-            ImageDecoder.rawExtensions.contains($0.pathExtension.lowercased())
-        } ?? false)
-    }
+    private var isRAW: Bool { session.shotIsRAW }
     /// Nothing to re-balance, and nothing to explain yet: no frame is open.
     private var enabled: Bool { session.selection == nil || isRAW }
     /// Ticking a box pins an axis to the camera's value, so with no decode

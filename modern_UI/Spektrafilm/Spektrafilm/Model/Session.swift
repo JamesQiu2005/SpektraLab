@@ -139,7 +139,13 @@ final class Session: CanvasHost {
               scheduleSave() }
     }
     var decode: DecodeSettings {
-        get { focusHole?.decode ?? sidecar.decode }
+        get {
+            guard var d = focusHole?.decode else { return sidecar.decode }
+            // As shot: the camera's own values, as a frame's decode carries
+            // them once it has landed.
+            if d.whiteBalance == .asShot, let shot = asShotWhiteBalance { d.temperature = shot.temperature; d.tint = shot.tint }
+            return d
+        }
         set { // On a pair the white balance and lens correction are the
               // picked frame's own, written to that frame.
               if pair != nil { setFocusDecode(newValue); return }
@@ -2744,8 +2750,27 @@ final class Session: CanvasHost {
     /// decode has landed. Ticking an "As Shot" box means pinning to these, so
     /// with nothing to pin to the boxes are disabled (`WhiteBalanceBoxes`).
     var asShotWhiteBalance: WhiteBalanceBoxes.AsShot? {
-        guard let d = decoded, let t = d.asShotTemperature, let tn = d.asShotTint else { return nil }
+        guard let s = shot, let t = s.asShotTemperature, let tn = s.asShotTint else { return nil }
         return (t, tn)
+    }
+
+    /// The file the white balance and the lens correction are about: the
+    /// frame on the canvas, or on a pair the picked frame's own (the piece is
+    /// two frames laid out, not a RAW, and has no camera white balance).
+    var shot: PairComposer.Shot? {
+        // Read on a pair too: the frames' shots are known when its decode lands.
+        let d = decoded
+        if pair != nil { return focusHole.flatMap { PairComposer.shots.shot(for: $0.path) } }
+        return d.map { PairComposer.Shot(isRAW: $0.isRAW, lensCorrectionSupported: $0.lensCorrectionSupported,
+                                         asShotTemperature: $0.asShotTemperature, asShotTint: $0.asShotTint) }
+    }
+
+    /// Whether the white balance can move: a RAW (before the decode lands, by
+    /// the file's name).
+    var shotIsRAW: Bool {
+        if let s = shot { return s.isRAW }
+        let url = pair != nil ? focusHole?.url : selection
+        return url.map { ImageDecoder.rawExtensions.contains($0.pathExtension.lowercased()) } ?? false
     }
 
     /// What the two "As Shot" boxes read right now.
@@ -2784,7 +2809,7 @@ final class Session: CanvasHost {
         var d = decode
         d.whiteBalance = mode
         if let k = mode.kelvin { d.temperature = k; d.tint = 0 }
-        else if mode == .asShot, let dec = decoded, let t = dec.asShotTemperature, let tn = dec.asShotTint { d.temperature = t; d.tint = tn }
+        else if mode == .asShot, let shot = asShotWhiteBalance { d.temperature = shot.temperature; d.tint = shot.tint }
         decode = d
     }
 
@@ -3076,12 +3101,12 @@ final class Session: CanvasHost {
     /// from EXIF. Both come back as a greyed row rather than as a control that
     /// looks live and changes nothing.
     var lensCorrectionEnabled: Bool {
-        guard let d = decoded else { return false }
+        guard let d = shot else { return false }
         return d.isRAW && d.lensCorrectionSupported
     }
 
     var lensCorrectionReason: String {
-        guard let d = decoded else { return "Open a frame to correct its lens." }
+        guard let d = shot else { return "Open a frame to correct its lens." }
         if !d.isRAW { return "Lens correction applies to RAW input only." }
         if !d.lensCorrectionSupported {
             return "This RAW carries no lens correction. Core Image is already applying the standard EXIF correction."
@@ -3457,7 +3482,24 @@ final class Session: CanvasHost {
     /// already be a slider ahead of it. The live print on screen was made
     /// from `sent`, so stamping the native render with anything else would
     /// let the two disagree about which film they are showing.
-    private var printStamp: String { Session.printStamp(scheduler.sent) }
+    ///
+    /// On a pair whose frames print or grade for themselves the picture is
+    /// cut together from more than the film's parameters, and the stamp says
+    /// so. Without it a frame's own print could change and the resident
+    /// native render — made from the old one, under a stamp that had not
+    /// moved — was put straight back over the new picture: the Enlarger did
+    /// nothing on a pair until something else moved the stamp.
+    var printStamp: String { Session.printStamp(scheduler.sent) + pairStamp }
+
+    private var pairStamp: String {
+        guard let p = pair, pairIsLayered else { return "" }
+        struct Part: Encodable { let print: HalfFramePair.PrintTrim?; let grade: Adjustments? }
+        let parts = HalfFramePair.Side.allCases.map { Part(print: p[$0]?.print, grade: p[$0]?.adjustments) }
+            + [Part(print: nil, grade: sidecar.adjustments)]
+        let enc = JSONEncoder()
+        enc.outputFormatting = [.sortedKeys]
+        return ";pair=" + (String(data: (try? enc.encode(parts)) ?? Data(), encoding: .utf8) ?? "")
+    }
 
     /// The long edge of what is actually on screen, in source pixels. A 20 %
     /// crop of a 45 MP frame has a 1651 px long edge, which the preview
@@ -4461,7 +4503,10 @@ extension Session {
     func clicked(normalised: CGPoint?) {
         guard pair != nil, let n = normalised else { return }
         let hit = pairHoleRects.first { $0.value.contains(n) }?.key
-        pairLayer = hit == .left ? .left : hit == .right ? .right : .film
+        let layer: PairLayer = hit == .left ? .left : hit == .right ? .right : .film
+        // Not written when it is the same: a drag over the canvas asks on
+        // every move, and a write is every rail drawn again.
+        if layer != pairLayer { pairLayer = layer }
     }
 
     /// Placement mode (the crop tool's button and key, on a pair): the picked
@@ -4881,6 +4926,14 @@ extension Session {
         }
     }
 
+    /// `v` within the control's own range.
+    private func clamped(_ f: EnlargerField, _ v: Double) -> Double {
+        switch f {
+        case .brightness: v.clamped(to: -3...3)
+        case .yellow, .magenta: v.clamped(to: -1...1)
+        case .preflash: v.clamped(to: 0...0.03)
+        }
+    }
     private func set(_ f: EnlargerField, _ v: Double, in t: inout HalfFramePair.PrintTrim) {
         switch f {
         case .brightness: t.brightnessStops = v
@@ -4965,10 +5018,21 @@ extension Session {
     func setEnlarger(_ f: EnlargerField, _ v: Double) {
         guard let side = pickedHole else {
             var t = filmPrint
+            let moved = v - value(f, of: t)
             set(f, v, in: &t)
-            // The first edit of the film's print with frames that follow it
-            // moves them too: until a frame is given a print of its own the
-            // piece prints as one.
+            // The film is the whole piece. A frame with a print of its own
+            // moves with it by the same amount and keeps its distance from
+            // the film: with the film picked the Enlarger otherwise moved
+            // only the rebate, and looked as if it did nothing at all.
+            if moved != 0, pair != nil {
+                updatePair(redecode: false, rerender: false) { p in
+                    for s in HalfFramePair.Side.allCases {
+                        guard var own = p[s]?.print else { continue }
+                        self.set(f, self.clamped(f, self.value(f, of: own) + moved), in: &own)
+                        p[s]?.print = own
+                    }
+                }
+            }
             params = t.applied(to: params)
             return
         }
@@ -4986,9 +5050,7 @@ extension Session {
         }
         if scope == .film {
             var t = film
-            var moved = value(f, of: film) + (v - was)
-            if f == .preflash { moved = moved.clamped(to: 0...0.03) }
-            set(f, moved, in: &t)
+            set(f, clamped(f, value(f, of: film) + (v - was)), in: &t)
             params = t.applied(to: params)          // renders, and the frames follow
         } else {
             recomposePair()
@@ -5005,7 +5067,14 @@ extension Session {
             }
             recomposePair()
         } else {
+            // The film reset is the piece reset: one print again.
+            if pair != nil {
+                updatePair(redecode: false, rerender: false, step: true) { p in
+                    for s in HalfFramePair.Side.allCases { p[s]?.print = nil }
+                }
+            }
             params = HalfFramePair.PrintTrim().applied(to: params)
+            if pair != nil { recomposePair() }
         }
     }
 

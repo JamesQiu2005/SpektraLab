@@ -97,8 +97,11 @@ bool print_constants(const Colour& colour, const Blob& blob, const Params& param
     // shifts. There is no C shift, because a subtractive dichroic head grades
     // on two axes.
     const double cc[3] = {params.enlarger.c_filter_neutral,
-                          params.enlarger.m_filter_neutral + params.enlarger.m_filter_shift,
-                          params.enlarger.y_filter_neutral + params.enlarger.y_filter_shift};
+                          params.enlarger.m_filter_neutral + params.enlarger.m_filter_shift * params.enlarger.filter_shift_scale,
+                          params.enlarger.y_filter_neutral + params.enlarger.y_filter_shift * params.enlarger.filter_shift_scale};
+    // (Not floored at zero: a pack below its neutral by more than the neutral
+    // is the reference's arithmetic too, and the scale's range keeps a host's
+    // control inside what a ~55/65 pack can give.)
     color_enlarger(light, dichroics, cc, out.print_illuminant);
 
     prepare_spectral_constants(film.data.channel_density, film.data.base_density,

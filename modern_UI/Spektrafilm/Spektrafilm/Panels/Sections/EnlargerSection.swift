@@ -35,16 +35,21 @@ struct EnlargerSection: View {
                             value: Binding(get: { session.enlargerValue(.brightness) },
                                            set: { session.setEnlarger(.brightness, $0) }),
                             range: -3...3, snap: 0.25, format: { String(format: "%+.2f", $0) })
-                ScrubSlider(label: L("Yellow", zh: "黄"), sublabel: L("← blue", zh: "← 蓝"),
+                // The filters are the head's, and a negative prints the
+                // other way: more yellow filtration is a bluer print, more
+                // magenta a greener one (measured through the engine). The
+                // track shows the print, so its colour is where the slider
+                // takes the picture.
+                ScrubSlider(label: L("Yellow", zh: "黄"), sublabel: L("→ blue", zh: "→ 蓝"),
                             value: Binding(get: { session.enlargerValue(.yellow) },
                                            set: { session.setEnlarger(.yellow, $0) }),
                             range: -1...1, snap: 0.05, format: { String(format: "%+.2f", $0) },
-                            trackGradient: [Color(hex: 0x6F7FB0), Color(hex: 0x8A8A8A), Color(hex: 0xB8A860)])
-                ScrubSlider(label: L("Magenta", zh: "品红"), sublabel: L("← green", zh: "← 绿"),
+                            trackGradient: [Color(hex: 0xB8A860), Color(hex: 0x8A8A8A), Color(hex: 0x6F7FB0)])
+                ScrubSlider(label: L("Magenta", zh: "品红"), sublabel: L("→ green", zh: "→ 绿"),
                             value: Binding(get: { session.enlargerValue(.magenta) },
                                            set: { session.setEnlarger(.magenta, $0) }),
                             range: -1...1, snap: 0.05, format: { String(format: "%+.2f", $0) },
-                            trackGradient: [Color(hex: 0x7CA87C), Color(hex: 0x8A8A8A), Color(hex: 0xB07CAE)])
+                            trackGradient: [Color(hex: 0xB07CAE), Color(hex: 0x8A8A8A), Color(hex: 0x7CA87C)])
                 ScrubSlider(label: L(.enlargerPreflash), sublabel: "×100",
                             value: Binding(get: { session.enlargerValue(.preflash) * 100 },
                                            set: { session.setEnlarger(.preflash, ($0 / 100).clamped(to: 0...0.03)) }),

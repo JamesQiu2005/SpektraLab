@@ -30,7 +30,8 @@ bool is_live(const char* name) {
     if (std::strcmp(name, "striped") == 0 || std::strcmp(name, "strip_rows") == 0 ||
         std::strcmp(name, "strip_budget_bytes") == 0) return true;
     return std::strcmp(name, "print_exposure") == 0 || std::strcmp(name, "m_filter_shift") == 0 ||
-           std::strcmp(name, "y_filter_shift") == 0 || std::strcmp(name, "preflash_exposure") == 0;
+           std::strcmp(name, "y_filter_shift") == 0 || std::strcmp(name, "preflash_exposure") == 0 ||
+           std::strcmp(name, "filter_shift_scale") == 0;
 }
 
 const SchemaField kFields[] = {
@@ -189,6 +190,12 @@ const SchemaField kFields[] = {
     {"scene_latitude_b_highlight_room", "camera.scene_latitude.b_highlight_room", F, SHOOT, true, 0.0, 24.0, false},
     {"scene_latitude_b_shadow_knee",    "camera.scene_latitude.b_shadow_knee",    F, SHOOT, true, -24.0, 24.0, false},
     {"scene_latitude_b_shadow_room",    "camera.scene_latitude.b_shadow_room",    F, SHOOT, true, 0.0, 24.0, false},
+    // The CC a unit of `y_filter_shift` / `m_filter_shift` is. Native-only:
+    // the two shifts are the oracle's fields and keep its -1..1, which on a
+    // pack of ~55/65 CC is a twentieth of a stop end to end. Default 1, so a
+    // request that does not name it renders exactly as the reference does.
+    // Live, as the shifts are: it changes the print's light and nothing else.
+    {"filter_shift_scale",     "enlarger.filter_shift_scale",          F, PRINT, true, 1.0, 60.0, true},
     // The app's *preview resolution*: the `live` tier's long edge, and so the
     // size every interactive edit renders at. PRINT layer, because it is a
     // decision about the canvas rather than about the film -- but it is one of
@@ -224,6 +231,7 @@ double* float_slot(Params& p, const std::string& path) {
     if (path == "enlarger.print_exposure") return &p.enlarger.print_exposure;
     if (path == "enlarger.m_filter_shift") return &p.enlarger.m_filter_shift;
     if (path == "enlarger.y_filter_shift") return &p.enlarger.y_filter_shift;
+    if (path == "enlarger.filter_shift_scale") return &p.enlarger.filter_shift_scale;
     if (path == "enlarger.c_filter_neutral") return &p.enlarger.c_filter_neutral;
     if (path == "enlarger.m_filter_neutral") return &p.enlarger.m_filter_neutral;
     if (path == "enlarger.y_filter_neutral") return &p.enlarger.y_filter_neutral;

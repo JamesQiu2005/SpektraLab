@@ -922,3 +922,17 @@ and penumbra are inside a few tenths of a millimetre of it.
 3. `overscan_holes` acts only in the print stages and could become
    `print`-layer (a reprint, not a re-develop). It stays `shoot` until a
    reprint is shown to keep the overscan layout across a pipeline rebuild.
+
+## 14. `filter_shift_scale` — what a unit of the two filter shifts is (2026-10-04)
+
+`y_filter_shift` and `m_filter_shift` are the oracle's fields and keep its range, −1…1. The engine adds them to the enlarger's filter pack, which is in CC units (the solved neutral is about 55 / 65), so sent bare the whole range is **one CC**: measured at the ends on `_smoke_1mp.tif`, blue against red moves 0.014 stop and green against magenta 0.009 — nothing a person can see. The Enlarger's two filters shipped that way.
+
+| field | type | layer | default | range | live |
+|---|---|---|---|---|---|
+| `filter_shift_scale` | float | print | 1.0 | 1–60 | yes |
+
+The pack is `neutral + shift × filter_shift_scale` for M and Y (C has no shift). Native-only: at the default a request renders exactly as the reference does, and `parity_render`'s `filter_shift` case (which does not name it) still passes. The Digital Intermediate's live offsets (`di_live_offsets`) carry the same factor. The preflash's own shifts are not scaled.
+
+The macOS app sends **40** always (`FilmParams.filterShiftCC`), so its sliders' ends are ±40 CC: blue against red ±0.3 stop of the print's encoded values on the fixture, pinned by `EnlargerFilterTests` (red at a scale of 1). More filtration prints the *other* way on a negative — Yellow up is a bluer print, Magenta up a greener one — and the app's slider tracks are coloured as the print goes.
+
+It is live for the same reason the shifts are: it changes the light on the paper and nothing upstream.

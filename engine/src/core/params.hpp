@@ -301,6 +301,11 @@ struct EnlargerParams {
     bool print_exposure_compensation = true;
     bool normalize_print_exposure = true;
     double y_filter_shift = 0.0, m_filter_shift = 0.0;
+    // What one unit of the two shifts is, in the head's own CC units. 1 is
+    // the reference's (a shift of 1 is 1 CC on a pack of ~55/65: 0.05 stop
+    // at most, nothing a person can see). A host with a -1..1 control sets
+    // what its ends mean here; the wire's own range stays the oracle's.
+    double filter_shift_scale = 1.0;
     double y_filter_neutral = 55.0, m_filter_neutral = 65.0, c_filter_neutral = 0.0;
     double lens_blur = 0.0;
     DiffusionFilterParams diffusion_filter;

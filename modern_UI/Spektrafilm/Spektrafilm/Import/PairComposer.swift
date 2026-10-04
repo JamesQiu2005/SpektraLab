@@ -38,6 +38,8 @@ enum PairComposer {
             guard let d = try? ImageDecoder.decode(hole.url, settings: hole.decode, checkpoint: checkpoint)
             else { continue }
             sources[side] = Source(hole: hole, decoded: d, framed: hole.geometry.outputSize(for: d.pixelSize))
+            shots.set(Shot(isRAW: d.isRAW, lensCorrectionSupported: d.lensCorrectionSupported,
+                           asShotTemperature: d.asShotTemperature, asShotTint: d.asShotTint), for: hole.path)
         }
         let layout = layout(for: pair, sizes: sources.mapValues(\.framed))
         let full = CGRect(origin: .zero, size: layout.size)
@@ -134,6 +136,27 @@ enum PairComposer {
             .transformed(by: .init(translationX: holeCI.minX, y: holeCI.minY))
             .cropped(to: holeCI)
     }
+
+    // MARK: - the shot behind a hole
+
+    /// What a frame's own file is, as its decode found it. The piece is not a
+    /// RAW and has no camera white balance; each of its frames may be and
+    /// does, and the rail's white balance and lens correction are about the
+    /// picked frame — so they ask here.
+    struct Shot: Sendable {
+        let isRAW: Bool
+        let lensCorrectionSupported: Bool
+        let asShotTemperature: Double?
+        let asShotTint: Double?
+    }
+
+    final class Shots: @unchecked Sendable {
+        private let lock = NSLock()
+        private var known: [String: Shot] = [:]
+        func set(_ shot: Shot, for path: String) { lock.withLock { known[path] = shot } }
+        func shot(for path: String) -> Shot? { lock.withLock { known[path] } }
+    }
+    static let shots = Shots()
 
     // MARK: - a hole, rendered once
 
