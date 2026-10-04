@@ -47,7 +47,9 @@ from pool_invariants import frame  # noqa: E402
 # The table's classes, pinned. A stage whose class moves is a code change, and
 # it has to move here with it -- this is the pin the resolved value cannot give.
 WANT_CLASS = {
-    "film": {"film_scale_and_expose": "pointwise", "film_boost": "whole",
+    # `film_overscan` is RFC-032's (f32aae2), whole-frame because it builds the
+    # canvas; it was not pinned here when it landed, so this failed from then on.
+    "film": {"film_scale_and_expose": "pointwise", "film_boost": "whole", "film_overscan": "whole",
              "film_blurs": "neighbourhood", "film_log_and_curves": "pointwise",
              "film_couplers": "neighbourhood", "film_grain": "whole"},
     "print": {"print_spectral": "pointwise", "print_glare": "whole",

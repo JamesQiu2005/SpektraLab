@@ -69,7 +69,9 @@ SINKS = {
     "exposure_sample_y": "reads the plane's luma to the host",
 }
 
-EXPECTED_TABLE_ROWS = 11  # six film stages -- the `boost` split made one more -- and five print
+# Seven film stages -- the `boost` split made one more, RFC-032's `film_overscan`
+# another (not pinned here when it landed, so this failed from then on) -- and five print.
+EXPECTED_TABLE_ROWS = 12
 
 # `if (cond) {` and its relatives have the shape of a definition -- a name, a
 # parenthesised something, then a brace -- and are skipped by name so a call
