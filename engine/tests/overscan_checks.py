@@ -693,7 +693,7 @@ def main():
         # lines", the owner): along a bar of the frame number the ink dips between one dot and
         # the next, every 0.1155 mm, and that beat is the strongest thing in the bar. Bars drawn
         # as rectangles -- 1.3.0, and the first attempt at this -- have no beat there (0.003 and
-        # 0.0004 of the ink against 0.012), and something else is stronger.
+        # 0.0004 of the ink against 0.006), and something else is stronger.
         band_ = sl[int(0.6 / mm):int(2.4 / mm), int(0.7 / mm):int(4.0 / mm)]
         row = band_[int(np.argmax(band_.sum(1)))]
         lit_ = np.flatnonzero(row > 0.5 * row.max())
@@ -703,7 +703,8 @@ def main():
         per = mm / np.maximum(np.fft.rfftfreq(4096), 1e-9)          # mm per cycle
         beat = spec[(per > 0.108) & (per < 0.123)].max()
         other = spec[((per > 0.03) & (per < 0.09)) | ((per > 0.16) & (per < 0.6))].max()
-        check("Fujifilm 135 slide: the frame number is dots 0.1155 mm apart", beat > 0.006 and beat > 2 * other,
+        # (0.004: the dots are 0.114 mm across, nearly touching along the film, so the dip is shallow)
+        check("Fujifilm 135 slide: the frame number is dots 0.1155 mm apart", beat > 0.004 and beat > 2 * other,
               f"beat {beat:.4f}, strongest elsewhere {other:.4f}")
 
     print(f"{failures} failure(s)")

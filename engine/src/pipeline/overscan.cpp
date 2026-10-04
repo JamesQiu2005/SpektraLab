@@ -1257,11 +1257,13 @@ const char* const* tiny_glyph(const std::string& text, size_t& i) {
 
 // Fujifilm's 120 print is the plain 5 x 7 dot matrix (the date back's
 // skeleton, zero slashed: sampling "PRO400H" and "145 3" on a 5 x 7 grid
-// gives exactly those glyphs, on 7 x 9 it gives mush), with RDP's III in one cell.
+// gives exactly those glyphs, on 7 x 9 it gives mush), with RDP's III as three strokes in one cell.
 const char* const* matrix57_glyph(const std::string& text, size_t& i) {
     static char buf[7][6];
     static const char* rows[7];
-    static const uint8_t kRoman3[7] = {0x1F, 0x15, 0x15, 0x15, 0x15, 0x15, 0x1F};
+    // three plain strokes in one cell, no bars across them (the owner, 2026-10-04: "the I in real 120
+    // should be just three straight lines without the extending outward side"; RDPIII_645.png)
+    static const uint8_t kRoman3[7] = {0x15, 0x15, 0x15, 0x15, 0x15, 0x15, 0x15};
     static const uint8_t kSquareD[7] = {0x1E, 0x11, 0x11, 0x11, 0x11, 0x11, 0x1E};
     const uint8_t* g = nullptr;
     if (text.compare(i, 3, "III") == 0 && (i + 3 == text.size() || text[i + 3] == ' ') && i > 0 &&
@@ -1406,8 +1408,8 @@ void imprint_groups(const OverscanLayout& L, const Params& params, double frame_
         // The owner's number when set (`overscan_frame_number`), else the seed's.
         const int n0 = o.frame_number > 0 ? o.frame_number : 1 + int(uint64_t(uint32_t(o.frame_seed)) % 34u);
         const double grid0 = L.perf_phase + 0.62;
-        // Discs 0.11 mm across on a 0.1155 x 0.0984 mm grid cover 0.84 of the
-        // area a solid mark would: a band that is all dots is exposed that much
+        // Discs 0.114 mm across on a 0.1155 x 0.0984 mm grid cover 0.9 of the
+        // area a solid mark would (0.74 on 120's larger grid): a band that is all dots is exposed that much
         // more, so the print is as dense as the strip it was measured on.
         const double e_135 = look.k135 == Edge135::FujiSlide ? e_edge * kDotFill : e_edge;
         Group top = group_for(L.edge_rgb, e_135, 0.022);
@@ -1417,7 +1419,7 @@ void imprint_groups(const OverscanLayout& L, const Params& params, double frame_
         // so that the develop spreads it to the 0.145 mm footprint the strips
         // show (a one-dot stroke 5 px wide at 31 px/mm) and no further -- the
         // strokes stay beaded at their edges instead of fusing into bars.
-        const double kDot = 0.11;
+        const double kDot = 0.114;
         const bool fuji_neg = look.k135 == Edge135::FujiNeg;
         const int dx = (look.k135 == Edge135::Kodak || fuji_neg) ? dx_extract_for(params.film.info.stock) : -1;
         // The DX code (ISO 1007): 31 modules. Read back off the references it
@@ -1640,7 +1642,7 @@ void imprint_groups(const OverscanLayout& L, const Params& params, double frame_
             // one's: a character every 0.967 mm (six dots of 0.161) and seven
             // rows 1.05 mm tall (0.148 apart). The code after the name
             // ("EFCDCD") is on the 135 grid: 0.74 mm tall, a character every 0.69.
-            const double P = 41.1, ps = 0.161, pt = 0.148, d120 = 0.14, dcode = 0.11;
+            const double P = 41.1, ps = 0.161, pt = 0.148, d120 = 0.15, dcode = 0.114;
             auto big = [&](const std::string& tx, double s0, double base, std::vector<Op>* out_ops) {
                 return dot_text(tx, kFace57, ps, pt, d120, 4.0, s0, base, out_ops);
             };

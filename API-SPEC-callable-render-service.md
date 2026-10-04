@@ -856,13 +856,13 @@ reasoning: RFC-032 §25, §27.
   **The lettering, re-measured 2026-10-04** (the owner's real-against-rendered
   pairs; 1.3.1). Fujifilm's print is a dot matrix and is drawn as one: every
   mark is a pattern of dots 0.1155 mm apart along the film and 0.0984 mm
-  across it, each dot a disc 0.11 mm across, so strokes stay beaded. Its
+  across it, each dot a disc 0.114 mm across, so strokes stay beaded. Its
   faces were read off the strips dot by dot: names 7 × 9 with one-dot strokes
   (a character every nine dots), frame numbers 12 × 16 with three-dot stems,
   the half frame's "36A" 8 × 12 with two-dot strokes, the roll length 3 × 5,
   and the arrow itself 22 × 12 dots. A text's closing "III" is the film's
   one-cell numeral, so the host still sends "FUJI RDPIII". Fujifilm 120 is a
-  plain 5 × 7 matrix of larger dots (0.161 × 0.148 mm apart, zeros slashed,
+  plain 5 × 7 matrix of larger dots (0.161 × 0.148 mm apart, 0.15 across, zeros slashed, RDP's III three plain strokes,
   caps 1.05 mm) with its marker in the same dots; the code after the name
   ("EFCDCD") is 5 × 7 on the 135 grid. X-Tra 400's numbers are the two-dot
   face, not a condensed Helvetica; its bars and arrow are still drawn solid.
