@@ -485,7 +485,10 @@ bool Pipeline::overscan_layout(uint32_t frame_w, uint32_t frame_h, std::string& 
     for (const char* f : kGateFamilies) family_ok = family_ok || o.gate == f;
     if (!family_ok) { error = "overscan: unknown gate '" + o.gate + "' (auto, square, rounded, eared, shouldered, kicked)"; return false; }
     if (o.holes != "white" && o.holes != "black") { error = "overscan: unknown holes '" + o.holes + "' (white, black)"; return false; }
-    if (o.carrier != "black" && o.carrier != "open") { error = "overscan: unknown carrier '" + o.carrier + "' (black, open)"; return false; }
+    if (o.carrier != "none" && o.carrier != "black" && o.carrier != "open") {
+        error = "overscan: unknown carrier '" + o.carrier + "' (none, black, open)";
+        return false;
+    }
     if (params_.settings.striped) {
         error = "overscan: not supported by the striped executor yet (RFC-032 §27); render with striped = false";
         return false;
@@ -572,6 +575,7 @@ bool Pipeline::overscan_layout(uint32_t frame_w, uint32_t frame_h, std::string& 
     }
     L.holes_light = o.holes == "white";
     L.carrier_open = o.carrier == "open";
+    L.carrier_none = o.carrier == "none";
 
     // --- perforations (135): the frame's place on the grid is the camera's,
     // the advance error is the frame's; sprocket-locked, so it is small.
@@ -593,11 +597,16 @@ bool Pipeline::overscan_layout(uint32_t frame_w, uint32_t frame_h, std::string& 
         // a side shows. Half frame advances 4 (19 mm) for 18 mm: ~0.5 mm a side.
         margin_along = fmt->perforated ? (fmt->along < 20.0 ? rc.uni(0.40, 0.50) : rc.uni(0.75, 0.95))
                                        : rc.uni(1.3, 2.1) + rf.uni(-0.25, 0.25);
-        // The scan reaches past the film's long edges and shows its carrier
-        // there (answer sheet C2): nothing printed on the film can be cut at
-        // any length or tilt, and no sliver of the holes' light shows past the
-        // edge. Fixed, so every frame's canvas is the same size.
-        t_lo = -kCarrierMM; t_hi = L.film_w + kCarrierMM;
+        // With a carrier the scan reaches past the film's long edges and shows
+        // it there (answer sheet C2): nothing printed on the film can be cut
+        // at any length or tilt, and no sliver of the holes' light shows past
+        // the edge. With none (the default) the canvas is the film's width and
+        // nothing else: where the scan's tilt carries a corner of it past the
+        // film's edge the film is drawn on (overscan.metal), so there is no
+        // band and no wedge of anything that is not film. Fixed either way, so
+        // every frame's canvas is the same size.
+        const double reach = L.carrier_none ? 0.0 : kCarrierMM;
+        t_lo = -reach; t_hi = L.film_w + reach;
     } else {
         margin_along = 0.9 + rf.uni(-0.1, 0.1);
         t_lo = L.gate_t0 - 1.1; t_hi = L.gate_t0 + L.gate_across + 1.1;
@@ -794,7 +803,7 @@ void Pipeline::overscan_params_block(std::vector<float>& P) const {
     }
     P[P_ROUGH_AMP] = float(L.rough_amp); P[P_ROUGH_PERIOD] = float(L.rough_period); P[P_ROUGH_SEED] = float(L.rough_seed);
     P[P_HOLES_LIGHT] = L.holes_light ? 1.0f : 0.0f;
-    P[P_CARRIER] = L.carrier_open ? 1.0f : 0.0f;
+    P[P_CARRIER] = L.carrier_none ? 2.0f : (L.carrier_open ? 1.0f : 0.0f);   // 2: no carrier, the film runs on
     P[P_PAIR_ADV] = float(L.pair_adv);
     for (int c = 0; c < 3; ++c) P[P_LIGHT_R + c] = float(L.light_rgb[c]);
     P[P_PERF_SEED] = float(L.perf_seed); P[P_LIGHT_FALL] = float(L.light_fall); P[P_LIGHT_DIR] = float(L.light_dir);

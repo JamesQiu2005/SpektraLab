@@ -265,10 +265,10 @@ NATIVE_ONLY = {
         "path": "film_render.overscan.frame_number", "type": "int", "layer": "shoot",
         "default": 0, "live": False, "range": [0, 99],
     },
-    # What a strip scan shows past the film's long edges: black | open.
+    # What a strip scan shows past the film's long edges: none | black | open.
     "overscan_carrier": {
         "path": "film_render.overscan.carrier", "type": "str", "layer": "shoot",
-        "default": "black", "live": False, "range": None,
+        "default": "none", "live": False, "range": None,
     },
     # A half-frame pair on one strip, and its second frame's date.
     "overscan_pair": {

@@ -62,8 +62,8 @@ Selection and sync are disabled during batch export.
 
 **Film Edge** (left rail) turns the canvas into the film: pick a format and the
 frame is cut to its gate and shown on the strip, with the stock's own edge
-print, a frame number you can set, and — on a strip scan — the carrier past the
-film's edge. The crop becomes the framing in the gate, so it is part of the
+print and a frame number you can set; a strip scan ends at the film's edges.
+The crop becomes the framing in the gate, so it is part of the
 negative. **Date Back** exposes the shooting date (or a date you type) into the
 frame; it needs no film edge.
 

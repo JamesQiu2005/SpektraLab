@@ -152,7 +152,7 @@ kernel void spk_overscan_canvas(device const float* frame [[buffer(0)]],
     const float2 st = canvas_to_film(float(i % cw), float(i / cw), P);
     const float W = P[P_FILM_W];
     float3 e = float3(0.0f);
-    if (st.y >= 0.0f && st.y <= W) {
+    if (P[P_CARRIER] > 1.5f || (st.y >= 0.0f && st.y <= W)) {
         // A pair: past the middle of the gap, the second exposure of the same gate.
         float2 sg = st;
         float shift = 0.0f;
@@ -284,7 +284,9 @@ static float erf_as(float x) {
 // Where there is film: 1 on the strip, 0 in the perforations and past its edges.
 static float film_alpha(float2 st, device const float* P) {
     const float W = P[P_FILM_W], px = P[P_PX];
-    float a = clamp(min(st.y, W - st.y) / px + 0.5f, 0.0f, 1.0f);
+    // (with no carrier the canvas is the film's width, and the film runs on
+    // under the corners a tilted scan carries past its edge)
+    float a = P[P_CARRIER] > 1.5f ? 1.0f : clamp(min(st.y, W - st.y) / px + 0.5f, 0.0f, 1.0f);
     if (P[P_PERFORATED] > 0.5f) {
         uint hole;
         // The hole's edge as the scan resolves it: the measured softness, and
@@ -383,7 +385,7 @@ kernel void spk_overscan_light(device const float* rgb [[buffer(0)]],
     // Past the film's long edges is the scan's carrier, not a hole: black, or
     // the scan's open light.
     const float W = P[P_FILM_W], px = P[P_PX];
-    const float on_strip = clamp(min(st.y, W - st.y) / px + 0.5f, 0.0f, 1.0f);
+    const float on_strip = P[P_CARRIER] > 1.5f ? 1.0f : clamp(min(st.y, W - st.y) / px + 0.5f, 0.0f, 1.0f);
     const float in_film = on_strip > 0.0f ? a / on_strip : 0.0f;
     const float3 r3 = mix(float3(P[P_CARRIER]), mix(light, c, in_film), on_strip);
     out[3u * i] = r3.x;

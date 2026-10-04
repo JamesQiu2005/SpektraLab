@@ -161,9 +161,10 @@ enum FilmCanvasEstimate {
             // 135 advances 38 mm for 36 (0.75–0.95 a side), half frame 19 for
             // 18 (0.40–0.50); 120's spacing is the camera's, ±0.25 per frame.
             marginMM = format == .f135Half ? 0.5 : (format.isPerforated ? 0.95 : 2.35)
-            // The film's width (120's is cut to +-0.15) and the 0.40 mm of
-            // carrier a strip scan shows past each long edge.
-            acrossCanvasMM = format.filmWidthMM + (format.isPerforated ? 0 : 0.15) + 0.8
+            // The film's width (120's is cut to +-0.15) and nothing past it:
+            // a strip scan shows no carrier since 1.3.1 (the engine's
+            // `overscan_carrier` is `none` unless asked).
+            acrossCanvasMM = format.filmWidthMM + (format.isPerforated ? 0 : 0.15)
         case .filed:
             marginMM = 1.0
             acrossCanvasMM = (vertical ? w : h) * px + 2.2

@@ -455,7 +455,7 @@ inside a field. `TypingKeyGuard` is a local key monitor that sends typing keys
 
 - **The film is the canvas.** With a film edge on, the engine is handed the
   decode **cut by the crop** and returns the whole film canvas — gate, rebate,
-  holes, carrier. The crop is therefore in the negative: `FilmParams.cutsFrame`
+  holes. The crop is therefore in the negative: `FilmParams.cutsFrame`
   is the one question ("is the engine's frame cut?"), `Session.canvasGeometry`
   is the identity while the film shows, and the crop tool frames the decode
   over the film print (`filmEdgeFraming`). The date alone, under a crop, a turn

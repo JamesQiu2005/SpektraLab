@@ -87,7 +87,7 @@ final class FilmEdgeSessionTests: XCTestCase {
                        "\(picture) is not a 36 × 24 gate")
         XCTAssertLessThanOrEqual(picture.width, decoded.width)
         XCTAssertLessThanOrEqual(picture.height, decoded.height)
-        // The engine was handed that picture: the film and its carrier are wider than it by 35.8/24 at most.
+        // The engine was handed that picture: the film is wider than it by 35.0/24 (35.8/24 with a carrier, the bound kept).
         let film = try XCTUnwrap(session.renderer.live)
         XCTAssertLessThanOrEqual(Double(min(film.width, film.height)),
                                  Double(min(picture.width, picture.height)) * 35.8 / 24 + 2)

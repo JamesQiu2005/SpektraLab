@@ -702,7 +702,7 @@ and RFC-031 (the date back).
 | `overscan_camera_seed` | `…overscan.camera_seed` | int | `1` | 0–2³¹−1 | **the body**: gate shape and radii, burrs, gate-to-emulsion gap, where the frame sits on the perforations, fog, flare |
 | `overscan_frame_seed` | `…overscan.frame_seed` | int | `1` | 0–2³¹−1 | **the advance and the scan**: weave, advance error, scan rotation, leaks, and which numbers are on the edge when `overscan_frame_number` is 0 |
 | `overscan_frame_number` | `…overscan.frame_number` | int | `0` | 0–99 | **the frame's number on the edge print** (2026-10-03). `0`: the frame seed's draw, byte for byte. Set: this frame's own mark — the 135 `N`/`NA` pair, the digit by Kodak 120's triangle, Fujifilm 120's number — with its neighbours counting from it and nothing drawn below 1. Kodak 120's counting-edge numbers ("51 / 52") are the roll's, not the frame's, and stay seeded. The last native field, after `antihalation_removed` |
-| `overscan_carrier` | `…overscan.carrier` | str | `"black"` | `black` \| `open` | **what a strip scan shows past the film's long edges** (2026-10-03). The canvas reaches 0.40 mm past each edge; `black` is a carrier, `open` the scan's light. Nothing on the film changes with it. `filed` never reaches the edge |
+| `overscan_carrier` | `…overscan.carrier` | str | `"none"` | `none` \| `black` \| `open` | **what a strip scan shows past the film's long edges.** `none` (the default since 1.3.1): nothing — the canvas ends at the film's edges, and where the scan's tilt carries a corner past the edge the film is drawn on, so there is no band and no wedge. `black` / `open` (2026-10-03): the canvas reaches 0.40 mm past each edge and shows a carrier, or the scan's light. Nothing on the film changes with it. `filed` never reaches the edge |
 | `overscan_pair` | `…overscan.pair` | bool | `false` | — | **a half-frame pair on one strip** (2026-10-03). `135_half` only (another format is refused), held level or turned. The input carries both pictures at the gate's height: the first 18 mm wide, the second starting **19.00 mm** (one advance of 4 perforations) along, so the frame is 37 × 24. The gate is exposed twice; the gap between is unexposed film; the edge print, fog, leaks and halation run across both as on one piece of film |
 | `overscan_fog` | `…overscan.fog` | float | `1.0` | 0–4 | edge fog's strength; 0 = none (see *Edge light* below) |
 | `overscan_leaks` | `…overscan.leaks` | float | `0.0` | 0–4 | spool light leaks: their count and strength; 0 = none (see *Edge light* below) |
@@ -820,11 +820,14 @@ reasoning: RFC-032 §25, §27.
   `film_format_mm`, so grain and halation are at the format's scale. Picture
   aspect is the host's crop. The engine reads the film's direction from it
   (a landscape 645 or a portrait 6×7 runs vertically).
-- **A strip scan reaches 0.40 mm past each long edge of the film** and
-  shows its carrier there (`overscan_carrier`), so nothing printed on the
-  film is cut at any length or tilt (2026-10-03; it used to crop ~0.14 mm
-  inside, which clipped the edge print at one end and let a sliver of the
-  holes' light show). The scan's tilt is capped by how far it moves the
+- **A strip scan ends at the film's long edges** (1.3.1, 2026-10-04: the
+  owner did not want the 0.40 mm of pure black a carrier put past them, and
+  did not know why it was there). `overscan_carrier` = `black` or `open`
+  brings the 0.40 mm back. Either way nothing printed on the film is cut at
+  any length or tilt and no sliver of the holes' light shows (before
+  2026-10-03 the canvas cropped ~0.14 mm inside the film, which did both):
+  with no carrier the film is drawn on under the corners a tilted scan
+  carries past its edge. The scan's tilt is capped by how far it moves the
   film's ends, 0.27 mm: 0.35° up to 6×9, 0.27° on 6×12, 0.18° on 6×17.
   The canvas size depends on the source size and the frame spacing. Spacing
   is the camera seed's (0.75–0.95 mm on 135). On 120 it also moves

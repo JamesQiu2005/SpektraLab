@@ -43,11 +43,11 @@ def decode_dx(rgba, px):
     (dx_extract, frame, half, parity_ok) for the first complete code, or None."""
     lum = rgba[..., :3].astype(float).mean(-1)
     H = lum.shape[0]
-    # rows by distance from the canvas's bottom edge, which is the carrier
-    # 0.40 mm past the film's: the clock track below the perforations, the
+    # rows by distance from the canvas's bottom edge, which is the film's (no
+    # carrier past it by default): the clock track below the perforations, the
     # data track at the edge (1.59 and 0.49 mm into the film)
-    clock = lum[H - 1 - int(round(1.99 / px))]
-    data = lum[H - 1 - int(round(0.89 / px))]
+    clock = lum[H - 1 - int(round(1.59 / px))]
+    data = lum[H - 1 - int(round(0.49 / px))]
 
     def threshold(row):
         ink = row[row < 0.9 * 65535]          # the scan's light through a hole is not ink
@@ -128,14 +128,16 @@ def main():
         on = render(e, img, {"overscan_active": True, "overscan_format": "135", "overscan_edge_text": "KODAK PORTRA 400"})
         H, W = on.shape[:2]
         px = 36.25 / 1200                                   # the 135 gate's long edge over the frame (a camera's, measured)
-        # the scan shows 0.40 mm of carrier past each long edge (answer sheet C2)
-        check("135 canvas spans the film's width and its carrier", 35.6 < H * px <= 36.0, f"{H * px:.3f} mm")
+        # the canvas ends at the film's edges: no carrier past them unless one is asked for
+        # (1.3.0 showed 0.40 mm of pure black there, 35.8 mm in all: "some random ... pure black
+        # strip part that I clearly don't want", the owner, 2026-10-04)
+        check("135 canvas spans the film's width and no more", 34.8 < H * px <= 35.2, f"{H * px:.3f} mm")
         check("135 canvas is the frame plus two part-gaps", 36.25 + 1.4 < W * px < 36.25 + 2.0, f"{W * px:.3f} mm")
         # The gate is a camera's (reference_film/135: 0.47-0.67 mm from the
-        # perforations, whose inner edge is 4.8 mm in; the canvas starts 0.40 mm
-        # before the film). A 24.0 mm gate leaves 5.9 mm from the canvas's edge.
+        # perforations, whose inner edge is 4.8 mm in; the canvas starts at the
+        # film's edge). A 24.0 mm gate leaves 5.5 mm from the canvas's edge.
         edge_to_gate = (H - 800) / 2 * px
-        check("135 gate sits ~0.6 mm inside the perforations", 5.7 < edge_to_gate < 5.85, f"{edge_to_gate:.3f} mm")
+        check("135 gate sits ~0.6 mm inside the perforations", 5.3 < edge_to_gate < 5.45, f"{edge_to_gate:.3f} mm")
 
         again = render(e, img, {"overscan_active": True, "overscan_format": "135", "overscan_edge_text": "KODAK PORTRA 400"})
         check("same seeds, same film", np.array_equal(on, again))
@@ -148,7 +150,7 @@ def main():
         sq = frame(1000, 1000)
         m = render(e, sq, {"overscan_active": True, "overscan_format": "120_6x6", "overscan_edge_text": "KODAK 200"})
         px = 56.0 / 1000
-        check("120 canvas spans the film's width and its carrier", 61.6 < m.shape[0] * px < 62.0, f"{m.shape[0] * px:.2f} mm")
+        check("120 canvas spans the film's width and no more", 60.7 < m.shape[0] * px < 61.3, f"{m.shape[0] * px:.2f} mm")
 
         date = render(e, img, {"date_imprint_active": True, "date_imprint_text": "'26 9 28", "film_format_mm": 36.0})
         check("date alone keeps the frame's size", date.shape[:2] == (800, 1200))
@@ -314,7 +316,7 @@ def main():
             except spk.EngineError as err:
                 check(f"an unknown {field} is refused", bad in str(err), str(err)[:80])
         m68 = render(e, sq_img := frame(1520, 1120), dict(S135, overscan_format="120_6x8", overscan_edge_text="KODAK EKTAR 100"))
-        check("120_6x8 renders the film's width", 61.6 < m68.shape[0] * (76.0 / 1520) < 62.0 or 61.6 < m68.shape[1] * (76.0 / 1520) < 62.0,
+        check("120_6x8 renders the film's width", 60.7 < m68.shape[0] * (76.0 / 1520) < 61.3 or 60.7 < m68.shape[1] * (76.0 / 1520) < 61.3,
               str(m68.shape))
 
         # The date back's faces, corners and size, on the frame alone.
@@ -354,7 +356,7 @@ def main():
         half = render(e, himg, dict(S135, overscan_format="135_half"))
         hpx = 24.0 / 1200
         check("135_half canvas: the film's width across, the frame plus ~1 mm along",
-              35.6 < half.shape[0] * hpx <= 36.0 and 18.7 < half.shape[1] * hpx < 19.1,
+              34.8 < half.shape[0] * hpx <= 35.2 and 18.7 < half.shape[1] * hpx < 19.1,
               f"{half.shape[1] * hpx:.2f} x {half.shape[0] * hpx:.2f} mm")
         # with overscan on, a turned full frame's date also runs along the film
         pov = render(e, pimg, dict(S135))
@@ -478,14 +480,23 @@ def main():
             fh = int(round(fw * gs / gl))
             pimg_ = frame(fw, fh)
             P = {"overscan_active": True, "overscan_format": fmt, "overscan_edge_text": "KODAK PORTRA 400"}
-            r = render(e, pimg_, P)
+            r0 = render(e, pimg_, P)
             ppx = gl / fw
+            check(f"{fmt} renders the film's width and no more, and the frame along",
+                  film_w - 0.25 < r0.shape[0] * ppx < film_w + 0.25 and gl + 1.0 < r0.shape[1] * ppx < gl + 5.0,
+                  f"{r0.shape[1] * ppx:.2f} x {r0.shape[0] * ppx:.2f} mm")
+            l0 = r0[..., :3].astype(float).mean(-1)
+            # ... and what is at the canvas's edge is film -- its rebate, not a band of pure black
+            check(f"{fmt} has no black band at its long edges",
+                  np.median(l0[0]) > 0.02 * 65535 and np.median(l0[-1]) > 0.02 * 65535,
+                  f"{np.median(l0[0]):.0f}, {np.median(l0[-1]):.0f}")
+            r = render(e, pimg_, dict(P, overscan_carrier="black"))
             across, along = r.shape[0] * ppx, r.shape[1] * ppx
-            check(f"{fmt} renders the film's width, its carrier, and the frame along",
+            check(f"{fmt} with a carrier renders the film's width, its carrier, and the frame along",
                   film_w + 0.5 < across < film_w + 1.0 and gl + 1.0 < along < gl + 5.0, f"{along:.2f} x {across:.2f} mm")
             lum = r[..., :3].astype(float).mean(-1)
             # the outermost rows are the carrier: black on every column, however the scan sits
-            check(f"{fmt} shows a black carrier past both long edges",
+            check(f"{fmt} shows a black carrier past both long edges when asked",
                   lum[0].max() < 0.02 * 65535 and lum[-1].max() < 0.02 * 65535, f"{lum[0].max():.0f}, {lum[-1].max():.0f}")
             op = render(e, pimg_, dict(P, overscan_carrier="open"))
             lo = op[..., :3].astype(float).mean(-1)
@@ -493,6 +504,7 @@ def main():
                   lo[0].min() > 0.9 * 65535 and lo[-1].min() > 0.9 * 65535, f"{lo[0].min():.0f}, {lo[-1].min():.0f}")
             inner = slice(int(1.5 / ppx), -int(1.5 / ppx))
             check(f"{fmt}: the carrier changes nothing on the film", np.array_equal(r[inner], op[inner]))
+            r = r0
             dated = render(e, pimg_, dict(P, date_imprint_active=True, date_imprint_text="'26 10 1"))
             check(f"{fmt} carries no date", np.array_equal(r, dated))
         try:
@@ -506,7 +518,8 @@ def main():
         worst = 0.0
         p617 = frame(1200, 400)
         for seed in range(1, 25):
-            rr = render(e, p617, {"overscan_active": True, "overscan_format": "120_6x17", "overscan_frame_seed": seed})
+            rr = render(e, p617, {"overscan_active": True, "overscan_format": "120_6x17", "overscan_frame_seed": seed,
+                                  "overscan_carrier": "black"})
             ll = rr[..., :3].astype(float).mean(-1)
             # film in an edge row: a pixel more than half covered by it (the
             # film's own level is the rebate's, read 0.6 mm in from the edge)
@@ -658,7 +671,7 @@ def main():
         # face, then 2.5 mm of bare film, then "200" 2.75 mm long. 1.3.0 drew 6.9, 1.0, 3.2.
         g, mm = edge(frame(2400, 1934), dict(film_stock="kodak_gold_200", overscan_format="120_6x7",
                                              overscan_edge_text="KODAK 200"))
-        words = runs(g, mm, 0.9, 2.0, join=1.0)
+        words = runs(g, mm, 0.5, 1.6, join=1.0)
         pair = next(((a, b) for a, b in zip(words, words[1:]) if b[0] - a[1] < 6.0 and a[1] - a[0] > 5.0), None)
         check("Kodak 120: the maker's word, a gap, then the stock's words", pair is not None, str(len(words)))
         if pair:
@@ -673,7 +686,7 @@ def main():
         # blur. 1.3.0 drew 1.17 mm with every cell full: 1.33 mm once developed.
         f, mm = edge(frame(2400, 1934), dict(film_stock="fujifilm_pro_400h", overscan_format="120_6x7",
                                              overscan_edge_text="FUJI PRO400H"))
-        b = f[int(0.6 / mm):int(2.4 / mm)]
+        b = f[int(0.2 / mm):int(2.0 / mm)]
         lit_rows = np.flatnonzero(b.max(1) > 0.5 * b.max())
         cap = (lit_rows[-1] - lit_rows[0] + 1) * mm
         check("Fujifilm 120: the print stands 1.0-1.25 mm tall", 1.0 <= cap <= 1.25, f"{cap:.2f} mm")
@@ -682,7 +695,7 @@ def main():
         # drew ten runs (three separate I's), 0.88 mm a character, 0.8 mm between the words.
         sl, mm = edge(frame(2400, 1600), dict(film_stock="fujifilm_provia_100f", scan_film=True, overscan_format="135",
                                               overscan_edge_text="FUJI RDPIII", overscan_frame_number=36))
-        gl = runs(sl, mm, 1.1, 2.4, 6.0, 34.0, join=0.05)
+        gl = runs(sl, mm, 0.7, 2.0, 6.0, 34.0, join=0.05)
         check("Fujifilm 135 slide: FUJI RDPIII is eight glyphs, the III one of them", len(gl) == 8, str(len(gl)))
         if len(gl) == 8:
             check("Fujifilm 135 slide: a character every 1.00-1.06 mm (the film's is 1.03)",
@@ -694,7 +707,7 @@ def main():
         # the next, every 0.1155 mm, and that beat is the strongest thing in the bar. Bars drawn
         # as rectangles -- 1.3.0, and the first attempt at this -- have no beat there (0.003 and
         # 0.0004 of the ink against 0.006), and something else is stronger.
-        band_ = sl[int(0.6 / mm):int(2.4 / mm), int(0.7 / mm):int(4.0 / mm)]
+        band_ = sl[int(0.2 / mm):int(2.0 / mm), int(0.7 / mm):int(4.0 / mm)]
         row = band_[int(np.argmax(band_.sum(1)))]
         lit_ = np.flatnonzero(row > 0.5 * row.max())
         bar = max(np.split(lit_, np.flatnonzero(np.diff(lit_) > 1) + 1), key=len)[3:-3]

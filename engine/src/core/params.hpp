@@ -175,9 +175,12 @@ struct OverscanParams {
     // triangle, Fujifilm's number). The roll's own counts (Kodak 120's
     // "51/52") are not the frame's and stay seeded.
     int frame_number = 0;
-    // What a strip scan shows past the film's long edges (answer sheet C3):
-    // black (a carrier) | open (the scan's light).
-    std::string carrier = "black";
+    // What a strip scan shows past the film's long edges: none (nothing --
+    // the canvas ends at the film's edge) | black (a carrier, 0.40 mm of it)
+    // | open (the scan's light there). `none` is the default since 1.3.1: the
+    // black band read as a defect ("some random ... pure black strip part
+    // that I clearly don't want", the owner, 2026-10-04).
+    std::string carrier = "none";
     // A half-frame pair (135_half, held level): the input carries both
     // pictures, the second starting one advance (19.00 mm) along the film,
     // and the gate is exposed twice on one strip.
