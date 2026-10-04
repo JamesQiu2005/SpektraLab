@@ -102,6 +102,7 @@ final class Session: CanvasHost {
     /// The hole whose Add Frame picker is open on the canvas.
     var pairPicker: HalfFramePair.Side?
     private(set) var pairDrag: PairDrag?
+    @ObservationIgnored private var draggedFrameBox: URL?
     /// The wheel's, the pinch's and a slider's change to a placement is one
     /// gesture: shown as it goes, written once it stops.
     @ObservationIgnored private var pairPlacementTask: Task<Void, Never>?
@@ -660,7 +661,18 @@ final class Session: CanvasHost {
     /// resolves *after* the real print has landed must not overwrite it, and
     /// comparing this before and after the await is how that is known —
     /// `serviceGeneration` does not move for a print-layer edit.
-    private var rendersLanded = 0
+    private(set) var rendersLanded = 0
+    /// The frame whose film canvas (the engine's own cut: a film edge, a date
+    /// under a crop) is on the canvas. While that frame is decoded again its
+    /// film stays up until the new print lands (`holdsFilmCanvas`).
+    @ObservationIgnored private var filmCanvasOn: URL?
+    /// The decode is not put over a film canvas that a develop is about to
+    /// replace: it is the same frame without its film and of another shape,
+    /// so for the length of a re-render the bare photograph stood where the
+    /// film was — correct at every instant and plainly wrong to look at.
+    private var holdsFilmCanvas: Bool {
+        filmEdgeShowsFilm && wantsDevelop && renderer.live != nil && filmCanvasOn != nil && filmCanvasOn == selection
+    }
 
     // The Browse grid is gone (2026-09-17). Opening a folder no longer
     // switches the window to a separate worklist page: the frames land in the
@@ -1262,7 +1274,7 @@ final class Session: CanvasHost {
         }
         let files = Library.frames(from: urls)
         guard !files.isEmpty else { status = "Nothing openable in the selection."; return }
-        let new = Self.withPairs(files)
+        let new = FrameOrder.applied(to: Self.withPairs(files))
         if let selection, !new.contains(where: { $0.id == selection }) {
             enqueuePrintWriteback(for: selection)
         }
@@ -1446,6 +1458,7 @@ final class Session: CanvasHost {
         }
         loadTask?.cancel()
         selection = url
+        filmCanvasOn = nil
         latitude.clear()
         previewSoft = false
         sourceLongEdge = 0
@@ -1739,7 +1752,7 @@ final class Session: CanvasHost {
             // through `load`, which puts the small preview up first — the open
             // stays as fast as it was — and this replaces it when it lands.
             // `previewSoft` stays true either way: this is still not a print.
-            if self.previewSoft, self.renderer.store.print(for: url) == nil {
+            if self.previewSoft, self.renderer.store.print(for: url) == nil, !self.holdsFilmCanvas {
                 self.renderer.setLive(tex, logical: d.pixelSize)
                 self.previewSoft = true
             }
@@ -1932,7 +1945,7 @@ final class Session: CanvasHost {
             displaySourceSize = picture.sourceSize
             renderer.store.setSource(picture.texture, for: url, costMs: picture.costMs)
             renderer.original = picture.texture
-            if renderer.store.print(for: url) == nil {
+            if renderer.store.print(for: url) == nil, !holdsFilmCanvas {
                 renderer.setLive(picture.texture, logical: picture.sourceSize)
                 previewSoft = true
             }
@@ -2017,7 +2030,7 @@ final class Session: CanvasHost {
         if let tex = preview.texture, !Task.isCancelled, selection == url {
             renderer.store.setSource(tex, for: url, costMs: clock.totalMs())
             renderer.original = tex
-            if renderer.store.print(for: url) == nil {
+            if renderer.store.print(for: url) == nil, !holdsFilmCanvas {
                 renderer.setLive(tex, logical: d.pixelSize)
                 previewSoft = true
             }
@@ -2417,6 +2430,7 @@ final class Session: CanvasHost {
         // whatever the decode established (D4).
         renderer.setLive(tex, logical: scheduler.sent.cutsFrame
                          ? filmCanvasLogicalSize(for: tex, frame: nativeSourceSize) : nativeSourceSize)
+        filmCanvasOn = scheduler.sent.cutsFrame ? url : nil
         // This print is at the **preview resolution**. For a frame bigger than
         // that it is interpolated at 100 %, so it is not the finished picture
         // yet — the native render that follows is, and this flag is what says
@@ -2594,6 +2608,49 @@ final class Session: CanvasHost {
 
     /// `scheduleReopen` for the pair's own writes (`updatePair`).
     func schedulePairReopen() { scheduleReopen() }
+
+    /// The frame a filmstrip drag is carrying, from the moment it leaves its
+    /// cell. The window's own file drop reads it: a thumbnail let go over the
+    /// window is not a file handed to the app, and must not open as one.
+    var draggedFrame: URL? {
+        get { draggedFrameBox }
+        set { draggedFrameBox = newValue }
+    }
+
+    /// Move `id` to where `target` is in the filmstrip: before it when moving
+    /// left, after it when moving right — the dragged cell takes the place of
+    /// the cell it is over, as the strip shows it while the drag is in flight.
+    func moveFrame(_ id: URL, onto target: URL) {
+        guard id != target, !batchExporting,
+              let from = frames.firstIndex(where: { $0.id == id }),
+              let to = frames.firstIndex(where: { $0.id == target }) else { return }
+        let frame = frames.remove(at: from)
+        frames.insert(frame, at: to)
+    }
+
+    /// The drag ended on the strip: its order is the folder's from now on.
+    func frameOrderChanged() {
+        draggedFrame = nil
+        FrameOrder.save(frames.map(\.id))
+    }
+
+    /// Files let go over the window. Dropped from outside they are opened, as
+    /// ever — one file is "edit this". A frame of the open set is not opened
+    /// again (that replaced the whole folder with the one frame): the strip's
+    /// own thumbnail is ignored, and the same file from Finder goes on the
+    /// canvas with its folder still around it.
+    func dropped(files urls: [URL]) {
+        let own = draggedFrame
+        draggedFrame = nil
+        guard !urls.isEmpty else { return }
+        let listed = Set(frames.map { $0.id.standardizedFileURL })
+        let known = urls.filter { listed.contains($0.standardizedFileURL) }
+        guard known.count == urls.count else { open(urls: urls); return }
+        if let own, urls.count == 1, urls[0].standardizedFileURL == own.standardizedFileURL { return }
+        if urls.count == 1, let frame = frames.first(where: { $0.id.standardizedFileURL == urls[0].standardizedFileURL }) {
+            click(frame.id)
+        }
+    }
 
     /// Put a new item in the filmstrip (a pair made in this session).
     func insertFrame(_ frame: Frame, at index: Int) {

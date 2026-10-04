@@ -702,12 +702,12 @@ final class HalfFramePairTests: XCTestCase {
         }
     }
 
-    private func waitUntil(_ what: String, timeout: Double = 30,
+    private func waitUntil(_ what: String, timeout: Double = 30, every: Double = 0.05,
                            _ condition: @MainActor () -> Bool) async throws {
         let deadline = Date().addingTimeInterval(timeout)
         while Date() < deadline {
             if condition() { return }
-            try await Task.sleep(for: .milliseconds(50))
+            try await Task.sleep(for: .milliseconds(Int(every * 1000)))
         }
         XCTFail("timed out waiting for \(what)")
         throw XCTSkip("timed out")
@@ -804,5 +804,39 @@ final class HalfFramePairTests: XCTestCase {
         XCTAssertTrue(session.placementZoomed(by: 2, at: CGPoint(x: 0.2, y: 0.5)))
         XCTAssertTrue(session.endPlacement())
         XCTAssertEqual(try XCTUnwrap(session.pair?.left?.placement.scale), 2, accuracy: 1e-6)
+    }
+
+    /// With a film edge on, a re-decode (a white balance change, a pair's
+    /// frame moved) must not put the bare decode on the canvas while the new
+    /// print is made: it is another picture of another shape, and it showed
+    /// through as the frame "behind" the film.
+    func testTheFilmCanvasStaysUpWhileItsFrameIsDecodedAgain() async throws {
+        let frames = try copies(1)
+        let session = Session(clipboardDefaults: try defaults())
+        session.open(urls: [frames[0]])
+        let url = try XCTUnwrap(session.selection)
+        var p = session.params
+        p.filmEdge.active = true
+        session.params = p
+        session.requestPrint()
+        try await waitUntil("the film print", timeout: 180) {
+            session.serviceSessionIDForExport != nil && session.frameStates[url] == .processed && !session.busy
+        }
+        let film = try XCTUnwrap(session.renderer.sourceSize)
+        let frame = try XCTUnwrap(session.nativeSourceSize)
+        XCTAssertFalse(Renderer.sameShape(film, frame), "the film canvas is not the frame's shape")
+        let landed = session.rendersLanded
+        var d = session.decode
+        d.lensCorrection.toggle()
+        session.decode = d
+        var shapes: [CGSize] = []
+        try await waitUntil("the print of the new decode", timeout: 180, every: 0.004) {
+            if let s = session.renderer.sourceSize, shapes.last != s { shapes.append(s) }
+            return session.rendersLanded > landed && !session.busy
+        }
+        for s in shapes {
+            XCTAssertTrue(Renderer.sameShape(s, film) || abs(s.width / s.height - film.width / film.height) < 0.02,
+                          "the canvas showed \(s) while the film canvas is \(film)")
+        }
     }
 }

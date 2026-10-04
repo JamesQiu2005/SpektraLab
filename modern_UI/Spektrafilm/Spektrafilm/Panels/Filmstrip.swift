@@ -17,6 +17,7 @@
 
 import AppKit
 import SwiftUI
+import UniformTypeIdentifiers
 
 struct Filmstrip: View {
     @Bindable var session: Session
@@ -33,9 +34,14 @@ struct Filmstrip: View {
                                           framing: session.framing(of: frame.id),
                                           state: session.frameStates[frame.id] ?? .unprocessed)
                                 .id(frame.id)
-                                // Dragged onto a pair's hole on the canvas, a
-                                // frame goes into it (`PairDrop`).
-                                .onDrag { NSItemProvider(object: frame.id as NSURL) }
+                                // Dragged along the strip a frame is moved
+                                // (`FrameReorder`); onto a pair's hole on the
+                                // canvas it goes into it (`PairDrop`).
+                                .onDrag {
+                                    session.draggedFrame = frame.id
+                                    return NSItemProvider(object: frame.id as NSURL)
+                                }
+                                .onDrop(of: [.fileURL], delegate: FrameReorder(session: session, target: frame.id))
                                 // The modifier is read here rather than
                                 // declared as a second gesture: a plain
                                 // `TapGesture` on macOS matches a ⌘-click too,
@@ -94,6 +100,37 @@ struct Filmstrip: View {
         }
         .buttonStyle(.plain)
         .disabled(session.frames.isEmpty)
+    }
+}
+
+/// A thumbnail dragged over another takes its place, there and then, so the
+/// strip shows the order the drop will leave. Let go, the order is kept for
+/// the folder. A file from outside dropped on a cell is the window's drop.
+private struct FrameReorder: DropDelegate {
+    let session: Session
+    let target: URL
+
+    func dropEntered(info: DropInfo) {
+        guard let dragged = session.draggedFrame, dragged != target else { return }
+        withAnimation(.easeOut(duration: 0.15)) { session.moveFrame(dragged, onto: target) }
+    }
+
+    func dropUpdated(info: DropInfo) -> DropProposal? {
+        DropProposal(operation: session.draggedFrame != nil ? .move : .copy)
+    }
+
+    func performDrop(info: DropInfo) -> Bool {
+        if session.draggedFrame != nil { session.frameOrderChanged(); return true }
+        let providers = info.itemProviders(for: [.fileURL])
+        Task { @MainActor in
+            var urls: [URL] = []
+            for p in providers {
+                if let u = try? await p.loadItem(forTypeIdentifier: UTType.fileURL.identifier) as? Data,
+                   let url = URL(dataRepresentation: u, relativeTo: nil) { urls.append(url) }
+            }
+            session.dropped(files: urls)
+        }
+        return true
     }
 }
 

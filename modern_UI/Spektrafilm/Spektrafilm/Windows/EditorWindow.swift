@@ -85,7 +85,7 @@ struct EditorWindow: View {
                     if let u = try? await p.loadItem(forTypeIdentifier: UTType.fileURL.identifier) as? Data,
                        let url = URL(dataRepresentation: u, relativeTo: nil) { urls.append(url) }
                 }
-                if !urls.isEmpty { session.open(urls: urls) }
+                session.dropped(files: urls)
             }
             return true
         }

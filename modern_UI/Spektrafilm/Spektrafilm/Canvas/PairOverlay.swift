@@ -146,7 +146,10 @@ struct PairDrop: ViewModifier {
             let n = session.viewportSnapshot.normalised(atView: info.location)
             _ = provider.loadObject(ofClass: URL.self) { url, _ in
                 guard let url else { return }
-                Task { @MainActor in _ = session.dropFrame(url, atNormalised: n) }
+                Task { @MainActor in
+                    session.draggedFrame = nil
+                    _ = session.dropFrame(url, atNormalised: n)
+                }
             }
             return true
         }
