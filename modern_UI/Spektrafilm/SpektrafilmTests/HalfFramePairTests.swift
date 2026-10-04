@@ -400,6 +400,106 @@ final class HalfFramePairTests: XCTestCase {
         XCTAssertFalse(session.working)
     }
 
+    // MARK: - the owner's review of 2026-10-04
+
+    /// A frame turned by itself is turned in the pair: the hole's picture is
+    /// the frame as its owner left it, not the file as it was shot.
+    func testAFramesOwnTurnAndCropComeWithItIntoThePair() throws {
+        let frames = try copies(2)
+        var turned = Sidecar()
+        turned.geometry.quarterTurns = 1
+        try turned.save(for: frames[1])
+        addTeardownBlock { Sidecar.remove(for: frames[1]) }
+        XCTAssertEqual(Session.hole(for: frames[1]).geometry.quarterTurns, 1)
+        XCTAssertEqual(Session.hole(for: frames[0]).geometry, .default)
+
+        var pair = HalfFramePair(folder: frames[0].deletingLastPathComponent().standardizedFileURL.path)
+        pair.left = Session.hole(for: frames[0])
+        pair.right = Session.hole(for: frames[1])
+        let url = HalfFramePair.newURL(in: frames[0].deletingLastPathComponent())
+        addTeardownBlock { try? FileManager.default.removeItem(at: url) }
+        try pair.save(to: url)
+        PairComposer.rendered.removeAll()
+        let d = try ImageDecoder.decode(url, settings: DecodeSettings())
+        let layout = HalfFramePair.layout(holeHeight: Int(d.pixelSize.height), spacingMM: 1)
+
+        // The same file in both holes, one of them turned: the two pictures differ.
+        func quadrant(_ side: HalfFramePair.Side) -> [Float] {
+            let r = layout.rect(side)
+            let top = CGRect(x: r.minX + 8, y: layout.size.height - r.minY - r.height / 4, width: r.width - 16, height: r.height / 4 - 8)
+            var px = [Float](repeating: 0, count: 4)
+            let avg = d.linear.cropped(to: top).applyingFilter("CIAreaAverage", parameters: [kCIInputExtentKey: CIVector(cgRect: top)])
+            ImageDecoder.context.render(avg, toBitmap: &px, rowBytes: 16, bounds: CGRect(x: 0, y: 0, width: 1, height: 1),
+                                        format: .RGBAf, colorSpace: nil)
+            return px
+        }
+        let a = quadrant(.left), b = quadrant(.right)
+        XCTAssertGreaterThan(abs(a[0] - b[0]) + abs(a[1] - b[1]) + abs(a[2] - b[2]), 0.005,
+                             "the turned frame was laid in as it was shot")
+        // A portrait frame fills a portrait hole whole: the turned one is not cut at its sides.
+        let one = try ImageDecoder.decode(frames[1], settings: DecodeSettings())
+        let framed = turned.geometry.outputSize(for: one.pixelSize)
+        XCTAssertEqual(framed, CGSize(width: one.pixelSize.height, height: one.pixelSize.width),
+                       "the frame's own quarter turn is its shape in the pair")
+
+        // Each hole was rendered once and kept: a step that changes neither
+        // picture (the spacing) renders nothing, one that moves a picture renders that one.
+        XCTAssertEqual(PairComposer.rendered.count, 2)
+        pair.spacingMM = 1.6
+        try pair.save(to: url)
+        _ = try ImageDecoder.decode(url, settings: DecodeSettings())
+        XCTAssertEqual(PairComposer.rendered.count, 2, "a wider gap rendered a hole again")
+        pair.left?.placement.scale = 1.5
+        try pair.save(to: url)
+        _ = try ImageDecoder.decode(url, settings: DecodeSettings())
+        XCTAssertEqual(PairComposer.rendered.count, 3, "a moved picture was not rendered again")
+    }
+
+    /// Input / Camera and Film Format are there on a pair, and they are about
+    /// the picked frame: its meter, its exposure, its white balance.
+    func testTheRightRailIsAboutThePickedFrame() throws {
+        let (s, urls) = try openedSession(frameCount: 3)
+        s.click(urls[0]); s.click(urls[1], command: true)
+        s.newPair()
+        let pairURL = try XCTUnwrap(s.selection)
+        addTeardownBlock {
+            try? FileManager.default.removeItem(at: pairURL); Sidecar.remove(for: pairURL)
+            urls.forEach { Sidecar.remove(for: $0) }
+        }
+        let rail = try String(contentsOf: URL(fileURLWithPath: #filePath).deletingLastPathComponent()
+            .deletingLastPathComponent().appending(path: "Spektrafilm/Panels/RightPanel.swift"), encoding: .utf8)
+        XCTAssertFalse(rail.contains("if session.pair == nil"), "a section is withheld from a pair again")
+
+        s.pairLayer = .right
+        XCTAssertEqual(s.focusSide, .right)
+        s.filmExposure = 1
+        XCTAssertEqual(s.pair?.right?.exposureEV, 1)
+        XCTAssertEqual(s.pair?.left?.exposureEV, 0)
+        XCTAssertEqual(s.sidecar.params.exposureCompensationEV, 0, "the strip's own exposure moved")
+        s.aeMethod = .custom
+        XCTAssertEqual(s.pair?.right?.autoExposure, false)
+        XCTAssertEqual(s.pair?.left?.autoExposure, true, "the other frame's meter was switched off too")
+        s.setTemperature(4000)
+        XCTAssertEqual(s.pair?.right?.decode.temperature, 4000)
+        XCTAssertEqual(Sidecar.load(for: urls[1])?.decode.temperature, 4000, "the white balance is the frame's own, on disk")
+        XCTAssertNotEqual(s.pair?.left?.decode.temperature, 4000)
+        XCTAssertEqual(s.decode.temperature, 4000)
+        // The film picked: the rail stays on the frame picked last.
+        s.pairLayer = .film
+        XCTAssertEqual(s.focusSide, .right)
+        XCTAssertEqual(s.filmExposure, 1)
+        s.pairLayer = .left
+        XCTAssertEqual(s.filmExposure, 0)
+        XCTAssertNotEqual(s.aeMethod, .custom)
+
+        // Film Format describes one frame; the engine is told the piece.
+        s.recomputeFilmFormat(beforeOpen: true)
+        XCTAssertEqual(s.sidecar.params.filmFormatMM, 37, accuracy: 0.001, "a half frame, 24 mm long")
+        s.setSideLengthMM(36)
+        XCTAssertEqual(s.sidecar.params.filmFormatMM, 37.0 * 36 / 24, accuracy: 0.001,
+                       "a larger frame did not coarsen... the grain's scale follows Film Format")
+    }
+
     // MARK: - each frame its own
 
     /// The second frame's Scene Placement and date ride on the pair's own
@@ -490,6 +590,7 @@ final class HalfFramePairTests: XCTestCase {
                 session.renderer.live !== previous && !session.busy && session.frameStates[pairURL] == .processed
             }
         }
+        XCTAssertFalse(session.pairIsLayered, "nothing is cut together until a frame has a print of its own")
         let start = try means()
         XCTAssertEqual(start.first, start.second, accuracy: start.first * 0.02, "the same frame twice prints the same")
 
@@ -500,6 +601,7 @@ final class HalfFramePairTests: XCTestCase {
         session.setEnlarger(.brightness, 1.5)
         try await settle(after: before)
         let own = try means()
+        XCTAssertTrue(session.pairIsLayered)
         XCTAssertEqual(own.first, start.first, accuracy: start.first * 0.01, "the first frame moved with the second's print")
         XCTAssertGreaterThan(own.second, start.second * 1.15, "the second frame's own print did not show")
         XCTAssertEqual(session.sidecar.params.printBrightnessStops, 0, "Frame scope moved the film's print")
@@ -609,5 +711,25 @@ final class HalfFramePairTests: XCTestCase {
         }
         XCTFail("timed out waiting for \(what)")
         throw XCTSkip("timed out")
+    }
+
+    /// Film Format on a pair is one frame's. The stock 135 a pair made before
+    /// that was left with is the half frame's own 24 mm, not a 49 mm piece.
+    func testAnOlderPairsFilmFormatIsTheHalfFrames() throws {
+        let (session, urls) = try openedSession(frameCount: 2)
+        session.click(urls[0]); session.click(urls[1], command: true)
+        session.newPair()
+        let pair = try XCTUnwrap(session.selection)
+        addTeardownBlock { try? FileManager.default.removeItem(at: pair); Sidecar.remove(for: pair) }
+        XCTAssertEqual(session.derivedFilmFormatMM(side: session.filmSide, sideLengthMM: session.params.sideLengthMM),
+                       37, accuracy: 0.01)
+        // As an older pair's sidecar had it.
+        session.sidecar.params.filmFrame = FilmParams.default.filmFrame
+        session.sidecar.params.filmSide = FilmParams.default.filmSide
+        session.sidecar.params.sideLengthMM = FilmParams.default.sideLengthMM
+        session.adoptPair(for: pair)
+        XCTAssertEqual(session.params.filmFrame, FilmFrame.custom.id)
+        XCTAssertEqual(session.derivedFilmFormatMM(side: session.filmSide, sideLengthMM: session.params.sideLengthMM),
+                       37, accuracy: 0.01)
     }
 }

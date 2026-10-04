@@ -39,6 +39,14 @@ struct HalfFramePair: Codable, Equatable, Sendable {
         /// The frame's own decode (white balance, lens correction), read from
         /// its sidecar when the pair is opened: the shot stays the frame's.
         var decode = DecodeSettings()
+        /// The frame's own crop, turn and flips, read from its sidecar with
+        /// the decode: a frame turned by itself is turned in the pair. The
+        /// placement then moves *that* picture under the hole.
+        var geometry = Geometry.default
+        /// This frame's meter: on or off (Custom), and the intent it follows
+        /// (nil: the pair's own).
+        var autoExposure = true
+        var meterMethod: String?
         /// This frame's own print: the enlarger's brightness, filters and
         /// pre-flash. Nil until a frame is given one; it then prints as the
         /// film does (the pair's own settings).
@@ -66,6 +74,9 @@ struct HalfFramePair: Codable, Equatable, Sendable {
             meteredEV = try c.decodeIfPresent(Double.self, forKey: .meteredEV)
             meteredFor = try c.decodeIfPresent(String.self, forKey: .meteredFor)
             decode = try c.decodeIfPresent(DecodeSettings.self, forKey: .decode) ?? DecodeSettings()
+            geometry = try c.decodeIfPresent(Geometry.self, forKey: .geometry) ?? .default
+            autoExposure = try c.decodeIfPresent(Bool.self, forKey: .autoExposure) ?? true
+            meterMethod = try c.decodeIfPresent(String.self, forKey: .meterMethod)
             print = try c.decodeIfPresent(PrintTrim.self, forKey: .print)
             adjustments = try c.decodeIfPresent(Adjustments.self, forKey: .adjustments)
             printScope = (try? c.decodeIfPresent(Scope.self, forKey: .printScope)) ?? .film
@@ -282,8 +293,10 @@ struct HalfFramePair: Codable, Equatable, Sendable {
     /// not pump while it is moved.
     nonisolated static func meterKey(hole: Hole, method: String) -> String {
         let d = hole.decode
+        let g = hole.geometry
         return [hole.path, d.whiteBalance.rawValue, String(d.temperature), String(d.tint),
-                String(d.lensCorrection), method].joined(separator: "|")
+                String(d.lensCorrection), method,
+                "\(g.crop.x),\(g.crop.y),\(g.crop.width),\(g.crop.height),\(g.quarterTurns)"].joined(separator: "|")
     }
 }
 

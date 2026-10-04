@@ -109,12 +109,6 @@ struct PairSection: View {
 
     @ViewBuilder private func holeRows(_ side: HalfFramePair.Side) -> some View {
         if let hole = pair[side] {
-            ScrubSlider(label: L("Exposure", zh: "曝光"), sublabel: L("stops", zh: "档"),
-                        value: Binding(get: { hole.exposureEV }, set: { session.setHoleExposure(side, $0) }),
-                        range: -3...3, snap: 0.25, format: { String(format: "%+.2f", $0) })
-            PillSwitchRow(label: L("Applies to", zh: "作用于"), options: HalfFramePair.Scope.allCases,
-                          selection: Binding(get: { session.exposureScope }, set: { session.exposureScope = $0 }),
-                          title: { $0 == .frame ? L("Frame", zh: "仅画面") : L("+ Film", zh: "含片基") })
             RailSubhead(L("Crop under the hole", zh: "格内裁剪"))
             HStack(spacing: 8) {
                 pill(session.pairPlacing ? L("Done", zh: "完成") : L("Crop on the Canvas", zh: "在画布上裁剪"),
@@ -142,8 +136,8 @@ struct PairSection: View {
                 pill(L("Remove", zh: "移除")) { session.setHole(side, to: nil) }
                 Spacer(minLength: 0)
             }
-            note(L("White balance and lens correction are the frame's own: open it alone (right-click) to change them.",
-                   zh: "白平衡与镜头校正跟随照片本身：右键“单独打开照片”即可修改。"))
+            note(L("Its metering, exposure and white balance are in Input / Camera on the right; its print in Enlarger.",
+                   zh: "这一格的测光、曝光与白平衡在右侧“输入 / 相机”中；印放在“放大机”中。"))
         } else {
             HStack(spacing: 8) {
                 pill(L("Add Frame…", zh: "添加照片…")) { session.pairPicker = side }

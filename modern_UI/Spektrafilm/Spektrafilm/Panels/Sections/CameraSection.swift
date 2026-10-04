@@ -55,10 +55,8 @@ struct CameraSection: View {
 
     var body: some View {
         PanelSection(L(.sectionCamera), key: "camera",
-                     action: SectionAction(help: L(.helpResetFilmExposure)) {
-                         var p = session.params; p.exposureCompensationEV = 0; session.params = p
-                     },
-                     menu: { AnyView(menu) }) {
+                     action: SectionAction(help: L(.helpResetFilmExposure)) { session.filmExposure = 0 },
+                     menu: { AnyView(menu) }, note: pairNote) {
             RailRows {
                 PillMenu(label: L(.cameraMetering),
                          options: AEMethod.offered + (session.aeMethod == .legacy ? [.legacy] : []),
@@ -68,14 +66,24 @@ struct CameraSection: View {
                          labelWidth: Theme.Metric.parameterLabelWidth)
                 ScrubSlider(label: L(.cameraFilmExposure),
                             sublabelView: asShotLine,
-                            value: Binding(get: { session.params.exposureCompensationEV },
-                                           set: { var p = session.params; p.exposureCompensationEV = $0; session.params = p }),
+                            value: Binding(get: { session.filmExposure }, set: { session.filmExposure = $0 }),
                             range: -4...4, snap: 1 / 3, format: { String(format: "%+.1f", $0) })
+                // A frame of a pair: whether the film around it follows its
+                // exposure (answers B1–B3).
+                if session.focusSide != nil {
+                    PillSwitchRow(label: L("Applies to", zh: "作用于"), options: HalfFramePair.Scope.allCases,
+                                  selection: Binding(get: { session.exposureScope }, set: { session.exposureScope = $0 }),
+                                  title: { $0 == .frame ? L("Frame", zh: "仅画面") : L("+ Film", zh: "含片基") })
+                }
                 WhiteBalanceRows(session: session)
-                ScrubSlider(label: L(.cameraVignetting),
-                            value: Binding(get: { session.adjustments.vignette.amount },
-                                           set: { var a = session.adjustments; a.vignette.amount = $0; session.adjustments = a }),
-                            range: -100...100, snap: 5, format: { String(format: "%+.0f", $0) })
+                // Lens fall-off is drawn about the picture's middle, which on
+                // a pair is the gap between two pictures: not offered there.
+                if session.pair == nil {
+                    ScrubSlider(label: L(.cameraVignetting),
+                                value: Binding(get: { session.adjustments.vignette.amount },
+                                               set: { var a = session.adjustments; a.vignette.amount = $0; session.adjustments = a }),
+                                range: -100...100, snap: 5, format: { String(format: "%+.0f", $0) })
+                }
                 ToggleRow(label: L(.cameraLensCorrection),
                           isOn: Binding(get: { session.decode.lensCorrection },
                                         set: { session.setLensCorrection($0) }),
@@ -83,6 +91,14 @@ struct CameraSection: View {
                           reason: session.lensCorrectionReason)
             }
         }
+    }
+
+    /// On a pair: which frame this section is about.
+    private var pairNote: String? {
+        guard let side = session.focusSide, let pair = session.pair else { return nil }
+        let first = side == .left
+        return pair.turned ? (first ? L("Top frame", zh: "上格") : L("Bottom frame", zh: "下格"))
+                           : (first ? L("Left frame", zh: "左格") : L("Right frame", zh: "右格"))
     }
 
     /// "As Shot ☐" under Film Exposure — the line the drawing puts under the
@@ -102,9 +118,7 @@ struct CameraSection: View {
     /// drawing *does* give every section.
     private var menu: some View {
         Group {
-            Button(L(.helpResetFilmExposure)) {
-                var p = session.params; p.exposureCompensationEV = 0; session.params = p
-            }
+            Button(L(.helpResetFilmExposure)) { session.filmExposure = 0 }
             Divider()
             Button(L(.helpPickNeutral)) { session.wbPickerActive.toggle() }
                 .disabled(session.selection == nil)

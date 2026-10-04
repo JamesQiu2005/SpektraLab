@@ -92,6 +92,9 @@ final class Session: CanvasHost {
     /// what a frame's print or grade is composed over again.
     @ObservationIgnored private var pairLastRender: (outcome: RenderOutcome, generation: Int)?
     @ObservationIgnored private var pairComposeTask: Task<Void, Never>?
+    /// Whether the canvas is showing a picture cut together from the frames'
+    /// own prints (already graded), rather than the engine's one print.
+    @ObservationIgnored private var pairShowsComposite = false
     @ObservationIgnored private var busyBeforeOpen = false
     /// Placement mode on a pair, the drag in flight, and where the engine put
     /// the gates on the strip (normalised to the canvas).
@@ -122,6 +125,7 @@ final class Session: CanvasHost {
                   sidecar.adjustments = newValue
                   scheduleSave()
                   recomposePair()
+                  renderer.needsDraw?()
                   return
               }
               let curvesChanged = newValue.curves != sidecar.adjustments.curves
@@ -131,8 +135,11 @@ final class Session: CanvasHost {
               scheduleSave() }
     }
     var decode: DecodeSettings {
-        get { sidecar.decode }
-        set { guard newValue != sidecar.decode else { return }
+        get { focusHole?.decode ?? sidecar.decode }
+        set { // On a pair the white balance and lens correction are the
+              // picked frame's own, written to that frame.
+              if pair != nil { setFocusDecode(newValue); return }
+              guard newValue != sidecar.decode else { return }
               pushUndo()
               sidecar.decode = newValue; scheduleSave(); scheduleReopen() }
     }
@@ -2366,8 +2373,13 @@ final class Session: CanvasHost {
         // A pair's print is cut together from its frames' own prints first
         // (`composePairRender`), and comes back here as `composed`.
         if pair != nil, !composed {
-            Task { await composePairRender(outcome, generation: generation) }
-            return
+            pairLastRender = (outcome, generation)
+            if pairIsLayered {
+                Task { await composePairRender(outcome, generation: generation) }
+                return
+            }
+            // One print for the whole piece: nothing to cut together.
+            pairShowsComposite = false
         }
         rendersLanded += 1
         let r = outcome.response
@@ -2569,7 +2581,7 @@ final class Session: CanvasHost {
     /// The canvas's own grade: the frame's, or none for a pair (its picture
     /// is already graded frame by frame).
     private func pushLayer2(_ adjustments: Adjustments) {
-        let shown = pair != nil ? Adjustments() : adjustments
+        let shown = pairIsLayered ? Adjustments() : adjustments
         renderer.layer2 = shown.uniforms
         renderer.setCurves(shown.curves)
     }
@@ -2934,9 +2946,25 @@ final class Session: CanvasHost {
     /// The AE Method pill: the four metering intents plus `Custom`, which is
     /// the meter switched off (`AEMethod`).
     var aeMethod: AEMethod {
-        get { AEMethod.of(params) }
+        get {
+            // On a pair: the picked frame's own meter.
+            if let hole = focusHole {
+                var p = FilmParams.default
+                p.autoExposure = hole.autoExposure
+                p.autoExposureMethod = hole.meterMethod ?? sidecar.params.autoExposureMethod
+                return AEMethod.of(p)
+            }
+            return AEMethod.of(params)
+        }
         set {
             guard newValue != aeMethod else { return }
+            if let side = focusSide, pair != nil {
+                var p = FilmParams.default
+                p.autoExposureMethod = pair?[side]?.meterMethod ?? sidecar.params.autoExposureMethod
+                newValue.apply(to: &p)
+                updatePair(redecode: false) { $0[side]?.autoExposure = p.autoExposure; $0[side]?.meterMethod = p.autoExposureMethod }
+                return
+            }
             var p = params
             newValue.apply(to: &p)
             params = p
@@ -2952,7 +2980,8 @@ final class Session: CanvasHost {
     /// white-balance boxes beside it — it is ticked whenever the pair of
     /// values says so, not because a box was clicked.
     var filmExposureIsAsShot: Bool {
-        !params.autoExposure && params.exposureCompensationEV == 0
+        if let hole = focusHole { return !hole.autoExposure && hole.exposureEV == 0 }
+        return !params.autoExposure && params.exposureCompensationEV == 0
     }
 
     /// Ticking it: "+0.0 baseline (also `As Shot`, clicking this automatically
@@ -2965,6 +2994,10 @@ final class Session: CanvasHost {
     /// is also how the box came to be ticked.
     func setFilmExposureAsShot(_ on: Bool) {
         guard on, !filmExposureIsAsShot else { return }
+        if let side = focusSide, pair != nil {
+            updatePair(redecode: false) { $0[side]?.autoExposure = false; $0[side]?.exposureEV = 0 }
+            return
+        }
         var p = params
         p.autoExposure = false
         p.exposureCompensationEV = 0
@@ -3050,10 +3083,7 @@ final class Session: CanvasHost {
     /// found). The value still reaches the engine, because `openDelta` is
     /// built from the sidecar a moment later and now carries it.
     func recomputeFilmFormat(beforeOpen: Bool = false) {
-        // A pair is 18 + 18 mm of picture and the gap between: the piece's own
-        // long edge, whatever Film Format describes.
-        let mm = pair.map { 36 + $0.effectiveSpacingMM }
-            ?? derivedFilmFormatMM(side: filmSide, sideLengthMM: params.sideLengthMM)
+        let mm = derivedFilmFormatMM(side: filmSide, sideLengthMM: params.sideLengthMM)
         guard abs(mm - params.filmFormatMM) > 0.001 else { return }
         if beforeOpen {
             sidecar.params.filmFormatMM = mm
@@ -3115,7 +3145,14 @@ final class Session: CanvasHost {
 
     /// `film_format_mm` for this frame, from the user's side and length.
     func derivedFilmFormatMM(side: FilmSide, sideLengthMM: Double) -> Double {
-        Self.filmFormatMM(side: side, sideLengthMM: sideLengthMM,
+        // On a pair Film Format describes **one frame** (24 x 18 by default).
+        // The engine is handed the whole piece, two frames and the gap along
+        // its long edge, so its long edge is that many of the frame's.
+        if let p = pair {
+            let frame = Self.filmFormatMM(side: side, sideLengthMM: sideLengthMM, aspect: 24.0 / 18.0)
+            return ((36 + p.effectiveSpacingMM) * frame / 24).clamped(to: 4...200)
+        }
+        return Self.filmFormatMM(side: side, sideLengthMM: sideLengthMM,
                           aspect: physicalAspect, cropScale: cropScale)
     }
 
@@ -4072,8 +4109,12 @@ extension Session {
         var changed = false
         for side in HalfFramePair.Side.allCases {
             guard var hole = p[side] else { continue }
-            let decode = Sidecar.load(for: hole.url)?.decode ?? DecodeSettings()
-            if decode != hole.decode { hole.decode = decode; p[side] = hole; changed = true }
+            let own = Sidecar.load(for: hole.url)
+            let decode = own?.decode ?? DecodeSettings(), geometry = own?.geometry ?? .default
+            if decode != hole.decode || geometry != hole.geometry {
+                hole.decode = decode; hole.geometry = geometry
+                p[side] = hole; changed = true
+            }
         }
         let strip = sidecar.params.filmEdge.active
         if p.onStrip != strip { p.onStrip = strip; changed = true }
@@ -4094,6 +4135,17 @@ extension Session {
         sidecar.params.autoExposure = false
         sidecar.geometry = .default
         sidecar.heldCrop = nil
+        // Film Format describes one frame of the pair. A pair made before it
+        // did was left with the stock 135 (a 36 x 24 frame), which read as a
+        // half frame a third larger than it is: 24 x 18, as a new pair has.
+        let stock = FilmParams.default
+        if sidecar.params.filmFrame == stock.filmFrame, sidecar.params.filmSide == stock.filmSide,
+           sidecar.params.sideLengthMM == stock.sideLengthMM {
+            sidecar.params.filmFrame = FilmFrame.custom.id
+            sidecar.params.filmSide = FilmSide.long.rawValue
+            sidecar.params.sideLengthMM = 24
+            scheduleSave()
+        }
     }
 
     var canMakePair: Bool { !batchExporting && frames.contains { !HalfFramePair.isPair($0.id) } }
@@ -4113,7 +4165,9 @@ extension Session {
 
     nonisolated static func hole(for frame: URL) -> HalfFramePair.Hole {
         var hole = HalfFramePair.Hole(url: frame)
-        hole.decode = Sidecar.load(for: frame)?.decode ?? DecodeSettings()
+        let own = Sidecar.load(for: frame)
+        hole.decode = own?.decode ?? DecodeSettings()
+        hole.geometry = own?.geometry ?? .default
         return hole
     }
 
@@ -4258,17 +4312,21 @@ extension Session {
     /// kept in the pair's file.
     func pairExposure(_ d: DecodedImage, for url: URL) async -> [HalfFramePair.Side: Double]? {
         guard var p = pair, let layout = pairLayout(for: d.pixelSize) else { return nil }
-        let method = sidecar.params.autoExposureMethod ?? "legacy"
+        let pairMethod = sidecar.params.autoExposureMethod
         var stops: [HalfFramePair.Side: Double] = [:]
         var metered = false
         for side in HalfFramePair.Side.allCases {
             guard var hole = p[side], hole.exists else { continue }
-            let key = HalfFramePair.meterKey(hole: hole, method: method)
+            // The meter off (Custom) is the frame as it was shot: no gain.
+            guard hole.autoExposure else { stops[side] = hole.exposureEV; continue }
+            let method = hole.meterMethod ?? pairMethod
+            let key = HalfFramePair.meterKey(hole: hole, method: method ?? "legacy")
             if hole.meteredFor != key || hole.meteredEV == nil {
                 let device = renderer.device
                 let image = PairComposer.meterImage(d.linear, layout: layout, side: side)
                 var alone = sidecar
                 alone.params.autoExposure = true
+                alone.params.autoExposureMethod = method
                 alone.params.exposureCompensationEV = 0
                 alone.params.filmEdge.active = false
                 alone.params.dateBack.active = false
@@ -4389,7 +4447,8 @@ extension Session {
     func placementBegan(at n: CGPoint) -> Bool {
         guard pairPlacing, let side = pairLayer.side, let hole = pair?[side], hole.exists,
               let rect = pairHoleRects[side], rect.contains(n),
-              let source = Self.pixelSize(of: hole.url) else { return false }
+              let whole = Self.pixelSize(of: hole.url) else { return false }
+        let source = hole.geometry.outputSize(for: whole)
         pairDrag = PairDrag(side: side, start: n, origin: hole.placement, source: source, live: hole.placement)
         return true
     }
@@ -4460,15 +4519,19 @@ extension Session {
         var p = HalfFramePair(folder: folder.standardizedFileURL.path)
         p.turned = turned
         if let first {
-            var hole = Self.hole(for: first)
-            if let g = placement { hole.placement = Self.placement(from: g, source: source, aspect: p.holeAspect) }
-            p.left = hole
+            // The frame's own crop and turn come with it (`Hole.geometry`),
+            // so a half frame entered from its Film Edge crop sits under the
+            // hole exactly as it was framed.
+            p.left = Self.hole(for: first)
         }
         p.right = second.map(Self.hole(for:))
         var look = Sidecar()
         if let own { look.params = own.params }
         look.params.autoExposure = false
         look.params.exposureCompensationEV = 0
+        look.params.filmFrame = FilmFrame.custom.id
+        look.params.filmSide = FilmSide.long.rawValue
+        look.params.sideLengthMM = 24
         if keepFilmEdge {
             look.params.filmEdge.format = .f135Half
         } else {
@@ -4659,6 +4722,59 @@ extension Session {
     /// The film's own print: the pair's settings (a frame's, for a frame).
     private var filmPrint: HalfFramePair.PrintTrim { HalfFramePair.PrintTrim(sidecar.params) }
 
+    /// The frame of a pair the right rail is about — its meter, its exposure,
+    /// its white balance, its Scene Placement: the picked one, or with the
+    /// film picked the one picked last. Nil for a frame, or an empty pair.
+    var focusSide: HalfFramePair.Side? {
+        guard let p = pair else { return nil }
+        let wanted = pairLayer.side ?? (sidecar.params.placementIsRight ? .right : .left)
+        if p[wanted] != nil { return wanted }
+        return HalfFramePair.Side.allCases.first { p[$0] != nil }
+    }
+
+    var focusHole: HalfFramePair.Hole? { focusSide.flatMap { pair?[$0] } }
+
+    /// Film Exposure as the Input / Camera section shows it: a frame's own
+    /// (`exposure_compensation_ev`), or on a pair the picked frame's.
+    var filmExposure: Double {
+        get { focusHole?.exposureEV ?? params.exposureCompensationEV }
+        set {
+            if let side = focusSide, pair != nil { setHoleExposure(side, newValue); return }
+            var p = params
+            p.exposureCompensationEV = newValue
+            params = p
+        }
+    }
+
+    /// The picked frame's white balance or lens correction: written to the
+    /// frame itself (the shot stays the frame's — it is the same shot in
+    /// every pair and by itself), then the piece is laid out again.
+    func setFocusDecode(_ decode: DecodeSettings) {
+        guard let side = focusSide, let hole = pair?[side], decode != hole.decode else { return }
+        var own = Sidecar.load(for: hole.url) ?? Sidecar()
+        own.decode = decode
+        if own.state == .processed { own.state = .stale }
+        do { try own.save(for: hole.url) } catch {
+            noteFailure(error, operation: "pair", frame: hole.url.lastPathComponent)
+            return
+        }
+        renderer.store.invalidatePrint(for: hole.url)
+        if frameStates[hole.url] == .processed { frameStates[hole.url] = .stale }
+        updatePair { $0[side]?.decode = decode }
+    }
+
+    /// Whether any frame of the pair prints or grades differently from the
+    /// film. When none does the piece is one print, drawn as a frame's is.
+    var pairIsLayered: Bool {
+        guard let p = pair else { return false }
+        let film = HalfFramePair.PrintTrim(sidecar.params)
+        return HalfFramePair.Side.allCases.contains { side in
+            guard let hole = p[side] else { return false }
+            return (hole.print != nil && hole.print != film)
+                || (hole.adjustments != nil && hole.adjustments != sidecar.adjustments)
+        }
+    }
+
     /// The picked frame of a pair, when the rails are showing one.
     var pickedHole: HalfFramePair.Side? {
         guard let p = pair, let side = pairLayer.side, p[side] != nil else { return nil }
@@ -4728,8 +4844,8 @@ extension Session {
     }
 
     var exposureScope: HalfFramePair.Scope {
-        get { pickedHole.flatMap { pair?[$0]?.exposureScope } ?? .frame }
-        set { if let side = pickedHole { updatePair(redecode: false, rerender: false) { $0[side]?.exposureScope = newValue } } }
+        get { focusHole?.exposureScope ?? .frame }
+        set { if let side = focusSide { updatePair(redecode: false, rerender: false) { $0[side]?.exposureScope = newValue } } }
     }
 
     /// The grade the Post-Dev rail is editing: the picked frame's own (the
@@ -4746,13 +4862,13 @@ extension Session {
 
     /// The grade the export applies after the engine: none on a pair, whose
     /// frames are already graded in the picture it is handed.
-    var exportAdjustments: Adjustments { pair != nil ? Adjustments() : adjustments }
+    var exportAdjustments: Adjustments { pairIsLayered ? Adjustments() : adjustments }
 
     /// The pair's picture at `tier`, from the engine's print of it: each
     /// frame printed and graded as its own, cut together. Nil when it could
     /// not be made, and the caller keeps the print it has.
     func pairLayered(base: MTLTexture, tier: String) async -> MTLTexture? {
-        guard let p = pair, let sid = serviceSessionID, let url = selection else { return nil }
+        guard let p = pair, pairIsLayered, let sid = serviceSessionID, let url = selection else { return nil }
         let film = scheduler.sent
         var deltas: [[String: ParamValue]] = [], sides: [HalfFramePair.Side] = []
         var restore: [String: ParamValue] = [:]
@@ -4798,7 +4914,17 @@ extension Session {
     /// The print on the canvas made again from the engine's last one: a
     /// frame's print or grade changed and the negative did not.
     func recomposePair() {
+        // The canvas grades the piece itself while it is one print, and
+        // leaves a cut-together picture alone.
+        pushLayer2(sidecar.adjustments)
         guard pair != nil, let last = pairLastRender else { requestPrint(); return }
+        guard pairIsLayered else {
+            // Back to one print: the engine's own, if a composite is showing.
+            pairComposeTask?.cancel()
+            if pairShowsComposite { applyRender(last.outcome, generation: last.generation, composed: true) }
+            pairShowsComposite = false
+            return
+        }
         pairComposeTask?.cancel()
         pairComposeTask = Task {
             // A drag sets the value dozens of times; one print per pause.
@@ -4817,6 +4943,7 @@ extension Session {
         pairLastRender = (outcome, generation)
         let composite = await pairLayered(base: base, tier: outcome.response.tier)
         guard generation == serviceGeneration, pair != nil else { return }
+        pairShowsComposite = composite != nil
         applyRender(RenderOutcome(response: outcome.response, texture: composite ?? base,
                                   progress: outcome.progress),
                     generation: generation, composed: true)

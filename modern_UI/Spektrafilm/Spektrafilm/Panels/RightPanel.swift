@@ -39,13 +39,11 @@ struct RightPanel: View {
         var s: [(String, AnyView)] = []
         if tab == .preDev {
             s.append(("latitude", AnyView(LatitudeSection(session: session))))
-            // A pair is metered and white-balanced per frame, and its format
-            // is the piece's: Input / Camera and Film Format have nothing to
-            // say about it.
-            if session.pair == nil {
-                s.append(("camera", AnyView(CameraSection(session: session))))
-                s.append(("filmFormat", AnyView(FilmFormatSection(session: session))))
-            }
+            // On a pair these are about the picked frame: its meter, its
+            // exposure, its white balance; Film Format describes one frame
+            // and sets the grain's scale for the piece.
+            s.append(("camera", AnyView(CameraSection(session: session))))
+            s.append(("filmFormat", AnyView(FilmFormatSection(session: session))))
             s.append(("scenePlacement", AnyView(ScenePlacementSection(session: session))))
             // Withdrawn for the next version (`FeatureFlags.toneMask`).
             if FeatureFlags.toneMask { s.append(("toneMask", AnyView(ToneMaskSection(session: session)))) }

@@ -218,3 +218,23 @@ Seen in the running app: the right frame with a print of its own (+1.5 stops, ye
 Not seen in the window: the scope switch being used, a frame's own grade, a frame's own Scene Placement (each is asserted through the session and the engine in `HalfFramePairTests` and `overscan_checks.py`).
 
 Open: roll-off, lift bound and norm are shared by a pair's two placements; the three prints of a full-tier pair cost three reprints; mobile has none of this.
+
+## 12. 2026-10-04, after the owner's second review: speed, the frame's own turn, the rail on a pair
+
+The owner's words: the UX is bad and the app is slow on entering the mode; a frame rotated before pairing came into the pair unrotated; Film Format vanishing on a pair is nonsense — the rail should act on whichever half is picked.
+
+| what | how |
+|---|---|
+| slow | Every change to a pair re-rendered both RAWs (2–4 s in the owner's log). Each hole is now rendered once and kept (`PairComposer.rendered`, keyed on file, decode, geometry, placement, size); the display is the files' embedded previews; a piece whose frames print alike is one print and is not cut together on the main thread (`pairIsLayered`). |
+| the frame's turn | `Hole.geometry`, read from the frame's own sidecar every time the pair is opened, applied before the placement. |
+| the rail | Input / Camera and Film Format are back on a pair. Meter, Film Exposure (with its Frame / + Film scope), white balance and lens correction are the picked frame's (`focusSide`); white balance is written to the frame's own sidecar. Film Format describes one frame (24 × 18): a new pair gets Custom / long / 24, and an older pair still at the stock 135 is moved to it on open (it read as a 49 mm piece). |
+
+Measured, two 45 MP NEFs, Debug build, this Mac (M-series, 17 GB): the pair's decode step 1.36 s first, 0.26 s again, 0.26 s after a spacing change, 0.53 s after one picture is moved, 0.60 s after the camera is turned (both holes again). Whole open in the app's own log: 1.4–1.7 s, against 1.56 s for one of those NEFs opened by itself. Not measured on the owner's 16 GB MacBook, and not in a Release build.
+
+Seen in the running app (snapshot): a turned frame in its hole turned; Input / Camera titled with the picked frame and carrying that frame's white balance; Film Format on a bare pair and "set by the film edge" on a strip.
+
+A harness defect found on the way: in a snapshot run the scene's own window hosted a second canvas stand-in on the same renderer, and whichever appeared last took the redraw callback and the viewport. When the scene's won, the capture was a blank canvas at the wrong zoom — it looked exactly like a broken pair. Only the capture's window draws now (`snapshotCapture`).
+
+Not seen in the window, still: the Enter row, the right-click menu, the crop drag, the scope switch, a frame's own grade and Scene Placement. Grain scale is the piece's, not each half's. Mobile has none of this.
+
+Another session commits in this checkout at the same time (the Fujifilm 120 edge fixes landed mid-run): never `git stash` here — it takes the other session's uncommitted files with it.

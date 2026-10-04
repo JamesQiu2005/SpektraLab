@@ -3,9 +3,19 @@
 //  Two frames laid on 37 mm of film: each picture under its 18 × 24 hole, the
 //  gap between them black (no light reached it). The result is an ordinary
 //  `DecodedImage`, so everything after the decode — the engine, the canvas,
-//  the thumbnail, the export — handles a pair as it handles a frame. Core
-//  Image only, as the rest of the intake is: nothing is rendered here, the
-//  images are recipes.
+//  the thumbnail, the export — handles a pair as it handles a frame.
+//
+//  **Each frame is the frame as its owner left it**: its own white balance
+//  and lens correction, and its own crop, turn and flips (`Hole.geometry`).
+//  A frame turned by itself is turned in the pair.
+//
+//  **Each hole is rendered once.** A RAW through Core Image costs about a
+//  second at this size, and a pair is edited by small steps — the spacing,
+//  the other hole, an exposure, the film edge — none of which changes this
+//  hole's pixels. So a hole's picture is rendered to a bitmap at the hole's
+//  own size and kept (`rendered`), keyed on everything that makes it; a step
+//  that leaves the key alone composes from the bitmap. The canvas's preview
+//  is the files' embedded previews, which need no demosaic at all.
 //
 //  An empty hole is black too: unexposed film, which the engine develops to
 //  the stock's own base. It is never painted.
@@ -15,32 +25,54 @@ import Foundation
 import ImageIO
 
 enum PairComposer {
-    /// One hole's picture, decoded: what `ImageDecoder` made of the frame.
-    struct Part {
-        let linear: CIImage
-        let display: CIImage
-        let size: CGSize
-        let exif: [CFString: Any]?
-    }
-
-    /// The pair at `url` as a decode. Each frame is decoded with its own
-    /// settings (the shot stays the frame's); a hole whose file is gone
-    /// decodes as empty rather than failing the pair.
+    /// The pair at `url` as a decode. A hole whose file is gone, or will not
+    /// decode, is an empty hole rather than a failed pair.
     static func decode(_ url: URL, checkpoint: () throws -> Void = {}) throws -> DecodedImage {
         guard let pair = HalfFramePair.load(url) else { throw ImageDecoder.Failure.unsupported(url) }
-        var parts: [HalfFramePair.Side: Part] = [:]
+        struct Source { let hole: HalfFramePair.Hole; let decoded: DecodedImage; let framed: CGSize }
+        var sources: [HalfFramePair.Side: Source] = [:]
         for side in HalfFramePair.Side.allCases {
             guard let hole = pair[side], hole.exists else { continue }
             try checkpoint()
+            // A recipe, not pixels: the RAW is not demosaiced until something renders it.
             guard let d = try? ImageDecoder.decode(hole.url, settings: hole.decode, checkpoint: checkpoint)
             else { continue }
-            parts[side] = Part(linear: d.linear, display: d.display, size: d.pixelSize, exif: d.sourceEXIF)
+            sources[side] = Source(hole: hole, decoded: d, framed: hole.geometry.outputSize(for: d.pixelSize))
         }
-        let layout = layout(for: pair, sizes: parts.mapValues(\.size))
-        let linear = compose(pair, parts.mapValues { ($0.linear, $0.size) }, layout: layout)
-        let display = compose(pair, parts.mapValues { ($0.display, $0.size) }, layout: layout)
-        return DecodedImage(linear: linear, display: display, pixelSize: layout.size, isRAW: false,
-                            sourceURL: url, sourceEXIF: (parts[.left] ?? parts[.right])?.exif,
+        let layout = layout(for: pair, sizes: sources.mapValues(\.framed))
+        let full = CGRect(origin: .zero, size: layout.size)
+        var linear = CIImage(color: .black).cropped(to: full)
+        var display = CIImage(color: .black).cropped(to: full)
+        for side in HalfFramePair.Side.allCases {
+            guard let s = sources[side] else { continue }
+            try checkpoint()
+            let rect = layout.rect(side)
+            let rectCI = CGRect(x: rect.minX, y: layout.size.height - rect.maxY, width: rect.width, height: rect.height)
+            let key = renderKey(s.hole, size: s.decoded.pixelSize, hole: layout.hole, aspect: pair.holeAspect)
+            let picture: CIImage
+            if let kept = rendered.image(for: key) {
+                picture = kept
+            } else {
+                let framed = Session.engineImage(s.decoded.linear, size: s.decoded.pixelSize, cut: s.hole.geometry)
+                let placed = place(framed, size: s.framed, placement: s.hole.placement,
+                                   into: CGRect(origin: .zero, size: layout.hole),
+                                   pieceHeight: layout.hole.height, aspect: pair.holeAspect)
+                picture = render(placed, size: layout.hole) ?? placed
+                rendered.keep(picture, for: key)
+            }
+            linear = picture.transformed(by: .init(translationX: rectCI.minX, y: rectCI.minY)).composited(over: linear)
+            // The preview: the file's own embedded picture, framed and placed
+            // the same way. The decode's display rendering is the fallback.
+            let shown = embeddedPreview(s.hole.url, maxPixel: 2560)
+            let shownSize = shown?.extent.size ?? s.decoded.pixelSize
+            let shownFramed = Session.engineImage(shown ?? s.decoded.display, size: shownSize, cut: s.hole.geometry)
+            display = place(shownFramed, size: s.hole.geometry.outputSize(for: shownSize), placement: s.hole.placement,
+                            into: rect, pieceHeight: layout.size.height, aspect: pair.holeAspect)
+                .composited(over: display)
+        }
+        return DecodedImage(linear: linear.cropped(to: full), display: display.cropped(to: full),
+                            pixelSize: layout.size, isRAW: false, sourceURL: url,
+                            sourceEXIF: (sources[.left] ?? sources[.right])?.decoded.sourceEXIF,
                             asShotTemperature: nil, asShotTint: nil)
     }
 
@@ -49,7 +81,8 @@ enum PairComposer {
     /// piece is never longer than the longer picture: two half frames are
     /// one frame's worth of film, and a pair of 45 MP frames laid out at
     /// their own size was an 83 MP piece (127 MP with its film edge). An
-    /// empty pair takes a nominal size.
+    /// empty pair takes a nominal size. `sizes` are the frames as framed
+    /// (after their own crop and turn).
     static func layout(for pair: HalfFramePair, sizes: [HalfFramePair.Side: CGSize]) -> HalfFramePair.Layout {
         var across: [CGFloat] = [], longest: CGFloat = 0
         for side in HalfFramePair.Side.allCases {
@@ -61,26 +94,13 @@ enum PairComposer {
         }
         var a = across.min() ?? 2400
         if longest > 0 {
-            let pieceLong = (HalfFramePair.holeMM.along * 2 + pair.effectiveSpacingMM) / HalfFramePair.holeMM.across
+            // At the camera's own 1 mm, whatever the spacing: a hole's size
+            // must not move with the gap, or widening it renders both again.
+            let pieceLong = (HalfFramePair.holeMM.along * 2 + 1) / HalfFramePair.holeMM.across
             a = min(a, longest / pieceLong)
         }
         return HalfFramePair.layout(holeHeight: Int(a.rounded(.down)), spacingMM: pair.effectiveSpacingMM,
                                     turned: pair.turned)
-    }
-
-    /// Both pictures under their holes, over black, `layout.size` large with
-    /// its origin at zero.
-    static func compose(_ pair: HalfFramePair, _ images: [HalfFramePair.Side: (CIImage, CGSize)],
-                        layout: HalfFramePair.Layout) -> CIImage {
-        let full = CGRect(origin: .zero, size: layout.size)
-        var out = CIImage(color: .black).cropped(to: full)
-        for side in HalfFramePair.Side.allCases {
-            guard let hole = pair[side], let (image, size) = images[side] else { continue }
-            let placed = place(image, size: size, placement: hole.placement, into: layout.rect(side),
-                               pieceHeight: layout.size.height, aspect: pair.holeAspect)
-            out = placed.composited(over: out)
-        }
-        return out.cropped(to: full)
     }
 
     /// `image` (its extent `size`, wherever its origin) turned, cut to the
@@ -109,6 +129,84 @@ enum PairComposer {
             .transformed(by: .init(translationX: holeCI.minX, y: holeCI.minY))
             .cropped(to: holeCI)
     }
+
+    // MARK: - a hole, rendered once
+
+    /// Everything a hole's pixels are made of. Not where the hole sits, how
+    /// the other one is filled, or how either is exposed: those compose.
+    static func renderKey(_ hole: HalfFramePair.Hole, size: CGSize, hole target: CGSize, aspect: Double) -> String {
+        let attributes = try? FileManager.default.attributesOfItem(atPath: hole.path)
+        let stamp = (attributes?[.modificationDate] as? Date)?.timeIntervalSince1970 ?? 0
+        let d = hole.decode, g = hole.geometry, p = hole.placement
+        return [hole.path, String(stamp), String((attributes?[.size] as? Int) ?? 0),
+                d.whiteBalance.rawValue, String(d.temperature), String(d.tint), String(d.lensCorrection),
+                "\(g.crop.x),\(g.crop.y),\(g.crop.width),\(g.crop.height),\(g.angle),\(g.quarterTurns),\(g.flipH),\(g.flipV)",
+                "\(p.scale),\(p.x),\(p.y),\(p.quarterTurns)",
+                "\(Int(size.width))x\(Int(size.height))", "\(Int(target.width))x\(Int(target.height))",
+                String(aspect)].joined(separator: "|")
+    }
+
+    /// `image` (extent at the origin, `size` large) as pixels: half-float,
+    /// linear ProPhoto — the engine's own space, so handing it on later is a
+    /// copy. Nil when it cannot be made, and the caller keeps the recipe.
+    static func render(_ image: CIImage, size: CGSize) -> CIImage? {
+        let w = Int(size.width), h = Int(size.height)
+        guard w > 0, h > 0, let space = ImageDecoder.linearProPhoto else { return nil }
+        let rowBytes = w * 8
+        guard let bytes = malloc(rowBytes * h) else { return nil }
+        autoreleasepool {
+            ImageDecoder.context.render(image, toBitmap: bytes, rowBytes: rowBytes,
+                                        bounds: CGRect(x: 0, y: 0, width: w, height: h),
+                                        format: .RGBAh, colorSpace: space)
+        }
+        let data = Data(bytesNoCopy: bytes, count: rowBytes * h, deallocator: .free)
+        return CIImage(bitmapData: data, bytesPerRow: rowBytes, size: CGSize(width: w, height: h),
+                       format: .RGBAh, colorSpace: space)
+    }
+
+    /// The rendered holes: a few, most recent first. Two for the pair on the
+    /// canvas and one spare, so swapping a frame back in is free.
+    final class Rendered: @unchecked Sendable {
+        private let lock = NSLock()
+        private var entries: [(key: String, image: CIImage)] = []
+        var capacity = 3
+
+        func image(for key: String) -> CIImage? {
+            lock.withLock {
+                guard let i = entries.firstIndex(where: { $0.key == key }) else { return nil }
+                let hit = entries.remove(at: i)
+                entries.insert(hit, at: 0)
+                return hit.image
+            }
+        }
+
+        func keep(_ image: CIImage, for key: String) {
+            lock.withLock {
+                entries.removeAll { $0.key == key }
+                entries.insert((key, image), at: 0)
+                if entries.count > capacity { entries.removeLast(entries.count - capacity) }
+            }
+        }
+
+        func removeAll() { lock.withLock { entries.removeAll() } }
+        var count: Int { lock.withLock { entries.count } }
+    }
+    static let rendered = Rendered()
+
+    /// The file's embedded preview, turned as the file says. A RAW carries a
+    /// full-size JPEG; a flat file is scaled down by ImageIO.
+    static func embeddedPreview(_ url: URL, maxPixel: Int) -> CIImage? {
+        guard let src = CGImageSourceCreateWithURL(url as CFURL, nil),
+              let image = CGImageSourceCreateThumbnailAtIndex(src, 0, [
+                  kCGImageSourceCreateThumbnailFromImageIfAbsent: true,
+                  kCGImageSourceCreateThumbnailWithTransform: true,
+                  kCGImageSourceThumbnailMaxPixelSize: maxPixel,
+                  kCGImageSourceShouldCache: false,
+              ] as CFDictionary) else { return nil }
+        return CIImage(cgImage: image)
+    }
+
+    // MARK: - exposure
 
     /// `piece` with each hole's exposure applied: its picture multiplied by
     /// 2^EV. The engine's own meter is exactly this gain on the frame it is
@@ -149,7 +247,7 @@ enum PairComposer {
     }
 
     /// The pair's filmstrip thumbnail before anything is rendered: the two
-    /// frames' own previews under their holes, the gap and an empty hole dark.
+    /// frames' own previews, framed and placed, the gap and an empty hole dark.
     static func thumbnail(_ url: URL, maxPixel: Int) -> CGImage? {
         guard let pair = HalfFramePair.load(url) else { return nil }
         let layout = HalfFramePair.layout(holeHeight: max(maxPixel * 24 / 37, 24), spacingMM: pair.effectiveSpacingMM,
@@ -162,16 +260,11 @@ enum PairComposer {
         ctx.fill(CGRect(x: 0, y: 0, width: w, height: h))
         ctx.interpolationQuality = .medium
         for side in HalfFramePair.Side.allCases {
-            guard let hole = pair[side], let src = CGImageSourceCreateWithURL(hole.url as CFURL, nil),
-                  let image = CGImageSourceCreateThumbnailAtIndex(src, 0, [
-                      kCGImageSourceCreateThumbnailFromImageIfAbsent: true,
-                      kCGImageSourceCreateThumbnailWithTransform: true,
-                      kCGImageSourceThumbnailMaxPixelSize: maxPixel * 2,
-                      kCGImageSourceShouldCache: false,
-                  ] as CFDictionary) else { continue }
-            let ci = CIImage(cgImage: image)
-            let placed = place(ci, size: ci.extent.size, placement: hole.placement, into: layout.rect(side),
-                               pieceHeight: layout.size.height, aspect: pair.holeAspect)
+            guard let hole = pair[side], let ci = embeddedPreview(hole.url, maxPixel: maxPixel * 2) else { continue }
+            let size = ci.extent.size
+            let framed = Session.engineImage(ci, size: size, cut: hole.geometry)
+            let placed = place(framed, size: hole.geometry.outputSize(for: size), placement: hole.placement,
+                               into: layout.rect(side), pieceHeight: layout.size.height, aspect: pair.holeAspect)
             let r = layout.rect(side)
             let rectCI = CGRect(x: r.minX, y: layout.size.height - r.maxY, width: r.width, height: r.height)
             guard let cg = ImageDecoder.context.createCGImage(placed, from: rectCI) else { continue }
