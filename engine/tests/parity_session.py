@@ -67,6 +67,12 @@ OVERRIDES: dict[str, object] = {
     "date_imprint_placement": "rebate",
     "date_imprint_style": "dots",
     "date_imprint_corner": "tl",
+    # The carrier's other value, a second frame's date, and the second frame's
+    # knees by hand for the reason the first frame's are.
+    "overscan_carrier": "open",
+    "date_imprint_text_b": "'26 10 3",
+    "scene_latitude_b_highlight_knee": 4.0,
+    "scene_latitude_b_shadow_knee": -12.0,
 }
 
 # Print-layer fields that nevertheless invalidate cached work. The walk below
@@ -82,6 +88,12 @@ PRINT_LAYER_DROPS_NEGATIVE = {"preview_long_edge"}
 # executor refuses (RFC-032 §27) -- so left on it would fail every field after
 # it with that refusal rather than with anything about the field.
 REVERT_AFTER = {"striped"}
+
+# Fields the engine must refuse where the walk stands, by the words of the
+# refusal. A half-frame pair is two frames on 135_half, and the walk's film is
+# 120_6x9 by then: the pair is refused by name and put back. (That it renders
+# is `overscan_checks.py`'s to show.)
+REFUSED_HERE = {"overscan_pair": "pair"}
 
 
 def value_for(field: dict):
@@ -129,8 +141,19 @@ def main() -> int:
                 reply = session.set_params({name: value})
                 _, result = session.render("live", reprint=True)
             except Exception as exc:
+                if name in REFUSED_HERE and REFUSED_HERE[name] in str(exc):
+                    session.set_params({name: field["default"]})
+                    session.render("live", reprint=True)
+                    if args.verbose:
+                        print(f"ok   {name:26s} = {value!r:24} refused here: {exc}")
+                    continue
                 print(f"FAIL {name:26s} = {value!r:24} -> {exc}")
                 failures += 1
+                continue
+            if name in REFUSED_HERE:
+                print(f"FAIL {name:26s} = {value!r:24} -> accepted; it should be refused here")
+                failures += 1
+                session.set_params({name: field["default"]})
                 continue
 
             want_layer = field["layer"]
