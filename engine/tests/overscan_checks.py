@@ -164,6 +164,31 @@ def main():
         band = lambda r: r[: int(1.9 / (56.0 / 1000)), :, :3].astype(float).mean(-1)
         check("a Fujifilm 120 edge is not Kodak's layout", fk.shape == ff.shape and
               np.abs(band(fk) - band(ff)).mean() > 500, f"{np.abs(band(fk) - band(ff)).mean():.0f}")
+        # Fujifilm 120's maker's mark is the host's first word, not the engine's: one word
+        # prints none, two print the first before the even numbers and the rest as the name
+        # (so a host showing display names sends "FULI ..." and no real mark is drawn)
+        F120 = dict(S135, film_stock="fujifilm_pro_400h", overscan_format="120_6x6", overscan_frame_number=2)
+        fm = render(e, sq2, dict(F120, overscan_edge_text="FUJI PRO400H"))
+        fl = render(e, sq2, dict(F120, overscan_edge_text="FULI PRO400H"))
+        f0 = render(e, sq2, dict(F120, overscan_edge_text="PRO400H"))
+        d_mark = np.abs(band(fm) - band(f0)); d_name = np.abs(band(fm) - band(fl))
+        check("Fujifilm 120: the maker's mark is drawn from the host's first word",
+              d_mark.max() > 2000 and (d_mark > 2000).sum() > 40, f"max {d_mark.max():.0f}, {(d_mark > 2000).sum()} px")
+        check("Fujifilm 120: another first word is another mark (FULI is not FUJI)",
+              d_name.max() > 2000 and 0 < (d_name > 2000).sum() < (d_mark > 2000).sum(),
+              f"max {d_name.max():.0f}, {(d_name > 2000).sum()} px of {(d_mark > 2000).sum()}")
+        # ... and it is the mark, not the name: changing the first word and changing the
+        # rest land in different places along the film. (Another text moves the raster's
+        # box, so glyph edges elsewhere shift by a code or two: compare where the bulk is.)
+        fr = render(e, sq2, dict(F120, overscan_edge_text="FUJI RDPIII"))
+        win = int(4.0 / (56.0 / 1000))
+        where = lambda d: int(np.convolve(d.sum(0), np.ones(win), "valid").argmax())
+        x_mark, x_first, x_name = where(d_mark), where(d_name), where(np.abs(band(fm) - band(fr)))
+        check("Fujifilm 120: the first word is the mark, apart from the name on the film",
+              abs(x_first - x_mark) < win and abs(x_name - x_mark) > 2 * win,
+              f"mark at x {x_mark}, a changed first word at {x_first}, a changed name at {x_name}")
+        check("Fujifilm 120: a text ending in a space is one word, and renders",
+              np.array_equal(render(e, sq2, dict(F120, overscan_edge_text="PRO400H ")).shape, f0.shape))
         # the reader must be able to say no: a stock with no DX code prints none
         vis = render(e, img, dict(S135, film_stock="kodak_vision3_250d"))
         check("a stock without a DX code prints none (the reader finds nothing)", decode_dx(vis, px) is None)

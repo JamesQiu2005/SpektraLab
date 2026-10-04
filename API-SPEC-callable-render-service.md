@@ -706,7 +706,7 @@ and RFC-031 (the date back).
 | `overscan_pair` | `…overscan.pair` | bool | `false` | — | **a half-frame pair on one strip** (2026-10-03). `135_half` only (another format is refused), held level or turned. The input carries both pictures at the gate's height: the first 18 mm wide, the second starting **19.00 mm** (one advance of 4 perforations) along, so the frame is 37 × 24. The gate is exposed twice; the gap between is unexposed film; the edge print, fog, leaks and halation run across both as on one piece of film |
 | `overscan_fog` | `…overscan.fog` | float | `1.0` | 0–4 | edge fog's strength; 0 = none (see *Edge light* below) |
 | `overscan_leaks` | `…overscan.leaks` | float | `0.0` | 0–4 | spool light leaks: their count and strength; 0 = none (see *Edge light* below) |
-| `overscan_edge_text` | `…overscan.edge_text` | str | `""` | — | the stock's edge print. **The host chooses** real names (desktop) or display names (mobile, `STOCK-NAMES.md`) |
+| `overscan_edge_text` | `…overscan.edge_text` | str | `""` | — | the stock's edge print. **The host chooses** real names (desktop) or display names (mobile, `STOCK-NAMES.md`). On Fujifilm's 120 layout the first of several words is the maker's mark, printed apart from the name |
 | `overscan_f_number` | `…overscan.f_number` | float | `0.0` | 0–64 | from EXIF; sets the gate's penumbra. 0 = unknown (f/5.6) |
 
 **The date back: one mechanism, three faces**
@@ -844,8 +844,12 @@ reasoning: RFC-032 §25, §27.
   numerals widened ×1.25 and tracked apart, tan). Fujifilm slides (Provia,
   Velvia): no DX bars, orange 5×7 dot-matrix face, bold numbers on both
   edges, "36 ▷ 27A". X-Tra 400: 14.1 mm DX reading 628, condensed numbers,
-  "S-400". Pro 400H (120): one edge, "FUJI"/roll number, frame number, a
-  stepped tack marker, "PRO400H", "EFCDCD". C200: Kodak's layout in a
+  "S-400". Pro 400H (120): one edge, the maker's mark/roll number, frame
+  number, a stepped tack marker, "PRO400H", "EFCDCD". **The maker's mark on
+  Fujifilm 120 is the host's** (2026-10-04): the first word of `edge_text`
+  when it has more than one ("FUJI PRO400H" prints "FUJI" before the even
+  numbers and "PRO400H" as the name; mobile sends "FULI PRO400H"); a single
+  word prints no mark. The engine draws no maker's name of its own. C200: Kodak's layout in a
   regular weight (it is Kodak-made: DX part 1 = Gold's). Vision3: one
   "EASTMAN 52xx" keycode line and dashes, no numbers or bars. E100: white
   marks. On Kodak 120 the name is centred between consecutive numbers.

@@ -143,7 +143,7 @@ enum class Edge135 {
 };
 enum class Edge120 {
     Kodak,      // numbers and the name on one edge, triangles and digits on the other
-    Fuji,       // one edge only, 5x7 face: "FUJI", "13 <", the stock, a roll number
+    Fuji,       // one edge only, 5x7 face: the maker's mark (the host's), "13 <", the stock, a roll number
 };
 struct EdgeLook {
     const char* stock;
@@ -1357,9 +1357,20 @@ void imprint_groups(const OverscanLayout& L, const Params& params, double frame_
             // marker pointing back at it 1.45 mm on (2.15 x 1.15 mm, a tail
             // behind the triangle), the stock name 4.95 mm after the marker,
             // and on Pro 400H a code ("EFCDCD", caps 0.86) 13.2 mm after the
-            // name. Ending 3.7 mm before each number: "FUJI" before the even
-            // ones, a three-digit roll number (525, 145, 076 on the three
-            // strips; drawn per frame here) before the odd ones.
+            // name. Ending 3.7 mm before each number: the maker's mark before
+            // the even ones, a three-digit roll number (525, 145, 076 on the
+            // three strips; drawn per frame here) before the odd ones.
+            // The maker's mark is the host's, like the name: the first word
+            // of `edge_text` when it has more than one ("FUJI PRO400H" prints
+            // "FUJI" and "PRO400H"), and none for a single word. The engine
+            // prints no maker's name of its own, so a host that shows display
+            // names (mobile, STOCK-NAMES.md) carries none of the real ones.
+            std::string maker, name = o.edge_text;
+            if (const size_t sp = name.find(' '); sp != std::string::npos) {
+                maker = name.substr(0, sp);
+                const size_t rest = name.find_first_not_of(' ', sp);
+                name = rest == std::string::npos ? std::string() : name.substr(rest);
+            }
             const double P = 41.1, xs = 0.94;
             const double roll = rf.uni(0.0, 2.0 * P);
             int n0 = 1 + int(rf.uni(0.0, 14.0));
@@ -1374,9 +1385,9 @@ void imprint_groups(const OverscanLayout& L, const Params& params, double frame_
                 const int n = n0 + j;
                 char lotbuf[8];
                 std::snprintf(lotbuf, sizeof lotbuf, "%03d", lot);
-                const std::string before = (n % 2 == 0) ? std::string("FUJI") : std::string(lotbuf);
-                const double wb = matrix_text(before, 1.15, xs, false, 0, 0, nullptr);
-                matrix_text(before, 1.15, xs, false, sn - 3.7 - wb, tb, &top.ops);
+                const std::string before = (n % 2 == 0) ? maker : std::string(lotbuf);
+                const double wb = before.empty() ? 0.0 : matrix_text(before, 1.15, xs, false, 0, 0, nullptr);
+                if (!before.empty()) matrix_text(before, 1.15, xs, false, sn - 3.7 - wb, tb, &top.ops);
                 if (n < 1) continue;
                 const std::string ns = std::to_string(n);
                 const double wn = matrix_text(ns, 1.15, xs, false, sn, tb, &top.ops);
@@ -1395,10 +1406,10 @@ void imprint_groups(const OverscanLayout& L, const Params& params, double frame_
                             a + 0.99, mid + 0.275, a + 0.44, mid + 0.275, a + 0.44, mid + 0.125,
                             a,        mid + 0.06};
                 top.ops.push_back(tack);
-                if (!o.edge_text.empty()) {
+                if (!name.empty()) {
                     const bool has_code = look.code[0] != 0;
                     const double s0 = a + 4.95;
-                    const std::string tx = fit_matrix_text(o.edge_text, has_code ? 12.0 : P - 3.7 - 4.5 - (s0 - sn) - 1.0,
+                    const std::string tx = fit_matrix_text(name, has_code ? 12.0 : P - 3.7 - 4.5 - (s0 - sn) - 1.0,
                                                            1.17, xs, false);
                     matrix_text(tx, 1.17, xs, false, s0, tb, &top.ops);
                     if (has_code) matrix_text(look.code, 0.86, 0.92, false, s0 + 13.2, tb, &top.ops);
