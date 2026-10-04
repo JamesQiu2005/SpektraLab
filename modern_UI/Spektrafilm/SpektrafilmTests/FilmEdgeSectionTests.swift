@@ -82,15 +82,15 @@ final class FilmEdgeSectionTests: XCTestCase {
         }
     }
 
-    /// No date on the panoramic formats, nothing but data on 645, all three
-    /// on 135 and half frame (answers C1, C7).
+    /// No date on the panoramic formats (answer C7); all three faces on 135,
+    /// half frame and 120 -- 645 to 6×9, in the margin, since 1.3.1 ("Still
+    /// No Date at all on 120 backs", the owner, 2026-10-05).
     func testFacesFollowTheCamera() {
         for f in FilmEdgeFormat.allCases {
             let faces = DateBackFace.allCases.filter { f.draws($0) }
-            switch f {
-            case .f135, .f135Half: XCTAssertEqual(faces, [.lcd, .dots, .data])
-            case .f645: XCTAssertEqual(faces, [.data])
-            default: XCTAssertEqual(faces, [], "\(f) offers a date")
+            switch f.group {
+            case .film135, .film120: XCTAssertEqual(faces, [.lcd, .dots, .data], "\(f)")
+            case .panoramic: XCTAssertEqual(faces, [], "\(f) offers a date")
             }
         }
     }

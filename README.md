@@ -65,7 +65,9 @@ frame is cut to its gate and shown on the strip, with the stock's own edge
 print and a frame number you can set; a strip scan ends at the film's edges.
 The crop becomes the framing in the gate, so it is part of the
 negative. **Date Back** exposes the shooting date (or a date you type) into the
-frame; it needs no film edge.
+frame; it needs no film edge. With one, it can print the shooting data beside
+the frame at the same time, and on 120 (645 to 6×9) the date and the data go
+in the film margin, where a medium-format back printed them.
 
 **A half-frame pair** is two frames on one frame's worth of 135. With Film Edge
 on *Half*, **Enter Half-Frame Pair** appears under the format (or pick two

@@ -167,6 +167,8 @@ enum AgentSchema {
             .init("params.dateBack.camera", .choice([FilmEdgeFormat.f135, .f135Half, .f645].map(\.rawValue)),
                   "The camera printing the date with no film edge, from Film Format.", readOnly: resolved),
             .init("params.dateBack.textB", .choice([]), "A half-frame pair's second frame's date.", readOnly: resolved),
+            .init("params.dateBack.withData", .bool, "Print the shooting data beside the frame as well as the date (needs Film Edge)."),
+            .init("params.dateBack.dataText", .choice([]), "The shooting data that prints beside the frame.", readOnly: resolved),
             .init("params.dateBack.framing", .choice([]),
                   "The crop the engine's frame is cut with for the date alone; empty for the whole frame.", readOnly: resolved),
             .init("params.dateBack.frameScale", .number(0...1),

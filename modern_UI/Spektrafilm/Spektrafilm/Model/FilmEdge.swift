@@ -65,13 +65,19 @@ enum FilmEdgeFormat: String, CaseIterable, Identifiable, Codable, Sendable {
     /// Which date faces the engine draws on this format (API-SPEC §13, "Where
     /// a face is drawn"). Anywhere else a date is silently not drawn, so the
     /// UI must not offer it. Nothing on the panoramic formats (answer C7).
+    /// 120 (645 to 6×9) carries all three since 1.3.1, printed in the film
+    /// margin beside the frame, where a medium-format back put its date and
+    /// data; until then only 645 printed, and only data.
     func draws(_ face: DateBackFace) -> Bool {
-        switch self {
-        case .f135, .f135Half: true
-        case .f645: face == .data
-        default: false
+        switch group {
+        case .film135, .film120: true
+        case .panoramic: false
         }
     }
+
+    /// True where the back prints in the film margin and nowhere in the
+    /// picture: every 120 camera. Such a date needs the film edge.
+    var printsInMargin: Bool { group == .film120 }
 }
 
 enum FilmEdgeView: String, CaseIterable, Identifiable, Codable, Sendable {
@@ -251,6 +257,13 @@ struct DateBackSettings: Codable, Equatable, Sendable {
     var text = ""
     /// A pair's second frame's date, resolved like `text` from that frame.
     var textB = ""
+    /// Print the shooting data **as well as** the date (1.3.1): between
+    /// frames on 135, in the margin on 120. It was one choice with the date's
+    /// face, so a frame carried its date or its data and never both. With
+    /// `face == .data` the data prints alone, as before, whatever this says.
+    var withData = false
+    /// The shooting data, already formatted; resolved by the session.
+    var dataText = ""
     /// The user's own text, which wins over the resolved one when set.
     var customText: String?
     /// The camera the date is printed by while there is no film edge,
@@ -295,6 +308,8 @@ struct DateBackSettings: Codable, Equatable, Sendable {
         brightnessEV = try c.decodeIfPresent(Double.self, forKey: .brightnessEV) ?? d.brightnessEV
         text = try c.decodeIfPresent(String.self, forKey: .text) ?? d.text
         textB = try c.decodeIfPresent(String.self, forKey: .textB) ?? d.textB
+        withData = try c.decodeIfPresent(Bool.self, forKey: .withData) ?? d.withData
+        dataText = try c.decodeIfPresent(String.self, forKey: .dataText) ?? d.dataText
         customText = try c.decodeIfPresent(String.self, forKey: .customText)
         camera = (try? c.decodeIfPresent(FilmEdgeFormat.self, forKey: .camera)) ?? d.camera
         framing = try c.decodeIfPresent(String.self, forKey: .framing) ?? d.framing
@@ -324,7 +339,13 @@ struct DateBackSettings: Codable, Equatable, Sendable {
     /// in the margin (645) and neither exists on the bare picture.
     func prints(_ face: DateBackFace, filmEdge: FilmEdgeSettings) -> Bool {
         guard let camera = cameraFormat(filmEdge: filmEdge), camera.draws(face) else { return false }
-        return face == .data ? filmEdge.effective : true
+        return face == .data || camera.printsInMargin ? filmEdge.effective : true
+    }
+
+    /// True when the shooting data prints beside the date: the switch, a date
+    /// face (the data face prints it alone), and the film edge it prints on.
+    func printsDataToo(filmEdge: FilmEdgeSettings) -> Bool {
+        withData && face != .data && prints(.data, filmEdge: filmEdge)
     }
 
     /// True when the engine draws a date: the switch, a face with somewhere
@@ -370,6 +391,7 @@ struct DateBackSettings: Codable, Equatable, Sendable {
             ("date_imprint_inset_y", .double((insetYMM * scale).clamped(to: Self.insetRange)), .shoot),
             ("date_imprint_size", .double((wireSize(on: camera) * scale).clamped(to: Self.sizeRange)), .shoot),
             ("date_imprint_ev", .double(brightnessEV.clamped(to: Self.brightnessRange)), .shoot),
+            ("date_imprint_data_text", .string(printsDataToo(filmEdge: filmEdge) ? dataText : ""), .shoot),
         ]
         if filmEdge.pair {
             // Each frame of a pair carries its own date. Without a film edge

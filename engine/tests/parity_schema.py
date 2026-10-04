@@ -279,6 +279,11 @@ NATIVE_ONLY = {
         "path": "film_render.date_imprint.text_b", "type": "str", "layer": "shoot",
         "default": '', "live": False, "range": None,
     },
+    # The shooting data, printed beside the frame as well as the date.
+    "date_imprint_data_text": {
+        "path": "film_render.date_imprint.data_text", "type": "str", "layer": "shoot",
+        "default": '', "live": False, "range": None,
+    },
     # A pair's second frame's Scene Placement.
     "scene_latitude_split": {
         "path": "camera.scene_latitude.split", "type": "float", "layer": "shoot",

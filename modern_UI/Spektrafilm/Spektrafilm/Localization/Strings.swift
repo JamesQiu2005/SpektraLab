@@ -125,7 +125,7 @@ enum S: String, CaseIterable, Sendable {
     case setAgentsCopy, setAgentsCopied, setAgentsTools
 
     // MARK: Film Edge and Date Back (RFC-032, RFC-031; 2026-10-01 drawings)
-    case sectionFilmEdge, sectionDateBack, edgeFormat, edgeFormatHalf, edgeGroup135, edgeGroup120, edgeGroupPanoramic, edgeView, edgeViewStrip, edgeViewFiled, edgeGateAndScan, edgeGate, edgeGateAuto, edgeGateSquare, edgeGateRounded, edgeGateEared, edgeGateShouldered, edgeGateKicked, edgeHoles, edgeHolesWhite, edgeHolesBlack, edgeBody, edgeAnother, edgeAdvance, edgeAnotherFrame, edgeFrameNumber, edgeFrameNumberAuto, edgeLight, edgeFog, edgeLeaks, edgeOff, edgeHeldByFilmEdge, edgeSetByFilmEdge, edgeMeteredOnPicture, dateFace, dateFaceDots, dateFaceData, dateDate, dateImprint, dateFromEXIF, dateWhere, dateInFrame, dateBetween, dateCorner, dateSize, dateBrightness, dateStops, dateOrderJapan, dateOrderUS, reasonBetweenNeedsFilmEdge
+    case sectionFilmEdge, sectionDateBack, edgeFormat, edgeFormatHalf, edgeGroup135, edgeGroup120, edgeGroupPanoramic, edgeView, edgeViewStrip, edgeViewFiled, edgeGateAndScan, edgeGate, edgeGateAuto, edgeGateSquare, edgeGateRounded, edgeGateEared, edgeGateShouldered, edgeGateKicked, edgeHoles, edgeHolesWhite, edgeHolesBlack, edgeBody, edgeAnother, edgeAdvance, edgeAnotherFrame, edgeFrameNumber, edgeFrameNumberAuto, edgeLight, edgeFog, edgeLeaks, edgeOff, edgeHeldByFilmEdge, edgeSetByFilmEdge, edgeMeteredOnPicture, dateFace, dateFaceDots, dateFaceData, dateDate, dateImprint, dateWithData, dateWithDataWhere, dateFromEXIF, dateWhere, dateInFrame, dateBetween, dateCorner, dateSize, dateBrightness, dateStops, dateOrderJapan, dateOrderUS, reasonBetweenNeedsFilmEdge
 }
 
 // MARK: - the table
@@ -434,6 +434,8 @@ extension S {
         case .dateFaceData: "Data"
         case .dateDate: "Date"
         case .dateImprint: "Imprint"
+        case .dateWithData: "Shooting data"
+        case .dateWithDataWhere: "beside the frame, with the date"
         case .dateFromEXIF: "from EXIF"
         case .dateWhere: "Where"
         case .dateInFrame: "In frame"
@@ -732,6 +734,8 @@ extension S {
         case .dateFaceData: "数据"
         case .dateDate: "日期"
         case .dateImprint: "印字"
+        case .dateWithData: "拍摄数据"
+        case .dateWithDataWhere: "与日期同时印在画面旁"
         case .dateFromEXIF: "来自 EXIF"
         case .dateWhere: "位置"
         case .dateInFrame: "画面内"

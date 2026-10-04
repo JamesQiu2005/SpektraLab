@@ -6,10 +6,17 @@
 //  print **between** the frames. The camera is the film edge's format (the
 //  engine reads the film's direction from it, `DateBackSettings.wire`).
 //
-//  **Which faces a camera has** is `FilmEdgeFormat.draws(_:)`: 135 and half
-//  frame carry all three, 645 the data face only, and nothing larger and
-//  nothing panoramic prints a date (answers C1, C7). A face the camera cannot
-//  draw is greyed with the reason rather than offered and silently dropped.
+//  **Which faces a camera has** is `FilmEdgeFormat.draws(_:)`: 135, half
+//  frame and 120 (645 to 6×9) carry all three, and nothing panoramic prints a
+//  date (answer C7). A face the camera cannot draw is greyed with the reason
+//  rather than offered and silently dropped.
+//
+//  **The date and the shooting data print together** (1.3.1): the face is the
+//  date's, and "Shooting data" adds the data line beside the frame — between
+//  frames on 135, in the margin on 120. They were one choice, so a frame had
+//  its date or its data and never both. On 120 the date itself prints in the
+//  margin (no medium-format back printed in the picture), so it has no
+//  corner and needs the film edge.
 //
 //  **Not here yet:** the data face's colour (answer E12 wants both; the engine
 //  has one), the user's own text and the insets. Each needs a decision or
@@ -54,6 +61,20 @@ struct DateBackSection: View {
                 }
                 textRow
                 if date.face != .data {
+                    ToggleRow(label: L(.dateWithData), isOn: bind(\.withData),
+                              enabled: date.prints(.data, filmEdge: edge), reason: dataNeedsFilmEdge,
+                              sublabel: date.withData && !date.dataText.isEmpty ? date.dataText : L(.dateWithDataWhere),
+                              help: L("Print the shooting data beside the frame as well as the date",
+                                      zh: "在日期之外，同时把拍摄数据印在画面旁"))
+                }
+                if date.face != .data, camera?.printsInMargin == true {
+                    Text(L("On 120 the date prints in the film margin beside the frame.",
+                           zh: "120 的日期印在画面旁的片边上。"))
+                        .font(Theme.Font.sublabel).foregroundStyle(Theme.Ink.tertiary)
+                        .fixedSize(horizontal: false, vertical: true)
+                        .padding(.leading, Theme.Metric.sliderLabelWidth)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                } else if date.face != .data {
                     PillSwitchRow(label: L(.dateWhere), options: DateBackPlacement.allCases,
                                   selection: bind(\.placement), title: { L($0.key) },
                                   enabled: { $0 == .frame || edge.effective },
@@ -191,8 +212,8 @@ struct DateBackSection: View {
 
     private var noBackReason: String {
         guard let camera else {
-            return L("Film Format is no camera with a date back: 135, half frame or 645 has one.",
-                     zh: "当前胶片画幅的相机没有日期后背：135、半格和 645 才有。")
+            return L("Film Format is no camera with a date back: 135, half frame or 645 has one; other 120 formats need Film Edge.",
+                     zh: "当前胶片画幅的相机没有日期后背：135、半格和 645 才有；其他 120 画幅需要开启片边。")
         }
         // The camera has a back, but its only face prints on the film edge.
         if DateBackFace.allCases.contains(where: onCamera) { return dataNeedsFilmEdge }
@@ -202,8 +223,11 @@ struct DateBackSection: View {
     }
 
     private var dataNeedsFilmEdge: String {
-        L("Data prints beside the frame, on the film edge: it needs Film Edge.",
-          zh: "数据印在画面旁的片边上，需要开启片边。")
+        camera?.printsInMargin == true
+            ? L("A 120 back prints beside the frame, on the film edge: it needs Film Edge.",
+                zh: "120 的后背印在画面旁的片边上，需要开启片边。")
+            : L("Data prints beside the frame, on the film edge: it needs Film Edge.",
+                zh: "数据印在画面旁的片边上，需要开启片边。")
     }
 
     private func faceReason(_ face: DateBackFace) -> String {
@@ -211,7 +235,7 @@ struct DateBackSection: View {
     }
 
     private var noFaceReason: String {
-        L("A \(camera?.title ?? "") back has the data face only.", zh: "\(camera?.title ?? "") 的后背只有数据字体。")
+        L("No \(camera?.title ?? "") camera printed a date.", zh: "\(camera?.title ?? "") 相机没有日期后背。")
     }
 
     /// The date in `order`, rebuilt from the printed one. The session writes

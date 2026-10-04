@@ -194,6 +194,10 @@ struct DateImprintParams {
     bool active = false;
     std::string text;                // already formatted, e.g. "'26 9 28"
     std::string text_b;              // a pair's second frame's date; empty = none on it
+    // The shooting data, printed *as well as* the date (1.3.1): between frames
+    // on 135, in the margin on 120. Empty = none. `style = data` still prints
+    // `text` there alone, as before.
+    std::string data_text;
     std::string placement = "frame";
     double exposure_ev = 3.5;        // red-layer exposure above 18 % grey (RFC-031 §3.3)
     // RFC-031 §8 (2026-10-01): three faces of one mechanism. lcd = seven

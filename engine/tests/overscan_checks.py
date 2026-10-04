@@ -720,6 +720,37 @@ def main():
         check("Fujifilm 135 slide: the frame number is dots 0.1155 mm apart", beat > 0.004 and beat > 2 * other,
               f"beat {beat:.4f}, strongest elsewhere {other:.4f}")
 
+        # --- the date and the shooting data together, and a date on 120 (1.3.1) ---
+        # They were one choice of face, so a 135 frame carried its date or its data and never
+        # both, and no 120 format but 645 printed anything ("why data and date cannot be printed
+        # at the same time where they should ... Still No Date at all on 120 backs", the owner).
+        def changed(a, b):
+            return np.abs(a[..., :3].astype(int) - b[..., :3].astype(int)).max(-1) > 2000
+        D135 = dict(S135, date_imprint_active=True, date_imprint_text="'26 10 4")
+        bare135 = render(e, img, S135)
+        d_only = changed(render(e, img, D135), bare135)
+        d_both = changed(render(e, img, dict(D135, date_imprint_data_text="1/125 F2.8 A 50mm")), bare135)
+        gx = int(0.9 / px)                                  # the gap before the frame, along the film
+        check("135: the date alone prints in the frame and nothing between frames",
+              d_only[:, gx * 2:].sum() > 200 and d_only[:, :gx].sum() == 0, f"{d_only[:, gx * 2:].sum()}, {d_only[:, :gx].sum()}")
+        check("135: with the data asked for, the date is still in the frame",
+              np.array_equal(d_both[:, gx * 2:], d_only[:, gx * 2:]), f"{d_both[:, gx * 2:].sum()} px")
+        check("135: ... and the data is between the frames, at the same time",
+              d_both[:, :gx].sum() > 60, f"{d_both[:, :gx].sum()} px")
+        for fmt, (gl, gs) in (("120_645", (56.0, 41.5)), ("120_6x6", (56.0, 56.0)), ("120_6x7", (69.5, 56.0)),
+                              ("120_6x8", (76.0, 56.0)), ("120_6x9", (84.0, 56.0))):
+            fw = 1200 if gl >= gs else int(round(1200 * gl / gs))
+            fh = int(round(fw * gs / gl))
+            im_ = frame(fw, fh)
+            E120 = {"overscan_active": True, "overscan_format": fmt, "overscan_edge_text": "KODAK PORTRA 400"}
+            b0 = render(e, im_, E120)
+            dd = changed(render(e, im_, dict(E120, date_imprint_active=True, date_imprint_text="'26 10 4")), b0)
+            check(f"{fmt} prints a date, in the margin", dd.sum() > 40, f"{dd.sum()} px")
+            both = changed(render(e, im_, dict(E120, date_imprint_active=True, date_imprint_text="'26 10 4",
+                                                date_imprint_data_text="1/125 F2.8 A 50mm")), b0)
+            check(f"{fmt} prints the data beside it without moving the date",
+                  both.sum() > dd.sum() + 60 and (both & dd).sum() == dd.sum(), f"{both.sum()} px against {dd.sum()}")
+
     print(f"{failures} failure(s)")
     return 1 if failures else 0
 

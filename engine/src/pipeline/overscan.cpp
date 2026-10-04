@@ -1807,11 +1807,20 @@ void imprint_groups(const OverscanLayout& L, const Params& params, double frame_
                                             : std::clamp(0.80 + 0.2 * rf.uni() + 0.05 * rf.normal(), 0.6, 1.0);
 
     // The date back (RFC-031 §8): one mechanism -- a light behind the film
-    // through a mask -- in three faces. lcd and dots go in the picture (or
-    // between frames with placement = rebate) on 135 and 135 half frame; data
-    // is shooting data in the 5x7 face, between frames on 135 (F5/F6 backs)
-    // and in the film margin on 645 (645N). No other format had a back that
-    // printed.
+    // through a mask. It prints two things, each where a camera put it, and
+    // both at once when both are asked for (1.3.1; until then the three faces
+    // were one choice, so a frame carried its date or its data, never both --
+    // "why data and date cannot be printed at the same time where they should",
+    // the owner, 2026-10-04):
+    //   the date (`text`, `style` = lcd | dots): in the picture, or between
+    //     frames with placement = rebate, on 135 and 135 half frame; in the
+    //     film margin beside the frame on 120 (645 to 6x9), where a medium
+    //     format back printed it (GA645, Contax 645, 645AFD, Rollei 6008,
+    //     GX680) -- until 1.3.1 no 120 format carried a date at all;
+    //   the shooting data (`data_text`, or `text` under `style` = data), in
+    //     the 5x7 face: between frames on 135 (F5/F6 backs), in the margin on
+    //     120 (645N).
+    // Nothing on the panoramic formats (answer C7).
     //
     // The back is part of the camera (RFC-032 §32): everything is placed and
     // turned in the *film's* frame -- s along the film, t across it, +t the
@@ -1820,11 +1829,15 @@ void imprint_groups(const OverscanLayout& L, const Params& params, double frame_
     // picture, not upright in it. A half-frame camera held level makes a
     // portrait frame with the film running across it, so there the date is
     // upright in the portrait.
-    if (!d.active || d.text.empty()) return;
+    if (!d.active) return;
+    const bool data_style = d.style == "data";
+    const std::string date_text = data_style ? std::string() : d.text;
+    const std::string data_text = data_style ? d.text : d.data_text;
+    if (date_text.empty() && data_text.empty()) return;
     const std::string fmt = L.valid ? L.format : (o.format == "135_half" ? std::string("135_half") : std::string("135"));
-    const bool data = d.style == "data";
     const bool is135 = fmt == "135" || fmt == "135_half";
-    if (!is135 && !(data && fmt == "120_645")) return;
+    const bool is120 = fmt == "120_645" || fmt == "120_6x6" || fmt == "120_6x7" || fmt == "120_6x8" || fmt == "120_6x9";
+    if (!is135 && !is120) return;
     Group g;
     const double e = kMidGrey * std::pow(2.0, d.exposure_ev);
     for (int c = 0; c < 3; ++c) g.exposure[c] = L.date_rgb[c] * e;
@@ -1832,12 +1845,12 @@ void imprint_groups(const OverscanLayout& L, const Params& params, double frame_
     const double k = std::clamp(d.size, 0.4, 3.0);
     // A face's glyphs, laid out in glyph space (x right, y up from the
     // baseline) and mapped to film mm by `place(x, y) -> (s, t)`.
-    auto draw = [&](double h, auto place) {
-        if (d.style == "lcd") {
+    auto draw = [&](const std::string& text, const std::string& style, double h, auto place) {
+        if (style == "lcd") {
             Op proto;
             proto.skew = std::tan(8.0 * M_PI / 180.0);
             std::vector<Op> segs;
-            seven_seg_polys(d.text, h, 0.0, 0.0, proto, segs);
+            seven_seg_polys(text, h, 0.0, 0.0, proto, segs);
             for (Op& op : segs) {
                 // seven_seg_polys writes (s0 + gx, t0 - gy); undo to glyph space, then place
                 for (size_t i = 0; i + 1 < op.pts.size(); i += 2) {
@@ -1849,8 +1862,8 @@ void imprint_groups(const OverscanLayout& L, const Params& params, double frame_
             }
             return;
         }
-        const bool dots = d.style == "dots";
-        dot_matrix(d.text, h, [&](double x, double y, double pitch) {
+        const bool dots = style == "dots";
+        dot_matrix(text, h, [&](double x, double y, double pitch) {
             if (dots) {
                 Op c;
                 c.kind = Op::Circle;
@@ -1873,34 +1886,52 @@ void imprint_groups(const OverscanLayout& L, const Params& params, double frame_
             }
         });
     };
-    auto text_width = [&](double h) {
-        if (d.style == "lcd") return seven_seg_width(d.text, h);
-        return dot_matrix(d.text, h, [](double, double, double) {});
+    auto text_width = [&](const std::string& text, const std::string& style, double h) {
+        if (style == "lcd") return seven_seg_width(text, h);
+        return dot_matrix(text, h, [](double, double, double) {});
     };
 
     const double gw = L.valid ? L.gate_along : frame_w_mm, gh = L.valid ? L.gate_across : frame_h_mm;
     const double gs = L.valid ? L.gate_s0 : 0.0, gt = L.valid ? L.gate_t0 : 0.0;
     const double gap = L.valid ? std::max(0.6, (L.vertical ? L.canvas_h : L.canvas_w) * L.px - L.gate_along - L.pair_adv) * 0.5 : 0.0;
-    if (data && fmt == "120_645") {
-        // 645N: one line in the margin beside the frame, reading along the
-        // film, ~0.3 mm off the gate, on the side away from the stock name.
+    if (is120) {
+        // One line in the margin beside the frame, reading along the film,
+        // ~0.3 mm off the gate, on the side away from the stock name (645N):
+        // the data from the frame's leading end, the date ending at its far
+        // end, so the two never meet. There is no margin without the film.
+        if (!L.valid) return;
         const double h = 0.55 * k;
         const double t_base = gt + gh + 0.30 + h;
-        const double s0 = gs + 0.08 * gw;
-        draw(h, [&](double x, double y, double& ss, double& tt) { ss = s0 + x; tt = t_base - y; });
-    } else if ((data || d.placement == "rebate") && L.valid) {
-        // Between frames, rotated, as the F6/MF-28 place data (RFC-033 §5):
-        // to the left of the frame, reading up the film's width.
-        const double h = (data ? 0.50 : 0.55) * k;
-        const double w = text_width(h);
-        const double s_c = gs - 0.5 * gap;
+        if (!data_text.empty()) {
+            const double s0 = gs + 0.08 * gw;
+            draw(data_text, "data", h, [&](double x, double y, double& ss, double& tt) { ss = s0 + x; tt = t_base - y; });
+        }
+        if (!date_text.empty()) {
+            const double s0 = gs + 0.92 * gw - text_width(date_text, d.style, h);
+            draw(date_text, d.style, h, [&](double x, double y, double& ss, double& tt) { ss = s0 + x; tt = t_base - y; });
+        }
+        if (g.ops.empty()) return;
+        out.push_back(g);
+        return;
+    }
+    // Between frames, rotated, as the F6/MF-28 place data (RFC-033 §5):
+    // reading up the film's width, in the gap before the frame -- or, for a
+    // date that shares the film with a data line, the gap after it.
+    auto between = [&](const std::string& text, const std::string& style, double h, bool after) {
+        const double w = text_width(text, style, h);
+        const double s_c = after ? gs + gw + L.pair_adv + 0.5 * gap : gs - 0.5 * gap;
         const double t_c = gt + 0.5 * gh + 0.5 * w;
-        draw(h, [&](double x, double y, double& ss, double& tt) { ss = s_c + 0.5 * h - y; tt = t_c - x; });
-    } else if (!data) {
+        draw(text, style, h, [&](double x, double y, double& ss, double& tt) { ss = s_c + 0.5 * h - y; tt = t_c - x; });
+    };
+    const bool data_drawn = !data_text.empty() && L.valid;
+    if (data_drawn) between(data_text, "data", 0.50 * k, false);
+    if (!date_text.empty() && d.placement == "rebate" && L.valid) {
+        between(date_text, d.style, 0.55 * k, data_drawn);
+    } else if (!date_text.empty()) {
         // In the frame, at the chosen corner of the *film's* frame (the corner
         // as the camera's back sees it, held level), inset from the gate.
         const double h = (d.style == "dots" ? 0.95 : 1.3) * k;
-        const double w = text_width(h);
+        const double w = text_width(date_text, d.style, h);
         const bool right = d.corner == "br" || d.corner == "tr", bottom = d.corner == "br" || d.corner == "bl";
         // With overscan the layout is already in film mm. The date alone draws
         // on the bare frame, so the film's direction comes from its shape: a
@@ -1921,12 +1952,13 @@ void imprint_groups(const OverscanLayout& L, const Params& params, double frame_
         const double over = (d.style == "lcd" ? h * std::tan(8.0 * M_PI / 180.0) : 0.0) + 0.1;   // the slant, and the blur
         const double s0 = std::clamp(right ? fs + fw - d.inset_x - w : fs + d.inset_x, fs + 0.1, std::max(fs + 0.1, fs + fw - w - over));
         const double base = std::clamp(bottom ? ft + fh - d.inset_y : ft + d.inset_y + h, std::min(ft + h + 0.1, ft + fh - 0.1), ft + fh - 0.1);
-        draw(h, [&](double x, double y, double& ss, double& tt) {
+        draw(date_text, d.style, h, [&](double x, double y, double& ss, double& tt) {
             const double sf = s0 + x, tf = base - y;
             if (!turned) { ss = sf; tt = tf; }
             else { ss = fh - tf; tt = sf; }       // picture x = across - t, y = s
         });
     }
+    if (g.ops.empty()) return;
     out.push_back(g);
 }
 
@@ -2061,6 +2093,7 @@ bool Pipeline::node_overscan(const Image& in, Image& out, std::string& error) {
         imprint_groups(second, pb_, frame_w_mm_, frame_h_mm_, without);
         pb_.film_render.date_imprint.active = true;
         pb_.film_render.date_imprint.text = di.text_b;
+        pb_.film_render.date_imprint.data_text.clear();   // the data line is the first frame's, drawn once
         imprint_groups(second, pb_, frame_w_mm_, frame_h_mm_, with);
         if (with.size() > without.size()) groups.push_back(with.back());
     }

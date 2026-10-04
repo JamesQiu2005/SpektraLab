@@ -340,7 +340,71 @@ final class FilmEdgeTests: XCTestCase {
 
         p.filmEdge.format = .f645
         XCTAssertTrue(p.dateBack.prints(.data, filmEdge: p.filmEdge))
-        XCTAssertFalse(p.dateBack.prints(.lcd, filmEdge: p.filmEdge), "a 645 back has the data face only")
+        XCTAssertTrue(p.dateBack.prints(.lcd, filmEdge: p.filmEdge), "a 645 back prints a date too, in the margin")
+        // ... and the margin is film: a 120 date needs the film edge, whatever its face
+        p.filmEdge.active = false
+        p.dateBack.camera = .f645
+        XCTAssertFalse(p.dateBack.prints(.lcd, filmEdge: p.filmEdge), "no film edge, no margin to print in")
+    }
+
+    /// The date and the shooting data print together, each in its place: the
+    /// date's face is one setting and "Shooting data" another. They were one
+    /// choice ("why data and date cannot be printed at the same time where
+    /// they should", the owner, 2026-10-05).
+    func testTheDateAndTheDataPrintTogether() async throws {
+        var p = FilmParams.default
+        p.grainActive = false; p.glareActive = false
+        p.filmEdge.active = true
+        p.filmEdge.cameraSeed = 19; p.filmEdge.frameSeed = 5
+        p.dateBack.active = true
+        p.dateBack.text = "'26 10 1"
+        p.dateBack.dataText = "1/250 F5.6 A 50mm"
+        XCTAssertEqual(p.fullDelta["date_imprint_data_text"], .string(""), "off until asked for")
+        let dateOnly = try await render(p, 600, 400)
+        p.dateBack.withData = true
+        XCTAssertEqual(p.fullDelta["date_imprint_style"], .string("lcd"), "the date keeps its face")
+        XCTAssertEqual(p.fullDelta["date_imprint_data_text"], .string("1/250 F5.6 A 50mm"))
+        let both = try await render(p, 600, 400)
+        p.dateBack.active = false
+        let bare = try await render(p, 600, 400)
+        XCTAssertEqual(both.w, bare.w); XCTAssertEqual(both.h, bare.h)
+        guard !bare.bytes.allSatisfy({ $0 == 0 }) else { throw XCTSkip("the texture is not CPU-readable") }
+        // The picture starts ~1 mm (16 px) into the canvas: left of it is the gap between frames.
+        func moved(_ a: [UInt16], _ b: [UInt16], x0: Int, x1: Int) -> Int {
+            var n = 0
+            for y in 0..<bare.h { for x in x0..<x1 where abs(Int(a[(y * bare.w + x) * 4]) - Int(b[(y * bare.w + x) * 4])) > 512 { n += 1 } }
+            return n
+        }
+        let gap = 12
+        XCTAssertGreaterThan(moved(bare.bytes, both.bytes, x0: bare.w / 2, x1: bare.w), 200, "no date in the frame")
+        XCTAssertGreaterThan(moved(bare.bytes, both.bytes, x0: 0, x1: gap), 30, "no data between the frames")
+        XCTAssertEqual(moved(bare.bytes, dateOnly.bytes, x0: 0, x1: gap), 0, "the date alone prints nothing between the frames")
+        // The data face still prints the data alone.
+        p.dateBack.active = true
+        p.dateBack.face = .data
+        p.dateBack.text = p.dateBack.dataText
+        XCTAssertEqual(p.fullDelta["date_imprint_data_text"], .string(""), "the data face is the data line already")
+    }
+
+    /// 120 backs print a date: in the margin beside the frame, on 645 to 6×9.
+    func testA120BackPrintsADateInTheMargin() async throws {
+        for (format, w, h) in [(FilmEdgeFormat.f645, 560, 415), (.f6x6, 500, 500), (.f6x7, 695, 560), (.f6x9, 840, 560)] {
+            var p = FilmParams.default
+            p.grainActive = false; p.glareActive = false
+            p.filmEdge.active = true
+            p.filmEdge.format = format
+            p.filmEdge.cameraSeed = 19; p.filmEdge.frameSeed = 5
+            let bare = try await render(p, w, h)
+            p.dateBack.active = true
+            p.dateBack.text = "'26 10 1"
+            XCTAssertTrue(p.dateBack.effective(filmEdge: p.filmEdge), "\(format)")
+            let dated = try await render(p, w, h)
+            XCTAssertEqual(dated.w, bare.w); XCTAssertEqual(dated.h, bare.h)
+            guard !bare.bytes.allSatisfy({ $0 == 0 }) else { throw XCTSkip("the texture is not CPU-readable") }
+            var n = 0
+            for i in stride(from: 0, to: bare.bytes.count, by: 4) where abs(Int(bare.bytes[i]) - Int(dated.bytes[i])) > 512 { n += 1 }
+            XCTAssertGreaterThan(n, 20, "\(format): no date on the film")
+        }
     }
 
     /// A crop held at the gate's aspect lies inside the frame, exactly: the

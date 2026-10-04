@@ -182,6 +182,9 @@ const SchemaField kFields[] = {
     // SHOOT, after `overscan_carrier`.
     {"overscan_pair",            "film_render.overscan.pair",             B, SHOOT, false, 0, 0, false},
     {"date_imprint_text_b",      "film_render.date_imprint.text_b",       S, SHOOT, false, 0, 0, false},
+    // The shooting data printed beside the frame as well as the date (1.3.1).
+    // Native-only, SHOOT, after `date_imprint_text_b`.
+    {"date_imprint_data_text",   "film_render.date_imprint.data_text",    S, SHOOT, false, 0, 0, false},
     // A pair's second frame's Scene Placement (RFC-023 on a pair). Native-only,
     // SHOOT, after `date_imprint_text_b`.
     {"scene_latitude_split",            "camera.scene_latitude.split",            F, SHOOT, true, 0.0, 1.0, false},
@@ -309,6 +312,7 @@ std::string* str_slot(Params& p, const std::string& path) {
     if (path == "film_render.overscan.edge_text") return &p.film_render.overscan.edge_text;
     if (path == "film_render.date_imprint.text") return &p.film_render.date_imprint.text;
     if (path == "film_render.date_imprint.text_b") return &p.film_render.date_imprint.text_b;
+    if (path == "film_render.date_imprint.data_text") return &p.film_render.date_imprint.data_text;
     if (path == "film_render.date_imprint.placement") return &p.film_render.date_imprint.placement;
     if (path == "film_render.date_imprint.style") return &p.film_render.date_imprint.style;
     if (path == "film_render.date_imprint.corner") return &p.film_render.date_imprint.corner;

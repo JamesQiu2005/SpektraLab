@@ -717,6 +717,7 @@ and RFC-031 (the date back).
 | `date_imprint_style` | `…date_imprint.style` | str | `"lcd"` | `lcd` \| `dots` \| `data` | seven segments, slanted; an upright 5×7 dot matrix; shooting data in a 5×7 face |
 | `date_imprint_text` | `…date_imprint.text` | str | `""` | — | **formatted by the host**: `'26 10 1`, or `Av 1/125 F2.8 +1.0Ev 45mm SPOT ISO 200` for `data`. The 5×7 face draws 0–9, A–Z, m v s and `. / - + : ' ( )`; anything else is a space |
 | `date_imprint_text_b` | `…date_imprint.text_b` | str | `""` | — | a pair's second frame's date, placed in its own gate with the same face, corner and insets. Empty: none on it. Ignored without `overscan_pair` |
+| `date_imprint_data_text` | `…date_imprint.data_text` | str | `""` | — | **the shooting data, printed as well as the date** (1.3.1), **formatted by the host** like `date_imprint_text` under `data`. Between frames on 135, in the margin on 120; needs the film edge. Empty: none. Ignored under `style` = `data`, where `date_imprint_text` is the data line. Native-only, after `date_imprint_text_b` |
 | `date_imprint_placement` | `…date_imprint.placement` | str | `"frame"` | `frame` \| `rebate` | `lcd`/`dots`: in the picture, or between frames (needs overscan) |
 | `date_imprint_corner` | `…date_imprint.corner` | str | `"br"` | `br` \| `bl` \| `tr` \| `tl` | frame placement, in the **film's** frame (the camera held level), never the picture's: on a turned full frame the date turns with the camera (below) |
 | `date_imprint_inset_x` | `…date_imprint.inset_x` | float | `3.0` | 0–30 | mm from the gate's side to the text |
@@ -837,9 +838,20 @@ reasoning: RFC-032 §25, §27.
   the same film. A new frame seed never moves the body's draws (gate,
   perforation phase, fog). A new camera seed re-draws the frame's too,
   because the frame stream is keyed on both.
-- **Where a face is drawn:** `lcd` and `dots` on 135 and 135 half frame only. `data` goes on
-  135 (rotated, between frames) and 645 (one line in the margin beside the
-  frame). On any other format the date is silently not drawn.
+- **Where the back prints** (1.3.1, 2026-10-05). It prints two things, each
+  in its own place, and both at once when both are sent: the **date**
+  (`date_imprint_text` under `style` = `lcd` | `dots`) and the **shooting
+  data** (`date_imprint_data_text`; or `date_imprint_text` under `style` =
+  `data`, which prints the data alone as before). On 135 and 135 half frame
+  the date is in the picture (or between frames with `placement` = `rebate`)
+  and the data between frames, rotated; when both go between frames the data
+  takes the gap before the frame and the date the one after. On 120 — 645,
+  6×6, 6×7, 6×8, 6×9 — both are one line in the film margin beside the
+  frame, the data from the frame's leading end and the date ending at its far
+  end; a 120 date needs the film (`overscan_active`), there being no margin
+  without it. On the panoramic formats nothing is drawn. Until 1.3.1 the
+  three faces were one choice, so a frame carried its date or its data and
+  never both, and no 120 format but 645 printed anything (data only).
 - **Every stock's own film edge** (2026-10-03, from the owner's scans in
   `reference_film/`, which stay untracked): a per-stock look table
   (`kEdgeLooks`, `overscan.cpp`) keyed like the DX table. Kodak negatives:

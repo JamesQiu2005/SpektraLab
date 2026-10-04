@@ -71,6 +71,7 @@ OVERRIDES: dict[str, object] = {
     # knees by hand for the reason the first frame's are.
     "overscan_carrier": "open",
     "date_imprint_text_b": "'26 10 3",
+    "date_imprint_data_text": "1/125 F2.8 A 50mm",
     "scene_latitude_b_highlight_knee": 4.0,
     "scene_latitude_b_shadow_knee": -12.0,
 }

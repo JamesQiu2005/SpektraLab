@@ -258,6 +258,7 @@ extension Session {
         p.dateBack.framing = geometry.isIdentity ? "" : framingKey(geometry)
         p.dateBack.text = p.dateBack.face == .data
             ? shooting.dataText : shooting.dateText(order: p.dateBack.order)
+        p.dateBack.dataText = shooting.dataText
         return p
     }
 
