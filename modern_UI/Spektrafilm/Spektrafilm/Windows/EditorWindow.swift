@@ -343,20 +343,26 @@ struct SnapshotCanvas: View {
     @State private var image: CGImage?
     @State private var revision = 0
     @State private var rendering = false
+    /// The scene's own window does not draw. It is up too in a snapshot run,
+    /// with a stand-in of its own at another size; the two
+    /// share one renderer, and whichever appeared last took its redraw
+    /// callback and its viewport -- when that was the scene's, the capture
+    /// was of a canvas that never drew, and of a zoom fitted to another view.
+    @Environment(\.snapshotCapture) private var capture
 
     var body: some View {
         GeometryReader { geo in
             Group {
                 if let image { Image(decorative: image, scale: 2).resizable() } else { Theme.ground }
             }
-            .onAppear { session.renderer.needsDraw = { revision &+= 1 } }
+            .onAppear { if capture { session.renderer.needsDraw = { revision &+= 1 } } }
             .onChange(of: geo.size, initial: true) { _, size in render(size) }
             .onChange(of: revision) { _, _ in render(geo.size) }
         }
     }
 
     private func render(_ size: CGSize) {
-        guard size.width > 1, size.height > 1 else { return }
+        guard capture, size.width > 1, size.height > 1 else { return }
         // A render can invalidate the canvas again (the detail tier swaps a
         // texture in), and that arrives here as another revision. One level
         // is enough; re-entering would be a loop.
@@ -373,7 +379,11 @@ struct SnapshotCanvas: View {
 private struct SnapshotModeKey: EnvironmentKey { static let defaultValue = false }
 extension EnvironmentValues {
     var snapshotMode: Bool { get { self[SnapshotModeKey.self] } set { self[SnapshotModeKey.self] = newValue } }
+    /// False in the one window a snapshot run is not taken of (see `SnapshotCanvas`).
+    var snapshotCapture: Bool { get { self[SnapshotCaptureKey.self] } set { self[SnapshotCaptureKey.self] = newValue } }
 }
+
+private struct SnapshotCaptureKey: EnvironmentKey { static let defaultValue = true }
 
 /// The window's drag handle. `.windowStyle(.hiddenTitleBar)` removes the
 /// titlebar a window is normally dragged by, and the strip reserved for the

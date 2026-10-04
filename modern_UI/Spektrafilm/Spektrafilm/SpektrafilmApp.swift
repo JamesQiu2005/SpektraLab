@@ -46,6 +46,8 @@ struct SpektrafilmApp: App {
             EditorWindow(session: session)
                 .id(InterfaceScaleStore.shared.scale)
                 .environment(\.snapshotMode, snapshot != nil)
+                // The capture is of its own window (`runSnapshot`), not this one.
+                .environment(\.snapshotCapture, false)
                 .frame(minWidth: Theme.Metric.minWindow.width, minHeight: Theme.Metric.minWindow.height)
         }
         .windowStyle(.hiddenTitleBar)
