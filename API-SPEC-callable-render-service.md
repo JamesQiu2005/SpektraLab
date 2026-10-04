@@ -842,7 +842,7 @@ reasoning: RFC-032 §25, §27.
   (`kEdgeLooks`, `overscan.cpp`) keyed like the DX table. Kodak negatives:
   the measured Kodak layout (12.7 mm DX, caps 1.22 top / 1.40 bottom,
   numerals widened ×1.25 and tracked apart, tan). Fujifilm slides (Provia,
-  Velvia): no DX bars, orange 5×7 dot-matrix face, bold numbers on both
+  Velvia): no DX bars, orange matrix faces, bold numbers on both
   edges, "36 ▷ 27A". X-Tra 400: 14.1 mm DX reading 628, condensed numbers,
   "S-400". Pro 400H (120): one edge, the maker's mark/roll number, frame
   number, a stepped tack marker, "PRO400H", "EFCDCD". **The maker's mark on
@@ -853,6 +853,20 @@ reasoning: RFC-032 §25, §27.
   regular weight (it is Kodak-made: DX part 1 = Gold's). Vision3: one
   "EASTMAN 52xx" keycode line and dashes, no numbers or bars. E100: white
   marks. On Kodak 120 the name is centred between consecutive numbers.
+  **The lettering, re-measured 2026-10-04** (the owner's real-against-rendered
+  pairs; 1.3.1). Fujifilm prints two faces of its own, neither the date back's
+  5×7: frame numbers in a bold face on a 13 × 15 grid (stems four cells, corners
+  stepped), names and codes in the 5×7 skeleton on a grid twice as fine with
+  cells wider than tall (×1.28 on the 135 slides: caps 0.935 mm, a character
+  every 1.03 mm; ×1.075 on 120: caps 1.05 mm, every 0.967 mm, zeros slashed),
+  diagonals stepping by half a cell. A text's closing "III" is the film's
+  one-cell numeral, so the host still sends "FUJI RDPIII". Both are drawn with
+  the ink held back from each open edge (0.03-0.05 mm) so that a stroke comes
+  out of the develop as wide as the scans show it. X-Tra 400's numbers are
+  these faces too, not a condensed Helvetica. Kodak 120: the first word and the
+  numbers are an extended black face (Helvetica Neue Bold ×1.3 along the line,
+  "KODAK" 7.3 mm at caps 1.13), the rest of the name follows 2.5 mm on in an
+  ordinary bold (Medium on Portra) — a gap, not a word space.
   **Borrowed, no reference:** Pro 400H on 135 (X-Tra's layout), Velvia 100
   (Velvia 50's), E100 on 135 (Kodak's), every half-frame layout. The host's
   `edge_text` is the film's own words, with the emulsion suffix where a strip

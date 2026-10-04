@@ -636,6 +636,60 @@ def main():
         check("with no second text only the first frame is dated", len(x1) > 30 and (x1 >= adv).sum() == 0 and x1.max() < hw,
               f"{len(x1)} px, x up to {x1.max() if len(x1) else -1}")
 
+        # The lettering itself, against what the owner's strips measure (2026-10-04,
+        # You_Still_Fucked_Film_Simulation/): each bar below is red on the 1.3.0 engine.
+        def edge(img_, p):
+            s = e.open(img_, dict(BASE, overscan_active=True, **p))
+            try:
+                r, _ = s.render("full")
+                mm = s.overscan_geometry()["mm_per_px"]
+            finally:
+                s.close()
+            return r[..., 0].astype(float), mm
+
+        def runs(red, mm, t0, t1, s0=0.0, s1=1e9, join=0.07):
+            """Lit stretches along the film in the band t0..t1 (mm), joined across gaps under `join` mm."""
+            b = red[int(t0 / mm):int(t1 / mm), int(s0 / mm):min(red.shape[1], int(s1 / mm))]
+            col = b.max(0)
+            xs = np.flatnonzero(col > 0.5 * col.max())
+            return [(a[0] * mm + s0, (a[-1] + 1) * mm + s0) for a in np.split(xs, np.flatnonzero(np.diff(xs) > join / mm) + 1)]
+
+        # Kodak 120 (Gold200_6x7.png, 14.55 px/mm): "KODAK" 7.28 mm long in the extended
+        # face, then 2.5 mm of bare film, then "200" 2.75 mm long. 1.3.0 drew 6.9, 1.0, 3.2.
+        g, mm = edge(frame(2400, 1934), dict(film_stock="kodak_gold_200", overscan_format="120_6x7",
+                                             overscan_edge_text="KODAK 200"))
+        words = runs(g, mm, 0.9, 2.0, join=1.0)
+        pair = next(((a, b) for a, b in zip(words, words[1:]) if b[0] - a[1] < 6.0 and a[1] - a[0] > 5.0), None)
+        check("Kodak 120: the maker's word, a gap, then the stock's words", pair is not None, str(len(words)))
+        if pair:
+            head, tail = pair
+            check("Kodak 120: KODAK is 7.0-7.7 mm long (the film's is 7.28)", 7.0 <= head[1] - head[0] <= 7.7,
+                  f"{head[1] - head[0]:.2f} mm")
+            check("Kodak 120: 2.2-2.9 mm between KODAK and 200 (the film's is 2.5), not a word space",
+                  2.2 <= tail[0] - head[1] <= 2.9, f"{tail[0] - head[1]:.2f} mm")
+            check("Kodak 120: 200 is 2.6-3.0 mm long (the film's is 2.75)", 2.6 <= tail[1] - tail[0] <= 3.0,
+                  f"{tail[1] - tail[0]:.2f} mm")
+        # Fujifilm 120 (Actual_Pro400h.jpg, 14.5 px/mm): caps 1.05 mm, 1.1 with the scan's
+        # blur. 1.3.0 drew 1.17 mm with every cell full: 1.33 mm once developed.
+        f, mm = edge(frame(2400, 1934), dict(film_stock="fujifilm_pro_400h", overscan_format="120_6x7",
+                                             overscan_edge_text="FUJI PRO400H"))
+        b = f[int(0.6 / mm):int(2.4 / mm)]
+        lit_rows = np.flatnonzero(b.max(1) > 0.5 * b.max())
+        cap = (lit_rows[-1] - lit_rows[0] + 1) * mm
+        check("Fujifilm 120: the print stands 1.0-1.25 mm tall", 1.0 <= cap <= 1.25, f"{cap:.2f} mm")
+        # Fujifilm's 135 slides (actual RDP III.jpg, 31 px/mm): "FUJI RDPIII" is eight glyphs --
+        # the III is one -- a character every 1.03 mm, the words 1.8 mm apart. 1.3.0 drew
+        # ten runs (three separate I's), 0.88 mm a character, 0.8 mm between the words.
+        sl, mm = edge(frame(2400, 1600), dict(film_stock="fujifilm_provia_100f", scan_film=True, overscan_format="135",
+                                              overscan_edge_text="FUJI RDPIII", overscan_frame_number=36))
+        gl = runs(sl, mm, 1.1, 2.4, 6.0, 34.0, join=0.05)
+        check("Fujifilm 135 slide: FUJI RDPIII is eight glyphs, the III one of them", len(gl) == 8, str(len(gl)))
+        if len(gl) == 8:
+            check("Fujifilm 135 slide: a character every 1.00-1.06 mm (the film's is 1.03)",
+                  1.00 <= gl[1][0] - gl[0][0] <= 1.06, f"{gl[1][0] - gl[0][0]:.3f} mm")
+            check("Fujifilm 135 slide: the words stand 1.5-2.1 mm apart", 1.5 <= gl[4][0] - gl[3][1] <= 2.1,
+                  f"{gl[4][0] - gl[3][1]:.2f} mm")
+
     print(f"{failures} failure(s)")
     return 1 if failures else 0
 

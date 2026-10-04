@@ -137,13 +137,13 @@ const Format* find_format(const std::string& name) {
 // a stock not listed keeps the Kodak layout.
 enum class Edge135 {
     Kodak,      // DX bars, Helvetica: Gold 200, Portra 160/800, UltraMax 400 (and C200, Kodak-made)
-    FujiSlide,  // no bars; 5x7 face, bold numbers on both edges, "36 => 12A": RVP50, RDPIII
+    FujiSlide,  // no bars; Fujifilm's matrix faces, bold numbers on both edges, "36 => 12A": RVP50, RDPIII
     FujiNeg,    // 14.1 mm DX bars, condensed numbers on both edges: X-Tra 400
     Cine,       // "EASTMAN 5207 ..." beside one row of perforations, dashes, no bars: Vision3 250D
 };
 enum class Edge120 {
     Kodak,      // numbers and the name on one edge, triangles and digits on the other
-    Fuji,       // one edge only, 5x7 face: the maker's mark (the host's), "13 <", the stock, a roll number
+    Fuji,       // one edge only, the names' face: the maker's mark (the host's), "13 <", the stock, a roll number
 };
 struct EdgeLook {
     const char* stock;
@@ -220,6 +220,11 @@ struct Op {
     double tracking_mm = 0;
     double skew = 0;            // horizontal shear (seven-segment slant)
     double hscale = 1.0;        // Text: glyphs widened along the baseline (Kodak's wide numerals)
+    // Text: `hscale` widens the glyphs' shapes only -- CoreText places them at
+    // their own advances, so widened letters close up on each other. With this
+    // set the whole line is scaled, advances and tracking with it, and the
+    // string is `hscale` times as long (Kodak 120's extended face).
+    bool scale_advances = false;
     std::vector<double> pts;    // Poly: s0,t0,s1,t1,... in film mm
     double gain = 1.0;          // this mark's share of the group's exposure (printing variance)
 };
@@ -846,7 +851,8 @@ bool rasterise(const OverscanLayout& L, const Group& g, std::vector<float>& cov,
             grow(op.pts[0] - op.size_mm, op.pts[1] - op.size_mm);
             grow(op.pts[0] + op.size_mm, op.pts[1] + op.size_mm);
         } else {
-            const double len = (0.75 * op.size_mm * op.hscale + op.tracking_mm) * double(op.text.size()) + op.size_mm;
+            const double len = (0.75 * op.size_mm * op.hscale + op.tracking_mm * (op.scale_advances ? op.hscale : 1.0)) *
+                               double(op.text.size()) + op.size_mm;
             const double r = op.rot_deg * M_PI / 180.0;
             const double ex = std::cos(r), ey = std::sin(r);
             for (double a : {-0.3 * op.size_mm, len})
@@ -908,7 +914,8 @@ bool rasterise(const OverscanLayout& L, const Group& g, std::vector<float>& cov,
         CGContextSaveGState(ctx);
         CGContextTranslateCTM(ctx, op.s, op.t);
         CGContextRotateCTM(ctx, op.rot_deg * M_PI / 180.0);
-        CGContextSetTextMatrix(ctx, CGAffineTransformMakeScale(op.hscale, -1.0));   // t is down; glyphs are up
+        if (op.scale_advances) CGContextScaleCTM(ctx, op.hscale, 1.0);
+        CGContextSetTextMatrix(ctx, CGAffineTransformMakeScale(op.scale_advances ? 1.0 : op.hscale, -1.0));   // t is down; glyphs are up
         CGContextSetTextPosition(ctx, 0, 0);
         CTLineDraw(line, ctx);
         CGContextRestoreGState(ctx);
@@ -1040,10 +1047,10 @@ int dx_extract_for(const std::string& stock) {
     return -1;
 }
 
-// The 5x7 face as an edge printer's (Fujifilm's numbers and names, the
-// Eastman line): each lit run of cells along a row is one rectangle, cells
-// `xscale` times as wide as tall; `bold` widens every stroke by one cell to
-// the right, as Fujifilm's frame numbers are. The text's left is at `s0`,
+// The 5x7 face as an edge printer's (the Eastman line; Fujifilm's print has
+// faces of its own, below): each lit run of cells along a row is one
+// rectangle, cells `xscale` times as wide as tall; `bold` widens every stroke
+// by one cell to the right. The text's left is at `s0`,
 // its baseline at `base_t`, glyphs up (toward smaller t). Returns the width;
 // with `out` null it only measures.
 double matrix_text(const std::string& text, double cap, double xscale, bool bold, double s0, double base_t,
@@ -1075,6 +1082,180 @@ double matrix_text(const std::string& text, double cap, double xscale, bool bold
         x += (ncol + 1) * cw;
     }
     return std::max(0.0, x - cw);
+}
+
+// Fujifilm's two edge-print faces, read off the owner's strips pixel by pixel
+// (You_Still_Fucked_Film_Simulation/, 2026-10-04: "actual RDP III.jpg" at
+// 31 px/mm, RVP50.png, RDPIII.png, Actual_Pro400h.jpg). Until then both were
+// the date back's 5x7 face, the bold one made by smearing every cell one to
+// the right -- "the way pixel font is formulated is not correct" (the owner).
+//
+// The frame numbers' face is its own design on a 13 x 15 grid of square
+// cells: stems four cells wide, the top and bottom bars three rows with both
+// outer corners stepped in twice, the middle bar two rows. "3" and "6" are
+// off the RDP III strip (51 px tall, 45 wide), "4" off RVP50, "2", "7" and
+// "A" off RDPIII.png; 0, 1, 5, 8 and 9 are drawn to the same rules, no strip
+// showing them.
+const char* const* fuji_bold_glyph(char ch) {
+    static const char* const k0[15] = {"..#########..", ".###########.", "#############", "#####...#####", "####.....####",
+                                       "####.....####", "####.....####", "####.....####", "####.....####", "####.....####",
+                                       "####.....####", "#####...#####", "#############", ".###########.", "..#########.."};
+    static const char* const k1[15] = {".....####....", "....#####....", "...######....", "..#######....", "..#######....",
+                                       ".....####....", ".....####....", ".....####....", ".....####....", ".....####....",
+                                       ".....####....", ".....####....", "..#########..", "..#########..", "..#########.."};
+    static const char* const k2[15] = {"..#########..", ".###########.", "#############", "#####...#####", "####.....####",
+                                       ".........####", "........#####", "......######.", "....######...", "..######.....",
+                                       ".#####.......", "#####........", "#############", "#############", "#############"};
+    static const char* const k3[15] = {"..#########..", ".###########.", "#############", "#####...#####", "####.....####",
+                                       ".........####", "........#####", "....#########", "....########.", "........#####",
+                                       "####.....####", "#####...#####", "#############", ".###########.", "..#########.."};
+    static const char* const k4[15] = {".......####..", "......#####..", ".....######..", "....#######..", "...########..",
+                                       "..#########..", ".##########..", "#####..####..", "####...####..", "####...####..",
+                                       "#############", "#############", "#############", ".......####..", ".......####.."};
+    static const char* const k5[15] = {"#############", "#############", "#############", "####.........", "####.........",
+                                       "###########..", "############.", "#############", "........#####", ".........####",
+                                       "####.....####", "#####...#####", "#############", ".###########.", "..#########.."};
+    static const char* const k6[15] = {"..#########..", ".###########.", "#############", "#####...#####", "####.....####",
+                                       "####.........", "###########..", "############.", "#############", "#####...#####",
+                                       "####.....####", "#####...#####", "#############", ".###########.", "..#########.."};
+    static const char* const k7[15] = {"#############", "#############", "#############", ".........####", ".........####",
+                                       "........####.", ".......####..", "......####...", ".....####....", ".....####....",
+                                       "....####.....", "....####.....", "....####.....", "....####.....", "....####....."};
+    static const char* const k8[15] = {"..#########..", ".###########.", "#############", "#####...#####", "####.....####",
+                                       "#####...#####", ".###########.", ".###########.", "#############", "#####...#####",
+                                       "####.....####", "#####...#####", "#############", ".###########.", "..#########.."};
+    static const char* const k9[15] = {"..#########..", ".###########.", "#############", "#####...#####", "####.....####",
+                                       "#####...#####", "#############", ".############", "..###########", ".........####",
+                                       "####.....####", "#####...#####", "#############", ".###########.", "..#########.."};
+    static const char* const kA[15] = {"....#####....", "...#######...", "..#########..", ".###########.", "#####...#####",
+                                       "####.....####", "####.....####", "####.....####", "#############", "#############",
+                                       "#############", "####.....####", "####.....####", "####.....####", "####.....####"};
+    static const char* const* const kDigits[10] = {k0, k1, k2, k3, k4, k5, k6, k7, k8, k9};
+    if (ch >= '0' && ch <= '9') return kDigits[ch - '0'];
+    if (ch == 'A' || ch == 'a') return kA;
+    return nullptr;
+}
+
+// One glyph of a matrix face as rectangles, a lit run of cells along a row at
+// a time. `lit(row, col)` reads the glyph; its top-left cell is at (s0, t0),
+// cells `cw` x `p` mm. `inset` (mm) pulls the ink back from every edge that
+// has no lit neighbour, so a stroke is drawn that much thinner on each side
+// than its cells: the develop and the print spread it back out, and with the
+// cells drawn full a 0.16 mm stroke came out 0.31 mm wide where the scans
+// show 0.20 (Actual_Pro400h.jpg against a render at its 14.5 px/mm).
+template <class Lit>
+void matrix_cells(Lit lit, int nrow, int ncol, double s0, double t0, double cw, double p, double inset,
+                  std::vector<Op>* out) {
+    auto on = [&](int r, int c) { return r >= 0 && r < nrow && c >= 0 && c < ncol && lit(r, c); };
+    for (int r = 0; r < nrow; ++r)
+        for (int c = 0; c < ncol;) {
+            if (!on(r, c)) { ++c; continue; }
+            // a run shares its top and bottom neighbours' state, so its edges are straight
+            const bool up = on(r - 1, c), dn = on(r + 1, c);
+            int e = c + 1;
+            while (e < ncol && on(r, e) && on(r - 1, e) == up && on(r + 1, e) == dn) ++e;
+            const double sa = s0 + c * cw + (on(r, c - 1) ? -0.01 * cw : inset);
+            const double sb = s0 + e * cw - (on(r, e) ? -0.01 * cw : inset);
+            const double ta = t0 + r * p + (up ? -0.01 * p : inset);
+            const double tb = t0 + (r + 1) * p - (dn ? -0.01 * p : inset);
+            Op op;
+            op.kind = Op::Poly;
+            op.pts = {sa, ta, sb, ta, sb, tb, sa, tb};
+            out->push_back(op);
+            c = e;
+        }
+}
+
+// Frame numbers in Fujifilm's bold face: `cap` tall (15 rows), cells `xscale`
+// times as wide as tall (0.98 on the slides, 0.74 on X-Tra 400's condensed
+// numbers), a character every 15 cells (50 px of the 45 a glyph is wide, on
+// "36"). A character the face lacks takes its place and prints nothing. Left
+// at `s0`, baseline `base_t`, glyphs toward smaller t; returns the width, and
+// only measures with `out` null.
+double fuji_bold(const std::string& text, double cap, double xscale, double inset, double s0, double base_t,
+                 std::vector<Op>* out) {
+    const double p = cap / 15.0, cw = p * xscale;
+    double x = 0.0;
+    for (char ch : text) {
+        const char* const* g = fuji_bold_glyph(ch);
+        if (g && out)
+            matrix_cells([&](int r, int c) { return g[r][c] == '#'; }, 15, 13, s0 + x, base_t - cap, cw, p,
+                         std::min(inset, 0.3 * p), out);
+        x += 15.0 * cw;
+    }
+    return std::max(0.0, x - 2.0 * cw);
+}
+
+// Names, codes and Fujifilm's 120 numbers: the 5x7 skeleton on a grid twice
+// as fine (10 x 14), strokes two fine cells thick. Where two cells of the
+// skeleton meet only at a corner, the fine cell on each side of the joint is
+// lit, so a diagonal steps by half a cell and "U", "J" and the leg of "R"
+// round as the strips' do (the U of "FUJI" on RDP III: the stem a fine cell
+// wider on its last fine row, the bar a fine cell longer on its first).
+struct FujiThin {
+    double cap;         // cap height, mm (14 fine rows)
+    double xscale;      // a cell's width over its height: 1.28 on the 135 slides, 1.075 on 120
+    bool slashed_zero;  // 120 prints "PRO4ØØH"; the 135 slides' "RVP50" has a plain 0
+    bool slide_forms;   // the 135 slides' J (no top bar) and D (stem a cell in from its serifs)
+    double space;       // a word space, in skeleton columns ("FUJI RDPIII": 8.1 on RDP III)
+    double inset;       // mm of ink held back from each open edge (matrix_cells)
+};
+
+// One character's 14 fine rows, bit 9 = the left fine column. `roman3` asks
+// for the single-cell "III" the film prints after RDP.
+void fuji_thin_rows(char ch, const FujiThin& f, bool roman3, uint16_t rows[14]) {
+    for (int i = 0; i < 14; ++i) rows[i] = 0;
+    if (roman3) {
+        // bars across the top and bottom, three stems two fine cells wide a fine cell apart
+        for (int i = 0; i < 14; ++i) rows[i] = (i < 2 || i >= 12) ? 0x3FF : 0x1B6;
+        return;
+    }
+    if (ch == 'I' || ch == 'i') {
+        // serifs four fine cells wide (12 px of a 26 px cell on RDP III), not the skeleton's three cells
+        for (int i = 0; i < 14; ++i) rows[i] = (i < 2 || i >= 12) ? 0x078 : 0x030;
+        return;
+    }
+    static const uint8_t kPlainZero[7] = {0x0E, 0x11, 0x11, 0x11, 0x11, 0x11, 0x0E};
+    static const uint8_t kSlideJ[7] = {0x02, 0x02, 0x02, 0x02, 0x02, 0x12, 0x0C};
+    static const uint8_t kSlideD[7] = {0x1E, 0x09, 0x09, 0x09, 0x09, 0x09, 0x1E};
+    static const uint8_t kSquareD[7] = {0x1E, 0x11, 0x11, 0x11, 0x11, 0x11, 0x1E};
+    const char up = (ch >= 'a' && ch <= 'z') ? char(ch - 'a' + 'A') : ch;
+    const uint8_t* g = glyph5x7(ch);
+    if (up == '0' && !f.slashed_zero) g = kPlainZero;
+    if (up == 'J' && f.slide_forms) g = kSlideJ;
+    if (up == 'D') g = f.slide_forms ? kSlideD : kSquareD;
+    if (!g) return;
+    auto lit = [&](int r, int c) { return r >= 0 && r < 7 && c >= 0 && c < 5 && (g[r] & (0x10 >> c)); };
+    auto set = [&](int fr, int fc) { rows[fr] |= uint16_t(0x200 >> fc); };
+    for (int r = 0; r < 7; ++r)
+        for (int c = 0; c < 5; ++c)
+            if (lit(r, c)) { set(2 * r, 2 * c); set(2 * r, 2 * c + 1); set(2 * r + 1, 2 * c); set(2 * r + 1, 2 * c + 1); }
+    for (int r = 0; r < 6; ++r)
+        for (int c = 0; c < 4; ++c) {
+            const bool a = lit(r, c), b = lit(r, c + 1), d = lit(r + 1, c), e = lit(r + 1, c + 1);
+            if (a && e && !b && !d) { set(2 * r + 1, 2 * c + 2); set(2 * r + 2, 2 * c + 1); }
+            if (b && d && !a && !e) { set(2 * r + 1, 2 * c + 1); set(2 * r + 2, 2 * c + 2); }
+        }
+}
+
+double fuji_thin(const std::string& text, const FujiThin& f, double s0, double base_t, std::vector<Op>* out) {
+    const double p = f.cap / 14.0, cw = p * f.xscale;
+    double x = 0.0;
+    for (size_t i = 0; i < text.size(); ++i) {
+        const char ch = text[i];
+        if (ch == ' ') { x += 2.0 * f.space * cw; continue; }
+        // "III" closing a word is the film's one-cell numeral
+        const bool roman3 = text.compare(i, 3, "III") == 0 && (i + 3 == text.size() || text[i + 3] == ' ') &&
+                            i > 0 && text[i - 1] != ' ' && text[i - 1] != 'I';
+        uint16_t rows[14];
+        fuji_thin_rows(ch, f, roman3, rows);
+        if (out)
+            matrix_cells([&](int r, int c) { return (rows[r] & (0x200 >> c)) != 0; }, 14, 10, s0 + x,
+                         base_t - f.cap, cw, p, std::min(f.inset, 0.6 * p), out);
+        x += 12.0 * cw;
+        if (roman3) i += 2;
+    }
+    return std::max(0.0, x - 2.0 * cw);
 }
 
 // A Helvetica-family string's advance in film mm, as CoreText lays it out.
@@ -1156,6 +1337,13 @@ void imprint_groups(const OverscanLayout& L, const Params& params, double frame_
         }
         return text;
     };
+    auto fit_thin = [](std::string text, double slot_mm, const FujiThin& f) {
+        while (!text.empty() && fuji_thin(text, f, 0, 0, nullptr) > slot_mm) {
+            const size_t cut = text.rfind(' ');
+            text = (cut != std::string::npos && cut > 0) ? text.substr(0, cut) : text.substr(0, text.size() - 1);
+        }
+        return text;
+    };
     if (L.valid && L.perforated) {
         // Film data on a half-frame grid (4 perforations = 19.00 mm) anchored
         // to the perforations; `n0` is which frame this is.
@@ -1165,6 +1353,8 @@ void imprint_groups(const OverscanLayout& L, const Params& params, double frame_
         Group top = group_for(L.edge_rgb, e_edge, 0.022);
         Group bot = group_for(L.edge_rgb, e_edge, 0.022);
         const double W = L.film_w, kCap = 0.714;                 // Helvetica Neue's cap height per em
+        // ink held back from the Fujifilm faces' open edges (matrix_cells), mm
+        const double kInkT = 0.035, kInkB = 0.05;
         const bool fuji_neg = look.k135 == Edge135::FujiNeg;
         const int dx = (look.k135 == Edge135::Kodak || fuji_neg) ? dx_extract_for(params.film.info.stock) : -1;
         // The DX code (ISO 1007): 31 modules. Read back off the references it
@@ -1263,64 +1453,68 @@ void imprint_groups(const OverscanLayout& L, const Params& params, double frame_
                     bot.ops.push_back(nb);
                 }
             } else if (fuji_neg) {
-                // X-Tra 400 (32.0 px/mm): numbers on both bands -- "11" caps
-                // 1.41 mm, "10A" 1.25 mm, condensed -- the full ones 15.25 mm
-                // after a code's start on the bottom band and 15.75 on the
-                // top, the A ones after an arrow ("->10A"). The top band also
-                // carries the stock's code in a thin 5x7 face, caps ~0.8 mm,
-                // 5.5 mm into every other half frame ("S-400"); the half
-                // frames between carry a batch code ("H74") that is not drawn,
-                // since we have one strip and no rule for it. The red and green
-                // lines along that strip's perforations are its camera's, not
-                // the film's.
-                const char* cond = "HelveticaNeue-CondensedBold";
-                const double kCapC = 0.721;
-                Op tn = helv(cond, a_half ? 1.25 : 1.41, kCapC, 1.1, 0.03);
-                tn.text = std::to_string(num) + (a_half ? "A" : "");
-                tn.s = s + (a_half ? 16.38 : 15.75); tn.t = 1.60;
-                top.ops.push_back(tn);
+                // X-Tra 400 (32.0 px/mm): numbers on both bands, the full
+                // ones 15.25 mm after a code's start on the bottom band and
+                // 15.75 on the top, the A ones after an arrow ("->10A"). They
+                // are Fujifilm's matrix faces, not a condensed Helvetica (as
+                // drawn until 2026-10-04): the top band's in the bold face,
+                // condensed ("10A" 2.64 mm long, "11" 2.05), caps 1.25-1.41 mm;
+                // the bottom band's in the names' face at that size ("10A"
+                // 2.7 mm long, strokes a seventh of the cap). The top band
+                // also carries the stock's code in the names' face, caps
+                // ~0.8 mm, 5.5 mm into every other half frame ("S-400"); the
+                // half frames between carry a batch code ("H74") that is not
+                // drawn, since we have one strip and no rule for it. The red
+                // and green lines along that strip's perforations are its
+                // camera's, not the film's.
+                const std::string n = std::to_string(num) + (a_half ? "A" : "");
+                const double cap_n = a_half ? 1.25 : 1.41;
+                fuji_bold(n, cap_n, 0.74, kInkB, s + (a_half ? 16.38 : 15.75), 1.60, &top.ops);
                 if (a_half && !o.edge_text.empty()) {
-                    const std::string tx = fit_matrix_text(o.edge_text, 9.8, 0.80, 1.12, false);
-                    matrix_text(tx, 0.80, 1.12, false, s + 5.5, 1.50, &top.ops);
+                    const FujiThin code{0.80, 1.15, false, false, 3.0, kInkT};
+                    fuji_thin(fit_thin(o.edge_text, 9.8, code), code, s + 5.5, 1.50, &top.ops);
                 }
                 dx_code(s, num, a_half);
-                Op nb = tn;
-                nb.t = a_half ? W - 0.41 : W - 0.31;
-                nb.s = s + (a_half ? 16.1 : 15.25);
-                bot.ops.push_back(nb);
+                const FujiThin low{cap_n, 0.90, false, false, 3.0, 0.0};
+                fuji_thin(n, low, s + (a_half ? 16.1 : 15.25), a_half ? W - 0.41 : W - 0.31, &bot.ops);
                 if (a_half) wind_arrow(s + 14.6, s + 15.85, W - 1.0, 0.55, 0.3);
             } else if (look.k135 == Edge135::FujiSlide) {
-                // RVP50 (31.2 px/mm) and RDPIII (21.5): no DX bars. A 5x7
-                // face throughout; the frame number in bold on both bands at
-                // the same place (caps 1.64 mm, baselines 1.80 mm from the top
-                // edge and 0.27 from the bottom one), its left 0.43 mm before
-                // a perforation's centre; the stock name thin (caps 0.93,
-                // baseline 1.77) 16.0 mm after it; at the half frame, on the
-                // bottom band only, "36" (the roll's length), a hollow arrow
-                // and "12A" (caps 1.2 mm).
+                // RVP50 (31.2 px/mm), RDPIII (21.5) and the owner's RDP III
+                // strip (31.0): no DX bars. The frame number in the bold face
+                // on both bands at the same place (caps 1.645 mm -- 51 px of
+                // 31 -- baselines 1.80 mm from the top edge and 0.27 from the
+                // bottom one), its left 0.43 mm before a perforation's centre;
+                // the stock name in the names' face 16.0-16.3 mm after it:
+                // caps 0.935 mm (29 px), a character every 1.03 mm (32 px), so
+                // its cells are 1.28 times as wide as tall -- they were drawn
+                // 1.1 times, eleven narrow characters where the film has nine
+                // wide ones ("the proportion is not correct", the owner,
+                // 2026-10-04); at the half frame, on the bottom band only, "36"
+                // (the roll's length, caps 0.42), a hollow arrow and "12A"
+                // (caps 1.17 mm) 0.28 mm past its point.
                 // +3.5: with the camera's phase pinned (above) the number starts
                 // 0-1.5 mm into the frame, as "27" does on RDPIII.png (RVP50.png
                 // was shot on a camera loaded half a frame off; Provia's is used).
                 const double sn = L.perf_phase + 0.56 + 3.5 + 19.0 * m;
                 if (!a_half) {
                     const std::string n = std::to_string(num);
-                    matrix_text(n, 1.64, 0.97, true, sn, 1.80, &top.ops);
-                    matrix_text(n, 1.64, 0.97, true, sn + 0.1, W - 0.27, &bot.ops);
+                    fuji_bold(n, 1.645, 0.98, kInkB, sn, 1.80, &top.ops);
+                    fuji_bold(n, 1.645, 0.98, kInkB, sn + 0.1, W - 0.27, &bot.ops);
                     if (!o.edge_text.empty()) {
-                        const std::string tx = fit_matrix_text(o.edge_text, 21.0, 0.93, 1.1, false);
-                        matrix_text(tx, 0.93, 1.1, false, sn + 16.0, 1.77, &top.ops);
+                        const FujiThin name{0.935, 1.28, false, true, 8.0, kInkT};
+                        fuji_thin(fit_thin(o.edge_text, 21.0, name), name, sn + 16.0, 1.77, &top.ops);
                     }
                 } else {
                     const double sa = sn - 19.0;                 // the full frame this half belongs to
-                    matrix_text("36", 0.40, 1.0, false, sa + 14.6, W - 0.45, &bot.ops);
-                    // the hollow arrow: a pentagon outline, 2.5 x 0.96 mm, 0.18 mm strokes
-                    const double a0 = sa + 15.9, a1 = sa + 18.4, tc = W - 1.05, hh = 0.48, ab = a1 - 0.8, w = 0.18;
+                    fuji_bold("36", 0.42, 0.98, 0.0, sa + 14.7, W - 0.42, &bot.ops);
+                    // the hollow arrow: a pentagon outline, 2.56 x 1.0 mm, 0.19 mm strokes
+                    const double a0 = sa + 16.05, a1 = sa + 18.6, tc = W - 1.05, hh = 0.50, ab = a1 - 1.0, w = 0.19;
                     bot.ops.push_back(seg(a0, tc - hh + 0.5 * w, ab, tc - hh + 0.5 * w, w));
                     bot.ops.push_back(seg(a0, tc + hh - 0.5 * w, ab, tc + hh - 0.5 * w, w));
                     bot.ops.push_back(seg(a0 + 0.5 * w, tc - hh, a0 + 0.5 * w, tc + hh, w));
                     bot.ops.push_back(seg(ab - 0.05, tc - hh + 0.5 * w, a1 - 0.1, tc, w));
                     bot.ops.push_back(seg(ab - 0.05, tc + hh - 0.5 * w, a1 - 0.1, tc, w));
-                    matrix_text(std::to_string(num) + "A", 1.20, 0.97, true, sa + 18.8, W - 0.40, &bot.ops);
+                    fuji_bold(std::to_string(num) + "A", 1.17, 0.98, kInkB, sa + 18.88, W - 0.40, &bot.ops);
                 }
             } else {
                 // Cine (Eastman 5207, 22.8 px/mm): one line beside the bottom
@@ -1351,9 +1545,13 @@ void imprint_groups(const OverscanLayout& L, const Params& params, double frame_
         Group top = group_for(L.edge_rgb, e_edge, 0.038);
         Group bot = group_for(L.edge_rgb, e_edge, 0.038);
         if (look.k120 == Edge120::Fuji) {
-            // Pro 400H (6x7, 16.3 px/mm), RVP50 (6x6) and RDPIII (645): one
-            // edge only, in a thin 5x7 face, caps 1.15-1.17 mm on a baseline
-            // ~1.6 mm from the edge. Every 41.1 mm a frame number, a filled
+            // Pro 400H (6x7, 16.3 px/mm; Actual_Pro400h.jpg, 14.5), RVP50
+            // (6x6) and RDPIII (645): one edge only, in the names' face --
+            // caps 1.05 mm (16 px of 14.5, a pixel of it the scan's blur), a
+            // character every 0.967 mm (14 px), zeros slashed ("PRO4ØØH") --
+            // on a baseline ~1.6 mm from the edge. Drawn at 1.15-1.17 mm with
+            // every cell filled until 2026-10-04, the letters stood a tenth
+            // too tall and their counters closed in the develop. Every 41.1 mm a frame number, a filled
             // marker pointing back at it 1.45 mm on (2.15 x 1.15 mm, a tail
             // behind the triangle), the stock name 4.95 mm after the marker,
             // and on Pro 400H a code ("EFCDCD", caps 0.86) 13.2 mm after the
@@ -1371,7 +1569,9 @@ void imprint_groups(const OverscanLayout& L, const Params& params, double frame_
                 const size_t rest = name.find_first_not_of(' ', sp);
                 name = rest == std::string::npos ? std::string() : name.substr(rest);
             }
-            const double P = 41.1, xs = 0.94;
+            const double P = 41.1, kInk120 = 0.03;
+            const FujiThin face{1.05, 1.075, true, false, 3.0, kInk120};   // 12 fine columns of 0.0806 mm = 0.967 mm
+            const FujiThin code_face{0.72, 1.12, true, false, 3.0, 0.6 * kInk120};  // "EFCDCD": 11 px tall, 10 px a character
             const double roll = rf.uni(0.0, 2.0 * P);
             int n0 = 1 + int(rf.uni(0.0, 14.0));
             const int lot = int(rf.uni(0.0, 1000.0)) % 1000;
@@ -1386,33 +1586,33 @@ void imprint_groups(const OverscanLayout& L, const Params& params, double frame_
                 char lotbuf[8];
                 std::snprintf(lotbuf, sizeof lotbuf, "%03d", lot);
                 const std::string before = (n % 2 == 0) ? maker : std::string(lotbuf);
-                const double wb = before.empty() ? 0.0 : matrix_text(before, 1.15, xs, false, 0, 0, nullptr);
-                if (!before.empty()) matrix_text(before, 1.15, xs, false, sn - 3.7 - wb, tb, &top.ops);
+                const double wb = before.empty() ? 0.0 : fuji_thin(before, face, 0, 0, nullptr);
+                if (!before.empty()) fuji_thin(before, face, sn - 3.7 - wb, tb, &top.ops);
                 if (n < 1) continue;
                 const std::string ns = std::to_string(n);
-                const double wn = matrix_text(ns, 1.15, xs, false, sn, tb, &top.ops);
+                const double wn = fuji_thin(ns, face, sn, tb, &top.ops);
                 // The marker is not a triangle on a stem: it is a tack drawn
                 // on the dot-matrix grid, 2.09 mm long, stepping down from a
                 // 1.17 mm base through 0.9 and 0.55 to a 0.25 mm needle, each
                 // step ~0.55 mm (three cells), symmetric about its axis
                 // (Pro400H_6x7.png rows 668-701 at 16.26 px/mm, 2026-10-03).
-                const double a = sn + wn + 1.45, mid = tb - 0.575;
+                const double a = sn + wn + 1.45, mid = tb - 0.525;
                 Op tack;
                 tack.kind = Op::Poly;
-                tack.pts = {a,        mid - 0.06,  a + 0.44, mid - 0.125, a + 0.44, mid - 0.275,
-                            a + 0.99, mid - 0.275, a + 0.99, mid - 0.40,  a + 1.54, mid - 0.49,
-                            a + 1.54, mid - 0.585, a + 2.09, mid - 0.585, a + 2.09, mid + 0.585,
-                            a + 1.54, mid + 0.585, a + 1.54, mid + 0.49,  a + 0.99, mid + 0.40,
-                            a + 0.99, mid + 0.275, a + 0.44, mid + 0.275, a + 0.44, mid + 0.125,
-                            a,        mid + 0.06};
+                const double kh = 1.05 / 1.17;   // the tack is as tall as the caps beside it
+                tack.pts = {a,        mid - 0.06 * kh,  a + 0.44, mid - 0.125 * kh, a + 0.44, mid - 0.275 * kh,
+                            a + 0.99, mid - 0.275 * kh, a + 0.99, mid - 0.40 * kh,  a + 1.54, mid - 0.49 * kh,
+                            a + 1.54, mid - 0.585 * kh, a + 2.09, mid - 0.585 * kh, a + 2.09, mid + 0.585 * kh,
+                            a + 1.54, mid + 0.585 * kh, a + 1.54, mid + 0.49 * kh,  a + 0.99, mid + 0.40 * kh,
+                            a + 0.99, mid + 0.275 * kh, a + 0.44, mid + 0.275 * kh, a + 0.44, mid + 0.125 * kh,
+                            a,        mid + 0.06 * kh};
                 top.ops.push_back(tack);
                 if (!name.empty()) {
                     const bool has_code = look.code[0] != 0;
                     const double s0 = a + 4.95;
-                    const std::string tx = fit_matrix_text(name, has_code ? 12.0 : P - 3.7 - 4.5 - (s0 - sn) - 1.0,
-                                                           1.17, xs, false);
-                    matrix_text(tx, 1.17, xs, false, s0, tb, &top.ops);
-                    if (has_code) matrix_text(look.code, 0.86, 0.92, false, s0 + 13.2, tb, &top.ops);
+                    const std::string tx = fit_thin(name, has_code ? 12.0 : P - 3.7 - 4.5 - (s0 - sn) - 1.0, face);
+                    fuji_thin(tx, face, s0, tb, &top.ops);
+                    if (has_code) fuji_thin(look.code, code_face, s0 + 13.2, tb, &top.ops);
                 }
             }
         } else {
@@ -1424,12 +1624,26 @@ void imprint_groups(const OverscanLayout& L, const Params& params, double frame_
             // other, triangles every ~29 mm (27-34 on the strips), 2.05 x
             // 1.12 mm, 0.54-1.70 mm from the edge, every other one followed by
             // a digit (caps 1.15).
-            // The numerals are tracked apart: at 0.05 mm the widened bold
-            // digits bloom into one blob through the develop ("38" read as a
-            // ligature in the app, 2026-10-03); on Gold200_6x7.png "52" is
-            // 2.39 mm long with a 0.14 mm gap left between the digits.
-            const double kNumTrack = 0.30;
+            // The lettering, read off Gold200_6x7.png at 14.55 px/mm
+            // (2026-10-04, after "the Kodak Gold 200, particularly 120 one
+            // still got the text wrong", the owner). The maker's word and the
+            // numbers are an extended black face: "KODAK" is 7.28 mm long at
+            // caps 1.10 mm, its O 1.72 mm wide, stems 0.41 mm against bars
+            // of 0.20, the letters just clear of each other; the numbers and
+            // the digit by the triangle 1.2 mm a digit ("52" 2.47 mm, "9"
+            // 1.24 mm wide). The stock's own words follow a gap of 2.5 mm --
+            // not a word space -- in an ordinary bold: "200" is 2.75 mm,
+            // 0.92 a digit. Portra's are lighter (Portra160_6x7.png,
+            // Portra_400_6x6.png). Helvetica Neue Bold scaled x1.3 along the
+            // line, advances and all, is that face once the develop has
+            // spread it (stems 0.41-0.45 mm in a render).
+            // Until then it was one string, its shapes widened x1.0-1.25 but
+            // not its advances, tracked 0.30 mm to keep the letters apart:
+            // "KODAK 200" 11.3 mm long with a word space in it, where the
+            // film's is 12.5 mm with the gap, and digits 1.37 mm apart.
+            const double kNumTrack = 0.04, kWide = 1.3, kHeadTrack = 0.0, kNameGap = 2.5;
             const double period = 49.5, cap = 1.13, size = cap / 0.714;
+            const bool light_tail = params.film.info.stock.find("portra") != std::string::npos;
             const double roll = rf.uni(0.0, period);
             const int n0 = 12 + int(rf.uni(0.0, 40.0));
             // The stock name's baseline sits ~0.85 mm above the gate's edge where
@@ -1441,24 +1655,38 @@ void imprint_groups(const OverscanLayout& L, const Params& params, double frame_
             for (int j = j_lo; j <= j_hi; ++j) {
                 const double s = -roll + j * period;
                 Op num;
-                num.size_mm = size; num.tracking_mm = kNumTrack; num.hscale = 1.25;
+                num.size_mm = size; num.tracking_mm = kNumTrack; num.hscale = kWide; num.scale_advances = true;
                 num.text = std::to_string(n0 + j); num.s = s; num.t = t_top;
                 top.ops.push_back(num);
                 if (!o.edge_text.empty()) {
                     // The name sits centred between one number and the next,
                     // not at a fixed offset: "KODAK PORTRA 400" (27 mm) runs
                     // 12 mm after "49" and 13 mm before "50" on the 6x6 strip,
-                    // "KODAK 200" (13 mm) 17.5 mm after "51" and 17.2 mm before
-                    // "52" on Gold200_6x7.png. A fixed 10.8 mm put the short
+                    // "KODAK 200" 17.25 mm after "51" and 17.25 mm before "52"
+                    // on Gold200_6x7.png. A fixed 10.8 mm put the short
                     // name at the wrong end of its gap (owner, 2026-10-03).
-                    Op tx = num;
-                    tx.hscale = 1.0;
-                    tx.text = fit_edge_text(o.edge_text, period - 10.8 - 3.0, size, 0.30);
-                    tx.tracking_mm = 0.30;
+                    const std::string all = fit_edge_text(o.edge_text, period - 10.8 - 3.0, size, 0.30);
+                    const size_t sp = all.find(' ');
+                    Op head = num;                         // the maker's word, in the numbers' face
+                    head.tracking_mm = kHeadTrack;
+                    head.text = all.substr(0, sp);
+                    Op tail;
+                    tail.scale_advances = true;
+                    tail.font = light_tail ? "HelveticaNeue-Medium" : "HelveticaNeue-Bold";
+                    tail.size_mm = size; tail.hscale = 1.05; tail.tracking_mm = light_tail ? 0.08 : 0.03;
+                    tail.t = t_top;
+                    if (sp != std::string::npos) tail.text = all.substr(all.find_first_not_of(' ', sp));
+                    const double gap = tail.text.empty() ? 0.0 : kNameGap;
                     const double wnum = text_width(num.font, size, num.text, num.tracking_mm, num.hscale);
-                    const double wtx = text_width(tx.font, size, tx.text, tx.tracking_mm, tx.hscale);
-                    tx.s = s + wnum + 0.5 * (period - wnum - wtx);
-                    top.ops.push_back(tx);
+                    const double whead = text_width(head.font, size, head.text, head.tracking_mm, head.hscale);
+                    const double wtail = tail.text.empty() ? 0.0
+                        : text_width(tail.font, size, tail.text, tail.tracking_mm, tail.hscale);
+                    head.s = s + wnum + 0.5 * (period - wnum - whead - gap - wtail);
+                    top.ops.push_back(head);
+                    if (!tail.text.empty()) {
+                        tail.s = head.s + whead + gap;
+                        top.ops.push_back(tail);
+                    }
                 }
             }
             const double mark_period = 29.0, mroll = rf.uni(0.0, mark_period);
@@ -1480,7 +1708,8 @@ void imprint_groups(const OverscanLayout& L, const Params& params, double frame_
                                                          : 1 + ((k / 2) % 9 + 9) % 9;
                     if (digit < 1) continue;
                     Op dg;
-                    dg.size_mm = 1.15 / 0.714; dg.hscale = 1.25; dg.tracking_mm = kNumTrack; dg.text = std::to_string(digit);
+                    dg.size_mm = 1.15 / 0.714; dg.hscale = kWide; dg.tracking_mm = kNumTrack; dg.scale_advances = true;
+                    dg.text = std::to_string(digit);
                     dg.s = s + 2.8; dg.t = t_bot;
                     bot.ops.push_back(dg);
                 }
