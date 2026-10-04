@@ -287,7 +287,11 @@ final class FilmEdgeTests: XCTestCase {
             p.filmEdge.cameraSeed = 19; p.filmEdge.frameSeed = 5
             let on = try await render(p, w, h)
             XCTAssertGreaterThan(on.w, w, "\(format): no film along the frame")
-            XCTAssertGreaterThan(Double(on.h), Double(h) * format.filmWidthMM / format.gateMM.short, "\(format): no film across the frame")
+            // The film's whole width and no carrier past it (1.3.1): exactly the
+            // film on 135, and on 120 within the 0.15 mm its width is cut to.
+            XCTAssertGreaterThan(on.h, h, "\(format): no film across the frame")
+            XCTAssertEqual(Double(on.h), Double(h) * format.filmWidthMM / format.gateMM.short,
+                           accuracy: Double(h) * 0.2 / format.gateMM.short + 1, "\(format): not the film's width")
             let est = FilmCanvasEstimate.size(picture: CGSize(width: w, height: h), format: format, view: .strip)
             XCTAssertGreaterThanOrEqual(Int(est.width), on.w, "\(format)")
             XCTAssertGreaterThanOrEqual(Int(est.height), on.h, "\(format)")
