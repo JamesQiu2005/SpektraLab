@@ -857,6 +857,17 @@ reasoning: RFC-032 §25, §27.
   (Velvia 50's), E100 on 135 (Kodak's), every half-frame layout. The host's
   `edge_text` is the film's own words, with the emulsion suffix where a strip
   shows one ("KODAK GB 200-7", "KODAK PORTRA 800-3").
+- **A perforation's edge is a scan's** (2026-10-04, measured on the eight
+  135 strips in `reference_film/`): it takes 44-71 microns (median 59) to go
+  from 10 % to 90 % of the hole's light, so the edge is a Gaussian of sigma
+  17 microns in film millimetres plus the pixel's own width -- about 55
+  microns at 25 px/mm and 43 at any larger size, where it used to be one
+  pixel (5 microns on a 6000 px frame). The scan's view of the holes is
+  composed after the scanner's blur and sharpening, which had drawn two
+  pixels of pure black around every hole; on the strips the film just outside
+  a hole is 0.5-1.0 of the film nearby. All four sides of a hole are alike
+  (the leading edge had been cut hard, with no shoulder). The film's long
+  edges against the carrier are unchanged.
 - **DX code** (135): ISO 1007, 12.7 mm on Kodak (measured 12.64–12.78),
   14.1 mm on X-Tra 400, drawn from the stock's DX number — read off the
   strips where one could be (Gold 200 = 1548, Portra 160 = 1534, C200 =

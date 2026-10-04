@@ -1945,7 +1945,6 @@ bool Pipeline::print_linear(const Chain& in, Chain& out, std::string& error) {
     Image cur = in.cur, next;
     SPK_NODE(node_xyz_to_rgb(cur, next, error)); cur = next;
     SPK_NODE(node_gamut_compress(cur, next, error)); cur = next;
-    if (overscan_wanted()) { SPK_NODE(node_overscan_light(cur, next, error)); cur = next; }
     out = in;
     out.cur = cur;
     return true;
@@ -1956,6 +1955,13 @@ bool Pipeline::print_scan_finish(const Chain& in, Chain& out, std::string& error
     Image cur = in.cur, next;
     SPK_NODE(node_scanner_blur(cur, next, error)); cur = next;
     SPK_NODE(node_unsharp(cur, next, error)); cur = next;
+    // The scan's view of the holes goes on after the scanner's sharpening, not
+    // before it (2026-10-04). Before, the unsharp mask met a step from the
+    // rebate to the scan's own light and undershot it: two pixels of pure
+    // black around every perforation. On the owner's strips the film just
+    // outside a hole is 0.5-1.0 of the film a little further off, never 0 --
+    // and the edge's softness is `film_alpha`'s, measured on the same strips.
+    if (overscan_wanted()) { SPK_NODE(node_overscan_light(cur, next, error)); cur = next; }
     out = in;
     out.cur = cur;
     return true;

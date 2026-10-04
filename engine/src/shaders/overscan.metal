@@ -231,7 +231,11 @@ kernel void spk_overscan_add_mask(device const float* mask [[buffer(0)]],
 static float perf_sdf(float2 st, device const float* P, thread uint& hole) {
     const float W = P[P_FILM_W];
     const float pitch = P[P_PERF_PITCH], ph = P[P_PERF_PHASE];
-    const float k = floor((st.x - ph) / pitch);
+    // The nearest hole: the cell is centred on it. (It began at the hole's
+    // leading edge, so just outside that edge the distance was the previous
+    // hole's -- 2.8 mm -- and that side had no shoulder, no flare, and a hard
+    // cut where the other three sides were soft.)
+    const float k = floor((st.x - ph - 0.5f * P[P_PERF_W]) / pitch + 0.5f);
     const bool top = st.y < 0.5f * W;
     const uint seed = uint(P[P_PERF_SEED]);
     hole = hash_u(uint(int(k) * 2 + (top ? 0 : 1)) * 0x9E3779B9u ^ seed);
@@ -260,13 +264,35 @@ static float perf_sdf(float2 st, device const float* P, thread uint& hole) {
     return d;
 }
 
+// How soft a perforation's edge is in a scan, as the sigma of a Gaussian edge
+// in film millimetres. Measured on the owner's strips in reference_film/135
+// (2026-10-04): across 61-80 hole edges on each of eight scans the edge takes
+// 44-71 microns to go from 10 % to 90 % of the hole's light (median 59), at
+// 21-32 px/mm -- where this engine's one-pixel edge took 34, and at the full
+// tier of a 45 MP frame 5: a knife. Less the scans' own pixels that is a
+// sigma of 17 microns: the scanner's lens, and a cut wall 0.13 mm deep that
+// is not all in focus at once.
+constant float kHoleEdgeSigma = 0.017f;
+
+// erf, Abramowitz and Stegun 7.1.26 (|error| < 1.5e-7).
+static float erf_as(float x) {
+    const float t = 1.0f / (1.0f + 0.3275911f * fabs(x));
+    const float y = 1.0f - (((((1.061405429f * t - 1.453152027f) * t) + 1.421413741f) * t - 0.284496736f) * t + 0.254829592f) * t * exp(-x * x);
+    return x < 0.0f ? -y : y;
+}
+
 // Where there is film: 1 on the strip, 0 in the perforations and past its edges.
 static float film_alpha(float2 st, device const float* P) {
     const float W = P[P_FILM_W], px = P[P_PX];
     float a = clamp(min(st.y, W - st.y) / px + 0.5f, 0.0f, 1.0f);
     if (P[P_PERFORATED] > 0.5f) {
         uint hole;
-        a *= 1.0f - clamp(0.5f - perf_sdf(st, P, hole) / px, 0.0f, 1.0f);
+        // The hole's edge as the scan resolves it: the measured softness, and
+        // the pixel's own width (a one-pixel ramp is a sigma of 0.31 px), so a
+        // small render is no softer than it was and a large one no harder
+        // than film.
+        const float sigma = sqrt(kHoleEdgeSigma * kHoleEdgeSigma + 0.0961f * px * px);
+        a *= 0.5f + 0.5f * erf_as(perf_sdf(st, P, hole) / (1.41421356f * sigma));
     }
     return a;
 }
@@ -299,7 +325,7 @@ kernel void spk_overscan_film_present(device const float* cmy [[buffer(0)]],
 // the base thins from full to nothing -- brown through the orange mask on a
 // white hole, a dim warm rim around a black one. Each hole's slant is its
 // own; the viewing tilt and parallax are the scan's. Linear output RGB,
-// before the scanner's own blur.
+// after the scanner's blur and sharpening (the edge's softness is `film_alpha`'s).
 kernel void spk_overscan_light(device const float* rgb [[buffer(0)]],
                                device const float* P [[buffer(1)]],
                                device const uint* n [[buffer(2)]],

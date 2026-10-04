@@ -79,6 +79,36 @@ def decode_dx(rgba, px):
     return None
 
 
+def hole_edges(rgba, px):
+    """The perforations' edges as a scan resolves them, read off a render: along
+    the row through one row of holes, each edge's 10-90 % width in microns (in
+    linear light) and how dark the film just outside the hole is against the
+    film 0.25-0.45 mm further off. `px` is mm per pixel."""
+    v = rgba[..., :3].astype(float) / 65535.0
+    g = np.where(v <= 0.04045, v / 12.92, ((v + 0.055) / 1.055) ** 2.4).mean(-1)
+    lit = (g > 0.5 * g.max()).mean(1)
+    ys = np.flatnonzero((lit > 0.30) & (lit < 0.52))      # a row of holes: 1.98 mm of light every 4.75
+    blk = np.split(ys, np.flatnonzero(np.diff(ys) > 1) + 1)[0]
+    yc = int(blk[len(blk) // 2])
+    prof = g[yc - 1: yc + 2].mean(0)
+    m = max(6, int(round(0.12 / px))); f0, f1 = int(round(0.25 / px)), int(round(0.45 / px))
+    widths, rims = [], []
+    for x in np.flatnonzero(np.diff((prof > 0.5 * prof.max()).astype(np.int8)) != 0):
+        if x < f1 + 2 or x > len(prof) - f1 - 3: continue
+        rising = prof[x + 1] > prof[x]
+        seg = prof[x - m: x + m + 2] if rising else prof[x - m: x + m + 2][::-1]     # film -> hole
+        lo, hi = np.median(seg[:3]), np.median(seg[-3:])
+        t = (seg - lo) / (hi - lo)
+        cross = lambda q: next(k + (q - t[k]) / (t[k + 1] - t[k]) for k in range(len(t) - 1) if t[k] <= q < t[k + 1])
+        widths.append(1000.0 * px * (cross(0.9) - cross(0.1)))
+        out = -1 if rising else 1                                                    # the way out of the hole
+        e = x if rising else x + 1
+        near = min(prof[e + out * k] for k in range(0, max(2, int(round(0.10 / px))) + 1))
+        far = np.median([prof[e + out * k] for k in range(f0, f1 + 1)])
+        rims.append(near / far)
+    return np.array(widths), np.array(rims)
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--dylib", type=Path)
@@ -189,6 +219,24 @@ def main():
               f"mark at x {x_mark}, a changed first word at {x_first}, a changed name at {x_name}")
         check("Fujifilm 120: a text ending in a space is one word, and renders",
               np.array_equal(render(e, sq2, dict(F120, overscan_edge_text="PRO400H ")).shape, f0.shape))
+        # A perforation's edge is as soft as a scan shows it, at every size: on the owner's
+        # strips (reference_film/135) it takes 44-71 microns to go from 10 % to 90 % of the
+        # hole's light, and the film just outside is never darker than half the film nearby.
+        # (It was one pixel -- 5 microns on a 6000 px frame -- inside a ring of pure black.)
+        for wpx in (1600, 4800):
+            big = frame(wpx, int(round(wpx * 24.3 / 36.25)))
+            hs = e.open(big, dict(BASE, **S135, preview_long_edge=8192))
+            try:
+                hr, _ = hs.render("full")
+                mm = hs.overscan_geometry()["mm_per_px"]
+            finally:
+                hs.close()
+            wd, rim = hole_edges(hr, mm)
+            check(f"a hole's edge is a scan's, not a knife's, on a {wpx} px frame: every edge, both sides of the hole",
+                  len(wd) >= 12 and 35.0 <= np.median(wd) <= 75.0 and wd.min() >= 30.0,
+                  f"{len(wd)} edges, 10-90 % in {np.median(wd):.0f} um (min {wd.min():.0f})")
+            check(f"no dark ring around a hole on a {wpx} px frame", len(rim) >= 12 and rim.min() >= 0.5,
+                  f"darkest just outside / the film nearby: min {rim.min():.2f}, median {np.median(rim):.2f}")
         # the reader must be able to say no: a stock with no DX code prints none
         vis = render(e, img, dict(S135, film_stock="kodak_vision3_250d"))
         check("a stock without a DX code prints none (the reader finds nothing)", decode_dx(vis, px) is None)
@@ -218,16 +266,17 @@ def main():
               f"{len(inner)} px, mean {inner.mean(0).round(0) if len(inner) else None}")
         # the cut's shoulder (RFC-032 §31.5) is not the same on every hole: the
         # lift of the black just outside each hole must vary between holes.
-        # Measured at 0.015 mm/px and beyond each hole's anti-aliased pixel,
-        # since the edge's sub-pixel phase repeats every three holes and would
-        # otherwise dominate; without edge fog, which also lifts the rebate.
+        # Measured at 0.015 mm/px and beyond the edge's own softness (a sigma of
+        # 17 microns, so 0.06 mm out the hole's light is under 0.1 %), which is
+        # the same on every hole and would otherwise dominate; without edge
+        # fog, which also lifts the rebate.
         def shoulder(rgba, p):
             b = rgba[int(round(2.3 / p)):int(round(4.5 / p)), :, :3].astype(float)
             lum = b.mean(-1)
             reb = np.median(lum)
             hole = lum > 0.5 * 65535
             grown = hole.copy()
-            for _ in range(2):                        # the hole and its anti-aliased pixel
+            for _ in range(4):                        # the hole and its soft edge: 0.06 mm
                 g = grown.copy()
                 g[1:] |= grown[:-1]; g[:-1] |= grown[1:]; g[:, 1:] |= grown[:, :-1]; g[:, :-1] |= grown[:, 1:]
                 grown = g
@@ -249,7 +298,7 @@ def main():
         big = frame(2400, 1600)
         sh = shoulder(render(e, big, dict(S135, overscan_fog=0.0), tier="preview"), 36.0 / 2400)
         check("hole edges differ from hole to hole (the cut's shoulder)",
-              len(sh) >= 4 and sh.std() / max(sh.mean(), 1e-9) > 0.25, f"{len(sh)} holes, mean lift {np.round(sh, 0)}")
+              len(sh) >= 4 and sh.std() / max(sh.mean(), 1e-9) > 0.15, f"{len(sh)} holes, mean lift {np.round(sh, 0)}")
 
         # Gate families: each renders, and each changes the gate. On a frame
         # of the 645 gate's shape (56 x 41.5), since the frame is the gate.
@@ -459,7 +508,10 @@ def main():
         for seed in range(1, 25):
             rr = render(e, p617, {"overscan_active": True, "overscan_format": "120_6x17", "overscan_frame_seed": seed})
             ll = rr[..., :3].astype(float).mean(-1)
-            worst = max(worst, (ll[0] > 0.02 * 65535).mean(), (ll[-1] > 0.02 * 65535).mean())
+            # film in an edge row: a pixel more than half covered by it (the
+            # film's own level is the rebate's, read 0.6 mm in from the edge)
+            half = 0.5 * np.median(ll[int(0.6 * len(ll) / 61.8)])
+            worst = max(worst, (ll[0] > half).mean(), (ll[-1] > half).mean())
         check("6x17 never tilts its film out of the carrier (24 frames)", worst < 0.15, f"{worst:.3f} of an edge row")
         # --- the half-frame pair: two exposures of one gate on one strip, and
         # where the gates are (spk_overscan_geometry) ---------------------------
