@@ -16,6 +16,12 @@ filter pack — in about a second.
   ~0.01 s at preview size, a full-resolution render in under a second.
 - **One colour pipeline.** ProPhoto RGB throughout; each export is gamut-mapped
   once into the space you ask for, and proofed before it is written.
+- **The film itself.** Film Edge prints the frame on its own strip — rebate,
+  perforations, each stock's edge print and frame numbers, measured on real
+  strips — in 135, half frame, XPan, 645 to 6×9, 6×12 and 6×17. Date Back
+  exposes a date onto the negative.
+- **Half-frame pairs.** Two frames on one piece of film, side by side or one
+  above the other, each with its own exposure, white balance, print and grade.
 - **Scriptable.** `spektralab` (CLI) and an MCP server drive the same session
   the window does. Off until enabled in Settings.
 
@@ -52,6 +58,27 @@ clipboard rules. As Shot white balance and fitted Scene Placement are resolved
 for each target. Sync has no batch undo; the status reports writes and failures.
 Selection and sync are disabled during batch export.
 
+## Film Edge, Date Back and half-frame pairs
+
+**Film Edge** (left rail) turns the canvas into the film: pick a format and the
+frame is cut to its gate and shown on the strip, with the stock's own edge
+print, a frame number you can set, and — on a strip scan — the carrier past the
+film's edge. The crop becomes the framing in the gate, so it is part of the
+negative. **Date Back** exposes the shooting date (or a date you type) into the
+frame; it needs no film edge.
+
+**A half-frame pair** is two frames on one frame's worth of 135. With Film Edge
+on *Half*, **Enter Half-Frame Pair** appears under the format (or pick two
+photos and press ⌘J). The canvas shows two holes; an empty one has a **+**.
+Click a hole to pick its frame: Input / Camera, Scene Placement, the Enlarger
+and Post-Dev then act on that frame alone, and *+ Film* moves the film around
+it too. Right-click a hole to replace, turn or crop its frame. In the crop
+mode, drag moves the picture under its hole and scroll or pinch scales it about
+the pointer. A pair is one item in the filmstrip and exports as one picture.
+
+Drag a thumbnail along the filmstrip to reorder a folder; the order is kept for
+that folder. A file dropped from Finder still opens and edits.
+
 ## Build
 
 Xcode 26.6.
@@ -71,7 +98,7 @@ toolchain's mount path changed under a cached build.
 
 ```bash
 xcodebuild -project Spektrafilm.xcodeproj -scheme SpektrafilmTests \
-           -derivedDataPath build/DerivedData test       # ~430 tests, ~7 min
+           -derivedDataPath build/DerivedData test       # ~550 tests, ~6 min
 ```
 
 Camera fixtures come from the upstream `spektrafilm` repository through a

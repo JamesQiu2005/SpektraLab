@@ -2,7 +2,7 @@
 
 How SpektraLab is put together: a SwiftUI app with a C++ Metal render engine
 compiled into it. Written for someone about to change the pipeline, the app or
-the release. Current as of **1.1.1 + main, 2026-09-26**.
+the release. Current as of **1.3.0, 2026-10-04**.
 
 §0 is the map. §1 is the physical model, §2–§4 the engine's runtime, §5 build
 and release, §6 cost, §7 the macOS app, §8 the engine in detail, §9 how the app
@@ -123,13 +123,21 @@ the identity is skipped.
 ```
 preprocess  decode_input · input_cast · geometry · crop_rescale · auto_exposure
 filming     expose.scene_latitude (RFC-023) · expose.upsample · expose.exposure
-            · expose.boost · expose.lens_blur · expose.halation · expose.log
+            · expose.boost · expose.lens_blur · expose.overscan (RFC-032)
+            · expose.halation · expose.log
             · develop.curves · develop.dir_couplers · develop.grain
 printing    expose.enlarger_spectral · expose.contrast_mask (RFC-024)
             · expose.print_exposure (incl. pre-flash) · develop.print_curves
+            · overscan.film_present
 scanning    scan_spectral · xyz_to_rgb · gamut_compress · cctf · edr · glare
-            · scanner_blur · unsharp · bw_correction
+            · scanner_blur · unsharp · bw_correction · overscan.light
 ```
+
+- **The film edge is three nodes** (§8.10): the exposure of the film outside
+  the gate (edge print, fog, leaks, the date) before halation, so it blooms and
+  develops with the picture; the film's presence in the print; and the scan's
+  own light through the holes and past the film, last of all, after the
+  scanner's blur and unsharp mask.
 
 - Three entry/exit pairs are used: RGB → densities (`run_film`), densities →
   RGB (`run_print`), and both for a full render.
@@ -266,8 +274,8 @@ costs.
 
 | region | sections | runs in |
 |---|---|---|
-| **Film and Print** (left) | Navigator · Film · Print · Crop · Enlarger | the engine; Crop is geometry (below) |
-| **Parameters ▸ Pre-Dev** (right) | Latitude · Camera · Film Format · Scene Placement · Tone Mask | the engine, except Camera's white balance and lens correction, which are the **decode** |
+| **Film and Print** (left) | Navigator · Half-Frame Pair (on a pair) · Settings Clipboard · Film · Film Edge · Date Back · Print · Crop · Enlarger | the engine; Crop is geometry (below) — except under a film edge, where it is the negative (§7.11) |
+| **Parameters ▸ Pre-Dev** (right) | Latitude · Input / Camera · Film Format · Scene Placement | the engine, except Camera's white balance and lens correction, which are the **decode**. On a pair these are the picked frame's (§7.12) |
 | **Parameters ▸ Post-Dev** (right) | White Balance · Exposure · Curve · Color Balance | **Layer 2**, one draw |
 | canvas, top right | histogram · tier badges | reads, never writes |
 | filmstrip | one cell per frame | — |
@@ -443,6 +451,74 @@ inside a field. `TypingKeyGuard` is a local key monitor that sends typing keys
 (characters, arrows, delete) straight to a focused editable text view.
 ⌘/⌃ combinations and Return, Enter, Esc, Tab still reach the menu.
 
+### 7.11 Film Edge and Date Back (RFC-032, RFC-031)
+
+- **The film is the canvas.** With a film edge on, the engine is handed the
+  decode **cut by the crop** and returns the whole film canvas — gate, rebate,
+  holes, carrier. The crop is therefore in the negative: `FilmParams.cutsFrame`
+  is the one question ("is the engine's frame cut?"), `Session.canvasGeometry`
+  is the identity while the film shows, and the crop tool frames the decode
+  over the film print (`filmEdgeFraming`). The date alone, under a crop, a turn
+  or a flip, cuts the frame the same way.
+- **Formats** are the engine's table (`overscan.cpp` `kFormats`): 135, 135
+  half, XPan, 645, 6×6, 6×7, 6×8, 6×9, 6×12, 6×17. The gate's shape, the edge
+  print and the frame number are per stock, measured on the owner's strips;
+  the edge text is the film's own words (`Session.edgeText`), never its
+  marketing name, and the engine prints no maker's name of its own.
+- **A re-decode holds the film.** A white balance change, or a pair's frame
+  moved, re-decodes the frame; the bare decode is another shape with no film,
+  so it is not put over a film canvas a develop is about to replace
+  (`Session.holdsFilmCanvas`). Without a film edge the new decode is shown at
+  once, as before.
+- **The print stamp carries the framing** (`Session.printStamp`), because the
+  same parameters with another framing is another picture.
+
+### 7.12 The half-frame pair
+
+- **A pair is a file**, `.spektrapair` JSON under `Sidecars/Pairs`, and its URL
+  is a filmstrip `Frame`. It references two frames; it does not own them.
+  Its look is an ordinary sidecar for that URL.
+- **Its decode is composed** (`PairComposer.decode`): each frame decoded with
+  its own white balance, framed by its own geometry, placed under its hole
+  (`Hole.placement`: scale, x, y, quarter turns) on one piece — the gap black
+  — no longer than one frame. Each hole is rendered once and kept, keyed on
+  everything its pixels depend on; the display side is the files' embedded
+  previews. One decode and one engine session, as for any frame.
+- **One meter reading per hole.** The engine's meter would read both pictures
+  and the gap as one scene, so each hole is metered alone and its gain applied
+  to the piece (`PairComposer.exposed`; the engine's auto exposure is exactly
+  a gain of 2^EV), with the engine's own meter off.
+- **Per-frame print.** One negative is printed up to three times in one actor
+  call (`EngineClient.renderLayers`), graded, and cut together by a Metal
+  kernel (`Renderer.compositePair`). While no frame prints or grades for
+  itself (`pairIsLayered`), the piece is one print and none of this runs.
+  A native render is kept under a stamp that carries the frames' own prints.
+- **The rails act on the picked frame** (`focusSide`): meter, Film Exposure,
+  white balance and lens correction (written to the frame's own sidecar —
+  the shot is the frame's in every pair and alone), Scene Placement
+  (`scene_latitude_split` and the `_b_` fields), the Enlarger and Post-Dev,
+  with a *Frame / + Film* scope. With the film picked, the Enlarger moves
+  every frame's own print with it. A section never vanishes on a pair.
+- **A crop gesture is one write.** A drag, a scroll, a pinch or a slider shows
+  the frame's framed preview under the hole at once (`PairDrag`), is written
+  when it rests — one undo step, one save, one develop — and stays up until
+  that develop lands. The zoom holds the point under the pointer; the piece's
+  size does not depend on a placement's scale.
+
+### 7.13 The library: order, selection, sync
+
+- **Order is the folder's.** A thumbnail dragged over another takes its place
+  (`Session.moveFrame`); the order is one small file per folder under
+  `Sidecars/Order` (`FrameOrder`), laid over the listing on open. Frames it
+  does not name stay after their neighbour.
+- **One door for dropped files** (`Session.dropped(files:)`): files from
+  outside are opened (one file is "edit this"); the strip's own thumbnail is
+  ignored; a file of the open folder goes on the canvas with the folder still
+  around it.
+- **Select all and Sync** (⌘A, Settings Clipboard ▸ Sync to N) write the ticked
+  groups from the current frame to the picked set through the clipboard's own
+  rules; there is no batch undo.
+
 ---
 
 ## 8. The native engine
@@ -576,12 +652,29 @@ Dispatches batch into one command buffer, so a timer around a node measures
 which flushes per node. An empty field is honest; a plausible wrong number is
 not.
 
+### 8.10 The film edge, and what a unit of the filters is
+
+- **`overscan.cpp` + `shaders/overscan.metal`** hold the formats, the layout
+  (`OverscanLayout`), the CPU raster of the edge print and the kernel's
+  parameter block (`P_*`, mirrored in both files). `spk_overscan_geometry`
+  returns where the gates are, normalised, so the app never guesses. A hole's
+  edge has the softness a scan shows (σ 17 µm plus the pixel).
+- **Native-only wire fields** go immediately before `preview_long_edge`, in
+  `params.cpp` **and** `tests/parity_schema.py` in the same order, and their
+  API-SPEC section is edited in the same commit (§13 the film edge and date,
+  §14 the filters).
+- **`filter_shift_scale`.** The oracle's `y_filter_shift` / `m_filter_shift`
+  are −1…1, added to a pack in CC units (neutral ≈ 55 / 65): one CC end to
+  end, 0.014 stop, invisible. The scale says what a unit is; default 1 is the
+  reference, the app sends 40. A control that is wired is not thereby visible:
+  its *end* is measured against the neutral (`EnlargerFilterTests`).
+
 ---
 
 ## 9. Verification
 
 ```
-SpektrafilmTests      the full suite — ~430 tests, ~420 s with fixtures
+SpektrafilmTests      the full suite — ~550 tests, ~350 s with fixtures
 SpektrafilmFrontend   everything but the real-negative class — ~7 s
 engine/tests/         parity harnesses (§8.6), gpu_smoke, check_math_guard.sh
 ```
@@ -598,6 +691,15 @@ engine/tests/         parity harnesses (§8.6), gpu_smoke, check_math_guard.sh
 - **A guard must be seen to fire.** New regression tests are shown red on the
   old behaviour first; harness-level tests carry a control that reproduces the
   bug without the fix (`TypingKeyGuardTests`, `check_math_guard.sh`).
+- **A change is judged while it happens.** A canvas that is correct before and
+  after an edit can still show the wrong thing in between (the bare decode
+  over a film canvas; a zoom with no picture until its develop). Those tests
+  sample the canvas *during* the change
+  (`testTheFilmCanvasStaysUpWhileItsFrameIsDecodedAgain`).
+- **A snapshot is of its own window.** `--snapshot` draws the canvas through an
+  offscreen stand-in; the scene's window has one too and must not draw
+  (`snapshotCapture`), or the capture is a blank canvas at another zoom.
+  `--pair-layer` and `--pair-zoom f s` put a pair in a given state.
 - **In-process tests cannot see the window.** `Tools/snapshot.sh` cannot see a
   `CAMetalLayer`; `Tools/capture-live.sh` photographs the real window and is
   the only capture that proves the canvas draws. Neither sees a stall; the
