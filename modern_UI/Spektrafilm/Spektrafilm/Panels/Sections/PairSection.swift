@@ -119,17 +119,17 @@ struct PairSection: View {
                 Spacer(minLength: 0)
             }
             ScrubSlider(label: L("Scale", zh: "缩放"), sublabel: "×",
-                        value: Binding(get: { hole.placement.scale },
-                                       set: { v in session.setPlacement(side) { $0.scale = v } }),
+                        value: Binding(get: { session.shownPlacement(side)?.scale ?? hole.placement.scale },
+                                       set: { v in session.previewPlacement(side) { $0.scale = v } }),
                         range: HalfFramePair.Placement.scaleRange, zero: 1, snap: 0.05,
                         format: { String(format: "%.2f", $0) })
             ScrubSlider(label: L("Across", zh: "横向"),
-                        value: Binding(get: { hole.placement.x },
-                                       set: { v in session.setPlacement(side) { $0.x = v } }),
+                        value: Binding(get: { session.shownPlacement(side)?.x ?? hole.placement.x },
+                                       set: { v in session.previewPlacement(side) { $0.x = v } }),
                         range: -1...1, snap: 0.05, format: { String(format: "%+.2f", $0) })
             ScrubSlider(label: L("Up / down", zh: "纵向"),
-                        value: Binding(get: { hole.placement.y },
-                                       set: { v in session.setPlacement(side) { $0.y = v } }),
+                        value: Binding(get: { session.shownPlacement(side)?.y ?? hole.placement.y },
+                                       set: { v in session.previewPlacement(side) { $0.y = v } }),
                         range: -1...1, snap: 0.05, format: { String(format: "%+.2f", $0) })
             HStack(spacing: 8) {
                 pill(L("Replace…", zh: "替换…")) { session.pairPicker = side }

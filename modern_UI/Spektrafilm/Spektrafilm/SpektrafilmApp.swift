@@ -316,6 +316,10 @@ struct SnapshotRequest {
     /// `--date-back` — capture with the date back on.
     var dateBack = false
     var pairLayer: PairLayer?
+    /// `--pair-zoom f s` — in the pair's crop mode, zoom the picked frame by
+    /// `f` about a point of its hole, and capture `s` seconds later: a short
+    /// wait is the gesture's own picture, a long one the develop that follows.
+    var pairZoom: (factor: Double, wait: Double)?
 
     static func parse(_ args: [String]) -> SnapshotRequest? {
         guard let i = args.firstIndex(of: "--snapshot"), args.count > i + 2 else { return nil }
@@ -340,6 +344,8 @@ struct SnapshotRequest {
         r.filmEdge = args.contains("--film-edge")
         r.dateBack = args.contains("--date-back")
         if let j = args.firstIndex(of: "--pair-layer"), args.count > j + 1 { r.pairLayer = PairLayer(rawValue: args[j + 1]) }
+        if let j = args.firstIndex(of: "--pair-zoom"), args.count > j + 2,
+           let f = Double(args[j + 1]), let w = Double(args[j + 2]) { r.pairZoom = (f, w) }
         r.exportGrid = args.contains("--export-grid")
         r.export = r.exportGrid || args.contains("--export")
         if let j = args.firstIndex(of: "--settings"), args.count > j + 1 {
@@ -541,6 +547,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                     session.frameStates[sel] == .processed { break }
         }
         try? await Task.sleep(for: .milliseconds(400))
+        if let z = req.pairZoom, let side = session.pairLayer.side, let hole = session.pairHoleRects[side] {
+            session.togglePairPlacing()
+            // Off the hole's middle, so a zoom that drifts shows.
+            let at = CGPoint(x: hole.minX + 0.3 * hole.width, y: hole.minY + 0.35 * hole.height)
+            _ = session.placementZoomed(by: z.factor, at: at)
+            try? await Task.sleep(for: .milliseconds(Int(z.wait * 1000)))
+        }
         if let m = req.mask {
             session.addMask(m.kind)
             if var mask = session.selectedMask {

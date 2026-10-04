@@ -238,3 +238,13 @@ A harness defect found on the way: in a snapshot run the scene's own window host
 Not seen in the window, still: the Enter row, the right-click menu, the crop drag, the scope switch, a frame's own grade and Scene Placement. Grain scale is the piece's, not each half's. Mobile has none of this.
 
 Another session commits in this checkout at the same time (the Fujifilm 120 edge fixes landed mid-run): never `git stash` here — it takes the other session's uncommitted files with it.
+
+## 13. 2026-10-04: scroll to scale, the last thing before 1.3.0
+
+The owner: everything else is good enough to ship; 滚动缩放 is "largely unavailable with some terrible bug".
+
+What was wrong: every notch of the wheel wrote the pair file, pushed an undo step and queued a develop, with nothing shown until the develop landed; the zoom was about the cut's middle with `x`/`y` held, so the picture slid as it scaled; the wheel worked only with the pointer on the hole and panned the canvas otherwise; and a zoom shrank the piece's own pixel size, so the canvas refitted and the other frame rendered again.
+
+Now: a scroll, a pinch or a slider drag is one gesture (`PairDrag`, `placementZoomed`, `previewPlacement`) — shown at once from the frame's framed preview (`PairComposer.framedPreview`, any turn, the frame's own geometry), written once when it rests (one undo step, one save, one develop), and its picture stays on the hole until that develop lands. The zoom holds the point under the pointer (`Session.placement(_:zoomedBy:about:…)`). In the crop mode every scroll is the zoom. The piece's size is the frames' fit at scale 1 whatever the zoom.
+
+Seen (snapshot, `--pair-zoom f s`): the gesture's picture and the develop that follows are the same crop. Not driven by hand: a real wheel or trackpad in the window — the direction and the rate (the canvas's own, 1.0025 per point) are the owner's to judge.

@@ -54,7 +54,7 @@ protocol CanvasHost: AnyObject {
     func placementBegan(at normalised: CGPoint) -> Bool
     func placementMoved(to normalised: CGPoint)
     func placementEnded()
-    func placementScrolled(_ delta: CGFloat, at normalised: CGPoint) -> Bool
+    func placementZoomed(by factor: Double, at normalised: CGPoint) -> Bool
     func endPlacement() -> Bool
 }
 
@@ -69,8 +69,8 @@ extension CanvasHost {
     func placementBegan(at normalised: CGPoint) -> Bool { false }
     func placementMoved(to normalised: CGPoint) {}
     func placementEnded() {}
-    /// True when the host took the scroll.
-    func placementScrolled(_ delta: CGFloat, at normalised: CGPoint) -> Bool { false }
+    /// True when the host took the scroll or the pinch as a zoom of its own.
+    func placementZoomed(by factor: Double, at normalised: CGPoint) -> Bool { false }
     func endPlacement() -> Bool { false }
 }
 
@@ -259,8 +259,10 @@ final class CanvasNSView: MTKView, MTKViewDelegate {
         guard host?.tool != .crop else { return }
         let p = local(e)
         if let host, !e.modifierFlags.contains(.command), !e.modifierFlags.contains(.option) {
+            // The same way round, and at the same rate, as the canvas's own
+            // zoom below.
             let dy = e.hasPreciseScrollingDeltas ? e.scrollingDeltaY : e.scrollingDeltaY * 4
-            if host.placementScrolled(dy, at: unclampedNormalised(atView: p, renderer)) { return }
+            if host.placementZoomed(by: pow(1.0025, Double(-dy)), at: unclampedNormalised(atView: p, renderer)) { return }
         }
         if e.modifierFlags.contains(.command) || e.modifierFlags.contains(.option) {
             let dy = e.hasPreciseScrollingDeltas ? e.scrollingDeltaY : e.scrollingDeltaY * 4
@@ -278,6 +280,8 @@ final class CanvasNSView: MTKView, MTKViewDelegate {
     override func magnify(with e: NSEvent) {
         guard let renderer else { return }
         guard host?.tool != .crop else { return }   // locked, as above
+        if let host, host.placementZoomed(by: Double(1 + e.magnification),
+                                          at: unclampedNormalised(atView: local(e), renderer)) { return }
         renderer.viewport.zoom(by: 1 + e.magnification, about: local(e))
         host?.viewportChanged()
         scheduleDraw()

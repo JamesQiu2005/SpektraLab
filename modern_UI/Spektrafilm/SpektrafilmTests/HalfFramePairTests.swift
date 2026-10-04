@@ -732,4 +732,77 @@ final class HalfFramePairTests: XCTestCase {
         XCTAssertEqual(session.derivedFilmFormatMM(side: session.filmSide, sideLengthMM: session.params.sideLengthMM),
                        37, accuracy: 0.01)
     }
+
+    /// The wheel in the crop mode: what is under the pointer stays under it,
+    /// the zoom stops at its ends, and a zoom does not resize the piece.
+    func testAZoomHoldsThePointUnderThePointerAndLeavesThePieceItsSize() throws {
+        let source = CGSize(width: 4000, height: 6000)
+        let aspect = 0.75
+        func under(_ p: HalfFramePair.Placement, _ a: CGPoint) -> CGPoint {
+            let cut = HalfFramePair.sourceRect(for: p, source: source, aspect: aspect)
+            return CGPoint(x: cut.minX + a.x * cut.width, y: cut.minY + a.y * cut.height)
+        }
+        var p = HalfFramePair.Placement()
+        p.scale = 1.5
+        let anchor = CGPoint(x: 0.7, y: 0.4)
+        let before = under(p, anchor)
+        let zoomed = Session.placement(p, zoomedBy: 1.6, about: anchor, source: source, aspect: aspect)
+        XCTAssertEqual(zoomed.scale, 2.4, accuracy: 1e-9)
+        XCTAssertEqual(under(zoomed, anchor).x, before.x, accuracy: 0.5)
+        XCTAssertEqual(under(zoomed, anchor).y, before.y, accuracy: 0.5)
+        // And back out again: the same point, as far as the picture's edge allows.
+        let back = Session.placement(zoomed, zoomedBy: 1 / 1.6, about: anchor, source: source, aspect: aspect)
+        XCTAssertEqual(back.scale, 1.5, accuracy: 1e-9)
+        XCTAssertEqual(under(back, anchor).x, before.x, accuracy: 0.5)
+        // The ends.
+        XCTAssertEqual(Session.placement(p, zoomedBy: 100, about: anchor, source: source, aspect: aspect).scale, 4)
+        let out = Session.placement(p, zoomedBy: 0.01, about: anchor, source: source, aspect: aspect)
+        XCTAssertEqual(out.scale, 1)
+        let whole = HalfFramePair.sourceRect(for: out, source: source, aspect: aspect)
+        XCTAssertGreaterThanOrEqual(whole.minX, -0.5); XCTAssertLessThanOrEqual(whole.maxX, source.width + 0.5)
+        XCTAssertGreaterThanOrEqual(whole.minY, -0.5); XCTAssertLessThanOrEqual(whole.maxY, source.height + 0.5)
+
+        // The piece's size is the frames' fit, whatever one of them is zoomed to.
+        var pair = HalfFramePair(folder: "/tmp")
+        pair.left = HalfFramePair.Hole(url: URL(fileURLWithPath: "/tmp/a.tif"))
+        pair.right = HalfFramePair.Hole(url: URL(fileURLWithPath: "/tmp/b.tif"))
+        let sizes: [HalfFramePair.Side: CGSize] = [.left: source, .right: source]
+        let plain = PairComposer.layout(for: pair, sizes: sizes)
+        pair.left?.placement.scale = 3
+        XCTAssertEqual(PairComposer.layout(for: pair, sizes: sizes).size, plain.size)
+    }
+
+    /// A whole scroll is one gesture: shown as it goes, and written once —
+    /// one undo step, not one for every notch of the wheel.
+    func testAScrollInTheCropModeIsOneGestureWrittenOnce() async throws {
+        let frames = try copies(2)
+        let session = Session(clipboardDefaults: try defaults())
+        session.open(urls: [frames[0].deletingLastPathComponent()])
+        let urls = session.frames.map(\.id)
+        session.click(urls[0]); session.click(urls[1], command: true)
+        session.newPair()
+        let pairURL = try XCTUnwrap(session.selection)
+        addTeardownBlock { try? FileManager.default.removeItem(at: pairURL); Sidecar.remove(for: pairURL) }
+        session.pairLayer = .left
+        // Outside the crop mode the wheel is the canvas's.
+        XCTAssertFalse(session.placementZoomed(by: 1.2, at: CGPoint(x: 0.2, y: 0.5)))
+        session.togglePairPlacing()
+        XCTAssertTrue(session.pairPlacing)
+        let undoBefore = session.canUndo
+        for _ in 0..<30 { XCTAssertTrue(session.placementZoomed(by: 1.03, at: CGPoint(x: 0.2, y: 0.5))) }
+        // In flight: shown, not written.
+        XCTAssertEqual(session.pair?.left?.placement.scale, 1)
+        XCTAssertEqual(try XCTUnwrap(session.shownPlacement(.left)).scale, pow(1.03, 30), accuracy: 1e-6)
+        XCTAssertEqual(session.canUndo, undoBefore)
+        try await waitUntil("the zoom to be written") { session.pair?.left?.placement.scale != 1 }
+        XCTAssertEqual(try XCTUnwrap(session.pair?.left?.placement.scale), pow(1.03, 30), accuracy: 1e-6)
+        XCTAssertEqual(HalfFramePair.load(pairURL)?.left?.placement.scale ?? 0, pow(1.03, 30), accuracy: 1e-6)
+        // One step back is the whole zoom.
+        session.undo()
+        XCTAssertEqual(session.pair?.left?.placement.scale, 1)
+        // Leaving the mode keeps a zoom still in flight.
+        XCTAssertTrue(session.placementZoomed(by: 2, at: CGPoint(x: 0.2, y: 0.5)))
+        XCTAssertTrue(session.endPlacement())
+        XCTAssertEqual(try XCTUnwrap(session.pair?.left?.placement.scale), 2, accuracy: 1e-6)
+    }
 }

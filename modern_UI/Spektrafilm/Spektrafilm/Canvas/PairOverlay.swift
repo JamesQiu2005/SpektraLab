@@ -43,6 +43,16 @@ struct PairOverlay: View {
     private func hole(_ side: HalfFramePair.Side, pair: HalfFramePair, rect r: CGRect) -> some View {
         let picked = session.pairLayer.side == side
         let empty = pair[side] == nil
+        // While its picture is moved or scaled: the frame's own preview where
+        // the gesture has it, so the change is seen before it is developed.
+        // Under the hole's frame, which is drawn next.
+        if let drag = session.pairDrag, drag.side == side, let held = pair[side] {
+            PairDragPreview(hole: held, placement: drag.live, aspect: pair.holeAspect)
+                .frame(width: r.width, height: r.height)
+                .clipped()
+                .position(x: r.midX, y: r.midY)
+                .allowsHitTesting(false)
+        }
         // The picked hole's frame: the selection frame's own ink.
         if picked {
             Rectangle()
@@ -50,15 +60,6 @@ struct PairOverlay: View {
                               style: StrokeStyle(lineWidth: session.pairPlacing ? 1.5 : 1,
                                                  dash: session.pairPlacing ? [6, 4] : []))
                 .frame(width: r.width, height: r.height)
-                .position(x: r.midX, y: r.midY)
-                .allowsHitTesting(false)
-        }
-        // While its picture is dragged: the frame's own preview where the
-        // drag has it, so the move is seen before it is developed.
-        if let drag = session.pairDrag, drag.side == side, let held = pair[side] {
-            PairDragPreview(url: held.url, placement: drag.live, aspect: pair.holeAspect)
-                .frame(width: r.width, height: r.height)
-                .clipped()
                 .position(x: r.midX, y: r.midY)
                 .allowsHitTesting(false)
         }
@@ -98,7 +99,7 @@ struct PairOverlay: View {
     /// the way out.
     private var cropBar: some View {
         HStack(spacing: 10) {
-            Text(L("Drag to move the picture · scroll to scale", zh: "拖动移动画面 · 滚动缩放"))
+            Text(L("Drag to move the picture · scroll or pinch to scale", zh: "拖动移动画面 · 滚动或捏合缩放"))
                 .font(Theme.Font.label).foregroundStyle(Theme.text)
             Button { _ = session.endPlacement() } label: {
                 Text(L("Done", zh: "完成"))
@@ -152,29 +153,36 @@ struct PairDrop: ViewModifier {
     }
 }
 
-/// The frame's embedded preview under a hole at a placement: what the crop
-/// drag shows while it is in flight. Not the developed picture — the develop
-/// follows the release — but the same rectangle of the same frame.
+/// The frame under a hole at a placement: what a crop gesture shows while it
+/// is in flight and until its develop lands. Not the developed picture, but
+/// the same rectangle of the same frame, framed and turned the same way.
 struct PairDragPreview: View {
-    let url: URL
+    let hole: HalfFramePair.Hole
     let placement: HalfFramePair.Placement
     let aspect: Double
     @State private var image: CGImage?
 
+    private struct Key: Equatable { let path: String; let geometry: Geometry; let turns: Int }
+
     var body: some View {
         GeometryReader { geo in
-            if let image, placement.quarterTurns % 4 == 0 {
+            if let image {
+                // Already turned (`framedPreview`), so the cut is taken as is.
                 let source = CGSize(width: image.width, height: image.height)
                 let cut = HalfFramePair.sourceRect(for: placement, source: source, aspect: aspect)
                 let k = geo.size.height / max(cut.height, 1)
                 Image(decorative: image, scale: 1)
                     .resizable()
+                    .interpolation(.medium)
                     .frame(width: source.width * k, height: source.height * k)
                     .offset(x: -cut.minX * k, y: -cut.minY * k)
                     .frame(width: geo.size.width, height: geo.size.height, alignment: .topLeading)
-                    .opacity(0.9)
             }
         }
-        .task(id: url) { image = await ThumbnailCache.shared.thumbnail(for: url, maxPixel: 640) }
+        .task(id: Key(path: hole.path, geometry: hole.geometry, turns: placement.quarterTurns)) {
+            var framed = hole
+            framed.placement.quarterTurns = placement.quarterTurns
+            image = await Task.detached(priority: .userInitiated) { PairComposer.framedPreview(framed) }.value
+        }
     }
 }

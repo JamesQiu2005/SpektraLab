@@ -102,6 +102,9 @@ final class Session: CanvasHost {
     /// The hole whose Add Frame picker is open on the canvas.
     var pairPicker: HalfFramePair.Side?
     private(set) var pairDrag: PairDrag?
+    /// The wheel's, the pinch's and a slider's change to a placement is one
+    /// gesture: shown as it goes, written once it stops.
+    @ObservationIgnored private var pairPlacementTask: Task<Void, Never>?
     private(set) var pairGates: [CGRect] = []
     var params: FilmParams {
         get { sidecar.params }
@@ -2421,7 +2424,7 @@ final class Session: CanvasHost {
         // reason it must not clear until the native render lands.
         previewSoft = wantsFullRender
         lastRenderMs = r.elapsedMs
-        if pair != nil { refreshPairGates() }
+        if pair != nil { refreshPairGates(); placementLanded() }
         if let base = statusBase { status = "\(base)  ·  \(r.reprint ? "reprint" : "render") \(Int(r.elapsedMs)) ms" }
         frameStates[url] = .processed
         sidecar.state = .processed
@@ -2585,6 +2588,9 @@ final class Session: CanvasHost {
         renderer.layer2 = shown.uniforms
         renderer.setCurves(shown.curves)
     }
+
+    /// Whether the piece on the canvas is of an older pair than the one written.
+    var pairDecodeIsStale: Bool { decodeIsStale }
 
     /// `scheduleReopen` for the pair's own writes (`updatePair`).
     func schedulePairReopen() { scheduleReopen() }
@@ -3592,6 +3598,9 @@ final class Session: CanvasHost {
         // the pair is laid out again.
         if let piece, let url = selection, piece.url == url, let now = pair, now != piece.pair {
             try? piece.pair.save(to: url)
+            // A crop gesture's picture is of the piece this step takes back.
+            pairPlacementTask?.cancel()
+            pairDrag = nil
             pair = piece.pair
             pairRightExif = piece.pair.right.flatMap { EXIFReadout.read($0.url) }
             exif = EXIFReadout.read(piece.pair.left?.url ?? url)
@@ -4410,12 +4419,17 @@ extension Session {
             pairLayer = filled == .left ? .left : .right
         }
         pairPlacing = true
+        // The gesture's picture, ready before the first notch of the wheel.
+        if let hole = pairLayer.side.flatMap({ p[$0] }) {
+            Task.detached(priority: .userInitiated) { _ = PairComposer.framedPreview(hole) }
+        }
     }
 
     func endPlacement() -> Bool {
         guard pairPlacing else { return false }
+        // A zoom still in flight is kept, not thrown away with the mode.
+        commitPlacement()
         pairPlacing = false
-        pairDrag = nil
         return true
     }
 
@@ -4444,33 +4458,131 @@ extension Session {
         return p
     }
 
+    /// `origin` zoomed by `factor` about `anchor` — a point of the hole, 0…1
+    /// each way, y down. What is under the anchor stays under it for as long
+    /// as the picture still covers the hole; at the picture's edge the edge
+    /// wins.
+    nonisolated static func placement(_ origin: HalfFramePair.Placement, zoomedBy factor: Double,
+                                      about anchor: CGPoint, source: CGSize,
+                                      aspect: Double = 0.75) -> HalfFramePair.Placement {
+        let turned = HalfFramePair.turned(source, by: origin)
+        let was = HalfFramePair.sourceRect(for: origin, source: turned, aspect: aspect)
+        var p = origin
+        let from = origin.scale.clamped(to: HalfFramePair.Placement.scaleRange)
+        p.scale = (from * factor).clamped(to: HalfFramePair.Placement.scaleRange)
+        guard p.scale != from, was.width > 0, was.height > 0 else { return origin }
+        let w = was.width * from / p.scale, h = was.height * from / p.scale
+        // The source point under the anchor, and the cut that keeps it there.
+        let cx = was.minX + anchor.x * was.width - anchor.x * w + w / 2
+        let cy = was.minY + anchor.y * was.height - anchor.y * h + h / 2
+        let slackX = (turned.width - w) / 2, slackY = (turned.height - h) / 2
+        p.x = slackX > 0.5 ? Double((cx - turned.width / 2) / slackX).clamped(to: -1...1) : 0
+        p.y = slackY > 0.5 ? Double((cy - turned.height / 2) / slackY).clamped(to: -1...1) : 0
+        return p
+    }
+
+    /// The placement a hole is shown at: the gesture's while one is in
+    /// flight or its develop is still to land, the written one otherwise.
+    func shownPlacement(_ side: HalfFramePair.Side) -> HalfFramePair.Placement? {
+        if let drag = pairDrag, drag.side == side { return drag.live }
+        return pair?[side]?.placement
+    }
+
+    /// The gesture on `side`: the one in flight, or a new one from the
+    /// written placement.
+    private func placementGesture(_ side: HalfFramePair.Side, at n: CGPoint) -> PairDrag? {
+        // Not across a turn made meanwhile (the Turn button writes at once).
+        if var drag = pairDrag, drag.side == side,
+           drag.live.quarterTurns == pair?[side]?.placement.quarterTurns { drag.settling = false; return drag }
+        guard let hole = pair?[side], hole.exists, let whole = Self.pixelSize(of: hole.url) else { return nil }
+        return PairDrag(side: side, start: n, origin: hole.placement,
+                        source: hole.geometry.outputSize(for: whole), live: hole.placement)
+    }
+
     func placementBegan(at n: CGPoint) -> Bool {
-        guard pairPlacing, let side = pairLayer.side, let hole = pair?[side], hole.exists,
+        guard pairPlacing, let side = pairLayer.side,
               let rect = pairHoleRects[side], rect.contains(n),
-              let whole = Self.pixelSize(of: hole.url) else { return false }
-        let source = hole.geometry.outputSize(for: whole)
-        pairDrag = PairDrag(side: side, start: n, origin: hole.placement, source: source, live: hole.placement)
+              var drag = placementGesture(side, at: n) else { return false }
+        // A drag that follows a zoom carries on from where the zoom has it.
+        pairPlacementTask?.cancel()
+        drag = PairDrag(side: side, start: n, origin: drag.live, source: drag.source, live: drag.live)
+        pairDrag = drag
         return true
     }
 
     func placementMoved(to n: CGPoint) {
-        guard var drag = pairDrag, let rect = pairHoleRects[drag.side], rect.width > 0, rect.height > 0 else { return }
+        guard var drag = pairDrag, !drag.settling,
+              let rect = pairHoleRects[drag.side], rect.width > 0, rect.height > 0 else { return }
         let d = CGSize(width: (n.x - drag.start.x) / rect.width, height: (n.y - drag.start.y) / rect.height)
         drag.live = Self.placement(drag.origin, draggedBy: d, source: drag.source, aspect: pair?.holeAspect ?? 0.75)
         pairDrag = drag
     }
 
-    func placementEnded() {
-        guard let drag = pairDrag else { return }
-        pairDrag = nil
-        setPlacement(drag.side) { $0 = drag.live }
+    func placementEnded() { commitPlacement() }
+
+    /// The wheel or the pinch, in the crop mode: the picked frame's picture
+    /// is scaled under its hole about the pointer (about the hole's middle
+    /// when the pointer is off it). Every scroll in the mode is this — the
+    /// canvas's own pan would move the piece away from the hole being cut.
+    func placementZoomed(by factor: Double, at n: CGPoint) -> Bool {
+        guard pairPlacing, let side = pairLayer.side, factor.isFinite, factor > 0,
+              var drag = placementGesture(side, at: n) else { return false }
+        var anchor = CGPoint(x: 0.5, y: 0.5)
+        if let rect = pairHoleRects[side], rect.width > 0, rect.height > 0, rect.contains(n) {
+            anchor = CGPoint(x: (n.x - rect.minX) / rect.width, y: (n.y - rect.minY) / rect.height)
+        }
+        drag.live = Self.placement(drag.live, zoomedBy: factor, about: anchor, source: drag.source,
+                                   aspect: pair?.holeAspect ?? 0.75)
+        pairDrag = drag
+        schedulePlacementCommit()
+        return true
     }
 
-    func placementScrolled(_ delta: CGFloat, at n: CGPoint) -> Bool {
-        guard pairPlacing, let side = pairLayer.side, pair?[side] != nil,
-              let rect = pairHoleRects[side], rect.contains(n) else { return false }
-        setPlacement(side) { $0.scale *= pow(1.004, Double(delta)) }
-        return true
+    /// A slider's change to a placement: shown at once, written when the
+    /// slider rests.
+    func previewPlacement(_ side: HalfFramePair.Side, _ change: (inout HalfFramePair.Placement) -> Void) {
+        guard var drag = placementGesture(side, at: .zero) else { return }
+        change(&drag.live)
+        drag.live.scale = drag.live.scale.clamped(to: HalfFramePair.Placement.scaleRange)
+        drag.live.x = drag.live.x.clamped(to: -1...1)
+        drag.live.y = drag.live.y.clamped(to: -1...1)
+        pairDrag = drag
+        schedulePlacementCommit()
+    }
+
+    private func schedulePlacementCommit() {
+        pairPlacementTask?.cancel()
+        pairPlacementTask = Task {
+            try? await Task.sleep(for: .milliseconds(280))
+            guard !Task.isCancelled else { return }
+            commitPlacement()
+        }
+    }
+
+    /// Write the gesture: one undo step, one save, one develop. Its picture
+    /// stays on the hole until that develop lands (`placementLanded`), so the
+    /// hole does not fall back to the old crop in between.
+    func commitPlacement() {
+        pairPlacementTask?.cancel()
+        guard var drag = pairDrag, !drag.settling else { return }
+        guard pair?[drag.side]?.placement != drag.live else { pairDrag = nil; return }
+        drag.settling = true
+        pairDrag = drag
+        lastUndoAt = .distantPast
+        setPlacement(drag.side) { $0 = drag.live }
+        // Never left up for good: a develop that fails says so elsewhere.
+        pairPlacementTask = Task {
+            try? await Task.sleep(for: .seconds(8))
+            guard !Task.isCancelled, pairDrag?.settling == true else { return }
+            pairDrag = nil
+        }
+    }
+
+    /// The pair's print landed: a gesture that was waiting for it is done.
+    func placementLanded() {
+        guard pairDrag?.settling == true, !pairDecodeIsStale else { return }
+        pairPlacementTask?.cancel()
+        pairDrag = nil
     }
 }
 
@@ -4481,6 +4593,8 @@ struct PairDrag: Equatable, Sendable {
     let origin: HalfFramePair.Placement
     let source: CGSize
     var live: HalfFramePair.Placement
+    /// Written, and waiting for its develop: no longer the pointer's.
+    var settling = false
 }
 
 // MARK: - entering a pair from a half frame, and the hole's own menu

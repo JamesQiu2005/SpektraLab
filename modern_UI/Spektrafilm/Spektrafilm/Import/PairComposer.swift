@@ -87,8 +87,13 @@ enum PairComposer {
         var across: [CGFloat] = [], longest: CGFloat = 0
         for side in HalfFramePair.Side.allCases {
             guard let hole = pair[side], let size = sizes[side] else { continue }
+            // At the picture's own fit, whatever it is zoomed to: a zoom must
+            // not resize the piece (the canvas would refit on every notch and
+            // the other frame would be rendered again at the new size).
             let turned = HalfFramePair.turned(size, by: hole.placement)
-            let cut = HalfFramePair.sourceRect(for: hole.placement, source: turned, aspect: pair.holeAspect)
+            var fit = hole.placement
+            fit.scale = 1
+            let cut = HalfFramePair.sourceRect(for: fit, source: turned, aspect: pair.holeAspect)
             across.append(pair.turned ? cut.width : cut.height)
             longest = max(longest, size.width, size.height)
         }
@@ -245,6 +250,29 @@ enum PairComposer {
             .transformed(by: .init(translationX: -rectCI.minX, y: -rectCI.minY))
             .transformed(by: .init(scaleX: scale, y: scale))
     }
+
+    /// A frame as the hole's crop sees it — its embedded preview, framed by
+    /// its own geometry and turned by its placement — for the picture a crop
+    /// gesture shows while it is in flight. Kept: a gesture asks for it again
+    /// on every start.
+    static func framedPreview(_ hole: HalfFramePair.Hole, maxPixel: Int = 2048) -> CGImage? {
+        let g = hole.geometry
+        let key = "\(hole.path)|\(g.crop.x),\(g.crop.y),\(g.crop.width),\(g.crop.height),\(g.angle),"
+            + "\(g.quarterTurns),\(g.flipH),\(g.flipV)|\(hole.placement.quarterTurns)|\(maxPixel)" as NSString
+        if let kept = previews.object(forKey: key) { return kept.image }
+        guard let ci = embeddedPreview(hole.url, maxPixel: maxPixel) else { return nil }
+        var img = Session.engineImage(ci, size: ci.extent.size, cut: hole.geometry)
+        let turns = ((hole.placement.quarterTurns % 4) + 4) % 4
+        if turns != 0 { img = img.transformed(by: CGAffineTransform(rotationAngle: -.pi / 2 * CGFloat(turns))) }
+        guard let cg = ImageDecoder.context.createCGImage(img, from: img.extent.integral) else { return nil }
+        previews.setObject(Preview(cg), forKey: key)
+        return cg
+    }
+
+    private final class Preview { let image: CGImage; init(_ image: CGImage) { self.image = image } }
+    nonisolated(unsafe) private static let previews: NSCache<NSString, Preview> = {
+        let c = NSCache<NSString, Preview>(); c.countLimit = 4; return c
+    }()
 
     /// The pair's filmstrip thumbnail before anything is rendered: the two
     /// frames' own previews, framed and placed, the gap and an empty hole dark.
