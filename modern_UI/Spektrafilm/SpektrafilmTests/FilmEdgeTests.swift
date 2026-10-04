@@ -95,7 +95,10 @@ final class FilmEdgeTests: XCTestCase {
         XCTAssertEqual(Session.edgeText(for: catalog.stock("kodak_gold_200")), "KODAK GB 200-7")
         XCTAssertEqual(Session.edgeText(for: catalog.stock("kodak_gold_200"), gauge: "120"), "KODAK 200")
         XCTAssertEqual(Session.edgeText(for: catalog.stock("fujifilm_provia_100f")), "FUJI RDPIII")
-        XCTAssertEqual(Session.edgeText(for: catalog.stock("fujifilm_provia_100f"), gauge: "120"), "RDPIII")
+        // Fujifilm 120: the maker's mark is the text's first word (the engine prints none of its own)
+        XCTAssertEqual(Session.edgeText(for: catalog.stock("fujifilm_provia_100f"), gauge: "120"), "FUJI RDPIII")
+        XCTAssertEqual(Session.edgeText(for: catalog.stock("fujifilm_pro_400h"), gauge: "120"), "FUJI PRO400H")
+        XCTAssertEqual(Session.edgeText(for: catalog.stock("fujifilm_pro_400h")), "PRO400H")
         XCTAssertEqual(Session.edgeText(for: catalog.stock("fujifilm_xtra_400")), "S-400")
     }
 

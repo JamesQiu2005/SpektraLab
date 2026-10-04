@@ -203,9 +203,11 @@ extension Session {
     /// (2026-10-03): Gold 200 is "GB 200-7" on 135 and "KODAK 200" on 120,
     /// Portra 800 "PORTRA 800-3" on 135, UltraMax "GC 400", Ektachrome
     /// "E100", C200 "FUJI 200", X-Tra "S-400", Pro 400H "PRO400H", Provia
-    /// "FUJI RDPIII" (the engine prints "FUJI" on its own on 120), Velvia
-    /// "RVP100" (the references are RVP50), and a Vision3 stock its Eastman
-    /// product number. The emulsion suffix is printed where a strip shows
+    /// "FUJI RDPIII", Velvia "RVP100" (the references are RVP50), and a
+    /// Vision3 stock its Eastman product number. On Fujifilm's 120 layout the
+    /// first word is the maker's mark the film prints apart from its name
+    /// ("FUJI … 13 ◂ PRO400H"): the engine prints no maker's name of its own,
+    /// so the 120 text of those stocks leads with "FUJI". The emulsion suffix is printed where a strip shows
     /// one (owner, 2026-10-03); the strips for the other stocks are cut
     /// before it or carry none, so those print no suffix. Roll numbers are
     /// not printed.
@@ -219,10 +221,10 @@ extension Session {
             "kodak_ultramax_400": ("KODAK GC 400", "KODAK GC 400"),
             "kodak_ektachrome_100": ("KODAK E100", "KODAK E100"),
             "fujifilm_c200": ("FUJI 200", "FUJI 200"),
-            "fujifilm_xtra_400": ("S-400", "S-400"),
-            "fujifilm_pro_400h": ("PRO400H", "PRO400H"),
-            "fujifilm_provia_100f": ("FUJI RDPIII", "RDPIII"),
-            "fujifilm_velvia_100": ("RVP100", "RVP100"),
+            "fujifilm_xtra_400": ("S-400", "FUJI S-400"),
+            "fujifilm_pro_400h": ("PRO400H", "FUJI PRO400H"),
+            "fujifilm_provia_100f": ("FUJI RDPIII", "FUJI RDPIII"),
+            "fujifilm_velvia_100": ("RVP100", "FUJI RVP100"),
             "kodak_vision3_50d": ("EASTMAN 5203", "EASTMAN 5203"),
             "kodak_vision3_250d": ("EASTMAN 5207", "EASTMAN 5207"),
             "kodak_vision3_200t": ("EASTMAN 5213", "EASTMAN 5213"),
