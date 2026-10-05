@@ -1,0 +1,28 @@
+#version 450
+
+// DIR-coupler correction before the separately scheduled spatial diffusion.
+layout(local_size_x = 256) in;
+layout(set = 0, binding = 0, std430) readonly buffer Input { float value[]; } input_data;
+layout(set = 0, binding = 1, std430) readonly buffer Matrix { float value[]; } matrix_data;
+layout(set = 0, binding = 2, std430) readonly buffer DMax { float value[]; } dmax_data;
+layout(set = 0, binding = 3, std430) readonly buffer Positive { uint value[]; } positive_data;
+layout(set = 0, binding = 4, std430) readonly buffer Shift { float value[]; } shift_data;
+layout(set = 0, binding = 5, std430) readonly buffer Count { uint value[]; } count_data;
+layout(set = 0, binding = 6, std430) writeonly buffer Output { float value[]; } output_data;
+
+void main() {
+    uint pixel = gl_GlobalInvocationID.x;
+    if (pixel >= count_data.value[0]) return;
+    vec3 c = vec3(input_data.value[3u * pixel], input_data.value[3u * pixel + 1u],
+                  input_data.value[3u * pixel + 2u]);
+    if (positive_data.value[0] != 0u)
+        c = vec3(dmax_data.value[0], dmax_data.value[1], dmax_data.value[2]) - c;
+    float shift = shift_data.value[0];
+    c += shift * c * c;
+    output_data.value[3u * pixel] = c.x * matrix_data.value[0] +
+                                      c.y * matrix_data.value[3] + c.z * matrix_data.value[6];
+    output_data.value[3u * pixel + 1u] = c.x * matrix_data.value[1] +
+                                           c.y * matrix_data.value[4] + c.z * matrix_data.value[7];
+    output_data.value[3u * pixel + 2u] = c.x * matrix_data.value[2] +
+                                           c.y * matrix_data.value[5] + c.z * matrix_data.value[8];
+}

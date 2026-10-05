@@ -1,0 +1,76 @@
+#version 450
+
+// Hanatos spectral upsampling, back half. Mitchell weights and mirrored
+// indices follow spk_common.h; the LUT is (L, L, 3) row-major.
+layout(local_size_x = 256) in;
+layout(set = 0, binding = 0, std430) readonly buffer Coordinates { float value[]; } tc_data;
+layout(set = 0, binding = 1, std430) readonly buffer Brightness { float value[]; } brightness_data;
+layout(set = 0, binding = 2, std430) readonly buffer Lut { float value[]; } lut_data;
+layout(set = 0, binding = 3, std430) readonly buffer Meta { uint value[]; } meta;
+layout(set = 0, binding = 4, std430) writeonly buffer Output { float value[]; } output_data;
+
+float mitchell(float t) {
+    const float B = 1.0 / 3.0;
+    const float C = 1.0 / 3.0;
+    float x = abs(t);
+    if (x < 1.0)
+        return (1.0 / 6.0) * ((12.0 - 9.0 * B - 6.0 * C) * x * x * x
+                            + (-18.0 + 12.0 * B + 6.0 * C) * x * x
+                            + (6.0 - 2.0 * B));
+    if (x < 2.0)
+        return (1.0 / 6.0) * ((-B - 6.0 * C) * x * x * x
+                            + (6.0 * B + 30.0 * C) * x * x
+                            + (-12.0 * B - 48.0 * C) * x
+                            + (8.0 * B + 24.0 * C));
+    return 0.0;
+}
+
+int safe_index(int index, int length) {
+    if (index < 0) return -index;
+    if (index >= length) return 2 * (length - 1) - index;
+    return index;
+}
+
+void base_frac(float coord, int length, out int base, out float fraction) {
+    float upper = float(length - 1);
+    if (coord <= 0.0) coord = 0.0;
+    if (coord >= upper) { base = length - 2; fraction = 1.0; return; }
+    base = int(floor(coord));
+    fraction = coord - float(base);
+}
+
+void main() {
+    uint i = gl_GlobalInvocationID.x;
+    uint length = meta.value[0];
+    if (i >= meta.value[1]) return;
+    float scale = float(length - 1);
+    float x = tc_data.value[2 * i] * scale;
+    float y = tc_data.value[2 * i + 1] * scale;
+    int xbase, ybase;
+    float xf, yf;
+    base_frac(x, int(length), xbase, xf);
+    base_frac(y, int(length), ybase, yf);
+    float wx[4] = float[4](mitchell(xf + 1.0), mitchell(xf),
+                           mitchell(xf - 1.0), mitchell(xf - 2.0));
+    float wy[4] = float[4](mitchell(yf + 1.0), mitchell(yf),
+                           mitchell(yf - 1.0), mitchell(yf - 2.0));
+    vec3 accumulated = vec3(0.0);
+    float weight_sum = 0.0;
+    for (int a = 0; a < 4; ++a) {
+        int xi = safe_index(xbase - 1 + a, int(length));
+        for (int b = 0; b < 4; ++b) {
+            int yj = safe_index(ybase - 1 + b, int(length));
+            float weight = wx[a] * wy[b];
+            weight_sum += weight;
+            uint offset = 3 * (uint(xi) * length + uint(yj));
+            accumulated += weight * vec3(lut_data.value[offset],
+                                         lut_data.value[offset + 1],
+                                         lut_data.value[offset + 2]);
+        }
+    }
+    if (weight_sum != 0.0) accumulated /= weight_sum;
+    float brightness = brightness_data.value[i];
+    output_data.value[3 * i] = accumulated.x * brightness;
+    output_data.value[3 * i + 1] = accumulated.y * brightness;
+    output_data.value[3 * i + 2] = accumulated.z * brightness;
+}

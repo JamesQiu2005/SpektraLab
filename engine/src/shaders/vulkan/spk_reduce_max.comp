@@ -1,0 +1,25 @@
+#version 450
+
+// One partial per workgroup, exactly as util.metal. Pipeline::device_max
+// dispatches 256 groups of 256 threads and reduces these 256 partials on host.
+layout(local_size_x = 256) in;
+layout(set = 0, binding = 0, std430) readonly buffer Input { float value[]; } input_data;
+layout(set = 0, binding = 1, std430) readonly buffer Count { uint value[]; } count_data;
+layout(set = 0, binding = 2, std430) writeonly buffer Output { float value[]; } output_data;
+shared float scratch[256];
+
+void main() {
+    uint local_id = gl_LocalInvocationID.x;
+    float best = uintBitsToFloat(0xff800000u);
+    uint grid_size = gl_NumWorkGroups.x * gl_WorkGroupSize.x;
+    for (uint i = gl_GlobalInvocationID.x; i < count_data.value[0]; i += grid_size)
+        best = max(best, input_data.value[i]);
+    scratch[local_id] = best;
+    barrier();
+    for (uint stride = gl_WorkGroupSize.x / 2u; stride > 0u; stride >>= 1u) {
+        if (local_id < stride)
+            scratch[local_id] = max(scratch[local_id], scratch[local_id + stride]);
+        barrier();
+    }
+    if (local_id == 0u) output_data.value[gl_WorkGroupID.x] = scratch[0];
+}

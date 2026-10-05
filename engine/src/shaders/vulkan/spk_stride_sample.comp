@@ -1,0 +1,22 @@
+#version 450
+
+// The exposure meter's sparse RGB gather. Source and output are tightly
+// packed, top row first, matching util.metal's spk_stride_sample.
+layout(local_size_x = 256) in;
+layout(set = 0, binding = 0, std430) readonly buffer Input { float value[]; } input_data;
+layout(set = 0, binding = 1, std430) readonly buffer Meta { uint value[]; } meta;
+layout(set = 0, binding = 2, std430) writeonly buffer Output { float value[]; } output_data;
+
+void main() {
+    uint i = gl_GlobalInvocationID.x;
+    uint source_width = meta.value[0];
+    uint output_height = meta.value[1];
+    uint output_width = meta.value[2];
+    uint step = meta.value[3];
+    if (i >= output_height * output_width) return;
+    uint y = i / output_width;
+    uint x = i % output_width;
+    uint source = (y * step) * source_width + x * step;
+    for (uint c = 0; c < 3; ++c)
+        output_data.value[3 * i + c] = input_data.value[3 * source + c];
+}

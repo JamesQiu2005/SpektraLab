@@ -333,3 +333,12 @@ modern_UI/Spektrafilm/Spektrafilm/Resources/engine/
 
 # Local build output: packaged apps, snapshots, full-size screenshots.
 /output/
+
+# Windows build products and local migration records.
+*.dll
+*.exe
+*.obj
+*.spv
+CMakeUserPresets.json
+/WINDOWS_PORT_HANDOFF.md
+/WINDOWS_PORT_PLAN.md

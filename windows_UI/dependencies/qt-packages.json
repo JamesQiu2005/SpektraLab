@@ -1,0 +1,62 @@
+{
+  "qt": "6.11.3",
+  "compiler": "13.1.0 posix-seh-msvcrt",
+  "packages": [
+    {
+      "file": "6.11.3-0-202609240253qtbase-Windows-Windows_11_24H2-Mingw-Windows-Windows_11_24H2-X86_64.7z",
+      "url": "https://download.qt.io/online/qtsdkrepository/windows_x86/desktop/qt6_6113/qt6_6113_mingw/qt.qt6.6113.win64_mingw/6.11.3-0-202609240253qtbase-Windows-Windows_11_24H2-Mingw-Windows-Windows_11_24H2-X86_64.7z",
+      "bytes": 22489574,
+      "official_sha1": "f051a4dfa3dc0ea6edd1afa1cb26fdffcd3ac81d",
+      "sha256": "3b37753d8ee6d19ba181d6cd1ef464e23863bc4b3a1d5f1fad6f69093218452a"
+    },
+    {
+      "file": "6.11.3-0-202609240253qtdeclarative-Windows-Windows_11_24H2-Mingw-Windows-Windows_11_24H2-X86_64.7z",
+      "url": "https://download.qt.io/online/qtsdkrepository/windows_x86/desktop/qt6_6113/qt6_6113_mingw/qt.qt6.6113.win64_mingw/6.11.3-0-202609240253qtdeclarative-Windows-Windows_11_24H2-Mingw-Windows-Windows_11_24H2-X86_64.7z",
+      "bytes": 111844019,
+      "official_sha1": "54c9c8d76009bc0e365ab17b660f48411ccca57d",
+      "sha256": "704e2e50e7619d1193196ad86d270ed85d50055fd8da47517edcca82a55321ea"
+    },
+    {
+      "file": "6.11.3-0-202609240253qttools-Windows-Windows_11_24H2-Mingw-Windows-Windows_11_24H2-X86_64.7z",
+      "url": "https://download.qt.io/online/qtsdkrepository/windows_x86/desktop/qt6_6113/qt6_6113_mingw/qt.qt6.6113.win64_mingw/6.11.3-0-202609240253qttools-Windows-Windows_11_24H2-Mingw-Windows-Windows_11_24H2-X86_64.7z",
+      "bytes": 26904496,
+      "official_sha1": "947cf69edfb5347ee254e9ec5ae94c7154627528",
+      "sha256": "38a7d808f491b97997d2da2d5ce6989f34f4b86357a4f0b7700beb497b12fdf9"
+    },
+    {
+      "file": "6.11.3-0-202609240253qtsvg-Windows-Windows_11_24H2-Mingw-Windows-Windows_11_24H2-X86_64.7z",
+      "url": "https://download.qt.io/online/qtsdkrepository/windows_x86/desktop/qt6_6113/qt6_6113_mingw/qt.qt6.6113.win64_mingw/6.11.3-0-202609240253qtsvg-Windows-Windows_11_24H2-Mingw-Windows-Windows_11_24H2-X86_64.7z",
+      "bytes": 333081,
+      "official_sha1": "93e2d012d7c0ebc3315fbaacfdc202c21f57a307",
+      "sha256": "645f3ea35e26102921bdee10397a084872f61726767d656e1cea617c5ee74bb7"
+    },
+    {
+      "file": "6.11.3-0-202609240253qttranslations-Windows-Windows_11_24H2-Mingw-Windows-Windows_11_24H2-X86_64.7z",
+      "url": "https://download.qt.io/online/qtsdkrepository/windows_x86/desktop/qt6_6113/qt6_6113_mingw/qt.qt6.6113.win64_mingw/6.11.3-0-202609240253qttranslations-Windows-Windows_11_24H2-Mingw-Windows-Windows_11_24H2-X86_64.7z",
+      "bytes": 2001381,
+      "official_sha1": "0795f486d2e9b25a608b834384cab9ca7a0bb3f4",
+      "sha256": "b4712b7cabccbf4898c457ef7b3019a2c458497b0b5a3bdc726af31f429e6324"
+    },
+    {
+      "file": "6.11.3-0-202609240253MinGW-w64-x86_64-13.1.0-release-posix-seh-msvcrt-rt_v11-rev1-runtime.7z",
+      "url": "https://download.qt.io/online/qtsdkrepository/windows_x86/desktop/qt6_6113/qt6_6113_mingw/qt.qt6.6113.win64_mingw/6.11.3-0-202609240253MinGW-w64-x86_64-13.1.0-release-posix-seh-msvcrt-rt_v11-rev1-runtime.7z",
+      "bytes": 644837,
+      "official_sha1": "6a0888995df2efed352688f238f275094bb26d44",
+      "sha256": "5658c38950a9bb5f05b9a8f13b272ff0e590a0e0316225d9826e45b27a5efcc4"
+    },
+    {
+      "file": "13.1.0-202407240918mingw1310.7z",
+      "url": "https://download.qt.io/online/qtsdkrepository/windows_x86/desktop/tools_mingw1310/qt.tools.win64_mingw1310/13.1.0-202407240918mingw1310.7z",
+      "bytes": 112089140,
+      "official_sha1": "23c4bdecc1a2d2588f1b32b3e6cbf64d2a7ee852",
+      "sha256": "a7b502294a903b64fccd4a41ba39f48d3f6c9a5ece167f0cfaeac920d15b344f"
+    },
+    {
+      "file": "6.11.3-0-202609240253qtshadertools-Windows-Windows_11_24H2-Mingw-Windows-Windows_11_24H2-X86_64.7z",
+      "url": "https://download.qt.io/online/qtsdkrepository/windows_x86/desktop/qt6_6113/qt6_6113_mingw/qt.qt6.6113.addons.qtshadertools.win64_mingw/6.11.3-0-202609240253qtshadertools-Windows-Windows_11_24H2-Mingw-Windows-Windows_11_24H2-X86_64.7z",
+      "bytes": 1699848,
+      "official_sha1": "3ba758ae88ec4839fb467963388286667dd685a3",
+      "sha256": "d18811fa4df54f54305cb9384d0388221babf5db5052b8c307027af8372c3c95"
+    }
+  ]
+}

@@ -1,0 +1,40 @@
+#version 450
+#extension GL_GOOGLE_include_directive : require
+#include "spk_rng.glsl"
+layout(local_size_x = 256) in;
+layout(std430, binding = 0) readonly buffer Cmy { float cmy[]; };
+layout(std430, binding = 1) readonly buffer Xa { float xa[]; };
+layout(std430, binding = 2) readonly buffer Inv { float inv[]; };
+layout(std430, binding = 3) readonly buffer Ylay { float ylay[]; };
+layout(std430, binding = 4) readonly buffer Lp { float lp[]; };
+layout(std430, binding = 5) readonly buffer Streams { uint streams[]; };
+layout(std430, binding = 6) readonly buffer Meta { uint meta[]; };
+layout(std430, binding = 7) writeonly buffer Out { float dst[]; };
+uint search_right(uint K, uint ch, float v) {
+    uint lo = 0u, hi = K;
+    while (lo < hi) { uint mid = lo + ((hi - lo) >> 1); if (xa[mid * 3u + ch] <= v) lo = mid + 1u; else hi = mid; }
+    return lo;
+}
+void main() {
+    uint i = gl_GlobalInvocationID.x;
+    uint K = meta[0], n = meta[1], positive = meta[2], seed = meta[3], sl = meta[4];
+    if (i >= n) return;
+    for (uint ch = 0u; ch < 3u; ++ch) {
+        precise float v = cmy[3u * i + ch];
+        if (positive != 0u) v = -v;
+        float x0 = xa[ch], xN = xa[(K - 1u) * 3u + ch];
+        uint low = 0u; precise float t = 0.0; int mode;
+        if (v <= x0) mode = 0; else if (v >= xN) mode = 1; else {
+            uint idx = search_right(K, ch, v);
+            low = idx - 1u; t = (v - xa[low * 3u + ch]) * inv[low * 3u + ch]; mode = 2;
+        }
+        uint col = ch * 3u + sl;
+        precise float d;
+        if (mode == 0) d = ylay[col];
+        else if (mode == 1) d = ylay[(K - 1u) * 9u + col];
+        else { float y0 = ylay[low * 9u + col], y1 = ylay[(low + 1u) * 9u + col]; d = y0 + t * (y1 - y0); }
+        d += lp[4u * col];
+        Rng rng = rng_init(i, streams[col], seed);
+        dst[3u * i + ch] = layer_draw(rng, d, lp[4u * col + 1u], lp[4u * col + 2u], lp[4u * col + 3u]);
+    }
+}

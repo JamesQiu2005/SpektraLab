@@ -72,7 +72,7 @@ typedef struct {
     uint32_t     channels;   /* 3 or 4; a 4th channel is dropped at the door */
 } spk_image;
 
-/* The same image, already in GPU-visible memory: `buffer` is an
+/* Metal path only. The same image, already in GPU-visible memory: `buffer` is an
  * `id<MTLBuffer>` **on the engine's own device**, holding tightly packed
  * float32 pixels, top row first. Borrowed exactly as `spk_image.data` is --
  * valid for the duration of the call, not retained after it -- so the
@@ -82,7 +82,8 @@ typedef struct {
  * pay a host copy the engine would immediately repeat: `spk_open` copies the
  * pixels into a Metal buffer before its first kernel, which at 45 MP is
  * 727 MB and ~235 ms. Refused, with a message, when the buffer belongs to
- * another device or is shorter than `width * height * channels * 4` bytes. */
+ * another device or is shorter than `width * height * channels * 4` bytes.
+ * The first Vulkan backend refuses this entry point; use `spk_open` there. */
 typedef struct {
     void*    buffer;
     uint32_t width;
@@ -93,8 +94,8 @@ typedef struct {
 /* One rendered tier.
  *
  * **This struct is the one exception to rule 2 above**, and it is worth
- * reading before using it. `texture` is an `id<MTLTexture>` over the rendered
- * pixels, returned **+1: the caller owns it**. In Swift that means
+ * reading before using it. On macOS, `texture` is an `id<MTLTexture>` over
+ * the rendered pixels, returned **+1: the caller owns it**. In Swift that means
  * `takeRetainedValue()` and ARC; in C it means `spk_result_free` when done.
  *
  * The exception exists because the caller caches these. The frontend keeps the
@@ -103,10 +104,15 @@ typedef struct {
  * would silently become a different photograph. Each render therefore gets its
  * own buffer, and handing over the only reference is what ties that buffer's
  * lifetime to the caller's use of it rather than to the engine's next frame.
+ * The Windows headless path makes a separate CPU copy for the same lifetime.
  *
- * `rgba16` points into the texture's own memory, so it is valid for exactly as
- * long as `texture` is retained. It is there for callers that want the pixels
- * rather than something to draw -- the parity harness reads it, and it is the
+ * On the Windows headless Vulkan path, `texture` is an opaque handle owning a
+ * CPU copy of the RGBA16 pixels. It is not a drawable VkImage. Release it with
+ * `spk_result_free`, even if the session and engine have already been freed.
+ *
+ * `rgba16` points into the result handle's own memory, so it is valid for
+ * exactly as long as `texture` is retained. It is there for callers that want
+ * the pixels rather than something to draw -- the parity harness reads it, and it is the
  * same rows `service._write_rgba16` used to put in a file.
  */
 typedef struct {
@@ -128,10 +134,10 @@ typedef struct {
 
 /* --- engine ----------------------------------------------------------- */
 
-/* `resources_dir` holds what `engine/tools/bake_resources.py` wrote plus the
- * compiled `spektrafilm.metallib`. `device` is the caller's `MTLDevice`
- * (an `id<MTLDevice>`, retained by the engine for its lifetime); pass NULL
- * to let the engine create its own, which the parity harness does. */
+/* `resources_dir` holds the baked engine resources and backend shaders.
+ * On macOS, `device` is the caller's `MTLDevice` (retained by the engine);
+ * pass NULL to create one. The first Windows Vulkan backend currently accepts
+ * only NULL and loads SPIR-V from `resources_dir/vulkan`. */
 spk_engine* spk_engine_create(const char* resources_dir, void* device);
 void        spk_engine_destroy(spk_engine* engine);
 
@@ -222,7 +228,9 @@ spk_status spk_contrast_mask_field(spk_session* session, const char* tier, const
  * (99.9 or 99) -- which robust extreme each side is fitted to. `out_json` receives the measured medium, the scene
  * statistic, the suggested pull-backs and the solved fit, whose
  * `params_delta` -- present only when the fit is valid -- is what a client
- * sends to `spk_set_params` to commit it (API-SPEC §12). */
+ * sends to `spk_set_params` to commit it (API-SPEC §12).
+ * Windows supports this analysis, but currently refuses enabling the mapping;
+ * see `backend.unsupported_features` in capabilities. */
 spk_status spk_scene_latitude(spk_session* session, const char* request_json, char** out_json);
 
 /* RFC-032: where the gates are on the film canvas the session's last render

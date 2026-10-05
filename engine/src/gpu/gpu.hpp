@@ -40,6 +40,7 @@
 #pragma once
 #include <cstddef>
 #include <cstdint>
+#include <cstring>
 #include <string>
 #include <vector>
 
@@ -224,6 +225,8 @@ public:
     // renders into textures that device can draw -- RFC-014 §2.2's whole
     // point, and the deletion of a 364 MB round trip in each direction.
     static Gpu* create_metal(void* device, const std::string& metallib_path, std::string& error);
+    // Headless Windows path. The shader directory contains per-kernel SPIR-V.
+    static Gpu* create_vulkan(const std::string& shader_dir, std::string& error);
 
     virtual std::string device_name() const = 0;
 
@@ -299,6 +302,78 @@ public:
 
     virtual void* contents(Buffer* b) = 0;
     virtual size_t size_bytes(Buffer* b) const = 0;
+
+    // Explicit transfers keep device-local backends from needing a host
+    // mapping for every plane. Offsets and lengths are byte counts, aligned
+    // to four bytes on every backend. A zero-length operation still needs
+    // valid buffers, aligned offsets, and an in-range (possibly end) offset.
+    // The common checks are public so backend overrides use one contract.
+    bool validate_copy(Buffer* dst, size_t dst_offset, Buffer* src, size_t src_offset,
+                       size_t bytes, std::string& error) const {
+        if (!dst || !src) { error = "copy buffer is null"; return false; }
+        if ((dst_offset | src_offset | bytes) % 4 != 0) {
+            error = "copy offsets and size must be aligned to four bytes"; return false;
+        }
+        const size_t dst_size = size_bytes(dst), src_size = size_bytes(src);
+        if (dst_offset > dst_size || bytes > dst_size - dst_offset ||
+            src_offset > src_size || bytes > src_size - src_offset) {
+            error = "copy range exceeds buffer size"; return false;
+        }
+        if (dst == src && dst_offset != src_offset && bytes != 0 &&
+            dst_offset < src_offset + bytes && src_offset < dst_offset + bytes) {
+            error = "copy ranges overlap in the same buffer"; return false;
+        }
+        return true;
+    }
+
+    bool validate_read(Buffer* src, size_t src_offset, void* host_dst,
+                       size_t bytes, std::string& error) const {
+        if (!src) { error = "read buffer is null"; return false; }
+        if (!host_dst && bytes != 0) { error = "read destination is null"; return false; }
+        if ((src_offset | bytes) % 4 != 0) {
+            error = "read offset and size must be aligned to four bytes"; return false;
+        }
+        const size_t src_size = size_bytes(src);
+        if (src_offset > src_size || bytes > src_size - src_offset) {
+            error = "read range exceeds buffer size"; return false;
+        }
+        return true;
+    }
+
+    // On shared-memory Metal these remain the existing flush + host copy.
+    // Discrete backends override them with device copies and staged readback.
+    // Success means the transfer is complete; callers may immediately release
+    // either buffer or use the host destination. Exact same-range copy is a
+    // no-op, while partially overlapping ranges in one buffer are refused.
+    virtual bool copy(Buffer* dst, size_t dst_offset, Buffer* src, size_t src_offset,
+                      size_t bytes, std::string& error) {
+        if (!validate_copy(dst, dst_offset, src, src_offset, bytes, error)) return false;
+        if (bytes == 0 || (dst == src && dst_offset == src_offset)) return true;
+        if (!flush(error)) return false;
+        void* dst_data = contents(dst);
+        const void* src_data = contents(src);
+        if (!dst_data || !src_data) {
+            error = "copy requires host mappings or a backend transfer implementation";
+            return false;
+        }
+        std::memcpy(static_cast<unsigned char*>(dst_data) + dst_offset,
+                    static_cast<const unsigned char*>(src_data) + src_offset, bytes);
+        return true;
+    }
+
+    virtual bool read(Buffer* src, size_t src_offset, void* host_dst,
+                      size_t bytes, std::string& error) {
+        if (!validate_read(src, src_offset, host_dst, bytes, error)) return false;
+        if (bytes == 0) return true;
+        if (!flush(error)) return false;
+        const void* src_data = contents(src);
+        if (!src_data) {
+            error = "read requires a host mapping or a backend transfer implementation";
+            return false;
+        }
+        std::memcpy(host_dst, static_cast<const unsigned char*>(src_data) + src_offset, bytes);
+        return true;
+    }
 
     virtual bool dispatch(const char* kernel, const std::vector<Arg>& args,
                           size_t n_threads, std::string& error) = 0;

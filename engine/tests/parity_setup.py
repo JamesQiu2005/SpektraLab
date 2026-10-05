@@ -45,6 +45,8 @@ from pathlib import Path
 
 import numpy as np
 
+from spk_test_paths import add_resource_argument, default_binary, resolve_resources
+
 np.seterr(invalid="ignore")
 
 ENGINE = Path(__file__).resolve().parents[1]
@@ -397,15 +399,20 @@ def main() -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("--build", action="store_true", help="rebuild dump_setup first")
     ap.add_argument("--verbose", "-v", action="store_true")
-    ap.add_argument("--binary", type=Path, default=ENGINE / "build" / "dump_setup")
+    ap.add_argument("--binary", type=Path, default=default_binary("dump_setup"))
+    add_resource_argument(ap)
     args = ap.parse_args()
 
     if args.build or not args.binary.exists():
+        if sys.platform == "win32":
+            ap.error("build dump_setup with CMake first, then pass --binary path/to/dump_setup.exe; "
+                     "--build invokes the macOS engine/build.sh and is unavailable on Windows")
         subprocess.run([str(ENGINE / "build.sh"), "tests"], check=True)
 
     with tempfile.TemporaryDirectory() as tmp:
         dat, idx = Path(tmp) / "setup.dat", Path(tmp) / "setup.idx"
-        subprocess.run([str(args.binary), str(ENGINE / "resources"), str(dat), str(idx)], check=True)
+        subprocess.run([str(args.binary), str(resolve_resources(args.resources)), str(dat), str(idx)],
+                       check=True)
         got = read_dump(dat, idx)
     return 1 if compare(got, reference(), args.verbose) else 0
 

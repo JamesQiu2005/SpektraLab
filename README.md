@@ -2,6 +2,14 @@
 
 **English** · [简体中文](README.zh-CN.md)
 
+**Windows development:** this branch also contains a C++/Vulkan backend,
+native LibRaw decoding, RGB16 TIFF export and Windows desktop viewers.
+See the [Windows build guide](engine/WINDOWS.md) and
+[feature coverage](engine/WINDOWS_FEATURE_COVERAGE.md) for the tested scope.
+The [Qt Quick frontend](windows_UI/README.md) brings the film/print editor layout
+to Windows; the [minimal Win32 viewer](engine/WINDOWS_DESKTOP.md) is also retained.
+The macOS product described below has additional interface and display features.
+
 A film and print simulator for macOS. Open a RAW, pick a film and a paper,
 and get a physically modelled print — grain, halation, couplers, the enlarger's
 filter pack — in about a second.

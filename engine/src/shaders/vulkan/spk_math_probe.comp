@@ -1,0 +1,17 @@
+#version 450
+
+// The rounded product must stay separate from the fused operation. This is
+// checked against an exact binary64 product residual when the engine starts.
+// Metal dispatches exactly 64 threads for this probe. A one-thread workgroup
+// preserves that extent without adding an argument to the existing Gpu call.
+layout(local_size_x = 1) in;
+layout(set = 0, binding = 0, std430) readonly buffer Input { float value[]; } input_data;
+layout(set = 0, binding = 1, std430) writeonly buffer Output { float value[]; } output_data;
+
+void main() {
+    uint i = gl_GlobalInvocationID.x;
+    float a = input_data.value[2 * i];
+    float b = input_data.value[2 * i + 1];
+    precise float rounded = a * b;
+    output_data.value[i] = fma(a, b, -rounded);
+}
