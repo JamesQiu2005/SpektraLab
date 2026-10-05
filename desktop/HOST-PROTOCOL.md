@@ -4,12 +4,12 @@ The Linux/Windows desktop app is two processes:
 
 - **`spektralab-host`** (`engine/host/`, C++20): owns the engine (`spk_*` C ABI,
   Vulkan backend), RAW decode (LibRaw), raster decode, and file writing.
-- **The TypeScript app** (`desktop/`, Electron): the interface. The Electron main
-  process spawns the host and relays messages to the renderer.
+- **The TypeScript app** (`desktop/`, Tauri 2): the interface. The Tauri core
+  (Rust) spawns the host as a sidecar and relays messages to the webview.
 
 A process boundary instead of an in-process addon is deliberate: a GPU driver
 fault takes down the host, not the window holding the user's edits; the host
-cross-compiles with MinGW without any Node/Electron ABI; and the frontend can
+cross-compiles with MinGW without any Rust/webview ABI; and the frontend can
 restart a dead host and re-open the frame from its sidecar.
 
 This file is the contract between `engine/host/` and `desktop/`. **Changes are
@@ -125,6 +125,7 @@ build/host-linux-x64/            build/host-win-x64/
 ```
 
 `desktop/` packaging copies the matching directory into the app's
-`resources/host/`. The Electron main process launches
+`resources/host/` (renamed to Tauri's sidecar names by the frontend's
+packaging). The Tauri core (Rust) launches
 `resources/host/spektralab-host[.exe] --resources resources/host/engine`.
 In development, `SPEKTRALAB_HOST_DIR` overrides the directory.
