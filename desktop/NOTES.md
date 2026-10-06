@@ -3,6 +3,40 @@
 Running log for whoever picks this up next (a restarted worker or a human).
 Newest state first in each list. Read with `git log --oneline -20 -- desktop`.
 
+## Windows resource paths and positive film regression (2026-10-06)
+
+- Tauri's bundled resource directory can use a Windows `\\?\` prefix.
+  Appending `/resource` then failed at the native open boundary. Both the
+  mapped constants reader and shared stream path helper now normalize Windows
+  separators while keeping Unicode and extended-length paths. The new CPU
+  CTest covers real constants/profile/LUT reads, a shader-header stream, mixed
+  separators, Chinese and >300-character paths, and malformed UTF-8 rejection.
+- Film selection previously highlighted "No Print Profile" for positives but
+  still sent `scan_film: false`. Session edits/restores and initial/restarted
+  opens now enforce the Mac's positive-only direct-scan rule. Old sidecars and
+  pasted/synced settings are repaired too; the paper choice and intentional
+  negative direct scanning are retained. The catalog loads before host-ready
+  notifications can open a frame, so polarity is known on the first request.
+- The optional `realhost.test.ts` now recognizes `spektralab-host.exe` on
+  Windows. Supplying both integration environment variables with a missing
+  executable or RAW fails instead of silently skipping. The Rust sidecar-key
+  test now uses explicit native path bytes on each platform, rather than a
+  POSIX hash on Windows; the production key/storage convention is unchanged.
+- Native Windows release app (Rust GNU, WebView2) verified with the rebuilt
+  host beside the exe and no host-directory override: the actual child used
+  `--resources \\?\...\host\engine` and displayed the full Sony RAW. Selecting
+  Provia 100F, Velvia 100, Ektachrome 100 and Kodachrome 64 automatically
+  produced normal full previews and latitude results; no manual paper click.
+- Windows gates on RTX 5070 Ti: 16/16 CTests; typecheck and ESLint; 63 unit
+  cases plus the separately enabled real-host crop/turn/grade/export case;
+  7/7 Playwright cases (mock backend). Added regressions failed before the fix:
+  21 native path checks, 11 session cases and the actual film-picker browser
+  case. Full 4688x7028 Sony ARW/RGBA16 and TIFF16/TIFF8/PNG/JPEG host exports
+  passed; the formerly failing mixed extended resource path also loaded and
+  rendered all four positive stocks. Rust release tests: 5/5 on Windows GNU.
+  Mac/Metal parity and installer behavior
+  are separate gates, not inferred from these Windows results.
+
 ## Status (2026-10-06, finish-up pass)
 
 What the finish-up pass added on top of the first pass below:

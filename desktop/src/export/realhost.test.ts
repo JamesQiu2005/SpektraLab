@@ -20,10 +20,13 @@ import { filePixels } from './exporter';
 
 const dir = process.env.SPEKTRALAB_HOST_DIR;
 const raw = process.env.SPEKTRALAB_TEST_RAW;
-const enabled = !!dir && !!raw && existsSync(join(dir, 'spektralab-host'));
+const executable = process.platform === 'win32' ? 'spektralab-host.exe' : 'spektralab-host';
+// An explicitly requested integration run must fail on a broken staging path,
+// not quietly report a skip (the old extensionless check did that on Windows).
+const enabled = !!dir && !!raw;
 
 function hostConn(d: string) {
-  const p = spawn(join(d, 'spektralab-host'), ['--resources', join(d, 'engine')], { stdio: ['pipe', 'pipe', 'inherit'] });
+  const p = spawn(join(d, executable), ['--resources', join(d, 'engine')], { stdio: ['pipe', 'pipe', 'inherit'] });
   const dec = new FrameDecoder();
   const waiting = new Map<number, (r: { header: Record<string, unknown>; payload: Uint8Array }) => void>();
   p.stdout!.on('data', (c: Buffer) => {
@@ -47,6 +50,8 @@ function hostConn(d: string) {
 
 describe.skipIf(!enabled)('the real host', () => {
   it('writes the canvas frame (crop + turn + grade) through write_image', async () => {
+    expect(existsSync(join(dir!, executable)), `Host executable missing: ${join(dir!, executable)}`).toBe(true);
+    expect(existsSync(raw!), `RAW fixture missing: ${raw}`).toBe(true);
     const h = hostConn(dir!);
     try {
       const hello = await h.call('hello', {});
