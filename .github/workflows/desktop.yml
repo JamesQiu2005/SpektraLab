@@ -92,7 +92,7 @@ jobs:
           sudo apt-get install -y --no-install-recommends \
             cmake ninja-build glslang-tools python3 \
             g++-mingw-w64-x86-64-posix gcc-mingw-w64-x86-64-posix binutils-mingw-w64-x86-64 \
-            wine64 xvfb xauth libvulkan1 mesa-vulkan-drivers
+            wine wine64 xvfb xauth libvulkan1 mesa-vulkan-drivers   # `wine` is the command; wine64 alone does not provide it
 
       - uses: actions/cache@v4
         with:
