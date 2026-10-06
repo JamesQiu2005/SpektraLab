@@ -245,6 +245,16 @@ export function AboutDialog() {
 export function HostFailure() {
   const st = useSession((s) => s.hostState);
   const [detailOpen, setDetailOpen] = useState(false);
+  const [tail, setTail] = useState<string>('');
+  const failed = st.phase === 'failed';
+  useEffect(() => {
+    if (!failed) return;
+    // The host's own stderr: where a driver says what it could not do.
+    void host()
+      .diagnostics()
+      .then((d) => setTail(((d as { stderr_tail?: string[] }).stderr_tail ?? []).join('\n')))
+      .catch(() => {});
+  }, [failed]);
   if (st.phase === 'restarting')
     return (
       <div className="host-banner" role="status">
@@ -252,7 +262,8 @@ export function HostFailure() {
       </div>
     );
   if (st.phase !== 'failed') return null;
-  const vulkan = /vulkan|VK_|no .*device|GPU/i.test(st.reason + ' ' + (st.detail ?? ''));
+  const detail = tail || st.detail || '';
+  const vulkan = /vulkan|\bvk|no .*device|GPU/i.test(st.reason + ' ' + detail);
   return (
     <Dialog.Root open>
       <Dialog.Portal>
@@ -271,11 +282,11 @@ export function HostFailure() {
                 )}
               </p>
             )}
-            {st.detail && (
+            {detail && (
               <details open={detailOpen} onToggle={(e) => setDetailOpen((e.target as HTMLDetailsElement).open)}>
                 <summary>{tz('Engine log', '引擎日志')}</summary>
                 <div className="mono" style={{ maxHeight: 220, overflow: 'auto' }}>
-                  {st.detail}
+                  {detail}
                 </div>
               </details>
             )}
