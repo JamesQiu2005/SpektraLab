@@ -5,8 +5,7 @@
   "description": "SpektraLab — film and print emulation for Linux and Windows",
   "license": "GPL-3.0-or-later",
   "author": {
-    "name": "SpektraLab contributors",
-    "email": "hq2144@nyu.edu"
+    "name": "SpektraLab contributors"
   },
   "homepage": "https://github.com/spektrafilm",
   "private": true,
