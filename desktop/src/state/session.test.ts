@@ -17,8 +17,8 @@ vi.mock('../host/client', () => {
       calls.push(`render:${tier}`);
       return { width: 4, height: 4, data: new Uint8Array(64), colorSpace: 'sRGB', tier, reprinted: false, ms: 1 };
     }),
-    redecode: vi.fn(async () => {
-      calls.push('redecode');
+    redecode: vi.fn(async (_sid: string, decode: object) => {
+      calls.push('redecode:' + JSON.stringify(decode));
       return { session: 's1', width: 6000, height: 4000, kind: 'raw', metadata: { orientation: 1 }, params: {} };
     }),
   };
@@ -30,7 +30,8 @@ vi.mock('../platform', () => ({
   dirName: (p: string) => p,
 }));
 
-import { recomputeFilmFormat, sessionStore, setGeometry, setParams, undo } from './session';
+import { recomputeFilmFormat, sessionStore, setDecode, setGeometry, setParams, undo } from './session';
+import type { HelloResult } from '@shared/protocol';
 import { settingsStore } from './settings';
 import { newSidecar } from '@shared/sidecar';
 
@@ -78,5 +79,28 @@ describe('the derived film format', () => {
   it('a real edit still makes an undo step', () => {
     setParams((p) => ({ ...p, exposureCompensationEV: 1 }));
     expect(sessionStore.getState().undo).toHaveLength(1);
+  });
+});
+
+describe('white balance at decode (R2)', () => {
+  const hello = { methods: ['open', 'redecode', 'render'] } as unknown as HelloResult;
+
+  it('a decode edit is one undo step and re-decodes the session, then renders', async () => {
+    sessionStore.setState({ hello, frameKind: 'raw' });
+    setDecode((d) => ({ ...d, whiteBalance: 'Custom', temperature: 3200, tint: 0 }));
+    expect(sessionStore.getState().undo).toHaveLength(1);
+    await vi.waitFor(() => expect(calls).toContain('redecode:{"white_balance":{"mode":"custom","temperature_k":3200,"tint":0}}'));
+    await vi.waitFor(() => expect(calls.indexOf('render:live')).toBeGreaterThan(calls.findIndex((c) => c.startsWith('redecode'))));
+    calls.length = 0;
+    undo();
+    expect(sessionStore.getState().sidecar.decode.whiteBalance).toBe('As Shot');
+    await vi.waitFor(() => expect(calls).toContain('redecode:{"white_balance":{"mode":"as_shot"}}'));
+  });
+
+  it('a raster frame is not re-decoded', async () => {
+    sessionStore.setState({ hello, frameKind: 'tiff', selection: '/x/a.tif' });
+    setDecode((d) => ({ ...d, whiteBalance: 'Custom', temperature: 3200 }));
+    await vi.waitFor(() => expect(calls).toContain('render:live'));
+    expect(calls.some((c) => c.startsWith('redecode'))).toBe(false);
   });
 });

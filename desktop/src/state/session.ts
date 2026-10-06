@@ -29,7 +29,8 @@ import {
 } from '@shared/params';
 import { type Adjustments, ADJUSTMENTS_DEFAULT } from '@shared/adjustments';
 import { type Geometry, GEOMETRY_DEFAULT, outputSize } from '@shared/geometry';
-import { type Sidecar, decodeSidecar, encodeSidecar, newSidecar } from '@shared/sidecar';
+import { type DecodeSettings, type Sidecar, decodeSidecar, encodeSidecar, newSidecar } from '@shared/sidecar';
+import { decodeWire, isRawPath, modeOf } from '@shared/whiteBalance';
 import { type ClipboardGroup, type SettingsClip, CLIPBOARD_GROUPS, applyClip, clipChanges } from '@shared/clipboard';
 import { EMPTY_CATALOG, type StockCatalog, loadCatalog } from '@shared/stocks';
 import { HostCallError, host } from '../host/client';
@@ -54,6 +55,7 @@ export interface UndoEntry {
   params: FilmParams;
   adjustments: Adjustments;
   geometry: Geometry;
+  decode: DecodeSettings;
 }
 
 export interface SessionState {
@@ -75,6 +77,10 @@ export interface SessionState {
   engineSession: string | null;
   nativeSize: { width: number; height: number } | null;
   metadata: FileMetadata | null;
+  /** The open frame's kind as the host decoded it (`raw`, `tiff`, …); null until it lands. */
+  frameKind: string | null;
+  /** A decode-setting change (white balance) is being re-decoded. */
+  redecoding: boolean;
   imageVersion: number;
   badge: Tier | null;
   developing: boolean;
@@ -117,6 +123,8 @@ const INITIAL: SessionState = {
   engineSession: null,
   nativeSize: null,
   metadata: null,
+  frameKind: null,
+  redecoding: false,
   imageVersion: 0,
   badge: null,
   developing: false,
@@ -172,6 +180,20 @@ function previewEdge() {
 
 function wireParams(p: FilmParams) {
   return { ...fullDelta(p, get().gate), preview_long_edge: previewEdge() };
+}
+
+/**
+ * As Shot keeps the camera's pair in the sidecar too, once a decode reported
+ * it (the Mac does the same when the decode lands). Derived: no undo step.
+ */
+function noteAsShot() {
+  const s = get();
+  const shot = s.metadata?.as_shot;
+  const d = s.sidecar.decode;
+  if (!shot || modeOf(d) !== 'As Shot') return;
+  if (d.temperature === shot.temperature_k && d.tint === shot.tint) return;
+  set({ sidecar: { ...s.sidecar, decode: { ...d, temperature: shot.temperature_k, tint: shot.tint } } });
+  scheduleSave();
 }
 
 export async function requestPrint(): Promise<void> {
@@ -281,7 +303,7 @@ function pushUndo() {
   if (now - lastUndoAt < 500) return;
   lastUndoAt = now;
   const sc = get().sidecar;
-  const undo = [...get().undo, { params: sc.params, adjustments: sc.adjustments, geometry: sc.geometry }].slice(-60);
+  const undo = [...get().undo, { params: sc.params, adjustments: sc.adjustments, geometry: sc.geometry, decode: sc.decode }].slice(-60);
   set({ undo, redo: [] });
 }
 
@@ -318,6 +340,71 @@ export function setGeometry(fn: (g: Geometry) => Geometry, opts: { coalesce?: bo
   if (settingsStore.getState().recalculateEffectsAfterCrop) recomputeFilmFormat();
 }
 
+/**
+ * A decode edit (camera white balance): the host decodes the file again
+ * (`redecode`, R2) and the frame re-renders with the same params. Debounced:
+ * a decode is the slow part of an open, so a drag decodes once it settles.
+ */
+export function setDecode(fn: (d: DecodeSettings) => DecodeSettings) {
+  const s = get();
+  if (s.batchExporting) return;
+  const next = fn(s.sidecar.decode);
+  if (jsonEqual(next, s.sidecar.decode)) return;
+  pushUndo();
+  set({ sidecar: { ...get().sidecar, decode: next, state: get().sidecar.state === 'processed' ? 'stale' : get().sidecar.state } });
+  scheduleSave();
+  scheduleRedecode();
+}
+
+/** Whether this host can re-decode (it lists `redecode` in `hello.methods`). */
+export function hostRedecodes(methods: readonly string[] | undefined): boolean {
+  return !!methods?.includes('redecode');
+}
+
+let decodeTimer: ReturnType<typeof setTimeout> | null = null;
+/** The wire decode the engine session was last decoded with. */
+let sentDecode: string | null = null;
+const REDECODE_DELAY_MS = 350;
+
+function scheduleRedecode() {
+  if (decodeTimer) clearTimeout(decodeTimer);
+  // Whatever full render was coming would show the old decode.
+  if (fullTimer) clearTimeout(fullTimer);
+  wantedGen++;
+  decodeTimer = setTimeout(() => void redecodeNow(), REDECODE_DELAY_MS);
+}
+
+async function redecodeNow() {
+  decodeTimer = null;
+  const s = get();
+  const sid = s.engineSession;
+  if (!sid || !s.selection) return;
+  const wire = decodeWire(s.sidecar.decode, isRawFrame());
+  const key = JSON.stringify(wire);
+  if (!wire || key === sentDecode || !hostRedecodes(s.hello?.methods)) {
+    void requestPrint();
+    return;
+  }
+  set({ redecoding: true, status: tz('Decoding with the new white balance…', '正在以新的白平衡解码…') });
+  try {
+    const r = await host().redecode(sid, wire);
+    if (get().engineSession !== sid) return;
+    sentDecode = key;
+    set({ nativeSize: { width: r.width, height: r.height }, metadata: r.metadata ?? get().metadata, status: '' });
+    void requestPrint();
+  } catch (e) {
+    noteError(tz('White balance', '白平衡'), e);
+  } finally {
+    set({ redecoding: false });
+  }
+}
+
+function isRawFrame(): boolean {
+  const s = get();
+  if (s.frameKind) return s.frameKind === 'raw';
+  return !!s.selection && isRawPath(s.selection);
+}
+
 export function beginGesture() {
   pushUndo();
   lastUndoAt = performance.now();
@@ -325,9 +412,11 @@ export function beginGesture() {
 
 function restore(e: UndoEntry) {
   const s = get();
-  set({ sidecar: { ...s.sidecar, params: e.params, adjustments: e.adjustments, geometry: e.geometry } });
+  const decodeMoved = !jsonEqual(e.decode, s.sidecar.decode);
+  set({ sidecar: { ...s.sidecar, params: e.params, adjustments: e.adjustments, geometry: e.geometry, decode: e.decode } });
   scheduleSave();
-  void requestPrint();
+  if (decodeMoved) scheduleRedecode();
+  else void requestPrint();
 }
 
 export function undo() {
@@ -335,7 +424,7 @@ export function undo() {
   if (s.batchExporting || !s.selection) return;
   const prev = s.undo[s.undo.length - 1];
   if (!prev) return;
-  const cur = { params: s.sidecar.params, adjustments: s.sidecar.adjustments, geometry: s.sidecar.geometry };
+  const cur = { params: s.sidecar.params, adjustments: s.sidecar.adjustments, geometry: s.sidecar.geometry, decode: s.sidecar.decode };
   set({ undo: s.undo.slice(0, -1), redo: [...s.redo, cur] });
   lastUndoAt = 0;
   restore(prev);
@@ -347,7 +436,7 @@ export function redo() {
   if (s.batchExporting || !s.selection) return;
   const next = s.redo[s.redo.length - 1];
   if (!next) return;
-  const cur = { params: s.sidecar.params, adjustments: s.sidecar.adjustments, geometry: s.sidecar.geometry };
+  const cur = { params: s.sidecar.params, adjustments: s.sidecar.adjustments, geometry: s.sidecar.geometry, decode: s.sidecar.decode };
   set({ redo: s.redo.slice(0, -1), undo: [...s.undo, cur] });
   lastUndoAt = 0;
   restore(next);
@@ -476,8 +565,11 @@ async function closeEngineSession() {
   const sid = get().engineSession;
   set({ engineSession: null });
   sentParams = null;
+  sentDecode = null;
   wantedGen++;
   if (fullTimer) clearTimeout(fullTimer);
+  if (decodeTimer) clearTimeout(decodeTimer);
+  decodeTimer = null;
   if (sid) await host().close(sid).catch(() => {});
 }
 
@@ -536,6 +628,7 @@ export async function select(path: string): Promise<void> {
     sidecar,
     nativeSize: null,
     metadata: null,
+    frameKind: null,
     badge: null,
     undo: [],
     redo: [],
@@ -568,13 +661,23 @@ async function develop(path: string, gen: number) {
   try {
     const t0 = performance.now();
     const params = get().sidecar.params;
-    const r = await host().open(path, wireParams(params));
+    const decode = decodeWire(get().sidecar.decode, isRawPath(path));
+    let r;
+    try {
+      r = await host().open(path, wireParams(params), decode);
+    } catch (e) {
+      // A host without R2 refuses the decode key: open with the camera's own.
+      if (!(decode && e instanceof HostCallError && e.code === 'unsupported')) throw e;
+      r = await host().open(path, wireParams(params));
+    }
     if (gen !== openGen) {
       void host().close(r.session).catch(() => {});
       return;
     }
     sentParams = params;
-    set({ engineSession: r.session, nativeSize: { width: r.width, height: r.height }, metadata: r.metadata });
+    sentDecode = JSON.stringify(decode);
+    set({ engineSession: r.session, nativeSize: { width: r.width, height: r.height }, metadata: r.metadata, frameKind: r.kind ?? (isRawPath(path) ? 'raw' : null) });
+    noteAsShot();
     platform().log(
       'info',
       `session: open path (ms): decode ${r.timings_ms?.decode ?? '?'} · open ${r.timings_ms?.open ?? '?'} · TOTAL ${Math.round(performance.now() - t0)} · core=${get().hello?.capabilities?.backend?.render_core ?? '?'}`,
@@ -662,7 +765,9 @@ export async function pasteSettings() {
   if (targets.includes(s.selection) && clipChanges(clip, get().sidecar)) {
     const next = applyClip(clip, get().sidecar);
     setParams(() => next.params);
+    const decodeMoved = !jsonEqual(next.decode, get().sidecar.decode);
     set({ sidecar: { ...get().sidecar, decode: next.decode, placementNeedsFit: next.placementNeedsFit } });
+    if (decodeMoved) scheduleRedecode();
     written++;
   }
   set({

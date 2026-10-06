@@ -126,7 +126,7 @@ export interface FileMetadata {
   focal_mm?: number;
   datetime_original?: string;
   orientation?: number;
-  /** PROTOCOL-REQUESTS R2 — absent until it lands. */
+  /** The camera's white balance (R2): RAW only. */
   as_shot?: { temperature_k: number; tint: number };
 }
 
@@ -144,6 +144,8 @@ export interface OpenResult {
   session: string;
   width: number;
   height: number;
+  /** `raw` | `tiff` | `jpeg` | `png`. */
+  kind?: string;
   metadata: FileMetadata;
   params: WireParams;
   timings_ms?: { decode?: number; open?: number };

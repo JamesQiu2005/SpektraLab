@@ -90,8 +90,12 @@ export class Host {
     const r = await this.call<{ image: ImageInfo; orientation?: number }>('thumbnail', { path, long_edge: longEdge }, 60_000);
     return rgba8(r.result.image, r.payload);
   }
-  async open(path: string, params: WireParams): Promise<OpenResult> {
-    return (await this.call<OpenResult>('open', { path, params }, 300_000)).result;
+  async open(path: string, params: WireParams, decode?: object | null): Promise<OpenResult> {
+    return (await this.call<OpenResult>('open', decode ? { path, params, decode } : { path, params }, 300_000)).result;
+  }
+  /** Decode the session's file again with other decode settings; params are kept (R2). */
+  async redecode(session: string, decode: object): Promise<OpenResult> {
+    return (await this.call<OpenResult>('redecode', { session, decode }, 300_000)).result;
   }
   async close(session: string): Promise<void> {
     await this.call('close', { session });
@@ -114,8 +118,9 @@ export class Host {
   async sceneLatitude(session: string, request: Record<string, unknown>): Promise<Record<string, unknown>> {
     return (await this.call<Record<string, unknown>>('scene_latitude', { session, request })).result;
   }
-  async cancel(session: string, progressId: string): Promise<void> {
-    await this.call('cancel', { session, progress_id: progressId });
+  /** True when the request carrying `progressId` was running (else it is refused when it reaches the worker). */
+  async cancel(session: string, progressId: string): Promise<boolean> {
+    return !!(await this.call<{ was_running?: boolean }>('cancel', { session, progress_id: progressId })).result?.was_running;
   }
   async exportImage(params: {
     session: string;

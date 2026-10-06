@@ -137,6 +137,13 @@ interface Session {
   seed: number;
 }
 
+/** What `hello.methods` lists: every method `dispatch` answers. */
+const METHODS = [
+  'hello', 'ping', 'shutdown', 'cancel', 'params_schema', 'print_lut_catalog', 'memory_report', 'probe', 'thumbnail',
+  'open', 'redecode', 'close', 'set_params', 'get_params', 'solve', 'render', 'scene_latitude', 'overscan_geometry',
+  'preview_stock_lut', 'progress', 'export_image', 'export_cube', 'export_di',
+];
+
 class HostError extends Error {
   code: string;
   constructor(code: string, message: string) {
@@ -211,9 +218,19 @@ export class MockHost {
     return 'raw';
   }
 
+  /** The real host's rule: white balance at decode is RAW-only, and lens correction is refused. */
+  private checkDecode(path: string, decode: unknown) {
+    if (!decode || typeof decode !== 'object') return;
+    const d = decode as Record<string, unknown>;
+    for (const k of Object.keys(d)) if (k !== 'raw_mode' && k !== 'white_balance' && !(k === 'lens_correction' && d[k] === false)) throw new HostError('unsupported', `decode.${k} is not supported`);
+    if (d.white_balance && this.kind(path) !== 'raw') throw new HostError('unsupported', 'white balance at decode needs a RAW file');
+  }
+
   private metadata(path: string) {
     const h = hash(path);
+    const raw = this.kind(path) === 'raw';
     return {
+      ...(raw ? { as_shot: { temperature_k: 4800 + (h % 9) * 100, tint: (h % 7) - 3 } } : {}),
       make: 'Mock',
       model: 'Synthetic ' + (100 + (h % 900)),
       lens: '50mm f/1.8',
@@ -237,12 +254,14 @@ export class MockHost {
             backend: { api: 'mock', device_name: 'Mock GPU', driver: 'none' },
             capabilities: this.capabilities(),
             resources_dir: '(mock)',
+            methods: METHODS,
           },
         };
       case 'ping':
       case 'shutdown':
-      case 'cancel':
         return { result: {} };
+      case 'cancel':
+        return { result: { was_running: false } };
       case 'params_schema':
         return {
           result: {
@@ -278,6 +297,7 @@ export class MockHost {
         const incoming = (p.params ?? {}) as Record<string, unknown>;
         this.validate(incoming);
         Object.assign(params, incoming);
+        this.checkDecode(path, p.decode);
         const id = 's' + this.next++;
         const { width, height } = this.dims(path);
         this.sessions.set(id, { id, path, width, height, params, seed: hash(path) });
@@ -286,10 +306,18 @@ export class MockHost {
             session: id,
             width,
             height,
+            kind: this.kind(path),
             metadata: this.metadata(path),
             params,
             timings_ms: { decode: 12, open: 3 },
           },
+        };
+      }
+      case 'redecode': {
+        const s = this.session(p);
+        this.checkDecode(s.path, p.decode);
+        return {
+          result: { session: s.id, width: s.width, height: s.height, kind: this.kind(s.path), metadata: this.metadata(s.path), params: s.params, timings_ms: { decode: 12, open: 3 } },
         };
       }
       case 'close':

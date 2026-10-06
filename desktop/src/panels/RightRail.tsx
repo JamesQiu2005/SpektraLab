@@ -5,7 +5,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { Checkbox, NumberField, PillMenu, ScrubSlider, Section, SegmentedSwitch, ToggleRow, signed } from '../controls/controls';
 import { t, tz } from '../i18n';
-import { setAdjustments, setFilmFrame, setFilmSide, setParams, setSideLengthMM, useSession } from '../state/session';
+import { hostRedecodes, setAdjustments, setDecode, setFilmFrame, setFilmSide, setParams, setSideLengthMM, useSession } from '../state/session';
 import { settingsStore, useSettings } from '../state/settings';
 import {
   type AEMethod,
@@ -20,6 +20,20 @@ import {
   applyAEMethod,
 } from '@shared/params';
 import { type ColorZone, type CurveChannel, CURVE_CHANNELS, isNeutral } from '@shared/adjustments';
+import {
+  type AsShot,
+  TEMPERATURE_RANGE,
+  TINT_RANGE,
+  WB_MODES,
+  applyBoxes,
+  boxesOf,
+  isRawPath,
+  modeOf,
+  shownDecode,
+  withPreset,
+  withTemperature,
+  withTint,
+} from '@shared/whiteBalance';
 import { CurveEditor } from './CurveEditor';
 import { unsupportedReason } from './gate';
 import { host, HostCallError } from '../host/client';
@@ -146,7 +160,11 @@ function CameraSection() {
   const p = useSession((s) => s.sidecar.params);
   const vignette = useSession((s) => s.sidecar.adjustments.vignette.amount);
   const ae = aeMethodOf(p);
-  const r2 = tz('This engine cannot change white balance or correct the lens at decode yet.', '此引擎暂不能在解码时更改白平衡或校正镜头。');
+  const lensReason = tz(
+    'Lens correction is not available on Linux and Windows: the RAW decoder carries no lens profiles.',
+    'Linux 与 Windows 版不提供镜头校正：RAW 解码器不含镜头配置文件。',
+  );
+  const wb = useWhiteBalance();
   const options: { value: AEMethod; label: string }[] = [
     { value: 'custom', label: t('meteringCustom') },
     { value: 'balanced', label: t('meteringBalanced') },
@@ -162,6 +180,16 @@ function CameraSection() {
       title={t('sectionCamera')}
       onReset={() => setParams((q) => ({ ...q, exposureCompensationEV: 0 }))}
       resetHelp={t('helpResetFilmExposure')}
+      menu={[
+        { label: t('helpResetFilmExposure'), onSelect: () => setParams((q) => ({ ...q, exposureCompensationEV: 0 })) },
+        // The presets keep their English names, as on the Mac.
+        ...WB_MODES.filter((m) => m !== 'Custom').map((m) => ({
+          label: `${t('helpWhiteBalancePreset')}: ${m}`,
+          checked: wb.mode === m,
+          disabled: !!wb.reason,
+          onSelect: () => setDecode((d) => withPreset(d, wb.asShot, m)),
+        })),
+      ]}
     >
       <PillMenu label={t('cameraMetering')} value={ae} options={options} fill onChange={(v) => setParams((q) => applyAEMethod(q, v))} testId="metering" />
       <ScrubSlider
@@ -179,12 +207,67 @@ function CameraSection() {
         onChange={(v) => setParams((q) => ({ ...q, exposureCompensationEV: v }))}
         testId="film-exposure"
       />
-      <ScrubSlider label={t('cameraTemperature')} value={5500} range={[2000, 12000]} zero={5500} format={(v) => v.toFixed(0)} onChange={() => {}} disabled reason={r2} gradient="linear-gradient(90deg,#5d7de8,#bbb,#e8c04e)" />
-      <ScrubSlider label={t('cameraTint')} value={0} range={[-150, 150]} format={signed(1)} onChange={() => {}} disabled reason={r2} gradient="linear-gradient(90deg,#62c462,#bbb,#d05bd0)" />
+      <ScrubSlider
+        label={t('cameraTemperature')}
+        sublabel={<AsShotLine on={wb.boxes.temp} enabled={!!wb.asShot && !wb.reason} onChange={(v) => setDecode((d) => applyBoxes(d, wb.asShot, { temp: v }))} />}
+        value={wb.shown.temperature}
+        range={TEMPERATURE_RANGE}
+        zero={wb.asShot?.temperature ?? 5500}
+        snap={100}
+        format={(v) => v.toFixed(0)}
+        onChange={(v) => setDecode((d) => withTemperature(d, wb.asShot, v))}
+        disabled={!!wb.reason}
+        reason={wb.reason ?? undefined}
+        gradient="linear-gradient(90deg,#005982,#8FA83C,#FFF100)"
+        testId="wb-temperature"
+      />
+      <ScrubSlider
+        label={t('cameraTint')}
+        sublabel={<AsShotLine on={wb.boxes.tint} enabled={!!wb.asShot && !wb.reason} onChange={(v) => setDecode((d) => applyBoxes(d, wb.asShot, { tint: v }))} />}
+        value={wb.shown.tint}
+        range={TINT_RANGE}
+        zero={wb.asShot?.tint ?? 0}
+        snap={5}
+        format={signed(1)}
+        onChange={(v) => setDecode((d) => withTint(d, wb.asShot, v))}
+        disabled={!!wb.reason}
+        reason={wb.reason ?? undefined}
+        gradient="linear-gradient(90deg,#00A93A,#8AA45E,#E4007F)"
+        testId="wb-tint"
+      />
       <ScrubSlider label={t('cameraVignetting')} value={vignette} range={[-100, 100]} snap={5} format={signed(0)} onChange={(v) => setAdjustments((a) => ({ ...a, vignette: { ...a.vignette, amount: v } }))} />
-      <ToggleRow label={t('cameraLensCorrection')} on={false} onChange={() => {}} disabled reason={r2} />
+      <ToggleRow label={t('cameraLensCorrection')} on={false} onChange={() => {}} disabled reason={lensReason} />
     </Section>
   );
+}
+
+/** "As Shot ☐" — the second line under Temperature and Tint (`AsShotLine`). */
+function AsShotLine({ on, enabled, onChange }: { on: boolean; enabled: boolean; onChange: (v: boolean) => void }) {
+  return (
+    <span style={{ display: 'inline-flex', gap: 4, alignItems: 'center' }}>
+      {t('cameraFilmExposureAsShot')}
+      <Checkbox on={on} label={t('cameraFilmExposureAsShot')} disabled={!enabled} onChange={onChange} />
+    </span>
+  );
+}
+
+/**
+ * The decode white balance as the rows read it (`WhiteBalanceRows.swift`):
+ * RAW only, and only on a host that can re-decode (R2's `redecode`).
+ */
+function useWhiteBalance() {
+  const decode = useSession((s) => s.sidecar.decode);
+  const shot = useSession((s) => s.metadata?.as_shot);
+  const selection = useSession((s) => s.selection);
+  const kind = useSession((s) => s.frameKind);
+  const methods = useSession((s) => s.hello?.methods);
+  const asShot: AsShot | null = shot ? { temperature: shot.temperature_k, tint: shot.tint } : null;
+  const isRaw = kind ? kind === 'raw' : !!selection && isRawPath(selection);
+  let reason: string | null = null;
+  if (selection && !isRaw) reason = t('reasonDecodeWBDisabled');
+  else if (!hostRedecodes(methods))
+    reason = tz('This engine host cannot change white balance at decode (it has no `redecode`).', '此引擎进程不能在解码时更改白平衡（没有 `redecode`）。');
+  return { mode: modeOf(decode), shown: shownDecode(decode, asShot), boxes: boxesOf(decode, asShot), asShot, reason };
 }
 
 // --------------------------------------------------------------- Film Format

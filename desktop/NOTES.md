@@ -23,7 +23,8 @@ Newest state first in each list. Read with `git log --oneline -20 -- desktop`.
   Chromium against the in-page mock).
 
 **Not done / next** (also in PARITY.md):
-- Camera white balance / lens correction at decode (PROTOCOL-REQUESTS R2 open).
+- Lens correction at decode (declined by the host: LibRaw has no lens profiles)
+  and the white-balance neutral picker.
 - Rail width drag-resize, filmstrip reorder, straighten-by-line gesture,
   soft proof at file resolution, display-profile awareness.
 - Windows: run the installer on a real Windows box (WebView2 bootstrapper is
