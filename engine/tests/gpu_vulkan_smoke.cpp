@@ -17,8 +17,10 @@
 #include "spektrafilm/spk_engine.h"
 
 namespace {
+// Set from math_mode: an accepted unfused-fma device (lavapipe).
+bool g_unfused_fma = false;
 
-bool check_fma_vectors(spk::gpu::Gpu* gpu, std::string& error) {
+bool check_fma_vectors(spk::gpu::Gpu* gpu, bool unfused, std::string& error) {
     // Exact binary32 bit patterns derived with integer/rational arithmetic,
     // independent of the host C runtime's fmaf. Cover small residuals, both
     // round-to-even ties, an exact product and legacy MinGW failure cases.
@@ -43,12 +45,15 @@ bool check_fma_vectors(spk::gpu::Gpu* gpu, std::string& error) {
     std::vector<float> actual;
     if (!read_test_buffer(gpu, dst, actual, error)) return false;
     for (size_t i = 0; i < count; ++i) {
-        if (std::bit_cast<uint32_t>(actual[i]) != cases[i][2]) {
+        // An accepted unfused device (a CPU implementation, reported in
+        // math_mode) returns exactly 0 for every residual; nothing else.
+        const uint32_t want = unfused ? 0u : cases[i][2];
+        if (std::bit_cast<uint32_t>(actual[i]) != want) {
             error = "FMA known-bit vector mismatch at " + std::to_string(i);
             return false;
         }
     }
-    std::printf("FMA residual: %zu exact known-bit vectors\n", count);
+    std::printf("FMA residual: %zu %s known-bit vectors\n", count, unfused ? "unfused (zero)" : "exact");
     return true;
 }
 
@@ -308,7 +313,8 @@ int main(int argc, char** argv) {
     }
     std::printf("math mode: %s\n", math.c_str());
 
-    if (!check_fma_vectors(gpu, error)) {
+    g_unfused_fma = math.find("unfused") != std::string::npos;
+    if (!check_fma_vectors(gpu, g_unfused_fma, error)) {
         std::fprintf(stderr, "FMA residual: %s\n", error.c_str());
         delete gpu;
         return 1;
