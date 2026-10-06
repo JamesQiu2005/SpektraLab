@@ -1,0 +1,269 @@
+{
+ "pitch_um": 6,
+ "wire_range": [
+  0,
+  2
+ ],
+ "note": "amount = published / engine RMS at grain_amount 1. Exact at 6 um pixels; x0.96 at 4 um, x1.15 at 12 um. grain_amount also scales the node's 0.65 px blur of the picture.",
+ "stocks": [
+  {
+   "stock": "fujifilm_c200",
+   "basis": "visual_net",
+   "published": 4,
+   "amount_sublayers_on": 0.7,
+   "amount_sublayers_off": 0.51,
+   "note": "SHEET AF3-0249E; Fujifilm: not comparable with reversal figures",
+   "in_range_on": true
+  },
+  {
+   "stock": "fujifilm_pro_400h",
+   "basis": "visual_net",
+   "published": 4,
+   "amount_sublayers_on": 1.1,
+   "amount_sublayers_off": 0.71,
+   "note": "SHEET AF3-176E; same footnote",
+   "in_range_on": true
+  },
+  {
+   "stock": "fujifilm_provia_100f",
+   "basis": "visual_net",
+   "published": 8,
+   "amount_sublayers_on": 0.96,
+   "amount_sublayers_off": 0.67,
+   "note": "SHEET AF3-036E: 1.0 above D-min",
+   "in_range_on": true
+  },
+  {
+   "stock": "fujifilm_velvia_100",
+   "basis": "visual_gross",
+   "published": 8,
+   "amount_sublayers_on": 0.99,
+   "amount_sublayers_off": 0.61,
+   "note": "SHEET AF3-202E: gross visual density 1.0",
+   "in_range_on": true
+  },
+  {
+   "stock": "fujifilm_xtra_400",
+   "basis": "visual_net",
+   "published": 4,
+   "amount_sublayers_on": 0.63,
+   "amount_sublayers_off": 0.45,
+   "note": "SHEET AF3-0217E; same footnote",
+   "in_range_on": true
+  },
+  {
+   "stock": "kodak_ektachrome_100",
+   "basis": "visual_gross",
+   "published": 8,
+   "amount_sublayers_on": 0.88,
+   "amount_sublayers_off": 0.65,
+   "note": "SHEET E-4000: gross visual density 1.0",
+   "in_range_on": true
+  },
+  {
+   "stock": "kodak_ektar_100",
+   "basis": "none",
+   "published": null,
+   "amount_sublayers_on": null,
+   "amount_sublayers_off": null,
+   "note": "no RMS published (Kodak: Print Grain Index only; not convertible)",
+   "in_range_on": null
+  },
+  {
+   "stock": "kodak_gold_200",
+   "basis": "none",
+   "published": null,
+   "amount_sublayers_on": null,
+   "amount_sublayers_off": null,
+   "note": "no RMS published (Kodak: Print Grain Index only; not convertible)",
+   "in_range_on": null
+  },
+  {
+   "stock": "kodak_kodachrome_64",
+   "basis": "visual_gross",
+   "published": 10,
+   "amount_sublayers_on": 1.15,
+   "amount_sublayers_off": 0.9,
+   "note": "SHEET E-88 (2009)",
+   "in_range_on": true
+  },
+  {
+   "stock": "kodak_portra_160",
+   "basis": "none",
+   "published": null,
+   "amount_sublayers_on": null,
+   "amount_sublayers_off": null,
+   "note": "no RMS published (Kodak: Print Grain Index only; not convertible)",
+   "in_range_on": null
+  },
+  {
+   "stock": "kodak_portra_400",
+   "basis": "none",
+   "published": null,
+   "amount_sublayers_on": null,
+   "amount_sublayers_off": null,
+   "note": "no RMS published (Kodak: Print Grain Index only; not convertible)",
+   "in_range_on": null
+  },
+  {
+   "stock": "kodak_portra_800",
+   "basis": "none",
+   "published": null,
+   "amount_sublayers_on": null,
+   "amount_sublayers_off": null,
+   "note": "no RMS published (Kodak: Print Grain Index only; not convertible)",
+   "in_range_on": null
+  },
+  {
+   "stock": "kodak_portra_800_push1",
+   "basis": "none",
+   "published": null,
+   "amount_sublayers_on": null,
+   "amount_sublayers_off": null,
+   "note": "no RMS published (Kodak: Print Grain Index only; not convertible)",
+   "in_range_on": null
+  },
+  {
+   "stock": "kodak_portra_800_push2",
+   "basis": "none",
+   "published": null,
+   "amount_sublayers_on": null,
+   "amount_sublayers_off": null,
+   "note": "no RMS published (Kodak: Print Grain Index only; not convertible)",
+   "in_range_on": null
+  },
+  {
+   "stock": "kodak_tri_x_400",
+   "basis": "visual_net",
+   "published": 17,
+   "amount_sublayers_on": 2.35,
+   "amount_sublayers_off": 1.7,
+   "note": "SHEET F-4017",
+   "in_range_on": false
+  },
+  {
+   "stock": "kodak_ultramax_400",
+   "basis": "none",
+   "published": null,
+   "amount_sublayers_on": null,
+   "amount_sublayers_off": null,
+   "note": "no RMS published (Kodak: Print Grain Index only; not convertible)",
+   "in_range_on": null
+  },
+  {
+   "stock": "kodak_verita_200d",
+   "basis": "green record (R/G/B given)",
+   "published": [
+    7.4,
+    6.7,
+    18.2
+   ],
+   "amount_sublayers_on": 1.06,
+   "amount_sublayers_off": 0.67,
+   "per_record_on": [
+    1.02,
+    1.06,
+    1.54
+   ],
+   "per_record_off": [
+    0.67,
+    0.67,
+    1.06
+   ],
+   "note": "SHEET curves H-1-5206, digitised, +-10 %",
+   "in_range_on": true
+  },
+  {
+   "stock": "kodak_vision3_200t",
+   "basis": "green record (R/G/B given)",
+   "published": [
+    5.2,
+    6.4,
+    15.4
+   ],
+   "amount_sublayers_on": 1.01,
+   "amount_sublayers_off": 0.66,
+   "per_record_on": [
+    0.74,
+    1.01,
+    1.38
+   ],
+   "per_record_off": [
+    0.52,
+    0.66,
+    0.96
+   ],
+   "note": "SHEET curves H-1-5213t, digitised, +-10 %",
+   "in_range_on": true
+  },
+  {
+   "stock": "kodak_vision3_250d",
+   "basis": "green record (R/G/B given)",
+   "published": [
+    5.4,
+    6.3,
+    13.4
+   ],
+   "amount_sublayers_on": 0.83,
+   "amount_sublayers_off": 0.59,
+   "per_record_on": [
+    0.7,
+    0.83,
+    1.08
+   ],
+   "per_record_off": [
+    0.52,
+    0.59,
+    0.81
+   ],
+   "note": "SHEET curves H-1-5207t, digitised, +-10 %",
+   "in_range_on": true
+  },
+  {
+   "stock": "kodak_vision3_500t",
+   "basis": "green record (R/G/B given)",
+   "published": [
+    6.4,
+    7.1,
+    19.2
+   ],
+   "amount_sublayers_on": 1.01,
+   "amount_sublayers_off": 0.73,
+   "per_record_on": [
+    0.8,
+    1.01,
+    1.53
+   ],
+   "per_record_off": [
+    0.6,
+    0.73,
+    1.15
+   ],
+   "note": "SHEET curves H-1-5219t, digitised, +-10 %",
+   "in_range_on": true
+  },
+  {
+   "stock": "kodak_vision3_50d",
+   "basis": "green record (R/G/B given)",
+   "published": [
+    4.6,
+    4.4,
+    8.3
+   ],
+   "amount_sublayers_on": 0.69,
+   "amount_sublayers_off": 0.44,
+   "per_record_on": [
+    0.71,
+    0.69,
+    0.74
+   ],
+   "per_record_off": [
+    0.47,
+    0.44,
+    0.5
+   ],
+   "note": "SHEET curves H-1-5203t, digitised, +-10 %",
+   "in_range_on": true
+  }
+ ]
+}

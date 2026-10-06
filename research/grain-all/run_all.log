@@ -1,0 +1,21 @@
+fujifilm_c200 sub6 [8.01, 8.62, 17.1] vis {'net_1.0': 5.72} 12s
+fujifilm_pro_400h sub6 [6.4, 5.83, 12.48] vis {'net_1.0': 3.62} 11s
+fujifilm_provia_100f sub6 [11.28, 12.25, 14.92] vis {'net_1.0': 8.34, 'gross_1.0': 7.89} 19s
+fujifilm_velvia_100 sub6 [12.39, 12.91, 17.37] vis {'net_1.0': 8.75, 'gross_1.0': 8.11} 18s
+fujifilm_xtra_400 sub6 [9.51, 9.41, 19.25] vis {'net_1.0': 6.38} 11s
+kodak_ektachrome_100 sub6 [13.12, 13.73, 19.37] vis {'net_1.0': 9.69, 'gross_1.0': 9.05} 17s
+kodak_ektar_100 sub6 [7.82, 6.59, 12.89] vis {'net_1.0': 3.43} 10s
+kodak_gold_200 sub6 [7.29, 6.21, 10.64] vis {'net_1.0': 3.35} 10s
+kodak_kodachrome_64 sub6 [13.64, 13.84, 18.01] vis {'net_1.0': 9.79, 'gross_1.0': 8.71} 17s
+kodak_portra_160 sub6 [6.69, 6.29, 11.64] vis {'net_1.0': 2.98} 10s
+kodak_portra_400 sub6 [8.08, 6.58, 12.4] vis {'net_1.0': 3.65} 10s
+kodak_portra_800 sub6 [7.87, 6.58, 11.89] vis {'net_1.0': 3.66} 11s
+kodak_portra_800_push1 sub6 [9.42, 7.71, 13.48] vis {'net_1.0': 4.55} 10s
+kodak_portra_800_push2 sub6 [10.7, 8.46, 15.54] vis {'net_1.0': 5.08} 10s
+kodak_ultramax_400 sub6 [7.45, 6.39, 11.98] vis {'net_1.0': 3.48} 10s
+kodak_verita_200d sub6 [7.23, 6.33, 11.8] vis {'net_1.0': 3.85} 10s
+kodak_vision3_200t sub6 [7.03, 6.34, 11.15] vis {'net_1.0': 4.09} 11s
+kodak_vision3_250d sub6 [7.75, 7.6, 12.42] vis {'net_1.0': 4.71} 11s
+kodak_vision3_500t sub6 [8.04, 7.04, 12.57] vis {'net_1.0': 4.68} 11s
+kodak_vision3_50d sub6 [6.46, 6.35, 11.28] vis {'net_1.0': 3.78} 11s
+kodak_tri_x_400 sub6 [10.9, 10.59, 15.45] vis {'net_1.0': 7.22} 11s
