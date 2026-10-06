@@ -1,0 +1,294 @@
+# The Linux / Windows desktop app: engine + host, the Tauri frontend, installers.
+#
+# build.yml stays the macOS gate. This one covers what the port added:
+#
+#   engine-linux          CMake + CTest on lavapipe (Mesa's CPU Vulkan), then
+#                         the host smoke test against the staged host.
+#   engine-windows-cross  spektralab-host.exe cross-built with MinGW-w64, and
+#                         the same smoke test under wine (winevulkan -> lavapipe).
+#   desktop-checks        typecheck, eslint, vitest, cargo test, Playwright
+#                         (Chromium against the in-page mock host).
+#   package-linux         .deb + AppImage with the Linux host inside.
+#   package-windows       the NSIS installer, built natively on Windows around
+#                         the cross-built host; then installed silently and
+#                         the installed host asked `hello` on a real Windows.
+#
+# What a hosted runner cannot tell us: anything about a real GPU (no Vulkan
+# driver on the Windows runner, lavapipe on Linux), whole-image parity with
+# Metal (needs a Mac and the Python oracle), or camera RAWs (the fixtures are
+# not in this repository; the smoke test synthesises its own PNG and TIFF).
+# engine/LINUX_WINDOWS.md and engine/PORT_COVERAGE.md say what was verified
+# by hand beyond this.
+
+name: Desktop (Linux, Windows)
+
+on:
+  push:
+    branches: [main, Windows_Linux, 'claude/**']
+  pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group: desktop-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+env:
+  CARGO_TERM_COLOR: always
+  # Tauri's Linux build dependencies (WebKitGTK 4.1 and friends).
+  TAURI_APT: >-
+    libwebkit2gtk-4.1-dev libgtk-3-dev librsvg2-dev libayatana-appindicator3-dev
+    libxdo-dev libssl-dev patchelf file build-essential
+
+jobs:
+  engine-linux:
+    name: Engine + host (Linux, lavapipe)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Toolchain and Mesa's CPU Vulkan
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            build-essential cmake ninja-build glslang-tools \
+            libvulkan1 mesa-vulkan-drivers vulkan-tools python3
+
+      - name: Vulkan device
+        run: vulkaninfo --summary
+
+      # LibRaw 0.22.2 + Vulkan-Headers, pinned and checksum-verified by the script.
+      - uses: actions/cache@v4
+        with:
+          path: build/deps
+          key: engine-deps-${{ runner.os }}-${{ hashFiles('engine/setup-deps.sh', 'engine/setup-libraw.sh') }}
+
+      - name: Build, CTest, host smoke
+        run: engine/build-linux.sh --test
+
+      # Artifacts drop the executable bit; carry the staged host as a tarball.
+      - name: Pack the staged host
+        run: tar -C build -czf host-linux-x64.tgz host-linux-x64
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: host-linux-x64
+          path: host-linux-x64.tgz
+          retention-days: 14
+
+  engine-windows-cross:
+    name: Engine + host (Windows x64, cross-built)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: MinGW-w64, wine and Mesa's CPU Vulkan
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            cmake ninja-build glslang-tools python3 \
+            g++-mingw-w64-x86-64-posix gcc-mingw-w64-x86-64-posix binutils-mingw-w64-x86-64 \
+            wine64 xvfb xauth libvulkan1 mesa-vulkan-drivers
+
+      - uses: actions/cache@v4
+        with:
+          path: build/deps
+          key: engine-deps-${{ runner.os }}-${{ hashFiles('engine/setup-deps.sh', 'engine/setup-libraw.sh') }}
+
+      # Also fails if the exe imports anything but system DLLs.
+      - name: Cross-build spektralab-host.exe
+        run: engine/build-windows-cross.sh
+
+      # winevulkan loads only through wine's X11 driver, hence xvfb-run; it
+      # then forwards to the Linux loader, i.e. lavapipe.
+      - name: Host smoke under wine
+        env:
+          WINEDEBUG: -all
+        run: |
+          xvfb-run -a python3 engine/tests/host_smoke.py --wrapper wine \
+            --host build/host-win-x64/spektralab-host.exe \
+            --resources build/host-win-x64/engine
+
+      - name: Pack the staged host
+        run: tar -C build -czf host-win-x64.tgz host-win-x64
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: host-win-x64
+          path: host-win-x64.tgz
+          retention-days: 14
+
+  desktop-checks:
+    name: Frontend checks
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    defaults:
+      run:
+        working-directory: desktop
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Tauri build dependencies
+        run: |
+          sudo apt-get update
+          # shellcheck disable=SC2086 # the list is meant to split into words
+          sudo apt-get install -y --no-install-recommends $TAURI_APT
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22          # the dev mock host uses Node's type stripping (>= 22.18)
+          cache: npm
+          cache-dependency-path: desktop/package-lock.json
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: desktop/src-tauri
+
+      - run: npm ci
+
+      - name: Typecheck, lint, unit tests
+        run: npm run check
+
+      # tauri::generate_context! embeds ../dist, so it must exist for cargo.
+      - name: Web build
+        run: npm run build:web
+
+      - name: Rust tests
+        working-directory: desktop/src-tauri
+        run: cargo test --locked
+
+      - name: Playwright (layout harness, in-page mock host)
+        run: |
+          npx playwright install --with-deps chromium
+          npm run test:e2e
+
+  package-linux:
+    name: Package (Linux .deb + AppImage)
+    needs: [engine-linux, desktop-checks]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Tauri build dependencies
+        run: |
+          sudo apt-get update
+          # shellcheck disable=SC2086 # the list is meant to split into words
+          sudo apt-get install -y --no-install-recommends $TAURI_APT
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: desktop/package-lock.json
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: desktop/src-tauri
+
+      - uses: actions/download-artifact@v4
+        with:
+          name: host-linux-x64
+
+      - name: Unpack the staged host
+        run: mkdir -p build && tar -C build -xzf host-linux-x64.tgz
+
+      - name: npm ci
+        working-directory: desktop
+        run: npm ci
+
+      # linuxdeploy is itself an AppImage; hosted runners have no FUSE 2.
+      - name: Build the packages
+        working-directory: desktop
+        env:
+          APPIMAGE_EXTRACT_AND_RUN: '1'
+        run: node scripts/package.mjs linux
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: spektralab-linux-x64
+          path: |
+            desktop/release/linux/*.deb
+            desktop/release/linux/*.AppImage
+          if-no-files-found: error
+          retention-days: 14
+
+  package-windows:
+    name: Package (Windows NSIS installer)
+    needs: [engine-windows-cross, desktop-checks]
+    runs-on: windows-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: desktop/package-lock.json
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: desktop/src-tauri
+
+      - uses: actions/download-artifact@v4
+        with:
+          name: host-win-x64
+
+      - name: Unpack the staged host
+        shell: bash
+        run: mkdir -p build && tar -C build -xzf host-win-x64.tgz
+
+      # The cross-built exe on a real Windows: starts, speaks the protocol,
+      # and reports the missing Vulkan driver instead of crashing.
+      - name: Host answers hello (real Windows, no GPU)
+        run: python .github/scripts/host_hello.py --host build/host-win-x64/spektralab-host.exe --resources build/host-win-x64/engine
+
+      - name: npm ci
+        working-directory: desktop
+        run: npm ci
+
+      - name: Build the installer
+        working-directory: desktop
+        run: node scripts/package.mjs win
+
+      # Silent install, then ask the installed host for hello: proves the
+      # installer lays down the app, the sidecar and the engine resources.
+      - name: Install silently and check the installed app
+        shell: pwsh
+        run: |
+          $setup = Get-ChildItem desktop/release/windows/*-setup.exe | Select-Object -First 1
+          if (-not $setup) { throw "no installer in desktop/release/windows" }
+          "installer: $($setup.Name) ($([math]::Round($setup.Length / 1MB, 1)) MB)"
+          $p = Start-Process $setup.FullName -ArgumentList '/S' -Wait -PassThru
+          if ($p.ExitCode -ne 0) { throw "installer exited $($p.ExitCode)" }
+          $roots = @("$env:LOCALAPPDATA\SpektraLab", "$env:ProgramFiles\SpektraLab") | Where-Object { Test-Path $_ }
+          if (-not $roots) { throw "no install directory under LOCALAPPDATA or Program Files" }
+          $app = Get-ChildItem -Path $roots -Recurse -Filter '*.exe' | Where-Object { $_.Name -match '^(SpektraLab|spektralab)\.exe$' } | Select-Object -First 1
+          $hostExe = Get-ChildItem -Path $roots -Recurse -Filter 'spektralab-host*.exe' | Select-Object -First 1
+          $engine = Get-ChildItem -Path $roots -Recurse -Directory -Filter engine | Where-Object { Test-Path (Join-Path $_.FullName 'vulkan') } | Select-Object -First 1
+          if (-not $app) { throw "the app exe is not installed" }
+          if (-not $hostExe) { throw "spektralab-host.exe is not installed" }
+          if (-not $engine) { throw "the engine resources are not installed" }
+          "app:    $($app.FullName)"
+          "host:   $($hostExe.FullName)"
+          "engine: $($engine.FullName)"
+          python .github/scripts/host_hello.py --host $hostExe.FullName --resources $engine.FullName
+          if ($LASTEXITCODE -ne 0) { throw "installed host failed hello" }
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: spektralab-windows-x64
+          path: desktop/release/windows/*-setup.exe
+          if-no-files-found: error
+          retention-days: 14
