@@ -356,3 +356,4 @@ desktop/src-tauri/binaries/
 desktop/src-tauri/host-staging/
 desktop/test-results/
 desktop/playwright-report/
+desktop/src-tauri/tauri.bundle.json
