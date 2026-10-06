@@ -4,10 +4,15 @@
 // uploads and readbacks. Every submission completes before returning, so no
 // pooled or staging buffer can be reused while the device still reads it.
 // Command batching and native texture export are subsequent steps.
-#ifdef _WIN32
+//
+// Built everywhere but Apple (Windows and Linux). The Vulkan loader is not
+// linked: volk (engine/third_party/volk) opens libvulkan.so.1 / vulkan-1.dll
+// at run time, so the binary needs no SDK import library and a machine with
+// no Vulkan driver gets an error message rather than a loader failure.
+#ifndef __APPLE__
 #include "gpu.hpp"
 
-#include <vulkan/vulkan.h>
+#include "volk.h"
 
 #include <algorithm>
 #include <chrono>
@@ -122,6 +127,13 @@ public:
     }
 
     bool initialize(std::string& error) {
+        // volkInitialize is idempotent; it only resolves the loader's entry.
+        VkResult loader = volkInitialize();
+        if (loader != VK_SUCCESS) {
+            error = "no Vulkan loader found (libvulkan.so.1 / vulkan-1.dll); install a GPU driver "
+                    "with Vulkan support, or Mesa's lavapipe for a CPU fallback";
+            return false;
+        }
         VkApplicationInfo app{};
         app.sType = VK_STRUCTURE_TYPE_APPLICATION_INFO;
         app.pApplicationName = "SpektraLab headless";
@@ -131,6 +143,11 @@ public:
         create.pApplicationInfo = &app;
         VkResult result = vkCreateInstance(&create, nullptr, &instance_);
         if (result != VK_SUCCESS) { error = vk_error("vkCreateInstance", result); return false; }
+        // Instance-level loading only: every device function then goes through
+        // the loader's trampolines, which dispatch on the handle. That keeps
+        // two engines (two VkDevices) in one process correct, which
+        // volkLoadDevice's process-global table would not.
+        volkLoadInstance(instance_);
 
         uint32_t count = 0;
         result = vkEnumeratePhysicalDevices(instance_, &count, nullptr);
@@ -143,8 +160,23 @@ public:
         result = vkEnumeratePhysicalDevices(instance_, &count, devices.data());
         if (result != VK_SUCCESS) { error = vk_error("vkEnumeratePhysicalDevices", result); return false; }
 
+        // SPEKTRAFILM_VULKAN_DEVICE=<index> pins one physical device (the
+        // host's --device flag sets it); otherwise a discrete GPU wins.
+        int forced = -1;
+        if (const char* pick = std::getenv("SPEKTRAFILM_VULKAN_DEVICE"); pick && *pick) {
+            char* end = nullptr;
+            const long v = std::strtol(pick, &end, 10);
+            if (end == pick || *end || v < 0 || v >= long(devices.size())) {
+                error = std::string("SPEKTRAFILM_VULKAN_DEVICE=") + pick + " is not a device index (0.." +
+                        std::to_string(devices.size() - 1) + ")";
+                return false;
+            }
+            forced = int(v);
+        }
         int best_score = -1;
-        for (VkPhysicalDevice candidate : devices) {
+        for (size_t index = 0; index < devices.size(); ++index) {
+            if (forced >= 0 && int(index) != forced) continue;
+            VkPhysicalDevice candidate = devices[index];
             uint32_t families_count = 0;
             vkGetPhysicalDeviceQueueFamilyProperties(candidate, &families_count, nullptr);
             std::vector<VkQueueFamilyProperties> families(families_count);
@@ -218,7 +250,19 @@ public:
             detail = "Vulkan math probe readback failed: " + error;
             return false;
         }
-        size_t nonzero = 0;
+        // Two acceptable outcomes, and nothing in between:
+        //   fused    -- every residual is the exact one (NVIDIA, AMD, Intel and
+        //               every GPU the Windows port was accepted on);
+        //   unfused  -- every residual is exactly 0 *and* the device is a CPU
+        //               implementation. Mesa's lavapipe lowers fma() to a
+        //               multiply and an add even under `precise` (measured
+        //               2026-10-05, llvmpipe LLVM 20, Mesa 25.2). That is one
+        //               rounding per fma different from a fused device -- far
+        //               inside the 3e-5 render bar -- and it is reported in
+        //               `capabilities.backend.math_mode`, never silently.
+        // Anything else (some residuals right, some wrong; zeroes on a real
+        // GPU) still refuses to start, as it always did.
+        size_t exact = 0, zero = 0;
         for (size_t i = 0; i < n; ++i) {
             // These bounded, positive binary32 inputs have an exact binary64
             // product (at most 48 significant bits). Subtracting its binary32
@@ -231,15 +275,29 @@ public:
             const float a = input[2 * i], b = input[2 * i + 1];
             const float rounded = a * b;
             const float want = float(double(a) * double(b) - double(rounded));
-            if (got[i] != want) {
-                detail = "Vulkan math probe differs from exact product residual at index " + std::to_string(i);
+            if (want == 0.0f) continue;   // carries no information either way
+            if (got[i] == want) ++exact;
+            else if (got[i] == 0.0f) ++zero;
+            else {
+                char got_want[96];
+                std::snprintf(got_want, sizeof got_want, " (got %.9g, want %.9g)", double(got[i]), double(want));
+                detail = "Vulkan math probe differs from exact product residual at index " + std::to_string(i) + got_want;
                 return false;
             }
-            if (got[i] != 0.0f) ++nonzero;
         }
-        if (!nonzero) { detail = "Vulkan math probe produced only zeroes"; return false; }
-        detail = "Vulkan probe passed (precise product + explicit fma; full shader parity pending)";
-        return true;
+        if (exact && !zero) {
+            detail = "Vulkan probe passed (precise product + fused fma; full shader parity pending)";
+            return true;
+        }
+        if (zero && !exact && properties_.deviceType == VK_PHYSICAL_DEVICE_TYPE_CPU) {
+            detail = "Vulkan probe passed on a CPU device with unfused fma (one extra rounding per fma; "
+                     "full shader parity pending)";
+            return true;
+        }
+        if (!exact && !zero) { detail = "Vulkan math probe produced no informative residuals"; return false; }
+        detail = zero && exact ? "Vulkan math probe: fma is fused for some lanes and not others"
+                               : "Vulkan math probe: fma is not fused on a GPU device (fast or contracted math?)";
+        return false;
     }
 
     void begin_frame() override {
@@ -886,4 +944,4 @@ Gpu* Gpu::create_vulkan(const std::string& shader_dir, std::string& error) {
 void Gpu::release_texture_static(void* pixels) { std::free(pixels); }
 
 }  // namespace spk::gpu
-#endif  // _WIN32
+#endif  // !__APPLE__

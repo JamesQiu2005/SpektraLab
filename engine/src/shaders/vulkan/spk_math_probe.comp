@@ -13,5 +13,10 @@ void main() {
     float a = input_data.value[2 * i];
     float b = input_data.value[2 * i + 1];
     precise float rounded = a * b;
-    output_data.value[i] = fma(a, b, -rounded);
+    // `precise` on the result too: GLSL leaves an unqualified fma() free to be
+    // evaluated as a*b+c with two roundings (Mesa's lavapipe does exactly
+    // that), which is 0 here and reads as fast math. Under `precise` the spec
+    // requires a single rounding.
+    precise float residual = fma(a, b, -rounded);
+    output_data.value[i] = residual;
 }

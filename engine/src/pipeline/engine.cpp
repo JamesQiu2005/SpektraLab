@@ -46,7 +46,7 @@
 #include "pipeline.hpp"
 #include "print_lut.hpp"
 #include "setup_cache.hpp"
-#ifdef _WIN32
+#ifndef __APPLE__
 #include "windows_unported.hpp"
 #endif
 
@@ -54,7 +54,7 @@ using namespace spk;
 
 namespace {
 
-#ifdef _WIN32
+#ifndef __APPLE__
 constexpr const char* kRenderCore = "native-vulkan";
 #else
 constexpr const char* kRenderCore = "native-metal";
@@ -314,7 +314,7 @@ struct spk_engine {
         backend.set("render_core", Json(std::string(kRenderCore)));
         backend.set("host", Json(std::string("native")));
         backend.set("math_mode", Json(math_mode));
-#ifdef _WIN32
+#ifndef __APPLE__
         // These upstream effects still require kernels or Apple services that
         // have not been ported. Defaults stay usable; explicit requests fail.
         Json unported = Json::array();
@@ -535,7 +535,7 @@ const char* spk_build_info(void) {
     // The build stamp is what a bug report quotes, so it names the three
     // things that decide whether two builds render the same picture: the
     // engine's own version, the compiler date, and the backend math probe.
-#ifdef _WIN32
+#ifndef __APPLE__
     static const std::string info =
         std::string("spektrafilm-native 0.1.0 (") + __DATE__ " " __TIME__ ", math=probed)";
 #else
@@ -576,7 +576,7 @@ spk_engine* spk_engine_create(const char* resources_dir, void* device) {
 
     if (!engine->print_luts.init(engine->resources_dir, error)) { g_error = error; return nullptr; }
 
-#ifdef _WIN32
+#ifndef __APPLE__
     if (device) { g_error = "Windows device-buffer input is not implemented yet; pass null"; return nullptr; }
     engine->gpu = gpu::Gpu::create_vulkan(engine->resources_dir + "/vulkan", error);
 #else
@@ -1150,7 +1150,7 @@ bool materialise(spk_session* session, const Image& rgb, spk_result* out, std::s
         out->row_stride_px = stride;
         out->texture = gpu->texture(buffer.get(), rgb.w, rgb.h, stride, error);
         ok = out->texture != nullptr;
-#ifdef _WIN32
+#ifndef __APPLE__
         // The headless Vulkan result owns a separate CPU copy. The dispatch
         // buffer is released when this function returns.
         if (ok) out->rgba16 = static_cast<const uint16_t*>(out->texture);
@@ -1621,7 +1621,7 @@ spk_status spk_render_digital_intermediate(spk_session* session, spk_result* out
     std::lock_guard<std::mutex> guard(session->lock);
     g_error.clear();
     std::memset(out, 0, sizeof *out);
-#ifdef _WIN32
+#ifndef __APPLE__
     if (out_json) *out_json = nullptr;
     g_error = windows_unported_error(true, false, false, false, false);
     return SPK_ERR_USER;
@@ -1703,7 +1703,7 @@ spk_status spk_set_params(spk_session* session, const char* params_delta_json, c
     std::lock_guard<std::mutex> guard(session->lock);
     spk_engine* engine = session->engine;
     const bool shoot = delta_touches_shoot(delta);
-#ifdef _WIN32
+#ifndef __APPLE__
     // Reject before applying the delta, so a failed request cannot leave the
     // session's params ahead of its still-valid, previously built pipeline.
     if (const char* unported = windows_unported_delta_error(delta)) {

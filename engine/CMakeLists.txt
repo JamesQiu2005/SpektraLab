@@ -1,5 +1,16 @@
-# Windows headless build: portable setup/pipeline sources plus the incremental
-# Vulkan backend. The macOS application continues to use build.sh/Xcode.
+# The engine outside macOS: the portable setup/pipeline sources plus the
+# Vulkan backend, on Linux and Windows (native MinGW/MSVC or cross-compiled
+# MinGW-w64). The macOS application continues to use build.sh/Xcode and
+# nothing here is read by them.
+#
+# Dependencies (all pinned, all fetched into the gitignored build/deps by
+# engine/setup-deps.sh, none downloaded by CMake itself):
+#   SPEKTRALAB_VULKAN_HEADERS   Khronos Vulkan-Headers include dir (default:
+#                               build/deps/Vulkan-Headers/include, else the
+#                               system's / $VULKAN_SDK's)
+#   SPEKTRALAB_LIBRAW_SOURCE    LibRaw 0.22.2 source tree (RAW decode)
+# The Vulkan loader is never linked: engine/third_party/volk opens it at run
+# time. glslangValidator compiles the kernels to SPIR-V at build time.
 add_library(spektralab_core STATIC
     src/core/blob.cpp
     src/core/cam16.cpp
@@ -21,6 +32,11 @@ target_compile_features(spektralab_core PUBLIC cxx_std_20)
 target_include_directories(spektralab_core PUBLIC
     $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/src/core>
 )
+set_target_properties(spektralab_core PROPERTIES POSITION_INDEPENDENT_CODE ON)
+
+set(SPEKTRALAB_REPO_ROOT "${CMAKE_CURRENT_SOURCE_DIR}/.." CACHE INTERNAL "")
+set(SPEKTRALAB_DEPS_DIR "${SPEKTRALAB_REPO_ROOT}/build/deps" CACHE PATH
+    "Directory engine/setup-deps.sh fetched the pinned dependencies into")
 
 # These translation units are platform-neutral, but linking them into a
 # runnable engine still requires an implementation of gpu::Gpu.
@@ -30,11 +46,12 @@ add_library(spektralab_pipeline OBJECT
     src/pipeline/pipeline.cpp
     src/pipeline/scene_latitude.cpp
 )
-if(WIN32)
-    target_sources(spektralab_pipeline PRIVATE src/pipeline/windows_unported.cpp)
-elseif(APPLE)
+set_target_properties(spektralab_pipeline PROPERTIES POSITION_INDEPENDENT_CODE ON)
+if(APPLE)
     target_sources(spektralab_pipeline PRIVATE
         src/pipeline/contrast_mask.cpp src/pipeline/overscan.cpp)
+else()
+    target_sources(spektralab_pipeline PRIVATE src/pipeline/windows_unported.cpp)
 endif()
 target_link_libraries(spektralab_pipeline PRIVATE spektralab_core)
 target_include_directories(spektralab_pipeline PRIVATE
@@ -57,39 +74,51 @@ if(BUILD_TESTING)
                 "${CMAKE_CURRENT_BINARY_DIR}/setup.idx")
 endif()
 
-if(WIN32)
-    option(SPEKTRALAB_BUILD_NATIVE_RAW "Build the native RAW-to-TIFF host" OFF)
-    option(SPEKTRALAB_BUILD_DESKTOP "Build the minimal native Windows RAW viewer" ON)
+if(NOT APPLE)
+    option(SPEKTRALAB_BUILD_NATIVE_RAW "Build LibRaw decode, the image writer and the RAW tools" OFF)
+    option(SPEKTRALAB_BUILD_HOST "Build engine/host: spektralab-host (needs SPEKTRALAB_BUILD_NATIVE_RAW)" OFF)
+    option(SPEKTRALAB_BUILD_DESKTOP "Build the minimal native Windows RAW viewer (Windows only)" ON)
     option(SPEKTRALAB_REQUIRE_VULKAN "Fail configuration when the Vulkan toolchain is missing" OFF)
-    option(SPEKTRALAB_BUILD_TEST_DLL "Build the C ABI DLL used by parity tests" ${BUILD_TESTING})
-    # Accept an installed Vulkan SDK, or explicit paths for a local toolchain.
-    # Nothing here changes the upstream macOS build.sh / Xcode path.
-    find_path(SPEKTRALAB_VULKAN_INCLUDE_DIR vulkan/vulkan.h
-        HINTS "$ENV{VULKAN_SDK}/Include")
-    find_library(SPEKTRALAB_VULKAN_LIBRARY NAMES vulkan-1
-        HINTS "$ENV{VULKAN_SDK}/Lib")
-    if(MINGW AND NOT SPEKTRALAB_VULKAN_LIBRARY)
-        find_file(SPEKTRALAB_VULKAN_LIBRARY NAMES vulkan-1.dll
-            PATHS "$ENV{WINDIR}/System32" NO_DEFAULT_PATH)
-    endif()
-    find_program(SPEKTRALAB_GLSLANG NAMES glslangValidator glslang
-        HINTS "$ENV{VULKAN_SDK}/Bin")
+    option(SPEKTRALAB_BUILD_TEST_DLL "Build the C ABI shared library used by parity tests" ${BUILD_TESTING})
+    option(SPEKTRALAB_STATIC_RUNTIME "Link libstdc++/libgcc (and winpthread) statically into executables" OFF)
 
-    if(SPEKTRALAB_VULKAN_INCLUDE_DIR AND SPEKTRALAB_VULKAN_LIBRARY AND SPEKTRALAB_GLSLANG)
+    # Headers: the pinned Khronos tree when setup-deps.sh fetched it, else an
+    # installed SDK or the system's. Only headers -- volk loads the loader.
+    find_path(SPEKTRALAB_VULKAN_HEADERS vulkan/vulkan_core.h
+        HINTS "${SPEKTRALAB_DEPS_DIR}/Vulkan-Headers/include" "$ENV{VULKAN_SDK}/Include"
+              "$ENV{VULKAN_SDK}/include"
+        NO_CMAKE_FIND_ROOT_PATH)
+    find_program(SPEKTRALAB_GLSLANG NAMES glslangValidator glslang
+        HINTS "$ENV{VULKAN_SDK}/Bin" "$ENV{VULKAN_SDK}/bin")
+
+    if(SPEKTRALAB_VULKAN_HEADERS AND SPEKTRALAB_GLSLANG)
+        # volk, compiled once as C, with the platform's loader name built in.
+        add_library(spk_volk STATIC third_party/volk/volk.c)
+        set_target_properties(spk_volk PROPERTIES POSITION_INDEPENDENT_CODE ON LINKER_LANGUAGE C)
+        target_include_directories(spk_volk PUBLIC
+            "${CMAKE_CURRENT_SOURCE_DIR}/third_party/volk" "${SPEKTRALAB_VULKAN_HEADERS}")
+        if(NOT WIN32)
+            target_link_libraries(spk_volk PUBLIC ${CMAKE_DL_LIBS})
+        endif()
+
         set(vulkan_resource_dir "${CMAKE_CURRENT_BINARY_DIR}/resources")
         set(vulkan_shader_dir "${vulkan_resource_dir}/vulkan")
+        set(SPEKTRALAB_VULKAN_KERNELS
+            spk_math_probe spk_take_rgb spk_matmul3 spk_stride_sample
+            spk_affine3 spk_tc_b spk_lut2d_cubic spk_sep_fir_acc spk_iir_df_acc
+            spk_lincomb3 spk_log10_guarded spk_curves
+            spk_couplers_correction spk_spectral_epilogue
+            spk_print_exposure spk_cam16ucs_compress
+            spk_cctf_encode_matrix spk_to_rgba16
+            spk_grain_layers spk_grain_layer_one spk_grain_simple
+            spk_lognormal_field spk_rng_probe spk_mul spk_glare_add
+            spk_reduce_max spk_boost spk_bw_correct spk_edr spk_cctf_decode
+            spk_zoom_bilinear_mirror spk_geometry_resample_df
+            spk_lut3d_trilinear spk_di_normalise
+            CACHE INTERNAL "")
         set(vulkan_spirv)
-        foreach(kernel spk_math_probe spk_take_rgb spk_matmul3 spk_stride_sample
-                       spk_affine3 spk_tc_b spk_lut2d_cubic spk_sep_fir_acc spk_iir_df_acc
-                       spk_lincomb3 spk_log10_guarded spk_curves
-                       spk_couplers_correction spk_spectral_epilogue
-                       spk_print_exposure spk_cam16ucs_compress
-                       spk_cctf_encode_matrix spk_to_rgba16
-                       spk_grain_layers spk_grain_layer_one spk_grain_simple
-                       spk_lognormal_field spk_rng_probe spk_mul spk_glare_add
-                       spk_reduce_max spk_boost spk_bw_correct spk_edr spk_cctf_decode
-                       spk_zoom_bilinear_mirror spk_geometry_resample_df
-                       spk_lut3d_trilinear spk_di_normalise)
+        file(GLOB vulkan_includes "${CMAKE_CURRENT_SOURCE_DIR}/src/shaders/vulkan/*.glsl")
+        foreach(kernel ${SPEKTRALAB_VULKAN_KERNELS})
             set(shader "${CMAKE_CURRENT_SOURCE_DIR}/src/shaders/vulkan/${kernel}.comp")
             set(spirv "${vulkan_shader_dir}/${kernel}.spv")
             add_custom_command(OUTPUT "${spirv}"
@@ -97,10 +126,11 @@ if(WIN32)
                 COMMAND "${SPEKTRALAB_GLSLANG}" -V --target-env vulkan1.0
                         "-I${CMAKE_CURRENT_SOURCE_DIR}/src/shaders/vulkan"
                         -o "${spirv}" "${shader}"
-                DEPENDS "${shader}" "${CMAKE_CURRENT_SOURCE_DIR}/src/shaders/vulkan/spk_rng.glsl"
+                DEPENDS "${shader}" ${vulkan_includes}
                 VERBATIM)
             list(APPEND vulkan_spirv "${spirv}")
         endforeach()
+        set(SPEKTRALAB_VULKAN_SPIRV ${vulkan_spirv} CACHE INTERNAL "")
         add_custom_target(spektralab_vulkan_resources
             COMMAND "${CMAKE_COMMAND}" -E copy_directory
                     "${CMAKE_CURRENT_SOURCE_DIR}/resources" "${vulkan_resource_dir}"
@@ -112,11 +142,13 @@ if(WIN32)
             src/gpu/vulkan_gpu.cpp)
         target_compile_features(spektralab_engine PUBLIC cxx_std_20)
         target_include_directories(spektralab_engine PRIVATE
-            "${SPEKTRALAB_VULKAN_INCLUDE_DIR}"
             "${CMAKE_CURRENT_SOURCE_DIR}/include"
             "${CMAKE_CURRENT_SOURCE_DIR}/src")
-        target_link_libraries(spektralab_engine PUBLIC
-            spektralab_core "${SPEKTRALAB_VULKAN_LIBRARY}")
+        target_link_libraries(spektralab_engine PUBLIC spektralab_core spk_volk)
+        if(NOT WIN32)
+            find_package(Threads REQUIRED)
+            target_link_libraries(spektralab_engine PUBLIC Threads::Threads)
+        endif()
         add_dependencies(spektralab_engine spektralab_vulkan_resources)
 
         if(SPEKTRALAB_BUILD_NATIVE_RAW)
@@ -125,13 +157,19 @@ if(WIN32)
             target_compile_features(spk_image_io PUBLIC cxx_std_20)
             target_include_directories(spk_image_io PUBLIC "${CMAKE_CURRENT_SOURCE_DIR}/src")
             target_link_libraries(spk_image_io PRIVATE spk_libraw)
-            add_executable(spk_raw_render tools/raw_render.cpp)
-            target_include_directories(spk_raw_render PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/include")
-            target_link_libraries(spk_raw_render PRIVATE spk_image_io spektralab_engine)
-            if(MINGW)
-                target_link_options(spk_raw_render PRIVATE -municode)
+            if(WIN32)
+                # Win32-only RAW-to-TIFF tool; engine/host is the portable host.
+                add_executable(spk_raw_render tools/raw_render.cpp)
+                target_include_directories(spk_raw_render PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/include")
+                target_link_libraries(spk_raw_render PRIVATE spk_image_io spektralab_engine)
+                if(MINGW)
+                    target_link_options(spk_raw_render PRIVATE -municode)
+                endif()
             endif()
-            if(SPEKTRALAB_BUILD_DESKTOP)
+            if(SPEKTRALAB_BUILD_HOST)
+                add_subdirectory(host)
+            endif()
+            if(WIN32 AND SPEKTRALAB_BUILD_DESKTOP)
                 add_library(spk_desktop_host STATIC src/desktop/preview_host.cpp)
                 target_compile_features(spk_desktop_host PUBLIC cxx_std_20)
                 target_include_directories(spk_desktop_host PUBLIC
@@ -153,11 +191,15 @@ if(WIN32)
                 endif()
             endif()
             if(BUILD_TESTING)
-                add_executable(spk_image_writer_test tests/image_writer_test.cpp)
-                target_link_libraries(spk_image_writer_test PRIVATE spk_image_io)
-                add_test(NAME spk_image_writer COMMAND spk_image_writer_test
-                    "${CMAKE_CURRENT_SOURCE_DIR}/resources/io/sRGB.icc"
-                    "${CMAKE_CURRENT_BINARY_DIR}/writer-test")
+                if(WIN32)
+                    # The transactional sRGB TIFF writer is a Win32-handle
+                    # implementation; the host has its own portable writers.
+                    add_executable(spk_image_writer_test tests/image_writer_test.cpp)
+                    target_link_libraries(spk_image_writer_test PRIVATE spk_image_io)
+                    add_test(NAME spk_image_writer COMMAND spk_image_writer_test
+                        "${CMAKE_CURRENT_SOURCE_DIR}/resources/io/sRGB.icc"
+                        "${CMAKE_CURRENT_BINARY_DIR}/writer-test")
+                endif()
                 add_executable(spk_raw_decoder_errors tests/raw_decoder_errors.cpp)
                 target_link_libraries(spk_raw_decoder_errors PRIVATE spk_image_io)
                 add_test(NAME spk_raw_decoder_errors COMMAND spk_raw_decoder_errors
@@ -174,19 +216,21 @@ if(WIN32)
         if(SPEKTRALAB_BUILD_TEST_DLL)
             # Compile the same pipeline/core as the static engine. Export only
             # the public C boundary; callers never free DLL allocations themselves.
-            add_library(spektralab_engine_shared SHARED
-                $<TARGET_OBJECTS:spektralab_pipeline>
-                src/gpu/vulkan_gpu.cpp
-                windows_exports.def)
+            set(shared_sources $<TARGET_OBJECTS:spektralab_pipeline> src/gpu/vulkan_gpu.cpp)
+            if(WIN32)
+                list(APPEND shared_sources windows_exports.def)
+            endif()
+            add_library(spektralab_engine_shared SHARED ${shared_sources})
             set_target_properties(spektralab_engine_shared PROPERTIES
                 OUTPUT_NAME spektrafilm_engine PREFIX "")
             target_compile_features(spektralab_engine_shared PUBLIC cxx_std_20)
             target_include_directories(spektralab_engine_shared PRIVATE
-                "${SPEKTRALAB_VULKAN_INCLUDE_DIR}"
                 "${CMAKE_CURRENT_SOURCE_DIR}/include"
                 "${CMAKE_CURRENT_SOURCE_DIR}/src")
-            target_link_libraries(spektralab_engine_shared PRIVATE
-                spektralab_core "${SPEKTRALAB_VULKAN_LIBRARY}")
+            target_link_libraries(spektralab_engine_shared PRIVATE spektralab_core spk_volk)
+            if(NOT WIN32)
+                target_link_libraries(spektralab_engine_shared PRIVATE Threads::Threads)
+            endif()
             add_dependencies(spektralab_engine_shared spektralab_vulkan_resources)
         endif()
 
@@ -236,8 +280,8 @@ if(WIN32)
         endif()
     else()
         if(SPEKTRALAB_REQUIRE_VULKAN)
-            message(FATAL_ERROR "Vulkan SDK headers, loader and glslang are required for this build")
+            message(FATAL_ERROR "Vulkan headers (engine/setup-deps.sh) and glslangValidator are required for this build")
         endif()
-        message(STATUS "Vulkan SDK headers, loader, or glslang missing; building portable core only")
+        message(STATUS "Vulkan headers or glslangValidator missing; building portable core only")
     endif()
 endif()

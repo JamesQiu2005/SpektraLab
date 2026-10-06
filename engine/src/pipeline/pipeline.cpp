@@ -1,6 +1,6 @@
 #include "pipeline.hpp"
 #include "timer.hpp"
-#ifdef _WIN32
+#ifndef __APPLE__
 #include "windows_unported.hpp"
 #endif
 
@@ -115,7 +115,7 @@ bool Pipeline::build(const Params& params, std::string& error) {
     const Profile& film = params_.film;
     const Profile& print = params_.print;
 
-#ifdef _WIN32
+#ifndef __APPLE__
     // Keep upstream's default path intact while its new effects await a
     // Windows implementation. Refuse before allocating buffers or rendering
     // a partial result; never silently drop a requested effect.

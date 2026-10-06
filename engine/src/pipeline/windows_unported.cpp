@@ -1,6 +1,6 @@
 // Off-path adapters for upstream effects that still depend on Apple services.
 // Mac build.sh globs pipeline/*.cpp, so the whole translation unit is guarded.
-#ifdef _WIN32
+#ifndef __APPLE__
 #include "pipeline.hpp"
 #include "windows_unported.hpp"
 
@@ -19,6 +19,11 @@ bool Pipeline::set_overscan_frame(uint32_t, uint32_t, std::string& error) {
     error = windows_unported_error(false, false, false, true, false);
     return false;
 }
+
+// Main added spk_overscan_geometry after the Windows port's root (61bfc49);
+// the clean textual merge left this undefined and the non-Apple engine did
+// not link. Overscan is refused here, so there is never a layout to report.
+std::string Pipeline::overscan_geometry_json() const { return "{\"valid\":false}"; }
 
 bool Pipeline::node_overscan(const Image& in, Image& out, std::string& error) {
     if (params_.film_render.overscan.active || params_.film_render.date_imprint.active) {
@@ -66,4 +71,4 @@ bool Pipeline::node_contrast_mask_epilogue(const Image&, Image&, std::string& er
 }
 
 }  // namespace spk
-#endif  // _WIN32
+#endif  // !__APPLE__
