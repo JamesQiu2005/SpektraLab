@@ -18,7 +18,7 @@ final class ScenePlacementTests: XCTestCase {
         let low: Double, high: Double
         var asked = 0
         init(_ low: Double, _ high: Double) { self.low = low; self.high = high }
-        func verdict(_ x: Double) -> PlacementWindow.Verdict? {
+        func verdict(_ x: Double) -> PlacementWindow.Verdict {
             asked += 1
             if x <= low { return .refused(Issue(code: "room_below_minimum", side: "highlight", message: "")) }
             if x >= high { return .refused(Issue(code: "knees_cross", side: "both", message: "")) }
@@ -28,10 +28,9 @@ final class ScenePlacementTests: XCTestCase {
 
     // MARK: - the search
 
-    func testTheSearchFindsBothEdgesToTheHundredth() async throws {
+    func testTheSearchFindsBothEdgesToTheHundredth() throws {
         let fit = FakeFit(1.37, 3.42)
-        let found = await PlacementWindow.search(side: .highlight, minimum: 0.9, in: 0...8) { fit.verdict($0) }
-        let window = try XCTUnwrap(found)
+        let window = PlacementWindow.search(side: .highlight, minimum: 0.9, in: 0...8) { fit.verdict($0) }
         let span = try XCTUnwrap(window.span)
         XCTAssertEqual(fit.verdict(span.lowerBound), .valid)
         XCTAssertEqual(fit.verdict(span.upperBound), .valid)
@@ -44,10 +43,9 @@ final class ScenePlacementTests: XCTestCase {
         XCTAssertLessThan(fit.asked, 40, "the search is meant to cost a few dozen probes")
     }
 
-    func testAValueOutsideTheWindowLandsOnItsNearerEdge() async throws {
+    func testAValueOutsideTheWindowLandsOnItsNearerEdge() throws {
         let fit = FakeFit(1.37, 3.42)
-        let found = await PlacementWindow.search(side: .shadow, minimum: 0.9, in: 0...8) { fit.verdict($0) }
-        let window = try XCTUnwrap(found)
+        let window = PlacementWindow.search(side: .shadow, minimum: 0.9, in: 0...8) { fit.verdict($0) }
         let span = try XCTUnwrap(window.span)
         XCTAssertEqual(window.landing(0).value, 0, "off is off")
         XCTAssertNil(window.landing(0).why)
@@ -59,39 +57,23 @@ final class ScenePlacementTests: XCTestCase {
         XCTAssertEqual(window.landing(7).why?.code, "knees_cross")
     }
 
-    func testTheTopOfTheTrackIsTheMostWhenTheFitTakesIt() async throws {
+    func testTheTopOfTheTrackIsTheMostWhenTheFitTakesIt() throws {
         let fit = FakeFit(0, 99)
-        let found = await PlacementWindow.search(side: .highlight, minimum: -1, in: 0...8) { fit.verdict($0) }
-        let window = try XCTUnwrap(found)
+        let window = PlacementWindow.search(side: .highlight, minimum: -1, in: 0...8) { fit.verdict($0) }
         XCTAssertEqual(window.span?.upperBound, 8)
         XCTAssertNil(window.above)
         XCTAssertLessThanOrEqual(try XCTUnwrap(window.span).lowerBound, 0.011)
     }
 
-    func testNoWindowTurnsTheSideOffAndSaysSo() async throws {
+    func testNoWindowTurnsTheSideOffAndSaysSo() throws {
         // The owner's frame: the minimum 3.74 under a lift bound of 4, and
         // nothing between them the Fit takes.
-        let found = await PlacementWindow.search(side: .shadow, minimum: 3.74, in: 0...8) { _ in
+        let window = PlacementWindow.search(side: .shadow, minimum: 3.74, in: 0...8) { _ in
             .refused(Issue(code: "pull_back_exceeds_max_lift", side: "shadow", message: ""))
         }
-        let window = try XCTUnwrap(found)
         XCTAssertNil(window.span)
         XCTAssertEqual(window.landing(5).value, 0)
         XCTAssertEqual(window.landing(5).why?.code, PlacementWindow.noWindowCode)
-    }
-
-    func testAProbeThatCannotBeMadeIsNotAnEmptyWindow() async {
-        let found = await PlacementWindow.search(side: .shadow, minimum: 1, in: 0...8) { _ in nil }
-        XCTAssertNil(found, "an engine that did not answer was read as 'nothing works'")
-    }
-
-    func testWhatIsKnownBeforeTheSearchIsTheMinimumAndTheLiftBound() {
-        let shadow = PlacementWindow.known(side: .shadow, minimum: 1.234, maxLift: 4, in: 0...8)
-        XCTAssertEqual(try XCTUnwrap(shadow.span).lowerBound, 1.24, accuracy: 1e-9)
-        XCTAssertEqual(try XCTUnwrap(shadow.span).upperBound, 3.99, accuracy: 1e-9)
-        let highlight = PlacementWindow.known(side: .highlight, minimum: -2, maxLift: 4, in: 0...8)
-        XCTAssertEqual(try XCTUnwrap(highlight.span).upperBound, 8)
-        XCTAssertNil(PlacementWindow.known(side: .shadow, minimum: 4.2, maxLift: 4, in: 0...8).span)
     }
 
     // MARK: - the report, reproduced
@@ -118,9 +100,8 @@ final class ScenePlacementTests: XCTestCase {
         func committed() -> Double {
             side == .highlight ? s.params.sceneLatitude.highlightPullBack : s.params.sceneLatitude.shadowPullBack
         }
-        func place(_ v: Double) async {
+        func place(_ v: Double) {
             s.placeScene(highlight: side == .highlight ? v : 0, shadow: side == .shadow ? v : 0, moving: side)
-            await withCheckedContinuation { done in s.whenPlacementSettles { done.resume() } }
         }
 
         // The agent's door still refuses half the minimum: the engine has not
@@ -130,36 +111,23 @@ final class ScenePlacementTests: XCTestCase {
         XCTAssertEqual(refused?.fit.valid, false, "the Fit accepted half its own minimum")
         XCTAssertEqual(committed(), 0)
 
-        // Measured is enough for the bands: nobody has touched a slider yet
-        // and both sides' limits are already the Fit's own.
-        try await waitUntil("the windows to be searched at rest") {
-            s.latitude.windows[.highlight] != nil && s.latitude.windows[.shadow] != nil
-        }
-        XCTAssertEqual(s.placementWindowNow(for: .highlight, other: 0), s.latitude.windows[.highlight]?.window)
-        XCTAssertEqual(s.placementWindowNow(for: .shadow, other: 0), s.latitude.windows[.shadow]?.window)
-        if s.latitude.windows[.shadow]?.window.span == nil {
-            XCTAssertNotNil(s.latitude.refusalMessage(for: "shadow"), "a side that cannot move does not say why")
-        }
-
-        let started = Date()
-        let searched = await s.placementWindow(for: side, other: 0)
-        let window = try XCTUnwrap(searched)
-        print("placement window \(side): \(String(describing: window.span)) in "
-              + "\(Int(Date().timeIntervalSince(started) * 1000)) ms, minimum \(minimum)")
+        let window = try XCTUnwrap(s.placementWindow(for: side, other: 0), "measured, and no window to draw")
         let span = try XCTUnwrap(window.span, "this frame's \(side) cannot be placed at all")
         XCTAssertGreaterThan(span.lowerBound, minimum)
 
-        // Dragged into the refused stretch: it lands on the edge.
-        await place(minimum / 2)
+        // Dragged into the refused stretch: it lands on the edge, and it has
+        // landed by the time the call returns — nothing is in flight for the
+        // knob to wait on, which is what made the drag late.
+        place(minimum / 2)
         XCTAssertEqual(committed(), span.lowerBound, accuracy: 1e-9, "the slider went back to where it was")
         XCTAssertTrue(s.params.sceneLatitude.active)
         XCTAssertNotNil(s.latitude.refusalMessage(for: side.rawValue), "the row does not say why it stopped")
 
         // Typed 5, then 0.5.
-        await place(5)
+        place(5)
         let five = committed()
         XCTAssertEqual(five, window.landing(5).value, accuracy: 1e-9)
-        await place(0.5)
+        place(0.5)
         XCTAssertEqual(committed(), window.landing(0.5).value, accuracy: 1e-9)
         if span.lowerBound < span.upperBound - 0.05, window.landing(0.5).value != five {
             XCTAssertNotEqual(committed(), five, "0.5 left the 5 that was typed before it")
@@ -167,18 +135,130 @@ final class ScenePlacementTests: XCTestCase {
 
         // Inside the window nothing is moved and nothing is said.
         let inside = (span.lowerBound + span.upperBound) / 2
-        await place(inside)
+        place(inside)
         XCTAssertEqual(committed(), inside, accuracy: 1e-9)
         XCTAssertNil(s.latitude.refusalMessage(for: side.rawValue))
 
         // Past the top of what the Fit takes: the upper edge.
-        await place(8)
+        place(8)
         XCTAssertEqual(committed(), span.upperBound, accuracy: 1e-9)
 
         // And off is still off.
-        await place(0)
+        place(0)
         XCTAssertEqual(committed(), 0)
         XCTAssertFalse(s.params.sceneLatitude.active)
+    }
+
+    // MARK: - a drag, step by step
+
+    /// The steps a drag makes, in order, through the call the slider's
+    /// binding makes: each one has moved the committed value by the time it
+    /// returns, the value follows out and back, and nothing arrives later to
+    /// move it again. (The gesture itself is `ScrubSlider`'s, shared with
+    /// every slider; an offscreen window does not deliver mouse events to it,
+    /// so this starts one call below the hand.)
+    func testEachStepOfADragIsCommittedAtOnce() async throws {
+        let raw = try copy(of: "A7m3/DSC03710.ARW")
+        let s = Session()
+        s.open(urls: [raw])
+        try await waitUntil("the engine to warm up") { s.serviceReady }
+        s.click(raw)
+        try await waitUntil("the frame to decode", timeout: 60) { s.selection == raw && s.decoded != nil }
+        s.requestPrint()
+        try await settle(s)
+        try await waitUntil("the frame to be measured") { s.placementMeasure != nil }
+        let span = try XCTUnwrap(s.placementWindow(for: .highlight, other: 0)?.span,
+                                 "this frame's highlights cannot be placed")
+        try XCTSkipUnless(span.upperBound - span.lowerBound > 1, "too narrow a window to drag in: \(span)")
+        func highlight() -> Double { s.params.sceneLatitude.highlightPullBack }
+
+        // From off, up through the refused stretch, across the window, past
+        // its top, and back.
+        let out = Array(stride(from: 0.2, through: 9, by: 0.2))
+        var trace: [Double] = []
+        let started = Date()
+        for v in out + out.reversed() {
+            s.placeScene(highlight: v, shadow: 0, moving: .highlight)
+            XCTAssertEqual(highlight(), min(max(v, span.lowerBound), span.upperBound), accuracy: 1e-9,
+                           "asked for \(v): the step was not committed where it lands")
+            trace.append(highlight())
+        }
+        let perStep = Date().timeIntervalSince(started) / Double(trace.count)
+        XCTAssertLessThan(perStep, 0.004, "a step costs \(perStep * 1000) ms on the main thread")
+        let held = highlight()
+        try await settle(s)
+        XCTAssertEqual(highlight(), held, "the value moved after the drag ended")
+        XCTAssertEqual(s.sidecar.params.sceneLatitude.highlightRoom > 0, true)
+        print(String(format: "placement drag: %d steps, %.3f ms each", trace.count, perStep * 1000))
+    }
+
+    // MARK: - the solve is the engine's
+
+    /// `PlacementFit` against `spk_scene_latitude`, on a real frame, over
+    /// pull-backs on both sides of every refusal and at each roll-off, lift
+    /// bound and percentile the wire takes: the same verdict, the same first
+    /// reason, the same knees and rooms. The engine's is the reference; this
+    /// fails when either is changed without the other.
+    func testTheLocalSolveIsTheEngines() async throws {
+        let raw = try copy(of: "A7m3/DSC03710.ARW")
+        let s = Session()
+        s.open(urls: [raw])
+        try await waitUntil("the engine to warm up") { s.serviceReady }
+        s.click(raw)
+        try await waitUntil("the frame to decode", timeout: 60) { s.selection == raw && s.decoded != nil }
+        s.requestPrint()
+        try await settle(s)
+
+        var compared = 0, solved = 0
+        var refusals = Set<String>()
+        for (rolloff, lift, percentile) in [(2.0, 4.0, 0.1), (2.0, 8.0, 0.1), (2.0, 4.0, 1.0), (1.0, 8.0, 1.0),
+                                            (3.0, 12.0, 0.1)] {
+            var base = SceneLatitudeSettings()
+            base.rolloff = rolloff; base.maxLift = lift; base.shadowPercentile = percentile
+            var request = base.request
+            request.highlightPullBack = 0; request.shadowPullBack = 0
+            let at = PlacementFit.Measured(try await s.client.sceneLatitude(request).fit)
+            let hs = [0, at.minimum(.highlight) * 0.5, at.minimum(.highlight) + 0.004, at.minimum(.highlight) + 0.3,
+                      at.minimum(.highlight) + 1.5, 7.9, 12]
+            let ss = [0, at.minimum(.shadow) * 0.5, at.minimum(.shadow) + 0.004, at.minimum(.shadow) + 0.3,
+                      at.minimum(.shadow) + 1.5, lift - 0.01, lift, 7.9]
+            for h in hs.map({ max($0, 0) }) {
+                for sh in ss.map({ max($0, 0) }) {
+                    request.highlightPullBack = h; request.shadowPullBack = sh
+                    let engine = try await s.client.sceneLatitude(request).fit
+                    let local = PlacementFit.fit(at, highlight: h, shadow: sh, base: base)
+                    let what = "m \(rolloff), lift \(lift), P\(percentile), highlight \(h), shadow \(sh)"
+                    compared += 1
+                    switch local {
+                    case .refused(let why):
+                        XCTAssertFalse(engine.valid, "the engine takes what the app refuses: \(what)")
+                        XCTAssertEqual(why.code, engine.issues.first?.code, what)
+                        XCTAssertEqual(why.side, engine.issues.first?.side, what)
+                        refusals.insert(why.code)
+                    case .solved(let placed):
+                        XCTAssertTrue(engine.valid, "the app takes what the engine refuses (\(engine.issues)): \(what)")
+                        var viaEngine = base
+                        guard viaEngine.apply(engine) else { continue }
+                        solved += 1
+                        XCTAssertEqual(placed.active, viaEngine.active, what)
+                        XCTAssertEqual(placed.highlightPullBack, viaEngine.highlightPullBack, what)
+                        XCTAssertEqual(placed.shadowPullBack, viaEngine.shadowPullBack, what)
+                        XCTAssertEqual(placed.highlightRoom, viaEngine.highlightRoom, accuracy: 1e-9, what)
+                        XCTAssertEqual(placed.shadowRoom, viaEngine.shadowRoom, accuracy: 1e-9, what)
+                        if placed.highlightRoom > 0 {
+                            XCTAssertEqual(placed.highlightKnee, viaEngine.highlightKnee, accuracy: 1e-9, what)
+                        }
+                        if placed.shadowRoom > 0 {
+                            XCTAssertEqual(placed.shadowKnee, viaEngine.shadowKnee, accuracy: 1e-9, what)
+                        }
+                    }
+                }
+            }
+        }
+        // It compared something on each side of the line, or it proved nothing.
+        print("placement parity: \(compared) fits, \(solved) solved, refusals \(refusals.sorted())")
+        XCTAssertGreaterThan(solved, 20)
+        XCTAssertGreaterThanOrEqual(refusals.count, 3, "\(refusals)")
     }
 
     // MARK: - helpers

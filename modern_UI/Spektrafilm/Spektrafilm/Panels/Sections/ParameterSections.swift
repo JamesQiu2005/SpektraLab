@@ -200,20 +200,12 @@ struct FilmFormatSection: View {
 ///
 /// **Every value goes through the Fit**, and the Fit takes a window of
 /// pull-backs on each side rather than everything above zero. The window is
-/// drawn as a band around the track — searched as soon as the frame is
-/// measured, so it is the Fit's own limits at rest — and a slider cannot rest
-/// outside it: a value dragged or typed there lands on the band's nearer edge, and the
-/// row says why (1.3.2 — it used to commit nothing and return to the last
+/// drawn as a band around the track and a slider cannot rest outside it: a
+/// value dragged or typed there lands on the band's nearer edge, and the row
+/// says why (1.3.2 — it used to commit nothing and return to the last
 /// accepted value on release, which read as a slider that would not move).
 struct ScenePlacementSection: View {
     @Bindable var session: Session
-    /// What a slider shows while its value is on its way: under the pointer,
-    /// and after release until the Fit for it has been committed. Nil at
-    /// rest, when the slider shows what is committed.
-    @State private var dragging: (highlight: Double?, shadow: Double?) = (nil, nil)
-    /// Counts each side's edits, so a release that settles after the next
-    /// drag began does not take that drag's value away.
-    @State private var edits: (highlight: Int, shadow: Int) = (0, 0)
 
     static let range = Session.placementRange
 
@@ -224,26 +216,16 @@ struct ScenePlacementSection: View {
         PanelSection(L(.sectionScenePlacement), key: "scenePlacement",
                      action: SectionAction(help: L(.helpResetPlacement),
                                            enabled: session.params.sceneLatitude.active) {
-                         dragging = (nil, nil); session.resetScenePlacement()
+                         session.resetScenePlacement()
                      }) {
             RailRows {
                 row(L(.placementHighlight), side: .highlight, committed: committed.highlightPullBack,
-                    other: dragging.shadow ?? committed.shadowPullBack, shown: dragging.highlight) { asked, lands, other in
-                    edits.highlight += 1
-                    dragging.highlight = lands
-                    session.placeScene(highlight: asked, shadow: other, moving: .highlight)
-                } end: {
-                    let mine = edits.highlight
-                    session.whenPlacementSettles { if edits.highlight == mine { dragging.highlight = nil } }
+                    other: committed.shadowPullBack) {
+                    session.placeScene(highlight: $0, shadow: committed.shadowPullBack, moving: .highlight)
                 }
                 row(L(.placementShadow), side: .shadow, committed: committed.shadowPullBack,
-                    other: dragging.highlight ?? committed.highlightPullBack, shown: dragging.shadow) { asked, lands, other in
-                    edits.shadow += 1
-                    dragging.shadow = lands
-                    session.placeScene(highlight: other, shadow: asked, moving: .shadow)
-                } end: {
-                    let mine = edits.shadow
-                    session.whenPlacementSettles { if edits.shadow == mine { dragging.shadow = nil } }
+                    other: committed.highlightPullBack) {
+                    session.placeScene(highlight: committed.highlightPullBack, shadow: $0, moving: .shadow)
                 }
             }
             .rowEnabled(developed && !session.digitalIntermediateActive,
@@ -252,21 +234,21 @@ struct ScenePlacementSection: View {
         }
     }
 
-    private func row(_ label: String, side: PlacementSide, committed: Double, other: Double, shown: Double?,
-                     set: @escaping (_ asked: Double, _ lands: Double, _ other: Double) -> Void,
-                     end: @escaping () -> Void) -> some View {
-        let window = session.placementWindowNow(for: side, other: other)
-        return ScrubSlider(label: label,
-                           sublabel: session.latitude.refusalMessage(for: side.rawValue),
-                           // The knob shows where the value will land, so it
-                           // rides the edge of a dimmed stretch rather than
-                           // sitting on it; the Fit is still told what was
-                           // asked, which is how the row knows to say why.
-                           value: Binding(get: { shown ?? committed },
-                                          set: { set($0, window?.landing($0).value ?? $0, other) }),
+    /// A slider step is solved and committed in the call that makes it
+    /// (`Session.placeScene`), so the row shows what is committed and nothing
+    /// else: there is no value in flight to keep.
+    private func row(_ label: String, side: PlacementSide, committed: Double, other: Double,
+                     set: @escaping (Double) -> Void) -> some View {
+        let window = session.placementWindow(for: side, other: other)
+        // A side with nothing the Fit takes has no band, and says why without
+        // being touched: a slider that will not move owes the reason up front.
+        let message = session.latitude.refusalMessage(for: side.rawValue)
+            ?? (window.flatMap { $0.span == nil ? session.latitude.message(for: $0.below, side: side.rawValue) : nil })
+        return ScrubSlider(label: label, sublabel: message,
+                           value: Binding(get: { committed }, set: set),
                            range: Self.range, zero: 0, snap: 0.25,
                            format: { String(format: "%.2f", $0) },
-                           usable: window?.span.map { [$0] } ?? [], onCommit: end)
+                           usable: window?.span.map { [$0] } ?? [])
     }
 }
 
