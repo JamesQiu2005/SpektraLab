@@ -14,9 +14,12 @@
     "module": "ESNext",
     "moduleResolution": "bundler",
     "verbatimModuleSyntax": false,
-    "baseUrl": ".",
     "paths": {
-      "@shared/*": ["src/shared/*"]
-    }
+      "@shared/*": [
+        "./src/shared/*"
+      ]
+    },
+    "allowImportingTsExtensions": true,
+    "noEmit": true
   }
 }

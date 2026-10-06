@@ -104,3 +104,14 @@ export class FrameDecoder {
     return out;
   }
 }
+
+/** Split one complete frame held in memory (a reply from the Tauri core). */
+export function decodeFrame(bytes: Uint8Array): Frame {
+  if (bytes.length < 8) throw new FrameError('frame shorter than its length prefix');
+  const view = new DataView(bytes.buffer, bytes.byteOffset, 8);
+  const h = view.getUint32(0, true);
+  const p = view.getUint32(4, true);
+  if (bytes.length !== 8 + h + p) throw new FrameError(`frame length mismatch: ${bytes.length} != 8 + ${h} + ${p}`);
+  const header: unknown = JSON.parse(dec.decode(bytes.subarray(8, 8 + h)));
+  return { header, payload: bytes.subarray(8 + h) };
+}

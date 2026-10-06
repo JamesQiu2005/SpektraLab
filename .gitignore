@@ -343,8 +343,16 @@ CMakeUserPresets.json
 /WINDOWS_PORT_HANDOFF.md
 /WINDOWS_PORT_PLAN.md
 
-# desktop/ (Electron + TypeScript frontend)
+# desktop/ (Tauri 2 + TypeScript frontend)
 desktop/node_modules/
 desktop/out/
 desktop/release/
 desktop/.cache/
+desktop/dist/
+desktop/public/assets/
+desktop/src-tauri/target/
+desktop/src-tauri/gen/
+desktop/src-tauri/binaries/
+desktop/src-tauri/host-staging/
+desktop/test-results/
+desktop/playwright-report/

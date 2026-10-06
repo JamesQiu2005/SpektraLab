@@ -9,22 +9,25 @@
     "email": "hq2144@nyu.edu"
   },
   "homepage": "https://github.com/spektrafilm",
-  "main": "out/main/index.js",
   "private": true,
   "scripts": {
-    "dev": "electron-vite dev",
-    "dev:mock": "SPEKTRALAB_MOCK_HOST=1 electron-vite dev",
-    "build": "electron-vite build",
-    "start": "electron-vite preview",
-    "typecheck": "tsc -p tsconfig.node.json --noEmit && tsc -p tsconfig.web.json --noEmit",
+    "dev:web": "vite",
+    "dev": "tauri dev",
+    "dev:mock": "SPEKTRALAB_MOCK_HOST=1 tauri dev",
+    "build:web": "vite build",
+    "predev:web": "node scripts/copy-assets.mjs",
+    "prebuild:web": "node scripts/copy-assets.mjs",
+    "tauri": "tauri",
+    "typecheck": "tsc -p tsconfig.node.json && tsc -p tsconfig.web.json",
     "lint": "eslint --max-warnings 0 .",
     "test": "vitest run",
+    "test:e2e": "playwright test",
+    "check": "npm run typecheck && npm run lint && npm run test",
     "gen:strings": "node scripts/extract-strings.mjs",
     "gen:icons": "node scripts/gen-icons.mjs",
     "gen:assets": "node scripts/copy-assets.mjs",
     "package:linux": "node scripts/package.mjs linux",
-    "package:win": "node scripts/package.mjs win",
-    "package": "node scripts/package.mjs all"
+    "package:win": "node scripts/package.mjs win"
   },
   "dependencies": {
     "@radix-ui/react-context-menu": "^2.3.7",
@@ -63,5 +66,6 @@
     "typescript-eslint": "^8.71.1",
     "vite": "^7.3.6",
     "vitest": "^4.0.18"
-  }
+  },
+  "type": "module"
 }

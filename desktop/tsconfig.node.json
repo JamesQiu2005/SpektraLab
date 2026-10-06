@@ -4,5 +4,6 @@
     "lib": ["ES2023"],
     "types": ["node"]
   },
-  "include": ["src/main/**/*", "src/preload/**/*", "src/shared/**/*", "mock-host/**/*", "electron.vite.config.ts", "vitest.config.ts", "tests/**/*"]
+  "include": ["mock-host/**/*.ts", "src/shared/**/*.ts", "vite.config.ts", "vitest.config.ts", "playwright.config.ts", "tests/**/*.ts"],
+  "exclude": ["src/shared/**/*.test.ts"]
 }
