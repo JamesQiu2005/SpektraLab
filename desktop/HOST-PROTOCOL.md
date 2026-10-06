@@ -88,14 +88,24 @@ working space the pixels pass through (the engine already compressed into it).
 | `probe` | `{path}` | `{kind: "raw"\|"tiff"\|"jpeg"\|"png", width, height, metadata}` (no full decode) |
 | `thumbnail` | `{path, long_edge}` | `{image, source: "embedded"\|"half-size decode"\|"decode", orientation_applied: true}` + rgba8 sRGB payload, **already turned to the camera's orientation** (embedded RAW preview when present, else a fast decode) |
 
-`metadata`: `{make?, model?, lens?, iso?, shutter_s?, aperture?, focal_mm?, datetime_original?, orientation}` — feeds the date back and the info readouts. `datetime_original` is ISO-8601 local time without a zone (`2026-09-14T17:03:22`), from EXIF `DateTimeOriginal`. `orientation` is the EXIF value (1–8) of the file as stored; `probe`'s `width`/`height` are **as displayed** (orientation applied), and so is every frame the host hands the engine.
+`metadata`: `{make?, model?, lens?, iso?, shutter_s?, aperture?, focal_mm?, datetime_original?, orientation, as_shot?: {temperature_k, tint}}` — feeds the date back and the info readouts. `datetime_original` is ISO-8601 local time without a zone (`2026-09-14T17:03:22`), from EXIF `DateTimeOriginal`. `orientation` is the EXIF value (1–8) of the file as stored; `probe`'s `width`/`height` are **as displayed** (orientation applied), and so is every frame the host hands the engine.
+
+White balance at decode (R2): `temperature_k` 2000–50000 and `tint` −150…150
+in the Adobe DNG SDK's definition (Robertson isotherms; tint = −3000 × the
+distance from the Planckian locus in CIE 1960 uv, positive is magenta) — the
+scale Lightroom/ACR use. The camera side is LibRaw's XYZ→camera matrix, so
+`as_shot` → `custom` with the same numbers reproduces As Shot (measured: mean
+difference 0.01/255). RAW and `compatible16` only; on a raster or in
+`headroom` mode it is `unsupported`. `lens_correction: true` is `unsupported`
+(LibRaw carries no lens profiles).
 
 What a file is decoded *to* (the engine develops linear ProPhoto RGB, top row first; AGENTS.md traps 11–12): RAW through LibRaw; TIFF/JPEG/PNG through their embedded matrix/TRC ICC profile (D50 colorants to XYZ to ProPhoto, as ColorSync does); without a profile, 8-bit files are sRGB and 16-bit/float TIFFs are linear ProPhoto (the macOS decoder's rule for an untagged deep TIFF). TIFF: 8/16-bit integer and 32-bit float, RGB or grey, uncompressed/LZW/deflate/PackBits, strips or tiles; not BigTIFF, CMYK or LUT-based ICC profiles (those fall back to sRGB with a log line).
 
 ### Sessions (one per open frame)
 | method | params | result |
 |---|---|---|
-| `open` | `{path, decode?: {raw_mode?: "compatible16"\|"headroom"}, params?: <full or partial params JSON>}` | `{session: "<sid>", width, height, kind, metadata, params, detected_input, output_color_space, timings_ms: {decode, open}}` — any other `decode` key is `unsupported` |
+| `open` | `{path, decode?: {raw_mode?: "compatible16"\|"headroom", white_balance?: {mode: "as_shot"\|"custom", temperature_k?, tint?}, lens_correction?: false}, params?: <full or partial params JSON>}` | `{session: "<sid>", width, height, kind, metadata, params, detected_input, output_color_space, timings_ms: {decode, open}}` — any other `decode` key is `unsupported` |
+| `redecode` | `{session, decode}` | as `open` (same `session` id, params kept): decode the session's file again with other decode settings. The engine session is replaced; on failure the old one is untouched (R2) |
 | `close` | `{session}` | `{}` |
 | `set_params` | `{session, delta: {...}}` | `{params}` (the delta is applied transactionally: on error the session is unchanged) |
 | `get_params` | `{session}` | `{params}` |

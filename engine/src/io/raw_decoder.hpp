@@ -78,6 +78,12 @@ struct DecodedRaw {
 bool decode_raw_compatible(const std::filesystem::path& source,
                            DecodedRaw& out, std::string& error);
 
+// The same policy with caller-chosen white-balance multipliers (R, G, B, G2;
+// LibRaw's user_mul) in place of the as-shot ones. nullptr is the overload
+// above. Used by spektralab-host for Temperature/Tint at decode.
+bool decode_raw_compatible(const std::filesystem::path& source, const std::array<float, 4>* user_mul,
+                           DecodedRaw& out, std::string& error);
+
 // Experimental expanded-output policy for conventional three-colour Bayer
 // RAW only. As-shot WB is normalised by its largest multiplier (highlight=1)
 // before uint16 AHD demosaicing. LibRaw's actual ProPhoto matrix is evaluated

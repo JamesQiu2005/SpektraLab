@@ -40,6 +40,7 @@ class Host:
         self.next_id = 1
         self.events = []
         self.stderr = []
+        self.early = {}   # replies that arrived while waiting for another id
         threading.Thread(target=self._drain, daemon=True).start()
 
     def _drain(self):
@@ -64,6 +65,8 @@ class Host:
         return header, payload
 
     def wait(self, rid):
+        if rid in self.early:
+            return self.early.pop(rid)
         while True:
             header, payload = self.read_frame()
             if "event" in header:
@@ -71,6 +74,7 @@ class Host:
                 continue
             if header.get("id") == rid:
                 return header, payload
+            self.early[header.get("id")] = (header, payload)
 
     def call(self, method, params=None, payload=b""):
         return self.wait(self.send(method, params, payload))
@@ -195,9 +199,87 @@ def exercise(host, path, tmp, label, raw):
         h2, _ = host.call("export_image", {"session": sid, "path": out, "format": fmt, "color_space": cs})
         check(not h2["ok"] and h2["error"]["code"] == "io_error", f"{label}: export refuses to overwrite")
 
+    extras(host, sid, path, tmp, label, raw, r)
     host.call("close", {"session": sid})
     h, _ = host.call("render", {"session": sid, "tier": "live"})
     check(not h["ok"] and h["error"]["code"] == "not_found", f"{label}: closed session is gone")
+
+
+def mean_rgb(px):
+    n = len(px) // 4
+    step = max(1, n // 50000)
+    idx = range(0, n, step)
+    return [sum(px[4 * i + c] for i in idx) / len(idx) for c in range(3)]
+
+
+def extras(host, sid, path, tmp, label, raw, probe):
+    """Every remaining method once per input, and the error paths."""
+    h, _ = host.call("get_params", {"session": sid})
+    check(h["ok"] and "params" in h["result"], f"{label}: get_params", h.get("error"))
+    h, _ = host.call("solve", {"session": sid, "target": "exposure"})
+    check(h["ok"], f"{label}: solve exposure", h.get("error"))
+    h, _ = host.call("scene_latitude", {"session": sid})
+    check(h["ok"], f"{label}: scene_latitude (analysis)", h.get("error"))
+    h, _ = host.call("overscan_geometry", {"session": sid})
+    check(h["ok"] and h["result"].get("valid") is False, f"{label}: overscan_geometry (refused feature -> invalid)")
+    h, _ = host.call("progress", {"session": sid})
+    check(h["ok"] and "pct" in h["result"], f"{label}: progress", h.get("error"))
+    # The five refused features are refused by name, and leave the session usable.
+    for field in ("contrast_mask_active", "scene_latitude_active", "overscan_active", "date_imprint_active",
+                  "digital_intermediate"):
+        h, _ = host.call("set_params", {"session": sid, "delta": {field: True}})
+        check(not h["ok"] and h["error"]["code"] == "bad_request" and "not implemented" in h["error"]["message"],
+              f"{label}: {field} refused", h.get("error", {}).get("message", "accepted?!"))
+    h, _ = host.call("print_lut_catalog")
+    stock = sorted(h["result"].keys())[0]
+    h, px = host.call("preview_stock_lut", {"session": sid, "print_stock": stock, "tier": "live",
+                                            "format": "rgba8", "display": "srgb"})
+    if check(h["ok"], f"{label}: preview_stock_lut {stock}", h.get("error")):
+        im = h["result"]["image"]
+        check(len(px) == im["width"] * im["height"] * 4, f"{label}: preview_stock_lut payload")
+    out = os.path.join(tmp, f"{label}-di.tif")
+    h, _ = host.call("export_di", {"session": sid, "path": out})
+    check(h["ok"] and tiff_info(out) is not None, f"{label}: export_di", h.get("error"))
+    # cancel: one arriving before its render is refused when it starts
+    h, _ = host.call("cancel", {"session": sid, "progress_id": "never-ran"})
+    check(h["ok"] and h["result"]["was_running"] is False, f"{label}: cancel (queued)")
+    h, _ = host.call("render", {"session": sid, "tier": "live", "format": "rgba8", "progress_id": "never-ran"})
+    check(not h["ok"] and h["error"]["code"] == "cancelled", f"{label}: cancelled render refused", h.get("error"))
+    # cancel racing a running full render: either outcome is legal, the host must answer both
+    rid = host.send("render", {"session": sid, "tier": "full", "format": "rgba8", "progress_id": "race"})
+    time.sleep(0.05)
+    cid = host.send("cancel", {"session": sid, "progress_id": "race"})
+    h, _ = host.wait(rid)
+    check(h["ok"] or h["error"]["code"] == "cancelled", f"{label}: render under cancel completes or cancels",
+          "ok" if h["ok"] else "cancelled")
+    h, _ = host.wait(cid)
+    check(h["ok"], f"{label}: cancel answered")
+    h, _ = host.call("render", {"session": sid, "tier": "live", "format": "rgba8"})
+    check(h["ok"], f"{label}: session renders after a cancel", h.get("error"))
+    # R2: white balance at decode
+    if raw:
+        a = probe["metadata"].get("as_shot")
+        if check(a is not None, f"{label}: as_shot white balance", str(a)):
+            h, base = host.call("render", {"session": sid, "tier": "live", "format": "rgba8"})
+            h, _ = host.call("redecode", {"session": sid, "decode": {"white_balance": {
+                "mode": "custom", "temperature_k": a["temperature_k"], "tint": a["tint"]}}})
+            if check(h["ok"], f"{label}: redecode custom = as shot", h.get("error")):
+                h, same = host.call("render", {"session": sid, "tier": "live", "format": "rgba8"})
+                d = max(abs(x - y) for x, y in zip(mean_rgb(base), mean_rgb(same)))
+                check(d < 1.5, f"{label}: as-shot numbers reproduce as-shot", f"max mean diff {d:.2f} /255")
+            h, _ = host.call("redecode", {"session": sid, "decode": {"white_balance": {
+                "mode": "custom", "temperature_k": a["temperature_k"] + 2500, "tint": a["tint"]}}})
+            if check(h["ok"], f"{label}: redecode warmer", h.get("error")):
+                h, warm = host.call("render", {"session": sid, "tier": "live", "format": "rgba8"})
+                b, w = mean_rgb(base), mean_rgb(warm)
+                check(w[0] - w[2] > b[0] - b[2], f"{label}: a higher Kelvin renders warmer",
+                      f"R-B {b[0] - b[2]:.1f} -> {w[0] - w[2]:.1f}")
+        h, _ = host.call("redecode", {"session": sid, "decode": {"lens_correction": True}})
+        check(not h["ok"] and h["error"]["code"] == "unsupported", f"{label}: lens correction unsupported")
+    else:
+        h, _ = host.call("redecode", {"session": sid, "decode": {"white_balance": {"mode": "custom",
+                                                                                  "temperature_k": 5000}}})
+        check(not h["ok"] and h["error"]["code"] == "unsupported", f"{label}: white balance on a raster unsupported")
 
 
 def main():

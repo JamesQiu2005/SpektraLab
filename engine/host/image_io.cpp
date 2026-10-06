@@ -16,6 +16,7 @@
 #include "platform.hpp"
 #include "stb_image.h"
 #include "tiff_ifd.hpp"
+#include "white_balance.hpp"
 
 namespace spkhost {
 
@@ -727,6 +728,11 @@ static void raw_metadata(LibRaw& raw, Metadata& meta) {
         meta.datetime_original = buf;
     }
     meta.orientation = flip_to_orientation(raw.imgdata.sizes.flip);
+    double t = 0, tint = 0;
+    if (as_shot_temperature_tint(raw, t, tint)) {
+        meta.as_shot_temperature_k = t;
+        meta.as_shot_tint = tint;
+    }
 }
 
 static bool raw_open(LibRaw& raw, const fs::path& path, std::string& error) {
@@ -772,10 +778,29 @@ bool probe_file(const fs::path& path, Probe& out, std::string& error) {
 bool decode_linear_prophoto(const fs::path& path, const DecodeOptions& options, FloatImage& out,
                             Probe& probe, std::string& error) {
     if (!probe_file(path, probe, error)) return false;
+    const bool custom_wb = options.temperature_k.has_value();
+    if (custom_wb && probe.kind != FileKind::Raw) {
+        error = std::string(kUnsupportedPrefix) + "white balance at decode applies to RAW files only";
+        return false;
+    }
     if (probe.kind == FileKind::Raw) {
         spk::io::DecodedRaw decoded;
-        const bool ok = options.raw_mode == "headroom" ? spk::io::decode_raw_headroom(path, decoded, error)
-                                                       : spk::io::decode_raw_compatible(path, decoded, error);
+        std::array<float, 4> mul{};
+        if (custom_wb) {
+            if (options.raw_mode == "headroom") {
+                error = std::string(kUnsupportedPrefix) + "a custom white balance is not available in headroom mode";
+                return false;
+            }
+            auto raw = std::make_unique<LibRaw>(LIBRAW_OPTIONS_NO_DATAERR_CALLBACK);
+            if (!raw_open(*raw, path, error)) return false;
+            if (!multipliers_for(*raw, *options.temperature_k, options.tint.value_or(0.0), mul, error)) {
+                error = kUnsupportedPrefix + error;
+                return false;
+            }
+        }
+        const bool ok = options.raw_mode == "headroom"
+                            ? spk::io::decode_raw_headroom(path, decoded, error)
+                            : spk::io::decode_raw_compatible(path, custom_wb ? &mul : nullptr, decoded, error);
         if (!ok) return false;
         out.width = decoded.width;
         out.height = decoded.height;

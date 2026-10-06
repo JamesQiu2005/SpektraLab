@@ -209,6 +209,11 @@ protected:
 
 bool decode_raw_compatible(const std::filesystem::path& source,
                            DecodedRaw& out, std::string& error) {
+    return decode_raw_compatible(source, nullptr, out, error);
+}
+
+bool decode_raw_compatible(const std::filesystem::path& source, const std::array<float, 4>* user_mul,
+                           DecodedRaw& out, std::string& error) {
     error.clear();
     const auto total_start = Clock::now();
     try {
@@ -219,6 +224,19 @@ bool decode_raw_compatible(const std::filesystem::path& source,
         // LibRaw carries substantial metadata; keep it off the Windows stack.
         auto raw = std::make_unique<LibRaw>(LIBRAW_OPTIONS_NO_DATAERR_CALLBACK);
         configure_compatible(raw->imgdata.params);
+        if (user_mul) {
+            // A caller-chosen white balance (the host's Temperature/Tint):
+            // LibRaw's own user multipliers replace the as-shot ones, through
+            // the same scale_colors() step.
+            for (unsigned c = 0; c < 4; ++c) {
+                if (!std::isfinite((*user_mul)[c]) || (*user_mul)[c] <= 0.0f) {
+                    error = "RAW process: invalid user white-balance multiplier";
+                    return false;
+                }
+                raw->imgdata.params.user_mul[c] = (*user_mul)[c];
+            }
+            raw->imgdata.params.use_camera_wb = 0;
+        }
         DecodedRaw decoded;
         auto start = Clock::now();
         // filesystem::path::value_type is wchar_t on Windows, selecting
@@ -249,7 +267,7 @@ bool decode_raw_compatible(const std::filesystem::path& source,
         }
         const auto& color = raw->imgdata.color;
         decoded.metadata.process_warnings = raw->imgdata.process_warnings;
-        if (decoded.metadata.process_warnings & LIBRAW_WARN_BAD_CAMERA_WB) {
+        if (!user_mul && (decoded.metadata.process_warnings & LIBRAW_WARN_BAD_CAMERA_WB)) {
             error = "RAW process: LibRaw rejected camera/as-shot white balance";
             return false;
         }

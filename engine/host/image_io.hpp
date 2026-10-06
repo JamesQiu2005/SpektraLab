@@ -30,6 +30,8 @@ struct Metadata {
     std::string make, model, lens, datetime_original;
     std::optional<double> iso, shutter_s, aperture, focal_mm;
     int orientation = 1;   // EXIF 1..8, of the file as stored
+    // RAW only: the as-shot illuminant as Temperature/Tint (white_balance.hpp).
+    std::optional<double> as_shot_temperature_k, as_shot_tint;
 };
 
 enum class FileKind { Raw, Tiff, Jpeg, Png, Unknown };
@@ -57,7 +59,12 @@ struct Rgba8 {
 // The frame the engine develops: linear ProPhoto, orientation applied.
 struct DecodeOptions {
     std::string raw_mode = "compatible16";   // or "headroom"
+    // R2: a custom white balance at decode (RAW, compatible16 only).
+    std::optional<double> temperature_k, tint;
 };
+// Thrown as a plain error string prefixed "unsupported:" when a decode option
+// cannot be honoured for this file.
+constexpr const char* kUnsupportedPrefix = "unsupported: ";
 bool decode_linear_prophoto(const std::filesystem::path& path, const DecodeOptions& options,
                             FloatImage& out, Probe& probe, std::string& error);
 

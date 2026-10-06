@@ -6,6 +6,7 @@ add_executable(spektralab-host
     platform.cpp
     stb_impl.cpp
     tiff_ifd.cpp
+    white_balance.cpp
 )
 target_compile_features(spektralab-host PRIVATE cxx_std_20)
 target_include_directories(spektralab-host PRIVATE

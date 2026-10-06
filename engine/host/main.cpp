@@ -222,6 +222,12 @@ Json metadata_json(const Metadata& m) {
     if (m.focal_mm) j.set("focal_mm", number(*m.focal_mm));
     if (!m.datetime_original.empty()) j.set("datetime_original", str(iso_datetime(m.datetime_original)));
     j.set("orientation", number(m.orientation));
+    if (m.as_shot_temperature_k && m.as_shot_tint) {
+        Json a = Json::object();
+        a.set("temperature_k", number(std::round(*m.as_shot_temperature_k)));
+        a.set("tint", number(std::round(*m.as_shot_tint * 10) / 10));
+        j.set("as_shot", std::move(a));
+    }
     return j;
 }
 
@@ -345,7 +351,7 @@ Json m_hello(const Request&) {
     r.set("capabilities", std::move(caps));
     Json methods = Json::array();
     for (const char* m : {"hello", "ping", "shutdown", "params_schema", "print_lut_catalog", "memory_report",
-                          "probe", "thumbnail", "open", "close", "set_params", "get_params", "solve", "render",
+                          "probe", "thumbnail", "open", "redecode", "close", "set_params", "get_params", "solve", "render",
                           "scene_latitude", "overscan_geometry", "preview_stock_lut", "cancel", "progress",
                           "export_image", "export_cube", "export_di", "write_image"})
         methods.push(str(m));
@@ -395,74 +401,146 @@ Json m_thumbnail(const Request& q, std::vector<uint8_t>& payload) {
     return r;
 }
 
-Json m_open(const Request& q) {
-    need_engine();
-    const fs::path path = utf8_path(require_string(q.params, "path"));
+DecodeOptions decode_options(const Json& decode) {
     DecodeOptions options;
-    const Json& decode = q.params.at("decode");
-    if (decode.is_object()) {
-        options.raw_mode = optional_string(decode, "raw_mode", "compatible16");
-        if (options.raw_mode != "compatible16" && options.raw_mode != "headroom")
-            throw HostError{"bad_request", "decode.raw_mode must be compatible16 or headroom"};
-        for (const auto& kv : decode.fields())
-            if (kv.first != "raw_mode")
-                throw HostError{"unsupported", "decode." + kv.first + " is not supported by this host"};
+    if (decode.is_null()) return options;
+    if (!decode.is_object()) throw HostError{"bad_request", "decode must be an object"};
+    options.raw_mode = optional_string(decode, "raw_mode", "compatible16");
+    if (options.raw_mode != "compatible16" && options.raw_mode != "headroom")
+        throw HostError{"bad_request", "decode.raw_mode must be compatible16 or headroom"};
+    for (const auto& kv : decode.fields()) {
+        if (kv.first == "raw_mode") continue;
+        if (kv.first == "white_balance") {
+            const Json& wb = kv.second;
+            const std::string mode = optional_string(wb, "mode", "as_shot");
+            if (mode == "as_shot") continue;
+            if (mode != "custom") throw HostError{"bad_request", "white_balance.mode must be as_shot or custom"};
+            const double t = wb.at("temperature_k").as_double(0);
+            if (!(t >= 2000 && t <= 50000)) throw HostError{"bad_request", "white_balance.temperature_k must be 2000..50000"};
+            const double tint = wb.at("tint").as_double(0);
+            if (!(tint >= -150 && tint <= 150)) throw HostError{"bad_request", "white_balance.tint must be -150..150"};
+            options.temperature_k = t;
+            options.tint = tint;
+        } else if (kv.first == "lens_correction") {
+            // LibRaw carries no lens profiles (Core Image reads the maker's
+            // own correction data; nothing portable here does).
+            if (kv.second.as_bool(false))
+                throw HostError{"unsupported", "lens correction at decode is not available in this host"};
+        } else {
+            throw HostError{"unsupported", "decode." + kv.first + " is not supported by this host"};
+        }
     }
+    return options;
+}
+
+struct Decoded {
+    FloatImage frame;
+    Probe probe;
+    double decode_ms = 0;
+};
+
+Decoded decode_frame(const fs::path& path, const DecodeOptions& options) {
     std::error_code ec;
     if (!fs::exists(path, ec)) throw HostError{"not_found", "not found: " + path_utf8(path)};
     const auto t0 = Clock::now();
-    FloatImage frame;
-    Probe probe;
+    Decoded d;
     std::string error;
-    if (!decode_linear_prophoto(path, options, frame, probe, error)) throw HostError{"decode_failed", error};
-    const double decode_ms = ms_since(t0);
+    if (!decode_linear_prophoto(path, options, d.frame, d.probe, error)) {
+        const std::string prefix = kUnsupportedPrefix;
+        if (error.rfind(prefix, 0) == 0) throw HostError{"unsupported", error.substr(prefix.size())};
+        throw HostError{"decode_failed", error};
+    }
+    d.decode_ms = ms_since(t0);
+    return d;
+}
 
+spk_session* engine_open(const FloatImage& frame, const std::string& delta, Json& opened, double& open_ms) {
     const auto t1 = Clock::now();
     spk_image image{frame.rgb.data(), frame.width, frame.height, 3};
-    std::string delta;
-    const Json& params = q.params.at("params");
-    if (params.is_object()) delta = params.dump();
     char* reply = nullptr;
     spk_session* handle = spk_open(g.engine, &image, delta.empty() ? nullptr : delta.c_str(), &reply);
     if (!handle) {
         if (reply) spk_string_free(reply);
         throw HostError{"engine_error", std::string("open: ") + spk_last_error(g.engine)};
     }
-    Json opened = take_json(reply);
-    const double open_ms = ms_since(t1);
+    opened = take_json(reply);
+    open_ms = ms_since(t1);
+    return handle;
+}
+
+Json open_reply(const Session& s, const Decoded& d, const Json& opened, double open_ms) {
+    Json r = Json::object();
+    r.set("session", str(s.id));
+    r.set("width", number(d.frame.width));
+    r.set("height", number(d.frame.height));
+    r.set("kind", str(kind_name(d.probe.kind)));
+    r.set("metadata", metadata_json(d.probe.metadata));
+    r.set("params", opened.at("params"));
+    r.set("detected_input", opened.at("detected_input"));
+    r.set("output_color_space", str(s.output_space));
+    Json timings = Json::object();
+    timings.set("decode", number(d.decode_ms));
+    timings.set("open", number(open_ms));
+    r.set("timings_ms", std::move(timings));
+    return r;
+}
+
+Json m_open(const Request& q) {
+    need_engine();
+    const fs::path path = utf8_path(require_string(q.params, "path"));
+    const DecodeOptions options = decode_options(q.params.at("decode"));
+    Decoded d = decode_frame(path, options);
+    std::string delta;
+    const Json& params = q.params.at("params");
+    if (params.is_object()) delta = params.dump();
+    Json opened;
+    double open_ms = 0;
+    spk_session* handle = engine_open(d.frame, delta, opened, open_ms);
 
     auto s = std::make_shared<Session>();
     s->handle = handle;
     s->path = path_utf8(path);
-    s->width = frame.width;
-    s->height = frame.height;
-    s->metadata = probe.metadata;
-    s->metadata.orientation = 1;   // the frame handed to the engine is upright
+    s->width = d.frame.width;
+    s->height = d.frame.height;
+    s->metadata = d.probe.metadata;
     s->output_space = output_space_of(opened.at("params"));
     {
         std::lock_guard<std::mutex> lock(g.sessions_mutex);
         s->id = "s" + std::to_string(g.next_session++);
         g.sessions[s->id] = s;
     }
-    log_line(1, "open " + s->id + " " + s->path + " " + std::to_string(frame.width) + "x" +
-                    std::to_string(frame.height) + " decode " + std::to_string(int(decode_ms)) + " ms, open " +
+    log_line(1, "open " + s->id + " " + s->path + " " + std::to_string(d.frame.width) + "x" +
+                    std::to_string(d.frame.height) + " decode " + std::to_string(int(d.decode_ms)) + " ms, open " +
                     std::to_string(int(open_ms)) + " ms");
-    Json r = Json::object();
-    r.set("session", str(s->id));
-    r.set("width", number(frame.width));
-    r.set("height", number(frame.height));
-    r.set("kind", str(kind_name(probe.kind)));
-    Json meta = metadata_json(probe.metadata);
-    meta.set("orientation", number(probe.metadata.orientation));
-    r.set("metadata", std::move(meta));
-    r.set("params", opened.at("params"));
-    r.set("detected_input", opened.at("detected_input"));
-    r.set("output_color_space", str(s->output_space));
-    Json timings = Json::object();
-    timings.set("decode", number(decode_ms));
-    timings.set("open", number(open_ms));
-    r.set("timings_ms", std::move(timings));
-    return r;
+    return open_reply(*s, d, opened, open_ms);
+}
+
+// R2: decode the session's file again with other decode settings, keeping its
+// id and its params. The engine session is replaced (a new source means a new
+// negative); on any failure the old one is untouched.
+Json m_redecode(const Request& q) {
+    auto s = find_session(q.params);
+    const DecodeOptions options = decode_options(q.params.at("decode"));
+    Decoded d = decode_frame(utf8_path(s->path), options);
+    char* current = nullptr;
+    const spk_status st = spk_get_params(s->handle, &current);
+    if (st != SPK_OK) engine_fail(st, "get_params");
+    Json params = take_json(current);
+    Json opened;
+    double open_ms = 0;
+    spk_session* handle = engine_open(d.frame, params.dump(), opened, open_ms);
+    spk_session* old = nullptr;
+    {
+        std::lock_guard<std::mutex> lock(g.sessions_mutex);
+        old = s->handle;
+        s->handle = handle;
+    }
+    spk_session_release(old);
+    s->width = d.frame.width;
+    s->height = d.frame.height;
+    s->metadata = d.probe.metadata;
+    s->output_space = output_space_of(opened.at("params"));
+    return open_reply(*s, d, opened, open_ms);
 }
 
 Json m_close(const Request& q) {
@@ -797,6 +875,7 @@ void dispatch(const Request& q) {
     else if (m == "thumbnail") result = m_thumbnail(q, payload);
     else if (m == "open") result = m_open(q);
     else if (m == "close") result = m_close(q);
+    else if (m == "redecode") result = m_redecode(q);
     else if (m == "set_params") result = m_set_params(q);
     else if (m == "get_params") result = m_get_params(q);
     else if (m == "solve") result = m_solve(q);
