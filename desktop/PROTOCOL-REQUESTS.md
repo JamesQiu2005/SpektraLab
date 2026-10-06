@@ -49,7 +49,7 @@ hands the pixels to `write_image`.
 visible notice when the frame has a crop or Post-Dev edits that the file will
 not carry.
 
-## R2 [open] — Camera white balance and lens correction at decode
+## R2 [landed 950dd47 — white balance + redecode; lens correction declined: LibRaw has no lens profiles] — Camera white balance and lens correction at decode
 
 **Why.** Camera Temperature / Tint / Lens Correction are *decode* settings on
 macOS (`DecodeSettings`, re-decode then render). The protocol's `open.decode`
