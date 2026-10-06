@@ -294,6 +294,8 @@ def main():
     ap.add_argument("--host", required=True)
     ap.add_argument("--resources")
     ap.add_argument("--wrapper", help="e.g. wine")
+    ap.add_argument("--quick", action="store_true",
+                    help="RAWs only get the Unicode-path probe/thumbnail/open, not the full walk")
     ap.add_argument("raws", nargs="*")
     a = ap.parse_args()
     cmd = ([a.wrapper] if a.wrapper else []) + [a.host]
@@ -351,10 +353,22 @@ def main():
     upng = os.path.join(uni, "胶片 ramp.png")
     write_png(upng, 40, 30)
     exercise(host, upng, uni, "unicode", False)
+    if a.raws:
+        # LibRaw's wide-path overload on Windows (raw_decoder.cpp, image_io.cpp)
+        import shutil
+        uraw = os.path.join(uni, "底片 " + os.path.basename(a.raws[0]))
+        shutil.copyfile(a.raws[0], uraw)
+        h, _ = host.call("probe", {"path": uraw})
+        check(h["ok"] and h["result"]["kind"] == "raw", "unicode RAW: probe", h.get("error"))
+        h, _ = host.call("thumbnail", {"path": uraw, "long_edge": 160})
+        check(h["ok"], "unicode RAW: thumbnail", h.get("error"))
+        h, _ = host.call("open", {"path": uraw})
+        if check(h["ok"], "unicode RAW: open (full decode)", h.get("error")):
+            host.call("close", {"session": h["result"]["session"]})
     tif = os.path.join(tmp, "ramp16.tif")
     write_tiff16(tif, 80, 120)
     exercise(host, tif, tmp, "tiff16", False)
-    for i, raw in enumerate(a.raws):
+    for i, raw in enumerate([] if a.quick else a.raws):
         exercise(host, raw, tmp, f"raw{i}-{os.path.basename(raw)}", True)
 
     rid = host.send("shutdown")
