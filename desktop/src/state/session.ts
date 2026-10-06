@@ -307,11 +307,26 @@ function pushUndo() {
   set({ undo, redo: [] });
 }
 
+/**
+ * A positive has no paper stage (`Session.applyFilmStageRule` on the Mac).
+ * Keep the paper choice, and leave negatives alone: scanning a negative
+ * without paper is an explicit option too. This is session policy, not an
+ * engine restriction on experiments with positive-to-paper rendering.
+ */
+function filmStageParams(p: FilmParams): FilmParams {
+  return !p.scanFilm && get().catalog.isPositive(p.filmStock) ? { ...p, scanFilm: true } : p;
+}
+
+function filmStageSidecar(sc: Sidecar): Sidecar {
+  const params = filmStageParams(sc.params);
+  return params === sc.params ? sc : { ...sc, params, state: sc.state === 'processed' ? 'stale' : sc.state };
+}
+
 /** The single door for a Layer 1 edit. */
 export function setParams(fn: (p: FilmParams) => FilmParams) {
   const s = get();
   if (s.batchExporting) return;
-  const next = fn(s.sidecar.params);
+  const next = filmStageParams(fn(s.sidecar.params));
   if (jsonEqual(next, s.sidecar.params)) return;
   pushUndo();
   set({ sidecar: { ...get().sidecar, params: next, state: get().sidecar.state === 'processed' ? 'stale' : get().sidecar.state } });
@@ -413,7 +428,7 @@ export function beginGesture() {
 function restore(e: UndoEntry) {
   const s = get();
   const decodeMoved = !jsonEqual(e.decode, s.sidecar.decode);
-  set({ sidecar: { ...s.sidecar, params: e.params, adjustments: e.adjustments, geometry: e.geometry, decode: e.decode } });
+  set({ sidecar: filmStageSidecar({ ...s.sidecar, params: e.params, adjustments: e.adjustments, geometry: e.geometry, decode: e.decode }) });
   scheduleSave();
   if (decodeMoved) scheduleRedecode();
   else void requestPrint();
@@ -621,7 +636,8 @@ export async function select(path: string): Promise<void> {
   frameImages.original = null;
   const raw = await platform().sidecarLoad(path).catch(() => null);
   if (gen !== openGen) return;
-  const sidecar = raw ? decodeSidecar(raw) : newSidecar();
+  const loaded = raw ? decodeSidecar(raw) : newSidecar();
+  const sidecar = filmStageSidecar(loaded);
   set({
     selection: path,
     picked: get().picked.includes(path) ? get().picked : [path],
@@ -637,6 +653,7 @@ export async function select(path: string): Promise<void> {
     showingOriginal: false,
     status: tz(`Opening ${baseName(path)}…`, `正在打开 ${baseName(path)}…`),
   });
+  if (sidecar !== loaded) scheduleSave();
   void loadOriginal(path, gen);
   await develop(path, gen);
 }
@@ -660,6 +677,13 @@ async function develop(path: string, gen: number) {
   set({ developing: true });
   try {
     const t0 = performance.now();
+    // Also covers a frame selected before the catalog loaded, and host
+    // restarts. Repair old sidecars before the very first open payload.
+    const sidecar = filmStageSidecar(get().sidecar);
+    if (sidecar !== get().sidecar) {
+      set({ sidecar });
+      scheduleSave();
+    }
     const params = get().sidecar.params;
     const decode = decodeWire(get().sidecar.decode, isRawPath(path));
     let r;
@@ -749,8 +773,9 @@ export function copySettings() {
 async function pasteOffline(clip: SettingsClip, path: string): Promise<boolean> {
   const raw = await platform().sidecarLoad(path).catch(() => null);
   const target = raw ? decodeSidecar(raw) : newSidecar();
-  if (!clipChanges(clip, target)) return false;
-  const next = applyClip(clip, target);
+  const applied = applyClip(clip, target);
+  const next = filmStageSidecar(applied);
+  if (!clipChanges(clip, target) && next === applied) return false;
   await platform().sidecarSave(path, encodeSidecar({ ...next, state: next.state === 'processed' ? 'stale' : next.state }));
   return true;
 }
@@ -762,8 +787,9 @@ export async function pasteSettings() {
   const targets = s.picked.length ? s.picked : [s.selection];
   let written = 0;
   for (const p of targets) if (p !== s.selection && (await pasteOffline(clip, p))) written++;
-  if (targets.includes(s.selection) && clipChanges(clip, get().sidecar)) {
-    const next = applyClip(clip, get().sidecar);
+  const applied = applyClip(clip, get().sidecar);
+  const next = filmStageSidecar(applied);
+  if (targets.includes(s.selection) && (clipChanges(clip, get().sidecar) || next !== applied)) {
     setParams(() => next.params);
     const decodeMoved = !jsonEqual(next.decode, get().sidecar.decode);
     set({ sidecar: { ...get().sidecar, decode: next.decode, placementNeedsFit: next.placementNeedsFit } });
@@ -881,8 +907,10 @@ function takeHostState(st: HostState) {
 }
 
 export async function boot() {
+  // Polarity must be known before a ready notification opens a sidecar.
+  // An empty, still-loading catalog is not evidence that a film is negative.
+  set({ catalog: await loadCatalog() });
   host().onState(takeHostState);
-  void loadCatalog().then((catalog) => set({ catalog }));
   takeHostState(await host().state());
   platform().onOpenPaths((paths) => void openPaths(paths));
   platform().onDrop((paths) => void openPaths(paths));

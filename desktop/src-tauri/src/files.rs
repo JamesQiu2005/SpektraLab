@@ -235,15 +235,21 @@ mod tests {
 
     #[test]
     fn key_is_name_and_sixteen_hex() {
-        let k = sidecar_key(Path::new("/photos/a/../b/DSC_0001.NEF"));
+        // Use an absolute native path: a POSIX root on Windows inherits the
+        // current drive, and PathBuf serializes it with backslashes.
+        #[cfg(windows)]
+        let (input, expected) = (r"C:\photos\a\..\b\DSC_0001.NEF", r"C:\photos\b\DSC_0001.NEF");
+        #[cfg(not(windows))]
+        let (input, expected) = ("/photos/a/../b/DSC_0001.NEF", "/photos/b/DSC_0001.NEF");
+        let k = sidecar_key(Path::new(input));
         assert!(k.starts_with("DSC_0001.NEF-"));
         assert!(k.ends_with(".spektra.json"));
         let hex = &k["DSC_0001.NEF-".len()..k.len() - ".spektra.json".len()];
         assert_eq!(hex.len(), 16);
         // `..` resolved: the same key as the standardized path.
-        assert_eq!(k, sidecar_key(Path::new("/photos/b/DSC_0001.NEF")));
-        // sha256("/photos/b/DSC_0001.NEF")[:16], computed independently.
-        let d = Sha256::digest(b"/photos/b/DSC_0001.NEF");
+        assert_eq!(k, sidecar_key(Path::new(expected)));
+        // Hash the explicit expected path, independently of standardized().
+        let d = Sha256::digest(expected.as_bytes());
         let want: String = d.iter().take(8).map(|b| format!("{b:02x}")).collect();
         assert_eq!(hex, want);
     }

@@ -60,6 +60,15 @@ target_include_directories(spektralab_pipeline PRIVATE
 )
 
 if(BUILD_TESTING)
+    if(WIN32)
+        # Exercise resource opens without a Vulkan device (also under Wine).
+        add_executable(spk_resource_paths tests/resource_paths.cpp)
+        target_link_libraries(spk_resource_paths PRIVATE spektralab_core)
+        add_test(NAME spk_resource_paths COMMAND spk_resource_paths
+            "${CMAKE_CURRENT_SOURCE_DIR}/resources"
+            "${CMAKE_CURRENT_BINARY_DIR}/resource-path-tests")
+    endif()
+
     add_executable(spk_dump_json tests/dump_json.cpp)
     target_link_libraries(spk_dump_json PRIVATE spektralab_core)
     add_test(NAME spk_core_schema

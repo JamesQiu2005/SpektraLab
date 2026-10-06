@@ -31,6 +31,21 @@ test('a film edit reaches the sidecar and the engine', async ({ page }) => {
   expect(await state(page, 's.sidecar.params.filmStock')).toBe('kodak_portra_400');
 });
 
+test('a slide selection enables direct scanning, retains the paper and undoes as one edit', async ({ page }) => {
+  await openRoll(page);
+  const paper = await state(page, 's.sidecar.params.printStock');
+  const version = await state(page, 's.imageVersion');
+  await page.locator('[data-stock="fujifilm_provia_100f"]').click();
+  expect(await state(page, 's.sidecar.params.scanFilm')).toBe(true);
+  expect(await state(page, 's.sidecar.params.printStock')).toBe(paper);
+  await expect.poll(() => state(page, 's.imageVersion')).toBeGreaterThan(version as number);
+  await expect(page.getByTestId('tier-badge')).toHaveText('full', { timeout: 20_000 });
+  await page.keyboard.press('Control+z');
+  expect(await state(page, 's.sidecar.params.filmStock')).toBe('kodak_portra_400');
+  expect(await state(page, 's.sidecar.params.scanFilm')).toBe(false);
+  expect(await state(page, 's.sidecar.params.printStock')).toBe(paper);
+});
+
 test('trap 32: an arrow typed in a field does not change the frame', async ({ page }) => {
   await openRoll(page);
   const first = await state(page, 's.selection');

@@ -12,6 +12,7 @@
 #include <unistd.h>
 #endif
 
+#include <algorithm>
 #include <cmath>
 #include <cstring>
 #include <limits>
@@ -70,6 +71,10 @@ bool Blob::open(const std::string& path, std::string& error) {
         error = "invalid UTF-8 path: " + path;
         return false;
     }
+    // Tauri may supply a \\?\ resource directory. Win32 does not translate
+    // '/' under that prefix, including the separators our resource joins add.
+    // Preserve the prefix (and long/UNC paths); normalize only separators.
+    std::replace(wide.begin(), wide.end(), L'/', L'\\');
     file_handle_ = ::CreateFileW(wide.c_str(), GENERIC_READ, FILE_SHARE_READ, nullptr,
                                  OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, nullptr);
     if (file_handle_ == INVALID_HANDLE_VALUE) {

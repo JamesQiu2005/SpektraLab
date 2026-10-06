@@ -15,7 +15,10 @@ namespace spk {
 
 #ifdef _WIN32
 inline std::filesystem::path file_path(const std::string& utf8) {
-    return std::filesystem::path(std::u8string(utf8.begin(), utf8.end()));
+    // Extended-length Windows paths (as returned by Tauri) disable Win32's
+    // slash conversion. Resource names are joined with '/', so prefer native
+    // separators at the open boundary without stripping the \\?\ prefix.
+    return std::filesystem::path(std::u8string(utf8.begin(), utf8.end())).make_preferred();
 }
 #else
 inline const std::string& file_path(const std::string& utf8) { return utf8; }
