@@ -4,6 +4,8 @@
 // coordinate arithmetic. Do not collapse the pairs to float32: long axes lose
 // fractional coordinates. Only the explicit fma in two_prod may be fused.
 layout(local_size_x = 256) in;
+// vulkan_gpu.cpp sets this from the device's measured fma behaviour.
+layout(constant_id = 0) const bool SPK_FUSED_FMA = true;
 layout(set = 0, binding = 0, std430) readonly buffer Input { float value[]; } image_data;
 layout(set = 0, binding = 1, std430) readonly buffer Geometry { float value[]; } geometry;
 layout(set = 0, binding = 2, std430) readonly buffer Meta { uint value[]; } meta;
@@ -30,7 +32,20 @@ vec2 quick_two_sum(float a, float b) {
 
 vec2 two_prod(float a, float b) {
     precise float p = a * b;
-    precise float e = fma(a, b, -p);
+    if (SPK_FUSED_FMA) {
+        precise float e = fma(a, b, -p);
+        return vec2(p, e);
+    }
+    // A device that does not fuse fma (lavapipe) would return e == 0 above
+    // and lose the low word. Veltkamp/Dekker splitting gives the same exact
+    // error term with plain products, so both paths produce identical pairs.
+    precise float ca = 4097.0 * a;
+    precise float ahi = ca - (ca - a);
+    precise float alo = a - ahi;
+    precise float cb = 4097.0 * b;
+    precise float bhi = cb - (cb - b);
+    precise float blo = b - bhi;
+    precise float e = ((ahi * bhi - p) + ahi * blo + alo * bhi) + alo * blo;
     return vec2(p, e);
 }
 

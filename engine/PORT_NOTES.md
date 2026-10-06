@@ -55,15 +55,17 @@ verification of whatever Phase 2 left unverified. Then Phase 4 docs.
   GetModuleFileNameW, files via fs::path(u8string); engine's four ifstream
   sites go through `core/file_path.hpp` (identity on POSIX/Apple).
 
+- Unfused fma (lavapipe): the two double-float kernels (`spk_iir_df_acc`,
+  `spk_geometry_resample_df`) take an exact Veltkamp/Dekker `two_prod` when
+  the device does not fuse (specialization constant 0, set from the math
+  probe); fused GPUs keep `fma`, unchanged. CTest 14/14 on lavapipe at the
+  ORIGINAL tolerances: IIR max 1.49e-8 (the Windows RTX figure), geometry
+  5.0e-7, resample 2.8e-7.
+
 ## In progress / next
 
 1. Phase 3a: PROTOCOL-REQUESTS (R2 open), EXIF copy for write_image, more
    smoke cases (cancel, scene_latitude, preview_stock_lut, export_di, solve).
-2. Unfused-fma precision: `spk_iir_df_acc`, `spk_geometry_resample_df`,
-   `spk_lut3d_trilinear`, `spk_di_normalise` use `fma` in `two_prod`. On
-   lavapipe `fma` is mul+add, the error term is 0, and the IIR loses 0.4 %.
-   Plan: exact Dekker split `two_prod` selected by a specialization constant
-   (or unconditionally -- it is exact, so bit-identical where fma is fused).
 
 ## Decisions
 

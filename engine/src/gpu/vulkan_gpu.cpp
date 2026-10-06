@@ -288,12 +288,18 @@ public:
             }
         }
         if (exact && !zero) {
+            fused_fma_ = 1;
             detail = "Vulkan probe passed (precise product + fused fma; full shader parity pending)";
             return true;
         }
         if (zero && !exact && properties_.deviceType == VK_PHYSICAL_DEVICE_TYPE_CPU) {
-            detail = "Vulkan probe passed on a CPU device with unfused fma (one extra rounding per fma; "
-                     "full shader parity pending)";
+            // The double-float kernels then take an exact Dekker product
+            // instead of fma (specialization constant 0; see two_prod in
+            // spk_iir_df_acc.comp): without it the IIR blur's low word is lost
+            // and the recursion amplifies it -- 0.4 % on a 257-px constant row.
+            fused_fma_ = 0;
+            detail = "Vulkan probe passed on a CPU device with unfused fma (double-float kernels use an "
+                     "exact Dekker product; full shader parity pending)";
             probe_cpu_storage_range(detail);
             return true;
         }
@@ -482,6 +488,12 @@ public:
     bool dispatch(const char* kernel, const std::vector<Arg>& args,
                   size_t n_threads, std::string& error) override {
         if (n_threads == 0) return true;
+        // The specialization the double-float kernels are built with depends
+        // on whether this device fuses fma; learn it before the first one.
+        if (fused_fma_ < 0 && kernel && std::strcmp(kernel, "spk_math_probe") != 0) {
+            std::string detail;
+            if (!check_math_mode(detail)) fused_fma_ = 1;
+        }
         const KernelSpec* spec = find_kernel(kernel);
         if (!spec) { error = std::string("Vulkan kernel not ported: ") + (kernel ? kernel : "(null)"); return false; }
         if (args.size() != spec->bindings) {
@@ -957,6 +969,12 @@ private:
             stage.stage = VK_SHADER_STAGE_COMPUTE_BIT;
             stage.module = shader;
             stage.pName = "main";
+            // constant_id 0: SPK_FUSED_FMA. Kernels that do not declare it
+            // ignore the entry (Vulkan spec, VkSpecializationMapEntry).
+            const VkBool32 fused = fused_fma_ != 0;
+            const VkSpecializationMapEntry entry{0, 0, sizeof(VkBool32)};
+            VkSpecializationInfo special{1, &entry, sizeof fused, &fused};
+            stage.pSpecializationInfo = &special;
             VkComputePipelineCreateInfo pipeline_create{};
             pipeline_create.sType = VK_STRUCTURE_TYPE_COMPUTE_PIPELINE_CREATE_INFO;
             pipeline_create.stage = stage;
@@ -981,6 +999,8 @@ private:
     VkPhysicalDeviceProperties properties_{};
     // maxStorageBufferRange, unless probe_cpu_storage_range measured more.
     VkDeviceSize storage_range_limit_ = 0;
+    // -1 not yet probed, 1 fused fma, 0 unfused (accepted on a CPU device only).
+    int fused_fma_ = -1;
     VkPhysicalDeviceMemoryProperties memory_properties_{};
     VkDevice device_ = VK_NULL_HANDLE;
     VkQueue queue_ = VK_NULL_HANDLE;
