@@ -787,6 +787,7 @@ private:
 
     // --- derived on the host, refreshed per run --------------------------
     Vec film_sensitivity_;
+    Vec film_sensitivity_edge_;   // without the lens's colour filter (overscan.cpp)
     // The tc_lut and its matrix are kept on the host as well as on device:
     // the print exposure's midgray probe runs one pixel of grey through the
     // film model, and rebuilding a 192x192x81 contraction to do that on every

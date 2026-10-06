@@ -185,6 +185,13 @@ bool Pipeline::build(const Params& params, std::string& error) {
     // --- the spectral upsampling LUT -------------------------------------
     if (!film_sensitivity(*colour_, *blob_, film, params_.camera, film_sensitivity_, error)) return false;
     {
+        // What the film's edge sees: the edge printer, the fog and the date
+        // back never pass the lens, so not its colour filter either.
+        CameraParams bare = params_.camera;
+        bare.filter.clear();
+        if (!film_sensitivity(*colour_, *blob_, film, bare, film_sensitivity_edge_, error)) return false;
+    }
+    {
         const Vec* lut = nullptr;
         size_t side = 0;
         if (!cache_->tc_lut(*colour_, *blob_, film, params_.settings,

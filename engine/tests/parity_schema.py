@@ -318,6 +318,12 @@ NATIVE_ONLY = {
         "path": "enlarger.filter_shift_scale", "type": "float", "layer": "print",
         "default": 1.0, "live": True, "range": [1.0, 60.0],
     },
+    # The lens's colour filter, by name ("" = none). The reference has no such
+    # stage; `camera_filters.hpp` holds the table.
+    "camera_filter": {
+        "path": "camera.filter", "type": "str", "layer": "shoot",
+        "default": "", "live": False, "range": None,
+    },
 }
 
 
