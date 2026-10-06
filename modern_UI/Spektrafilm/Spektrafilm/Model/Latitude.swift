@@ -80,7 +80,13 @@ final class LatitudeModel {
     /// the dimmed stretch of the slider already shows. A code this table does
     /// not know falls back to the engine's words rather than to nothing.
     func refusalMessage(for side: String) -> String? {
-        guard let refusal, refusal.side == side || refusal.side == "both" else { return nil }
+        // A side with nothing the Fit takes says so at rest: its track has no
+        // band, and a slider that will not move owes the reason up front.
+        let said = refusal.flatMap { $0.side == side || $0.side == "both" ? $0 : nil }
+        let refusal = said ?? PlacementSide(rawValue: side).flatMap { s in
+            windows[s].flatMap { $0.key.frame == frame && $0.window.span == nil ? $0.window.below : nil }
+        }
+        guard let refusal else { return nil }
         let top = side != "shadow"
         switch refusal.code {
         case "pull_back_below_minimum":
@@ -170,15 +176,6 @@ struct PlacementWindow: Equatable, Sendable {
         if asked < span.lowerBound { return (span.lowerBound, below) }
         if asked > span.upperBound { return (span.upperBound, above) }
         return (asked, nil)
-    }
-
-    /// The stretches of `range` a slider cannot rest on, for the track.
-    func blocked(in range: ClosedRange<Double>) -> [ClosedRange<Double>] {
-        guard let span else { return [range] }
-        var out: [ClosedRange<Double>] = []
-        if span.lowerBound - Self.grain > range.lowerBound { out.append(range.lowerBound...span.lowerBound) }
-        if span.upperBound < range.upperBound { out.append(span.upperBound...range.upperBound) }
-        return out
     }
 
     /// `v` on the sliders' grid, as the nearest double to that hundredth.
@@ -318,7 +315,18 @@ extension Session {
             guard !Task.isCancelled, let self else { return }
             await self.probeLatitude(highlight: self.params.sceneLatitude.highlightPullBack,
                                      shadow: self.params.sceneLatitude.shadowPullBack)
+            await self.refreshPlacementWindows()
         }
+    }
+
+    /// Search both sides' windows against what is committed, so the bands on
+    /// the tracks are the Fit's own limits at rest and not only once a slider
+    /// has been touched. A few milliseconds; kept until something they were
+    /// searched against moves.
+    func refreshPlacementWindows() async {
+        let placed = params.sceneLatitude
+        _ = await placementWindow(for: .highlight, other: placed.shadowPullBack)
+        _ = await placementWindow(for: .shadow, other: placed.highlightPullBack)
     }
 
     /// Scene Placement's two sliders. Latest wins: a drag queues its newest
@@ -347,12 +355,16 @@ extension Session {
                 if want.highlight == 0, want.shadow == 0 {
                     if self.params.sceneLatitude.active { self.resetScenePlacement() }
                     self.latitude.refuse(why)
+                    await self.refreshPlacementWindows()
                     continue
                 }
                 guard let reply = await self.probeLatitude(highlight: want.highlight, shadow: want.shadow)
                 else { break }
                 self.commitPlacement(reply)
                 if reply.fit.valid { self.latitude.refuse(why) }
+                // The other side's limits move with this one (the knees must
+                // not cross), so its band follows the drag.
+                await self.refreshPlacementWindows()
             }
             self?.latitude.placementTask = nil
         }

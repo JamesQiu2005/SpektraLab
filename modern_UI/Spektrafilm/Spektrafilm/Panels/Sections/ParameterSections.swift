@@ -199,9 +199,10 @@ struct FilmFormatSection: View {
 /// shows where they land.
 ///
 /// **Every value goes through the Fit**, and the Fit takes a window of
-/// pull-backs on each side rather than everything above zero. The stretches
-/// outside it are drawn dimmed on the track and a slider cannot rest on them:
-/// a value dragged or typed there lands on the window's nearer edge, and the
+/// pull-backs on each side rather than everything above zero. The window is
+/// drawn as a band around the track — searched as soon as the frame is
+/// measured, so it is the Fit's own limits at rest — and a slider cannot rest
+/// outside it: a value dragged or typed there lands on the band's nearer edge, and the
 /// row says why (1.3.2 — it used to commit nothing and return to the last
 /// accepted value on release, which read as a slider that would not move).
 struct ScenePlacementSection: View {
@@ -265,7 +266,7 @@ struct ScenePlacementSection: View {
                                           set: { set($0, window?.landing($0).value ?? $0, other) }),
                            range: Self.range, zero: 0, snap: 0.25,
                            format: { String(format: "%.2f", $0) },
-                           blocked: window?.blocked(in: Self.range) ?? [], onCommit: end)
+                           usable: window?.span.map { [$0] } ?? [], onCommit: end)
     }
 }
 

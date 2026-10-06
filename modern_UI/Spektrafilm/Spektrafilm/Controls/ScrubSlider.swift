@@ -64,10 +64,12 @@ struct ScrubSlider: View {
     var format: (Double) -> String = { String(format: "%.1f", $0) }
     var parse: (String) -> Double? = { Double($0.replacingOccurrences(of: ",", with: ".")) }
     var trackGradient: [Color]? = nil
-    /// Stretches of the range the value cannot rest on (Scene Placement's
-    /// pull-backs outside what the Fit takes). Drawn dimmed on the track, so
-    /// a dead zone is visible before anyone drags into it.
-    var blocked: [ClosedRange<Double>] = []
+    /// The part of the range the value can rest on, when that is not all of
+    /// it (Scene Placement's pull-backs the Fit takes). Drawn as a band around
+    /// the track, so where the knob can go is visible before anyone drags:
+    /// the band is the usable part, bare track is not. 1.3.1 drew the band
+    /// on the refused part, and it read the other way round.
+    var usable: [ClosedRange<Double>] = []
     var disabled = false
     /// See `SliderMetrics`. Nil takes the rail's (`\.railSliderMetrics`), which
     /// is how every slider on the Parameters rail lands on one grid without
@@ -157,12 +159,12 @@ struct ScrubSlider: View {
                 }
                 .frame(height: m.trackHeight)
                 .padding(.horizontal, knobW / 2)
-                ForEach(Array(blocked.enumerated()), id: \.offset) { _, blocked in
+                ForEach(Array(usable.enumerated()), id: \.offset) { _, usable in
                     let span = range.upperBound - range.lowerBound
-                    let lo = CGFloat((max(blocked.lowerBound, range.lowerBound) - range.lowerBound) / span)
-                    let hi = CGFloat((min(blocked.upperBound, range.upperBound) - range.lowerBound) / span)
+                    let lo = CGFloat((max(usable.lowerBound, range.lowerBound) - range.lowerBound) / span)
+                    let hi = CGFloat((min(usable.upperBound, range.upperBound) - range.lowerBound) / span)
                     Capsule().fill(Theme.Ink.tertiary.opacity(0.35))
-                        .frame(width: max((hi - lo) * (w - knobW), 0), height: 5)
+                        .frame(width: max((hi - lo) * (w - knobW), 3), height: 5)
                         .offset(x: lo * (w - knobW) + knobW / 2)
                         .allowsHitTesting(false)
                 }

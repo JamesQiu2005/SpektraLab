@@ -57,7 +57,6 @@ final class ScenePlacementTests: XCTestCase {
         XCTAssertNil(window.landing(2).why)
         XCTAssertEqual(window.landing(7).value, span.upperBound)
         XCTAssertEqual(window.landing(7).why?.code, "knees_cross")
-        XCTAssertEqual(window.blocked(in: 0...8), [0...span.lowerBound, span.upperBound...8])
     }
 
     func testTheTopOfTheTrackIsTheMostWhenTheFitTakesIt() async throws {
@@ -67,7 +66,6 @@ final class ScenePlacementTests: XCTestCase {
         XCTAssertEqual(window.span?.upperBound, 8)
         XCTAssertNil(window.above)
         XCTAssertLessThanOrEqual(try XCTUnwrap(window.span).lowerBound, 0.011)
-        XCTAssertEqual(window.blocked(in: 0...8), [], "nothing to dim when everything above zero is taken")
     }
 
     func testNoWindowTurnsTheSideOffAndSaysSo() async throws {
@@ -80,7 +78,6 @@ final class ScenePlacementTests: XCTestCase {
         XCTAssertNil(window.span)
         XCTAssertEqual(window.landing(5).value, 0)
         XCTAssertEqual(window.landing(5).why?.code, PlacementWindow.noWindowCode)
-        XCTAssertEqual(window.blocked(in: 0...8), [0...8], "the whole track is dimmed")
     }
 
     func testAProbeThatCannotBeMadeIsNotAnEmptyWindow() async {
@@ -94,7 +91,6 @@ final class ScenePlacementTests: XCTestCase {
         XCTAssertEqual(try XCTUnwrap(shadow.span).upperBound, 3.99, accuracy: 1e-9)
         let highlight = PlacementWindow.known(side: .highlight, minimum: -2, maxLift: 4, in: 0...8)
         XCTAssertEqual(try XCTUnwrap(highlight.span).upperBound, 8)
-        XCTAssertEqual(highlight.blocked(in: 0...8), [])
         XCTAssertNil(PlacementWindow.known(side: .shadow, minimum: 4.2, maxLift: 4, in: 0...8).span)
     }
 
@@ -133,6 +129,17 @@ final class ScenePlacementTests: XCTestCase {
                                             shadow: side == .shadow ? minimum / 2 : 0)
         XCTAssertEqual(refused?.fit.valid, false, "the Fit accepted half its own minimum")
         XCTAssertEqual(committed(), 0)
+
+        // Measured is enough for the bands: nobody has touched a slider yet
+        // and both sides' limits are already the Fit's own.
+        try await waitUntil("the windows to be searched at rest") {
+            s.latitude.windows[.highlight] != nil && s.latitude.windows[.shadow] != nil
+        }
+        XCTAssertEqual(s.placementWindowNow(for: .highlight, other: 0), s.latitude.windows[.highlight]?.window)
+        XCTAssertEqual(s.placementWindowNow(for: .shadow, other: 0), s.latitude.windows[.shadow]?.window)
+        if s.latitude.windows[.shadow]?.window.span == nil {
+            XCTAssertNotNil(s.latitude.refusalMessage(for: "shadow"), "a side that cannot move does not say why")
+        }
 
         let started = Date()
         let searched = await s.placementWindow(for: side, other: 0)
