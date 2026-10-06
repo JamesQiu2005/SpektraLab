@@ -14,7 +14,9 @@
 // an installer without its engine would install an app that cannot develop
 // anything.
 //
-// Windows is cross-built with the x86_64-pc-windows-gnu target and mingw-w64
+// On a Windows machine (CI) `win` builds natively with MSVC
+// (x86_64-pc-windows-msvc, no cross runner, the system PATH untouched).
+// On Linux, Windows is cross-built with the x86_64-pc-windows-gnu target and mingw-w64
 // (Tauri's documented cargo-xwin/MSVC path is behind SPEKTRALAB_WIN_TOOLCHAIN=msvc;
 // its CRT download was refused here), NSIS from the system (`makensis`).
 // Env: SPEKTRALAB_HOST_BUILD overrides the repo's build/ directory.
@@ -44,7 +46,17 @@ const TARGETS = {
   // this build machine's egress policy. SPEKTRALAB_WIN_TOOLCHAIN=msvc uses
   // Tauri's documented cargo-xwin path where that download is allowed.
   win:
-    process.env.SPEKTRALAB_WIN_TOOLCHAIN === 'msvc'
+    // Native on Windows (CI's windows-latest): MSVC, no cross runner.
+    process.platform === 'win32'
+      ? {
+          hostDir: join(buildDir, 'host-win-x64'),
+          exe: 'spektralab-host.exe',
+          triple: 'x86_64-pc-windows-msvc',
+          bundles: 'nsis',
+          out: 'windows',
+          extra: ['--target', 'x86_64-pc-windows-msvc'],
+        }
+      : process.env.SPEKTRALAB_WIN_TOOLCHAIN === 'msvc'
       ? {
           hostDir: join(buildDir, 'host-win-x64'),
           exe: 'spektralab-host.exe',
@@ -118,10 +130,14 @@ const t = TARGETS[which];
 if (!t) die('usage: node scripts/package.mjs linux|win');
 const conf = stage(t);
 const env = { ...process.env };
-if (which === 'win') {
-  // cargo-xwin's clang-cl/lld-link, and llvm-rc for the resource script.
+const onWindows = process.platform === 'win32';
+if (which === 'win' && !onWindows) {
+  // Cross build: cargo-xwin's clang-cl/lld-link, and llvm-rc for the resource script.
   env.PATH = `${process.env.HOME}/.cargo/bin:/usr/lib/llvm-18/bin:${env.PATH}`;
 }
 if (which === 'linux') env.NO_STRIP = env.NO_STRIP ?? 'true'; // linuxdeploy's strip cannot read newer ELF notes
-execFileSync('npx', ['tauri', 'build', '--config', conf, '--bundles', t.bundles, ...t.extra], { cwd: desktop, stdio: 'inherit', env });
+// On Windows `npx` is npx.cmd, which needs a shell; the shell then needs a
+// quoted path if the checkout's path has a space in it.
+const arg = (a) => (onWindows && /\s/.test(a) ? `"${a}"` : a);
+execFileSync('npx', ['tauri', 'build', '--config', conf, '--bundles', t.bundles, ...t.extra].map(arg), { cwd: desktop, stdio: 'inherit', env, shell: onWindows });
 collect(t);
