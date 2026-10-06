@@ -1,0 +1,78 @@
+{
+ "paper": "ilford_multigrade_iv_rc",
+ "film": "kodak_tri_x_400",
+ "enlarger_illuminant": "TH-KG3",
+ "note": "C = 0. print_exposure holds the D = 0.60-over-base point of the print on one negative density at every filter (Ilford speed-matching, extended to 4 and 5). Half grades are not on the sheet and not in this table.",
+ "grades": {
+  "00": {
+   "M": 0.0,
+   "Y": 199.0,
+   "print_exposure": 0.5256,
+   "print_exposure_hold_midgrey": 0.5323,
+   "head_light_loss_stops_vs_filter2": 1.38,
+   "sheet_axis_offset": 2.306057884635816,
+   "fit_rms": 0.031471685778674714,
+   "fit_R": 171.65286645321711
+  },
+  "0": {
+   "M": 0.0,
+   "Y": 137.9,
+   "print_exposure": 0.6558,
+   "print_exposure_hold_midgrey": 0.6642,
+   "head_light_loss_stops_vs_filter2": 0.98,
+   "sheet_axis_offset": 2.3163305045417655,
+   "fit_rms": 0.01838831923061194,
+   "fit_R": 146.68864977987914
+  },
+  "1": {
+   "M": 0.0,
+   "Y": 99.8,
+   "print_exposure": 0.816,
+   "print_exposure_hold_midgrey": 0.8257,
+   "head_light_loss_stops_vs_filter2": 0.53,
+   "sheet_axis_offset": 2.329471599287873,
+   "fit_rms": 0.010628333045744181,
+   "fit_R": 123.85203891314707
+  },
+  "2": {
+   "M": 0.0,
+   "Y": 68.0,
+   "print_exposure": 1.0,
+   "print_exposure_hold_midgrey": 1.0,
+   "head_light_loss_stops_vs_filter2": 0.0,
+   "sheet_axis_offset": 2.3388152433360427,
+   "fit_rms": 0.011292243191710497,
+   "fit_R": 104.85559244529024
+  },
+  "3": {
+   "M": 0.0,
+   "Y": 34.1,
+   "print_exposure": 1.184,
+   "print_exposure_hold_midgrey": 1.159,
+   "head_light_loss_stops_vs_filter2": -0.72,
+   "sheet_axis_offset": 2.3360864773857255,
+   "fit_rms": 0.012667709628427604,
+   "fit_R": 88.74997170086603
+  },
+  "4": {
+   "M": 39.1,
+   "Y": 0.0,
+   "print_exposure": 1.3902,
+   "print_exposure_hold_midgrey": 1.334,
+   "head_light_loss_stops_vs_filter2": -1.32,
+   "sheet_axis_offset": 2.663845007852088,
+   "fit_rms": 0.013371138490470863,
+   "fit_R": 65.71309192756094
+  },
+  "5": {
+   "M": 151.7,
+   "Y": 0.0,
+   "print_exposure": 1.4164,
+   "print_exposure_hold_midgrey": 1.3507,
+   "head_light_loss_stops_vs_filter2": -1.11,
+   "sheet_axis_offset": 2.641311967163053,
+   "fit_rms": 0.026019214884951982,
+   "fit_R": 57.80887158241556
+  }
+ }
+}

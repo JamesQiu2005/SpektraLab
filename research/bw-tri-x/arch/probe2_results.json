@@ -1,0 +1,75 @@
+{
+ "baseline_frame_max_spread255": 4.182879377431906,
+ "wb_neutral": {
+  "bwx_split": {
+   "grey18": 116.7,
+   "red": 117.8,
+   "foliage": 79.5,
+   "sky": 172.8,
+   "skin": 152.4
+  },
+  "bwx_split_r": {
+   "grey18": 116.7,
+   "red": 178.7,
+   "foliage": 55.3,
+   "sky": 119.1,
+   "skin": 177.5
+  }
+ },
+ "wb_warm_wb": {
+  "bwx_split": {
+   "grey18": 114.4,
+   "red": 129.0,
+   "foliage": 79.6,
+   "sky": 161.3,
+   "skin": 155.3
+  },
+  "bwx_split_r": {
+   "grey18": 130.0,
+   "red": 188.2,
+   "foliage": 60.2,
+   "sky": 127.0,
+   "skin": 186.7
+  }
+ },
+ "wb_cool_wb": {
+  "bwx_split": {
+   "grey18": 122.1,
+   "red": 108.7,
+   "foliage": 80.2,
+   "sky": 182.0,
+   "skin": 151.4
+  },
+  "bwx_split_r": {
+   "grey18": 105.8,
+   "red": 165.0,
+   "foliage": 51.3,
+   "sky": 112.7,
+   "skin": 164.6
+  }
+ },
+ "overscan_bwx_split": {
+  "top05pct_mean255": [
+   255.0,
+   255.0,
+   255.0
+  ],
+  "median255": [
+   116.69999694824219,
+   116.69999694824219,
+   116.5999984741211
+  ]
+ },
+ "overscan_kodak_portra_400": {
+  "top05pct_mean255": [
+   255.0,
+   255.0,
+   255.0
+  ],
+  "median255": [
+   114.69999694824219,
+   115.5999984741211,
+   118.80000305175781
+  ]
+ }
+}

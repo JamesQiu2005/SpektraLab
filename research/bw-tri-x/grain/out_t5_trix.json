@@ -1,0 +1,134 @@
+{
+ "dmax_net": 2.523068903099389,
+ "single": {
+  "mean": 1.0000264589242773,
+  "rms48_RGB": [
+   14.960223382736345,
+   14.853010367165437,
+   21.242241399569433
+  ],
+  "corr": [
+   0.0005398753876911791,
+   -0.0005657653899401077,
+   0.0003339564846588012
+  ],
+  "rms48_sum": 9.92535196807926,
+  "rms48_sum_model_6um": 10.013403975119695,
+  "rms48_sum_selwyn": 11.197381746737799,
+  "grain_amount_for_17_at_6um": 1.7127856074699803,
+  "grain_amount_for_17_selwyn": 1.5182120592568626
+ },
+ "sublayers": {
+  "mean": 0.9999583888133579,
+  "rms48_RGB": [
+   10.916844644566604,
+   10.577283783853165,
+   15.472881097267411
+  ],
+  "corr": [
+   0.00112181810329474,
+   -0.0017354980891949702,
+   0.002414236428316971
+  ],
+  "rms48_sum": 7.2458593242472,
+  "rms48_sum_model_6um": 7.222738780588067,
+  "rms48_sum_selwyn": 8.07675028233796,
+  "grain_amount_for_17_at_6um": 2.3461675474587267,
+  "grain_amount_for_17_selwyn": 2.104806934191736
+ },
+ "density": [
+  {
+   "target": 0.1,
+   "single": 4.448754700406899,
+   "model_single": 4.452546071290294,
+   "sub": 5.05690532649479,
+   "model_sub": 5.055801198969323
+  },
+  {
+   "target": 0.2,
+   "single": 5.754254135092965,
+   "model_single": 5.802225209882081,
+   "sub": 6.157426713296435,
+   "model_sub": 6.167191496174465
+  },
+  {
+   "target": 0.4,
+   "single": 7.521384031924562,
+   "model_single": 7.594091257488187,
+   "sub": 6.582756337959384,
+   "model_sub": 6.623170774844209
+  },
+  {
+   "target": 0.7,
+   "single": 9.086233059143275,
+   "model_single": 9.19154971940996,
+   "sub": 6.942996545114728,
+   "model_sub": 6.929219678951033
+  },
+  {
+   "target": 1.0,
+   "single": 9.92535196807926,
+   "model_single": 10.013403975119695,
+   "sub": 7.2458593242472,
+   "model_sub": 7.222738780588067
+  },
+  {
+   "target": 1.3,
+   "single": 10.151893883230676,
+   "model_single": 10.247987158497587,
+   "sub": 6.782552531038083,
+   "model_sub": 6.731532032342355
+  },
+  {
+   "target": 1.6,
+   "single": 9.846082230388825,
+   "model_single": 9.936977968162697,
+   "sub": 5.954177799607059,
+   "model_sub": 5.913193515014253
+  },
+  {
+   "target": 2.0,
+   "single": 8.480950602893804,
+   "model_single": 8.556541267924295,
+   "sub": 5.650420597530858,
+   "model_sub": 5.642532161924626
+  },
+  {
+   "target": 2.3,
+   "single": 6.363633349432597,
+   "model_single": 6.418598688622225,
+   "sub": 4.834371670083446,
+   "model_sub": 4.818323950653352
+  }
+ ],
+ "amount_check_single": {
+  "amount": 1.7127856074699803,
+  "rms48": 16.99998695727539
+ },
+ "area_for_17": [
+  {
+   "case": "single, independent draws, default scales",
+   "particle_area_um2_selwyn": 0.4641742596999438,
+   "particle_area_um2_for_17_at_6um": 0.5804309310236541,
+   "measured_rms48_at_6um": 16.879781174035664
+  },
+  {
+   "case": "sublayers, independent draws, default scales/layers",
+   "particle_area_um2_selwyn": 0.8848260246782436,
+   "particle_area_um2_for_17_at_6um": 1.1064387620932394,
+   "measured_rms48_at_6um": 16.86918019243585
+  },
+  {
+   "case": "single, ONE emulsion (equal streams, scale 1, u .99)",
+   "particle_area_um2_selwyn": 0.33338566884978527,
+   "particle_area_um2_for_17_at_6um": 0.41688514629293205,
+   "measured_rms48_at_6um": 16.977200208845993
+  },
+  {
+   "case": "sublayers, ONE emulsion (equal streams, scale 1, u .99)",
+   "particle_area_um2_selwyn": 0.6628919856136528,
+   "particle_area_um2_for_17_at_6um": 0.8289193214345267,
+   "measured_rms48_at_6um": 17.09280599477144
+  }
+ ]
+}
