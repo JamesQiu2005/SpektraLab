@@ -1,0 +1,25 @@
+#version 450
+
+// Row-vector convention matches nodes.metal's spk_matmul3 exactly.
+layout(local_size_x = 256) in;
+layout(set = 0, binding = 0, std430) readonly buffer Input { float value[]; } input_data;
+layout(set = 0, binding = 1, std430) readonly buffer Matrix { float value[]; } matrix_data;
+layout(set = 0, binding = 2, std430) readonly buffer Meta { uint value[]; } meta;
+layout(set = 0, binding = 3, std430) writeonly buffer Output { float value[]; } output_data;
+
+// vulkan_gpu.cpp folds a dispatch past maxComputeWorkGroupCount[0] (65535 on
+// lavapipe and Intel) into rows of workgroups; this is the 1D index it means.
+uint spk_global_index() {
+    return gl_GlobalInvocationID.y * (gl_NumWorkGroups.x * gl_WorkGroupSize.x) + gl_GlobalInvocationID.x;
+}
+
+void main() {
+    uint i = spk_global_index();
+    if (i >= meta.value[0]) return;
+    float a = input_data.value[3 * i];
+    float b = input_data.value[3 * i + 1];
+    float c = input_data.value[3 * i + 2];
+    output_data.value[3 * i]     = a * matrix_data.value[0] + b * matrix_data.value[3] + c * matrix_data.value[6];
+    output_data.value[3 * i + 1] = a * matrix_data.value[1] + b * matrix_data.value[4] + c * matrix_data.value[7];
+    output_data.value[3 * i + 2] = a * matrix_data.value[2] + b * matrix_data.value[5] + c * matrix_data.value[8];
+}

@@ -1,0 +1,28 @@
+#version 450
+
+// The rounded product must stay separate from the fused operation. This is
+// checked against an exact binary64 product residual when the engine starts.
+// Metal dispatches exactly 64 threads for this probe. A one-thread workgroup
+// preserves that extent without adding an argument to the existing Gpu call.
+layout(local_size_x = 1) in;
+layout(set = 0, binding = 0, std430) readonly buffer Input { float value[]; } input_data;
+layout(set = 0, binding = 1, std430) writeonly buffer Output { float value[]; } output_data;
+
+// vulkan_gpu.cpp folds a dispatch past maxComputeWorkGroupCount[0] (65535 on
+// lavapipe and Intel) into rows of workgroups; this is the 1D index it means.
+uint spk_global_index() {
+    return gl_GlobalInvocationID.y * (gl_NumWorkGroups.x * gl_WorkGroupSize.x) + gl_GlobalInvocationID.x;
+}
+
+void main() {
+    uint i = spk_global_index();
+    float a = input_data.value[2 * i];
+    float b = input_data.value[2 * i + 1];
+    precise float rounded = a * b;
+    // `precise` on the result too: GLSL leaves an unqualified fma() free to be
+    // evaluated as a*b+c with two roundings (Mesa's lavapipe does exactly
+    // that), which is 0 here and reads as fast math. Under `precise` the spec
+    // requires a single rounding.
+    precise float residual = fma(a, b, -rounded);
+    output_data.value[i] = residual;
+}

@@ -1,0 +1,50 @@
+#version 450
+
+// The near-identity output matrix is intentionally applied before the OETF.
+layout(local_size_x = 256) in;
+layout(set = 0, binding = 0, std430) readonly buffer Input { float value[]; } input_data;
+layout(set = 0, binding = 1, std430) readonly buffer Matrix { float value[]; } matrix_data;
+layout(set = 0, binding = 2, std430) readonly buffer Meta { uint value[]; } meta;
+layout(set = 0, binding = 3, std430) writeonly buffer Output { float value[]; } output_data;
+
+// vulkan_gpu.cpp folds a dispatch past maxComputeWorkGroupCount[0] (65535 on
+// lavapipe and Intel) into rows of workgroups; this is the 1D index it means.
+uint spk_global_index() {
+    return gl_GlobalInvocationID.y * (gl_NumWorkGroups.x * gl_WorkGroupSize.x) + gl_GlobalInvocationID.x;
+}
+
+float signed_power(float value, float exponent) {
+    float sign_value = value < 0.0 ? -1.0 : (value > 0.0 ? 1.0 : 0.0);
+    return sign_value * pow(abs(value), exponent);
+}
+
+float encode(float value, uint mode) {
+    switch (mode) {
+        case 0u: return value <= 0.0031308 ? 12.92 * value
+                      : 1.055 * signed_power(value, 1.0 / 2.4) - 0.055;
+        case 1u: return value < 1.0 / 512.0 ? value * 16.0 : pow(value, 1.0 / 1.8);
+        case 2u: return pow(value, 256.0 / 563.0);
+        case 3u: {
+            const float alpha = 1.099, beta = 0.018;
+            return beta > value ? value * 4.5
+                      : alpha * signed_power(value, 0.45) - (alpha - 1.0);
+        }
+        default: return value;
+    }
+}
+
+void main() {
+    uint pixel = spk_global_index();
+    if (pixel >= meta.value[0]) return;
+    float a = input_data.value[3u * pixel];
+    float b = input_data.value[3u * pixel + 1u];
+    float c = input_data.value[3u * pixel + 2u];
+    float v[3] = float[3](a * matrix_data.value[0] + b * matrix_data.value[3]
+                         + c * matrix_data.value[6],
+                         a * matrix_data.value[1] + b * matrix_data.value[4]
+                         + c * matrix_data.value[7],
+                         a * matrix_data.value[2] + b * matrix_data.value[5]
+                         + c * matrix_data.value[8]);
+    for (uint channel = 0u; channel < 3u; ++channel)
+        output_data.value[3u * pixel + channel] = encode(v[channel], meta.value[1]);
+}

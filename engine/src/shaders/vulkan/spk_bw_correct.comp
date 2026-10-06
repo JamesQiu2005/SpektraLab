@@ -1,0 +1,24 @@
+#version 450
+
+// Stretch Y, clipping only the corrected Y, then scale XYZ together.
+layout(local_size_x = 256) in;
+layout(set = 0, binding = 0, std430) readonly buffer Input { float value[]; } input_data;
+layout(set = 0, binding = 1, std430) readonly buffer Parameters { float value[]; } parameters;
+layout(set = 0, binding = 2, std430) readonly buffer Count { uint value[]; } count_data;
+layout(set = 0, binding = 3, std430) writeonly buffer Output { float value[]; } output_data;
+
+// vulkan_gpu.cpp folds a dispatch past maxComputeWorkGroupCount[0] (65535 on
+// lavapipe and Intel) into rows of workgroups; this is the 1D index it means.
+uint spk_global_index() {
+    return gl_GlobalInvocationID.y * (gl_NumWorkGroups.x * gl_WorkGroupSize.x) + gl_GlobalInvocationID.x;
+}
+
+void main() {
+    uint i = spk_global_index();
+    if (i >= count_data.value[0]) return;
+    float y = input_data.value[3u * i + 1u];
+    float corrected = clamp(parameters.value[0] * y + parameters.value[1], 0.0, 1.0);
+    float scale = corrected / (y + 1e-10);
+    for (uint channel = 0u; channel < 3u; ++channel)
+        output_data.value[3u * i + channel] = input_data.value[3u * i + channel] * scale;
+}

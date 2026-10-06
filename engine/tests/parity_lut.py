@@ -43,6 +43,8 @@ from pathlib import Path
 
 import numpy as np
 
+from spk_test_paths import add_engine_arguments, engine_options
+
 ENGINE = Path(__file__).resolve().parents[1]
 REPO = ENGINE.parent
 
@@ -179,6 +181,7 @@ def main() -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("--stock", action="append", help="run only these print stocks")
     ap.add_argument("--verbose", "-v", action="store_true")
+    add_engine_arguments(ap)
     args = ap.parse_args()
 
     from spk_ctypes import Engine
@@ -192,7 +195,7 @@ def main() -> int:
 
     cases = [c for c in CASES if not args.stock or c[0] in args.stock]
     failures = 0
-    with Engine() as engine:
+    with Engine(**engine_options(args)) as engine:
         print(f"engine: {engine.build_info}")
         failures += check_tables(engine, luts, args.verbose)
 

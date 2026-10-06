@@ -36,6 +36,7 @@
 #include <vector>
 
 #include "spektrafilm/spk_engine.h"
+#include "file_path.hpp"
 
 #include "blob.hpp"
 #include "colour.hpp"
@@ -46,10 +47,19 @@
 #include "pipeline.hpp"
 #include "print_lut.hpp"
 #include "setup_cache.hpp"
+#ifndef __APPLE__
+#include "windows_unported.hpp"
+#endif
 
 using namespace spk;
 
 namespace {
+
+#ifndef __APPLE__
+constexpr const char* kRenderCore = "native-vulkan";
+#else
+constexpr const char* kRenderCore = "native-metal";
+#endif
 
 // API-SPEC §6's three tiers, by long edge in pixels. `live` targets the
 // interaction budget for a print-side slider drag; `preview` is deliberately
@@ -112,7 +122,7 @@ uint32_t tier_long_edge(const Params& params, const Tier& tier) {
 }
 
 std::string read_text_file(const std::string& path) {
-    std::ifstream in(path, std::ios::binary);
+    std::ifstream in(file_path(path), std::ios::binary);
     std::ostringstream ss;
     ss << in.rdbuf();
     return ss.str();
@@ -302,9 +312,18 @@ struct spk_engine {
         // what the process could reach. `render_core` was a probe of
         // availability, and that hid a session silently demoted to the CPU
         // while capabilities still said metal.
-        backend.set("render_core", Json(std::string("native-metal")));
+        backend.set("render_core", Json(std::string(kRenderCore)));
         backend.set("host", Json(std::string("native")));
         backend.set("math_mode", Json(math_mode));
+#ifndef __APPLE__
+        // These upstream effects still require kernels or Apple services that
+        // have not been ported. Defaults stay usable; explicit requests fail.
+        Json unported = Json::array();
+        for (const char* feature : {"digital_intermediate", "scene_latitude_mapping",
+                                    "contrast_mask", "overscan", "date_imprint"})
+            unported.push(Json(std::string(feature)));
+        backend.set("unsupported_features", std::move(unported));
+#endif
         // Concurrent entry is safe: there is no numba here, and renders on
         // different tiers hold different locks.
         backend.set("concurrent", Json(true));
@@ -516,10 +535,14 @@ extern "C" {
 const char* spk_build_info(void) {
     // The build stamp is what a bug report quotes, so it names the three
     // things that decide whether two builds render the same picture: the
-    // engine's own version, the compiler date, and the Metal math mode the
-    // kernels were compiled with.
+    // engine's own version, the compiler date, and the backend math probe.
+#ifndef __APPLE__
+    static const std::string info =
+        std::string("spektrafilm-native 0.1.0 (") + __DATE__ " " __TIME__ ", math=probed)";
+#else
     static const std::string info =
         std::string("spektrafilm-native 0.1.0 (") + __DATE__ " " __TIME__ ", math=safe)";
+#endif
     return info.c_str();
 }
 
@@ -554,7 +577,12 @@ spk_engine* spk_engine_create(const char* resources_dir, void* device) {
 
     if (!engine->print_luts.init(engine->resources_dir, error)) { g_error = error; return nullptr; }
 
+#ifndef __APPLE__
+    if (device) { g_error = "Windows device-buffer input is not implemented yet; pass null"; return nullptr; }
+    engine->gpu = gpu::Gpu::create_vulkan(engine->resources_dir + "/vulkan", error);
+#else
     engine->gpu = gpu::Gpu::create_metal(device, engine->resources_dir + "/spektrafilm.metallib", error);
+#endif
     if (!engine->gpu) { g_error = error; return nullptr; }
 
     // RFC-014 §5.1 trap 1, checked rather than trusted. A build flag is the
@@ -645,7 +673,7 @@ spk_status spk_warm_up(spk_engine* engine, const char* film_stock, const char* p
 
         if (built) {
             // Run a small frame all the way through, so every kernel's
-            // `MTLComputePipelineState` exists before the user's first frame
+            // The compute pipeline exists before the user's first frame
             // needs it.
             //
             // Measured, because the obvious claim for this is wrong: it does
@@ -692,7 +720,7 @@ spk_status spk_warm_up(spk_engine* engine, const char* film_stock, const char* p
     out.set("film_stock", Json(film));
     out.set("print_stock", Json(print));
     out.set("already_warm", Json(false));
-    out.set("render_core", Json(std::string("native-metal")));
+    out.set("render_core", Json(std::string(kRenderCore)));
     out.set("total_ms", Json(std::round(std::chrono::duration<double, std::milli>(
         std::chrono::steady_clock::now() - started).count() * 100.0) / 100.0));
     out.set("steps", std::move(steps));
@@ -773,7 +801,7 @@ spk_session* open_frame(spk_engine* engine, const FrameIn& frame, const char* pa
             engine->pool_frame_w = frame.width;
             engine->pool_frame_h = frame.height;
         }
-        // Outside the lock: this releases Metal buffers, which is not work to
+        // Outside the lock: this releases GPU buffers, which is not work to
         // hold the session list across.
         if (trim && engine->gpu) engine->gpu->trim_pool(0);
     }
@@ -980,8 +1008,9 @@ bool tier_image(spk_session* session, const Tier& tier, Image& out, std::string&
         if (!gpu->flush(error)) return false;
         Image kept;
         kept.h = scaled.h; kept.w = scaled.w; kept.c = 3;
-        kept.buf = gpu->upload_persistent(gpu->contents(scaled.buf.get()), scaled.bytes(), error);
-        if (!kept.buf) return false;
+        kept.buf = gpu->alloc_persistent(scaled.bytes(), error);
+        if (!kept.buf || !gpu->copy(kept.buf.get(), 0, scaled.buf.get(), 0,
+                                    scaled.bytes(), error)) return false;
         state.image = kept;
     }
     state.image_long_edge = edge;
@@ -1082,8 +1111,9 @@ bool negative_for(spk_session* session, const Tier& tier, Progress* progress, Im
     // The cached negative is the other holding RFC-020 §4.7 names: every
     // reprint reads it, it lives as long as the session, and at the full
     // tier it is the second 1.22 GB plane.
-    kept.buf = gpu->upload_file_backed(gpu->contents(negative.buf.get()), negative.bytes(), error);
-    if (!kept.buf) return false;
+    kept.buf = gpu->alloc_file_backed(negative.bytes(), error);
+    if (!kept.buf || !gpu->copy(kept.buf.get(), 0, negative.buf.get(), 0,
+                                negative.bytes(), error)) return false;
     state.negative = kept;
     state.has_negative = true;
     out = kept;
@@ -1116,12 +1146,20 @@ bool materialise(spk_session* session, const Image& rgb, spk_result* out, std::s
                              gpu::Arg::buf(buffer)},
                             rgb.pixels(), error) && gpu->flush(error);
     if (ok) {
-        out->rgba16 = static_cast<const uint16_t*>(gpu->contents(buffer.get()));
         out->width = rgb.w;
         out->height = rgb.h;
         out->row_stride_px = stride;
         out->texture = gpu->texture(buffer.get(), rgb.w, rgb.h, stride, error);
         ok = out->texture != nullptr;
+#ifndef __APPLE__
+        // The headless Vulkan result owns a separate CPU copy. The dispatch
+        // buffer is released when this function returns.
+        if (ok) out->rgba16 = static_cast<const uint16_t*>(out->texture);
+#else
+        // Metal textures retain shared storage; this view stays valid for
+        // exactly the texture's lifetime without a host readback.
+        if (ok) out->rgba16 = static_cast<const uint16_t*>(gpu->contents(buffer.get()));
+#endif
     }
     // Drop the engine's reference either way. On success the texture still
     // holds one, so the buffer lives; on failure it dies here.
@@ -1508,7 +1546,7 @@ spk_status spk_preview_stock_lut(spk_session* session, const char* print_stock,
         reply.set("print_stock", Json(lut->stock));
         reply.set("tier", Json(std::string(tier->name)));
         reply.set("apply_ms", Json(apply_ms));
-        reply.set("apply_backend", Json(std::string("native-metal")));
+        reply.set("apply_backend", Json(std::string(kRenderCore)));
         reply.set("lut_source", Json(std::string("shipped")));
         reply.set("paired_film", Json(lut->paired_film));
         reply.set("declared_pairing", Json(lut->declared_pairing));
@@ -1584,6 +1622,11 @@ spk_status spk_render_digital_intermediate(spk_session* session, spk_result* out
     std::lock_guard<std::mutex> guard(session->lock);
     g_error.clear();
     std::memset(out, 0, sizeof *out);
+#ifndef __APPLE__
+    if (out_json) *out_json = nullptr;
+    g_error = windows_unported_error(true, false, false, false, false);
+    return SPK_ERR_USER;
+#endif
     if (session->params.film.info.is_positive()) {
         g_error = "a slide film has no orange mask and no negative to reverse, so it has no "
                   "Digital Intermediate";
@@ -1661,6 +1704,14 @@ spk_status spk_set_params(spk_session* session, const char* params_delta_json, c
     std::lock_guard<std::mutex> guard(session->lock);
     spk_engine* engine = session->engine;
     const bool shoot = delta_touches_shoot(delta);
+#ifndef __APPLE__
+    // Reject before applying the delta, so a failed request cannot leave the
+    // session's params ahead of its still-valid, previously built pipeline.
+    if (const char* unported = windows_unported_delta_error(delta)) {
+        g_error = unported;
+        return SPK_ERR_USER;
+    }
+#endif
     const bool stock_change = delta.has("film_stock") || delta.has("print_stock");
     const bool rebuild = stock_change || delta_needs_rebuild(delta);
     // The live tier is the one piece of cached state a print-layer field can
@@ -1819,7 +1870,9 @@ bool probe_medium(spk_session* session, slm::Medium& out, std::string& error) {
     in.buf = gpu->upload(ramp.data(), ramp.size() * sizeof(float), error);
     if (!in.buf || !pipeline.run_film(in, negative, nullptr, error) ||
         !pipeline.run_print(negative, rgb, nullptr, error) || !gpu->flush(error)) return false;
-    const float* px = static_cast<const float*>(gpu->contents(rgb.buf.get()));
+    std::vector<float> pixels(rgb.elements());
+    if (!gpu->read(rgb.buf.get(), 0, pixels.data(), rgb.bytes(), error)) return false;
+    const float* px = pixels.data();
     // RFC-028: a Digital Intermediate writes Cineon log codes, not light. The
     // medium is then the DI itself -- the film's toe and the encoding's own
     // 10-bit ends -- so the codes are decoded before the luminance is taken.

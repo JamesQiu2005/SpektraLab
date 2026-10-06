@@ -1,0 +1,36 @@
+#version 450
+
+// Calibrated EDR log2-Y LUT and exact identity toe/shoulder joins, nodes.metal.
+layout(local_size_x = 256) in;
+layout(set = 0, binding = 0, std430) readonly buffer Input { float value[]; } input_data;
+layout(set = 0, binding = 1, std430) readonly buffer Parameters { float value[]; } parameters;
+layout(set = 0, binding = 2, std430) readonly buffer Lut { float value[]; } lut_data;
+layout(set = 0, binding = 3, std430) readonly buffer Count { uint value[]; } count_data;
+layout(set = 0, binding = 4, std430) writeonly buffer Output { float value[]; } output_data;
+
+// vulkan_gpu.cpp folds a dispatch past maxComputeWorkGroupCount[0] (65535 on
+// lavapipe and Intel) into rows of workgroups; this is the 1D index it means.
+uint spk_global_index() {
+    return gl_GlobalInvocationID.y * (gl_NumWorkGroups.x * gl_WorkGroupSize.x) + gl_GlobalInvocationID.x;
+}
+
+void main() {
+    uint i = spk_global_index();
+    if (i >= count_data.value[0]) return;
+    float r = input_data.value[3u * i], g = input_data.value[3u * i + 1u];
+    float b = input_data.value[3u * i + 2u];
+    float y = max(parameters.value[0] * r + parameters.value[1] * g + parameters.value[2] * b, 0.0);
+    float toe = parameters.value[5], shoulder = parameters.value[6];
+    float mapped = y;
+    if (y > 0.0 && (y < toe || y > shoulder)) {
+        uint count = max(uint(parameters.value[7]), 2u);
+        float u = clamp((log2(y) - parameters.value[3]) * parameters.value[4], 0.0, 1.0) * float(count - 1u);
+        uint i0 = min(uint(floor(u)), count - 2u);
+        float t = u - float(i0);
+        mapped = exp2(mix(lut_data.value[i0], lut_data.value[i0 + 1u], t));
+    }
+    float scale = mapped / (y + 1e-10);
+    output_data.value[3u * i] = r * scale;
+    output_data.value[3u * i + 1u] = g * scale;
+    output_data.value[3u * i + 2u] = b * scale;
+}

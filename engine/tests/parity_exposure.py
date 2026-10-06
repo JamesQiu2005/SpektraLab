@@ -82,6 +82,8 @@ from pathlib import Path
 
 import numpy as np
 
+from spk_test_paths import add_engine_arguments, engine_options
+
 ENGINE = Path(__file__).resolve().parents[1]
 REPO = ENGINE.parent
 sys.path.insert(0, str(REPO / "src"))
@@ -367,7 +369,8 @@ def check_known_answers(refs: dict[str, Reference]) -> int:
     return failures
 
 
-def check_engine(refs: list[Reference], verbose: bool) -> tuple[int, dict[str, dict]]:
+def check_engine(refs: list[Reference], verbose: bool,
+                 engine_config: dict | None = None) -> tuple[int, dict[str, dict]]:
     """(a), (b), (c) against the shipping dylib. Returns failures and what the
     engine reported for the new modes, per frame, for the negative controls."""
     from spk_ctypes import Engine, EngineError
@@ -375,7 +378,7 @@ def check_engine(refs: list[Reference], verbose: bool) -> tuple[int, dict[str, d
     failures = 0
     observed: dict[str, dict] = {}
     worst = {"legacy_solve": 0.0, "legacy_strided": 0.0, "new_solve": 0.0, "new_strided": 0.0}
-    with Engine() as engine:
+    with Engine(**(engine_config or {})) as engine:
         names = [f["name"] for f in engine.params_schema()["fields"]]
         if "auto_exposure_method" not in names:
             print("FAIL the engine does not declare auto_exposure_method; "
@@ -625,13 +628,13 @@ def export_vs_canvas(live_rgba: np.ndarray, full_rgba: np.ndarray,
     return d_lum, d_ch
 
 
-def check_tiers(verbose: bool) -> int:
+def check_tiers(verbose: bool, engine_config: dict | None = None) -> int:
     """(c1)-(c4) on full-resolution RAWs."""
     from spk_ctypes import Engine
 
     failures = 0
     worst_downscale, worst_cross = (0.0, ""), (0.0, "")
-    with Engine() as engine:
+    with Engine(**(engine_config or {})) as engine:
         for rel in TIER_RAWS:
             img = load_full_res(engine, rel)
             if img is None:
@@ -704,7 +707,7 @@ def meter_walk_frame() -> np.ndarray:
     return np.ascontiguousarray(rgb.astype(np.float32))
 
 
-def check_meter_walk(verbose: bool) -> int:
+def check_meter_walk(verbose: bool, engine_config: dict | None = None) -> int:
     """(c5) For every wire field: after `set_params`, the engine's EVs equal a
     fresh Python meter of the same params. A cache key that misses an upstream
     field leaves a stale EV and fails here, for that field."""
@@ -715,7 +718,7 @@ def check_meter_walk(verbose: bool) -> int:
     base = {"grain_active": False, "glare_active": False,
             "input_color_space": COLOR_SPACE, "input_cctf_decoding": False}
     failures = 0
-    with Engine() as engine:
+    with Engine(**(engine_config or {})) as engine:
         fields = engine.params_schema()["fields"]
         print(f"\n(c5) meter cache walk: {len(fields)} fields, {frame.shape[1]}x{frame.shape[0]} frame")
         for field in fields:
@@ -751,7 +754,9 @@ def main() -> int:
                     help="no dylib: reference numbers, known answers, negative controls")
     ap.add_argument("--no-real", action="store_true", help="skip the RAW-derived frames")
     ap.add_argument("--verbose", "-v", action="store_true")
+    add_engine_arguments(ap)
     args = ap.parse_args()
+    engine_config = engine_options(args)
 
     from spektrafilm.utils import autoexposure as ae
     print(f"Python reference: {ae.__file__}")
@@ -773,16 +778,16 @@ def main() -> int:
         observed = {r.name: {m: r.full[m] for m in NEW} for r in refs}
     else:
         print("\n(a)-(c) against the engine")
-        got, observed = check_engine(refs, args.verbose)
+        got, observed = check_engine(refs, args.verbose, engine_config)
         failures += got
         from spk_ctypes import Engine
         print("\nrender check resolution")
-        with Engine() as engine:
+        with Engine(**engine_config) as engine:
             failures += render_resolution(engine, by_name.get("smoke_1mp", refs[0]))
-        failures += check_meter_walk(args.verbose)
+        failures += check_meter_walk(args.verbose, engine_config)
         if not args.no_real:
             print("\n(c1)-(c4) one EV at every tier, full-resolution RAWs")
-            failures += check_tiers(args.verbose)
+            failures += check_tiers(args.verbose, engine_config)
     failures += run_controls(refs, observed)
 
     print(f"\n{failures} failures")

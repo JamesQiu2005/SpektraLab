@@ -214,7 +214,10 @@ bool Pipeline::prepare_contrast_mask(const Image& cmy, std::string& error,
                         size_t(gw) * gh, error)) return false;
     // The host needs the values: the one flush this node cannot avoid.
     if (!gpu_->flush(error)) return false;
-    const float* gx = static_cast<const float*>(gpu_->contents(grid.get()));
+    std::vector<float> grid_values(size_t(gw) * gh);
+    if (!gpu_->read(grid.get(), 0, grid_values.data(), grid_values.size() * sizeof(float), error))
+        return false;
+    const float* gx = grid_values.data();
     std::vector<double> x(size_t(gw) * gh);
     for (size_t i = 0; i < x.size(); ++i) x[i] = double(gx[i]);
 

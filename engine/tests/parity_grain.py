@@ -24,6 +24,8 @@ from pathlib import Path
 
 import numpy as np
 
+from spk_test_paths import add_engine_arguments, engine_options
+
 ENGINE = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ENGINE.parent / "src"))
 sys.path.insert(0, str(ENGINE / "tests"))
@@ -77,6 +79,7 @@ def main() -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("--patch", type=int, default=256)
     ap.add_argument("--verbose", "-v", action="store_true")
+    add_engine_arguments(ap)
     args = ap.parse_args()
 
     from spk_ctypes import Engine
@@ -86,7 +89,7 @@ def main() -> int:
     print(f"flat patches of {args.patch}x{args.patch}, grain on, glare off\n")
     print(f"{'level':>7}  {'mean (cpp/numba)':>24}  {'std ratio':>10}  {'skew (cpp/numba)':>22}")
 
-    with Engine() as engine:
+    with Engine(**engine_options(args)) as engine:
         for level in LEVELS:
             frame = np.full((args.patch, args.patch, 3), level, dtype=np.float32)
             with engine.open(frame, delta) as session:
