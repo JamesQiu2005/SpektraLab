@@ -198,20 +198,26 @@ struct FilmFormatSection: View {
 /// in toward the medium before the film sees them. The Latitude graph above
 /// shows where they land.
 ///
-/// **Every value goes through the Fit.** Below the Fit's minimum the extreme
-/// would still land past the print, and the engine refuses it; that span is
-/// drawn dimmed on the track, and a value dragged into it is not committed —
-/// the row says why, in the engine's words, and the slider returns to the last
-/// accepted value on release.
+/// **Every value goes through the Fit**, and the Fit takes a window of
+/// pull-backs on each side rather than everything above zero. The stretches
+/// outside it are drawn dimmed on the track and a slider cannot rest on them:
+/// a value dragged or typed there lands on the window's nearer edge, and the
+/// row says why (1.3.2 — it used to commit nothing and return to the last
+/// accepted value on release, which read as a slider that would not move).
 struct ScenePlacementSection: View {
     @Bindable var session: Session
-    /// The value under the pointer while a drag is in progress. Nil at rest,
-    /// when the slider shows what is committed.
+    /// What a slider shows while its value is on its way: under the pointer,
+    /// and after release until the Fit for it has been committed. Nil at
+    /// rest, when the slider shows what is committed.
     @State private var dragging: (highlight: Double?, shadow: Double?) = (nil, nil)
+    /// Counts each side's edits, so a release that settles after the next
+    /// drag began does not take that drag's value away.
+    @State private var edits: (highlight: Int, shadow: Int) = (0, 0)
 
-    static let range: ClosedRange<Double> = 0...8
+    static let range = Session.placementRange
 
     private var developed: Bool { session.latitude.reply != nil && session.latitude.frame == session.selection }
+    private var committed: SceneLatitudeSettings { session.params.sceneLatitude }
 
     var body: some View {
         PanelSection(L(.sectionScenePlacement), key: "scenePlacement",
@@ -220,20 +226,24 @@ struct ScenePlacementSection: View {
                          dragging = (nil, nil); session.resetScenePlacement()
                      }) {
             RailRows {
-                row(L(.placementHighlight), side: "highlight",
-                    committed: session.params.sceneLatitude.highlightPullBack,
-                    minimum: session.latitude.reply?.fit.highlight.minimumPullBack,
-                    shown: dragging.highlight) { v in
-                    dragging.highlight = v
-                    session.placeScene(highlight: v, shadow: dragging.shadow ?? session.params.sceneLatitude.shadowPullBack)
-                } end: { dragging.highlight = nil }
-                row(L(.placementShadow), side: "shadow",
-                    committed: session.params.sceneLatitude.shadowPullBack,
-                    minimum: session.latitude.reply?.fit.shadow.minimumPullBack,
-                    shown: dragging.shadow) { v in
-                    dragging.shadow = v
-                    session.placeScene(highlight: dragging.highlight ?? session.params.sceneLatitude.highlightPullBack, shadow: v)
-                } end: { dragging.shadow = nil }
+                row(L(.placementHighlight), side: .highlight, committed: committed.highlightPullBack,
+                    other: dragging.shadow ?? committed.shadowPullBack, shown: dragging.highlight) { asked, lands, other in
+                    edits.highlight += 1
+                    dragging.highlight = lands
+                    session.placeScene(highlight: asked, shadow: other, moving: .highlight)
+                } end: {
+                    let mine = edits.highlight
+                    session.whenPlacementSettles { if edits.highlight == mine { dragging.highlight = nil } }
+                }
+                row(L(.placementShadow), side: .shadow, committed: committed.shadowPullBack,
+                    other: dragging.highlight ?? committed.highlightPullBack, shown: dragging.shadow) { asked, lands, other in
+                    edits.shadow += 1
+                    dragging.shadow = lands
+                    session.placeScene(highlight: other, shadow: asked, moving: .shadow)
+                } end: {
+                    let mine = edits.shadow
+                    session.whenPlacementSettles { if edits.shadow == mine { dragging.shadow = nil } }
+                }
             }
             .rowEnabled(developed && !session.digitalIntermediateActive,
                         because: session.digitalIntermediateActive ? L(.reasonPlacementInDigitalIntermediate)
@@ -241,15 +251,21 @@ struct ScenePlacementSection: View {
         }
     }
 
-    private func row(_ label: String, side: String, committed: Double, minimum: Double?, shown: Double?,
-                     set: @escaping (Double) -> Void, end: @escaping () -> Void) -> some View {
-        let blocked: ClosedRange<Double>? = (minimum ?? 0) > 0 ? 0...(minimum ?? 0) : nil
+    private func row(_ label: String, side: PlacementSide, committed: Double, other: Double, shown: Double?,
+                     set: @escaping (_ asked: Double, _ lands: Double, _ other: Double) -> Void,
+                     end: @escaping () -> Void) -> some View {
+        let window = session.placementWindowNow(for: side, other: other)
         return ScrubSlider(label: label,
-                           sublabel: session.latitude.refusalMessage(for: side),
-                           value: Binding(get: { shown ?? committed }, set: set),
+                           sublabel: session.latitude.refusalMessage(for: side.rawValue),
+                           // The knob shows where the value will land, so it
+                           // rides the edge of a dimmed stretch rather than
+                           // sitting on it; the Fit is still told what was
+                           // asked, which is how the row knows to say why.
+                           value: Binding(get: { shown ?? committed },
+                                          set: { set($0, window?.landing($0).value ?? $0, other) }),
                            range: Self.range, zero: 0, snap: 0.25,
                            format: { String(format: "%.2f", $0) },
-                           blocked: blocked, onCommit: end)
+                           blocked: window?.blocked(in: Self.range) ?? [], onCommit: end)
     }
 }
 

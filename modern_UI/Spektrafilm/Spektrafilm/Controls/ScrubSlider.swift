@@ -64,10 +64,10 @@ struct ScrubSlider: View {
     var format: (Double) -> String = { String(format: "%.1f", $0) }
     var parse: (String) -> Double? = { Double($0.replacingOccurrences(of: ",", with: ".")) }
     var trackGradient: [Color]? = nil
-    /// A span of the range that would be refused (Scene Placement's pull-backs
-    /// below the Fit's minimum). Drawn as a dimmed stretch of the track, so
-    /// the dead zone is visible before anyone drags into it.
-    var blocked: ClosedRange<Double>? = nil
+    /// Stretches of the range the value cannot rest on (Scene Placement's
+    /// pull-backs outside what the Fit takes). Drawn dimmed on the track, so
+    /// a dead zone is visible before anyone drags into it.
+    var blocked: [ClosedRange<Double>] = []
     var disabled = false
     /// See `SliderMetrics`. Nil takes the rail's (`\.railSliderMetrics`), which
     /// is how every slider on the Parameters rail lands on one grid without
@@ -157,7 +157,7 @@ struct ScrubSlider: View {
                 }
                 .frame(height: m.trackHeight)
                 .padding(.horizontal, knobW / 2)
-                if let blocked, blocked.upperBound > range.lowerBound {
+                ForEach(Array(blocked.enumerated()), id: \.offset) { _, blocked in
                     let span = range.upperBound - range.lowerBound
                     let lo = CGFloat((max(blocked.lowerBound, range.lowerBound) - range.lowerBound) / span)
                     let hi = CGFloat((min(blocked.upperBound, range.upperBound) - range.lowerBound) / span)
