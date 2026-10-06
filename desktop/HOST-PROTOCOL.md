@@ -124,9 +124,16 @@ falls back to `spk_render` and reports `reprinted: false` when the engine refuse
 | method | params | result |
 |---|---|---|
 | `export_image` | `{session, path, format: "tiff16"\|"tiff8"\|"jpeg"\|"png", quality?: 92, color_space?: "sRGB"\|"display-p3"\|"prophoto", long_edge?, overwrite?: false, progress_id?}` | `{path, width, height, bytes, color_space}` |
-| `write_image` | `{path, format, quality?, color_space, width, height, overwrite?: false}` + rgba16 LE payload (top row first, encoded in `color_space`) | `{path, width, height, bytes, color_space, exif_copied: false}` (R1) |
+| `write_image` | `{path, format, quality?, color_space, width, height, source_path?, overwrite?: false}` + rgba16 LE payload (top row first, encoded in `color_space`) | `{path, width, height, bytes, color_space, exif_copied}` (R1) |
 | `export_cube` | `{print_stock, path, overwrite?}` | `{path, size}` — the baked print LUT (`spk_print_lut_table`), domain 0..1 of normalised negative density |
 | `export_di` | `{session, print_stock?, path, overwrite?}` | `{path, width, height, bytes, di: <spk_export_di JSON>}` — 16-bit TIFF of normalised negative density, no ICC (it is not a colour space) |
+
+Files carry EXIF (TIFF Exif IFD, JPEG APP1, PNG eXIf): Make, Model,
+LensModel, DateTimeOriginal, ExposureTime, FNumber, ISO, FocalLength, the
+written PixelX/YDimension, Orientation 1 (the pixels are upright) and
+Software. `export_image` takes them from the session's file, `write_image`
+from `source_path` (rebuilt from the parsed fields, not a byte copy of the
+source's EXIF; maker notes are not carried).
 
 Files: every writer embeds an ICC profile for its `color_space` (the bundled
 `io/sRGB.icc`; generated v2 matrix/TRC profiles for Display P3 and ProPhoto),

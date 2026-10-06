@@ -23,6 +23,7 @@
 #include <map>
 #include <memory>
 #include <mutex>
+#include <optional>
 #include <set>
 #include <string>
 #include <thread>
@@ -229,6 +230,19 @@ Json metadata_json(const Metadata& m) {
         j.set("as_shot", std::move(a));
     }
     return j;
+}
+
+Exif exif_of(const Metadata& m) {
+    Exif e;
+    e.make = m.make;
+    e.model = m.model;
+    e.lens = m.lens;
+    e.datetime_original = m.datetime_original;
+    e.iso = m.iso.value_or(0);
+    e.shutter_s = m.shutter_s.value_or(0);
+    e.aperture = m.aperture.value_or(0);
+    e.focal_mm = m.focal_mm.value_or(0);
+    return e;
 }
 
 std::string output_space_of(const Json& params) {
@@ -700,14 +714,15 @@ struct Encoded {
 
 // Linear target RGB -> file bytes in `format`.
 void encode_file(const OutputTransform& t, std::vector<float>& lin, uint32_t w, uint32_t h,
-                 const std::string& format, int quality, const std::vector<uint8_t>& icc, std::vector<uint8_t>& out) {
+                 const std::string& format, int quality, const std::vector<uint8_t>& icc, std::vector<uint8_t>& out,
+                 const Exif* exif) {
     std::string error;
     if (format == "tiff16") {
         std::vector<uint16_t> rgba;
         t.encode_rgba16(lin, rgba);
         std::vector<uint16_t> rgb(size_t(w) * h * 3);
         for (size_t p = 0; p < size_t(w) * h; ++p) for (int c = 0; c < 3; ++c) rgb[p * 3 + c] = rgba[p * 4 + c];
-        if (!encode_tiff(rgb.data(), w, h, 16, icc, out, error)) throw HostError{"io_error", error};
+        if (!encode_tiff(rgb.data(), w, h, 16, icc, out, error, exif)) throw HostError{"io_error", error};
         return;
     }
     std::vector<uint8_t> rgba;
@@ -715,9 +730,9 @@ void encode_file(const OutputTransform& t, std::vector<float>& lin, uint32_t w, 
     std::vector<uint8_t> rgb(size_t(w) * h * 3);
     for (size_t p = 0; p < size_t(w) * h; ++p) for (int c = 0; c < 3; ++c) rgb[p * 3 + c] = rgba[p * 4 + c];
     bool ok = false;
-    if (format == "tiff8") ok = encode_tiff(rgb.data(), w, h, 8, icc, out, error);
-    else if (format == "png") ok = encode_png8(rgb.data(), w, h, icc, out, error);
-    else if (format == "jpeg") ok = encode_jpeg(rgb.data(), w, h, quality, icc, out, error);
+    if (format == "tiff8") ok = encode_tiff(rgb.data(), w, h, 8, icc, out, error, exif);
+    else if (format == "png") ok = encode_png8(rgb.data(), w, h, icc, out, error, exif);
+    else if (format == "jpeg") ok = encode_jpeg(rgb.data(), w, h, quality, icc, out, error, exif);
     else throw HostError{"bad_request", "format must be tiff16, tiff8, jpeg or png"};
     if (!ok) throw HostError{"io_error", error};
 }
@@ -776,7 +791,8 @@ Json m_export_image(const Request& q) {
     std::vector<uint8_t> icc, bytes;
     std::string error;
     if (!icc_for(space, g.resources, icc, error)) throw HostError{"io_error", error};
-    encode_file(t, lin, w, h, format, quality, icc, bytes);
+    const Exif exif = exif_of(s->metadata);
+    encode_file(t, lin, w, h, format, quality, icc, bytes, &exif);
     if (!write_file_atomic(path, bytes, overwrite, error)) throw HostError{"io_error", error};
     progress_event(*s, progress_id, 1.0, "done");
     return written(path, w, h, bytes.size(), space);
@@ -799,25 +815,35 @@ Json m_write_image(const Request& q) {
     std::vector<uint8_t> icc, bytes;
     std::string error;
     if (!icc_for(space, g.resources, icc, error)) throw HostError{"io_error", error};
+    // R1: the shooting data of the photograph the pixels came from.
+    std::optional<Exif> exif;
+    const std::string source = optional_string(q.params, "source_path");
+    if (!source.empty()) {
+        Probe probe;
+        std::string why;
+        if (probe_file(utf8_path(source), probe, why)) exif = exif_of(probe.metadata);
+        else log_line(1, "write_image: no EXIF from " + source + ": " + why);
+    }
+    const Exif* ex = exif ? &*exif : nullptr;
     const size_t pixels = size_t(w) * h;
     auto sample = [&](size_t i) { return uint16_t(q.payload[2 * i] | (q.payload[2 * i + 1] << 8)); };
     bool ok;
     if (format == "tiff16") {
         std::vector<uint16_t> rgb(pixels * 3);
         for (size_t p = 0; p < pixels; ++p) for (int c = 0; c < 3; ++c) rgb[p * 3 + c] = sample(p * 4 + c);
-        ok = encode_tiff(rgb.data(), uint32_t(w), uint32_t(h), 16, icc, bytes, error);
+        ok = encode_tiff(rgb.data(), uint32_t(w), uint32_t(h), 16, icc, bytes, error, ex);
     } else {
         std::vector<uint8_t> rgb(pixels * 3);
         for (size_t p = 0; p < pixels; ++p)
             for (int c = 0; c < 3; ++c) rgb[p * 3 + c] = uint8_t((uint32_t(sample(p * 4 + c)) * 255 + 32767) / 65535);
-        if (format == "tiff8") ok = encode_tiff(rgb.data(), uint32_t(w), uint32_t(h), 8, icc, bytes, error);
-        else if (format == "png") ok = encode_png8(rgb.data(), uint32_t(w), uint32_t(h), icc, bytes, error);
-        else ok = encode_jpeg(rgb.data(), uint32_t(w), uint32_t(h), quality, icc, bytes, error);
+        if (format == "tiff8") ok = encode_tiff(rgb.data(), uint32_t(w), uint32_t(h), 8, icc, bytes, error, ex);
+        else if (format == "png") ok = encode_png8(rgb.data(), uint32_t(w), uint32_t(h), icc, bytes, error, ex);
+        else ok = encode_jpeg(rgb.data(), uint32_t(w), uint32_t(h), quality, icc, bytes, error, ex);
     }
     if (!ok) throw HostError{"io_error", error};
     if (!write_file_atomic(path, bytes, overwrite, error)) throw HostError{"io_error", error};
     Json r = written(path, uint32_t(w), uint32_t(h), bytes.size(), space);
-    r.set("exif_copied", Json(false));
+    r.set("exif_copied", Json(ex != nullptr));
     return r;
 }
 

@@ -410,94 +410,180 @@ bool icc_for(const std::string& space, const std::filesystem::path& resources, s
 
 // --- writers -------------------------------------------------------------------
 
+// A little-endian IFD with its out-of-line values, laid out at a known file
+// offset (TIFF offsets are absolute).
+class IfdBuilder {
+public:
+    void ascii(uint16_t tag, const std::string& s) {
+        if (s.empty()) return;
+        std::vector<uint8_t> v(s.begin(), s.end());
+        v.push_back(0);
+        add(tag, 2, uint32_t(v.size()), v);
+    }
+    void shorts(uint16_t tag, std::vector<uint16_t> values) {
+        std::vector<uint8_t> v;
+        for (uint16_t x : values) { v.push_back(uint8_t(x)); v.push_back(uint8_t(x >> 8)); }
+        add(tag, 3, uint32_t(values.size()), v);
+    }
+    void longs(uint16_t tag, const std::vector<uint32_t>& values) {
+        std::vector<uint8_t> v;
+        for (uint32_t x : values) for (int i = 0; i < 4; ++i) v.push_back(uint8_t(x >> (8 * i)));
+        add(tag, 4, uint32_t(values.size()), v);
+    }
+    void rational(uint16_t tag, uint32_t num, uint32_t den) {
+        std::vector<uint8_t> v;
+        for (uint32_t x : {num, den}) for (int i = 0; i < 4; ++i) v.push_back(uint8_t(x >> (8 * i)));
+        add(tag, 5, 1, v);
+    }
+    void undefined(uint16_t tag, const std::vector<uint8_t>& bytes) { add(tag, 7, uint32_t(bytes.size()), bytes); }
+    // A LONG whose value is filled in by `serialize`'s caller (sub-IFD and
+    // strip offsets); returns a handle to `patch`.
+    size_t placeholder(uint16_t tag, uint32_t count) { longs(tag, std::vector<uint32_t>(count, 0)); return entries_.size() - 1; }
+    void patch(size_t handle, const std::vector<uint32_t>& values) {
+        auto& e = entries_[handle];
+        e.data.clear();
+        for (uint32_t x : values) for (int i = 0; i < 4; ++i) e.data.push_back(uint8_t(x >> (8 * i)));
+    }
+    size_t size() const {
+        size_t n = 2 + entries_.size() * 12 + 4;
+        for (const auto& e : entries_) if (e.data.size() > 4) n += e.data.size() + (e.data.size() & 1);
+        return n;
+    }
+    std::vector<uint8_t> serialize(size_t at) {
+        std::sort(entries_.begin(), entries_.end(), [](const E& a, const E& b) { return a.tag < b.tag; });
+        std::vector<uint8_t> out;
+        auto u16 = [&](uint16_t v) { out.push_back(uint8_t(v)); out.push_back(uint8_t(v >> 8)); };
+        auto u32 = [&](uint32_t v) { for (int i = 0; i < 4; ++i) out.push_back(uint8_t(v >> (8 * i))); };
+        u16(uint16_t(entries_.size()));
+        size_t extra = at + 2 + entries_.size() * 12 + 4;
+        std::vector<uint8_t> tail;
+        for (const auto& e : entries_) {
+            u16(e.tag); u16(e.type); u32(e.count);
+            if (e.data.size() <= 4) {
+                std::vector<uint8_t> v = e.data;
+                v.resize(4, 0);
+                out.insert(out.end(), v.begin(), v.end());
+            } else {
+                u32(uint32_t(extra + tail.size()));
+                tail.insert(tail.end(), e.data.begin(), e.data.end());
+                if (tail.size() & 1) tail.push_back(0);
+            }
+        }
+        u32(0);
+        out.insert(out.end(), tail.begin(), tail.end());
+        return out;
+    }
+    // sort() reorders entries; handles taken before serialize stay valid only
+    // until then, so patch first.
+private:
+    struct E { uint16_t tag, type; uint32_t count; std::vector<uint8_t> data; };
+    void add(uint16_t tag, uint16_t type, uint32_t count, const std::vector<uint8_t>& data) {
+        entries_.push_back({tag, type, count, data});
+    }
+    std::vector<E> entries_;
+};
+
+static void rational_value(IfdBuilder& ifd, uint16_t tag, double v, bool reciprocal_when_small) {
+    if (!(v > 0) || !std::isfinite(v)) return;
+    if (reciprocal_when_small && v < 1.0) ifd.rational(tag, 1, uint32_t(std::lround(1.0 / v)));
+    else ifd.rational(tag, uint32_t(std::lround(v * 100.0)), 100);
+}
+
+static void exif_fields(IfdBuilder& exif, const Exif& e, uint32_t w, uint32_t h) {
+    exif.undefined(0x9000, {'0', '2', '3', '2'});
+    rational_value(exif, 0x829A, e.shutter_s, true);
+    rational_value(exif, 0x829D, e.aperture, false);
+    if (e.iso > 0) exif.shorts(0x8827, {uint16_t(std::min(e.iso, 65535.0))});
+    exif.ascii(0x9003, e.datetime_original);
+    rational_value(exif, 0x920A, e.focal_mm, false);
+    exif.ascii(0xA434, e.lens);
+    exif.longs(0xA002, {w});
+    exif.longs(0xA003, {h});
+}
+
+static void ifd0_fields(IfdBuilder& ifd, const Exif* e) {
+    if (e) {
+        ifd.ascii(271, e->make);
+        ifd.ascii(272, e->model);
+    }
+    ifd.ascii(305, "SpektraLab");
+}
+
+std::vector<uint8_t> exif_block(const Exif& e, uint32_t w, uint32_t h) {
+    IfdBuilder ifd0, exif;
+    ifd0_fields(ifd0, &e);
+    ifd0.shorts(274, {1});
+    const size_t pointer = ifd0.placeholder(34665, 1);
+    exif_fields(exif, e, w, h);
+    const size_t ifd0_at = 8, exif_at = ifd0_at + ifd0.size();
+    ifd0.patch(pointer, {uint32_t(exif_at)});
+    std::vector<uint8_t> out = {'I', 'I', 42, 0, 8, 0, 0, 0};
+    const auto a = ifd0.serialize(ifd0_at);
+    out.insert(out.end(), a.begin(), a.end());
+    const auto b = exif.serialize(exif_at);
+    out.insert(out.end(), b.begin(), b.end());
+    return out;
+}
+
 bool encode_tiff(const void* rgb, uint32_t w, uint32_t h, uint32_t bits, const std::vector<uint8_t>& icc,
-                 std::vector<uint8_t>& out, std::string& error) {
+                 std::vector<uint8_t>& out, std::string& error, const Exif* exif_fields_in) {
     if (bits != 8 && bits != 16) { error = "TIFF bits must be 8 or 16"; return false; }
     const uint64_t row_bytes = uint64_t(w) * 3 * (bits / 8);
     const uint64_t image_bytes = row_bytes * h;
     if (image_bytes > 0xF0000000ull) { error = "image too large for a classic TIFF"; return false; }
-    const uint32_t rows_per_strip = uint32_t(std::max<uint64_t>(1, std::min<uint64_t>(h, (1u << 20) / std::max<uint64_t>(1, row_bytes))));
+    const uint32_t rows_per_strip =
+        uint32_t(std::max<uint64_t>(1, std::min<uint64_t>(h, (1u << 20) / std::max<uint64_t>(1, row_bytes))));
     const uint32_t strips = (h + rows_per_strip - 1) / rows_per_strip;
-
-    out.clear();
-    auto u16 = [&](uint16_t v) { out.push_back(uint8_t(v)); out.push_back(uint8_t(v >> 8)); };
-    auto u32 = [&](uint32_t v) { for (int i = 0; i < 4; ++i) out.push_back(uint8_t(v >> (8 * i))); };
-    auto set32 = [&](size_t at, uint32_t v) { for (int i = 0; i < 4; ++i) out[at + i] = uint8_t(v >> (8 * i)); };
-    out.insert(out.end(), {'I', 'I', 42, 0});
-    u32(8);
-    struct E { uint16_t tag, type; uint32_t count; uint32_t value; std::vector<uint8_t> extra; };
-    std::vector<E> e;
-    auto le32 = [](std::vector<uint32_t> v) { std::vector<uint8_t> b; for (uint32_t x : v) for (int i = 0; i < 4; ++i) b.push_back(uint8_t(x >> (8 * i))); return b; };
-    std::vector<uint8_t> bps = {uint8_t(bits), 0, uint8_t(bits), 0, uint8_t(bits), 0};
-    e.push_back({256, 4, 1, w, {}});
-    e.push_back({257, 4, 1, h, {}});
-    e.push_back({258, 3, 3, 0, bps});
-    e.push_back({259, 3, 1, 1, {}});
-    e.push_back({262, 3, 1, 2, {}});
-    e.push_back({273, 4, strips, 0, std::vector<uint8_t>(size_t(strips) * 4)});   // filled below
-    e.push_back({274, 3, 1, 1, {}});
-    e.push_back({277, 3, 1, 3, {}});
-    e.push_back({278, 4, 1, rows_per_strip, {}});
     std::vector<uint32_t> counts(strips);
-    for (uint32_t s = 0; s < strips; ++s) counts[s] = uint32_t(row_bytes * std::min(rows_per_strip, h - s * rows_per_strip));
-    e.push_back({279, 4, strips, 0, le32(counts)});
-    e.push_back({282, 5, 1, 0, le32({72, 1})});
-    e.push_back({283, 5, 1, 0, le32({72, 1})});
-    e.push_back({284, 3, 1, 1, {}});
-    e.push_back({296, 3, 1, 2, {}});
-    const std::string software = "SpektraLab";
-    e.push_back({305, 2, uint32_t(software.size() + 1), 0, std::vector<uint8_t>(software.begin(), software.end())});
-    e.back().extra.push_back(0);
-    if (!icc.empty()) e.push_back({34675, 7, uint32_t(icc.size()), 0, icc});
-    // single values of <= 4 bytes go inline
-    const size_t ifd_at = 8;
-    const size_t ifd_size = 2 + e.size() * 12 + 4;
-    size_t extra_at = ifd_at + ifd_size;
-    std::vector<size_t> extra_offsets(e.size());
-    for (size_t i = 0; i < e.size(); ++i) {
-        if (e[i].extra.size() > 4) {
-            extra_offsets[i] = extra_at;
-            extra_at += e[i].extra.size() + (e[i].extra.size() & 1);
-        }
+    for (uint32_t s = 0; s < strips; ++s)
+        counts[s] = uint32_t(row_bytes * std::min(rows_per_strip, h - s * rows_per_strip));
+
+    IfdBuilder ifd, exif;
+    ifd.longs(256, {w});
+    ifd.longs(257, {h});
+    ifd.shorts(258, {uint16_t(bits), uint16_t(bits), uint16_t(bits)});
+    ifd.shorts(259, {1});
+    ifd.shorts(262, {2});
+    const size_t offsets = ifd.placeholder(273, strips);
+    ifd.shorts(274, {1});
+    ifd.shorts(277, {3});
+    ifd.longs(278, {rows_per_strip});
+    ifd.longs(279, counts);
+    ifd.rational(282, 72, 1);
+    ifd.rational(283, 72, 1);
+    ifd.shorts(284, {1});
+    ifd.shorts(296, {2});
+    ifd0_fields(ifd, exif_fields_in);
+    if (!icc.empty()) ifd.undefined(34675, icc);
+    size_t exif_pointer = 0;
+    if (exif_fields_in) {
+        exif_pointer = ifd.placeholder(34665, 1);
+        exif_fields(exif, *exif_fields_in, w, h);
     }
-    const size_t pixel_at = (extra_at + 15) & ~size_t(15);
-    // strip offsets
-    {
-        std::vector<uint32_t> offs(strips);
-        for (uint32_t s = 0; s < strips; ++s) offs[s] = uint32_t(pixel_at + uint64_t(s) * rows_per_strip * row_bytes);
-        e[5].extra = le32(offs);
-        if (strips == 1) { e[5].value = offs[0]; e[5].extra.clear(); }
-        if (strips == 1) { e[9].value = counts[0]; e[9].extra.clear(); }
+    const size_t ifd_at = 8, exif_at = ifd_at + ifd.size();
+    const size_t pixel_at = (exif_at + (exif_fields_in ? exif.size() : 0) + 15) & ~size_t(15);
+    std::vector<uint32_t> offs(strips);
+    for (uint32_t s = 0; s < strips; ++s) offs[s] = uint32_t(pixel_at + uint64_t(s) * rows_per_strip * row_bytes);
+    ifd.patch(offsets, offs);
+    if (exif_fields_in) ifd.patch(exif_pointer, {uint32_t(exif_at)});
+
+    out.assign({'I', 'I', 42, 0, 8, 0, 0, 0});
+    const auto a = ifd.serialize(ifd_at);
+    out.insert(out.end(), a.begin(), a.end());
+    if (exif_fields_in) {
+        const auto b = exif.serialize(exif_at);
+        out.insert(out.end(), b.begin(), b.end());
     }
-    u16(uint16_t(e.size()));
-    for (size_t i = 0; i < e.size(); ++i) {
-        u16(e[i].tag); u16(e[i].type); u32(e[i].count);
-        if (e[i].extra.size() > 4) u32(uint32_t(extra_offsets[i]));
-        else if (!e[i].extra.empty()) {
-            std::vector<uint8_t> v = e[i].extra;
-            v.resize(4, 0);
-            out.insert(out.end(), v.begin(), v.end());
-        } else if (e[i].type == 3) { u16(uint16_t(e[i].value)); u16(0); }
-        else u32(e[i].value);
-    }
-    u32(0);
-    for (size_t i = 0; i < e.size(); ++i) {
-        if (e[i].extra.size() > 4) {
-            if (out.size() != extra_offsets[i]) { error = "internal TIFF layout error"; return false; }
-            out.insert(out.end(), e[i].extra.begin(), e[i].extra.end());
-            if (e[i].extra.size() & 1) out.push_back(0);
-        }
-    }
+    if (out.size() > pixel_at) { error = "internal TIFF layout error"; return false; }
     out.resize(pixel_at, 0);
-    (void)set32;
     const size_t start = out.size();
     out.resize(start + size_t(image_bytes));
     if (bits == 8) std::memcpy(&out[start], rgb, size_t(image_bytes));
     else {
-        const uint16_t* s = static_cast<const uint16_t*>(rgb);
+        const uint16_t* src = static_cast<const uint16_t*>(rgb);
         for (size_t i = 0; i < size_t(image_bytes) / 2; ++i) {
-            out[start + 2 * i] = uint8_t(s[i]);
-            out[start + 2 * i + 1] = uint8_t(s[i] >> 8);
+            out[start + 2 * i] = uint8_t(src[i]);
+            out[start + 2 * i + 1] = uint8_t(src[i] >> 8);
         }
     }
     return true;
@@ -525,7 +611,7 @@ static void sink(void* context, void* data, int size) {
 }
 
 bool encode_png8(const uint8_t* rgb, uint32_t w, uint32_t h, const std::vector<uint8_t>& icc,
-                 std::vector<uint8_t>& out, std::string& error) {
+                 std::vector<uint8_t>& out, std::string& error, const Exif* exif) {
     std::vector<uint8_t> png;
     if (!stbi_write_png_to_func(sink, &png, int(w), int(h), 3, rgb, int(w * 3)) || png.size() < 33) {
         error = "PNG encode failed";
@@ -548,18 +634,37 @@ bool encode_png8(const uint8_t* rgb, uint32_t w, uint32_t h, const std::vector<u
         out.insert(out.end(), chunk.begin(), chunk.end());
         put32(out, crc32(chunk.data(), chunk.size()));
     }
+    if (exif) {
+        std::vector<uint8_t> chunk = {'e', 'X', 'I', 'f'};
+        const auto block = exif_block(*exif, w, h);
+        chunk.insert(chunk.end(), block.begin(), block.end());
+        put32(out, uint32_t(chunk.size() - 4));
+        out.insert(out.end(), chunk.begin(), chunk.end());
+        put32(out, crc32(chunk.data(), chunk.size()));
+    }
     out.insert(out.end(), png.begin() + 33, png.end());
     return true;
 }
 
 bool encode_jpeg(const uint8_t* rgb, uint32_t w, uint32_t h, int quality, const std::vector<uint8_t>& icc,
-                 std::vector<uint8_t>& out, std::string& error) {
+                 std::vector<uint8_t>& out, std::string& error, const Exif* exif) {
     std::vector<uint8_t> jpg;
     if (!stbi_write_jpg_to_func(sink, &jpg, int(w), int(h), 3, rgb, std::clamp(quality, 1, 100)) || jpg.size() < 4) {
         error = "JPEG encode failed";
         return false;
     }
     out.assign(jpg.begin(), jpg.begin() + 2);   // SOI
+    if (exif) {
+        const auto block = exif_block(*exif, w, h);
+        if (block.size() + 8 <= 65535) {
+            out.push_back(0xFF); out.push_back(0xE1);
+            put16(out, uint16_t(block.size() + 8));
+            const char* sig = "Exif";
+            out.insert(out.end(), sig, sig + 4);
+            out.push_back(0); out.push_back(0);
+            out.insert(out.end(), block.begin(), block.end());
+        }
+    }
     const size_t max_chunk = 65519;
     const size_t chunks = (icc.size() + max_chunk - 1) / max_chunk;
     for (size_t c = 0; c < chunks; ++c) {

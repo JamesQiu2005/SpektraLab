@@ -196,6 +196,13 @@ def exercise(host, path, tmp, label, raw):
                 tags = tiff_info(out)
                 check(tags is not None and 34675 in tags and tags[256][2] == h["result"]["width"],
                       f"{label}: {fmt} has an ICC profile and its size")
+                if raw:
+                    check(271 in tags and 34665 in tags, f"{label}: {fmt} carries the camera's EXIF")
+            elif raw:
+                data = open(out, "rb").read()
+                marker = b"Exif\x00\x00" if fmt == "jpeg" else b"eXIf"
+                check(marker in data[:4096] and r["metadata"].get("make", "").encode() in data[:8192],
+                      f"{label}: {fmt} carries the camera's EXIF")
         h2, _ = host.call("export_image", {"session": sid, "path": out, "format": fmt, "color_space": cs})
         check(not h2["ok"] and h2["error"]["code"] == "io_error", f"{label}: export refuses to overwrite")
 
@@ -328,6 +335,11 @@ def main():
     h, _ = host.call("write_image", {"path": out, "format": "tiff16", "color_space": "display-p3",
                                      "width": w, "height": hh}, px)
     check(h["ok"] and tiff_info(out)[256][2] == w, "write_image tiff16", h.get("error"))
+    if a.raws:
+        out = os.path.join(tmp, "written-exif.jpg")
+        h, _ = host.call("write_image", {"path": out, "format": "jpeg", "color_space": "sRGB", "width": w,
+                                         "height": hh, "source_path": a.raws[0]}, px)
+        check(h["ok"] and h["result"]["exif_copied"], "write_image copies EXIF from source_path", h.get("error"))
 
     png = os.path.join(tmp, "ramp.png")
     write_png(png, 96, 64)

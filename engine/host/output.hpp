@@ -57,13 +57,25 @@ float cctf_encode_mode(float v, uint32_t mode);
 bool icc_for(const std::string& engine_space, const std::filesystem::path& resources,
              std::vector<uint8_t>& icc, std::string& error);
 
-// Interleaved 3-channel encoded samples.
+// The shooting data a written file carries (EXIF): what the frame came from,
+// never what it was before the host turned it upright (Orientation is 1).
+struct Exif {
+    std::string make, model, lens, datetime_original;   // EXIF "YYYY:MM:DD HH:MM:SS"
+    double iso = 0, shutter_s = 0, aperture = 0, focal_mm = 0;   // 0 = absent
+};
+
+// Interleaved 3-channel encoded samples. `exif` may be null.
 bool encode_tiff(const void* rgb, uint32_t width, uint32_t height, uint32_t bits,
-                 const std::vector<uint8_t>& icc, std::vector<uint8_t>& out, std::string& error);
+                 const std::vector<uint8_t>& icc, std::vector<uint8_t>& out, std::string& error,
+                 const Exif* exif = nullptr);
 bool encode_png8(const uint8_t* rgb, uint32_t width, uint32_t height, const std::vector<uint8_t>& icc,
-                 std::vector<uint8_t>& out, std::string& error);
+                 std::vector<uint8_t>& out, std::string& error, const Exif* exif = nullptr);
 bool encode_jpeg(const uint8_t* rgb, uint32_t width, uint32_t height, int quality,
-                 const std::vector<uint8_t>& icc, std::vector<uint8_t>& out, std::string& error);
+                 const std::vector<uint8_t>& icc, std::vector<uint8_t>& out, std::string& error,
+                 const Exif* exif = nullptr);
+// A complete little-endian TIFF-structured EXIF block (JPEG APP1 after
+// "Exif\0\0", PNG eXIf).
+std::vector<uint8_t> exif_block(const Exif& exif, uint32_t width, uint32_t height);
 // A .cube from spk_print_lut_table's (S,S,S,3) [r][g][b] table, domain 0..1.
 std::string cube_text(const float* table, uint32_t size, const std::string& title);
 
