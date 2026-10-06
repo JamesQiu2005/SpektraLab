@@ -1,0 +1,114 @@
+{
+ "print_lut_catalog keys": [
+  "fujifilm_crystal_archive_typeii",
+  "kodak_2383",
+  "kodak_2393",
+  "kodak_ektacolor_edge",
+  "kodak_endura_premier",
+  "kodak_portra_endura",
+  "kodak_supra_endura",
+  "kodak_ultra_endura"
+ ],
+ "warm_up(tri-x, mgiv)": {
+  "already_warm": false,
+  "film_stock": "kodak_tri_x_400",
+  "print_stock": "ilford_multigrade_iv_rc",
+  "render_core": "native-metal",
+  "steps": [
+   {
+    "ms": 1.65,
+    "name": "profiles",
+    "ok": true
+   },
+   {
+    "ms": 101.73,
+    "name": "pipeline",
+    "ok": true
+   },
+   {
+    "ms": 9,
+    "name": "kernels",
+    "ok": true
+   }
+  ],
+  "total_ms": 112.41
+ },
+ "preview_stock_lut(mgiv)": "ERROR: no shipped print-preview LUT for print stock 'ilford_multigrade_iv_rc'; available: fujifilm_crystal_archive_typeii, kodak_2383, kodak_2393, kodak_ektacolor_edge, kodak_endura_premier, kodak_portra_endura, kodak_supra_endura, kodak_ultra_endura",
+ "preview_stock_lut(kodak_portra_endura) from a Tri-X/MGIV session": {
+  "info": {
+   "apply_backend": "native-metal",
+   "apply_ms": 0.411666,
+   "declared_pairing": true,
+   "lut_source": "shipped",
+   "paired_film": "kodak_portra_400",
+   "print_stock": "kodak_portra_endura",
+   "tier": "live",
+   "warning": "LUT was baked against film 'kodak_portra_400' but the session uses 'kodak_tri_x_400'; the print+scan chain is coupled to the negative's dye spectra, so this is an approximation with unmeasured error"
+  },
+  "L_mid": 30.32,
+  "L_min": 3.84,
+  "L_max": 87.23,
+  "max_C": 16.146
+ },
+ "export_di(mgiv)": "ERROR: no shipped print-preview LUT for print stock 'ilford_multigrade_iv_rc'; available: fujifilm_crystal_archive_typeii, kodak_2383, kodak_2393, kodak_ektacolor_edge, kodak_endura_premier, kodak_portra_endura, kodak_supra_endura, kodak_ultra_endura",
+ "export_di(None)": "ERROR: no shipped print-preview LUT for print stock 'ilford_multigrade_iv_rc'; available: fujifilm_crystal_archive_typeii, kodak_2383, kodak_2393, kodak_ektacolor_edge, kodak_endura_premier, kodak_portra_endura, kodak_supra_endura, kodak_ultra_endura",
+ "render_digital_intermediate (film target_print = endura)": {
+  "info": {
+   "encoding": "cineon",
+   "primaries": "sRGB",
+   "printing_density_paper": "kodak_portra_endura"
+  },
+  "L_mid": 47.92,
+  "L_min": 8.09,
+  "L_max": 97.91,
+  "max_C": 0.0
+ },
+ "live DI, film kodak_tri_x_400": {
+  "print_stock": "kodak_portra_endura",
+  "L_mid": 47.92,
+  "L_min": 8.09,
+  "L_max": 97.91,
+  "max_C": 0.0
+ },
+ "render_digital_intermediate, film kodak_tri_x_400 on MGIV session": {
+  "info": {
+   "encoding": "cineon",
+   "primaries": "sRGB",
+   "printing_density_paper": "kodak_portra_endura"
+  },
+  "L_mid": 47.92,
+  "L_min": 8.09,
+  "L_max": 97.91,
+  "max_C": 0.0
+ },
+ "live DI, film kodak_tri_x_400_mgiv": {
+  "print_stock": "kodak_portra_endura",
+  "L_mid": 47.92,
+  "L_min": 8.09,
+  "L_max": 97.91,
+  "max_C": 0.0
+ },
+ "render_digital_intermediate, film kodak_tri_x_400_mgiv on MGIV session": {
+  "info": {
+   "encoding": "cineon",
+   "primaries": "sRGB",
+   "printing_density_paper": "ilford_multigrade_iv_rc"
+  },
+  "L_mid": 47.92,
+  "L_min": 8.09,
+  "L_max": 97.91,
+  "max_C": 0.0
+ },
+ "film copy with target_print=mgiv, straight print": {
+  "L_mid": 49.95,
+  "L_min": 7.08,
+  "L_max": 88.42,
+  "max_C": 0.055
+ },
+ "original film, straight print": {
+  "L_mid": 49.95,
+  "L_min": 7.08,
+  "L_max": 88.42,
+  "max_C": 0.055
+ }
+}

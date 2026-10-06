@@ -1,0 +1,1 @@
+Tri-X 400 has a published RMS granulaity value of 17, figure out what that means and how it can be translated into the engine 

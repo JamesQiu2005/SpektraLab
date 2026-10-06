@@ -1,0 +1,6 @@
+axis,n_ticks,units_per_px,max_abs_residual,rms_residual
+char left x (rel log E),10,0.011111,0.00036,0.00015
+char left y (D),6,-0.011115,0.00060,0.00036
+char right x (rel log E),10,0.011111,0.00034,0.00017
+char right y (D),6,-0.011116,0.00063,0.00038
+spectral x (nm), from label centres,6,0.860372,0.19260,0.11369

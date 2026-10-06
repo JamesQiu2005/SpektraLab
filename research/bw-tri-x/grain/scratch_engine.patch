@@ -1,0 +1,44 @@
+--- /Volumes/Hanze_Qiu/Documents/Summer 2026/filmify/engine/src/pipeline/pipeline.cpp	2026-10-04 17:52:20
++++ src/pipeline/pipeline.cpp	2026-10-06 23:46:09
+@@ -1,3 +1,5 @@
++#include <cstdlib>
++#include <cstdio>
+ #include "pipeline.hpp"
+ #include "timer.hpp"
+ 
+@@ -255,7 +257,8 @@
+         baked_.grain_inv = gpu_->upload_persistent_f32(inv.data(), inv.size(), error);
+         baked_.grain_ylay = gpu_->upload_persistent_f32(ylay.data(), ylay.size(), error);
+         uint32_t streams[9];
+-        const uint32_t base_seed[3] = {0, 1, 2};
++        const bool eq_streams = std::getenv("SPK_GRAIN_EQUAL_STREAMS") != nullptr;   // SCRATCH PROBE
++        const uint32_t base_seed[3] = {0, eq_streams ? 0u : 1u, eq_streams ? 0u : 2u};
+         for (uint32_t ch = 0; ch < 3; ++ch)
+             for (uint32_t sl = 0; sl < 3; ++sl) streams[ch * 3 + sl] = base_seed[ch] + sl * 10;
+         baked_.grain_streams = gpu_->upload_persistent_u32(streams, 9, error);
+@@ -1249,7 +1252,14 @@
+ }
+ 
+ bool Pipeline::grain_realise(const Image& in, Image& out, std::string& error) {
+-    const GrainParams& g = params_.film_render.grain;
++    GrainParams g = params_.film_render.grain;
++    // SCRATCH PROBE: environment overrides, so the constants can be varied without a wire field.
++    if (const char* v = std::getenv("SPK_GRAIN_AREA")) g.particle_area_um2 = std::atof(v);
++    if (const char* v = std::getenv("SPK_GRAIN_SCALE")) g.particle_scale[0] = g.particle_scale[1] = g.particle_scale[2] = std::atof(v);
++    if (const char* v = std::getenv("SPK_GRAIN_UNI")) g.uniformity[0] = g.uniformity[1] = g.uniformity[2] = std::atof(v);
++    if (const char* v = std::getenv("SPK_GRAIN_BLUR")) g.blur = std::atof(v);
++    if (const char* v = std::getenv("SPK_GRAIN_DYE")) g.blur_dye_clouds_um = std::atof(v);
++    if (const char* v = std::getenv("SPK_GRAIN_LAYERS")) std::sscanf(v, "%lf,%lf,%lf", &g.particle_scale_layers[0], &g.particle_scale_layers[1], &g.particle_scale_layers[2]);
+     Timer t(this, "filming.develop.grain");
+     const double px = pixel_size_um_;
+     // `grain_sampler = "exact"` pins the realisation so an A/B is meaningful;
+@@ -1353,7 +1363,8 @@
+             lp[4 * ch + 3] = float(g.uniformity[ch]);
+         }
+         gpu::BufferRef lp_buf = gpu_->upload(lp, sizeof lp, error);
+-        const uint32_t streams[3] = {0, 1, 2};
++        const bool eq_streams = std::getenv("SPK_GRAIN_EQUAL_STREAMS") != nullptr;   // SCRATCH PROBE
++        const uint32_t streams[3] = {0, eq_streams ? 0u : 1u, eq_streams ? 0u : 2u};
+         gpu::BufferRef streams_buf = gpu_->upload_u32(streams, 3, error);
+         if (!lp_buf || !streams_buf) return false;
+         if (!alloc_like(in, grain, error)) return false;
