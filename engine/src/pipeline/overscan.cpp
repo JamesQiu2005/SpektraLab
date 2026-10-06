@@ -199,7 +199,7 @@ constexpr EdgeLook kEdgeLooks[] = {
     // Tri-X 400 (400TX): the 135 and 120 (645) references. Kodak's layout on
     // both, no DX bars on 135 (none on the strip; `dx_extract_for` has no
     // row), and one emulsion, so the printer's light is the same in all three.
-    {"kodak_tri_x_400",       Edge135::Kodak, Edge120::Kodak, {1.0, 1.0, 1.0}, 5.3, false, ""},
+    {"kodak_tri_x_400",       Edge135::Kodak, Edge120::Kodak, {1.0, 1.0, 1.0}, 5.3, true, ""},
     {"kodak_vision3_250d",    Edge135::Cine, Edge120::Kodak, {0.58, 0.60, 1.0}, 4.5, false, ""},
     {"kodak_vision3_50d",     Edge135::Cine, Edge120::Kodak, {0.58, 0.60, 1.0}, 4.5, false, ""},
     {"kodak_vision3_200t",    Edge135::Cine, Edge120::Kodak, {0.58, 0.60, 1.0}, 4.5, false, ""},
