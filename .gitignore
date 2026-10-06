@@ -342,3 +342,9 @@ modern_UI/Spektrafilm/Spektrafilm/Resources/engine/
 CMakeUserPresets.json
 /WINDOWS_PORT_HANDOFF.md
 /WINDOWS_PORT_PLAN.md
+
+# desktop/ (Electron + TypeScript frontend)
+desktop/node_modules/
+desktop/out/
+desktop/release/
+desktop/.cache/
