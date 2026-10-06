@@ -1,0 +1,432 @@
+{
+ "kodak_vision3_50d": {
+  "svg": "v50d_2015",
+  "frame_pt": [
+   66.80859375,
+   251.47265600000003,
+   157.085938,
+   341.5546875
+  ],
+  "n_left_ticks": 14,
+  "n_sigma_ticks": 15,
+  "decade_pt": 58.03,
+  "sigma_tick_max_residual_pt": 0.00611705976285748,
+  "density_per_pt": 0.016262917204846124,
+  "channels": {
+   "R": {
+    "dmin": 0.178,
+    "dmax_plotted": 2.0,
+    "logE_at_netD1": 2.925,
+    "rms_at_netD1": 4.6,
+    "rms_pm1pt": [
+     4.42,
+     4.79
+    ],
+    "rms_at_netD0p95_1p05": [
+     4.73,
+     4.48
+    ],
+    "rms_min": 2.01,
+    "rms_max": 6.58,
+    "rms_range_midscale": [
+     3.18,
+     6.16
+    ]
+   },
+   "G": {
+    "dmin": 0.615,
+    "dmax_plotted": 2.635,
+    "logE_at_netD1": 2.767,
+    "rms_at_netD1": 4.41,
+    "rms_pm1pt": [
+     4.24,
+     4.59
+    ],
+    "rms_at_netD0p95_1p05": [
+     4.37,
+     4.5
+    ],
+    "rms_min": 1.87,
+    "rms_max": 6.8,
+    "rms_range_midscale": [
+     4.34,
+     5.62
+    ]
+   },
+   "B": {
+    "dmin": 0.905,
+    "dmax_plotted": 2.883,
+    "logE_at_netD1": 2.707,
+    "rms_at_netD1": 8.31,
+    "rms_pm1pt": [
+     7.98,
+     8.64
+    ],
+    "rms_at_netD0p95_1p05": [
+     8.49,
+     8.29
+    ],
+    "rms_min": 3.41,
+    "rms_max": 12.38,
+    "rms_range_midscale": [
+     6.6,
+     10.39
+    ]
+   }
+  },
+  "at_green_netD1_exposure": {
+   "R": 4.81,
+   "G": 4.41,
+   "B": 8.27,
+   "net_density": {
+    "R": 0.901,
+    "G": 0.993,
+    "B": 1.03
+   }
+  }
+ },
+ "kodak_vision3_200t": {
+  "svg": "v200t_2015",
+  "frame_pt": [
+   68.453125,
+   252.902344,
+   153.40625,
+   337.925781
+  ],
+  "n_left_ticks": 16,
+  "n_sigma_ticks": 15,
+  "decade_pt": 57.889999999999986,
+  "sigma_tick_max_residual_pt": 0.02337355101212779,
+  "density_per_pt": 0.01625844149798972,
+  "channels": {
+   "R": {
+    "dmin": 0.202,
+    "dmax_plotted": 2.049,
+    "logE_at_netD1": 3.127,
+    "rms_at_netD1": 5.22,
+    "rms_pm1pt": [
+     5.01,
+     5.43
+    ],
+    "rms_at_netD0p95_1p05": [
+     5.22,
+     5.21
+    ],
+    "rms_min": 2.99,
+    "rms_max": 9.46,
+    "rms_range_midscale": [
+     5.02,
+     9.46
+    ]
+   },
+   "G": {
+    "dmin": 0.617,
+    "dmax_plotted": 2.662,
+    "logE_at_netD1": 2.929,
+    "rms_at_netD1": 6.4,
+    "rms_pm1pt": [
+     6.15,
+     6.66
+    ],
+    "rms_at_netD0p95_1p05": [
+     6.22,
+     6.54
+    ],
+    "rms_min": 3.2,
+    "rms_max": 9.97,
+    "rms_range_midscale": [
+     5.82,
+     9.97
+    ]
+   },
+   "B": {
+    "dmin": 0.904,
+    "dmax_plotted": 2.95,
+    "logE_at_netD1": 2.896,
+    "rms_at_netD1": 15.43,
+    "rms_pm1pt": [
+     14.83,
+     16.05
+    ],
+    "rms_at_netD0p95_1p05": [
+     15.19,
+     15.64
+    ],
+    "rms_min": 10.94,
+    "rms_max": 22.55,
+    "rms_range_midscale": [
+     14.5,
+     22.54
+    ]
+   }
+  },
+  "at_green_netD1_exposure": {
+   "R": 5.18,
+   "G": 6.4,
+   "B": 15.51,
+   "net_density": {
+    "R": 0.903,
+    "G": 0.998,
+    "B": 1.016
+   }
+  }
+ },
+ "kodak_vision3_250d": {
+  "svg": "v250d_2009",
+  "frame_pt": [
+   67.21875,
+   251.8125,
+   370.09375,
+   554.550781
+  ],
+  "n_left_ticks": 14,
+  "n_sigma_ticks": 15,
+  "decade_pt": 57.99000000000001,
+  "sigma_tick_max_residual_pt": 0.06999999999993634,
+  "density_per_pt": 0.016263950383111174,
+  "channels": {
+   "R": {
+    "dmin": 0.228,
+    "dmax_plotted": 2.024,
+    "logE_at_netD1": 3.127,
+    "rms_at_netD1": 5.38,
+    "rms_pm1pt": [
+     5.17,
+     5.59
+    ],
+    "rms_at_netD0p95_1p05": [
+     5.47,
+     5.33
+    ],
+    "rms_min": 4.19,
+    "rms_max": 10.8,
+    "rms_range_midscale": [
+     4.64,
+     10.8
+    ]
+   },
+   "G": {
+    "dmin": 0.593,
+    "dmax_plotted": 2.699,
+    "logE_at_netD1": 2.848,
+    "rms_at_netD1": 6.31,
+    "rms_pm1pt": [
+     6.07,
+     6.57
+    ],
+    "rms_at_netD0p95_1p05": [
+     6.24,
+     6.41
+    ],
+    "rms_min": 4.61,
+    "rms_max": 10.1,
+    "rms_range_midscale": [
+     6.15,
+     10.09
+    ]
+   },
+   "B": {
+    "dmin": 1.007,
+    "dmax_plotted": 2.997,
+    "logE_at_netD1": 2.863,
+    "rms_at_netD1": 13.41,
+    "rms_pm1pt": [
+     12.88,
+     13.95
+    ],
+    "rms_at_netD0p95_1p05": [
+     13.03,
+     13.8
+    ],
+    "rms_min": 6.03,
+    "rms_max": 16.66,
+    "rms_range_midscale": [
+     10.85,
+     15.77
+    ]
+   }
+  },
+  "at_green_netD1_exposure": {
+   "R": 5.68,
+   "G": 6.31,
+   "B": 13.32,
+   "net_density": {
+    "R": 0.86,
+    "G": 0.999,
+    "B": 0.99
+   }
+  }
+ },
+ "kodak_vision3_500t": {
+  "svg": "v500t_2015",
+  "frame_pt": [
+   66.804688,
+   250.886719,
+   161.19921899999997,
+   345.050781
+  ],
+  "n_left_ticks": 14,
+  "n_sigma_ticks": 15,
+  "decade_pt": 57.80000000000001,
+  "sigma_tick_max_residual_pt": 0.06999999999999318,
+  "density_per_pt": 0.016317511623860994,
+  "channels": {
+   "R": {
+    "dmin": 0.21,
+    "dmax_plotted": 2.008,
+    "logE_at_netD1": 3.023,
+    "rms_at_netD1": 6.41,
+    "rms_pm1pt": [
+     6.16,
+     6.67
+    ],
+    "rms_at_netD0p95_1p05": [
+     6.31,
+     6.45
+    ],
+    "rms_min": 5.1,
+    "rms_max": 10.51,
+    "rms_range_midscale": [
+     5.7,
+     10.51
+    ]
+   },
+   "G": {
+    "dmin": 0.596,
+    "dmax_plotted": 2.717,
+    "logE_at_netD1": 2.747,
+    "rms_at_netD1": 7.1,
+    "rms_pm1pt": [
+     6.82,
+     7.39
+    ],
+    "rms_at_netD0p95_1p05": [
+     7.19,
+     7.16
+    ],
+    "rms_min": 5.79,
+    "rms_max": 13.85,
+    "rms_range_midscale": [
+     7.1,
+     13.76
+    ]
+   },
+   "B": {
+    "dmin": 0.892,
+    "dmax_plotted": 2.97,
+    "logE_at_netD1": 2.778,
+    "rms_at_netD1": 19.22,
+    "rms_pm1pt": [
+     18.47,
+     20.0
+    ],
+    "rms_at_netD0p95_1p05": [
+     19.13,
+     19.35
+    ],
+    "rms_min": 10.29,
+    "rms_max": 31.23,
+    "rms_range_midscale": [
+     16.71,
+     31.05
+    ]
+   }
+  },
+  "at_green_netD1_exposure": {
+   "R": 6.0,
+   "G": 7.1,
+   "B": 19.17,
+   "net_density": {
+    "R": 0.837,
+    "G": 0.999,
+    "B": 0.979
+   }
+  }
+ },
+ "kodak_verita_200d": {
+  "svg": "verita",
+  "frame_pt": [
+   377.238281,
+   523.46875,
+   236.835938,
+   398.328125
+  ],
+  "n_left_ticks": 65,
+  "n_sigma_ticks": 15,
+  "decade_pt": 47.56,
+  "sigma_tick_max_residual_pt": 0.24397318755791275,
+  "density_per_pt": 0.0198152001000519,
+  "channels": {
+   "R": {
+    "dmin": 0.267,
+    "dmax_plotted": 2.328,
+    "logE_at_netD1": -0.651,
+    "rms_at_netD1": 7.44,
+    "rms_pm1pt": [
+     7.09,
+     7.81
+    ],
+    "rms_at_netD0p95_1p05": [
+     7.44,
+     7.42
+    ],
+    "rms_min": 6.62,
+    "rms_max": 14.07,
+    "rms_range_midscale": [
+     6.83,
+     11.15
+    ]
+   },
+   "G": {
+    "dmin": 0.717,
+    "dmax_plotted": 2.49,
+    "logE_at_netD1": -0.384,
+    "rms_at_netD1": 6.65,
+    "rms_pm1pt": [
+     6.34,
+     6.98
+    ],
+    "rms_at_netD0p95_1p05": [
+     6.54,
+     6.74
+    ],
+    "rms_min": 5.57,
+    "rms_max": 9.87,
+    "rms_range_midscale": [
+     5.78,
+     8.24
+    ]
+   },
+   "B": {
+    "dmin": 0.978,
+    "dmax_plotted": 3.193,
+    "logE_at_netD1": -0.594,
+    "rms_at_netD1": 18.21,
+    "rms_pm1pt": [
+     17.35,
+     19.12
+    ],
+    "rms_at_netD0p95_1p05": [
+     18.8,
+     17.81
+    ],
+    "rms_min": 9.01,
+    "rms_max": 20.18,
+    "rms_range_midscale": [
+     13.9,
+     20.16
+    ]
+   }
+  },
+  "at_green_netD1_exposure": {
+   "R": 7.53,
+   "G": 6.65,
+   "B": 17.87,
+   "net_density": {
+    "R": 1.137,
+    "G": 0.999,
+    "B": 1.124
+   }
+  }
+ }
+}
