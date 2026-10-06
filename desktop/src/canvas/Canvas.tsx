@@ -105,6 +105,7 @@ export function Canvas() {
   const badge = useSession((s) => s.badge);
   const selection = useSession((s) => s.selection);
   const batch = useSession((s) => s.batchExporting);
+  const exportOpen = useSession((s) => s.exportOpen);
   const cropping = tool === 'crop';
 
   useEffect(() => {
@@ -197,7 +198,9 @@ export function Canvas() {
     }
     const t = setTimeout(() => {
       const out = outputSize(geometry, native);
-      const k = 256 / Math.max(out.width, out.height);
+      // Small for the navigator and the histogram; larger while the export
+      // page shows it as the proof.
+      const k = (sessionStore.getState().exportOpen ? 1400 : 256) / Math.max(out.width, out.height);
       const w = Math.max(1, Math.round(out.width * k));
       const h = Math.max(1, Math.round(out.height * k));
       const state: DrawState = {
@@ -234,7 +237,7 @@ export function Canvas() {
     }, 60);
     return () => clearTimeout(t);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [imageVersion, geometry, adjustments, native?.width, native?.height]);
+  }, [imageVersion, geometry, adjustments, native?.width, native?.height, exportOpen]);
 
   // ---- pointer
   const drag = useRef<

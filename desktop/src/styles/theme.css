@@ -899,12 +899,11 @@ input {
   gap: 4px;
   font-size: var(--fs-small);
 }
-.export-cell img {
-  max-width: 180px;
-  max-height: 130px;
+.export-cell canvas {
+  max-width: 190px;
   outline: 1px solid var(--rule);
 }
-.export-cell.open img {
+.export-cell.open canvas {
   outline: 2px solid var(--selection-frame);
 }
 .recipe-list {

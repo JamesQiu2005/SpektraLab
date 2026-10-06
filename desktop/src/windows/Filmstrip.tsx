@@ -63,7 +63,7 @@ const thumbVersion = () => version;
 
 const CELL_H = 104;
 
-function Thumb({ path, geometry }: { path: string; geometry: Geometry }) {
+export function Thumb({ path, geometry, height = CELL_H }: { path: string; geometry: Geometry; height?: number }) {
   const url = thumbs.get(path);
   const ref = useRef<HTMLCanvasElement>(null);
   const [img, setImg] = useState<HTMLImageElement | null>(null);
@@ -76,7 +76,7 @@ function Thumb({ path, geometry }: { path: string; geometry: Geometry }) {
   useEffect(() => {
     const c = ref.current;
     if (!c || !img) return;
-    const plan = thumbnailGeometryPlan(geometry, { width: img.naturalWidth, height: img.naturalHeight }, CELL_H);
+    const plan = thumbnailGeometryPlan(geometry, { width: img.naturalWidth, height: img.naturalHeight }, height);
     c.width = plan.width;
     c.height = plan.height;
     const ctx = c.getContext('2d')!;
@@ -94,7 +94,7 @@ function Thumb({ path, geometry }: { path: string; geometry: Geometry }) {
       ctx.closePath();
       ctx.fill('evenodd');
     }
-  }, [img, geometry]);
+  }, [img, geometry, height]);
   if (!url) return <div className="placeholder" />;
   return <canvas ref={ref} />;
 }

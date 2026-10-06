@@ -13,7 +13,8 @@ import { Checkbox, NumberField, PillMenu, ScrubSlider, Section } from '../contro
 import { t, tz } from '../i18n';
 import { platform, baseName } from '../platform';
 import { select, sessionStore, setPages, useSession } from '../state/session';
-import { thumbs } from '../state/thumbs';
+import { Thumb } from '../windows/Filmstrip';
+import { GEOMETRY_DEFAULT } from '@shared/geometry';
 import { useOutput } from '../canvas/output';
 import { type ExportRecipe, DEFAULT_RECIPES, NAME_TOKENS, type NameToken, decodeRecipes, extensionOf } from './recipes';
 import { exportCube, exportFrame, hostWrites, outputFor, targetFor, type ExportOutcome } from './exporter';
@@ -65,6 +66,7 @@ export function ExportPage() {
   const geometry = useSession((s) => s.sidecar.geometry);
   const adjustments = useSession((s) => s.sidecar.adjustments);
   const native = useSession((s) => s.nativeSize);
+  const saved = useSession((s) => s.savedGeometry);
   const output = useOutput();
   const [recipes, setRecipes] = useState<ExportRecipe[]>(DEFAULT_RECIPES);
   const [current, setCurrent] = useState(0);
@@ -152,7 +154,7 @@ export function ExportPage() {
           {progress ? tz(`${progress.done} of ${progress.total} written`, `已写入 ${progress.done} / ${progress.total}`) : ''}
         </span>
         <span className="pill-menu" style={{ marginRight: 12 }}>
-          {tz(`${frames.length} images`, `${frames.length} 张`)}
+          {tz(`${frames.length} image${frames.length === 1 ? '' : 's'}`, `${frames.length} 张`)}
         </span>
         {batch ? (
           <button className="btn" onClick={() => (stop.current = true)}>
@@ -344,7 +346,8 @@ export function ExportPage() {
         <aside className="export-strip">
           {frames.map((p) => (
             <div key={p} className={'export-cell' + (p === selection ? ' open' : '')}>
-              <img src={thumbs.get(p) ?? undefined} alt="" />
+              {/* The whole photograph, turned, the crop under a mask — as the filmstrip (§7.7). */}
+              <Thumb path={p} geometry={p === selection ? geometry : (saved[p] ?? GEOMETRY_DEFAULT)} height={120} />
               <span>{baseName(p)}</span>
             </div>
           ))}
