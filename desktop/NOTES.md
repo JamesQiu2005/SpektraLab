@@ -3,6 +3,32 @@
 Running log for whoever picks this up next (a restarted worker or a human).
 Newest state first in each list. Read with `git log --oneline -20 -- desktop`.
 
+## Status (2026-10-06, finish-up pass)
+
+What the finish-up pass added on top of the first pass below:
+- Camera white balance at decode (R2): Temperature / Tint with As Shot boxes
+  and presets, re-decoded through `redecode`. Verified in the packaged
+  AppImage (extracted, Xvfb, real host, lavapipe) on a CR2: As Shot read
+  6228 K / −2.3 from the camera, a click on the Temperature track →
+  Custom 3205 K → `redecode` → a cooler full render (42 s), Ctrl+Z → As Shot
+  again (sidecar `decode` checked each time). `docs/linux-white-balance-real-host.png`.
+- The derived film format no longer adds an undo step (`session.test.ts`).
+- `scripts/package.mjs win` builds natively on Windows (MSVC; for CI).
+- No personal address in `package.json`; the .deb Maintainer is
+  "SpektraLab contributors".
+- The staged hosts were current (built from 56f0efe, the latest engine
+  commit; `hello.methods` lists `redecode`), so they were not rebuilt.
+- Checks: vitest 51 + 1 env-gated skip, `cargo test` 5, Playwright 6/6.
+  Packages rebuilt: .deb 14.5 MB, AppImage 92.3 MB, NSIS setup 10.2 MB
+  (contains `spektralab-host.exe`, `host/engine/**` with 34 `.spv`,
+  `host/licenses/**`, `WebView2Loader.dll`).
+- CI notes: `cargo test` needs no `dist/` (a debug build does not embed the
+  frontend; checked by a clean crate rebuild with `dist/` moved away).
+  Playwright needs the Vite dev server it starts itself (`npm run dev:web`,
+  which copies assets from `modern_UI/…/Resources`), so `modern_UI/` must be
+  in the checkout; `/opt/pw-browsers` is optional (Playwright's own Chromium
+  is used when it is absent).
+
 ## Status (2026-10-06, end of the first frontend pass)
 
 **Done and verified with the real host** (`build/host-linux-x64`, lavapipe):
