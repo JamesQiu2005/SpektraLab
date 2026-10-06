@@ -14,8 +14,9 @@
 // an installer without its engine would install an app that cannot develop
 // anything.
 //
-// Windows is cross-built the way Tauri documents it: `cargo-xwin` and the
-// x86_64-pc-windows-msvc target, NSIS from the system (`makensis`).
+// Windows is cross-built with the x86_64-pc-windows-gnu target and mingw-w64
+// (Tauri's documented cargo-xwin/MSVC path is behind SPEKTRALAB_WIN_TOOLCHAIN=msvc;
+// its CRT download was refused here), NSIS from the system (`makensis`).
 // Env: SPEKTRALAB_HOST_BUILD overrides the repo's build/ directory.
 
 import { execFileSync } from 'node:child_process';
@@ -39,14 +40,27 @@ const TARGETS = {
     out: 'linux',
     extra: [],
   },
-  win: {
-    hostDir: join(buildDir, 'host-win-x64'),
-    exe: 'spektralab-host.exe',
-    triple: 'x86_64-pc-windows-msvc',
-    bundles: 'nsis',
-    out: 'windows',
-    extra: ['--runner', 'cargo-xwin', '--target', 'x86_64-pc-windows-msvc'],
-  },
+  // MinGW by default: cargo-xwin's MSVC CRT download (aka.ms) is refused by
+  // this build machine's egress policy. SPEKTRALAB_WIN_TOOLCHAIN=msvc uses
+  // Tauri's documented cargo-xwin path where that download is allowed.
+  win:
+    process.env.SPEKTRALAB_WIN_TOOLCHAIN === 'msvc'
+      ? {
+          hostDir: join(buildDir, 'host-win-x64'),
+          exe: 'spektralab-host.exe',
+          triple: 'x86_64-pc-windows-msvc',
+          bundles: 'nsis',
+          out: 'windows',
+          extra: ['--runner', 'cargo-xwin', '--target', 'x86_64-pc-windows-msvc'],
+        }
+      : {
+          hostDir: join(buildDir, 'host-win-x64'),
+          exe: 'spektralab-host.exe',
+          triple: 'x86_64-pc-windows-gnu',
+          bundles: 'nsis',
+          out: 'windows',
+          extra: ['--target', 'x86_64-pc-windows-gnu'],
+        },
 };
 
 function die(msg) {
