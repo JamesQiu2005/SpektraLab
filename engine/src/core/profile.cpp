@@ -1,4 +1,5 @@
 #include "profile.hpp"
+#include "file_path.hpp"
 
 #include <cmath>
 #include <cstdio>
@@ -10,7 +11,7 @@ namespace spk {
 namespace {
 
 bool read_file(const std::string& path, std::string& out, std::string& error) {
-    std::ifstream in(path, std::ios::binary);
+    std::ifstream in(file_path(path), std::ios::binary);
     if (!in) { error = "cannot open " + path; return false; }
     std::ostringstream ss;
     ss << in.rdbuf();

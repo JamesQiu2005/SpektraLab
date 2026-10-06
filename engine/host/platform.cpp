@@ -9,6 +9,7 @@
 #include <process.h>
 #define WIN32_LEAN_AND_MEAN
 #include <windows.h>
+#include <shellapi.h>
 #else
 #include <cerrno>
 #include <unistd.h>
@@ -132,6 +133,48 @@ bool write_file_atomic(const std::filesystem::path& path, const std::vector<uint
 unsigned hardware_threads() {
     const unsigned n = std::thread::hardware_concurrency();
     return n ? n : 4;
+}
+
+std::vector<std::string> utf8_args(int argc, char** argv) {
+    std::vector<std::string> out;
+#ifdef _WIN32
+    (void)argc; (void)argv;
+    int n = 0;
+    LPWSTR* wide = CommandLineToArgvW(GetCommandLineW(), &n);
+    for (int i = 0; wide && i < n; ++i) {
+        const int len = WideCharToMultiByte(CP_UTF8, 0, wide[i], -1, nullptr, 0, nullptr, nullptr);
+        std::string s(len > 0 ? size_t(len - 1) : 0, '\0');
+        if (len > 1) WideCharToMultiByte(CP_UTF8, 0, wide[i], -1, s.data(), len, nullptr, nullptr);
+        out.push_back(std::move(s));
+    }
+    if (wide) LocalFree(wide);
+#else
+    for (int i = 0; i < argc; ++i) out.emplace_back(argv[i]);
+#endif
+    return out;
+}
+
+std::filesystem::path executable_dir(const char* argv0) {
+#ifdef _WIN32
+    (void)argv0;
+    std::wstring buffer(32768, L'\0');
+    const DWORD len = GetModuleFileNameW(nullptr, buffer.data(), DWORD(buffer.size()));
+    buffer.resize(len);
+    return std::filesystem::path(buffer).parent_path();
+#else
+    std::error_code ec;
+    std::filesystem::path self = std::filesystem::read_symlink("/proc/self/exe", ec);
+    if (ec) self = std::filesystem::canonical(argv0, ec);
+    return self.parent_path();
+#endif
+}
+
+void set_env(const char* name, const std::string& value) {
+#ifdef _WIN32
+    _putenv_s(name, value.c_str());
+#else
+    setenv(name, value.c_str(), 1);
+#endif
 }
 
 }  // namespace spkhost

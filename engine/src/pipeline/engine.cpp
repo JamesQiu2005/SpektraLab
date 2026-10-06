@@ -36,6 +36,7 @@
 #include <vector>
 
 #include "spektrafilm/spk_engine.h"
+#include "file_path.hpp"
 
 #include "blob.hpp"
 #include "colour.hpp"
@@ -121,7 +122,7 @@ uint32_t tier_long_edge(const Params& params, const Tier& tier) {
 }
 
 std::string read_text_file(const std::string& path) {
-    std::ifstream in(path, std::ios::binary);
+    std::ifstream in(file_path(path), std::ios::binary);
     std::ostringstream ss;
     ss << in.rdbuf();
     return ss.str();

@@ -44,9 +44,21 @@ verification of whatever Phase 2 left unverified. Then Phase 4 docs.
   lavapipe's advertised 128 MiB work, then lifts the limit; stated in
   math_mode. `SPEKTRAFILM_VULKAN_STRICT_LIMITS=1` turns it off.
 
+- Phase 2: `engine/build-windows-cross.sh [--test]` (toolchain
+  `engine/cmake/toolchain-mingw-w64.cmake`, posix-thread MinGW) stages
+  `build/host-win-x64/spektralab-host.exe`; imports only KERNEL32, SHELL32,
+  WS2_32, msvcrt. Under wine 9 + Xvfb, winevulkan forwards to lavapipe and the
+  WHOLE host smoke passes (incl. the 12 MP NEF, a non-ASCII folder/file, and
+  an install dir with a non-ASCII name). Without a display wine has no Vulkan
+  driver (vkCreateInstance -3): use xvfb-run.
+- UTF-8 paths on Windows: host argv via GetCommandLineW, exe dir via
+  GetModuleFileNameW, files via fs::path(u8string); engine's four ifstream
+  sites go through `core/file_path.hpp` (identity on POSIX/Apple).
+
 ## In progress / next
 
-1. Phase 2: MinGW cross-build + wine.
+1. Phase 3a: PROTOCOL-REQUESTS (R2 open), EXIF copy for write_image, more
+   smoke cases (cancel, scene_latitude, preview_stock_lut, export_di, solve).
 2. Unfused-fma precision: `spk_iir_df_acc`, `spk_geometry_resample_df`,
    `spk_lut3d_trilinear`, `spk_di_normalise` use `fma` in `two_prod`. On
    lavapipe `fma` is mul+add, the error term is 0, and the IIR loses 0.4 %.

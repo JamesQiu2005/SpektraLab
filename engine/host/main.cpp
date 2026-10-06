@@ -924,19 +924,15 @@ void usage() {
 
 int main(int argc, char** argv) {
     set_binary_stdio();
+    const std::vector<std::string> args = utf8_args(argc, argv);
     std::string resources;
-    for (int i = 1; i < argc; ++i) {
-        const std::string a = argv[i];
-        if (a == "--resources" && i + 1 < argc) resources = argv[++i];
-        else if (a == "--device" && i + 1 < argc) {
-            const std::string v = argv[++i];
-#ifdef _WIN32
-            _putenv_s("SPEKTRAFILM_VULKAN_DEVICE", v.c_str());
-#else
-            setenv("SPEKTRAFILM_VULKAN_DEVICE", v.c_str(), 1);
-#endif
-        } else if (a == "--log-level" && i + 1 < argc) {
-            const std::string v = argv[++i];
+    for (size_t i = 1; i < args.size(); ++i) {
+        const std::string& a = args[i];
+        const bool has_value = i + 1 < args.size();
+        if (a == "--resources" && has_value) resources = args[++i];
+        else if (a == "--device" && has_value) set_env("SPEKTRAFILM_VULKAN_DEVICE", args[++i]);
+        else if (a == "--log-level" && has_value) {
+            const std::string& v = args[++i];
             g_log_level = v == "error" ? 0 : v == "debug" ? 2 : 1;
         } else if (a == "--version") {
             std::printf("spektralab-host %s (%s)\n", SPEKTRALAB_HOST_VERSION, spk_build_info());
@@ -949,12 +945,8 @@ int main(int argc, char** argv) {
             return 2;
         }
     }
-    if (resources.empty()) {
-        // Beside the executable, as build/host-<os>-x64/ stages it.
-        std::error_code ec;
-        const fs::path self = fs::canonical(fs::path(argv[0]), ec);
-        if (!ec) resources = path_utf8(self.parent_path() / "engine");
-    }
+    // Default: beside the executable, as build/host-<os>-x64/ stages it.
+    if (resources.empty()) resources = path_utf8(executable_dir(argv[0]) / "engine");
     g.resources = utf8_path(resources);
     const auto t0 = Clock::now();
     g.engine = spk_engine_create(resources.c_str(), nullptr);

@@ -34,4 +34,14 @@ bool write_file_atomic(const std::filesystem::path& path, const std::vector<uint
 
 unsigned hardware_threads();
 
+// The command line as UTF-8 (on Windows from GetCommandLineW, since argv is
+// in the ANSI code page there).
+std::vector<std::string> utf8_args(int argc, char** argv);
+
+// The directory holding the running executable.
+std::filesystem::path executable_dir(const char* argv0);
+
+// Sets an environment variable for this process.
+void set_env(const char* name, const std::string& value);
+
 }  // namespace spkhost

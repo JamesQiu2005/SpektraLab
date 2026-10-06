@@ -250,6 +250,13 @@ def main():
     png = os.path.join(tmp, "ramp.png")
     write_png(png, 96, 64)
     exercise(host, png, tmp, "png", False)
+    # A folder and file named outside ASCII: the wire is UTF-8, Windows needs
+    # wide APIs underneath (platform.cpp), and a regression there is silent.
+    uni = os.path.join(tmp, "相片 Ünïcode")
+    os.makedirs(uni)
+    upng = os.path.join(uni, "胶片 ramp.png")
+    write_png(upng, 40, 30)
+    exercise(host, upng, uni, "unicode", False)
     tif = os.path.join(tmp, "ramp16.tif")
     write_tiff16(tif, 80, 120)
     exercise(host, tif, tmp, "tiff16", False)

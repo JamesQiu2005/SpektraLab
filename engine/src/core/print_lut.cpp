@@ -1,4 +1,5 @@
 #include "print_lut.hpp"
+#include "file_path.hpp"
 
 #include <fstream>
 #include <sstream>
@@ -8,7 +9,7 @@ namespace spk {
 namespace {
 
 bool read_file(const std::string& path, std::string& out) {
-    std::ifstream in(path, std::ios::binary);
+    std::ifstream in(file_path(path), std::ios::binary);
     if (!in) return false;
     std::ostringstream ss;
     ss << in.rdbuf();

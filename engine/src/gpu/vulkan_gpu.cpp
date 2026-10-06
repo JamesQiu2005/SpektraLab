@@ -11,6 +11,7 @@
 // no Vulkan driver gets an error message rather than a loader failure.
 #ifndef __APPLE__
 #include "gpu.hpp"
+#include "file_path.hpp"
 
 #include "volk.h"
 
@@ -912,7 +913,7 @@ private:
         auto found = pipelines_.find(spec.name);
         if (found != pipelines_.end()) return &found->second;
         const std::string path = shader_dir_ + "/" + spec.name + ".spv";
-        std::ifstream in(path, std::ios::binary | std::ios::ate);
+        std::ifstream in(file_path(path), std::ios::binary | std::ios::ate);
         if (!in) { error = "cannot open Vulkan shader " + path; return nullptr; }
         const std::streamsize size = in.tellg();
         if (size <= 0 || size % 4) { error = "invalid SPIR-V file " + path; return nullptr; }
