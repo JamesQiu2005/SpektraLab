@@ -379,7 +379,12 @@ function derived(side: FilmSide, mm: number) {
 export function recomputeFilmFormat() {
   const p = get().sidecar.params;
   const mm = derived(p.filmSide, p.sideLengthMM);
-  if (Math.abs(mm - p.filmFormatMM) > 0.001) setParams((q) => ({ ...q, filmFormatMM: mm }));
+  // Derived, not an edit: no undo step (the Mac writes it before the open).
+  if (Math.abs(mm - p.filmFormatMM) > 0.001) {
+    set({ sidecar: { ...get().sidecar, params: { ...get().sidecar.params, filmFormatMM: mm } } });
+    scheduleSave();
+    void requestPrint();
+  }
 }
 
 export function setFilmFrame(id: string) {
