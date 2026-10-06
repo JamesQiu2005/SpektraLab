@@ -196,6 +196,10 @@ constexpr EdgeLook kEdgeLooks[] = {
     // Vision3 250D: the 135 reference (5207). The other Vision3 stocks borrow
     // its layout (the same Eastman edge print, their own product number in
     // the host's text), unverified.
+    // Tri-X 400 (400TX): the 135 and 120 (645) references. Kodak's layout on
+    // both, no DX bars on 135 (none on the strip; `dx_extract_for` has no
+    // row), and one emulsion, so the printer's light is the same in all three.
+    {"kodak_tri_x_400",       Edge135::Kodak, Edge120::Kodak, {1.0, 1.0, 1.0}, 5.3, false, ""},
     {"kodak_vision3_250d",    Edge135::Cine, Edge120::Kodak, {0.58, 0.60, 1.0}, 4.5, false, ""},
     {"kodak_vision3_50d",     Edge135::Cine, Edge120::Kodak, {0.58, 0.60, 1.0}, 4.5, false, ""},
     {"kodak_vision3_200t",    Edge135::Cine, Edge120::Kodak, {0.58, 0.60, 1.0}, 4.5, false, ""},
@@ -663,9 +667,9 @@ bool Pipeline::overscan_layout(uint32_t frame_w, uint32_t frame_h, std::string& 
     const std::string& ref = params_.film.info.reference_illuminant;
     const double rear[3] = {1.0, 1.0, 0.0}, front[3] = {1.0, 1.0, 1.0};
     const double* edge_t = edge_look_for(params_.film.info.stock).layer;   // the maker's edge printer
-    light_weights(*colour_, *blob_, film_sensitivity_, ref, 2800.0, false, front, L.fog_rgb);
-    light_weights(*colour_, *blob_, film_sensitivity_, ref, 2700.0, true, rear, L.date_rgb);
-    light_weights(*colour_, *blob_, film_sensitivity_, ref, 4500.0, false, edge_t, L.edge_rgb);
+    light_weights(*colour_, *blob_, film_sensitivity_edge_, ref, 2800.0, false, front, L.fog_rgb);
+    light_weights(*colour_, *blob_, film_sensitivity_edge_, ref, 2700.0, true, rear, L.date_rgb);
+    light_weights(*colour_, *blob_, film_sensitivity_edge_, ref, 4500.0, false, edge_t, L.edge_rgb);
 
     // --- the hole: the cmy that cancels this film's base (least squares) ----
     {
@@ -1703,7 +1707,7 @@ bool Pipeline::node_overscan(const Image& in, Image& out, std::string& error) {
         L.cu = 0; L.cv = 0; L.cs = 0; L.ct = 0;
         {
             const double rear[3] = {1.0, 1.0, 0.0};
-            light_weights(*colour_, *blob_, film_sensitivity_, params_.film.info.reference_illuminant,
+            light_weights(*colour_, *blob_, film_sensitivity_edge_, params_.film.info.reference_illuminant,
                           2700.0, true, rear, L.date_rgb);
         }
         canvas.h = in.h; canvas.w = in.w; canvas.c = 3;

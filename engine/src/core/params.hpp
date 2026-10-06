@@ -279,6 +279,7 @@ struct SceneLatitudeParams {
 };
 
 bool is_known_scene_latitude_norm(const std::string& norm);
+bool is_known_camera_filter(const std::string& name);
 
 struct CameraParams {
     double exposure_compensation_ev = 0.0;
@@ -291,6 +292,11 @@ struct CameraParams {
     double film_format_mm = 35.0;
     double filter_uv[3] = {0.0, 410.0, 8.0};
     double filter_ir[3] = {0.0, 675.0, 15.0};
+    /// A colour filter on the lens, by name (`camera_filters.hpp`: "w8", "w25",
+    /// ...; "" = none). It shapes the light the picture is made of and nothing
+    /// else: the film's edge print, fog and date back never pass the lens.
+    /// The filter factor is given (18 % grey keeps its exposure). Native only.
+    std::string filter;
     DiffusionFilterParams diffusion_filter;
     SceneLatitudeParams scene_latitude;
 };

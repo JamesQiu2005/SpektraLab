@@ -936,3 +936,24 @@ The pack is `neutral + shift × filter_shift_scale` for M and Y (C has no shift)
 The macOS app sends **40** always (`FilmParams.filterShiftCC`), so its sliders' ends are ±40 CC: blue against red ±0.3 stop of the print's encoded values on the fixture, pinned by `EnlargerFilterTests` (red at a scale of 1). More filtration prints the *other* way on a negative — Yellow up is a bluer print, Magenta up a greener one — and the app's slider tracks are coloured as the print goes.
 
 It is live for the same reason the shifts are: it changes the light on the paper and nothing upstream.
+
+## 15. `camera_filter` — a colour filter on the lens (2026-10-07, branch `bw-tri-x`)
+
+Native only; the Python reference has no such stage. String, SHOOT layer (an edit re-develops),
+default `""` (none). Names: `w8` `w11` `w12` `w15` `w21` `w25` `w47` `w58` (Kodak Wratten numbers);
+any other value is refused with the list.
+
+- The filter's transmittance (`engine/src/core/camera_filters.hpp`, 380-780 nm at 5 nm) multiplies
+  the film's spectral sensitivity before the upsampling table is built (`film_sensitivity`,
+  `hanatos.cpp`). The setup cache keys on the resulting sensitivity, so nothing else changes.
+- **The filter factor is given.** One scalar, the green-sensitive layer's ratio under the film's
+  reference illuminant, divides the result: on a one-emulsion film 18 % grey keeps its exposure, and
+  a colour film keeps the filter's cast. Auto exposure meters the input and never sees the filter.
+- **Only the picture passes the lens.** Overscan's edge print, fog and date back read
+  `film_sensitivity_edge_`, the sensitivity without the filter.
+- Data: Kodak B-3 tables as transcribed (third-hand). Against Tri-X 400's published factors the
+  computed ones are within 0.21 stop for six of seven filters in daylight; No. 58 is 0.67 stop high.
+- Measured (`research/bw-tri-x/engine-test/test_filter.py`): the wire field agrees with a profile
+  whose sensitivity has the same table baked in to 2/255; a live session re-develops and returns;
+  the 135 and 645 rebates change by at most 1/255 under `w25`.
+- Not verified: colour stocks beyond one render; the app has no control for it.

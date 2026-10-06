@@ -5,6 +5,7 @@
 #include <limits>
 
 #include "cam16.hpp"      // reinhard_knee
+#include "camera_filters.hpp"
 #include "spectral.hpp"   // standard_illuminant, illuminant_to_xy, band_pass_filter
 
 namespace spk {
@@ -162,6 +163,23 @@ bool film_sensitivity(const Colour& colour, const Blob& blob, const Profile& fil
     for (size_t i = 0; i < n * 3; ++i) {
         const double v = std::pow(10.0, film.data.log_sensitivity[i]);
         out[i] = is_nan(v) ? 0.0 : v;      // np.nan_to_num
+    }
+    // The lens's colour filter (native; the reference has none). One factor
+    // for the whole film, the green-sensitive layer's, so a colour film keeps
+    // the filter's cast; on a one-emulsion film the three are the same and
+    // 18 % grey keeps its exposure -- the filter factor is given.
+    for (const CameraFilter& f : kCameraFilters) {
+        if (camera.filter != f.name) continue;
+        Vec light;
+        if (!standard_illuminant(colour, blob, film.info.reference_illuminant, light, error)) return false;
+        double num = 0.0, den = 0.0;
+        for (size_t i = 0; i < n; ++i) {
+            num += out[3 * i + 1] * f.t[i] * light[i];
+            den += out[3 * i + 1] * light[i];
+        }
+        const double factor = (den > 0.0 && num > 0.0) ? num / den : 1.0;
+        for (size_t i = 0; i < n; ++i)
+            for (int c = 0; c < 3; ++c) out[3 * i + size_t(c)] *= f.t[i] / factor;
     }
     if (!(camera.filter_uv[0] > 0.0 || camera.filter_ir[0] > 0.0)) return true;
 
