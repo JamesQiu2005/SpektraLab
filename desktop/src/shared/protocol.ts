@@ -82,9 +82,22 @@ export interface HelloResult {
   protocol: number;
   host_version: string;
   build_info: string;
-  backend: { api: string; device_name: string; driver?: string; vram_mb?: number };
-  capabilities: Capabilities;
+  backend: {
+    api: string;
+    device_name: string;
+    driver?: string;
+    vram_mb?: number;
+    /** False when the engine could not start (no Vulkan device); `error` says why. */
+    available?: boolean;
+    error?: string;
+    math_mode?: string;
+    render_core?: string;
+  };
+  /** Null when the engine could not start. */
+  capabilities: Capabilities | null;
   resources_dir: string;
+  /** The methods this host answers (R1's `write_image` among them). */
+  methods?: string[];
   /** Frontend-side: true when the mock host answered. */
   mock?: boolean;
 }

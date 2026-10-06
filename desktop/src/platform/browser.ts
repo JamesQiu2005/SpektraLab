@@ -46,6 +46,8 @@ export function browserPlatform(): Platform {
       const q = new URLSearchParams(location.search).get('open');
       return q === null ? [] : [q || ROLL];
     },
+    pathExists: async () => false,
+    ensureDir: async () => {},
     appPaths: async (): Promise<AppPaths> => ({
       appData: '(browser)',
       sidecars: '(localStorage)',

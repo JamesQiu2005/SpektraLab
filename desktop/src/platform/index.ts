@@ -33,6 +33,8 @@ export interface Platform {
   storeRead(area: string, name: string): Promise<unknown | null>;
   storeWrite(area: string, name: string, value: unknown): Promise<void>;
   takeLaunchPaths(): Promise<string[]>;
+  pathExists(path: string): Promise<boolean>;
+  ensureDir(path: string): Promise<void>;
   appPaths(): Promise<AppPaths>;
   pickFolder(title: string): Promise<string | null>;
   pickFiles(title: string): Promise<string[]>;

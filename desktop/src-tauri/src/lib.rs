@@ -140,6 +140,21 @@ fn store_path(app: &AppHandle, area: &str, name: &str) -> Result<PathBuf, String
 }
 
 #[tauri::command]
+fn path_exists(path: String) -> bool {
+    PathBuf::from(path).exists()
+}
+
+/// Make an export folder (and its parents). Only absolute paths.
+#[tauri::command]
+fn ensure_dir(path: String) -> Result<(), String> {
+    let p = PathBuf::from(&path);
+    if !p.is_absolute() {
+        return Err(format!("{path} is not absolute"));
+    }
+    std::fs::create_dir_all(&p).map_err(|e| format!("{path}: {e}"))
+}
+
+#[tauri::command]
 fn take_launch_paths(state: State<'_, AppState>) -> Vec<String> {
     std::mem::take(&mut *state.launch_paths.lock().unwrap())
 }
@@ -240,6 +255,8 @@ pub fn run() {
             store_read,
             store_write,
             take_launch_paths,
+            path_exists,
+            ensure_dir,
             app_paths,
         ])
         .run(tauri::generate_context!())

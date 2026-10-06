@@ -346,54 +346,59 @@ function smoothstep(e0: number, e1: number, x: number) {
 }
 
 /**
- * The whole layer on an RGBA buffer (8-bit or 16-bit as 0…1 floats), in
- * place. `uv` for the vignette is the pixel's position in *this* buffer, so
- * call it on the print before geometry, as the Mac app does.
+ * One pixel through the whole layer (steps 1–9), `suv` its place on the
+ * *print* (the vignette is the print's, before geometry — as the canvas
+ * shader and the Mac's `layer2` kernel do).
  */
-export function applyLayer2(
-  data: Float32Array,
-  width: number,
-  height: number,
-  a: Adjustments,
-  midGrey: number,
-): void {
+export function layer2Pixel(
+  rgb: [number, number, number],
+  u: Layer2Uniforms,
+  tables: Float32Array | null,
+  sx: number,
+  sy: number,
+): [number, number, number] {
+  if (!u.enabled) return rgb;
+  let [r, g, b] = layer2Tone(rgb, u);
+  if (tables) {
+    r = sat(r);
+    g = sat(g);
+    b = sat(b);
+    const ly = luma(r, g, b);
+    const ly2 = lookup(tables, ly, 1);
+    const k = ly > 1e-4 ? ly2 / ly : 1;
+    r = sat(r * k);
+    g = sat(g * k);
+    b = sat(b * k);
+    r = lookup(tables, r, 0);
+    g = lookup(tables, g, 0);
+    b = lookup(tables, b, 0);
+    r = lookup(tables, r, 2);
+    g = lookup(tables, g, 3);
+    b = lookup(tables, b, 4);
+  }
+  if (u.vignetteAmount !== 0) {
+    const d = Math.hypot((sx - 0.5) * 2, (sy - 0.5) * 2);
+    const fall = smoothstep(u.vignetteMidpoint * 1.2, 1.5, d);
+    const k = 1 + u.vignetteAmount * fall * 0.9;
+    r *= k;
+    g *= k;
+    b *= k;
+  }
+  return [sat(r), sat(g), sat(b)];
+}
+
+/** The whole layer on an RGBA float buffer (0…1), in place — a print, before geometry. */
+export function applyLayer2(data: Float32Array, width: number, height: number, a: Adjustments, midGrey: number): void {
   const u = layer2Uniforms(a, midGrey);
   if (!u.enabled) return;
   const tables = u.curvesActive ? curveTables(a.curves) : null;
   for (let y = 0; y < height; y++) {
     for (let x = 0; x < width; x++) {
       const i = (y * width + x) * 4;
-      let [r, g, b] = layer2Tone([data[i]!, data[i + 1]!, data[i + 2]!], u);
-      if (tables) {
-        r = sat(r);
-        g = sat(g);
-        b = sat(b);
-        const ly = luma(r, g, b);
-        const ly2 = lookup(tables, ly, 1);
-        const k = ly > 1e-4 ? ly2 / ly : 1;
-        r = sat(r * k);
-        g = sat(g * k);
-        b = sat(b * k);
-        r = lookup(tables, r, 0);
-        g = lookup(tables, g, 0);
-        b = lookup(tables, b, 0);
-        r = lookup(tables, r, 2);
-        g = lookup(tables, g, 3);
-        b = lookup(tables, b, 4);
-      }
-      if (u.vignetteAmount !== 0) {
-        const px = (x + 0.5) / width - 0.5;
-        const py = (y + 0.5) / height - 0.5;
-        const d = Math.hypot(px * 2, py * 2);
-        const fall = smoothstep(u.vignetteMidpoint * 1.2, 1.5, d);
-        const k = 1 + u.vignetteAmount * fall * 0.9;
-        r *= k;
-        g *= k;
-        b *= k;
-      }
-      data[i] = sat(r);
-      data[i + 1] = sat(g);
-      data[i + 2] = sat(b);
+      const [r, g, b] = layer2Pixel([data[i]!, data[i + 1]!, data[i + 2]!], u, tables, (x + 0.5) / width, (y + 0.5) / height);
+      data[i] = r;
+      data[i + 1] = g;
+      data[i + 2] = b;
     }
   }
 }

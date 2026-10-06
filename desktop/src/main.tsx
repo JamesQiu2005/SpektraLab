@@ -47,3 +47,8 @@ createRoot(document.getElementById('root')!).render(
 );
 
 void boot();
+
+// For the layout harness and for debugging from the webview inspector.
+import { sessionStore } from './state/session';
+import { frameImages } from './state/frames';
+(window as unknown as Record<string, unknown>).__spk = { sessionStore, settingsStore, frameImages };

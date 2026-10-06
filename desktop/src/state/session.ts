@@ -206,6 +206,8 @@ export async function requestPrint(): Promise<void> {
 
 function scheduleFull() {
   if (fullTimer) clearTimeout(fullTimer);
+  // An export run renders the frame itself, at the file's own resolution.
+  if (get().batchExporting) return;
   const gen = wantedGen;
   fullTimer = setTimeout(() => void renderFull(gen), FULL_DELAY_MS);
 }
@@ -723,6 +725,16 @@ export function setStatus(status: string) {
 let lastReadyHello: unknown = null;
 
 function takeHostState(st: HostState) {
+  // The host answers but its engine could not start (no Vulkan device): the
+  // files still list and thumbnail, nothing develops. Shown as a failure with
+  // the host's own words.
+  if (st.phase === 'ready' && st.hello.backend?.available === false) {
+    set({
+      hello: st.hello,
+      hostState: { phase: 'failed', reason: st.hello.backend.error || tz('The engine has no GPU device to render on.', '引擎没有可用于渲染的 GPU 设备。'), detail: st.hello.build_info },
+    });
+    return;
+  }
   set({ hostState: st });
   if (st.phase === 'ready') {
     const unsupported = (st.hello.capabilities?.backend?.unsupported_features as string[] | undefined) ?? [];

@@ -18,6 +18,8 @@ export function tauriPlatform(): Platform {
     storeRead: (area, name) => invoke<unknown | null>('store_read', { area, name }),
     storeWrite: (area, name, value) => invoke<void>('store_write', { area, name, value }),
     takeLaunchPaths: () => invoke<string[]>('take_launch_paths'),
+    pathExists: (path) => invoke<boolean>('path_exists', { path }),
+    ensureDir: (path) => invoke<void>('ensure_dir', { path }),
     appPaths: () => invoke<AppPaths>('app_paths'),
     async pickFolder(title) {
       const r = await open({ directory: true, multiple: false, title });
