@@ -3,29 +3,38 @@
 Running log for whoever picks this up next (a restarted worker or a human).
 Newest state first in each list. Read with `git log --oneline -20 -- desktop`.
 
-## Status
+## Status (2026-10-06, end of the first frontend pass)
 
-**Done**
-- Tauri 2 core (`src-tauri/`): host process manager (`host.rs`), sidecar store
-  and narrow file commands (`files.rs`), plugins, argv/open-with, single instance.
-- Webview: session store with the sent-vs-wanted scheduler (live → full),
-  WebGL2 canvas (geometry + Layer 2 + compare in one shader), both rails,
-  filmstrip with crop masks, navigator/histogram from the canvas's output,
-  menus + typing-key guard, settings/about/engine-failure dialogs, export page
-  (R1 `write_image` path), i18n en + zh-Hans generated from Strings.swift.
-- Mock host (`mock-host/`, also in-page for Chromium layout runs).
-- **Real host verified**: release binary under Xvfb (WebKitGTK, lavapipe)
-  opened a CR2, live then full render landed (`docs/linux-real-host-cr2.png`).
-- Packaging: `node scripts/package.mjs linux` → `release/linux/*.deb` (14.5 MB)
-  + `*.AppImage` (92 MB). Icons from the Icon Composer SVGs (`gen-icons.mjs`).
-- PARITY.md written.
+**Done and verified with the real host** (`build/host-linux-x64`, lavapipe):
+- Release/debug app under Xvfb (WebKitGTK, WebGL2 on llvmpipe): open a CR2
+  from argv → live → full render (27–32 s at 5634×3752 on a CPU device),
+  navigator, histogram, latitude; crop tool; Ctrl+Alt+] turn through the
+  native menu accelerator; Ctrl+E → export → a 3752×5634 Display-P3 JPEG via
+  `write_image`; killing the host → restart → frame re-opened from its
+  sidecar; second launch → path handed to the first (needs a session D-Bus);
+  no Vulkan driver → failure dialog with the host's words. Captures in `docs/`.
+- `src/export/realhost.test.ts` (env-gated) exercises the export pixel path
+  against the real host.
+- Packages: `release/linux/SpektraLab_1.3.1_amd64.deb` (~14.5 MB),
+  `…AppImage` (~92 MB), `release/windows/SpektraLab_1.3.1_x64-setup.exe`
+  (~10 MB, mingw cross-build; contents listed with 7z, not executed — wine
+  here is 64-bit only and has no WebView2).
+- Unit (vitest, 38 + 1 env-gated), Rust (`cargo test`, 5), Playwright (6, in
+  Chromium against the in-page mock).
 
-**In progress**
-- Windows NSIS cross-build (`node scripts/package.mjs win`).
-
-**Next**
-- Playwright layout tests committed under `tests/`, more screenshots, export
-  verified end to end with the real host, NOTES/PARITY final pass.
+**Not done / next** (also in PARITY.md):
+- Camera white balance / lens correction at decode (PROTOCOL-REQUESTS R2 open).
+- Rail width drag-resize, filmstrip reorder, straighten-by-line gesture,
+  soft proof at file resolution, display-profile awareness.
+- Windows: run the installer on a real Windows box (WebView2 bootstrapper is
+  downloaded at install time — `downloadBootstrapper`; the embedded one
+  could not be fetched here: go.microsoft.com is refused by egress policy).
+  The MSVC path (`SPEKTRALAB_WIN_TOOLCHAIN=msvc`, cargo-xwin) is wired but
+  could not run here (aka.ms refused).
+- Code signing (none; the owner releases ad-hoc).
+- Performance on real GPUs: the full render is re-requested 400 ms after
+  each edit settles; on lavapipe that is tens of seconds. Consider a lower
+  default preview edge on CPU devices (`backend.device_name` says llvmpipe).
 
 ## How to run
 
