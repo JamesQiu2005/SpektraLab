@@ -5,7 +5,7 @@
   "identifier": "app.spektralab.desktop",
   "build": {
     "frontendDist": "../dist",
-    "devUrl": "http://localhost:5173",
+    "devUrl": "http://127.0.0.1:5173",
     "beforeDevCommand": "npm run dev:web",
     "beforeBuildCommand": "npm run build:web"
   },
@@ -38,13 +38,91 @@
   },
   "bundle": {
     "active": true,
-    "targets": "all",
+    "targets": [
+      "deb",
+      "appimage",
+      "nsis"
+    ],
+    "publisher": "SpektraLab contributors",
+    "copyright": "GPL-3.0-or-later; film and paper profiles CC BY-SA 4.0",
+    "category": "Photography",
+    "shortDescription": "Film and print emulation",
+    "longDescription": "SpektraLab develops a photograph as film and prints it on paper, with spectral film and paper profiles.",
+    "homepage": "https://github.com/spektrafilm",
+    "license": "GPL-3.0-or-later",
     "icon": [
       "icons/32x32.png",
       "icons/128x128.png",
       "icons/128x128@2x.png",
       "icons/icon.png",
       "icons/icon.ico"
-    ]
+    ],
+    "fileAssociations": [
+      {
+        "ext": [
+          "nef",
+          "nrw",
+          "cr2",
+          "cr3",
+          "crw",
+          "arw",
+          "srf",
+          "sr2",
+          "raf",
+          "dng",
+          "orf",
+          "rw2",
+          "pef",
+          "srw",
+          "3fr",
+          "iiq",
+          "erf",
+          "kdc",
+          "mos",
+          "mrw",
+          "x3f"
+        ],
+        "name": "Camera RAW",
+        "description": "Camera RAW photograph",
+        "role": "Viewer",
+        "mimeType": "image/x-dcraw"
+      },
+      {
+        "ext": [
+          "tif",
+          "tiff"
+        ],
+        "name": "TIFF image",
+        "description": "TIFF image",
+        "role": "Viewer",
+        "mimeType": "image/tiff"
+      }
+    ],
+    "linux": {
+      "deb": {
+        "section": "graphics",
+        "depends": [],
+        "desktopTemplate": "linux/spektralab.desktop"
+      },
+      "appimage": {
+        "bundleMediaFramework": false
+      }
+    },
+    "windows": {
+      "webviewInstallMode": {
+        "type": "embedBootstrapper"
+      },
+      "nsis": {
+        "installMode": "both",
+        "languages": [
+          "English",
+          "SimpChinese"
+        ],
+        "displayLanguageSelector": true,
+        "installerIcon": "icons/icon.ico",
+        "startMenuFolder": "SpektraLab"
+      }
+    },
+    "licenseFile": "../../license/LICENSE"
   }
 }

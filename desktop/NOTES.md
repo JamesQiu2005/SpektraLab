@@ -6,25 +6,43 @@ Newest state first in each list. Read with `git log --oneline -20 -- desktop`.
 ## Status
 
 **Done**
-- Tauri 2 skeleton: `src-tauri/` (Rust core) builds; `cargo test` green.
-  - `host.rs`: spawns `spektralab-host` (or the mock), says `hello`, request-id
-    map, events → `host-event`, state → `host-state`, restart with backoff
-    (3 in 120 s, then `failed` with the stderr tail for the dialog).
-  - `files.rs`: folder listing, sidecar store (`<app data>/Sidecars/<file>-<sha256(path)[:16]>.spektra.json`,
-    fingerprint for moved files, neighbour migration), atomic writes.
-  - `lib.rs`: commands, plugins (single-instance, dialog, opener, log with
-    rotation, window-state), argv/open-with paths.
-- Mock host `mock-host/` (`core.ts` pure + `main.ts` stdio); schema rows
-  extracted from `engine/src/core/params.cpp` into `schema-fields.json`.
-- Shared pure modules with tests: `params.ts` (wire + delta + feature gate),
-  `geometry.ts` (+ shader-map agreement test), `adjustments.ts` (Layer 2 CPU
-  reference + curves), `sidecar.ts` (Mac shape, unknown keys preserved).
+- Tauri 2 core (`src-tauri/`): host process manager (`host.rs`), sidecar store
+  and narrow file commands (`files.rs`), plugins, argv/open-with, single instance.
+- Webview: session store with the sent-vs-wanted scheduler (live → full),
+  WebGL2 canvas (geometry + Layer 2 + compare in one shader), both rails,
+  filmstrip with crop masks, navigator/histogram from the canvas's output,
+  menus + typing-key guard, settings/about/engine-failure dialogs, export page
+  (R1 `write_image` path), i18n en + zh-Hans generated from Strings.swift.
+- Mock host (`mock-host/`, also in-page for Chromium layout runs).
+- **Real host verified**: release binary under Xvfb (WebKitGTK, lavapipe)
+  opened a CR2, live then full render landed (`docs/linux-real-host-cr2.png`).
+- Packaging: `node scripts/package.mjs linux` → `release/linux/*.deb` (14.5 MB)
+  + `*.AppImage` (92 MB). Icons from the Icon Composer SVGs (`gen-icons.mjs`).
+- PARITY.md written.
 
 **In progress**
-- Webview app (React + zustand), host client, WebGL2 canvas.
+- Windows NSIS cross-build (`node scripts/package.mjs win`).
 
 **Next**
-- Shell, menus, library, rails, canvas, export, packaging (see brief).
+- Playwright layout tests committed under `tests/`, more screenshots, export
+  verified end to end with the real host, NOTES/PARITY final pass.
+
+## How to run
+
+```bash
+npm ci                         # node_modules
+npm run dev:web                # vite alone, in-page mock host (http://127.0.0.1:5173/?open=)
+SPEKTRALAB_MOCK_HOST=1 npm run dev                         # Tauri + stdio mock
+SPEKTRALAB_HOST_DIR=../build/host-linux-x64 npm run dev    # Tauri + real host
+npm run check                  # tsc + eslint + vitest
+(cd src-tauri && cargo test)
+node scripts/package.mjs linux # needs build/host-linux-x64
+node scripts/package.mjs win   # needs build/host-win-x64 + cargo-xwin
+```
+
+Linux runtime notes: under Xvfb the app needs `WEBKIT_DISABLE_DMABUF_RENDERER=1`
+(no DRI3); WebGL2 then runs on llvmpipe. Nothing in the app sets it — it is
+an environment workaround, not a product default.
 
 ## Decisions (and why)
 
