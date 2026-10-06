@@ -3,48 +3,46 @@
 
 import { createElement } from 'react';
 
-export interface Histogram {
-  r: Uint32Array;
-  g: Uint32Array;
-  b: Uint32Array;
-  y: Uint32Array;
-}
+import { computeHistogram, type Histogram } from './histogram-core';
 
-export function computeHistogram(px: Uint8Array): Histogram {
-  const h = { r: new Uint32Array(256), g: new Uint32Array(256), b: new Uint32Array(256), y: new Uint32Array(256) };
-  for (let i = 0; i < px.length; i += 4) {
-    const r = px[i]!;
-    const g = px[i + 1]!;
-    const b = px[i + 2]!;
-    h.r[r]!++;
-    h.g[g]!++;
-    h.b[b]!++;
-    h.y[Math.round(0.2126 * r + 0.7152 * g + 0.0722 * b)]!++;
-  }
-  return h;
-}
+export { computeHistogram, type Histogram };
 
 let worker: Worker | null = null;
+let workerFailed = false;
 let seq = 0;
-const waiting = new Map<number, (h: Histogram) => void>();
+// Each request keeps its own pixels, so a worker that dies can still be answered.
+const waiting = new Map<number, { px: Uint8Array; resolve: (h: Histogram) => void }>();
+
+/** The worker failed to load or crashed: answer everything inline from now on. */
+function abandonWorker() {
+  workerFailed = true;
+  worker?.terminate();
+  worker = null;
+  for (const { px, resolve } of waiting.values()) resolve(computeHistogram(px));
+  waiting.clear();
+}
 
 /** In a Web Worker when one can be started; inline otherwise. */
 export function histogramOf(px: Uint8Array): Promise<Histogram> {
+  if (workerFailed) return Promise.resolve(computeHistogram(px));
   try {
     if (!worker) {
       worker = new Worker(new URL('./histogram.worker.ts', import.meta.url), { type: 'module' });
       worker.onmessage = (e: MessageEvent<{ id: number; h: Histogram }>) => {
-        waiting.get(e.data.id)?.(e.data.h);
+        waiting.get(e.data.id)?.resolve(e.data.h);
         waiting.delete(e.data.id);
       };
+      worker.onerror = abandonWorker;
+      worker.onmessageerror = abandonWorker;
     }
     const id = ++seq;
     return new Promise((resolve) => {
-      waiting.set(id, resolve);
+      waiting.set(id, { px, resolve });
       const copy = px.slice();
       worker!.postMessage({ id, px: copy }, [copy.buffer]);
     });
   } catch {
+    abandonWorker();
     return Promise.resolve(computeHistogram(px));
   }
 }

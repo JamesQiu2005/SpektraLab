@@ -147,6 +147,21 @@ export function Canvas() {
     }
   });
 
+  // The frame's textures, uploaded once per image. Both the draw and the
+  // output (navigator, histogram) need them; the output must not depend on the
+  // draw having run first, which it has not while the canvas is unmeasured --
+  // a histogram computed from no image then never came back.
+  const ensureUploaded = (r: GLRenderer) => {
+    if (uploaded.current.print !== frameImages.print) {
+      r.setImage(frameImages.print);
+      uploaded.current.print = frameImages.print;
+    }
+    if (uploaded.current.original !== frameImages.original) {
+      r.setOriginal(frameImages.original);
+      uploaded.current.original = frameImages.original;
+    }
+  };
+
   // Draw.
   useEffect(() => {
     const r = gl.current;
@@ -158,14 +173,7 @@ export function Canvas() {
       c.width = vw;
       c.height = vh;
     }
-    if (uploaded.current.print !== frameImages.print) {
-      r.setImage(frameImages.print);
-      uploaded.current.print = frameImages.print;
-    }
-    if (uploaded.current.original !== frameImages.original) {
-      r.setOriginal(frameImages.original);
-      uploaded.current.original = frameImages.original;
-    }
+    ensureUploaded(r);
     if (!layout) {
       const g = r.gl;
       g.viewport(0, 0, vw, vh);
@@ -215,6 +223,7 @@ export function Canvas() {
         split: 0.5,
         surround: SURROUND,
       };
+      ensureUploaded(r);
       const px = r.renderOutput(state, w, h);
       publishOutput(px ? { width: w, height: h, data: px } : null);
       if (px) void histogramOf(px).then(setHistogram);

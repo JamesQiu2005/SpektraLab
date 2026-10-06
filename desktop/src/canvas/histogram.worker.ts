@@ -1,4 +1,4 @@
-import { computeHistogram } from './histogram';
+import { computeHistogram } from './histogram-core';
 
 self.onmessage = (e: MessageEvent<{ id: number; px: Uint8Array }>) => {
   const h = computeHistogram(e.data.px);
