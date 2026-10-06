@@ -17,6 +17,7 @@ import {
   useSession,
   zoomToFit,
   sessionStore,
+  setView,
 } from '../state/session';
 import { CLIPBOARD_GROUPS, type ClipboardGroup } from '@shared/clipboard';
 import {
@@ -62,6 +63,31 @@ export function LeftRail() {
 function NavigatorSection() {
   const out = useOutput();
   const view = useSession((s) => s.view);
+  const canvasPx = useSession((s) => s.canvasPx);
+  const native = useSession((s) => s.nativeSize);
+  const geometry = useSession((s) => s.sidecar.geometry);
+  const o = native ? outputSize(geometry, native) : null;
+  // The part of the output the canvas shows, in output uv.
+  const vis =
+    o && !view.fit
+      ? (() => {
+          const w = Math.min(1, canvasPx.width / (o.width * view.zoom));
+          const h = Math.min(1, canvasPx.height / (o.height * view.zoom));
+          return { x: clamp(view.cx - w / 2, 0, 1 - w), y: clamp(view.cy - h / 2, 0, 1 - h), w, h };
+        })()
+      : null;
+  const pan = (e: React.PointerEvent<HTMLDivElement>) => {
+    if (!o || !out) return;
+    const r = e.currentTarget.getBoundingClientRect();
+    // The output is letterboxed inside the well (object-fit: contain).
+    const k = Math.min(r.width / out.width, r.height / out.height);
+    const ox = (r.width - out.width * k) / 2;
+    const oy = (r.height - out.height * k) / 2;
+    const u = clamp((e.clientX - r.left - ox) / (out.width * k), 0, 1);
+    const v = clamp((e.clientY - r.top - oy) / (out.height * k), 0, 1);
+    const s = sessionStore.getState().view;
+    setView({ fit: false, zoom: s.fit ? Math.max(1, sessionStore.getState().fitZoom * 2) : s.zoom, cx: u, cy: v });
+  };
   const ref = useRef<HTMLCanvasElement>(null);
   useEffect(() => {
     const c = ref.current;
@@ -77,13 +103,35 @@ function NavigatorSection() {
   }, [out]);
   return (
     <Section id="navigator" title={t('sectionNavigator')}>
-      <div className="navigator" data-testid="navigator">
+      <div className="navigator" data-testid="navigator" onPointerDown={pan} onPointerMove={(e) => e.buttons === 1 && pan(e)}>
         <canvas ref={ref} />
+        {vis && out && <NavigatorBox vis={vis} aspect={out.width / out.height} />}
         <button className="navigator-fit" onClick={zoomToFit} title={tz('Fit (,)', '适合窗口（,）')}>
           {view.fit ? t('helpFit') : `${Math.round(view.zoom * 100)} %`}
         </button>
       </div>
     </Section>
+  );
+}
+
+function NavigatorBox({ vis, aspect }: { vis: { x: number; y: number; w: number; h: number }; aspect: number }) {
+  // Drawn in the well's own box: the picture's letterbox is computed by CSS
+  // with a percentage-based inner frame of the same aspect.
+  return (
+    <div style={{ position: 'absolute', inset: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', pointerEvents: 'none' }}>
+      <div style={{ position: 'relative', aspectRatio: String(aspect), maxWidth: '100%', maxHeight: '100%', width: aspect >= 203 / 183 ? '100%' : 'auto', height: aspect >= 203 / 183 ? 'auto' : '100%' }}>
+        <div
+          style={{
+            position: 'absolute',
+            left: `${vis.x * 100}%`,
+            top: `${vis.y * 100}%`,
+            width: `${vis.w * 100}%`,
+            height: `${vis.h * 100}%`,
+            border: '1px solid var(--accent)',
+          }}
+        />
+      </div>
+    </div>
   );
 }
 

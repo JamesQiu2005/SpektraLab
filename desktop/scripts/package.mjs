@@ -96,7 +96,8 @@ function collect(t) {
   const release = join(desktop, 'release', t.out);
   rmSync(release, { recursive: true, force: true });
   mkdirSync(release, { recursive: true });
-  const roots = [join(tauriDir, 'target', 'release', 'bundle'), join(tauriDir, 'target', t.triple, 'release', 'bundle')];
+  // A cross build lands under target/<triple>/; a native one under target/release/.
+  const roots = which === 'linux' ? [join(tauriDir, 'target', 'release', 'bundle')] : [join(tauriDir, 'target', t.triple, 'release', 'bundle')];
   const found = [];
   for (const root of roots) {
     if (!existsSync(root)) continue;

@@ -84,6 +84,8 @@ export interface SessionState {
   tool: Tool;
   view: ViewState;
   fitZoom: number;
+  /** The canvas in device px (the navigator draws the visible part from it). */
+  canvasPx: { width: number; height: number };
   showingOriginal: boolean;
   comparing: boolean;
   comparePosition: number;
@@ -122,6 +124,7 @@ const INITIAL: SessionState = {
   lastError: null,
   tool: 'select',
   fitZoom: 1,
+  canvasPx: { width: 1, height: 1 },
   view: { fit: true, zoom: 1, cx: 0.5, cy: 0.5 },
   showingOriginal: false,
   comparing: false,
@@ -694,6 +697,10 @@ export function zoomStep(dir: 1 | -1, fitZoom: number) {
   if (next) setView({ fit: false, zoom: next });
 }
 export let currentFitZoom = 1;
+export function noteCanvasPx(width: number, height: number) {
+  const c = get().canvasPx;
+  if (c.width !== width || c.height !== height) set({ canvasPx: { width, height } });
+}
 export function noteFitZoom(z: number) {
   currentFitZoom = z;
   if (Math.abs(get().fitZoom - z) > 1e-4) set({ fitZoom: z });

@@ -31,6 +31,7 @@ import { frameImages } from '../state/frames';
 import {
   beginGesture,
   noteFitZoom,
+  noteCanvasPx,
   sessionStore,
   setComparePosition,
   setGeometry,
@@ -139,7 +140,10 @@ export function Canvas() {
         )
       : null;
   useEffect(() => {
-    if (layout) noteFitZoom(layout.fitZoom);
+    if (layout) {
+      noteFitZoom(layout.fitZoom);
+      noteCanvasPx(layout.viewport.width, layout.viewport.height);
+    }
   });
 
   // Draw.
