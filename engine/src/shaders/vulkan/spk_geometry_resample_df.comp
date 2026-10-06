@@ -9,6 +9,12 @@ layout(set = 0, binding = 1, std430) readonly buffer Geometry { float value[]; }
 layout(set = 0, binding = 2, std430) readonly buffer Meta { uint value[]; } meta;
 layout(set = 0, binding = 3, std430) writeonly buffer Output { float value[]; } output_data;
 
+// vulkan_gpu.cpp folds a dispatch past maxComputeWorkGroupCount[0] (65535 on
+// lavapipe and Intel) into rows of workgroups; this is the 1D index it means.
+uint spk_global_index() {
+    return gl_GlobalInvocationID.y * (gl_NumWorkGroups.x * gl_WorkGroupSize.x) + gl_GlobalInvocationID.x;
+}
+
 vec2 two_sum(float a, float b) {
     precise float s = a + b;
     precise float bb = s - a;
@@ -57,7 +63,7 @@ vec2 pair_at(uint index) {
 }
 
 void main() {
-    uint i = gl_GlobalInvocationID.x;
+    uint i = spk_global_index();
     uint sh = meta.value[0], sw = meta.value[1];
     uint oh = meta.value[2], ow = meta.value[3];
     uint turns = meta.value[4], flips = meta.value[5];

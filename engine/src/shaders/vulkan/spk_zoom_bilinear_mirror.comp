@@ -6,6 +6,12 @@ layout(std430, binding = 0) readonly buffer Img { float img[]; };
 layout(std430, binding = 1) readonly buffer Meta { uint meta[]; };
 layout(std430, binding = 2) writeonly buffer Out { float dst[]; };
 
+// vulkan_gpu.cpp folds a dispatch past maxComputeWorkGroupCount[0] (65535 on
+// lavapipe and Intel) into rows of workgroups; this is the 1D index it means.
+uint spk_global_index() {
+    return gl_GlobalInvocationID.y * (gl_NumWorkGroups.x * gl_WorkGroupSize.x) + gl_GlobalInvocationID.x;
+}
+
 // Pair layout is {low, high}. Use exact two-word integer arithmetic instead
 // of requiring Vulkan shaderInt64, or rounding a large pixel coordinate.
 uvec2 product(uint a, uint b) { uint hi, lo; umulExtended(a, b, hi, lo); return uvec2(lo, hi); }
@@ -66,7 +72,7 @@ void sample_axis(uint o, uint in_len, uint out_len, out uint i0, out uint i1, ou
 }
 
 void main() {
-    uint i = gl_GlobalInvocationID.x;
+    uint i = spk_global_index();
     uint SH = meta[0], SW = meta[1], OH = meta[2], OW = meta[3];
     if (i >= OH * OW) return;
     uint oy = i / OW, ox = i % OW;

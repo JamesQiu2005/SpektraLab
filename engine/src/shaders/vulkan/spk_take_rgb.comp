@@ -6,8 +6,14 @@ layout(set = 0, binding = 0, std430) readonly buffer Input { float value[]; } in
 layout(set = 0, binding = 1, std430) readonly buffer Meta { uint value[]; } meta;
 layout(set = 0, binding = 2, std430) writeonly buffer Output { float value[]; } output_data;
 
+// vulkan_gpu.cpp folds a dispatch past maxComputeWorkGroupCount[0] (65535 on
+// lavapipe and Intel) into rows of workgroups; this is the 1D index it means.
+uint spk_global_index() {
+    return gl_GlobalInvocationID.y * (gl_NumWorkGroups.x * gl_WorkGroupSize.x) + gl_GlobalInvocationID.x;
+}
+
 void main() {
-    uint i = gl_GlobalInvocationID.x;
+    uint i = spk_global_index();
     uint n = meta.value[0];
     uint channels = meta.value[1];
     if (i >= n) return;

@@ -10,6 +10,12 @@ layout(set = 0, binding = 3, std430) readonly buffer InverseSpan { float value[]
 layout(set = 0, binding = 4, std430) readonly buffer Meta { uint value[]; } meta;
 layout(set = 0, binding = 5, std430) writeonly buffer Output { float value[]; } output_data;
 
+// vulkan_gpu.cpp folds a dispatch past maxComputeWorkGroupCount[0] (65535 on
+// lavapipe and Intel) into rows of workgroups; this is the 1D index it means.
+uint spk_global_index() {
+    return gl_GlobalInvocationID.y * (gl_NumWorkGroups.x * gl_WorkGroupSize.x) + gl_GlobalInvocationID.x;
+}
+
 float metal_clamp01(float x) {
     // Metal precise clamp is fmin(fmax(x,0),1): NaN becomes the lower bound.
     // GLSL FClamp's NaN choice is implementation-dependent, so spell it out.
@@ -19,7 +25,7 @@ float metal_clamp01(float x) {
 }
 
 void main() {
-    uint gid = gl_GlobalInvocationID.x;
+    uint gid = spk_global_index();
     if (gid >= meta.value[0]) return;
     uint size = meta.value[1];  // The resource loader enforces size >= 2.
     precise float scale = float(size - 1u);

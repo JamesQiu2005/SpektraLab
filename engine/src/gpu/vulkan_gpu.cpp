@@ -196,6 +196,7 @@ public:
             }
         }
         if (!physical_) { error = "no Vulkan compute queue"; return false; }
+        storage_range_limit_ = properties_.limits.maxStorageBufferRange;
         if (properties_.limits.maxComputeWorkGroupInvocations < kWorkgroup ||
             properties_.limits.maxComputeWorkGroupSize[0] < kWorkgroup ||
             properties_.limits.maxPerStageDescriptorStorageBuffers < 8 ||
@@ -292,12 +293,63 @@ public:
         if (zero && !exact && properties_.deviceType == VK_PHYSICAL_DEVICE_TYPE_CPU) {
             detail = "Vulkan probe passed on a CPU device with unfused fma (one extra rounding per fma; "
                      "full shader parity pending)";
+            probe_cpu_storage_range(detail);
             return true;
         }
         if (!exact && !zero) { detail = "Vulkan math probe produced no informative residuals"; return false; }
         detail = zero && exact ? "Vulkan math probe: fma is fused for some lanes and not others"
                                : "Vulkan math probe: fma is not fused on a GPU device (fast or contracted math?)";
         return false;
+    }
+
+    // lavapipe advertises maxStorageBufferRange = 128 MiB, which refuses any
+    // frame above ~11 MP (a 3-channel float plane of 4284 x 2844 is 146 MB),
+    // and the CPU device is the fallback for a machine with no GPU at all.
+    // llvmpipe addresses an SSBO with 32-bit offsets, so on a CPU device only
+    // the range is *measured* rather than trusted: a dispatch over a buffer
+    // 16 MiB past the advertised limit must read and write distinct values on
+    // both sides of it. Only then is the limit raised to 4 GiB - 4, and the
+    // math_mode string says so. Any GPU keeps its advertised limit, and
+    // SPEKTRAFILM_VULKAN_STRICT_LIMITS=1 keeps it here too.
+    void probe_cpu_storage_range(std::string& detail) {
+        if (const char* strict = std::getenv("SPEKTRAFILM_VULKAN_STRICT_LIMITS"); strict && *strict == '1') return;
+        const VkDeviceSize advertised = properties_.limits.maxStorageBufferRange;
+        if (advertised >= 0xFFFFFFF0ull) return;
+        // spk_take_rgb over n RGBA pixels: it reads 16n bytes and writes 12n,
+        // both past the advertised range, with one thread per pixel (n stays
+        // under the 65535-workgroup dispatch limit).
+        const size_t n = size_t(advertised / 12) + (size_t(1) << 20);
+        if ((n + 255) / 256 > properties_.limits.maxComputeWorkGroupCount[0]) return;
+        std::vector<float> input(n * 4);
+        auto pattern = [](size_t i) { return float(uint32_t(i * 2654435761u) >> 8); };
+        for (size_t i = 0; i < input.size(); ++i) input[i] = pattern(i);
+        std::string error;
+        bool ok = false;
+        {
+            BufferRef in = upload(input.data(), input.size() * 4, error);
+            BufferRef out = alloc(n * 12, error);
+            const uint32_t meta[2] = {uint32_t(n), 4u};
+            if (in && out) {
+                storage_range_limit_ = VkDeviceSize(n) * 16;   // this one dispatch only
+                const bool ran = dispatch("spk_take_rgb", {Arg::buf(in), Arg::inline_bytes(meta, 2), Arg::buf(out)},
+                                          n, error);
+                storage_range_limit_ = advertised;
+                std::vector<float> got(n * 3);
+                if (ran && read(out.get(), 0, got.data(), n * 12, error)) {
+                    ok = true;
+                    for (size_t i = 0; ok && i < n; ++i)
+                        for (size_t c = 0; c < 3; ++c)
+                            if (got[3 * i + c] != pattern(4 * i + c)) { ok = false; break; }
+                }
+            }
+        }
+        // The probe's buffers would otherwise sit in the pool and be handed,
+        // at their full size, to the next small allocation.
+        trim_pool(0);
+        if (!ok) return;
+        storage_range_limit_ = 0xFFFFFFFCull;
+        detail += "; storage buffers past the advertised " + std::to_string(advertised >> 20) +
+                  " MiB maxStorageBufferRange verified by probe on this CPU device";
     }
 
     void begin_frame() override {
@@ -435,9 +487,18 @@ public:
             error = std::string(kernel) + ": wrong argument count";
             return false;
         }
+        // One workgroup row while it fits (bit-identical to a plain 1D
+        // dispatch); past maxComputeWorkGroupCount[0] -- 65535 on lavapipe and
+        // Intel, the spec minimum, i.e. 16.7 M threads, less than a 24 MP
+        // frame -- the groups fold into rows, and every kernel recovers the 1D
+        // index with spk_global_index(). The surplus threads of the last row
+        // fail the same bounds check the last partial workgroup always did.
         const size_t groups = (n_threads + spec->workgroup - 1) / spec->workgroup;
-        if (groups > properties_.limits.maxComputeWorkGroupCount[0]) {
-            error = "Vulkan dispatch exceeds maxComputeWorkGroupCount[0]";
+        const size_t max_x = properties_.limits.maxComputeWorkGroupCount[0];
+        const size_t groups_x = std::min(groups, max_x);
+        const size_t groups_y = (groups + groups_x - 1) / groups_x;
+        if (groups_y > properties_.limits.maxComputeWorkGroupCount[1]) {
+            error = "Vulkan dispatch exceeds maxComputeWorkGroupCount";
             return false;
         }
         // Inline uploads submit transfers too. Resolve them before taking the
@@ -453,7 +514,7 @@ public:
                 b = inline_buffers.back().get();
             }
             if (!b) { error = std::string(kernel) + ": empty argument " + std::to_string(i); return false; }
-            if (b->bytes > properties_.limits.maxStorageBufferRange) {
+            if (b->bytes > storage_range_limit_) {
                 error = std::string(kernel) + ": buffer exceeds maxStorageBufferRange";
                 return false;
             }
@@ -503,7 +564,7 @@ public:
                 vkCmdBindPipeline(command, VK_PIPELINE_BIND_POINT_COMPUTE, pipeline->pipeline);
                 vkCmdBindDescriptorSets(command, VK_PIPELINE_BIND_POINT_COMPUTE, pipeline->layout,
                                         0, 1, &set, 0, nullptr);
-                vkCmdDispatch(command, uint32_t(groups), 1, 1);
+                vkCmdDispatch(command, uint32_t(groups_x), uint32_t(groups_y), 1);
             }, "Vulkan compute dispatch", error);
         vkDestroyDescriptorPool(device_, descriptor_pool, nullptr);
         return submitted;
@@ -917,6 +978,8 @@ private:
     VkInstance instance_ = VK_NULL_HANDLE;
     VkPhysicalDevice physical_ = VK_NULL_HANDLE;
     VkPhysicalDeviceProperties properties_{};
+    // maxStorageBufferRange, unless probe_cpu_storage_range measured more.
+    VkDeviceSize storage_range_limit_ = 0;
     VkPhysicalDeviceMemoryProperties memory_properties_{};
     VkDevice device_ = VK_NULL_HANDLE;
     VkQueue queue_ = VK_NULL_HANDLE;

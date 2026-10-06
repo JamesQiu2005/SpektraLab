@@ -57,17 +57,25 @@ A result that carries pixels has `result.image`:
 - `rgba8`: 8-bit RGBA, display-encoded, top row first. Alpha = 255.
 - `rgba16`: 16-bit LE RGBA, as the engine produced it; `color_space` names the
   engine's output space (read it, do not assume — AGENTS.md trap 28).
+- `rgba16` **with** `display` (`"srgb"`, `"display-p3"` or `"prophoto"`): the
+  output transform for that space, kept at 16 bits; `color_space` names it.
 
 Display surfaces ask for `rgba8` with `display: "srgb"` (or `"display-p3"`); the
 host performs the output transform so the renderer never does colour maths on
-the frame.
+the frame. `rgba8` without `display` means `"srgb"`.
+
+The output transform is the macOS canvas's (`Canvas/Shaders.metal`
+`outputTransform`, RFC-018 §5.4) with every number from `spk_output_transform`:
+the working space's curve off, the CAT02-adapted matrix, CAM16-UCS gamut
+compression into the target, the target's curve on. When the target *is* the
+working space the pixels pass through (the engine already compressed into it).
 
 ## 3. Methods
 
 ### Lifecycle
 | method | params | result |
 |---|---|---|
-| `hello` | `{}` | `{protocol: 1, host_version, build_info, backend: {api: "vulkan", device_name, driver, vram_mb?}, capabilities: <spk_capabilities JSON>, resources_dir}` |
+| `hello` | `{}` | `{protocol: 1, host_version, build_info, backend: {api: "vulkan", available, device_name, math_mode, render_core, error?}, capabilities: <spk_capabilities JSON> \| null, resources_dir, methods: [..]}` |
 | `ping` | `{}` | `{}` |
 | `shutdown` | `{}` | `{}` then exits 0 |
 | `params_schema` | `{}` | `<spk_params_schema JSON>` |
@@ -78,24 +86,26 @@ the frame.
 | method | params | result |
 |---|---|---|
 | `probe` | `{path}` | `{kind: "raw"\|"tiff"\|"jpeg"\|"png", width, height, metadata}` (no full decode) |
-| `thumbnail` | `{path, long_edge}` | `{image}` + rgba8 payload (embedded RAW preview when present, else a fast decode) |
+| `thumbnail` | `{path, long_edge}` | `{image, source: "embedded"\|"half-size decode"\|"decode", orientation_applied: true}` + rgba8 sRGB payload, **already turned to the camera's orientation** (embedded RAW preview when present, else a fast decode) |
 
-`metadata`: `{make?, model?, lens?, iso?, shutter_s?, aperture?, focal_mm?, datetime_original?, orientation?}` — feeds the date back and the info readouts.
+`metadata`: `{make?, model?, lens?, iso?, shutter_s?, aperture?, focal_mm?, datetime_original?, orientation}` — feeds the date back and the info readouts. `datetime_original` is ISO-8601 local time without a zone (`2026-09-14T17:03:22`), from EXIF `DateTimeOriginal`. `orientation` is the EXIF value (1–8) of the file as stored; `probe`'s `width`/`height` are **as displayed** (orientation applied), and so is every frame the host hands the engine.
+
+What a file is decoded *to* (the engine develops linear ProPhoto RGB, top row first; AGENTS.md traps 11–12): RAW through LibRaw; TIFF/JPEG/PNG through their embedded matrix/TRC ICC profile (D50 colorants to XYZ to ProPhoto, as ColorSync does); without a profile, 8-bit files are sRGB and 16-bit/float TIFFs are linear ProPhoto (the macOS decoder's rule for an untagged deep TIFF). TIFF: 8/16-bit integer and 32-bit float, RGB or grey, uncompressed/LZW/deflate/PackBits, strips or tiles; not BigTIFF, CMYK or LUT-based ICC profiles (those fall back to sRGB with a log line).
 
 ### Sessions (one per open frame)
 | method | params | result |
 |---|---|---|
-| `open` | `{path, decode?: {raw_mode?: "compatible16"\|"headroom"}, params?: <full or partial params JSON>}` | `{session: "<sid>", width, height, metadata, params: <spk_get_params>, timings_ms: {decode, open}}` |
+| `open` | `{path, decode?: {raw_mode?: "compatible16"\|"headroom"}, params?: <full or partial params JSON>}` | `{session: "<sid>", width, height, kind, metadata, params, detected_input, output_color_space, timings_ms: {decode, open}}` — any other `decode` key is `unsupported` |
 | `close` | `{session}` | `{}` |
 | `set_params` | `{session, delta: {...}}` | `{params}` (the delta is applied transactionally: on error the session is unchanged) |
 | `get_params` | `{session}` | `{params}` |
 | `solve` | `{session, target}` | `<spk_solve JSON>` |
-| `render` | `{session, tier: "live"\|"preview"\|"full", reprint?: bool, format: "rgba8"\|"rgba16", display?: "srgb"\|"display-p3", progress_id?}` | `{image, tier, reprinted: bool, timings_ms}` + pixels |
+| `render` | `{session, tier: "live"\|"preview"\|"full", reprint?: bool, format: "rgba8"\|"rgba16", display?: "srgb"\|"display-p3"\|"prophoto", progress_id?}` | `{image, tier, reprinted: bool, negative_was_cached: bool, engine_progress_id, timings_ms: {engine, render, transform}}` + pixels |
 | `scene_latitude` | `{session, request: {...}}` | `<spk_scene_latitude JSON>` |
 | `overscan_geometry` | `{session}` | `<spk_overscan_geometry JSON>` |
-| `preview_stock_lut` | `{session, print_stock, format, display?}` | `{image}` + pixels |
-| `cancel` | `{session, progress_id}` | `{}` |
-| `progress` | `{session, progress_id}` | `<spk_progress JSON>` |
+| `preview_stock_lut` | `{session, print_stock, tier?: "preview", format, display?}` | `{image, lut: <spk_preview_stock_lut JSON>}` + pixels; the LUT's own output space (catalog `output_color_space`) is the source of the transform |
+| `cancel` | `{session, progress_id}` | `{was_running}` — handled on the reader thread: the request carrying that `progress_id` is cancelled if running (`spk_cancel`) or refused with `cancelled` when it reaches the worker |
+| `progress` | `{session, engine_progress_id?}` | `<spk_progress JSON>` of the session's last render (queued behind the worker, so it reports a finished render, not one in flight; live progress is the `progress` event) |
 
 `reprint: true` uses `spk_reprint` (print-side edits only; API-SPEC §2); the host
 falls back to `spk_render` and reports `reprinted: false` when the engine refuses.
@@ -103,12 +113,36 @@ falls back to `spk_render` and reports `reprinted: false` when the engine refuse
 ### Export
 | method | params | result |
 |---|---|---|
-| `export_image` | `{session, path, format: "tiff16"\|"tiff8"\|"jpeg"\|"png", quality?, color_space?: "sRGB"\|"display-p3"\|"prophoto", long_edge?, overwrite?: bool}` | `{path, width, height, bytes}` |
-| `export_cube` | `{print_stock, path, size?}` | `{path}` |
-| `export_di` | `{session, print_stock, path}` | `{path}` |
+| `export_image` | `{session, path, format: "tiff16"\|"tiff8"\|"jpeg"\|"png", quality?: 92, color_space?: "sRGB"\|"display-p3"\|"prophoto", long_edge?, overwrite?: false, progress_id?}` | `{path, width, height, bytes, color_space}` |
+| `write_image` | `{path, format, quality?, color_space, width, height, overwrite?: false}` + rgba16 LE payload (top row first, encoded in `color_space`) | `{path, width, height, bytes, color_space, exif_copied: false}` (R1) |
+| `export_cube` | `{print_stock, path, overwrite?}` | `{path, size}` — the baked print LUT (`spk_print_lut_table`), domain 0..1 of normalised negative density |
+| `export_di` | `{session, print_stock?, path, overwrite?}` | `{path, width, height, bytes, di: <spk_export_di JSON>}` — 16-bit TIFF of normalised negative density, no ICC (it is not a colour space) |
 
-Events: `{"event": "progress", "session", "progress_id", "fraction", "stage"}`,
-`{"event": "log", "level", "message"}`.
+Files: every writer embeds an ICC profile for its `color_space` (the bundled
+`io/sRGB.icc`; generated v2 matrix/TRC profiles for Display P3 and ProPhoto),
+writes a hidden `.<name>.partial-<pid>-<n>` beside the destination and renames
+it into place, and refuses an existing destination unless `overwrite` (§7.8
+"files land whole"). PNG is 8-bit. TIFF is uncompressed, little-endian.
+`long_edge` downsamples in linear light (area average) after the output
+transform's matrix and gamut step, before the curve.
+
+Events: `{"event": "progress", "session", "progress_id", "fraction", "stage"}`
+(stages `render`, `transform`/`encode`, `done`; emitted only for requests that
+carry a `progress_id`).
+
+Errors: `decode_failed` (unreadable/unsupported file), `not_found` (no such
+file or session), `bad_request` (a malformed parameter, or the engine's
+`SPK_ERR_USER`/`INVALID_ARG` — including the refused features in
+`capabilities.backend.unsupported_features`), `unsupported` (an unknown method
+or decode key), `engine_error`, `cancelled`, `io_error`, `internal`.
+
+If the engine cannot start (no Vulkan driver), the host still answers `hello`
+with `backend.available: false` and `backend.error`, and every engine method
+fails with `engine_error`; `probe` and `thumbnail` still work.
+
+Lavapipe (Mesa's CPU Vulkan) works as a fallback device: the engine accepts its
+unfused `fma` and, after a probe at start-up, storage buffers past its
+advertised 128 MiB range; both are stated in `backend.math_mode`.
 
 ## 4. Packaging layout
 
