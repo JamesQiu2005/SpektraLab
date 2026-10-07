@@ -76,6 +76,8 @@ OVERRIDES: dict[str, object] = {
     "date_imprint_data_text": "1/125 F2.8 A 50mm",
     "scene_latitude_b_highlight_knee": 4.0,
     "scene_latitude_b_shadow_knee": -12.0,
+    # The lens's colour filter: a name from `camera_filters.hpp`.
+    "camera_filter": "w8",
 }
 
 # Print-layer fields that nevertheless invalidate cached work. The walk below

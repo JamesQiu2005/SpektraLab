@@ -1,0 +1,43 @@
+{
+ "paper": "ilford_multigrade_iv_rc",
+ "film": "kodak_tri_x_400",
+ "enlarger_illuminant": "TH-KG3",
+ "note": "Multigrade filter -> the wire fields that print it: c_filter_neutral 0, m_filter_neutral, y_filter_neutral, print_exposure. print_exposure holds mid-grey. No half grades (not on the sheet).",
+ "grades": {
+  "00": {
+   "m_filter_neutral": 0.0,
+   "y_filter_neutral": 199.0,
+   "print_exposure": 0.5323
+  },
+  "0": {
+   "m_filter_neutral": 0.0,
+   "y_filter_neutral": 137.9,
+   "print_exposure": 0.6642
+  },
+  "1": {
+   "m_filter_neutral": 0.0,
+   "y_filter_neutral": 99.8,
+   "print_exposure": 0.8257
+  },
+  "2": {
+   "m_filter_neutral": 0.0,
+   "y_filter_neutral": 68.0,
+   "print_exposure": 1.0
+  },
+  "3": {
+   "m_filter_neutral": 0.0,
+   "y_filter_neutral": 34.1,
+   "print_exposure": 1.159
+  },
+  "4": {
+   "m_filter_neutral": 39.1,
+   "y_filter_neutral": 0.0,
+   "print_exposure": 1.334
+  },
+  "5": {
+   "m_filter_neutral": 151.7,
+   "y_filter_neutral": 0.0,
+   "print_exposure": 1.3507
+  }
+ }
+}
