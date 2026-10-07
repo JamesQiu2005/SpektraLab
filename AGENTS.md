@@ -325,6 +325,25 @@ Snapshot flags for canvas features a test cannot see: `--zoom`, `--geometry`,
 
 ---
 
+### Black and white, not wired yet (2026-10-07)
+
+`engine/resources_product/` holds the product's own data: a Tri-X 400 film profile, an Ilford
+Multigrade IV RC paper profile, the paper's grade table and its filter-pack row (`NOTICE.md` there
+says what each is built from). **Nothing installs it**: not the bundle step, not the catalogue, not
+the app. The engine loads profiles only from `<resources>/profiles/`, so `engine/tests/bw_checks.py`
+overlays the directory on `engine/resources/` in a scratch folder. It needs only `build.sh dylib`
+and no Python reference:
+
+```sh
+python3 engine/tests/bw_checks.py
+```
+
+The one engine change for black and white is the wire field `camera_filter` (API-SPEC §15), which
+shapes the picture and not the film's edge. Grain, sharpness and halation for Tri-X are still the
+colour defaults (it renders RMS ~7 against the sheet's 17). The research, with what is measured and
+what is assumed: `research/black-and-white-tri-x.md`, `research/colour-film-granularity.md`
+(`/research` is ignored; these were added by hand).
+
 ## Traps
 
 ### 1. The pipeline is nondeterministic by default
