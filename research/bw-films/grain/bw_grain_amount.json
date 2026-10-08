@@ -1,0 +1,374 @@
+{
+ "pitch_um": 6.0,
+ "wire_range": [
+  0.0,
+  2.0
+ ],
+ "engine_build": "spektrafilm-native 0.1.0 (Oct  9 2026 01:41:45, math=safe)",
+ "stocks": {
+  "kodak_tri_x_400": {
+   "published": 17,
+   "published_tag": "SHEET",
+   "basis": "Kodak F-4017 (Feb 2016) p6: net diffuse density 1.0, 48 um, 12X, HC-110 B",
+   "paths": {
+    "sub": {
+     "engine_rms_at_1": {
+      "4um": 7.52030235974987,
+      "6um": 7.2186003524172815,
+      "12um": 6.308753462061444
+     },
+     "amount": {
+      "4um": 2.2605474071079015,
+      "6um": 2.3550271756362346,
+      "12um": 2.6946686222931104
+     },
+     "in_wire_range_6um": false,
+     "sent": 2.0,
+     "rms48_rendered_at_sent": 14.438313150363477,
+     "mean_density_at_sent": 0.999965093996396,
+     "stripe_contrast_vs_grain_off": {
+      "2px": {
+       "at_1": 0.24876382087649213,
+       "at_sent": -0.5028904328826852,
+       "predicted_at_1": 0.12431284716027362,
+       "predicted_at_sent": -0.7513743056794528
+      },
+      "3px": {
+       "at_1": 0.4203987121717963,
+       "at_sent": -0.1596040184731613,
+       "predicted_at_1": 0.39587918961961566,
+       "predicted_at_sent": -0.2082416207607687
+      },
+      "4px": {
+       "at_1": 0.602478281665265,
+       "at_sent": 0.20504628241385334,
+       "predicted_at_1": 0.5937847004769068,
+       "predicted_at_sent": 0.18756940095381358
+      },
+      "8px": {
+       "at_1": 0.8792482250337353,
+       "at_sent": 0.7583836999135186,
+       "predicted_at_1": 0.877823596564172,
+       "predicted_at_sent": 0.7556471931283439
+      }
+     }
+    },
+    "single": {
+     "engine_rms_at_1": {
+      "4um": 10.371909527883943,
+      "6um": 9.971576030468361,
+      "12um": 8.681045947184757
+     },
+     "amount": {
+      "4um": 1.6390424496373626,
+      "6um": 1.704845848645805,
+      "12um": 1.9582893701320705
+     },
+     "in_wire_range_6um": true,
+     "sent": 1.7,
+     "rms48_rendered_at_sent": 16.95489977794036,
+     "mean_density_at_sent": 1.0000651874028597,
+     "stripe_contrast_vs_grain_off": {
+      "2px": {
+       "at_1": 0.2487240880295696,
+       "at_sent": -0.27747934157762555,
+       "predicted_at_1": 0.12431284716027362,
+       "predicted_at_sent": -0.48866815982753486
+      },
+      "3px": {
+       "at_1": 0.42039305899446905,
+       "at_sent": 0.01440221024285686,
+       "predicted_at_1": 0.39587918961961566,
+       "predicted_at_sent": -0.02700537764665345
+      },
+      "4px": {
+       "at_1": 0.602676360510894,
+       "at_sent": 0.3246047814581167,
+       "predicted_at_1": 0.5937847004769068,
+       "predicted_at_sent": 0.3094339908107415
+      },
+      "8px": {
+       "at_1": 0.878640145297615,
+       "at_sent": 0.7936079153807629,
+       "predicted_at_1": 0.877823596564172,
+       "predicted_at_sent": 0.7923001141590924
+      }
+     }
+    }
+   }
+  },
+  "kodak_tmax_100": {
+   "published": 8,
+   "published_tag": "SHEET",
+   "basis": "Kodak F-4016 (June 2018) p8: net diffuse density 1.00, 48 um, 12X, D-76 68F",
+   "paths": {
+    "sub": {
+     "engine_rms_at_1": {
+      "4um": 7.20577537841429,
+      "6um": 6.9579180945390595,
+      "12um": 6.079762395163775
+     },
+     "amount": {
+      "4um": 1.1102205633504618,
+      "6um": 1.1497692113218207,
+      "12um": 1.3158408964080082
+     },
+     "in_wire_range_6um": true,
+     "sent": 1.15,
+     "rms48_rendered_at_sent": 8.001064683402673,
+     "mean_density_at_sent": 1.0000120269357544,
+     "stripe_contrast_vs_grain_off": {
+      "2px": {
+       "at_1": 0.24873459318422567,
+       "at_sent": 0.13599417775233774,
+       "predicted_at_1": 0.12431284716027362,
+       "predicted_at_sent": -0.007040225765685415
+      },
+      "3px": {
+       "at_1": 0.42039676037582185,
+       "at_sent": 0.3333957251860127,
+       "predicted_at_1": 0.39587918961961566,
+       "predicted_at_sent": 0.30526106806255804
+      },
+      "4px": {
+       "at_1": 0.6024783577210872,
+       "at_sent": 0.5428565599914157,
+       "predicted_at_1": 0.5937847004769068,
+       "predicted_at_sent": 0.5328524055484428
+      },
+      "8px": {
+       "at_1": 0.8787830492407963,
+       "at_sent": 0.8606173616164979,
+       "predicted_at_1": 0.877823596564172,
+       "predicted_at_sent": 0.8594971360487977
+      }
+     }
+    },
+    "single": {
+     "engine_rms_at_1": {
+      "4um": 11.316913406789903,
+      "6um": 10.847664422990727,
+      "12um": 9.439638482260884
+     },
+     "amount": {
+      "4um": 0.7069065311748496,
+      "6um": 0.7374859405721164,
+      "12um": 0.8474900829129977
+     },
+     "in_wire_range_6um": true,
+     "sent": 0.74,
+     "rms48_rendered_at_sent": 8.028124162006698,
+     "mean_density_at_sent": 1.0000432952682847,
+     "stripe_contrast_vs_grain_off": {
+      "2px": {
+       "at_1": 0.24871890760944793,
+       "at_sent": 0.44412397916209173,
+       "predicted_at_1": 0.12431284716027362,
+       "predicted_at_sent": 0.3519915068986025
+      },
+      "3px": {
+       "at_1": 0.4203076151503635,
+       "at_sent": 0.5711245741996123,
+       "predicted_at_1": 0.39587918961961566,
+       "predicted_at_sent": 0.5529506003185156
+      },
+      "4px": {
+       "at_1": 0.6027885480092856,
+       "at_sent": 0.7060565759167114,
+       "predicted_at_1": 0.5937847004769068,
+       "predicted_at_sent": 0.699400678352911
+      },
+      "8px": {
+       "at_1": 0.8785003236913422,
+       "at_sent": 0.910061589047318,
+       "predicted_at_1": 0.877823596564172,
+       "predicted_at_sent": 0.9095894614574873
+      }
+     }
+    }
+   }
+  },
+  "fujifilm_neopan_acros_100_ii": {
+   "published": 7,
+   "published_tag": "SHEET",
+   "basis": "Fujifilm AF3-0258E p3: 48 um, 1.0 above minimum density, MICROFINE (profile curve is D-76)",
+   "paths": {
+    "sub": {
+     "engine_rms_at_1": {
+      "4um": 8.734205420286624,
+      "6um": 8.403732415923471,
+      "12um": 7.332396988707988
+     },
+     "amount": {
+      "4um": 0.8014466872672071,
+      "6um": 0.832963218430936,
+      "12um": 0.954667349678436
+     },
+     "in_wire_range_6um": true,
+     "sent": 0.83,
+     "rms48_rendered_at_sent": 6.975792719982568,
+     "mean_density_at_sent": 1.0000026637657613,
+     "stripe_contrast_vs_grain_off": {
+      "2px": {
+       "at_1": 0.24874255443205276,
+       "at_sent": 0.3765245459677423,
+       "predicted_at_1": 0.12431284716027362,
+       "predicted_at_sent": 0.2731796631430271
+      },
+      "3px": {
+       "at_1": 0.4202520893049922,
+       "at_sent": 0.5188041614731412,
+       "predicted_at_1": 0.39587918961961566,
+       "predicted_at_sent": 0.498579727384281
+      },
+      "4px": {
+       "at_1": 0.6024922146736509,
+       "at_sent": 0.6700751834342521,
+       "predicted_at_1": 0.5937847004769068,
+       "predicted_at_sent": 0.6628413013958326
+      },
+      "8px": {
+       "at_1": 0.8789509231858703,
+       "at_sent": 0.8995145124923645,
+       "predicted_at_1": 0.877823596564172,
+       "predicted_at_sent": 0.8985935851482627
+      }
+     }
+    },
+    "single": {
+     "engine_rms_at_1": {
+      "4um": 11.397145871349851,
+      "6um": 10.97532694560659,
+      "12um": 9.5538734380068
+     },
+     "amount": {
+      "4um": 0.6141888573696861,
+      "6um": 0.6377942119348063,
+      "12um": 0.7326871185202126
+     },
+     "in_wire_range_6um": true,
+     "sent": 0.64,
+     "rms48_rendered_at_sent": 7.0254212385325046,
+     "mean_density_at_sent": 1.0000432083180077,
+     "stripe_contrast_vs_grain_off": {
+      "2px": {
+       "at_1": 0.2487205578373748,
+       "at_sent": 0.5193012358792142,
+       "predicted_at_1": 0.12431284716027362,
+       "predicted_at_sent": 0.43956022218257507
+      },
+      "3px": {
+       "at_1": 0.42023598765348236,
+       "at_sent": 0.6289325222764233,
+       "predicted_at_1": 0.39587918961961566,
+       "predicted_at_sent": 0.613362681356554
+      },
+      "4px": {
+       "at_1": 0.6027130990813597,
+       "at_sent": 0.7457527378952515,
+       "predicted_at_1": 0.5937847004769068,
+       "predicted_at_sent": 0.7400222083052204
+      },
+      "8px": {
+       "at_1": 0.8785710565522473,
+       "at_sent": 0.9222544631073809,
+       "predicted_at_1": 0.877823596564172,
+       "predicted_at_sent": 0.9218071018010701
+      }
+     }
+    }
+   }
+  },
+  "ilford_hp5_plus_400": {
+   "published": 16,
+   "published_tag": "SHEET (other product)",
+   "basis": "Ilford HP5 Plus negative MOTION PICTURE fact sheet (1997): D-96 6 min 75F, gamma 0.65-0.70; aperture and density NOT stated; the still-film sheet publishes none",
+   "paths": {
+    "sub": {
+     "engine_rms_at_1": {
+      "4um": 7.942921150755259,
+      "6um": 7.703621441918937,
+      "12um": 6.72024987790911
+     },
+     "amount": {
+      "4um": 2.014372256292463,
+      "6um": 2.076945254985748,
+      "12um": 2.3808638504046407
+     },
+     "in_wire_range_6um": false,
+     "sent": 2.0,
+     "rms48_rendered_at_sent": 15.40353115074305,
+     "mean_density_at_sent": 1.0000022750722832,
+     "stripe_contrast_vs_grain_off": {
+      "2px": {
+       "at_1": 0.2487389656287531,
+       "at_sent": -0.5029407716822271,
+       "predicted_at_1": 0.12431284716027362,
+       "predicted_at_sent": -0.7513743056794528
+      },
+      "3px": {
+       "at_1": 0.4203496242920853,
+       "at_sent": -0.1595580585539229,
+       "predicted_at_1": 0.39587918961961566,
+       "predicted_at_sent": -0.2082416207607687
+      },
+      "4px": {
+       "at_1": 0.6024143780505095,
+       "at_sent": 0.20500188638859032,
+       "predicted_at_1": 0.5937847004769068,
+       "predicted_at_sent": 0.18756940095381358
+      },
+      "8px": {
+       "at_1": 0.8787996886189533,
+       "at_sent": 0.7575579892335216,
+       "predicted_at_1": 0.877823596564172,
+       "predicted_at_sent": 0.7556471931283439
+      }
+     }
+    },
+    "single": {
+     "engine_rms_at_1": {
+      "4um": 11.194979897549075,
+      "6um": 10.758965043934728,
+      "12um": 9.362386930274582
+     },
+     "amount": {
+      "4um": 1.4292120348963637,
+      "6um": 1.4871318881196534,
+      "12um": 1.708965899311614
+     },
+     "in_wire_range_6um": true,
+     "sent": 1.49,
+     "rms48_rendered_at_sent": 16.03311576311134,
+     "mean_density_at_sent": 1.0000892566171267,
+     "stripe_contrast_vs_grain_off": {
+      "2px": {
+       "at_1": 0.24874478120216453,
+       "at_sent": -0.11959583671929944,
+       "predicted_at_1": 0.12431284716027362,
+       "predicted_at_sent": -0.30477385773119225
+      },
+      "3px": {
+       "at_1": 0.4203027279944781,
+       "at_sent": 0.13614378654879142,
+       "predicted_at_1": 0.39587918961961566,
+       "predicted_at_sent": 0.0998599925332273
+      },
+      "4px": {
+       "at_1": 0.6026173767102033,
+       "at_sent": 0.4079747675766607,
+       "predicted_at_1": 0.5937847004769068,
+       "predicted_at_sent": 0.3947392037105911
+      },
+      "8px": {
+       "at_1": 0.8788519376546432,
+       "at_sent": 0.8194674984590764,
+       "predicted_at_1": 0.877823596564172,
+       "predicted_at_sent": 0.8179571588806163
+      }
+     }
+    }
+   }
+  }
+ }
+}

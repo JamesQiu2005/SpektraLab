@@ -1,0 +1,9 @@
+stock,published_rms,published_tag,sublayers,engine_rms_at_1_6um,amount_6um,in_wire_range,amount_sent,rms_rendered_at_sent,amount_4um,amount_12um,stripe2px_contrast_at_1,stripe2px_contrast_at_sent,stripe3px_contrast_at_1,stripe3px_contrast_at_sent,stripe4px_contrast_at_1,stripe4px_contrast_at_sent,stripe8px_contrast_at_1,stripe8px_contrast_at_sent
+kodak_tri_x_400,17,SHEET,on,7.22,2.36,NO,2.00,14.44,2.26,2.69,0.249,-0.503,0.420,-0.160,0.602,0.205,0.879,0.758
+kodak_tri_x_400,17,SHEET,off,9.97,1.70,yes,1.70,16.95,1.64,1.96,0.249,-0.277,0.420,0.014,0.603,0.325,0.879,0.794
+kodak_tmax_100,8,SHEET,on,6.96,1.15,yes,1.15,8.00,1.11,1.32,0.249,0.136,0.420,0.333,0.602,0.543,0.879,0.861
+kodak_tmax_100,8,SHEET,off,10.85,0.74,yes,0.74,8.03,0.71,0.85,0.249,0.444,0.420,0.571,0.603,0.706,0.879,0.910
+fujifilm_neopan_acros_100_ii,7,SHEET,on,8.40,0.83,yes,0.83,6.98,0.80,0.95,0.249,0.377,0.420,0.519,0.602,0.670,0.879,0.900
+fujifilm_neopan_acros_100_ii,7,SHEET,off,10.98,0.64,yes,0.64,7.03,0.61,0.73,0.249,0.519,0.420,0.629,0.603,0.746,0.879,0.922
+ilford_hp5_plus_400,16,SHEET (other product),on,7.70,2.08,NO,2.00,15.40,2.01,2.38,0.249,-0.503,0.420,-0.160,0.602,0.205,0.879,0.758
+ilford_hp5_plus_400,16,SHEET (other product),off,10.76,1.49,yes,1.49,16.03,1.43,1.71,0.249,-0.120,0.420,0.136,0.603,0.408,0.879,0.819

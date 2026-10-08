@@ -66,6 +66,8 @@ constexpr double kCarrierMM = 0.40;
 // A half-frame camera advances 4 perforations between exposures.
 constexpr double kPairAdvanceMM = 19.0;
 constexpr int kMaxQuads = 8;
+// Ilford's 135 print: where its DX code starts, mm past `perf_phase` (see the layout).
+constexpr double kIlfordCode = 2.85;
 constexpr double kMidGrey = 0.184;
 
 // splitmix64 streams, one per (level, purpose), so adding a draw to one level
@@ -140,6 +142,7 @@ enum class Edge135 {
     FujiSlide,  // no bars; Fujifilm's dot faces, bold numbers on both edges, "36 => 12A": RVP50, RDPIII
     FujiNeg,    // 14.1 mm DX bars, condensed numbers on both edges: X-Tra 400
     Cine,       // "EASTMAN 5207 ..." beside one row of perforations, dashes, no bars: Vision3 250D
+    Ilford,     // Kodak's two bands turned half a turn: DX bars, the name in a square 5x7 face: HP5 Plus
 };
 enum class Edge120 {
     Kodak,      // numbers and the name on one edge, triangles and digits on the other
@@ -200,6 +203,19 @@ constexpr EdgeLook kEdgeLooks[] = {
     // both, no DX bars on 135 (none on the strip; `dx_extract_for` has no
     // row), and one emulsion, so the printer's light is the same in all three.
     {"kodak_tri_x_400",       Edge135::Kodak, Edge120::Kodak, {1.0, 1.0, 1.0}, 5.3, true, ""},
+    // T-Max 100 (100TMX): the 135 and 120 (6x6) strips in research/B&W_Research/film.
+    // Kodak's layout on both, in its bold weight ("7", "KODAK 100TMX"), and no
+    // DX bars on the 135 strip, as on Tri-X.
+    {"kodak_tmax_100",        Edge135::Kodak, Edge120::Kodak, {1.0, 1.0, 1.0}, 5.3, false, ""},
+    // Neopan 100 Acros II: one 135 strip. Fujifilm's dots and no bars, the
+    // number and "=> 1A" on the far band as its slides have them, so it takes
+    // the slides' layout. Not matched to the strip: the name there is larger
+    // (about 1.5 mm caps against the slides' 1.04) and the name's band shows
+    // no number. **No 120 reference**: Fujifilm's 120 layout, unverified.
+    {"fujifilm_neopan_acros_100_ii", Edge135::FujiSlide, Edge120::Fuji, {1.0, 1.0, 1.0}, 5.8, false, ""},
+    // HP5 Plus: one 135 strip. **No 120 reference** (the sheet says only that
+    // 120 is "edge numbered 1 to 19"): Kodak's 120 layout, unverified.
+    {"ilford_hp5_plus_400",   Edge135::Ilford, Edge120::Kodak, {1.0, 1.0, 1.0}, 5.3, false, ""},
     {"kodak_vision3_250d",    Edge135::Cine, Edge120::Kodak, {0.58, 0.60, 1.0}, 4.5, false, ""},
     {"kodak_vision3_50d",     Edge135::Cine, Edge120::Kodak, {0.58, 0.60, 1.0}, 4.5, false, ""},
     {"kodak_vision3_200t",    Edge135::Cine, Edge120::Kodak, {0.58, 0.60, 1.0}, 4.5, false, ""},
@@ -1055,6 +1071,10 @@ int dx_extract_for(const std::string& stock) {
         {"kodak_ektar_100", 1307}, {"kodak_ultramax_400", 1313}, {"kodak_ektachrome_100", 382},
         {"fujifilm_c200", 1550}, {"fujifilm_xtra_400", 628}, {"fujifilm_pro_400h", 584},
         {"fujifilm_provia_100f", 557}, {"fujifilm_velvia_100", 523},
+        // HP5 Plus: 109/9, from its cartridge code 017534 (the middle four
+        // digits are the DX number). The strip shows the code's clock track;
+        // its data track is cropped off, so this was not read back.
+        {"ilford_hp5_plus_400", 1753},
     };
     for (const auto& e : kDx) if (stock == e.id) return e.dx;
     return -1;
@@ -1172,6 +1192,12 @@ const char* const* names_glyph(const std::string& text, size_t& i) {
         text[i - 1] != ' ' && text[i - 1] != 'I') {
         i += 3;
         return kRoman3;
+    }
+    // "II" standing as a word is one cell too ("FUJI 100 ACROS II", the Acros II strip)
+    static const char* const kRoman2[9] = {"#######", ".#...#.", ".#...#.", ".#...#.", ".#...#.", ".#...#.", ".#...#.", ".#...#.", "#######"};
+    if (text.compare(i, 2, "II") == 0 && (i + 2 == text.size() || text[i + 2] == ' ') && i > 0 && text[i - 1] == ' ') {
+        i += 2;
+        return kRoman2;
     }
     const char ch = text[i++];
     const char up = (ch >= 'a' && ch <= 'z') ? char(ch - 'a' + 'A') : ch;
@@ -1434,14 +1460,16 @@ void imprint_groups(const OverscanLayout& L, const Params& params, double frame_
         // strokes stay beaded at their edges instead of fusing into bars.
         const double kDot = 0.114;
         const bool fuji_neg = look.k135 == Edge135::FujiNeg;
-        const int dx = (look.k135 == Edge135::Kodak || fuji_neg) ? dx_extract_for(params.film.info.stock) : -1;
+        const bool ilford = look.k135 == Edge135::Ilford;
+        const int dx = (look.k135 == Edge135::Kodak || fuji_neg || ilford) ? dx_extract_for(params.film.info.stock) : -1;
         // The DX code (ISO 1007): 31 modules. Read back off the references it
         // is 12.64-12.78 mm long on Kodak-made film (Gold 200, Portra 160,
-        // C200) and 14.1 mm on Fujifilm's X-Tra 400 -- not the 13.0 assumed.
-        const double mod = (fuji_neg ? 14.1 : 12.7) / 31.0;
+        // C200) and 14.1 mm on Fujifilm's X-Tra 400 -- not the 13.0 assumed --
+        // and 13.06 mm on Ilford's HP5 Plus.
+        const double mod = (fuji_neg ? 14.1 : ilford ? 13.06 : 12.7) / 31.0;
         const double clock_t0 = W - 2.17, data_t0 = W - 0.87, data_t1 = W + 0.10;
         const int m_lo = int(std::floor((s_min - grid0) / 19.0)) - 1, m_hi = int(std::ceil((s_max - grid0) / 19.0)) + 1;
-        auto dx_code = [&](double s, int num, bool a_half) {
+        auto dx_code = [&](double s, int num, bool a_half, std::vector<Op>& dst) {
             if (dx < 0) return;
             // as runs of black modules so neighbours do not seam
             int bits[23];
@@ -1458,7 +1486,7 @@ void imprint_groups(const OverscanLayout& L, const Params& params, double frame_
                     if (!row[i]) { ++i; continue; }
                     int j = i;
                     while (j < 31 && row[j]) ++j;
-                    bot.ops.push_back(rect(s + i * mod, ta, s + j * mod, tb + (track == 0 ? 0.01 : 0.0)));
+                    dst.push_back(rect(s + i * mod, ta, s + j * mod, tb + (track == 0 ? 0.01 : 0.0)));
                     i = j;
                 }
             }
@@ -1518,7 +1546,7 @@ void imprint_groups(const OverscanLayout& L, const Params& params, double frame_
                 // at caps 0.90 mm 0.84 mm from it over an arrow 3.6 mm long
                 // centred 0.28 mm from it (Gold 200, Portra 160); the number
                 // 3.3 mm past the code's end, "12A" 2.6 mm, the arrow 1.8 mm.
-                dx_code(s, num, a_half);
+                dx_code(s, num, a_half, bot.ops);
                 Op nb = helv(light ? "HelveticaNeue" : "HelveticaNeue-Bold", 1.40, kCap, light ? 1.0 : 1.25, light ? 0.03 : 0.25);
                 if (a_half) {
                     nb.text = std::to_string(num) + "A";
@@ -1552,7 +1580,7 @@ void imprint_groups(const OverscanLayout& L, const Params& params, double frame_
                 if (a_half && !o.edge_text.empty())
                     dot_text(fit_dots(o.edge_text, 9.8, kFaceNames, kDotS, kDot, 4.0), kFaceNames, kDotS, kDotT, kDot, 4.0,
                              s + 5.5, 1.50, &top.ops);
-                dx_code(s, num, a_half);
+                dx_code(s, num, a_half, bot.ops);
                 dot_text(n, kFaceSmall, ps, kDotT, kDot, 4.0, s + (a_half ? 16.1 : 15.25), a_half ? W - 0.41 : W - 0.31,
                          &bot.ops);
                 if (a_half) wind_arrow(s + 14.6, s + 15.85, W - 1.0, 0.55, 0.3);
@@ -1597,6 +1625,43 @@ void imprint_groups(const OverscanLayout& L, const Params& params, double frame_
                     dot_rows(kArrow, 12, 22, sa + 16.05 + 0.5 * kDot, foot - 0.5 * kDot - 11 * kDotT, kDotS, kDotT, kDot, &bot.ops);
                     dot_text(std::to_string(num) + "A", kFaceSmall, kDotS, kDotT, kDot, 4.0, sa + 18.88, foot, &bot.ops);
                 }
+            } else if (ilford) {
+                // HP5 Plus (one 135 strip, 29.7 px/mm): what Kodak prints,
+                // turned half a turn -- with the picture upright the bars run
+                // along the top band and the name reads upside down along the
+                // bottom one. So it is laid out here as it reads (`u` from the
+                // code's start, `v` from the name's edge) and turned at the end.
+                // Measured: the code 13.06 mm long, a 5-module bar first as
+                // read, starting 1.89 mm past a perforation's centre, one every
+                // 19 mm; the name in a square 5x7 face, caps 1.50 mm on a
+                // baseline 1.85 mm from its edge, a character every 1.26 mm,
+                // starting 8.7 mm after the start of the code beyond the
+                // frame's end; and beside it a batch number ("5847-1...") that
+                // is not drawn, since one strip gives no rule for it.
+                // ASSUMED: the frame numbers. The strip is cropped through
+                // them: what shows is that they stand in the gaps between the
+                // codes with their tops 1.95 mm from the edge. Their face (the
+                // name's, bold), "N" and "NA" and which gap holds which
+                // (Kodak's order, turned) are not measured.
+                const double c = L.perf_phase + kIlfordCode + 19.0 * (m + 1);   // where the code starts, in s
+                const size_t t0 = top.ops.size(), b0 = bot.ops.size();
+                dx_code(0.0, num, a_half, top.ops);
+                if (a_half) {
+                    matrix_text(std::to_string(num) + "A", 1.20, 1.0, false, 14.9, W - 0.35, &top.ops);
+                    if (!o.edge_text.empty())
+                        matrix_text(fit_matrix_text(o.edge_text, 26.0, 1.50, 1.0, false), 1.50, 1.0, false, 8.7, 1.85, &bot.ops);
+                } else {
+                    matrix_text(std::to_string(num), 1.60, 1.0, true, 14.6, W - 0.35, &top.ops);
+                }
+                auto turn = [&](std::vector<Op>& ops, size_t from) {
+                    for (size_t i = from; i < ops.size(); ++i)
+                        for (size_t k = 0; k + 1 < ops[i].pts.size(); k += 2) {
+                            ops[i].pts[k] = c - ops[i].pts[k];
+                            ops[i].pts[k + 1] = W - ops[i].pts[k + 1];
+                        }
+                };
+                turn(top.ops, t0);
+                turn(bot.ops, b0);
             } else {
                 // Cine (Eastman 5207, 22.8 px/mm): one line beside the bottom
                 // perforations -- the host's text in a square 5x7 face, caps

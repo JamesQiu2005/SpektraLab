@@ -1,0 +1,8 @@
+axis,max_abs_residual
+acros D-76 x (logH),0.00300
+acros D-76 y (D),0.00224
+acros spectrogram x (nm),0.03548
+hp5 x (rel logE),0.00623
+hp5 y (D),0.00886
+hp5 spectrogram x (nm),0.33937
+hp5 spectrogram y,0.00000

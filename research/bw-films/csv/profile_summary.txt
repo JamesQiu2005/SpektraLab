@@ -1,0 +1,3 @@
+kodak_tmax_100: Dmin 0.209  CI 0.560  own speed EI 85  dD(1.3 logH) 0.735  D over min at mid-grey 0.618  end slope 0.601  ceiling 2.81 net  cdf err 0.0088 (t 6.18 min)
+fujifilm_neopan_acros_100_ii: Dmin 0.144  CI 0.572  own speed EI 134  dD(1.3 logH) 0.689  D over min at mid-grey 0.686  end slope 0.802  ceiling 2.85 net  cdf err 0.0139 (t 7.25 min)
+ilford_hp5_plus_400: Dmin 0.175  CI 0.599  own speed (anchored)  dD(1.3 logH) 0.760  D over min at mid-grey 0.665  end slope 0.634  ceiling 2.78 net  cdf err 0.0087 

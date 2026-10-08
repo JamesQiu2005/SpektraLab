@@ -868,6 +868,16 @@ reasoning: RFC-032 §25, §27.
   regular weight (it is Kodak-made: DX part 1 = Gold's). Vision3: one
   "EASTMAN 52xx" keycode line and dashes, no numbers or bars. E100: white
   marks. On Kodak 120 the name is centred between consecutive numbers.
+  **The black-and-white stocks** (2026-10-09; the profiles are the product's and not installed,
+  §15): one emulsion, so the printer's light is the same in all three layers and the marks are
+  grey. Tri-X 400 and T-Max 100: Kodak's layout with no DX bars (none on the strips), Tri-X in the
+  regular weight. Neopan 100 Acros II: the Fujifilm slides' layout (dots, no bars); a text's "II"
+  standing as a word is one cell, so the host sends "FUJI 100 ACROS II". HP5 Plus 400: Ilford's
+  135 print is Kodak's two bands turned half a turn -- with the picture upright the DX code
+  (13.06 mm, reading 1753 = 109/9) and the frame numbers run along the top band and the name reads
+  upside down along the bottom one, in a square 5 × 7 face with 1.50 mm caps ("ILFORD HP5 PLUS").
+  Its frame numbers' face and order are assumed (the one strip is cropped through them), and its
+  120 edge borrows Kodak's.
   **The lettering, re-measured 2026-10-04** (the owner's real-against-rendered
   pairs; 1.3.1). Fujifilm's print is a dot matrix and is drawn as one: every
   mark is a pattern of dots 0.1155 mm apart along the film and 0.0984 mm

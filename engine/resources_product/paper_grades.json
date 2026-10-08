@@ -2,7 +2,7 @@
  "paper": "ilford_multigrade_iv_rc",
  "film": "kodak_tri_x_400",
  "enlarger_illuminant": "TH-KG3",
- "note": "Multigrade filter -> the wire fields that print it: c_filter_neutral 0, m_filter_neutral, y_filter_neutral, print_exposure. print_exposure holds mid-grey. No half grades (not on the sheet).",
+ "note": "Multigrade filter -> the wire fields that print it: c_filter_neutral 0, m_filter_neutral, y_filter_neutral, print_exposure. print_exposure holds mid-grey. No half grades (not on the sheet). Fitted on kodak_tri_x_400; the pack is the paper's and the print's exposure is set on the film's mid-grey, so the same table prints kodak_tmax_100, fujifilm_neopan_acros_100_ii and ilford_hp5_plus_400 (bw_checks.py).",
  "grades": {
   "00": {
    "m_filter_neutral": 0.0,
