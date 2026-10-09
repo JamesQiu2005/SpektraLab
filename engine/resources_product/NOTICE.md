@@ -19,7 +19,7 @@ written up in `research/black-and-white-tri-x.md` and `research/black-and-white-
 "Kodak", "Tri-X", "T-Max", "Fujifilm", "Neopan", "Acros", "Ilford", "HP5" and "Multigrade" are
 their owners' trademarks; the names say which published data a profile was built from.
 
-**In the macOS app's Debug builds only** (2026-10-09). The engine loads a profile from
+**In the macOS app, every build since 1.3.3** (2026-10-09; Debug only before that). The engine loads a profile from
 `<resources>/profiles/<stock>.json`, so `engine/build.sh bundle` copies these profiles and this
 notice into the app's `Resources/engine/`; the app lists them only where
 `FeatureFlags.blackAndWhite` is on. `engine/tests/bw_checks.py` renders them from a scratch

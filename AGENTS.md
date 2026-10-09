@@ -325,14 +325,14 @@ Snapshot flags for canvas features a test cannot see: `--zoom`, `--geometry`,
 
 ---
 
-### Black and white, in Debug builds only (2026-10-09)
+### Black and white (2026-10-09; in every build since 1.3.3)
 
 `engine/resources_product/` holds the product's own data: four film profiles (Tri-X 400, and since
 2026-10-09 T-Max 100, Neopan 100 Acros II and HP5 Plus 400), an Ilford Multigrade IV RC paper profile, the paper's grade table and its filter-pack row (`NOTICE.md` there
 says what each is built from). `engine/build.sh bundle` lays its profiles into the app's
 `Resources/engine/profiles/` beside spektrafilm's, `Tools/gen-catalog.py` lists them with
-`monochrome`, and the app offers them only where `FeatureFlags.blackAndWhite` is on -- **Debug
-builds**. There: a third film group, the film and the silver paper as a pair
+`monochrome`, and the app offers them only where `FeatureFlags.blackAndWhite` is on -- **every build
+since 1.3.3** (Debug only before that). There: a third film group, the film and the silver paper as a pair
 (`StockCatalog.canPrint`), `grain_sublayers_active` false on a B&W film, Multigrade filter 2 sent
 as the wire's neutral pack, no EDR. No lens-filter or grade control yet, and no per-film grain
 amount. `engine/tests/bw_checks.py` still overlays the directory on `engine/resources/` in a

@@ -73,25 +73,20 @@ enum FeatureFlags {
     /// T-Max 100, Neopan 100 Acros II, HP5 Plus 400) and the Multigrade IV RC
     /// paper they print on.
     ///
-    /// Debug builds only, by the owner's decision of 2026-10-09 ("wire it
-    /// into a new debug version first"). The profiles are in every bundle
+    /// On in every build since 1.3.3, by the owner's decision of 2026-10-09
+    /// (it was Debug only earlier the same day: "wire it into a new debug
+    /// version first"). The profiles are in every bundle
     /// (`engine/build.sh bundle`); off, the catalogue does not list them, so
     /// no picker, menu or agent tool offers one. What is wired: the film and
     /// its paper as a pair, grain as one layer, filter 2 on the enlarger, the
-    /// film's own edge. What is not, and is why this is a flag: the lens
-    /// filter and the paper grade have no control yet (the engine has both --
-    /// `camera_filter`, API-SPEC §15, and `paper_grades.json`). Each film's
-    /// grain is its own (`FilmParams.ownGrain`).
+    /// film's own edge. What is not, and is why this is still a flag: the
+    /// lens filter and the paper grade have no control yet (the engine has
+    /// both -- `camera_filter`, API-SPEC §15, and `paper_grades.json`). Each
+    /// film's grain is its own (`FilmParams.ownGrain`).
     ///
-    /// Flip it on for release when the filter and grade controls are designed.
+    /// Remove the flag when the filter and grade controls are designed.
     /// `nonisolated` because the catalogue reads it.
-    nonisolated static let blackAndWhite: Bool = {
-#if DEBUG
-        true
-#else
-        false
-#endif
-    }()
+    nonisolated static let blackAndWhite = true
 
     /// The step 1 decode pipeline: when on, the single-flight pipeline owns
     /// the load path (decode, preview, and native-original stages).
