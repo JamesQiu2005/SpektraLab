@@ -219,6 +219,7 @@ final class StockListTests: XCTestCase {
         XCTAssertEqual(wire(colour)["grain_sublayers_active"], .bool(true))
         XCTAssertEqual(wire(colour)["extended_dynamic_range"], .bool(true))
         XCTAssertNil(wire(colour)["y_filter_neutral"], "a colour frame's stamp gained a field")
+        XCTAssertEqual(wire(colour)["grain_amount"], .double(1), "a colour film's grain moved")
 
         for film in Self.silverFilms {
             var p = colour
@@ -231,6 +232,12 @@ final class StockListTests: XCTestCase {
             XCTAssertEqual(w["m_filter_neutral"], .double(0))
             XCTAssertEqual(w["y_filter_neutral"], .double(68))
             XCTAssertEqual(w["extended_dynamic_range"], .bool(false), "the silver paper has no EDR calibration")
+            // Grain strength 1 is the film's own published granularity.
+            XCTAssertEqual(w["grain_amount"], .double(FilmParams.ownGrain(of: film)))
+            XCTAssertNotEqual(FilmParams.ownGrain(of: film), 1, "\(film) has no grain of its own")
+            p.effects.grain = 2
+            XCTAssertEqual(wire(p)["grain_amount"], .double(min(2, 2 * FilmParams.ownGrain(of: film))),
+                           "the wire's range is 0…2")
             // The pack rides in the delta from a colour frame, or the session
             // would keep the colour pair's.
             XCTAssertEqual(p.delta(from: colour).delta["y_filter_neutral"], .double(68))

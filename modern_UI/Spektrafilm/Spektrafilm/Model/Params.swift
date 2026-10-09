@@ -578,6 +578,28 @@ struct FilmParams: Codable, Equatable, Sendable {
     /// file for the Grade control this does not have yet.
     nonisolated static let multigradeFilter2: (c: Double, m: Double, y: Double) = (0, 0, 68)
 
+    /// What the Grain strength's 1 is on a black-and-white film: the
+    /// `grain_amount` at which the engine renders the diffuse RMS granularity
+    /// its maker publishes (owner's decision of 2026-10-07 that a film's grain
+    /// is a per-film amount and not an engine change; these four approved
+    /// 2026-10-09). Measured on engine renders at 6 µm pixels with the grain
+    /// as one layer, net density 1.0, 48 µm aperture
+    /// (`research/bw-films/grain/`): Tri-X 400 17, T-Max 100 8, Acros II 7
+    /// (in Microfine: a floor), HP5 Plus 16 (from Ilford's motion-picture
+    /// sheet; the still film's sheet gives none). At the engine's own 1 the
+    /// four render alike, 10–11. A colour film's is 1: nothing is measured
+    /// into those here. The slider multiplies this, and the wire stops at 2,
+    /// so Tri-X's slider is at its end from 1.18 and HP5's from 1.34.
+    nonisolated static func ownGrain(of stock: String) -> Double {
+        switch stock {
+        case "kodak_tri_x_400": 1.70
+        case "ilford_hp5_plus_400": 1.49
+        case "kodak_tmax_100": 0.74
+        case "fujifilm_neopan_acros_100_ii": 0.64
+        default: 1
+        }
+    }
+
     /// The enlarger's pre-flash: a uniform paper exposure of this many times
     /// the light through the film's clear base, added before development
     /// (`printing.cpp`). **Not in EV** -- measured on `_DSC2663`, 0.01 is ~9 %
@@ -764,7 +786,8 @@ struct FilmParams: Codable, Equatable, Sendable {
             // miss the cache once).
             ("halation_amount", .double(effects.halation.clamped(to: EffectStrengths.halationRange)), .shoot),
             ("halation_scatter_amount", .double(effects.scatter.clamped(to: EffectStrengths.scatterRange)), .shoot),
-            ("grain_amount", .double(effects.grain.clamped(to: EffectStrengths.grainRange)), .shoot),
+            ("grain_amount", .double((effects.grain * FilmParams.ownGrain(of: filmStock))
+                .clamped(to: EffectStrengths.grainRange)), .shoot),
             ("dir_couplers_active", .bool(effects.couplersActive), .shoot),
             ("dir_couplers_amount", .double(effects.couplers.clamped(to: EffectStrengths.couplersRange)), .shoot),
             ("glare_amount", .double(effects.glare.clamped(to: EffectStrengths.glareRange)), .print),

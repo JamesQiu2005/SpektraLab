@@ -80,9 +80,8 @@ enum FeatureFlags {
     /// its paper as a pair, grain as one layer, filter 2 on the enlarger, the
     /// film's own edge. What is not, and is why this is a flag: the lens
     /// filter and the paper grade have no control yet (the engine has both --
-    /// `camera_filter`, API-SPEC §15, and `paper_grades.json`), and the
-    /// per-film grain amounts are measured and not applied
-    /// (`research/black-and-white-three-more-films.md` §5).
+    /// `camera_filter`, API-SPEC §15, and `paper_grades.json`). Each film's
+    /// grain is its own (`FilmParams.ownGrain`).
     ///
     /// Flip it on for release when the filter and grade controls are designed.
     /// `nonisolated` because the catalogue reads it.
