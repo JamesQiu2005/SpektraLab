@@ -19,8 +19,9 @@ written up in `research/black-and-white-tri-x.md` and `research/black-and-white-
 "Kodak", "Tri-X", "T-Max", "Fujifilm", "Neopan", "Acros", "Ilford", "HP5" and "Multigrade" are
 their owners' trademarks; the names say which published data a profile was built from.
 
-**Not wired.** The engine loads a profile from `<resources>/profiles/<stock>.json`, and nothing
-copies these there: they are not in the app bundle, not in the stock catalogue, and no control in
-the app reaches them. `engine/tests/bw_checks.py` renders them from a scratch resources directory
-that overlays this one on `engine/resources/`. The engine does not read `paper_grades.json` or this
+**In the macOS app's Debug builds only** (2026-10-09). The engine loads a profile from
+`<resources>/profiles/<stock>.json`, so `engine/build.sh bundle` copies these profiles and this
+notice into the app's `Resources/engine/`; the app lists them only where
+`FeatureFlags.blackAndWhite` is on. `engine/tests/bw_checks.py` renders them from a scratch
+resources directory that overlays this one on `engine/resources/`. The engine does not read `paper_grades.json` or this
 directory's `neutral_print_filters.json`; a caller sends the pack on the wire.

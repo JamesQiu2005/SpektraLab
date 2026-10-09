@@ -2972,6 +2972,8 @@ final class Session: CanvasHost {
         // says why, but the rule lives here so that a menu item, a sidecar or
         // a future caller cannot route around it.
         guard !filmIsPositive else { return }
+        // Silver on silver, colour on colour (`StockCatalog.canPrint`).
+        guard catalog.canPrint(film: params.filmStock, on: stock) else { return }
         if fastStockPreview, printLUTStocks[stock] != nil { startStockPreview(stock) }
         var p = params
         p.printStock = stock
@@ -2990,6 +2992,11 @@ final class Session: CanvasHost {
            catalog.stock(target) != nil,
            !catalog.isDeclaredPairing(film: p.filmStock, paper: p.printStock) {
             p.printStock = target
+        }
+        // Between colour and black and white the paper cannot stay: the kept
+        // pairing above is for a paper that can print this film.
+        if !catalog.canPrint(film: id, on: p.printStock) {
+            p.printStock = catalog.stock(id)?.targetPrint ?? FilmParams.default.printStock
         }
         params = p
         // A slide film has no print stage. A positive declares no

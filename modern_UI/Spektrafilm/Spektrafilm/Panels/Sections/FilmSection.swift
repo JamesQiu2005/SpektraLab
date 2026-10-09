@@ -63,7 +63,12 @@ struct FilmSection: View {
         // which is the point of §8.3 — a reset affordance whose scope is not
         // named is the ellipsis problem again.
         Button(L("Reset the film stock to Portra 400", zh: "将胶片重置为 Portra 400")) {
-            var p = session.params; p.filmStock = "kodak_portra_400"; session.params = p
+            var p = session.params; p.filmStock = "kodak_portra_400"
+            // Coming back from a black-and-white film, its paper cannot stay.
+            if !session.catalog.canPrint(film: p.filmStock, on: p.printStock) {
+                p.printStock = FilmParams.default.printStock
+            }
+            session.params = p
             session.applyFilmStageRule()
         }
     }

@@ -88,7 +88,15 @@ final class StockListTests: XCTestCase {
                        "grouping dropped or invented a film")
         XCTAssertEqual(grouped.count, catalog.films.count, "a film is in two groups")
         // Positive first, as drawn, and the split is on `type`.
-        XCTAssertEqual(catalog.filmGroups.map(\.title), ["Positive", "Negative"])
+        // Black and white is a third group, where it is on offer (Debug).
+        XCTAssertEqual(catalog.filmGroups.map(\.title),
+                       FeatureFlags.blackAndWhite ? ["Positive", "Negative", "Black & White"] : ["Positive", "Negative"])
+        for group in catalog.filmGroups {
+            for film in group.films {
+                XCTAssertEqual(film.isMonochrome, group.title == "Black & White",
+                               "\(film.id) is in the \(group.title) group")
+            }
+        }
         for group in catalog.filmGroups {
             for film in group.films {
                 XCTAssertEqual(film.isPositive, group.title == "Positive",
@@ -147,5 +155,95 @@ final class StockListTests: XCTestCase {
                           "overwriting `well` would have dragged the export page along")
         XCTAssertEqual(Theme.well, Theme.ground,
                        "the export page's well is unchanged")
+    }
+
+    // MARK: - black and white (FeatureFlags.blackAndWhite, 2026-10-09)
+
+    private static let silverFilms = ["fujifilm_neopan_acros_100_ii", "ilford_hp5_plus_400",
+                                      "kodak_tmax_100", "kodak_tri_x_400"]
+    private static let silverPaper = "ilford_multigrade_iv_rc"
+
+    /// The four films and their paper are in the catalogue exactly where the
+    /// flag offers them, each film declares that paper, and the engine has a
+    /// profile in the bundle for every one of them.
+    func testTheBlackAndWhiteStocksAreListedWhereTheFlagIsOn() throws {
+        let catalog = StockCatalog.shared
+        try XCTSkipIf(catalog.films.isEmpty, "no catalogue in the test bundle")
+        let mono = catalog.stocks.filter(\.isMonochrome)
+        guard FeatureFlags.blackAndWhite else {
+            return XCTAssertTrue(mono.isEmpty, "black and white is listed with its flag off")
+        }
+        XCTAssertEqual(mono.filter(\.isFilm).map(\.id).sorted(), Self.silverFilms)
+        XCTAssertEqual(mono.filter(\.isPaper).map(\.id), [Self.silverPaper])
+        for id in Self.silverFilms {
+            XCTAssertEqual(catalog.stock(id)?.targetPrint, Self.silverPaper)
+            XCTAssertNotNil(StockCatalog.bundle.url(forResource: id, withExtension: "json",
+                                                    subdirectory: "Resources/engine/profiles"),
+                            "\(id) is listed and the bundle has no profile for it: run engine/build.sh bundle")
+        }
+    }
+
+    /// Silver film on silver paper, colour on colour: choosing a film across
+    /// the line takes its paper, and the paper list refuses the other kind.
+    func testABlackAndWhiteFilmTakesItsPaperAndAColourFilmGivesItBack() throws {
+        try XCTSkipUnless(FeatureFlags.blackAndWhite)
+        let session = Session()
+        session.selectFilmStock("kodak_portra_400")
+        session.selectPrintStock("kodak_supra_endura")
+        XCTAssertEqual(session.params.printStock, "kodak_supra_endura")
+
+        session.selectFilmStock("kodak_tri_x_400")
+        XCTAssertEqual(session.params.printStock, Self.silverPaper)
+        session.selectPrintStock("kodak_supra_endura")
+        XCTAssertEqual(session.params.printStock, Self.silverPaper, "a colour paper took a black-and-white film")
+        session.selectFilmStock("ilford_hp5_plus_400")
+        XCTAssertEqual(session.params.printStock, Self.silverPaper)
+
+        session.selectFilmStock("kodak_gold_200")
+        XCTAssertFalse(session.catalog.stock(session.params.printStock)?.isMonochrome ?? true,
+                       "a colour film kept the silver paper")
+        session.selectPrintStock(Self.silverPaper)
+        XCTAssertFalse(session.catalog.stock(session.params.printStock)?.isMonochrome ?? true,
+                       "the silver paper took a colour film")
+    }
+
+    /// What a black-and-white film changes on the wire, and that a colour
+    /// frame's wire is what it was: grain as one layer, Multigrade filter 2 on
+    /// the enlarger, no EDR.
+    func testABlackAndWhiteFilmPrintsOneGrainLayerThroughFilter2() throws {
+        try XCTSkipUnless(FeatureFlags.blackAndWhite)
+        func wire(_ p: FilmParams) -> [String: ParamValue] { p.fullDelta }
+        var colour = FilmParams.default
+        colour.grainActive = true
+        colour.extendedDynamicRange = true
+        XCTAssertEqual(wire(colour)["grain_sublayers_active"], .bool(true))
+        XCTAssertEqual(wire(colour)["extended_dynamic_range"], .bool(true))
+        XCTAssertNil(wire(colour)["y_filter_neutral"], "a colour frame's stamp gained a field")
+
+        for film in Self.silverFilms {
+            var p = colour
+            p.filmStock = film
+            p.printStock = Self.silverPaper
+            let w = wire(p)
+            XCTAssertEqual(w["grain_active"], .bool(true))
+            XCTAssertEqual(w["grain_sublayers_active"], .bool(false), "\(film) renders grain in sub-layers")
+            XCTAssertEqual(w["c_filter_neutral"], .double(0))
+            XCTAssertEqual(w["m_filter_neutral"], .double(0))
+            XCTAssertEqual(w["y_filter_neutral"], .double(68))
+            XCTAssertEqual(w["extended_dynamic_range"], .bool(false), "the silver paper has no EDR calibration")
+            // The pack rides in the delta from a colour frame, or the session
+            // would keep the colour pair's.
+            XCTAssertEqual(p.delta(from: colour).delta["y_filter_neutral"], .double(68))
+        }
+    }
+
+    /// The film's own words on its edge, as the strips carry them.
+    func testBlackAndWhiteEdgeText() throws {
+        try XCTSkipUnless(FeatureFlags.blackAndWhite)
+        let catalog = StockCatalog.shared
+        XCTAssertEqual(Session.edgeText(for: catalog.stock("kodak_tri_x_400")), "KODAK 400TX")
+        XCTAssertEqual(Session.edgeText(for: catalog.stock("kodak_tmax_100"), gauge: "120"), "KODAK 100TMX")
+        XCTAssertEqual(Session.edgeText(for: catalog.stock("fujifilm_neopan_acros_100_ii")), "FUJI 100 ACROS II")
+        XCTAssertEqual(Session.edgeText(for: catalog.stock("ilford_hp5_plus_400")), "ILFORD HP5 PLUS")
     }
 }

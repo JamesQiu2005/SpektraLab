@@ -21,6 +21,10 @@ REPO = HERE.parents[1]
 # wrote. Deriving the catalog from the engine's inputs means the catalog cannot
 # disagree with what the engine will actually load.
 PROFILES = REPO / "engine/resources/profiles"
+# The product's own profiles (black and white), which `engine/build.sh bundle`
+# lays into the same directory in the app. Listed here with `monochrome` set,
+# and offered only where `FeatureFlags.blackAndWhite` is on.
+PRODUCT_PROFILES = REPO / "engine/resources_product/profiles"
 PRINT_LUTS = REPO / "engine/resources/print_luts.json"
 COVERS_SRC = REPO / "modern_UI/film_covers"
 OUT = HERE / "Spektrafilm/Resources"
@@ -70,6 +74,11 @@ FORMATS = {
     "kodak_vision3_250d": ["16mm", "35mm_motion"],
     "kodak_vision3_500t": ["16mm", "super8", "35mm_motion"],
     "kodak_vision3_50d": ["16mm", "super8", "35mm_motion"],
+    # the black-and-white films: each maker's own sheet lists 135 and 120
+    "kodak_tri_x_400": ["135", "120"],
+    "kodak_tmax_100": ["135", "120"],
+    "fujifilm_neopan_acros_100_ii": ["135", "120"],
+    "ilford_hp5_plus_400": ["135", "120"],
 }
 
 
@@ -77,7 +86,7 @@ def main() -> None:
     (OUT / "FilmCovers").mkdir(parents=True, exist_ok=True)
     luts = json.loads(PRINT_LUTS.read_text())
     stocks = []
-    for path in sorted(PROFILES.glob("*.json")):
+    for path in sorted([*PROFILES.glob("*.json"), *PRODUCT_PROFILES.glob("*.json")], key=lambda f: f.stem):
         info = json.loads(path.read_text())["info"]
         sid = path.stem
         cover = None
@@ -100,6 +109,8 @@ def main() -> None:
             "pairedFilm": luts[sid]["paired_film"] if sid in luts else None,
             "cover": cover,
         }
+        if info.get("channel_model") == "bw":
+            entry["monochrome"] = True         # one silver emulsion (a film) or a silver paper
         if sid in FORMATS:
             entry["formats"] = FORMATS[sid]
         stocks.append(entry)

@@ -230,6 +230,11 @@ extension Session {
             "kodak_vision3_250d": ("EASTMAN 5207", "EASTMAN 5207"),
             "kodak_vision3_200t": ("EASTMAN 5213", "EASTMAN 5213"),
             "kodak_vision3_500t": ("EASTMAN 5219", "EASTMAN 5219"),
+            // black and white, off the strips in research/B&W_Research/film (2026-10-09)
+            "kodak_tri_x_400": ("KODAK 400TX", "KODAK 400TX"),
+            "kodak_tmax_100": ("KODAK 100TMX", "KODAK 100TMX"),
+            "fujifilm_neopan_acros_100_ii": ("FUJI 100 ACROS II", "FUJI 100 ACROS II"),
+            "ilford_hp5_plus_400": ("ILFORD HP5 PLUS", "ILFORD HP5 PLUS"),
         ]
         if let t = own[stock.id] { return gauge == "120" ? t.1 : t.0 }
         var name = stock.name

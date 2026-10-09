@@ -560,7 +560,23 @@ struct FilmParams: Codable, Equatable, Sendable {
     /// user's preference in the sidecar while making the wire value false for
     /// the Positive / No Print Profile path, so a persisted preference cannot
     /// change direct film scanning.
-    var effectiveExtendedDynamicRange: Bool { extendedDynamicRange && !scanFilm && !digitalIntermediate }
+    var effectiveExtendedDynamicRange: Bool {
+        // The silver paper has no EDR calibration; the engine refuses it by name.
+        extendedDynamicRange && !scanFilm && !digitalIntermediate && !printIsMonochrome
+    }
+
+    /// A black-and-white film (`Stock.isMonochrome`): one emulsion in the
+    /// profile's three channels.
+    var filmIsMonochrome: Bool { StockCatalog.shared.stock(filmStock)?.isMonochrome ?? false }
+    /// A silver paper.
+    var printIsMonochrome: Bool { StockCatalog.shared.stock(printStock)?.isMonochrome ?? false }
+    /// Multigrade filter 2 on the enlarger, as the wire's neutral pack (C, M,
+    /// Y): `engine/resources_product/paper_grades.json`, grade "2", whose
+    /// `print_exposure` is 1 -- so Print Exposure needs no correction. The
+    /// engine's own table has no row for a silver paper, and without one the
+    /// print is about grade 3½ and 0.36 D light. The other grades are in that
+    /// file for the Grade control this does not have yet.
+    nonisolated static let multigradeFilter2: (c: Double, m: Double, y: Double) = (0, 0, 68)
 
     /// The enlarger's pre-flash: a uniform paper exposure of this many times
     /// the light through the film's clear base, added before development
@@ -705,7 +721,11 @@ struct FilmParams: Codable, Equatable, Sendable {
             ("grain_active", .bool(grainActive), .shoot),
             // `&&`, not the setting alone: with grain off this is what it has
             // always been, so a legacy frame's stamp does not move.
-            ("grain_sublayers_active", .bool(grainActive && effects.grainLayered), .shoot),
+            // Never on a black-and-white film (owner, 2026-10-09): the three
+            // sub-layers are the colour films' model, nothing on a B&W sheet
+            // supports the split, and with it on the grain's strength follows
+            // an assumed fit of the curve instead of the film.
+            ("grain_sublayers_active", .bool(grainActive && effects.grainLayered && !filmIsMonochrome), .shoot),
             ("halation_active", .bool(halationActive), .shoot),
             ("print_exposure", .double(FilmParams.printExposure(stops: printBrightnessStops)), .print),
             ("y_filter_shift", .double(yFilterShift), .print),
@@ -764,6 +784,17 @@ struct FilmParams: Codable, Equatable, Sendable {
         ]
         // RFC-032/031 (API-SPEC §13). The two switches always, the rest only
         // while each is on (`FilmEdgeSettings.wire`).
+        // Black and white on its paper: the enlarger's pack is sent, because the
+        // engine's table has no row for a silver paper and a session coming
+        // from a colour pair would keep that pair's (measured: M 51.6 / Y 52.5
+        // stays). Only then, so no colour frame's stamp moves; going back, the
+        // engine takes the colour pair's row again by itself (measured).
+        if filmIsMonochrome && printIsMonochrome {
+            let f = FilmParams.multigradeFilter2
+            fields += [("c_filter_neutral", .double(f.c), .print),
+                       ("m_filter_neutral", .double(f.m), .print),
+                       ("y_filter_neutral", .double(f.y), .print)]
+        }
         fields += pairPlacementWire
         fields += filmEdge.wire
         fields += dateBack.wire(filmEdge: filmEdge, scale: dateScale)

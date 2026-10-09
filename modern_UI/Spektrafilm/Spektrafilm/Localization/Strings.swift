@@ -933,6 +933,7 @@ extension DateBackOrder {
     switch title {
     case "Positive": return L(.filmGroupPositive)
     case "Negative": return L(.filmGroupNegative)
+    case "Black & White": return L("Black & White", zh: "黑白")
     default: return title
     }
 }

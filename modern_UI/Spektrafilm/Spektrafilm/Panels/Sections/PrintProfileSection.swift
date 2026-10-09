@@ -69,6 +69,14 @@ struct PrintProfileSection: View {
     private var filmIsPositive: Bool { session.filmIsPositive }
 
     private static var positiveOnlyReason: String { L(.reasonPositiveFilmDisablesPaper) }
+    private static var silverPaperReason: String {
+        L("A black-and-white paper. Choose a black-and-white film to print on it.",
+          zh: "黑白相纸。选择黑白胶片后可使用。")
+    }
+    private static var colourPaperReason: String {
+        L("A colour paper. A black-and-white film prints on a black-and-white paper.",
+          zh: "彩色相纸。黑白胶片需使用黑白相纸印相。")
+    }
 
     private var rows: [StockList.Row] {
         var out: [StockList.Row] = []
@@ -78,10 +86,14 @@ struct PrintProfileSection: View {
             out.append(StockList.Row(id: "__group_" + group.title,
                                      name: L(paperGroup: group.title), isHeader: true))
             out += group.papers.map {
-                StockList.Row(id: $0.id, name: $0.name, isCine: $0.isCine,
+                // Silver film on silver paper, colour on colour: the rule is
+                // `Session.selectPrintStock`'s, greyed here so it says why.
+                let prints = session.catalog.canPrint(film: session.params.filmStock, on: $0.id)
+                return StockList.Row(id: $0.id, name: $0.name, isCine: $0.isCine,
                               help: filmIsPositive ? "" : helpFor($0.id),
-                              enabled: !filmIsPositive,
-                              disabledReason: filmIsPositive ? Self.positiveOnlyReason : "")
+                              enabled: !filmIsPositive && prints,
+                              disabledReason: filmIsPositive ? Self.positiveOnlyReason
+                                  : prints ? "" : ($0.isMonochrome ? Self.silverPaperReason : Self.colourPaperReason))
             }
         }
         // A third "Positive" header, and a different string from the film

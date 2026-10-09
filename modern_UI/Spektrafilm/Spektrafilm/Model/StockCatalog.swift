@@ -20,7 +20,11 @@ struct Stock: Codable, Identifiable, Hashable, Sendable {
     /// `120`, `16mm`, `super8`, `35mm_motion` (`Tools/gen-catalog.py`, from
     /// the sourced availability table). Nil when nobody recorded it.
     let formats: [String]?
+    /// A black-and-white stock: a film with one silver emulsion, or a silver
+    /// paper (the profile's `channel_model` is `bw`). Absent on colour stocks.
+    let monochrome: Bool?
 
+    var isMonochrome: Bool { monochrome ?? false }
     var isFilm: Bool { stage == "filming" }
 
     /// Whether this stock was ever made on the film a Film Edge format runs
@@ -61,7 +65,8 @@ struct StockCatalog: Sendable {
         let url = bundle.url(forResource: "StockCatalog", withExtension: "json", subdirectory: "Resources")
         if let url, let data = try? Data(contentsOf: url),
            let decoded = try? JSONDecoder().decode(Wrapper.self, from: data) {
-            return StockCatalog(stocks: decoded.stocks)
+            // Black and white is listed only where it is on offer.
+            return StockCatalog(stocks: decoded.stocks.filter { FeatureFlags.blackAndWhite || !$0.isMonochrome })
         }
         return StockCatalog(stocks: [])
     }()
@@ -99,8 +104,14 @@ struct StockCatalog: Sendable {
     /// filter.
     var filmGroups: [(title: String, films: [Stock])] {
         let ordered = filmsForPicker
-        return [("Positive", ordered.filter(\.isPositive)),
-                ("Negative", ordered.filter { !$0.isPositive })]
+        var groups = [("Positive", ordered.filter(\.isPositive)),
+                      ("Negative", ordered.filter { !$0.isPositive && !$0.isMonochrome })]
+        // A third group, and only when the catalogue has any: a black-and-white
+        // negative prints on a different paper and takes a lens filter, so it
+        // is not one more row among the colour negatives.
+        let mono = ordered.filter { !$0.isPositive && $0.isMonochrome }
+        if !mono.isEmpty { groups.append(("Black & White", mono)) }
+        return groups
     }
 
     /// Papers grouped for the picker: Still, then Cine.
@@ -112,5 +123,15 @@ struct StockCatalog: Sendable {
     /// versus an approximation (API-SPEC §2's pairing note).
     func isDeclaredPairing(film: String, paper: String) -> Bool {
         stock(film)?.targetPrint == paper
+    }
+
+    /// Whether `paper` can print `film` at all: silver film on silver paper,
+    /// colour on colour. A black-and-white negative on a colour paper prints
+    /// orange (no filter pack exists for the pair), and the Multigrade
+    /// profile's three emulsions are a contrast control, not a colour
+    /// response. An id the catalogue does not know rules nothing out.
+    func canPrint(film: String, on paper: String) -> Bool {
+        guard let f = stock(film), let p = stock(paper) else { return true }
+        return f.isMonochrome == p.isMonochrome
     }
 }
