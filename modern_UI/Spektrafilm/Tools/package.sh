@@ -179,6 +179,12 @@ if ! $dry; then
   hdiutil create -volname "SpektraLab $version" -srcfolder "$staging" \
       -ov -format UDZO "$dmg" >/dev/null
   rm -rf "$staging"
+  # The image is signed as well as the app inside it. Notarisation accepts an
+  # unsigned image, and `spctl` then answers "no usable signature" for it:
+  # 1.3.3's first image was notarised, stapled and rejected for that reason.
+  if $signed; then
+    codesign --force --sign "$identity" --timestamp "$dmg"
+  fi
   echo "  $dmg ($(du -h "$dmg" | cut -f1))"
 fi
 
@@ -200,12 +206,14 @@ fi
 # first: everything above can succeed and this still say "rejected".
 say "gatekeeper"
 if $dry; then
-  echo "  would run: spctl -a -vv -t install $dmg"
+  echo "  would run: spctl -a -vv -t open --context context:primary-signature $dmg"
 else
   # Captured and then printed, rather than piped straight into `grep -q`:
   # the whole point of this step is that a human reads Gatekeeper's answer,
   # and `grep -q` eats it.
-  verdict=$(spctl -a -vv -t install "$dmg" 2>&1 || true)
+  # `-t open` with the primary-signature context is the assessment a disk
+  # image gets; `-t install` is for installer packages.
+  verdict=$(spctl -a -vv -t open --context context:primary-signature "$dmg" 2>&1 || true)
   printf '%s\n' "$verdict" | sed 's/^/  /'
   if printf '%s' "$verdict" | grep -q accepted; then
     echo "  ACCEPTED -- this will open on a Mac that has never seen the source."
