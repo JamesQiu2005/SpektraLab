@@ -62,6 +62,13 @@ struct FilmFormatSection: View {
     /// film from the gate's long edge, so this rail's frame is overridden and
     /// says by what, rather than offering a choice the render ignores. Off, it
     /// is live again with the user's own frame, untouched.
+    ///
+    /// **The caption gives way, the row does not grow** (2026-10-09). It was
+    /// a third `.fixedSize()` text, which made this row 286 pt at the default
+    /// interface scale and 317 at 130 % — wider than the rail may be, so a
+    /// rail dragged narrower than that drew its card and its rules past both
+    /// edges of its own frame, off the divider. A `FittingLine` shows the
+    /// caption whole or not at all; the tooltip says it either way.
     private var setByFilmEdge: some View {
         HStack(spacing: 0) {
             Text(L(.filmFormatSize)).font(Theme.Font.label).foregroundStyle(Theme.Ink.secondary)
@@ -75,10 +82,8 @@ struct FilmFormatSection: View {
                 .frame(height: Theme.Metric.controlHeight)
                 .background(Theme.pill, in: Capsule())
                 .opacity(Theme.disabledOpacity)
-            Spacer(minLength: 6)
-            Text(L(.edgeSetByFilmEdge))
-                .font(Theme.Font.caption).foregroundStyle(Theme.Ink.secondary)
-                .lineLimit(1).fixedSize()
+            FittingLine(text: L(.edgeSetByFilmEdge), color: Theme.Ink.secondary, alignment: .trailing)
+                .padding(.leading, 6)
         }
         .frame(height: Theme.Metric.rowHeight)
         .help(setByFilmEdgeReason)
