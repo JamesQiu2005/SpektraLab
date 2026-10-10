@@ -14,6 +14,9 @@ function unpack(method: string, buf: ArrayBuffer): Reply {
 }
 
 export function tauriTransport(): Transport {
+  // listen() registers through async IPC. Do not read a startup snapshot
+  // until registration finishes, or a ready event can fall into the gap.
+  let stateSubscription: Promise<unknown> = Promise.resolve();
   return {
     kind: 'tauri',
     async request(method, params, opts: RequestOptions = {}) {
@@ -25,10 +28,14 @@ export function tauriTransport(): Transport {
       const buf = await invoke<ArrayBuffer>('host_request', { method, params, timeoutMs: opts.timeoutMs });
       return unpack(method, buf);
     },
-    state: () => invoke<HostState>('host_state'),
+    async state() {
+      await stateSubscription;
+      return invoke<HostState>('host_state');
+    },
     onState(cb) {
       const un = listen<HostState>('host-state', (e) => cb(e.payload));
-      return () => void un.then((f) => f());
+      stateSubscription = un;
+      return () => void un.then((f) => f()).catch(() => {});
     },
     onEvent(cb) {
       const un = listen<Record<string, unknown>>('host-event', (e) => cb(e.payload));
