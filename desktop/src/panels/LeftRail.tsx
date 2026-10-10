@@ -13,6 +13,7 @@ import {
   setGeometry,
   setPages,
   setParams,
+  selectFilmStock,
   syncSettings,
   useSession,
   zoomToFit,
@@ -202,7 +203,7 @@ function FilmSection() {
         },
       ]}
     >
-      <StockList rows={rows} selected={film} onSelect={(id) => setParams((p) => ({ ...p, filmStock: id }))} testId="film-list" />
+      <StockList rows={rows} selected={film} onSelect={selectFilmStock} testId="film-list" />
     </Section>
   );
 }

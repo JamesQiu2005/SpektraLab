@@ -10,6 +10,7 @@ import { decodeSidecar, encodeSidecar, newSidecar } from '@shared/sidecar';
 const fake = vi.hoisted(() => ({
   onState: null as ((state: HostState) => void) | null,
   loadCatalog: vi.fn(),
+  state: vi.fn(),
   load: vi.fn(),
   save: vi.fn(async (_path: string, _sidecar: unknown) => ''),
   open: vi.fn(async () => ({ session: 's1', width: 6, height: 4, kind: 'raw', metadata: { orientation: 1 } })),
@@ -26,7 +27,7 @@ vi.mock('../host/client', () => ({
     close: async () => {},
     thumbnail: async () => { throw new Error('No fixture thumbnail'); },
     onState: (cb: (state: HostState) => void) => { fake.onState = cb; },
-    state: async () => ({ phase: 'ready', hello: {} }),
+    state: fake.state,
   }),
 }));
 vi.mock('../platform', () => ({
@@ -51,6 +52,7 @@ beforeEach(async () => {
   vi.resetModules();
   vi.stubGlobal('window', { addEventListener: vi.fn() });
   fake.onState = null;
+  fake.state.mockResolvedValue(ready);
   fake.load.mockResolvedValue(null);
   fake.loadCatalog.mockResolvedValue(catalog);
   session = await import('./session');
@@ -96,6 +98,32 @@ describe('positive film uses direct scanning at every session door', () => {
     expect(session.sessionStore.getState().sidecar.params.scanFilm).toBe(true);
     session.setParams((p) => ({ ...p, scanFilm: false }));
     expect(session.sessionStore.getState().sidecar.params.scanFilm).toBe(false);
+  });
+
+  it.each(SLIDES)('returning from %s to Ektar restores printing in one undo step', async (filmStock) => {
+    const printStock = session.sessionStore.getState().sidecar.params.printStock;
+    session.selectFilmStock(filmStock);
+    await vi.advanceTimersByTimeAsync(1000);
+    fake.setParams.mockClear();
+    session.selectFilmStock('kodak_ektar_100');
+    expect(session.sessionStore.getState().sidecar.params).toMatchObject({ filmStock: 'kodak_ektar_100', scanFilm: false, printStock });
+    await vi.advanceTimersByTimeAsync(1000);
+    expect(fake.setParams).toHaveBeenCalledWith('s1', expect.objectContaining({ film_stock: 'kodak_ektar_100', scan_film: false }));
+    await session.flushSave();
+    expect(decodeSidecar(fake.save.mock.calls.at(-1)?.[1]).params.scanFilm).toBe(false);
+    session.undo();
+    expect(session.sessionStore.getState().sidecar.params).toMatchObject({ filmStock, scanFilm: true });
+    session.redo();
+    expect(session.sessionStore.getState().sidecar.params.scanFilm).toBe(false);
+  });
+
+  it('reselecting a saved negative restores printing without resetting other edits', () => {
+    session.sessionStore.setState({ sidecar: { ...newSidecar(), params: { ...newSidecar().params, filmStock: 'kodak_ektar_100', scanFilm: true, exposureCompensationEV: 1.5 } } });
+    session.selectFilmStock('kodak_ektar_100');
+    expect(session.sessionStore.getState().sidecar.params).toMatchObject({ scanFilm: false, exposureCompensationEV: 1.5 });
+    session.setParams((p) => ({ ...p, scanFilm: true }));
+    session.setParams((p) => ({ ...p, exposureCompensationEV: 2 }));
+    expect(session.sessionStore.getState().sidecar.params.scanFilm).toBe(true);
   });
 
   it('repairs a saved slide before its first open and persists the repair', async () => {
@@ -148,5 +176,27 @@ describe('positive film uses direct scanning at every session door', () => {
     fake.onState?.({ phase: 'ready', hello: {} as HelloResult });
     await vi.advanceTimersByTimeAsync(0);
     expect(fake.open).toHaveBeenCalledWith('/owned/a.ARW', expect.objectContaining({ scan_film: true }), expect.anything());
+  });
+});
+
+
+describe('startup state ordering', () => {
+  it('does not let an older starting snapshot overwrite the ready event', async () => {
+    let resolveState!: (state: HostState) => void;
+    fake.state.mockReturnValue(new Promise<HostState>((resolve) => { resolveState = resolve; }));
+    session.sessionStore.setState({ hostState: { phase: 'starting' }, engineSession: null });
+    const pending = session.boot();
+    await vi.advanceTimersByTimeAsync(0);
+    fake.onState?.(ready);
+    resolveState({ phase: 'starting' });
+    await pending;
+    expect(session.sessionStore.getState().hostState.phase).toBe('ready');
+  });
+
+  it('shows a startup IPC failure instead of waiting forever', async () => {
+    fake.state.mockRejectedValue(new Error('IPC unavailable'));
+    session.sessionStore.setState({ hostState: { phase: 'starting' }, engineSession: null });
+    await session.boot();
+    expect(session.sessionStore.getState().hostState).toMatchObject({ phase: 'failed', reason: expect.stringContaining('IPC unavailable') });
   });
 });

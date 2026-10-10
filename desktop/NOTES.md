@@ -3,6 +3,39 @@
 Running log for whoever picks this up next (a restarted worker or a human).
 Newest state first in each list. Read with `git log --oneline -20 -- desktop`.
 
+## Startup state ordering (2026-10-11)
+
+A user reported waiting for the engine in the negative-return release. Its
+native launch did complete here, but deterministic tests exposed two startup
+races: the snapshot request could precede async event registration, and a
+late starting snapshot could overwrite a ready event. Tauri state reads now
+wait for listener registration; session boot retains newer events and shows
+IPC errors as a failure instead of leaving the initial waiting state.
+
+Gate: all three new cases failed before the fix; typecheck, lint and 71 unit
+tests pass (one optional real-host test skipped). Native release launch logs
+are recorded separately from GUI visual acceptance; the Windows UI automation
+runtime is currently unavailable due to sandbox setup failure. Three independent
+real release launches subsequently opened the owned 4688x7028 Sony RAW and
+returned full results to the frontend (app log evidence, no host override).
+The original release also launched successfully here; the race reproduction
+is deterministic test evidence, not a capture of the user's hung instance.
+
+## Return from slide to negative (2026-10-11)
+
+The positive-only restore rule left scanFilm enabled after picking a negative,
+showing the orange negative instead of its print. Stock-list picks now use a
+separate selectFilmStock action: positives scan, negatives print. Each pick
+is one undo step. Paper/exposure settings are retained. Explicit no-paper
+settings and sidecar restores still use their explicit state; re-picking a
+negative repairs an old saved direct scan without rewriting other edits.
+
+Gate: 68 unit tests, typecheck, lint and 8 mock-browser cases; five new cases
+failed before the fix. Real Sony 4688x7028 RGBA16 returned to the same Ektar
+print bytes as a direct negative render with stochastic effects disabled.
+Release build passed. Native-window automation was unavailable this round
+(runtime sandbox initialization failure); no new GUI acceptance is claimed.
+
 ## Windows resource paths and positive film regression (2026-10-06)
 
 - Tauri's bundled resource directory can use a Windows `\\?\` prefix.

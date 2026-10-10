@@ -334,6 +334,17 @@ export function setParams(fn: (p: FilmParams) => FilmParams) {
   void requestPrint();
 }
 
+/** A stock pick starts its normal viewing stage: slides scan, negatives print.
+ * Unlike restoring/pasting explicit settings, it must not inherit a slide's
+ * scanFilm flag. Re-picking a negative also repairs an old saved direct scan.
+ * Manual no-paper selection remains available until the next stock pick.
+ */
+export function selectFilmStock(filmStock: string) {
+  // Stock picks are discrete edits, not a slider gesture to coalesce.
+  lastUndoAt = 0;
+  setParams((p) => ({ ...p, filmStock, scanFilm: get().catalog.isPositive(filmStock) }));
+}
+
 /** A Layer 2 edit: one draw. */
 export function setAdjustments(fn: (a: Adjustments) => Adjustments) {
   const s = get();
@@ -910,8 +921,22 @@ export async function boot() {
   // Polarity must be known before a ready notification opens a sidecar.
   // An empty, still-loading catalog is not evidence that a film is negative.
   set({ catalog: await loadCatalog() });
-  host().onState(takeHostState);
-  takeHostState(await host().state());
+  let stateEvents = 0;
+  host().onState((st) => {
+    stateEvents++;
+    takeHostState(st);
+  });
+  try {
+    const initial = await host().state();
+    // Events delivered while this request was in flight are newer than its
+    // snapshot. A late "starting" reply must never undo a ready notification.
+    if (stateEvents === 0) takeHostState(initial);
+    platform().log('info', `session: startup host state ${get().hostState.phase}`);
+  } catch (error) {
+    const reason = `${tz('Could not connect to the engine', '无法连接引擎')}: ${String(error)}`;
+    if (stateEvents === 0) takeHostState({ phase: 'failed', reason });
+    platform().log('error', reason);
+  }
   platform().onOpenPaths((paths) => void openPaths(paths));
   platform().onDrop((paths) => void openPaths(paths));
   const launch = await platform().takeLaunchPaths();
