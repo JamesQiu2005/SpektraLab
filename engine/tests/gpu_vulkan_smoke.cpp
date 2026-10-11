@@ -17,10 +17,7 @@
 #include "spektrafilm/spk_engine.h"
 
 namespace {
-// Set from math_mode: an accepted unfused-fma device (lavapipe).
-bool g_unfused_fma = false;
-
-bool check_fma_vectors(spk::gpu::Gpu* gpu, bool unfused, std::string& error) {
+bool check_fma_vectors(spk::gpu::Gpu* gpu, bool split, std::string& error) {
     // Exact binary32 bit patterns derived with integer/rational arithmetic,
     // independent of the host C runtime's fmaf. Cover small residuals, both
     // round-to-even ties, an exact product and legacy MinGW failure cases.
@@ -39,21 +36,23 @@ bool check_fma_vectors(spk::gpu::Gpu* gpu, bool unfused, std::string& error) {
         input[2 * i + 1] = std::bit_cast<float>(cases[i][1]);
     }
     auto src = gpu->upload(input.data(), sizeof input, error);
-    auto dst = gpu->alloc(count * sizeof(float), error);
-    if (!src || !dst || !gpu->dispatch("spk_math_probe",
+    auto dst = gpu->alloc(count * (split ? 2 : 1) * sizeof(float), error);
+    if (!src || !dst || !gpu->dispatch(split ? "spk_split_probe" : "spk_math_probe",
         {spk::gpu::Arg::buf(src), spk::gpu::Arg::buf(dst)}, count, error)) return false;
     std::vector<float> actual;
     if (!read_test_buffer(gpu, dst, actual, error)) return false;
     for (size_t i = 0; i < count; ++i) {
-        // An accepted unfused device (a CPU implementation, reported in
-        // math_mode) returns exactly 0 for every residual; nothing else.
-        const uint32_t want = unfused ? 0u : cases[i][2];
-        if (std::bit_cast<uint32_t>(actual[i]) != want) {
+        // Check the algorithm actually selected, with the same independent
+        // known-bit residuals. The unused hardware FMA may return anything.
+        const uint32_t want = cases[i][2];
+        const float got = actual[split ? 2 * i + 1 : i];
+        const bool high_ok = !split || actual[2 * i] == input[2 * i] * input[2 * i + 1];
+        if (!high_ok || std::bit_cast<uint32_t>(got) != want) {
             error = "FMA known-bit vector mismatch at " + std::to_string(i);
             return false;
         }
     }
-    std::printf("FMA residual: %zu %s known-bit vectors\n", count, unfused ? "unfused (zero)" : "exact");
+    std::printf("FMA residual: %zu %s known-bit vectors\n", count, split ? "split exact" : "fused exact");
     return true;
 }
 
@@ -313,8 +312,8 @@ int main(int argc, char** argv) {
     }
     std::printf("math mode: %s\n", math.c_str());
 
-    g_unfused_fma = math.find("unfused") != std::string::npos;
-    if (!check_fma_vectors(gpu, g_unfused_fma, error)) {
+    const bool split = math.find("split product") != std::string::npos;
+    if (!check_fma_vectors(gpu, split, error)) {
         std::fprintf(stderr, "FMA residual: %s\n", error.c_str());
         delete gpu;
         return 1;

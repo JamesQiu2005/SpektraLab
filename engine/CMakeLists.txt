@@ -113,7 +113,7 @@ if(NOT APPLE)
         set(vulkan_resource_dir "${CMAKE_CURRENT_BINARY_DIR}/resources")
         set(vulkan_shader_dir "${vulkan_resource_dir}/vulkan")
         set(SPEKTRALAB_VULKAN_KERNELS
-            spk_math_probe spk_take_rgb spk_matmul3 spk_stride_sample
+            spk_math_probe spk_split_probe spk_take_rgb spk_matmul3 spk_stride_sample
             spk_affine3 spk_tc_b spk_lut2d_cubic spk_sep_fir_acc spk_iir_df_acc
             spk_lincomb3 spk_log10_guarded spk_curves
             spk_couplers_correction spk_spectral_epilogue
@@ -263,6 +263,54 @@ if(NOT APPLE)
                 add_test(NAME spk_vulkan_${probe}
                     COMMAND spk_vulkan_${probe} "${vulkan_resource_dir}")
             endforeach()
+
+            add_executable(spk_vulkan_math_gate tests/gpu_vulkan_math_gate.cpp)
+            target_include_directories(spk_vulkan_math_gate PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/src")
+            target_link_libraries(spk_vulkan_math_gate PRIVATE spektralab_engine)
+            set(gate_root "${CMAKE_CURRENT_BINARY_DIR}/math-gate")
+            set(gate_fixtures)
+            foreach(kind unfused mixed broken missing)
+                set(dir "${gate_root}/${kind}")
+                set(mixed 0)
+                if(kind STREQUAL "mixed")
+                    set(mixed 1)
+                endif()
+                add_custom_command(OUTPUT "${dir}/spk_math_probe.spv"
+                    COMMAND "${CMAKE_COMMAND}" -E make_directory "${dir}"
+                    COMMAND "${SPEKTRALAB_GLSLANG}" -V --target-env vulkan1.0 -DPAIR=0 -DMIXED=${mixed}
+                        -o "${dir}/spk_math_probe.spv" "${CMAKE_CURRENT_SOURCE_DIR}/tests/math_gate_fault.comp"
+                    DEPENDS tests/math_gate_fault.comp VERBATIM)
+                list(APPEND gate_fixtures "${dir}/spk_math_probe.spv")
+                if(kind STREQUAL "broken")
+                    add_custom_command(OUTPUT "${dir}/spk_split_probe.spv"
+                        COMMAND "${SPEKTRALAB_GLSLANG}" -V --target-env vulkan1.0 -DPAIR=1 -DMIXED=0
+                            -o "${dir}/spk_split_probe.spv" "${CMAKE_CURRENT_SOURCE_DIR}/tests/math_gate_fault.comp"
+                        DEPENDS "${dir}/spk_math_probe.spv" tests/math_gate_fault.comp VERBATIM)
+                    list(APPEND gate_fixtures "${dir}/spk_split_probe.spv")
+                elseif(NOT kind STREQUAL "missing")
+                    add_custom_command(OUTPUT "${dir}/spk_split_probe.spv"
+                        COMMAND "${CMAKE_COMMAND}" -E copy "${vulkan_shader_dir}/spk_split_probe.spv" "${dir}/spk_split_probe.spv"
+                        DEPENDS "${dir}/spk_math_probe.spv" "${vulkan_shader_dir}/spk_split_probe.spv" VERBATIM)
+                    list(APPEND gate_fixtures "${dir}/spk_split_probe.spv")
+                endif()
+            endforeach()
+            add_custom_target(spk_math_gate_fixtures DEPENDS ${gate_fixtures})
+            add_dependencies(spk_vulkan_math_gate spk_math_gate_fixtures)
+            foreach(kind unfused mixed broken missing)
+                if(kind STREQUAL "broken" OR kind STREQUAL "missing")
+                    set(expect fail)
+                    set(message "split-product probe")
+                else()
+                    set(expect pass)
+                    set(message "split product")
+                endif()
+                add_test(NAME spk_math_gate_${kind} COMMAND spk_vulkan_math_gate "${gate_root}/${kind}" ${expect} "${message}")
+                set_tests_properties(spk_math_gate_${kind} PROPERTIES ENVIRONMENT "SPEKTRAFILM_VULKAN_FORCE_SPLIT=0;SPEKTRAFILM_VULKAN_STRICT_FMA=0")
+            endforeach()
+            add_test(NAME spk_math_gate_strict COMMAND spk_vulkan_math_gate "${gate_root}/unfused" fail "STRICT_FMA=1")
+            set_tests_properties(spk_math_gate_strict PROPERTIES ENVIRONMENT "SPEKTRAFILM_VULKAN_FORCE_SPLIT=1;SPEKTRAFILM_VULKAN_STRICT_FMA=1")
+            add_test(NAME spk_math_gate_forced COMMAND spk_vulkan_math_gate "${vulkan_shader_dir}" pass "forced split")
+            set_tests_properties(spk_math_gate_forced PROPERTIES ENVIRONMENT "SPEKTRAFILM_VULKAN_FORCE_SPLIT=1;SPEKTRAFILM_VULKAN_STRICT_FMA=0")
 
             if(SPEKTRALAB_BUILD_TEST_DLL)
                 add_executable(spk_windows_feature_boundaries tests/windows_feature_boundaries.cpp)

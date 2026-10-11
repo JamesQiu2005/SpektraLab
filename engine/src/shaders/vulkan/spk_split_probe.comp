@@ -1,0 +1,15 @@
+#version 450
+#extension GL_GOOGLE_include_directive : require
+#include "spk_split_product.glsl"
+
+// Same split product as the IIR and geometry kernels. The host checks both
+// returned words against a binary64 oracle, with no acceptance tolerance.
+layout(local_size_x = 1) in;
+layout(set = 0, binding = 0, std430) readonly buffer Input { float value[]; } input_data;
+layout(set = 0, binding = 1, std430) writeonly buffer Output { float value[]; } output_data;
+void main() {
+    uint i = gl_GlobalInvocationID.y * gl_NumWorkGroups.x + gl_GlobalInvocationID.x;
+    vec2 product = spk_split_product(input_data.value[2 * i], input_data.value[2 * i + 1]);
+    output_data.value[2 * i] = product.x;
+    output_data.value[2 * i + 1] = product.y;
+}

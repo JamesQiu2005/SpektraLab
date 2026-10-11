@@ -55,6 +55,10 @@ std::string vk_error(const char* operation, VkResult result) {
 struct KernelSpec { const char* name; uint32_t bindings; uint32_t workgroup; };
 constexpr KernelSpec kKernels[] = {
     {"spk_math_probe", 2, 1},
+    // The portable error-free product, in its own kernel so that neither probe
+    // has to change the other's output layout. local_size_x = 1, as
+    // spk_math_probe's is; the count is the dispatch's `n`.
+    {"spk_split_probe", 2, 1},
     {"spk_take_rgb", 3, kWorkgroup},
     {"spk_matmul3", 4, kWorkgroup},
     {"spk_stride_sample", 3, kWorkgroup},
@@ -233,80 +237,103 @@ public:
     std::string device_name() const override { return properties_.deviceName; }
 
     bool check_math_mode(std::string& detail) override {
-        constexpr size_t n = 64;
+        if (!math_checked_) {
+            math_checked_ = true;
+            if (!probe_math_mode(math_detail_)) fused_fma_ = -1;
+        }
+        detail = math_detail_;
+        return fused_fma_ >= 0;
+    }
+
+    bool probe_math_mode(std::string& detail) {
+        // Normal, bounded inputs: binary64 represents every product exactly.
+        // Keep the original lanes and add signs, exponent ranges and exact
+        // products. This is a startup diagnostic, not proof for all inputs.
+        constexpr size_t n = 256;
         float input[2 * n];
         for (size_t i = 0; i < n; ++i) {
-            input[2 * i] = 0.1f + 0.37f * float(i);
-            input[2 * i + 1] = input[2 * i] * 0.5f + 1.0f;
+            if (i < 64) {
+                input[2 * i] = 0.1f + 0.37f * float(i);
+                input[2 * i + 1] = input[2 * i] * 0.5f + 1.0f;
+            } else {
+                input[2 * i] = std::ldexp((i & 1 ? -1.0f : 1.0f) * (1.0f + float(i) / 1024.0f), int(i % 81) - 40);
+                input[2 * i + 1] = std::ldexp((i & 2 ? -1.0f : 1.0f) * (1.0f + float(i * 13) / 4096.0f), int((i * 7) % 81) - 40);
+            }
         }
-        std::string error;
-        BufferRef src = upload(input, sizeof input, error);
-        BufferRef dst = alloc(n * sizeof(float), error);
-        if (!src || !dst ||
-            !dispatch("spk_math_probe", {Arg::buf(src), Arg::buf(dst)}, n, error)) {
-            detail = "Vulkan math probe failed: " + error;
-            return false;
-        }
-        float got[n];
-        if (!read(dst.get(), 0, got, sizeof got, error)) {
-            detail = "Vulkan math probe readback failed: " + error;
-            return false;
-        }
-        // Two acceptable outcomes, and nothing in between:
-        //   fused    -- every residual is the exact one (NVIDIA, AMD, Intel and
-        //               every GPU the Windows port was accepted on);
-        //   unfused  -- every residual is exactly 0 *and* the device is a CPU
-        //               implementation. Mesa's lavapipe lowers fma() to a
-        //               multiply and an add even under `precise` (measured
-        //               2026-10-05, llvmpipe LLVM 20, Mesa 25.2). That is one
-        //               rounding per fma different from a fused device -- far
-        //               inside the 3e-5 render bar -- and it is reported in
-        //               `capabilities.backend.math_mode`, never silently.
-        // Anything else (some residuals right, some wrong; zeroes on a real
-        // GPU) still refuses to start, as it always did.
-        size_t exact = 0, zero = 0;
-        for (size_t i = 0; i < n; ++i) {
-            // These bounded, positive binary32 inputs have an exact binary64
-            // product (at most 48 significant bits). Subtracting its binary32
-            // rounding is exact by Sterbenz's lemma. This is the exact FMA
-            // residual for this probe, not a general-purpose FMA replacement.
-            // Some MinGW/MSVCRT fmaf implementations give an incorrect answer
-            // here; neither their result nor a tolerance is a valid GPU gate.
-            static_assert(std::numeric_limits<float>::digits == 24);
-            static_assert(std::numeric_limits<double>::digits >= 48);
-            const float a = input[2 * i], b = input[2 * i + 1];
-            const float rounded = a * b;
-            const float want = float(double(a) * double(b) - double(rounded));
-            if (want == 0.0f) continue;   // carries no information either way
-            if (got[i] == want) ++exact;
-            else if (got[i] == 0.0f) ++zero;
-            else {
-                char got_want[96];
-                std::snprintf(got_want, sizeof got_want, " (got %.9g, want %.9g)", double(got[i]), double(want));
-                detail = "Vulkan math probe differs from exact product residual at index " + std::to_string(i) + got_want;
+        auto enabled = [](const char* name) {
+            const char* value = std::getenv(name);
+            return value && std::strcmp(value, "1") == 0;
+        };
+        const bool strict = enabled("SPEKTRAFILM_VULKAN_STRICT_FMA");
+        const bool force_split = enabled("SPEKTRAFILM_VULKAN_FORCE_SPLIT") && !strict;
+        std::string error, fallback_reason = "forced split for validation";
+        if (!force_split) {
+            BufferRef src = upload(input, sizeof input, error);
+            BufferRef dst = alloc(n * sizeof(float), error);
+            if (!src || !dst || !dispatch("spk_math_probe", {Arg::buf(src), Arg::buf(dst)}, n, error)) {
+                detail = "Vulkan math probe failed: " + error;
+                return false;
+            }
+            float got[n];
+            if (!read(dst.get(), 0, got, sizeof got, error)) {
+                detail = "Vulkan math probe readback failed: " + error;
+                return false;
+            }
+            bool exact = true;
+            for (size_t i = 0; i < n; ++i) {
+                // Do not use host fmaf: legacy MinGW implementations can give
+                // the wrong residual. No tolerance is applied to this gate.
+                static_assert(std::numeric_limits<float>::digits == 24);
+                static_assert(std::numeric_limits<double>::digits >= 48);
+                const float a = input[2 * i], b = input[2 * i + 1];
+                const float rounded = a * b;
+                const float want = float(double(a) * double(b) - double(rounded));
+                if (got[i] == want) continue;
+                char values[112];
+                std::snprintf(values, sizeof values, " (got %.9g, want %.9g)", double(got[i]), double(want));
+                fallback_reason = "fma residual differs at index " + std::to_string(i) + values;
+                exact = false;
+                break;
+            }
+            if (exact) {
+                fused_fma_ = 1;
+                detail = "Vulkan probe passed (precise product + fused fma; full shader parity pending)";
+                return true;
+            }
+            if (strict) {
+                detail = fallback_reason + " (SPEKTRAFILM_VULKAN_STRICT_FMA=1)";
                 return false;
             }
         }
-        if (exact && !zero) {
-            fused_fma_ = 1;
-            detail = "Vulkan probe passed (precise product + fused fma; full shader parity pending)";
-            return true;
+        // GLSL.std.450 Fma need not give a single-rounded residual. Measure
+        // the existing Dekker alternative on this device instead of relaxing
+        // the acceptance tolerance or whitelisting a GPU vendor/type.
+        BufferRef src = upload(input, sizeof input, error);
+        BufferRef dst = alloc(2 * n * sizeof(float), error);
+        if (!src || !dst || !dispatch("spk_split_probe", {Arg::buf(src), Arg::buf(dst)}, n, error)) {
+            detail = fallback_reason + "; Vulkan split-product probe failed: " + error;
+            return false;
         }
-        if (zero && !exact && properties_.deviceType == VK_PHYSICAL_DEVICE_TYPE_CPU) {
-            // The double-float kernels then take an exact Dekker product
-            // instead of fma (specialization constant 0; see two_prod in
-            // spk_iir_df_acc.comp): without it the IIR blur's low word is lost
-            // and the recursion amplifies it -- 0.4 % on a 257-px constant row.
-            fused_fma_ = 0;
-            detail = "Vulkan probe passed on a CPU device with unfused fma (double-float kernels use an "
-                     "exact Dekker product; full shader parity pending)";
-            probe_cpu_storage_range(detail);
-            return true;
+        float got[2 * n];
+        if (!read(dst.get(), 0, got, sizeof got, error)) {
+            detail = "Vulkan split-product probe readback failed: " + error;
+            return false;
         }
-        if (!exact && !zero) { detail = "Vulkan math probe produced no informative residuals"; return false; }
-        detail = zero && exact ? "Vulkan math probe: fma is fused for some lanes and not others"
-                               : "Vulkan math probe: fma is not fused on a GPU device (fast or contracted math?)";
-        return false;
+        for (size_t i = 0; i < n; ++i) {
+            const float a = input[2 * i], b = input[2 * i + 1];
+            const float rounded = a * b;
+            const float residual = float(double(a) * double(b) - double(rounded));
+            // Check both words, not just their sum: consumers rely on a
+            // rounded high word and its residual, not an arbitrary pair.
+            if (got[2 * i] != rounded || got[2 * i + 1] != residual) {
+                detail = fallback_reason + "; Vulkan split-product probe is not exact at index " + std::to_string(i);
+                return false;
+            }
+        }
+        fused_fma_ = 0;  // commit the choice only after validation succeeds
+        detail = "Vulkan probe passed (exact Dekker split product; " + fallback_reason + "; full shader parity pending)";
+        if (properties_.deviceType == VK_PHYSICAL_DEVICE_TYPE_CPU) probe_cpu_storage_range(detail);
+        return true;
     }
 
     // lavapipe advertises maxStorageBufferRange = 128 MiB, which refuses any
@@ -488,12 +515,11 @@ public:
     bool dispatch(const char* kernel, const std::vector<Arg>& args,
                   size_t n_threads, std::string& error) override {
         if (n_threads == 0) return true;
-        // The specialization the double-float kernels are built with depends
-        // on whether this device fuses fma; learn it before the first one.
-        if (fused_fma_ < 0 && kernel && std::strcmp(kernel, "spk_math_probe") != 0) {
-            std::string detail;
-            if (!check_math_mode(detail)) fused_fma_ = 1;
-        }
+        // Probe kernels must not recurse into the startup gate. A rejected
+        // device stays rejected, including low-level callers that dispatch
+        // without first calling check_math_mode themselves.
+        if (kernel && std::strcmp(kernel, "spk_math_probe") != 0 &&
+            std::strcmp(kernel, "spk_split_probe") != 0 && !check_math_mode(error)) return false;
         const KernelSpec* spec = find_kernel(kernel);
         if (!spec) { error = std::string("Vulkan kernel not ported: ") + (kernel ? kernel : "(null)"); return false; }
         if (args.size() != spec->bindings) {
@@ -999,8 +1025,10 @@ private:
     VkPhysicalDeviceProperties properties_{};
     // maxStorageBufferRange, unless probe_cpu_storage_range measured more.
     VkDeviceSize storage_range_limit_ = 0;
-    // -1 not yet probed, 1 fused fma, 0 unfused (accepted on a CPU device only).
+    // -1 unvalidated/rejected, 1 validated fused fma, 0 validated split.
     int fused_fma_ = -1;
+    bool math_checked_ = false;
+    std::string math_detail_;
     VkPhysicalDeviceMemoryProperties memory_properties_{};
     VkDevice device_ = VK_NULL_HANDLE;
     VkQueue queue_ = VK_NULL_HANDLE;

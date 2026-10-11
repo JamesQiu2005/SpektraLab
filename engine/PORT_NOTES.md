@@ -24,6 +24,45 @@ per-feature handoff for that engineer (kernels, host C++, Apple-only deps and
 portable replacements, lavapipe test strategy, estimate, file:line), 3c wine
 verification of whatever Phase 2 left unverified. Then Phase 4 docs.
 
+## Vulkan FMA gate (2026-10-11)
+
+Some Vulkan drivers do not return a single-rounded residual from GLSL.std.450
+Fma. The startup gate now tries the existing Dekker product on any device if
+that residual is not exact, rather than accepting only CPU devices with all
+zero residuals. Both words must match a binary64 oracle without tolerance.
+The probe shares its split arithmetic with the IIR and geometry kernels.
+Failure is cached as failure; lazy dispatch cannot bypass a rejected gate.
+
+SPEKTRAFILM_VULKAN_FORCE_SPLIT=1 selects the measured split path for A/B tests.
+SPEKTRAFILM_VULKAN_STRICT_FMA=1 requires an exact FMA and takes precedence.
+These are diagnostic options, not required for normal user startup. Deploy
+the new spk_split_probe.spv together with the host and all compiled shaders.
+Do not mix the new host with an older shader folder.
+
+Validation on NVIDIA RTX 5070 Ti and AMD Radeon integrated graphics: 22/22
+CTest cases per device in default mode, 8/8 Vulkan/C-ABI cases per device in
+forced split mode. Six injected gate cases all failed against the old gate
+and pass after the fix (unfused/mixed residuals, broken/missing split probe,
+strict precedence and forced split). The IIR 576-case oracle retains its
+original limits and measures max abs error 1.49011612e-08 on both paths/cards.
+Full Sony RAW (4688x7028), Ektar print and Provia scan, with grain/glare
+disabled only for deterministic comparison: new NVIDIA default and forced
+split RGBA16 outputs match the previous host byte-for-byte; AMD default and
+forced split match each other byte-for-byte. Cross-vendor bit identity is
+not claimed. Product default effects are unchanged.
+No Intel device is available locally. This is not Intel acceptance or proof
+of whole-image parity with Metal/Python. Upstream math requirements remain.
+
+The current Tauri release app also returned a full default-effects RAW frame
+through the new bundled host with forced split (native app logs; no visual
+GUI acceptance claim). The supplied DeepSeek patch informed this change;
+its early acceptance state, duplicate probe code and broad precision claims
+were not carried over unchanged.
+
+Spec: https://docs.vulkan.org/spec/latest/appendices/spirvenv.html
+The ordinary Fma instruction inherits precision from OpFMul plus OpFAdd;
+NoContraction is not a general guarantee of correctly rounded fused FMA.
+
 ## Done
 
 - 2026-10-06: deps fetch verified; engine + tests build on Linux; CTest 12/14
