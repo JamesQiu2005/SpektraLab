@@ -128,8 +128,9 @@ and the run still reports 0 failures in ~20 s — trust the duration.
 
 ## Credits and licence
 
-The film process model, its 28 measured profiles and the print LUTs are
+The film process model, its 28 measured color profiles and the print LUTs are
 [spektrafilm](https://github.com/andreavolpato/spektrafilm) by Andrea Volpato;
+4 new measured B&W profiles are by Hanze Qiu;
 SpektraLab is a native C++/Metal port of that engine and the application built
 around it.
 
