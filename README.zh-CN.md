@@ -89,7 +89,7 @@ xcodebuild -project Spektrafilm.xcodeproj -scheme SpektrafilmTests \
 
 ## 致谢与许可
 
-胶片过程模型、28 款实测配置与放大 LUT 来自 Andrea Volpato 的 [spektrafilm](https://github.com/andreavolpato/spektrafilm)；SpektraLab 是该引擎的原生 C++/Metal 移植，以及围绕它构建的应用。
+胶片过程模型、28 款实测配置与放大 LUT 来自 Andrea Volpato 的 [spektrafilm](https://github.com/andreavolpato/spektrafilm)；4 款黑白胶片配置来自开发者本人 Hanze Qiu; SpektraLab 是该引擎的原生 C++/Metal 移植，以及围绕它构建的应用。
 
 | | |
 |---|---|
