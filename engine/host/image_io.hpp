@@ -24,6 +24,8 @@
 #include <string>
 #include <vector>
 
+#include "io/raw_decoder.hpp"
+
 namespace spkhost {
 
 struct Metadata {
@@ -49,6 +51,7 @@ bool probe_file(const std::filesystem::path& path, Probe& out, std::string& erro
 struct FloatImage {
     uint32_t width = 0, height = 0;
     std::vector<float> rgb;
+    std::optional<spk::io::RawDecodeTimings> raw_timings;
 };
 
 struct Rgba8 {

@@ -13,11 +13,16 @@
 // erasable TypeScript so `node main.ts` runs it without a build step.
 
 import schemaFields from './schema-fields.json' with { type: 'json' };
+import { mockView } from './view.ts';
+import type { Adjustments } from '../src/shared/adjustments.ts';
+import type { Geometry } from '../src/shared/geometry.ts';
+import { GEOMETRY_DEFAULT, outputSize } from '../src/shared/geometry.ts';
 
 export interface MockRequest {
   id: number;
   method: string;
   params: Record<string, unknown>;
+  payload?: Uint8Array;
 }
 
 export interface MockReply {
@@ -135,13 +140,15 @@ interface Session {
   height: number;
   params: Record<string, Value>;
   seed: number;
+  decodeKey: string;
+  viewPrints: Map<string, { width: number; height: number; data: Uint8Array }>;
 }
 
 /** What `hello.methods` lists: every method `dispatch` answers. */
 const METHODS = [
   'hello', 'ping', 'shutdown', 'cancel', 'params_schema', 'print_lut_catalog', 'memory_report', 'probe', 'thumbnail',
-  'open', 'redecode', 'close', 'set_params', 'get_params', 'solve', 'render', 'scene_latitude', 'overscan_geometry',
-  'preview_stock_lut', 'progress', 'export_image', 'export_cube', 'export_di',
+  'open', 'redecode', 'close', 'set_params', 'get_params', 'solve', 'render', 'render_view', 'scene_latitude', 'overscan_geometry',
+  'preview_stock_lut', 'progress', 'export_image', 'export_frame', 'export_cube', 'export_di',
 ];
 
 class HostError extends Error {
@@ -169,7 +176,10 @@ export class MockHost {
 
   async handle(req: MockRequest): Promise<MockReply> {
     try {
-      const { result, payload } = await this.dispatch(req.method, req.params ?? {});
+      if (req.method === 'export_frame' && req.payload?.length) throw new HostError('bad_request', 'export_frame accepts no image payload');
+      // A real IPC frame snapshots the request. In-page calls must not retain
+      // mutable UI settings while a delayed mock render is in flight.
+      const { result, payload } = await this.dispatch(req.method, structuredClone(req.params ?? {}));
       return { header: { id: req.id, ok: true, result }, payload };
     } catch (e) {
       const err = e instanceof HostError ? e : new HostError('internal', String((e as Error)?.message ?? e));
@@ -224,6 +234,20 @@ export class MockHost {
     const d = decode as Record<string, unknown>;
     for (const k of Object.keys(d)) if (k !== 'raw_mode' && k !== 'white_balance' && !(k === 'lens_correction' && d[k] === false)) throw new HostError('unsupported', `decode.${k} is not supported`);
     if (d.white_balance && this.kind(path) !== 'raw') throw new HostError('unsupported', 'white balance at decode needs a RAW file');
+  }
+
+  private decodeKey(decode: unknown): string {
+    const d = (decode ?? {}) as Record<string, unknown>;
+    const wb = (d.white_balance ?? {}) as Record<string, unknown>;
+    return JSON.stringify([d.raw_mode ?? 'compatible16', wb.mode === 'custom' ? [wb.temperature_k, wb.tint ?? 0] : 'as_shot']);
+  }
+
+  private snapshot(s: Session, params: Record<string, Value>) {
+    this.validate(params);
+    if (Object.entries(params).some(([key, value]) => s.params[key] !== value)) {
+      Object.assign(s.params, params);
+      s.viewPrints.clear();
+    }
   }
 
   private metadata(path: string) {
@@ -300,7 +324,7 @@ export class MockHost {
         this.checkDecode(path, p.decode);
         const id = 's' + this.next++;
         const { width, height } = this.dims(path);
-        this.sessions.set(id, { id, path, width, height, params, seed: hash(path) });
+        this.sessions.set(id, { id, path, width, height, params, seed: hash(path), decodeKey: this.decodeKey(p.decode), viewPrints: new Map() });
         return {
           result: {
             session: id,
@@ -316,6 +340,8 @@ export class MockHost {
       case 'redecode': {
         const s = this.session(p);
         this.checkDecode(s.path, p.decode);
+        s.viewPrints.clear();
+        s.decodeKey = this.decodeKey(p.decode);
         return {
           result: { session: s.id, width: s.width, height: s.height, kind: this.kind(s.path), metadata: this.metadata(s.path), params: s.params, timings_ms: { decode: 12, open: 3 } },
         };
@@ -328,6 +354,7 @@ export class MockHost {
         const delta = (p.delta ?? {}) as Record<string, unknown>;
         this.validate(delta);
         Object.assign(s.params, delta);
+        s.viewPrints.clear();
         return { result: { params: s.params } };
       }
       case 'get_params':
@@ -375,6 +402,30 @@ export class MockHost {
           payload,
         };
       }
+      case 'render_view': {
+        const s = this.session(p);
+        if (p.params) this.snapshot(s, p.params as Record<string, Value>);
+        const tier = String(p.tier ?? 'live');
+        const display = String(p.display ?? 'srgb');
+        if (display !== 'srgb' && display !== 'display-p3') throw new HostError('bad_request', 'preview display must be srgb or display-p3');
+        const cached = s.viewPrints.has(tier);
+        let print = s.viewPrints.get(tier);
+        if (!print) {
+          const edge = Number(s.params.preview_long_edge ?? 2560) || 2560;
+          const scale = tier === 'full' ? 1 : Math.min(1, edge / Math.max(s.width, s.height));
+          const width = Math.max(1, Math.round(s.width * scale)), height = Math.max(1, Math.round(s.height * scale));
+          print = { width, height, data: paint(width, height, s.seed, s.params) };
+          s.viewPrints.set(tier, print);
+        }
+        if (this.opts.renderDelayMs) await sleep(tier === 'full' ? this.opts.renderDelayMs * 3 : this.opts.renderDelayMs);
+        const view = mockView(print.data, print.width, print.height, p.adjustments as Adjustments | undefined,
+          p.geometry as Geometry | undefined, display, Number(p.long_edge ?? 0));
+        return {
+          result: { image: { ...imageInfo(view.width, view.height), color_space: display === 'display-p3' ? 'Display P3' : 'sRGB', processed: true },
+            tier, print_cached: cached, generation: p.generation, timings_ms: { mock_view: 5 } },
+          payload: view.data,
+        };
+      }
       case 'scene_latitude':
         return { result: latitude(this.session(p), (p.request ?? {}) as Record<string, unknown>) };
       case 'overscan_geometry':
@@ -398,6 +449,27 @@ export class MockHost {
             mock: true,
           },
         };
+      }
+      case 'export_frame': {
+        const s = p.session ? this.session(p) : null;
+        const sourcePath = s?.path ?? String(p.source_path ?? '');
+        if (!sourcePath || !p.path) throw new HostError('bad_request', 'export needs source_path or session and path');
+        if (this.opts.missing?.(sourcePath)) throw new HostError('not_found', `${sourcePath}: no such file`);
+        if (!['jpeg', 'png', 'tiff8', 'tiff16'].includes(String(p.format ?? 'tiff16'))) throw new HostError('bad_request', 'unsupported export format');
+        this.checkDecode(sourcePath, p.decode);
+        const editor = s && (p.decode === undefined || this.decodeKey(p.decode) === s.decodeKey) ? s : null;
+        if (p.params) {
+          this.validate(p.params as Record<string, unknown>);
+          if (editor) this.snapshot(editor, p.params as Record<string, Value>);
+        }
+        const native = s ? { width: s.width, height: s.height } : this.dims(sourcePath);
+        const out = outputSize((p.geometry as Geometry | undefined) ?? GEOMETRY_DEFAULT, native);
+        const edge = Number(p.long_edge ?? 0);
+        const scale = edge > 0 ? Math.min(1, edge / Math.max(out.width, out.height)) : 1;
+        return { result: { path: String(p.path), width: Math.max(1, Math.round(out.width * scale)),
+          height: Math.max(1, Math.round(out.height * scale)), bytes: 0, color_space: p.color_space ?? 'srgb',
+          generation: p.generation, print_cached: editor?.viewPrints.has('full') ?? false, exif_copied: true,
+          timings_ms: { print: 0, post: 0, readback: 0, encode_write: 0, total: 0 }, mock: true } };
       }
       case 'export_cube':
       case 'export_di':

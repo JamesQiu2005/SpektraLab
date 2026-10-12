@@ -39,6 +39,7 @@ cp "$deps/LibRaw-0.22.2/COPYRIGHT" "$lic/LibRaw-COPYRIGHT.txt"
 cp "$here/third_party/stb/LICENSE" "$lic/stb-LICENSE.txt"
 cp "$here/third_party/volk/LICENSE.md" "$lic/volk-LICENSE.txt"
 cp "$deps/Vulkan-Headers/LICENSE.md" "$lic/Vulkan-Headers-LICENSE.txt"
+cp "$build/engine/host/third-party/codecs/"* "$lic/"
 cat > "$lic/README.txt" <<'EOF'
 spektralab-host is free software under the GNU General Public License,
 version 3 or (at your option) any later version (SpektraLab-GPL-3.0.txt).
@@ -51,6 +52,11 @@ Bundled third-party components:
   stb_image, stb_image_write, stb_truetype   public domain / MIT (stb-LICENSE.txt)
   volk                 MIT (volk-LICENSE.txt)
   Vulkan-Headers       Apache-2.0 OR MIT, compile time only
+  libjpeg-turbo 3.2.0   IJG and BSD-3-Clause, statically linked
+  libpng 1.6.59        PNG Reference Library License v2, statically linked
+  zlib-ng 2.3.3        zlib license, statically linked
+Exact codec sources and checksums: engine/setup-codecs.sh / setup-codecs.ps1.
+This software is based in part on the work of the Independent JPEG Group.
 Film and paper profiles and print LUTs under engine/: CC BY-SA 4.0
 (Profiles-and-LUTs-CC-BY-SA-4.0.txt, with attribution in the CHANGELOG).
 EOF

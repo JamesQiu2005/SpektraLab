@@ -148,7 +148,29 @@ export interface OpenResult {
   kind?: string;
   metadata: FileMetadata;
   params: WireParams;
-  timings_ms?: { decode?: number; open?: number };
+  timings_ms?: { decode?: number; open?: number; raw?: RawTimings };
+}
+
+export interface RawTimings {
+  open: number; unpack: number; process: number; convert: number; total: number;
+  openmp_enabled: boolean; workers: number;
+}
+
+/** Cached film print -> encoded ProPhoto grade -> geometry -> size -> display. */
+export interface RenderViewResult {
+  image: ImageInfo;
+  tier: Tier;
+  generation: number;
+  print_cached: boolean;
+  timings_ms: { print: number; post: number; readback: number; total: number };
+}
+
+/** export_frame always returns metadata, never a pixel payload. */
+export interface ExportFrameResult {
+  path: string; width: number; height: number; bytes: number; color_space: string;
+  print_cached: boolean;
+  timings_ms: { print: number; post: number; readback: number; encode_write: number; total: number;
+    source?: { decode: number; open: number; raw?: RawTimings } };
 }
 
 export type Tier = 'live' | 'preview' | 'full';

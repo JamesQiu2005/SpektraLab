@@ -55,23 +55,36 @@ fn entry(p: &Path) -> Option<Entry> {
     })
 }
 
-/// The photographs directly in `dir`, by name (case-insensitive, natural
-/// enough for camera numbering). Hidden files are skipped.
+/// Photographs in the folder and its children, without following links or
+/// Windows junctions (a linked parent could otherwise recurse forever).
 pub fn list_images(dir: &Path) -> Result<Vec<Entry>, String> {
-    let rd = fs::read_dir(dir).map_err(|e| format!("{}: {e}", dir.display()))?;
-    let mut out: Vec<Entry> = rd
-        .filter_map(Result::ok)
-        .map(|d| d.path())
-        .filter(|p| p.is_file() && is_image(p))
-        .filter(|p| !p.file_name().map(|n| n.to_string_lossy().starts_with('.')).unwrap_or(true))
-        .filter_map(|p| entry(&p))
-        .collect();
-    out.sort_by_key(|e| e.name.to_lowercase());
+    let mut pending = vec![dir.to_path_buf()];
+    let mut out = Vec::new();
+    while let Some(folder) = pending.pop() {
+        let rd = fs::read_dir(&folder).map_err(|e| format!("{}: {e}", folder.display()))?;
+        for d in rd {
+            let d = d.map_err(|e| e.to_string())?;
+            if d.file_name().to_string_lossy().starts_with('.') { continue; }
+            let md = fs::symlink_metadata(d.path()).map_err(|e| e.to_string())?;
+            if md.file_type().is_symlink() { continue; }
+            #[cfg(windows)]
+            {
+                use std::os::windows::fs::MetadataExt;
+                // FILE_ATTRIBUTE_REPARSE_POINT or FILE_ATTRIBUTE_HIDDEN.
+                if md.file_attributes() & (0x400 | 0x2) != 0 { continue; }
+            }
+            if md.is_dir() { pending.push(d.path()); }
+            else if md.is_file() && is_image(&d.path()) {
+                if let Some(e) = entry(&d.path()) { out.push(e); }
+            }
+        }
+    }
+    out.sort_by_key(|e| (e.name.to_lowercase(), e.path.to_lowercase()));
     Ok(out)
 }
 
 /// Dropped or argv paths → photographs: files kept if they are images, a
-/// directory expanded one level.
+/// directory expanded recursively.
 pub fn expand(paths: &[String]) -> Vec<Entry> {
     let mut out = Vec::new();
     for p in paths {
@@ -279,6 +292,19 @@ mod tests {
             assert!(store.path_for(&moved).exists());
         }
         let _ = fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn nested_photos_are_included_and_hidden_folders_skipped() {
+        let root = std::env::temp_dir().join(format!("spk-nested-test-{}", std::process::id()));
+        fs::create_dir_all(root.join("nested/deeper")).unwrap();
+        fs::create_dir_all(root.join(".hidden")).unwrap();
+        for p in ["A.ARW", "nested/B.NEF", "nested/deeper/C.JPG", ".hidden/no.png", "nested/no.txt"] {
+            fs::write(root.join(p), b"fixture").unwrap();
+        }
+        let names: Vec<_> = list_images(&root).unwrap().into_iter().map(|e| e.name).collect();
+        assert_eq!(names, vec!["A.ARW", "B.NEF", "C.JPG"]);
+        let _ = fs::remove_dir_all(root);
     }
 
     #[test]

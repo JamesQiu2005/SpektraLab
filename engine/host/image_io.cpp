@@ -805,6 +805,7 @@ bool decode_linear_prophoto(const fs::path& path, const DecodeOptions& options, 
         out.width = decoded.width;
         out.height = decoded.height;
         out.rgb = std::move(decoded.rgb);   // LibRaw already applied the flip
+        out.raw_timings = decoded.timings;
         return true;
     }
     Raster r;
@@ -817,6 +818,7 @@ bool decode_linear_prophoto(const fs::path& path, const DecodeOptions& options, 
     out.width = w;
     out.height = h;
     out.rgb = std::move(r.rgb);
+    out.raw_timings.reset();
     return true;
 }
 
@@ -901,6 +903,7 @@ bool thumbnail(const fs::path& path, uint32_t long_edge, Rgba8& out, std::string
             return true;
         }
         // No usable embedded preview: a half-size sRGB decode.
+        spk::io::RawDecodeThreadScope thread_scope;
         raw = std::make_unique<LibRaw>(LIBRAW_OPTIONS_NO_DATAERR_CALLBACK);
         if (!raw_open(*raw, path, error)) return false;
         auto& p = raw->imgdata.params;

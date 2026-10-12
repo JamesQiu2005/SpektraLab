@@ -8,9 +8,9 @@
 // characters, arrows and delete to a focused editable element. Ctrl/Alt
 // combinations and Return/Enter/Esc/Tab are not typing keys.
 
-import { setGeometry, selectRelative, setOriginal, setTool, toggleCompare, undo, redo, zoomStep, zoomTo, zoomToFit, currentFitZoom, copySettings, pasteSettings, selectAllFrames, sessionStore, setPages } from '../state/session';
+import { setAdjustments, setGeometry, selectRelative, setOriginal, setTool, toggleCompare, undo, redo, zoomStep, zoomTo, zoomToFit, currentFitZoom, copySettings, pasteSettings, selectAllFrames, sessionStore, setPages } from '../state/session';
 import { turned } from '@shared/geometry';
-import { openDialog, openExport, restartHost } from './actions';
+import { openDialog, openFilesDialog, openExport, restartHost } from './actions';
 import { settingsStore } from '../state/settings';
 import { platform } from '../platform';
 
@@ -51,6 +51,8 @@ export function shortcutTable(): Record<string, Action> {
   return {
     // Ctrl (Cmd on a Mac keyboard) — also menu accelerators in the app.
     'ctrl+o': () => void openDialog(),
+    'ctrl+shift+o': () => void openFilesDialog(),
+    'ctrl+q': () => void import('@tauri-apps/api/window').then((w) => w.getCurrentWindow().close()),
     'ctrl+e': openExport,
     'ctrl+z': undo,
     'ctrl+shift+z': redo,
@@ -69,10 +71,7 @@ export function shortcutTable(): Record<string, Action> {
       s.set('rightCollapsed', c);
     },
     'ctrl+shift+f': () => settingsStore.getState().set('filmstripCollapsed', !settingsStore.getState().filmstripCollapsed),
-    'ctrl+shift+b': () => {
-      const s = sessionStore.getState();
-      sessionStore.setState({ sidecar: { ...s.sidecar, adjustments: { ...s.sidecar.adjustments, enabled: !s.sidecar.adjustments.enabled } } });
-    },
+    'ctrl+shift+b': () => setAdjustments((a) => ({ ...a, enabled: !a.enabled })),
     'ctrl+alt+[': geo((g) => turned(g, -1)),
     'ctrl+alt+]': geo((g) => turned(g, 1)),
     'ctrl+alt+r': () => void restartHost(),
@@ -103,6 +102,11 @@ export function chord(e: KeyLike): string {
   return (e.ctrlKey || e.metaKey ? 'ctrl+' : '') + (e.altKey ? 'alt+' : '') + (e.shiftKey && k.length > 1 ? 'shift+' : e.shiftKey && /[a-z]/.test(k) ? 'shift+' : '') + k;
 }
 
+/** Windows: WebView2 owns keyboard input; native menu entries remain clickable. */
+export function webviewOwnsMenuKeys(userAgent = navigator.userAgent): boolean {
+  return /Windows/i.test(userAgent);
+}
+
 export function installKeys(menuOwns: Set<string> = new Set()): () => void {
   const table = shortcutTable();
   const onKey = (e: KeyboardEvent) => {
@@ -113,6 +117,9 @@ export function installKeys(menuOwns: Set<string> = new Set()): () => void {
     const s = sessionStore.getState();
     const c = chord(e);
     if ((s.exportOpen || s.settingsOpen || s.aboutOpen) && c !== 'escape' && !c.startsWith('ctrl+')) return;
+    if (s.batchExporting && c !== 'f11') return;
+    // Text editing shortcuts belong to the focused field, not the photograph.
+    if (isEditable(e.target) && ['ctrl+a', 'ctrl+c', 'ctrl+v', 'ctrl+x', 'ctrl+z', 'ctrl+shift+z', 'ctrl+y'].includes(c)) return;
     const a = table[c];
     if (a) {
       e.preventDefault();

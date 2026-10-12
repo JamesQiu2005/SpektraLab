@@ -10,9 +10,7 @@
 #include "image_io.hpp"
 #include "json.hpp"
 #include "platform.hpp"
-#include "stb_image_write.h"
 
-extern "C" unsigned char* stbi_zlib_compress(unsigned char* data, int data_len, int* out_len, int quality);
 
 namespace spkhost {
 
@@ -586,97 +584,6 @@ bool encode_tiff(const void* rgb, uint32_t w, uint32_t h, uint32_t bits, const s
             out[start + 2 * i + 1] = uint8_t(src[i] >> 8);
         }
     }
-    return true;
-}
-
-static uint32_t crc32(const uint8_t* d, size_t n, uint32_t crc = 0) {
-    static uint32_t table[256];
-    static bool init = false;
-    if (!init) {
-        for (uint32_t i = 0; i < 256; ++i) {
-            uint32_t c = i;
-            for (int k = 0; k < 8; ++k) c = c & 1 ? 0xEDB88320u ^ (c >> 1) : c >> 1;
-            table[i] = c;
-        }
-        init = true;
-    }
-    crc = ~crc;
-    for (size_t i = 0; i < n; ++i) crc = table[(crc ^ d[i]) & 0xFF] ^ (crc >> 8);
-    return ~crc;
-}
-
-static void sink(void* context, void* data, int size) {
-    auto* v = static_cast<std::vector<uint8_t>*>(context);
-    v->insert(v->end(), static_cast<uint8_t*>(data), static_cast<uint8_t*>(data) + size);
-}
-
-bool encode_png8(const uint8_t* rgb, uint32_t w, uint32_t h, const std::vector<uint8_t>& icc,
-                 std::vector<uint8_t>& out, std::string& error, const Exif* exif) {
-    std::vector<uint8_t> png;
-    if (!stbi_write_png_to_func(sink, &png, int(w), int(h), 3, rgb, int(w * 3)) || png.size() < 33) {
-        error = "PNG encode failed";
-        return false;
-    }
-    out.clear();
-    out.insert(out.end(), png.begin(), png.begin() + 33);   // signature + IHDR
-    if (!icc.empty()) {
-        int zlen = 0;
-        unsigned char* z = stbi_zlib_compress(const_cast<unsigned char*>(icc.data()), int(icc.size()), &zlen, 8);
-        if (!z) { error = "PNG ICC compression failed"; return false; }
-        std::vector<uint8_t> chunk = {'i', 'C', 'C', 'P'};
-        const char* name = "ICC Profile";
-        chunk.insert(chunk.end(), name, name + std::strlen(name));
-        chunk.push_back(0);
-        chunk.push_back(0);
-        chunk.insert(chunk.end(), z, z + zlen);
-        std::free(z);
-        put32(out, uint32_t(chunk.size() - 4));
-        out.insert(out.end(), chunk.begin(), chunk.end());
-        put32(out, crc32(chunk.data(), chunk.size()));
-    }
-    if (exif) {
-        std::vector<uint8_t> chunk = {'e', 'X', 'I', 'f'};
-        const auto block = exif_block(*exif, w, h);
-        chunk.insert(chunk.end(), block.begin(), block.end());
-        put32(out, uint32_t(chunk.size() - 4));
-        out.insert(out.end(), chunk.begin(), chunk.end());
-        put32(out, crc32(chunk.data(), chunk.size()));
-    }
-    out.insert(out.end(), png.begin() + 33, png.end());
-    return true;
-}
-
-bool encode_jpeg(const uint8_t* rgb, uint32_t w, uint32_t h, int quality, const std::vector<uint8_t>& icc,
-                 std::vector<uint8_t>& out, std::string& error, const Exif* exif) {
-    std::vector<uint8_t> jpg;
-    if (!stbi_write_jpg_to_func(sink, &jpg, int(w), int(h), 3, rgb, std::clamp(quality, 1, 100)) || jpg.size() < 4) {
-        error = "JPEG encode failed";
-        return false;
-    }
-    out.assign(jpg.begin(), jpg.begin() + 2);   // SOI
-    if (exif) {
-        const auto block = exif_block(*exif, w, h);
-        if (block.size() + 8 <= 65535) {
-            out.push_back(0xFF); out.push_back(0xE1);
-            put16(out, uint16_t(block.size() + 8));
-            const char* sig = "Exif";
-            out.insert(out.end(), sig, sig + 4);
-            out.push_back(0); out.push_back(0);
-            out.insert(out.end(), block.begin(), block.end());
-        }
-    }
-    const size_t max_chunk = 65519;
-    const size_t chunks = (icc.size() + max_chunk - 1) / max_chunk;
-    for (size_t c = 0; c < chunks; ++c) {
-        const size_t at = c * max_chunk, n = std::min(max_chunk, icc.size() - at);
-        out.push_back(0xFF); out.push_back(0xE2);
-        put16(out, uint16_t(n + 16));
-        const char* sig = "ICC_PROFILE";
-        out.insert(out.end(), sig, sig + 12);   // includes the NUL
-        out.push_back(uint8_t(c + 1)); out.push_back(uint8_t(chunks));
-        out.insert(out.end(), icc.begin() + at, icc.begin() + at + n);
-    }
-    out.insert(out.end(), jpg.begin() + 2, jpg.end());
     return true;
 }
 

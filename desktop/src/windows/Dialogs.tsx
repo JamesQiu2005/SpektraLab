@@ -87,7 +87,7 @@ export function SettingsDialog() {
                 <button
                   className="btn"
                   onClick={() => {
-                    for (const k of ['leftCollapsed', 'rightCollapsed', 'filmstripCollapsed', 'leftWidth', 'rightWidth', 'collapsedSections'] as const) set(k, SETTINGS_DEFAULT[k] as never);
+                    for (const k of ['interfaceScale', 'parametersTab', 'leftCollapsed', 'rightCollapsed', 'filmstripCollapsed', 'leftWidth', 'rightWidth', 'collapsedSections'] as const) set(k, SETTINGS_DEFAULT[k] as never);
                   }}
                 >
                   {t('setResetLayout')}

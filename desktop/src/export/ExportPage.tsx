@@ -2,22 +2,22 @@
 // `reference_layout/Export_Page`): recipes on the left, the frame in the
 // middle, the batch (the picked frames) on the right.
 //
-// **The batch holds the frame** (AGENTS.md trap 34): the exporter writes
-// whatever frame is open, so while `batchExporting` is set every way a person
-// can change the open frame is a no-op (`click`, `openPaths`, undo, the keys,
-// the editor takes no hits). The run's own door is `select`. Stop cancels
-// between frames; a frame being written is finished whole.
+// The batch freezes settings before its first export and leaves the editor
+// on the same photograph. The host opens private frames one at a time.
 
 import { useEffect, useRef, useState } from 'react';
 import { Checkbox, NumberField, PillMenu, ScrubSlider, Section } from '../controls/controls';
 import { t, tz } from '../i18n';
 import { platform, baseName } from '../platform';
-import { select, sessionStore, setPages, useSession } from '../state/session';
+import { sessionStore, setPages, useSession } from '../state/session';
+import { settingsStore } from '../state/settings';
+import { host } from '../host/client';
 import { Thumb } from '../windows/Filmstrip';
 import { GEOMETRY_DEFAULT } from '@shared/geometry';
 import { useOutput } from '../canvas/output';
-import { type ExportRecipe, DEFAULT_RECIPES, NAME_TOKENS, type NameToken, decodeRecipes, extensionOf } from './recipes';
-import { exportCube, exportFrame, hostWrites, outputFor, targetFor, type ExportOutcome } from './exporter';
+import { paintOutput } from '../canvas/colorSpace';
+import { type ExportRecipe, editRecipe, recipeSummary, DEFAULT_RECIPES, NAME_TOKENS, type NameToken, decodeRecipes, extensionOf } from './recipes';
+import { captureExportFrames, exportCube, exportFrame, hostWrites, outputFor, targetFor, type ExportJob, type ExportOutcome } from './exporter';
 
 const TOKEN_LABEL: Record<NameToken, () => string> = {
   originalName: () => tz('Org. Name', '原文件名'),
@@ -34,27 +34,6 @@ async function loadRecipes(): Promise<ExportRecipe[]> {
   }
 }
 
-function waitForDeveloped(path: string, timeoutMs = 600_000): Promise<boolean> {
-  return new Promise((resolve) => {
-    const ok = () => {
-      const s = sessionStore.getState();
-      return s.selection === path && !!s.engineSession && !s.developing && !!s.nativeSize;
-    };
-    if (ok()) return resolve(true);
-    const t0 = setTimeout(() => {
-      un();
-      resolve(false);
-    }, timeoutMs);
-    const un = sessionStore.subscribe(() => {
-      if (ok()) {
-        clearTimeout(t0);
-        un();
-        resolve(true);
-      }
-    });
-  });
-}
-
 export function ExportPage() {
   const open = useSession((s) => s.exportOpen);
   const picked = useSession((s) => s.picked);
@@ -64,7 +43,7 @@ export function ExportPage() {
   const hello = useSession((s) => s.hello);
   const params = useSession((s) => s.sidecar.params);
   const geometry = useSession((s) => s.sidecar.geometry);
-  const adjustments = useSession((s) => s.sidecar.adjustments);
+  const gate = useSession((s) => s.gate);
   const native = useSession((s) => s.nativeSize);
   const saved = useSession((s) => s.savedGeometry);
   const output = useOutput();
@@ -74,6 +53,7 @@ export function ExportPage() {
   const [progress, setProgress] = useState<{ done: number; total: number } | null>(null);
   const [sample, setSample] = useState('');
   const stop = useRef(false);
+  const active = useRef<ExportJob | null>(null);
   const proof = useRef<HTMLCanvasElement>(null);
 
   useEffect(() => {
@@ -85,65 +65,71 @@ export function ExportPage() {
     setRecipes(next);
     void platform().storeWrite('Export', 'recipes.json', next).catch(() => {});
   };
-  const edit = (patch: Partial<ExportRecipe>) => save(recipes.map((x, i) => (i === current ? { ...x, ...patch } : x)));
+  const edit = (patch: Partial<ExportRecipe>) => {
+    const next = editRecipe(recipes, current, patch);
+    save(next.recipes);
+    setCurrent(next.current);
+  };
 
   useEffect(() => {
     if (!selection) return;
-    void targetFor(r, { path: selection, session: '', params, adjustments, geometry, native: native ?? { width: 1, height: 1 } }, catalog).then((x) => setSample(`${x.base}.${extensionOf(r)}`));
-  }, [r, selection, params, catalog, adjustments, geometry, native]);
+    void targetFor(r, { path: selection, params }, catalog).then((x) => setSample(`${x.base}.${extensionOf(r)}`));
+  }, [r, selection, params, catalog]);
 
   useEffect(() => {
     const c = proof.current;
     if (!c || !output) return;
-    c.width = output.width;
-    c.height = output.height;
-    c.getContext('2d')!.putImageData(new ImageData(new Uint8ClampedArray(output.data), output.width, output.height), 0, 0);
+    paintOutput(c, output);
   }, [output, open]);
 
   if (!open) return null;
   const frames = picked.length ? picked : selection ? [selection] : [];
   const writesEdits = hostWrites(hello?.methods as string[] | undefined);
+  const supported = r.format === 'di' ? gate.digitalIntermediate && !!hello?.methods?.includes('export_di') : writesEdits;
   const size = native ? outputFor(r, geometry, native) : null;
 
   const run = async () => {
+    if (sessionStore.getState().batchExporting) return;
+    // This snapshot includes unsaved edits to the selected photo. No later
+    // state read supplies parameters to an already-started batch.
+    const state = sessionStore.getState();
+    const recipe = structuredClone(r);
+    const paths = [...frames];
+    const methods = state.hello?.methods ? [...state.hello.methods] : undefined;
+    const selected = state.selection ? {
+      path: state.selection, sidecar: structuredClone(state.sidecar),
+      session: !state.developing && !state.redecoding ? state.engineSession ?? undefined : undefined,
+      native: state.nativeSize ?? undefined, dateTaken: state.metadata?.datetime_original,
+    } : null;
     stop.current = false;
     setLog([]);
+    setProgress({ done: 0, total: paths.length });
     sessionStore.setState({ batchExporting: true });
-    const back = sessionStore.getState().selection;
+    let done = 0;
     try {
-      for (let i = 0; i < frames.length; i++) {
+      const prepared = await captureExportFrames(paths, selected, state.catalog, state.gate,
+        settingsStore.getState().recalculateEffectsAfterCrop, () => stop.current);
+      for (const item of prepared) {
         if (stop.current) break;
-        const path = frames[i]!;
-        setProgress({ done: i, total: frames.length });
-        await select(path);
-        const ready = await waitForDeveloped(path);
-        const s = sessionStore.getState();
-        if (!ready || !s.engineSession || !s.nativeSize) {
-          setLog((l) => [...l, { name: baseName(path), outcome: { kind: 'failed', message: s.lastError ?? tz('the frame did not develop', '照片未能显影') } }]);
-          continue;
-        }
-        const outcome = await exportFrame(
-          r,
-          {
-            path,
-            session: s.engineSession,
-            params: s.sidecar.params,
-            adjustments: s.sidecar.adjustments,
-            geometry: s.sidecar.geometry,
-            native: s.nativeSize,
-            dateTaken: s.metadata?.datetime_original,
-          },
-          s.catalog,
-          s.hello?.methods as string[] | undefined,
-        );
-        platform().log(outcome.kind === 'failed' ? 'error' : 'info', `export ${baseName(path)}: ${JSON.stringify(outcome)}`);
-        setLog((l) => [...l, { name: baseName(path), outcome }]);
+        const outcome: ExportOutcome = 'error' in item ? { kind: 'failed', message: item.error }
+          : await exportFrame(recipe, item.frame, state.catalog, methods, {
+            cancelled: () => stop.current, active: (job) => { active.current = job; },
+          });
+        platform().log(outcome.kind === 'failed' ? 'error' : 'info', `export ${baseName(item.path)}: ${JSON.stringify(outcome)}`);
+        setLog((l) => [...l, { name: baseName(item.path), outcome }]);
+        if (outcome.kind === 'cancelled') break;
+        setProgress({ done: ++done, total: paths.length });
       }
-      setProgress({ done: frames.length, total: frames.length });
     } finally {
+      active.current = null;
       sessionStore.setState({ batchExporting: false });
-      if (back && sessionStore.getState().selection !== back) void select(back);
     }
+  };
+
+  const cancel = () => {
+    stop.current = true;
+    const job = active.current;
+    if (job) void host().cancel(job.session, job.progressId).catch((e) => platform().log('error', `export cancel: ${String(e)}`));
   };
 
   return (
@@ -151,13 +137,13 @@ export function ExportPage() {
       <div className="topbar">
         <span style={{ fontWeight: 700, fontSize: 'var(--fs-rail-title)' }}>{t('helpExport')}</span>
         <span className="bar-status">
-          {progress ? tz(`${progress.done} of ${progress.total} written`, `已写入 ${progress.done} / ${progress.total}`) : ''}
+          {progress ? tz(`${progress.done} of ${progress.total} processed`, `已处理 ${progress.done} / ${progress.total}`) : ''}
         </span>
         <span className="pill-menu" style={{ marginRight: 12 }}>
           {tz(`${frames.length} image${frames.length === 1 ? '' : 's'}`, `${frames.length} 张`)}
         </span>
         {batch ? (
-          <button className="btn" onClick={() => (stop.current = true)}>
+          <button className="btn" onClick={cancel}>
             {tz('Stop', '停止')}
           </button>
         ) : (
@@ -165,7 +151,7 @@ export function ExportPage() {
             <button className="btn" onClick={() => setPages({ exportOpen: false })} style={{ marginRight: 8 }}>
               {tz('Close', '关闭')}
             </button>
-            <button className="btn primary" disabled={!frames.length} onClick={() => void run()} data-testid="export-run">
+            <button className="btn primary" disabled={!frames.length || !supported} onClick={() => void run()} data-testid="export-run">
               {tz('Export', '导出')}
             </button>
           </>
@@ -178,7 +164,7 @@ export function ExportPage() {
               id="exp-recipes"
               title={tz('Export Formula', '导出方案')}
               menu={[
-                { label: tz('Restore the built-in recipes', '恢复内置方案'), onSelect: () => save(DEFAULT_RECIPES) },
+                { label: tz('Restore the built-in recipes', '恢复内置方案'), onSelect: () => { save(DEFAULT_RECIPES); setCurrent(0); } },
                 {
                   label: tz('Export the print as a .cube LUT…', '将相纸导出为 .cube LUT…'),
                   onSelect: () => void exportCube(params.printStock, `${params.printStock}.cube`).catch((e) => platform().message('SpektraLab', String(e), 'error')),
@@ -188,7 +174,7 @@ export function ExportPage() {
               <div className="recipe-list">
                 {recipes.map((x, i) => (
                   <div key={x.id} className={'stock-row' + (i === current ? ' selected' : '')} onClick={() => setCurrent(i)}>
-                    <span className="name">{x.name}</span>
+                    <span className="name" title={recipeSummary(x)}>{x.name}</span>
                   </div>
                 ))}
               </div>
@@ -271,6 +257,7 @@ export function ExportPage() {
               </div>
             </Section>
             <Section id="exp-format" title={tz('Format and Size', '格式与尺寸')}>
+              <div className="caption" data-testid="recipe-summary">{recipeSummary(r)}</div>
               <div className="row">
                 <span className="row-label">{tz('Format', '格式')}</span>
                 <PillMenu
@@ -317,13 +304,15 @@ export function ExportPage() {
             </Section>
             <Section id="exp-summary" title={tz('Summary', '摘要')}>
               <div className="caption">
-                {writesEdits
+                {r.format === 'di'
+                  ? tz('Density intermediate: no crop or Post-Dev grade. Stop takes effect between files.', '密度中间片：不包含裁剪或显影后调整；停止在两张之间生效。')
+                  : writesEdits
                   ? tz('The file is the canvas’s frame: crop, rotation and Post-Dev included.', '文件即画布上的画面：包含裁剪、旋转与显影后调整。')
-                  : tz('This engine writes the print only: the crop, rotation and Post-Dev grade are not in the file.', '此引擎只写入相纸画面：裁剪、旋转与显影后调整不会写入文件。')}
+                  : tz('This engine cannot export the complete frame. Update the engine to export.', '此引擎不支持完整画面导出，请更新引擎后再导出。')}
               </div>
               {log.map((l, i) => (
                 <div key={i} className="caption mono" style={{ color: l.outcome.kind === 'failed' ? 'var(--hist-r)' : undefined }}>
-                  {l.name}: {l.outcome.kind === 'written' ? `→ ${l.outcome.path}` : l.outcome.kind === 'skipped' ? tz(`skipped (${l.outcome.path} exists)`, `已跳过（${l.outcome.path} 已存在）`) : l.outcome.message}
+                  {l.name}: {l.outcome.kind === 'written' ? `→ ${l.outcome.path}` : l.outcome.kind === 'skipped' ? tz(`skipped (${l.outcome.path} exists)`, `已跳过（${l.outcome.path} 已存在）`) : l.outcome.kind === 'cancelled' ? tz('cancelled', '已取消') : l.outcome.message}
                 </div>
               ))}
               {log.some((l) => l.outcome.kind === 'written') && (

@@ -529,6 +529,7 @@
 		0690E24369EB1BEF328A5C19 /* overscan.cpp */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.cpp; name = "overscan.cpp"; path = "../../engine/src/pipeline/overscan.cpp"; sourceTree = SOURCE_ROOT; };
 		05255F333E49F5B4B78CE005 /* pipeline.cpp */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.cpp; name = "pipeline.cpp"; path = "../../engine/src/pipeline/pipeline.cpp"; sourceTree = SOURCE_ROOT; };
 		6B9E732572541F028D0B239A /* scene_latitude.cpp */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.cpp; name = "scene_latitude.cpp"; path = "../../engine/src/pipeline/scene_latitude.cpp"; sourceTree = SOURCE_ROOT; };
+		EDA1C5DC66EA2AAD3EB304B9 /* view_process.cpp */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.cpp; name = "view_process.cpp"; path = "../../engine/src/pipeline/view_process.cpp"; sourceTree = SOURCE_ROOT; };
 		6E206BF4A16CC067140F0164 /* Engine */ = {
 			isa = PBXGroup;
 			children = (
@@ -554,7 +555,8 @@
 				E2C17B8BF9B1AE15206603D4 /* engine.cpp */,
 				0690E24369EB1BEF328A5C19 /* overscan.cpp */,
 				05255F333E49F5B4B78CE005 /* pipeline.cpp */,
-				6B9E732572541F028D0B239A /* scene_latitude.cpp */
+				6B9E732572541F028D0B239A /* scene_latitude.cpp */,
+				EDA1C5DC66EA2AAD3EB304B9 /* view_process.cpp */
 			);
 			name = Engine;
 			sourceTree = "<group>";
@@ -710,6 +712,7 @@
 		739140E1BD3C8FFAD4F08CBA /* overscan.cpp */ = {isa = PBXBuildFile; fileRef = 0690E24369EB1BEF328A5C19; };
 		BD74FC412EEF846209C82BB3 /* pipeline.cpp */ = {isa = PBXBuildFile; fileRef = 05255F333E49F5B4B78CE005; };
 		4B468E1B214531456EBD198F /* scene_latitude.cpp */ = {isa = PBXBuildFile; fileRef = 6B9E732572541F028D0B239A; };
+		D98828DB98506A7FA1CF9915 /* view_process.cpp */ = {isa = PBXBuildFile; fileRef = EDA1C5DC66EA2AAD3EB304B9; };
 		AB6F1305312B9996E2538FF8 /* app-sources */ = {
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
@@ -842,7 +845,8 @@
 				6CA1845EA1FCDAA29F4BB5EE /* engine.cpp */,
 				739140E1BD3C8FFAD4F08CBA /* overscan.cpp */,
 				BD74FC412EEF846209C82BB3 /* pipeline.cpp */,
-				4B468E1B214531456EBD198F /* scene_latitude.cpp */
+				4B468E1B214531456EBD198F /* scene_latitude.cpp */,
+				D98828DB98506A7FA1CF9915 /* view_process.cpp */
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -1054,6 +1058,7 @@
 		8A491C1B70D9B2FCE86A9694 /* overscan.cpp */ = {isa = PBXBuildFile; fileRef = 0690E24369EB1BEF328A5C19; };
 		603567AF9E3F5DBD58D00DD0 /* pipeline.cpp */ = {isa = PBXBuildFile; fileRef = 05255F333E49F5B4B78CE005; };
 		E03FCC86E58095D656B72473 /* scene_latitude.cpp */ = {isa = PBXBuildFile; fileRef = 6B9E732572541F028D0B239A; };
+		0315EA9808E00EC6C3531F6B /* view_process.cpp */ = {isa = PBXBuildFile; fileRef = EDA1C5DC66EA2AAD3EB304B9; };
 		1F4D89CC2FE4F3BC028B2B29 /* test-sources */ = {
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
@@ -1244,7 +1249,8 @@
 				2B2733A93D5E1AD3A25E2445 /* engine.cpp */,
 				8A491C1B70D9B2FCE86A9694 /* overscan.cpp */,
 				603567AF9E3F5DBD58D00DD0 /* pipeline.cpp */,
-				E03FCC86E58095D656B72473 /* scene_latitude.cpp */
+				E03FCC86E58095D656B72473 /* scene_latitude.cpp */,
+				0315EA9808E00EC6C3531F6B /* view_process.cpp */
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

@@ -1,0 +1,21 @@
+#version 450
+layout(local_size_x=256) in;
+layout(binding=0,std430) readonly buffer Input { float v[]; } src;
+layout(binding=1,std430) readonly buffer Uniforms { float v[]; } u;
+layout(binding=2,std430) readonly buffer Meta { uint v[]; } m;
+layout(binding=3,std430) writeonly buffer Output { float v[]; } dst;
+uint index1D(){return gl_GlobalInvocationID.y*(gl_NumWorkGroups.x*gl_WorkGroupSize.x)+gl_GlobalInvocationID.x;}
+vec3 sampleAt(uint x,uint y){uint i=3u*(y*m.v[0]+x); return vec3(src.v[i],src.v[i+1u],src.v[i+2u]);}
+void main(){
+ uint i=index1D(); if(i>=m.v[2]*m.v[3])return;
+ vec2 p=(vec2(i%m.v[2],i/m.v[2])+0.5)/vec2(m.v[2],m.v[3]);
+ if((m.v[5]&1u)!=0u)p.x=1.0-p.x; if((m.v[5]&2u)!=0u)p.y=1.0-p.y;
+ if(m.v[4]==1u)p=vec2(p.y,1.0-p.x); else if(m.v[4]==2u)p=1.0-p; else if(m.v[4]==3u)p=vec2(1.0-p.y,p.x);
+ float px=(p.x-0.5)*u.v[2],py=(p.y-0.5)*u.v[3]*u.v[6];
+ vec2 uv=vec2(u.v[0]+px*u.v[4]-py*u.v[5],u.v[1]+(px*u.v[5]+py*u.v[4])/u.v[6]);
+ vec2 f=clamp(uv*vec2(m.v[0],m.v[1])-0.5,vec2(0),vec2(m.v[0]-1u,m.v[1]-1u));
+ uvec2 a=uvec2(floor(f)),b=min(a+1u,uvec2(m.v[0]-1u,m.v[1]-1u)); vec2 t=fract(f);
+ vec3 c=mix(mix(sampleAt(a.x,a.y),sampleAt(b.x,a.y),t.x),mix(sampleAt(a.x,b.y),sampleAt(b.x,b.y),t.x),t.y);
+ c=floor(clamp(c,0.0,1.0)*65535.0+0.5)/65535.0;
+ dst.v[3u*i]=c.r;dst.v[3u*i+1u]=c.g;dst.v[3u*i+2u]=c.b;
+}

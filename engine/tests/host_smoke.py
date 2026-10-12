@@ -206,6 +206,7 @@ def exercise(host, path, tmp, label, raw):
         h2, _ = host.call("export_image", {"session": sid, "path": out, "format": fmt, "color_space": cs})
         check(not h2["ok"] and h2["error"]["code"] == "io_error", f"{label}: export refuses to overwrite")
 
+    processed_views(host, sid, path, tmp, label)
     extras(host, sid, path, tmp, label, raw, r)
     host.call("close", {"session": sid})
     h, _ = host.call("render", {"session": sid, "tier": "live"})
@@ -217,6 +218,66 @@ def mean_rgb(px):
     step = max(1, n // 50000)
     idx = range(0, n, step)
     return [sum(px[4 * i + c] for i in idx) / len(idx) for c in range(3)]
+
+
+def processed_views(host, sid, path, tmp, label):
+    """The desktop's processed preview and metadata-only export contract."""
+    h, _ = host.call("get_params", {"session": sid})
+    if not check(h["ok"], f"{label}: view snapshot params", h.get("error")):
+        return
+    params = h["result"]["params"]
+    base = {"session": sid, "tier": "full", "display": "srgb", "generation": 100,
+            "params": params, "long_edge": 240, "adjustments": {}, "geometry": {}}
+    h, first = host.call("render_view", base)
+    if not check(h["ok"], f"{label}: render_view", h.get("error")):
+        return
+    im = h["result"]["image"]
+    check(im["processed"] and im["color_space"] == "sRGB" and
+          len(first) == im["width"] * im["height"] * 4 and max(im["width"], im["height"]) <= 240,
+          f"{label}: processed preview size and colour tag")
+    # An immutable full snapshot must not rerun the film or generate new grain.
+    h, same = host.call("render_view", {**base, "generation": 101})
+    check(h["ok"] and h["result"]["generation"] == 101 and h["result"]["print_cached"] and first == same,
+          f"{label}: same full snapshot preserves cached pixels", h.get("error"))
+    h, p3 = host.call("render_view", {**base, "display": "display-p3", "generation": 102})
+    check(h["ok"] and h["result"]["image"]["color_space"] == "Display P3" and
+          h["result"]["print_cached"] and len(p3) == len(first), f"{label}: cached P3 preview", h.get("error"))
+    h, _ = host.call("render_view", {**base, "params": {"unknown_snapshot_key": None}})
+    check(not h["ok"] and h["error"]["code"] == "bad_request", f"{label}: snapshot rejects unknown keys")
+    geometry = {"quarterTurns": 1}
+    out = os.path.join(tmp, f"{label}-frame.tif")
+    export = {"session": sid, "path": out, "format": "tiff16", "color_space": "prophoto",
+              "params": params, "adjustments": {"exposure": 0.4}, "geometry": geometry,
+              "generation": 103, "long_edge": 240}
+    h, px = host.call("export_frame", export)
+    if check(h["ok"], f"{label}: export_frame", h.get("error")):
+        result = h["result"]
+        tags = tiff_info(out)
+        check(not px and result["generation"] == 103 and result["print_cached"] and
+              result["bytes"] == os.path.getsize(out), f"{label}: cached export metadata only")
+        check(result["width"] == im["height"] and result["height"] == im["width"] and
+              tags is not None and 34675 in tags, f"{label}: export applies rotation and embeds ICC")
+    h, _ = host.call("export_frame", export, b"not-image-pixels")
+    check(not h["ok"] and h["error"]["code"] == "bad_request", f"{label}: export_frame refuses input pixels")
+    before, _ = host.call("memory_report")
+    private = {k: v for k, v in export.items() if k != "session"}
+    private.update(source_path=path, path=os.path.join(tmp, f"{label}-private.tif"))
+    h, px = host.call("export_frame", private)
+    check(h["ok"] and not px and h["result"]["generation"] == 103,
+          f"{label}: private source export", h.get("error"))
+    after, _ = host.call("memory_report")
+    check(after["ok"] and before["ok"] and
+          after["result"]["persistent"]["sessions"] == before["result"]["persistent"]["sessions"],
+          f"{label}: private source session released")
+    h, _ = host.call("get_params", {"session": sid})
+    check(h["ok"] and h["result"]["params"] == params, f"{label}: private export preserves editor")
+    # A queued private export can be cancelled without an editor session ID.
+    cancelled_path = os.path.join(tmp, f"{label}-cancelled-frame.tif")
+    h, _ = host.call("cancel", {"session": "", "progress_id": "private-never-ran"})
+    check(h["ok"] and not h["result"]["was_running"], f"{label}: queue private cancellation")
+    h, px = host.call("export_frame", {**private, "path": cancelled_path, "progress_id": "private-never-ran"})
+    check(not h["ok"] and h["error"]["code"] == "cancelled" and not px and not os.path.exists(cancelled_path),
+          f"{label}: queued private export cancelled before decode", h.get("error"))
 
 
 def extras(host, sid, path, tmp, label, raw, probe):

@@ -16,6 +16,7 @@ Python film-model reference.
 - [Minimal Win32 viewer](WINDOWS_DESKTOP.md)
 - [Qt Quick editor and its separate build](../windows_UI/README.md)
 - [Implemented and tested feature coverage](WINDOWS_FEATURE_COVERAGE.md)
+- [ProPhoto preview, parallel RAW and direct-export validation](WINDOWS_WIDE_GAMUT.md)
 
 ## Requirements and build
 

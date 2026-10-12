@@ -17,6 +17,7 @@ mkdir -p "$deps"
 deps="$(cd "$deps" && pwd)"
 
 "$here/setup-libraw.sh" "$deps" >/dev/null
+bash "$here/setup-codecs.sh" "$deps/export-codecs" >/dev/null
 
 pinned_clone() {   # url tag commit tree dest
   local url="$1" tag="$2" commit="$3" tree="$4" dest="$5"

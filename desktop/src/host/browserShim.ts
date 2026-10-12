@@ -25,9 +25,9 @@ export function browserTransport(): Transport {
   });
   return {
     kind: 'browser',
-    async request(method, p): Promise<Reply> {
+    async request(method, p, opts): Promise<Reply> {
       await ready;
-      const r = await mock.handle({ id: id++, method, params: p });
+      const r = await mock.handle({ id: id++, method, params: p, payload: opts?.payload });
       const h = r.header as { ok: boolean; result?: Record<string, unknown>; error?: { code: string; message: string } };
       if (!h.ok) throw new HostCallError(method, h.error!.code, h.error!.message);
       return { result: h.result ?? {}, payload: r.payload ?? new Uint8Array(0) };

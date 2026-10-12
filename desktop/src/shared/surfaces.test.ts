@@ -1,6 +1,8 @@
 // Trap 33: give the frame a crop *and* a quarter turn, read every surface,
 // compare with the canvas.
 
+import { filePixels } from '../export/exporter';
+import { ADJUSTMENTS_DEFAULT, SRGB_MID_GREY } from './adjustments';
 import { describe, expect, it } from 'vitest';
 import { GEOMETRY_DEFAULT, type Geometry, outputSize, shaderMap, sourcePoint, uniform } from './geometry';
 import { resampleOutput, thumbnailGeometryPlan } from './surfaces';
@@ -64,4 +66,13 @@ describe('every surface shows the canvas frame', () => {
     // And the strip shows the photograph turned, as the canvas does.
     expect(plan.width).toBeLessThan(plan.height);
   });
+});
+
+
+it('neutral full-size file pixels preserve RGB codes and own their memory', () => {
+  const src = new Uint16Array([0, 1, 65535, 0, 32767, 32768, 128, 7]);
+  const out = filePixels(src, { width: 2, height: 1 }, GEOMETRY_DEFAULT, ADJUSTMENTS_DEFAULT, { width: 2, height: 1 }, SRGB_MID_GREY);
+  expect(Array.from(out)).toEqual([0, 1, 65535, 65535, 32767, 32768, 128, 65535]);
+  out[0] = 123;
+  expect(src[0]).toBe(0);
 });

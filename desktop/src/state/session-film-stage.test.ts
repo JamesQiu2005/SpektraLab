@@ -6,11 +6,14 @@ import type * as StocksModule from '@shared/stocks';
 import type * as SessionModule from './session';
 import { StockCatalog } from '@shared/stocks';
 import { decodeSidecar, encodeSidecar, newSidecar } from '@shared/sidecar';
+import type { FileEntry } from '../platform';
 
 const fake = vi.hoisted(() => ({
   onState: null as ((state: HostState) => void) | null,
   loadCatalog: vi.fn(),
   state: vi.fn(),
+  listImages: vi.fn<(dir: string) => Promise<FileEntry[]>>(),
+  expandPaths: vi.fn<(paths: string[]) => Promise<FileEntry[]>>(),
   load: vi.fn(),
   save: vi.fn(async (_path: string, _sidecar: unknown) => ''),
   open: vi.fn(async () => ({ session: 's1', width: 6, height: 4, kind: 'raw', metadata: { orientation: 1 } })),
@@ -33,10 +36,11 @@ vi.mock('../host/client', () => ({
 vi.mock('../platform', () => ({
   platform: () => ({
     log: () => {}, sidecarLoad: fake.load, sidecarSave: fake.save,
+    listImages: fake.listImages, expandPaths: fake.expandPaths, setTitle: async () => {},
     onOpenPaths: () => {}, onDrop: () => {}, takeLaunchPaths: async () => [],
   }),
   baseName: (p: string) => p.split(/[\\/]/).pop() ?? p,
-  dirName: (p: string) => p,
+  dirName: (p: string) => p.replace(/[\\/][^\\/]*$/, ''),
 }));
 
 const SLIDES = ['fujifilm_provia_100f', 'fujifilm_velvia_100', 'kodak_ektachrome_100', 'kodak_kodachrome_64'];
@@ -198,5 +202,77 @@ describe('startup state ordering', () => {
     session.sessionStore.setState({ hostState: { phase: 'starting' }, engineSession: null });
     await session.boot();
     expect(session.sessionStore.getState().hostState).toMatchObject({ phase: 'failed', reason: expect.stringContaining('IPC unavailable') });
+  });
+});
+
+
+describe('feedback: reset the full capture setup', () => {
+  it('resets stocks, effects and camera decode together, preserves crop/grade and undoes once', () => {
+    const before = newSidecar();
+    before.params = { ...before.params, filmStock: 'kodak_ektar_100', printStock: 'kodak_supra_endura', grainActive: false, exposureCompensationEV: 2, printBrightnessStops: 1 };
+    before.decode = { ...before.decode, whiteBalance: 'Custom', temperature: 3200 };
+    before.adjustments = { ...before.adjustments, exposure: 0.5 };
+    before.geometry = { ...before.geometry, quarterTurns: 1 };
+    session.sessionStore.setState({ sidecar: before });
+    session.resetParams();
+    const after = session.sessionStore.getState();
+    expect(after.sidecar.params).toEqual(newSidecar().params);
+    expect(after.sidecar.decode).toEqual(newSidecar().decode);
+    expect(after.sidecar.adjustments).toEqual(before.adjustments);
+    expect(after.sidecar.geometry).toEqual(before.geometry);
+    expect(after.undo).toHaveLength(1);
+    session.undo();
+    expect(session.sessionStore.getState().sidecar.params).toEqual(before.params);
+    expect(session.sessionStore.getState().sidecar.decode).toEqual(before.decode);
+  });
+});
+
+describe('explicit import scope', () => {
+  const entry = (path: string): FileEntry => ({ path, name: path.split('/').pop()!, size: 1, mtime_ms: 0 });
+  const one = entry('/owned/new.ARW');
+  const old = [entry('/owned/old-roll/a.NEF'), entry('/owned/old-roll/b.NEF')];
+
+  beforeEach(() => {
+    session.sessionStore.setState({ selection: null, engineSession: null, frames: [], picked: [] });
+    fake.listImages.mockResolvedValue([one, ...old]);
+    fake.expandPaths.mockImplementation(async (paths) => paths.map(entry));
+  });
+
+  it('stays empty after restart, then opens only the requested file despite a saved folder', async () => {
+    const { settingsStore } = await import('./settings');
+    settingsStore.getState().set('lastFolder', '/owned/old-roll');
+    await session.boot();
+    expect(session.sessionStore.getState().frames).toEqual([]);
+    await session.openPaths([one.path]);
+    expect(session.sessionStore.getState().frames).toEqual([one]);
+    expect(session.sessionStore.getState().selection).toBe(one.path);
+    expect(fake.listImages).not.toHaveBeenCalled();
+  });
+
+  it('replaces an existing roll with explicitly selected files, even if they were already in it', async () => {
+    session.sessionStore.setState({ frames: [one, ...old] });
+    await session.openPaths([one.path, old[0]!.path]);
+    expect(session.sessionStore.getState().frames).toEqual([one, old[0]]);
+    expect(fake.listImages).not.toHaveBeenCalled();
+  });
+
+  it('still imports folder contents through both folder and dropped-path doors', async () => {
+    fake.listImages.mockResolvedValue(old);
+    await session.openFolder('/owned/old-roll');
+    expect(session.sessionStore.getState().frames).toEqual(old);
+    fake.expandPaths.mockResolvedValue([one, ...old]);
+    await session.openPaths(['/owned']);
+    expect(session.sessionStore.getState().frames).toEqual([one, ...old]);
+  });
+
+  it('does not change the library during batch export or for empty/unsupported input', async () => {
+    session.sessionStore.setState({ frames: old, batchExporting: true });
+    await session.openPaths([one.path]);
+    expect(fake.expandPaths).not.toHaveBeenCalled();
+    session.sessionStore.setState({ batchExporting: false });
+    await session.openPaths([]);
+    fake.expandPaths.mockResolvedValue([]);
+    await session.openPaths(['/owned/readme.txt']);
+    expect(session.sessionStore.getState().frames).toEqual(old);
   });
 });

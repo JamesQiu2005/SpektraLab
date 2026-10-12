@@ -116,5 +116,34 @@ export function decodeRecipes(raw: unknown): ExportRecipe[] {
       },
     } as ExportRecipe);
   }
-  return out.length ? out : DEFAULT_RECIPES;
+  // Older versions silently saved edits over a built-in ID. Preserve those
+  // edits as custom while restoring the preset that the ID/name promises.
+  const recovered: ExportRecipe[] = [];
+  for (let i = 0; i < out.length; i++) {
+    const r = out[i]!;
+    const builtin = DEFAULT_RECIPES.find((d) => d.id === r.id);
+    if (builtin && JSON.stringify(r) !== JSON.stringify(builtin)) {
+      recovered.push({ ...r, id: `custom-recovered-${i}`, name: `${r.name} (custom)` });
+      out[i] = structuredClone(builtin);
+    }
+  }
+  return out.length ? [...out, ...recovered] : DEFAULT_RECIPES;
+}
+
+
+export function editRecipe(recipes: ExportRecipe[], current: number, patch: Partial<ExportRecipe>) {
+  const index = Math.min(current, recipes.length - 1);
+  const r = recipes[index]!;
+  if (DEFAULT_RECIPES.some((d) => d.id === r.id)) {
+    const id = `custom-${crypto.randomUUID()}`;
+    const custom = { ...structuredClone(r), ...patch, id, name: patch.name ?? `${r.name} (custom)` };
+    return { recipes: [...recipes, custom], current: recipes.length };
+  }
+  return { recipes: recipes.map((r, i) => i === index ? { ...r, ...patch } : r), current: index };
+}
+
+export function recipeSummary(r: ExportRecipe): string {
+  if (r.format === 'di') return 'Digital Intermediate';
+  const space = r.colorSpace === 'display-p3' ? 'Display P3' : r.colorSpace === 'prophoto' ? 'ProPhoto RGB' : 'sRGB';
+  return `${r.format.toUpperCase()} · ${r.bitDepth} bit · ${space}`;
 }

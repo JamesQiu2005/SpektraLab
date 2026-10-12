@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { DEFAULT_RECIPES, decodeRecipes, hostFormat, resolveTarget, stem, stockToken } from './recipes';
+import { DEFAULT_RECIPES, editRecipe, decodeRecipes, hostFormat, resolveTarget, stem, stockToken } from './recipes';
 
 const ctx = { originalName: 'image_1', filmStock: 'Portra_400', printStock: 'Vision_2383', date: new Date(2026, 9, 6) };
 
@@ -38,4 +38,22 @@ describe('export recipes', () => {
     expect(r[0]!.name).toBe('Mine');
     expect(r[0]!.naming.order).toHaveLength(4);
   });
+});
+
+
+it('editing a built-in recipe creates a selected custom copy; the original still means its name', () => {
+  const original = structuredClone(DEFAULT_RECIPES);
+  const edited = editRecipe(original, 0, { format: 'png', bitDepth: 8, colorSpace: 'sRGB' });
+  expect(edited.recipes[0]).toEqual(DEFAULT_RECIPES[0]);
+  expect(edited.current).toBe(original.length);
+  expect(edited.recipes[edited.current]).toMatchObject({ format: 'png', colorSpace: 'sRGB' });
+  expect(edited.recipes[edited.current]!.id).not.toBe(DEFAULT_RECIPES[0]!.id);
+  const again = editRecipe(edited.recipes, edited.current, { quality: 100 });
+  expect(again.recipes).toHaveLength(edited.recipes.length);
+  expect(again.recipes[again.current]!.quality).toBe(100);
+});
+it('restores a previously changed built-in without losing its custom settings', () => {
+  const restored = decodeRecipes([{ ...DEFAULT_RECIPES[0], format: 'png', colorSpace: 'sRGB' }]);
+  expect(restored.find((r) => r.id === 'jpeg-p3')).toEqual(DEFAULT_RECIPES[0]);
+  expect(restored.some((r) => r.id !== 'jpeg-p3' && r.format === 'png' && r.colorSpace === 'sRGB')).toBe(true);
 });

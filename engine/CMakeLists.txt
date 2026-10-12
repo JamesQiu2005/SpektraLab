@@ -51,7 +51,7 @@ if(APPLE)
     target_sources(spektralab_pipeline PRIVATE
         src/pipeline/contrast_mask.cpp src/pipeline/overscan.cpp)
 else()
-    target_sources(spektralab_pipeline PRIVATE src/pipeline/windows_unported.cpp)
+    target_sources(spektralab_pipeline PRIVATE src/pipeline/windows_unported.cpp src/pipeline/view_process.cpp)
 endif()
 target_link_libraries(spektralab_pipeline PRIVATE spektralab_core)
 target_include_directories(spektralab_pipeline PRIVATE
@@ -119,6 +119,7 @@ if(NOT APPLE)
             spk_couplers_correction spk_spectral_epilogue
             spk_print_exposure spk_cam16ucs_compress
             spk_cctf_encode_matrix spk_to_rgba16
+            spk_view_grade spk_view_geometry spk_view_pack
             spk_grain_layers spk_grain_layer_one spk_grain_simple
             spk_lognormal_field spk_rng_probe spk_mul spk_glare_add
             spk_reduce_max spk_boost spk_bw_correct spk_edr spk_cctf_decode
@@ -219,6 +220,9 @@ if(NOT APPLE)
                 add_executable(spk_raw_headroom tests/raw_headroom.cpp)
                 target_link_libraries(spk_raw_headroom PRIVATE spk_image_io)
                 add_test(NAME spk_raw_headroom COMMAND spk_raw_headroom)
+                add_executable(spk_raw_threads tests/raw_threads.cpp)
+                target_link_libraries(spk_raw_threads PRIVATE spk_image_io spk_libraw)
+                add_test(NAME spk_raw_threads COMMAND spk_raw_threads)
             endif()
         endif()
 
@@ -253,7 +257,7 @@ if(NOT APPLE)
             add_test(NAME spk_vulkan_smoke
                 COMMAND spk_vulkan_smoke "${vulkan_resource_dir}")
 
-            foreach(probe grain pointwise resample transfer geometry lut_di)
+            foreach(probe grain pointwise resample transfer geometry lut_di view)
                 add_executable(spk_vulkan_${probe} tests/gpu_vulkan_${probe}.cpp)
                 target_include_directories(spk_vulkan_${probe} PRIVATE
                     "${CMAKE_CURRENT_SOURCE_DIR}/include"

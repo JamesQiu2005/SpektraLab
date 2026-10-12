@@ -17,7 +17,34 @@ file(GLOB_RECURSE libraw_sources CONFIGURE_DEPENDS "${SPEKTRALAB_LIBRAW_SOURCE}/
 list(FILTER libraw_sources EXCLUDE REGEX "/[^/]*_ph\\.cpp$")
 add_library(spk_libraw STATIC ${libraw_sources})
 target_include_directories(spk_libraw PUBLIC "${SPEKTRALAB_LIBRAW_SOURCE}")
-target_compile_definitions(spk_libraw PUBLIC LIBRAW_NODLL PRIVATE LIBRAW_NOTHREADS)
+target_compile_definitions(spk_libraw PUBLIC LIBRAW_NODLL)
+# Keep per-instance decoder state even in the serial comparison build. The
+# LIBRAW_NOTHREADS variant uses shared static state in several decoders.
+option(SPEKTRALAB_LIBRAW_OPENMP "Enable bounded parallel LibRaw processing" ON)
+if(SPEKTRALAB_LIBRAW_OPENMP)
+    if(MINGW AND SPEKTRALAB_STATIC_RUNTIME AND CMAKE_CXX_COMPILER_ID STREQUAL "GNU")
+        # FindOpenMP otherwise prefers libgomp.dll.a; a final -static cannot
+        # undo that explicit import archive and would add a missing DLL.
+        execute_process(COMMAND "${CMAKE_CXX_COMPILER}" -print-file-name=libgomp.a
+            OUTPUT_VARIABLE spk_static_gomp OUTPUT_STRIP_TRAILING_WHITESPACE
+            RESULT_VARIABLE spk_static_gomp_status)
+        if(NOT spk_static_gomp_status EQUAL 0 OR NOT IS_ABSOLUTE "${spk_static_gomp}" OR NOT EXISTS "${spk_static_gomp}")
+            message(FATAL_ERROR "Static RAW OpenMP requires this MinGW compiler's libgomp.a")
+        endif()
+        set(OpenMP_gomp_LIBRARY "${spk_static_gomp}" CACHE FILEPATH "Static MinGW OpenMP runtime" FORCE)
+    endif()
+    find_package(OpenMP REQUIRED COMPONENTS CXX)
+    target_link_libraries(spk_libraw PUBLIC OpenMP::OpenMP_CXX)
+    # LibRaw 0.22.2 intentionally disables OpenMP for non-MSVC Windows
+    # compilers unless explicitly opted in. PUBLIC keeps its inline allocator
+    # definitions identical in the library and all consumers of libraw.h.
+    if(WIN32 AND CMAKE_CXX_COMPILER_ID STREQUAL "GNU")
+        target_compile_definitions(spk_libraw PUBLIC LIBRAW_FORCE_OPENMP)
+    endif()
+    target_compile_definitions(spk_libraw PUBLIC SPEKTRALAB_RAW_OPENMP=1)
+else()
+    target_compile_definitions(spk_libraw PUBLIC SPEKTRALAB_RAW_OPENMP=0)
+endif()
 target_compile_features(spk_libraw PUBLIC cxx_std_11)
 set_target_properties(spk_libraw PROPERTIES POSITION_INDEPENDENT_CODE ON)
 if(WIN32)

@@ -4,16 +4,73 @@
 #include <libraw/libraw.h>
 
 #include <algorithm>
+#include <charconv>
 #include <chrono>
 #include <cmath>
 #include <cstring>
+#include <cstdlib>
 #include <exception>
 #include <limits>
 #include <iterator>
 #include <memory>
+#include <stdexcept>
+#include <thread>
 #include <utility>
 
 namespace spk::io {
+
+#if SPEKTRALAB_RAW_OPENMP && !defined(LIBRAW_USE_OPENMP)
+#error "RAW OpenMP requested but LibRaw parallel processing is disabled"
+#endif
+
+bool raw_openmp_enabled() noexcept {
+#if SPEKTRALAB_RAW_OPENMP
+    return true;
+#else
+    return false;
+#endif
+}
+
+unsigned raw_worker_limit() {
+    const unsigned available = std::max(1u, std::thread::hardware_concurrency());
+    unsigned requested = std::min(8u, available);
+    if (const char* value = std::getenv("SPEKTRALAB_RAW_THREADS")) {
+        const char* end = value + std::strlen(value);
+        const auto parsed = std::from_chars(value, end, requested);
+        if (parsed.ec != std::errc{} || parsed.ptr != end || requested == 0)
+            throw std::invalid_argument("SPEKTRALAB_RAW_THREADS must be a positive integer");
+    }
+    return raw_openmp_enabled() ? std::min(requested, available) : 1u;
+}
+
+RawDecodeThreadScope::RawDecodeThreadScope() : workers_(raw_worker_limit()) {
+#if SPEKTRALAB_RAW_OPENMP
+    previous_threads_ = omp_get_max_threads();
+    previous_dynamic_ = omp_get_dynamic();
+#if _OPENMP >= 200805
+    previous_levels_ = omp_get_max_active_levels();
+    omp_set_max_active_levels(1);
+#else
+    previous_levels_ = omp_get_nested();
+    omp_set_nested(0);
+#endif
+    omp_set_dynamic(0);
+    omp_set_num_threads(static_cast<int>(workers_));
+#endif
+}
+
+RawDecodeThreadScope::~RawDecodeThreadScope() {
+#if SPEKTRALAB_RAW_OPENMP
+    omp_set_num_threads(previous_threads_);
+#if _OPENMP >= 200805
+    omp_set_max_active_levels(previous_levels_);
+#else
+    omp_set_nested(previous_levels_);
+#endif
+    omp_set_dynamic(previous_dynamic_);
+#endif
+}
+
 namespace {
 
 using Clock = std::chrono::steady_clock;
@@ -217,6 +274,7 @@ bool decode_raw_compatible(const std::filesystem::path& source, const std::array
     error.clear();
     const auto total_start = Clock::now();
     try {
+        RawDecodeThreadScope thread_scope;
         if (source.empty()) {
             error = "RAW open: source path is empty";
             return false;
@@ -238,6 +296,8 @@ bool decode_raw_compatible(const std::filesystem::path& source, const std::array
             raw->imgdata.params.use_camera_wb = 0;
         }
         DecodedRaw decoded;
+        decoded.timings.openmp_enabled = raw_openmp_enabled();
+        decoded.timings.workers = thread_scope.workers();
         auto start = Clock::now();
         // filesystem::path::value_type is wchar_t on Windows, selecting
         // LibRaw's Unicode filename overload without an ANSI conversion.
@@ -332,6 +392,7 @@ bool decode_raw_headroom(const std::filesystem::path& source,
     error.clear();
     const auto total_start = Clock::now();
     try {
+        RawDecodeThreadScope thread_scope;
         if (source.empty()) {
             error = "RAW open: source path is empty";
             return false;
@@ -342,6 +403,8 @@ bool decode_raw_headroom(const std::filesystem::path& source,
         // reconstruct sensor saturation and still uses uint16 intermediates.
         raw->imgdata.params.highlight = 1;
         DecodedRaw decoded;
+        decoded.timings.openmp_enabled = raw_openmp_enabled();
+        decoded.timings.workers = thread_scope.workers();
         auto start = Clock::now();
         const int open_status = raw->open_file(source.c_str());
         decoded.timings.open_ms = elapsed_ms(start);

@@ -48,7 +48,7 @@ async function drain() {
 
 process.stdin.on('data', (chunk: Buffer) => {
   for (const f of decoder.push(new Uint8Array(chunk.buffer, chunk.byteOffset, chunk.length))) {
-    const req = f.header as MockRequest;
+    const req = { ...(f.header as MockRequest), payload: f.payload };
     if (req.method === 'ping' || req.method === 'cancel' || req.method === 'shutdown') {
       void host.handle(req).then((r) => {
         send(r.header, r.payload);

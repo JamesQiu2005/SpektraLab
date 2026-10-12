@@ -3,15 +3,15 @@
 // `Model/Adjustments.swift`, `Model/CurveMath.swift` and the `layer2` kernel
 // of `Canvas/Shaders.metal`.
 //
-// Layer 2 never leaves the app: the canvas runs it in a WebGL2 fragment
-// shader (`src/canvas/shaders.ts`), and `applyLayer2` below is the same
-// arithmetic on the CPU, for the export path and for the tests that pin the
-// two together. Order is fixed:
+// The native host applies Layer 2 in encoded ProPhoto RGB on the GPU.
+// `applyLayer2` below remains the CPU reference for tests and the browser
+// mock; the canvas shader retains it for legacy unprocessed frames.
+// Order is fixed:
 //
 //   white balance → exposure/contrast/brightness → highlights/shadows
 //   → black/white point → saturation → colour balance → curves → vignette
 
-import { clamp } from './params';
+import { clamp } from './params.ts';
 
 export interface ColorZone {
   hue: number;

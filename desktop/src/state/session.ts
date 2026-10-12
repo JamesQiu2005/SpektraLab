@@ -4,8 +4,8 @@
 //
 // Three kinds of edit, three costs (ARCHITECTURE.md §7.1):
 //   params      → a `set_params` delta and a render (reprint if print-only)
-//   adjustments → Layer 2 in the canvas shader, no host call
-//   geometry    → applied when the canvas samples, no host call
+//   adjustments → a cached GPU view; never re-develops the film
+//   geometry    → cached GPU view after commit; crop gestures draw locally
 //
 // Pixels do not live in this store: `frames.ts` holds them, and the store
 // carries a version number the canvas watches.
@@ -36,7 +36,7 @@ import { EMPTY_CATALOG, type StockCatalog, loadCatalog } from '@shared/stocks';
 import { HostCallError, host } from '../host/client';
 import { type FileEntry, baseName, dirName, platform } from '../platform';
 import { settingsStore } from './settings';
-import { frameImages, makeThumbFromPrint } from './frames';
+import { frameImages, makeThumbFromPrint, THUMB_EDGE } from './frames';
 import { thumbs } from './thumbs';
 import { tz } from '../i18n';
 
@@ -95,6 +95,9 @@ export interface SessionState {
   showingOriginal: boolean;
   comparing: boolean;
   comparePosition: number;
+  displaySpace: 'srgb' | 'display-p3';
+  /** Actual WebGL limit; null until the canvas has created its context. */
+  maxTextureSize: number | null;
   // edits
   undo: UndoEntry[];
   redo: UndoEntry[];
@@ -137,6 +140,8 @@ const INITIAL: SessionState = {
   showingOriginal: false,
   comparing: false,
   comparePosition: 0.5,
+  displaySpace: 'srgb',
+  maxTextureSize: null,
   undo: [],
   redo: [],
   clipboard: null,
@@ -167,6 +172,36 @@ let saveTimer: ReturnType<typeof setTimeout> | null = null;
 let lastUndoAt = 0;
 let openGen = 0;
 const FULL_DELAY_MS = 400;
+interface OpenTrace {
+  generation: number; path: string; origin: 'select' | 'develop'; started: number;
+  developStarted?: number; openCallMs?: number; originalMs?: number;
+  session?: string; committedAt?: number; drawn?: boolean;
+}
+let openTrace: OpenTrace | null = null;
+const elapsed = (start: number) => Math.round((performance.now() - start) * 10) / 10;
+
+function noteFirstViewCommitted(sid: string, width: number, height: number, renderMs: number) {
+  const trace = openTrace;
+  if (!trace || trace.generation !== openGen || trace.session !== sid || trace.committedAt !== undefined) return;
+  trace.committedAt = performance.now();
+  platform().log('info', `session: first_view ${JSON.stringify({ event: 'committed', origin: trace.origin,
+    total_ms: elapsed(trace.started), develop_ms: trace.developStarted === undefined ? null : elapsed(trace.developStarted),
+    open_call_ms: trace.openCallMs, render_call_ms: Math.round(renderMs * 10) / 10,
+    original_thumbnail_ms: trace.originalMs ?? null, original_thumbnail_pending: trace.originalMs === undefined,
+    width, height, display: get().displaySpace })}`);
+}
+
+/** Called after WebGL accepts the first draw. This is submission, not a
+ * monitor presentation timestamp; it includes host/transport and UI delays.
+ */
+export function notePreviewDrawn() {
+  const trace = openTrace;
+  if (!frameImages.print || !trace || trace.generation !== openGen || trace.session !== get().engineSession
+    || trace.committedAt === undefined || trace.drawn) return;
+  trace.drawn = true;
+  platform().log('info', `session: first_view ${JSON.stringify({ event: 'draw_submitted', origin: trace.origin,
+    total_ms: elapsed(trace.started), commit_to_draw_ms: elapsed(trace.committedAt) })}`);
+}
 
 function noteError(op: string, e: unknown) {
   const msg = e instanceof HostCallError ? `${e.message} (${e.code})` : e instanceof Error ? e.message : String(e);
@@ -180,6 +215,44 @@ function previewEdge() {
 
 function wireParams(p: FilmParams) {
   return { ...fullDelta(p, get().gate), preview_long_edge: previewEdge() };
+}
+
+export function hostViews(): boolean { return !!get().hello?.methods?.includes('render_view'); }
+
+/** Bound readback by the displayed detail, independently of the film tier.
+ * Full-source film/grain still runs at native resolution after the idle delay.
+ * 0 requests native output; nonzero is a GPU resize before CPU readback.
+ */
+export function viewLongEdge(s: Pick<SessionState, 'nativeSize' | 'sidecar' | 'tool' | 'view' | 'canvasPx' | 'maxTextureSize'>, preview = previewEdge()): number {
+  const geometry = s.tool === 'crop' ? GEOMETRY_DEFAULT : s.sidecar.geometry;
+  const out = s.nativeSize ? outputSize(geometry, s.nativeSize) : null;
+  const nativeEdge = out ? Math.max(out.width, out.height) : Infinity;
+  const fit = s.view.fit || s.tool === 'crop';
+  const wanted = fit ? Math.max(preview, s.canvasPx.width, s.canvasPx.height)
+    : Math.max(preview, Math.ceil(nativeEdge * Math.min(s.view.zoom, 1)));
+  const edge = Math.max(1, Math.min(Math.ceil(wanted), s.maxTextureSize ?? 16384));
+  return nativeEdge <= edge ? 0 : edge;
+}
+
+export function noteTextureLimit(maxTextureSize: number) {
+  const before = viewLongEdge(get());
+  if (get().maxTextureSize === maxTextureSize) return;
+  set({ maxTextureSize });
+  if (hostViews() && before !== viewLongEdge(get()) && !get().batchExporting) void requestPrint();
+}
+
+export function noteDisplaySpace(displaySpace: 'srgb' | 'display-p3') {
+  if (get().displaySpace === displaySpace) return;
+  set({ displaySpace });
+  if (hostViews() && !get().batchExporting) void requestPrint();
+}
+
+async function renderForView(sid: string, tier: 'live' | 'full', gen: number, reprint = false) {
+  if (!hostViews()) return host().render(sid, tier, { reprint });
+  const s = get();
+  return host().renderView(sid, tier, { adjustments: s.sidecar.adjustments,
+    geometry: s.tool === 'crop' ? GEOMETRY_DEFAULT : s.sidecar.geometry,
+    display: s.displaySpace, generation: gen, long_edge: viewLongEdge(s) });
 }
 
 /**
@@ -203,9 +276,11 @@ export async function requestPrint(): Promise<void> {
   const sid = get().engineSession;
   if (!sid) return;
   inFlight = true;
+  let attemptedGen = wantedGen;
   try {
     for (;;) {
       const gen = wantedGen;
+      attemptedGen = gen;
       const s = get();
       if (s.engineSession !== sid) return;
       const want = s.sidecar.params;
@@ -215,16 +290,23 @@ export async function requestPrint(): Promise<void> {
         sentParams = want;
       }
       const reprint = d.layers.size === 1 && d.layers.has('print');
-      const r = await host().render(sid, 'live', { reprint });
+      const r = await renderForView(sid, 'live', gen, reprint);
       if (get().engineSession !== sid) return;
-      frameImages.print = r;
-      set({ imageVersion: get().imageVersion + 1, badge: 'preview', status: '' });
+      if (gen === wantedGen) {
+        frameImages.print = r;
+        set({ imageVersion: get().imageVersion + 1, badge: 'preview', status: '' });
+        noteFirstViewCommitted(sid, r.width, r.height, r.ms);
+      }
       if (gen === wantedGen) break;
     }
   } catch (e) {
-    noteError(tz('Render', '渲染'), e);
+    if (get().engineSession === sid && attemptedGen === wantedGen) noteError(tz('Render', '渲染'), e);
   } finally {
     inFlight = false;
+    // An obsolete failure must neither overwrite the new frame's status nor
+    // lose an edit which arrived while that failed request was in flight.
+    if ((attemptedGen !== wantedGen || get().engineSession !== sid) && get().engineSession && !get().batchExporting)
+      void requestPrint();
   }
   scheduleFull();
 }
@@ -251,7 +333,7 @@ async function renderFull(gen: number) {
   inFlight = true;
   try {
     const t0 = performance.now();
-    const r = await host().render(sid, 'full');
+    const r = await renderForView(sid, 'full', gen);
     // Dropped when the generation, selection or session moved (ARCHITECTURE §7.3).
     if (gen !== wantedGen || get().engineSession !== sid) return;
     frameImages.print = r;
@@ -259,7 +341,7 @@ async function renderFull(gen: number) {
     set({ imageVersion: get().imageVersion + 1, badge: 'full' });
     await refreshThumb();
   } catch (e) {
-    noteError(tz('Full render', '全尺寸渲染'), e);
+    if (gen === wantedGen && get().engineSession === sid) noteError(tz('Full render', '全尺寸渲染'), e);
   } finally {
     inFlight = false;
     if (gen !== wantedGen) void requestPrint();
@@ -269,11 +351,21 @@ async function renderFull(gen: number) {
 async function refreshThumb() {
   const s = get();
   if (!s.selection || !frameImages.print) return;
-  const url = await makeThumbFromPrint(frameImages.print);
-  if (url && get().selection === s.selection) {
+  const gen = wantedGen;
+  // The filmstrip expects the WHOLE photograph so it can apply orientation
+  // and the crop mask once. A displayed render_view has already baked them.
+  // Request a small uncropped view from the same GPU print cache instead of
+  // copying/encoding a full-resolution image in the browser.
+  const img = hostViews() && s.engineSession ? await host().renderView(s.engineSession, frameImages.print.tier, {
+    adjustments: s.sidecar.adjustments, geometry: GEOMETRY_DEFAULT,
+    display: 'srgb', generation: gen, long_edge: THUMB_EDGE,
+  }) : frameImages.print;
+  if (gen !== wantedGen || get().selection !== s.selection) return;
+  const url = await makeThumbFromPrint(img);
+  if (url && gen === wantedGen && get().selection === s.selection) {
     thumbs.setPrint(s.selection, url);
     set({ thumbVersion: get().thumbVersion + 1 });
-  }
+  } else if (url) URL.revokeObjectURL(url);
 }
 
 // -------------------------------------------------------------- persistence
@@ -345,7 +437,7 @@ export function selectFilmStock(filmStock: string) {
   setParams((p) => ({ ...p, filmStock, scanFilm: get().catalog.isPositive(filmStock) }));
 }
 
-/** A Layer 2 edit: one draw. */
+/** A Layer 2 edit: reuse the GPU print cache and update the display output. */
 export function setAdjustments(fn: (a: Adjustments) => Adjustments) {
   const s = get();
   const next = fn(s.sidecar.adjustments);
@@ -353,9 +445,10 @@ export function setAdjustments(fn: (a: Adjustments) => Adjustments) {
   pushUndo();
   set({ sidecar: { ...s.sidecar, adjustments: next } });
   scheduleSave();
+  if (hostViews() && !s.batchExporting) void requestPrint();
 }
 
-/** A geometry edit: one draw (and the film format, when a crop re-maps it). */
+/** Draft crop edits draw locally; committed geometry refreshes the GPU view. */
 export function setGeometry(fn: (g: Geometry) => Geometry, opts: { coalesce?: boolean } = {}) {
   const s = get();
   const next = fn(s.sidecar.geometry);
@@ -364,6 +457,7 @@ export function setGeometry(fn: (g: Geometry) => Geometry, opts: { coalesce?: bo
   set({ sidecar: { ...s.sidecar, geometry: next }, savedGeometry: s.selection ? { ...s.savedGeometry, [s.selection]: next } : s.savedGeometry });
   scheduleSave();
   if (settingsStore.getState().recalculateEffectsAfterCrop) recomputeFilmFormat();
+  if (hostViews() && get().tool !== 'crop' && !get().batchExporting) void requestPrint();
 }
 
 /**
@@ -545,20 +639,11 @@ export async function openPaths(paths: string[]) {
       set({ status: tz('Nothing there SpektraLab can open.', '没有 SpektraLab 能打开的文件。') });
       return;
     }
-    // One file is "edit this": its folder comes along around it.
-    if (entries.length === 1 && paths.length === 1 && paths[0] === entries[0]!.path) {
-      const dir = dirName(entries[0]!.path);
-      const all = await platform().listImages(dir).catch(() => entries);
-      await setLibrary(dir, all.length ? all : entries);
-      await select(entries[0]!.path);
-      return;
-    }
-    const known = new Set(get().frames.map((f) => f.path));
-    if (entries.every((e) => known.has(e.path))) {
-      await select(entries[0]!.path);
-      return;
-    }
-    const folder = paths.length === 1 ? paths[0]! : dirName(entries[0]!.path);
+    // expandPaths expands only explicitly supplied directories. Opening a
+    // file must not scan its parent (and recursively pull old rolls back in).
+    // Replace the roll even when the chosen files were already in it.
+    const singleFile = paths.length === 1 && entries.length === 1 && paths[0] === entries[0]!.path;
+    const folder = paths.length === 1 && !singleFile ? paths[0]! : dirName(entries[0]!.path);
     await setLibrary(folder, entries);
     await select(entries[0]!.path);
   } catch (e) {
@@ -641,6 +726,7 @@ export function selectRelative(delta: number) {
 export async function select(path: string): Promise<void> {
   if (path === get().selection && get().engineSession) return;
   const gen = ++openGen;
+  openTrace = { generation: gen, path, origin: 'select', started: performance.now() };
   await flushSave();
   await closeEngineSession();
   frameImages.print = null;
@@ -670,12 +756,15 @@ export async function select(path: string): Promise<void> {
 }
 
 async function loadOriginal(path: string, gen: number) {
+  const started = performance.now();
   try {
     const img = await host().thumbnail(path, 2048);
     if (gen !== openGen) return;
+    if (openTrace?.generation === gen) openTrace.originalMs = elapsed(started);
     frameImages.original = img;
     set({ imageVersion: get().imageVersion + 1 });
   } catch {
+    if (openTrace?.generation === gen) openTrace.originalMs = elapsed(started);
     /* no original to compare against; the print still shows */
   }
 }
@@ -688,6 +777,9 @@ async function develop(path: string, gen: number) {
   set({ developing: true });
   try {
     const t0 = performance.now();
+    if (openTrace?.generation !== gen || openTrace.path !== path)
+      openTrace = { generation: gen, path, origin: 'develop', started: t0 };
+    openTrace.developStarted = t0;
     // Also covers a frame selected before the catalog loaded, and host
     // restarts. Repair old sidecars before the very first open payload.
     const sidecar = filmStageSidecar(get().sidecar);
@@ -697,6 +789,7 @@ async function develop(path: string, gen: number) {
     }
     const params = get().sidecar.params;
     const decode = decodeWire(get().sidecar.decode, isRawPath(path));
+    const openStarted = performance.now();
     let r;
     try {
       r = await host().open(path, wireParams(params), decode);
@@ -712,10 +805,19 @@ async function develop(path: string, gen: number) {
     sentParams = params;
     sentDecode = JSON.stringify(decode);
     set({ engineSession: r.session, nativeSize: { width: r.width, height: r.height }, metadata: r.metadata, frameKind: r.kind ?? (isRawPath(path) ? 'raw' : null) });
+    if (openTrace?.generation === gen) {
+      openTrace.session = r.session;
+      openTrace.openCallMs = elapsed(openStarted);
+    }
     noteAsShot();
     platform().log(
       'info',
-      `session: open path (ms): decode ${r.timings_ms?.decode ?? '?'} · open ${r.timings_ms?.open ?? '?'} · TOTAL ${Math.round(performance.now() - t0)} · core=${get().hello?.capabilities?.backend?.render_core ?? '?'}`,
+      `session: open ${JSON.stringify({ call_ms: elapsed(openStarted), develop_ms: elapsed(t0),
+        host_decode_ms: r.timings_ms?.decode, host_upload_ms: r.timings_ms?.open, raw: r.timings_ms?.raw,
+        queue_transport_ms: r.timings_ms?.decode !== undefined && r.timings_ms?.open !== undefined
+          ? Math.max(0, Math.round((elapsed(openStarted) - r.timings_ms.decode - r.timings_ms.open) * 10) / 10) : null,
+        original_thumbnail_ms: openTrace?.originalMs ?? null,
+        core: get().hello?.capabilities?.backend?.render_core })}`,
     );
     recomputeFilmFormat();
     // `recomputeFilmFormat` may have queued a render already.
@@ -752,16 +854,14 @@ export async function solveNow() {
 }
 
 export function resetParams() {
-  setParams((p) => ({
-    ...p,
-    exposureCompensationEV: 0,
-    autoExposure: true,
-    autoExposureMethod: 'balanced',
-    printBrightnessStops: 0,
-    yFilterShift: 0,
-    mFilterShift: 0,
-    preflashExposure: 0,
-  }));
+  const s = get();
+  if (s.batchExporting || !s.selection) return;
+  const defaults = newSidecar();
+  lastUndoAt = 0;
+  pushUndo();
+  // One undo entry for the full capture setup; crop and Post-Dev stay put.
+  restore({ ...s.sidecar, params: defaults.params, decode: defaults.decode });
+  recomputeFilmFormat();
 }
 export function resetAdjustments() {
   setAdjustments(() => ({ ...ADJUSTMENTS_DEFAULT }));
@@ -829,7 +929,11 @@ export async function syncSettings() {
 export const ZOOM_STEPS = [0.0625, 0.125, 0.25, 0.333, 0.5, 0.667, 1, 2, 3, 4, 8, 16];
 
 export function setView(v: Partial<ViewState>) {
+  const before = viewLongEdge(get());
   set({ view: { ...get().view, ...v } });
+  // Pan never changes detail; crossing a zoom/detail threshold requests a
+  // fresh cached view, and the existing generation scheduler coalesces it.
+  if (hostViews() && before !== viewLongEdge(get()) && !get().batchExporting) void requestPrint();
 }
 export function zoomToFit() {
   setView({ fit: true, cx: 0.5, cy: 0.5 });
@@ -846,7 +950,11 @@ export function zoomStep(dir: 1 | -1, fitZoom: number) {
 export let currentFitZoom = 1;
 export function noteCanvasPx(width: number, height: number) {
   const c = get().canvasPx;
-  if (c.width !== width || c.height !== height) set({ canvasPx: { width, height } });
+  if (c.width !== width || c.height !== height) {
+    const before = viewLongEdge(get());
+    set({ canvasPx: { width, height } });
+    if (hostViews() && before !== viewLongEdge(get()) && !get().batchExporting) void requestPrint();
+  }
 }
 export function noteFitZoom(z: number) {
   currentFitZoom = z;
@@ -854,7 +962,9 @@ export function noteFitZoom(z: number) {
 }
 
 export function setTool(tool: Tool) {
+  const previous = get().tool;
   set({ tool });
+  if (previous !== tool && (previous === 'crop' || tool === 'crop') && hostViews() && !get().batchExporting) void requestPrint();
 }
 export function setOriginal(on: boolean) {
   set({ showingOriginal: on });

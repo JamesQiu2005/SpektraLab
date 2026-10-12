@@ -1,9 +1,12 @@
 // glRenderer.ts — the canvas, in WebGL2 (the Mac's `Canvas/Renderer.swift`
 // + `canvasFragment` and `layer2` in Shaders.metal, folded into one pass).
 //
-// The host hands over sRGB-encoded rgba8 (`display: "srgb"`), so the shader
-// does no colour management: it samples the print through the geometry map,
-// runs Layer 2, and writes. The geometry map is `geometryMap` from the Metal
+// The host returns a display-encoded, graded and cropped frame. The canvas
+// maps through source coordinates so crop gestures and stale frames remain
+// aligned while a replacement is in flight. Legacy hosts retain Layer 2 here.
+// sRGB originals and pending frames are converted to the current drawing
+// buffer encoding before the browser performs display colour management.
+// The geometry map is `geometryMap` from the Metal
 // shader, transliterated; `src/shared/geometry.ts::shaderMap` is the same
 // function in TypeScript and `geometry.test.ts` pins it to the model's
 // `sourcePoint`, so the canvas, the export and the navigator agree (trap 33).
@@ -13,7 +16,19 @@
 // show exactly the canvas's frame.
 
 import { type Adjustments, CURVE_TABLE_SIZE, SRGB_MID_GREY, curveTables, layer2Uniforms } from '@shared/adjustments';
-import { type Geometry, type GeometryUniform, GEOMETRY_DEFAULT, uniform } from '@shared/geometry';
+import { type Geometry, type GeometryUniform, GEOMETRY_DEFAULT, outputPoint, uniform } from '@shared/geometry';
+import type { DisplaySpace } from '@shared/protocol';
+import type { RgbaImage } from '../host/client';
+import { previewSpace } from './colorSpace';
+
+/** Source UV → the geometry already baked into a host frame, column-major. */
+export function processedImageMap(g: Geometry | undefined, native: { width: number; height: number }): Float32Array {
+  if (!g) return new Float32Array([1, 0, 0, 0, 1, 0, 0, 0, 1]);
+  const o = outputPoint(g, { x: 0, y: 0 }, native);
+  const x = outputPoint(g, { x: 1, y: 0 }, native);
+  const y = outputPoint(g, { x: 0, y: 1 }, native);
+  return new Float32Array([x.x - o.x, x.y - o.y, 0, y.x - o.x, y.y - o.y, 0, o.x, o.y, 1]);
+}
 
 const VERT = `#version 300 es
 in vec2 aPos;
@@ -33,6 +48,11 @@ uniform sampler2D uOriginal;
 uniform sampler2D uCurves;
 uniform bool uHasImage;
 uniform bool uHasOriginal;
+uniform bool uImageProcessed;
+uniform mat3 uImageMap;
+uniform int uImageSpace;
+uniform int uOriginalSpace;
+uniform int uOutputSpace;
 
 // viewport: output uv = (fragPx - offset) / size
 uniform vec2 uViewport;      // device px
@@ -153,6 +173,18 @@ vec3 layer2(vec3 c, vec2 suv) {
   return clamp(c, 0.0, 1.0);
 }
 
+vec3 displayConvert(vec3 c, int source) {
+  if (source == uOutputSpace) return c;
+  vec3 lin = mix(c / 12.92, pow((max(c, 0.0) + 0.055) / 1.055, vec3(2.4)), greaterThan(c, vec3(0.04045)));
+  // D65 Display P3 → linear sRGB (columns); inverse gives sRGB → P3.
+  const mat3 p3ToSrgb = mat3(1.2249401763, -0.0420569547, -0.0196375546,
+                           -0.2249401763, 1.0420569547, -0.0786360456,
+                            0.0, 0.0, 1.0982736001);
+  lin = source == 1 ? p3ToSrgb * lin : inverse(p3ToSrgb) * lin;
+  lin = clamp(lin, 0.0, 1.0);
+  return mix(12.92 * lin, 1.055 * pow(lin, vec3(1.0 / 2.4)) - 0.055, greaterThan(lin, vec3(0.0031308)));
+}
+
 void main() {
   vec2 ouv;
   if (uOffscreen) {
@@ -173,9 +205,16 @@ void main() {
   bool before = uCompare == 2 || (uCompare == 1 && ouv.x < uSplit);
   vec3 c;
   if (before && uHasOriginal) {
-    c = texture(uOriginal, suv).rgb;
+    c = displayConvert(texture(uOriginal, suv).rgb, uOriginalSpace);
   } else if (uHasImage) {
-    c = layer2(texture(uImage, suv).rgb, suv);
+    vec2 imageUv = (uImageMap * vec3(suv, 1.0)).xy;
+    if (any(lessThan(imageUv, vec2(0.0))) || any(greaterThan(imageUv, vec2(1.0)))) {
+      outColor = vec4(vec3(uSurround), 1.0);
+      return;
+    }
+    c = texture(uImage, imageUv).rgb;
+    if (!uImageProcessed) c = layer2(c, suv);
+    c = displayConvert(c, uImageSpace);
   } else {
     c = vec3(uSurround);
   }
@@ -210,6 +249,9 @@ export class GLRenderer {
   private curves: WebGLTexture;
   private hasImage = false;
   private hasOriginal = false;
+  private imageInfo: Pick<RgbaImage, 'colorSpace' | 'processedGeometry'> | null = null;
+  private originalSpace: DisplaySpace = 'srgb';
+  displaySpace: DisplaySpace = 'srgb';
   private curvesKey = '';
   private fbo: WebGLFramebuffer | null = null;
   private fboTex: WebGLTexture | null = null;
@@ -279,11 +321,38 @@ export class GLRenderer {
     return true;
   }
 
-  setImage(img: { width: number; height: number; data: Uint8Array } | null) {
+  setImage(img: RgbaImage | null) {
     this.hasImage = this.upload(this.image, img);
+    this.imageInfo = img;
   }
-  setOriginal(img: { width: number; height: number; data: Uint8Array } | null) {
+  setOriginal(img: RgbaImage | null) {
     this.hasOriginal = this.upload(this.original, img);
+    this.originalSpace = previewSpace(img?.colorSpace);
+  }
+
+  /** A property can exist yet silently reject P3; probe by writing and reading. */
+  supportsP3(): boolean {
+    const gl = this.gl as WebGL2RenderingContext & { drawingBufferColorSpace: DisplaySpace };
+    if (!('drawingBufferColorSpace' in gl)) return false;
+    const saved = gl.drawingBufferColorSpace;
+    try {
+      gl.drawingBufferColorSpace = 'display-p3';
+      return gl.drawingBufferColorSpace === 'display-p3';
+    } catch { return false; }
+    finally { gl.drawingBufferColorSpace = saved; }
+  }
+
+  setDisplaySpace(space: DisplaySpace): DisplaySpace {
+    const gl = this.gl as WebGL2RenderingContext & { drawingBufferColorSpace: DisplaySpace };
+    if (gl.drawingBufferColorSpace === space) return this.displaySpace = space;
+    try {
+      if ('drawingBufferColorSpace' in gl) gl.drawingBufferColorSpace = space;
+      this.displaySpace = gl.drawingBufferColorSpace === 'display-p3' ? 'display-p3' : 'srgb';
+    } catch {
+      if ('drawingBufferColorSpace' in gl) gl.drawingBufferColorSpace = 'srgb';
+      this.displaySpace = 'srgb';
+    }
+    return this.displaySpace;
   }
 
   private setCurves(a: Adjustments) {
@@ -322,6 +391,11 @@ export class GLRenderer {
     gl.uniform1i(this.u('uCurves'), 2);
     gl.uniform1i(this.u('uHasImage'), this.hasImage ? 1 : 0);
     gl.uniform1i(this.u('uHasOriginal'), this.hasOriginal ? 1 : 0);
+    gl.uniform1i(this.u('uImageProcessed'), this.imageInfo?.processedGeometry ? 1 : 0);
+    gl.uniformMatrix3fv(this.u('uImageMap'), false, processedImageMap(this.imageInfo?.processedGeometry, s.sourceSize));
+    gl.uniform1i(this.u('uImageSpace'), previewSpace(this.imageInfo?.colorSpace) === 'display-p3' ? 1 : 0);
+    gl.uniform1i(this.u('uOriginalSpace'), this.originalSpace === 'display-p3' ? 1 : 0);
+    gl.uniform1i(this.u('uOutputSpace'), this.displaySpace === 'display-p3' ? 1 : 0);
     gl.uniform2f(this.u('uViewport'), s.viewport.width, s.viewport.height);
     gl.uniform2f(this.u('uOffset'), s.offset.x, s.offset.y);
     gl.uniform2f(this.u('uOutSize'), s.outSize.width, s.outSize.height);

@@ -344,6 +344,7 @@ CMakeUserPresets.json
 /WINDOWS_PORT_PLAN.md
 
 # desktop/ (Tauri 2 + TypeScript frontend)
+node_modules/
 desktop/node_modules/
 desktop/out/
 desktop/release/

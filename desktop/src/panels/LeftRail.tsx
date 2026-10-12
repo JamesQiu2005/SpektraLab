@@ -36,6 +36,7 @@ import {
 } from '@shared/geometry';
 import { clamp } from '@shared/params';
 import { useOutput } from '../canvas/output';
+import { paintOutput } from '../canvas/colorSpace';
 import { StockList } from './StockList';
 import { unsupportedReason } from './gate';
 
@@ -93,19 +94,17 @@ function NavigatorSection() {
   useEffect(() => {
     const c = ref.current;
     if (!c) return;
-    const ctx = c.getContext('2d')!;
     if (!out) {
-      ctx.clearRect(0, 0, c.width, c.height);
+      c.width = 1;
+      c.height = 1;
       return;
     }
-    c.width = out.width;
-    c.height = out.height;
-    ctx.putImageData(new ImageData(new Uint8ClampedArray(out.data), out.width, out.height), 0, 0);
+    paintOutput(c, out);
   }, [out]);
   return (
     <Section id="navigator" title={t('sectionNavigator')}>
       <div className="navigator" data-testid="navigator" onPointerDown={pan} onPointerMove={(e) => e.buttons === 1 && pan(e)}>
-        <canvas ref={ref} />
+        <canvas ref={ref} key={out?.colorSpace ?? 'srgb'} />
         {vis && out && <NavigatorBox vis={vis} aspect={out.width / out.height} />}
         <button className="navigator-fit" onClick={zoomToFit} title={tz('Fit (,)', '适合窗口（,）')}>
           {view.fit ? t('helpFit') : `${Math.round(view.zoom * 100)} %`}
@@ -163,7 +162,7 @@ function ClipboardSection() {
           <Checkbox on={groups.includes(g)} onChange={() => toggle(g)} label={GROUP_LABEL[g]()} />
         </div>
       ))}
-      <div className="row" style={{ gap: 8 }}>
+      <div className="row clipboard-actions">
         <button className="btn" disabled={!selection || !groups.length} onClick={copySettings} title={t('clipCopyHelp')}>
           {t('clipCopy')}
         </button>

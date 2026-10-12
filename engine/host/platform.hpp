@@ -10,6 +10,7 @@
 #include <cstdint>
 #include <cstdio>
 #include <filesystem>
+#include <functional>
 #include <string>
 #include <vector>
 
@@ -30,6 +31,9 @@ bool read_file(const std::filesystem::path& path, std::vector<uint8_t>& out, std
 // it into place, so a file lands whole or not at all (ARCHITECTURE §7.8).
 // Refuses an existing destination unless `overwrite`.
 bool write_file_atomic(const std::filesystem::path& path, const std::vector<uint8_t>& bytes,
+                       bool overwrite, std::string& error);
+bool write_file_atomic(const std::filesystem::path& path,
+                       const std::function<bool(std::FILE*, std::string&)>& writer,
                        bool overwrite, std::string& error);
 
 unsigned hardware_threads();

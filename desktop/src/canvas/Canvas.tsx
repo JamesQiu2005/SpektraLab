@@ -32,6 +32,9 @@ import {
   beginGesture,
   noteFitZoom,
   noteCanvasPx,
+  noteDisplaySpace,
+  noteTextureLimit,
+  notePreviewDrawn,
   sessionStore,
   setComparePosition,
   setGeometry,
@@ -42,6 +45,9 @@ import {
 import { HistogramOverlay, histogramOf, type Histogram } from './histogram';
 import { publishOutput } from './output';
 import { useI18n } from '../i18n';
+import { useSettings } from '../state/settings';
+import { resolveDisplaySpace } from './colorSpace';
+import { inTauri } from '../host/transport';
 
 const SURROUND = 0x5f / 255;
 
@@ -106,16 +112,60 @@ export function Canvas() {
   const selection = useSession((s) => s.selection);
   const batch = useSession((s) => s.batchExporting);
   const exportOpen = useSession((s) => s.exportOpen);
+  const displaySpace = useSession((s) => s.displaySpace);
+  const maxTextureSize = useSession((s) => s.maxTextureSize);
+  const previewGamut = useSettings((s) => s.previewGamut);
   const cropping = tool === 'crop';
 
   useEffect(() => {
     if (!canvas.current) return;
     try {
       gl.current = new GLRenderer(canvas.current);
+      noteTextureLimit(gl.current.maxTexture);
     } catch (e) {
       setGlError((e as Error).message);
     }
   }, []);
+
+  // The browser owns the final monitor ICC conversion. Re-evaluate when the
+  // window moves between displays; a requested P3 mode is used only when the
+  // actual WebGL drawing buffer accepts it. Auto also requires a wide display.
+  useEffect(() => {
+    const renderer = gl.current;
+    if (!renderer) return;
+    const gamut = window.matchMedia('(color-gamut: p3)');
+    const p3 = renderer.supportsP3();
+    const refresh = () => {
+      noteDisplaySpace(renderer.setDisplaySpace(resolveDisplaySpace(previewGamut, p3, gamut.matches)));
+      const rect = wrap.current?.getBoundingClientRect();
+      if (rect) setSize((old) => {
+        const dpr = window.devicePixelRatio || 1;
+        return old.width === rect.width && old.height === rect.height && old.dpr === dpr ? old
+          : { width: rect.width, height: rect.height, dpr };
+      });
+    };
+    refresh();
+    gamut.addEventListener('change', refresh);
+    window.addEventListener('focus', refresh);
+    window.addEventListener('resize', refresh);
+    let active = true;
+    const unlisten: (() => void)[] = [];
+    if (inTauri()) void import('@tauri-apps/api/window').then(async ({ getCurrentWindow }) => {
+      const win = getCurrentWindow();
+      for (const subscribe of [() => win.onMoved(refresh), () => win.onScaleChanged(refresh)]) {
+        const off = await subscribe();
+        if (active) unlisten.push(off);
+        else off();
+      }
+    }).catch(() => { /* Media, focus and resize remain available on older hosts. */ });
+    return () => {
+      active = false;
+      gamut.removeEventListener('change', refresh);
+      window.removeEventListener('focus', refresh);
+      window.removeEventListener('resize', refresh);
+      for (const off of unlisten) off();
+    };
+  }, [previewGamut]);
 
   useEffect(() => {
     const el = wrap.current;
@@ -194,7 +244,8 @@ export function Canvas() {
       surround: SURROUND,
     };
     r.draw(state);
-  }, [imageVersion, layout?.zoom, layout?.offset.x, layout?.offset.y, size, geometry, adjustments, cropping, comparing, comparePosition, showingOriginal, layout]);
+    notePreviewDrawn();
+  }, [imageVersion, displaySpace, layout?.zoom, layout?.offset.x, layout?.offset.y, size, geometry, adjustments, cropping, comparing, comparePosition, showingOriginal, layout]);
 
   // The output, small: navigator and histogram (the canvas's frame, trap 33).
   useEffect(() => {
@@ -225,7 +276,7 @@ export function Canvas() {
       };
       ensureUploaded(r);
       const px = r.renderOutput(state, w, h);
-      publishOutput(px ? { width: w, height: h, data: px } : null);
+      publishOutput(px ? { width: w, height: h, data: px, colorSpace: r.displaySpace } : null);
       if (px) void histogramOf(px).then(setHistogram);
       else setHistogram(null);
       // `renderOutput` leaves the default framebuffer bound but the canvas
@@ -246,7 +297,7 @@ export function Canvas() {
     }, 60);
     return () => clearTimeout(t);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [imageVersion, geometry, adjustments, native?.width, native?.height, exportOpen]);
+  }, [imageVersion, displaySpace, geometry, adjustments, native?.width, native?.height, exportOpen]);
 
   // ---- pointer
   const drag = useRef<
@@ -356,6 +407,8 @@ export function Canvas() {
 
   const cursor = cropping ? 'crosshair' : tool === 'hand' ? 'grab' : 'default';
   const css = (v: number) => v / size.dpr;
+  const textureLimited = maxTextureSize !== null && layout && !view.fit && !cropping && view.zoom >= 1
+    && Math.max(layout.out.width, layout.out.height) > maxTextureSize;
 
   return (
     <div
@@ -390,8 +443,12 @@ export function Canvas() {
       )}
       <div className="canvas-corner">
         {histogram && <HistogramOverlay h={histogram} />}
+        {textureLimited && <span className="caption" data-testid="preview-limit" style={{ maxWidth: 280 }}>
+          {tz(`Display detail is limited to ${maxTextureSize} pixels. Export keeps the chosen resolution.`,
+            `当前显示最多 ${maxTextureSize} 像素；导出仍使用所选分辨率。`)}
+        </span>}
         {badge && selection && (
-          <span className={'tier-badge ' + badge} data-testid="tier-badge" title={badge === 'full' ? tz('The frame at its own resolution', '照片自身分辨率') : tz('Preview resolution — the frame’s own is on its way', '预览分辨率——全尺寸正在渲染')}>
+          <span className={'tier-badge ' + badge} data-testid="tier-badge" title={badge === 'full' ? tz('Rendered from the full-resolution source; display detail follows zoom', '已完成原尺寸渲染；显示精细度随缩放调整') : tz('Preview resolution — the frame’s own is on its way', '预览分辨率——全尺寸正在渲染')}>
             {badge === 'full' ? 'full' : 'preview'}
           </span>
         )}

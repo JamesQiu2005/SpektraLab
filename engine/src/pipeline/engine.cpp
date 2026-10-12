@@ -49,6 +49,7 @@
 #include "setup_cache.hpp"
 #ifndef __APPLE__
 #include "windows_unported.hpp"
+#include "view_process.hpp"
 #endif
 
 using namespace spk;
@@ -214,6 +215,11 @@ struct spk_session {
         uint32_t image_long_edge = 0;
         Image negative;   // Tap.CMY_FILM
         bool has_negative = false;
+#ifndef __APPLE__
+        // Encoded RGBA16 on device (c=2 uint32 words/pixel). Kept until a
+        // material parameter changes; view edits never redraw film grain.
+        Image view_print;
+#endif
         /// RFC-032 §27: the frame `negative`'s film canvas was laid out for,
         /// so a reprint can lay it out again. Zero without overscan.
         uint32_t overscan_frame_w = 0, overscan_frame_h = 0;
@@ -411,24 +417,31 @@ struct spk_engine {
         // ones a frame switch is supposed to give back.
         Json session_rows = Json::array();
         size_t source_bytes = 0, negative_bytes = 0;
+        size_t view_bytes = 0;
         int negative_count = 0;
         for (spk_session* s : sessions) {
             size_t source = 0;
             if (gpu && s->source.buf) source = gpu->size_bytes(s->source.buf.get());
             size_t negatives = 0;
+            size_t views = 0;
             int count = 0;
             for (const auto& kv : s->tiers) {
+#ifndef __APPLE__
+                if (gpu && kv.second.view_print.buf) views += gpu->size_bytes(kv.second.view_print.buf.get());
+#endif
                 if (!kv.second.has_negative || !kv.second.negative.buf || !gpu) continue;
                 negatives += gpu->size_bytes(kv.second.negative.buf.get());
                 ++count;
             }
             source_bytes += source;
             negative_bytes += negatives;
+            view_bytes += views;
             negative_count += count;
             Json row = Json::object();
             row.set("session_id", Json(s->session_id));
             row.set("source_bytes", Json(double(source)));
             row.set("cached_negative_bytes", Json(double(negatives)));
+            row.set("cached_view_bytes", Json(double(views)));
             // A session caches a negative per tier it has rendered, so this
             // is 0, 1 or 3 -- and 3 is three full planes, which is worth
             // seeing next to the byte count rather than dividing by it.
@@ -447,6 +460,7 @@ struct spk_engine {
         persistent.set("file_backed_buffers", Json(double(pool.file_backed_buffers)));
         persistent.set("source_bytes", Json(double(source_bytes)));
         persistent.set("cached_negative_bytes", Json(double(negative_bytes)));
+        persistent.set("cached_view_bytes", Json(double(view_bytes)));
         persistent.set("negatives", Json(double(negative_count)));
         persistent.set("sessions", std::move(session_rows));
 
@@ -1186,6 +1200,12 @@ spk_status render_tier(spk_session* session, const char* tier_name, bool use_rep
     // Opt-in, because turning it on serialises every node. See Progress.
     session->progress.detailed = std::getenv("SPEKTRAFILM_NODE_TIMINGS") != nullptr;
 
+#ifndef __APPLE__
+    // A legacy explicit render requests a new print, so no later desktop
+    // view may reuse the result from before that request.
+    session->tiers[tier->name].view_print = Image{};
+#endif
+
     gpu->begin_frame();
     // RFC-020 §3.2, after the frame marker so that an event arriving as this
     // render starts belongs to it. One-shot: the flag describes *this* render,
@@ -1248,6 +1268,97 @@ spk_status spk_render(spk_session* session, const char* tier, spk_result* out) {
 }
 
 }  // extern "C"
+
+#ifndef __APPLE__
+bool spk::view::render(spk_session* session, const Request& request, Result& result,
+                       std::string& error) {
+    result = Result{};
+    if (!session) { error = "view: session is null"; return false; }
+    const Tier* tier = find_tier(request.tier.c_str());
+    if (!tier) { error = "view: unknown tier"; return false; }
+    if (request.target_space != "sRGB" && request.target_space != "Display P3" && request.target_space != "ProPhoto RGB") {
+        error = "view: unknown target space"; return false;
+    }
+    std::lock_guard<std::mutex> guard(session->lock);
+    if (session->params.io.output_color_space != "ProPhoto RGB" || !session->params.io.output_cctf_encoding) {
+        error = "view: the desktop postprocess requires encoded ProPhoto RGB"; return false;
+    }
+    auto* gpu = session->engine->gpu;
+    gpu->begin_frame();
+    struct EndFrame { gpu::Gpu* gpu; ~EndFrame() { gpu->end_frame(); } } end{gpu};
+    session->progress = Progress{};
+    session->progress.progress_id = "p" + std::to_string(next_id());
+    session->progress.detailed = std::getenv("SPEKTRAFILM_NODE_TIMINGS") != nullptr;
+    session->progress.memory_pressure_critical = gpu->take_critical_pressure();
+    if (session->progress.memory_pressure_critical)
+        for (auto& kv : session->tiers) kv.second.view_print = Image{};
+    auto started = std::chrono::steady_clock::now();
+    // tier_image may replace the tier state if preview_long_edge changed.
+    Image source;
+    if (!tier_image(session, *tier, source, error)) return false;
+    auto& state = session->tiers[tier->name];
+    result.print_cached = state.view_print.valid();
+    if (!result.print_cached) {
+        session->pipeline->set_source_long_edge(std::max(source.w, source.h), std::max(session->source.w, session->source.h));
+        Image negative, rgb;
+        if (!negative_for(session, *tier, &session->progress, negative, error) ||
+            !session->pipeline->set_overscan_frame(state.overscan_frame_w, state.overscan_frame_h, error) ||
+            !run_print_for(session, negative, rgb, &session->progress, error)) return false;
+        Image packed; packed.w = rgb.w; packed.h = rgb.h; packed.c = 2;
+        packed.buf = gpu->alloc_persistent(packed.bytes(), error);
+        if (!packed.buf) return false;
+        uint32_t meta[] = {uint32_t(rgb.pixels()), rgb.w, rgb.w};
+        if (!gpu->dispatch("spk_to_rgba16", {gpu::Arg::buf(rgb.buf), gpu::Arg::inline_bytes(meta, 3), gpu::Arg::buf(packed.buf)},
+                           rgb.pixels(), error) || !gpu->flush(error)) return false;
+        state.view_print = std::move(packed);
+    } else {
+        session->progress.auto_exposure_ev = state.applied_ev;
+    }
+    result.print_ms = std::chrono::duration<double,std::milli>(std::chrono::steady_clock::now()-started).count();
+    Json transform = Json::object(); const float* cmax = nullptr; uint32_t count = 0;
+    if (request.export_intent) {
+        char* text = nullptr;
+        if (spk_output_transform(session->engine, "ProPhoto RGB", request.target_space.c_str(), nullptr,
+                                 &text, &cmax, &count) != SPK_OK) {
+            error = spk_last_error(session->engine); return false;
+        }
+        bool parsed = Json::parse(text, transform, error); spk_string_free(text);
+        if (!parsed) return false;
+    } else {
+        // Display presentation only needs adaptation and transfer functions.
+        // The public output-transform contract supplies CAM16 tables even
+        // when compression is off, so calling it here would spend hundreds of
+        // milliseconds constructing a table the preview never uploads.
+        const Colour& colour = session->engine->colour;
+        const std::string src = "ProPhoto RGB", dst = request.target_space;
+        for (const auto& space : {src, dst}) {
+            const Colour::Colourspace* definition = nullptr;
+            if (!colour.colourspace(space, definition, error)) return false;
+            if (!colour.known_cctf(space)) {
+                error = "view: no transfer function baked for colour space '" + space + "'"; return false;
+            }
+            if (definition->whitepoint[1] == 0.0) {
+                error = "view: no whitepoint baked for colour space '" + space + "'"; return false;
+            }
+        }
+        Mat3 matrix;
+        if (!colour.matrix_RGB_to_RGB(src, dst, "CAT02", matrix, error)) return false;
+        double row[9]; matrix.to_row_major(row);
+        Json numbers = Json::array();
+        for (double v : row) numbers.push(Json(v));
+        transform.set("source_color_space", Json(src));
+        transform.set("target_color_space", Json(dst));
+        transform.set("source_cctf_mode", Json(double(cctf_mode_for(src))));
+        transform.set("target_cctf_mode", Json(double(cctf_mode_for(dst))));
+        transform.set("matrix", std::move(numbers));
+        Json compress = Json::object(); compress.set("algorithm", Json("off"));
+        transform.set("gamut_compress", std::move(compress));
+    }
+    if (!process(gpu, state.view_print, request, transform, cmax, count, result, error)) return false;
+    session->progress.done = true;
+    return true;
+}
+#endif
 
 // The LUT methods' helpers, outside the C block: they take and return C++
 // types, and a C-linkage function that returns a `Json` is a warning today
@@ -1793,6 +1904,10 @@ spk_status spk_set_params(spk_session* session, const char* params_delta_json, c
 
     Json out = Json::object();
     out.set("invalidated", Json(std::string(shoot ? "shoot" : "print")));
+#ifndef __APPLE__
+    if (!delta.fields().empty())
+        for (auto& kv : session->tiers) kv.second.view_print = Image{};
+#endif
     out.set("params", read_params(session->params));
     if (out_json) *out_json = dup_json(out);
     return SPK_OK;

@@ -34,6 +34,7 @@
 #include "output.hpp"
 #include "platform.hpp"
 #include "spektrafilm/spk_engine.h"
+#include "pipeline/view.hpp"
 
 #ifndef SPEKTRALAB_HOST_VERSION
 #define SPEKTRALAB_HOST_VERSION "0.1.0"
@@ -137,6 +138,7 @@ struct Session {
     uint32_t width = 0, height = 0;
     Metadata metadata;
     std::string output_space = "ProPhoto RGB";
+    DecodeOptions decode;
 };
 
 struct State {
@@ -150,8 +152,10 @@ struct State {
 
     // cancellation
     std::mutex cancel_mutex;
-    std::string running_session, running_progress;
+    std::string running_session, running_requested_session, running_progress;
+    bool running_active = false;
     std::set<std::pair<std::string, std::string>> cancelled;   // (session, progress_id) not yet started
+    bool running_cancelled = false;
 } g;
 
 std::shared_ptr<Session> find_session(const Json& params) {
@@ -326,17 +330,31 @@ void progress_event(const Session& s, const std::string& progress_id, double fra
 struct Running {
     Running(const std::string& session, const std::string& progress) {
         std::lock_guard<std::mutex> lock(g.cancel_mutex);
-        if (!progress.empty() && g.cancelled.erase({session, progress}))
+        if (!progress.empty() && (g.cancelled.erase({session, progress}) || g.cancelled.erase({"", progress})))
             throw HostError{"cancelled", "cancelled before it started"};
         g.running_session = session;
+        g.running_requested_session = session;
         g.running_progress = progress;
+        g.running_active = true;
+        g.running_cancelled = false;
     }
     ~Running() {
         std::lock_guard<std::mutex> lock(g.cancel_mutex);
         g.running_session.clear();
+        g.running_requested_session.clear();
         g.running_progress.clear();
+        g.running_active = false;
+    }
+    void bind(const std::string& session) {
+        std::lock_guard<std::mutex> lock(g.cancel_mutex);
+        g.running_session = session;
     }
 };
+
+void check_cancelled() {
+    std::lock_guard<std::mutex> lock(g.cancel_mutex);
+    if (g.running_cancelled) throw HostError{"cancelled", "operation cancelled"};
+}
 
 // --- methods -------------------------------------------------------------------
 
@@ -367,7 +385,7 @@ Json m_hello(const Request&) {
     for (const char* m : {"hello", "ping", "shutdown", "params_schema", "print_lut_catalog", "memory_report",
                           "probe", "thumbnail", "open", "redecode", "close", "set_params", "get_params", "solve", "render",
                           "scene_latitude", "overscan_geometry", "preview_stock_lut", "cancel", "progress",
-                          "export_image", "export_cube", "export_di", "write_image"})
+                          "export_image", "export_cube", "export_di", "write_image", "render_view", "export_frame"})
         methods.push(str(m));
     r.set("methods", std::move(methods));
     return r;
@@ -495,6 +513,15 @@ Json open_reply(const Session& s, const Decoded& d, const Json& opened, double o
     Json timings = Json::object();
     timings.set("decode", number(d.decode_ms));
     timings.set("open", number(open_ms));
+    if (d.frame.raw_timings) {
+        const auto& t = *d.frame.raw_timings;
+        Json raw = Json::object();
+        raw.set("open", number(t.open_ms)); raw.set("unpack", number(t.unpack_ms));
+        raw.set("process", number(t.process_ms)); raw.set("convert", number(t.convert_ms));
+        raw.set("total", number(t.total_ms));
+        raw.set("openmp_enabled", Json(t.openmp_enabled)); raw.set("workers", number(t.workers));
+        timings.set("raw", std::move(raw));
+    }
     r.set("timings_ms", std::move(timings));
     return r;
 }
@@ -517,6 +544,7 @@ Json m_open(const Request& q) {
     s->width = d.frame.width;
     s->height = d.frame.height;
     s->metadata = d.probe.metadata;
+    s->decode = options;
     s->output_space = output_space_of(opened.at("params"));
     {
         std::lock_guard<std::mutex> lock(g.sessions_mutex);
@@ -553,6 +581,7 @@ Json m_redecode(const Request& q) {
     s->width = d.frame.width;
     s->height = d.frame.height;
     s->metadata = d.probe.metadata;
+    s->decode = options;
     s->output_space = output_space_of(opened.at("params"));
     return open_reply(*s, d, opened, open_ms);
 }
@@ -594,6 +623,79 @@ Json m_get_params(const Request& q) {
     if (st != SPK_OK) engine_fail(st, "get_params");
     Json r = Json::object();
     r.set("params", take_json(reply));
+    return r;
+}
+
+Json view_timings(const spk::view::Result& v, double total) {
+    Json t = Json::object();
+    t.set("print", number(v.print_ms)); t.set("post", number(v.post_ms));
+    t.set("readback", number(v.readback_ms)); t.set("total", number(total));
+    return t;
+}
+
+spk::view::Request view_request(const Json& p, bool exporting) {
+    spk::view::Request r;
+    r.tier = exporting ? "full" : optional_string(p, "tier", "live");
+    if (r.tier != "live" && r.tier != "preview" && r.tier != "full")
+        throw HostError{"bad_request", "tier must be live, preview or full"};
+    if (p.has("adjustments") && !p.at("adjustments").is_object()) throw HostError{"bad_request", "adjustments must be an object"};
+    if (p.has("geometry") && !p.at("geometry").is_object()) throw HostError{"bad_request", "geometry must be an object"};
+    if (p.has("adjustments")) r.adjustments = p.at("adjustments");
+    if (p.has("geometry")) r.geometry = p.at("geometry");
+    const int edge = p.at("long_edge").as_int(0);
+    if (edge < 0 || edge > 65536) throw HostError{"bad_request", "long_edge must be between 0 and 65536"};
+    r.long_edge = uint32_t(edge);
+    r.target_space = engine_space_name(optional_string(p, exporting ? "color_space" : "display", "srgb"));
+    if (r.target_space.empty() || (!exporting && r.target_space == "ProPhoto RGB"))
+        throw HostError{"bad_request", "unsupported output colour space"};
+    r.export_intent = exporting; r.rgba16 = exporting;
+    return r;
+}
+
+void apply_snapshot(const std::shared_ptr<Session>& s, const Json& p) {
+    if (!p.has("params")) return;
+    if (!p.at("params").is_object()) throw HostError{"bad_request", "params must be an object"};
+    char* reply = nullptr;
+    auto st = spk_get_params(s->handle, &reply);
+    if (st != SPK_OK) { if (reply) spk_string_free(reply); engine_fail(st, "read frame snapshot"); }
+    const Json current = take_json(reply);
+    Json delta = Json::object();
+    // A frozen full snapshot is common during export. Resending unchanged
+    // stock keys would rebuild the film and regenerate stochastic grain.
+    // Unknown keys still reach engine validation instead of being discarded.
+    for (const auto& kv : p.at("params").fields())
+        if (!current.has(kv.first) || current.at(kv.first).dump() != kv.second.dump())
+            delta.set(kv.first, kv.second);
+    if (delta.fields().empty()) return;
+    reply = nullptr;
+    st = spk_set_params(s->handle, delta.dump().c_str(), &reply);
+    if (st != SPK_OK) { if (reply) spk_string_free(reply); engine_fail(st, "apply frame snapshot"); }
+    s->output_space = output_space_of(take_json(reply).at("params"));
+}
+
+Json m_render_view(const Request& q, std::vector<uint8_t>& payload) {
+    const auto started = Clock::now();
+    auto s = find_session(q.params);
+    const auto req = view_request(q.params, false);
+    Running running(s->id, optional_string(q.params, "progress_id"));
+    apply_snapshot(s, q.params);
+    spk::view::Result v;
+    std::string error;
+    if (!spk::view::render(s->handle, req, v, error)) {
+        check_cancelled(); throw HostError{"engine_error", error};
+    }
+    check_cancelled();
+    Json img = Json::object();
+    img.set("width", number(v.width)); img.set("height", number(v.height));
+    img.set("source_width", number(s->width)); img.set("source_height", number(s->height));
+    img.set("row_bytes", number(double(v.width) * 4)); img.set("format", str("rgba8"));
+    img.set("color_space", str(req.target_space)); img.set("processed", Json(true));
+    img.set("geometry", req.geometry);
+    Json r = Json::object(); r.set("image", std::move(img));
+    r.set("tier", str(req.tier)); r.set("print_cached", Json(v.print_cached));
+    r.set("generation", q.params.at("generation"));
+    r.set("timings_ms", view_timings(v, ms_since(started)));
+    payload = std::move(v.pixels);
     return r;
 }
 
@@ -764,6 +866,103 @@ Json written(const fs::path& path, uint32_t w, uint32_t h, size_t bytes, const s
     return r;
 }
 
+// A batch frame can open a private session without changing the editor's
+// selection or producing a preview. Its immutable snapshot is the export.
+Json m_export_frame(const Request& q) {
+    const auto started = Clock::now();
+    if (!q.payload.empty()) throw HostError{"bad_request", "export_frame accepts no image payload"};
+    const auto path = utf8_path(require_string(q.params, "path"));
+    const auto format = optional_string(q.params, "format", "tiff16");
+    check_format(format);
+    auto req = view_request(q.params, true);
+    req.output_channels = 3;
+    req.rgba16 = format == "tiff16";
+    const bool overwrite = q.params.at("overwrite").as_bool(false);
+    std::error_code ec;
+    if (!overwrite && fs::exists(path, ec)) throw HostError{"io_error", "destination exists: " + path_utf8(path)};
+    const auto progress = optional_string(q.params, "progress_id");
+    Running running(optional_string(q.params, "session"), progress);
+    std::shared_ptr<Session> s;
+    bool private_session = false;
+    std::string source_path;
+    if (!optional_string(q.params, "session").empty()) {
+        s = find_session(q.params);
+        if (q.params.has("decode")) {
+            const auto requested = decode_options(q.params.at("decode"));
+            if (requested.raw_mode != s->decode.raw_mode || requested.temperature_k != s->decode.temperature_k ||
+                requested.tint != s->decode.tint) {
+                // A pending UI redecode must not silently export older white balance.
+                // Keep the editor's session intact and render the frozen decode privately.
+                source_path = s->path;
+                s.reset();
+            }
+        }
+    } else source_path = require_string(q.params, "source_path");
+    Json open_timings;
+    if (!s) {
+        Request open = q;
+        open.params.set("path", str(source_path));
+        const auto opened = m_open(open);
+        open_timings = opened.at("timings_ms");
+        Json identity = Json::object(); identity.set("session", opened.at("session"));
+        s = find_session(identity); private_session = true;
+    }
+    struct ClosePrivate {
+        std::shared_ptr<Session> s; bool owned;
+        ~ClosePrivate() {
+            if (!owned) return;
+            std::lock_guard<std::mutex> lock(g.sessions_mutex);
+            if (s->handle) spk_session_release(s->handle);
+            s->handle = nullptr; g.sessions.erase(s->id);
+        }
+    } close{s, private_session};
+    running.bind(s->id);
+    check_cancelled();
+    apply_snapshot(s, q.params);
+    progress_event(*s, progress, 0, "render");
+    spk::view::Result v;
+    std::string error;
+    if (!spk::view::render(s->handle, req, v, error)) {
+        check_cancelled(); throw HostError{"engine_error", error};
+    }
+    check_cancelled();
+    std::vector<uint8_t> icc;
+    if (!icc_for(req.target_space, g.resources, icc, error)) throw HostError{"io_error", error};
+    const auto exif = exif_of(s->metadata);
+    const auto encode_start = Clock::now();
+    const size_t n = size_t(v.width) * v.height;
+    if (v.pixels.size() != n * (req.rgba16 ? 6 : 3))
+        throw HostError{"internal", "GPU export returned invalid RGB size"};
+    progress_event(*s, progress, 0.8, "encode");
+    const bool ok = write_file_atomic(path, [&](std::FILE* file, std::string& why) {
+        check_cancelled();
+        bool encoded = false;
+        if (format == "jpeg") encoded = encode_jpeg_file(file, v.pixels.data(), v.width, v.height,
+            q.params.at("quality").as_int(92), icc, why, &exif);
+        else if (format == "png") encoded = encode_png8_file(file, v.pixels.data(), v.width, v.height, icc, why, &exif);
+        else {
+            std::vector<uint8_t> bytes;
+            encoded = encode_tiff(v.pixels.data(),
+                v.width, v.height, format == "tiff16" ? 16 : 8, icc, bytes, why, &exif);
+            if (encoded) encoded = std::fwrite(bytes.data(), 1, bytes.size(), file) == bytes.size();
+        }
+        check_cancelled(); // cancellation during compression never commits a partial file
+        return encoded;
+    }, overwrite, error);
+    if (!ok) throw HostError{"io_error", error};
+    const auto bytes = fs::file_size(path, ec);
+    if (ec) throw HostError{"io_error", "cannot stat written file: " + path_utf8(path)};
+    Json r = written(path, v.width, v.height, size_t(bytes), req.target_space);
+    auto timings = view_timings(v, ms_since(started));
+    timings.set("encode_write", number(ms_since(encode_start)));
+    if (private_session) timings.set("source", std::move(open_timings));
+    r.set("timings_ms", std::move(timings)); r.set("print_cached", Json(v.print_cached));
+    if (q.params.has("generation")) r.set("generation", q.params.at("generation"));
+    r.set("exif_copied", Json(true));
+    progress_event(*s, progress, 1, "done");
+    return r;
+}
+
 Json m_export_image(const Request& q) {
     auto s = find_session(q.params);
     const fs::path path = utf8_path(require_string(q.params, "path"));
@@ -906,6 +1105,8 @@ void dispatch(const Request& q) {
     else if (m == "get_params") result = m_get_params(q);
     else if (m == "solve") result = m_solve(q);
     else if (m == "render") result = m_render(q, payload);
+    else if (m == "render_view") result = m_render_view(q, payload);
+    else if (m == "export_frame") result = m_export_frame(q);
     else if (m == "scene_latitude") result = m_scene_latitude(q);
     else if (m == "overscan_geometry") result = m_overscan_geometry(q);
     else if (m == "preview_stock_lut") result = m_preview_stock_lut(q, payload);
@@ -955,13 +1156,19 @@ void handle_cancel(const Request& q) {
     bool running = false;
     {
         std::lock_guard<std::mutex> lock(g.cancel_mutex);
-        running = g.running_session == session && (progress.empty() || g.running_progress == progress);
+        running = g.running_active &&
+            ((!session.empty() && (g.running_session == session || g.running_requested_session == session)) ||
+             (session.empty() && !progress.empty())) &&
+            (progress.empty() || g.running_progress == progress);
+        if (running) g.running_cancelled = true;
         if (!running && !progress.empty()) g.cancelled.insert({session, progress});
-    }
-    if (running) {
-        std::lock_guard<std::mutex> lock(g.sessions_mutex);
-        auto it = g.sessions.find(session);
-        if (it != g.sessions.end() && it->second->handle) spk_cancel(it->second->handle, nullptr);
+        if (running) {
+            // Keep the running identity stable until its actual engine session
+            // receives cancellation, including exports using a private decode.
+            std::lock_guard<std::mutex> sessions_lock(g.sessions_mutex);
+            auto it = g.sessions.find(g.running_session);
+            if (it != g.sessions.end() && it->second->handle) spk_cancel(it->second->handle, nullptr);
+        }
     }
     Json r = Json::object();
     r.set("was_running", Json(running));

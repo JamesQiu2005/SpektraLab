@@ -7,7 +7,7 @@ import { setLanguage } from './i18n';
 import { settingsStore } from './state/settings';
 import { boot } from './state/session';
 import { EditorWindow } from './windows/EditorWindow';
-import { installKeys } from './windows/keys';
+import { installKeys, webviewOwnsMenuKeys } from './windows/keys';
 import { MENU_CHORDS, installMenu } from './windows/menus';
 import { inTauri } from './host/transport';
 import { useSettings } from './state/settings';
@@ -16,6 +16,8 @@ function applySettings() {
   const s = settingsStore.getState();
   setLanguage(s.language);
   document.documentElement.style.setProperty('--ui-scale', String(s.interfaceScale / 100));
+  document.documentElement.style.setProperty('--left-width', `${s.leftWidth}px`);
+  document.documentElement.style.setProperty('--right-width', `${s.rightWidth}px`);
 }
 applySettings();
 
@@ -28,7 +30,7 @@ settingsStore.subscribe((s) => {
   }
 });
 
-installKeys(inTauri() ? MENU_CHORDS : new Set());
+installKeys(inTauri() && !webviewOwnsMenuKeys() ? MENU_CHORDS : new Set());
 if (inTauri()) void installMenu().catch((e) => console.error('menu', e));
 
 // The webview's own context menu (Reload / Inspect) is not the app's.

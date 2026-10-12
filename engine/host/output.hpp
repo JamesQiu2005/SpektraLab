@@ -11,6 +11,7 @@
 
 #include <array>
 #include <cstdint>
+#include <cstdio>
 #include <filesystem>
 #include <string>
 #include <vector>
@@ -73,6 +74,12 @@ bool encode_png8(const uint8_t* rgb, uint32_t width, uint32_t height, const std:
 bool encode_jpeg(const uint8_t* rgb, uint32_t width, uint32_t height, int quality,
                  const std::vector<uint8_t>& icc, std::vector<uint8_t>& out, std::string& error,
                  const Exif* exif = nullptr);
+// Streaming counterparts. The caller opens a temporary file, owns fclose and
+// commits it only on success. These do not close or rename the supplied file.
+bool encode_png8_file(std::FILE* file, const uint8_t* rgb, uint32_t width, uint32_t height,
+                      const std::vector<uint8_t>& icc, std::string& error, const Exif* exif = nullptr);
+bool encode_jpeg_file(std::FILE* file, const uint8_t* rgb, uint32_t width, uint32_t height, int quality,
+                      const std::vector<uint8_t>& icc, std::string& error, const Exif* exif = nullptr);
 // A complete little-endian TIFF-structured EXIF block (JPEG APP1 after
 // "Exif\0\0", PNG eXIf).
 std::vector<uint8_t> exif_block(const Exif& exif, uint32_t width, uint32_t height);

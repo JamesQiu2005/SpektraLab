@@ -60,7 +60,7 @@ A result that carries pixels has `result.image`:
 - `rgba16` **with** `display` (`"srgb"`, `"display-p3"` or `"prophoto"`): the
   output transform for that space, kept at 16 bits; `color_space` names it.
 
-Display surfaces ask for `rgba8` with `display: "srgb"` (or `"display-p3"`); the
+Legacy `render` display surfaces ask for `rgba8` with `display: "srgb"` (or `"display-p3"`); the
 host performs the output transform so the renderer never does colour maths on
 the frame. `rgba8` without `display` means `"srgb"`.
 
@@ -69,6 +69,11 @@ The output transform is the macOS canvas's (`Canvas/Shaders.metal`
 the working space's curve off, the CAT02-adapted matrix, CAM16-UCS gamut
 compression into the target, the target's curve on. When the target *is* the
 working space the pixels pass through (the engine already compressed into it).
+
+The current desktop uses `render_view` instead. Its ordinary SDR preview uses
+the ProPhoto decode, adapted matrix and target transfer function, **without**
+export CAM16 compression. Returned bytes are explicitly tagged sRGB or Display
+P3 and the browser manages the monitor. It is not export gamut soft-proofing.
 
 ## 3. Methods
 
@@ -111,6 +116,7 @@ What a file is decoded *to* (the engine develops linear ProPhoto RGB, top row fi
 | `get_params` | `{session}` | `{params}` |
 | `solve` | `{session, target}` | `<spk_solve JSON>` |
 | `render` | `{session, tier: "live"\|"preview"\|"full", reprint?: bool, format: "rgba8"\|"rgba16", display?: "srgb"\|"display-p3"\|"prophoto", progress_id?}` | `{image, tier, reprinted: bool, negative_was_cached: bool, engine_progress_id, timings_ms: {engine, render, transform}}` + pixels |
+| `render_view` | `{session, tier, adjustments, geometry, display: "srgb"\|"display-p3", long_edge?: 0, generation, progress_id?}` | `{image, tier, print_cached, generation, timings_ms: {print, post, readback, total}}` + RGBA8 pixels |
 | `scene_latitude` | `{session, request: {...}}` | `<spk_scene_latitude JSON>` |
 | `overscan_geometry` | `{session}` | `<spk_overscan_geometry JSON>` |
 | `preview_stock_lut` | `{session, print_stock, tier?: "preview", format, display?}` | `{image, lut: <spk_preview_stock_lut JSON>}` + pixels; the LUT's own output space (catalog `output_color_space`) is the source of the transform |
@@ -140,8 +146,75 @@ Files: every writer embeds an ICC profile for its `color_space` (the bundled
 writes a hidden `.<name>.partial-<pid>-<n>` beside the destination and renames
 it into place, and refuses an existing destination unless `overwrite` (§7.8
 "files land whole"). PNG is 8-bit. TIFF is uncompressed, little-endian.
-`long_edge` downsamples in linear light (area average) after the output
+Legacy `export_image`'s `long_edge` downsamples in linear light (area average) after the output
 transform's matrix and gamut step, before the curve.
+
+### Complete frame export and resident views (additive, protocol 1)
+
+`render_view` and `export_frame` are independently advertised by `hello.methods`.
+The new desktop requires `export_frame` to save an edited frame; it must show an
+incompatibility message rather than silently use an incomplete legacy export.
+The old `render`, `export_image` and `write_image` contracts remain available.
+
+`export_frame` accepts JSON only (nonempty binary payloads are rejected):
+
+```json
+{"session":"s1", "source_path":"D:/photos/example.ARW",
+ "params":{"output_color_space":"ProPhoto RGB","output_cctf_encoding":true},
+ "decode":{"raw_mode":"compatible16"},
+ "adjustments":{}, "geometry":{},
+ "path":"D:/exports/example.jpg", "format":"jpeg", "quality":92,
+ "color_space":"display-p3", "long_edge":0, "overwrite":false,
+ "progress_id":"unique-export-job"}
+```
+
+`params` is a complete engine parameter snapshot in the existing flat wire
+format, including the enabled feature gate. `adjustments` and `geometry` use
+the desktop sidecar schema (camelCase); omitted fields receive neutral defaults.
+`format` is `jpeg`, `png`, `tiff8` or `tiff16`. A session can be omitted if
+`source_path` is supplied; the host decodes and opens one private session,
+exports without a preview, and releases it on success, cancellation or error.
+When a supplied session has different effective decode options from the
+snapshot, the host privately reopens its source so a pending white-balance edit
+cannot be omitted. The editor session is preserved. A matching session reuses
+its full print or negative cache.
+
+Processing order for both new methods is: encoded ProPhoto RGBA16 print on GPU
+-> float32 ProPhoto encoded-domain post adjustments (middle grey 0.3857)
+-> geometry and 16-bit quantization -> resize and 16-bit quantization
+-> output conversion -> one CPU readback. `export_frame` retains CAM16 output
+gamut compression; `render_view` uses ordinary display conversion. `long_edge`
+limits the final cropped result; zero keeps its native dimensions. The print
+cache depends on session, source size and film/print parameters. Grade,
+geometry, size and display changes reuse it and do not generate new grain.
+
+`render_view.image` also reports `source_width`, `source_height`, `processed:true`
+and the applied `geometry`. The client must skip its old post-processing and
+must not crop the result a second time. `generation` is echoed for stale-result
+rejection. Fit previews can use a full-source print with a bounded output size;
+100% views request native output, subject to the canvas texture-size limit.
+
+`export_frame` returns `{path,width,height,bytes,color_space,print_cached,
+exif_copied,timings_ms}` and **zero binary payload bytes**. `timings_ms` contains
+`print`, `post`, `readback`, `encode_write`, and whole-call `total`; private opens
+also include `source:{decode,open,raw?}`. Open/redecode's optional `raw` diagnostics
+contain `open`, `unpack`, `process`, `convert`, `total` (milliseconds),
+`openmp_enabled`, and `workers`. Engine upload is included in `open`, separate
+from decode. UI logs separately measure request and first-display latency.
+
+Batch clients freeze snapshots before starting and submit them in order; they
+do not select each frame in the editor. `cancel` can use an empty `session` plus
+a unique `progress_id` for a private export. Queued work is refused; active RAW
+decode/encode checks cancellation at the next safe boundary. A cancelled encode
+does not rename its temporary file into place. Current execution is serial;
+no second RAW decode or GPU render is started concurrently.
+
+JPEG uses accurate integer-DCT libjpeg-turbo with SIMD for Q1–95. Q96–100 retain
+the previous floating-DCT encoder because integer-DCT substitution failed the
+high-quality fidelity gate; sampling remains 4:2:0 at Q<=90 and 4:4:4 above 90.
+PNG uses libpng plus zlib-ng at compression level 3, RGB8 lossless. Both stream
+rows to the atomic temporary file and preserve ICC/EXIF. TIFF retains its
+existing bit depth and uncompressed representation.
 
 Events: `{"event": "progress", "session", "progress_id", "fraction", "stage"}`
 (stages `render`, `transform`/`encode`, `done`; emitted only for requests that

@@ -47,7 +47,7 @@
   /* Metrics */
   --left-width: 254px;
   --right-width: 288px;
-  --filmstrip-height: 132px;
+  --filmstrip-height: calc(132px + 18px * var(--ui-scale));
   --header-height: 38px;
   --section-header: 26px;
   --row-height: calc(22px * var(--ui-scale));
@@ -338,7 +338,7 @@ input {
   gap: 10px;
   overflow-x: auto;
   overflow-y: hidden;
-  padding: 0 6px;
+  padding: 4px 6px calc(18px * var(--ui-scale));
   height: 100%;
   align-items: center;
   scrollbar-width: thin;
@@ -384,6 +384,15 @@ input {
   height: 100%;
   color: var(--text);
 }
+
+.clipboard-actions {
+  flex-wrap: wrap;
+  gap: 6px;
+  height: auto;
+  min-height: var(--row-height);
+  padding-block: 4px;
+}
+.clipboard-actions .btn { flex: 1 0 auto; white-space: nowrap; }
 
 /* ---------------------------------------------------------------- sections */
 

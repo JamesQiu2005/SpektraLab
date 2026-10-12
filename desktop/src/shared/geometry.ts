@@ -8,7 +8,7 @@
 // and `geometry.test.ts` + `surfaces.test.ts` pin that they agree — AGENTS.md
 // trap 33: every surface that shows the frame shows the canvas's frame.
 
-import { clamp } from './params';
+import { clamp } from './params.ts';
 
 export interface Point {
   x: number;

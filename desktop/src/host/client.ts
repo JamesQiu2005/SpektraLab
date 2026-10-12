@@ -17,6 +17,8 @@ import type {
 import { browserTransport } from './browserShim';
 import { tauriTransport } from './tauriTransport';
 import { HostCallError, inTauri, type Transport } from './transport';
+import type { Adjustments } from '@shared/adjustments';
+import type { Geometry } from '@shared/geometry';
 
 export { HostCallError };
 
@@ -26,6 +28,8 @@ export interface RgbaImage {
   height: number;
   data: Uint8Array;
   colorSpace: string;
+  /** Geometry already committed by render_view; undefined for legacy/raw previews. */
+  processedGeometry?: Geometry;
 }
 
 export interface RenderReply extends RgbaImage {
@@ -117,6 +121,19 @@ export class Host {
   }
   async sceneLatitude(session: string, request: Record<string, unknown>): Promise<Record<string, unknown>> {
     return (await this.call<Record<string, unknown>>('scene_latitude', { session, request })).result;
+  }
+
+  async renderView(session: string, tier: Tier, opts: {
+    adjustments: Adjustments; geometry: Geometry; display: 'srgb' | 'display-p3'; generation: number; long_edge?: number;
+  }): Promise<RenderReply> {
+    const snapshot = structuredClone(opts);
+    const t0 = performance.now();
+    const r = await this.call<{ image: ImageInfo; tier: Tier; print_cached: boolean; generation: number }>(
+      'render_view', { session, tier, ...snapshot }, tier === 'full' ? 900_000 : 180_000,
+    );
+    if (r.result.generation !== snapshot.generation) throw new HostCallError('render_view', 'internal', 'view generation mismatch');
+    return { ...rgba8(r.result.image, r.payload), processedGeometry: snapshot.geometry,
+      tier: r.result.tier, reprinted: r.result.print_cached, ms: performance.now() - t0 };
   }
   /** True when the request carrying `progressId` was running (else it is refused when it reaches the worker). */
   async cancel(session: string, progressId: string): Promise<boolean> {

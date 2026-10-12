@@ -9,6 +9,7 @@ import { createStore, type StoreApi } from 'zustand/vanilla';
 import { useStore } from 'zustand';
 import type { LanguageSetting } from '../i18n';
 import type { SideUnit } from '@shared/params';
+import type { PreviewGamut } from '../canvas/colorSpace';
 
 export type InterfaceScale = 100 | 115 | 130;
 export const INTERFACE_SCALES: InterfaceScale[] = [100, 115, 130];
@@ -18,6 +19,7 @@ export interface Settings {
   language: LanguageSetting;
   interfaceScale: InterfaceScale;
   previewLongEdge: number;
+  previewGamut: PreviewGamut;
   sideUnit: SideUnit;
   decoupleEffects: boolean;
   recalculateEffectsAfterCrop: boolean;
@@ -37,6 +39,7 @@ export const SETTINGS_DEFAULT: Settings = {
   language: 'system',
   interfaceScale: 115,
   previewLongEdge: 2560,
+  previewGamut: 'auto',
   sideUnit: 'mm',
   decoupleEffects: false,
   recalculateEffectsAfterCrop: false,
@@ -68,6 +71,7 @@ export function loadSettings(storage: Pick<Storage, 'getItem'> | null): Settings
     const s = out as unknown as Settings;
     if (!INTERFACE_SCALES.includes(s.interfaceScale)) s.interfaceScale = SETTINGS_DEFAULT.interfaceScale;
     if (!(PREVIEW_EDGES as readonly number[]).includes(s.previewLongEdge)) s.previewLongEdge = SETTINGS_DEFAULT.previewLongEdge;
+    if (!(['auto', 'srgb', 'display-p3'] as const).includes(s.previewGamut)) s.previewGamut = SETTINGS_DEFAULT.previewGamut;
     return s;
   } catch {
     return SETTINGS_DEFAULT;

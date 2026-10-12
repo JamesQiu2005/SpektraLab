@@ -54,7 +54,7 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends \
-            build-essential cmake ninja-build glslang-tools \
+            build-essential cmake ninja-build nasm glslang-tools \
             libvulkan1 mesa-vulkan-drivers vulkan-tools python3
 
       - name: Vulkan device
@@ -64,7 +64,7 @@ jobs:
       - uses: actions/cache@v4
         with:
           path: build/deps
-          key: engine-deps-${{ runner.os }}-${{ hashFiles('engine/setup-deps.sh', 'engine/setup-libraw.sh') }}
+          key: engine-deps-${{ runner.os }}-${{ hashFiles('engine/setup-deps.sh', 'engine/setup-libraw.sh', 'engine/setup-codecs.sh') }}
 
       - name: Build, CTest, host smoke
         run: engine/build-linux.sh --test
@@ -90,14 +90,14 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends \
-            cmake ninja-build glslang-tools python3 \
+            cmake ninja-build nasm glslang-tools python3 \
             g++-mingw-w64-x86-64-posix gcc-mingw-w64-x86-64-posix binutils-mingw-w64-x86-64 \
             wine wine64 xvfb xauth libvulkan1 mesa-vulkan-drivers   # `wine` is the command; wine64 alone does not provide it
 
       - uses: actions/cache@v4
         with:
           path: build/deps
-          key: engine-deps-${{ runner.os }}-${{ hashFiles('engine/setup-deps.sh', 'engine/setup-libraw.sh') }}
+          key: engine-deps-${{ runner.os }}-${{ hashFiles('engine/setup-deps.sh', 'engine/setup-libraw.sh', 'engine/setup-codecs.sh') }}
 
       # Also fails if the exe imports anything but system DLLs.
       - name: Cross-build spektralab-host.exe

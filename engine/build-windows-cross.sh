@@ -46,7 +46,7 @@ ninja -C "$build" spektralab-host spektralab_vulkan_resources
 if command -v x86_64-w64-mingw32-objdump >/dev/null; then
   imports="$(x86_64-w64-mingw32-objdump -p "$stage/spektralab-host.exe" | awk '/DLL Name/ {print $3}' | sort -u)"
   echo "imports: $(echo $imports)" >&2
-  if echo "$imports" | grep -qiE 'libstdc|libgcc|libwinpthread|vulkan-1'; then
+  if echo "$imports" | grep -qiE 'libstdc|libgcc|libwinpthread|libgomp|vulkan-1'; then
     echo "spektralab-host.exe imports a non-system DLL" >&2
     exit 1
   fi

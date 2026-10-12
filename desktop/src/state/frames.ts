@@ -2,9 +2,10 @@
 // frame is 180 MB; the store carries a version number instead).
 
 import type { RenderReply, RgbaImage } from '../host/client';
+import { imageData } from '../canvas/colorSpace';
 
 export const frameImages: {
-  /** The engine's print at the tier it was rendered (sRGB-encoded rgba8). */
+  /** Display-tagged rgba8; render_view already applied the grade and geometry. */
   print: RenderReply | null;
   /** The decode as the camera's embedded preview shows it (Original, Before). */
   original: RgbaImage | null;
@@ -18,10 +19,12 @@ export async function rgbaToURL(img: RgbaImage, longEdge = THUMB_EDGE): Promise<
     const s = Math.min(1, longEdge / Math.max(img.width, img.height));
     const w = Math.max(1, Math.round(img.width * s));
     const h = Math.max(1, Math.round(img.height * s));
-    const src = new ImageData(new Uint8ClampedArray(img.data.buffer as ArrayBuffer, img.data.byteOffset, img.width * img.height * 4), img.width, img.height);
+    const src = imageData(img);
     const bmp = await createImageBitmap(src, { resizeWidth: w, resizeHeight: h, resizeQuality: 'medium' });
     const canvas = new OffscreenCanvas(w, h);
-    canvas.getContext('2d')!.drawImage(bmp, 0, 0);
+    // Persist thumbnails as managed sRGB JPEGs so old runtimes and the OS
+    // thumbnail cache can consume them too; drawImage performs the conversion.
+    canvas.getContext('2d', { colorSpace: 'srgb' })!.drawImage(bmp, 0, 0);
     bmp.close();
     const blob = await canvas.convertToBlob({ type: 'image/jpeg', quality: 0.85 });
     return URL.createObjectURL(blob);

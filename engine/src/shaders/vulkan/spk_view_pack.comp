@@ -1,0 +1,40 @@
+#version 450
+layout(local_size_x=256) in;
+layout(binding=0,std430) readonly buffer Input { float v[]; } src;
+layout(binding=1,std430) readonly buffer Meta { uint v[]; } m;
+layout(binding=2,std430) writeonly buffer Output { uint v[]; } dst;
+uint index1D(){return gl_GlobalInvocationID.y*(gl_NumWorkGroups.x*gl_WorkGroupSize.x)+gl_GlobalInvocationID.x;}
+float encode(float x,uint mode){
+ if(mode==0u)return x<=0.0031308?12.92*x:1.055*pow(max(x,0.0),1.0/2.4)-0.055;
+ if(mode==1u)return x<1.0/512.0?16.0*x:pow(max(x,0.0),1.0/1.8);
+ return x;
+}
+uint encoded16(uint sampleIndex){
+ // outputTransform's rgba16Unorm texture exists before ImageIO quantises 8-bit.
+ return uint(floor(clamp(encode(src.v[sampleIndex],m.v[1]),0.0,1.0)*65535.0+0.5));
+}
+uint to8(uint value){return (value*255u+32767u)/65535u;}
+void main(){
+ uint i=index1D();
+ if(m.v[3]==3u){
+   // A thread owns one uint, including RGB pixels straddling word boundaries.
+   // Byte/halfword stores from per-pixel threads would race the shared word.
+   uint lanes=m.v[2]==16u?2u:4u,count=m.v[0]*3u;
+   if(i>=(count+lanes-1u)/lanes)return;
+   uint word=0u;
+   for(uint lane=0u;lane<lanes;++lane){
+     uint sampleIndex=i*lanes+lane;
+     if(sampleIndex<count){
+       uint value=encoded16(sampleIndex);
+       if(m.v[2]==8u)value=to8(value);
+       word|=value<<(lane*m.v[2]);
+     }
+   }
+   dst.v[i]=word;
+   return;
+ }
+ if(i>=m.v[0])return;
+ uvec3 v=uvec3(encoded16(3u*i),encoded16(3u*i+1u),encoded16(3u*i+2u));
+ if(m.v[2]==16u){dst.v[2u*i]=v.r|(v.g<<16u);dst.v[2u*i+1u]=v.b|0xffff0000u;}
+ else{v=uvec3(to8(v.r),to8(v.g),to8(v.b));dst.v[i]=v.r|(v.g<<8u)|(v.b<<16u)|0xff000000u;}
+}

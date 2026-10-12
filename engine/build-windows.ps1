@@ -109,7 +109,9 @@ try {
     # Python 3.8+ does not use PATH to resolve DLL dependencies. Keep the
     # compiler's runtime next to the engine, including libstdc++'s pthread DLL.
     $runtimeManifest = @()
-    foreach ($runtimeName in @('libgcc_s_seh-1.dll', 'libstdc++-6.dll', 'libwinpthread-1.dll')) {
+    $runtimeNames = @('libgcc_s_seh-1.dll', 'libstdc++-6.dll', 'libwinpthread-1.dll')
+    if ($NativeRaw) { $runtimeNames += 'libgomp-1.dll' }
+    foreach ($runtimeName in $runtimeNames) {
         $runtimeSource = Join-Path $compilerDirectory $runtimeName
         if (-not (Test-Path -LiteralPath $runtimeSource -PathType Leaf)) {
             throw "Missing x64 MinGW runtime $runtimeSource"

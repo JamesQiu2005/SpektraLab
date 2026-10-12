@@ -66,6 +66,14 @@ static int process_id() {
 
 bool write_file_atomic(const std::filesystem::path& path, const std::vector<uint8_t>& bytes,
                        bool overwrite, std::string& error) {
+    return write_file_atomic(path, [&](std::FILE* f, std::string&) {
+        return bytes.empty() || std::fwrite(bytes.data(), 1, bytes.size(), f) == bytes.size();
+    }, overwrite, error);
+}
+
+bool write_file_atomic(const std::filesystem::path& path,
+                       const std::function<bool(std::FILE*, std::string&)>& writer,
+                       bool overwrite, std::string& error) {
     namespace fs = std::filesystem;
     static std::atomic<unsigned> counter{0};
     std::error_code ec;
@@ -83,11 +91,13 @@ bool write_file_atomic(const std::filesystem::path& path, const std::vector<uint
                                              std::to_string(counter++));
     std::FILE* f = open_file(partial, "wb");
     if (!f) { error = "cannot create " + path_utf8(partial); return false; }
-    const bool wrote = bytes.empty() || std::fwrite(bytes.data(), 1, bytes.size(), f) == bytes.size();
+    bool wrote = false;
+    try { wrote = writer(f, error) && !std::ferror(f); }
+    catch (...) { std::fclose(f); fs::remove(partial, ec); throw; }
     const bool closed = std::fclose(f) == 0;
     if (!wrote || !closed) {
         fs::remove(partial, ec);
-        error = "write failed: " + path_utf8(partial);
+        if (error.empty()) error = "write failed: " + path_utf8(partial);
         return false;
     }
 #ifdef _WIN32

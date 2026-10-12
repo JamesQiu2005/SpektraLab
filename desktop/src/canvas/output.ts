@@ -8,6 +8,7 @@ export interface OutputImage {
   width: number;
   height: number;
   data: Uint8Array;
+  colorSpace?: 'srgb' | 'display-p3';
 }
 
 let current: OutputImage | null = null;

@@ -10,10 +10,13 @@ import { currentFitZoom, setOriginal, setPages, setTool, solveNow, toggleCompare
 import { settingsStore, useSettings } from '../state/settings';
 import { openDialog } from './actions';
 import { baseName } from '../platform';
+import type { PreviewGamut } from '../canvas/colorSpace';
 
 export function TopBar() {
   const leftCollapsed = useSettings((s) => s.leftCollapsed);
   const rightCollapsed = useSettings((s) => s.rightCollapsed);
+  const previewGamut = useSettings((s) => s.previewGamut);
+  const displaySpace = useSession((s) => s.displaySpace);
   const tool = useSession((s) => s.tool);
   const selection = useSession((s) => s.selection);
   const engine = useSession((s) => s.engineSession);
@@ -27,8 +30,15 @@ export function TopBar() {
   const zoomLocked = tool === 'crop';
   const fitZoom = useSession((s) => s.fitZoom);
   const pct = Math.round((view.fit ? fitZoom : view.zoom) * 100);
+  const displayLabel = displaySpace === 'display-p3' ? 'Display P3' : 'sRGB';
+  const previewLabel = previewGamut === 'auto' ? `${tz('Auto', '自动')} · ${displayLabel}`
+    : previewGamut === 'display-p3' && displaySpace !== 'display-p3' ? 'P3 → sRGB' : displayLabel;
+  const previewHelp = tz(
+    'Preview gamut only. Internal working space: ProPhoto RGB. Export uses its own recipe. Display P3 requires browser support; visible colours depend on the display. Unsupported previews use sRGB.',
+    '仅切换窗口预览色域。内部工作空间：ProPhoto RGB。导出色域由导出预设决定。Display P3 需要浏览器支持，可见色域取决于显示器；不支持时回退为 sRGB。',
+  );
   const info = selection
-    ? [baseName(selection), native ? `${native.width}×${native.height}` : '', hello?.mock ? 'mock host' : 'sRGB'].filter(Boolean).join(' · ')
+    ? [baseName(selection), native ? `${native.width}×${native.height}` : '', hello?.mock ? 'mock host' : displayLabel].filter(Boolean).join(' · ')
     : '';
   return (
     <div className="topbar" data-testid="topbar">
@@ -67,6 +77,22 @@ export function TopBar() {
         {developing ? '⏳ ' : ''}
         {status || info}
       </span>
+      <DropdownMenu.Root>
+        <DropdownMenu.Trigger asChild>
+          <button className="zoom-pill" style={{ whiteSpace: 'nowrap', flexShrink: 0 }} title={previewHelp}
+            aria-label={tz('Preview gamut', '预览色域')} data-testid="preview-gamut">{previewLabel}</button>
+        </DropdownMenu.Trigger>
+        <DropdownMenu.Portal>
+          <DropdownMenu.Content className="menu" sideOffset={4}>
+            {(['auto', 'srgb', 'display-p3'] as PreviewGamut[]).map((gamut) => (
+              <DropdownMenu.Item key={gamut} className="menu-item" onSelect={() => settingsStore.getState().set('previewGamut', gamut)}>
+                <span className="check">{previewGamut === gamut ? '✓' : ''}</span>
+                {gamut === 'auto' ? tz('Automatic', '自动') : gamut === 'srgb' ? 'sRGB' : 'Display P3'}
+              </DropdownMenu.Item>
+            ))}
+          </DropdownMenu.Content>
+        </DropdownMenu.Portal>
+      </DropdownMenu.Root>
       <button className={'icon-btn' + (comparing ? ' active' : '')} style={{ width: 34 }} disabled={!selection} onClick={toggleCompare} title={t('helpBeforeAfter') + ' (Y)'}>
         <BeforeAfter />
       </button>

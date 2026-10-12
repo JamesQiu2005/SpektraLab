@@ -9,7 +9,7 @@
 // `surfaces.test.ts` gives a frame a crop *and* a quarter turn and checks that
 // every surface lands on the canvas's frame.
 
-import { type Geometry, type Point, type Size, GEOMETRY_DEFAULT, corners, outputPoint, outputSize, sourcePoint } from './geometry';
+import { type Geometry, type Point, type Size, GEOMETRY_DEFAULT, corners, outputPoint, outputSize, sourcePoint } from './geometry.ts';
 
 export interface ThumbPlan {
   width: number;
