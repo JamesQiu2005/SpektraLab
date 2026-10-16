@@ -254,7 +254,7 @@ if(NOT APPLE)
             add_test(NAME spk_vulkan_smoke
                 COMMAND spk_vulkan_smoke "${vulkan_resource_dir}")
 
-            foreach(probe grain pointwise resample transfer geometry lut_di)
+            foreach(probe grain pointwise resample transfer geometry lut_di overscan)
                 add_executable(spk_vulkan_${probe} tests/gpu_vulkan_${probe}.cpp)
                 target_include_directories(spk_vulkan_${probe} PRIVATE
                     "${CMAKE_CURRENT_SOURCE_DIR}/include"
