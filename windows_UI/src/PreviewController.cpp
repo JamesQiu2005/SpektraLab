@@ -197,6 +197,8 @@ PreviewController::PreviewController(std::filesystem::path resources,QObject* pa
     // the frame and the crop.
     for(auto signal:{&PreviewController::settingsChanged,&PreviewController::frameChanged,&PreviewController::geometryChanged})
         connect(this,signal,this,&PreviewController::filmEdgeChanged);
+    // The soft proof follows the frame's encoding (PreviewControllerExport.cpp).
+    connect(this,&PreviewController::frameChanged,this,&PreviewController::refreshSoftProof);
     auto_apply_.setSingleShot(true);auto_apply_.setInterval(180);
     connect(&auto_apply_,&QTimer::timeout,this,[this]{if(dirty())apply();});
     save_timer_.setSingleShot(true);save_timer_.setInterval(350);
@@ -244,6 +246,7 @@ void PreviewController::submit(Job job,QString status,QString operation) {
 void PreviewController::accept(Reply reply) {
     // A proof is not an operation: it changes no state but its own picture.
     if(reply.operation=="proof"){acceptProof(std::move(reply));return;}
+    if(reply.operation=="soft-proof"){acceptSoftProof(std::move(reply));return;}
     // The Original rides the same worker but is no operation: it neither
     // holds the controller busy nor reports one finished.
     if(reply.operation=="original"){acceptOriginal(std::move(reply));return;}

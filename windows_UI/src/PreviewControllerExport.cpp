@@ -5,6 +5,7 @@
 #include "FrameImage.hpp"
 #include "PostDevSurfaces.hpp"
 #include "RecipeExport.hpp"
+#include "SoftProof.hpp"
 #include <QFileInfo>
 #include <QJsonObject>
 #include <QMetaObject>
@@ -162,6 +163,83 @@ void PreviewController::requestExportProof(const QVariantMap& json) {
     };
     {std::lock_guard lock(mutex_);jobs_.push_back(std::move(job));}
     wake_.notify_one();
+}
+
+// ---- the canvas soft proof -------------------------------------------------
+
+namespace {
+// What the proof converts into: the recipe's engine space, named as the
+// export page names it (Display P3 when the recipe's profile has no engine
+// space, as the export falls back), or nothing for a DI, which has no colour
+// space to prove. No recipe yet: sRGB, the first of the Mac's defaults.
+struct ProofTarget { bool available=false; std::string space; QString name; };
+ProofTarget proofTarget(const QVariantMap& json) {
+    if(json.isEmpty())return {true,"sRGB",QStringLiteral("sRGB")};
+    const auto recipe=recipes::Recipe::fromJson(QJsonObject::fromVariantMap(json));
+    if(recipe.format==recipes::Format::di)return {};
+    bool fellBack=false;
+    const auto space=recipe.engineSpace(&fellBack);
+    return {true,space,fellBack?QStringLiteral("Display P3"):recipe.colorSpaceName()};
+}
+QString proofKey(const desktop::OutputEncoding& encoding,const std::string& space) {
+    return text(encoding.color_space)+(encoding.cctf_encoding?QString():QStringLiteral(" (linear)"))+u'\n'+text(space);
+}
+}
+
+void PreviewController::setSoftProof(bool on) {
+    if(on==soft_proof_)return;
+    soft_proof_=on;refreshSoftProof();
+}
+void PreviewController::setGamutWarning(bool on) {
+    if(on==gamut_warning_)return;
+    gamut_warning_=on;emit proofChanged();
+}
+void PreviewController::setProofRecipe(const QVariantMap& recipe) {
+    if(recipe==proof_recipe_)return;
+    proof_recipe_=recipe;refreshSoftProof();
+}
+QVariant PreviewController::proofTransform() const {
+    const bool current=soft_proof_&&proof_transform_&&!proof_wanted_.isEmpty()&&proof_for_==proof_wanted_;
+    // Always a ProofTransformPtr, null when there is nothing to prove, so QML
+    // hands FrameCanvas one type whatever the state.
+    return QVariant::fromValue(current?proof_transform_:ProofTransformPtr());
+}
+QVariantMap PreviewController::proofState() const {
+    const auto target=proofTarget(proof_recipe_);
+    const bool ready=bool(proofTransform().value<ProofTransformPtr>());
+    return {{"on",soft_proof_},{"ready",ready},{"available",target.available},{"space",target.name},
+            {"identity",ready&&proof_transform_->identity},{"error",proof_error_}};
+}
+// What the canvas wants proven, and the engine's transform for it from the
+// worker when it is not in hand: once per (frame encoding, recipe space); a
+// toggle or a recipe that comes back reuses the transform already made.
+void PreviewController::refreshSoftProof() {
+    QString wanted;
+    ProofTarget target;
+    if(soft_proof_&&frame_&&ready_) {
+        target=proofTarget(proof_recipe_);
+        if(target.available)wanted=proofKey(frame_->encoding,target.space);
+    }
+    proof_wanted_=wanted;
+    if(!wanted.isEmpty()&&wanted!=proof_for_&&wanted!=proof_requested_) {
+        proof_requested_=wanted;proof_error_.clear();
+        const auto encoding=frame_->encoding;
+        Job job=[wanted,encoding,target](desktop::PreviewHost& host){
+            Reply r;r.operation="soft-proof";r.proofFor=wanted;
+            try{r.proofTransform=desktop::proofing::makeProofTransform(host.engine(),encoding,target.space,target.name);}
+            catch(const std::exception& e){r.error=text(e.what());}
+            return r;
+        };
+        {std::lock_guard lock(mutex_);jobs_.push_back(std::move(job));}
+        wake_.notify_one();
+    }
+    emit proofChanged();
+}
+void PreviewController::acceptSoftProof(Reply reply) {
+    if(reply.proofFor==proof_requested_)proof_requested_.clear();
+    if(!reply.error.isEmpty()){if(reply.proofFor==proof_wanted_)proof_error_=reply.error;}
+    else if(reply.proofTransform){proof_transform_=std::move(reply.proofTransform);proof_for_=reply.proofFor;}
+    emit proofChanged();
 }
 
 void PreviewController::acceptProof(Reply reply) {

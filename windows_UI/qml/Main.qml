@@ -113,6 +113,12 @@ ApplicationWindow {
     // Before / after: the Mac's Y (Capture One's), and Alt+\ for its
     // Option-\. Ctrl+\ is left alone; Alt+letter is the Windows menu mnemonic.
     Shortcut { sequences: ["Y", "Alt+\\"]; enabled: editorState.canCompare || editorState.comparing; onActivated: editorState.toggleCompare() }
+    // Soft proof and its gamut warning (EditorState.toggleSoftProof): S and
+    // Shift+S, Lightroom Classic's keys. Single keys yield to a text field.
+    Shortcut { sequence: "S"; enabled: editorState.canProof || preview.softProof; onActivated: editorState.toggleSoftProof() }
+    Shortcut { sequence: "Shift+S"; enabled: preview.softProof; onActivated: editorState.toggleGamutWarning() }
+    // The proof follows the export page's chosen recipe.
+    Binding { target: preview; property: "proofRecipe"; value: exportRecipes.selectedJson }
     // Full screen: the Mac's Ctrl+Cmd+F, as Windows spells it.
     Shortcut { sequence: "F11"; onActivated: window.visibility = window.visibility === Window.FullScreen ? Window.Windowed : Window.FullScreen }
     Shortcut { sequence: "Ctrl+Z"; enabled: preview.settingsEditable && preview.canUndo && !editorState.cropMode && !window.editingText; onActivated: preview.undo() }
