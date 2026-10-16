@@ -1,7 +1,11 @@
 # Windows Qt frontend dependencies
 
 SpektraLab code remains GPL-3.0-or-later. The film/paper profiles retain the
-upstream CC BY-SA 4.0 notices. This development build dynamically links the
+upstream CC BY-SA 4.0 notices. The four black-and-white films (Tri-X 400,
+T-Max 100, Neopan 100 Acros II, HP5 Plus 400) and the Multigrade IV RC paper
+in `resources/profiles/` are SpektraLab's own data, not spektrafilm's:
+`PRODUCT_PROFILES_NOTICE.md`, in this folder and in `resources/`, says what
+each is built from and whose trademarks the names are. This development build dynamically links the
 open-source Qt 6.11.3 Windows MinGW SDK; it does not use a Qt commercial license.
 
 The adjacent `Qt/` directory contains official Qt license texts. The exact SDK

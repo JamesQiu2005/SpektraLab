@@ -155,11 +155,20 @@ if(NOT APPLE)
         set(SPEKTRALAB_VULKAN_SPIRV ${vulkan_spirv} CACHE INTERNAL "")
         # resources_portable/fonts: the film edge's faces off Apple, kept out
         # of resources/ so build.sh never syncs them into the macOS app.
+        # resources_product/profiles: the product's own black-and-white films
+        # and silver paper. The engine opens a stock from the one profiles/
+        # directory, so they are laid beside spektrafilm's with their notice,
+        # exactly as `engine/build.sh bundle` lays them into the macOS app.
         add_custom_target(spektralab_vulkan_resources
             COMMAND "${CMAKE_COMMAND}" -E copy_directory
                     "${CMAKE_CURRENT_SOURCE_DIR}/resources" "${vulkan_resource_dir}"
             COMMAND "${CMAKE_COMMAND}" -E copy_directory
                     "${CMAKE_CURRENT_SOURCE_DIR}/resources_portable/fonts" "${vulkan_resource_dir}/fonts"
+            COMMAND "${CMAKE_COMMAND}" -E copy_directory
+                    "${CMAKE_CURRENT_SOURCE_DIR}/resources_product/profiles" "${vulkan_resource_dir}/profiles"
+            COMMAND "${CMAKE_COMMAND}" -E copy
+                    "${CMAKE_CURRENT_SOURCE_DIR}/resources_product/NOTICE.md"
+                    "${vulkan_resource_dir}/PRODUCT_PROFILES_NOTICE.md"
             DEPENDS ${vulkan_spirv}
             VERBATIM)
 
@@ -211,6 +220,11 @@ if(NOT APPLE)
                 configure_file("${CMAKE_CURRENT_SOURCE_DIR}/third_party/stb/LICENSE" "licenses/stb-LICENSE" COPYONLY)
                 configure_file("${CMAKE_CURRENT_SOURCE_DIR}/resources_portable/fonts/GUST-FONT-LICENSE.txt"
                                "licenses/TeX-Gyre-Heros-GUST-FONT-LICENSE.txt" COPYONLY)
+                # The black-and-white profiles are SpektraLab's, not spektrafilm's
+                # (CC BY-SA): their notice says what each is built from and whose
+                # trademarks the names are, and it travels with them.
+                configure_file("${CMAKE_CURRENT_SOURCE_DIR}/resources_product/NOTICE.md"
+                               "licenses/PRODUCT_PROFILES_NOTICE.md" COPYONLY)
                 if(MINGW)
                     target_link_options(SpektraLab PRIVATE -municode)
                 endif()
