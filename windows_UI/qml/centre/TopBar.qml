@@ -10,10 +10,10 @@ import QtQuick.Layouts
 // folded.
 //
 // Not wired yet on Windows, and greyed with the reason: Process (the Mac's
-// solve -- auto-exposure and the enlarger pack for this paper), Original and
-// before/after (no unprocessed view yet). The canvas has two scales, so zoom
-// in and out step between fit and 100 %; the pill shows the scale, a click
-// toggles the two, and its menu lists the Mac's steps.
+// solve -- auto-exposure and the enlarger pack for this paper). Original
+// shows the decode before the film (Space while held), before/after splits
+// the canvas between the two, and zoom steps through the Mac's ladder
+// (EditorState, FrameCanvas); all three wait while the crop editor is up.
 //
 // "undoButton" and "redoButton" are found by name by the --self-test
 // (main.cpp), which reads their `enabled` and invokes `clicked`.
@@ -90,12 +90,18 @@ Rectangle {
             available: false
             reason: L10n.tr("placeholder.process")
         }
+        // Accent while the Original is showing -- pinned here or held with
+        // Space -- and muted otherwise (TopBar.swift `action`).
         PillButton {
+            objectName: "originalButton"
             Layout.leftMargin: Theme.actionGap
             outlined: true
             text: L10n.tr("toolbar.original")
-            available: false
-            reason: L10n.tr("placeholder.original")
+            active: bar.editor.showingOriginal
+            available: preview.hasFrame && !preview.batchExporting
+            toolTip: bar.editor.originalPinned ? L10n.tr("toolbar.originalShowingHelp") : L10n.tr("toolbar.originalHelp")
+            reason: L10n.tr("toolbar.originalHelp")
+            onClicked: bar.editor.toggleOriginal()
         }
         BusyIndicator {
             Layout.leftMargin: 10
@@ -127,32 +133,48 @@ Rectangle {
             color: Theme.accent
             font.family: Theme.fontFamily; font.pixelSize: Theme.fontMeta; font.weight: Theme.weightText
         }
-        // Before / after: the Mac draws its own glyph, two frames side by
-        // side with the processed half filled.
+        // Before / after (BeforeAfterIcon.swift, traced from the drawing on
+        // its 60.8 x 48.11 box into 25 x 16): the outlined frame, the divider,
+        // the half-filled picture -- accent while the split is up. Y or
+        // Alt+\ (the Mac's Y and Option-\) toggle it too.
         Item {
             id: compare
+            objectName: "compareButton"
             Layout.leftMargin: 16
             Layout.preferredWidth: Theme.toolButton; Layout.preferredHeight: Theme.toolButton
-            opacity: 0.4
-            Rectangle { x: 3; y: 8; width: 10; height: 12; color: "transparent"; border.color: Theme.text; border.width: 1.2; radius: 1 }
-            Rectangle { x: 14; y: 8; width: 10; height: 12; color: Theme.text; radius: 1 }
+            readonly property bool available: bar.editor.canCompare
+            readonly property color ink: bar.editor.comparing ? Theme.accent : Theme.text
+            opacity: available ? 1 : 0.4
+            signal clicked()
+            onClicked: bar.editor.toggleCompare()
+            Rectangle { anchors.fill: parent; radius: 4; color: compareHover.hovered && compare.available ? Theme.hover : "transparent" }
+            Item {
+                x: 1.5; y: 6; width: 25; height: 16
+                Rectangle { x: 2.72; y: 2.10; width: 7.82; height: 11.73; color: "transparent"; border.color: compare.ink; border.width: 1.4 }
+                Rectangle { x: 14.32; y: 1.75; width: 8.29; height: 12.44; color: compare.ink; opacity: 0.5 }
+                Rectangle { x: 11.83; y: 0; width: 1.4; height: 16; color: compare.ink }
+            }
             HoverHandler { id: compareHover }
+            TapHandler { enabled: compare.available; onTapped: compare.clicked() }
             ToolTip.visible: compareHover.hovered
-            ToolTip.text: L10n.tr("placeholder.compare")
+            ToolTip.text: L10n.tr("toolbar.compareHelp")
             ToolTip.delay: 500
         }
-        // The scale. A click toggles fit and 100 % (Ctrl+0 / Ctrl+1); the
-        // menu (right-click) lists the Mac's steps, the ones the canvas
-        // cannot take yet greyed.
+        // The scale, sized to its number (TopBar.swift zoomPill): a click
+        // opens the Mac's menu -- Fit, 25, 50, 100, 200, 400 % -- with the
+        // current one marked. Ctrl+0 / Ctrl+1 and `,` / `.` are fit and 100 %.
         Item {
             id: zoomPill
+            objectName: "zoomPill"
             Layout.leftMargin: 20
             Layout.preferredWidth: Math.max(Theme.zoomPillWidth, zoomText.implicitWidth + 14)
             Layout.preferredHeight: Theme.zoomPillHeight
-            opacity: preview.hasFrame ? 1 : Theme.disabledOpacity
+            readonly property bool available: preview.hasFrame && !bar.editor.zoomLocked
+            function at(percent) { return !bar.editor.fit && Math.abs(bar.editor.scalePercent - percent) < 1e-6 }
+            opacity: available ? 1 : Theme.disabledOpacity
             Rectangle {
                 anchors.fill: parent; radius: height / 2
-                color: zoomMouse.containsMouse && preview.hasFrame ? "#686866" : Theme.pill
+                color: zoomMouse.containsMouse && zoomPill.available ? "#686866" : Theme.pill
             }
             Text {
                 id: zoomText
@@ -160,31 +182,28 @@ Rectangle {
                 text: preview.hasFrame ? Math.round(bar.editor.scalePercent) + " %" : "—"
                 color: Theme.text
                 font.family: Theme.fontFamily; font.pixelSize: Theme.fontLabel; font.weight: Theme.weightText
-                    }
+            }
             MouseArea {
                 id: zoomMouse
                 anchors.fill: parent
                 hoverEnabled: true
-                enabled: preview.hasFrame
+                enabled: zoomPill.available
                 acceptedButtons: Qt.LeftButton | Qt.RightButton
                 cursorShape: Qt.PointingHandCursor
-                onClicked: function(mouse) {
-                    if (mouse.button === Qt.RightButton) zoomMenu.popup(zoomPill, 0, zoomPill.height + 2)
-                    else bar.editor.resetView(!bar.editor.fit || bar.editor.cropMode)
-                }
+                onClicked: zoomMenu.popup(zoomPill, 0, zoomPill.height + 2)
             }
             ToolTip.visible: zoomMouse.containsMouse
-            ToolTip.text: bar.editor.fit ? L10n.tr("toolbar.zoomFitted", [Math.round(bar.editor.scalePercent)]) : L10n.tr("toolbar.zoomActual")
+            ToolTip.text: bar.editor.fit ? L10n.tr("toolbar.zoomFitted", [Math.round(bar.editor.scalePercent)])
+                                         : L10n.tr("toolbar.zoomAt", [Math.round(bar.editor.scalePercent)])
             ToolTip.delay: 500
             RailMenu {
                 id: zoomMenu
                 RailMenuItem { text: L10n.tr("action.fit") + "  (Ctrl+0)"; marked: bar.editor.fit; onTriggered: bar.editor.resetView(true) }
-                RailMenuItem { text: "100 %  (Ctrl+1)"; marked: !bar.editor.fit; enabled: !bar.editor.cropMode; onTriggered: bar.editor.resetView(false) }
-                MenuSeparator {}
-                RailMenuItem { text: "25 %"; enabled: false }
-                RailMenuItem { text: "50 %"; enabled: false }
-                RailMenuItem { text: "200 %"; enabled: false }
-                RailMenuItem { text: "400 %"; enabled: false }
+                RailMenuItem { text: "25 %"; marked: zoomPill.at(25); onTriggered: bar.editor.zoomTo(0.25) }
+                RailMenuItem { text: "50 %"; marked: zoomPill.at(50); onTriggered: bar.editor.zoomTo(0.5) }
+                RailMenuItem { text: "100 %  (Ctrl+1)"; marked: zoomPill.at(100); onTriggered: bar.editor.zoomTo(1) }
+                RailMenuItem { text: "200 %"; marked: zoomPill.at(200); onTriggered: bar.editor.zoomTo(2) }
+                RailMenuItem { text: "400 %"; marked: zoomPill.at(400); onTriggered: bar.editor.zoomTo(4) }
             }
         }
         IconButton {
