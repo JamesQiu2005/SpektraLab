@@ -1,4 +1,7 @@
 #include "PreviewController.hpp"
+#include "AppSettings.hpp"
+#include "AppShell.hpp"
+#include "ShellCapture.hpp"
 #include "ColorPipeline.hpp"
 #include "FrameCanvas.hpp"
 #include "FrameImage.hpp"
@@ -19,6 +22,7 @@
 #include <QQuickStyle>
 #include <QQuickWindow>
 #include <QMouseEvent>
+#include <QStandardPaths>
 #include <QStringList>
 #include <QTimer>
 #include <QtCore/qfloat16.h>
@@ -506,6 +510,30 @@ private:
     bool headroom_slides_=false;
     QImage capture_;
 };
+
+// Where the per-photo edits go when a run overrides them: the self-test's
+// own directory, --edit-store, a snapshot's sibling directory; empty for the
+// default (AppLocalDataLocation/Edits). The app preferences follow it
+// (AppSettings::resolveFilePath), so a test never touches the user's.
+QString editDirectoryFor(const QString& selfTest,const QString& editStore,const QString& snapshot) {
+    if(!selfTest.isEmpty())return QDir(selfTest).absoluteFilePath("edits");
+    if(!editStore.isEmpty())return QFileInfo(editStore).absoluteFilePath();
+    if(!snapshot.isEmpty())return QFileInfo(snapshot).absoluteFilePath()+"-edits";
+    return {};
+}
+// An option's value read from argv before QGuiApplication (and its parser)
+// exists: "--name value", "--name=value", or with one dash, as the parser
+// accepts them.
+QString earlyOption(int argc,char** argv,const char* name) {
+    const QString longName=QString::fromLatin1(name);
+    for(int i=1;i<argc;++i) {
+        QString arg=QString::fromLocal8Bit(argv[i]);
+        if(arg.startsWith("--"))arg.remove(0,2);else if(arg.startsWith('-'))arg.remove(0,1);else continue;
+        if(arg==longName&&i+1<argc)return QString::fromLocal8Bit(argv[i+1]);
+        if(arg.startsWith(longName+'='))return arg.mid(longName.size()+1);
+    }
+    return {};
+}
 }
 
 int main(int argc,char** argv) {
@@ -517,11 +545,26 @@ int main(int argc,char** argv) {
     // Preserve Qt diagnostics when launched by a validation runner with
     // redirected stderr, even though the production executable has no console.
     qInstallMessageHandler([](QtMsgType type,const QMessageLogContext& context,const QString& message){
+        ShellCapture::noteMessage(type,context,message);
         const auto bytes=qFormatLogMessage(type,context,message).toUtf8();
         std::fwrite(bytes.data(),1,std::size_t(bytes.size()),stderr);std::fputc('\n',stderr);std::fflush(stderr);
     });
+    // Before the application object, so AppLocalDataLocation is known to the
+    // early read of the preferences below.
+    QCoreApplication::setOrganizationName("SpektraLab");QCoreApplication::setApplicationName("SpektraLab Windows");
+    // Settings > General > Scale (the Mac's InterfaceScale, Theme.swift): Qt
+    // scales the whole window by QT_SCALE_FACTOR, which must be set before the
+    // application exists -- so the choice applies at the next start, and an
+    // explicit QT_SCALE_FACTOR in the environment wins.
+    const QString earlySettings=AppSettings::resolveFilePath(earlyOption(argc,argv,"settings-file"),
+        editDirectoryFor(earlyOption(argc,argv,"self-test"),earlyOption(argc,argv,"edit-store"),earlyOption(argc,argv,"snapshot")));
+    AppInfo::Startup startup;
+    startup.interfaceScaleFromEnvironment=!qEnvironmentVariableIsEmpty("QT_SCALE_FACTOR");
+    startup.activeInterfaceScale=AppSettings::readValue(earlySettings,QStringLiteral("general.interfaceScale")).toString();
+    if(!AppInfo::interfaceScales().contains(startup.activeInterfaceScale))startup.activeInterfaceScale=QStringLiteral("115");
+    if(!startup.interfaceScaleFromEnvironment&&startup.activeInterfaceScale!=QLatin1String("115"))
+        qputenv("QT_SCALE_FACTOR",QByteArray::number(AppInfo::scaleFactor(startup.activeInterfaceScale),'f',4));
     QGuiApplication app(argc,argv);
-    app.setOrganizationName("SpektraLab");app.setApplicationName("SpektraLab Windows");
     QQuickStyle::setStyle("Basic");
     QCommandLineParser parser;parser.setApplicationDescription("SpektraLab Windows Qt Quick preview");parser.addHelpOption();
     parser.addOptions({{"resources","Engine resource directory","directory"},
@@ -529,7 +572,13 @@ int main(int argc,char** argv) {
                        {"snapshot","Save one rendered window capture to a new PNG and exit (requires --open)","file"},
                        {"edit-store","Override the per-photo edit directory (tests use an isolated directory)","directory"},
                        {"self-test","Run real RAW frontend checks and save a report in a NEW directory","directory"},
-                       {"reject","Unsupported RAW for the failed-open check","file"}});
+                       {"reject","Unsupported RAW for the failed-open check","file"},
+                       {"settings-file","Use this app preferences file (default: beside the edit store)","file"}});
+    // Testing only: capture the Settings and About windows into a NEW
+    // directory and exit (ShellCapture.hpp).
+    QCommandLineOption captureShell("capture-shell","Capture the Settings and About windows (testing)","directory");
+    captureShell.setFlags(QCommandLineOption::HiddenFromHelp);
+    parser.addOption(captureShell);
     // Testing only, so hidden: ask sessions for another output space (e.g.
     // "ProPhoto RGB") to exercise the tagging path before the app switches.
     QCommandLineOption outputSpace("output-color-space","Engine output colour space to request (testing)","name");
@@ -550,9 +599,18 @@ int main(int argc,char** argv) {
         testReject=QDir(testOutput).absoluteFilePath("rejected."+QFileInfo(testReject).suffix());
         if(!QFile::copy(parser.value("open"),testInput)||!QFile::copy(parser.value("reject"),testReject))return 2;
     }
-    const QString editDirectory=testing?QDir(testOutput).absoluteFilePath("edits"):
-        parser.isSet("edit-store")?QFileInfo(parser.value("edit-store")).absoluteFilePath():
-        snapshot?QFileInfo(parser.value("snapshot")).absoluteFilePath()+"-edits":QString{};
+    const bool capturingShell=parser.isSet(captureShell);
+    const auto shellOutput=parser.value(captureShell);
+    if(capturingShell&&(testing||snapshot||QFileInfo::exists(shellOutput)||!QDir().mkpath(shellOutput)))return 2;
+    const QString editDirectory=editDirectoryFor(testing?testOutput:QString(),parser.value("edit-store"),
+                                                 snapshot?parser.value("snapshot"):QString());
+    // Declared before the QML engine, so it outlives every binding that
+    // writes to it; it flushes when destroyed.
+    AppSettings appSettings(AppSettings::resolveFilePath(parser.value("settings-file"),editDirectory));
+    startup.settingsFile=appSettings.filePath();
+    startup.editDirectory=editDirectory.isEmpty()?QStandardPaths::writableLocation(QStandardPaths::AppLocalDataLocation)+"/Edits":editDirectory;
+    AppInfo appInfo(startup);
+    DisplaySettings displaySettings(appSettings);
     // Set on the GUI thread, consumed by the factory on the worker.
     auto failDisplay=std::make_shared<std::atomic_bool>(false);
     PreviewController controller(std::filesystem::path(resources.toStdWString()),nullptr,
@@ -561,7 +619,15 @@ int main(int argc,char** argv) {
     qmlRegisterType<FrameCanvas>("SpektraLab.Native",1,0,"FrameCanvas");
     // QML text by key (qml/L10n.qml): compiled-in tables, then <app>/i18n.
     Localizer localizer;localizer.loadStandardLocations();
+    // Settings > General > Language, as the user left it (a language whose
+    // table is gone falls back to English inside the Localizer).
+    if(const auto language=appSettings.value("general.language").toString();!language.isEmpty())localizer.setLanguage(language);
     qmlRegisterSingletonInstance("SpektraLab.Native",1,0,"Localizer",&localizer);
+    // The shell's state (AppSettings.hpp, AppShell.hpp): preferences, the
+    // display colour management choice, and what the About window reports.
+    qmlRegisterSingletonInstance("SpektraLab.Native",1,0,"AppSettings",&appSettings);
+    qmlRegisterSingletonInstance("SpektraLab.Native",1,0,"DisplayColour",&displaySettings);
+    qmlRegisterSingletonInstance("SpektraLab.Native",1,0,"AppInfo",&appInfo);
     // The controller's status lines (Messages.hpp) come from the same tables.
     // The Localizer is GUI-thread only, so a worker thread's call (the batch
     // summary) falls back to Messages.hpp's English.
@@ -577,8 +643,16 @@ int main(int argc,char** argv) {
     QObject::connect(&engine,&QQmlApplicationEngine::objectCreationFailed,&app,[]{QCoreApplication::exit(2);},Qt::QueuedConnection);
     engine.loadFromModule("SpektraLab","Main");
     if(engine.rootObjects().isEmpty())return 2;
+    // The stored display choice on the editor window's pipeline before its
+    // first frame (and before the self-test sets its own dither below).
+    displaySettings.attach(qobject_cast<QQuickWindow*>(engine.rootObjects().first()));
+    QObject::connect(&app,&QCoreApplication::aboutToQuit,&appSettings,[&appSettings]{appSettings.flush();});
     std::unique_ptr<SelfTest> test;
-    if(testing) {
+    std::unique_ptr<ShellCapture> shellCapture;
+    if(capturingShell) {
+        auto* window=qobject_cast<QQuickWindow*>(engine.rootObjects().first());if(!window)return 2;
+        shellCapture=std::make_unique<ShellCapture>(*window,QDir(shellOutput).absolutePath());
+    } else if(testing) {
         auto* window=qobject_cast<QQuickWindow*>(engine.rootObjects().first());if(!window)return 2;
         test=std::make_unique<SelfTest>(controller,*window,testInput,testReject,testOutput,failDisplay,requestedSpace);
     } else if(parser.isSet("open")) {
