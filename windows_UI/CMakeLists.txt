@@ -82,7 +82,7 @@ qt_add_qml_module(SpektraLabQt URI SpektraLab VERSION 1.0
         qml/controls/Adjustment.qml qml/controls/Effect.qml
         qml/left/LeftRail.qml qml/left/NavigatorSection.qml qml/left/ClipboardSection.qml
         qml/left/FilmSection.qml qml/left/PrintSection.qml qml/left/CropSection.qml
-        qml/left/EnlargerSection.qml
+        qml/left/EnlargerSection.qml qml/left/FilmEdgeSection.qml qml/left/DateBackSection.qml
         qml/centre/CentrePane.qml qml/centre/TopBar.qml qml/centre/CanvasView.qml
         qml/centre/CropOverlay.qml qml/centre/Filmstrip.qml
         qml/right/RightRail.qml qml/right/LatitudeSection.qml qml/right/CameraSection.qml
@@ -131,6 +131,16 @@ if(BUILD_TESTING)
     target_link_libraries(spk_qt_controller_settings_test PRIVATE spk_desktop_host Qt6::Core Qt6::Gui)
     add_test(NAME spk_qt_controller_settings COMMAND spk_qt_controller_settings_test
         "$<TARGET_FILE_DIR:SpektraLabQt>/resources" "${CMAKE_CURRENT_BINARY_DIR}/controller-settings-test")
+    # Film Edge and Date Back: rows, product rows, the controller's macOS
+    # rules, the edit store's round trip and Sync. The catalogue but no RAW;
+    # a fresh scratch directory per run.
+    qt_add_executable(spk_qt_film_edge_state_test tests/film_edge_state.cpp
+        src/PreviewController.hpp src/PreviewController.cpp src/FrameOutput.cpp src/EditStore.cpp)
+    target_include_directories(spk_qt_film_edge_state_test PRIVATE src)
+    target_compile_features(spk_qt_film_edge_state_test PRIVATE cxx_std_20)
+    target_link_libraries(spk_qt_film_edge_state_test PRIVATE spk_desktop_host Qt6::Core Qt6::Gui)
+    add_test(NAME spk_qt_film_edge_state COMMAND spk_qt_film_edge_state_test
+        "$<TARGET_FILE_DIR:SpektraLabQt>/resources" "${CMAKE_CURRENT_BINARY_DIR}/film-edge-state-test")
     # The settings table through the real engine on a synthetic frame: the
     # macOS defaults are accepted, deltas stay minimal across stock changes,
     # and the filter scale is inert at zero shifts. No RAW fixture.
@@ -169,7 +179,7 @@ if(BUILD_TESTING)
             get_filename_component(qt_test_compiler_directory "${CMAKE_CXX_COMPILER}" DIRECTORY)
             list(APPEND qt_test_runtime_path "PATH=path_list_prepend:${qt_test_compiler_directory}")
         endif()
-        set_tests_properties(spk_qt_frame_output spk_qt_edit_store spk_qt_controller_settings spk_qt_localizer
+        set_tests_properties(spk_qt_frame_output spk_qt_edit_store spk_qt_controller_settings spk_qt_film_edge_state spk_qt_localizer
             spk_qt_color_canvas spk_qt_color_canvas_software PROPERTIES
             ENVIRONMENT_MODIFICATION "${qt_test_runtime_path}")
     endif()

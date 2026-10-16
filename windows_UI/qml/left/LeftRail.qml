@@ -9,10 +9,8 @@ import QtQuick.Layouts
 // Parameters rail.
 //
 // Its width is the user's (the grip on its right edge, EditorState) and it
-// folds with the sidebar button on the tool bar. Film Edge and Date Back are
-// the Mac's sections with nothing behind them on Windows yet: folded, their
-// switch greyed with the reason, so the rail has every room the Mac's has and
-// a later lane fills them in place.
+// folds with the sidebar button on the tool bar. Film Edge and Date Back fold
+// by default, as the Mac's do, and open when their switch is turned on.
 Rectangle {
     id: rail
     required property EditorState editor
@@ -50,24 +48,8 @@ Rectangle {
                 NavigatorSection { editor: rail.editor }
                 ClipboardSection { editor: rail.editor }
                 FilmSection {}
-                MacSection {
-                    sectionId: "filmEdge"
-                    title: L10n.tr("filmEdge.title")
-                    defaultExpanded: false
-                    headerCheckVisible: true
-                    headerCheckAvailable: false
-                    headerCheckReason: L10n.tr("placeholder.filmEdge")
-                    Note { text: L10n.tr("placeholder.filmEdge") }
-                }
-                MacSection {
-                    sectionId: "dateBack"
-                    title: L10n.tr("dateBack.title")
-                    defaultExpanded: false
-                    headerCheckVisible: true
-                    headerCheckAvailable: false
-                    headerCheckReason: L10n.tr("placeholder.dateBack")
-                    Note { text: L10n.tr("placeholder.dateBack") }
-                }
+                FilmEdgeSection { editor: rail.editor }
+                DateBackSection {}
                 PrintSection {}
                 CropSection { editor: rail.editor }
                 EnlargerSection { divider: false }
