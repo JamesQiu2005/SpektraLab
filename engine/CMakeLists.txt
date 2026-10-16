@@ -298,6 +298,12 @@ if(NOT APPLE)
                 add_test(NAME spk_windows_feature_boundaries
                     COMMAND spk_windows_feature_boundaries "${vulkan_resource_dir}")
 
+                add_executable(spk_date_back tests/date_back_render.cpp)
+                target_compile_features(spk_date_back PRIVATE cxx_std_20)
+                target_include_directories(spk_date_back PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/include")
+                target_link_libraries(spk_date_back PRIVATE spektralab_engine_shared)
+                add_test(NAME spk_date_back COMMAND spk_date_back "${vulkan_resource_dir}")
+
                 add_executable(spk_render_fixture tests/render_fixture.cpp)
                 target_compile_features(spk_render_fixture PRIVATE cxx_std_20)
                 target_include_directories(spk_render_fixture PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/include")

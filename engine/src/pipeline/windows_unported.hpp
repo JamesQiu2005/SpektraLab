@@ -29,7 +29,7 @@ inline constexpr WindowsFeatureRow kWindowsFeatures[] = {
     {WindowsFeature::Overscan, "overscan",
      "overscan is not implemented by the Windows Vulkan backend yet", false},
     {WindowsFeature::DateImprint, "date_imprint",
-     "date imprint is not implemented by the Windows Vulkan backend yet", false},
+     "date imprint is not implemented by the Windows Vulkan backend yet", true},
 };
 
 inline const WindowsFeatureRow& windows_feature(WindowsFeature id) {

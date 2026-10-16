@@ -54,12 +54,11 @@ int main(int argc, char** argv) {
         const std::string before = params(session.get());
 
         struct Feature { const char* key; const char* label; };
-        const std::array<Feature, 5> features{{
+        const std::array<Feature, 4> features{{
             {"digital_intermediate", "digital intermediate"},
             {"scene_latitude_active", "scene latitude mapping"},
             {"contrast_mask_active", "contrast mask"},
             {"overscan_active", "overscan"},
-            {"date_imprint_active", "date imprint"},
         }};
         for (const Feature& feature : features) {
             // Include a supported change to catch partial application before
@@ -103,6 +102,32 @@ int main(int argc, char** argv) {
             if (rejected) spk_session_release(rejected);
             require(!rejected, "open accepted the second latitude pair");
         }
+
+        // The date back is ported (overscan.cpp's date-only path on the
+        // portable raster, spk_overscan_add_mask): accepted by set_params and
+        // open, rendered, and switched off again. Asking for overscan beside
+        // it is still refused, by overscan's name, and changes nothing.
+        {
+            const std::string undated = params(session.get());
+            const char* on = "{\"date_imprint_active\":true,\"date_imprint_text\":\"'26 10 16\"}";
+            require(spk_set_params(session.get(), on, nullptr) == SPK_OK,
+                    std::string("date imprint refused: ") + spk_last_error(engine.get()));
+            render(engine.get(), session.get());
+            const std::string dated = params(session.get());
+            const spk_status status = spk_set_params(session.get(), "{\"overscan_active\":true}", nullptr);
+            const std::string error = spk_last_error(engine.get());
+            require(status == SPK_ERR_USER && error.find("overscan") != std::string::npos,
+                    "overscan beside the date bypassed the refusal: " + error);
+            require(params(session.get()) == dated, "refused overscan delta mutated a dated session");
+            require(spk_set_params(session.get(), "{\"date_imprint_active\":false,\"date_imprint_text\":\"\"}", nullptr) == SPK_OK,
+                    "could not switch the date off");
+            require(params(session.get()) == undated, "switching the date off did not restore the params");
+            render(engine.get(), session.get());
+            spk_session* dated_open = spk_open(engine.get(), &input, on, nullptr);
+            const std::string open_error = spk_last_error(engine.get());
+            require(dated_open != nullptr, "open refused the date imprint: " + open_error);
+            spk_session_release(dated_open);
+        }
         const std::string restored = params(session.get());
 
         spk_result di{};
@@ -135,7 +160,8 @@ int main(int argc, char** argv) {
         require(latitude_status == SPK_OK && latitude_valid, "latitude analysis failed: " + latitude_error);
         require(params(session.get()) == restored, "latitude analysis mutated the session");
         render(engine.get(), session.get());
-        std::cout << "Windows feature boundaries passed (5 flags, latitude second pair, DI refusal, mask off, latitude analysis)\n";
+        std::cout << "Windows feature boundaries passed (4 refused flags, date imprint accepted, latitude second pair, "
+                     "DI refusal, mask off, latitude analysis)\n";
         return 0;
     } catch (const std::exception& error) {
         std::cerr << error.what() << '\n';
