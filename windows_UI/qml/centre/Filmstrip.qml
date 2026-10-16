@@ -3,47 +3,218 @@ import QtQuick.Controls
 import QtQuick.Layouts
 import SpektraLab.Native 1.0
 
-// The filmstrip: the imported photos with their selection boxes, and the
-// selection actions over them. Clicking a photo opens it (and leaves the crop
-// editor); the boxes choose what Sync Settings and batch export act on.
+// The filmstrip (Filmstrip.swift): thumbnails at one height, chevrons at both
+// ends stepping the open photo, and -- at the far left, where the Mac puts
+// the folder name and count -- the count and the selection's actions.
+//
+// Selection is a white frame round the picture and nothing else: the open
+// photo has the strong frame, a photo in the selected set (what Sync and
+// batch export act on) the same frame held back. Ctrl+click adds or removes a
+// photo from the set, as Cmd+click does on the Mac; the corner box does the
+// same for a pointer that does not know that, and the context menu has the
+// rest. A plain click opens the photo (and leaves the crop editor).
 Rectangle {
     id: strip
     required property EditorState editor
-    Layout.fillWidth: true; implicitHeight: Theme.stripHeight; color: Theme.card
-    Rectangle { width: parent.width; height: 1; color: Theme.line; opacity: 0.5 }
-    ColumnLayout {
-        anchors.fill: parent; anchors.margins: 8; spacing: 6
-        RowLayout {
-            Layout.fillWidth: true; spacing: 6
-            Text { text: L10n.tr("strip.count", [preview.libraryItems.length, preview.selectedCount]); color: Theme.muted; font.pixelSize: 10 }
-            Item { Layout.fillWidth: true }
-            ActionButton { text: L10n.tr("strip.selectAll"); implicitHeight: 23; font.pixelSize: 10; enabled: strip.editor.canBrowse && preview.libraryItems.length > 0; onClicked: preview.selectAllPhotos(true) }
-            ActionButton { text: L10n.tr("strip.clearSelection"); implicitHeight: 23; font.pixelSize: 10; enabled: strip.editor.canBrowse && preview.selectedCount > 0; onClicked: preview.selectAllPhotos(false) }
-            ActionButton { text: L10n.tr("strip.sync"); implicitHeight: 23; font.pixelSize: 10; enabled: strip.editor.canBrowse && preview.hasFrame && preview.selectedCount > 0; onClicked: preview.syncSelectedSettings(false); ToolTip.visible: hovered; ToolTip.text: L10n.tr("strip.syncHelp") }
+    Layout.fillWidth: true
+    implicitHeight: Theme.filmstripHeight
+    color: Theme.card
+
+    function step(delta) {
+        var next = preview.activeIndex + delta
+        if (next < 0 || next >= preview.libraryItems.length) return
+        strip.editor.cropMode = false
+        preview.selectImage(next)
+    }
+
+    RowLayout {
+        anchors.fill: parent
+        spacing: 0
+        // Count and selection actions.
+        ColumnLayout {
+            // Explicitly not filling: a layout fills by default when any child
+            // does (the count's Text), and this column would take the strip.
+            Layout.fillWidth: false
+            Layout.preferredWidth: 132
+            Layout.fillHeight: true
+            Layout.leftMargin: 12
+            Layout.topMargin: 12; Layout.bottomMargin: 12
+            spacing: 6
+            Text {
+                Layout.fillWidth: true
+                text: L10n.tr("strip.count", [preview.libraryItems.length, preview.selectedCount])
+                elide: Text.ElideRight
+                color: Theme.dim
+                font.family: Theme.fontFamily; font.pixelSize: Theme.fontMeta; font.weight: Theme.weightText
+            }
+            PillButton {
+                text: L10n.tr("strip.selectAll")
+                available: strip.editor.canBrowse && preview.libraryItems.length > 0
+                onClicked: preview.selectAllPhotos(true)
+            }
+            PillButton {
+                text: L10n.tr("strip.clearSelection")
+                available: strip.editor.canBrowse && preview.selectedCount > 0
+                onClicked: preview.selectAllPhotos(false)
+            }
+            PillButton {
+                text: L10n.tr("strip.sync")
+                available: strip.editor.canBrowse && preview.hasFrame && preview.selectedCount > 0
+                toolTip: L10n.tr("strip.syncHelp")
+                reason: L10n.tr("strip.syncHelp")
+                onClicked: preview.syncSelectedSettings(false)
+            }
+            Item { Layout.fillHeight: true }
+        }
+        IconButton {
+            Layout.preferredWidth: 20; Layout.fillHeight: true
+            size: 20; glyphSize: 11
+            glyph: Icons.chevronLeft
+            available: strip.editor.canBrowse && preview.activeIndex > 0
+            toolTip: L10n.tr("strip.previous")
+            onClicked: strip.step(-1)
         }
         ListView {
-            id: filmstrip; objectName: "photoStrip"
+            id: filmstrip
+            objectName: "photoStrip"
             Layout.fillWidth: true; Layout.fillHeight: true
-            orientation: ListView.Horizontal; spacing: 8; clip: true
-            model: preview.libraryItems; currentIndex: preview.activeIndex
+            orientation: ListView.Horizontal
+            spacing: Theme.stripSpacing
+            leftMargin: 10; rightMargin: 10
+            clip: true
+            boundsBehavior: Flickable.StopAtBounds
+            model: preview.libraryItems
+            currentIndex: preview.activeIndex
             onCurrentIndexChanged: positionViewAtIndex(currentIndex, ListView.Contain)
-            ScrollBar.horizontal: ScrollBar {}
-            delegate: Rectangle {
-                id: thumb
+            ScrollBar.horizontal: ScrollBar {
+                id: hbar
+                height: 6
+                policy: filmstrip.contentWidth > filmstrip.width ? ScrollBar.AsNeeded : ScrollBar.AlwaysOff
+                contentItem: Rectangle { implicitHeight: 3; radius: 1.5; color: Theme.dim; opacity: hbar.active ? 0.8 : 0.35 }
+            }
+            delegate: Item {
+                id: cell
                 required property var modelData
                 required property int index
-                width: 132; height: filmstrip.height - 3
-                color: Theme.wellDark; border.color: modelData.active ? Theme.accent : Theme.line; border.width: modelData.active ? 2 : 0
-                Text { anchors.centerIn: parent; anchors.verticalCenterOffset: -8; text: thumb.modelData.error ? L10n.tr("strip.unreadable") : L10n.tr("strip.clickToPreview"); color: thumb.modelData.error ? "#ffb39f" : Theme.muted; font.pixelSize: 10 }
-                FrameCanvas { anchors.fill: parent; anchors.margins: 5; anchors.bottomMargin: 22; image: thumb.modelData.thumbnail; enabled: false }
-                Text { anchors.left: parent.left; anchors.right: parent.right; anchors.bottom: parent.bottom; anchors.margins: 6; text: thumb.modelData.name; color: Theme.text; font.pixelSize: 10; elide: Text.ElideMiddle }
-                MouseArea {
-                    anchors.fill: parent; enabled: strip.editor.canBrowse; hoverEnabled: true
-                    onClicked: { strip.editor.cropMode = false; preview.selectImage(thumb.index) }
-                    ToolTip.visible: containsMouse && thumb.modelData.error.length > 0; ToolTip.text: thumb.modelData.error
+                readonly property bool open: modelData.active === true
+                readonly property bool picked: modelData.selected === true
+                readonly property bool failed: String(modelData.error || "").length > 0
+                width: Math.round(Theme.thumbHeight * 1.5)
+                height: filmstrip.height
+                // The picture, letterboxed in a 3:2 cell.
+                Item {
+                    id: frame
+                    width: parent.width; height: Theme.thumbHeight
+                    anchors.verticalCenter: parent.verticalCenter
+                    Rectangle {
+                        anchors.fill: parent
+                        visible: thumb.imageRect.width <= 0 || cell.failed
+                        radius: 2
+                        color: Theme.well
+                        Column {
+                            anchors.centerIn: parent
+                            spacing: 4
+                            Text {
+                                anchors.horizontalCenter: parent.horizontalCenter
+                                text: cell.failed ? Icons.warning : Icons.photo
+                                font.family: Theme.iconFamily; font.pixelSize: 18
+                                color: cell.failed ? Theme.warning : Theme.dim
+                            }
+                            Text {
+                                anchors.horizontalCenter: parent.horizontalCenter
+                                text: cell.failed ? L10n.tr("strip.unreadable") : L10n.tr("strip.clickToPreview")
+                                color: cell.failed ? Theme.warning : Theme.dim
+                                font.family: Theme.fontFamily; font.pixelSize: Theme.fontMeta; font.weight: Theme.weightText
+                            }
+                        }
+                    }
+                    FrameCanvas {
+                        id: thumb
+                        anchors.fill: parent
+                        image: cell.modelData.thumbnail
+                        enabled: false
+                        visible: !cell.failed
+                    }
+                    // The white frame, round the picture rather than the cell.
+                    Rectangle {
+                        readonly property rect r: thumb.imageRect.width > 0 && !cell.failed ? thumb.imageRect : Qt.rect(0, 0, frame.width, frame.height)
+                        x: r.x - 2; y: r.y - 2; width: r.width + 4; height: r.height + 4
+                        radius: 2
+                        color: "transparent"
+                        visible: cell.open || cell.picked
+                        border.width: cell.open ? 1.5 : 1
+                        border.color: Theme.selectionFrame
+                        opacity: cell.open ? 1 : 0.5
+                    }
                 }
-                CheckBox { anchors.top: parent.top; anchors.right: parent.right; padding: 0; scale: 0.8; checked: thumb.modelData.selected; enabled: strip.editor.canBrowse; onToggled: preview.setItemSelected(thumb.index, checked) }
+                MouseArea {
+                    id: cellMouse
+                    anchors.fill: parent
+                    enabled: strip.editor.canBrowse
+                    hoverEnabled: true
+                    acceptedButtons: Qt.LeftButton | Qt.RightButton
+                    onClicked: function(mouse) {
+                        if (mouse.button === Qt.RightButton) { cellMenu.popup(); return }
+                        if (mouse.modifiers & Qt.ControlModifier) { preview.setItemSelected(cell.index, !cell.picked); return }
+                        strip.editor.cropMode = false
+                        preview.selectImage(cell.index)
+                    }
+                }
+                SquareCheck {
+                    anchors.right: frame.right; anchors.top: frame.top
+                    anchors.margins: -2
+                    visible: cell.picked || cellMouse.containsMouse
+                    checked: cell.picked
+                    available: strip.editor.canBrowse
+                    toolTip: L10n.tr("strip.selectHelp")
+                    onToggledTo: function(on) { preview.setItemSelected(cell.index, on) }
+                }
+                ToolTip.visible: cellMouse.containsMouse
+                ToolTip.text: cell.failed ? cell.modelData.name + "\n" + cell.modelData.error : cell.modelData.name
+                ToolTip.delay: 600
+                RailMenu {
+                    id: cellMenu
+                    RailMenuItem {
+                        text: L10n.tr("strip.menu.open")
+                        enabled: !cell.open
+                        onTriggered: { strip.editor.cropMode = false; preview.selectImage(cell.index) }
+                    }
+                    RailMenuItem {
+                        text: L10n.tr("strip.menu.inSelection")
+                        marked: cell.picked
+                        onTriggered: preview.setItemSelected(cell.index, !cell.picked)
+                    }
+                    RailMenuItem {
+                        text: L10n.tr("strip.menu.showFolder")
+                        onTriggered: {
+                            var path = String(cell.modelData.url)
+                            Qt.openUrlExternally(path.substring(0, path.lastIndexOf("/") + 1))
+                        }
+                    }
+                    MenuSeparator {}
+                    RailMenuItem { text: L10n.tr("strip.menu.newPair"); enabled: false }
+                    RailMenuItem {
+                        text: L10n.tr("info.resetPhoto")
+                        enabled: cell.open && preview.settingsEditable
+                        onTriggered: preview.resetSettings()
+                    }
+                }
             }
         }
+        IconButton {
+            Layout.preferredWidth: 20; Layout.fillHeight: true
+            size: 20; glyphSize: 11
+            glyph: Icons.chevronRight
+            available: strip.editor.canBrowse && preview.activeIndex >= 0 && preview.activeIndex < preview.libraryItems.length - 1
+            toolTip: L10n.tr("strip.next")
+            onClicked: strip.step(1)
+        }
+    }
+    Text {
+        anchors.centerIn: parent
+        visible: preview.libraryItems.length === 0
+        text: L10n.tr("strip.empty")
+        color: Theme.dim
+        font.family: Theme.fontFamily; font.pixelSize: Theme.fontLabel; font.weight: Theme.weightText
     }
 }

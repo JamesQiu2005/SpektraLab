@@ -2,8 +2,8 @@
 
 This is a native Qt Quick/C++ application using the existing synchronous
 `spk_desktop_host`. There is no Python, Node, browser or subprocess renderer at
-runtime. The upstream SwiftUI theme supplied the grey rails, centre canvas,
-warm accent and bottom strip; unsupported controls are omitted deliberately.
+runtime. The interface is the macOS app's (see below); controls whose
+feature is not on Windows yet are shown greyed with the reason, not omitted.
 
 Implemented: multi-file RAW import and drag/drop; independent per-photo
 film/paper, decode, exposure, grain, halation, glare, film format and filter
@@ -15,14 +15,36 @@ with the bundled ICC profile. Select-all and synchronization copy supported
 settings to selected photos, preserving their own crops by default.
 
 The QML is one file per pane (`qml/left`, `qml/centre`, `qml/right`,
-`qml/export`, shared controls in `qml/controls`); `qml/Main.qml` holds the
-window, dialogs and shortcuts and `qml/EditorState.qml` the state the panes
-share. Every user-visible QML string is looked up by key from
-`i18n/en.json` through the C++ `Localizer`; English is the only shipped
-language, and [i18n/README.md](i18n/README.md) says how to add another.
+`qml/export`); `qml/Main.qml` holds the window, dialogs and shortcuts and
+`qml/EditorState.qml` the state the panes share. Every user-visible QML
+string is looked up by key from `i18n/en.json` through the C++ `Localizer`;
+English is the only shipped language, and [i18n/README.md](i18n/README.md)
+says how to add another.
+
+The window follows the macOS editor (`modern_UI/.../Windows/EditorWindow.swift`
+and `screenshots/Screenshot_English.png`): the "Film and Print" rail, the
+centre column (tool bar, canvas, filmstrip) and the "Parameters" rail with its
+Pre-Dev / Post-Dev switch, flush and separated by hairlines. Both rails fold
+from the tool bar's sidebar buttons and take a user width (drag the inner
+edge; double-click returns it), the filmstrip folds from the tab on the
+canvas's lower edge, and every section folds from its header. The design
+system is ported from the Mac's `Theme.swift`: `qml/Theme.qml` (colours,
+type, metrics), `qml/Icons.qml` (Segoe Fluent Icons / Segoe MDL2 Assets
+glyphs; nothing bundled) and the controls in `qml/controls` -- `MacSection`,
+`ParamRow`, `ScrubSlider` with its `ValueBox` (drag, wheel, click to type,
+double-click to reset; one undo step per gesture), `CheckRow`, `PillDropdown`,
+`PillSwitch`, `PillButton`, `IconButton`, `StockList`, `RailMenu`. Each file
+says its API at the top. The Mac's sections and tools that Windows cannot
+drive yet (Latitude, white balance, Scene Placement, Tone Mask, Print Effects,
+EDR, pre-flash, Film Edge, Date Back, the settings clipboard's copy and paste,
+Process, Original, before/after, Post-Dev) keep their place greyed, and say
+why on hover, so a later change fills them in place.
 
 Ctrl+O imports, Ctrl+E opens export options, Ctrl+0 fits and Ctrl+1 selects
-physical 100%. Double-click also switches fit/100%. Changes update the preview
+physical 100% (Ctrl+= / Ctrl+- step between the two, and the tool bar's zoom
+pill toggles them). Double-click also switches fit/100%. F11 is full screen.
+Ctrl+click in the filmstrip adds a photo to, or removes it from, the selection
+that Sync and batch export use. Changes update the preview
 automatically after a 180 ms settling delay. The filmstrip restores each
 photo's wanted edits, including edits pending when the user switches away.
 Edits automatically save under the application's local data directory (`Edits`)
