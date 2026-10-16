@@ -29,7 +29,8 @@ qt_add_executable(SpektraLabQt WIN32
     src/main.cpp src/Messages.hpp src/PreviewController.hpp src/PreviewController.cpp
     src/FrameOutput.hpp src/FrameOutput.cpp
     src/EditStore.hpp src/EditStore.cpp
-    src/FrameCanvas.hpp src/FrameCanvas.cpp)
+    src/FrameCanvas.hpp src/FrameCanvas.cpp
+    src/ColorPipeline.hpp src/ColorPipeline.cpp)
 target_compile_features(SpektraLabQt PRIVATE cxx_std_20)
 target_link_libraries(SpektraLabQt PRIVATE
     spk_desktop_host Qt6::Core Qt6::Gui Qt6::Qml Qt6::Quick Qt6::QuickControls2)
