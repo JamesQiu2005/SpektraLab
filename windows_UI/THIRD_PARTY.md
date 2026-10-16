@@ -18,6 +18,11 @@ verified hashes are in `Qt-packages.json`.
 - LibRaw 0.22.2 source: <https://github.com/LibRaw/LibRaw/tree/0.22.2>
 - LibRaw license choices and copyright: `LibRaw-LICENSE.LGPL`,
   `LibRaw-LICENSE.CDDL`, `LibRaw-COPYRIGHT`
+- TeX Gyre Heros 2.004, the film edge's text faces (`resources/fonts/`):
+  GUST Font License (LPPL 1.3c), `TeX-Gyre-Heros-GUST-FONT-LICENSE.txt` and
+  `resources/fonts/NOTICE.md`; source <https://mirrors.ctan.org/fonts/tex-gyre/opentype/>
+- stb_truetype 1.26, which reads them: MIT, `stb-LICENSE`;
+  source <https://github.com/nothings/stb>
 - MinGW-w64 compiler/runtime source and licenses:
   `MinGW/` and <https://github.com/niXman/mingw-builds-binaries/releases/tag/13.1.0-rt_v11-rev1>
 

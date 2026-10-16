@@ -140,9 +140,13 @@ if(NOT APPLE)
             list(APPEND vulkan_spirv "${spirv}")
         endforeach()
         set(SPEKTRALAB_VULKAN_SPIRV ${vulkan_spirv} CACHE INTERNAL "")
+        # resources_portable/fonts: the film edge's faces off Apple, kept out
+        # of resources/ so build.sh never syncs them into the macOS app.
         add_custom_target(spektralab_vulkan_resources
             COMMAND "${CMAKE_COMMAND}" -E copy_directory
                     "${CMAKE_CURRENT_SOURCE_DIR}/resources" "${vulkan_resource_dir}"
+            COMMAND "${CMAKE_COMMAND}" -E copy_directory
+                    "${CMAKE_CURRENT_SOURCE_DIR}/resources_portable/fonts" "${vulkan_resource_dir}/fonts"
             DEPENDS ${vulkan_spirv}
             VERBATIM)
 
@@ -190,6 +194,10 @@ if(NOT APPLE)
                 foreach(notice LICENSE SPEKTRAFILM_LICENSE.txt)
                     configure_file("${CMAKE_CURRENT_SOURCE_DIR}/../license/${notice}" "licenses/${notice}" COPYONLY)
                 endforeach()
+                # The film edge's text: stb_truetype (MIT) reads TeX Gyre Heros (GUST).
+                configure_file("${CMAKE_CURRENT_SOURCE_DIR}/third_party/stb/LICENSE" "licenses/stb-LICENSE" COPYONLY)
+                configure_file("${CMAKE_CURRENT_SOURCE_DIR}/resources_portable/fonts/GUST-FONT-LICENSE.txt"
+                               "licenses/TeX-Gyre-Heros-GUST-FONT-LICENSE.txt" COPYONLY)
                 if(MINGW)
                     target_link_options(SpektraLab PRIVATE -municode)
                 endif()
