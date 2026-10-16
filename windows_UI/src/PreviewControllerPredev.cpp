@@ -84,6 +84,28 @@ spk::slm::FitIssue issueOf(const QVariantMap& map) {
     return {map.value("code").toString().toStdString(), map.value("side").toString().toStdString(),
             map.value("message").toString().toStdString()};
 }
+
+// Whether a measurement taken on `measured` still describes `wanted`: the
+// Fit reads the medium (film, paper, enlarger, Exp. Comp. -- the probe runs
+// with the placement off, engine.cpp medium_probe_params) and the scene (the
+// meter's frame, before the placement node, on the norm). The placement's
+// own curve and UI state are read by neither, so a slider step keeps the
+// last measurement good -- a drag must not wait for each re-develop -- while
+// any other edit (an enlarger shift, a film, a white balance) makes it stale
+// until the frame it renders is measured. A curve fitted to a stale medium
+// is a placement for a different print: it lands the scene's extreme
+// somewhere other than the slider says. The norm is the scene's, so it is
+// compared.
+bool measures(const desktop::RenderSettings& measured, desktop::RenderSettings wanted) {
+    for (const char* key : {"scene_latitude_active", "scene_latitude_highlight_knee", "scene_latitude_highlight_room",
+                            "scene_latitude_shadow_knee", "scene_latitude_shadow_room", "scene_latitude_rolloff",
+                            "scene_latitude_max_lift", "scene_latitude_highlight_pull_back",
+                            "scene_latitude_shadow_pull_back", "scene_latitude_needs_fit"})
+        wanted.set(key, measured.get(key));
+    // The brightness round-trips through stops in the controls.
+    if (std::abs(wanted.print_exposure - measured.print_exposure) < 1e-12) wanted.print_exposure = measured.print_exposure;
+    return wanted == measured;
+}
 }  // namespace
 
 // One frame's readings, measured on the worker after the job that left it on
@@ -402,7 +424,9 @@ QVariantMap PreviewController::scenePlacement() const {
     const auto current = settings();
     const double highlight = number(current, "scene_latitude_highlight_pull_back");
     const double shadow = number(current, "scene_latitude_shadow_pull_back");
-    const bool measured = frame_ && analysis_ && analysis_->frame->source == frame_->source && analysis_->reading;
+    // Enabled on a measurement that still describes the controls (measures).
+    const bool measured = frame_ && analysis_ && analysis_->frame->source == frame_->source && analysis_->reading &&
+                          measures(analysis_->frame->settings, current);
     QVariantMap out{{"enabled", measured}, {"active", flag(current, "scene_latitude_active")},
         {"highlight", highlight}, {"shadow", shadow}, {"from", predev::placementLow}, {"to", predev::placementHigh},
         {"highlightWindow", QVariant()}, {"shadowWindow", QVariant()}, {"highlightMessage", QString()},
@@ -430,9 +454,13 @@ bool PreviewController::placeScene(double highlight, double shadow, const QStrin
         !analysis_->reading || !std::isfinite(highlight) || !std::isfinite(shadow) ||
         (moving != QLatin1String("highlight") && moving != QLatin1String("shadow")))
         return false;
+    const auto current = settings();
+    // Solved only against a measurement of these controls; a stale one would
+    // commit a curve for another medium (measures). The next measurement
+    // lands with the render already on its way.
+    if (!measures(analysis_->frame->settings, current)) return false;
     const auto side = moving == QLatin1String("shadow") ? predev::Side::shadow : predev::Side::highlight;
     const auto& reading = *analysis_->reading;
-    const auto current = settings();
     const auto base = curveOf(current);
     double h = std::max(0.0, highlight), s = std::max(0.0, shadow);
     // The moving slider's value is brought inside the window the Fit takes,

@@ -391,20 +391,36 @@ int main(int argc,char** argv) {
             const auto pack=c.metering()["filters"].toMap();
             check(pack.contains("c")&&pack.contains("m")&&pack.contains("y"),"Process reports the pack");
             std::cout<<"Process on the RAW: pack C "<<pack["c"].toDouble()<<" M "<<pack["m"].toDouble()<<" Y "<<pack["y"].toDouble()<<"\n";
+            {
+                const auto processed=c.frame();
+                waitFor([&]{return c.frame()!=processed||c.latitude().value("current").toBool();},"Latitude of Process's reprint");
+            }
             c.undo();
             check(near(c.parameter("y_filter_shift").toDouble(),.3)&&near(c.parameter("m_filter_shift").toDouble(),-.2),
                   "One undo restores both shifts");
+            // The last measurement is of the zero-shift print: it no longer
+            // describes these controls, so Scene Placement waits for the
+            // measurement of the frame being rendered rather than fitting a
+            // curve to another medium (the merged build's sync failure).
+            check(!c.scenePlacement()["enabled"].toBool()&&!c.placeScene(1.0,0,"highlight"),
+                  "Scene Placement does not fit against a measurement of other controls");
             idle(c,"Undo Process");
 
             // Scene Placement: a highlight step through the Fit, committed and
             // re-developed; synced, the other photograph fits its own.
-            measured("Latitude after Process");
+            {
+                const auto shown=c.frame();
+                waitFor([&]{return c.frame()!=shown||c.scenePlacement()["enabled"].toBool();},
+                        "A measurement of the controls for Scene Placement");
+            }
             const auto placement=c.scenePlacement();
             check(placement["enabled"].toBool(),"Scene Placement is enabled on a measured frame");
             const auto window=placement["highlightWindow"].toMap();
             if(window["hasSpan"].toBool()) {
                 const double step=std::min(window["from"].toDouble()+.25,window["to"].toDouble());
                 const double aboveBefore=c.latitude()["above"].toDouble();
+                std::cout<<"placement measured on the frame shown: "<<c.latitude()["current"].toBool()
+                         <<" (the frame shows y shift "<<c.frame()->settings.y_filter_shift<<")\n";
                 check(c.placeScene(step,0,"highlight")&&c.scenePlacement()["active"].toBool()&&
                       near(c.scenePlacement()["highlight"].toDouble(),step),"A highlight step is committed");
                 check(c.latitude()["above"].toDouble()<=aboveBefore,"The graph follows the committed curve at once");

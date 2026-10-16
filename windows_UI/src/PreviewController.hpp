@@ -128,7 +128,9 @@ class PreviewController final : public QObject {
     // while a newer render of the photograph is still being measured)}.
     Q_PROPERTY(QVariantMap latitude READ latitude NOTIFY settingsChanged)
     // Scene Placement (ParameterSections.swift:212-258): {enabled (a
-    // measurement of this frame is in hand), active, highlight, shadow (the
+    // measurement of these controls is in hand: false after a film, paper,
+    // enlarger or decode edit until its render is measured; a placement
+    // step itself keeps it), active, highlight, shadow (the
     // committed pull-backs, stops), from 0, to 8, highlightWindow,
     // shadowWindow ({hasSpan, from, to, below, above}: the band the Fit
     // takes, the other side held), highlightMessage, shadowMessage (why the
@@ -327,8 +329,9 @@ public:
     // `moving` is "highlight" or "shadow", the slider under the hand; its
     // value is brought into the band the Fit takes, the curve is solved by
     // the engine's own Fit on the last measurement and committed, an undo
-    // step (key "scene_placement"). False with no measurement of this frame,
-    // or when the side that is not moving no longer fits (nothing changes).
+    // step (key "scene_placement"). False while scenePlacement.enabled is
+    // false, or when the side that is not moving no longer fits (nothing
+    // changes).
     Q_INVOKABLE bool placeScene(double highlight, double shadow, const QString& moving);
     // The sections' resets (ParameterSections.swift:222-225, :282-286).
     Q_INVOKABLE void resetScenePlacement();
