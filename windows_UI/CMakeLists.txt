@@ -27,7 +27,7 @@ qt_standard_project_setup(REQUIRES 6.8)
 
 qt_add_executable(SpektraLabQt WIN32
     src/main.cpp src/Messages.hpp src/PreviewController.hpp src/PreviewController.cpp
-    src/FrameOutput.hpp src/FrameOutput.cpp
+    src/FrameOutput.hpp src/FrameOutput.cpp src/FrameImage.hpp src/FrameImage.cpp
     src/EditStore.hpp src/EditStore.cpp
     src/FrameCanvas.hpp src/FrameCanvas.cpp
     src/ColorPipeline.hpp src/ColorPipeline.cpp)
@@ -57,6 +57,16 @@ if(BUILD_TESTING)
     target_compile_features(spk_qt_frame_output_test PRIVATE cxx_std_20)
     target_link_libraries(spk_qt_frame_output_test PRIVATE spk_desktop_host Qt6::Core Qt6::Gui)
     add_test(NAME spk_qt_frame_output COMMAND spk_qt_frame_output_test "$<TARGET_FILE_DIR:SpektraLabQt>/resources")
+
+    # The canvas images: every engine output space against the engine's own
+    # baked primaries and transfer functions, the half-float conversion of
+    # all 65536 codes, and the navigator/thumbnail reduction. No RAW or GPU.
+    qt_add_executable(spk_qt_frame_image_test tests/frame_image.cpp tests/display_checks.hpp
+        src/FrameImage.cpp src/FrameOutput.cpp)
+    target_include_directories(spk_qt_frame_image_test PRIVATE src)
+    target_compile_features(spk_qt_frame_image_test PRIVATE cxx_std_20)
+    target_link_libraries(spk_qt_frame_image_test PRIVATE spk_desktop_host Qt6::Core Qt6::Gui)
+    add_test(NAME spk_qt_frame_image COMMAND spk_qt_frame_image_test "$<TARGET_FILE_DIR:SpektraLabQt>/resources")
 
     qt_add_executable(spk_qt_library_workflow_test tests/library_workflow.cpp
         src/PreviewController.hpp src/PreviewController.cpp src/FrameOutput.cpp src/EditStore.cpp)
@@ -94,7 +104,7 @@ if(BUILD_TESTING)
             get_filename_component(qt_test_compiler_directory "${CMAKE_CXX_COMPILER}" DIRECTORY)
             list(APPEND qt_test_runtime_path "PATH=path_list_prepend:${qt_test_compiler_directory}")
         endif()
-        set_tests_properties(spk_qt_frame_output spk_qt_edit_store spk_qt_controller_settings PROPERTIES
+        set_tests_properties(spk_qt_frame_output spk_qt_frame_image spk_qt_edit_store spk_qt_controller_settings PROPERTIES
             ENVIRONMENT_MODIFICATION "${qt_test_runtime_path}")
     endif()
     qt_add_executable(spk_qt_editing_workflow_test tests/editing_workflow.cpp
