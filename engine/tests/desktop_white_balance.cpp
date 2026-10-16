@@ -272,6 +272,23 @@ void raw_file(const std::filesystem::path& resources, const std::filesystem::pat
     check(chroma_of(after) < 0.01 && (chroma_of(before) < 0.02 || chroma_of(after) < chroma_of(before)),
           "the picked white balance did not neutralise the picked point");
     (void)neutral;
+
+    // The headroom policy takes the same white balance (its multipliers
+    // normalised by their largest, as LibRaw does there) and the picker reads
+    // that decode's own captured matrix: the same point picks the same
+    // illuminant through either decode.
+    const FramePtr room = host.open_raw(raw, DecodeMode::headroom, picked);
+    const auto& pre = room->metadata.post_scale_pre_mul;
+    check(room->metadata.headroom_enabled && std::max({pre[0], pre[1], pre[2]}) == 1.0f,
+          "a custom white balance under headroom is not max-normalised");
+    std::array<double, 3> headroom{};
+    double k3 = 0, t3 = 0;
+    check(sample_decoded(host.input(), 0.5, 0.5, 4, headroom, error) &&
+              neutral_white_balance(room->metadata, headroom, k3, t3, error), "headroom pick: " + error);
+    std::printf("raw: headroom at the picked white balance, chroma %.4f; picking again there gives %.1f K / %+.2f\n",
+                chroma_of(headroom), k3, t3);
+    check(chroma_of(headroom) < 0.01 && std::abs(k3 - k) < 0.01 * k && std::abs(t3 - t) < 1.0,
+          "the headroom decode and its matrix disagree with the compatible one");
 }
 
 }  // namespace
