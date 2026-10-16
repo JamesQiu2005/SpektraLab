@@ -56,12 +56,15 @@ qt_add_qml_module(SpektraLabQt URI SpektraLab VERSION 1.0
         qml/controls/RailResizeHandle.qml qml/controls/StockList.qml qml/controls/CinePill.qml
         qml/controls/PlotPlaceholder.qml qml/controls/Note.qml
         qml/controls/Adjustment.qml qml/controls/Effect.qml
-        qml/left/LeftRail.qml qml/left/NavigatorSection.qml qml/left/FilmSection.qml
-        qml/left/PrintSection.qml qml/left/CropSection.qml qml/left/EnlargerSection.qml
+        qml/left/LeftRail.qml qml/left/NavigatorSection.qml qml/left/ClipboardSection.qml
+        qml/left/FilmSection.qml qml/left/PrintSection.qml qml/left/CropSection.qml
+        qml/left/EnlargerSection.qml
         qml/centre/CentrePane.qml qml/centre/TopBar.qml qml/centre/CanvasView.qml
-        qml/centre/CropOverlay.qml qml/centre/StatusBar.qml qml/centre/Filmstrip.qml
-        qml/right/RightRail.qml qml/right/CameraSection.qml qml/right/FilmFormatSection.qml
-        qml/right/DecodeSection.qml qml/right/InfoSection.qml qml/right/StatusSection.qml
+        qml/centre/CropOverlay.qml qml/centre/Filmstrip.qml
+        qml/right/RightRail.qml qml/right/LatitudeSection.qml qml/right/CameraSection.qml
+        qml/right/FilmFormatSection.qml qml/right/ScenePlacementSection.qml
+        qml/right/ToneMaskSection.qml qml/right/DecodeSection.qml qml/right/InfoSection.qml
+        qml/right/StatusSection.qml
         qml/export/ExportPopup.qml
     NO_CACHEGEN)
 set_target_properties(SpektraLabQt PROPERTIES RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/app")

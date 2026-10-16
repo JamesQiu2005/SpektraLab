@@ -2,36 +2,43 @@ import QtQuick
 import QtQuick.Controls
 import QtQuick.Layouts
 
-// One stock list -- a film group or the papers: an optional group header over
-// a scrolling list of rows `{ name, key }`, where `key` is the controller's
-// catalogue index (preview.filmIndex / preview.paperIndex). The list keeps the
-// row whose key is `currentKey` in view; `highlighted: false` keeps that
-// position but draws no selection (the papers while a slide film is chosen,
-// whose paper choice is remembered for the next negative).
-ColumnLayout {
+// The film and print lists (FilmSection.swift `StockList`): one-line rows
+// sitting directly on the rail, group captions in the metadata ink, the
+// chosen row marked by a white capsule inset from both edges with its text
+// in near-black, and the CINE badge after a cinema stock.
+//
+//   rows          Catalog.filmRows() / paperRows(): `{ name, key, cine,
+//                 header, enabled, reason }`; `key` is the controller's
+//                 catalogue index
+//   currentKey    the chosen row's key
+//   highlighted   false keeps the list where it is but draws no capsule
+//   editable      false: no row takes a click (settings locked)
+//   visibleRows   rows on screen before the list scrolls
+//   listObjectName  objectName of the ListView (kept from the first QML)
+//   picked(key)   a row was clicked
+//
+// Every row is `Theme.listRowHeight` tall and the list has no spacing, so a
+// scroll position that is a multiple of it starts on a whole row; reveal()
+// keeps it that way (no film name half under the section header).
+Item {
     id: stock
-    property string title
     property var rows: []
     property int currentKey: -1
     property bool highlighted: true
     property bool editable: true
-    property real listHeight: 174
-    // Kept on the ListView itself, where the single-file Main.qml had them.
+    property int visibleRows: 9
     property alias listObjectName: list.objectName
-    // Every row is this tall and the list has no spacing, so a scroll position
-    // that is a multiple of it starts on a whole row.
-    readonly property int rowHeight: 27
+    readonly property int rowHeight: Theme.listRowHeight
     signal picked(int key)
-    Layout.fillWidth: true; spacing: 3
 
-    // Brings the current row into view on a whole-row boundary. Contain alone
-    // stops where the current row's bottom meets the list's bottom: with the
-    // list 174 px tall and Portra 400 seventh of the negatives, that left the
-    // first row cut in half directly under the group header, where it read as
-    // a film name drawn over the title. Rounding the position down the list
-    // keeps the current row whole (its top is a row multiple at or below the
-    // old position) and leaves any partial row at the bottom, which reads as
-    // "more below" instead.
+    implicitHeight: rowHeight * Math.min(visibleRows, Math.max(1, rows.length))
+    implicitWidth: 200
+    Layout.fillWidth: true
+    Layout.preferredHeight: implicitHeight
+
+    // Brings the current row into view on a whole-row boundary: Contain
+    // alone can stop with the top row cut in half under the section header,
+    // where it reads as a name drawn over the title.
     function reveal() {
         if (list.currentIndex < 0) return
         list.positionViewAtIndex(list.currentIndex, ListView.Contain)
@@ -40,36 +47,78 @@ ColumnLayout {
         list.contentY = list.originY + Math.min(snapped, end)
     }
 
-    Text { visible: stock.title.length > 0; text: stock.title; color: Theme.muted; font.pixelSize: 10; font.bold: true }
     ListView {
         id: list
-        Layout.fillWidth: true; Layout.preferredHeight: stock.listHeight
-        model: stock.rows; clip: true
-        // Room after the last row for the list to end on a whole row too
-        // (the visible height less a whole number of rows): without it the
-        // fully scrolled list would cut its top row again.
+        anchors.fill: parent
+        model: stock.rows
+        clip: true
+        boundsBehavior: Flickable.StopAtBounds
+        // Room after the last row for the list to end on a whole row too.
         bottomMargin: Math.round(height) % stock.rowHeight
         currentIndex: {
             for (var i = 0; i < stock.rows.length; ++i)
-                if (stock.rows[i].key === stock.currentKey) return i
+                if (!stock.rows[i].header && stock.rows[i].key === stock.currentKey) return i
             return -1
         }
         onCurrentIndexChanged: stock.reveal()
-        onCountChanged: Qt.callLater(function() { stock.reveal() })
-        ScrollBar.vertical: ScrollBar {}
-        delegate: Rectangle {
+        // The list is one row tall until its rows arrive; a reveal made then
+        // would leave it scrolled when it grows. Re-reveal from the top
+        // whenever the height or the rows change.
+        onCountChanged: Qt.callLater(function() { list.contentY = list.originY; stock.reveal() })
+        onHeightChanged: Qt.callLater(function() { list.contentY = list.originY; stock.reveal() })
+        ScrollBar.vertical: ScrollBar {
+            id: scrollBar
+            width: 6
+            policy: list.contentHeight > list.height ? ScrollBar.AsNeeded : ScrollBar.AlwaysOff
+            contentItem: Rectangle { implicitWidth: 3; radius: 1.5; color: Theme.dim; opacity: scrollBar.active ? 0.9 : 0.5 }
+        }
+        delegate: Item {
             id: row
             required property var modelData
-            readonly property bool selected: stock.highlighted && modelData.key === stock.currentKey
-            width: list.width; height: stock.rowHeight; radius: 4
-            color: selected ? Theme.selection : rowMouse.containsMouse && rowMouse.enabled ? "#41413e" : "transparent"
-            Text {
-                anchors.fill: parent; anchors.leftMargin: 8; anchors.rightMargin: 6
-                verticalAlignment: Text.AlignVCenter; text: row.modelData.name
-                color: row.selected ? Theme.selectionText : stock.editable ? Theme.text : Theme.muted
-                font.pixelSize: 10; elide: Text.ElideRight
+            required property int index
+            readonly property bool header: modelData.header === true
+            readonly property bool selected: !header && stock.highlighted && modelData.key === stock.currentKey
+            readonly property bool usable: !header && modelData.enabled !== false
+            width: list.width; height: stock.rowHeight
+
+            Rectangle {
+                x: Theme.stockLeadingInset
+                width: row.width - Theme.stockLeadingInset - Theme.stockTrailingInset
+                height: Theme.stockSelectionHeight
+                anchors.verticalCenter: parent.verticalCenter
+                radius: height / 2
+                color: row.selected ? Theme.selection : rowMouse.containsMouse && row.usable && stock.editable ? Theme.hover : "transparent"
             }
-            MouseArea { id: rowMouse; anchors.fill: parent; hoverEnabled: true; enabled: stock.editable; onClicked: stock.picked(row.modelData.key) }
+            Text {
+                x: row.header ? Theme.stockTextInset - 1 : Theme.stockTextInset
+                anchors.verticalCenter: parent.verticalCenter
+                width: row.width - x - Theme.stockTrailingInset - (row.modelData.cine ? Theme.cinePillWidth + 6 : 4)
+                text: row.modelData.name
+                elide: Text.ElideRight
+                color: row.header ? Theme.dim : row.selected ? Theme.selectionInk : Theme.secondaryText
+                opacity: row.header || row.usable ? 1 : Theme.disabledOpacity
+                font.family: Theme.fontFamily
+                font.pixelSize: row.header ? Theme.fontLabel : Theme.fontSmall
+                font.weight: Theme.weightText
+            }
+            CinePill {
+                visible: row.modelData.cine === true
+                inverted: row.selected
+                anchors.verticalCenter: parent.verticalCenter
+                x: row.width - Theme.stockTrailingInset - width - 4
+                opacity: row.usable ? 1 : Theme.disabledOpacity
+            }
+            MouseArea {
+                id: rowMouse
+                anchors.fill: parent
+                hoverEnabled: true
+                enabled: !row.header
+                cursorShape: row.usable && stock.editable ? Qt.PointingHandCursor : Qt.ArrowCursor
+                onClicked: if (row.usable && stock.editable) stock.picked(row.modelData.key)
+            }
+            ToolTip.visible: rowMouse.containsMouse && !row.usable && !row.header && String(row.modelData.reason || "").length > 0
+            ToolTip.text: String(row.modelData.reason || "")
+            ToolTip.delay: 500
         }
     }
 }

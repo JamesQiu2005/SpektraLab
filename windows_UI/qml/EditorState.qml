@@ -38,6 +38,44 @@ QtObject {
     readonly property bool canBrowse: preview.ready && !preview.busy && !preview.batchExporting && !cropMode
     readonly property bool canExport: preview.hasFrame && !preview.busy && !cropMode
 
+    // The two rails (EditorWindow.swift): each folds with its sidebar button
+    // on the tool bar, and its width is the user's between the Theme bounds
+    // (PanelResize.swift). Held for this run only, like the sections.
+    property bool leftCollapsed: false
+    property bool rightCollapsed: false
+    property real leftWidth: Theme.leftRailStandard
+    property real rightWidth: Theme.rightRailStandard
+    function setLeftWidth(w) { leftWidth = Math.max(Theme.leftRailNarrowest, Math.min(Theme.leftRailWidest, w)) }
+    function setRightWidth(w) { rightWidth = Math.max(Theme.rightRailNarrowest, Math.min(Theme.rightRailWidest, w)) }
+    // The Parameters rail's tab: 0 Pre-Dev, 1 Post-Dev (not built yet).
+    property int parametersTab: 0
+    // The filmstrip folds with the tab on the canvas's lower edge (the Mac's
+    // one surviving collapse tab, CollapseTab.swift).
+    property bool filmstripCollapsed: false
+
+    // What part of the frame the canvas shows, normalised to the frame: the
+    // whole of it while fitted, a window into it at 100 %. The navigator
+    // frames it and a click there re-centres the canvas (centreOn).
+    readonly property rect visibleFraction: {
+        if (!canvas || fit) return Qt.rect(0, 0, 1, 1)
+        var r = canvas.imageRect
+        if (r.width <= 0 || r.height <= 0) return Qt.rect(0, 0, 1, 1)
+        var x0 = Math.max(0, -r.x / r.width), y0 = Math.max(0, -r.y / r.height)
+        var x1 = Math.min(1, (canvas.width - r.x) / r.width), y1 = Math.min(1, (canvas.height - r.y) / r.height)
+        return Qt.rect(x0, y0, Math.max(0, x1 - x0), Math.max(0, y1 - y0))
+    }
+    function centreOn(nx, ny) {
+        if (!canvas || fit) return
+        var r = canvas.imageRect
+        canvas.panBy(canvas.width / 2 - (r.x + nx * r.width), canvas.height / 2 - (r.y + ny * r.height))
+    }
+    // The canvas has two scales, fit and one physical pixel per source pixel
+    // (FrameCanvas); zoom in and out step between them until it has more.
+    readonly property bool canZoomIn: preview.hasFrame && !cropMode && fit
+    readonly property bool canZoomOut: preview.hasFrame && !fit
+    function zoomIn() { if (canZoomIn) resetView(false) }
+    function zoomOut() { if (canZoomOut) resetView(true) }
+
     // Requests for what Main.qml owns: the import dialog and the export options.
     signal importRequested()
     signal exportOptionsRequested()

@@ -1,27 +1,33 @@
 import QtQuick
+import QtQuick.Controls
 
-// Film: the catalogue's films in two groups, slides first, then negatives.
-Section {
+// Film (FilmSection.swift): the stock list, Positive then Negative, with the
+// CINE badge on cinema stocks (Catalog.qml). The reset arrow and its menu
+// item return the film to Portra 400, the stock a new photograph starts on,
+// and say so in words (the Mac's rule for a reset whose scope is not obvious).
+MacSection {
     id: section
+    sectionId: "film"
     title: L10n.tr("film.title")
+    inset: false
+    resetVisible: true
+    resetAvailable: preview.settingsEditable && preview.films.length > 0
+    resetToolTip: L10n.tr("film.reset")
+    onResetRequested: section.resetFilm()
+    menuItems: [
+        RailMenuItem { text: L10n.tr("film.reset"); enabled: section.resetAvailable; onTriggered: section.resetFilm() }
+    ]
 
-    // One group's rows, each keyed by its index in the whole catalogue.
-    function group(positive) {
-        var rows = []
-        for (var i = 0; i < preview.films.length; ++i)
-            if (preview.films[i].positive === positive)
-                rows.push({ "name": preview.films[i].name, "key": i })
-        return rows
-    }
+    // By id through the settings table, so the controller's own rules (a
+    // slide film is scanned without a paper) apply as for a click.
+    function resetFilm() { preview.setParameter("film_stock", "kodak_portra_400") }
 
     StockList {
-        title: L10n.tr("film.group.positive"); listObjectName: "positiveFilmList"; listHeight: 112
-        rows: section.group(true); currentKey: preview.filmIndex; editable: preview.settingsEditable
-        onPicked: function(key) { preview.filmIndex = key }
-    }
-    StockList {
-        title: L10n.tr("film.group.negative"); listObjectName: "filmList"; listHeight: 174
-        rows: section.group(false); currentKey: preview.filmIndex; editable: preview.settingsEditable
+        listObjectName: "filmList"
+        visibleRows: 14
+        rows: Catalog.filmRows(preview.films)
+        currentKey: preview.filmIndex
+        editable: preview.settingsEditable
         onPicked: function(key) { preview.filmIndex = key }
     }
 }
