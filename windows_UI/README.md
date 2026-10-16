@@ -233,6 +233,24 @@ cannot follow it. Every case stays under ΔE\*ab 1, and the tests pin each bound
 A 1D output curve applied after the 3D lookup would remove the error. That
 would need a change to the contract.
 
+**The canvas.** `FrameCanvas` (main canvas, navigator, filmstrip) draws its
+image through `ColorCanvasNode`: a custom scene-graph material
+(`shaders/colorcanvas.*`) that samples the frame as before (Nearest at or
+above 100 %, Linear below), then looks it up in the LUT at texel centres,
+clamps, and adds one 8-bit step of triangular dither when asked. The table is
+a half-float 3D texture (a 2D atlas without 3D textures), shared per window
+and LUT key. With the contract's 1-D curves, the shader runs shaper, table and
+output curve, and interpolates the table's eight nodes in float, because 8-bit
+filter weights lose the shadows of a table over linear light. Under the
+identity, an 8-bit frame is drawn by a bare texture read, exactly as Qt's
+texture node drew it. RGBX16FPx4 frames keep half-float precision up to the
+LUT. Frames over the 16384 px texture limit are tiled with a one-texel apron.
+The software backend (the self-test) runs the same path on the CPU.
+`spk_qt_color_canvas` renders on D3D11 WARP through `QQuickRenderControl` and
+reads back against an independent reference: exact for the identity, within
+one count through every LUT, curves, tile seam and translucency case, with the
+letterbox untouched. `spk_qt_color_canvas_software` runs the CPU path.
+
 **Tests.** `spk_qt_color_core` runs on the CPU, with no GPU, no shown window
 and no installed profile. Its ICC profiles are built in the test, including a
 CMYK one and an A2B-only one written byte by byte. It checks:

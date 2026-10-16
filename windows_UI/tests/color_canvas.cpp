@@ -4,7 +4,8 @@
 // with --software, the software backend and its CPU path. Every case compares
 // the pixels with a reference computed here, independently of
 // ColorCanvasNode.cpp: double-precision trilinear interpolation at the LUT
-// nodes, clamped, rounded to 8 bits.
+// nodes (between the contract's 1-D curves when the LUT has them), clamped,
+// rounded to 8 bits.
 //
 // Exit 77 (CTest: skipped) when no D3D11 device can be created, with a
 // message on stderr; anything else that goes wrong is a failure.
