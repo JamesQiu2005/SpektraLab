@@ -8,7 +8,10 @@ build paths.
 
 The port began at `8a3187434ced21253940f84c746b94128860a2f8` and is integrated
 with the author's `Windows_Port` starting point, `61bfc49a38e92b9d7915754982de3af13245403f`.
-Capabilities that have not been explicitly ported remain unsupported. Passing the local
+Since 2026-10-16 every upstream engine feature is ported and none is refused
+(`src/pipeline/windows_unported.hpp` keeps an empty table for the next one);
+what the branch gained since upstream's `f1440bd` is in
+[windows_UI/CHANGES-WINDOWS.md](../windows_UI/CHANGES-WINDOWS.md). Passing the local
 tests does not establish whole-image equivalence with Metal or the external
 Python film-model reference.
 
@@ -19,17 +22,27 @@ Python film-model reference.
 
 ## Requirements and build
 
-The validated toolchain is 64-bit MinGW GCC 15.2 and CMake/CTest 3.25.0 on
-Windows, with an NVIDIA GeForce RTX 5070 Ti. MSVC and other GPU vendors have
-not completed the same acceptance tests.
+Two toolchains have passed the local gates on Windows:
 
-Install a C++20 MinGW compiler, CMake/CTest and Vulkan development tools. Put
-the compiler and CMake tools on `PATH`; the build wrapper can find
-`mingw32-make.exe` beside the compiler. Vulkan needs headers, a shader compiler
-(`glslangValidator`) and an installed GPU driver. An installed Vulkan SDK can
-be selected through `VULKAN_SDK`; every tool path can also be supplied
-explicitly. With MinGW, the Windows Vulkan loader DLL can be used as linker
-input when no SDK import library is supplied.
+- **MSVC 2022** (2026-10-16): MSVC 19.44.35229 / Visual Studio 17.14 with its
+  bundled CMake 3.31.6 and Ninja, on an NVIDIA GeForce RTX 3070, building the
+  engine together with the Qt editor through
+  `windows_UI/build-msvc.ps1` -- the current route; prerequisites, the
+  dependency folder and the command are in
+  [windows_UI/README.md](../windows_UI/README.md#build-msvc-2022).
+- **MinGW** (the first port): 64-bit MinGW GCC 15.2 and CMake/CTest 3.25.0,
+  on an NVIDIA GeForce RTX 5070 Ti, through `engine/build-windows.ps1`
+  (below). It has not been re-run since the MSVC build and the later ports.
+
+Other GPU vendors have not completed the same acceptance tests.
+
+For the MinGW wrapper, install a C++20 MinGW compiler, CMake/CTest and Vulkan
+development tools. Put the compiler and CMake tools on `PATH`; the build
+wrapper can find `mingw32-make.exe` beside the compiler. Vulkan needs headers,
+a shader compiler (`glslangValidator`) and an installed GPU driver. An
+installed Vulkan SDK can be selected through `VULKAN_SDK`; every tool path can
+also be supplied explicitly. The engine loads `vulkan-1.dll` at run time
+through volk (`third_party/volk`), so no Vulkan import library is linked.
 
 Run commands from the repository root:
 
@@ -62,7 +75,8 @@ Useful options:
 | `-NativeRaw:$false` | Build the pixel-input engine and its tests; also disables the viewer |
 | `-Compiler`, `-MakeExecutable` | Select the MinGW compiler and make program |
 | `-CMakeExecutable`, `-CTestExecutable` | Select the configure/build and test tools |
-| `-VulkanIncludeDirectory`, `-VulkanLibrary`, `-GlslangExecutable` | Select Vulkan development tools explicitly |
+| `-VulkanIncludeDirectory`, `-GlslangExecutable` | Select Vulkan development tools explicitly |
+| `-VulkanLibrary` | Still accepted and passed on, but unused since the engine loads Vulkan through volk |
 | `-LibRawSourceDirectory` | Use an already extracted, verified LibRaw 0.22.2 tree |
 
 Direct CMake configuration supports `SPEKTRALAB_BUILD_NATIVE_RAW`,
@@ -80,7 +94,8 @@ tools use `spektrafilm_engine.dll`. Keep each executable's adjacent runtime
 DLLs, complete `resources` directory and licence notices when moving it.
 The native hosts statically link the engine and LibRaw; the shared engine DLL
 is still needed by tools that explicitly load it. Vulkan comes from the GPU
-driver.
+driver. The MSVC build lays the same outputs under `<build>/engine` and the
+deployed Qt editor under `<build>/app`.
 
 On Windows, `spk_result.rgba16` points to an independently owned CPU RGBA16
 result. `texture` is its opaque ownership handle, **not a drawable Vulkan
@@ -102,18 +117,31 @@ is a measurement of physical peak VRAM.
 
 The integrated Win32 build passed **16 CTest tests** at the first port (11
 backend-only, 15 native RAW without desktop). As of 2026-10-16 the MSVC 2022
-build with the Qt editor (`windows_UI/build-msvc.ps1 -RunTests`) runs **27**
-on an RTX 3070: 18 for the backend and its test DLL, 22 with native RAW, 23
-with the minimal desktop host and 27 with the Qt editor's four. These cover schema,
-setup, GPU math and transfers, geometry, LUT/DI, C ABI ownership, TIFF, RAW
-error handling, headroom math, metadata-only LibRaw linkage and desktop
-conversion/viewport boundaries, and the effects ported later: the contrast
-mask, the Cineon DI, scene latitude mapping, the date back and Film Edge
-(`spk_film_edge`, end to end through the DLL). The default desktop CTest does not open a
-visible window or require a private RAW fixture.
+build with the Qt editor (`windows_UI/build-msvc.ps1 -RunTests`) runs and
+passes **47** on an RTX 3070: 18 for the backend and its test DLL, 22 with
+native RAW, 25 with the desktop host's three and 47 with the Qt editor's 22
+(listed in [windows_UI/README.md](../windows_UI/README.md#validation)). The
+engine's 25:
+
+| group | tests |
+|---|---|
+| core | `spk_core_schema`, `spk_core_setup` |
+| Vulkan kernels | `spk_vulkan_smoke`, `_grain`, `_pointwise`, `_resample`, `_transfer`, `_geometry`, `_lut_di`, `_contrast_mask`, `_overscan`, `_di_latitude`, `_overscan_add_mask` |
+| C ABI, end to end | `spk_edge_raster`, `spk_windows_feature_boundaries`, `spk_date_back`, `spk_film_edge`, `spk_windows_c_abi` |
+| native RAW and TIFF | `spk_image_writer`, `spk_raw_decoder_errors`, `spk_raw_metadata_link`, `spk_raw_headroom` |
+| desktop host | `spk_desktop_preview`, `spk_desktop_white_balance`, `spk_desktop_pair` |
+
+These cover schema, setup, GPU math and transfers, geometry, LUT/DI, C ABI
+ownership, TIFF, RAW error handling, headroom math, metadata-only LibRaw
+linkage, desktop conversion/viewport boundaries, white balance at decode on a
+synthetic camera and half-frame pairs without a GPU, and the effects ported
+later: the contrast mask, the Cineon DI, scene latitude mapping, the date
+back and Film Edge (`spk_film_edge`, end to end through the DLL). The default
+desktop CTest does not open a visible window or require a private RAW
+fixture.
 
 ```powershell
-ctest --test-dir build/windows --output-on-failure
+ctest --test-dir build/windows --output-on-failure   # or the MSVC build directory
 ```
 
 Python 3.11 or newer is optional test tooling. With NumPy and Pillow available, run the

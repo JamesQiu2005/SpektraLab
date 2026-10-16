@@ -1,17 +1,23 @@
 # Windows feature coverage
 
 This table describes the port rooted at upstream `8a318743` and integrated
-with the author's `Windows_Port` starting point `61bfc49`. The acceptance hardware
-was Windows, MinGW GCC 15.2, Vulkan and RTX 5070 Ti. It does not imply that
-every stock, camera, parameter combination or later upstream feature is
-supported. Later features require explicit porting and validation.
+with the author's `Windows_Port` starting point `61bfc49`. The first acceptance
+hardware was Windows, MinGW GCC 15.2, Vulkan and RTX 5070 Ti; the rows ported
+later (contrast mask, Cineon DI, scene latitude mapping, date back, Film Edge)
+were accepted on Windows, MSVC 19.44 (Visual Studio 17.14), Vulkan and RTX
+3070, which also reran every earlier CTest. It does not imply that every
+stock, camera, parameter combination or later upstream feature is supported.
+Later features require explicit porting and validation; as of 2026-10-16 no
+upstream engine feature is refused.
 
 The backend contains 42 kernels, including two diagnostic probes. The full
 Win32 integration passed 16 CTests and 47 Python tool tests at the first port;
-the MSVC 2022 build with the Qt editor runs 27 CTests (2026-10-16, RTX 3070),
-the later rows below among them. Original baked
-profile/resource files were unchanged; native TIFF export adds a separate
-provenance-described sRGB ICC resource. Whole-image Metal/Python film-model
+the MSVC 2022 build with the Qt editor passes 47 CTests (2026-10-16, RTX 3070),
+the later rows below among them; the Python tool tests were not rerun there.
+Original baked profile/resource files were unchanged; native TIFF export adds
+a separate provenance-described sRGB ICC resource, and the Windows build lays
+the product's black-and-white profiles (`engine/resources_product`) beside
+spektrafilm's, as the macOS bundle does. Whole-image Metal/Python film-model
 parity remains unverified.
 
 | Operation | Implemented path | Exercised scope and remaining boundary |
@@ -29,7 +35,7 @@ parity remains unverified.
 | Tier resampling | FIR and bilinear-mirror kernels | 60 independent cases including long-axis coordinates, plus real RAW execution |
 | Crop, rotation and flips | Geometry resampling kernel | 192 float64/exact-transform cases; full RAW turn/flip compared with explicitly transformed input; arbitrary geometry checks dimensions and cache behavior |
 | Stock-LUT preview | Trilinear LUT application | Eight baked stock tables byte-identical through C API, synthetic calls and one full-RAW stock; preview contract is encoded Display P3 |
-| DI pixel delivery | Normalised negative-density output | Direct LUT/DI numerical gate and eight-stock calls; values are density, not display RGB; file packaging remains incomplete |
+| DI pixel delivery | Normalised negative-density output | Direct LUT/DI numerical gate and eight-stock calls; values are density, not display RGB. The Cineon DI file (below) is written by the Qt editor's export page, untagged, with the macOS view LUTs beside it |
 | Cached print-side edits | C API reprint and negative cache | Deterministic full/reprint equality and actual cache flags; film-side edits invalidate the negative |
 | GPU memory and transfer | Device-local computation, staged upload/readback, device copy | Range/alignment/overlap tests, dependency checks and result lifetime; synchronous scheduling retained |
 | Striped processing | Existing stripe algorithm with corrected FIR boundaries | 35 deterministic configurations and full ARW with 509-row strips agree with whole-frame/reprint; broader stochastic combinations remain unverified |
@@ -37,17 +43,21 @@ parity remains unverified.
 | Native RAW `compatible16` | LibRaw 0.22.2 and linear ProPhoto float storage | Full Sony ARW matches rawpy/LibRaw reference fixture; integer RGB clipping remains; broader camera acceptance pending |
 | Native RAW `headroom` | Max-normalised WB, uint16 demosaic, unclipped float matrix conversion | Restricted Bayer mode; full ARW camera-RGB/float64 oracle max error `2.31e-7`; sensor and black-level clipping are not recovered |
 | Nikon HE/HE* | Explicit rejection by bundled decoder | Tested Z8 HE* metadata and clean rejection in both modes/Unicode paths; no positive Nikon decode or timing claim |
-| Native TIFF | Uncompressed RGB16 with pinned sRGB ICC | Independent tags, strips, all samples, ICC, no-overwrite and failure cleanup; no HDR, other TIFF colour spaces or EXIF copying |
+| Native TIFF | Uncompressed RGB16 with pinned sRGB ICC | Independent tags, strips, all samples, ICC, no-overwrite and failure cleanup; no HDR, other TIFF colour spaces or EXIF copying in this writer (the Qt editor's export page has its own colour spaces and EXIF, below) |
+| Flat-file input (TIFF, JPEG, PNG) | `engine/host/image_io` decode into linear ProPhoto, through `spk_desktop_host` | `spk_qt_flat_input`: 8-bit PNG and JPEG with no profile, 16-bit TIFFs carrying sRGB.icc and a ROMM profile, against independent float conversions (decode max 7e-5, 3.9e-4 for sRGB.icc's s15Fixed16; print max 8.1e-4) |
+| White balance at decode | LibRaw's camera matrix through the host's Temperature/Tint conversion, presets and a neutral picker | `spk_desktop_white_balance` on a synthetic camera, no RAW or GPU; the Qt RAW gates on real NEF/ARW files |
+| Half-frame pairs | `half_frame_pair.cpp`: the piece, its wire and `render_pair` | `spk_desktop_pair` without a GPU or RAW; the Qt pairs gate on two real RAWs |
 | Minimal Win32 viewer | Serial worker and immutable RGBA16/BGRA8 frames | Full RAW open, film/paper/brightness edits, fit/100% pan, same-frame export and failed-open preservation |
-| Qt Quick editor | Shared native host, three-panel layout and single-photo strip | Full RAW/controller/offscreen scene regression; physical 100% samples, repeated texture updates and failure recovery; live display validation pending |
-| Window drawing | sRGB-labelled bitmap and requested GDI ICM | Offscreen handlers/layout and 1:1 BGR pixel checks; visible gestures, calibrated monitor ICC, HDR and multi-monitor acceptance remain pending |
+| Qt Quick editor | Shared native host; the macOS editor's layout, Pre-Dev and Post-Dev rails, library, pairs, export page ([windows_UI/README.md](../windows_UI/README.md)) | 22 Qt CTests and the full-RAW self-test, library, editing, export and pairs gates (offscreen scene captures); the macOS interface is not run beside it for a pixel comparison |
+| Qt editor display colour | ProPhoto RGB frames through a per-monitor ICC display LUT in the canvas shader; soft proof and gamut warning | `spk_qt_color_core`, `spk_qt_color_canvas` (D3D11 WARP and software), `spk_qt_soft_proof` against Qt's transform and the export; no display measured with an instrument, HDR output not implemented |
+| Window drawing (minimal Win32 viewer) | sRGB-labelled bitmap and requested GDI ICM | Offscreen handlers/layout and 1:1 BGR pixel checks; visible gestures, calibrated monitor ICC, HDR and multi-monitor acceptance remain pending |
 | Scene latitude analysis | Existing pipeline and explicit probe readback | Real C ABI analysis test |
 | Contrast mask (RFC-024) | `spk_mask_reduce` and `spk_mask_epilogue` kernels; the host grid Gaussian runs over `std::thread` instead of GCD | 71 kernel cases against a float64 transcription of the Metal kernels on an RTX 3070 (MSVC 2022): partial and clamped cells, mid-frame bands, one-cell grids, the log2 floor, NaN, clamped exposure and 16.78 M-thread counts; max abs error `8.96e-7` stops (analysis) and `9.48e-7` log10 (application). C API: the field on the canonical 512-cell grid, a reprint that keeps the cached negative, striped equal to whole-frame, the same field bit for bit with 1, 3 and all workers, mask-off equal to the unmasked print. One 32.9 MP ARW renders with it on. Not verified: whole-image Metal parity (no Mac dump of a masked render), the dispatch fold on a device that folds (lavapipe, Intel), and the research-only guided and pointwise bases |
 | Cineon Digital Intermediate | Existing printing-density read and neutral-curve kernels, then `spk_di_encode` (3×3, optional Oklab blue-sector window, Cineon log codes) | `spk_vulkan_di_latitude`: 19 dispatches against a float64 transcription of the Metal kernel (NaN/Inf/overflow in each channel, clear-base floor, white clamp, window centre and hue/chroma edges, `log10(0)` without the black offset, counts up to one pixel past a 65535-group fold), max error `9.75e-6` codes on an RTX 3070; `spk_render_digital_intermediate` returns RGBA16 + JSON on a negative, equal to the canvas DI render, and refuses a slide. One Sony ILCE-7M4 ARW (4688×7028) renders through `spk_raw_render` with and without blue compensation (0.4 % of values move); no reference image, and that tool still labels the Cineon codes sRGB. Whole-image Metal parity unverified |
 | Scene latitude mapping | `spk_scene_latitude` (power/Y/max norm, roll-off, bounded lift, half-frame pair) | `spk_vulkan_di_latitude`: 99 dispatches against a float64 transcription with `core/latitude_fit.cpp`'s curve (every norm, m = 1, 2 and general, the 2^-30 gain clamp, NaN/Inf/overflow, splits exactly on and one float either side of a column or strip row, counts up to one pixel past the fold), max relative error `2.91e-6` on an RTX 3070; C ABI: one frame and the second pair alone are accepted and render, the pair changes only its own half, and a 5-row striped render equals the whole frame. The same ARW through `spk_raw_render`: one frame and the pair render, and the pair leaves the top half's channel means unchanged to 1e-4 while darkening the bottom half's (G 0.251 -> 0.231); no reference image. Whole-image Metal parity unverified |
 | Date back (date imprint) | `overscan.cpp`'s date-only path, compiled off Apple; its marks drawn by the portable raster (`edge_raster.cpp`: exact-area nonzero filler, CGBitmapContext-style 8-bit source-over, separable Gaussian with edge extension) and added by `spk_overscan_add_mask` | `spk_date_back` through the C ABI: LCD and dot styles at two corners and on a turned portrait frame change only the placed box and render bit-identically across renders and sessions; `data` prints nothing on a bare frame, as on macOS (it needs the rebate). One Sony ARW rendered with the date and inspected. With the film edge (`spk_film_edge`): the date on 120 prints in the margin beside the frame's far end and the shooting data from its near end without moving it (645, 6x6, 6x7, 6x9), on 135 the data goes in the gap before the frame while the date stays in the picture, and a pair's second date lands in the second gate; one NEF rendered on 6x9 with both and inspected. The coverage has not been compared with a Mac dump |
 | Film edge text raster | TeX Gyre Heros 2.004 (bundled, GUST Font License) for Helvetica Neue, stb_truetype outlines through the same filler | CPU checks (`spk_edge_raster`): Kodak-style strings set within 2.1 % of the lengths measured on strips, caps on the measured height, ink equal to the outlines' area to 0.003. End to end (`spk_film_edge`): the text lands on the rebate and never in the gate's span on every stock below. Not compared with a Mac render, and the letter-by-letter strip measurements of `tests/overscan_checks.py` (Kodak 120's 7.28 mm "KODAK", Fujifilm's dot pitch) are not ported |
-| Film edge (overscan, RFC-031/032) | `overscan.cpp` compiled everywhere: layout, edge print and the P block on the CPU, `spk_overscan_canvas`, `spk_overscan_film_present`, `spk_overscan_light` and `spk_overscan_add_mask` on Vulkan, the marks through the portable raster | Kernels: `spk_vulkan_overscan` against a float64 transcription of `overscan.metal`. End to end through the C ABI, `spk_film_edge` (161 checks, RTX 3070, MSVC 2022): twelve cases over every format (135 across and turned, 135 half held level and turned, XPan, 645, 6x6, 6x7 portrait and landscape, 6x9, 6x12, 6x17) and Portra 400/160/800, Gold 200, Ektar 100, X-Tra 400, Pro 400H, Provia 100F, Velvia 100 and Vision3 250D. The canvas is what `spk_overscan_geometry` reports (film width across, a part-gap each end); inside the gate the picture matches the render without film edge to 4-25 codes of 65535 (mean 0.30-0.36); 135 holes are 1.99-2.02 mm long, 4.73-4.77 mm apart, 2.03-4.85 mm from the edge, both rows in step, on the camera's perforation phase, the scan's light through them or black on request; no light off a 120 picture; the DX code reads back (Portra 400 1277, X-Tra 400 628 on a turned strip, none on cine); frame number, frame seed, fog, carriers, the half-frame pair (two gates 19 mm apart, unexposed gap, the second Scene Placement and date in the second gate only) and reprints (cached negative kept for print edits and a print-stock rebuild, re-developed for a film edge edit) all as specified; striped is refused, as on macOS. Shown red by a P-slot swap, a kernel-only perforation phase shift and a misplaced 120 date, each of which the kernel gate and `spk_date_back` passed. A Sony ARW and a Nikon NEF rendered on 135 and 6x9 and inspected. Not verified: whole-image Metal parity (no Mac dump), lavapipe/Intel/AMD and the dispatch fold, the black-and-white stocks (their profiles are in `engine/resources_product`, which the Windows build does not stage), the hole-edge softness and lettering measurements of `overscan_checks.py` |
+| Film edge (overscan, RFC-031/032) | `overscan.cpp` compiled everywhere: layout, edge print and the P block on the CPU, `spk_overscan_canvas`, `spk_overscan_film_present`, `spk_overscan_light` and `spk_overscan_add_mask` on Vulkan, the marks through the portable raster | Kernels: `spk_vulkan_overscan` against a float64 transcription of `overscan.metal`. End to end through the C ABI, `spk_film_edge` (161 checks, RTX 3070, MSVC 2022): twelve cases over every format (135 across and turned, 135 half held level and turned, XPan, 645, 6x6, 6x7 portrait and landscape, 6x9, 6x12, 6x17) and Portra 400/160/800, Gold 200, Ektar 100, X-Tra 400, Pro 400H, Provia 100F, Velvia 100 and Vision3 250D. The canvas is what `spk_overscan_geometry` reports (film width across, a part-gap each end); inside the gate the picture matches the render without film edge to 4-25 codes of 65535 (mean 0.30-0.36); 135 holes are 1.99-2.02 mm long, 4.73-4.77 mm apart, 2.03-4.85 mm from the edge, both rows in step, on the camera's perforation phase, the scan's light through them or black on request; no light off a 120 picture; the DX code reads back (Portra 400 1277, X-Tra 400 628 on a turned strip, none on cine); frame number, frame seed, fog, carriers, the half-frame pair (two gates 19 mm apart, unexposed gap, the second Scene Placement and date in the second gate only) and reprints (cached negative kept for print edits and a print-stock rebuild, re-developed for a film edge edit) all as specified; striped is refused, as on macOS. Shown red by a P-slot swap, a kernel-only perforation phase shift and a misplaced 120 date, each of which the kernel gate and `spk_date_back` passed. A Sony ARW and a Nikon NEF rendered on 135 and 6x9 and inspected. Not verified: whole-image Metal parity (no Mac dump), lavapipe/Intel/AMD and the dispatch fold, the black-and-white stocks (deployed since 2026-10-16, not among `spk_film_edge`'s cases), the hole-edge softness and lettering measurements of `overscan_checks.py` |
 | New upstream effects | Explicit Windows capability and request rejection (`windows_unported.hpp`) | Nothing is refused since Film Edge was ported (2026-10-16): `unsupported_features` is empty, and the table stays for the next upstream effect; the old normalised-density DI tap remains available |
 
 ## Test interpretation
@@ -75,9 +85,10 @@ byte-equality reference for an earlier render; TIFF export is instead compared
 against the same retained frame being saved.
 
 The CTest count depends on build options. As of 2026-10-16: 18 for the backend
-and its test DLL, 22 with native RAW, 23 with the minimal desktop host and 27
-with the Qt editor's four (the first port had 11, 15 and 16). The default desktop test is a pure
-conversion/viewport boundary test. Real-camera host tests and offscreen Win32
+and its test DLL, 22 with native RAW, 25 with the desktop host's three and 47
+with the Qt editor's 22 (the first port had 11, 15 and 16; [WINDOWS.md](WINDOWS.md)
+names them). The default desktop tests are pure conversion/viewport, white
+balance and pair-layout boundary tests with no GPU or RAW. Real-camera host tests and offscreen Win32
 tests are additional acceptance runs, not implied by the default CTest count.
 
 ## Reproduction and limits
@@ -103,5 +114,6 @@ sum is not the complete render-call time.
 
 Remaining acceptance work includes external Metal/Python whole-image parity,
 Core Image versus LibRaw decode comparison, more cameras and stock/parameter
-combinations, live Windows display/colour behavior and additional exports.
+combinations, other GPU vendors (and the dispatch fold on a device that
+needs it), instrument-measured display colour, and HDR/EDR output.
 Unported later upstream functionality must not be advertised as supported.
