@@ -317,8 +317,9 @@ struct spk_engine {
         backend.set("host", Json(std::string("native")));
         backend.set("math_mode", Json(math_mode));
 #ifndef __APPLE__
-        // These upstream effects still require kernels or Apple services that
-        // have not been ported. Defaults stay usable; explicit requests fail.
+        // Upstream effects without a Windows implementation, from
+        // windows_unported.hpp's table: empty since Film Edge was ported
+        // (2026-10-16), and still emitted, because hosts read the key.
         Json unported = Json::array();
         for (const auto& row : kWindowsFeatures)
             if (!row.ported) unported.push(Json(std::string(row.capability)));

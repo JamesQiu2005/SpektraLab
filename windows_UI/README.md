@@ -14,6 +14,13 @@ and skips existing files. Single export refuses overwrites. Output stays sRGB
 with the bundled ICC profile. Select-all and synchronization copy supported
 settings to selected photos, preserving their own crops by default.
 
+The QML is one file per pane (`qml/left`, `qml/centre`, `qml/right`,
+`qml/export`, shared controls in `qml/controls`); `qml/Main.qml` holds the
+window, dialogs and shortcuts and `qml/EditorState.qml` the state the panes
+share. Every user-visible QML string is looked up by key from
+`i18n/en.json` through the C++ `Localizer`; English is the only shipped
+language, and [i18n/README.md](i18n/README.md) says how to add another.
+
 Ctrl+O imports, Ctrl+E opens export options, Ctrl+0 fits and Ctrl+1 selects
 physical 100%. Double-click also switches fit/100%. Changes update the preview
 automatically after a 180 ms settling delay. The filmstrip restores each
@@ -179,3 +186,140 @@ pixels; PNG8/JPEG8 use 8-bit samples, and resizing is explicitly requested.
 
 Nikon HE/HE* RAW remains explicitly unsupported by this LibRaw build. A failed
 NEF open must leave the previous ARW and its session usable.
+
+## Display colour management
+
+Each window has a `ColorPipeline` (`src/ColorPipeline.hpp` is the contract).
+A canvas asks it for the LUT from its frame's encoded colour space to the
+display; UI chrome is never managed. The colour core is `DisplayColor.*`
+(which profile) and `ColorLut.*` (the LUT, and a CPU model of the shader's
+texel-centre trilinear lookup that the tests measure against).
+
+**Which profile.** In `automatic` mode, the profile is the one for the monitor
+Qt reports for the window. The pipeline follows the window to another monitor.
+Windows is asked in this order: `ColorProfileGetDisplayDefault` (Windows 10
+build 20348 and later, loaded at run time), then `WcsGetDefaultColorProfile`,
+then `GetICMProfileW`. Calibration `vcgt` curves are ignored, because the
+graphics card applies them. `srgb` mode assumes an sRGB display, so sRGB frames
+are drawn unchanged. `custom` mode uses a chosen `.icc` file. The intent is
+relative colorimetric with clipping, which is Qt's only intent. Nodes outside
+the display gamut get alpha 0, for a gamut warning.
+
+**Windows Advanced Color.** In legacy SDR the canvas targets the display
+profile. Under Auto Color Management, Windows treats the 8-bit swapchain as
+sRGB and manages it to the display itself. The canvas then targets sRGB and
+the status line says so. HDR also targets sRGB for now, with a note, until
+there is an HDR swapchain.
+
+**Fallbacks.** Some profiles fall back to sRGB with an English warning that
+names the file and the reason: missing, unreadable, truncated, CMYK, greyscale,
+or A2B-only (a profile Qt cannot use as a target).
+
+**Profile changes.** Windows sends no notification when a profile changes. The
+pipeline asks again after any of these:
+
+- a screen change, or a screen added or removed;
+- `WM_DISPLAYCHANGE`, `WM_SETTINGCHANGE` or `WM_DPICHANGED`;
+- the application becoming active;
+- a 3 s poll (one query measured 1.3 ms on the development machine);
+- a call to `reload()`.
+
+LUTs are built on a worker thread, in about 20 ms with curves and 56 ms
+without (measured). The previous LUT is served until the new one lands, and
+six LUTs are cached. `SPEKTRALAB_COLOR_LOG=1` logs each decision and build.
+
+**Two forms.** When both the source and the display are matrix/TRC profiles,
+the LUT has curves:
+
+- the shaper decodes the source to linear light;
+- a 65³ table holds the 3×3 between the two linear spaces, unclamped, with the
+  gamut flag in alpha;
+- a 4096-entry output curve, indexed by √u, encodes for the display.
+
+A LUT-based (A2B/B2A) display has no 3×3 to factor out. It keeps one 65³ table
+from encoded source to encoded display.
+
+**Accuracy.** Measured on 8-bit inputs, comparing the shader model's clamped
+output against Qt's own transform. The "before" column is the encoded table
+that every display used before the curves; codes 1-3 were searched
+exhaustively.
+
+| case | before | with curves |
+|---|---|---|
+| sRGB to Adobe RGB, a channel at codes 1-3 | 3.43 counts | 0.004 counts |
+| sRGB to a gamma 2.6 display | 6.72 counts | 0.354 counts (Qt's float noise in a zero channel) |
+| sRGB to Display P3 | 0.085 counts | 0.000 counts |
+| sRGB colours carried in ProPhoto, back to sRGB | 14.5 counts | 0.002 counts |
+| sRGB to this machine's HP Z31x profile (real, via `--probe-display`) | 7.20 counts, at (255,29,0) | 0.004 counts; (255,29,0) 0.000 |
+
+**What the canvas needs for that accuracy.** The table works in linear light,
+so its errors are a fixed amount of light. A matrix with cancelling terms, and
+then a display curve steep near zero, magnify that light wherever an output
+channel is near zero. The table needs float32 entries and full-precision
+weights (eight `texelFetch`, filtered in the shader). The curves can use the
+hardware filter.
+
+D3D11 and Vulkan promise only 8 bits of filter-weight precision. On the
+replica of this machine's profile, the table under 8-bit hardware weights
+misses by:
+
+| table size | weights rounded | weights truncated |
+|---|---|---|
+| 65 | 1.90 counts | 3.07 counts |
+| 129 | 1.41 counts | 2.18 counts |
+
+No feasible size fixes that. A half-float table measured 0.15 counts and
+half-float curves 0.27 counts. Half-float curves cost 1.34 counts on the
+ProPhoto round trip. With float weights, the table size does not affect
+accuracy: 9 nodes are already exact. The size only sets the gamut flag's
+resolution: of ProPhoto colours, 1.2 % are misflagged at 65, 2.4 % at 33 and
+4.3 % at 17. `spk_qt_color_core_test --sweep` prints these measurements.
+
+The encoded table for LUT-based displays keeps its old limit near black. On a
+synthetic wide-gamut lut16 display, the table misses Qt by up to 3.3 counts
+(1.6 counts away from codes 1-3). Qt's own evaluation of that profile differs
+from the display it describes by 9.2 counts, and the table adds nothing
+measurable to that. Qt 6.11.3 reads lut16 PCSXYZ with 0xFFFF as 1.0, where
+ICC's legacy encoding has 0x8000 as 1.0. That was measured on a synthetic
+profile; whether real lut16/XYZ display profiles are read at half scale is not
+yet checked against one.
+
+**The canvas.** `FrameCanvas` (main canvas, navigator, filmstrip) draws its
+image through `ColorCanvasNode`: a custom scene-graph material
+(`shaders/colorcanvas.*`) that samples the frame as before (Nearest at or
+above 100 %, Linear below), runs it through the LUT (shaper, table, output
+curve when the LUT has curves), clamps, and adds one 8-bit step of triangular
+dither when asked. The table (a 3D texture, or a 2D atlas without 3D
+textures) and the curves are 32-bit float, shared per window and LUT key, and
+only fetched: the shader interpolates the table's eight nodes and each
+curve's two entries with float weights, so no 8-bit filter weight touches
+them and no float filtering support is needed. Under the identity, an 8-bit
+frame is drawn by a bare texture read, exactly as Qt's texture node drew it.
+RGBX16FPx4 frames keep half-float precision up to the LUT. Frames over the
+16384 px texture limit are tiled with a one-texel apron. The software backend
+(the self-test) runs the same path on the CPU. `spk_qt_color_canvas` renders
+on D3D11 WARP through `QQuickRenderControl` and reads back against an
+independent reference and against the colour core's model of the recommended
+canvas sampling: exact for the identity, within one count through every LUT,
+curve, tile seam and translucency case (a float target measures the curved
+path within 0.0004 counts of exact), with the letterbox untouched.
+`spk_qt_color_canvas_software` runs the CPU path.
+
+**Tests.** `spk_qt_color_core` runs on the CPU, with no GPU, no shown window
+and no installed profile. Its ICC profiles are built in the test, including a
+CMYK one and an A2B-only one written byte by byte. It checks:
+
+- identity, swapped primaries, gamma 2.6, Display P3, Adobe RGB, a replica of
+  the HP Z31x profile and ProPhoto, through the shader model, in both forms;
+- exact filtering and the recommended canvas path, both held to half a count;
+  8-bit hardware weights and half floats are measured;
+- a LUT-based display (A2B/B2A lut16), which keeps the encoded table;
+- the fallbacks;
+- `ColorPipeline` on simulated monitors: two monitors, a screen change, a
+  profile recalibrated in place (once through the poll), ACM, HDR, the three
+  modes, the cache, and the old LUT served until a rebuild lands;
+- `forWindow` called from a render thread.
+
+`spk_qt_color_core_test --probe-display` prints what each Windows query says
+about this machine's monitors, and the LUT accuracy for the real profile. It
+only reads.

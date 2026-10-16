@@ -22,21 +22,62 @@ if(MSVC)
     add_compile_options(/utf-8 /Zc:__cplusplus)
     add_compile_definitions(NOMINMAX)
 endif()
-find_package(Qt6 6.8 REQUIRED COMPONENTS Core Gui Qml Quick QuickControls2)
+find_package(Qt6 6.8 REQUIRED COMPONENTS Core Gui Qml Quick QuickControls2 ShaderTools)
+# rhi/qrhi.h: the canvas's frame and display-LUT textures (ColorCanvasNode.cpp).
+find_package(Qt6 6.8 REQUIRED COMPONENTS GuiPrivate)
 qt_standard_project_setup(REQUIRES 6.8)
+
+# The canvas material's shaders. The fragment shader is one source built per
+# variant (no lookup, 3D texture, 2D atlas, bare copy, and both tables with
+# the 1-D curves; see its header); GLSL 300 es/330 because it uses integer
+# arithmetic and sampler3D.
+function(spk_qt_add_canvas_shaders target)
+    qt_add_shaders(${target} "${target}_canvas_vertex" BATCHABLE PREFIX "/" GLSL "300es,330"
+        FILES shaders/colorcanvas.vert)
+    foreach(variant IN ITEMS "plain;0;0" "lut3d;1;0" "lut2d;2;0" "copy;3;0" "lut3d_curves;1;1" "lut2d_curves;2;1")
+        list(GET variant 0 name)
+        list(GET variant 1 mode)
+        list(GET variant 2 curves)
+        qt_add_shaders(${target} "${target}_canvas_${name}" PREFIX "/" GLSL "300es,330"
+            DEFINES "LUT_MODE=${mode};CURVES=${curves}" FILES shaders/colorcanvas.frag
+            OUTPUTS shaders/colorcanvas_${name}.frag.qsb)
+    endforeach()
+endfunction()
 
 qt_add_executable(SpektraLabQt WIN32
     src/main.cpp src/Messages.hpp src/PreviewController.hpp src/PreviewController.cpp
     src/FrameOutput.hpp src/FrameOutput.cpp src/FrameImage.hpp src/FrameImage.cpp
     src/EditStore.hpp src/EditStore.cpp
     src/FrameCanvas.hpp src/FrameCanvas.cpp
-    src/ColorPipeline.hpp src/ColorPipeline.cpp)
+    src/ColorCanvasNode.hpp src/ColorCanvasNode.cpp
+    src/ColorPipeline.hpp src/ColorPipeline.cpp
+    src/Localizer.hpp src/Localizer.cpp)
 target_compile_features(SpektraLabQt PRIVATE cxx_std_20)
 target_link_libraries(SpektraLabQt PRIVATE
-    spk_desktop_host Qt6::Core Qt6::Gui Qt6::Qml Qt6::Quick Qt6::QuickControls2)
-set_source_files_properties(qml/Theme.qml PROPERTIES QT_QML_SINGLETON_TYPE TRUE)
+    spk_desktop_host Qt6::Core Qt6::Gui Qt6::GuiPrivate Qt6::Qml Qt6::Quick Qt6::QuickControls2)
+spk_qt_add_canvas_shaders(SpektraLabQt)
+# The colour core behind ColorPipeline: display-profile discovery and the LUT.
+target_sources(SpektraLabQt PRIVATE
+    src/DisplayColor.hpp src/DisplayColor.cpp src/ColorLut.hpp src/ColorLut.cpp)
+# The compiled-in language tables, read from :/i18n (i18n/README.md).
+qt_add_resources(SpektraLabQt "spektralab_i18n" PREFIX "/i18n" BASE i18n FILES i18n/en.json)
+set_source_files_properties(qml/Theme.qml qml/L10n.qml PROPERTIES QT_QML_SINGLETON_TYPE TRUE)
+# One module; the subdirectories are ownership, not namespaces -- every type is
+# visible to every file by its bare name. Main.qml is the window, EditorState
+# the state the panes share, L10n the text lookup.
 qt_add_qml_module(SpektraLabQt URI SpektraLab VERSION 1.0
-    QML_FILES qml/Main.qml qml/Theme.qml qml/Section.qml qml/ActionButton.qml
+    QML_FILES
+        qml/Main.qml qml/EditorState.qml qml/L10n.qml
+        qml/Theme.qml qml/Section.qml qml/ActionButton.qml
+        qml/controls/Note.qml qml/controls/Adjustment.qml qml/controls/Effect.qml
+        qml/controls/StockList.qml
+        qml/left/LeftRail.qml qml/left/NavigatorSection.qml qml/left/FilmSection.qml
+        qml/left/PrintSection.qml qml/left/CropSection.qml qml/left/EnlargerSection.qml
+        qml/centre/CentrePane.qml qml/centre/TopBar.qml qml/centre/CanvasView.qml
+        qml/centre/CropOverlay.qml qml/centre/StatusBar.qml qml/centre/Filmstrip.qml
+        qml/right/RightRail.qml qml/right/CameraSection.qml qml/right/FilmFormatSection.qml
+        qml/right/DecodeSection.qml qml/right/InfoSection.qml qml/right/StatusSection.qml
+        qml/export/ExportPopup.qml
     NO_CACHEGEN)
 set_target_properties(SpektraLabQt PROPERTIES RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/app")
 
@@ -95,6 +136,28 @@ if(BUILD_TESTING)
         add_test(NAME spk_desktop_settings_engine COMMAND spk_desktop_preview_test --settings-engine
             "$<TARGET_FILE_DIR:SpektraLabQt>/resources")
     endif()
+    # The canvas through forced display LUTs, against a CPU reference: on the
+    # GPU (D3D11 WARP through QQuickRenderControl; exit 77 = no WARP, skipped
+    # loudly) and through the software backend's CPU path.
+    qt_add_executable(spk_qt_color_canvas_test tests/color_canvas.cpp
+        src/FrameCanvas.hpp src/FrameCanvas.cpp src/ColorCanvasNode.hpp src/ColorCanvasNode.cpp
+        src/ColorPipeline.hpp src/ColorPipeline.cpp src/DisplayColor.hpp src/DisplayColor.cpp
+        src/ColorLut.hpp src/ColorLut.cpp)
+    target_include_directories(spk_qt_color_canvas_test PRIVATE src)
+    target_compile_features(spk_qt_color_canvas_test PRIVATE cxx_std_20)
+    target_link_libraries(spk_qt_color_canvas_test PRIVATE Qt6::Core Qt6::Gui Qt6::GuiPrivate Qt6::Quick)
+    spk_qt_add_canvas_shaders(spk_qt_color_canvas_test)
+    add_test(NAME spk_qt_color_canvas COMMAND spk_qt_color_canvas_test)
+    add_test(NAME spk_qt_color_canvas_software COMMAND spk_qt_color_canvas_test --software)
+    set_tests_properties(spk_qt_color_canvas PROPERTIES SKIP_RETURN_CODE 77)
+    # The shipped tables and the QML keys, plus a scratch directory inside the
+    # build tree for the test's own language files.
+    qt_add_executable(spk_qt_localizer_test tests/localizer.cpp src/Localizer.hpp src/Localizer.cpp)
+    target_include_directories(spk_qt_localizer_test PRIVATE src)
+    target_compile_features(spk_qt_localizer_test PRIVATE cxx_std_20)
+    target_link_libraries(spk_qt_localizer_test PRIVATE Qt6::Core)
+    add_test(NAME spk_qt_localizer COMMAND spk_qt_localizer_test
+        "${CMAKE_CURRENT_SOURCE_DIR}/i18n" "${CMAKE_CURRENT_SOURCE_DIR}/qml" "${CMAKE_CURRENT_BINARY_DIR}/localizer_test")
     if(WIN32)
         # Specify each test's DLL search path: CTest on this Windows host can
         # restore the pre-launch PATH between tests. Ambient PATH alone makes
@@ -104,7 +167,8 @@ if(BUILD_TESTING)
             get_filename_component(qt_test_compiler_directory "${CMAKE_CXX_COMPILER}" DIRECTORY)
             list(APPEND qt_test_runtime_path "PATH=path_list_prepend:${qt_test_compiler_directory}")
         endif()
-        set_tests_properties(spk_qt_frame_output spk_qt_frame_image spk_qt_edit_store spk_qt_controller_settings PROPERTIES
+        set_tests_properties(spk_qt_frame_output spk_qt_frame_image spk_qt_edit_store spk_qt_controller_settings
+            spk_qt_localizer spk_qt_color_canvas spk_qt_color_canvas_software PROPERTIES
             ENVIRONMENT_MODIFICATION "${qt_test_runtime_path}")
     endif()
     qt_add_executable(spk_qt_editing_workflow_test tests/editing_workflow.cpp tests/display_checks.hpp
@@ -114,4 +178,19 @@ if(BUILD_TESTING)
     target_link_libraries(spk_qt_editing_workflow_test PRIVATE spk_desktop_host Qt6::Core Qt6::Gui)
     # Full-RAW fixtures and a fresh output directory are explicit test arguments;
     # no absent-fixture skip can masquerade as a green CTest run.
+
+    # Display colour management on the CPU: synthetic ICC profiles, the LUT
+    # against Qt's transform through a model of the shader's lookup, and
+    # simulated monitors driving ColorPipeline. No GPU, no shown window, no
+    # installed profile. `--probe-display` prints this machine's displays.
+    qt_add_executable(spk_qt_color_core_test tests/color_core.cpp
+        src/ColorPipeline.hpp src/ColorPipeline.cpp src/DisplayColor.hpp src/DisplayColor.cpp
+        src/ColorLut.hpp src/ColorLut.cpp)
+    target_include_directories(spk_qt_color_core_test PRIVATE src)
+    target_compile_features(spk_qt_color_core_test PRIVATE cxx_std_20)
+    target_link_libraries(spk_qt_color_core_test PRIVATE Qt6::Core Qt6::Gui Qt6::Quick)
+    add_test(NAME spk_qt_color_core COMMAND spk_qt_color_core_test "${CMAKE_CURRENT_BINARY_DIR}/color-core-test")
+    if(WIN32)
+        set_tests_properties(spk_qt_color_core PROPERTIES ENVIRONMENT_MODIFICATION "${qt_test_runtime_path}")
+    endif()
 endif()

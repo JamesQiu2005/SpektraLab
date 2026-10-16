@@ -22,8 +22,60 @@ enum class DecodeMode { compatible16, headroom };
 struct Stock {
     std::string id, label;
     bool is_positive = false;
+    // The rest of the profile's `info`, read as macOS's Tools/gen-catalog.py
+    // reads it into StockCatalog.json: `use` "cine", `channel_model` "bw" (one
+    // silver emulsion, or a silver paper), and `target_print`, the paper the
+    // film was made for (empty for a slide, and for every paper).
+    bool is_cine = false;
+    bool is_monochrome = false;
+    std::string target_print;
 };
-struct Catalog { std::vector<Stock> films, papers; };
+struct Catalog {
+    std::vector<Stock> films, papers;
+    // nullptr when the catalogue has no such stock.
+    const Stock* film(std::string_view id) const;
+    const Stock* paper(std::string_view id) const;
+};
+
+// --- the catalogue ------------------------------------------------------
+//
+// One entry per <resources>/profiles/*.json: spektrafilm's, and the product's
+// own black-and-white films and silver paper (engine/resources_product/),
+// which the build lays beside them as engine/build.sh does for macOS. Films
+// and papers are each sorted by label. Throws std::runtime_error on a profile
+// it cannot read.
+Catalog read_catalog(const std::filesystem::path& resources);
+
+// macOS StockCatalog.canPrint (StockCatalog.swift:133): silver film on silver
+// paper, colour on colour. A stock the catalogue does not know rules nothing
+// out.
+bool can_print(const Catalog& catalog, std::string_view film, std::string_view paper);
+
+// The paper a change of film lands on, by macOS Session.selectFilmStock
+// (Session.swift:2988): the film's own paper whenever it names one the
+// catalogue has, and otherwise `paper` -- unless that cannot print the film,
+// when it is the film's paper or, failing that, `fallback`. A slide names
+// none, so its paper is kept for the next negative.
+std::string paper_for_film(const Catalog& catalog, std::string_view film, const std::string& paper,
+                           const std::string& fallback);
+
+// The film and paper lists as macOS groups them (StockCatalog.filmGroups and
+// paperGroups): films "positive", "negative", then "blackAndWhite" when the
+// catalogue has any; papers "still", then "cine". Within a group, stills
+// before cine stocks and each by identifier, the macOS catalogue's order. An
+// empty group is still returned; the pointers are into `catalog`.
+struct StockGroup {
+    std::string key;
+    std::vector<const Stock*> stocks;
+};
+std::vector<StockGroup> film_groups(const Catalog& catalog);
+std::vector<StockGroup> paper_groups(const Catalog& catalog);
+
+// A film's own grain: what the Grain strength's 1 is in `grain_amount`, the
+// amount at which the engine renders the RMS granularity the maker publishes.
+// macOS FilmParams.ownGrain (Params.swift:593): the four black-and-white
+// films' measured values, 1 for everything else.
+double own_grain(std::string_view film);
 
 // --- the settings table -------------------------------------------------
 //
@@ -36,6 +88,8 @@ struct Catalog { std::vector<Stock> films, papers; };
 // Type, layer and range mirror the row of the same name in core/params.cpp
 // (a desktop range may be narrower, never wider); spk_desktop_preview_test
 // holds the two tables together, and holds `absent` to the engine default.
+// A product row (`wire` false) is the one exception: it names no engine
+// field, and what it changes is written in wire_params.
 enum class SettingType { boolean, number, text };
 enum class SettingLayer { shoot, print };
 // The values a text row accepts: its own list, or a stock in the catalogue.
@@ -57,6 +111,11 @@ struct SettingField {
     // never sent, so the engine default applied. Loading such a record with
     // this value, not `initial`, keeps it looking the way it was made.
     SettingValue absent;
+    // False for a product row: a choice macOS keeps beside the engine
+    // parameters (Params.swift FilmParams.printEffects) that is never sent
+    // itself and only decides what other rows send (wire_params). It is
+    // stored, validated and saved like any row, and is no engine field.
+    bool wire = true;
 };
 
 const std::vector<SettingField>& setting_fields();
@@ -104,8 +163,9 @@ private:
 };
 
 // Checks every row (the stocks against `catalog`) and throws
-// std::runtime_error naming the first bad one. Returns whether the film is a
-// positive, which is scanned directly instead of printed.
+// std::runtime_error naming the first bad one. Returns whether the film is
+// scanned instead of printed: a positive always is, and a negative when
+// `scan_film` (macOS's "No Print Profile") is on.
 bool validate_settings(const RenderSettings& settings, const Catalog& catalog);
 
 // What the desktop asks spk_open to render into until the frontend converts
@@ -113,10 +173,28 @@ bool validate_settings(const RenderSettings& settings, const Catalog& catalog);
 // RFC-018 §5.1). A request, not a fact: see OutputEncoding.
 inline constexpr const char* kDisplayOutputColorSpace = "sRGB";
 
-// The complete parameters spk_open receives: the host's fixed I/O policy,
-// scan_film and every row. `output_color_space` is the space requested.
-Json opening_params(const RenderSettings& settings, bool scan_film,
+// What the settings put on the wire: every wire row, under the product's
+// rules -- macOS FilmParams.wire (Params.swift:726-825):
+//  - scan_film is on for a slide film whatever the row says;
+//  - glare_active and preflash_exposure are off while print_effects is off
+//    (the Print section's Print Effects), their own values kept;
+//  - grain_sublayers_active is off on a black-and-white film;
+//  - grain_amount is the row times the film's own grain (own_grain), within
+//    the row's range;
+//  - a black-and-white film on a silver paper also carries Multigrade filter
+//    2 as the neutral pack, c/m/y_filter_neutral 0/0/68, because the engine's
+//    filter table has no silver paper and would keep the last colour pair's.
+// A stock the catalogue does not know is taken as a colour negative.
+Json wire_params(const RenderSettings& settings, const Catalog& catalog);
+// The complete parameters spk_open receives: the host's fixed I/O policy and
+// wire_params. `output_color_space` is the space requested.
+Json opening_params(const RenderSettings& settings, const Catalog& catalog,
                     const std::string& output_color_space = kDisplayOutputColorSpace);
+// Only the wire values that differ, so an edit never invalidates more of the
+// session than it changed. A film change also carries scan_film. A field that
+// leaves the wire (the silver pack) is not sent: leaving a silver pair is a
+// stock change, on which the engine reloads the colour pair's pack itself.
+Json changed_params(const RenderSettings& before, const RenderSettings& after, const Catalog& catalog);
 
 // How a session's RGBA16 code values are encoded: the output colour space
 // spk_open *resolved* (its reply's params.output_color_space, RFC-018 §5.1)
@@ -133,9 +211,6 @@ struct OutputEncoding {
 // Reads the open reply. Throws std::runtime_error when the reply carries no
 // string output_color_space or no boolean output_cctf_encoding under params.
 OutputEncoding output_encoding(const Json& open_reply);
-// Only the rows that differ, so an edit never invalidates more of the
-// session than it changed. A film change also carries scan_film.
-Json changed_params(const RenderSettings& before, const RenderSettings& after, bool scan_film);
 
 // Wall-clock calls, including CPU result readback in render_ms. total_ms is
 // the complete host call, not a sum of nested measurements. Engine creation
@@ -157,8 +232,8 @@ public:
     std::filesystem::path source;
     DecodeMode decode_mode = DecodeMode::compatible16;
     RenderSettings settings;
-    // Resolved from the selected film's catalog metadata, not a separate
-    // user setting. Slide film is viewed directly without the paper stage.
+    // Resolved by validate_settings: a slide film is always viewed directly
+    // without the paper stage, a negative when its scan_film row is on.
     bool scan_film = false;
     io::RawMetadata metadata;
     io::RawDecodeTimings decode_timings;

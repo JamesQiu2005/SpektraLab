@@ -47,6 +47,31 @@ Json read_json(const fs::path& path) {
     return value;
 }
 
+// An optional text field of a profile's `info`; empty when absent or null
+// (a slide's and every paper's `target_print` is null).
+std::string info_text(const Json& info, const char* key) {
+    const Json& value = info.at(key);
+    return value.is_string() ? value.as_string() : std::string();
+}
+
+const Stock* find_stock(const std::vector<Stock>& stocks, std::string_view id) {
+    const auto it = std::find_if(stocks.begin(), stocks.end(), [&](const Stock& s) { return s.id == id; });
+    return it == stocks.end() ? nullptr : &*it;
+}
+
+std::vector<const Stock*> by_identifier(const std::vector<Stock>& stocks) {
+    std::vector<const Stock*> out;
+    for (const Stock& s : stocks) out.push_back(&s);
+    std::sort(out.begin(), out.end(), [](const Stock* a, const Stock* b) { return a->id < b->id; });
+    // macOS StockCatalog.filmsForPicker: stills, then cine, each in order.
+    std::stable_partition(out.begin(), out.end(), [](const Stock* s) { return !s->is_cine; });
+    return out;
+}
+}  // namespace
+
+const Stock* Catalog::film(std::string_view id) const { return find_stock(films, id); }
+const Stock* Catalog::paper(std::string_view id) const { return find_stock(papers, id); }
+
 Catalog read_catalog(const fs::path& resources) {
     Catalog catalog;
     std::set<std::string> ids;
@@ -66,6 +91,11 @@ Catalog read_catalog(const fs::path& resources) {
                 "Missing or duplicate bundled stock metadata");
         require(type == "negative" || type == "positive", "Unknown bundled stock type: " + type);
         stock.is_positive = type == "positive";
+        // Optional, as gen-catalog.py treats them: absent is a still colour
+        // stock that names no paper.
+        stock.is_cine = info_text(info, "use") == "cine";
+        stock.is_monochrome = info_text(info, "channel_model") == "bw";
+        stock.target_print = info_text(info, "target_print");
         if (stage == "filming") catalog.films.push_back(std::move(stock));
         else if (stage == "printing") catalog.papers.push_back(std::move(stock));
         else throw std::runtime_error("Unknown bundled stock stage: " + stage);
@@ -76,6 +106,60 @@ Catalog read_catalog(const fs::path& resources) {
     require(!catalog.films.empty() && !catalog.papers.empty(), "Bundled film/paper catalog is empty");
     return catalog;
 }
+
+bool can_print(const Catalog& catalog, std::string_view film, std::string_view paper) {
+    const Stock* f = catalog.film(film);
+    const Stock* p = catalog.paper(paper);
+    return !f || !p || f->is_monochrome == p->is_monochrome;
+}
+
+std::string paper_for_film(const Catalog& catalog, std::string_view film, const std::string& paper,
+                           const std::string& fallback) {
+    const Stock* f = catalog.film(film);
+    // Only a paper the catalogue has: macOS checks `catalog.stock(target)`.
+    const std::string target = f && catalog.paper(f->target_print) ? f->target_print : std::string();
+    // macOS skips the move only when the paper already is the target, which
+    // makes it unconditional; the code, not its comment, is the behaviour.
+    std::string chosen = target.empty() ? paper : target;
+    // Between colour and black and white the paper cannot stay.
+    if (!can_print(catalog, film, chosen)) chosen = target.empty() ? fallback : target;
+    return chosen;
+}
+
+std::vector<StockGroup> film_groups(const Catalog& catalog) {
+    std::vector<StockGroup> groups{{"positive", {}}, {"negative", {}}};
+    StockGroup silver{"blackAndWhite", {}};
+    for (const Stock* s : by_identifier(catalog.films)) {
+        if (s->is_positive) groups[0].stocks.push_back(s);
+        else if (s->is_monochrome) silver.stocks.push_back(s);
+        else groups[1].stocks.push_back(s);
+    }
+    // A third group, and only when the catalogue has any: a black-and-white
+    // negative prints on a different paper (StockCatalog.swift:109-113).
+    if (!silver.stocks.empty()) groups.push_back(std::move(silver));
+    return groups;
+}
+
+std::vector<StockGroup> paper_groups(const Catalog& catalog) {
+    std::vector<StockGroup> groups{{"still", {}}, {"cine", {}}};
+    for (const Stock* s : by_identifier(catalog.papers)) groups[s->is_cine ? 1 : 0].stocks.push_back(s);
+    return groups;
+}
+
+double own_grain(std::string_view film) {
+    // Measured on engine renders at 6 um pixels, grain as one layer, net
+    // density 1.0, 48 um aperture, against each maker's published diffuse RMS
+    // granularity (Tri-X 17, T-Max 8, Acros II 7, HP5 Plus 16); the owner's
+    // decision of 2026-10-07 that a film's grain is a per-film amount and not
+    // an engine change. Nothing is measured into a colour film's: 1.
+    if (film == "kodak_tri_x_400") return 1.70;
+    if (film == "ilford_hp5_plus_400") return 1.49;
+    if (film == "kodak_tmax_100") return 0.74;
+    if (film == "fujifilm_neopan_acros_100_ii") return 0.64;
+    return 1.0;
+}
+
+namespace {
 
 // --- the settings table ---------------------------------------------------
 
@@ -105,6 +189,13 @@ Row boolean(std::string key, std::string label, SettingLayer layer, bool initial
     f.initial = initial;
     f.absent = initial;
     return {std::move(f), member};
+}
+// A product row: stored and saved, never sent (SettingField::wire). A record
+// from before it existed was made with the behaviour `initial` names.
+Row product(std::string key, std::string label, SettingLayer layer, bool initial) {
+    Row row = boolean(std::move(key), std::move(label), layer, initial);
+    row.field.wire = false;
+    return row;
 }
 Row text(std::string key, std::string label, SettingLayer layer, SettingChoices choices,
          std::vector<std::string> listed, std::string initial, std::string absent, Member member = {}) {
@@ -154,6 +245,41 @@ const std::vector<Row>& rows() {
                          {"balanced", "center", "protect_highlights", "protect_shadows",
                           "center_weighted", "average", "median"},
                          "balanced", "center_weighted"));
+        // The rest of the macOS Film and Print sections' controls, each at the
+        // engine's own default, which is also macOS's: `absent` is `initial`,
+        // and no saved edit renders differently for the row being added.
+        //
+        // The meter switched off -- the AE Method pill's "Custom" (Params.swift
+        // AEMethod, :176-240): Film Exposure is then measured from the
+        // linearised frame and the metering intent above is kept for later.
+        t.push_back(boolean("auto_exposure", "Auto exposure", SHOOT, true));
+        // "No Print Profile" (PrintProfileSection.swift:110-127): scan the
+        // developed film instead of printing it, the paper kept for when it
+        // comes back. A slide is scanned whatever this says (wire_params).
+        t.push_back(boolean("scan_film", "No print profile", PRINT, false));
+        // Print Effects (PrintProfileSection.swift:152-164, Params.swift:641):
+        // off leaves the paper's colour transformation and nothing else -- no
+        // glare, no pre-flash -- and forgets neither (wire_params).
+        t.push_back(product("print_effects", "Print effects", PRINT, true));
+        // The enlarger's pre-flash (EnlargerSection.swift:53-57): uniform paper
+        // exposure through the film's clear base. macOS shows it x100 and stops
+        // at 0.03 of the wire's 0..1, the useful range measured there
+        // (Params.swift:603-608).
+        t.push_back(number("preflash_exposure", "Pre-flash", PRINT, 0.0, 0.03, 0.0, 0.0));
+        // RFC-025's strengths the Film Format section shows when effects are
+        // decoupled (ParameterSections.swift:105-139; Params.swift
+        // EffectStrengths, whose ranges these are).
+        t.push_back(boolean("antihalation_removed", "Anti-halation layer removed", SHOOT, false));
+        t.push_back(number("halation_scatter_amount", "Halation scatter", SHOOT, 0.0, 1.0, 1.0, 1.0));
+        t.push_back(number("halation_boost_ev", "Highlight boost (EV)", SHOOT, 0.0, 8.0, 0.0, 0.0));
+        t.push_back(boolean("dir_couplers_active", "Couplers", SHOOT, true));
+        // 1.5, not the wire's 4: above ~1.736 the coupler inverse's exposure
+        // axis stops being monotonic (AGENTS.md trap 22).
+        t.push_back(number("dir_couplers_amount", "Couplers amount", SHOOT, 0.0, 1.5, 1.0, 1.0));
+        // The three-sub-layer grain model against one layer (the Film Format
+        // menu's check, ParameterSections.swift:193). Never on a black-and-white
+        // film, whatever this says (wire_params).
+        t.push_back(boolean("grain_sublayers_active", "Sub-layer grain", SHOOT, true));
         return t;
     }();
     return table;
@@ -191,9 +317,9 @@ struct OpenedSession {
 };
 
 OpenedSession open_session(spk_engine* engine, const io::DecodedRaw& decoded, const RenderSettings& settings,
-                           bool scan_film, const std::string& output_color_space) {
+                           const Catalog& catalog, const std::string& output_color_space) {
     const spk_image input{decoded.rgb.data(), decoded.width, decoded.height, 3};
-    const auto params = opening_params(settings, scan_film, output_color_space).dump();
+    const auto params = opening_params(settings, catalog, output_color_space).dump();
     // The reply is read for one thing: what the session renders into. The
     // request above is not evidence of that (RFC-018 §5.1, AGENTS.md trap 28).
     char* reply_text = nullptr;
@@ -288,43 +414,80 @@ bool validate_settings(const RenderSettings& settings, const Catalog& catalog) {
         const auto error = check_setting(row.field, settings.get(row.field.key), &catalog);
         require(error.empty(), error);
     }
-    const auto film = std::find_if(catalog.films.begin(), catalog.films.end(),
-        [&](const Stock& stock) { return stock.id == settings.film_stock; });
-    return film->is_positive;
+    return catalog.film(settings.film_stock)->is_positive || std::get<bool>(settings.get("scan_film"));
 }
 
-Json opening_params(const RenderSettings& settings, bool scan_film, const std::string& output_color_space) {
+Json wire_params(const RenderSettings& settings, const Catalog& catalog) {
+    const Stock* film = catalog.film(settings.film_stock);
+    const Stock* paper = catalog.paper(settings.print_stock);
+    const bool silver_film = film && film->is_monochrome;
+    const bool print_effects = std::get<bool>(settings.get("print_effects"));
+    Json wire = Json::object();
+    // Every wire row, including the ones still at the engine's default: a
+    // session is then fully described by the settings that opened it.
+    for (const Row& row : rows())
+        if (row.field.wire) wire.set(row.field.key, to_json(settings.get(row.field.key)));
+    // Desktop policy matches the macOS session: a slide is already a
+    // positive and must bypass negative-to-paper printing. The generic
+    // engine API still permits deliberate positive-to-paper experiments.
+    wire.set("scan_film", Json((film && film->is_positive) || std::get<bool>(settings.get("scan_film"))));
+    // Print Effects is a gate on the wire, so turning it back on restores
+    // exactly what was there (Params.swift:756, :759).
+    wire.set("glare_active", Json(settings.glare_active && print_effects));
+    if (!print_effects) wire.set("preflash_exposure", Json(0.0));
+    // The three sub-layers are the colour films' model; nothing on a B&W
+    // sheet supports the split (owner, 2026-10-09; Params.swift:744-750).
+    wire.set("grain_sublayers_active", Json(std::get<bool>(settings.get("grain_sublayers_active")) && !silver_film));
+    // The row is the Grain strength, a multiple of the film's own grain;
+    // the wire stops at 2 (Params.swift:789-790).
+    const SettingField& grain = row_for("grain_amount").field;
+    wire.set("grain_amount",
+             Json(std::clamp(settings.grain_amount * own_grain(settings.film_stock), grain.low, grain.high)));
+    // Black and white on its paper: the enlarger's pack is sent, because the
+    // engine's table has no row for a silver paper and a session coming from a
+    // colour pair would keep that pair's (Params.swift:810-820). Multigrade
+    // filter 2, from engine/resources_product/paper_grades.json, whose
+    // print_exposure is 1, so Print Exposure needs no correction.
+    if (silver_film && paper && paper->is_monochrome) {
+        wire.set("c_filter_neutral", Json(0.0));
+        wire.set("m_filter_neutral", Json(0.0));
+        wire.set("y_filter_neutral", Json(68.0));
+    }
+    return wire;
+}
+
+Json opening_params(const RenderSettings& settings, const Catalog& catalog, const std::string& output_color_space) {
     Json params = Json::object();
     params.set("input_color_space", Json(std::string("ProPhoto RGB")));
     params.set("input_cctf_decoding", Json(false));
     params.set("output_color_space", Json(output_color_space));
     params.set("output_cctf_encoding", Json(true));
+    // EDR maps the print's highlights above 1.0 (pipeline.cpp node_edr), and
+    // this host's output is an SDR sRGB frame that spk_to_rgba16 clamps to
+    // 1.0: the extended range would only clip. Off, as on a silver paper.
     params.set("extended_dynamic_range", Json(false));
-    // Desktop policy matches the macOS session: a slide is already a
-    // positive and must bypass negative-to-paper printing. The generic
-    // engine API still permits deliberate positive-to-paper experiments.
-    params.set("scan_film", Json(scan_film));
-    // Every row, including the ones still at the engine's default: a
-    // session is then fully described by the settings that opened it.
-    for (const Row& row : rows()) params.set(row.field.key, to_json(settings.get(row.field.key)));
+    // Named, not iterated as a temporary: fields() is a reference into it.
+    const Json wire = wire_params(settings, catalog);
+    for (const auto& [key, value] : wire.fields()) params.set(key, value);
     return params;
 }
 
-Json changed_params(const RenderSettings& before, const RenderSettings& after, bool scan_film) {
+Json changed_params(const RenderSettings& before, const RenderSettings& after, const Catalog& catalog) {
+    const Json was = wire_params(before, catalog);
+    const Json now = wire_params(after, catalog);
     Json delta = Json::object();
     // The C API retains carried user controls when loading another stock.
     // Send only changed fields: an unchanged SHOOT field in a paper-only
     // delta would unnecessarily invalidate the cached grain realization, and
     // even an unchanged film_stock invalidates the negative.
-    for (const Row& row : rows()) {
-        const auto& key = row.field.key;
-        auto value = after.get(key);
-        if (before.get(key) == value) continue;
-        delta.set(key, to_json(value));
-        // Send false too when returning to negative film, otherwise the
-        // previous slide's direct-scan mode would survive the stock change.
-        if (key == "film_stock") delta.set("scan_film", Json(scan_film));
+    for (const auto& [key, value] : now.fields()) {
+        const Json& old = was.at(key);
+        if (!old.is_null() && old.dump() == value.dump()) continue;
+        delta.set(key, value);
     }
+    // Send false too when returning to negative film, otherwise the
+    // previous slide's direct-scan mode would survive the stock change.
+    if (delta.has("film_stock")) delta.set("scan_film", now.at("scan_film"));
     return delta;
 }
 
@@ -431,7 +594,8 @@ FramePtr PreviewHost::open_raw(const fs::path& source, DecodeMode mode, const Re
     next->metadata = decoded.metadata;
     next->decode_timings = decoded.timings;
     t = Clock::now();
-    auto opened = open_session(impl_->engine.get(), decoded, settings, scan_film, impl_->options.output_color_space);
+    auto opened = open_session(impl_->engine.get(), decoded, settings, impl_->catalog,
+                               impl_->options.output_color_space);
     next->timings.open_ms = elapsed(t);
     next->encoding = opened.encoding;
     t = Clock::now();
@@ -464,14 +628,14 @@ FramePtr PreviewHost::render(const RenderSettings& settings) {
     next->scan_film = scan_film;
     next->metadata = impl_->frame->metadata;
     next->decode_timings = impl_->frame->decode_timings;
-    const auto delta = changed_params(impl_->frame->settings, settings, scan_film);
+    const auto delta = changed_params(impl_->frame->settings, settings, impl_->catalog);
     try {
         auto t = Clock::now();
         if (!impl_->session) {
             // C API settings changes may fail after applying part of their
             // state. Never reuse such a session; rebuild from the retained
             // decoded input on the next request, without decoding the file.
-            auto opened = open_session(impl_->engine.get(), impl_->decoded, settings, scan_film,
+            auto opened = open_session(impl_->engine.get(), impl_->decoded, settings, impl_->catalog,
                                        impl_->options.output_color_space);
             impl_->session = std::move(opened.session);
             impl_->encoding = opened.encoding;

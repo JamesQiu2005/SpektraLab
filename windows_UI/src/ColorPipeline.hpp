@@ -19,6 +19,7 @@
 #include <vector>
 
 class QQuickWindow;
+namespace spk::color { class ProfileSource; }
 
 // The display transform sampled on an N x N x N grid over the source's encoded
 // RGB in [0,1]. Node (r, g, b) is at index ((b * N + g) * N + r) * 4. RGB hold
@@ -26,11 +27,33 @@ class QQuickWindow;
 // display's gamut; the shader clamps after interpolating). A is 1 where the
 // node lies inside the target gamut and 0 where it was clipped -- the gamut
 // warning's input; 1 everywhere when not computed.
+//
+// Optional 1-D curves around the table (curveSize > 0 sets both). One table
+// over encoded values cannot follow a pure power response near black -- sRGB
+// to a gamma-2.2 Adobe RGB display missed by 7 counts at (255,29,0), sRGB
+// carried in ProPhoto by 14.5 (spk_qt_color_core) -- while a matrix/TRC
+// display is exact as decode -> 3x3 -> encode, and trilinear interpolation
+// reproduces a 3x3 exactly. With curves the canvas evaluates, per channel:
+//     t   = shaper(clamp(source, 0, 1))          (e.g. the source's decode)
+//     u   = table(t)                              (then RGB clamped to [0,1])
+//     out = output(sqrt(u))                       (e.g. the display's encode)
+// The output curve is indexed by sqrt(u) so that a display encoding (about
+// u^(1/2.2)) is nearly linear in the index and a uniform curve stays accurate
+// in the shadows. Each curve has curveSize entries, RGB per entry (A unused),
+// sampled with linear filtering at texel centres like the table:
+// coordinate = x * (curveSize - 1) / curveSize + 0.5 / curveSize. The gamut
+// flag stays in the table's alpha. Without curves (curveSize == 0) the table
+// maps encoded source to encoded display directly, as above -- the right
+// choice for LUT-based (A2B/B2A) display profiles.
 struct ColorLut {
     int size = 0;              // N; 0 means identity: draw without a LUT
     std::vector<float> rgba;   // size^3 * 4 floats
     quint64 key = 0;           // unique per content; a canvas re-uploads when it changes
+    int curveSize = 0;         // entries per curve; 0 = no curves
+    std::vector<float> shaper; // curveSize * 4 floats
+    std::vector<float> output; // curveSize * 4 floats, indexed by sqrt(table output)
     bool isIdentity() const { return size == 0; }
+    bool hasCurves() const { return curveSize > 0; }
 };
 
 class ColorPipeline : public QObject {
@@ -73,6 +96,22 @@ public:
     void setLutOverrideForTesting(std::shared_ptr<const ColorLut> lut);
 
     ~ColorPipeline() override;
+
+    // The colour space LUTs are built to now: the display profile, or sRGB
+    // in every fallback (srgb mode, Auto Color Management, HDR, a profile Qt
+    // cannot use as a target).
+    QColorSpace targetColorSpace() const;
+
+    // Tests only: replace the Windows queries (DisplayColor.hpp) with
+    // simulated monitors, and pretend the window is on `screenId`.
+    void setProfileSourceForTesting(std::shared_ptr<spk::color::ProfileSource> source);
+    void setScreenForTesting(const QString& screenId);
+
+public slots:
+    // Ask the OS about the window's monitor again now. Windows announces no
+    // profile change, so this also runs after screen changes, display and
+    // setting messages, application activation and on a 3 s poll.
+    void reload();
 
 signals:
     void changed();

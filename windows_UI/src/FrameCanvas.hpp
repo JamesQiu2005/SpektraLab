@@ -1,6 +1,14 @@
 #pragma once
 #include <QImage>
+#include <QPointer>
 #include <QQuickItem>
+
+class ColorPipeline;
+
+// The picture of the main canvas, the navigator and the filmstrip thumbnails.
+// The image is drawn through its window's display LUT (ColorPipeline.hpp,
+// ColorCanvasNode.hpp); everything around the image rectangle is left to the
+// items behind it.
 
 class FrameCanvas : public QQuickItem {
     Q_OBJECT
@@ -34,6 +42,9 @@ private:
     double dpr() const;
     double scale() const;
     void clampPan();
+    void attachPipeline(QQuickWindow* window);
+    QPointer<ColorPipeline> pipeline_;
+    QMetaObject::Connection pipelineChanged_;
     QImage image_;
     quint64 revision_=0;
     bool fit_=true,dragging_=false;

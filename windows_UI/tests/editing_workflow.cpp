@@ -16,6 +16,7 @@
 #include <QJsonObject>
 #include <QTimer>
 #include <QTransform>
+#include <algorithm>
 #include <cmath>
 #include <cstring>
 #include <functional>
@@ -185,6 +186,40 @@ int main(int argc,char** argv) {
                 c.setStraightenDegrees(6.5);c.setExposureEv(.4);idle(c,"Restore geometry checkpoint parameters");
             }
 
+            {
+                // A film that moves the paper is one undo step (macOS
+                // Session.selectFilmStock pushes one), and black and white
+                // prints on its silver paper as a neutral picture.
+                const auto film=c.parameter("film_stock"),paper=c.parameter("print_stock");
+                check(c.selectFilm("kodak_tri_x_400")&&c.parameter("print_stock")=="ilford_multigrade_iv_rc"&&
+                      c.filmIsMonochrome(),"A black-and-white film takes the silver paper");
+                idle(c,"Render Tri-X 400 on Multigrade IV RC");
+                check(c.frame()->settings.film_stock=="kodak_tri_x_400"&&
+                      c.frame()->settings.print_stock=="ilford_multigrade_iv_rc","Black-and-white frame published");
+                // The displayed picture is sRGB half floats, read here at 8
+                // bits; a silver print has no colour in it beyond rounding
+                // (glare and grain are on here).
+                const auto shown=c.previewImage().convertToFormat(QImage::Format_RGB32);
+                int spread=0;double mean=0;
+                for(int y=0;y<shown.height();++y)for(int x=0;x<shown.width();++x) {
+                    const QRgb p=shown.pixel(x,y);
+                    spread=std::max({spread,std::abs(qRed(p)-qGreen(p)),std::abs(qBlue(p)-qGreen(p))});
+                    mean+=qGreen(p);
+                }
+                mean/=double(shown.width())*shown.height()*255.0;
+                std::cout<<"black and white on the RAW: largest channel spread "<<spread<<"/255, mean "<<mean<<'\n';
+                check(spread<=2&&mean>0.05&&mean<0.95,"A black-and-white print of the RAW is a neutral picture");
+                c.undo();
+                check(c.parameter("film_stock")==film&&c.parameter("print_stock")==paper&&!c.filmIsMonochrome(),
+                      "One undo restores both the film and the paper it moved");
+                c.redo();
+                check(c.parameter("film_stock")=="kodak_tri_x_400"&&c.parameter("print_stock")=="ilford_multigrade_iv_rc",
+                      "One redo restores both again");
+                c.undo();idle(c,"Undo back to the colour pair");
+                check(c.frame()->settings.film_stock==film.toString().toStdString()&&
+                      c.frame()->settings.print_stock==paper.toString().toStdString(),"Colour pair renders again after undo");
+            }
+
             c.selectImage(1);idle(c,"Select untouched second photograph");checkPhoto(c,1,second);
             check(!c.canUndo()&&!c.canRedo()&&near(c.exposureEv(),0)&&c.quarterTurns()==0,
                   "Second photograph has independent empty history and geometry");
@@ -213,9 +248,17 @@ int main(int argc,char** argv) {
             // yield to the render/save timers. Destruction must flush wanted
             // edits rather than the older engine frame currently on screen.
             int alternativeFilm=-1;
-            for(int i=0;i<c.films().size();++i)if(i!=c.filmIndex()&&!c.films()[i].toMap()["positive"].toBool()){alternativeFilm=i;break;}
+            for(int i=0;i<c.films().size();++i)
+                if(i!=c.filmIndex()&&!c.films()[i].toMap()["positive"].toBool()&&!c.films()[i].toMap()["monochrome"].toBool()){alternativeFilm=i;break;}
             check(alternativeFilm>=0&&c.papers().size()>1,"Catalog provides independent persistence choices");
-            c.setFilmIndex(alternativeFilm);c.setPaperIndex((c.paperIndex()+1)%c.papers().size());c.setDecodeMode(1);c.setExposureEv(-.35);
+            c.setFilmIndex(alternativeFilm);
+            // The film took its own paper; then another one it can print on.
+            int alternativePaper=c.paperIndex();
+            do alternativePaper=(alternativePaper+1)%c.papers().size();
+            while(c.papers()[alternativePaper].toMap()["monochrome"].toBool());
+            c.setPaperIndex(alternativePaper);
+            check(c.paperIndex()==alternativePaper,"A second colour paper is chosen for persistence");
+            c.setDecodeMode(1);c.setExposureEv(-.35);
             c.setAdjustment("filmExposureEv",.65);c.setAdjustment("filmFormatMm",56.);
             c.setAdjustment("grainAmount",.45);c.setAdjustment("halationActive",false);c.setAdjustment("halationAmount",1.65);
             c.setAdjustment("glareAmount",.35);c.setAdjustment("yFilterShift",.05);c.setAdjustment("mFilterShift",-.07);

@@ -50,14 +50,18 @@ void mutateObject(QJsonObject& parent, const char* name,
 void mutateSettings(QJsonObject& document, const std::function<void(QJsonObject&)>& change) {
     mutateObject(document, "state", [&](auto& s) { mutateObject(s, "settings", change); });
 }
+// Version 1's thirteen settings, under their version 2 names.
+const QStringList version1Keys{"film_stock", "print_stock", "print_exposure", "exposure_compensation_ev",
+                               "film_format_mm", "grain_active", "grain_amount", "halation_active",
+                               "halation_amount", "glare_active", "glare_amount", "y_filter_shift", "m_filter_shift"};
 // The same record as version 1 wrote it: thirteen settings, film exposure
 // under its old name, nothing added since.
 QJsonObject toVersion1(QJsonObject document) {
     document["version"] = 1;
     mutateSettings(document, [](auto& f) {
+        for (const auto& field : spk::desktop::setting_fields())
+            if (!version1Keys.contains(QString::fromStdString(field.key))) f.remove(QString::fromStdString(field.key));
         f["film_exposure_ev"] = f.take("exposure_compensation_ev");
-        f.remove("filter_shift_scale");
-        f.remove("auto_exposure_method");
     });
     return document;
 }
@@ -277,6 +281,41 @@ int main(int argc, char** argv) {
             check(loaded.state == std::optional(madeWith) && loaded.version == 2 && loaded.preserved.isEmpty(),
                   "an optional row did not default to what the record rendered with");
             write(path, validBytes);
+        }
+        {
+            // The macOS Film and Print rows: each round-trips away from its
+            // default, and a record from before them loads each as `absent`.
+            check(store.load(url, catalog).state == std::optional(state), "record before the new rows");
+            auto extended = state;
+            extended.settings.set("auto_exposure", false);
+            extended.settings.set("scan_film", true);
+            extended.settings.set("print_effects", false);
+            extended.settings.set("preflash_exposure", 0.0225);
+            extended.settings.set("antihalation_removed", true);
+            extended.settings.set("halation_scatter_amount", 0.375);
+            extended.settings.set("halation_boost_ev", 2.5);
+            extended.settings.set("dir_couplers_active", false);
+            extended.settings.set("dir_couplers_amount", 1.25);
+            extended.settings.set("grain_sublayers_active", false);
+            store.save(url, extended);
+            check(store.load(url, catalog).state == std::optional(extended), "the new rows did not round-trip");
+            const QStringList added{"auto_exposure", "scan_film", "print_effects", "preflash_exposure",
+                                    "antihalation_removed", "halation_scatter_amount", "halation_boost_ev",
+                                    "dir_couplers_active", "dir_couplers_amount", "grain_sublayers_active"};
+            auto before = QJsonDocument::fromJson(read(path)).object();
+            mutateSettings(before, [&](auto& f) { for (const auto& key : added) f.remove(key); });
+            write(path, bytesOf(before));
+            const auto loaded = store.load(url, catalog);
+            check(loaded.state && loaded.version == 2 && loaded.preserved.isEmpty(), "a record without the new rows");
+            for (const auto& key : added) {
+                const auto* field = spk::desktop::find_setting(key.toStdString());
+                check(field && loaded.state->settings.get(field->key) == field->absent,
+                      "a missing new row did not take what the record was made with");
+            }
+            corrupt([](auto& d) { mutateSettings(d, [](auto& f) { f["preflash_exposure"] = 0.031; }); });
+            corrupt([](auto& d) { mutateSettings(d, [](auto& f) { f["print_effects"] = 1; }); });
+            write(path, validBytes);
+            check(store.load(url, catalog).state == std::optional(state), "restored record after the new rows");
         }
         {
             // A newer build's fields are reported, ignored and kept by the

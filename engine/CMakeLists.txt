@@ -55,20 +55,15 @@ add_library(spektralab_pipeline OBJECT
     src/pipeline/pipeline.cpp
     src/pipeline/scene_latitude.cpp
     src/pipeline/contrast_mask.cpp
+    src/pipeline/overscan.cpp
 )
 set_target_properties(spektralab_pipeline PROPERTIES POSITION_INDEPENDENT_CODE ON)
-if(APPLE)
-    target_sources(spektralab_pipeline PRIVATE
-        src/pipeline/overscan.cpp)
-else()
-    target_sources(spektralab_pipeline PRIVATE src/pipeline/windows_unported.cpp)
-endif()
 # RFC-031/032: the film edge and the date back. overscan.cpp is the same on
 # every platform; only its 2-D raster differs (overscan_raster.hpp).
 if(APPLE)
     target_sources(spektralab_pipeline PRIVATE src/pipeline/overscan_raster_apple.cpp)
 else()
-    target_sources(spektralab_pipeline PRIVATE src/pipeline/overscan.cpp
+    target_sources(spektralab_pipeline PRIVATE
         src/pipeline/overscan_raster_portable.cpp src/pipeline/edge_raster.cpp)
 endif()
 target_link_libraries(spektralab_pipeline PRIVATE spektralab_core)
@@ -155,11 +150,20 @@ if(NOT APPLE)
         set(SPEKTRALAB_VULKAN_SPIRV ${vulkan_spirv} CACHE INTERNAL "")
         # resources_portable/fonts: the film edge's faces off Apple, kept out
         # of resources/ so build.sh never syncs them into the macOS app.
+        # resources_product/profiles: the product's own black-and-white films
+        # and silver paper. The engine opens a stock from the one profiles/
+        # directory, so they are laid beside spektrafilm's with their notice,
+        # exactly as `engine/build.sh bundle` lays them into the macOS app.
         add_custom_target(spektralab_vulkan_resources
             COMMAND "${CMAKE_COMMAND}" -E copy_directory
                     "${CMAKE_CURRENT_SOURCE_DIR}/resources" "${vulkan_resource_dir}"
             COMMAND "${CMAKE_COMMAND}" -E copy_directory
                     "${CMAKE_CURRENT_SOURCE_DIR}/resources_portable/fonts" "${vulkan_resource_dir}/fonts"
+            COMMAND "${CMAKE_COMMAND}" -E copy_directory
+                    "${CMAKE_CURRENT_SOURCE_DIR}/resources_product/profiles" "${vulkan_resource_dir}/profiles"
+            COMMAND "${CMAKE_COMMAND}" -E copy
+                    "${CMAKE_CURRENT_SOURCE_DIR}/resources_product/NOTICE.md"
+                    "${vulkan_resource_dir}/PRODUCT_PROFILES_NOTICE.md"
             DEPENDS ${vulkan_spirv}
             VERBATIM)
 
@@ -211,6 +215,11 @@ if(NOT APPLE)
                 configure_file("${CMAKE_CURRENT_SOURCE_DIR}/third_party/stb/LICENSE" "licenses/stb-LICENSE" COPYONLY)
                 configure_file("${CMAKE_CURRENT_SOURCE_DIR}/resources_portable/fonts/GUST-FONT-LICENSE.txt"
                                "licenses/TeX-Gyre-Heros-GUST-FONT-LICENSE.txt" COPYONLY)
+                # The black-and-white profiles are SpektraLab's, not spektrafilm's
+                # (CC BY-SA): their notice says what each is built from and whose
+                # trademarks the names are, and it travels with them.
+                configure_file("${CMAKE_CURRENT_SOURCE_DIR}/resources_product/NOTICE.md"
+                               "licenses/PRODUCT_PROFILES_NOTICE.md" COPYONLY)
                 if(MINGW)
                     target_link_options(SpektraLab PRIVATE -municode)
                 endif()
@@ -307,6 +316,14 @@ if(NOT APPLE)
                 target_include_directories(spk_date_back PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/include")
                 target_link_libraries(spk_date_back PRIVATE spektralab_engine_shared)
                 add_test(NAME spk_date_back COMMAND spk_date_back "${vulkan_resource_dir}")
+
+                # Film Edge end to end through the C ABI: what
+                # tests/overscan_checks.py checks, without Python.
+                add_executable(spk_film_edge tests/film_edge_render.cpp)
+                target_compile_features(spk_film_edge PRIVATE cxx_std_20)
+                target_include_directories(spk_film_edge PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/include")
+                target_link_libraries(spk_film_edge PRIVATE spektralab_engine_shared)
+                add_test(NAME spk_film_edge COMMAND spk_film_edge "${vulkan_resource_dir}")
 
                 add_executable(spk_render_fixture tests/render_fixture.cpp)
                 target_compile_features(spk_render_fixture PRIVATE cxx_std_20)

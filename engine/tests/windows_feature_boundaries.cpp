@@ -1,8 +1,9 @@
-// Exercise Windows feature refusals, and the ported effects' acceptance,
-// through the exported DLL boundary.
+// The Windows feature boundaries through the exported DLL: capabilities list
+// no unsupported feature, and every effect windows_unported.hpp once refused
+// (the Cineon DI, scene latitude mapping, contrast mask, the date back and,
+// last, Film Edge) is accepted by set_params and at open and renders.
 #include "spektrafilm/spk_engine.h"
 
-#include <array>
 #include <cstdint>
 #include <iostream>
 #include <memory>
@@ -76,17 +77,16 @@ int main(int argc, char** argv) {
             spk_engine_create(argv[1], nullptr), spk_engine_destroy);
         require(bool(engine), std::string("engine creation failed: ") + spk_last_error(nullptr));
         const char* capabilities = spk_capabilities(engine.get());
-        require(capabilities && std::string(capabilities).find("unsupported_features") != std::string::npos,
-                "Windows capabilities must disclose unported effects");
+        require(capabilities && std::string(capabilities).find("\"unsupported_features\"") != std::string::npos,
+                "Windows capabilities must still carry unsupported_features (hosts read it)");
         {
+            // Present and empty: every row of windows_unported.hpp is ported.
             const std::string caps(capabilities);
-            const size_t at = caps.find("unsupported_features");
-            const std::string listed = caps.substr(at, caps.find(']', at) - at);
-            require(listed.find("digital_intermediate") == std::string::npos &&
-                    listed.find("scene_latitude_mapping") == std::string::npos &&
-                    listed.find("contrast_mask") == std::string::npos &&
-                    listed.find("date_imprint") == std::string::npos,
-                    "capabilities still list a ported effect: " + listed);
+            const size_t at = caps.find("\"unsupported_features\"");
+            const size_t open = caps.find('[', at), close = caps.find(']', at);
+            require(open != std::string::npos && close != std::string::npos &&
+                    caps.find_first_not_of(" \t\r\n", open + 1) == close,
+                    "capabilities list an unsupported feature: " + caps.substr(at, close - at + 1));
         }
 
         std::vector<float> pixels(32 * 16 * 3);
@@ -98,28 +98,40 @@ int main(int argc, char** argv) {
         render(engine.get(), session.get());
         const std::string before = params(session.get());
 
-        struct Feature { const char* key; const char* label; };
-        const std::array<Feature, 1> features{{
-            {"overscan_active", "overscan"},
-        }};
-        for (const Feature& feature : features) {
-            // Include a supported change to catch partial application before
-            // the unsupported field is rejected.
-            const std::string delta = std::string("{\"") + feature.key +
-                                      "\":true,\"print_exposure\":1.25}";
-            const spk_status status = spk_set_params(session.get(), delta.c_str(), nullptr);
-            const std::string error = spk_last_error(engine.get());
-            require(status == SPK_ERR_USER && error.find(feature.label) != std::string::npos &&
-                    error.find("Windows Vulkan backend") != std::string::npos,
-                    std::string("unclear feature refusal: ") + feature.key + ": " + error);
-            require(params(session.get()) == before, std::string("refused delta mutated params: ") + feature.key);
+        // Film Edge, the last row to flip: accepted by set_params and at open,
+        // and rendered. The frame must be a gate's shape, and 32 x 16 is the
+        // 6x12 gate's (112 x 56 mm), so at 3.5 mm a pixel the canvas is the
+        // film's 61 mm across -- taller than the frame -- and the geometry
+        // reports it. Off again, the params and the 32 x 16 render return.
+        // (tests/film_edge_render.cpp is what checks the picture.)
+        {
+            const char* on = "{\"overscan_active\":true,\"overscan_format\":\"120_6x12\"}";
+            auto film_edge = [&](spk_session* s, const std::string& what) {
+                spk_result result{};
+                const spk_status status = spk_render(s, "full", &result);
+                const std::string error = spk_last_error(engine.get());
+                const bool grew = status == SPK_OK && result.rgba16 && result.width >= 32 && result.height > 16;
+                const uint32_t w = result.width, h = result.height;
+                spk_result_free(&result);
+                require(grew, what + ": the film edge did not render a canvas larger than the frame: " + error);
+                char* geometry = nullptr;
+                require(spk_overscan_geometry(s, &geometry) == SPK_OK && geometry, what + ": no geometry");
+                const std::string g(geometry);
+                spk_string_free(geometry);
+                require(g.find("\"valid\":true") != std::string::npos &&
+                        g.find("\"canvas_w\":" + std::to_string(w)) != std::string::npos &&
+                        g.find("\"canvas_h\":" + std::to_string(h)) != std::string::npos,
+                        what + ": the geometry does not describe the rendered canvas: " + g);
+            };
+            set(engine.get(), session.get(), on);
+            film_edge(session.get(), "set_params");
+            set(engine.get(), session.get(), "{\"overscan_active\":false,\"overscan_format\":\"135\"}");
+            require(params(session.get()) == before, "switching the film edge off did not restore the params");
             render(engine.get(), session.get());
-
-            spk_session* rejected = spk_open(engine.get(), &input, delta.c_str(), nullptr);
-            const std::string open_error = spk_last_error(engine.get());
-            if (rejected) spk_session_release(rejected);
-            require(!rejected && open_error.find(feature.label) != std::string::npos,
-                    std::string("open accepted an unported effect: ") + feature.key);
+            std::unique_ptr<spk_session, decltype(&spk_session_release)> opened(
+                spk_open(engine.get(), &input, on, nullptr), spk_session_release);
+            require(bool(opened), std::string("open refused the film edge: ") + spk_last_error(engine.get()));
+            film_edge(opened.get(), "open");
         }
 
         // Ported: the Cineon DI and the scene latitude mapping are accepted by
@@ -175,8 +187,8 @@ int main(int argc, char** argv) {
 
         // The date back is ported (overscan.cpp's date-only path on the
         // portable raster, spk_overscan_add_mask): accepted by set_params and
-        // open, rendered, and switched off again. Asking for overscan beside
-        // it is still refused, by overscan's name, and changes nothing.
+        // open, rendered, and switched off again. Film Edge beside it is
+        // accepted too and renders (the panoramic 6x12 carries no date).
         {
             const std::string undated = params(session.get());
             const char* on = "{\"date_imprint_active\":true,\"date_imprint_text\":\"'26 10 16\"}";
@@ -184,11 +196,18 @@ int main(int argc, char** argv) {
             require(accepted == SPK_OK, std::string("date imprint refused: ") + spk_last_error(engine.get()));
             render(engine.get(), session.get());
             const std::string dated = params(session.get());
-            const spk_status status = spk_set_params(session.get(), "{\"overscan_active\":true}", nullptr);
-            const std::string error = spk_last_error(engine.get());
-            require(status == SPK_ERR_USER && error.find("overscan") != std::string::npos,
-                    "overscan beside the date bypassed the refusal: " + error);
-            require(params(session.get()) == dated, "refused overscan delta mutated a dated session");
+            const spk_status status =
+                spk_set_params(session.get(), "{\"overscan_active\":true,\"overscan_format\":\"120_6x12\"}", nullptr);
+            require(status == SPK_OK, std::string("film edge beside the date refused: ") + spk_last_error(engine.get()));
+            {
+                spk_result both{};
+                const spk_status rendered_both = spk_render(session.get(), "full", &both);
+                const bool ok = rendered_both == SPK_OK && both.rgba16 && both.height > 16;
+                spk_result_free(&both);
+                require(ok, std::string("film edge beside the date did not render: ") + spk_last_error(engine.get()));
+            }
+            require(spk_set_params(session.get(), "{\"overscan_active\":false,\"overscan_format\":\"135\"}", nullptr) == SPK_OK &&
+                    params(session.get()) == dated, "switching the film edge off left the dated params changed");
             require(spk_set_params(session.get(), "{\"date_imprint_active\":false,\"date_imprint_text\":\"\"}", nullptr) == SPK_OK,
                     "could not switch the date off");
             require(params(session.get()) == undated, "switching the date off did not restore the params");
@@ -312,9 +331,9 @@ int main(int argc, char** argv) {
         require(latitude_status == SPK_OK && latitude_valid, "latitude analysis failed: " + latitude_error);
         require(params(session.get()) == restored, "latitude analysis mutated the session");
         render(engine.get(), session.get());
-        std::cout << "Windows feature boundaries passed (1 refused flag; DI, scene latitude, contrast mask and date imprint "
-                     "accepted, DI export = canvas DI, slide refused, second pair split and striped; mask off, "
-                     "latitude analysis)\n";
+        std::cout << "Windows feature boundaries passed (nothing refused; DI, scene latitude, contrast mask, date imprint "
+                     "and film edge accepted and rendered, DI export = canvas DI, slide refused, second pair split and "
+                     "striped; mask off, latitude analysis)\n";
         return 0;
     } catch (const std::exception& error) {
         std::cerr << error.what() << '\n';

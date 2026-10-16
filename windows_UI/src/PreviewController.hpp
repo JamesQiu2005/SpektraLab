@@ -5,6 +5,7 @@
 #include "Messages.hpp"
 #include <QImage>
 #include <QObject>
+#include <QStringList>
 #include <QTimer>
 #include <QUrl>
 #include <QVariantList>
@@ -41,6 +42,8 @@ class PreviewController final : public QObject {
     Q_PROPERTY(int filmIndex READ filmIndex WRITE setFilmIndex NOTIFY settingsChanged)
     Q_PROPERTY(int paperIndex READ paperIndex WRITE setPaperIndex NOTIFY settingsChanged)
     Q_PROPERTY(int decodeMode READ decodeMode WRITE setDecodeMode NOTIFY settingsChanged)
+    // Print brightness in stops, brighter positive, -3..3 as macOS's Enlarger
+    // slider (EnlargerSection.swift:34-37); print_exposure is 2^-stops.
     Q_PROPERTY(double exposureEv READ exposureEv WRITE setExposureEv NOTIFY settingsChanged)
     Q_PROPERTY(QVariantMap adjustments READ adjustments NOTIFY settingsChanged)
     // Every row of the desktop settings table (preview_host.hpp), by wire
@@ -48,6 +51,32 @@ class PreviewController final : public QObject {
     // and initial value. A new control binds to these and calls setParameter.
     Q_PROPERTY(QVariantMap parameters READ parameters NOTIFY settingsChanged)
     Q_PROPERTY(QVariantList parameterFields READ parameterFields CONSTANT)
+    // The macOS Film and Print sections' lists, in its groups and order
+    // (StockCatalog.filmGroups / paperGroups). `films`/`papers` above keep
+    // their label order and indexes; each entry here names its `index` there.
+    //   filmCatalog:  {id, name, group: "positive"|"negative"|"blackAndWhite",
+    //                  positive, monochrome, cine, targetPrint, index}
+    //   paperCatalog: {id, name, group: "still"|"cine"|"positive", monochrome,
+    //                  cine, index, printable, enabled, declared, reason:
+    //                  ""|"positiveFilm"|"silverPaper"|"colourPaper",
+    //                  noPrintProfile} -- the last entry is macOS's "No Print
+    //                  Profile" row, id "__scan_film__", group "positive".
+    // A paper is `printable` by StockCatalog.canPrint and `enabled` when the
+    // film is also not a slide; `declared` is the film's own paper.
+    Q_PROPERTY(QVariantList filmCatalog READ filmCatalog NOTIFY catalogChanged)
+    Q_PROPERTY(QVariantList paperCatalog READ paperCatalog NOTIFY settingsChanged)
+    Q_PROPERTY(bool filmIsMonochrome READ filmIsMonochrome NOTIFY settingsChanged)
+    // The print list's selected row: "__scan_film__" while the film is
+    // scanned (a slide, or No Print Profile), else the paper's id.
+    Q_PROPERTY(QString printSelection READ printSelection NOTIFY settingsChanged)
+    Q_PROPERTY(bool noPrintProfile READ noPrintProfile NOTIFY settingsChanged)
+    Q_PROPERTY(bool canUseFilmPaper READ canUseFilmPaper NOTIFY settingsChanged)
+    // The Camera section's AE Method pill (Params.swift AEMethod): "custom" is
+    // the meter switched off (auto_exposure false), the four intents meter
+    // with auto_exposure_method, and "legacy" -- read only -- is a record
+    // metered with an engine name the pill does not offer.
+    Q_PROPERTY(QString aeMethod READ aeMethod WRITE setAeMethod NOTIFY settingsChanged)
+    Q_PROPERTY(QStringList aeMethodChoices READ aeMethodChoices CONSTANT)
     Q_PROPERTY(QVariantList libraryItems READ libraryItems NOTIFY libraryChanged)
     Q_PROPERTY(int activeIndex READ activeIndex NOTIFY libraryChanged)
     Q_PROPERTY(int selectedCount READ selectedCount NOTIFY libraryChanged)
@@ -98,6 +127,15 @@ public:
     QVariantMap adjustments() const;
     QVariantMap parameters() const;
     QVariantList parameterFields() const;
+    QVariantList filmCatalog() const;
+    QVariantList paperCatalog() const;
+    bool filmIsMonochrome() const;
+    QString printSelection() const;
+    bool noPrintProfile() const;
+    bool canUseFilmPaper() const;
+    QString aeMethod() const;
+    QStringList aeMethodChoices() const;
+    void setAeMethod(const QString& value);
     QVariantList libraryItems() const;
     int activeIndex() const { return active_index_; }
     int selectedCount() const;
@@ -134,6 +172,27 @@ public:
     // is one step, and the legacy names share the gesture with their keys.
     Q_INVOKABLE QVariant parameter(const QString& key) const;
     Q_INVOKABLE bool setParameter(const QString& key, const QVariant& value);
+    // The stock choices with macOS's rules, each one undo step however many
+    // settings it moves (Session.swift selectFilmStock, selectPrintStock;
+    // filmIndex/paperIndex and setParameter's stocks follow the same rules):
+    //  - a film takes its own paper whenever it names one, and a film that
+    //    cannot print on the paper it has (colour <-> black and white) takes
+    //    its paper or the default one; a slide names none and keeps its paper;
+    //  - a paper is refused for a slide film, and when it cannot print the
+    //    film (StockCatalog.canPrint); choosing one turns No Print Profile off;
+    //  - "__scan_film__" is No Print Profile: scan the film, keep the paper.
+    // False when refused or locked.
+    Q_INVOKABLE bool selectFilm(const QString& id);
+    Q_INVOKABLE bool selectPaper(const QString& id);
+    // The Print section's menu item "Use film's paper" (PrintProfileSection
+    // .swift:198-207): the film's own paper, printed. Refused for a slide.
+    Q_INVOKABLE bool useFilmPaper();
+    // The Film section's reset (FilmSection.swift:65-73): Portra 400, and the
+    // default paper if the one chosen cannot print it.
+    Q_INVOKABLE void resetFilmStock();
+    // The Enlarger section's reset (Session.resetEnlarger, HalfFramePair
+    // .PrintTrim): brightness, both filter shifts and pre-flash to 0.
+    Q_INVOKABLE void resetEnlarger();
     Q_INVOKABLE void setCropRect(const QRectF& crop);
     Q_INVOKABLE void resetCrop();
     Q_INVOKABLE void setCropAspect(double ratio);
@@ -204,6 +263,11 @@ private:
     void openItem(int index);
     void changed(const QString& editKey={});
     bool applyParameter(const spk::desktop::SettingField& field, spk::desktop::SettingValue value);
+    const spk::desktop::Stock* currentFilm() const;
+    std::string currentPaper() const;
+    bool scanFilmSetting() const;
+    bool chooseFilm(int index);
+    bool choosePaper(int index);
     void schedulePreview();
     bool ready_=false, busy_=true, failed_=false;
     QString status_=uiText("status.startingEngine");

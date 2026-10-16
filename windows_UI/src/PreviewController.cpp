@@ -8,6 +8,7 @@
 #include <QStandardPaths>
 #include <algorithm>
 #include <cmath>
+#include <iterator>
 #include <optional>
 #include <type_traits>
 #include <variant>
@@ -20,9 +21,20 @@ QString text(const std::string& s) { return QString::fromUtf8(s.data(),qsizetype
 std::filesystem::path path(const QUrl& u) { return std::filesystem::path(u.toLocalFile().toStdWString()); }
 QVariantList list(const std::vector<desktop::Stock>& stocks) {
     QVariantList result;
-    for(const auto& s:stocks) result.push_back(QVariantMap{{"id",text(s.id)},{"name",text(s.label)},{"positive",s.is_positive}});
+    for(const auto& s:stocks) result.push_back(QVariantMap{{"id",text(s.id)},{"name",text(s.label)},{"positive",s.is_positive},
+        {"monochrome",s.is_monochrome},{"cine",s.is_cine},{"targetPrint",text(s.target_print)}});
     return result;
 }
+int indexOf(const std::vector<desktop::Stock>& stocks,std::string_view id) {
+    for(std::size_t i=0;i<stocks.size();++i)if(stocks[i].id==id)return int(i);
+    return -1;
+}
+std::string initialText(const char* key) {return std::get<std::string>(desktop::find_setting(key)->initial);}
+// macOS PrintProfileSection's sentinel row id for "No Print Profile": it is
+// not a paper, so it can never be a print_stock value.
+const QString noPrintProfileId=QStringLiteral("__scan_film__");
+// The AE Method pill's metering intents (Params.swift ExposureMethod).
+constexpr const char* meteringIntents[]={"balanced","center","protect_highlights","protect_shadows"};
 bool sameSettings(desktop::RenderSettings a, desktop::RenderSettings b) {
     const bool exposure=std::abs(a.print_exposure-b.print_exposure)<1e-12;
     a.print_exposure=b.print_exposure;
@@ -270,10 +282,129 @@ void PreviewController::changed(const QString& editKey){
     if(frame_)status_=uiText("status.updatingPreview");
     failed_=false;emit settingsChanged();emit stateChanged();
 }
-void PreviewController::setFilmIndex(int v){if(!settingsEditable()||v<0||v>=films_.size()||v==film_index_)return;film_index_=v;changed("film_stock");}
-void PreviewController::setPaperIndex(int v){if(!settingsEditable()||filmIsPositive()||v<0||v>=papers_.size()||v==paper_index_)return;paper_index_=v;changed("print_stock");}
+void PreviewController::setFilmIndex(int v){chooseFilm(v);}
+void PreviewController::setPaperIndex(int v){choosePaper(v);}
 void PreviewController::setDecodeMode(int v){if(!settingsEditable()||v<0||v>1||v==decode_mode_)return;decode_mode_=v;changed("decodeMode");}
-void PreviewController::setExposureEv(double v){if(!settingsEditable()||filmIsPositive()||!std::isfinite(v)||v< -2||v>2||v==exposure_ev_)return;exposure_ev_=v;changed("print_exposure");}
+void PreviewController::setExposureEv(double v){if(!settingsEditable()||filmIsPositive()||!std::isfinite(v)||v< -3||v>3||v==exposure_ev_)return;exposure_ev_=v;changed("print_exposure");}
+const desktop::Stock* PreviewController::currentFilm() const {
+    return film_index_>=0&&std::size_t(film_index_)<catalog_.films.size()?&catalog_.films[film_index_]:nullptr;
+}
+std::string PreviewController::currentPaper() const {
+    return paper_index_>=0&&std::size_t(paper_index_)<catalog_.papers.size()?catalog_.papers[paper_index_].id:std::string();
+}
+bool PreviewController::scanFilmSetting() const {return std::get<bool>(extra_settings_.get("scan_film"));}
+// Session.selectFilmStock (Session.swift:2988-3007): the film, and the paper
+// it lands on, as one edit. macOS moves the paper even when the film was
+// already chosen, so choosing it again returns to its own paper.
+bool PreviewController::chooseFilm(int v) {
+    if(!settingsEditable()||v<0||std::size_t(v)>=catalog_.films.size())return false;
+    const auto& film=catalog_.films[std::size_t(v)];
+    const int paper=indexOf(catalog_.papers,desktop::paper_for_film(catalog_,film.id,currentPaper(),initialText("print_stock")));
+    if(v==film_index_&&(paper<0||paper==paper_index_))return true;
+    film_index_=v;if(paper>=0)paper_index_=paper;
+    changed("film_stock");return true;
+}
+// Session.selectPrintStock (Session.swift:2970-2983): no paper for a slide,
+// silver film on silver paper, and a paper chosen is a paper printed on.
+bool PreviewController::choosePaper(int v) {
+    if(!settingsEditable()||filmIsPositive()||v<0||std::size_t(v)>=catalog_.papers.size())return false;
+    if(const auto* film=currentFilm();film&&!desktop::can_print(catalog_,film->id,catalog_.papers[std::size_t(v)].id))return false;
+    const bool scanning=scanFilmSetting();
+    if(v==paper_index_&&!scanning)return true;
+    paper_index_=v;if(scanning)extra_settings_.set("scan_film",false);
+    changed("print_stock");return true;
+}
+bool PreviewController::selectFilm(const QString& id){return chooseFilm(indexOf(catalog_.films,id.toStdString()));}
+bool PreviewController::selectPaper(const QString& id) {
+    if(id!=noPrintProfileId)return choosePaper(indexOf(catalog_.papers,id.toStdString()));
+    // PrintProfileSection.swift:125-127: offered for any film, the paper kept.
+    if(!settingsEditable())return false;
+    if(!scanFilmSetting()){extra_settings_.set("scan_film",true);changed("scan_film");}
+    return true;
+}
+bool PreviewController::useFilmPaper() {
+    if(!settingsEditable()||!canUseFilmPaper())return false;
+    const int paper=indexOf(catalog_.papers,currentFilm()->target_print);
+    if(paper==paper_index_&&!scanFilmSetting())return true;
+    paper_index_=paper;extra_settings_.set("scan_film",false);
+    changed("print_stock");return true;
+}
+void PreviewController::resetFilmStock() {
+    if(!settingsEditable())return;
+    const auto film=initialText("film_stock");
+    const int f=indexOf(catalog_.films,film);if(f<0)return;
+    // Coming back from a black-and-white film, its paper cannot stay.
+    const int p=desktop::can_print(catalog_,film,currentPaper())?paper_index_:indexOf(catalog_.papers,initialText("print_stock"));
+    if(f==film_index_&&(p<0||p==paper_index_))return;
+    film_index_=f;if(p>=0)paper_index_=p;
+    changed("film_stock");
+}
+void PreviewController::resetEnlarger() {
+    if(!settingsEditable())return;
+    auto next=extra_settings_;
+    next.y_filter_shift=0;next.m_filter_shift=0;next.set("preflash_exposure",0.0);
+    if(next==extra_settings_&&exposure_ev_==0)return;
+    extra_settings_=std::move(next);exposure_ev_=0;
+    changed("enlarger");
+}
+bool PreviewController::filmIsMonochrome() const {const auto* film=currentFilm();return film&&film->is_monochrome;}
+bool PreviewController::noPrintProfile() const {return filmIsPositive()||scanFilmSetting();}
+QString PreviewController::printSelection() const {return noPrintProfile()?noPrintProfileId:text(currentPaper());}
+bool PreviewController::canUseFilmPaper() const {
+    // Disabled for a slide, which declares no paper (PrintProfileSection.swift:206).
+    const auto* film=currentFilm();
+    return film&&!film->is_positive&&catalog_.paper(film->target_print);
+}
+QString PreviewController::aeMethod() const {
+    if(!std::get<bool>(extra_settings_.get("auto_exposure")))return QStringLiteral("custom");
+    const auto method=std::get<std::string>(extra_settings_.get("auto_exposure_method"));
+    for(const char* intent:meteringIntents)if(method==intent)return QLatin1String(intent);
+    return QStringLiteral("legacy");
+}
+QStringList PreviewController::aeMethodChoices() const {
+    QStringList choices{QStringLiteral("custom")};
+    for(const char* intent:meteringIntents)choices.append(QLatin1String(intent));
+    return choices;
+}
+// AEMethod.apply (Params.swift:228-239): Custom leaves the intent alone, so
+// turning the meter off and on again comes back to the intent it had.
+void PreviewController::setAeMethod(const QString& value) {
+    if(!settingsEditable())return;
+    auto next=extra_settings_;
+    if(value==QLatin1String("custom"))next.set("auto_exposure",false);
+    else if(std::any_of(std::begin(meteringIntents),std::end(meteringIntents),[&](const char* i){return value==QLatin1String(i);})) {
+        next.set("auto_exposure",true);next.set("auto_exposure_method",value.toStdString());
+    } else return;
+    if(next!=extra_settings_){extra_settings_=std::move(next);changed("auto_exposure");}
+}
+QVariantList PreviewController::filmCatalog() const {
+    QVariantList result;
+    for(const auto& group:desktop::film_groups(catalog_))
+        for(const auto* s:group.stocks)
+            result.push_back(QVariantMap{{"id",text(s->id)},{"name",text(s->label)},{"group",text(group.key)},
+                {"positive",s->is_positive},{"monochrome",s->is_monochrome},{"cine",s->is_cine},
+                {"targetPrint",text(s->target_print)},{"index",int(s-catalog_.films.data())}});
+    return result;
+}
+// PrintProfileSection.swift:81-113: each paper greyed with its reason, then
+// the Positive group's one row.
+QVariantList PreviewController::paperCatalog() const {
+    QVariantList result;
+    const auto* film=currentFilm();const bool slide=filmIsPositive();
+    for(const auto& group:desktop::paper_groups(catalog_))
+        for(const auto* s:group.stocks) {
+            const bool printable=!film||desktop::can_print(catalog_,film->id,s->id);
+            const char* reason=slide?"positiveFilm":printable?"":s->is_monochrome?"silverPaper":"colourPaper";
+            result.push_back(QVariantMap{{"id",text(s->id)},{"name",text(s->label)},{"group",text(group.key)},
+                {"monochrome",s->is_monochrome},{"cine",s->is_cine},{"index",int(s-catalog_.papers.data())},
+                {"printable",printable},{"enabled",!slide&&printable},{"declared",film&&film->target_print==s->id},
+                {"reason",QLatin1String(reason)},{"noPrintProfile",false}});
+        }
+    result.push_back(QVariantMap{{"id",noPrintProfileId},{"name",QStringLiteral("No Print Profile")},{"group",QStringLiteral("positive")},
+        {"monochrome",false},{"cine",false},{"index",-1},{"printable",true},{"enabled",true},{"declared",false},
+        {"reason",QString()},{"noPrintProfile",true}});
+    return result;
+}
 void PreviewController::resetSettings(){if(!settingsEditable())return;loadSettings({},desktop::DecodeMode::compatible16);changed();}
 void PreviewController::openRaw(const QUrl& url) {
     // Changing sources and exporting remain single flight. Parameter edits
@@ -337,8 +468,10 @@ QVariantMap PreviewController::parameters() const {
 QVariantList PreviewController::parameterFields() const {
     QVariantList result;
     for(const auto& field:desktop::setting_fields()) {
+        // `sent` is false for a product row (print_effects), which shapes
+        // other rows' wire values instead of being sent itself.
         QVariantMap row{{"key",text(field.key)},{"label",text(field.label)},{"initial",variant(field.initial)},
-            {"layer",field.layer==desktop::SettingLayer::shoot?"shoot":"print"},
+            {"layer",field.layer==desktop::SettingLayer::shoot?"shoot":"print"},{"sent",field.wire},
             {"type",field.type==desktop::SettingType::boolean?"bool":field.type==desktop::SettingType::number?"number":"text"}};
         if(field.type==desktop::SettingType::number){row["from"]=field.low;row["to"]=field.high;}
         if(field.type==desktop::SettingType::text) {
@@ -376,14 +509,12 @@ void PreviewController::setAdjustment(const QString& name,const QVariant& value)
 bool PreviewController::applyParameter(const desktop::SettingField& field,desktop::SettingValue value) {
     if(!settingsEditable()||!desktop::check_setting(field,value,&catalog_).empty())return false;
     // The stocks and the brightness keep their own state (catalogue indexes,
-    // stops) and their own rules, such as no paper for a slide.
+    // stops) and their own rules: the paper follows the film, no paper for a
+    // slide, silver film on silver paper (selectFilm / selectPaper).
     if(field.key=="film_stock"||field.key=="print_stock") {
         const bool film=field.key=="film_stock";
-        const auto& stocks=film?catalog_.films:catalog_.papers;
-        const auto& id=std::get<std::string>(value);
-        const int index=int(std::find_if(stocks.begin(),stocks.end(),[&](const auto& s){return s.id==id;})-stocks.begin());
-        if(film)setFilmIndex(index);else setPaperIndex(index);
-        return (film?film_index_:paper_index_)==index;
+        const int index=indexOf(film?catalog_.films:catalog_.papers,std::get<std::string>(value));
+        return film?chooseFilm(index):choosePaper(index);
     }
     if(field.key=="print_exposure") {
         if(filmIsPositive())return false;
