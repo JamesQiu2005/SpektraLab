@@ -110,6 +110,11 @@ try {
         Copy-Item -LiteralPath "$PSScriptRoot/THIRD_PARTY.md" -Destination "$app/licenses/THIRD_PARTY.md" -Force
     }
     if ($RunTests) {
+        # Tests that need scratch space use the system temp directory; keep
+        # every byte they write inside the build tree instead.
+        $scratch = Join-Path $BuildDirectory 'tmp'
+        New-Item -ItemType Directory -Path $scratch -Force | Out-Null
+        $env:TEMP = $scratch; $env:TMP = $scratch
         Invoke-Tool $ctest @('--test-dir', $BuildDirectory, '--output-on-failure') 'CTest'
     }
     Write-Output "Ready: $app\SpektraLabQt.exe"
