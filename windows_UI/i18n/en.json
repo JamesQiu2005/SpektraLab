@@ -332,6 +332,16 @@
 
         "latitude.title": "Latitude",
         "latitude.stats": "Below — · Within — · Above —",
+        "latitude.below": "Below",
+        "latitude.within": "Within",
+        "latitude.above": "Above",
+        "latitude.held": "stops held",
+        "latitude.fullSeparation": "full separation",
+        "latitude.empty": "Develop the frame to measure it against this film and paper.",
+        "latitude.unmeasurable": "This film and paper do not print a rising tone scale, so there is no latitude to measure. A slide printed onto print film comes out as a negative.",
+        "latitude.noLight": "The frame has no light in it to measure.",
+        "latitude.measuring": "Measuring the latest render…",
+        "latitude.plotHelp": "The frame on the stop axis from the metered mid-grey, after Scene Placement. The dashed lines are the film and paper's ISO 6846 boundaries; the band under the plot is the chain's tonal separation per stop.",
 
         "camera.title": "Input / Camera",
         "camera.metering": "Metering",
