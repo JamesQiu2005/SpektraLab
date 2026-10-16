@@ -3,6 +3,7 @@
 #include "PreviewController.hpp"
 #include "EditStore.hpp"
 #include "FrameOutput.hpp"
+#include "display_checks.hpp"
 #include <QDir>
 #include <QElapsedTimer>
 #include <QEventLoop>
@@ -67,13 +68,8 @@ bool matches(const PreviewController& c,const Desired& expected) {
     return c.filmIndex()==expected.film&&c.paperIndex()==expected.paper&&c.decodeMode()==expected.decode&&
         near(c.exposureEv(),expected.exposure)&&c.adjustments()==expected.adjustments&&geometry(c)==expected.geometry;
 }
-bool samePixels(const QImage& left,const QImage& right) {
-    if(left.isNull()||right.isNull()||left.size()!=right.size())return false;
-    const auto a=left.convertToFormat(QImage::Format_RGBA8888),b=right.convertToFormat(QImage::Format_RGBA8888);
-    for(int y=0;y<a.height();++y)
-        if(std::memcmp(a.constScanLine(y),b.constScanLine(y),std::size_t(a.width())*4)!=0)return false;
-    return true;
-}
+// Displayed images are half floats: compared exactly, format and tag included.
+using display_checks::sameImage;
 QByteArray bytes(const QString& path) {
     QFile file(path);check(file.open(QIODevice::ReadOnly),"Read file: "+QFileInfo(path).fileName());return file.readAll();
 }
@@ -149,20 +145,30 @@ int main(int argc,char** argv) {
                 const auto retained=c.frame();const int operationsBefore=operations.size();
                 c.setCropRect(QRectF(.13,.17,.11,.15));c.setFlipHorizontal(true);
                 const auto mirrored=c.previewImage().copy();c.rotateClockwise();
-                check(samePixels(c.previewImage(),mirrored.transformed(QTransform().rotate(90),Qt::FastTransformation))&&
+                check(sameImage(c.previewImage(),mirrored.transformed(QTransform().rotate(90),Qt::FastTransformation))&&
                       !c.flipHorizontal()&&c.flipVertical(),"Clockwise rotation stays visually clockwise after a mirror");
                 c.rotateCounterClockwise();
-                check(samePixels(c.previewImage(),mirrored)&&c.flipHorizontal()&&!c.flipVertical()&&c.frame()==retained,
+                check(sameImage(c.previewImage(),mirrored)&&c.flipHorizontal()&&!c.flipVertical()&&c.frame()==retained,
                       "Counterclockwise rotation restores mirrored pixels and final-axis flip flags");
                 c.setFlipHorizontal(false);c.rotateClockwise();c.setFlipHorizontal(true);c.setFlipVertical(true);c.setStraightenDegrees(6.5);
                 const auto transformed=geometry(c);const auto shown=c.previewImage().copy();
                 check(c.frame()==retained&&!c.busy()&&operations.size()==operationsBefore,"Crop rotation flips and straighten do not rerender film");
-                check(samePixels(shown,output::displayFrame(retained,transformed)),"Preview uses shared full-precision geometry output");
+                check(sameImage(shown,output::displayFrame(retained,transformed)),"Preview uses shared full-precision geometry output");
                 c.undo();check(near(c.straightenDegrees(),0)&&c.frame()==retained,"Undo geometry changes no engine frame");
-                c.redo();check(geometry(c)==transformed&&samePixels(c.previewImage(),shown),"Redo geometry restores exact displayed pixels");
+                c.redo();check(geometry(c)==transformed&&sameImage(c.previewImage(),shown),"Redo geometry restores exact displayed pixels");
                 const QString png=destination+"/transformed.png";
                 c.exportImage(QUrl::fromLocalFile(png),1,95,0);idle(c,"Export transformed PNG8");
-                check(samePixels(readImage(png),shown),"Actual PNG8 export matches transformed preview pixel for pixel");
+                // The file is exactly the export path's quantisation of the
+                // engine frame the preview was made from, and every sample is
+                // one the displayed half float's 16-bit source could give.
+                const auto exported=readImage(png);
+                check(display_checks::sameRgb8(exported,display_checks::expected8(retained,transformed)),
+                      "Actual PNG8 export is the transformed engine frame pixel for pixel");
+                const display_checks::ExportDisplayAgreement agreement;
+                const auto agreed=agreement.compare(exported,shown);
+                report["export_display_ambiguous_samples"]=double(agreed.ambiguous);
+                check(agreed.samples==qint64(exported.width())*exported.height()*3&&agreed.disagreements==0,
+                      "Actual PNG8 export matches transformed preview pixel for pixel");
                 check(c.frame()==retained,"Geometry export retains the editor frame");
 
                 // A parameter's pending debounce must not begin a render and
@@ -191,6 +197,15 @@ int main(int argc,char** argv) {
             c.undo();check(near(c.exposureEv(),-.7)&&c.adjustments()["grainActive"].toBool()&&c.cropRect()==secondCrop,
                            "Recipient independently undoes synchronized parameters");
             check(c.libraryItems()[1].toMap()["thumbnail"].value<QImage>().isNull(),"Pending history render does not republish old thumbnail");
+            {
+                // The rendered first photograph's strip thumbnail: the same
+                // half floats and tag as its canvas, reduced to the strip box.
+                const auto thumbnail=c.libraryItems()[0].toMap()["thumbnail"].value<QImage>();
+                check(thumbnail.format()==QImage::Format_RGBX16FPx4&&
+                      thumbnail.colorSpace()==spk::desktop::display::colorSpace(c.frame()->encoding)&&
+                      thumbnail.width()<=180&&thumbnail.height()<=120&&(thumbnail.width()==180||thumbnail.height()==120),
+                      "Rendered thumbnail keeps 16-bit-class half floats in the frame's colour space");
+            }
             c.redo();check(near(c.exposureEv(),.4)&&!c.adjustments()["grainActive"].toBool(),"Recipient can redo synchronized parameters");
             c.undo();c.selectImage(0);idle(c,"Return to first before persistence checkpoint");
 
