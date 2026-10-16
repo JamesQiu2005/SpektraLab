@@ -1,0 +1,113 @@
+#version 450
+
+// RFC-028's Digital Intermediate encode, nodes.metal::spk_di_encode: the
+// positive (log10 per film channel) -> film RGB to working RGB -> the optional
+// Oklab blue-sector window -> Cineon codes 0..1. `p` keeps Metal's 42-float
+// layout (see node_digital_intermediate):
+//   0..8 film RGB -> working RGB (x @ M)   9..11 live log10 offsets
+//   12..20 working RGB -> Oklab LMS, 21..29 back (M @ v)   30 compensation on
+//   31 hue rotation (deg)   32 chroma scale   33..36 hue centre, half width,
+//   chroma lo/hi   37..39 Cineon white, codes per decade, max code
+//   40 the positive of clear base (subtracted)   41 Cineon's black offset
+// Metal's max/clamp are fmax/fmin and keep the non-NaN operand; GLSL leaves
+// NaN undefined there, so those spots are explicit branches below.
+layout(local_size_x = 256) in;
+layout(set = 0, binding = 0, std430) readonly buffer Input { float value[]; } input_data;
+layout(set = 0, binding = 1, std430) readonly buffer Parameters { float value[]; } p;
+layout(set = 0, binding = 2, std430) readonly buffer Count { uint value[]; } count_data;
+layout(set = 0, binding = 3, std430) writeonly buffer Output { float value[]; } output_data;
+
+// vulkan_gpu.cpp folds a dispatch past maxComputeWorkGroupCount[0] (65535 on
+// lavapipe and Intel) into rows of workgroups; this is the 1D index it means.
+uint spk_global_index() {
+    return gl_GlobalInvocationID.y * (gl_NumWorkGroups.x * gl_WorkGroupSize.x) + gl_GlobalInvocationID.x;
+}
+
+// pow(10, x) as spk_print_exposure writes it. Metal's pow(10, NaN/+inf/-inf)
+// is NaN/+inf/0, and so is exp2 of those.
+float pow10(float x) { return exp2(x * 3.321928094887362); }
+
+// fmax(x, 0): a NaN gives 0, as Metal's max does.
+float positive_part(float x) { return x > 0.0 ? x : 0.0; }
+
+// Metal's precise log10 is -inf at 0 and NaN below; GLSL leaves x <= 0
+// undefined, so the domain is spelled out.
+float log10_metal(float x) {
+    if (x > 0.0) return log2(x) * 0.3010299956639812;
+    return x == 0.0 ? uintBitsToFloat(0xff800000u) : uintBitsToFloat(0x7fc00000u);
+}
+
+// IEEE atan2 at the origin (+0 or +-pi by the signs) -- GLSL leaves atan(0, 0)
+// undefined. Only a black pixel reaches it, and its chroma is below the window.
+float atan2_metal(float y, float x) {
+    if (y == 0.0 && x == 0.0) {
+        float r = (floatBitsToUint(x) >> 31) != 0u ? 3.14159265358979 : 0.0;
+        return (floatBitsToUint(y) >> 31) != 0u ? -r : r;
+    }
+    return atan(y, x);
+}
+
+// Metal's fmod is IEEE's: exact, with the sign of x. GLSL's mod floors and its
+// division is approximate, so the quotient is corrected by one step either way.
+float fmod_metal(float x, float y) {
+    precise float q = trunc(x / y);
+    precise float r = x - q * y;
+    if (x >= 0.0) { if (r < 0.0) r += y; else if (r >= y) r -= y; }
+    else { if (r > 0.0) r -= y; else if (r <= -y) r += y; }
+    return r;
+}
+
+void main() {
+    uint i = spk_global_index();
+    if (i >= count_data.value[0]) return;
+    vec3 pos = vec3(pow10(input_data.value[3u * i] + p.value[9]),
+                    pow10(input_data.value[3u * i + 1u] + p.value[10]),
+                    pow10(input_data.value[3u * i + 2u] + p.value[11]));
+    // The base is black: the same floor on every channel, scaled with the
+    // live gain so brightness and the filters never lift it.
+    pos -= vec3(p.value[40]) * vec3(pow10(p.value[9]), pow10(p.value[10]), pow10(p.value[11]));
+    vec3 lin = vec3(pos.x * p.value[0] + pos.y * p.value[3] + pos.z * p.value[6],
+                    pos.x * p.value[1] + pos.y * p.value[4] + pos.z * p.value[7],
+                    pos.x * p.value[2] + pos.y * p.value[5] + pos.z * p.value[8]);
+    if (p.value[30] != 0.0) {
+        // Oklab (Ottosson 2020); the window sits on the output hue and fades
+        // out below a chroma floor, so greys and every other hue are exact.
+        vec3 lms = vec3(p.value[12] * lin.x + p.value[13] * lin.y + p.value[14] * lin.z,
+                        p.value[15] * lin.x + p.value[16] * lin.y + p.value[17] * lin.z,
+                        p.value[18] * lin.x + p.value[19] * lin.y + p.value[20] * lin.z);
+        // pow(0, 1/3) is defined (0); a negative or NaN base never reaches it.
+        lms = pow(vec3(positive_part(lms.x), positive_part(lms.y), positive_part(lms.z)), vec3(1.0 / 3.0));
+        float L = 0.2104542553 * lms.x + 0.7936177850 * lms.y - 0.0040720468 * lms.z;
+        float a = 1.9779984951 * lms.x - 2.4285922050 * lms.y + 0.4505937099 * lms.z;
+        float b = 0.0259040371 * lms.x + 0.7827717662 * lms.y - 0.8086757660 * lms.z;
+        float C = sqrt(a * a + b * b);
+        float h = atan2_metal(b, a) * 57.29577951308232;
+        float d = fmod_metal(h - p.value[33] + 540.0, 360.0) - 180.0;
+        float w = abs(d) < p.value[34] ? 0.5 * (1.0 + cos(3.14159265358979 * d / p.value[34])) : 0.0;
+        float g = (C - p.value[35]) / (p.value[36] - p.value[35]);
+        if (!(g > 0.0)) g = 0.0;   // Metal's clamp: NaN -> 0
+        else if (g > 1.0) g = 1.0;
+        w *= g * g * (3.0 - 2.0 * g);
+        if (w > 0.0) {
+            float h2 = (h + w * p.value[31]) * 0.017453292519943295;
+            float C2 = C * (1.0 + w * (p.value[32] - 1.0));
+            a = C2 * cos(h2);
+            b = C2 * sin(h2);
+            vec3 l_ = vec3(L + 0.3963377774 * a + 0.2158037573 * b,
+                           L - 0.1055613458 * a - 0.0638541728 * b,
+                           L - 0.0894841775 * a - 1.2914855480 * b);
+            lms = l_ * l_ * l_;
+            lin = vec3(p.value[21] * lms.x + p.value[22] * lms.y + p.value[23] * lms.z,
+                       p.value[24] * lms.x + p.value[25] * lms.y + p.value[26] * lms.z,
+                       p.value[27] * lms.x + p.value[28] * lms.y + p.value[29] * lms.z);
+        }
+    }
+    // Kodak's Cineon encode with the black offset (`log_encoding_Cineon`).
+    for (uint c = 0u; c < 3u; ++c) {
+        float code = (p.value[37] + p.value[38] * log10_metal(positive_part(lin[c]) * (1.0 - p.value[41])
+                                                              + p.value[41])) / p.value[39];
+        if (!(code > 0.0)) code = 0.0;   // Metal's clamp: NaN -> 0
+        else if (code > 1.0) code = 1.0;
+        output_data.value[3u * i + c] = code;
+    }
+}
