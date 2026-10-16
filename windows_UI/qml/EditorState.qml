@@ -162,6 +162,9 @@ QtObject {
     function resetView(toFit) { if (canvas) canvas.resetView(toFit) }
     function startCrop() {
         if (!canEditCrop) return
+        // A half-frame pair has no crop: the tool is its frames' placement
+        // under their holes (Session.swift:392-394, togglePairPlacing).
+        if (preview.pair.active === true) { preview.setPairPlacing(true); return }
         draftCrop = preview.cropRect
         draftStraighten = preview.straightenDegrees
         originalPinned = false
@@ -178,6 +181,9 @@ QtObject {
         Qt.callLater(function() { editorState.resetView(true) })
     }
     function cancelCrop() { cropMode = false; resetView(true) }
-    function toggleCrop() { if (cropMode) finishCrop(); else startCrop() }
+    function toggleCrop() {
+        if (preview.pair.active === true && !cropMode) { preview.setPairPlacing(preview.pair.placing !== true); return }
+        if (cropMode) finishCrop(); else startCrop()
+    }
     function openExport() { if (canExport) exportOptionsRequested() }
 }

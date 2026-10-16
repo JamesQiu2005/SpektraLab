@@ -46,6 +46,7 @@ Rectangle {
                 width: scroll.availableWidth
                 spacing: 0
                 NavigatorSection { editor: rail.editor }
+                PairSection { editor: rail.editor }
                 ClipboardSection { editor: rail.editor }
                 FilmSection {}
                 FilmEdgeSection { editor: rail.editor }

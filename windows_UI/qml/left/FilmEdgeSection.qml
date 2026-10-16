@@ -16,8 +16,8 @@ import QtQuick.Layouts
 //
 // Not drawn, as on the Mac: the drawing's Turn row (no `overscan_turn` in the
 // engine) and a Scale slider (dragging the crop in the gate is the scale).
-// The half-frame pair's entry is the Mac's row, greyed until pairs come to
-// Windows. The Carrier row is the engine's `overscan_carrier`, which the Mac
+// The half-frame pair's entry is the Mac's row under a Half format; on a pair
+// the format is fixed. The Carrier row is the engine's `overscan_carrier`, which the Mac
 // leaves at None; it is offered here for a strip scan only.
 MacSection {
     id: section
@@ -59,8 +59,8 @@ MacSection {
     // Format: a pill of the formats and the gate's size at the row's end.
     ParamRow {
         label: L10n.tr("filmEdge.format")
-        available: section.usable
-        reason: section.offReason
+        available: section.usable && preview.pair.active !== true
+        reason: preview.pair.active === true ? L10n.tr("filmEdge.pairFormat") : section.offReason
         Item {
             width: parent.width - gateLabel.width - 6
             height: parent.height
@@ -79,15 +79,25 @@ MacSection {
             font.family: Theme.fontFamily; font.pixelSize: Theme.fontMeta; font.weight: Theme.weightText
         }
     }
-    // A half frame offers the way into a pair right under its format.
+    // A half frame offers the way into a pair right under its format
+    // (FilmEdgeSection.swift:36-46, 99-115): the photograph becomes the first
+    // frame of a new pair, and the canvas shows the second hole with a + on it.
     RowLayout {
-        visible: section.p.overscan_format === "135_half"
+        visible: section.p.overscan_format === "135_half" && preview.pair.active !== true
         PillButton {
+            objectName: "enterPair"
             text: L10n.tr("filmEdge.enterPair")
-            available: false
-            reason: L10n.tr("filmEdge.enterPairLater")
+            available: preview.canEnterPair
+            toolTip: L10n.tr("filmEdge.enterPairHelp")
+            reason: L10n.tr("filmEdge.enterPairHelp")
+            onClicked: preview.enterPair()
         }
         Item { Layout.fillWidth: true }
+    }
+    // A pair is always 135 half, exposed twice: its format is not a choice.
+    Note {
+        visible: preview.pair.active === true
+        text: L10n.tr("filmEdge.pairFormat")
     }
     ParamRow {
         label: L10n.tr("filmEdge.view")
@@ -168,8 +178,8 @@ MacSection {
         value: preview.straightenDegrees
         live: false
         gestureKey: "straightenDegrees"
-        available: section.usable && section.editor.canEditCrop && !section.editor.cropMode
-        reason: section.on ? L10n.tr("crop.waitForEditor") : section.offReason
+        available: section.usable && section.editor.canEditCrop && !section.editor.cropMode && preview.pair.active !== true
+        reason: preview.pair.active === true ? L10n.tr("pair.noCrop") : section.on ? L10n.tr("crop.waitForEditor") : section.offReason
         onMoved: function(v) { preview.setStraightenDegrees(Math.round(v * 10) / 10) }
     }
     // The picture's own pixels, and the film built around them. The border

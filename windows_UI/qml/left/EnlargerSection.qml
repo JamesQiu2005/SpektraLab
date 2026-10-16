@@ -33,6 +33,29 @@ MacSection {
     menuItems: [
         RailMenuItem { text: L10n.tr("enlarger.reset"); enabled: section.printing; onTriggered: preview.resetEnlarger() }
     ]
+    // On a frame of a half-frame pair (EnlargerSection.swift:27-33): whose
+    // print this is, and whether the film around it moves with it.
+    readonly property var pairHole: {
+        var p = preview.pair
+        if (p.active !== true || p.layer === "film") return null
+        var h = (p.holes || [])[p.layer === "first" ? 0 : 1]
+        return h && h.filled ? h : null
+    }
+    caption: pairHole ? L10n.tr(preview.pair.turned ? (pairHole.side === "first" ? "pair.topFrame" : "pair.bottomFrame")
+                                                    : (pairHole.side === "first" ? "pair.leftFrame" : "pair.rightFrame")) : ""
+    ParamRow {
+        visible: section.pairHole !== null
+        label: L10n.tr("pair.appliesTo")
+        available: section.printing
+        reason: section.slideReason
+        toolTip: L10n.tr("pair.scopeHelp")
+        PillSwitch {
+            anchors.verticalCenter: parent.verticalCenter
+            model: [L10n.tr("pair.scopeFrame"), L10n.tr("pair.scopeFilm")]
+            currentIndex: section.pairHole && section.pairHole.printScope === "film" ? 1 : 0
+            onActivated: function(index) { preview.setPairScope("print", index === 1 ? "film" : "frame") }
+        }
+    }
 
     ScrubSlider {
         label: L10n.tr("enlarger.brightness")
