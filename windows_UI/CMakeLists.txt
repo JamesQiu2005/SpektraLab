@@ -148,3 +148,17 @@ if(BUILD_TESTING)
         set_tests_properties(spk_qt_color_core PROPERTIES ENVIRONMENT_MODIFICATION "${qt_test_runtime_path}")
     endif()
 endif()
+
+# Post-Dev (Layer 2, src/PostDev.*): the model, its JSON, the curve and the CPU
+# path against a double transcription of the Mac's Shaders.metal. No GPU.
+if(BUILD_TESTING)
+    qt_add_executable(spk_qt_postdev_test tests/postdev.cpp src/PostDev.hpp src/PostDev.cpp)
+    target_include_directories(spk_qt_postdev_test PRIVATE src)
+    target_compile_features(spk_qt_postdev_test PRIVATE cxx_std_20)
+    target_link_libraries(spk_qt_postdev_test PRIVATE Qt6::Core Qt6::Gui)
+    add_test(NAME spk_qt_postdev COMMAND spk_qt_postdev_test --cpu)
+    if(WIN32)
+        set_tests_properties(spk_qt_postdev PROPERTIES
+            ENVIRONMENT_MODIFICATION "PATH=path_list_prepend:$<TARGET_FILE_DIR:Qt6::Core>")
+    endif()
+endif()
