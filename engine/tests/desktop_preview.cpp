@@ -1,5 +1,7 @@
 // Headless tests of the desktop host boundary. The default invocation is pure
-// CPU conversion; optional integration uses the real engine and RAW fixture.
+// CPU: conversion, viewport and the settings table against the engine schema.
+// --settings-engine drives the table through the real engine on a synthetic
+// frame; the other modes use the real engine and RAW fixtures.
 #include "desktop/preview_host.hpp"
 #include "desktop/viewport.hpp"
 #include "core/json.hpp"
@@ -75,22 +77,216 @@ std::uint64_t frame_fingerprint(const Frame& frame) {
     return hash;
 }
 
+Json json_of(const SettingValue& value) {
+    return std::visit([](const auto& v) { return Json(v); }, value);
+}
+
+bool same_json(const Json& a, const Json& b) { return a.dump() == b.dump(); }
+
+std::vector<std::string> keys_of(const Json& object) {
+    std::vector<std::string> keys;
+    for (const auto& kv : object.fields()) keys.push_back(kv.first);
+    return keys;
+}
+
+// The desktop table against the engine's own: every row is a wire field of
+// the same type and layer, inside the engine's range, and `absent` -- what a
+// record saved before the row existed rendered with -- is the engine default.
+void settings_schema() {
+    const auto& fields = setting_fields();
+    const Json engine_defaults = spk::read_params(spk::Params{});
+    std::vector<std::string> seen;
+    for (const auto& field : fields) {
+        check(std::find(seen.begin(), seen.end(), field.key) == seen.end(), "duplicate settings row");
+        seen.push_back(field.key);
+        check(find_setting(field.key) == &field, "find_setting does not return the table row");
+        const auto& schema = spk::schema_fields();
+        const auto row = std::find_if(schema.begin(), schema.end(),
+            [&](const spk::SchemaField& f) { return field.key == f.name; });
+        if (row == schema.end()) throw std::runtime_error("settings row is not an engine wire field: " + field.key);
+        const auto expected = field.type == SettingType::boolean ? spk::FieldType::Bool
+                            : field.type == SettingType::number ? spk::FieldType::Float : spk::FieldType::Str;
+        check(row->type == expected, "settings row type differs from the engine schema");
+        check((field.layer == SettingLayer::shoot) == (row->layer == spk::Layer::Shoot),
+              "settings row layer differs from the engine schema");
+        if (field.type == SettingType::number)
+            check(row->has_range && field.low >= row->lo && field.high <= row->hi && field.low < field.high,
+                  "desktop range is wider than the engine's");
+        if (!same_json(json_of(field.absent), engine_defaults.at(field.key)))
+            throw std::runtime_error("absent value is not the engine default: " + field.key);
+        check(check_setting(field, field.initial).empty() && check_setting(field, field.absent).empty(),
+              "a row's own defaults fail its validation");
+        for (const auto& name : field.listed) {
+            Json probe = Json::object();
+            probe.set(field.key, Json(name));
+            std::string error, param;
+            check(spk::validate_delta(probe, error, param), "a listed choice is refused by the engine");
+        }
+    }
+    // The complete open request, fixed I/O policy included, is one the
+    // engine's schema accepts: no misspelt or retired wire name.
+    std::string error, param;
+    check(spk::validate_delta(opening_params(RenderSettings{}, false), error, param),
+          "default opening parameters fail the engine schema");
+}
+
+// Defaults: the engine's, except where a new photograph follows macOS.
 void settings_defaults() {
-    // A second host default must agree with the engine's own parameter tree;
-    // a UI format label such as "35 mm" is not licence to substitute 36.
     const RenderSettings settings;
-    const spk::Params engine;
-    check(settings.print_exposure == engine.enlarger.print_exposure, "desktop print default differs from engine");
-    check(settings.film_exposure_ev == engine.camera.exposure_compensation_ev, "desktop film exposure default differs from engine");
-    check(settings.film_format_mm == engine.camera.film_format_mm, "desktop film format default differs from engine");
-    check(settings.grain_active == engine.film_render.grain.active && settings.grain_amount == engine.film_render.grain.amount,
-          "desktop grain defaults differ from engine");
-    check(settings.halation_active == engine.film_render.halation.active && settings.halation_amount == engine.film_render.halation.halation_amount,
-          "desktop halation defaults differ from engine");
-    check(settings.glare_active == engine.print_render.glare.active && settings.glare_amount == engine.print_render.glare.amount,
-          "desktop glare defaults differ from engine");
-    check(settings.y_filter_shift == engine.enlarger.y_filter_shift && settings.m_filter_shift == engine.enlarger.m_filter_shift,
-          "desktop enlarger defaults differ from engine");
+    std::vector<std::string> deviations;
+    for (const auto& field : setting_fields()) {
+        check(settings.get(field.key) == field.initial, "default settings differ from the rows' initial values");
+        if (field.initial != field.absent) deviations.push_back(field.key);
+    }
+    // Each with its macOS source (Params.swift): FilmParams.printStock,
+    // FilmParams.filterShiftCC, FilmParams.autoExposureMethod.
+    check(deviations == std::vector<std::string>{"print_stock", "filter_shift_scale", "auto_exposure_method"},
+          "new-photograph defaults deviate from the engine for an undocumented row");
+    check(settings.film_stock == "kodak_portra_400" && settings.print_stock == "kodak_supra_endura",
+          "default film/paper pair is not the macOS one");
+    check(settings.get("filter_shift_scale") == SettingValue(40.0), "filter sliders are not macOS strength");
+    check(settings.get("auto_exposure_method") == SettingValue(std::string("balanced")),
+          "default metering is not balanced");
+    // A UI format label such as "35 mm" is no licence to substitute 36.
+    check(settings.film_format_mm == 35.0, "desktop film format default differs from engine");
+}
+
+void settings_access() {
+    RenderSettings settings;
+    // Named members and keyed access are one value.
+    settings.film_exposure_ev = 1.25;
+    check(settings.get("exposure_compensation_ev") == SettingValue(1.25), "named member and wire key disagree");
+    settings.set("exposure_compensation_ev", 2.5);
+    check(settings.film_exposure_ev == 2.5, "keyed write missed the named member");
+    settings.set("grain_active", false);
+    check(!settings.grain_active, "keyed bool write missed the named member");
+    settings.set("print_stock", std::string("kodak_portra_endura"));
+    check(settings.print_stock == "kodak_portra_endura", "keyed text write missed the named member");
+    // A row without a member still takes part in equality.
+    RenderSettings other = settings;
+    check(other == settings, "copied settings differ");
+    other.set("filter_shift_scale", 1.0);
+    check(other != settings && other.get("filter_shift_scale") == SettingValue(1.0), "keyed-only row ignored");
+    other.set("filter_shift_scale", 40.0);
+    check(other == settings, "restored keyed-only row still differs");
+    rejected([&] { settings.set("no_such_setting", 1.0); }, "unknown setting accepted");
+    rejected([&] { (void)settings.get("no_such_setting"); }, "unknown setting read");
+    rejected([&] { settings.set("grain_amount", true); }, "bool accepted for a number row");
+    rejected([&] { settings.set("grain_active", 1.0); }, "number accepted for a bool row");
+    rejected([&] { settings.set("auto_exposure_method", 0.5); }, "number accepted for a text row");
+    check(settings.grain_amount == 1.0 && !settings.grain_active, "rejected write changed a value");
+}
+
+Catalog test_catalog() {
+    return {{{"kodak_portra_400", "Portra 400", false}, {"kodak_ektar_100", "Ektar 100", false},
+             {"kodak_ektachrome_100", "Ektachrome 100", true}},
+            {{"kodak_supra_endura", "Supra Endura", false}, {"kodak_portra_endura", "Portra Endura", false}}};
+}
+
+void settings_validation() {
+    const auto catalog = test_catalog();
+    RenderSettings settings;
+    check(!validate_settings(settings, catalog), "default negative film reported as a slide");
+    settings.film_stock = "kodak_ektachrome_100";
+    check(validate_settings(settings, catalog), "slide film not reported as positive");
+    for (const auto& field : setting_fields()) {
+        if (field.type == SettingType::number) {
+            for (double value : {field.low, field.high}) {
+                RenderSettings edge;
+                edge.set(field.key, value);
+                validate_settings(edge, catalog);
+                ++checks;
+            }
+            const double span = field.high - field.low;
+            for (double value : {field.low - span * 1e-3, field.high + span * 1e-3,
+                                 std::numeric_limits<double>::quiet_NaN(),
+                                 std::numeric_limits<double>::infinity(),
+                                 -std::numeric_limits<double>::infinity()}) {
+                RenderSettings invalid;
+                invalid.set(field.key, value);
+                const auto error = rejected([&] { validate_settings(invalid, catalog); },
+                                            "out-of-range setting accepted");
+                check(error.find(field.label) != std::string::npos, "range error does not name the setting");
+                check(!check_setting(field, SettingValue(value)).empty(), "check_setting accepted a bad number");
+            }
+        } else if (field.type == SettingType::text) {
+            RenderSettings invalid;
+            invalid.set(field.key, std::string("__not_a_choice__"));
+            rejected([&] { validate_settings(invalid, catalog); }, "unknown text choice accepted");
+        }
+        check(!check_setting(field, SettingValue(std::string("1"))).empty() || field.type == SettingType::text,
+              "text accepted for a non-text row");
+    }
+    // Without a catalogue only the shape of a stock can be judged.
+    const auto* film = find_setting("film_stock");
+    check(check_setting(*film, SettingValue(std::string("kodak_tri_x_400"))).empty(),
+          "stock rejected without a catalogue");
+    check(!check_setting(*film, SettingValue(std::string("kodak_tri_x_400")), &catalog).empty(),
+          "stock outside the catalogue accepted");
+}
+
+void settings_deltas() {
+    const RenderSettings base;
+    // Opening sends every row, the host's I/O policy and scan_film.
+    const auto open = opening_params(base, true);
+    for (const auto& field : setting_fields())
+        check(same_json(open.at(field.key), json_of(base.get(field.key))), "opening parameters omit or alter a row");
+    check(open.at("scan_film").as_bool() && open.at("output_color_space").as_string() == "sRGB" &&
+          open.at("input_color_space").as_string() == "ProPhoto RGB" && !open.at("extended_dynamic_range").as_bool(),
+          "opening parameters lost the host's fixed policy");
+    check(open.fields().size() == setting_fields().size() + 6, "opening parameters carry an unexpected field");
+    check(opening_params(base, false).at("scan_film").as_bool() == false, "scan_film not passed through");
+
+    check(changed_params(base, base, false).fields().empty(), "unchanged settings produced a delta");
+    // Each row alone produces exactly its own key; a film change also
+    // carries the resolved scan mode, true or false.
+    for (const auto& field : setting_fields()) {
+        RenderSettings after = base;
+        SettingValue value;
+        switch (field.type) {
+        case SettingType::boolean: value = !std::get<bool>(base.get(field.key)); break;
+        case SettingType::number: value = std::get<double>(base.get(field.key)) == field.high ? field.low : field.high; break;
+        case SettingType::text:
+            value = field.key == "film_stock" ? std::string("kodak_ektar_100")
+                  : field.key == "print_stock" ? std::string("kodak_portra_endura") : field.listed.back();
+            break;
+        }
+        after.set(field.key, value);
+        for (bool scan : {false, true}) {
+            const auto delta = changed_params(base, after, scan);
+            std::vector<std::string> expected{field.key};
+            if (field.key == "film_stock") expected.push_back("scan_film");
+            std::sort(expected.begin(), expected.end());
+            if (keys_of(delta) != expected) throw std::runtime_error("delta is not minimal for " + field.key);
+            check(same_json(delta.at(field.key), json_of(value)), "delta carries the wrong value");
+            if (field.key == "film_stock") check(delta.at("scan_film").as_bool() == scan, "film delta lost scan mode");
+        }
+    }
+    // A paper-only edit never touches the film side, whose cached grain
+    // realisation it would otherwise invalidate.
+    RenderSettings print = base;
+    print.print_exposure = 0.8;
+    print.y_filter_shift = 0.25;
+    print.set("filter_shift_scale", 1.0);
+    print.print_stock = "kodak_portra_endura";
+    const auto print_delta = changed_params(base, print, false);
+    check(keys_of(print_delta) == std::vector<std::string>{"filter_shift_scale", "print_exposure", "print_stock",
+                                                             "y_filter_shift"}, "paper edit delta is not minimal");
+    for (const auto& key : keys_of(print_delta))
+        check(find_setting(key)->layer == SettingLayer::print, "paper edit delta touched the film side");
+    // Slide and back: the scan mode follows every film change, and the
+    // remembered paper rides along only when it changed.
+    RenderSettings slide = print;
+    slide.film_stock = "kodak_ektachrome_100";
+    const auto to_slide = changed_params(print, slide, true);
+    check(keys_of(to_slide) == std::vector<std::string>{"film_stock", "scan_film"} &&
+          to_slide.at("scan_film").as_bool(), "slide change delta");
+    RenderSettings negative = slide;
+    negative.film_stock = "kodak_portra_400";
+    negative.set("auto_exposure_method", std::string("center_weighted"));
+    const auto back = changed_params(slide, negative, false);
+    check(keys_of(back) == std::vector<std::string>{"auto_exposure_method", "film_stock", "scan_film"} &&
+          !back.at("scan_film").as_bool(), "negative return delta");
 }
 
 void conversion() {
@@ -476,6 +672,124 @@ void film_policy(const fs::path& resources, const fs::path& raw, const fs::path&
     check(bool(stream << report.dump() << '\n') && bool(stream.flush()), "cannot write film policy report");
 }
 
+// The settings table through the real engine, on a synthetic frame: no RAW
+// needed. Grain and glare are off, so equal settings must give equal pixels.
+struct Rendered {
+    spk_result result{};
+    Rendered() = default;
+    Rendered(const Rendered&) = delete;
+    Rendered& operator=(const Rendered&) = delete;
+    ~Rendered() { spk_result_free(&result); }
+    std::uint64_t pixels() const {
+        std::uint64_t hash = 14695981039346656037ull;
+        for (std::uint32_t y = 0; y < result.height; ++y)
+            hash = fingerprint(result.rgba16 + std::size_t(y) * result.row_stride_px * 4,
+                               std::size_t(result.width) * 4 * sizeof(std::uint16_t), hash);
+        return hash;
+    }
+    double distance(const Rendered& other) const {
+        check(result.width == other.result.width && result.height == other.result.height, "render size changed");
+        double sum = 0.0;
+        for (std::uint32_t y = 0; y < result.height; ++y)
+            for (std::uint32_t x = 0; x < result.width * 4; ++x)
+                sum += std::abs(double(result.rgba16[std::size_t(y) * result.row_stride_px * 4 + x]) -
+                                double(other.result.rgba16[std::size_t(y) * other.result.row_stride_px * 4 + x]));
+        return sum;
+    }
+};
+
+void settings_engine(const fs::path& resources) {
+    using EnginePtr = std::unique_ptr<spk_engine, decltype(&spk_engine_destroy)>;
+    using SessionPtr = std::unique_ptr<spk_session, decltype(&spk_session_release)>;
+    const auto root = path_text(fs::absolute(resources));
+    EnginePtr engine(spk_engine_create(root.c_str(), nullptr), &spk_engine_destroy);
+    if (!engine) throw std::runtime_error(std::string("engine: ") + spk_last_error(nullptr));
+    const auto error = [&] { return std::string(spk_last_error(engine.get())); };
+    // A smooth, non-uniform frame, so the metering intents disagree.
+    constexpr std::uint32_t width = 96, height = 64;
+    std::vector<float> rgb(std::size_t(width) * height * 3);
+    for (std::uint32_t y = 0; y < height; ++y)
+        for (std::uint32_t x = 0; x < width; ++x) {
+            float* p = rgb.data() + (std::size_t(y) * width + x) * 3;
+            p[0] = 0.01f + 0.9f * float(x) / (width - 1);
+            p[1] = 0.01f + 0.5f * float(y) / (height - 1);
+            p[2] = 0.03f + 0.3f * float(x + y) / (width + height - 2);
+        }
+    const spk_image input{rgb.data(), width, height, 3};
+    RenderSettings current;
+    current.grain_active = false;
+    current.glare_active = false;
+    SessionPtr session(spk_open(engine.get(), &input, opening_params(current, false).dump().c_str(), nullptr),
+                       &spk_session_release);
+    if (!session) throw std::runtime_error("open with default settings: " + error());
+    // The session holds exactly what the table sent, macOS defaults included.
+    const auto session_matches = [&](const RenderSettings& settings, bool scan_film) {
+        char* text = nullptr;
+        check(spk_get_params(session.get(), &text) == SPK_OK && text, "read session parameters");
+        Json params;
+        std::string parse_error;
+        const bool parsed = Json::parse(text, params, parse_error);
+        spk_string_free(text);
+        check(parsed, "session parameters are not JSON");
+        for (const auto& field : setting_fields())
+            if (!same_json(params.at(field.key), json_of(settings.get(field.key))))
+                throw std::runtime_error("session does not hold the table's " + field.key);
+        check(params.at("scan_film").as_bool() == scan_film, "session scan mode differs");
+    };
+    session_matches(current, false);
+    Rendered opened;
+    check(spk_render(session.get(), "full", &opened.result) == SPK_OK, "first render");
+
+    const auto edit = [&](const RenderSettings& next, bool scan_film, bool expect_cached) {
+        const auto delta = changed_params(current, next, scan_film);
+        check(!delta.fields().empty(), "edit produced no delta");
+        if (spk_set_params(session.get(), delta.dump().c_str(), nullptr) != SPK_OK)
+            throw std::runtime_error("apply " + delta.dump() + ": " + error());
+        auto out = std::make_unique<Rendered>();
+        check(spk_reprint(session.get(), "full", &out->result) == SPK_OK, "reprint after edit");
+        check((out->result.negative_was_cached != 0) == expect_cached, "edit used the wrong film-cache path");
+        current = next;
+        session_matches(current, scan_film);
+        return out;
+    };
+
+    auto next = current;
+    next.print_exposure = 0.8;
+    const auto brighter = edit(next, false, true);
+    check(brighter->pixels() != opened.pixels(), "print exposure did not change the print");
+    // The scale multiplies the shifts and nothing else: at zero shifts the
+    // engine's 1 and macOS's 40 print identically. This is why a version-1
+    // edit with both shifts at zero can take the new strength unchanged.
+    next.set("filter_shift_scale", 1.0);
+    const auto unscaled = edit(next, false, true);
+    check(unscaled->pixels() == brighter->pixels(), "filter scale moved a print with zero shifts");
+    next.y_filter_shift = 0.25;
+    const auto weak = edit(next, false, true);
+    next.set("filter_shift_scale", 40.0);
+    const auto strong = edit(next, false, true);
+    check(strong->distance(*unscaled) > 4.0 * weak->distance(*unscaled) && strong->distance(*unscaled) > 0,
+          "filter_shift_scale 40 does not strengthen the yellow filter");
+    next.set("auto_exposure_method", std::string("center_weighted"));
+    const auto metered = edit(next, false, false);
+    check(metered->pixels() != strong->pixels(), "metering intent did not change the render");
+    next.print_stock = "kodak_portra_endura";
+    (void)edit(next, false, true);
+    next.film_stock = "kodak_ektar_100";
+    (void)edit(next, false, false);
+    next.film_stock = "kodak_ektachrome_100";
+    (void)edit(next, true, false);
+    next.film_stock = "kodak_portra_400";
+    const auto last = edit(next, false, false);
+    // Deltas leave the session exactly where opening with the final settings
+    // would have: nothing the table holds is lost across stock changes.
+    SessionPtr fresh(spk_open(engine.get(), &input, opening_params(current, false).dump().c_str(), nullptr),
+                     &spk_session_release);
+    if (!fresh) throw std::runtime_error("open with edited settings: " + error());
+    Rendered reopened;
+    check(spk_render(fresh.get(), "full", &reopened.result) == SPK_OK, "render reopened session");
+    check(reopened.pixels() == last->pixels(), "edited session differs from a fresh one with the same settings");
+}
+
 void integration(const fs::path& resources, const fs::path& arw,
                  const fs::path& nef, const fs::path& destination) {
     check(fs::create_directory(destination), "integration destination must be a new directory");
@@ -577,10 +891,16 @@ void integration(const fs::path& resources, const fs::path& arw,
 
 int main(int argc, char** argv) {
     try {
+        settings_schema();
         settings_defaults();
+        settings_access();
+        settings_validation();
+        settings_deltas();
         conversion();
         viewport_geometry();
-        if (argc == 5 && std::string(argv[1]) == "--film-policy") {
+        if (argc == 3 && std::string(argv[1]) == "--settings-engine") {
+            settings_engine(fs::path(reinterpret_cast<const char8_t*>(argv[2])));
+        } else if (argc == 5 && std::string(argv[1]) == "--film-policy") {
             film_policy(fs::path(reinterpret_cast<const char8_t*>(argv[2])),
                         fs::path(reinterpret_cast<const char8_t*>(argv[3])),
                         fs::path(reinterpret_cast<const char8_t*>(argv[4])));
@@ -591,6 +911,7 @@ int main(int argc, char** argv) {
         } else if (argc != 1) {
             if (argc != 6 || std::string(argv[1]) != "--integration") {
                 std::cerr << "usage: spk_desktop_preview_test [--integration <resources> <ARW> <NEF> <new-output-directory>]\n"
+                             "       spk_desktop_preview_test --settings-engine <resources>\n"
                              "       spk_desktop_preview_test --film-policy <resources> <RAW> <new-output-directory>\n"
                              "       spk_desktop_preview_test --edit-controls <resources> <RAW> <new-output-directory>\n";
                 return 2;

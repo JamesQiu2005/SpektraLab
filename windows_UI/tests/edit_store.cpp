@@ -66,7 +66,8 @@ int main(int argc, char** argv) {
         const editing::Store store(root);
         const spk::desktop::Catalog catalog{
             {{"kodak_portra_400", "Portra", false}, {"fuji_provia_100f", "Provia", true}},
-            {{"kodak_portra_endura", "Portra paper", false}, {"fuji_crystal", "Crystal", false}}};
+            {{"kodak_portra_endura", "Portra paper", false}, {"fuji_crystal", "Crystal", false},
+             {"kodak_supra_endura", "Supra paper", false}}};
         check(!store.load(url, catalog).state && !QFileInfo::exists(root),
               "reading missing state must not create a directory");
         check(!store.load(url, catalog).blocked, "missing state is not blocked");

@@ -67,6 +67,13 @@ if(BUILD_TESTING)
     target_compile_features(spk_qt_edit_store_test PRIVATE cxx_std_20)
     target_link_libraries(spk_qt_edit_store_test PRIVATE spk_desktop_host Qt6::Core Qt6::Gui)
     add_test(NAME spk_qt_edit_store COMMAND spk_qt_edit_store_test)
+    # The settings table through the real engine on a synthetic frame: the
+    # macOS defaults are accepted, deltas stay minimal across stock changes,
+    # and the filter scale is inert at zero shifts. No RAW fixture.
+    if(TARGET spk_desktop_preview_test)
+        add_test(NAME spk_desktop_settings_engine COMMAND spk_desktop_preview_test --settings-engine
+            "$<TARGET_FILE_DIR:SpektraLabQt>/resources")
+    endif()
     if(WIN32)
         # Specify each test's DLL search path: CTest on this Windows host can
         # restore the pre-launch PATH between tests. Ambient PATH alone makes

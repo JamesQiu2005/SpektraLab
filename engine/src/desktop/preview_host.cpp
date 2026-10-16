@@ -1,14 +1,15 @@
 #include "preview_host.hpp"
 #include "io/image_writer.hpp"
-#include "json.hpp"
 
 #include <algorithm>
 #include <chrono>
 #include <cmath>
+#include <cstdio>
 #include <fstream>
 #include <limits>
 #include <set>
 #include <stdexcept>
+#include <type_traits>
 #include <utility>
 
 namespace spk::desktop {
@@ -76,88 +77,112 @@ Catalog read_catalog(const fs::path& resources) {
     return catalog;
 }
 
-bool validate_settings(const RenderSettings& settings, const Catalog& catalog) {
-    const auto contains = [](const std::vector<Stock>& stocks, const std::string& id) {
-        return std::any_of(stocks.begin(), stocks.end(), [&](const Stock& s) { return s.id == id; });
-    };
-    const auto film = std::find_if(catalog.films.begin(), catalog.films.end(),
-        [&](const Stock& stock) { return stock.id == settings.film_stock; });
-    require(film != catalog.films.end(), "Unknown film stock: " + settings.film_stock);
-    require(contains(catalog.papers, settings.print_stock), "Unknown paper stock: " + settings.print_stock);
-    require(std::isfinite(settings.print_exposure) && settings.print_exposure >= 0.05 &&
-                settings.print_exposure <= 20.0, "Print exposure must be between 0.05 and 20");
-    const auto range = [](double value, double low, double high, const char* label) {
-        require(std::isfinite(value) && value >= low && value <= high,
-                std::string(label) + " must be between " + std::to_string(low) + " and " + std::to_string(high));
-    };
-    // Reject before touching the live session, including NaN/Inf values
-    // that cannot be represented faithfully in the JSON parameter delta.
-    range(settings.film_exposure_ev, -8.0, 8.0, "Film exposure (EV)");
-    range(settings.film_format_mm, 4.0, 200.0, "Film format (mm)");
-    range(settings.grain_amount, 0.0, 2.0, "Grain amount");
-    range(settings.halation_amount, 0.0, 4.0, "Halation amount");
-    range(settings.glare_amount, 0.0, 30.0, "Glare amount");
-    range(settings.y_filter_shift, -1.0, 1.0, "Yellow filter shift");
-    range(settings.m_filter_shift, -1.0, 1.0, "Magenta filter shift");
-    return film->is_positive;
+// --- the settings table ---------------------------------------------------
+
+using Member = std::variant<std::monostate, bool RenderSettings::*, double RenderSettings::*,
+                            std::string RenderSettings::*>;
+struct Row {
+    SettingField field;
+    Member member;  // monostate: stored by key
+};
+
+constexpr SettingLayer SHOOT = SettingLayer::shoot;
+constexpr SettingLayer PRINT = SettingLayer::print;
+
+Row number(std::string key, std::string label, SettingLayer layer, double low, double high,
+           double initial, double absent, Member member = {}) {
+    SettingField f{std::move(key), std::move(label), SettingType::number, layer, low, high};
+    f.initial = initial;
+    f.absent = absent;
+    return {std::move(f), member};
+}
+Row number(std::string key, std::string label, SettingLayer layer, double low, double high,
+           double initial, Member member) {
+    return number(std::move(key), std::move(label), layer, low, high, initial, initial, member);
+}
+Row boolean(std::string key, std::string label, SettingLayer layer, bool initial, Member member = {}) {
+    SettingField f{std::move(key), std::move(label), SettingType::boolean, layer};
+    f.initial = initial;
+    f.absent = initial;
+    return {std::move(f), member};
+}
+Row text(std::string key, std::string label, SettingLayer layer, SettingChoices choices,
+         std::vector<std::string> listed, std::string initial, std::string absent, Member member = {}) {
+    SettingField f{std::move(key), std::move(label), SettingType::text, layer};
+    f.choices = choices;
+    f.listed = std::move(listed);
+    f.initial = std::move(initial);
+    f.absent = std::move(absent);
+    return {std::move(f), member};
 }
 
-Json opening_params(const RenderSettings& settings, bool scan_film) {
-    // Unexposed effects keep their engine defaults. The exposed settings
-    // start at those same defaults, so opening an unedited image retains
-    // the existing look, including the physical 35 mm grain/halation scale.
-    Json params = Json::object();
-    params.set("input_color_space", Json(std::string("ProPhoto RGB")));
-    params.set("input_cctf_decoding", Json(false));
-    params.set("output_color_space", Json(std::string("sRGB")));
-    params.set("output_cctf_encoding", Json(true));
-    params.set("extended_dynamic_range", Json(false));
-    params.set("film_stock", Json(settings.film_stock));
-    // Desktop policy matches the macOS session: a slide is already a
-    // positive and must bypass negative-to-paper printing. The generic
-    // engine API still permits deliberate positive-to-paper experiments.
-    params.set("scan_film", Json(scan_film));
-    params.set("print_stock", Json(settings.print_stock));
-    params.set("print_exposure", Json(settings.print_exposure));
-    params.set("exposure_compensation_ev", Json(settings.film_exposure_ev));
-    params.set("film_format_mm", Json(settings.film_format_mm));
-    params.set("grain_active", Json(settings.grain_active));
-    params.set("grain_amount", Json(settings.grain_amount));
-    params.set("halation_active", Json(settings.halation_active));
-    params.set("halation_amount", Json(settings.halation_amount));
-    params.set("glare_active", Json(settings.glare_active));
-    params.set("glare_amount", Json(settings.glare_amount));
-    params.set("y_filter_shift", Json(settings.y_filter_shift));
-    params.set("m_filter_shift", Json(settings.m_filter_shift));
-    return params;
+const std::vector<Row>& rows() {
+    // A function-local table: RenderSettings' constructor reads it, so it
+    // must exist before the first settings object, whatever the init order.
+    static const std::vector<Row> table = [] {
+        using R = RenderSettings;
+        std::vector<Row> t;
+        // A new photograph prints on Supra Endura, as on macOS
+        // (Params.swift FilmParams.printStock). The engine's own default --
+        // Portra Endura -- is what a record without the key rendered with.
+        t.push_back(text("film_stock", "Film stock", SHOOT, SettingChoices::films, {},
+                         "kodak_portra_400", "kodak_portra_400", &R::film_stock));
+        t.push_back(text("print_stock", "Paper stock", PRINT, SettingChoices::papers, {},
+                         "kodak_supra_endura", "kodak_portra_endura", &R::print_stock));
+        t.push_back(number("print_exposure", "Print exposure", PRINT, 0.05, 20.0, 1.0, &R::print_exposure));
+        t.push_back(number("exposure_compensation_ev", "Film exposure (EV)", SHOOT, -8.0, 8.0, 0.0,
+                           &R::film_exposure_ev));
+        // The engine's 35 mm, including its grain and halation scale; a UI
+        // label such as "35 mm" is no licence to substitute 36.
+        t.push_back(number("film_format_mm", "Film format (mm)", SHOOT, 4.0, 200.0, 35.0, &R::film_format_mm));
+        t.push_back(boolean("grain_active", "Grain", SHOOT, true, &R::grain_active));
+        t.push_back(number("grain_amount", "Grain amount", SHOOT, 0.0, 2.0, 1.0, &R::grain_amount));
+        t.push_back(boolean("halation_active", "Halation", SHOOT, true, &R::halation_active));
+        t.push_back(number("halation_amount", "Halation amount", SHOOT, 0.0, 4.0, 1.0, &R::halation_amount));
+        t.push_back(boolean("glare_active", "Glare", PRINT, true, &R::glare_active));
+        t.push_back(number("glare_amount", "Glare amount", PRINT, 0.0, 30.0, 1.0, &R::glare_amount));
+        t.push_back(number("y_filter_shift", "Yellow filter shift", PRINT, -1.0, 1.0, 0.0, &R::y_filter_shift));
+        t.push_back(number("m_filter_shift", "Magenta filter shift", PRINT, -1.0, 1.0, 0.0, &R::m_filter_shift));
+        // What a unit of the two shifts is, in the enlarger head's CC (API-SPEC
+        // §14). The engine's 1 makes the whole -1..1 slider one CC; macOS
+        // sends 40 always (Params.swift FilmParams.filterShiftCC).
+        t.push_back(number("filter_shift_scale", "Filter shift scale (CC)", PRINT, 1.0, 60.0, 40.0, 1.0));
+        // RFC-015's metering intent. macOS starts new frames `balanced`
+        // (Params.swift FilmParams.autoExposureMethod); a record without it
+        // was metered with the engine's `center_weighted`.
+        t.push_back(text("auto_exposure_method", "Metering", SHOOT, SettingChoices::listed,
+                         {"balanced", "center", "protect_highlights", "protect_shadows",
+                          "center_weighted", "average", "median"},
+                         "balanced", "center_weighted"));
+        return t;
+    }();
+    return table;
 }
 
-Json changed_params(const RenderSettings& before, const RenderSettings& after, bool scan_film) {
-    Json delta = Json::object();
-    // Sending an unchanged film_stock still invalidates the negative in the
-    // C API. A print-only edit must never include it incidentally.
-    if (before.film_stock != after.film_stock) {
-        delta.set("film_stock", Json(after.film_stock));
-        // Send false too when returning to negative film, otherwise the
-        // previous slide's direct-scan mode would survive the stock change.
-        delta.set("scan_film", Json(scan_film));
+const Row& row_for(std::string_view key) {
+    for (const Row& row : rows())
+        if (row.field.key == key) return row;
+    throw std::invalid_argument("Unknown render setting: " + std::string(key));
+}
+
+// The variant alternative a row's type stores.
+std::size_t value_index(SettingType type) {
+    switch (type) {
+    case SettingType::boolean: return 0;
+    case SettingType::number: return 1;
+    case SettingType::text: return 2;
     }
-    if (before.print_stock != after.print_stock) delta.set("print_stock", Json(after.print_stock));
-    if (before.print_exposure != after.print_exposure) delta.set("print_exposure", Json(after.print_exposure));
-    // The C API retains carried user controls when loading another stock.
-    // Send only changed fields: an unchanged SHOOT field in a paper-only
-    // delta would unnecessarily invalidate the cached grain realization.
-    if (before.film_exposure_ev != after.film_exposure_ev) delta.set("exposure_compensation_ev", Json(after.film_exposure_ev));
-    if (before.film_format_mm != after.film_format_mm) delta.set("film_format_mm", Json(after.film_format_mm));
-    if (before.grain_active != after.grain_active) delta.set("grain_active", Json(after.grain_active));
-    if (before.grain_amount != after.grain_amount) delta.set("grain_amount", Json(after.grain_amount));
-    if (before.halation_active != after.halation_active) delta.set("halation_active", Json(after.halation_active));
-    if (before.halation_amount != after.halation_amount) delta.set("halation_amount", Json(after.halation_amount));
-    if (before.glare_active != after.glare_active) delta.set("glare_active", Json(after.glare_active));
-    if (before.glare_amount != after.glare_amount) delta.set("glare_amount", Json(after.glare_amount));
-    if (before.y_filter_shift != after.y_filter_shift) delta.set("y_filter_shift", Json(after.y_filter_shift));
-    if (before.m_filter_shift != after.m_filter_shift) delta.set("m_filter_shift", Json(after.m_filter_shift));
-    return delta;
+    return std::variant_npos;
+}
+
+std::string number_text(double value) {
+    char buffer[32];
+    std::snprintf(buffer, sizeof buffer, "%g", value);
+    return buffer;
+}
+
+Json to_json(const SettingValue& value) {
+    return std::visit([](const auto& v) { return Json(v); }, value);
 }
 
 SessionPtr open_session(spk_engine* engine, const io::DecodedRaw& decoded,
@@ -171,6 +196,124 @@ SessionPtr open_session(spk_engine* engine, const io::DecodedRaw& decoded,
     return session;
 }
 }  // namespace
+
+const std::vector<SettingField>& setting_fields() {
+    static const std::vector<SettingField> fields = [] {
+        std::vector<SettingField> out;
+        for (const Row& row : rows()) out.push_back(row.field);
+        return out;
+    }();
+    return fields;
+}
+
+const SettingField* find_setting(std::string_view key) {
+    for (const SettingField& field : setting_fields())
+        if (field.key == key) return &field;
+    return nullptr;
+}
+
+std::string check_setting(const SettingField& field, const SettingValue& value, const Catalog* catalog) {
+    if (value.index() != value_index(field.type)) {
+        const char* expected = field.type == SettingType::boolean ? "true or false"
+                             : field.type == SettingType::number ? "a number" : "text";
+        return field.label + " expects " + expected;
+    }
+    if (field.type == SettingType::number) {
+        // Reject before touching the live session, including NaN/Inf values
+        // that cannot be represented faithfully in the JSON parameter delta.
+        const double v = std::get<double>(value);
+        if (!std::isfinite(v) || v < field.low || v > field.high)
+            return field.label + " must be between " + number_text(field.low) + " and " + number_text(field.high);
+    } else if (field.type == SettingType::text) {
+        const auto& v = std::get<std::string>(value);
+        if (field.choices == SettingChoices::listed) {
+            if (std::find(field.listed.begin(), field.listed.end(), v) == field.listed.end()) {
+                std::string names;
+                for (const auto& name : field.listed) names += (names.empty() ? "" : ", ") + name;
+                return field.label + " must be one of: " + names;
+            }
+        } else if (catalog) {
+            const bool film = field.choices == SettingChoices::films;
+            const auto& stocks = film ? catalog->films : catalog->papers;
+            if (std::none_of(stocks.begin(), stocks.end(), [&](const Stock& s) { return s.id == v; }))
+                return std::string(film ? "Unknown film stock: " : "Unknown paper stock: ") + v;
+        }
+    }
+    return {};
+}
+
+RenderSettings::RenderSettings() {
+    for (const Row& row : rows()) {
+        if (std::holds_alternative<std::monostate>(row.member)) by_key_.emplace(row.field.key, row.field.initial);
+        else set(row.field.key, row.field.initial);
+    }
+}
+
+SettingValue RenderSettings::get(std::string_view key) const {
+    const Row& row = row_for(key);
+    return std::visit([&](auto member) -> SettingValue {
+        if constexpr (std::is_same_v<decltype(member), std::monostate>) return by_key_.find(key)->second;
+        else return this->*member;
+    }, row.member);
+}
+
+void RenderSettings::set(std::string_view key, SettingValue value) {
+    const Row& row = row_for(key);
+    if (value.index() != value_index(row.field.type))
+        throw std::invalid_argument(check_setting(row.field, value));
+    std::visit([&](auto member) {
+        if constexpr (std::is_same_v<decltype(member), std::monostate>) by_key_.find(key)->second = std::move(value);
+        else {
+            using T = std::remove_reference_t<decltype(this->*member)>;
+            this->*member = std::get<T>(std::move(value));
+        }
+    }, row.member);
+}
+
+bool validate_settings(const RenderSettings& settings, const Catalog& catalog) {
+    for (const Row& row : rows()) {
+        const auto error = check_setting(row.field, settings.get(row.field.key), &catalog);
+        require(error.empty(), error);
+    }
+    const auto film = std::find_if(catalog.films.begin(), catalog.films.end(),
+        [&](const Stock& stock) { return stock.id == settings.film_stock; });
+    return film->is_positive;
+}
+
+Json opening_params(const RenderSettings& settings, bool scan_film) {
+    Json params = Json::object();
+    params.set("input_color_space", Json(std::string("ProPhoto RGB")));
+    params.set("input_cctf_decoding", Json(false));
+    params.set("output_color_space", Json(std::string("sRGB")));
+    params.set("output_cctf_encoding", Json(true));
+    params.set("extended_dynamic_range", Json(false));
+    // Desktop policy matches the macOS session: a slide is already a
+    // positive and must bypass negative-to-paper printing. The generic
+    // engine API still permits deliberate positive-to-paper experiments.
+    params.set("scan_film", Json(scan_film));
+    // Every row, including the ones still at the engine's default: a
+    // session is then fully described by the settings that opened it.
+    for (const Row& row : rows()) params.set(row.field.key, to_json(settings.get(row.field.key)));
+    return params;
+}
+
+Json changed_params(const RenderSettings& before, const RenderSettings& after, bool scan_film) {
+    Json delta = Json::object();
+    // The C API retains carried user controls when loading another stock.
+    // Send only changed fields: an unchanged SHOOT field in a paper-only
+    // delta would unnecessarily invalidate the cached grain realization, and
+    // even an unchanged film_stock invalidates the negative.
+    for (const Row& row : rows()) {
+        const auto& key = row.field.key;
+        auto value = after.get(key);
+        if (before.get(key) == value) continue;
+        delta.set(key, to_json(value));
+        // Send false too when returning to negative film, otherwise the
+        // previous slide's direct-scan mode would survive the stock change.
+        if (key == "film_stock") delta.set("scan_film", Json(scan_film));
+    }
+    return delta;
+}
 
 Frame::~Frame() { spk_result_free(&result_); }
 

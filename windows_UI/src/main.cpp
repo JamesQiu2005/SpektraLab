@@ -253,8 +253,9 @@ private:
                         controller_.frame()->timings.decode_ms>0&&!controller_.dirty(),"decode_mode_automatically_returns_compatible"))return;
             stage_=19;controller_.resetSettings();
         } else if(stage_==19) {
-            if(!require(operation=="render"&&ok&&controller_.frame()->settings.film_stock=="kodak_portra_400"&&
-                        controller_.frame()->settings.print_stock=="kodak_portra_endura"&&exposureIs(0)&&
+            // Reset is a new photograph's settings: the table's initial values.
+            const spk::desktop::RenderSettings initial;
+            if(!require(operation=="render"&&ok&&controller_.frame()->settings==initial&&exposureIs(0)&&
                         !controller_.frame()->scan_film&&controller_.decodeMode()==0&&!controller_.dirty(),
                         "reset_settings_automatically_updates_preview"))return;
             if(!require(fingerprint(original_)==original_hash_,"original_frame_immutable_after_all_auto_edits"))return;
