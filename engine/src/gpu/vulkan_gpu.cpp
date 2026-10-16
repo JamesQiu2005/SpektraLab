@@ -88,6 +88,8 @@ constexpr KernelSpec kKernels[] = {
     {"spk_geometry_resample_df", 4, kWorkgroup},
     {"spk_lut3d_trilinear", 6, kWorkgroup},
     {"spk_di_normalise", 5, kWorkgroup},
+    {"spk_mask_reduce", 7, kWorkgroup},
+    {"spk_mask_epilogue", 8, kWorkgroup},
 };
 
 const KernelSpec* find_kernel(const char* name) {

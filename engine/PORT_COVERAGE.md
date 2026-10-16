@@ -44,7 +44,7 @@ commits.
 | `spk_solve` | untested | tested (host smoke `solve`) | portable (setup only) |
 | `spk_render` (live/preview/full) | tested (Windows) | tested (`spk_windows_c_abi`) | |
 | `spk_reprint` | tested (Windows) | tested (host smoke: `reprinted: true` after a print-side delta) | |
-| `spk_contrast_mask_field` | refused | refused | RFC-024, see §2 |
+| `spk_contrast_mask_field` | refused | tested on an RTX 3070, Windows, not on lavapipe (`spk_vulkan_contrast_mask`, `spk_windows_feature_boundaries`) | RFC-024, see §2 |
 | `spk_scene_latitude` (analysis) | tested (Windows) | tested (host smoke) | the *analysis* runs; *applying* the mapping is refused |
 | `spk_overscan_geometry` | missing (link error) | tested: returns `{"valid":false}` | the merge left the symbol undefined; stubbed so the engine links |
 | `spk_print_lut_catalog` / `spk_print_lut_table` | tested (Windows) | tested (host smoke `export_cube`) | portable core |
@@ -61,7 +61,7 @@ commits.
 | section | fields | Windows_Port | Now |
 |---|---|---|---|
 | §1–§10 core render, tiers, reprint, live-mutable set | every field in `params_schema` predating RFC-024 | implemented; whole-image Metal parity unverified | same |
-| §11 contrast mask (RFC-024) | `contrast_mask_{active,highlights,shadows,core,scale,scheme}` | **refused** when `active` | refused |
+| §11 contrast mask (RFC-024) | `contrast_mask_{active,highlights,shadows,core,scale,scheme}` | **refused** when `active` | implemented; tested on an RTX 3070, Windows (`spk_vulkan_contrast_mask`); whole-image Metal parity unverified |
 | §12 Scene Latitude (RFC-023) | `scene_latitude_{active,norm,shadow_knee,highlight_knee,shadow_room,highlight_room,max_lift,rolloff}` | **refused** when `active` (analysis call works) | refused |
 | §13 overscan / film edge (RFC-031/032) | `overscan_{active,mode,format,gate,holes,carrier,edge_text,frame_number,frame_seed,camera_seed,f_number,fog,leaks,pair}` | **refused** when `active` | refused |
 | §13 date back | `date_imprint_{active,text,text_b,data_text,style,corner,placement,size,ev,inset_x,inset_y}` | **refused** when `active` | refused |
@@ -86,12 +86,13 @@ commits.
 | `spk_cam16ucs_compress` | same | tested | tested |
 | `spk_grain_layers`, `spk_grain_simple`, `spk_lognormal_field`, `spk_grain_layer_one` | same (+ `spk_rng_probe`) | tested | tested (`spk_vulkan_grain`) |
 | `spk_di_encode` (Cineon DI) | **missing** | refused | refused |
-| `spk_mask_reduce`, `spk_mask_epilogue` (contrast mask) | **missing** | refused | refused |
+| `spk_mask_reduce`, `spk_mask_epilogue` (contrast mask) | same (shared `spk_mask.glsl`) | refused | tested on an RTX 3070, Windows, not on lavapipe (`spk_vulkan_contrast_mask`) |
 | `spk_scene_latitude` | **missing** | refused | refused |
 | `spk_overscan_canvas`, `spk_overscan_add_mask`, `spk_overscan_film_present`, `spk_overscan_light` | **missing** | refused | refused |
 
 Host-side (C++) dependencies of the unported features: `contrast_mask.cpp`
-uses GCD (`dispatch_apply`); `overscan.cpp` uses CoreText/CoreGraphics for the
+used GCD (`dispatch_apply`) and now takes a `std::thread` row partition off
+Apple; `overscan.cpp` uses CoreText/CoreGraphics for the
 edge print and date back, and vImage for a convolution.
 
 ## 4. What main added after 61bfc49 that Vulkan lacks

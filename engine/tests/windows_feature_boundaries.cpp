@@ -43,6 +43,8 @@ int main(int argc, char** argv) {
         const char* capabilities = spk_capabilities(engine.get());
         require(capabilities && std::string(capabilities).find("unsupported_features") != std::string::npos,
                 "Windows capabilities must disclose unported effects");
+        require(std::string(capabilities).find("\"contrast_mask\"") == std::string::npos,
+                "capabilities still list the ported contrast mask as unsupported");
 
         std::vector<float> pixels(32 * 16 * 3);
         for (size_t i = 0; i < pixels.size(); ++i) pixels[i] = 0.025f + float(i % 31) * 0.025f;
@@ -54,10 +56,9 @@ int main(int argc, char** argv) {
         const std::string before = params(session.get());
 
         struct Feature { const char* key; const char* label; };
-        const std::array<Feature, 5> features{{
+        const std::array<Feature, 4> features{{
             {"digital_intermediate", "digital intermediate"},
             {"scene_latitude_active", "scene latitude mapping"},
-            {"contrast_mask_active", "contrast mask"},
             {"overscan_active", "overscan"},
             {"date_imprint_active", "date imprint"},
         }};
@@ -103,6 +104,31 @@ int main(int argc, char** argv) {
             if (rejected) spk_session_release(rejected);
             require(!rejected, "open accepted the second latitude pair");
         }
+
+        // The contrast mask is ported: accepted by set_params and open, it
+        // renders through the DLL and has a field on the frame's own grid
+        // (32 x 16 is under the grid's 512-cell floor, so it caps there).
+        {
+            const std::string unmasked = params(session.get());
+            const char* on = "{\"contrast_mask_active\":true,\"contrast_mask_highlights\":1.0,"
+                             "\"contrast_mask_shadows\":1.0}";
+            const bool accepted = spk_set_params(session.get(), on, nullptr) == SPK_OK;
+            require(accepted, std::string("contrast mask refused: ") + spk_last_error(engine.get()));
+            render(engine.get(), session.get());
+            const float* field = nullptr;
+            uint32_t gw = 0, gh = 0;
+            const bool analysed = spk_contrast_mask_field(session.get(), "full", &field, &gw, &gh) == SPK_OK;
+            require(analysed && field && gw == 32 && gh == 16,
+                    std::string("enabled contrast mask has no field: ") + spk_last_error(engine.get()));
+            require(spk_set_params(session.get(), "{\"contrast_mask_active\":false,\"contrast_mask_highlights\":0.0,"
+                                                  "\"contrast_mask_shadows\":0.0}", nullptr) == SPK_OK &&
+                    params(session.get()) == unmasked, "could not restore the mask-off params");
+            spk_session* opened = spk_open(engine.get(), &input, on, nullptr);
+            const std::string open_error = spk_last_error(engine.get());
+            if (opened) spk_session_release(opened);
+            require(opened != nullptr, "open refused the contrast mask: " + open_error);
+            render(engine.get(), session.get());
+        }
         const std::string restored = params(session.get());
 
         spk_result di{};
@@ -135,7 +161,8 @@ int main(int argc, char** argv) {
         require(latitude_status == SPK_OK && latitude_valid, "latitude analysis failed: " + latitude_error);
         require(params(session.get()) == restored, "latitude analysis mutated the session");
         render(engine.get(), session.get());
-        std::cout << "Windows feature boundaries passed (5 flags, latitude second pair, DI refusal, mask off, latitude analysis)\n";
+        std::cout << "Windows feature boundaries passed (4 refused flags, latitude second pair, contrast mask accepted, "
+                     "DI refusal, mask off, latitude analysis)\n";
         return 0;
     } catch (const std::exception& error) {
         std::cerr << error.what() << '\n';

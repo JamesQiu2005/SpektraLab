@@ -6,7 +6,7 @@ was Windows, MinGW GCC 15.2, Vulkan and RTX 5070 Ti. It does not imply that
 every stock, camera, parameter combination or later upstream feature is
 supported. Later features require explicit porting and validation.
 
-The backend contains 34 kernels, including two diagnostic probes. The full
+The backend contains 36 kernels, including two diagnostic probes. The full
 Win32 integration passed 16 CTests and 47 Python tool tests. Original baked
 profile/resource files were unchanged; native TIFF export adds a separate
 provenance-described sRGB ICC resource. Whole-image Metal/Python film-model
@@ -40,16 +40,20 @@ parity remains unverified.
 | Qt Quick editor | Shared native host, three-panel layout and single-photo strip | Full RAW/controller/offscreen scene regression; physical 100% samples, repeated texture updates and failure recovery; live display validation pending |
 | Window drawing | sRGB-labelled bitmap and requested GDI ICM | Offscreen handlers/layout and 1:1 BGR pixel checks; visible gestures, calibrated monitor ICC, HDR and multi-monitor acceptance remain pending |
 | Scene latitude analysis | Existing pipeline and explicit probe readback | Real C ABI analysis test; applying scene latitude mapping remains unsupported |
-| New upstream effects | Explicit Windows capability and request rejection | Cineon DI, scene latitude mapping, contrast mask, film edge and date imprint are refused before session mutation; the old normalised-density DI tap remains available |
+| Contrast mask (RFC-024) | `spk_mask_reduce` and `spk_mask_epilogue` kernels; the host grid Gaussian runs over `std::thread` instead of GCD | 71 kernel cases against a float64 transcription of the Metal kernels on an RTX 3070 (MSVC 2022): partial and clamped cells, mid-frame bands, one-cell grids, the log2 floor, NaN, clamped exposure and 16.78 M-thread counts; max abs error `8.96e-7` stops (analysis) and `9.48e-7` log10 (application). C API: the field on the canonical 512-cell grid, a reprint that keeps the cached negative, striped equal to whole-frame, the same field bit for bit with 1, 3 and all workers, mask-off equal to the unmasked print. One 32.9 MP ARW renders with it on. Not verified: whole-image Metal parity (no Mac dump of a masked render), the dispatch fold on a device that folds (lavapipe, Intel), and the research-only guided and pointwise bases |
+| New upstream effects | Explicit Windows capability and request rejection | Cineon DI, scene latitude mapping, film edge and date imprint are refused before session mutation; the old normalised-density DI tap remains available |
 
 ## Test interpretation
 
 Local mathematical gates use analytic or independently evaluated float64
 references. Maximum recorded absolute errors were `1.49e-8` for IIR,
-`3.15e-7` for resampling, `8.17e-7` for geometry and `6.97e-7` for LUT/DI.
+`3.15e-7` for resampling, `8.17e-7` for geometry and `6.97e-7` for LUT/DI;
+the contrast mask's, recorded later on an RTX 3070, were `8.96e-7` and
+`9.48e-7`, against bars of `2e-5` and `1e-5`.
 These are local test results, not whole-image Metal parity tolerances.
 Negative controls caught incorrect grain distributions, long-axis rounding,
-arithmetic, tail writes and the old FIR mapping.
+arithmetic, tail writes and the old FIR mapping, and a contrast-mask
+epilogue that ignored its band's first row.
 
 The FIR repair intentionally changed some whole-frame pixels as well as
 stripes. Loading archived shaders with the repaired host reproduced the old

@@ -34,7 +34,12 @@
 #include <cstdlib>
 #include <cstring>
 
+#ifdef __APPLE__
 #include <dispatch/dispatch.h>
+#else
+#include <system_error>
+#include <thread>
+#endif
 
 #include "pipeline.hpp"
 
@@ -98,12 +103,40 @@ void box(const std::vector<double>& in, std::vector<double>& out, uint32_t w, ui
 // serial loop; only the wall time changes. Measured on a 45 MP frame at the
 // live tier: the serial Gaussian was ~260 ms of a 275 ms reprint at scale
 // 0.03 and ~600 of 631 at 0.093.
+#ifdef __APPLE__
 template <class F>
 void for_each_line(uint32_t lines, F&& fn) {
     struct Ctx { F* fn; } ctx{&fn};
     dispatch_apply_f(lines, dispatch_get_global_queue(QOS_CLASS_USER_INITIATED, 0), &ctx,
                      [](void* c, size_t line) { (*static_cast<Ctx*>(c)->fn)(uint32_t(line)); });
 }
+#else
+// Off Apple there is no GCD: the same contract over std::thread, one
+// contiguous block of lines per worker (so a column pass's neighbouring
+// writes stay on one core) and the calling thread taking the last block.
+// Which thread runs a line does not change what the line computes, so the
+// partition -- and `SPEKTRAFILM_MASK_THREADS`, the worker count the gate in
+// tests/gpu_vulkan_contrast_mask.cpp sets to show it -- cannot change a bit.
+// A worker the system refuses to start runs its block inline instead.
+template <class F>
+void for_each_line(uint32_t lines, F&& fn) {
+    unsigned workers = std::thread::hardware_concurrency();
+    if (const char* forced = std::getenv("SPEKTRAFILM_MASK_THREADS"); forced && *forced)
+        workers = unsigned(std::strtoul(forced, nullptr, 10));
+    workers = std::max(1u, std::min(workers, lines));
+    const auto run = [&fn](uint32_t lo, uint32_t hi) { for (uint32_t line = lo; line < hi; ++line) fn(line); };
+    std::vector<std::thread> pool;
+    pool.reserve(workers - 1);
+    uint32_t lo = 0;
+    for (unsigned k = 0; k + 1 < workers; ++k) {
+        const uint32_t hi = uint32_t(uint64_t(lines) * (k + 1) / workers);
+        try { pool.emplace_back(run, lo, hi); } catch (const std::system_error&) { run(lo, hi); }
+        lo = hi;
+    }
+    run(lo, lines);
+    for (std::thread& t : pool) t.join();
+}
+#endif
 
 void gaussian(const std::vector<double>& in, std::vector<double>& out, uint32_t w, uint32_t h,
               double sigma) {
