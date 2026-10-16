@@ -29,17 +29,20 @@ qt_add_executable(SpektraLabQt WIN32
     src/main.cpp src/PreviewController.hpp src/PreviewController.cpp
     src/FrameOutput.hpp src/FrameOutput.cpp
     src/EditStore.hpp src/EditStore.cpp
-    src/FrameCanvas.hpp src/FrameCanvas.cpp)
+    src/FrameCanvas.hpp src/FrameCanvas.cpp
+    src/Localizer.hpp src/Localizer.cpp)
 target_compile_features(SpektraLabQt PRIVATE cxx_std_20)
 target_link_libraries(SpektraLabQt PRIVATE
     spk_desktop_host Qt6::Core Qt6::Gui Qt6::Qml Qt6::Quick Qt6::QuickControls2)
-set_source_files_properties(qml/Theme.qml PROPERTIES QT_QML_SINGLETON_TYPE TRUE)
+# The compiled-in language tables, read from :/i18n (i18n/README.md).
+qt_add_resources(SpektraLabQt "spektralab_i18n" PREFIX "/i18n" BASE i18n FILES i18n/en.json)
+set_source_files_properties(qml/Theme.qml qml/L10n.qml PROPERTIES QT_QML_SINGLETON_TYPE TRUE)
 # One module; the subdirectories are ownership, not namespaces -- every type is
 # visible to every file by its bare name. Main.qml is the window, EditorState
-# the state the panes share.
+# the state the panes share, L10n the text lookup.
 qt_add_qml_module(SpektraLabQt URI SpektraLab VERSION 1.0
     QML_FILES
-        qml/Main.qml qml/EditorState.qml
+        qml/Main.qml qml/EditorState.qml qml/L10n.qml
         qml/Theme.qml qml/Section.qml qml/ActionButton.qml
         qml/controls/Note.qml qml/controls/Adjustment.qml qml/controls/Effect.qml
         qml/controls/StockList.qml
@@ -81,6 +84,14 @@ if(BUILD_TESTING)
     target_compile_features(spk_qt_edit_store_test PRIVATE cxx_std_20)
     target_link_libraries(spk_qt_edit_store_test PRIVATE spk_desktop_host Qt6::Core Qt6::Gui)
     add_test(NAME spk_qt_edit_store COMMAND spk_qt_edit_store_test)
+    # The shipped tables and the QML keys, plus a scratch directory inside the
+    # build tree for the test's own language files.
+    qt_add_executable(spk_qt_localizer_test tests/localizer.cpp src/Localizer.hpp src/Localizer.cpp)
+    target_include_directories(spk_qt_localizer_test PRIVATE src)
+    target_compile_features(spk_qt_localizer_test PRIVATE cxx_std_20)
+    target_link_libraries(spk_qt_localizer_test PRIVATE Qt6::Core)
+    add_test(NAME spk_qt_localizer COMMAND spk_qt_localizer_test
+        "${CMAKE_CURRENT_SOURCE_DIR}/i18n" "${CMAKE_CURRENT_SOURCE_DIR}/qml" "${CMAKE_CURRENT_BINARY_DIR}/localizer_test")
     if(WIN32)
         # Specify each test's DLL search path: CTest on this Windows host can
         # restore the pre-launch PATH between tests. Ambient PATH alone makes
@@ -90,7 +101,7 @@ if(BUILD_TESTING)
             get_filename_component(qt_test_compiler_directory "${CMAKE_CXX_COMPILER}" DIRECTORY)
             list(APPEND qt_test_runtime_path "PATH=path_list_prepend:${qt_test_compiler_directory}")
         endif()
-        set_tests_properties(spk_qt_frame_output spk_qt_edit_store PROPERTIES
+        set_tests_properties(spk_qt_frame_output spk_qt_edit_store spk_qt_localizer PROPERTIES
             ENVIRONMENT_MODIFICATION "${qt_test_runtime_path}")
     endif()
     qt_add_executable(spk_qt_editing_workflow_test tests/editing_workflow.cpp

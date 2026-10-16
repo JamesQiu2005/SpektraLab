@@ -18,5 +18,5 @@ ColumnLayout {
         enabled: preview.settingsEditable
         onToggled: preview.setAdjustment(effect.activeKey, checked)
     }
-    Adjustment { label: "强度"; setting: effect.amountKey; fallback: 1; from: 0; to: effect.maximum; available: preview.adjustments[effect.activeKey] !== false }
+    Adjustment { label: L10n.tr("effect.strength"); setting: effect.amountKey; fallback: 1; from: 0; to: effect.maximum; available: preview.adjustments[effect.activeKey] !== false }
 }

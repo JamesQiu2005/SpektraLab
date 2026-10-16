@@ -6,7 +6,8 @@ import QtQuick.Dialogs
 // The editor window: the three panes, the file dialogs, the export options and
 // the keyboard shortcuts. Each pane is its own file -- left/, centre/, right/,
 // export/ -- and what they share lives in one EditorState, handed to each as
-// `editor`; the controller is the C++ context property `preview`.
+// `editor`; the controller is the C++ context property `preview`. Every
+// user-visible string is L10n.tr("key"), from windows_UI/i18n/en.json.
 //
 // `cropMode`, startCrop() and openExport() stay on the window because the C++
 // --self-test drives them by name (main.cpp), as it finds "frameCanvas",
@@ -18,7 +19,7 @@ ApplicationWindow {
     minimumWidth: 1100; minimumHeight: 740
     visible: true
     color: Theme.card
-    title: (preview.hasFrame ? preview.fileName + " — " : "") + "SpektraLab"
+    title: (preview.hasFrame ? preview.fileName + " — " : "") + L10n.tr("app.name")
     font.family: "Segoe UI"
     font.pixelSize: 12
     palette.window: Theme.card
@@ -40,9 +41,9 @@ ApplicationWindow {
     function openExport() { editorState.openExport() }
     function showExportOptions() { editorState.openExport() }
     function formatFilter() {
-        if (editorState.exportFormat === 3) return ["JPEG 图像 (*.jpg *.jpeg)"]
-        if (editorState.exportFormat === 1 || editorState.exportFormat === 2) return ["PNG 图像 (*.png)"]
-        return ["16 位 TIFF (*.tif *.tiff)"]
+        if (editorState.exportFormat === 3) return [L10n.tr("dialog.filter.jpeg") + " (*.jpg *.jpeg)"]
+        if (editorState.exportFormat === 1 || editorState.exportFormat === 2) return [L10n.tr("dialog.filter.png") + " (*.png)"]
+        return [L10n.tr("dialog.filter.tiff16") + " (*.tif *.tiff)"]
     }
     onClosing: function(event) {
         if (preview.batchExporting) preview.cancelExport()
@@ -63,15 +64,15 @@ ApplicationWindow {
     }
     FileDialog {
         id: openDialog
-        title: "导入一张或多张 RAW 照片"
+        title: L10n.tr("dialog.import.title")
         fileMode: FileDialog.OpenFiles
-        nameFilters: ["相机 RAW (*.arw *.nef *.nrw *.dng *.cr2 *.cr3 *.raf *.rw2 *.orf *.pef *.srw)", "所有文件 (*)"]
+        nameFilters: [L10n.tr("dialog.filter.cameraRaw") + " (*.arw *.nef *.nrw *.dng *.cr2 *.cr3 *.raf *.rw2 *.orf *.pef *.srw)", L10n.tr("dialog.filter.allFiles") + " (*)"]
         onVisibleChanged: window.updateDialogState()
         onAccepted: preview.openFiles(selectedFiles)
     }
     FileDialog {
         id: saveDialog
-        title: "导出当前画面 · 不覆盖现有文件"
+        title: L10n.tr("dialog.export.title")
         fileMode: FileDialog.SaveFile
         nameFilters: window.formatFilter()
         defaultSuffix: editorState.exportFormat === 3 ? "jpg" : editorState.exportFormat === 0 ? "tif" : "png"
@@ -81,7 +82,7 @@ ApplicationWindow {
     }
     FolderDialog {
         id: batchDialog
-        title: "选择批量导出文件夹 · 跳过已有文件"
+        title: L10n.tr("dialog.batch.title")
         currentFolder: preview.sourceFolder
         onVisibleChanged: window.updateDialogState()
         onAccepted: preview.exportBatch(selectedFolder, editorState.exportFormat, editorState.exportQuality, editorState.exportLongEdge)

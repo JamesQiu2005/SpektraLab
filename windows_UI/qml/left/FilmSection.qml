@@ -3,7 +3,7 @@ import QtQuick
 // Film: the catalogue's films in two groups, slides first, then negatives.
 Section {
     id: section
-    title: "胶片"
+    title: L10n.tr("film.title")
 
     // One group's rows, each keyed by its index in the whole catalogue.
     function group(positive) {
@@ -15,12 +15,12 @@ Section {
     }
 
     StockList {
-        title: "反转片 · Positive"; listObjectName: "positiveFilmList"; listHeight: 112
+        title: L10n.tr("film.group.positive"); listObjectName: "positiveFilmList"; listHeight: 112
         rows: section.group(true); currentKey: preview.filmIndex; editable: preview.settingsEditable
         onPicked: function(key) { preview.filmIndex = key }
     }
     StockList {
-        title: "负片 · Negative"; listObjectName: "filmList"; listHeight: 174
+        title: L10n.tr("film.group.negative"); listObjectName: "filmList"; listHeight: 174
         rows: section.group(false); currentKey: preview.filmIndex; editable: preview.settingsEditable
         onPicked: function(key) { preview.filmIndex = key }
     }

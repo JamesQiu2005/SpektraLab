@@ -5,7 +5,7 @@ import QtQuick
 // selection and takes no clicks.
 Section {
     id: section
-    title: "相纸"
+    title: L10n.tr("print.title")
 
     function papers() {
         var rows = []
@@ -14,7 +14,7 @@ Section {
         return rows
     }
 
-    Note { visible: preview.filmIsPositive; text: "反转片直接扫描，不使用相纸。"; color: Theme.accent }
+    Note { visible: preview.filmIsPositive; text: L10n.tr("print.slideScannedDirectly"); color: Theme.accent }
     StockList {
         listObjectName: "paperList"; listHeight: 174
         rows: section.papers(); currentKey: preview.paperIndex

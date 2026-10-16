@@ -7,13 +7,17 @@ import QtQuick.Layouts
 Section {
     id: section
     required property EditorState editor
-    title: "裁切"
+    title: L10n.tr("crop.title")
     RowLayout {
         Layout.fillWidth: true
         ComboBox {
             id: cropAspect; Layout.fillWidth: true
-            model: ["自由比例", "1:1", "3:2", "4:3", "16:9"]; enabled: section.editor.canEditCrop
+            // Only "Free" is copy; ratios are not translated (i18n/README.md).
+            model: [L10n.tr("crop.aspect.free"), "1:1", "3:2", "4:3", "16:9"]; enabled: section.editor.canEditCrop
             currentIndex: {
+                // Read `model` so a language switch, which replaces the model
+                // and with it resets the index to 0, re-runs this binding.
+                model
                 var c = preview.cropRect
                 if (!preview.hasFrame || (c.x === 0 && c.y === 0 && c.width === 1 && c.height === 1)) return 0
                 var ratio = c.width * preview.metadata.sourceWidth / (c.height * preview.metadata.sourceHeight)
@@ -25,23 +29,23 @@ Section {
             }
             onActivated: { section.editor.cropMode = false; preview.setCropAspect([0, 1, 1.5, 4 / 3, 16 / 9][currentIndex]); section.editor.resetView(true) }
         }
-        ActionButton { text: "重置"; enabled: section.editor.canEditCrop; onClicked: { section.editor.cropMode = false; preview.resetCrop(); section.editor.resetView(true) } }
+        ActionButton { text: L10n.tr("action.reset"); enabled: section.editor.canEditCrop; onClicked: { section.editor.cropMode = false; preview.resetCrop(); section.editor.resetView(true) } }
     }
-    ActionButton { Layout.fillWidth: true; text: section.editor.cropMode ? "完成裁切" : "在画面中拖选裁切"; accented: section.editor.cropMode; enabled: section.editor.canEditCrop; onClicked: section.editor.toggleCrop() }
-    Note { text: section.editor.cropMode ? "在未旋转原图上拖出矩形；完成后恢复方向与拉直。Enter 确认，Esc 取消。" : "预览与导出使用同一裁切与方向；原始 RAW 不变。" }
+    ActionButton { Layout.fillWidth: true; text: section.editor.cropMode ? L10n.tr("crop.finish") : L10n.tr("crop.dragToCrop"); accented: section.editor.cropMode; enabled: section.editor.canEditCrop; onClicked: section.editor.toggleCrop() }
+    Note { text: section.editor.cropMode ? L10n.tr("crop.editingNote") : L10n.tr("crop.sharedNote") }
     RowLayout {
         Layout.fillWidth: true
-        ActionButton { objectName: "rotateLeftButton"; Layout.fillWidth: true; text: "左转 90°"; enabled: section.editor.canEditCrop && !section.editor.cropMode; onClicked: { preview.rotateCounterClockwise(); section.editor.resetView(true) } }
-        ActionButton { objectName: "rotateRightButton"; Layout.fillWidth: true; text: "右转 90°"; enabled: section.editor.canEditCrop && !section.editor.cropMode; onClicked: { preview.rotateClockwise(); section.editor.resetView(true) } }
-    }
-    RowLayout {
-        Layout.fillWidth: true
-        ActionButton { objectName: "flipHorizontalButton"; Layout.fillWidth: true; text: "水平翻转"; accented: preview.flipHorizontal; enabled: section.editor.canEditCrop && !section.editor.cropMode; onClicked: preview.setFlipHorizontal(!preview.flipHorizontal) }
-        ActionButton { objectName: "flipVerticalButton"; Layout.fillWidth: true; text: "垂直翻转"; accented: preview.flipVertical; enabled: section.editor.canEditCrop && !section.editor.cropMode; onClicked: preview.setFlipVertical(!preview.flipVertical) }
+        ActionButton { objectName: "rotateLeftButton"; Layout.fillWidth: true; text: L10n.tr("crop.rotateLeft"); enabled: section.editor.canEditCrop && !section.editor.cropMode; onClicked: { preview.rotateCounterClockwise(); section.editor.resetView(true) } }
+        ActionButton { objectName: "rotateRightButton"; Layout.fillWidth: true; text: L10n.tr("crop.rotateRight"); enabled: section.editor.canEditCrop && !section.editor.cropMode; onClicked: { preview.rotateClockwise(); section.editor.resetView(true) } }
     }
     RowLayout {
         Layout.fillWidth: true
-        Text { text: "拉直"; color: Theme.text; font.pixelSize: 11 }
+        ActionButton { objectName: "flipHorizontalButton"; Layout.fillWidth: true; text: L10n.tr("crop.flipHorizontal"); accented: preview.flipHorizontal; enabled: section.editor.canEditCrop && !section.editor.cropMode; onClicked: preview.setFlipHorizontal(!preview.flipHorizontal) }
+        ActionButton { objectName: "flipVerticalButton"; Layout.fillWidth: true; text: L10n.tr("crop.flipVertical"); accented: preview.flipVertical; enabled: section.editor.canEditCrop && !section.editor.cropMode; onClicked: preview.setFlipVertical(!preview.flipVertical) }
+    }
+    RowLayout {
+        Layout.fillWidth: true
+        Text { text: L10n.tr("crop.straighten"); color: Theme.text; font.pixelSize: 11 }
         Item { Layout.fillWidth: true }
         Text { text: (straightenSlider.pressed ? straightenSlider.from + straightenSlider.position * (straightenSlider.to - straightenSlider.from) : preview.straightenDegrees).toFixed(1) + "°"; color: Theme.muted; font.pixelSize: 10 }
     }
@@ -62,6 +66,6 @@ Section {
         }
         onMoved: { if (!pressed) preview.setStraightenDegrees(value) }
     }
-    Note { text: "拉直在松开滑块后应用。边缘自动收紧以避免空白。" }
-    ActionButton { objectName: "resetGeometryButton"; Layout.fillWidth: true; text: "重置裁切与方向"; enabled: section.editor.canEditCrop && !section.editor.cropMode; onClicked: { preview.resetGeometry(); section.editor.resetView(true) } }
+    Note { text: L10n.tr("crop.straightenNote") }
+    ActionButton { objectName: "resetGeometryButton"; Layout.fillWidth: true; text: L10n.tr("crop.resetGeometry"); enabled: section.editor.canEditCrop && !section.editor.cropMode; onClicked: { preview.resetGeometry(); section.editor.resetView(true) } }
 }

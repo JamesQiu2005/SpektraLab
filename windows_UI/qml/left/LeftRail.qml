@@ -10,7 +10,7 @@ Rectangle {
     Layout.preferredWidth: Theme.leftWidth; Layout.fillHeight: true; color: Theme.card
     ColumnLayout {
         anchors.fill: parent; spacing: 0
-        Text { text: "胶片与相纸"; color: Theme.text; font.pixelSize: 14; font.bold: true; Layout.leftMargin: 14; Layout.preferredHeight: Theme.topHeight; verticalAlignment: Text.AlignVCenter }
+        Text { text: L10n.tr("rail.filmAndPrint"); color: Theme.text; font.pixelSize: 14; font.bold: true; Layout.leftMargin: 14; Layout.preferredHeight: Theme.topHeight; verticalAlignment: Text.AlignVCenter }
         ScrollView {
             Layout.fillWidth: true; Layout.fillHeight: true; clip: true; contentWidth: availableWidth
             ColumnLayout {
