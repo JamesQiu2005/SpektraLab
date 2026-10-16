@@ -12,6 +12,7 @@
 // are copied into the output directory; nothing is written beside them.
 #include "PreviewController.hpp"
 #include "ExportRecipe.hpp"
+#include "RecipeExport.hpp"
 #include <QCryptographicHash>
 #include <QDir>
 #include <QDirIterator>
@@ -346,8 +347,22 @@ int main(int argc, char** argv) {
             {
                 // Graded frame by frame as the canvas is: the two holes stand in
                 // the file as they stand on the canvas.
+                // The canvas holds the session's working space (ProPhoto RGB,
+                // PreviewController::kWorkingSpace) and the file is sRGB: the
+                // canvas's picture goes through the export's own conversion
+                // (exporting::convert) so both are compared in one space -- the
+                // file must be the canvas's graded picture, converted once.
                 const QImage file = QImageReader(jpeg.files[0]).read();
-                const QImage shown = c.previewImage();
+                const auto encoding = c.frame()->encoding;
+                QImage shown = c.previewImage();
+                if (!encoding.is_encoded_srgb()) {
+                    struct Engine { spk_engine* e; ~Engine() { if (e) spk_engine_destroy(e); } } engine{
+                        spk_engine_create(args[1].toUtf8().constData(), nullptr)};
+                    check(engine.e != nullptr, "a test engine for the export's conversion");
+                    shown = spk::desktop::exporting::convert(shown.convertToFormat(QImage::Format_RGBA64), encoding, "sRGB",
+                                                             engine.e).rgba64;
+                }
+                report["sessionSpace"] = QString::fromStdString(encoding.color_space);
                 const double f0 = imageHoleLuma(file, rectOf(hole(c, 0))), f1 = imageHoleLuma(file, rectOf(hole(c, 1)));
                 const double s0 = imageHoleLuma(shown, rectOf(hole(c, 0))), s1 = imageHoleLuma(shown, rectOf(hole(c, 1)));
                 report["exportGrade"] = QString("file %1 / %2, canvas %3 / %4").arg(f0).arg(f1).arg(s0).arg(s1);
