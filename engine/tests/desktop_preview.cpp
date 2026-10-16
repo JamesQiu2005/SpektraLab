@@ -89,9 +89,24 @@ std::vector<std::string> keys_of(const Json& object) {
     return keys;
 }
 
+// A catalogue shaped like the real one, small enough to reason about: two
+// colour negatives that name a paper, a slide that names none, a
+// black-and-white film on its silver paper, and a cine paper.
+Catalog test_catalog() {
+    return {{{"kodak_portra_400", "Portra 400", false, false, false, "kodak_portra_endura"},
+             {"kodak_ektar_100", "Ektar 100", false, false, false, "kodak_portra_endura"},
+             {"kodak_ektachrome_100", "Ektachrome 100", true},
+             {"kodak_tri_x_400", "Tri-X 400", false, false, true, "ilford_multigrade_iv_rc"}},
+            {{"kodak_supra_endura", "Supra Endura", false}, {"kodak_portra_endura", "Portra Endura", false},
+             {"ilford_multigrade_iv_rc", "Multigrade IV RC", false, false, true},
+             {"kodak_2383", "Vision 2383", false, true}}};
+}
+
 // The desktop table against the engine's own: every row is a wire field of
 // the same type and layer, inside the engine's range, and `absent` -- what a
 // record saved before the row existed rendered with -- is the engine default.
+// A product row is no engine field at all, and an older record was made with
+// its initial behaviour.
 void settings_schema() {
     const auto& fields = setting_fields();
     const Json engine_defaults = spk::read_params(spk::Params{});
@@ -103,6 +118,12 @@ void settings_schema() {
         const auto& schema = spk::schema_fields();
         const auto row = std::find_if(schema.begin(), schema.end(),
             [&](const spk::SchemaField& f) { return field.key == f.name; });
+        if (!field.wire) {
+            if (row != schema.end()) throw std::runtime_error("product row shadows an engine field: " + field.key);
+            check(field.initial == field.absent && check_setting(field, field.initial).empty(),
+                  "a product row's defaults disagree or fail its validation");
+            continue;
+        }
         if (row == schema.end()) throw std::runtime_error("settings row is not an engine wire field: " + field.key);
         const auto expected = field.type == SettingType::boolean ? spk::FieldType::Bool
                             : field.type == SettingType::number ? spk::FieldType::Float : spk::FieldType::Str;
@@ -124,10 +145,16 @@ void settings_schema() {
         }
     }
     // The complete open request, fixed I/O policy included, is one the
-    // engine's schema accepts: no misspelt or retired wire name.
+    // engine's schema accepts: no misspelt or retired wire name -- the
+    // black-and-white pair's neutral pack included.
     std::string error, param;
-    check(spk::validate_delta(opening_params(RenderSettings{}, false), error, param),
-          "default opening parameters fail the engine schema");
+    if (!spk::validate_delta(opening_params(RenderSettings{}, test_catalog()), error, param))
+        throw std::runtime_error("default opening parameters fail the engine schema: " + error);
+    RenderSettings silver;
+    silver.film_stock = "kodak_tri_x_400";
+    silver.print_stock = "ilford_multigrade_iv_rc";
+    if (!spk::validate_delta(opening_params(silver, test_catalog()), error, param))
+        throw std::runtime_error("black-and-white opening parameters fail the engine schema: " + error);
 }
 
 // Defaults: the engine's, except where a new photograph follows macOS.
@@ -177,18 +204,15 @@ void settings_access() {
     check(settings.grain_amount == 1.0 && !settings.grain_active, "rejected write changed a value");
 }
 
-Catalog test_catalog() {
-    return {{{"kodak_portra_400", "Portra 400", false}, {"kodak_ektar_100", "Ektar 100", false},
-             {"kodak_ektachrome_100", "Ektachrome 100", true}},
-            {{"kodak_supra_endura", "Supra Endura", false}, {"kodak_portra_endura", "Portra Endura", false}}};
-}
-
 void settings_validation() {
     const auto catalog = test_catalog();
     RenderSettings settings;
-    check(!validate_settings(settings, catalog), "default negative film reported as a slide");
+    check(!validate_settings(settings, catalog), "default negative film reported as scanned");
+    settings.set("scan_film", true);
+    check(validate_settings(settings, catalog), "No Print Profile did not scan a negative");
+    settings.set("scan_film", false);
     settings.film_stock = "kodak_ektachrome_100";
-    check(validate_settings(settings, catalog), "slide film not reported as positive");
+    check(validate_settings(settings, catalog), "slide film not reported as scanned");
     for (const auto& field : setting_fields()) {
         if (field.type == SettingType::number) {
             for (double value : {field.low, field.high}) {
@@ -219,27 +243,149 @@ void settings_validation() {
     }
     // Without a catalogue only the shape of a stock can be judged.
     const auto* film = find_setting("film_stock");
-    check(check_setting(*film, SettingValue(std::string("kodak_tri_x_400"))).empty(),
+    check(check_setting(*film, SettingValue(std::string("kodak_vision3_500t"))).empty(),
           "stock rejected without a catalogue");
-    check(!check_setting(*film, SettingValue(std::string("kodak_tri_x_400")), &catalog).empty(),
+    check(!check_setting(*film, SettingValue(std::string("kodak_vision3_500t")), &catalog).empty(),
           "stock outside the catalogue accepted");
 }
 
-void settings_deltas() {
+// The catalogue's rules, as macOS states them (StockCatalog.swift, Session
+// .swift selectFilmStock), on the test catalogue.
+void catalogue_rules() {
+    const auto catalog = test_catalog();
+    check(catalog.film("kodak_tri_x_400") && catalog.film("kodak_tri_x_400")->is_monochrome &&
+          !catalog.film("kodak_supra_endura") && catalog.paper("kodak_supra_endura") && !catalog.paper("nope"),
+          "catalogue lookup");
+    // Silver on silver, colour on colour; an unknown stock rules nothing out.
+    check(can_print(catalog, "kodak_tri_x_400", "ilford_multigrade_iv_rc") &&
+          !can_print(catalog, "kodak_tri_x_400", "kodak_supra_endura") &&
+          !can_print(catalog, "kodak_portra_400", "ilford_multigrade_iv_rc") &&
+          can_print(catalog, "kodak_portra_400", "kodak_2383") &&
+          can_print(catalog, "kodak_ektachrome_100", "kodak_supra_endura") &&
+          can_print(catalog, "unknown_film", "ilford_multigrade_iv_rc") &&
+          can_print(catalog, "kodak_tri_x_400", "unknown_paper"), "canPrint pairing rule");
+    // The film's own paper whenever it names one; a slide keeps the paper;
+    // across colour and black and white the paper cannot stay.
+    const std::string fallback = "kodak_supra_endura";
+    check(paper_for_film(catalog, "kodak_ektar_100", "kodak_supra_endura", fallback) == "kodak_portra_endura",
+          "a film did not take its own paper");
+    check(paper_for_film(catalog, "kodak_portra_400", "kodak_portra_endura", fallback) == "kodak_portra_endura",
+          "a film's own paper moved");
+    check(paper_for_film(catalog, "kodak_ektachrome_100", "kodak_2383", fallback) == "kodak_2383",
+          "a slide did not keep the paper for the next negative");
+    check(paper_for_film(catalog, "kodak_tri_x_400", "kodak_supra_endura", fallback) == "ilford_multigrade_iv_rc",
+          "a black-and-white film kept a colour paper");
+    check(paper_for_film(catalog, "kodak_portra_400", "ilford_multigrade_iv_rc", fallback) == "kodak_portra_endura",
+          "a colour film kept the silver paper");
+    check(paper_for_film(catalog, "kodak_ektachrome_100", "ilford_multigrade_iv_rc", fallback) == fallback,
+          "a slide on the silver paper did not fall back to the default paper");
+    // Groups in macOS order: positives, negatives, then black and white;
+    // papers still then cine.
+    const auto names = [](const StockGroup& group) {
+        std::vector<std::string> ids;
+        for (const Stock* s : group.stocks) ids.push_back(s->id);
+        return ids;
+    };
+    const auto films = film_groups(catalog);
+    check(films.size() == 3 && films[0].key == "positive" && films[1].key == "negative" &&
+          films[2].key == "blackAndWhite", "film group keys or order");
+    check(names(films[0]) == std::vector<std::string>{"kodak_ektachrome_100"} &&
+          names(films[1]) == std::vector<std::string>{"kodak_ektar_100", "kodak_portra_400"} &&
+          names(films[2]) == std::vector<std::string>{"kodak_tri_x_400"}, "film groups' members or order");
+    Catalog colour = catalog;
+    colour.films.pop_back();
+    check(film_groups(colour).size() == 2, "a catalogue without black and white drew an empty group");
+    const auto papers = paper_groups(catalog);
+    check(papers.size() == 2 && papers[0].key == "still" && papers[1].key == "cine" &&
+          names(papers[0]) == std::vector<std::string>{"ilford_multigrade_iv_rc", "kodak_portra_endura",
+                                                       "kodak_supra_endura"} &&
+          names(papers[1]) == std::vector<std::string>{"kodak_2383"}, "paper groups");
+    check(own_grain("kodak_tri_x_400") == 1.70 && own_grain("ilford_hp5_plus_400") == 1.49 &&
+          own_grain("kodak_tmax_100") == 0.74 && own_grain("fujifilm_neopan_acros_100_ii") == 0.64 &&
+          own_grain("kodak_portra_400") == 1.0, "own grain differs from macOS FilmParams.ownGrain");
+}
+
+// What the settings put on the wire (wire_params), rule by rule.
+void wire_rules() {
+    const auto catalog = test_catalog();
     const RenderSettings base;
-    // Opening sends every row, the host's I/O policy and scan_film.
-    const auto open = opening_params(base, true);
-    for (const auto& field : setting_fields())
+    const Json plain = wire_params(base, catalog);
+    // A colour negative: every wire row as it is, no product row, no pack.
+    std::size_t wire_rows = 0;
+    for (const auto& field : setting_fields()) {
+        if (!field.wire) {
+            check(!plain.has(field.key), "a product row was sent");
+            continue;
+        }
+        ++wire_rows;
+        check(same_json(plain.at(field.key), json_of(base.get(field.key))), "a colour negative's row was rewritten");
+    }
+    check(plain.fields().size() == wire_rows, "a colour pair carries extra fields");
+    // A slide is scanned whatever the row says; No Print Profile scans a negative.
+    RenderSettings slide = base;
+    slide.film_stock = "kodak_ektachrome_100";
+    check(wire_params(slide, catalog).at("scan_film").as_bool(), "a slide film is printed");
+    RenderSettings scanned = base;
+    scanned.set("scan_film", true);
+    check(wire_params(scanned, catalog).at("scan_film").as_bool(), "No Print Profile did not scan");
+    // Print Effects gates glare and pre-flash and forgets neither.
+    RenderSettings effects = base;
+    effects.set("preflash_exposure", 0.02);
+    check(wire_params(effects, catalog).at("preflash_exposure").as_double() == 0.02 &&
+          wire_params(effects, catalog).at("glare_active").as_bool(), "pre-flash or glare not sent");
+    effects.set("print_effects", false);
+    const Json gated = wire_params(effects, catalog);
+    check(!gated.at("glare_active").as_bool() && gated.at("preflash_exposure").as_double() == 0.0,
+          "Print Effects off still sends glare or pre-flash");
+    check(effects.glare_active && effects.get("preflash_exposure") == SettingValue(0.02),
+          "Print Effects off forgot glare or pre-flash");
+    // Black and white: one grain layer, the film's own grain, and on the
+    // silver paper Multigrade filter 2 as the neutral pack.
+    RenderSettings silver = base;
+    silver.film_stock = "kodak_tri_x_400";
+    silver.print_stock = "ilford_multigrade_iv_rc";
+    const Json bw = wire_params(silver, catalog);
+    check(!bw.at("grain_sublayers_active").as_bool() && std::get<bool>(silver.get("grain_sublayers_active")),
+          "grain sub-layers sent on a black-and-white film");
+    check(std::abs(bw.at("grain_amount").as_double() - 1.70) < 1e-12, "black-and-white grain is not the film's own");
+    check(bw.at("c_filter_neutral").as_double() == 0.0 && bw.at("m_filter_neutral").as_double() == 0.0 &&
+          bw.at("y_filter_neutral").as_double() == 68.0 && bw.fields().size() == wire_rows + 3,
+          "silver pair lacks Multigrade filter 2");
+    silver.grain_amount = 1.5;  // x1.70 is past the wire's 2
+    check(wire_params(silver, catalog).at("grain_amount").as_double() == 2.0, "grain amount escaped its range");
+    // The pack only on the silver paper: a black-and-white film anywhere else
+    // (which the controller refuses) or a colour film carries none.
+    silver.print_stock = "kodak_supra_endura";
+    check(!wire_params(silver, catalog).has("m_filter_neutral"), "silver pack sent for a colour paper");
+    // A stock the catalogue does not know is a colour negative.
+    RenderSettings unknown = base;
+    unknown.film_stock = "kodak_vision3_500t";
+    check(!wire_params(unknown, catalog).at("scan_film").as_bool(), "an unknown film was scanned");
+}
+
+void settings_deltas() {
+    const auto catalog = test_catalog();
+    const RenderSettings base;
+    // Opening sends the host's I/O policy and wire_params: every wire row.
+    const auto open = opening_params(base, catalog);
+    std::size_t wire_rows = 0;
+    for (const auto& field : setting_fields()) {
+        if (!field.wire) continue;
+        ++wire_rows;
         check(same_json(open.at(field.key), json_of(base.get(field.key))), "opening parameters omit or alter a row");
-    check(open.at("scan_film").as_bool() && open.at("output_color_space").as_string() == "sRGB" &&
+    }
+    check(!open.at("scan_film").as_bool() && open.at("output_color_space").as_string() == "sRGB" &&
           open.at("input_color_space").as_string() == "ProPhoto RGB" && !open.at("extended_dynamic_range").as_bool(),
           "opening parameters lost the host's fixed policy");
-    check(open.fields().size() == setting_fields().size() + 6, "opening parameters carry an unexpected field");
-    check(opening_params(base, false).at("scan_film").as_bool() == false, "scan_film not passed through");
+    check(open.fields().size() == wire_rows + 5, "opening parameters carry an unexpected field");
+    RenderSettings slide_open = base;
+    slide_open.film_stock = "kodak_ektachrome_100";
+    check(opening_params(slide_open, catalog).at("scan_film").as_bool(), "a slide opened printed");
 
-    check(changed_params(base, base, false).fields().empty(), "unchanged settings produced a delta");
-    // Each row alone produces exactly its own key; a film change also
-    // carries the resolved scan mode, true or false.
+    check(changed_params(base, base, catalog).fields().empty(), "unchanged settings produced a delta");
+    // Each wire row alone produces exactly its own key; a film change also
+    // carries the resolved scan mode. A product row produces the wire values
+    // it changes: Print Effects off turns glare off (pre-flash is at 0).
     for (const auto& field : setting_fields()) {
         RenderSettings after = base;
         SettingValue value;
@@ -252,15 +398,13 @@ void settings_deltas() {
             break;
         }
         after.set(field.key, value);
-        for (bool scan : {false, true}) {
-            const auto delta = changed_params(base, after, scan);
-            std::vector<std::string> expected{field.key};
-            if (field.key == "film_stock") expected.push_back("scan_film");
-            std::sort(expected.begin(), expected.end());
-            if (keys_of(delta) != expected) throw std::runtime_error("delta is not minimal for " + field.key);
-            check(same_json(delta.at(field.key), json_of(value)), "delta carries the wrong value");
-            if (field.key == "film_stock") check(delta.at("scan_film").as_bool() == scan, "film delta lost scan mode");
-        }
+        const auto delta = changed_params(base, after, catalog);
+        std::vector<std::string> expected{field.wire ? field.key : std::string("glare_active")};
+        if (field.key == "film_stock") expected.push_back("scan_film");
+        std::sort(expected.begin(), expected.end());
+        if (keys_of(delta) != expected) throw std::runtime_error("delta is not minimal for " + field.key);
+        if (field.wire) check(same_json(delta.at(field.key), json_of(value)), "delta carries the wrong value");
+        if (field.key == "film_stock") check(!delta.at("scan_film").as_bool(), "film delta lost scan mode");
     }
     // A paper-only edit never touches the film side, whose cached grain
     // realisation it would otherwise invalidate.
@@ -268,25 +412,52 @@ void settings_deltas() {
     print.print_exposure = 0.8;
     print.y_filter_shift = 0.25;
     print.set("filter_shift_scale", 1.0);
+    print.set("preflash_exposure", 0.01);
     print.print_stock = "kodak_portra_endura";
-    const auto print_delta = changed_params(base, print, false);
-    check(keys_of(print_delta) == std::vector<std::string>{"filter_shift_scale", "print_exposure", "print_stock",
-                                                             "y_filter_shift"}, "paper edit delta is not minimal");
+    const auto print_delta = changed_params(base, print, catalog);
+    check(keys_of(print_delta) == std::vector<std::string>{"filter_shift_scale", "preflash_exposure", "print_exposure",
+                                                             "print_stock", "y_filter_shift"},
+          "paper edit delta is not minimal");
     for (const auto& key : keys_of(print_delta))
         check(find_setting(key)->layer == SettingLayer::print, "paper edit delta touched the film side");
+    // Print Effects off then on: the gated values leave the wire and return.
+    RenderSettings plain = print;
+    plain.set("print_effects", false);
+    const auto gate = changed_params(print, plain, catalog);
+    check(keys_of(gate) == std::vector<std::string>{"glare_active", "preflash_exposure"} &&
+          !gate.at("glare_active").as_bool() && gate.at("preflash_exposure").as_double() == 0.0,
+          "Print Effects off delta");
+    const auto ungate = changed_params(plain, print, catalog);
+    check(keys_of(ungate) == keys_of(gate) && ungate.at("preflash_exposure").as_double() == 0.01,
+          "Print Effects on did not restore pre-flash");
     // Slide and back: the scan mode follows every film change, and the
     // remembered paper rides along only when it changed.
     RenderSettings slide = print;
     slide.film_stock = "kodak_ektachrome_100";
-    const auto to_slide = changed_params(print, slide, true);
+    const auto to_slide = changed_params(print, slide, catalog);
     check(keys_of(to_slide) == std::vector<std::string>{"film_stock", "scan_film"} &&
           to_slide.at("scan_film").as_bool(), "slide change delta");
     RenderSettings negative = slide;
     negative.film_stock = "kodak_portra_400";
     negative.set("auto_exposure_method", std::string("center_weighted"));
-    const auto back = changed_params(slide, negative, false);
+    const auto back = changed_params(slide, negative, catalog);
     check(keys_of(back) == std::vector<std::string>{"auto_exposure_method", "film_stock", "scan_film"} &&
           !back.at("scan_film").as_bool(), "negative return delta");
+    // Into black and white: the derived values ride with the stocks; out of
+    // it, they return and the pack is left to the engine's own table.
+    RenderSettings silver = base;
+    silver.film_stock = "kodak_tri_x_400";
+    silver.print_stock = "ilford_multigrade_iv_rc";
+    const auto to_silver = changed_params(base, silver, catalog);
+    check(keys_of(to_silver) == std::vector<std::string>{"c_filter_neutral", "film_stock", "grain_amount",
+                                                           "grain_sublayers_active", "m_filter_neutral", "print_stock",
+                                                           "scan_film", "y_filter_neutral"},
+          "black-and-white change delta");
+    const auto from_silver = changed_params(silver, base, catalog);
+    check(keys_of(from_silver) == std::vector<std::string>{"film_stock", "grain_amount", "grain_sublayers_active",
+                                                             "print_stock", "scan_film"} &&
+          from_silver.at("grain_amount").as_double() == 1.0 && from_silver.at("grain_sublayers_active").as_bool(),
+          "colour return delta");
 }
 
 void conversion() {
@@ -696,11 +867,74 @@ struct Rendered {
                                 double(other.result.rgba16[std::size_t(y) * other.result.row_stride_px * 4 + x]));
         return sum;
     }
+    // The largest |R-G| or |B-G| over the frame, as a fraction of full scale:
+    // 0 for a print with no colour anywhere.
+    double channel_spread() const {
+        int worst = 0;
+        for (std::uint32_t y = 0; y < result.height; ++y)
+            for (std::uint32_t x = 0; x < result.width; ++x) {
+                const auto* p = result.rgba16 + (std::size_t(y) * result.row_stride_px + x) * 4;
+                worst = std::max({worst, std::abs(int(p[0]) - int(p[1])), std::abs(int(p[2]) - int(p[1]))});
+            }
+        return worst / 65535.0;
+    }
+    // Mean of the green channel, as a fraction of full scale.
+    double mean_green() const {
+        double sum = 0.0;
+        for (std::uint32_t y = 0; y < result.height; ++y)
+            for (std::uint32_t x = 0; x < result.width; ++x)
+                sum += result.rgba16[(std::size_t(y) * result.row_stride_px + x) * 4 + 1];
+        return sum / (double(result.width) * result.height * 65535.0);
+    }
 };
+
+// The catalogue the build deploys: spektrafilm's stocks and the product's own
+// black-and-white films and silver paper, with the metadata macOS lists them by.
+void real_catalogue(const Catalog& catalog) {
+    const std::array<std::string, 4> silver_films{
+        "kodak_tri_x_400", "kodak_tmax_100", "fujifilm_neopan_acros_100_ii", "ilford_hp5_plus_400"};
+    for (const auto& id : silver_films) {
+        const Stock* film = catalog.film(id);
+        if (!film) throw std::runtime_error("deployed resources lack the black-and-white film " + id);
+        check(film->is_monochrome && !film->is_positive && !film->is_cine &&
+              film->target_print == "ilford_multigrade_iv_rc", "black-and-white film metadata");
+    }
+    const Stock* multigrade = catalog.paper("ilford_multigrade_iv_rc");
+    check(multigrade && multigrade->is_monochrome && !multigrade->is_cine && multigrade->target_print.empty(),
+          "deployed resources lack the silver paper");
+    const Stock* portra = catalog.film("kodak_portra_400");
+    const Stock* vision = catalog.film("kodak_vision3_500t");
+    const Stock* provia = catalog.film("fujifilm_provia_100f");
+    check(portra && !portra->is_monochrome && portra->target_print == "kodak_portra_endura" &&
+          vision && vision->is_cine && vision->target_print == "kodak_2383" &&
+          provia && provia->is_positive && provia->target_print.empty() &&
+          catalog.paper("kodak_2383") && catalog.paper("kodak_2383")->is_cine, "colour stock metadata");
+    // macOS's catalogue: 24 films and 9 papers (StockCatalog.json).
+    check(catalog.films.size() == 24 && catalog.papers.size() == 9, "deployed catalogue size");
+    for (const Stock& film : catalog.films)
+        check(film.is_positive ? film.target_print.empty() : catalog.paper(film.target_print) != nullptr,
+              "a negative names a paper the catalogue lacks, or a slide names one");
+    const auto films = film_groups(catalog);
+    check(films.size() == 3 && films[2].key == "blackAndWhite" && films[2].stocks.size() == silver_films.size() &&
+          films[0].stocks.size() == 4 && films[1].stocks.size() == 16, "deployed film groups");
+    for (const Stock* s : films[1].stocks) check(!s->is_monochrome && !s->is_positive, "a negative group member");
+    // Within a group, stills before cine.
+    bool cine = false;
+    for (const Stock* s : films[1].stocks) {
+        check(!cine || s->is_cine, "a still film follows a cine film");
+        cine = cine || s->is_cine;
+    }
+    const auto papers = paper_groups(catalog);
+    check(papers[0].stocks.size() == 7 && papers[1].stocks.size() == 2 &&
+          std::any_of(papers[0].stocks.begin(), papers[0].stocks.end(),
+                      [](const Stock* s) { return s->id == "ilford_multigrade_iv_rc"; }), "deployed paper groups");
+}
 
 void settings_engine(const fs::path& resources) {
     using EnginePtr = std::unique_ptr<spk_engine, decltype(&spk_engine_destroy)>;
     using SessionPtr = std::unique_ptr<spk_session, decltype(&spk_session_release)>;
+    const auto catalog = read_catalog(resources);
+    real_catalogue(catalog);
     const auto root = path_text(fs::absolute(resources));
     EnginePtr engine(spk_engine_create(root.c_str(), nullptr), &spk_engine_destroy);
     if (!engine) throw std::runtime_error(std::string("engine: ") + spk_last_error(nullptr));
@@ -719,29 +953,39 @@ void settings_engine(const fs::path& resources) {
     RenderSettings current;
     current.grain_active = false;
     current.glare_active = false;
-    SessionPtr session(spk_open(engine.get(), &input, opening_params(current, false).dump().c_str(), nullptr),
-                       &spk_session_release);
-    if (!session) throw std::runtime_error("open with default settings: " + error());
-    // The session holds exactly what the table sent, macOS defaults included.
-    const auto session_matches = [&](const RenderSettings& settings, bool scan_film) {
+    const auto open = [&](const RenderSettings& settings) {
+        SessionPtr s(spk_open(engine.get(), &input, opening_params(settings, catalog).dump().c_str(), nullptr),
+                     &spk_session_release);
+        if (!s) throw std::runtime_error("open " + settings.film_stock + " on " + settings.print_stock + ": " + error());
+        return s;
+    };
+    const auto session_params = [&](spk_session* s) {
         char* text = nullptr;
-        check(spk_get_params(session.get(), &text) == SPK_OK && text, "read session parameters");
+        check(spk_get_params(s, &text) == SPK_OK && text, "read session parameters");
         Json params;
         std::string parse_error;
         const bool parsed = Json::parse(text, params, parse_error);
         spk_string_free(text);
         check(parsed, "session parameters are not JSON");
-        for (const auto& field : setting_fields())
-            if (!same_json(params.at(field.key), json_of(settings.get(field.key))))
-                throw std::runtime_error("session does not hold the table's " + field.key);
-        check(params.at("scan_film").as_bool() == scan_film, "session scan mode differs");
+        return params;
     };
-    session_matches(current, false);
+    SessionPtr session = open(current);
+    // The session holds exactly what the table sent, macOS defaults and the
+    // product's wire rules included.
+    const auto session_matches = [&](const RenderSettings& settings) {
+        const Json params = session_params(session.get());
+        const Json wire = wire_params(settings, catalog);
+        for (const auto& [key, value] : wire.fields())
+            if (!same_json(params.at(key), value))
+                throw std::runtime_error("session does not hold the table's " + key + ": " + params.at(key).dump());
+        return params;
+    };
+    session_matches(current);
     Rendered opened;
     check(spk_render(session.get(), "full", &opened.result) == SPK_OK, "first render");
 
-    const auto edit = [&](const RenderSettings& next, bool scan_film, bool expect_cached) {
-        const auto delta = changed_params(current, next, scan_film);
+    const auto edit = [&](const RenderSettings& next, bool expect_cached) {
+        const auto delta = changed_params(current, next, catalog);
         check(!delta.fields().empty(), "edit produced no delta");
         if (spk_set_params(session.get(), delta.dump().c_str(), nullptr) != SPK_OK)
             throw std::runtime_error("apply " + delta.dump() + ": " + error());
@@ -749,45 +993,147 @@ void settings_engine(const fs::path& resources) {
         check(spk_reprint(session.get(), "full", &out->result) == SPK_OK, "reprint after edit");
         check((out->result.negative_was_cached != 0) == expect_cached, "edit used the wrong film-cache path");
         current = next;
-        session_matches(current, scan_film);
+        session_matches(current);
         return out;
     };
 
     auto next = current;
     next.print_exposure = 0.8;
-    const auto brighter = edit(next, false, true);
+    const auto brighter = edit(next, true);
     check(brighter->pixels() != opened.pixels(), "print exposure did not change the print");
     // The scale multiplies the shifts and nothing else: at zero shifts the
     // engine's 1 and macOS's 40 print identically. This is why a version-1
     // edit with both shifts at zero can take the new strength unchanged.
     next.set("filter_shift_scale", 1.0);
-    const auto unscaled = edit(next, false, true);
+    const auto unscaled = edit(next, true);
     check(unscaled->pixels() == brighter->pixels(), "filter scale moved a print with zero shifts");
     next.y_filter_shift = 0.25;
-    const auto weak = edit(next, false, true);
+    const auto weak = edit(next, true);
     next.set("filter_shift_scale", 40.0);
-    const auto strong = edit(next, false, true);
+    const auto strong = edit(next, true);
     check(strong->distance(*unscaled) > 4.0 * weak->distance(*unscaled) && strong->distance(*unscaled) > 0,
           "filter_shift_scale 40 does not strengthen the yellow filter");
     next.set("auto_exposure_method", std::string("center_weighted"));
-    const auto metered = edit(next, false, false);
+    const auto metered = edit(next, false);
     check(metered->pixels() != strong->pixels(), "metering intent did not change the render");
+
+    // The rows the macOS Film and Print sections add. Print side: pre-flash
+    // reprints the cached negative, and Print Effects off prints exactly as
+    // without it (glare is already off here), on again exactly as with it.
+    next.set("preflash_exposure", 0.01);
+    const auto flashed = edit(next, true);
+    check(flashed->pixels() != metered->pixels(), "pre-flash did not change the print");
+    next.set("print_effects", false);
+    const auto plain = edit(next, true);
+    check(plain->pixels() == metered->pixels(), "Print Effects off still printed the pre-flash");
+    next.set("print_effects", true);
+    check(edit(next, true)->pixels() == flashed->pixels(), "Print Effects on lost the pre-flash");
+    // No Print Profile scans the cached negative instead of printing it.
+    next.set("scan_film", true);
+    const auto negative_scan = edit(next, true);
+    check(negative_scan->pixels() != flashed->pixels(), "No Print Profile still printed");
+    next.set("scan_film", false);
+    check(edit(next, true)->pixels() == flashed->pixels(), "No Print Profile off did not print again");
+    // Film side: each re-develops. The meter off and the couplers move this
+    // frame; scatter, highlight boost and the anti-halation layer act on
+    // highlights and edges this smooth frame barely has, so the session
+    // holding them (edit checks it) and the final fresh-open equality are
+    // their checks. Grain is off, so its model cannot move a pixel.
+    next.set("auto_exposure", false);
+    const auto unmetered = edit(next, false);
+    check(unmetered->pixels() != flashed->pixels(), "auto exposure off did not change the render");
+    next.set("dir_couplers_amount", 0.5);
+    const auto couplers = edit(next, false);
+    check(couplers->pixels() != unmetered->pixels(), "couplers amount did not change the render");
+    next.set("halation_scatter_amount", 0.5);
+    (void)edit(next, false);
+    next.set("halation_boost_ev", 2.0);
+    (void)edit(next, false);
+    next.set("antihalation_removed", true);
+    (void)edit(next, false);
+    next.set("grain_sublayers_active", false);
+    (void)edit(next, false);
+    next.set("dir_couplers_active", false);
+    (void)edit(next, false);
+
     next.print_stock = "kodak_portra_endura";
-    (void)edit(next, false, true);
+    (void)edit(next, true);
     next.film_stock = "kodak_ektar_100";
-    (void)edit(next, false, false);
+    (void)edit(next, false);
     next.film_stock = "kodak_ektachrome_100";
-    (void)edit(next, true, false);
+    (void)edit(next, false);
+    check(session_params(session.get()).at("scan_film").as_bool(), "a slide was printed");
     next.film_stock = "kodak_portra_400";
-    const auto last = edit(next, false, false);
+    (void)edit(next, false);
+
+    // Black and white on its paper, coming from a colour pair: the delta lands
+    // where a fresh open does (Multigrade filter 2, one grain layer), the print
+    // is neutral, and going back the engine reloads the colour pair's pack.
+    next.film_stock = "kodak_tri_x_400";
+    next.print_stock = "ilford_multigrade_iv_rc";
+    const auto silver = edit(next, false);
+    const Json silver_params = session_matches(current);
+    if (silver_params.at("y_filter_neutral").as_double() != 68.0 || silver_params.at("m_filter_neutral").as_double() != 0.0 ||
+        silver_params.at("grain_sublayers_active").as_bool())
+        throw std::runtime_error("the silver pair lacks its pack or kept sub-layer grain: M " +
+                                 silver_params.at("m_filter_neutral").dump() + " Y " +
+                                 silver_params.at("y_filter_neutral").dump());
+    {
+        SessionPtr fresh = open(current);
+        Rendered reopened;
+        check(spk_render(fresh.get(), "full", &reopened.result) == SPK_OK, "render a fresh black-and-white session");
+        check(reopened.pixels() == silver->pixels(), "a black-and-white edit differs from a fresh black-and-white open");
+    }
+    check(silver->channel_spread() < 2e-3, "a black-and-white print has colour in it");
+    next.film_stock = "kodak_portra_400";
+    next.print_stock = "kodak_supra_endura";
+    (void)edit(next, false);
+    Json neutral_db;
+    {
+        std::ifstream file(resources / "neutral_print_filters.json", std::ios::binary);
+        std::stringstream text;
+        text << file.rdbuf();
+        std::string parse_error;
+        check(Json::parse(text.str(), neutral_db, parse_error), "read the engine's neutral filter table");
+    }
+    const Json& row = neutral_db.at("kodak_supra_endura").at("TH-KG3").at("kodak_portra_400");
+    const Json back = session_params(session.get());
+    check(row.is_array() && row.items().size() == 3 && back.at("c_filter_neutral").as_double() == row.items()[0].as_double() &&
+          back.at("m_filter_neutral").as_double() == row.items()[1].as_double() &&
+          back.at("y_filter_neutral").as_double() == row.items()[2].as_double(),
+          "leaving the silver pair kept Multigrade's pack on a colour paper");
+    // A product row away from its default is part of what a fresh open must
+    // reproduce too.
+    next.set("print_effects", false);
+    const auto last = edit(next, true);
     // Deltas leave the session exactly where opening with the final settings
     // would have: nothing the table holds is lost across stock changes.
-    SessionPtr fresh(spk_open(engine.get(), &input, opening_params(current, false).dump().c_str(), nullptr),
-                     &spk_session_release);
-    if (!fresh) throw std::runtime_error("open with edited settings: " + error());
+    SessionPtr fresh = open(current);
     Rendered reopened;
     check(spk_render(fresh.get(), "full", &reopened.result) == SPK_OK, "render reopened session");
     check(reopened.pixels() == last->pixels(), "edited session differs from a fresh one with the same settings");
+
+    // Each black-and-white film on Multigrade IV RC at a new photograph's
+    // settings (grain and glare off, so the frame is deterministic): a print
+    // with no colour in it, and the film's own grain on the wire.
+    for (const std::string film : {"kodak_tri_x_400", "kodak_tmax_100", "fujifilm_neopan_acros_100_ii",
+                                   "ilford_hp5_plus_400"}) {
+        RenderSettings bw;
+        bw.grain_active = false;
+        bw.glare_active = false;
+        bw.film_stock = film;
+        bw.print_stock = "ilford_multigrade_iv_rc";
+        SessionPtr s = open(bw);
+        Rendered print;
+        check(spk_render(s.get(), "full", &print.result) == SPK_OK, "render a black-and-white film");
+        const Json params = session_params(s.get());
+        check(std::abs(params.at("grain_amount").as_double() - own_grain(film)) < 1e-12,
+              "a black-and-white film's grain is not its own");
+        const double spread = print.channel_spread(), mid = print.mean_green();
+        std::cout << "black and white: " << film << " on Multigrade IV RC, channel spread " << spread
+                  << ", mean " << mid << '\n';
+        check(spread < 2e-3 && mid > 0.05 && mid < 0.95, "a black-and-white print is not a neutral picture");
+    }
 }
 
 void integration(const fs::path& resources, const fs::path& arw,
@@ -895,6 +1241,8 @@ int main(int argc, char** argv) {
         settings_defaults();
         settings_access();
         settings_validation();
+        catalogue_rules();
+        wire_rules();
         settings_deltas();
         conversion();
         viewport_geometry();
