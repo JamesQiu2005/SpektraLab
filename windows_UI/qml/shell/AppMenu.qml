@@ -8,8 +8,7 @@ import QtQuick.Controls
 // compact app's menu, each with its shortcut beside it.
 //
 // Left out because Windows cannot do them yet, rather than shown dead in a
-// menu: Copy / Paste Settings (the clipboard's groups, ClipboardSection),
-// Before / After, Restart Render Service, the half-
+// menu: Before / After, Restart Render Service, the half-
 // frame pair, the Mac's frame and crop menus' commands without a Windows
 // shortcut, and Reveal Settings in Finder (Settings > Diagnostics shows the
 // folders instead).
@@ -47,12 +46,15 @@ Item {
         id: menu
         objectName: "appMenu"
         MenuCommand { text: L10n.tr("menu.import"); shortcutText: "Ctrl+O"; enabled: root.editor.canBrowse; onTriggered: root.editor.importRequested() }
+        MenuCommand { objectName: "openFolderCommand"; text: L10n.tr("menu.openFolder"); shortcutText: "Ctrl+Shift+O"; enabled: root.editor.canBrowse; onTriggered: root.editor.folderRequested() }
         MenuCommand { text: L10n.tr("menu.export"); shortcutText: "Ctrl+E"; enabled: root.editor.canExport; onTriggered: root.editor.openExport() }
         MenuSeparator {}
         MenuCommand { text: L10n.tr("menu.undo"); shortcutText: "Ctrl+Z"; enabled: root.editor.canUndo; onTriggered: preview.undo() }
         MenuCommand { text: L10n.tr("menu.redo"); shortcutText: "Ctrl+Y"; enabled: root.editor.canRedo; onTriggered: preview.redo() }
         MenuSeparator {}
         MenuCommand { text: L10n.tr("menu.selectAll"); shortcutText: "Ctrl+A"; enabled: root.editor.canSelectAll; onTriggered: preview.selectAllPhotos(true) }
+        MenuCommand { text: L10n.tr("menu.copySettings"); shortcutText: "Ctrl+Shift+C"; enabled: root.editor.canCopySettings; onTriggered: preview.copySettings() }
+        MenuCommand { text: L10n.tr("menu.pasteSettings"); shortcutText: "Ctrl+Shift+V"; enabled: root.editor.canPasteSettings; onTriggered: preview.pasteSettings() }
         MenuCommand { text: L10n.tr("menu.sync"); enabled: root.editor.canSync; onTriggered: preview.syncSelectedSettings(false) }
         MenuCommand { text: L10n.tr("menu.resetPhoto"); enabled: root.editor.canResetPhoto; onTriggered: preview.resetSettings() }
         // The label is the state read-out, as the Mac's (SpektrafilmApp.swift:171).

@@ -44,10 +44,10 @@ Popup {
         var out = []
         for (var i = 0; i < items.length; ++i)
             if (items[i].selected) out.push({ index: i, name: items[i].name, url: items[i].url, active: items[i].active,
-                                              thumbnail: items[i].thumbnail, error: items[i].error })
+                                              thumbnail: items[i].strip, error: items[i].error })
         if (out.length === 0 && preview.activeIndex >= 0 && preview.activeIndex < items.length) {
             var a = items[preview.activeIndex]
-            out.push({ index: preview.activeIndex, name: a.name, url: a.url, active: true, thumbnail: a.thumbnail, error: a.error })
+            out.push({ index: preview.activeIndex, name: a.name, url: a.url, active: true, thumbnail: a.strip, error: a.error })
         }
         return out
     }
@@ -609,8 +609,8 @@ Popup {
                         border.width: cell.modelData.active ? 2 : 0
                         border.color: Theme.selectionFrame
                         radius: 2
-                        // A photo not opened yet has no thumbnail: its place,
-                        // on the navigator's ground.
+                        // The whole photo under its crop mask, as the strip shows it\r
+                        // (CropMaskedThumbnail.swift); until one is read, its place.
                         Rectangle { anchors.fill: parent; anchors.margins: 3; color: Theme.navigatorWell }
                         FrameCanvas {
                             anchors.fill: parent; anchors.margins: 3

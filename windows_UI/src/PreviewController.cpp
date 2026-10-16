@@ -978,7 +978,9 @@ QVariantList PreviewController::libraryItems() const {
     return result;
 }
 QVariantMap PreviewController::libraryItem(int i) const {
-    if(i<0||i>=int(library_.size()))return {};
+    // A cell the strip has not dropped yet may ask past the end: an empty
+    // item, with images QML can still assign.
+    if(i<0||i>=int(library_.size()))return {{"strip",QImage()},{"thumbnail",QImage()}};
     const auto& item=library_[i];
     // `thumbnail`: the rendered print as the canvas shows it (cropped);
     // `strip`: the whole picture under the crop mask, what the filmstrip and

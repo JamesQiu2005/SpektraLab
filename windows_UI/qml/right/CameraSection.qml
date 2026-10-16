@@ -53,7 +53,8 @@ MacSection {
     // The white balance rows: settings unlocked, and a camera LibRaw can
     // re-balance (`enabled` is false only for one with no colour matrix).
     readonly property bool wbAvailable: preview.settingsEditable && wb.enabled !== false
-    readonly property string wbReason: wb.enabled === false ? L10n.tr("camera.reasonNoMatrix") : ""
+    readonly property string wbReason: wb.raw === false ? L10n.tr("camera.reasonDecodeWB")
+        : wb.enabled === false ? L10n.tr("camera.reasonNoMatrix") : ""
     readonly property bool boxesAvailable: wbAvailable && wb.boxesEnabled === true
     readonly property bool pickArmed: editor !== null && editor.pickingNeutral
     function methodTitle(m) {
@@ -135,12 +136,11 @@ MacSection {
                 anchors.verticalCenter: parent.verticalCenter
                 checked: section.method === "custom" && Math.abs(section.filmExposure) < 1e-9
                 available: preview.settingsEditable
-                // Session.setFilmExposureAsShot: both halves, and unticking
-                // is not a request.
+                // Session.setFilmExposureAsShot: both halves as one edit (one
+                // undo step), and unticking is not a request.
                 onToggledTo: function(on) {
                     if (!on || checked) return
-                    if (section.method !== "custom") preview.aeMethod = "custom"
-                    preview.setAdjustment("filmExposureEv", 0)
+                    preview.setParameters({ auto_exposure: false, exposure_compensation_ev: 0 })
                 }
                 HoverHandler { id: asShotHover }
                 ToolTip.visible: asShotHover.hovered

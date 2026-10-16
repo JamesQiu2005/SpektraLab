@@ -7,24 +7,36 @@ import SpektraLab.Native 1.0
 // ends stepping the open photo, and -- at the far left, where the Mac puts
 // the folder name and count -- the count and the selection's actions.
 //
+// Each thumbnail is the whole photograph with the crop as the thing you see:
+// everything outside it under a nearly opaque mask, turned and flipped as the
+// canvas is (CropMaskedThumbnail.swift; the controller's `strip`). Until a
+// photo has been rendered it is the file's own preview -- a RAW's embedded
+// JPEG -- as on the Mac (ThumbnailCache.swift).
+//
 // Selection is a white frame round the picture and nothing else: the open
-// photo has the strong frame, a photo in the selected set (what Sync and
-// batch export act on) the same frame held back. Ctrl+click adds or removes a
-// photo from the set, as Cmd+click does on the Mac; the corner box does the
-// same for a pointer that does not know that, and the context menu has the
-// rest. A plain click opens the photo (and leaves the crop editor).
+// photo has the strong frame, a photo in the selected set (what Sync, Paste
+// and batch export act on) the same frame held back. A plain click opens a
+// photo and selects it alone; Ctrl+click adds or removes a photo without
+// moving the open one, which cannot leave the set (Session.click); the corner
+// box does the same for a pointer that does not know that. Left / Right and
+// the chevrons step. Dragging a thumbnail along the strip moves it -- the
+// cell it is over gives way as it goes -- and the order is kept for the
+// folder when it is let go (FrameOrder.swift).
 Rectangle {
     id: strip
     required property EditorState editor
     Layout.fillWidth: true
     implicitHeight: Theme.filmstripHeight
     color: Theme.card
+    // The item a drag is carrying, by its current index (-1: none).
+    property int dragIndex: -1
 
-    function step(delta) {
-        var next = preview.activeIndex + delta
-        if (next < 0 || next >= preview.libraryItems.length) return
-        strip.editor.cropMode = false
-        preview.selectImage(next)
+    // Files or a folder dropped on the strip open as on the canvas
+    // (Session.dropped(files:)); a thumbnail dragged along it is no file drop.
+    DropArea {
+        anchors.fill: parent
+        enabled: strip.editor.canBrowse
+        onDropped: function(drop) { if (drop.hasUrls) preview.openFiles(drop.urls) }
     }
 
     RowLayout {
@@ -42,14 +54,14 @@ Rectangle {
             spacing: 6
             Text {
                 Layout.fillWidth: true
-                text: L10n.tr("strip.count", [preview.libraryItems.length, preview.selectedCount])
+                text: L10n.tr("strip.count", [preview.libraryCount, preview.selectedCount])
                 elide: Text.ElideRight
                 color: Theme.dim
                 font.family: Theme.fontFamily; font.pixelSize: Theme.fontMeta; font.weight: Theme.weightText
             }
             PillButton {
                 text: L10n.tr("strip.selectAll")
-                available: strip.editor.canBrowse && preview.libraryItems.length > 0
+                available: strip.editor.canBrowse && preview.libraryCount > 0
                 onClicked: preview.selectAllPhotos(true)
             }
             PillButton {
@@ -59,9 +71,9 @@ Rectangle {
             }
             PillButton {
                 text: L10n.tr("strip.sync")
-                available: strip.editor.canBrowse && preview.hasFrame && preview.selectedCount > 0
+                available: strip.editor.canSync
                 toolTip: L10n.tr("strip.syncHelp")
-                reason: L10n.tr("strip.syncHelp")
+                reason: L10n.tr("clipboard.syncReason")
                 onClicked: preview.syncSelectedSettings(false)
             }
             Item { Layout.fillHeight: true }
@@ -72,7 +84,7 @@ Rectangle {
             glyph: Icons.chevronLeft
             available: strip.editor.canBrowse && preview.activeIndex > 0
             toolTip: L10n.tr("strip.previous")
-            onClicked: strip.step(-1)
+            onClicked: strip.editor.stepPhoto(-1)
         }
         ListView {
             id: filmstrip
@@ -83,7 +95,10 @@ Rectangle {
             leftMargin: 10; rightMargin: 10
             clip: true
             boundsBehavior: Flickable.StopAtBounds
-            model: preview.libraryItems
+            // The count, not the list: a new preview, a reorder or a selection
+            // updates the cells in place (each reads its item below), so a
+            // drag in flight keeps its cell.
+            model: preview.libraryCount
             currentIndex: preview.activeIndex
             onCurrentIndexChanged: positionViewAtIndex(currentIndex, ListView.Contain)
             ScrollBar.horizontal: ScrollBar {
@@ -94,13 +109,16 @@ Rectangle {
             }
             delegate: Item {
                 id: cell
-                required property var modelData
                 required property int index
+                // One item, read again whenever the library changes.
+                readonly property var modelData: { preview.libraryRevision; return preview.libraryItem(index) }
                 readonly property bool open: modelData.active === true
                 readonly property bool picked: modelData.selected === true
                 readonly property bool failed: String(modelData.error || "").length > 0
+                readonly property bool carried: strip.dragIndex === index
                 width: Math.round(Theme.thumbHeight * 1.5)
                 height: filmstrip.height
+                opacity: carried ? 0.55 : 1
                 // The picture, letterboxed in a 3:2 cell.
                 Item {
                     id: frame
@@ -131,9 +149,14 @@ Rectangle {
                     FrameCanvas {
                         id: thumb
                         anchors.fill: parent
-                        image: cell.modelData.thumbnail
                         enabled: false
                         visible: !cell.failed
+                        // A cell read before its item is there has no picture
+                        // to assign (undefined is no QImage): it keeps none.
+                        Binding on image {
+                            when: cell.modelData.strip !== undefined
+                            value: cell.modelData.strip
+                        }
                     }
                     // The white frame, round the picture rather than the cell.
                     Rectangle {
@@ -153,36 +176,67 @@ Rectangle {
                     enabled: strip.editor.canBrowse
                     hoverEnabled: true
                     acceptedButtons: Qt.LeftButton | Qt.RightButton
+                    // The strip does not scroll from under a thumbnail being
+                    // dragged; the wheel and the scroll bar still scroll it.
+                    preventStealing: true
+                    property real pressX: 0
+                    property bool dragging: false
+                    property bool dragged: false
+                    onPressed: function(mouse) {
+                        dragged = false
+                        if (mouse.button !== Qt.LeftButton) return
+                        pressX = mouse.x; dragging = false
+                    }
+                    onPositionChanged: function(mouse) {
+                        if (!(mouse.buttons & Qt.LeftButton)) return
+                        if (!dragging && Math.abs(mouse.x - pressX) > 8) { dragging = true; strip.dragIndex = cell.index }
+                        if (!dragging) return
+                        // Session.moveFrame: the carried photo takes the place
+                        // of the cell it is over, there and then.
+                        const p = mapToItem(filmstrip.contentItem, mouse.x, frame.y + frame.height / 2)
+                        const target = filmstrip.indexAt(p.x, p.y)
+                        if (target >= 0 && target !== strip.dragIndex && preview.moveItem(strip.dragIndex, target))
+                            strip.dragIndex = target
+                    }
+                    onReleased: {
+                        if (!dragging) return
+                        dragging = false; dragged = true
+                        strip.dragIndex = -1
+                        preview.itemOrderChanged()
+                    }
+                    onCanceled: { if (dragging) { dragging = false; strip.dragIndex = -1; preview.itemOrderChanged() } }
                     onClicked: function(mouse) {
+                        if (dragged) return
                         if (mouse.button === Qt.RightButton) { cellMenu.popup(); return }
-                        if (mouse.modifiers & Qt.ControlModifier) { preview.setItemSelected(cell.index, !cell.picked); return }
-                        strip.editor.cropMode = false
-                        preview.selectImage(cell.index)
+                        const command = (mouse.modifiers & Qt.ControlModifier) !== 0
+                        if (!command) strip.editor.cropMode = false
+                        preview.clickPhoto(cell.index, command)
                     }
                 }
                 SquareCheck {
                     anchors.right: frame.right; anchors.top: frame.top
                     anchors.margins: -2
-                    visible: cell.picked || cellMouse.containsMouse
+                    visible: (cell.picked || cellMouse.containsMouse) && strip.dragIndex < 0
                     checked: cell.picked
-                    available: strip.editor.canBrowse
+                    available: strip.editor.canBrowse && !(cell.open && cell.picked)
                     toolTip: L10n.tr("strip.selectHelp")
-                    onToggledTo: function(on) { preview.setItemSelected(cell.index, on) }
+                    onToggledTo: function(on) { if (on !== cell.picked) preview.clickPhoto(cell.index, true) }
                 }
-                ToolTip.visible: cellMouse.containsMouse
-                ToolTip.text: cell.failed ? cell.modelData.name + "\n" + cell.modelData.error : cell.modelData.name
+                ToolTip.visible: cellMouse.containsMouse && strip.dragIndex < 0
+                ToolTip.text: cell.failed ? cell.modelData.name + "\n" + cell.modelData.error : (cell.modelData.name || "")
                 ToolTip.delay: 600
                 RailMenu {
                     id: cellMenu
                     RailMenuItem {
                         text: L10n.tr("strip.menu.open")
                         enabled: !cell.open
-                        onTriggered: { strip.editor.cropMode = false; preview.selectImage(cell.index) }
+                        onTriggered: { strip.editor.cropMode = false; preview.clickPhoto(cell.index, false) }
                     }
                     RailMenuItem {
                         text: L10n.tr("strip.menu.inSelection")
                         marked: cell.picked
-                        onTriggered: preview.setItemSelected(cell.index, !cell.picked)
+                        enabled: !(cell.open && cell.picked)
+                        onTriggered: preview.clickPhoto(cell.index, true)
                     }
                     RailMenuItem {
                         text: L10n.tr("strip.menu.showFolder")
@@ -218,14 +272,14 @@ Rectangle {
             Layout.preferredWidth: 20; Layout.fillHeight: true
             size: 20; glyphSize: 11
             glyph: Icons.chevronRight
-            available: strip.editor.canBrowse && preview.activeIndex >= 0 && preview.activeIndex < preview.libraryItems.length - 1
+            available: strip.editor.canBrowse && preview.activeIndex >= 0 && preview.activeIndex < preview.libraryCount - 1
             toolTip: L10n.tr("strip.next")
-            onClicked: strip.step(1)
+            onClicked: strip.editor.stepPhoto(1)
         }
     }
     Text {
         anchors.centerIn: parent
-        visible: preview.libraryItems.length === 0
+        visible: preview.libraryCount === 0
         text: L10n.tr("strip.empty")
         color: Theme.dim
         font.family: Theme.fontFamily; font.pixelSize: Theme.fontLabel; font.weight: Theme.weightText
