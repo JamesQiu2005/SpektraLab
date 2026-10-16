@@ -34,8 +34,22 @@ target_compile_features(SpektraLabQt PRIVATE cxx_std_20)
 target_link_libraries(SpektraLabQt PRIVATE
     spk_desktop_host Qt6::Core Qt6::Gui Qt6::Qml Qt6::Quick Qt6::QuickControls2)
 set_source_files_properties(qml/Theme.qml PROPERTIES QT_QML_SINGLETON_TYPE TRUE)
+# One module; the subdirectories are ownership, not namespaces -- every type is
+# visible to every file by its bare name. Main.qml is the window, EditorState
+# the state the panes share.
 qt_add_qml_module(SpektraLabQt URI SpektraLab VERSION 1.0
-    QML_FILES qml/Main.qml qml/Theme.qml qml/Section.qml qml/ActionButton.qml
+    QML_FILES
+        qml/Main.qml qml/EditorState.qml
+        qml/Theme.qml qml/Section.qml qml/ActionButton.qml
+        qml/controls/Note.qml qml/controls/Adjustment.qml qml/controls/Effect.qml
+        qml/controls/StockList.qml
+        qml/left/LeftRail.qml qml/left/NavigatorSection.qml qml/left/FilmSection.qml
+        qml/left/PrintSection.qml qml/left/CropSection.qml qml/left/EnlargerSection.qml
+        qml/centre/CentrePane.qml qml/centre/TopBar.qml qml/centre/CanvasView.qml
+        qml/centre/CropOverlay.qml qml/centre/StatusBar.qml qml/centre/Filmstrip.qml
+        qml/right/RightRail.qml qml/right/CameraSection.qml qml/right/FilmFormatSection.qml
+        qml/right/DecodeSection.qml qml/right/InfoSection.qml qml/right/StatusSection.qml
+        qml/export/ExportPopup.qml
     NO_CACHEGEN)
 set_target_properties(SpektraLabQt PROPERTIES RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/app")
 
