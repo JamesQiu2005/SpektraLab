@@ -12,8 +12,8 @@ import SpektraLab.Native 1.0
 // Both sidebar toggles live here, so each is on screen whichever rail is
 // folded.
 //
-// Not wired yet on Windows, and greyed with the reason: Process (the Mac's
-// solve -- auto-exposure and the enlarger pack for this paper). Original
+// Process is the Mac's solve -- auto-exposure and the enlarger pack for this
+// paper (preview.process). Original
 // shows the decode before the film (Space while held), before/after splits
 // the canvas between the two, and zoom steps through the Mac's ladder
 // (EditorState, FrameCanvas); all three wait while the crop editor is up.
@@ -90,12 +90,20 @@ Rectangle {
             toolTip: L10n.tr("toolbar.redoHelp")
             onClicked: preview.redo()
         }
+        // Process (TopBar.swift:79-82, Session.solveNow): the meter and the
+        // enlarger's neutral pack for this film and paper, then the Y/M shifts
+        // back to 0 and a reprint. An accent outline whenever it can run; the
+        // outcome goes to the status footer (EditorState.process).
         PillButton {
+            objectName: "processButton"
             Layout.leftMargin: Theme.barActionLeading
             outlined: true
             text: L10n.tr("toolbar.process")
-            available: false
-            reason: L10n.tr("placeholder.process")
+            active: bar.editor.canProcess
+            available: bar.editor.canProcess
+            toolTip: L10n.tr("toolbar.processHelp")
+            reason: preview.hasFrame ? L10n.tr("toolbar.processUnavailable") : L10n.tr("toolbar.processHelp")
+            onClicked: bar.editor.process()
         }
         // Accent while the Original is showing -- pinned here or held with
         // Space -- and muted otherwise (TopBar.swift `action`).

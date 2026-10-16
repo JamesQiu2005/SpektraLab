@@ -41,6 +41,14 @@ Rectangle {
                 ToolTip.text: text
             }
         }
+        // The Pre-Dev tools' outcome -- the neutral picker's hint and answer,
+        // Process's pack (EditorState.actionNote) -- for the photo it was about.
+        Note {
+            objectName: "actionNote"
+            text: footer.editor.actionNoteFile === preview.fileName ? footer.editor.actionNote : ""
+            visible: text.length > 0
+            color: footer.editor.actionNoteWarning ? Theme.warning : footer.editor.pickingNeutral ? Theme.accent : Theme.dim
+        }
         Note { objectName: "savedStatusNote"; text: preview.savedStatus; visible: text.length > 0 }
         Note { objectName: "persistenceWarningNote"; text: preview.persistenceWarning; visible: text.length > 0; color: Theme.warning }
         ProgressBar {
