@@ -66,7 +66,8 @@ if(BUILD_TESTING)
     target_include_directories(spk_qt_edit_store_test PRIVATE src)
     target_compile_features(spk_qt_edit_store_test PRIVATE cxx_std_20)
     target_link_libraries(spk_qt_edit_store_test PRIVATE spk_desktop_host Qt6::Core Qt6::Gui)
-    add_test(NAME spk_qt_edit_store COMMAND spk_qt_edit_store_test)
+    # Scratch roots inside the build tree, never the system temporary folder.
+    add_test(NAME spk_qt_edit_store COMMAND spk_qt_edit_store_test "${CMAKE_CURRENT_BINARY_DIR}/edit-store-test")
     # The settings table through the real engine on a synthetic frame: the
     # macOS defaults are accepted, deltas stay minimal across stock changes,
     # and the filter scale is inert at zero shifts. No RAW fixture.

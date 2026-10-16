@@ -7,6 +7,7 @@
 #include <QDir>
 #include <QFile>
 #include <QFileInfo>
+#include <QJsonArray>
 #include <QJsonDocument>
 #include <QJsonObject>
 #include <QLockFile>
@@ -46,14 +47,35 @@ void mutateObject(QJsonObject& parent, const char* name,
     change(child);
     parent.insert(QLatin1String(name), child);
 }
+void mutateSettings(QJsonObject& document, const std::function<void(QJsonObject&)>& change) {
+    mutateObject(document, "state", [&](auto& s) { mutateObject(s, "settings", change); });
+}
+// The same record as version 1 wrote it: thirteen settings, film exposure
+// under its old name, nothing added since.
+QJsonObject toVersion1(QJsonObject document) {
+    document["version"] = 1;
+    mutateSettings(document, [](auto& f) {
+        f["film_exposure_ev"] = f.take("exposure_compensation_ev");
+        f.remove("filter_shift_scale");
+        f.remove("auto_exposure_method");
+    });
+    return document;
+}
+QByteArray bytesOf(const QJsonObject& document) { return QJsonDocument(document).toJson(); }
 } // namespace
 
 int main(int argc, char** argv) {
     QCoreApplication application(argc, argv);
     try {
-        QTemporaryDir temporary;
+        // CTest passes a scratch root in the build tree; a manual run without
+        // one falls back to the system temporary folder.
+        const auto scratch = application.arguments().value(1);
+        check(scratch.isEmpty() || QDir().mkpath(scratch), "cannot create scratch root");
+        QTemporaryDir temporary(scratch.isEmpty() ? QDir::tempPath() + "/spk-edit-store-XXXXXX"
+                                                  : scratch + "/run-XXXXXX");
         check(temporary.isValid(), "temporary root unavailable");
         const auto sources = temporary.filePath(QString::fromUtf8("照片 文件夹"));
+
         check(QDir().mkpath(sources), "cannot create source folder");
         const auto source = QDir(sources).filePath(QString::fromUtf8("海边 日落.ARW"));
         QByteArray input(200000, 'R');
@@ -89,6 +111,9 @@ int main(int argc, char** argv) {
         state.settings.glare_amount = 11.25;
         state.settings.y_filter_shift = -0.3125;
         state.settings.m_filter_shift = 0.375;
+        // Rows stored by key, not by named member, round-trip the same way.
+        state.settings.set("filter_shift_scale", 12.5);
+        state.settings.set("auto_exposure_method", std::string("protect_highlights"));
         state.mode = spk::desktop::DecodeMode::headroom;
         state.geometry.crop = QRectF(0.125, 0.25, 0.5, 0.625);
         state.geometry.quarterTurns = 3;
@@ -100,6 +125,18 @@ int main(int argc, char** argv) {
         const auto result = store.load(url, catalog);
         check(result.state && *result.state == state && result.warning.isEmpty() && !result.blocked,
               "complete state did not roundtrip exactly");
+        check(result.version == 2 && result.preserved.isEmpty(), "new record is not a plain version 2");
+        {
+            // Version 2 keys every table row by its wire name.
+            const auto written = QJsonDocument::fromJson(read(store.filePath(url))).object();
+            const auto settings = written["state"].toObject()["settings"].toObject();
+            check(written["version"].toInt() == 2 && settings.size() == qsizetype(spk::desktop::setting_fields().size()),
+                  "version 2 does not write every settings row");
+            for (const auto& field : spk::desktop::setting_fields())
+                check(settings.contains(QString::fromStdString(field.key)), "version 2 omitted a settings row");
+            check(!settings.contains("film_exposure_ev") && settings["exposure_compensation_ev"].toDouble() == -2.25,
+                  "version 2 kept the version 1 spelling");
+        }
         check(QFileInfo(path).absolutePath() == root && QFileInfo(path).fileName().size() == 69,
               "edit file must be a hash inside the explicit store");
         check(QDir(sources).entryList(QDir::Files).size() == 1,
@@ -129,8 +166,8 @@ int main(int argc, char** argv) {
               "reopening did not refresh conflict observation");
         reopened.save(url, state);
 
-        auto corrupt = [&](const std::function<void(QJsonObject&)>& change) {
-            auto document = validJson;
+        auto corruptFrom = [&](const QJsonObject& base, const std::function<void(QJsonObject&)>& change) {
+            auto document = base;
             change(document);
             const auto bytes = QJsonDocument(document).toJson();
             write(path, bytes);
@@ -141,37 +178,141 @@ int main(int argc, char** argv) {
             check(read(path) == bytes, "rejected save changed existing edit history");
             write(path, validBytes);
         };
-        corrupt([](auto& d) { d["version"] = 2; });
-        corrupt([](auto& d) { d["version"] = "1"; });
+        auto corrupt = [&](const std::function<void(QJsonObject&)>& change) { corruptFrom(validJson, change); };
+        auto geometryOf = [](const std::function<void(QJsonObject&)>& change) {
+            return [change](QJsonObject& d) { mutateObject(d, "state", [&](auto& s) { mutateObject(s, "geometry", change); }); };
+        };
+        // Version 2 is strict about everything it knows.
+        corrupt([](auto& d) { d["version"] = 3; });
+        corrupt([](auto& d) { d["version"] = 99; });
+        corrupt([](auto& d) { d["version"] = "2"; });
+        corrupt([](auto& d) { d["version"] = 1.5; });
         corrupt([](auto& d) { d["format"] = "Unrelated.Application"; });
-        corrupt([](auto& d) { d["futureField"] = true; });
+        corrupt([](auto& d) { d.remove("format"); });
         corrupt([](auto& d) { d.remove("source"); });
+        corrupt([](auto& d) { d.remove("state"); });
         corrupt([](auto& d) { mutateObject(d, "source", [](auto& s) { s["path"] = "D:/different.ARW"; }); });
         corrupt([](auto& d) { mutateObject(d, "source", [](auto& s) { s["size"] = 123; }); });
         corrupt([](auto& d) { mutateObject(d, "source", [](auto& s) { s["sampleSha256"] = "broken"; }); });
+        corrupt([](auto& d) { mutateObject(d, "source", [](auto& s) { s["volume"] = "C:"; }); });
         corrupt([](auto& d) { mutateObject(d, "state", [](auto& s) { s["decodeMode"] = "future-decoder"; }); });
-        corrupt([](auto& d) { mutateObject(d, "state", [](auto& s) {
-            mutateObject(s, "settings", [](auto& f) { f.remove("film_format_mm"); }); }); });
-        corrupt([](auto& d) { mutateObject(d, "state", [](auto& s) {
-            mutateObject(s, "settings", [](auto& f) { f["grain_active"] = 1; }); }); });
-        corrupt([](auto& d) { mutateObject(d, "state", [](auto& s) {
-            mutateObject(s, "settings", [](auto& f) { f["print_exposure"] = "1.0"; }); }); });
-        corrupt([](auto& d) { mutateObject(d, "state", [](auto& s) {
-            mutateObject(s, "settings", [](auto& f) { f["film_exposure_ev"] = 8.01; }); }); });
-        corrupt([](auto& d) { mutateObject(d, "state", [](auto& s) {
-            mutateObject(s, "settings", [](auto& f) { f["film_stock"] = "../bad"; }); }); });
-        corrupt([](auto& d) { mutateObject(d, "state", [](auto& s) {
-            mutateObject(s, "geometry", [](auto& g) { g["quarterTurns"] = 0.5; }); }); });
-        corrupt([](auto& d) { mutateObject(d, "state", [](auto& s) {
-            mutateObject(s, "geometry", [](auto& g) { g["straightenDegrees"] = -45.1; }); }); });
-        corrupt([](auto& d) { mutateObject(d, "state", [](auto& s) {
-            mutateObject(s, "geometry", [](auto& g) { g["flipVertical"] = "false"; }); }); });
-        corrupt([](auto& d) { mutateObject(d, "state", [](auto& s) {
-            mutateObject(s, "geometry", [](auto& g) {
-                mutateObject(g, "crop", [](auto& c) { c["width"] = 0; }); }); }); });
-        corrupt([](auto& d) { mutateObject(d, "state", [](auto& s) {
-            mutateObject(s, "geometry", [](auto& g) {
-                mutateObject(g, "crop", [](auto& c) { c["width"] = 1; }); }); }); });
+        corrupt([](auto& d) { mutateObject(d, "state", [](auto& s) { s.remove("geometry"); }); });
+        // Version 1's keys stay required: a record without one is damaged.
+        corrupt([](auto& d) { mutateSettings(d, [](auto& f) { f.remove("film_format_mm"); }); });
+        corrupt([](auto& d) { mutateSettings(d, [](auto& f) { f["film_exposure_ev"] = f.take("exposure_compensation_ev"); }); });
+        corrupt([](auto& d) { mutateSettings(d, [](auto& f) { f["grain_active"] = 1; }); });
+        corrupt([](auto& d) { mutateSettings(d, [](auto& f) { f["print_exposure"] = "1.0"; }); });
+        corrupt([](auto& d) { mutateSettings(d, [](auto& f) { f["exposure_compensation_ev"] = 8.01; }); });
+        corrupt([](auto& d) { mutateSettings(d, [](auto& f) { f["film_stock"] = "../bad"; }); });
+        corrupt([](auto& d) { mutateSettings(d, [](auto& f) { f["filter_shift_scale"] = 0.5; }); });
+        corrupt([](auto& d) { mutateSettings(d, [](auto& f) { f["filter_shift_scale"] = "40"; }); });
+        corrupt([](auto& d) { mutateSettings(d, [](auto& f) { f["auto_exposure_method"] = "spot"; }); });
+        corrupt([](auto& d) { mutateSettings(d, [](auto& f) { f["auto_exposure_method"] = true; }); });
+        corrupt(geometryOf([](auto& g) { g["quarterTurns"] = 0.5; }));
+        corrupt(geometryOf([](auto& g) { g["straightenDegrees"] = -45.1; }));
+        corrupt(geometryOf([](auto& g) { g["flipVertical"] = "false"; }));
+        corrupt(geometryOf([](auto& g) { mutateObject(g, "crop", [](auto& c) { c["width"] = 0; }); }));
+        corrupt(geometryOf([](auto& g) { mutateObject(g, "crop", [](auto& c) { c["width"] = 1; }); }));
+        corrupt(geometryOf([](auto& g) { mutateObject(g, "crop", [](auto& c) { c["angle"] = 0; }); }));
+
+        // Version 1, as that build wrote it, loads with what it was made
+        // with: the engine's metering, and the engine's filter scale while a
+        // shift is non-zero. It keeps its own exact shape.
+        const auto version1 = toVersion1(validJson);
+        auto madeWith = state;
+        madeWith.settings.set("filter_shift_scale", 1.0);
+        madeWith.settings.set("auto_exposure_method", std::string("center_weighted"));
+        write(path, bytesOf(version1));
+        const auto legacy = store.load(url, catalog);
+        check(legacy.state == std::optional(madeWith) && legacy.version == 1 && !legacy.blocked &&
+              legacy.preserved.isEmpty(), "version 1 record did not load as it was made");
+        corruptFrom(version1, [](auto& d) { d["version"] = "1"; });
+        corruptFrom(version1, [](auto& d) { d["format"] = "Unrelated.Application"; });
+        corruptFrom(version1, [](auto& d) { d["futureField"] = true; });
+        corruptFrom(version1, [](auto& d) { d.remove("source"); });
+        corruptFrom(version1, [](auto& d) { mutateObject(d, "state", [](auto& s) { s["mask"] = 1; }); });
+        corruptFrom(version1, [](auto& d) { mutateSettings(d, [](auto& f) { f.remove("film_format_mm"); }); });
+        corruptFrom(version1, [](auto& d) { mutateSettings(d, [](auto& f) { f["filter_shift_scale"] = 40; }); });
+        corruptFrom(version1, [](auto& d) { mutateSettings(d, [](auto& f) { f["exposure_compensation_ev"] = 0; }); });
+        corruptFrom(version1, [](auto& d) { mutateSettings(d, [](auto& f) { f["grain_active"] = 1; }); });
+        corruptFrom(version1, [](auto& d) { mutateSettings(d, [](auto& f) { f["print_exposure"] = "1.0"; }); });
+        corruptFrom(version1, [](auto& d) { mutateSettings(d, [](auto& f) { f["film_exposure_ev"] = 8.01; }); });
+        corruptFrom(version1, [](auto& d) { mutateSettings(d, [](auto& f) { f["film_stock"] = "../bad"; }); });
+        corruptFrom(version1, geometryOf([](auto& g) { g["quarterTurns"] = 0.5; }));
+        corruptFrom(version1, geometryOf([](auto& g) { g["perspective"] = 0; }));
+        corruptFrom(version1, geometryOf([](auto& g) { mutateObject(g, "crop", [](auto& c) { c["width"] = 0; }); }));
+        {
+            // With both shifts at zero the scale cannot move the print, so
+            // the photograph takes the macOS slider strength.
+            auto neutral = version1;
+            mutateSettings(neutral, [](auto& f) { f["y_filter_shift"] = 0; f["m_filter_shift"] = 0; });
+            write(path, bytesOf(neutral));
+            const auto loaded = store.load(url, catalog);
+            check(loaded.state && loaded.state->settings.get("filter_shift_scale") == spk::desktop::SettingValue(40.0) &&
+                  loaded.state->settings.get("auto_exposure_method") == spk::desktop::SettingValue(std::string("center_weighted")),
+                  "neutral version 1 filters did not take the new scale");
+            mutateSettings(neutral, [](auto& f) { f["m_filter_shift"] = 0.01; });
+            write(path, bytesOf(neutral));
+            check(store.load(url, catalog).state->settings.get("filter_shift_scale") == spk::desktop::SettingValue(1.0),
+                  "a version 1 filter shift lost the scale it was made with");
+        }
+        // The first save rewrites a version-1 record as version 2.
+        write(path, bytesOf(version1));
+        check(store.load(url, catalog).version == 1, "version 1 record not reloaded");
+        store.save(url, madeWith);
+        const auto migrated = store.load(url, catalog);
+        check(QJsonDocument::fromJson(read(path)).object()["version"].toInt() == 2 && migrated.version == 2 &&
+              migrated.state == std::optional(madeWith), "saving a version 1 record did not migrate it");
+        write(path, validBytes);
+        check(store.load(url, catalog).state == std::optional(state), "restored version 2 record did not reload");
+
+        {
+            // Rows added after version 1 are optional; absent, each takes what
+            // the record rendered with, the engine default.
+            auto older = validJson;
+            mutateSettings(older, [](auto& f) { f.remove("filter_shift_scale"); f.remove("auto_exposure_method"); });
+            write(path, bytesOf(older));
+            const auto loaded = store.load(url, catalog);
+            check(loaded.state == std::optional(madeWith) && loaded.version == 2 && loaded.preserved.isEmpty(),
+                  "an optional row did not default to what the record rendered with");
+            write(path, validBytes);
+        }
+        {
+            // A newer build's fields are reported, ignored and kept by the
+            // next save, at each level such a build may extend.
+            auto newer = validJson;
+            newer["futureField"] = QJsonObject{{"kept", true}};
+            mutateObject(newer, "state", [](auto& s) {
+                s["mask"] = QJsonArray{1, 2, 3};
+                mutateObject(s, "settings", [](auto& f) { f["future_strength"] = 0.7; });
+                mutateObject(s, "geometry", [](auto& g) { g["perspective"] = QJsonObject{{"x", 0.1}}; });
+            });
+            write(path, bytesOf(newer));
+            const auto loaded = store.load(url, catalog);
+            auto preserved = loaded.preserved;
+            preserved.sort();
+            check(loaded.state == std::optional(state) && !loaded.blocked && loaded.version == 2 &&
+                  preserved == QStringList{"document.futureField", "state.geometry.perspective", "state.mask",
+                                           "state.settings.future_strength"},
+                  "newer version 2 fields were refused or not reported");
+            auto edited = state;
+            edited.settings.grain_amount = 0.75;
+            edited.geometry.quarterTurns = 2;
+            store.save(url, edited);
+            const auto saved = QJsonDocument::fromJson(read(path)).object();
+            const auto savedState = saved.value("state").toObject();
+            check(saved.value("futureField") == newer.value("futureField") &&
+                  savedState.value("mask") == QJsonArray{1, 2, 3} &&
+                  savedState.value("settings").toObject().value("future_strength").toDouble() == 0.7 &&
+                  savedState.value("geometry").toObject().value("perspective") == QJsonObject{{"x", 0.1}},
+                  "save dropped a newer build's fields");
+            check(savedState.value("settings").toObject().value("grain_amount").toDouble() == 0.75 &&
+                  savedState.value("geometry").toObject().value("quarterTurns").toInt() == 2,
+                  "save did not replace the fields it knows");
+            check(store.load(url, catalog).state == std::optional(edited), "extended record did not reload");
+            write(path, validBytes);
+            check(store.load(url, catalog).state == std::optional(state), "restored record did not reload");
+        }
 
         auto noStocks = catalog;
         noStocks.films.clear();
@@ -203,6 +344,8 @@ int main(int argc, char** argv) {
         invalidState([](auto& s) { s.settings.halation_amount = 4.01; });
         invalidState([](auto& s) { s.settings.m_filter_shift = 1.01; });
         invalidState([](auto& s) { s.settings.film_stock = "syntactically_valid_but_missing"; });
+        invalidState([](auto& s) { s.settings.set("filter_shift_scale", 0.5); });
+        invalidState([](auto& s) { s.settings.set("auto_exposure_method", std::string("spot")); });
         invalidState([](auto& s) { s.mode = static_cast<spk::desktop::DecodeMode>(17); });
         invalidState([](auto& s) { s.geometry.quarterTurns = 4; });
         invalidState([](auto& s) { s.geometry.crop = QRectF(-0.1, 0, 1, 1); });
