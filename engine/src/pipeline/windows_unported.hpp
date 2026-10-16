@@ -25,7 +25,7 @@ inline constexpr WindowsFeatureRow kWindowsFeatures[] = {
     {WindowsFeature::SceneLatitude, "scene_latitude_mapping",
      "scene latitude mapping is not implemented by the Windows Vulkan backend yet", false},
     {WindowsFeature::ContrastMask, "contrast_mask",
-     "contrast mask is not implemented by the Windows Vulkan backend yet", false},
+     "contrast mask is not implemented by the Windows Vulkan backend yet", true},
     {WindowsFeature::Overscan, "overscan",
      "overscan is not implemented by the Windows Vulkan backend yet", false},
     {WindowsFeature::DateImprint, "date_imprint",

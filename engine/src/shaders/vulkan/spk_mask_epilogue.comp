@@ -1,0 +1,59 @@
+#version 450
+#extension GL_GOOGLE_include_directive : require
+
+// RFC-024's application, from contrast_mask.metal: spk_spectral_epilogue's
+// integral with the mask's gain on the image exposure **before** the
+// pre-flash offset is added, per pixel of a band. `row0` is the band's first
+// row in the frame, so a strip samples the field at the frame's coordinates
+// and a striped render reads exactly what the whole-frame one does.
+//
+// The base is `a * x + b` with `(a, b)` sampled bilinearly from the grid.
+layout(local_size_x = 256) in;
+#include "spk_mask.glsl"
+layout(set = 0, binding = 5, std430) readonly buffer Coef { float value[]; } coef;
+layout(set = 0, binding = 6, std430) readonly buffer Meta { uint value[]; } meta;
+layout(set = 0, binding = 7, std430) writeonly buffer Output { float value[]; } output_data;
+
+// Metal's precise clamp is fmin(fmax(v, lo), hi), where a NaN operand yields
+// the other one; GLSL's FClamp leaves that choice undefined. The coordinates
+// here are finite for any W >= 1, but the branch costs nothing to keep exact.
+float metal_clamp(float v, float lo, float hi) {
+    if (isnan(v) || v < lo) return lo;
+    return v > hi ? hi : v;
+}
+
+// Metal's mix is `x + (y - x) * t`; GLSL's is `x * (1 - t) + y * t`, which
+// rounds differently, so it is written out.
+vec2 metal_mix(vec2 x, vec2 y, float t) { return x + (y - x) * t; }
+
+void main() {
+    uint n = meta.value[0], nl = meta.value[1], W = meta.value[2], H = meta.value[3], row0 = meta.value[4];
+    uint gw = meta.value[5], gh = meta.value[6];
+    uint i = spk_global_index();
+    if (i >= n) return;
+    vec3 a = mask_image_exposure(i, nl);
+
+    uint px = i % W, py = row0 + i / W;
+    float u = metal_clamp((float(px) + 0.5) * float(gw) / float(W) - 0.5, 0.0, float(gw - 1u));
+    float v = metal_clamp((float(py) + 0.5) * float(gh) / float(H) - 0.5, 0.0, float(gh - 1u));
+    uint u0 = uint(floor(u)), v0 = uint(floor(v));
+    uint u1 = min(u0 + 1u, gw - 1u), v1 = min(v0 + 1u, gh - 1u);
+    float tu = u - float(u0), tv = v - float(v0);
+    vec2 c00 = vec2(coef.value[2u * (v0 * gw + u0)], coef.value[2u * (v0 * gw + u0) + 1u]);
+    vec2 c01 = vec2(coef.value[2u * (v0 * gw + u1)], coef.value[2u * (v0 * gw + u1) + 1u]);
+    vec2 c10 = vec2(coef.value[2u * (v1 * gw + u0)], coef.value[2u * (v1 * gw + u0) + 1u]);
+    vec2 c11 = vec2(coef.value[2u * (v1 * gw + u1)], coef.value[2u * (v1 * gw + u1) + 1u]);
+    vec2 ab = metal_mix(metal_mix(c00, c01, tu), metal_mix(c10, c11, tu), tv);
+
+    float b = ab.x * mask_x(a) + ab.y;
+    float k = exp2(mask_delta(b));
+    for (uint c = 0u; c < 3u; ++c) {
+        // Metal's max(v, 0) takes 0 for a NaN; an explicit branch does the
+        // same, where GLSL's max may return either operand.
+        float e = k * a[c] + p.value[6u + c];
+        if (!(e > 0.0)) e = 0.0;
+        e += 1e-10;
+        // GLSL has no log10; spk_spectral_epilogue.comp takes it the same way.
+        output_data.value[3u * i + c] = log(e) * 0.4342944819032518;
+    }
+}
