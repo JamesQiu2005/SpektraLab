@@ -886,6 +886,13 @@ int main(int argc,char** argv) {
     QCommandLineOption pairLayer("pair-layer","With --snapshot of a pair: the hole to pick (testing)","side");
     pairLayer.setFlags(QCommandLineOption::HiddenFromHelp);
     parser.addOption(pairLayer);
+    // Testing only: with --snapshot (--open may be a folder), crop the opened
+    // photo to x,y,w,h[,quarter turns] and Sync the crop to the selected
+    // others, so the strip shows its crop masks; the capture waits for every
+    // file's own preview.
+    QCommandLineOption snapshotCrop("snapshot-crop","With --snapshot: crop and sync the crop to the library (testing)","x,y,w,h[,turns]");
+    snapshotCrop.setFlags(QCommandLineOption::HiddenFromHelp);
+    parser.addOption(snapshotCrop);
     parser.process(app);
     const QString requestedSpace=parser.isSet(outputSpace)?parser.value(outputSpace):
         QString::fromLatin1(spk::desktop::kDisplayOutputColorSpace);
@@ -970,17 +977,29 @@ int main(int argc,char** argv) {
             auto* window=qobject_cast<QQuickWindow*>(engine.rootObjects().first());if(!window)return 2;
             const auto destination=parser.value("snapshot");
             const auto sets=parser.values("set");
-            const auto capture=[window,destination]{
+            // Once every library item's own preview is in (the strip shows
+            // it), then a beat for the scene graph.
+            auto shoot=std::make_shared<std::function<void()>>();
+            *shoot=[window,destination,&controller,shoot]{
+                if(controller.previewsPending()>0){QTimer::singleShot(100,window,*shoot);return;}
                 QTimer::singleShot(250,window,[window,destination]{
                     QFile file(destination);const auto scene=window->grabWindow();
                     const bool saved=!scene.isNull()&&file.open(QIODevice::WriteOnly|QIODevice::NewOnly)&&scene.save(&file,"PNG")&&file.flush();
                     QCoreApplication::exit(saved?0:1);
                 });
             };
+            const auto capture=[shoot]{(*shoot)();};
             const auto layer=parser.value(pairLayer);
-            QObject::connect(&controller,&PreviewController::operationFinished,&app,[&controller,sets,capture,layer](const QString& operation,bool ok){
+            const auto crop=parser.value(snapshotCrop).split(',');
+            QObject::connect(&controller,&PreviewController::operationFinished,&app,[&controller,sets,capture,layer,crop](const QString& operation,bool ok){
                 if(!ok){QCoreApplication::exit(1);return;}
                 if(operation=="open"&&!layer.isEmpty())controller.setPairLayer(layer);
+                if(operation=="open"&&crop.size()>=4) {
+                    controller.setCropGeometry(QRectF(crop[0].toDouble(),crop[1].toDouble(),crop[2].toDouble(),crop[3].toDouble()),0);
+                    for(int turns=crop.size()>4?crop[4].toInt():0;turns>0;--turns)controller.rotateClockwise();
+                    controller.selectAllPhotos(true);controller.syncSelectedSettings(true);
+                    controller.flushEdits();
+                }
                 if(operation=="open"&&!sets.isEmpty()) {
                     // --set: each row as the sections would set it; the
                     // capture waits for the frame they develop.

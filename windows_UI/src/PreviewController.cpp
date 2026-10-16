@@ -24,6 +24,8 @@ namespace {
 namespace desktop=spk::desktop;
 namespace output=desktop::output;
 namespace editing=desktop::editing;
+namespace library=desktop::library;
+namespace clipboard=desktop::clipboard;
 QString text(const std::string& s) { return QString::fromUtf8(s.data(),qsizetype(s.size())); }
 std::filesystem::path path(const QUrl& u) { return std::filesystem::path(u.toLocalFile().toStdWString()); }
 QVariantList list(const std::vector<desktop::Stock>& stocks) {
@@ -169,6 +171,10 @@ PreviewController::Publication PreviewController::publish(const ImageFactory& fa
     p.convert_ms=double(clock.nsecsElapsed())/1e6;
     p.visible=visibleImage(frame,p.full,geometry);
     p.navigator=desktop::display::navigatorImage(p.visible);
+    // The strip's whole picture: the uncropped print (a cut frame's print is
+    // its own framing already), reduced as the navigator is, then to the box.
+    p.whole=desktop::display::thumbnailImage(p.visible.size()==p.full.size()&&p.visible.cacheKey()==p.full.cacheKey()
+                                             ?p.navigator:desktop::display::navigatorImage(p.full));
     // A cut frame's undeveloped whole decode, for the crop editor: the same
     // tagged half floats as the print, so the canvas colour-manages it too.
     if(frame->source_preview)p.source=sourceImage(frame);
@@ -217,9 +223,13 @@ PreviewController::PreviewController(std::filesystem::path resources,QObject* pa
     desktop::HostOptions options;options.bgra8_display=false;
     if(!outputColorSpace.isEmpty())options.output_color_space=outputColorSpace.toStdString();
     setupPostDev();
+    setupLibrary();
     worker_=std::thread([this,resources=std::move(resources),options]{workerLoop(resources,options);});
 }
 PreviewController::~PreviewController() {
+    // The preview readers post to this object: none may still be running
+    // when it goes (a reply already queued is dropped with the object).
+    if(preview_pool_){preview_pool_->clear();preview_pool_->waitForDone();}
     auto_apply_.stop();
     endEditGesture();flushEdits();
     if(cancel_batch_)cancel_batch_->store(true);
@@ -303,6 +313,7 @@ void PreviewController::accept(Reply reply) {
             image_=std::move(published.visible);navigator_=std::move(published.navigator);
             histogram_=std::move(published.histogram);uncropped_histogram_=std::move(published.uncropped_histogram);
             source_image_=std::move(published.source);
+            whole_thumb_=std::move(published.whole);
             convert_ms_=published.convert_ms;publish_ms_=published.total_ms;histogram_ms_=published.histogram_ms;
             geometry_=geometry;
             if(opened) {
@@ -384,9 +395,13 @@ QVariantMap PreviewController::metadata() const {
     // The source is the whole decode the crop is drawn in, also while the
     // frame is the film around a cut picture.
     const auto source=decodeSize();
+    // A TIFF, JPEG or PNG was decoded at the door (raw_white_balance.hpp):
+    // `input` says what it was read as ("TIFF, Adobe RGB (1998)").
+    const bool raw=pairActive()||library::rawFile(QString::fromStdWString(frame_->source.wstring()));
     return {{"width",image_.width()},{"height",image_.height()},
         {"sourceWidth",source.width()},{"sourceHeight",source.height()},
-        {"camera",text(frame_->metadata.make+" "+frame_->metadata.model)},
+        {"camera",text(frame_->metadata.make+" "+frame_->metadata.model).trimmed()},
+        {"raw",raw},{"input",raw?QString():text(frame_->metadata.decoder_name)},
         {"decodeMs",frame_->timings.decode_ms},{"renderMs",frame_->timings.render_ms},
         {"totalMs",frame_->timings.total_ms},{"cached",frame_->reprint()},{"scanFilm",frame_->scan_film},
         {"mode",frame_->decode_mode==desktop::DecodeMode::headroom?"headroom":"compatible16"},
@@ -495,7 +510,8 @@ void PreviewController::setDialogOpen(bool open){
     emit stateChanged();emit historyChanged();
 }
 void PreviewController::changed(const QString& editKey){
-    if(gesture_index_>=0&&gesture_key_!=canonicalEditKey(editKey))endEditGesture();
+    // Inside setParameters every row is part of the one edit (beginBatchEdit).
+    if(!batch_edit_&&gesture_index_>=0&&gesture_key_!=canonicalEditKey(editKey))endEditGesture();
     saveActiveSettings(true);
     ++settings_revision_;auto_apply_.stop();schedulePreview();
     if(frame_)status_=uiText("status.updatingPreview");
@@ -647,9 +663,12 @@ void PreviewController::openRaw(const QUrl& url) {
     // Changing sources and exporting remain single flight. Parameter edits
     // can be coalesced during a render, but cannot retarget an in-flight open.
     if(!ready_||busy_||!url.isLocalFile())return;
+    // A folder is a library to look through (Session.open(urls:)).
+    if(QFileInfo(url.toLocalFile()).isDir()){openFiles({url});return;}
     saveActiveSettings();
     const int index=addFile(url);if(index<0)return;
     adoptPairs(); // the folder's half-frame pairs follow their first frames (never before `index`)
+    requestPreviews();
     // A known photo restores its own saved settings. A genuinely new photo
     // still starts with the current preset; opening never overwrites a sidecar.
     openItem(index);
@@ -955,13 +974,19 @@ QVariantMap PreviewController::dateBack() const {
 }
 QVariantList PreviewController::libraryItems() const {
     QVariantList result;
-    for(int i=0;i<int(library_.size());++i) {
-        const auto& item=library_[i];
-        result.push_back(QVariantMap{{"name",item.pair?desktop::pairs::title(item.url.toLocalFile()):QFileInfo(item.url.toLocalFile()).fileName()},
-            {"url",item.url},{"thumbnail",item.thumbnail},{"active",i==active_index_},
-            {"selected",item.selected},{"error",item.error},{"pair",item.pair.has_value()}});
-    }
+    for(int i=0;i<int(library_.size());++i)result.push_back(libraryItem(i));
     return result;
+}
+QVariantMap PreviewController::libraryItem(int i) const {
+    if(i<0||i>=int(library_.size()))return {};
+    const auto& item=library_[i];
+    // `thumbnail`: the rendered print as the canvas shows it (cropped);
+    // `strip`: the whole picture under the crop mask, what the filmstrip and
+    // the export page draw (CropMaskedThumbnail.swift).
+    return {{"name",item.pair?desktop::pairs::title(item.url.toLocalFile()):QFileInfo(item.url.toLocalFile()).fileName()},
+        {"url",item.url},{"thumbnail",item.thumbnail},{"strip",stripImage(i)},{"active",i==active_index_},
+        {"selected",item.selected},{"error",item.error},{"pair",item.pair.has_value()},
+        {"rendered",!item.thumbnail.isNull()}};
 }
 int PreviewController::selectedCount() const {
     int count=0;for(const auto& item:library_)count+=item.selected;return count;
@@ -978,7 +1003,7 @@ void PreviewController::saveActiveSettings(bool recordHistory) {
     const bool graded=item.postdev!=postdev_;
     if(changed||graded){
         if(recordHistory)recordEdit(item,itemState(item));
-        if(changed)item.thumbnail={};
+        if(changed){item.thumbnail={};item.whole={};}
         item.pending_save=true;
     }
     item.settings=desired;item.mode=mode;
@@ -991,6 +1016,8 @@ void PreviewController::updateThumbnail() {
     // From the navigator (at most 1024 px, already area-averaged), so this
     // stays cheap on the GUI thread and keeps 16-bit-class precision.
     item.thumbnail=dirty()||navigator_.isNull()?QImage{}:gradedThumbnail(desktop::display::thumbnailImage(navigator_));
+    item.whole=item.thumbnail.isNull()?QImage{}:wholeThumbnail();
+    item.whole_cut=frame_&&frame_->cut;
     item.error.clear();emit libraryChanged();
 }
 int PreviewController::addFile(const QUrl& url) {
@@ -1023,13 +1050,25 @@ int PreviewController::addFile(const QUrl& url) {
 }
 void PreviewController::openFiles(const QVariantList& urls) {
     if(!ready_||busy_)return;
+    // Folders listed, files passed (Library.frames(from:)); one folder's files
+    // come in the order kept for it (FrameOrder.applied).
+    QList<QUrl> given;for(const auto& url:urls)given.push_back(url.toUrl());
+    const auto files=order_.applied(library::expand(given));
+    if(files.isEmpty()) {
+        // Session.open(urls:): "Nothing openable in the selection."
+        status_=uiText("status.nothingOpenable");emit stateChanged();return;
+    }
     saveActiveSettings();int first=-1;
-    for(const auto& url:urls){const int index=addFile(url.toUrl());if(first<0&&index>=0)first=index;}
-    // The folders' half-frame pairs follow their first frames; the first
-    // photograph is found again after they are in.
+    const int before=int(library_.size());
+    for(const auto& file:files){const int index=addFile(QUrl::fromLocalFile(file));if(first<0&&index>=0)first=index;}
+    // The folders' half-frame pairs follow their first frames, then what was
+    // added takes its folder's kept order with them; the first photograph is
+    // found again after they are in.
     const QUrl opened=first>=0?library_[first].url:QUrl();
     adoptPairs();
+    applyFolderOrder(before);
     for(int i=0;i<int(library_.size())&&first>=0;++i)if(library_[i].url==opened){first=i;break;}
+    requestPreviews();
     if(first>=0)openItem(first);
 }
 void PreviewController::selectImage(int index) {
@@ -1043,34 +1082,28 @@ void PreviewController::setItemSelected(int index,bool selected) {
 void PreviewController::selectAllPhotos(bool selected) {
     if(busy_||dialog_open_)return;
     for(auto& item:library_)item.selected=selected;emit libraryChanged();
+    // Session.selectAllFrames: the open photograph stays the sync source; a
+    // library with none open opens its first.
+    if(selected&&active_index_<0&&!library_.empty()&&ready_)openItem(0);
 }
+// Session.syncSettings (:3747-3762): a fresh snapshot of the open photograph,
+// never the older clipboard, written with the ticked groups onto every other
+// picked photograph. The source is left alone (its fitted Scene Placement,
+// its history), and the clipboard too. Each recipient takes it as one undo
+// step of its own; there is no batch undo (README "Select and sync photos").
 void PreviewController::syncSelectedSettings(bool includeCrop) {
-    if(!frame_||busy_||dialog_open_)return;
-    saveActiveSettings();int count=0;
-    for(int i=0;i<int(library_.size());++i)if(i!=active_index_&&library_[i].selected){
-        auto& item=library_[i];auto next=currentState();
-        // From a pair, what the rails show (the film and the picked frame);
-        // onto a pair, its film -- its frames keep their own state.
-        if(next.pair){next.settings=settings();next.pair.reset();}
-        next.pair=item.pair;
-        // Film Edge and Date Back stay the recipient's (SettingsClipboard
-        // .swift:75-76), and with them the crop its film edge holds.
-        next.settings=desktop::synced_settings(next.settings,item.settings);
-        next.heldGeometry=item.held;
-        if(!includeCrop||item.pair)next.geometry=item.geometry;
-        // Post-Dev is not copied: the Mac's clipboard groups leave
-        // `adjustments` out (SettingsClipboard.swift notCopied), and its Sync
-        // writes exactly those groups (Session.syncSettings).
-        next.postDev=item.postdev;
-        next.settings=pastedPlacement(next.settings);
-        if(sameState(itemState(item),next))continue;
-        // Each recipient owns its own undo history, just like its settings.
-        item.undo.push_back(itemState(item));if(item.undo.size()>64)item.undo.erase(item.undo.begin());item.redo.clear();
-        item.settings=next.settings;item.mode=next.mode;item.geometry=next.geometry;item.held=next.heldGeometry;item.pending_save=true;
-        item.thumbnail={};item.error.clear();++count;
-    }
-    status_=uiText(includeCrop?"status.syncedWithCrop":"status.syncedKeepingCrops",{QString::number(count)});
-    scheduleSave();emit libraryChanged();emit historyChanged();emit stateChanged();
+    if(!frame_||busy_||dialog_open_||clipboard_groups_.isEmpty())return;
+    saveActiveSettings();
+    // From a pair, what the rails show (the film and the picked frame).
+    const clipboard::Clip clip{clipboard_groups_,settings(),fileName()};
+    // The crop only when asked (it belongs to the photograph otherwise), and
+    // never onto a pair, which has none.
+    const auto crop=geometry_;
+    int count=0;
+    for(const int i:syncTargets())count+=pasteOffline(clip,i,includeCrop?&crop:nullptr);
+    status_=count?uiText(includeCrop?"status.syncedWithCrop":"status.syncedKeepingCrops",{QString::number(count)})
+                 :uiText("status.syncNothing");
+    scheduleSave();emit libraryChanged();emit historyChanged();emit stateChanged();emit clipboardChanged();
 }
 void PreviewController::setCropRect(const QRectF& crop) {
     auto next=geometry_;next.crop=crop;setGeometry(next,"cropRect");
@@ -1231,7 +1264,7 @@ void PreviewController::exportBatch(const QUrl& folder,int format,int quality,in
     for(const auto& item:library_)if(item.selected)items.push_back(item);
     // Strip thumbnails from the job snapshot. Only one developed frame is
     // retained by the worker, regardless of the number of imported photos.
-    for(auto& item:items)item.thumbnail={};
+    for(auto& item:items)dropImages(item);
     const auto held=frame_;const auto resources=resources_;const auto destination=path(folder);
     const auto gen=++generation_;cancel_batch_=std::make_shared<std::atomic_bool>(false);
     const auto cancel=cancel_batch_;batch_progress_=0;batch_total_=int(items.size());

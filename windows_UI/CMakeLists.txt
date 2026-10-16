@@ -462,7 +462,38 @@ if(BUILD_TESTING)
 endif()
 
 # --- The library and the settings clipboard (lane ui-library) ---
+# The library's file side (src/Library.*: what opens, folder listing, the kept
+# folder order, the crop-masked strip picture), the settings clipboard's
+# groups (src/SettingsClipboard.*) and the controller's half
+# (src/PreviewControllerLibrary.cpp). Every target that compiles
+# PreviewController.cpp compiles these with it.
+set(spektralab_library_core_sources src/Library.hpp src/Library.cpp src/SettingsClipboard.hpp src/SettingsClipboard.cpp)
+set(spektralab_library_sources ${spektralab_library_core_sources} src/PreviewControllerLibrary.cpp)
+target_sources(SpektraLabQt PRIVATE ${spektralab_library_sources})
 if(BUILD_TESTING)
+    foreach(target spk_qt_library_workflow_test spk_qt_controller_settings_test spk_qt_editing_workflow_test
+                   spk_qt_export_workflow_test spk_qt_film_edge_state_test spk_qt_predev_test spk_qt_pairs_workflow_test)
+        target_sources(${target} PRIVATE ${spektralab_library_sources})
+    endforeach()
+    # The library and the clipboard without a RAW: the file side and the
+    # groups alone, then the real controller on a folder of PNGs written by
+    # the test (folder order kept and laid over, click / Ctrl+click / Left-
+    # Right, the strip's previews and crop mask, Copy / Paste / Sync and their
+    # rules, setParameters as one undo step, the batch lock).
+    qt_add_executable(spk_qt_library_test tests/library.cpp
+        src/PreviewController.hpp src/PreviewController.cpp src/FrameOutput.cpp src/FrameImage.cpp src/EditStore.cpp
+        ${spk_qt_export_sources} ${spektralab_predev_sources} ${spektralab_pair_sources}
+        ${spektralab_postdev_controller_sources} ${spektralab_library_sources})
+    target_include_directories(spk_qt_library_test PRIVATE src)
+    target_compile_features(spk_qt_library_test PRIVATE cxx_std_20)
+    target_link_libraries(spk_qt_library_test PRIVATE spk_desktop_host spk_qt_host_output Qt6::Core Qt6::Gui)
+    add_dependencies(spk_qt_library_test spektralab_qt_resources)
+    add_test(NAME spk_qt_library COMMAND spk_qt_library_test
+        "$<TARGET_FILE_DIR:SpektraLabQt>/resources" "${CMAKE_CURRENT_BINARY_DIR}/library-test")
+    set_tests_properties(spk_qt_library PROPERTIES TIMEOUT 600)
+    if(WIN32)
+        set_tests_properties(spk_qt_library PROPERTIES ENVIRONMENT_MODIFICATION "${qt_test_runtime_path}")
+    endif()
     # TIFF/JPEG/PNG at the door through the real engine: each encoded file
     # develops like its linear equivalent (AGENTS.md traps 11 and 12), with a
     # control showing a forgotten transfer function is visible. No Qt, no RAW.

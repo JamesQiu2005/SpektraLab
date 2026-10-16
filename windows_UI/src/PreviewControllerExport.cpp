@@ -38,7 +38,7 @@ void PreviewController::exportWithRecipe(const QVariantMap& json) {
     if(items.empty()&&active_index_>=0)items.push_back(library_[active_index_]);
     if(items.empty())return;
     // Only one developed frame is held by the worker, however many photos.
-    for(auto& item:items)item.thumbnail={};
+    for(auto& item:items)dropImages(item);
     const auto held=frame_;const auto resources=resources_;
     const auto gen=++generation_;cancel_batch_=std::make_shared<std::atomic_bool>(false);
     const auto cancel=cancel_batch_;batch_progress_=0;batch_total_=int(items.size());

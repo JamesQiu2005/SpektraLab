@@ -34,6 +34,14 @@ inline constexpr Message kMessages[] = {
     // macOS: "Photos synced: %d." (Strings.swift clipSyncDone).
     {"status.syncedWithCrop", "Photos synced: {0} (crops included)."},
     {"status.syncedKeepingCrops", "Photos synced: {0} (each keeps its own crop)."},
+    // The settings clipboard's results (Strings.swift clipSyncNothing;
+    // Session.copySettings / pasteSettings, Session.swift:3777, :3791-3793).
+    {"status.syncNothing", "Nothing to sync — the selected photos already have these settings."},
+    {"status.copied", "Copied {0} of {1} groups from {2}."},
+    {"status.pasted", "Pasted {0} groups onto {1} photos."},
+    {"status.pasteNothing", "Nothing to paste — the photos already have these settings."},
+    // Session.open(urls:) with nothing that opens (Session.swift:1282).
+    {"status.nothingOpenable", "Nothing openable in the selection."},
     {"status.undone", "Undid the last adjustment to this photo"},
     {"status.redone", "Redid the adjustment to this photo"},
     // Session.makePair's status (Session.swift:4778-4779).
