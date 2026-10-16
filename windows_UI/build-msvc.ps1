@@ -104,6 +104,14 @@ try {
         if ($crt -and $Configuration -ne 'Debug') { Copy-Item -Path "$($crt.FullName)/*.dll" -Destination $app -Force }
         New-Item -ItemType Directory -Path "$app/licenses" -Force | Out-Null
         Invoke-Tool $cmake @('-E', 'copy_directory', "$QtDirectory/sbom", "$app/licenses/Qt-SBOM") 'Qt SBOM copy'
+        # The binary archives carry no licence texts; the pinned official ones
+        # (dependencies/qt-licenses.json, SHA-256 checked when fetched) do.
+        $qtLicenses = Join-Path $DependencyDirectory 'qt-6.11.3-licenses'
+        if (Test-Path -LiteralPath (Join-Path $qtLicenses 'qtbase/LGPL-3.0-only.txt')) {
+            Invoke-Tool $cmake @('-E', 'copy_directory', $qtLicenses, "$app/licenses/Qt") 'Qt licence copy'
+        } else {
+            Write-Warning "Qt licence texts are missing from $qtLicenses; the deployed app lacks Qt's LGPL text."
+        }
         foreach ($notice in @('LICENSE.LGPL', 'LICENSE.CDDL', 'COPYRIGHT')) {
             Copy-Item -LiteralPath "$libraw/$notice" -Destination "$app/licenses/LibRaw-$notice" -Force
         }
