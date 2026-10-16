@@ -5,7 +5,11 @@
 #include <QFileInfo>
 #include <QSet>
 #include <QStandardPaths>
+#include <algorithm>
 #include <cmath>
+#include <optional>
+#include <type_traits>
+#include <variant>
 
 namespace {
 namespace desktop=spk::desktop;
@@ -35,6 +39,53 @@ output::ExportOptions exportOptions(int format,int quality,int maxEdge) {
     if(format<0||format>3||quality<1||quality>100||maxEdge<0||maxEdge>100000)
         throw std::runtime_error("Invalid export options");
     return {static_cast<output::Format>(format),quality,maxEdge};
+}
+// The camelCase names the first QML uses for adjustments/setAdjustment, each
+// one wire key of the settings table. New controls use the wire name.
+struct Alias { const char* qml; const char* key; };
+constexpr Alias legacyAdjustments[]={
+    {"filmExposureEv","exposure_compensation_ev"},{"filmFormatMm","film_format_mm"},
+    {"grainActive","grain_active"},{"grainAmount","grain_amount"},
+    {"halationActive","halation_active"},{"halationAmount","halation_amount"},
+    {"glareActive","glare_active"},{"glareAmount","glare_amount"},
+    {"yFilterShift","y_filter_shift"},{"mFilterShift","m_filter_shift"}};
+QString wireKey(const QString& name) {
+    for(const auto& alias:legacyAdjustments)if(name==QLatin1String(alias.qml))return QLatin1String(alias.key);
+    return name;
+}
+// Gestures and undo steps are keyed by wire name, so one drag stays one step
+// whichever of the legacy or generic setters the control calls.
+QString canonicalEditKey(const QString& name) {
+    if(name==QLatin1String("exposureEv"))return QStringLiteral("print_exposure");
+    if(name==QLatin1String("filmIndex"))return QStringLiteral("film_stock");
+    if(name==QLatin1String("paperIndex"))return QStringLiteral("print_stock");
+    return wireKey(name);
+}
+QVariant variant(const desktop::SettingValue& value) {
+    return std::visit([](const auto& v)->QVariant{
+        if constexpr(std::is_same_v<std::decay_t<decltype(v)>,std::string>)return text(v);
+        else return QVariant(v);
+    },value);
+}
+// Strict, for the generic setter: a number row takes a number (not a bool or
+// numeric text), a bool row a bool and a text row a string.
+std::optional<desktop::SettingValue> settingValue(const desktop::SettingField& field,const QVariant& value) {
+    switch(field.type) {
+    case desktop::SettingType::boolean:
+        if(value.typeId()==QMetaType::Bool)return value.toBool();
+        break;
+    case desktop::SettingType::number:
+        switch(value.typeId()) {
+        case QMetaType::Double: case QMetaType::Float: case QMetaType::Int: case QMetaType::UInt:
+        case QMetaType::LongLong: case QMetaType::ULongLong: return value.toDouble();
+        default: break;
+        }
+        break;
+    case desktop::SettingType::text:
+        if(value.typeId()==QMetaType::QString)return value.toString().toStdString();
+        break;
+    }
+    return std::nullopt;
 }
 }
 QImage PreviewController::imageFromFrame(const desktop::FramePtr& frame) {
@@ -125,6 +176,7 @@ void PreviewController::accept(Reply reply) {
             status_=QStringLiteral("渲染完成 %1 秒%2")
                 .arg(frame_->timings.render_ms/1000,0,'f',2)
                 .arg(frame_->reprint()?QStringLiteral(" · 已复用胶片"):QString());
+
             emit frameChanged();emit geometryChanged();if(reply.operation=="open")emit sourceOpened();
         }
     } else if(reply.operation=="export") status_=QStringLiteral("已导出当前画面");
@@ -191,16 +243,16 @@ void PreviewController::setDialogOpen(bool open){
     emit stateChanged();emit historyChanged();
 }
 void PreviewController::changed(const QString& editKey){
-    if(gesture_index_>=0&&gesture_key_!=editKey)endEditGesture();
+    if(gesture_index_>=0&&gesture_key_!=canonicalEditKey(editKey))endEditGesture();
     saveActiveSettings(true);
     ++settings_revision_;auto_apply_.stop();schedulePreview();
     if(frame_)status_=QStringLiteral("正在更新预览…");
     failed_=false;emit settingsChanged();emit stateChanged();
 }
-void PreviewController::setFilmIndex(int v){if(!settingsEditable()||v<0||v>=films_.size()||v==film_index_)return;film_index_=v;changed("filmIndex");}
-void PreviewController::setPaperIndex(int v){if(!settingsEditable()||filmIsPositive()||v<0||v>=papers_.size()||v==paper_index_)return;paper_index_=v;changed("paperIndex");}
+void PreviewController::setFilmIndex(int v){if(!settingsEditable()||v<0||v>=films_.size()||v==film_index_)return;film_index_=v;changed("film_stock");}
+void PreviewController::setPaperIndex(int v){if(!settingsEditable()||filmIsPositive()||v<0||v>=papers_.size()||v==paper_index_)return;paper_index_=v;changed("print_stock");}
 void PreviewController::setDecodeMode(int v){if(!settingsEditable()||v<0||v>1||v==decode_mode_)return;decode_mode_=v;changed("decodeMode");}
-void PreviewController::setExposureEv(double v){if(!settingsEditable()||filmIsPositive()||!std::isfinite(v)||v< -2||v>2||v==exposure_ev_)return;exposure_ev_=v;changed("exposureEv");}
+void PreviewController::setExposureEv(double v){if(!settingsEditable()||filmIsPositive()||!std::isfinite(v)||v< -2||v>2||v==exposure_ev_)return;exposure_ev_=v;changed("print_exposure");}
 void PreviewController::resetSettings(){if(!settingsEditable())return;loadSettings({},desktop::DecodeMode::compatible16);changed();}
 void PreviewController::openRaw(const QUrl& url) {
     // Changing sources and exporting remain single flight. Parameter edits
@@ -244,34 +296,77 @@ void PreviewController::exportImage(const QUrl& url,int format,int quality,int m
 }
 
 QVariantMap PreviewController::adjustments() const {
-    const auto& s=extra_settings_;
-    return {{"filmExposureEv",s.film_exposure_ev},{"filmFormatMm",s.film_format_mm},
-        {"grainActive",s.grain_active},{"grainAmount",s.grain_amount},
-        {"halationActive",s.halation_active},{"halationAmount",s.halation_amount},
-        {"glareActive",s.glare_active},{"glareAmount",s.glare_amount},
-        {"yFilterShift",s.y_filter_shift},{"mFilterShift",s.m_filter_shift}};
+    QVariantMap result;
+    for(const auto& alias:legacyAdjustments)result.insert(QLatin1String(alias.qml),variant(extra_settings_.get(alias.key)));
+    return result;
+}
+QVariantMap PreviewController::parameters() const {
+    const auto s=settings();QVariantMap result;
+    for(const auto& field:desktop::setting_fields())result.insert(text(field.key),variant(s.get(field.key)));
+    return result;
+}
+QVariantList PreviewController::parameterFields() const {
+    QVariantList result;
+    for(const auto& field:desktop::setting_fields()) {
+        QVariantMap row{{"key",text(field.key)},{"label",text(field.label)},{"initial",variant(field.initial)},
+            {"layer",field.layer==desktop::SettingLayer::shoot?"shoot":"print"},
+            {"type",field.type==desktop::SettingType::boolean?"bool":field.type==desktop::SettingType::number?"number":"text"}};
+        if(field.type==desktop::SettingType::number){row["from"]=field.low;row["to"]=field.high;}
+        if(field.type==desktop::SettingType::text) {
+            if(field.choices==desktop::SettingChoices::listed) {
+                QStringList choices;for(const auto& choice:field.listed)choices.append(text(choice));
+                row["choices"]=choices;
+            } else row["catalog"]=field.choices==desktop::SettingChoices::films?"films":"papers";
+        }
+        result.push_back(row);
+    }
+    return result;
+}
+QVariant PreviewController::parameter(const QString& key) const {
+    const auto* field=desktop::find_setting(key.toStdString());
+    return field?variant(settings().get(field->key)):QVariant();
+}
+bool PreviewController::setParameter(const QString& key,const QVariant& value) {
+    const auto* field=desktop::find_setting(key.toStdString());
+    if(!field)return false;
+    auto converted=settingValue(*field,value);
+    return converted&&applyParameter(*field,std::move(*converted));
 }
 void PreviewController::setAdjustment(const QString& name,const QVariant& value) {
-    if(!settingsEditable())return;
-    auto next=extra_settings_;
-    if(name=="grainActive")next.grain_active=value.toBool();
-    else if(name=="halationActive")next.halation_active=value.toBool();
-    else if(name=="glareActive")next.glare_active=value.toBool();
-    else {
-        bool ok=false;const double v=value.toDouble(&ok);if(!ok||!std::isfinite(v))return;
-        double* field=nullptr;double low=0,high=0;
-        if(name=="filmExposureEv"){field=&next.film_exposure_ev;low=-8;high=8;}
-        else if(name=="filmFormatMm"){field=&next.film_format_mm;low=4;high=200;}
-        else if(name=="grainAmount"){field=&next.grain_amount;high=2;}
-        else if(name=="halationAmount"){field=&next.halation_amount;high=4;}
-        else if(name=="glareAmount"){field=&next.glare_amount;high=30;}
-        else if(name=="yFilterShift"){field=&next.y_filter_shift;low=-1;high=1;}
-        else if(name=="mFilterShift"){field=&next.m_filter_shift;low=-1;high=1;}
-        else return;
-        if(v<low||v>high)return;*field=v;
+    const auto* field=desktop::find_setting(wireKey(name).toStdString());
+    if(!field)return;
+    // The first QML's lenient conversions, kept for its callers: anything
+    // reads as a bool, and text that parses as a number is a number.
+    desktop::SettingValue converted;
+    if(field->type==desktop::SettingType::boolean)converted=value.toBool();
+    else if(field->type==desktop::SettingType::number) {
+        bool ok=false;const double v=value.toDouble(&ok);if(!ok)return;converted=v;
+    } else converted=value.toString().toStdString();
+    applyParameter(*field,std::move(converted));
+}
+bool PreviewController::applyParameter(const desktop::SettingField& field,desktop::SettingValue value) {
+    if(!settingsEditable()||!desktop::check_setting(field,value,&catalog_).empty())return false;
+    // The stocks and the brightness keep their own state (catalogue indexes,
+    // stops) and their own rules, such as no paper for a slide.
+    if(field.key=="film_stock"||field.key=="print_stock") {
+        const bool film=field.key=="film_stock";
+        const auto& stocks=film?catalog_.films:catalog_.papers;
+        const auto& id=std::get<std::string>(value);
+        const int index=int(std::find_if(stocks.begin(),stocks.end(),[&](const auto& s){return s.id==id;})-stocks.begin());
+        if(film)setFilmIndex(index);else setPaperIndex(index);
+        return (film?film_index_:paper_index_)==index;
     }
-    if(next==extra_settings_)return;
-    extra_settings_=next;changed(name);
+    if(field.key=="print_exposure") {
+        if(filmIsPositive())return false;
+        // Stops, brighter positive: the wire value is 2^-stops (API-SPEC §2).
+        const double ev=-std::log2(std::get<double>(value));
+        if(ev!=exposure_ev_){exposure_ev_=ev;changed("print_exposure");}
+        return true;
+    }
+    auto next=extra_settings_;
+    next.set(field.key,std::move(value));
+    if(next!=extra_settings_){extra_settings_=std::move(next);changed(text(field.key));}
+    return true;
 }
 QVariantList PreviewController::libraryItems() const {
     QVariantList result;
@@ -317,7 +412,7 @@ int PreviewController::addFile(const QUrl& url) {
     LibraryItem item;item.url=local;item.settings=settings();
     item.mode=decode_mode_?desktop::DecodeMode::headroom:desktop::DecodeMode::compatible16;
     const auto stored=edit_store_.load(local,catalog_);
-    item.save_blocked=stored.blocked;item.save_warning=stored.warning;
+    item.save_blocked=stored.blocked;item.save_warning=stored.warning;item.preserved=stored.preserved;
     if(stored.state){item.settings=stored.state->settings;item.mode=stored.state->mode;item.geometry=stored.state->geometry;item.has_stored=true;}
     library_.push_back(std::move(item));emit libraryChanged();return int(library_.size())-1;
 }
@@ -402,8 +497,8 @@ void PreviewController::recordEdit(LibraryItem& item,const editing::State& befor
 }
 void PreviewController::beginEditGesture(const QString& key) {
     if(!settingsEditable()||active_index_<0||key.isEmpty())return;
-    endEditGesture();gesture_index_=active_index_;gesture_key_=key;gesture_recorded_=false;gesture_redo_=library_[active_index_].redo;
-    if(key=="straightenDegrees")auto_apply_.stop();
+    endEditGesture();gesture_index_=active_index_;gesture_key_=canonicalEditKey(key);gesture_recorded_=false;gesture_redo_=library_[active_index_].redo;
+    if(gesture_key_=="straightenDegrees")auto_apply_.stop();
 }
 void PreviewController::endEditGesture() {
     const bool heldGeometry=gesture_key_=="straightenDegrees";
@@ -458,8 +553,13 @@ QString PreviewController::persistenceWarning() const {
 QString PreviewController::savedStatus() const {
     if(!persistenceWarning().isEmpty())return QStringLiteral("部分设置未保存，请查看下方提示");
     for(const auto& item:library_)if(item.pending_save)return QStringLiteral("正在自动保存设置…");
-    if(active_index_>=0&&library_[active_index_].has_stored)return QStringLiteral("当前照片设置已自动保存");
-    return QStringLiteral("调整将自动保存，重新打开照片时恢复");
+    const auto* active=active_index_>=0?&library_[active_index_]:nullptr;
+    // A newer build's fields do not render here; say so rather than let the
+    // photograph silently look different from that build's.
+    const QString preserved=active&&!active->preserved.isEmpty()
+        ?QStringLiteral(" · 另有 %1 项较新版本的设置，本版本不使用，保存时原样保留").arg(active->preserved.size()):QString();
+    if(active&&active->has_stored)return QStringLiteral("当前照片设置已自动保存")+preserved;
+    return QStringLiteral("调整将自动保存，重新打开照片时恢复")+preserved;
 }
 // Flips are stored in output axes. Rotating the displayed image also swaps
 // those axes; without this a mirrored photo would turn the opposite way.
@@ -510,6 +610,7 @@ void PreviewController::exportBatch(const QUrl& folder,int format,int quality,in
             }
             r.message=QStringLiteral("%1：导出 %2 张，跳过已有 %3 张，失败 %4 张")
                 .arg(cancel->load()?QStringLiteral("批量导出已取消"):QStringLiteral("批量导出完成")).arg(done).arg(skipped).arg(errors);
+
             if(errors)r.error=r.message+"\n"+details.join("\n");
         }catch(const std::exception& e){r.error=text(e.what());}
         return r;
