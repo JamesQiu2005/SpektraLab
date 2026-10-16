@@ -6,15 +6,17 @@
 // code against it, and additions must not change what is declared here.
 //
 // A canvas draws a QImage whose colorSpace() says how its pixels are encoded
-// (sRGB today; ProPhoto RGB once the engine renders the working space). It
+// (ProPhoto RGB, the session's working space; sRGB for an sRGB session). It
 // asks its window's pipeline for the LUT that maps those encoded values to the
 // display's encoded values and applies it per screen pixel, after sampling, so
 // filtering stays in the source space. UI chrome (letterbox, crop mask,
 // guides) never goes through it: in legacy (non-ACM) Windows the OS does not
 // manage chrome, so a UI literal is a display value (AGENTS.md trap 27).
+#include "ProofTransform.hpp"
 #include <QColorSpace>
 #include <QObject>
 #include <QString>
+#include <array>
 #include <memory>
 #include <vector>
 
@@ -56,6 +58,7 @@ struct ColorLut {
     bool hasCurves() const { return curveSize > 0; }
 };
 
+
 class ColorPipeline : public QObject {
     Q_OBJECT
     // "automatic" (the OS profile of the window's monitor), "srgb" (assume an
@@ -82,6 +85,13 @@ public:
     // lands the previous LUT is returned, and changed() is emitted when the
     // new one is ready (canvases then update()).
     std::shared_ptr<const ColorLut> lut(const QColorSpace& source) const;
+
+    // lut(source) once it is the LUT for this display -- built and landed, or
+    // the identity because source already is the display's encoding -- and
+    // null while it is still being built (changed() follows). The soft proof
+    // draws through lut(recipe space) and waits for it here rather than show
+    // a recipe space unconverted (ProofTransform.hpp).
+    std::shared_ptr<const ColorLut> readyLut(const QColorSpace& source) const;
 
     QString mode() const;
     void setMode(const QString& mode);

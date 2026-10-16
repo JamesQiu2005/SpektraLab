@@ -23,6 +23,21 @@ namespace spkhost {
 // "prophoto" -> "ProPhoto RGB". Empty on an unknown name.
 std::string engine_space_name(const std::string& wire);
 
+// What OutputTransform runs per pixel, as numbers -- for a caller that runs
+// the same arithmetic itself (the Windows canvas soft proof evaluates it in its
+// fragment shader, as the macOS canvas shader's `outputTransform` does). The
+// table pointer is valid as long as the transform it came from.
+struct OutputTransformParameters {
+    uint32_t source_mode = 0, target_mode = 0;   // cctf_decode_mode / cctf_encode_mode
+    bool identity = false;                        // source is target: decode only
+    std::array<float, 9> matrix{};                // row-major, source linear -> target linear
+    bool cam16 = false, lightness = false;
+    std::array<float, 9> m_to_xyz{}, m_to_rgb{};  // row-major
+    std::array<float, 22> k{};
+    uint32_t cmax_rows = 0, cmax_cols = 0;        // C_max(J', h'): rows L, columns h
+    const float* cmax = nullptr;                  // rows * cols, row-major
+};
+
 class OutputTransform {
 public:
     // `gamut_compress_json` as spk_output_transform takes it; null is the
@@ -38,6 +53,23 @@ public:
     void encode_rgba8(const std::vector<float>& rgb, std::vector<uint8_t>& rgba) const;
     void encode_rgba16(const std::vector<float>& rgb, std::vector<uint16_t>& rgba) const;
     uint32_t target_mode() const { return dst_mode_; }
+    uint32_t source_mode() const { return src_mode_; }
+    bool compresses() const { return cam16_; }
+
+    // The same per-pixel arithmetic as to_linear on unquantised input, for a
+    // caller that samples the transform on a grid (the Windows soft proof's
+    // LUT): `count` interleaved encoded source RGB triples -> linear target
+    // RGB, unclamped. `outside`, when not null, receives per pixel whether the
+    // destination could not hold its chroma -- d > 1 before the knee, the
+    // macOS canvas shader's `outside` (Canvas/Shaders.metal cam16ucsInto,
+    // stats[2]), the number its export warning reports. Always 0 without the
+    // CAM16 step.
+    void transform_encoded(const float* encoded_rgb, size_t count, float* linear_rgb,
+                           uint8_t* outside = nullptr) const;
+    // Copy the engine's C_max table into this object, so it outlives the
+    // engine it was fetched from (a worker thread evaluating it later).
+    void own_tables();
+    OutputTransformParameters parameters() const;
 
 private:
     std::string src_, dst_;
@@ -49,6 +81,9 @@ private:
     std::array<float, 22> k_{};
     uint32_t nl_ = 0, nh_ = 0;
     const float* cmax_ = nullptr;
+    // own_tables()'s copy; when present it is the table (copies stay valid).
+    std::vector<float> owned_cmax_;
+    const float* table() const { return owned_cmax_.empty() ? cmax_ : owned_cmax_.data(); }
 };
 
 float cctf_decode_mode(float v, uint32_t mode);

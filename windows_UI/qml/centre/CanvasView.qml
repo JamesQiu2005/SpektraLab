@@ -67,6 +67,11 @@ Item {
         // the Mac draws as the Original (Session.swift:407-411), ungraded.
         postDev: view.showOriginal || (view.editor.cropMode && preview.frameIsCut) ? ({}) : preview.canvasPostDev
         sourceMap: view.editor.cropMode ? [] : preview.postDevSourceMap
+        // The soft proof (S) and its gamut warning (Shift+S): whatever the
+        // canvas shows, as the export recipe's space would render it. Null
+        // while off or until the engine's transform is in hand.
+        proof: preview.proofTransform
+        gamutWarning: preview.gamutWarning
     }
     // The split's left half: the Original in exactly the print's rectangle,
     // clipped at the line.
@@ -272,6 +277,26 @@ Item {
             anchors.right: parent.right
             visible: view.showOriginal || (view.editor.originalWanted && preview.originalPending && !preview.originalReady)
             text: preview.originalPending && !preview.originalReady ? L10n.tr("canvas.badge.originalPending") : L10n.tr("canvas.badge.original")
+            color: Theme.text
+            font.family: Theme.fontFamily; font.pixelSize: Theme.fontMeta; font.weight: Theme.weightTitle
+            style: Text.Raised; styleColor: "#99000000"
+        }
+        // "proof · sRGB" while the canvas is a soft proof ("…" until the
+        // engine's transform is in hand), and the warning's own badge.
+        Text {
+            objectName: "proofBadge"
+            anchors.right: parent.right
+            visible: preview.softProof
+            text: preview.proofState.ready ? L10n.tr("canvas.badge.proof", [preview.proofState.space])
+                                           : L10n.tr("canvas.badge.proofPending", [preview.proofState.space])
+            color: Theme.accent
+            font.family: Theme.fontFamily; font.pixelSize: Theme.fontMeta; font.weight: Theme.weightTitle
+            style: Text.Raised; styleColor: "#99000000"
+        }
+        Text {
+            anchors.right: parent.right
+            visible: preview.softProof && preview.gamutWarning
+            text: L10n.tr("canvas.badge.gamutWarning")
             color: Theme.text
             font.family: Theme.fontFamily; font.pixelSize: Theme.fontMeta; font.weight: Theme.weightTitle
             style: Text.Raised; styleColor: "#99000000"

@@ -1,10 +1,13 @@
 #include "PreviewController.hpp"
 #include "ExportRecipeStore.hpp"
+#include "ExportRecipe.hpp"
 #include "AppSettings.hpp"
 #include "AppShell.hpp"
 #include "ShellCapture.hpp"
 #include "CanvasMath.hpp"
 #include "CanvasTools.hpp"
+#include "ColorCanvasNode.hpp"
+#include "ColorLut.hpp"
 #include "ColorPipeline.hpp"
 #include "FrameCanvas.hpp"
 #include "FrameImage.hpp"
@@ -173,6 +176,89 @@ private:
         capture_=window_.grabWindow();
         return require(!capture_.isNull()&&capture_.save(output_+"/"+name+".png"),"capture_"+name);
     }
+    // The window's display LUT for `image`'s encoding is in hand (or none is
+    // needed: the frame is already in the display's encoding).
+    bool lutSettled(const QImage& image) {
+        auto* pipeline=ColorPipeline::forWindow(&window_);
+        const auto space=image.colorSpace();
+        return spk::color::sameEncoding(space,pipeline->targetColorSpace())||!pipeline->lut(space)->isIdentity();
+    }
+    // Nine interior samples of the last capture, with the canvas at 100 %,
+    // against the canvas image's own pixels through `colour` (its LUT and
+    // gamut warning) by applyDisplayLutCpu -- the software backend's own
+    // arithmetic, so equality is exact. `flagged` counts the samples the
+    // warning painted.
+    bool sourcePixelsExact(const FrameCanvas::PaintColour& colour,int* flagged=nullptr,int* differ=nullptr,
+                           const FrameCanvas::PaintColour* other=nullptr) {
+        const auto ratio=window_.effectiveDevicePixelRatio();
+        const auto origin=canvas_->mapToScene(QPointF());const auto rect=canvas_->imageRect();
+        const QImage image=canvas_->image();
+        bool exact=true;int samples=0;
+        for(double fx:{0.3,0.5,0.7})for(double fy:{0.3,0.5,0.7}) {
+            const int x=int(std::floor((origin.x()+canvas_->width()*fx)*ratio));
+            const int y=int(std::floor((origin.y()+canvas_->height()*fy)*ratio));
+            const int sx=int(std::floor(x+0.5-(origin.x()+rect.x())*ratio));
+            const int sy=int(std::floor(y+0.5-(origin.y()+rect.y())*ratio));
+            if(sx<0||sy<0||sx>=image.width()||sy>=image.height())continue;
+            const QImage pixel=image.copy(sx,sy,1,1);
+            const QRgb expected=applyDisplayLutCpu(pixel,*colour.lut,false,nullptr,{},colour.proof.get(),colour.warning).pixel(0,0);
+            exact=exact&&capture_.pixel(x,y)==expected;++samples;
+            const QRgb warn=qRgb(int(FrameCanvas::kGamutWarningColour[0]*255),int(FrameCanvas::kGamutWarningColour[1]*255),
+                                 int(FrameCanvas::kGamutWarningColour[2]*255));
+            if(flagged&&colour.warning[3]>0&&expected==warn)++*flagged;
+            if(differ&&other&&applyDisplayLutCpu(pixel,*other->lut,false,nullptr,{},other->proof.get()).pixel(0,0)!=expected)++*differ;
+        }
+        return exact&&samples==9;
+    }
+    // The soft proof on the canvas: the export page's sRGB recipe proven, the
+    // canvas drawing with the pipeline's proof LUT and matching it exactly,
+    // then the gamut warning over it, then both off again.
+    void checkProof() {
+        controller_.setProofRecipe(recipe("TIFF 16-bit","kCGColorSpaceSRGB",output_+"/proof",false));
+        const auto plain=canvas_->paintColour();
+        if(!require(!plain.proofed,"canvas_unproofed_before_toggle"))return;
+        auto clock=std::make_shared<QElapsedTimer>();clock->start();
+        controller_.setSoftProof(true);
+        canvas_->resetView(false);
+        waitFor([this]{return controller_.proofState().value("ready").toBool()&&canvas_->paintColour().proofed;},[this,clock,plain]{
+            checks_["proof_ready_ms"]=double(clock->elapsed());
+            const auto state=controller_.proofState();
+            checks_["proof_space"]=state.value("space").toString();checks_["proof_identity"]=state.value("identity").toBool();
+            later([this,plain]{
+                auto* badge=window_.findChild<QQuickItem*>("proofBadge");
+                if(!require(badge&&badge->isVisible(),"proof_badge_shown")||!capture("proof"))return;
+                const auto proofed=canvas_->paintColour();
+                int differ=0;
+                if(!require(proofed.proofed&&proofed.warning[3]==0&&sourcePixelsExact(proofed,nullptr,&differ,&plain),
+                            "proof_canvas_pixels_exact"))return;
+                checks_["proof_samples_differing_from_display"]=differ;
+                controller_.setGamutWarning(true);
+                later([this]{
+                    if(!capture("gamut-warning"))return;
+                    const auto warned=canvas_->paintColour();
+                    int flagged=0;
+                    // An identity proof (an sRGB session into sRGB) has
+                    // nothing the export cannot keep, so no warning.
+                    if(!require(warned.proofed&&warned.warning[3]==(warned.proof?1.0f:0.0f)&&sourcePixelsExact(warned,&flagged),
+                                "gamut_warning_canvas_pixels_exact"))return;
+                    checks_["gamut_warning_flagged_samples"]=flagged;
+                    // The share of the shown frame the warning covers, by the
+                    // same model, on the navigator's reduction.
+                    const QImage small=display::downscaled(controller_.previewImage(),{256,256});
+                    const QImage shown=applyDisplayLutCpu(small,*warned.lut,false,nullptr,{},warned.proof.get(),warned.warning);
+                    const QRgb warn=qRgb(255,0,255);int hits=0;
+                    for(int y=0;y<shown.height();++y)for(int x=0;x<shown.width();++x)hits+=(shown.pixel(x,y)&0xffffff)==(warn&0xffffff);
+                    checks_["gamut_warning_fraction"]=double(hits)/(double(shown.width())*shown.height());
+                    controller_.setGamutWarning(false);controller_.setSoftProof(false);
+                    later([this]{
+                        if(!require(!canvas_->paintColour().proofed&&!canvas_->proof().value<ProofTransformPtr>(),"proof_toggles_off"))return;
+                        canvas_->resetView(true);
+                        finish(true,{});
+                    });
+                });
+            });
+        },"proof_ready");
+    }
     // What the canvases receive for the opened frame: half floats tagged with
     // the space the session reported, the frame's own codes, a reduced
     // navigator and a 16-bit-class thumbnail.
@@ -256,19 +342,11 @@ private:
             const bool published=checkPublication();
             checks_["harness_publication_check_ms"]=double(publicationCheck.nsecsElapsed())/1e6;
             if(!published)return;
-            if(!original_->encoding.is_encoded_srgb()) {
-                // A working-space session (--output-color-space): its frames
-                // are tagged above; the writers embed sRGB.icc, so export
-                // must refuse rather than mislabel. The rest assumes sRGB.
-                stage_=30;
-                later([this]{
-                    if(!capture("working-space"))return;
-                    controller_.exportTiff(QUrl::fromLocalFile(output_+"/working-space.tif"));
-                });
-                return;
-            }
             stage_=1;
-            later([this]{
+            // The canvas draws through the display LUT, which a ProPhoto
+            // frame needs on any display: wait for it to land, then compare.
+            waitFor([this]{return lutSettled(controller_.previewImage());},[this]{later([this]{
+                checks_["display_target"]=ColorPipeline::forWindow(&window_)->displayName();
                 if(!capture("fit"))return;
                 if(!require(canvas_->fit()&&canvas_->image().cacheKey()==controller_.previewImage().cacheKey(),"canvas_matches_published_frame"))return;
                 canvas_->resetView(false);
@@ -278,21 +356,14 @@ private:
                     if(!require(std::abs(rect.width()*ratio-original_->width())<0.01&&std::abs(canvas_->scalePercent()-100)<1e-9,"physical_100_percent"))return;
                     if(!capture("100-percent"))return;
                     // Interior canvas samples prove the texture is displaying
-                    // this frame at one physical pixel per source pixel. The
-                    // image is half floats; pixel() rounds each to 8 bits
-                    // (QRgbaFloat16::toArgb32), as the software scene graph's
-                    // painter does into the 8-bit window, so this stays exact.
-                    const auto origin=canvas_->mapToScene(QPointF());
-                    bool exact=true;int samples=0;
-                    for(double fx:{0.3,0.5,0.7})for(double fy:{0.3,0.5,0.7}) {
-                        const int x=int(std::floor((origin.x()+canvas_->width()*fx)*ratio));
-                        const int y=int(std::floor((origin.y()+canvas_->height()*fy)*ratio));
-                        const int sx=int(std::floor(x+0.5-(origin.x()+rect.x())*ratio));
-                        const int sy=int(std::floor(y+0.5-(origin.y()+rect.y())*ratio));
-                        if(sx<0||sy<0||sx>=canvas_->image().width()||sy>=canvas_->image().height())continue;
-                        exact=exact&&capture_.pixel(x,y)==canvas_->image().pixel(sx,sy);++samples;
-                    }
-                    if(!require(exact&&samples==9,"100_percent_source_pixels_exact"))return;
+                    // this frame at one physical pixel per source pixel,
+                    // through the display LUT the window's pipeline serves
+                    // for its encoding: each is the frame's half floats put
+                    // through applyDisplayLutCpu, the software path's own
+                    // arithmetic (for an sRGB frame on an sRGB target, the
+                    // identity: pixel()'s rounding to 8 bits), so this stays
+                    // exact.
+                    if(!require(sourcePixelsExact(canvas_->paintColour()),"100_percent_source_pixels_exact"))return;
                     canvas_->panBy(1e9,1e9);const auto edge=canvas_->imageRect();
                     canvas_->panBy(-1,-1);const auto back=canvas_->imageRect();
                     if(!require((edge.width()<=canvas_->width()||std::abs(back.x()-edge.x()+1)<0.01)&&
@@ -304,7 +375,7 @@ private:
                     controller_.setExposureEv(1);controller_.openRaw(QUrl::fromLocalFile(reject_));
                     require(controller_.busy()&&controller_.frame()==original_&&controller_.exposureEv()==0,"export_single_flight");
                 });
-            });
+            });},"display_lut_landed");
         } else if(stage_==1) {
             if(!require(operation=="export"&&ok&&QFileInfo(output_+"/displayed-frame.tif").size()>0,"export_displayed_frame"))return;
             // The export page's path for the same frame and the same settings
@@ -330,7 +401,11 @@ private:
             if(!require(bytes.contains(QByteArray("Exif\0\0",6))&&!make.isEmpty()&&bytes.contains(make)&&
                         space.isValid()&&space.description()=="Display P3"&&
                         space.primaries()==QColorSpace::Primaries::DciP3D65,"recipe_export_p3_jpeg_tagged_with_exif"))return;
-            startDialogChecks();
+            if(original_->encoding.is_encoded_srgb()){startDialogChecks();return;}
+            // A working-space session: the export page converts the frame
+            // through the engine's transform into an sRGB PNG too.
+            stage_=31;exported_.clear();
+            controller_.exportWithRecipe(recipe("PNG 8-bit","kCGColorSpaceSRGB",output_+"/recipe",false));
         } else if(stage_==2) {
             checks_["brightness_preview_after_ms"]=double(dialog_checks_.elapsed());
             if(controller_.frame())checks_["brightness_render_ms"]=controller_.frame()->timings.render_ms;
@@ -540,21 +615,13 @@ private:
                     });
                 });
             });
-        } else if(stage_==30) {
-            if(!require(operation=="export"&&!ok&&!QFileInfo::exists(output_+"/working-space.tif")&&
-                        controller_.status().contains(QString::fromStdString(original_->encoding.color_space))&&
-                        controller_.frame()==original_,"export_refuses_frame_not_encoded_in_srgb"))return;
-            // The export page converts instead of refusing: the working-space
-            // frame through the engine's transform into sRGB.
-            stage_=31;exported_.clear();
-            controller_.exportWithRecipe(recipe("PNG 8-bit","kCGColorSpaceSRGB",output_+"/recipe",false));
         } else if(stage_==31) {
             const QString png=output_+"/recipe/input.png";
             QImageReader reader(png);const auto image=reader.read();
             if(!require(operation=="batch-export"&&ok&&QDir::cleanPath(exported_.value(0))==QDir::cleanPath(png)&&!image.isNull()&&
                         image.width()==int(original_->width())&&image.colorSpace().isValid()&&
                         image.colorSpace().primaries()==QColorSpace::Primaries::SRgb,"recipe_export_converts_working_space_to_srgb"))return;
-            finish(true,{});
+            startDialogChecks();
         } else {
             require(false,"unexpected_operation_during_settle");
         }
@@ -775,7 +842,7 @@ private:
             later([this]{
                 if(!require(canvas_->image().cacheKey()==controller_.previewImage().cacheKey(),"cropped_straightened_canvas_matches_output")||
                    !capture("crop-committed"))return;
-                finish(true,{});
+                checkProof();
             });
         });
     }
@@ -876,8 +943,9 @@ int main(int argc,char** argv) {
     QCommandLineOption captureShell("capture-shell","Capture the Settings and About windows (testing)","directory");
     captureShell.setFlags(QCommandLineOption::HiddenFromHelp);
     parser.addOption(captureShell);
-    // Testing only, so hidden: ask sessions for another output space (e.g.
-    // "ProPhoto RGB") to exercise the tagging path before the app switches.
+    // Testing only, so hidden: ask sessions for another output space than the
+    // working space (PreviewController::kWorkingSpace, ProPhoto RGB) -- "sRGB"
+    // runs the old sRGB session, whose export the self-test pins byte for byte.
     QCommandLineOption outputSpace("output-color-space","Engine output colour space to request (testing)","name");
     outputSpace.setFlags(QCommandLineOption::HiddenFromHelp);
     parser.addOption(outputSpace);
@@ -886,9 +954,14 @@ int main(int argc,char** argv) {
     QCommandLineOption pairLayer("pair-layer","With --snapshot of a pair: the hole to pick (testing)","side");
     pairLayer.setFlags(QCommandLineOption::HiddenFromHelp);
     parser.addOption(pairLayer);
+    // Testing only: a --snapshot of the canvas soft proof (and its warning).
+    QCommandLineOption proofOption("proof","With --snapshot: soft-proof the canvas into this recipe colour space (testing)","space");
+    QCommandLineOption gamutWarningOption("gamut-warning","With --snapshot and --proof: show the gamut warning (testing)");
+    proofOption.setFlags(QCommandLineOption::HiddenFromHelp);gamutWarningOption.setFlags(QCommandLineOption::HiddenFromHelp);
+    parser.addOption(proofOption);parser.addOption(gamutWarningOption);
     parser.process(app);
     const QString requestedSpace=parser.isSet(outputSpace)?parser.value(outputSpace):
-        QString::fromLatin1(spk::desktop::kDisplayOutputColorSpace);
+        QString::fromLatin1(PreviewController::kWorkingSpace);
     const auto resources=parser.isSet("resources")?parser.value("resources"):QCoreApplication::applicationDirPath()+"/resources";
     const bool testing=parser.isSet("self-test");
     const bool snapshot=parser.isSet("snapshot");
@@ -917,7 +990,7 @@ int main(int argc,char** argv) {
     auto failDisplay=std::make_shared<std::atomic_bool>(false);
     PreviewController controller(std::filesystem::path(resources.toStdWString()),nullptr,
         [failDisplay](const auto& frame){if(failDisplay->exchange(false))throw std::runtime_error("Injected display publication failure");return PreviewController::imageFromFrame(frame);},
-        editDirectory,parser.isSet(outputSpace)?requestedSpace:QString());
+        editDirectory,requestedSpace);
     qmlRegisterType<FrameCanvas>("SpektraLab.Native",1,0,"FrameCanvas");
     // The crop grips' arithmetic and the held Space key (CanvasTools.hpp).
     CanvasTools canvasTools;
@@ -970,12 +1043,37 @@ int main(int argc,char** argv) {
             auto* window=qobject_cast<QQuickWindow*>(engine.rootObjects().first());if(!window)return 2;
             const auto destination=parser.value("snapshot");
             const auto sets=parser.values("set");
-            const auto capture=[window,destination]{
-                QTimer::singleShot(250,window,[window,destination]{
-                    QFile file(destination);const auto scene=window->grabWindow();
-                    const bool saved=!scene.isNull()&&file.open(QIODevice::WriteOnly|QIODevice::NewOnly)&&scene.save(&file,"PNG")&&file.flush();
-                    QCoreApplication::exit(saved?0:1);
-                });
+            // --proof <space>: capture the canvas soft-proofed into that recipe
+            // colour space (the export page's name or the engine's), with
+            // --gamut-warning its warning too. The capture waits for the
+            // display LUT -- and the proof LUT -- to be the ones drawn.
+            const QString proofSpace=parser.value(proofOption);
+            const bool warn=parser.isSet(gamutWarningOption);
+            if(!proofSpace.isEmpty()) {
+                QString key;
+                for(const auto& e:spk::desktop::recipes::colorSpaces())
+                    if(e.name==proofSpace||QString::fromStdString(e.engine)==proofSpace)key=e.key;
+                if(key.isEmpty())return 2;
+                controller.setProofRecipe({{"name","proof"},{"format","TIFF 16-bit"},{"colorSpace",QVariantMap{{"builtIn",QVariantMap{{"_0",key}}}}}});
+                controller.setSoftProof(true);controller.setGamutWarning(warn);
+            }
+            const auto capture=[window,destination,proofOn=!proofSpace.isEmpty()]{
+                auto* canvas=window->findChild<FrameCanvas*>("frameCanvas");
+                auto poll=std::make_shared<std::function<void(int)>>();
+                *poll=[window,destination,proofOn,canvas,poll](int left){
+                    auto* pipeline=ColorPipeline::forWindow(window);
+                    const auto space=canvas?canvas->image().colorSpace():QColorSpace();
+                    const bool settled=canvas&&(spk::color::sameEncoding(space,pipeline->targetColorSpace())||
+                                                !pipeline->lut(space)->isIdentity())&&(!proofOn||canvas->paintColour().proofed);
+                    if(!settled&&left>0){QTimer::singleShot(50,window,[poll,left]{(*poll)(left-1);});return;}
+                    if(canvas)canvas->update();
+                    QTimer::singleShot(250,window,[window,destination]{
+                        QFile file(destination);const auto scene=window->grabWindow();
+                        const bool saved=!scene.isNull()&&file.open(QIODevice::WriteOnly|QIODevice::NewOnly)&&scene.save(&file,"PNG")&&file.flush();
+                        QCoreApplication::exit(saved?0:1);
+                    });
+                };
+                (*poll)(400);
             };
             const auto layer=parser.value(pairLayer);
             QObject::connect(&controller,&PreviewController::operationFinished,&app,[&controller,sets,capture,layer](const QString& operation,bool ok){

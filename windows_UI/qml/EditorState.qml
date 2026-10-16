@@ -73,6 +73,14 @@ QtObject {
         comparing = !comparing
     }
     function setComparePosition(p) { comparePosition = Math.max(0, Math.min(1, p)) }
+    // The soft proof (preview.softProof, PreviewControllerExport.cpp): the
+    // canvas as the export page's recipe will render it, S to toggle (the key
+    // Lightroom Classic gives it; the Mac proves on its export page only), and
+    // its gamut warning, Shift+S, which shows only while proofing. A view
+    // choice, so it is not an edit and never waits on one.
+    readonly property bool canProof: preview.hasFrame && preview.proofState.available === true
+    function toggleSoftProof() { if (canProof || preview.softProof) preview.softProof = !preview.softProof }
+    function toggleGamutWarning() { if (preview.softProof) preview.gamutWarning = !preview.gamutWarning }
     // The controller makes the Original only while something shows it.
     readonly property bool originalWanted: preview.hasFrame && (showingOriginal || comparing)
     onOriginalWantedChanged: preview.originalWanted = originalWanted

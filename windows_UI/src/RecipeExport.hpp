@@ -32,7 +32,7 @@
 #include <optional>
 #include <string>
 
-namespace spkhost { struct Exif; }
+#include "output.hpp"
 
 namespace spk::desktop::exporting {
 
@@ -55,6 +55,25 @@ struct Converted {
     double clippedFraction = 0;
 };
 Converted convert(const QImage& rgba64, const OutputEncoding& from, const std::string& to, spk_engine* engine);
+
+// The engine transform convert() runs from encoded `from` into `to`, fetched
+// with the export's gamut-compression setting: off when `to` holds all of
+// `from` (a plain colorimetric conversion), else CAM16-UCS's chroma knee
+// without its lightness shoulder (ColourManagement.swift:153-164). The soft
+// proof evaluates this same object on its LUT grid, so the canvas proof and
+// the file cannot disagree about which transform they mean. Throws.
+spkhost::OutputTransform exportTransform(const std::string& from, const std::string& to, spk_engine* engine);
+
+// The legacy single-file and batch export (PreviewController::exportImage /
+// exportBatch): FrameOutput's writers, which embed sRGB.icc. A frame encoded
+// in sRGB goes through output::exportFrame unchanged, byte for byte; any other
+// encoding (the ProPhoto working space) is graded, framed and sized in its own
+// encoding, converted into sRGB once by convert() -- the recipe export's
+// conversion, so the file equals an sRGB recipe export's pixels -- and only
+// then written, never sRGB-tagged working-space codes. Throws.
+void exportLegacy(const FramePtr& frame, const std::filesystem::path& destination, const output::Geometry& geometry,
+                  const output::ExportOptions& options, const std::filesystem::path& resources,
+                  const std::function<void(QImage&, const OutputEncoding&)>& grade, spk_engine* engine);
 
 // What the writer is asked for. `exif` may be empty; `preview` (TIFF only)
 // writes the macOS preview page; `untagged` writes no profile (the DI).

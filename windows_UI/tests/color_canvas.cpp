@@ -5,7 +5,10 @@
 // the pixels with a reference computed here, independently of
 // ColorCanvasNode.cpp: double-precision trilinear interpolation at the LUT
 // nodes (between the contract's 1-D curves when the LUT has them), clamped,
-// rounded to 8 bits.
+// rounded to 8 bits. The soft proof's PROOF variants run the engine's own
+// output transform per pixel, so that case is held to the colour core's CPU
+// form of it (spk::color::sampleProof), which spk_qt_soft_proof holds to the
+// export; its argument is the engine's resources directory.
 //
 // Exit 77 (CTest: skipped) when no D3D11 device can be created, with a
 // message on stderr; anything else that goes wrong is a failure.
@@ -13,6 +16,8 @@
 #include "ColorLut.hpp"
 #include "ColorPipeline.hpp"
 #include "FrameCanvas.hpp"
+#include "SoftProof.hpp"
+#include <QElapsedTimer>
 #include <QGuiApplication>
 #include <QQuickGraphicsConfiguration>
 #include <QQuickItem>
@@ -128,6 +133,15 @@ public:
     PlainCanvas& plain() {return *plain_;}
     ColorPipeline& pipeline() {return *pipeline_;}
     QRhi* rhi() const {return control_.rhi();}
+    // A frame with no readback, for timing (an offscreen frame is complete
+    // when endFrame returns).
+    void renderOnly() {
+        control_.polishItems();
+        control_.beginFrame();
+        control_.sync();
+        control_.render();
+        control_.endFrame();
+    }
     QImage render() {
         control_.polishItems();
         control_.beginFrame();
@@ -503,7 +517,122 @@ void runPostDev(Harness& h,bool software) {
     expect("post-dev removed: exact",compare(h.render(),rect,frame,*identity),0);
 }
 
-void run(bool software) {
+// --- the soft proof and its gamut warning ----------------------------------
+// A ProPhoto frame proven into sRGB and into Display P3 through the engine's
+// own transform (SoftProof.hpp), on a frame that sweeps the ProPhoto cube --
+// near black densely, its saturated edges, a grey and a skin tone -- through
+// every PROOF variant: the recipe space's curved display LUT (3D and atlas),
+// an encoded one (a LUT-based display), and the identity (the recipe space is
+// the display's). The render must match the colour core's CPU form of the
+// canvas (spk::color::sampleProof, the engine's float arithmetic) within one
+// count; with the warning on, every pixel both flag is exactly the warning
+// colour -- a display value that never went through a LUT (AGENTS.md trap
+// 27) -- every pixel neither flags is the proof's colour, and the two
+// arithmetics may disagree only on colours a hair from the boundary.
+QImage proofFrame() {
+    QImage frame(256,192,QImage::Format_RGBX16FPx4);
+    for(int y=0;y<frame.height();++y)for(int x=0;x<frame.width();++x) {
+        float c[3];
+        const int block=x/32,row=y/24;   // 8 x 8 blocks of 32 x 24
+        const float u=(x%32)/31.0f,v=(y%24)/23.0f;
+        switch((block+row)%4) {
+        case 0: c[0]=u;c[1]=v;c[2]=block/7.0f;break;                       // the cube, slice by slice
+        case 1: c[0]=u*0.12f;c[1]=v*0.12f;c[2]=row/7.0f*0.12f;break;       // near black
+        case 2: c[0]=u;c[1]=row%2?1.0f:0.0f;c[2]=v;break;                 // the saturated faces
+        default: c[0]=0.5f+0.12f*(u-0.5f);c[1]=0.45f+0.1f*(v-0.5f);c[2]=0.38f;break;  // skin and grey
+        }
+        reinterpret_cast<QRgbaFloat16*>(frame.scanLine(y))[x]=QRgbaFloat16{qfloat16(c[0]),qfloat16(c[1]),qfloat16(c[2]),qfloat16(1)};
+    }
+    frame.setColorSpace(QColorSpace::ProPhotoRgb);
+    return frame;
+}
+
+void runProof(Harness& h,bool software,const QString& resources) {
+    auto& canvas=h.canvas();
+    canvas.setFit(false);canvas.setOpacity(1);canvas.setPostDev({});
+    h.pipeline().setDither(false);
+    spk_engine* engine=spk_engine_create(resources.toUtf8().constData(),nullptr);
+    check(engine!=nullptr,std::string("engine: ")+spk_last_error(nullptr));
+    const spk::desktop::OutputEncoding from{"ProPhoto RGB",true};
+    const auto toSrgb=spk::desktop::proofing::makeProofTransform(engine,from,"sRGB",QStringLiteral("sRGB"));
+    const auto toP3=spk::desktop::proofing::makeProofTransform(engine,from,"Display P3",QStringLiteral("Display P3"));
+    spk_engine_destroy(engine);   // the transforms own their numbers
+    const QImage frame=proofFrame();
+    canvas.setImage(frame);
+    h.render();
+    const QRect rect=wholeRect(canvas);
+    const QColorSpace replica=QColorSpace::fromIccProfile(QColorSpace(QPointF(0.3127,0.3290),QPointF(0.64,0.34),QPointF(0.21,0.71),
+        QPointF(0.15,0.06),QColorSpace::TransferFunction::Gamma,2.2f).iccProfile());
+    struct Case {const char* name;ProofTransformPtr proof;std::shared_ptr<const ColorLut> lut;bool atlas;};
+    const Case cases[]={
+        {"proof into sRGB, HP replica, curved 3D",toSrgb,spk::color::buildCurvedLut(toSrgb->target,replica),false},
+        {"proof into sRGB, HP replica, curved atlas",toSrgb,spk::color::buildCurvedLut(toSrgb->target,replica),true},
+        {"proof into Display P3, encoded table",toP3,spk::color::buildEncodedLut(toP3->target,QColorSpace(QColorSpace::AdobeRgb)),false},
+        {"proof into sRGB on sRGB, no LUT",toSrgb,std::make_shared<const ColorLut>(),false}};
+    canvas.setProof(QVariant::fromValue(toSrgb));
+    canvas.setGamutWarning(false);
+    for(const auto& c:cases) {
+        if(software&&c.atlas)continue;
+        canvas_testing::setForceLutAtlas(c.atlas);
+        h.pipeline().setLutOverrideForTesting(c.lut);
+        canvas.setProof(QVariant::fromValue(c.proof));
+        const auto colour=canvas.paintColour();
+        check(colour.proofed&&colour.proof==c.proof&&colour.lut==c.lut&&colour.warning[3]==0,
+              std::string(c.name)+": the canvas does not draw the proof");
+        // The CPU form of every pixel: colour and flag.
+        std::vector<float> encoded(size_t(rect.width())*rect.height()*3),model(size_t(rect.width())*rect.height()*4);
+        for(int y=0;y<rect.height();++y)for(int x=0;x<rect.width();++x) {
+            const auto in=sourcePixel(frame,x,y);
+            for(int k=0;k<3;++k)encoded[(size_t(y)*rect.width()+x)*3+k]=float(in[k]);
+        }
+        spk::color::sampleProof(*c.lut,*c.proof,encoded.data(),size_t(rect.width())*rect.height(),model.data());
+        const QImage plain=h.render();
+        int worst=0;qint64 differing=0;
+        for(int y=0;y<rect.height();++y)for(int x=0;x<rect.width();++x) {
+            const float* m=&model[(size_t(y)*rect.width()+x)*4];
+            const QRgb got=plain.pixel(rect.x()+x,rect.y()+y);
+            const int d=std::max({std::abs(quantize(m[0])-qRed(got)),std::abs(quantize(m[1])-qGreen(got)),std::abs(quantize(m[2])-qBlue(got))});
+            worst=std::max(worst,d);differing+=d>0;
+        }
+        std::printf("  %-44s max diff %d, %lld of %d pixels differ\n",c.name,worst,differing,rect.width()*rect.height());
+        check(worst<=1,std::string(c.name)+": the proof is more than one count from the CPU form");
+        canvas.setGamutWarning(true);
+        check(canvas.paintColour().warning[3]==1,"the gamut warning is not in the paint");
+        const QImage warned=h.render();
+        int flagged=0,clear=0,disagree=0,clearWorst=0;
+        for(int y=0;y<rect.height();++y)for(int x=0;x<rect.width();++x) {
+            const float* m=&model[(size_t(y)*rect.width()+x)*4];
+            const QRgb got=warned.pixel(rect.x()+x,rect.y()+y);
+            const bool magenta=(got&0xffffff)==0xff00ff,cpuFlag=m[3]<0.5f;
+            if(magenta!=cpuFlag){++disagree;continue;}
+            if(magenta){++flagged;continue;}
+            clearWorst=std::max({clearWorst,std::abs(quantize(m[0])-qRed(got)),std::abs(quantize(m[1])-qGreen(got)),
+                                 std::abs(quantize(m[2])-qBlue(got))});
+            ++clear;
+        }
+        std::printf("  %-44s %d flagged (#ff00ff), %d kept within %d, %d disagree with the CPU flag\n","  with the gamut warning",
+                    flagged,clear,clearWorst,disagree);
+        check(flagged>2000&&clear>8000&&clearWorst<=1&&disagree<=rect.width()*rect.height()/1000,
+              std::string(c.name)+": the gamut warning does not mark what the export cannot keep");
+        canvas.setGamutWarning(false);
+    }
+    canvas_testing::setForceLutAtlas(false);
+    // The skin-and-grey block is kept, the ProPhoto green face is not.
+    {
+        h.pipeline().setLutOverrideForTesting(cases[0].lut);
+        canvas.setProof(QVariant::fromValue(toSrgb));canvas.setGamutWarning(true);
+        const QImage warned=h.render();
+        // Block (3, 0) is skin and grey; block (1, 1) the face where green is full.
+        const QRgb skin=warned.pixel(rect.x()+3*32+16,rect.y()+12),green=warned.pixel(rect.x()+1*32+16,rect.y()+24+12);
+        check((skin&0xffffff)!=0xff00ff&&(green&0xffffff)==0xff00ff,"the warning marks the wrong patches");
+    }
+    // No proof: no warning, and the display LUT again.
+    canvas.setProof({});
+    check(!canvas.paintColour().proofed&&canvas.paintColour().warning[3]==0,"the warning shows without a proof");
+    canvas.setGamutWarning(false);
+    h.pipeline().setLutOverrideForTesting(std::make_shared<const ColorLut>());
+}
+void run(bool software,const QString& resources) {
     const char* mode=software?"software backend (CPU path)":"D3D11";
     const auto identity=std::make_shared<const ColorLut>();
     const auto swap=makeLut(17,101,[](const Rgb& c){return Rgb{c[1],c[2],c[0]};});
@@ -769,12 +898,60 @@ void run(bool software) {
     }
 
     runPostDev(h,software);
+    runProof(h,software,resources);
 }
 }
 
+// --benchmark (with --hardware): the canvas's GPU time per frame for a 4K
+// ProPhoto frame at 100 % -- no LUT, the display LUT, the soft proof, the
+// proof with its warning. Not part of CTest; it prints and decides nothing.
+void benchmark(const QString& resources) {
+    Harness h(QSize(3840,2160),false);
+    const auto info=h.rhi()->driverInfo();
+    std::printf("benchmark on \"%s\" (%s)\n",info.deviceName.constData(),h.rhi()->backendName());
+    auto& canvas=h.canvas();
+    canvas.setFit(false);
+    QImage frame(3840,2160,QImage::Format_RGBX16FPx4);
+    for(int y=0;y<frame.height();++y)for(int x=0;x<frame.width();++x)
+        reinterpret_cast<QRgbaFloat16*>(frame.scanLine(y))[x]=QRgbaFloat16{qfloat16(x/3839.0f),qfloat16(y/2159.0f),qfloat16(((x^y)&255)/255.0f),qfloat16(1)};
+    frame.setColorSpace(QColorSpace::ProPhotoRgb);
+    canvas.setImage(frame);
+    spk_engine* engine=spk_engine_create(resources.toUtf8().constData(),nullptr);
+    check(engine!=nullptr,"engine");
+    const auto proof=spk::desktop::proofing::makeProofTransform(engine,{"ProPhoto RGB",true},"sRGB",QStringLiteral("sRGB"));
+    spk_engine_destroy(engine);
+    const QColorSpace replica=QColorSpace::fromIccProfile(QColorSpace(QPointF(0.3127,0.3290),QPointF(0.64,0.34),QPointF(0.21,0.71),
+        QPointF(0.15,0.06),QColorSpace::TransferFunction::Gamma,2.2f).iccProfile());
+    const auto display=spk::color::buildCurvedLut(QColorSpace(QColorSpace::ProPhotoRgb),replica);
+    const auto recipe=spk::color::buildCurvedLut(proof->target,replica);
+    struct Case {const char* name;std::shared_ptr<const ColorLut> lut;bool proof,warning;};
+    const Case cases[]={{"no LUT (identity)",std::make_shared<const ColorLut>(),false,false},
+                        {"ProPhoto -> HP replica display LUT",display,false,false},
+                        {"soft proof into sRGB, HP replica",recipe,true,false},
+                        {"soft proof + gamut warning",recipe,true,true}};
+    for(int round=0;round<2;++round)
+        for(const auto& c:cases) {
+            h.pipeline().setLutOverrideForTesting(c.lut);
+            canvas.setProof(c.proof?QVariant::fromValue(proof):QVariant());canvas.setGamutWarning(c.warning);
+            for(int i=0;i<5;++i)h.renderOnly();
+            QElapsedTimer clock;clock.start();
+            constexpr int frames=40;
+            for(int i=0;i<frames;++i)h.renderOnly();
+            if(round==1)std::printf("  %-40s %.2f ms per 3840x2160 frame\n",c.name,double(clock.nsecsElapsed())/1e6/frames);
+        }
+}
+
 int main(int argc,char** argv) {
-    const bool software=argc>1 && QByteArray(argv[1])=="--software";
-    preferWarp=!(argc>1 && QByteArray(argv[1])=="--hardware");
+    // [--software | --hardware] [--benchmark] <engine resources>
+    bool software=false,bench=false;QString resources;
+    for(int i=1;i<argc;++i) {
+        const QByteArray arg(argv[i]);
+        if(arg=="--software")software=true;
+        else if(arg=="--hardware")preferWarp=false;
+        else if(arg=="--benchmark")bench=true;
+        else resources=QString::fromLocal8Bit(arg);
+    }
+    if(resources.isEmpty()){std::fprintf(stderr,"usage: spk_qt_color_canvas_test [--software|--hardware] <resources>\n");return 2;}
     // The software run uses the self-test's offscreen platform. The RHI run
     // cannot: Qt Quick picks the software adaptation on a platform plugin
     // without RHI support, which offscreen is on Windows. Its window is never
@@ -786,7 +963,8 @@ int main(int argc,char** argv) {
     QQuickWindow::setGraphicsApi(software?QSGRendererInterface::Software:QSGRendererInterface::Direct3D11);
     QGuiApplication app(argc,argv);
     try {
-        run(software);
+        if(bench){benchmark(resources);return 0;}
+        run(software,resources);
         std::printf("PASS\n");
         return 0;
     } catch(const Skip& skip) {

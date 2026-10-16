@@ -4,6 +4,7 @@
 #include "EditStore.hpp"
 #include "FrameOutput.hpp"
 #include "PostDevSurfaces.hpp"
+#include "RecipeExport.hpp"
 #include "display_checks.hpp"
 #include <QDir>
 #include <QElapsedTimer>
@@ -27,6 +28,9 @@
 namespace {
 namespace output=spk::desktop::output;
 namespace editing=spk::desktop::editing;
+// The legacy export's conversion of the ProPhoto working space into sRGB, on
+// the test's own engine (display_checks::ToSrgb).
+display_checks::ToSrgb toSrgb;
 QJsonArray checks,operations;
 void check(bool passed,const QString& name) {
     checks.append(QJsonObject{{"name",name},{"passed",passed}});
@@ -110,6 +114,11 @@ int main(int argc,char** argv) {
               QFile::copy(rejected.absoluteFilePath(),unsupported),"Copy all fixtures before opening");
         const auto firstUrl=QUrl::fromLocalFile(first),secondUrl=QUrl::fromLocalFile(second);
         const QString editDirectory=destination+"/edits";
+        struct Engine{spk_engine* e;~Engine(){if(e)spk_engine_destroy(e);}} engine{spk_engine_create(args[1].toUtf8().constData(),nullptr)};
+        check(engine.e!=nullptr,"Test engine for the export's conversion");
+        toSrgb=[e=engine.e](const QImage& rgba64,const spk::desktop::OutputEncoding& from){
+            return spk::desktop::exporting::convert(rgba64,from,"sRGB",e).rgba64;
+        };
         Desired savedFirst;const QRectF secondCrop(.2,.1,.1,.12);
         {
             PreviewController c(resources,nullptr,{},editDirectory);ready(c);
@@ -164,10 +173,14 @@ int main(int argc,char** argv) {
                 // engine frame the preview was made from, and every sample is
                 // one the displayed half float's 16-bit source could give.
                 const auto exported=readImage(png);
-                check(display_checks::sameRgb8(exported,display_checks::expected8(retained,transformed)),
+                // The session renders ProPhoto RGB: the sRGB file is that
+                // frame converted once by the export's own conversion, and the
+                // preview is the same frame's own codes.
+                check(retained->encoding.color_space=="ProPhoto RGB","The session renders the ProPhoto working space");
+                check(display_checks::sameRgb8(exported,display_checks::expected8(retained,transformed,toSrgb)),
                       "Actual PNG8 export is the transformed engine frame pixel for pixel");
                 const display_checks::ExportDisplayAgreement agreement;
-                const auto agreed=agreement.compare(exported,shown);
+                const auto agreed=agreement.compare(display_checks::frame8(retained,transformed),shown);
                 report["export_display_ambiguous_samples"]=double(agreed.ambiguous);
                 check(agreed.samples==qint64(exported.width())*exported.height()*3&&agreed.disagreements==0,
                       "Actual PNG8 export matches transformed preview pixel for pixel");
@@ -265,7 +278,7 @@ int main(int argc,char** argv) {
                       edge["pictureWidth"].toInt()==int(strip->picture_width),"The section's size caption is measured");
                 const QString png=destination+"/film-edge.png";
                 c.exportImage(QUrl::fromLocalFile(png),1,95,0);idle(c,"Export the strip");
-                check(display_checks::sameRgb8(readImage(png),display_checks::expected8(c.frame(),output::Geometry{})),
+                check(display_checks::sameRgb8(readImage(png),display_checks::expected8(c.frame(),output::Geometry{},toSrgb)),
                       "The export writes the whole strip, with no geometry over it");
                 // A new framing re-develops; the crop stays the gate's shape.
                 auto moved=held;moved.crop.translate(-held.crop.x()*0.5,0);
@@ -605,9 +618,14 @@ int main(int argc,char** argv) {
                 const auto& px=shownFrame->pixels();
                 const QImage source=QImage(reinterpret_cast<const uchar*>(px.rgba16),int(px.width),int(px.height),
                                            qsizetype(px.row_stride_px)*8,QImage::Format_RGBA64).copy();
-                QImage graded=source.copy();postdev::Grade(c.postDevParams(),postdev::srgbMidGrey).apply(graded);
-                const auto expectGraded=output::exportImage(graded,g,{output::Format::PNG16,95,0});
-                const auto expectPlain=output::exportImage(source,g,{output::Format::PNG16,95,0});
+                // Graded at the pivot of the frame's own encoding (ProPhoto's
+                // 0.3857, the Mac's), then framed, then converted to sRGB as
+                // the legacy writer needs.
+                const auto midGrey=postdev::midGreyFor(spk::desktop::display::colorSpace(shownFrame->encoding));
+                check(midGrey&&*midGrey==postdev::proPhotoMidGrey,"Post-Dev grades the working space at ProPhoto's pivot");
+                QImage graded=source.copy();postdev::Grade(c.postDevParams(),*midGrey).apply(graded);
+                const auto expectGraded=display_checks::expectedFile(shownFrame,g,output::Format::PNG16,toSrgb,graded);
+                const auto expectPlain=display_checks::expectedFile(shownFrame,g,output::Format::PNG16,toSrgb,source);
                 const auto same16=[](const QImage& file,const QImage& expected){
                     const auto a=file.convertToFormat(QImage::Format_RGBA64);
                     if(a.size()!=expected.size())return false;

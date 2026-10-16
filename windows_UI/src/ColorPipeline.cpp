@@ -33,10 +33,13 @@ const char* const kWindowProperty = "_spektralab_color_pipeline";
 // Windows announces no profile change; this bounds how long one goes unseen
 // when no other trigger fires.
 constexpr int kPollMs = 3000;
-// Built LUTs kept for reuse, 4.4 MB each: two source spaces on three
-// monitors, so dragging a window back and forth never rebuilds.
-constexpr std::size_t kCachedLuts = 6;
-// Distinct source spaces remembered; sRGB (the first) is never dropped.
+// Built LUTs kept for reuse, 4.4 MB each: the two source spaces every
+// display gets (the ProPhoto working space and sRGB, both built as soon as a
+// display is known) on up to six display profiles, so dragging a window back
+// and forth, or a recalibration and back, never rebuilds. At most 53 MB, and
+// only after six different profiles.
+constexpr std::size_t kCachedLuts = 12;
+// Distinct source spaces remembered; ProPhoto RGB (the first) is never dropped.
 constexpr std::size_t kServedSources = 8;
 
 bool colorLog() {
@@ -247,7 +250,11 @@ ColorPipeline::ColorPipeline(QQuickWindow* window)
     d_->window = window;
     d_->pool = new QThreadPool(this);
     d_->pool->setMaxThreadCount(1);
-    // sRGB is every frame's encoding today: start its LUT before a paint asks.
+    // ProPhoto RGB is every frame's encoding (the working space,
+    // PreviewController::kWorkingSpace) and sRGB the UI's and an sRGB
+    // session's: start both LUTs before a paint asks. The first is never
+    // dropped from `served`.
+    d_->servedFor(QColorSpace(QColorSpace::ProPhotoRgb));
     d_->servedFor(QColorSpace(QColorSpace::SRgb));
     if (window) d_->screenId = screenIdOf(window->screen());
     d_->refresh();
@@ -279,6 +286,14 @@ std::shared_ptr<const ColorLut> ColorPipeline::lut(const QColorSpace& source) co
     if (d_->override) return d_->override;
     // A QImage without a colour space is taken as sRGB, as Qt itself does.
     return d_->resolve(d_->servedFor(source.isValid() ? source : QColorSpace(QColorSpace::SRgb)));
+}
+
+std::shared_ptr<const ColorLut> ColorPipeline::readyLut(const QColorSpace& source) const {
+    if (d_->override) return d_->override;
+    const QColorSpace space = source.isValid() ? source : QColorSpace(QColorSpace::SRgb);
+    auto& entry = d_->servedFor(space);
+    auto lut = d_->resolve(entry);
+    return entry.current && entry.targetHash == d_->target.hash ? lut : nullptr;
 }
 
 QString ColorPipeline::mode() const { return d_->mode; }

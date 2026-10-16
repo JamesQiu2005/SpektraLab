@@ -34,6 +34,7 @@
 #include <QRectF>
 #include <QSGNode>
 #include <QSize>
+#include <array>
 #include <memory>
 #include <vector>
 
@@ -54,6 +55,13 @@ struct CanvasPaint {
     std::shared_ptr<const spk::desktop::postdev::Grade> grade;
     quint64 gradeRevision = 0;
     spk::desktop::postdev::SourceMap sourceMap;
+    // The soft proof (ProofTransform.hpp): null, or the export transform the
+    // picture goes through per pixel before `lut`, which is then the display
+    // LUT for the recipe space. With one, `warning` (rgb a display value, a = 1
+    // turns it on) is painted over every pixel the export cannot keep, after
+    // the LUT and the dither -- never through the LUT (AGENTS.md trap 27).
+    ProofTransformPtr proof;
+    std::array<float, 4> warning{};
 };
 
 class ColorCanvasNode final : public QSGNode {
@@ -66,12 +74,15 @@ public:
 
     struct Tile;
     class CurveTable;
+    class ProofTable;
 private:
     bool updateRhi(QQuickWindow* window, const CanvasPaint& paint);
     bool updateSoftware(QQuickWindow* window, const CanvasPaint& paint);
     void clear();
 
     std::vector<std::unique_ptr<Tile>> tiles_;
+    // The soft proof's C_max texture, for the transform it was made from.
+    std::shared_ptr<ProofTable> proofTable_;
     quint64 revision_ = 0;
     int tileLimit_ = 0;
     QSize imageSize_;
@@ -84,16 +95,22 @@ private:
     std::shared_ptr<CurveTable> curves_;
     quint64 curvesRevision_ = ~quint64(0), softwareGrade_ = 0;
     spk::desktop::postdev::SourceMap softwareMap_;
+    ProofTransformPtr softwareProof_;
+    std::array<float, 4> softwareWarning_{};
 };
 
 // The CPU form of the shader, for the software backend: Post-Dev (`grade`,
 // each pixel at `map` of its centre; null or identity: none), then trilinear
 // lookup at the same nodes (inside the shaper and output curves when the LUT
-// has them), the same clamps and dither, rounded to 8 bits. An 8-bit image
-// under the identity LUT and no grade is returned unchanged.
+// has them) -- or, with `proof`, the export transform per pixel and `lut` as
+// the recipe space's display LUT (spk::color::sampleProof) -- the same clamps
+// and dither, the gamut warning over what the export cannot keep (`warning`,
+// as CanvasPaint's), rounded to 8 bits. An 8-bit image under the identity
+// LUT, no grade and no proof is returned unchanged.
 QImage applyDisplayLutCpu(const QImage& image, const ColorLut& lut, bool dither,
                           const spk::desktop::postdev::Grade* grade = nullptr,
-                          const spk::desktop::postdev::SourceMap& map = {});
+                          const spk::desktop::postdev::SourceMap& map = {},
+                          const ProofTransform* proof = nullptr, const std::array<float, 4>& warning = {});
 
 // True when `lut` is a usable non-identity LUT (size >= 2, complete data,
 // and complete curves if it has any).

@@ -74,6 +74,11 @@ Item {
             MenuCommand { text: L10n.tr("menu.sidePanels"); shortcutText: "Ctrl+B"; onTriggered: root.editor.toggleSidePanels() }
             MenuCommand { text: L10n.tr("menu.filmstrip"); shortcutText: "Ctrl+Shift+F"; onTriggered: root.editor.filmstripCollapsed = !root.editor.filmstripCollapsed }
             MenuCommand { text: L10n.tr("menu.fullScreen"); shortcutText: "F11"; onTriggered: root.toggleFullScreen() }
+            MenuSeparator {}
+            MenuCommand { objectName: "softProofCommand"; text: L10n.tr("menu.softProof"); shortcutText: "S"; marked: preview.softProof
+                          enabled: root.editor.canProof || preview.softProof; onTriggered: root.editor.toggleSoftProof() }
+            MenuCommand { objectName: "gamutWarningCommand"; text: L10n.tr("menu.gamutWarning"); shortcutText: "Shift+S"; marked: preview.gamutWarning
+                          enabled: preview.softProof; onTriggered: root.editor.toggleGamutWarning() }
         }
         MenuSeparator {}
         MenuCommand { text: L10n.tr("menu.settings"); shortcutText: "Ctrl+,"; onTriggered: root.editor.settingsRequested("") }

@@ -1,12 +1,13 @@
 #pragma once
 #include "CanvasMath.hpp"
+#include "ColorPipeline.hpp"
 #include "PostDevView.hpp"
 #include <QImage>
 #include <QPointer>
 #include <QQuickItem>
+#include <QVariant>
+#include <array>
 #include <memory>
-
-class ColorPipeline;
 
 // The picture of the main canvas, the navigator and the filmstrip thumbnails.
 // The image is drawn through its window's display LUT (ColorPipeline.hpp,
@@ -45,7 +46,21 @@ class FrameCanvas : public QQuickItem {
     // Off: the canvas takes no wheel or drag (the crop editor's lock).
     Q_PROPERTY(bool interactive READ interactive WRITE setInteractive NOTIFY interactiveChanged)
     Q_PROPERTY(FrameCanvas* follow READ follow WRITE setFollow NOTIFY followChanged)
+    // The soft proof (ProofTransform.hpp): a ProofTransformPtr (the
+    // controller's proofTransform) draws the picture as the recipe's space
+    // would render it -- the export's transform per pixel, then the display
+    // LUT for the recipe space; empty or null draws through the display LUT.
+    // A picture in another encoding than the transform reads is drawn
+    // unproofed, and so is any picture until the recipe space's display LUT
+    // has landed (paintColour().proofed says which).
+    Q_PROPERTY(QVariant proof READ proof WRITE setProof NOTIFY proofChanged)
+    // With a proof: paint kGamutWarningColour (a display value, never through
+    // the LUT -- AGENTS.md trap 27) where the export could not keep the colour.
+    Q_PROPERTY(bool gamutWarning READ gamutWarning WRITE setGamutWarning NOTIFY proofChanged)
 public:
+    // The warning's colour, display-encoded RGB: a saturated magenta, which
+    // no print shows and which reads against both a red and a green.
+    static constexpr float kGamutWarningColour[3] = {1.0f, 0.0f, 1.0f};
     explicit FrameCanvas(QQuickItem* parent=nullptr);
     QImage image() const { return image_; }
     void setImage(const QImage& image);
@@ -65,6 +80,22 @@ public:
     void setSourceMap(const QVariantList& value);
     // The grade the next paint applies (null: none), for tests.
     std::shared_ptr<const spk::desktop::postdev::Grade> grade() const { return grade_; }
+    QVariant proof() const;
+    void setProof(const QVariant& value);
+    bool gamutWarning() const { return gamutWarning_; }
+    void setGamutWarning(bool value);
+    // What the next paint draws with, as updatePaintNode chooses it: the LUT
+    // (the recipe space's display LUT while proofing), whether the canvas is
+    // a proof, the transform it runs per pixel (null for an identity proof)
+    // and the warning in CanvasPaint's form. GUI thread, for tests and the
+    // self-test.
+    struct PaintColour {
+        std::shared_ptr<const ColorLut> lut;
+        bool proofed = false;
+        ProofTransformPtr proof;
+        std::array<float,4> warning{};
+    };
+    PaintColour paintColour() const;
     // Fitted, or 100 % about the canvas's centre (Ctrl+0 / Ctrl+1).
     Q_INVOKABLE void resetView(bool fit=true);
     Q_INVOKABLE void panBy(double x,double y);
@@ -84,6 +115,7 @@ signals:
     void interactiveChanged();
     void followChanged();
     void postDevChanged();
+    void proofChanged();
 protected:
     QSGNode* updatePaintNode(QSGNode* old,UpdatePaintNodeData*) override;
     void geometryChange(const QRectF& next,const QRectF& previous) override;
@@ -113,6 +145,8 @@ private:
     QMetaObject::Connection followChanged_;
     QImage image_;
     quint64 revision_=0;
+    ProofTransformPtr proof_;
+    bool gamutWarning_=false;
     spk::desktop::canvas::View view_;
     bool interactive_=true,dragging_=false;
     QPointF last_mouse_;

@@ -219,21 +219,32 @@ batch locks and visible persistence warnings. It owns copies of all inputs.
 
 The captures are **offscreen scene captures**, not a live monitor screenshot.
 Software scene display does not make the engine a CPU renderer. This gate does
-not automate the native file dialogs or verify monitor profiles. At this phase
-the host asks the engine for encoded sRGB; the canvas receives half floats
-tagged with whatever the session reports (Qt 6.11's scene graph uploads
-`RGBX16FPx4` as an `RGBA16F` texture on D3D11). A QImage tag is not a proof
-that the default Windows Qt swapchain applies a monitor ICC transform; the
-display transform is `ColorPipeline.hpp`'s. Export reads the engine's RGBA16,
-not the display image, embeds sRGB.icc and therefore refuses a frame encoded
-in any other space. The hidden `--output-color-space "ProPhoto RGB"` option
-opens sessions in another space to exercise this path (the self-test then
-checks the tag and the export refusal and stops). `spk_qt_frame_image` holds
-every engine output space's tag against the engine's own baked primaries and
-transfer functions. Wide-gamut, EDR/HDR, ColourSync-equivalent display validation,
-original/split comparison, histogram and perspective
-geometry are future work. TIFF and PNG16 retain 16-bit
-pixels; PNG8/JPEG8 use 8-bit samples, and resizing is explicitly requested.
+not automate the native file dialogs or verify monitor profiles.
+
+**The working space.** As on the Mac (ARCHITECTURE.md §7.5), every session asks
+the engine for encoded **ProPhoto RGB** (`PreviewController::kWorkingSpace`) and
+the canvas receives half floats tagged with whatever the session reports (Qt
+6.11's scene graph uploads `RGBX16FPx4` as an `RGBA16F` texture on D3D11). A
+QImage tag is not a proof that the default Windows Qt swapchain applies a
+monitor ICC transform; the display transform is `ColorPipeline.hpp`'s. Every
+export reads the engine's RGBA16, not the display image, and leaves the working
+space exactly once: the export page through the engine's output transform into
+the recipe's space (`RecipeExport.hpp`), and the legacy single and batch export
+(which embed sRGB.icc) through the same conversion into sRGB first
+(`exporting::exportLegacy`) -- byte for byte an sRGB recipe export of the same
+frame. The hidden `--output-color-space sRGB` option opens the old sRGB
+session, where an sRGB recipe export is byte-identical to the legacy writer's
+file; the self-test runs in either (in a ProPhoto session it also checks the
+sRGB PNG conversion). `spk_qt_frame_image` holds every engine output space's
+tag against the engine's own baked primaries and transfer functions. Post-Dev
+grades at ProPhoto's pivot (0.3857, the Mac's); the histogram bins the
+encoded working space, as the Mac's `encodeHistogram` bins its Layer 2
+texture; the Original is put into the session's space; the Digital
+Intermediate carries ProPhoto primaries, which its view LUTs assume. The GDI
+viewer (`engine/tools/windows_preview.cpp`) keeps the host's sRGB default and
+its BGRA8. EDR/HDR and ColourSync-equivalent display validation are future
+work. TIFF and PNG16 retain 16-bit pixels; PNG8/JPEG8 use 8-bit samples, and
+resizing is explicitly requested.
 
 Nikon HE/HE* RAW remains explicitly unsupported by this LibRaw build. A failed
 NEF open must leave the previous ARW and its session usable.
@@ -359,6 +370,44 @@ grade to `Grade::apply`: an identity or bypassed grade exact (and exactly Qt's
 texture node), a full grade within one count through the identity and a LUT,
 on a half-float frame, mapped onto the source, across tiles (WARP: 0 counts
 off through the identity, a float target 0.0001 counts from `Grade::apply`).
+
+**The soft proof** (`ProofTransform.hpp`, `SoftProof.hpp`). **S** (or the top
+bar's Proof pill, or View ▸ Soft Proof) shows the canvas as the export page's
+selected recipe will write it; **Shift+S** (View ▸ Gamut Warning, the triangle
+beside the pill) paints magenta over the colours that recipe's space cannot
+hold. The Mac proves on its export page only (`Export/SoftProof.swift`); the
+Windows proof is that same transform on the canvas, live under every edit.
+Per pixel, in the canvas shader's PROOF variants (`shaders/colorcanvas.frag`;
+the CPU form is `spk::color::sampleProof`, which the software backend runs):
+the frame's curve off, the engine's CAT02 3×3, CAM16-UCS gamut compression into
+the recipe's space with the export's own setting (`exporting::exportTransform`:
+off when the destination holds the frame's space, else the chroma knee without
+the lightness shoulder), the file's clamp, then the window's display LUT *for
+the recipe space* — entered past its shaper, so the table takes the recipe's
+linear light. Every number is the engine's (`spk_output_transform`); the
+arithmetic is `engine/host/output.cpp`'s, line for line, as the Mac's
+`Canvas/Shaders.metal` `outputTransform`. A colour is flagged where the export
+could not keep it: its chroma lay outside the destination before the knee
+(`d > 1`, the Mac shader's `outside`, the share its export page reports as
+"rolled into") or a channel stayed outside [0, 1] after the gamut map (what the
+file clips). The warning colour is a display value written after the LUT and
+the dither, never through a LUT (AGENTS.md trap 27).
+
+Why per pixel and not a 3-D table of the composite: the gamut map is far from
+smooth where it works hardest. Near black the hue of a saturated colour swings
+with the smallest change, and colours rolled onto the destination's boundary
+follow its cusps. A 65³ table of source → export → display measured 15-33
+counts from the export (`spk_qt_soft_proof_test --sweep`, ProPhoto into sRGB
+and Display P3 on four displays), with 0.6-4.8 % of 216 332 probes over one
+count, and the error only roughly halving from 33³ to 65³. Per pixel the proof
+is within one count of the file everywhere (`spk_qt_soft_proof`: at most 1.1
+counts before rounding over every recipe space from a ProPhoto and an sRGB
+session on four displays; the flag agrees with the export's on all but one
+probe in 216 332), and the shader within one count of that CPU form on D3D11
+WARP and the software backend (`spk_qt_color_canvas`), with the warning exactly
+magenta wherever both flag. On this machine's RTX 3070 a 3840 × 2160 canvas
+draws in 0.38 ms through the display LUT, 0.62 ms as a proof and 0.84 ms with
+the warning (`spk_qt_color_canvas_test --hardware --benchmark`).
 
 **Tests.** `spk_qt_color_core` runs on the CPU, with no GPU, no shown window
 and no installed profile. Its ICC profiles are built in the test, including a

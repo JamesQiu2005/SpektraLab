@@ -5,6 +5,7 @@
 #include "EditStore.hpp"
 #include "Messages.hpp"
 #include "PostDevSurfaces.hpp"
+#include "ProofTransform.hpp"
 #include <QImage>
 #include <QPointF>
 #include <QObject>
@@ -103,6 +104,21 @@ class PreviewController final : public QObject {
     // identity, digitalIntermediate}.
     Q_PROPERTY(QImage exportProof READ exportProof NOTIFY exportProofChanged)
     Q_PROPERTY(QVariantMap exportProofInfo READ exportProofInfo NOTIFY exportProofChanged)
+    // The canvas soft proof (PreviewControllerExport.cpp, SoftProof.hpp): the
+    // canvas shown as `proofRecipe`'s colour space would render it -- the
+    // export page's recipe -- while `softProof` is on, with the gamut warning
+    // over the colours the export cannot keep while `gamutWarning` is on.
+    // proofTransform is the ProofTransformPtr FrameCanvas's `proof` takes:
+    // null while off, while a Digital Intermediate (no colour space) is the
+    // recipe, and until the engine's transform for this frame's encoding and
+    // that space is in hand. proofState: {on, ready, available (false for a
+    // DI), space (the recipe space's name), identity (the file is the frame's
+    // own codes), error}.
+    Q_PROPERTY(bool softProof READ softProof WRITE setSoftProof NOTIFY proofChanged)
+    Q_PROPERTY(bool gamutWarning READ gamutWarning WRITE setGamutWarning NOTIFY proofChanged)
+    Q_PROPERTY(QVariantMap proofRecipe READ proofRecipe WRITE setProofRecipe NOTIFY proofChanged)
+    Q_PROPERTY(QVariant proofTransform READ proofTransform NOTIFY proofChanged)
+    Q_PROPERTY(QVariantMap proofState READ proofState NOTIFY proofChanged)
     // --- the Pre-Dev rail (PreviewControllerPredev.cpp) ---------------------
     // The Camera section's white balance (WhiteBalanceRows.swift): a decode
     // setting, so an edit re-decodes the RAW. {mode: as_shot|daylight|cloudy|
@@ -245,9 +261,14 @@ public:
     // after the render and before the reply is queued; a throw fails the
     // operation and keeps the displayed frame (the self-test injects one).
     using ImageFactory=std::function<QImage(const spk::desktop::FramePtr&)>;
-    // `outputColorSpace` empty: the host's display default (sRGB). Anything
-    // else is requested of every session, for tests of the tagging path;
-    // what the frame is tagged with is still what the engine reports.
+    // The session's working space, as the macOS app's (ARCHITECTURE.md 7.5:
+    // the engine renders encoded ProPhoto RGB; the canvas converts for the
+    // display, every export converts once into its recipe's space). Asked of
+    // every session unless the caller names another; what the frame is
+    // tagged with is still what the engine reports (Frame::encoding).
+    static constexpr const char* kWorkingSpace = "ProPhoto RGB";
+    // `outputColorSpace` empty: kWorkingSpace. "sRGB" keeps the old sRGB
+    // session, which tests use to pin the byte-identical sRGB export.
     explicit PreviewController(std::filesystem::path resources, QObject* parent=nullptr, ImageFactory imageFactory={},
                                QString editDirectory={}, QString outputColorSpace={});
     static QImage imageFromFrame(const spk::desktop::FramePtr&);
@@ -389,6 +410,14 @@ public:
     Q_INVOKABLE void requestExportProof(const QVariantMap& recipe);
     QImage exportProof() const { return export_proof_; }
     QVariantMap exportProofInfo() const { return export_proof_info_; }
+    bool softProof() const { return soft_proof_; }
+    void setSoftProof(bool on);
+    bool gamutWarning() const { return gamut_warning_; }
+    void setGamutWarning(bool on);
+    QVariantMap proofRecipe() const { return proof_recipe_; }
+    void setProofRecipe(const QVariantMap& recipe);
+    QVariant proofTransform() const;
+    QVariantMap proofState() const;
     Q_INVOKABLE void resetSettings();
     Q_INVOKABLE void setDialogOpen(bool open);
 
@@ -561,6 +590,7 @@ signals:
     // files written (images, then any view LUTs).
     void exportFinished(const QString& summary, bool warning, const QStringList& files);
     void exportProofChanged();
+    void proofChanged();
     // The Pre-Dev rail's outcomes: `message` is "" on success, else why.
     void neutralPicked(bool success, const QString& message);
     void processed(bool success, const QString& message);
@@ -594,6 +624,9 @@ private:
         QStringList files;
         QImage proof;
         QVariantMap proofInfo;
+        // operation "soft-proof": the transform and what it was made for.
+        ProofTransformPtr proofTransform;
+        QString proofFor;
         // operation "original": the whole Original when it was made from the
         // decode (else empty), the visible one, its histogram and token.
         QImage original_full, original;
@@ -716,6 +749,15 @@ private:
     QVariantMap export_proof_info_;
     std::atomic<quint64> proof_generation_{0};   // the worker skips a superseded proof
     void acceptProof(Reply reply);
+    // The canvas soft proof (PreviewControllerExport.cpp).
+    bool soft_proof_=false, gamut_warning_=false;
+    QVariantMap proof_recipe_;
+    ProofTransformPtr proof_transform_;
+    // "<encoding>\n<space>" keys: what proof_transform_ is for, what the
+    // canvas wants now, what the worker was last asked for; and its error.
+    QString proof_for_, proof_wanted_, proof_requested_, proof_error_;
+    void refreshSoftProof();
+    void acceptSoftProof(Reply reply);
     std::mutex mutex_;
     std::condition_variable wake_;
     std::deque<Job> jobs_;

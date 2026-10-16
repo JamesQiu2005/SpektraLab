@@ -118,6 +118,29 @@ Rectangle {
             reason: L10n.tr("toolbar.originalHelp")
             onClicked: bar.editor.toggleOriginal()
         }
+        // The soft proof (S): accent while the canvas shows the export
+        // recipe's colour space; beside it, while proofing, the gamut warning
+        // (Shift+S). Windows only -- the Mac proves on its export page.
+        PillButton {
+            objectName: "proofButton"
+            Layout.leftMargin: Theme.actionGap
+            outlined: true
+            text: L10n.tr("toolbar.proof")
+            active: preview.softProof
+            available: bar.editor.canProof || preview.softProof
+            toolTip: L10n.tr("toolbar.proofHelp", [preview.proofState.space])
+            reason: preview.hasFrame ? L10n.tr("toolbar.proofUnavailable") : L10n.tr("toolbar.proofHelp", [preview.proofState.space])
+            onClicked: bar.editor.toggleSoftProof()
+        }
+        IconButton {
+            objectName: "gamutWarningButton"
+            Layout.leftMargin: Theme.barIconGap
+            visible: preview.softProof
+            glyph: Icons.warning; glyphSize: 13
+            active: preview.gamutWarning
+            toolTip: L10n.tr("toolbar.gamutWarningHelp", [preview.proofState.space])
+            onClicked: bar.editor.toggleGamutWarning()
+        }
         BusyIndicator {
             Layout.leftMargin: 10
             Layout.preferredWidth: 18; Layout.preferredHeight: 18

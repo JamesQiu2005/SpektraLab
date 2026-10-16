@@ -16,6 +16,7 @@
 #include <QColorSpace>
 #include <array>
 #include <atomic>
+#include <cstdint>
 #include <memory>
 
 namespace spk::color {
@@ -83,6 +84,7 @@ std::shared_ptr<ColorLut> buildCurvedLut(const QColorSpace& source, const QColor
 
 bool isNearIdentity(const ColorLut& lut, float tolerance = kNearIdentityTolerance);
 
+
 // The texture coordinate the canvas samples for a value x in [0, 1], for the
 // table and for both curves alike: entry i of N sits at the centre of texel
 // i, so x = i / (N - 1) must map to (i + 0.5) / N.
@@ -112,5 +114,19 @@ struct LutSampling {
 // table, clamp to [0, 1], output(sqrt(.)). Alpha is the table's, interpolated.
 // An identity LUT returns the input.
 std::array<float, 4> sampleLut(const ColorLut& lut, float r, float g, float b, LutSampling sampling = {});
+
+// The soft proof as the canvas computes it (ProofTransform.hpp), for `count`
+// encoded source colours (interleaved RGB, clamped to [0, 1] first): the
+// export's transform per pixel (proof.evaluate), the file's clamp, then `lut`
+// -- the display LUT for the recipe space, ColorPipeline::lut(proof.target) --
+// entered past its shaper when it has curves (its table takes the recipe
+// space's linear light, the shaper being the recipe space's decode), else
+// at the recipe space's encoded value (proof.encodeTarget); the identity LUT
+// shows that encoded value as it is. Out: RGBA per colour, RGB clamped to
+// [0, 1], A 0 where the export could not keep the colour (outside, or a
+// channel clipped by more than kProofClipTolerance) and 1 elsewhere. The
+// shader's PROOF variants compute the same.
+void sampleProof(const ColorLut& lut, const ProofTransform& proof, const float* encoded, std::size_t count,
+                 float* rgba, LutSampling sampling = {});
 
 } // namespace spk::color

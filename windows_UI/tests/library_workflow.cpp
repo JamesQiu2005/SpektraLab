@@ -2,6 +2,7 @@
 // the UI uses these same slots. Unit geometry/writer cases live separately.
 #include "PreviewController.hpp"
 #include "FrameOutput.hpp"
+#include "RecipeExport.hpp"
 #include "display_checks.hpp"
 #include <QCryptographicHash>
 #include <QDir>
@@ -72,9 +73,14 @@ Shown shown(const PreviewController& controller) {
     return {controller.previewImage().copy(),controller.frame(),geometryOf(controller)};
 }
 qint64 ambiguousSamples=0;
+// The session renders the ProPhoto working space and the legacy export writes
+// sRGB: the file is the shown frame converted once (display_checks::
+// expectedFile with the export's conversion), and the displayed half floats
+// are that same frame's own codes.
+display_checks::ToSrgb toSrgb;
 bool fileShows(const QImage& file,const Shown& expected,const display_checks::ExportDisplayAgreement& agreement) {
-    if(!display_checks::sameRgb8(file,display_checks::expected8(expected.frame,expected.geometry)))return false;
-    const auto result=agreement.compare(file,expected.image);
+    if(!display_checks::sameRgb8(file,display_checks::expected8(expected.frame,expected.geometry,toSrgb)))return false;
+    const auto result=agreement.compare(display_checks::frame8(expected.frame,expected.geometry),expected.image);
     ambiguousSamples+=result.ambiguous;
     return result.samples==qint64(file.width())*file.height()*3&&result.disagreements==0;
 }
@@ -119,6 +125,13 @@ int main(int argc,char** argv) {
               "Cannot make independent fixture copies");
         QJsonArray operations;
         const display_checks::ExportDisplayAgreement agreement;
+        // The export's own conversion, on an engine of the test's: what the
+        // legacy export does to a ProPhoto frame before the sRGB writers.
+        struct Engine{spk_engine* e;~Engine(){if(e)spk_engine_destroy(e);}} engine{spk_engine_create(args[1].toUtf8().constData(),nullptr)};
+        check(engine.e!=nullptr,"test engine");
+        toSrgb=[e=engine.e](const QImage& rgba64,const spk::desktop::OutputEncoding& from){
+            return spk::desktop::exporting::convert(rgba64,from,"sRGB",e).rgba64;
+        };
         {
             PreviewController controller(resources,nullptr,{},destination+"/edits");
             QObject::connect(&controller,&PreviewController::operationFinished,&controller,
@@ -132,6 +145,9 @@ int main(int argc,char** argv) {
             check(controller.libraryItems().size()==2&&controller.selectedCount()==2,
                   "Multiple-file import did not create two selected items");
             checkCurrent(controller,0,first);
+            // The working space: every 8-bit file below is a conversion.
+            check(controller.frame()->encoding.color_space=="ProPhoto RGB"&&controller.frame()->encoding.cctf_encoding,
+                  "The session does not render encoded ProPhoto RGB");
             check(!controller.previewImage().isNull(),"Imported frame has no preview");
 
             // Leave settings in the 180 ms debounce window, then switch. The

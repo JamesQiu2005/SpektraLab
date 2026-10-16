@@ -10,6 +10,7 @@
 // <new-output-directory>. The RAW is copied; nothing is written beside it.
 #include "PreviewController.hpp"
 #include "ExportRecipeStore.hpp"
+#include "PostDev.hpp"
 #include <QColorSpace>
 #include <QCryptographicHash>
 #include <QDir>
@@ -152,7 +153,11 @@ int main(int argc, char** argv) {
         }
         QElapsedTimer clock; clock.start();
         {
-            PreviewController c(resources, nullptr, {}, dest + "/edits");
+            // An sRGB session, asked for by name since the working space
+            // became ProPhoto RGB: the one place the old export's bytes are
+            // pinned (the recipe's sRGB TIFF of an sRGB frame is the legacy
+            // writer's file, byte for byte).
+            PreviewController c(resources, nullptr, {}, dest + "/edits", QStringLiteral("sRGB"));
             waitFor([&] { return c.ready(); }, "engine");
             c.openFiles({QUrl::fromLocalFile(photos[0]), QUrl::fromLocalFile(photos[1]), QUrl::fromLocalFile(photos[2])});
             waitFor([&] { return c.hasFrame(); }, "first photo"); idle(c, "open");
@@ -274,15 +279,70 @@ int main(int argc, char** argv) {
         }
         report["srgb_session_ms"] = double(clock.elapsed());
 
-        // ---- a ProPhoto RGB session: the export converts once, correctly ----
+        // ---- the default session, ProPhoto RGB: every export converts once, correctly ----
         {
-            PreviewController c(resources, nullptr, {}, dest + "/edits-prophoto", QStringLiteral("ProPhoto RGB"));
+            PreviewController c(resources, nullptr, {}, dest + "/edits-prophoto");
             waitFor([&] { return c.ready(); }, "engine (ProPhoto)");
             c.openFiles({QUrl::fromLocalFile(photos[0])});
             waitFor([&] { return c.hasFrame(); }, "ProPhoto photo"); idle(c, "open");
             const auto frame = c.frame();
-            check(frame->encoding.color_space == "ProPhoto RGB" && frame->encoding.cctf_encoding, "a ProPhoto-encoded session");
+            check(frame->encoding.color_space == "ProPhoto RGB" && frame->encoding.cctf_encoding,
+                  "the default session renders the working space, encoded ProPhoto RGB");
             const auto& px = frame->pixels();
+
+            // The legacy single export (Export… without a recipe) writes sRGB.icc:
+            // it must convert the working space once, as the recipe does --
+            // byte for byte the recipe's sRGB TIFF -- and never write the
+            // frame's ProPhoto codes under an sRGB tag.
+            {
+                const QString legacy = dest + "/prophoto-legacy.tif";
+                c.exportImage(QUrl::fromLocalFile(legacy), 0, 95, 0); idle(c, "legacy export (ProPhoto)");
+                check(QFileInfo(legacy).size() > 0, "legacy export of a ProPhoto frame written: " + c.status());
+                const auto viaRecipe = run(c, recipe(recipes::Format::tiff, recipes::kSRGB, dest + "/prophoto-legacy-recipe", false));
+                check(viaRecipe.files.size() == 1 && sha(viaRecipe.files[0]) == sha(legacy),
+                      "ProPhoto session: legacy TIFF == recipe sRGB TIFF, byte for byte");
+                const auto t = readTiff(legacy);
+                int same = 0, samples = 0;
+                for(std::uint32_t y = 5; y < px.height; y += 61) for(std::uint32_t x = 9; x < px.width; x += 57) {
+                    const std::uint16_t* s = px.rgba16 + (std::size_t(y)*px.row_stride_px + x)*4;
+                    const std::uint16_t* f = t.rgb.data() + (std::size_t(y)*t.w + x)*3;
+                    ++samples; same += s[0] == f[0] && s[1] == f[1] && s[2] == f[2];
+                }
+                check(QColorSpace::fromIccProfile(t.icc).description().contains("sRGB") && same < samples / 10,
+                      QStringLiteral("the legacy sRGB file carries converted codes (%1 of %2 samples equal the ProPhoto frame's)").arg(same).arg(samples));
+                report["prophoto_legacy_equal_codes"] = double(same) / samples;
+            }
+            // Post-Dev in the working space: the graded ProPhoto file (an
+            // identity conversion) is Grade(params, ProPhoto's pivot 0.3857 --
+            // the Mac's) applied to the frame's own codes, and not the grade at
+            // sRGB's pivot.
+            {
+                check(c.setPostDev("exposure", 0.7) && c.setPostDev("contrast", 25), "grade the ProPhoto photo");
+                idle(c, "grade");
+                const auto out = run(c, recipe(recipes::Format::tiff, "kCGColorSpaceROMMRGB", dest + "/prophoto-graded", false));
+                check(out.files.size() == 1, "graded ProPhoto TIFF written");
+                const auto t = readTiff(out.files[0]);
+                namespace postdev = spk::desktop::postdev;
+                const auto params = c.postDevParams();
+                const postdev::Grade atProPhoto(params, postdev::proPhotoMidGrey), atSrgb(params, postdev::srgbMidGrey);
+                double worstPro = 0, worstSrgb = 0; int n = 0;
+                for(std::uint32_t y = 13; y < px.height; y += 71) for(std::uint32_t x = 17; x < px.width; x += 67) {
+                    const std::uint16_t* s = px.rgba16 + (std::size_t(y)*px.row_stride_px + x)*4;
+                    const std::uint16_t* f = t.rgb.data() + (std::size_t(y)*t.w + x)*3;
+                    const float u = (x + 0.5f) / px.width, v = (y + 0.5f) / px.height;
+                    const auto a = atProPhoto.pixel({s[0]/65535.0f, s[1]/65535.0f, s[2]/65535.0f}, u, v);
+                    const auto b = atSrgb.pixel({s[0]/65535.0f, s[1]/65535.0f, s[2]/65535.0f}, u, v);
+                    for(int k = 0; k < 3; ++k) {
+                        worstPro = std::max(worstPro, std::abs(f[k]/65535.0 - std::clamp(double(a[k]), 0.0, 1.0)));
+                        worstSrgb = std::max(worstSrgb, std::abs(f[k]/65535.0 - std::clamp(double(b[k]), 0.0, 1.0)));
+                    }
+                    ++n;
+                }
+                report["postdev_prophoto_pivot_max_error"] = worstPro; report["postdev_srgb_pivot_max_error"] = worstSrgb;
+                check(n > 100 && worstPro < 2.0 / 65535 + 1e-6 && worstSrgb > 0.01,
+                      QStringLiteral("ProPhoto Post-Dev grades at ProPhoto's pivot: %1 against %2 at sRGB's").arg(worstPro).arg(worstSrgb));
+                c.resetPostDev({}); idle(c, "ungrade");
+            }
             const double romm[8] = {0.7347, 0.2653, 0.1596, 0.8404, 0.0366, 0.0001, 0.3457, 0.3585};
             struct Target { const char* key; const char* name; double p[8]; int curve; };
             const Target targets[] = {

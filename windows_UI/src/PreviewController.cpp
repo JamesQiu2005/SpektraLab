@@ -1,6 +1,7 @@
 #include "PreviewController.hpp"
 #include "FrameImage.hpp"
 #include "PostDevSurfaces.hpp"
+#include "RecipeExport.hpp"
 #include <QElapsedTimer>
 #include <QMetaObject>
 #include <QDir>
@@ -208,6 +209,8 @@ PreviewController::PreviewController(std::filesystem::path resources,QObject* pa
     // A pair's frames graded each as its own, once per pause in a drag.
     pair_grade_timer_.setSingleShot(true);pair_grade_timer_.setInterval(60);
     connect(&pair_grade_timer_,&QTimer::timeout,this,&PreviewController::regradePair);
+    // The soft proof follows the frame's encoding (PreviewControllerExport.cpp).
+    connect(this,&PreviewController::frameChanged,this,&PreviewController::refreshSoftProof);
     auto_apply_.setSingleShot(true);auto_apply_.setInterval(180);
     connect(&auto_apply_,&QTimer::timeout,this,[this]{if(dirty())apply();});
     save_timer_.setSingleShot(true);save_timer_.setInterval(350);
@@ -215,7 +218,7 @@ PreviewController::PreviewController(std::filesystem::path resources,QObject* pa
     // The canvas is fed from pixels() (publish), so the host's 8-bit copy
     // would be 132 MB per 33 MP frame nobody reads.
     desktop::HostOptions options;options.bgra8_display=false;
-    if(!outputColorSpace.isEmpty())options.output_color_space=outputColorSpace.toStdString();
+    options.output_color_space=outputColorSpace.isEmpty()?std::string(kWorkingSpace):outputColorSpace.toStdString();
     setupPostDev();
     worker_=std::thread([this,resources=std::move(resources),options]{workerLoop(resources,options);});
 }
@@ -255,6 +258,7 @@ void PreviewController::submit(Job job,QString status,QString operation) {
 void PreviewController::accept(Reply reply) {
     // A proof is not an operation: it changes no state but its own picture.
     if(reply.operation=="proof"){acceptProof(std::move(reply));return;}
+    if(reply.operation=="soft-proof"){acceptSoftProof(std::move(reply));return;}
     // The Original rides the same worker but is no operation: it neither
     // holds the controller busy nor reports one finished.
     if(reply.operation=="original"){acceptOriginal(std::move(reply));return;}
@@ -702,8 +706,11 @@ void PreviewController::exportImage(const QUrl& url,int format,int quality,int m
     // cut frame the whole film canvas, as the Mac grades it (Exporter
     // .filePixels: applyLayer2 on the engine's print, then printGeometry).
     const auto grade=pairActive()?pairExportGrade(library_[active_index_],held):desktop::postdev::exportGrade(postdev_);
-    submit([p,held,gen,geometry,resources,format,quality,maxLongEdge,grade](auto&){Reply r;r.generation=gen;r.operation="export";
-        try{output::exportFrame(held,p,geometry,exportOptions(format,quality,maxLongEdge),resources,grade);}catch(const std::exception& e){r.error=text(e.what());}return r;},uiText("status.exporting"),"export");
+    // A frame in the working space is converted into sRGB once before the
+    // sRGB-tagged writers see it (RecipeExport.hpp exportLegacy).
+    submit([p,held,gen,geometry,resources,format,quality,maxLongEdge,grade](auto& host){Reply r;r.generation=gen;r.operation="export";
+        try{desktop::exporting::exportLegacy(held,p,geometry,exportOptions(format,quality,maxLongEdge),resources,grade,host.engine());}
+        catch(const std::exception& e){r.error=text(e.what());}return r;},uiText("status.exporting"),"export");
 }
 
 QVariantMap PreviewController::adjustments() const {
@@ -1264,8 +1271,8 @@ void PreviewController::exportBatch(const QUrl& folder,int format,int quality,in
                         }
                         const auto developed=item.pair?developPair(host,item,held) // one picture (Exporter.swift)
                             :useShown?held:host.open_raw(source,item.mode,item.settings,toCut(item.geometry));
-                        output::exportFrame(developed,target,developed->cut?output::Geometry{}:item.geometry,options,resources,
-                                            item.pair?pairExportGrade(item,developed):desktop::postdev::exportGrade(item.postdev));++done;
+                        desktop::exporting::exportLegacy(developed,target,developed->cut?output::Geometry{}:item.geometry,options,
+                                                         resources,item.pair?pairExportGrade(item,developed):desktop::postdev::exportGrade(item.postdev),host.engine());++done;
                     }
                 }catch(const std::exception& e){++errors;details.append(name+": "+text(e.what()));}
                 ++processed;

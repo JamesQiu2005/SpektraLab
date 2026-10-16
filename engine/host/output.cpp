@@ -89,6 +89,7 @@ bool OutputTransform::fetch(spk_engine* engine, const std::string& src, const st
     nl_ = uint32_t(g.at("cmax_rows").as_int());
     nh_ = uint32_t(g.at("cmax_cols").as_int());
     cmax_ = cmax;
+    owned_cmax_.clear();
     if (size_t(nl_) * nh_ != count) { error = "output transform: C_max table size mismatch"; return false; }
     // Same space in and out: the engine already compressed into it, so the
     // pixels pass through untouched (only quantisation can change them).
@@ -99,7 +100,7 @@ bool OutputTransform::fetch(spk_engine* engine, const std::string& src, const st
 // `Canvas/Shaders.metal` cam16ucsInto / `shaders/gamut.metal`, line for line.
 static inline void cam16ucs_into(float rgb[3], const std::array<float, 9>& m2x, const std::array<float, 9>& m2r,
                                  const std::array<float, 22>& k, const float* cmax, uint32_t nL, uint32_t nh,
-                                 bool lc_active) {
+                                 bool lc_active, uint8_t* outside = nullptr) {
     using std::pow; using std::fabs; using std::sqrt; using std::log; using std::exp;
     const float F_L = k[0], N_bb = k[1], N_cb = k[2], n_ = k[3], z = k[4], A_w = k[5], c_ = k[6], N_c = k[7];
     const float L_grid0 = k[8], L_grid1 = k[9], h_grid0 = k[10], h_step = k[11];
@@ -176,6 +177,9 @@ static inline void cam16ucs_into(float rgb[3], const std::array<float, 9>& m2x, 
     const float safe = Cmax > 1e-9f ? Cmax : 1e-9f;
 
     float d = Mp / safe;
+    // Before the knee, whose limit is 1: after it every pixel is inside by
+    // construction (Canvas/Shaders.metal: `outside = d > 1.0f`).
+    if (outside) *outside = d > 1.0f ? 1 : 0;
     if (d > threshold) {
         const float sc = limit - threshold;
         const float xk = (d - threshold) / sc;
@@ -265,12 +269,43 @@ void OutputTransform::to_linear(const uint16_t* rgba16, uint32_t w, uint32_t h, 
                 } else {
                     for (int i = 0; i < 3; ++i)
                         lin[i] = matrix_[i * 3] * v[0] + matrix_[i * 3 + 1] * v[1] + matrix_[i * 3 + 2] * v[2];
-                    if (cam16_) cam16ucs_into(lin, m2x_, m2r_, k_, cmax_, nl_, nh_, lightness_);
+                    if (cam16_) cam16ucs_into(lin, m2x_, m2r_, k_, table(), nl_, nh_, lightness_);
                 }
                 out[x * 3] = lin[0]; out[x * 3 + 1] = lin[1]; out[x * 3 + 2] = lin[2];
             }
         }
     });
+}
+
+void OutputTransform::transform_encoded(const float* encoded, size_t count, float* linear, uint8_t* outside) const {
+    for (size_t p = 0; p < count; ++p) {
+        const float v[3] = {cctf_decode_mode(encoded[p * 3], src_mode_), cctf_decode_mode(encoded[p * 3 + 1], src_mode_),
+                            cctf_decode_mode(encoded[p * 3 + 2], src_mode_)};
+        float lin[3] = {v[0], v[1], v[2]};
+        uint8_t out = 0;
+        if (!identity_) {
+            for (int i = 0; i < 3; ++i)
+                lin[i] = matrix_[i * 3] * v[0] + matrix_[i * 3 + 1] * v[1] + matrix_[i * 3 + 2] * v[2];
+            if (cam16_) cam16ucs_into(lin, m2x_, m2r_, k_, table(), nl_, nh_, lightness_, &out);
+        }
+        linear[p * 3] = lin[0]; linear[p * 3 + 1] = lin[1]; linear[p * 3 + 2] = lin[2];
+        if (outside) outside[p] = out;
+    }
+}
+
+OutputTransformParameters OutputTransform::parameters() const {
+    OutputTransformParameters p;
+    p.source_mode = src_mode_; p.target_mode = dst_mode_; p.identity = identity_;
+    p.matrix = matrix_; p.cam16 = cam16_; p.lightness = lightness_;
+    p.m_to_xyz = m2x_; p.m_to_rgb = m2r_; p.k = k_;
+    p.cmax_rows = nl_; p.cmax_cols = nh_; p.cmax = table();
+    return p;
+}
+
+void OutputTransform::own_tables() {
+    if (!cmax_ || !owned_cmax_.empty()) return;
+    owned_cmax_.assign(cmax_, cmax_ + size_t(nl_) * nh_);
+    cmax_ = nullptr;   // table() now answers with the copy
 }
 
 void OutputTransform::encode_rgba8(const std::vector<float>& rgb, std::vector<uint8_t>& rgba) const {

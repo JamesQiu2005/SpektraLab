@@ -5,6 +5,7 @@
 #include <QRgbaFloat>
 #include <algorithm>
 #include <cmath>
+#include <vector>
 
 namespace spk::color {
 
@@ -212,6 +213,40 @@ std::array<float, 4> sampleLut(const ColorLut& lut, float r, float g, float b, L
     for (int c = 0; c < 3; ++c)
         result[c] = sampleCurve(lut.output, lut.curveSize, c, std::sqrt(std::clamp(result[c], 0.0f, 1.0f)), sampling);
     return result;
+}
+
+void sampleProof(const ColorLut& lut, const ProofTransform& proof, const float* encoded, std::size_t count, float* rgba,
+                 LutSampling sampling) {
+    if (count == 0 || !proof.evaluate) return;
+    std::vector<float> in(count * 3), linear(count * 3);
+    std::vector<std::uint8_t> outside(count);
+    for (std::size_t i = 0; i < count * 3; ++i) in[i] = std::clamp(encoded[i], 0.0f, 1.0f);
+    proof.evaluate(in.data(), count, linear.data(), outside.data());
+    for (std::size_t i = 0; i < count; ++i) {
+        float c[3];
+        bool clipped = false;
+        for (int k = 0; k < 3; ++k) {
+            const float l = linear[i * 3 + k];
+            // NaN fails both comparisons: counted clipped, shown black.
+            if (!(l >= -kProofClipTolerance && l <= 1.0f + kProofClipTolerance)) clipped = true;
+            c[k] = l > 0.0f ? (l < 1.0f ? l : 1.0f) : 0.0f;
+        }
+        std::array<float, 4> out{};
+        if (lut.isIdentity()) {
+            for (int k = 0; k < 3; ++k) out[k] = proof.encodeTarget ? proof.encodeTarget(c[k]) : c[k];
+        } else if (lut.hasCurves()) {
+            // Past the shaper: the table takes the recipe space's linear light.
+            out = sampleTable(lut, c, sampling);
+            for (int k = 0; k < 3; ++k)
+                out[k] = sampleCurve(lut.output, lut.curveSize, k, std::sqrt(std::clamp(out[k], 0.0f, 1.0f)), sampling);
+        } else {
+            float e[3];
+            for (int k = 0; k < 3; ++k) e[k] = proof.encodeTarget ? proof.encodeTarget(c[k]) : c[k];
+            out = sampleTable(lut, e, sampling);
+        }
+        for (int k = 0; k < 3; ++k) rgba[i * 4 + k] = std::clamp(out[k], 0.0f, 1.0f);
+        rgba[i * 4 + 3] = outside[i] || clipped ? 0.0f : 1.0f;
+    }
 }
 
 } // namespace spk::color
