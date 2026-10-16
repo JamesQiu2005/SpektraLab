@@ -418,6 +418,9 @@ int main(int argc,char** argv) {
                 c.selectImage(1);idle(c,"Open the synced photograph");
                 waitFor([&]{return c.activeIndex()==1&&c.parameter("scene_latitude_needs_fit")==false&&!c.dirty()&&!c.busy();},
                         "The synced placement is fitted on its own frame");
+                std::cout<<"synced placement: active "<<std::get<bool>(c.frame()->settings.get("scene_latitude_active"))
+                         <<", pull-back "<<c.parameter("scene_latitude_highlight_pull_back").toDouble()
+                         <<", knee "<<c.parameter("scene_latitude_highlight_knee").toDouble()<<" (source knee "<<knee<<")\n";
                 check(std::get<bool>(c.frame()->settings.get("scene_latitude_active"))&&
                       near(c.parameter("scene_latitude_highlight_pull_back").toDouble(),step)&&
                       std::abs(c.parameter("scene_latitude_highlight_knee").toDouble()-knee)<1e-9,

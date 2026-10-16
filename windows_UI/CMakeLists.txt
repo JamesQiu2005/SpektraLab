@@ -222,7 +222,7 @@ if(BUILD_TESTING)
     # the eyedropper's geometry against FrameOutput's, and the controller's
     # Pre-Dev API with no photograph open.
     qt_add_executable(spk_qt_predev_test tests/predev.cpp src/PreviewController.hpp src/PreviewController.cpp
-        src/FrameOutput.cpp src/EditStore.cpp ${spektralab_predev_sources})
+        src/FrameOutput.cpp src/FrameImage.cpp src/EditStore.cpp ${spektralab_predev_sources})
     target_include_directories(spk_qt_predev_test PRIVATE src)
     target_compile_features(spk_qt_predev_test PRIVATE cxx_std_20)
     target_link_libraries(spk_qt_predev_test PRIVATE spk_desktop_host Qt6::Core Qt6::Gui)
