@@ -657,6 +657,11 @@
         "decode.compatibleNote": "Matches the validated native RAW pipeline.",
         "decode.flatReason": "A TIFF, JPEG or PNG is decoded from its own colour profile; there is no RAW decode to choose.",
         "decode.headroomNote": "Keeps some highlights and negative values after demosaicing; demosaicing is still integer.",
+        "decode.highlights": "Highlights",
+        "decode.shadows": "Shadows",
+        "decode.highlightsHelp": "Darkens (left) or brightens (right) the bright regions of the scene before the film sees it, judged by region so the detail inside them is kept. Up to 2 stops.",
+        "decode.shadowsHelp": "Brightens (right) or darkens (left) the dark regions of the scene before the film sees it, judged by region so the detail inside them is kept. Up to 2 stops.",
+        "decode.toneReset": "Reset Highlights and Shadows",
 
         "info.title": "Photo Info",
         "info.noPhoto": "No photo open",

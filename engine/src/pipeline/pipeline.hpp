@@ -671,6 +671,13 @@ private:
     bool scene_latitude_wanted() const;
     bool node_scene_latitude(const Image& in, Image& out, std::string& error);
 
+    // The scene's Highlights and Shadows (`scene_latitude.cpp`,
+    // SceneToneParams): after auto-exposure, in the film prefix, because the
+    // base it is judged against is a neighbourhood of the whole frame. Not
+    // dispatched at all while both amounts are 0.
+    bool scene_tone_wanted() const;
+    bool node_scene_tone(const Image& in, Image& out, std::string& error);
+
     // RFC-024's virtual contrast mask (`contrast_mask.cpp`). `prepare` runs
     // once per print run on the whole negative, after `print_prefix`; the
     // epilogue replaces `node_enlarger_spectral` in `print_spectral` only

@@ -285,6 +285,17 @@ struct SceneLatitudeParams {
     double b_shadow_knee = -2.0, b_shadow_room = 0.0;
 };
 
+// Highlights and Shadows on the scene, before Scene Latitude (native only;
+// the Windows host's RAW stage): a *local* move in stops, judged against an
+// edge-aware base of the frame's own brightness rather than each pixel's, so
+// a bright region is pulled down as a whole and the contrast inside it is
+// kept. -100..100 each; 100 is `kSceneToneMaxStops` at the far end of that
+// side. Both 0 is the node not dispatched at all.
+struct SceneToneParams {
+    double highlights = 0.0;
+    double shadows = 0.0;
+};
+
 bool is_known_scene_latitude_norm(const std::string& norm);
 bool is_known_camera_filter(const std::string& name);
 
@@ -306,6 +317,7 @@ struct CameraParams {
     std::string filter;
     DiffusionFilterParams diffusion_filter;
     SceneLatitudeParams scene_latitude;
+    SceneToneParams scene_tone;
 };
 
 struct EnlargerParams {

@@ -66,9 +66,9 @@ Rectangle {
                 LatitudeSection {}
                 CameraSection {}
                 FilmFormatSection {}
+                DecodeSection {}
                 ScenePlacementSection {}
                 ToneMaskSection {}
-                DecodeSection {}
                 InfoSection { divider: false }
             }
         }

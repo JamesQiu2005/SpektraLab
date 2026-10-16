@@ -132,6 +132,7 @@ if(NOT APPLE)
             spk_overscan_canvas spk_overscan_film_present spk_overscan_light
             spk_di_encode spk_scene_latitude
             spk_overscan_add_mask
+            spk_scene_tone_reduce spk_scene_tone
             CACHE INTERNAL "")
         set(vulkan_spirv)
         file(GLOB vulkan_includes "${CMAKE_CURRENT_SOURCE_DIR}/src/shaders/vulkan/*.glsl")

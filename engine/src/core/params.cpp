@@ -204,6 +204,11 @@ const SchemaField kFields[] = {
     // The lens's colour filter (B&W research, 2026-10-07). Native only. SHOOT:
     // it changes the light the negative is made of.
     {"camera_filter",            "camera.filter",                         S, SHOOT, false, 0, 0, false},
+    // Highlights and Shadows on the scene, before Scene Latitude (the Windows
+    // host's RAW stage; SceneToneParams). Native only, after `camera_filter`.
+    // SHOOT: the move is light on the negative, so an edit re-develops it.
+    {"scene_tone_highlights",    "camera.scene_tone.highlights",          F, SHOOT, true, -100.0, 100.0, false},
+    {"scene_tone_shadows",       "camera.scene_tone.shadows",             F, SHOOT, true, -100.0, 100.0, false},
     // The app's *preview resolution*: the `live` tier's long edge, and so the
     // size every interactive edit renders at. PRINT layer, because it is a
     // decision about the canvas rather than about the film -- but it is one of
@@ -256,6 +261,8 @@ double* float_slot(Params& p, const std::string& path) {
     if (path == "camera.scene_latitude.rolloff") return &p.camera.scene_latitude.rolloff;
     if (path == "camera.scene_latitude.max_lift") return &p.camera.scene_latitude.max_lift;
     if (path == "camera.scene_latitude.split") return &p.camera.scene_latitude.split;
+    if (path == "camera.scene_tone.highlights") return &p.camera.scene_tone.highlights;
+    if (path == "camera.scene_tone.shadows") return &p.camera.scene_tone.shadows;
     if (path == "camera.scene_latitude.b_highlight_knee") return &p.camera.scene_latitude.b_highlight_knee;
     if (path == "camera.scene_latitude.b_highlight_room") return &p.camera.scene_latitude.b_highlight_room;
     if (path == "camera.scene_latitude.b_shadow_knee") return &p.camera.scene_latitude.b_shadow_knee;

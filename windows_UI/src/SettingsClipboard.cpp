@@ -24,8 +24,11 @@ const std::vector<GroupInfo>& groups() {
     static const std::vector<GroupInfo> table{
         {Group::filmAndPaper, "filmAndPaper", {"film_stock", "print_stock", "scan_film"}},
         // The enlarger's brightness is the print's exposure (user, 2026-09-28).
+        // The scene's Highlights and Shadows are exposure by region (Windows
+        // only; macOS has no such rows).
         {Group::exposure, "exposure",
-         {"auto_exposure", "auto_exposure_method", "exposure_compensation_ev", "print_exposure"}},
+         {"auto_exposure", "auto_exposure_method", "exposure_compensation_ev", "print_exposure",
+          "scene_tone_highlights", "scene_tone_shadows"}},
         // The enlarger's filters: in the darkroom, colour is the filter pack;
         // the scale is the unit those two are counted in (API-SPEC §14).
         {Group::whiteBalance, "whiteBalance",

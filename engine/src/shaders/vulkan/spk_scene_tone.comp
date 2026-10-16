@@ -1,0 +1,59 @@
+#version 450
+#extension GL_GOOGLE_include_directive : require
+
+// The scene tone's application, scene_latitude.metal::spk_scene_tone: per
+// pixel, the base `a * x + b` with `(a, b)` sampled bilinearly from the grid
+// (the guided filter's coefficients, so the base follows the pixel's own `x`
+// across an edge and is smooth inside a region), then
+//
+//     d = H * smoothstep(0, R, base) + S * smoothstep(0, R, -base)
+//     RGB' = 2^d * RGB
+//
+// A positive scalar gain on the linear triple: the colour is kept, and the
+// detail -- the pixel's distance from its base -- is what the move leaves.
+// `row0` is the image's first row in the frame (0 for a whole render).
+layout(local_size_x = 256) in;
+#include "spk_scene_tone.glsl"
+layout(set = 0, binding = 2, std430) readonly buffer Coef { float value[]; } coef;
+layout(set = 0, binding = 3, std430) readonly buffer Meta { uint value[]; } meta;
+layout(set = 0, binding = 4, std430) writeonly buffer Output { float value[]; } output_data;
+
+// Metal's precise clamp is fmin(fmax(v, lo), hi), where a NaN operand yields
+// the other one; GLSL's FClamp leaves that choice undefined.
+float metal_clamp(float v, float lo, float hi) {
+    if (isnan(v) || v < lo) return lo;
+    return v > hi ? hi : v;
+}
+
+// Metal's mix is `x + (y - x) * t`; GLSL's rounds differently.
+vec2 metal_mix(vec2 x, vec2 y, float t) { return x + (y - x) * t; }
+
+// Metal's smoothstep, written out: t * t * (3 - 2 t), t clamped to [0, 1].
+float ramp(float v, float width) {
+    float t = metal_clamp(v / width, 0.0, 1.0);
+    return t * t * (3.0 - 2.0 * t);
+}
+
+void main() {
+    uint n = meta.value[0], W = meta.value[1], H = meta.value[2], row0 = meta.value[3];
+    uint gw = meta.value[4], gh = meta.value[5];
+    uint i = spk_global_index();
+    if (i >= n) return;
+
+    uint px = i % W, py = row0 + i / W;
+    float u = metal_clamp((float(px) + 0.5) * float(gw) / float(W) - 0.5, 0.0, float(gw - 1u));
+    float v = metal_clamp((float(py) + 0.5) * float(gh) / float(H) - 0.5, 0.0, float(gh - 1u));
+    uint u0 = uint(floor(u)), v0 = uint(floor(v));
+    uint u1 = min(u0 + 1u, gw - 1u), v1 = min(v0 + 1u, gh - 1u);
+    float tu = u - float(u0), tv = v - float(v0);
+    vec2 c00 = vec2(coef.value[2u * (v0 * gw + u0)], coef.value[2u * (v0 * gw + u0) + 1u]);
+    vec2 c01 = vec2(coef.value[2u * (v0 * gw + u1)], coef.value[2u * (v0 * gw + u1) + 1u]);
+    vec2 c10 = vec2(coef.value[2u * (v1 * gw + u0)], coef.value[2u * (v1 * gw + u0) + 1u]);
+    vec2 c11 = vec2(coef.value[2u * (v1 * gw + u1)], coef.value[2u * (v1 * gw + u1) + 1u]);
+    vec2 ab = metal_mix(metal_mix(c00, c01, tu), metal_mix(c10, c11, tu), tv);
+
+    float base = ab.x * tone_x(i) + ab.y;
+    float d = p.value[4] * ramp(base, p.value[6]) + p.value[5] * ramp(-base, p.value[6]);
+    float k = exp2(d);
+    for (uint c = 0u; c < 3u; ++c) output_data.value[3u * i + c] = input_data.value[3u * i + c] * k;
+}

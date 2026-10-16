@@ -1794,6 +1794,11 @@ bool Pipeline::film_prefix(const Image& in, const FrameShape& frame, Image& cur,
     SPK_NODE(node_decode_input(cur, next, error)); cur = next;
     SPK_NODE(node_geometry(cur, next, error)); cur = next;
     SPK_NODE(node_auto_exposure(cur, next, error)); cur = next;
+    // The scene's Highlights and Shadows: after the meter, so its mid-grey is
+    // the metered one and the meter never chases the move, and here rather
+    // than with Scene Latitude in the band-able stage, because its base is a
+    // neighbourhood of the whole frame.
+    if (scene_tone_wanted()) { SPK_NODE(node_scene_tone(cur, next, error)); cur = next; }
 
     // `preprocess.crop_rescale`: at the shipped defaults its only job is to
     // fix the film's pixel pitch, which every micrometre-specified effect

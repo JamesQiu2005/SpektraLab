@@ -282,15 +282,21 @@ sent to the engine by its wire name; new photos take the macOS defaults.
 - **Film Format**: the film's size and side, which scale grain, halation and
   coupler diffusion in micrometres, and every effect row with its switch and
   strength.
+- **RAW Decode** (Windows only, before Scene Placement in the pipeline's
+  order): `compatible16` or the restricted-Bayer `headroom` mode
+  ([engine/WINDOWS_NATIVE_RAW.md](../engine/WINDOWS_NATIVE_RAW.md)), and
+  Highlights and Shadows (-100..100, up to 2 stops each): a local move on the
+  scene after the meter and before Scene Placement, judged against an
+  edge-aware base so a region moves as a whole and keeps its detail
+  (`scene_tone_*`, API-SPEC §16). They work on flat files too; the Latitude
+  reading and the placement's Fit see them.
 - **Scene Placement**: Highlight and Shadow, each step brought onto the Fit's
   window, solved and committed as `Session.placeScene` does; the usable window
   is drawn on each track and the reason a row stopped is its second line.
 - **Tone Mask** (the contrast mask, RFC-024): Enable, Highlights, Shadows,
   Core and Radius with the mask's curve. The Mac hides it behind a feature
   flag; Windows shows it, folded, because the engine carries it.
-- **Decode**: `compatible16` or the restricted-Bayer `headroom` mode
-  ([engine/WINDOWS_NATIVE_RAW.md](../engine/WINDOWS_NATIVE_RAW.md)); and Photo
-  Info.
+- **Photo Info**.
 
 On the left rail, **Enlarger** has the print exposure (-3..3 stops), the
 yellow and magenta filters and pre-flash, and **Print** the paper, its

@@ -343,6 +343,12 @@ const std::vector<Row>& rows() {
         t.push_back(unsent(number("scene_latitude_shadow_pull_back", "Shadow pull-back (EV)", SHOOT,
                                   0.0, 8.0, 0.0, 0.0)));
         t.push_back(unsent(boolean("scene_latitude_needs_fit", "Placement awaiting its fit", SHOOT, false)));
+        // The scene's Highlights and Shadows (API-SPEC §16), the RAW Decode
+        // section's two rows: a local move on the scene before Scene
+        // Placement, -100..100, 0 = the node off. Windows only: macOS has no
+        // such stage and never sends the fields, so its edits are unchanged.
+        t.push_back(number("scene_tone_highlights", "Highlights", SHOOT, -100.0, 100.0, 0.0, 0.0));
+        t.push_back(number("scene_tone_shadows", "Shadows", SHOOT, -100.0, 100.0, 0.0, 0.0));
         // RFC-024's Tone Mask (API-SPEC §11), the Tone Mask section
         // (ParameterSections.swift:272-323; Params.swift ContrastMaskSettings,
         // :253-281), at the engine's defaults, which are macOS's. Print layer:

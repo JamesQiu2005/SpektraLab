@@ -324,6 +324,16 @@ NATIVE_ONLY = {
         "path": "camera.filter", "type": "str", "layer": "shoot",
         "default": "", "live": False, "range": None,
     },
+    # Highlights and Shadows on the scene before Scene Latitude (the Windows
+    # host's RAW stage). The reference has no such stage; 0 is the node off.
+    "scene_tone_highlights": {
+        "path": "camera.scene_tone.highlights", "type": "float", "layer": "shoot",
+        "default": 0.0, "live": False, "range": [-100.0, 100.0],
+    },
+    "scene_tone_shadows": {
+        "path": "camera.scene_tone.shadows", "type": "float", "layer": "shoot",
+        "default": 0.0, "live": False, "range": [-100.0, 100.0],
+    },
 }
 
 

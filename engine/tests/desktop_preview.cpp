@@ -1299,6 +1299,54 @@ void settings_engine(const fs::path& resources) {
     const auto metered = edit(next, false);
     check(metered->pixels() != strong->pixels(), "metering intent did not change the render");
 
+    // The scene's Highlights and Shadows (API-SPEC §16) re-develop. On the
+    // ramp, whose brightness rises left to right, Highlights -100 darkens the
+    // bright end and leaves the dark end nearly as it was; Shadows +100 lifts
+    // the dark end; the Scene Placement sample sees the move; both back at 0
+    // is the render before, to the bit.
+    const auto band_green = [](const Rendered& r, double x0, double x1) {
+        const auto& out = r.result;
+        const auto c0 = std::uint32_t(x0 * out.width), c1 = std::max(c0 + 1, std::uint32_t(x1 * out.width));
+        double sum = 0.0;
+        for (std::uint32_t y = 0; y < out.height; ++y)
+            for (std::uint32_t x = c0; x < c1; ++x) sum += out.rgba16[(std::size_t(y) * out.row_stride_px + x) * 4 + 1];
+        return sum / (double(c1 - c0) * out.height * 65535.0);
+    };
+    // On the Y norm, the scalar the tone itself is judged on: this ramp's red
+    // rises across it and its green down it, so its highest "power" pixels
+    // (the default norm, red-led) are the dark top-right corner, which
+    // Highlights rightly leaves alone. Asking for another norm also takes
+    // the engine's separate sampler pipeline.
+    const auto scene_p99 = [&] {
+        char* text = nullptr;
+        if (spk_scene_latitude(session.get(), "{\"norm\":\"y\"}", &text) != SPK_OK || !text)
+            throw std::runtime_error("scene latitude: " + error());
+        Json reply;
+        std::string parse_error;
+        const bool parsed = Json::parse(text, reply, parse_error);
+        spk_string_free(text);
+        check(parsed, "scene latitude reply is not JSON");
+        return reply.at("scene").at("p99").as_double();
+    };
+    const double p99_before = scene_p99();
+    next.set("scene_tone_highlights", -100.0);
+    const auto pulled = edit(next, false);
+    const double p99_pulled = scene_p99();
+    const double bright_drop = band_green(*metered, 0.85, 1.0) - band_green(*pulled, 0.85, 1.0);
+    const double dark_drop = std::abs(band_green(*metered, 0.0, 0.15) - band_green(*pulled, 0.0, 0.15));
+    std::cout << "scene tone: Highlights -100 moves the bright end by " << -bright_drop << ", the dark end by "
+              << dark_drop << "; scene p99 " << p99_before << " -> " << p99_pulled << " EV\n";
+    check(bright_drop > 0.02 && dark_drop < 0.25 * bright_drop, "Highlights -100 did not darken the bright end alone");
+    check(p99_pulled < p99_before - 0.1, "the Scene Placement sample does not see Highlights");
+    next.set("scene_tone_highlights", 0.0);
+    next.set("scene_tone_shadows", 100.0);
+    const auto lifted = edit(next, false);
+    const double dark_lift = band_green(*lifted, 0.0, 0.15) - band_green(*metered, 0.0, 0.15);
+    std::cout << "scene tone: Shadows +100 lifts the dark end by " << dark_lift << '\n';
+    check(dark_lift > 0.01, "Shadows +100 did not lift the dark end");
+    next.set("scene_tone_shadows", 0.0);
+    check(edit(next, false)->pixels() == metered->pixels(), "Highlights and Shadows back at 0 render differently");
+
     // The rows the macOS Film and Print sections add. Print side: pre-flash
     // reprints the cached negative, and Print Effects off prints exactly as
     // without it (glare is already off here), on again exactly as with it.

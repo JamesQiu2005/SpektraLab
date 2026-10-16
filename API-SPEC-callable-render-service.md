@@ -998,3 +998,34 @@ any other value is refused with the list.
   whose sensitivity has the same table baked in to 2/255; a live session re-develops and returns;
   the 135 and 645 rebates change by at most 1/255 under `w25`.
 - Not verified: colour stocks beyond one render; the app has no control for it.
+
+## 16. `scene_tone_highlights` / `scene_tone_shadows` — the scene's Highlights and Shadows (2026-10-16)
+
+Native only; the Python reference has no such stage. Two floats, SHOOT layer (an edit re-develops),
+range -100..100, default 0. Both 0 is the node not dispatched at all, so every existing session renders
+as before, to the bit. The Windows host's RAW Decode section sends them; macOS has no control and never
+sends them.
+
+- **Where:** `film_prefix`, right after `node_auto_exposure` and before Scene Latitude. After the meter,
+  so its mid-grey is the metered one and the meter never chases the move; in the prefix (a whole-frame
+  stage) because its base is a neighbourhood of the frame. The Scene Latitude sample
+  (`scene_latitude_sample`) applies it too, so the Latitude reading and the placement's Fit see the
+  toned scene; `spk_scene_latitude`'s scene key includes both values. The medium probe clears them.
+- **What:** a positive gain per pixel on the linear triple, so colour is kept. With
+  `x = clamp(log2(Y / 0.184), -20, 20)` (Y from the meter's luminance row) and a *base* `a·x + b`:
+  `d = H·smoothstep(0, 3, base) + S·smoothstep(0, 3, -base)`, `RGB' = 2^d · RGB`, where
+  `H = highlights / 100 · 2` and `S = shadows / 100 · 2` stops.
+- **The base:** the frame's mean `x` per cell of a canonical grid (512 cells on the long edge, capped at
+  the image's pixels, as RFC-024's mask grid; `spk_scene_tone_reduce`), a self-guided filter of it on
+  the host (box radius matching a sigma of 3 % of the long edge, edge threshold 0.5 stop²), and the
+  coefficients sampled bilinearly per pixel (`spk_scene_tone`). Smooth inside a region and following the
+  pixel across an edge, so a bright or dark region moves as a whole, its detail is kept, and edges do
+  not halo. The scale and threshold are fixed, not on the wire.
+- **Kernels:** `spk_scene_tone_reduce` and `spk_scene_tone`, in `shaders/vulkan/` and appended to
+  `shaders/scene_latitude.metal`. The Metal transcription has **not been compiled or run**: this
+  stage was written on Windows, and the committed metallib does not contain it, so a macOS session that
+  sends either field fails at dispatch until `engine/build.sh metallib` is run and checked.
+- **Measured** (Windows, RTX 3070): the desktop host's synthetic ramp — Highlights -100 lowers the bright
+  end of the print by 0.025 and the dark end by 0.0004; the Y-norm scene p99 moves 0.87 → 0.48 EV;
+  Shadows +100 lifts the dark end by 0.075; both back at 0 renders the earlier pixels exactly. On a
+  36 MP D810 frame the node costs ~40 ms at the full tier.

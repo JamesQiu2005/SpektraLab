@@ -1834,6 +1834,8 @@ Params medium_probe_params(const Params& session) {
     Params p = session;
     p.camera.auto_exposure = false;
     p.camera.scene_latitude.active = false;
+    // The scene's own Highlights and Shadows are not the medium either.
+    p.camera.scene_tone = SceneToneParams{};
     p.film_render.grain.active = false;
     p.film_render.grain.sublayers_active = false;
     p.film_render.halation.active = false;
@@ -2037,8 +2039,13 @@ spk_status spk_scene_latitude(spk_session* session, const char* request_json, ch
         }
         char region_text[160];
         std::snprintf(region_text, sizeof region_text, "|%.6f,%.6f,%.6f,%.6f", region[0], region[1], region[2], region[3]);
+        // The scene's Highlights and Shadows are in the sample (they sit
+        // between the meter and the node), so they are in its key.
+        char tone_text[64];
+        std::snprintf(tone_text, sizeof tone_text, "|tone %.17g,%.17g", session->params.camera.scene_tone.highlights,
+                      session->params.camera.scene_tone.shadows);
         const std::string scene_key = meter_key(session->params) + base.norm + "|" + ev_text +
-                                      (has_region ? region_text : "");
+                                      (has_region ? region_text : "") + tone_text;
         if (cache.scene_key != scene_key) {
             Image small;
             std::vector<double> E;
