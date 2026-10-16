@@ -609,6 +609,9 @@ Popup {
                         border.width: cell.modelData.active ? 2 : 0
                         border.color: Theme.selectionFrame
                         radius: 2
+                        // A photo not opened yet has no thumbnail: its place,
+                        // on the navigator's ground.
+                        Rectangle { anchors.fill: parent; anchors.margins: 3; color: Theme.navigatorWell }
                         FrameCanvas {
                             anchors.fill: parent; anchors.margins: 3
                             image: cell.modelData.thumbnail
