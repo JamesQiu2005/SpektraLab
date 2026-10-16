@@ -1,5 +1,6 @@
 #include "PreviewController.hpp"
-#include <QColorSpace>
+#include "FrameImage.hpp"
+#include <QElapsedTimer>
 #include <QMetaObject>
 #include <QDir>
 #include <QFileInfo>
@@ -101,19 +102,26 @@ std::optional<desktop::SettingValue> settingValue(const desktop::SettingField& f
 }
 }
 QImage PreviewController::imageFromFrame(const desktop::FramePtr& frame) {
-    // QImage is implicitly shared; the cleanup holder keeps the independently
-    // owned engine result and its display bytes alive on the scene-graph side.
-    auto held=std::make_unique<desktop::FramePtr>(frame);
-    QImage image(frame->bgra8.data(),int(frame->width()),int(frame->height()),
-                 qsizetype(frame->width())*4,QImage::Format_ARGB32,
-                 [](void* p){delete static_cast<desktop::FramePtr*>(p);},held.get());
-    if(image.isNull()) throw std::runtime_error("Cannot create the display image");
-    held.release();
-    image.setColorSpace(QColorSpace::SRgb);
-    return image;
+    // Its own pixels (half floats, 8 bytes per pixel like the RGBA16 it came
+    // from), so the image no longer holds the engine frame alive.
+    return desktop::display::frameImage(frame);
 }
 
-PreviewController::PreviewController(std::filesystem::path resources,QObject* parent,ImageFactory factory,QString editDirectory)
+PreviewController::Publication PreviewController::publish(const ImageFactory& factory,const desktop::FramePtr& frame,
+                                                          const output::Geometry& geometry) {
+    QElapsedTimer clock;clock.start();
+    Publication p;p.geometry=geometry;
+    p.full=factory(frame);
+    if(p.full.isNull())throw std::runtime_error("Cannot create the display image");
+    p.convert_ms=double(clock.nsecsElapsed())/1e6;
+    p.visible=visibleImage(frame,p.full,geometry);
+    p.navigator=desktop::display::navigatorImage(p.visible);
+    p.total_ms=double(clock.nsecsElapsed())/1e6;
+    return p;
+}
+
+PreviewController::PreviewController(std::filesystem::path resources,QObject* parent,ImageFactory factory,QString editDirectory,
+                                     QString outputColorSpace)
     :QObject(parent),resources_(resources),
      edit_store_(editDirectory.isEmpty()?QStandardPaths::writableLocation(QStandardPaths::AppLocalDataLocation)+"/Edits":editDirectory),
      image_factory_(factory?std::move(factory):ImageFactory(imageFromFrame)) {
@@ -121,7 +129,11 @@ PreviewController::PreviewController(std::filesystem::path resources,QObject* pa
     connect(&auto_apply_,&QTimer::timeout,this,[this]{if(dirty())apply();});
     save_timer_.setSingleShot(true);save_timer_.setInterval(350);
     connect(&save_timer_,&QTimer::timeout,this,&PreviewController::flushEdits);
-    worker_=std::thread([this,resources=std::move(resources)]{workerLoop(resources);});
+    // The canvas is fed from pixels() (publish), so the host's 8-bit copy
+    // would be 132 MB per 33 MP frame nobody reads.
+    desktop::HostOptions options;options.bgra8_display=false;
+    if(!outputColorSpace.isEmpty())options.output_color_space=outputColorSpace.toStdString();
+    worker_=std::thread([this,resources=std::move(resources),options]{workerLoop(resources,options);});
 }
 PreviewController::~PreviewController() {
     auto_apply_.stop();
@@ -132,10 +144,10 @@ PreviewController::~PreviewController() {
     wake_.notify_one();
     if(worker_.joinable()) worker_.join();
 }
-void PreviewController::workerLoop(std::filesystem::path resources) {
+void PreviewController::workerLoop(std::filesystem::path resources,desktop::HostOptions options) {
     std::unique_ptr<desktop::PreviewHost> host;
     Reply init;init.operation="init";
-    try {host=std::make_unique<desktop::PreviewHost>(resources);init.catalog=host->catalog();}
+    try {host=std::make_unique<desktop::PreviewHost>(resources,std::move(options));init.catalog=host->catalog();}
     catch(const std::exception& e){init.error=text(e.what());}
     deliver(std::move(init));
     if(!host)return;
@@ -171,13 +183,22 @@ void PreviewController::accept(Reply reply) {
         ready_=true;catalog_=std::move(reply.catalog);films_=list(catalog_.films);papers_=list(catalog_.papers);
         restoreSettings();emit catalogChanged();status_=uiText("status.ready");
     } else if(reply.frame) {
-        // Allocate the presentation wrapper before publishing any new UI state.
+        // The worker made the images; publish no new UI state unless all are
+        // in hand.
         try {
-            auto next=image_factory_(reply.frame);
-            if(next.isNull())throw std::runtime_error("Cannot create the display image");
+            auto published=std::move(reply.publication);
+            if(published.full.isNull())throw std::runtime_error("Cannot create the display image");
             const auto geometry=reply.operation=="open"?reply.geometry:geometry_;
-            auto visible=visibleImage(reply.frame,next,geometry);
-            frame_=std::move(reply.frame);full_image_=std::move(next);image_=std::move(visible);
+            // A render that is not superseded was submitted with today's
+            // geometry (an undo during it supersedes it). Should that ever
+            // not hold, show the right crop rather than the worker's.
+            if(published.geometry!=geometry) {
+                published.visible=visibleImage(reply.frame,published.full,geometry);
+                published.navigator=desktop::display::navigatorImage(published.visible);
+            }
+            frame_=std::move(reply.frame);full_image_=std::move(published.full);
+            image_=std::move(published.visible);navigator_=std::move(published.navigator);
+            convert_ms_=published.convert_ms;publish_ms_=published.total_ms;
             geometry_=geometry;
             if(reply.operation=="open")active_index_=reply.library_index;
         }
@@ -243,7 +264,9 @@ QVariantMap PreviewController::metadata() const {
         {"camera",text(frame_->metadata.make+" "+frame_->metadata.model)},
         {"decodeMs",frame_->timings.decode_ms},{"renderMs",frame_->timings.render_ms},
         {"totalMs",frame_->timings.total_ms},{"cached",frame_->reprint()},{"scanFilm",frame_->scan_film},
-        {"mode",frame_->decode_mode==desktop::DecodeMode::headroom?"headroom":"compatible16"}};
+        {"mode",frame_->decode_mode==desktop::DecodeMode::headroom?"headroom":"compatible16"},
+        {"colorSpace",text(frame_->encoding.color_space)},{"transferEncoded",frame_->encoding.cctf_encoding},
+        {"convertMs",convert_ms_},{"publishMs",publish_ms_}};
 }
 void PreviewController::schedulePreview(){if(!dialog_open_&&gesture_key_!="straightenDegrees"&&frame_&&dirty()&&!auto_apply_.isActive())auto_apply_.start();}
 void PreviewController::setDialogOpen(bool open){
@@ -396,15 +419,20 @@ void PreviewController::openRaw(const QUrl& url) {
 void PreviewController::openItem(int index) {
     endEditGesture();
     const auto item=library_.at(index);const auto p=path(item.url);
-    const auto gen=++generation_;
-    submit([p,item,gen,index](auto& host){Reply r;r.generation=gen;r.operation="open";r.library_index=index;r.geometry=item.geometry;
-        try{r.frame=host.open_raw(p,item.mode,item.settings);}catch(const std::exception& e){r.error=text(e.what());}return r;},uiText("status.opening"),"open");
+    const auto gen=++generation_;const auto factory=image_factory_;
+    submit([p,item,gen,index,factory](auto& host){Reply r;r.generation=gen;r.operation="open";r.library_index=index;r.geometry=item.geometry;
+        // A frame whose images cannot be made is not delivered: the reply
+        // fails and the displayed frame stays (the host's session has moved
+        // on; the next render reconciles it).
+        try{r.frame=host.open_raw(p,item.mode,item.settings);r.publication=publish(factory,r.frame,item.geometry);}
+        catch(const std::exception& e){r.frame=nullptr;r.error=text(e.what());}return r;},uiText("status.opening"),"open");
 }
 void PreviewController::apply() {
     if(!frame_||busy_||dialog_open_)return;
-    const auto s=settings();const auto shown=frame_;const auto gen=++generation_;const auto revision=settings_revision_;
+    const auto s=settings();const auto shown=frame_;const auto gen=++generation_;const auto revision=settings_revision_.load();
     const auto mode=decode_mode_?desktop::DecodeMode::headroom:desktop::DecodeMode::compatible16;
-    submit([s,shown,gen,revision,mode](auto& host){Reply r;r.generation=gen;r.settings_revision=revision;r.operation="render";
+    const auto factory=image_factory_;const auto geometry=geometry_;
+    submit([this,s,shown,gen,revision,mode,factory,geometry](auto& host){Reply r;r.generation=gen;r.settings_revision=revision;r.operation="render";
         try {
             // Publication can fail after a successful worker open (for example,
             // a display allocation failure). Reconcile against the image the
@@ -412,7 +440,10 @@ void PreviewController::apply() {
             const auto active=host.current();
             r.frame=active&&active->source==shown->source&&active->decode_mode==mode
                 ?host.render(s):host.open_raw(shown->source,mode,s);
-        }catch(const std::exception& e){r.error=text(e.what());}return r;},uiText("status.rendering"),"render");
+            // accept() drops a superseded result unseen; converting 33 MP
+            // for it would only delay the render that replaces it.
+            if(settings_revision_.load()==revision)r.publication=publish(factory,r.frame,geometry);
+        }catch(const std::exception& e){r.frame=nullptr;r.error=text(e.what());}return r;},uiText("status.rendering"),"render");
 }
 void PreviewController::exportTiff(const QUrl& url) {
     exportImage(url,0,95,0);
@@ -528,7 +559,9 @@ void PreviewController::saveActiveSettings(bool recordHistory) {
 void PreviewController::updateThumbnail() {
     if(active_index_<0||active_index_>=int(library_.size()))return;
     auto& item=library_[active_index_];
-    item.thumbnail=dirty()?QImage{}:image_.scaled(180,120,Qt::KeepAspectRatio,Qt::SmoothTransformation);
+    // From the navigator (at most 1024 px, already area-averaged), so this
+    // stays cheap on the GUI thread and keeps 16-bit-class precision.
+    item.thumbnail=dirty()||navigator_.isNull()?QImage{}:desktop::display::thumbnailImage(navigator_);
     item.error.clear();emit libraryChanged();
 }
 int PreviewController::addFile(const QUrl& url) {
@@ -585,8 +618,9 @@ void PreviewController::setGeometry(const output::Geometry& geometry,const QStri
     if(!frame_||busy_||dialog_open_||geometry==geometry_)return;
     try {
         auto next=visibleImage(frame_,full_image_,geometry);
+        auto navigator=desktop::display::navigatorImage(next);
         if(gesture_index_>=0&&gesture_key_!=editKey)endEditGesture();
-        image_=std::move(next);geometry_=geometry;saveActiveSettings(true);updateThumbnail();
+        image_=std::move(next);navigator_=std::move(navigator);geometry_=geometry;saveActiveSettings(true);updateThumbnail();
         failed_=false;emit geometryChanged();emit frameChanged();emit stateChanged();
     } catch(const std::exception& e){failed_=true;status_=text(e.what());emit stateChanged();}
 }
@@ -652,8 +686,9 @@ void PreviewController::restoreHistory(bool redo) {
         // validation failure leaves the frame and both stacks intact.
         const bool geometryChangedNow=target.geometry!=geometry_;
         auto next=geometryChangedNow?visibleImage(frame_,full_image_,target.geometry):image_;
+        auto navigator=geometryChangedNow?desktop::display::navigatorImage(next):navigator_;
         to.push_back(currentState());if(to.size()>64)to.erase(to.begin());from.pop_back();
-        geometry_=target.geometry;image_=std::move(next);
+        geometry_=target.geometry;image_=std::move(next);navigator_=std::move(navigator);
         loadSettings(target.settings,target.mode);saveActiveSettings();
         ++settings_revision_;auto_apply_.stop();schedulePreview();updateThumbnail();
         failed_=false;status_=uiText(redo?"status.redone":"status.undone");

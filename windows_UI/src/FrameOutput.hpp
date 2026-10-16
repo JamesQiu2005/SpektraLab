@@ -32,10 +32,13 @@ struct Geometry {
 // Invalid input throws std::runtime_error; an empty rectangle is not "full".
 QRect cropPixels(QSize fullSize, QRectF normalizedCrop);
 void validateGeometry(QSize fullSize, const Geometry& geometry);
-QImage displayImage(const QImage& full8, QRectF normalizedCrop);
-QImage displayImage(const QImage& full8, const Geometry& geometry);
+// Geometry on an already published display image (FrameImage.hpp); the
+// result keeps its format and colour space. Crops copy pixels exactly.
+QImage displayImage(const QImage& full, QRectF normalizedCrop);
+QImage displayImage(const QImage& full, const Geometry& geometry);
 // Use this for transformed rendered previews: geometry is applied to the
-// original RGBA16 before quantization, as it is for an 8-bit exported file.
+// original RGBA16 before the display conversion, as it is for an exported
+// file. RGBX16FPx4 tagged with the frame's encoding (display::colorSpace).
 QImage displayFrame(const FramePtr& frame, const Geometry& geometry);
 
 // The source is opaque, already encoded sRGB RGBA64. Processing order is
@@ -63,6 +66,9 @@ void exportImageFile(const QImage& fullRgba64,
                      const std::filesystem::path& destination,
                      const Geometry& geometry, const ExportOptions& options,
                      const std::filesystem::path& resources);
+// The frame's own RGBA16, never a display image, so a file does not depend on
+// how the canvas is fed. Refuses a frame not encoded in sRGB (the writers
+// embed sRGB.icc) instead of mislabelling it.
 void exportFrame(const FramePtr& frame, const std::filesystem::path& destination,
                  QRectF normalizedCrop, const ExportOptions& options,
                  const std::filesystem::path& resources);

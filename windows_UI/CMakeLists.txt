@@ -46,7 +46,7 @@ endfunction()
 
 qt_add_executable(SpektraLabQt WIN32
     src/main.cpp src/Messages.hpp src/PreviewController.hpp src/PreviewController.cpp
-    src/FrameOutput.hpp src/FrameOutput.cpp
+    src/FrameOutput.hpp src/FrameOutput.cpp src/FrameImage.hpp src/FrameImage.cpp
     src/EditStore.hpp src/EditStore.cpp
     src/FrameCanvas.hpp src/FrameCanvas.cpp
     src/ColorCanvasNode.hpp src/ColorCanvasNode.cpp
@@ -105,14 +105,24 @@ add_dependencies(spektralab_qt_resources spektralab_vulkan_resources)
 add_dependencies(SpektraLabQt spektralab_qt_resources)
 
 if(BUILD_TESTING)
-    qt_add_executable(spk_qt_frame_output_test tests/frame_output.cpp src/FrameOutput.cpp)
+    qt_add_executable(spk_qt_frame_output_test tests/frame_output.cpp src/FrameOutput.cpp src/FrameImage.cpp)
     target_include_directories(spk_qt_frame_output_test PRIVATE src)
     target_compile_features(spk_qt_frame_output_test PRIVATE cxx_std_20)
     target_link_libraries(spk_qt_frame_output_test PRIVATE spk_desktop_host Qt6::Core Qt6::Gui)
     add_test(NAME spk_qt_frame_output COMMAND spk_qt_frame_output_test "$<TARGET_FILE_DIR:SpektraLabQt>/resources")
 
-    qt_add_executable(spk_qt_library_workflow_test tests/library_workflow.cpp
-        src/PreviewController.hpp src/PreviewController.cpp src/FrameOutput.cpp src/EditStore.cpp)
+    # The canvas images: every engine output space against the engine's own
+    # baked primaries and transfer functions, the half-float conversion of
+    # all 65536 codes, and the navigator/thumbnail reduction. No RAW or GPU.
+    qt_add_executable(spk_qt_frame_image_test tests/frame_image.cpp tests/display_checks.hpp
+        src/FrameImage.cpp src/FrameOutput.cpp)
+    target_include_directories(spk_qt_frame_image_test PRIVATE src)
+    target_compile_features(spk_qt_frame_image_test PRIVATE cxx_std_20)
+    target_link_libraries(spk_qt_frame_image_test PRIVATE spk_desktop_host Qt6::Core Qt6::Gui)
+    add_test(NAME spk_qt_frame_image COMMAND spk_qt_frame_image_test "$<TARGET_FILE_DIR:SpektraLabQt>/resources")
+
+    qt_add_executable(spk_qt_library_workflow_test tests/library_workflow.cpp tests/display_checks.hpp
+        src/PreviewController.hpp src/PreviewController.cpp src/FrameOutput.cpp src/FrameImage.cpp src/EditStore.cpp)
     target_include_directories(spk_qt_library_workflow_test PRIVATE src)
     target_compile_features(spk_qt_library_workflow_test PRIVATE cxx_std_20)
     target_link_libraries(spk_qt_library_workflow_test PRIVATE spk_desktop_host Qt6::Core Qt6::Gui)
@@ -125,7 +135,7 @@ if(BUILD_TESTING)
     # The controller's settings API (generic parameters, legacy names,
     # defaults, locks) needs the engine's catalogue but no photograph.
     qt_add_executable(spk_qt_controller_settings_test tests/controller_settings.cpp
-        src/PreviewController.hpp src/PreviewController.cpp src/FrameOutput.cpp src/EditStore.cpp)
+        src/PreviewController.hpp src/PreviewController.cpp src/FrameOutput.cpp src/FrameImage.cpp src/EditStore.cpp)
     target_include_directories(spk_qt_controller_settings_test PRIVATE src)
     target_compile_features(spk_qt_controller_settings_test PRIVATE cxx_std_20)
     target_link_libraries(spk_qt_controller_settings_test PRIVATE spk_desktop_host Qt6::Core Qt6::Gui)
@@ -169,12 +179,12 @@ if(BUILD_TESTING)
             get_filename_component(qt_test_compiler_directory "${CMAKE_CXX_COMPILER}" DIRECTORY)
             list(APPEND qt_test_runtime_path "PATH=path_list_prepend:${qt_test_compiler_directory}")
         endif()
-        set_tests_properties(spk_qt_frame_output spk_qt_edit_store spk_qt_controller_settings spk_qt_localizer
-            spk_qt_color_canvas spk_qt_color_canvas_software PROPERTIES
+        set_tests_properties(spk_qt_frame_output spk_qt_frame_image spk_qt_edit_store spk_qt_controller_settings
+            spk_qt_localizer spk_qt_color_canvas spk_qt_color_canvas_software PROPERTIES
             ENVIRONMENT_MODIFICATION "${qt_test_runtime_path}")
     endif()
-    qt_add_executable(spk_qt_editing_workflow_test tests/editing_workflow.cpp
-        src/PreviewController.hpp src/PreviewController.cpp src/FrameOutput.cpp src/EditStore.cpp)
+    qt_add_executable(spk_qt_editing_workflow_test tests/editing_workflow.cpp tests/display_checks.hpp
+        src/PreviewController.hpp src/PreviewController.cpp src/FrameOutput.cpp src/FrameImage.cpp src/EditStore.cpp)
     target_include_directories(spk_qt_editing_workflow_test PRIVATE src)
     target_compile_features(spk_qt_editing_workflow_test PRIVATE cxx_std_20)
     target_link_libraries(spk_qt_editing_workflow_test PRIVATE spk_desktop_host Qt6::Core Qt6::Gui)

@@ -167,6 +167,12 @@ private:
 // scanned instead of printed: a positive always is, and a negative when
 // `scan_film` (macOS's "No Print Profile") is on.
 bool validate_settings(const RenderSettings& settings, const Catalog& catalog);
+
+// What the desktop asks spk_open to render into until the frontend converts
+// from the working space itself (the engine's own default is ProPhoto RGB,
+// RFC-018 §5.1). A request, not a fact: see OutputEncoding.
+inline constexpr const char* kDisplayOutputColorSpace = "sRGB";
+
 // What the settings put on the wire: every wire row, under the product's
 // rules -- macOS FilmParams.wire (Params.swift:726-825):
 //  - scan_film is on for a slide film whatever the row says;
@@ -181,13 +187,30 @@ bool validate_settings(const RenderSettings& settings, const Catalog& catalog);
 // A stock the catalogue does not know is taken as a colour negative.
 Json wire_params(const RenderSettings& settings, const Catalog& catalog);
 // The complete parameters spk_open receives: the host's fixed I/O policy and
-// wire_params.
-Json opening_params(const RenderSettings& settings, const Catalog& catalog);
+// wire_params. `output_color_space` is the space requested.
+Json opening_params(const RenderSettings& settings, const Catalog& catalog,
+                    const std::string& output_color_space = kDisplayOutputColorSpace);
 // Only the wire values that differ, so an edit never invalidates more of the
 // session than it changed. A film change also carries scan_film. A field that
 // leaves the wire (the silver pack) is not sent: leaving a silver pair is a
 // stock change, on which the engine reloads the colour pair's pack itself.
 Json changed_params(const RenderSettings& before, const RenderSettings& after, const Catalog& catalog);
+
+// How a session's RGBA16 code values are encoded: the output colour space
+// spk_open *resolved* (its reply's params.output_color_space, RFC-018 §5.1)
+// and whether the transfer function was applied. Anything that tags,
+// converts or labels the pixels reads this rather than assuming the request
+// (AGENTS.md trap 28).
+struct OutputEncoding {
+    std::string color_space;
+    bool cctf_encoding = true;
+    bool operator==(const OutputEncoding&) const = default;
+    // Encoded sRGB, which the bundled sRGB.icc writers label correctly.
+    bool is_encoded_srgb() const { return color_space == "sRGB" && cctf_encoding; }
+};
+// Reads the open reply. Throws std::runtime_error when the reply carries no
+// string output_color_space or no boolean output_cctf_encoding under params.
+OutputEncoding output_encoding(const Json& open_reply);
 
 // Wall-clock calls, including CPU result readback in render_ms. total_ms is
 // the complete host call, not a sum of nested measurements. Engine creation
@@ -215,8 +238,12 @@ public:
     io::RawMetadata metadata;
     io::RawDecodeTimings decode_timings;
     Timings timings;
-    // Top-down tightly packed BGRA8 encoded sRGB. Only the display copy is
-    // reduced to 8 bits; pixels() retains the original full-size RGBA16.
+    // What pixels() means, as the session that rendered it reported.
+    OutputEncoding encoding;
+    // Top-down tightly packed BGRA8 copy of pixels(), rounded to 8 bits with
+    // no colour transform, so it is in `encoding` too. Empty unless the host
+    // was created with HostOptions::bgra8_display; pixels() always retains
+    // the original full-size RGBA16.
     std::vector<std::uint8_t> bgra8;
 
     const spk_result& pixels() const noexcept { return result_; }
@@ -238,12 +265,23 @@ using FramePtr = std::shared_ptr<const Frame>;
 // Rounding is (value + 128) / 257; no colour transform or tone mapping.
 std::vector<std::uint8_t> rgba16_to_bgra8(const spk_result& result);
 
+struct HostOptions {
+    // Requested of every session this host opens; Frame::encoding records
+    // what the engine resolved. Anything but sRGB is for tests until the
+    // frontend converts out of the working space (export writes sRGB only).
+    std::string output_color_space = kDisplayOutputColorSpace;
+    // The GDI viewer draws Frame::bgra8. The Qt frontend publishes its own
+    // half-float image from pixels() and turns this off: at 33 MP the copy
+    // is 132 MB per frame nobody reads.
+    bool bgra8_display = true;
+};
+
 // Construct, call and destroy on one serial worker thread. Public operations
 // throw std::runtime_error on failure. The UI may concurrently read shared
 // const Frames, which stay valid after this host and its engine are destroyed.
 class PreviewHost final {
 public:
-    explicit PreviewHost(const std::filesystem::path& resources);
+    explicit PreviewHost(const std::filesystem::path& resources, HostOptions options = {});
     ~PreviewHost();
     PreviewHost(const PreviewHost&) = delete;
     PreviewHost& operator=(const PreviewHost&) = delete;
@@ -263,6 +301,8 @@ public:
     // Exports exactly the supplied frame, even after a newer one was opened.
     // Existing files are never overwritten. Returns only after the writer
     // has completed and closed the file; errors retain its cleanup details.
+    // The file is labelled with the bundled sRGB profile, so a frame not
+    // encoded in sRGB is refused rather than mislabelled.
     void export_tiff(const Frame& frame, const std::filesystem::path& destination) const;
 
 private:

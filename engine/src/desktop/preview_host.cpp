@@ -311,15 +311,28 @@ Json to_json(const SettingValue& value) {
     return std::visit([](const auto& v) { return Json(v); }, value);
 }
 
-SessionPtr open_session(spk_engine* engine, const io::DecodedRaw& decoded,
-                        const RenderSettings& settings, const Catalog& catalog) {
+struct OpenedSession {
+    SessionPtr session{nullptr, &spk_session_release};
+    OutputEncoding encoding;
+};
+
+OpenedSession open_session(spk_engine* engine, const io::DecodedRaw& decoded, const RenderSettings& settings,
+                           const Catalog& catalog, const std::string& output_color_space) {
     const spk_image input{decoded.rgb.data(), decoded.width, decoded.height, 3};
-    const auto params = opening_params(settings, catalog).dump();
-    // No reply is needed here; the host has no allocator or JSON lifetime to
-    // share with the UI, and the C API validates the complete delta itself.
-    SessionPtr session(spk_open(engine, &input, params.c_str(), nullptr), &spk_session_release);
-    require(bool(session), "Open image: " + std::string(spk_last_error(engine)));
-    return session;
+    const auto params = opening_params(settings, catalog, output_color_space).dump();
+    // The reply is read for one thing: what the session renders into. The
+    // request above is not evidence of that (RFC-018 §5.1, AGENTS.md trap 28).
+    char* reply_text = nullptr;
+    OpenedSession opened;
+    opened.session.reset(spk_open(engine, &input, params.c_str(), &reply_text));
+    const std::unique_ptr<char, decltype(&spk_string_free)> reply_owner(reply_text, &spk_string_free);
+    require(bool(opened.session), "Open image: " + std::string(spk_last_error(engine)));
+    require(reply_text != nullptr, "Open image: the engine returned no open reply");
+    Json reply;
+    std::string error;
+    require(Json::parse(reply_text, reply, error), "Open image: unreadable open reply: " + error);
+    opened.encoding = output_encoding(reply);
+    return opened;
 }
 }  // namespace
 
@@ -443,11 +456,11 @@ Json wire_params(const RenderSettings& settings, const Catalog& catalog) {
     return wire;
 }
 
-Json opening_params(const RenderSettings& settings, const Catalog& catalog) {
+Json opening_params(const RenderSettings& settings, const Catalog& catalog, const std::string& output_color_space) {
     Json params = Json::object();
     params.set("input_color_space", Json(std::string("ProPhoto RGB")));
     params.set("input_cctf_decoding", Json(false));
-    params.set("output_color_space", Json(std::string("sRGB")));
+    params.set("output_color_space", Json(output_color_space));
     params.set("output_cctf_encoding", Json(true));
     // EDR maps the print's highlights above 1.0 (pipeline.cpp node_edr), and
     // this host's output is an SDR sRGB frame that spk_to_rgba16 clamps to
@@ -476,6 +489,20 @@ Json changed_params(const RenderSettings& before, const RenderSettings& after, c
     // previous slide's direct-scan mode would survive the stock change.
     if (delta.has("film_stock")) delta.set("scan_film", now.at("scan_film"));
     return delta;
+}
+
+OutputEncoding output_encoding(const Json& open_reply) {
+    const auto member = [](const Json* object, const char* key) -> const Json* {
+        return object && object->is_object() && object->has(key) ? &object->at(key) : nullptr;
+    };
+    const Json* params = member(&open_reply, "params");
+    const Json* space = member(params, "output_color_space");
+    const Json* encoded = member(params, "output_cctf_encoding");
+    require(space && space->is_string() && !space->as_string().empty(),
+            "Open image: the open reply does not say which colour space the session renders into");
+    require(encoded && encoded->is_bool(),
+            "Open image: the open reply does not say whether the output is transfer-encoded");
+    return {space->as_string(), encoded->as_bool()};
 }
 
 Frame::~Frame() { spk_result_free(&result_); }
@@ -512,18 +539,22 @@ std::vector<std::uint8_t> rgba16_to_bgra8(const spk_result& result) {
 
 struct PreviewHost::Impl {
     fs::path resources;
+    HostOptions options;
     Catalog catalog;
     double engine_create_ms = 0.0;
     EnginePtr engine{nullptr, &spk_engine_destroy};
     // Declaration order makes session release precede engine destruction.
     SessionPtr session{nullptr, &spk_session_release};
+    // What `session` renders into, from its open reply.
+    OutputEncoding encoding;
     // Retained only for reopening after a failed settings/render operation.
     // Ordinary parameter edits reuse the current GPU source and negative.
     io::DecodedRaw decoded;
     FramePtr frame;
 };
 
-PreviewHost::PreviewHost(const fs::path& resources) : impl_(std::make_unique<Impl>()) {
+PreviewHost::PreviewHost(const fs::path& resources, HostOptions options) : impl_(std::make_unique<Impl>()) {
+    impl_->options = std::move(options);
     impl_->resources = fs::absolute(resources);
     const auto path = utf8(impl_->resources);
     require(std::all_of(path.begin(), path.end(), [](unsigned char c) { return c < 128; }),
@@ -563,18 +594,23 @@ FramePtr PreviewHost::open_raw(const fs::path& source, DecodeMode mode, const Re
     next->metadata = decoded.metadata;
     next->decode_timings = decoded.timings;
     t = Clock::now();
-    auto session = open_session(impl_->engine.get(), decoded, settings, impl_->catalog);
+    auto opened = open_session(impl_->engine.get(), decoded, settings, impl_->catalog,
+                               impl_->options.output_color_space);
     next->timings.open_ms = elapsed(t);
+    next->encoding = opened.encoding;
     t = Clock::now();
-    const auto status = spk_render(session.get(), "full", &next->result_);
+    const auto status = spk_render(opened.session.get(), "full", &next->result_);
     require(status == SPK_OK, "Render: " + std::string(spk_last_error(impl_->engine.get())));
     next->timings.render_ms = elapsed(t);
     next->timings.engine_render_ms = next->result_.elapsed_ms;
-    t = Clock::now();
-    next->bgra8 = rgba16_to_bgra8(next->result_);
-    next->timings.display_ms = elapsed(t);
+    if (impl_->options.bgra8_display) {
+        t = Clock::now();
+        next->bgra8 = rgba16_to_bgra8(next->result_);
+        next->timings.display_ms = elapsed(t);
+    }
     // Commit only after all allocations and GPU/CPU work succeeded.
-    impl_->session = std::move(session);
+    impl_->session = std::move(opened.session);
+    impl_->encoding = opened.encoding;
     impl_->decoded = std::move(decoded);
     impl_->frame = next;
     next->timings.total_ms = elapsed(started);
@@ -599,7 +635,10 @@ FramePtr PreviewHost::render(const RenderSettings& settings) {
             // C API settings changes may fail after applying part of their
             // state. Never reuse such a session; rebuild from the retained
             // decoded input on the next request, without decoding the file.
-            impl_->session = open_session(impl_->engine.get(), impl_->decoded, settings, impl_->catalog);
+            auto opened = open_session(impl_->engine.get(), impl_->decoded, settings, impl_->catalog,
+                                       impl_->options.output_color_space);
+            impl_->session = std::move(opened.session);
+            impl_->encoding = opened.encoding;
             next->timings.open_ms = elapsed(t);
         } else if (!delta.fields().empty()) {
             const auto text = delta.dump();
@@ -612,9 +651,14 @@ FramePtr PreviewHost::render(const RenderSettings& settings) {
         require(status == SPK_OK, "Render: " + std::string(spk_last_error(impl_->engine.get())));
         next->timings.render_ms = elapsed(t);
         next->timings.engine_render_ms = next->result_.elapsed_ms;
-        t = Clock::now();
-        next->bgra8 = rgba16_to_bgra8(next->result_);
-        next->timings.display_ms = elapsed(t);
+        // A delta never carries output_color_space (it is no settings row),
+        // so the space the session was opened with still holds.
+        next->encoding = impl_->encoding;
+        if (impl_->options.bgra8_display) {
+            t = Clock::now();
+            next->bgra8 = rgba16_to_bgra8(next->result_);
+            next->timings.display_ms = elapsed(t);
+        }
     } catch (...) {
         impl_->session.reset();
         throw;
@@ -625,6 +669,9 @@ FramePtr PreviewHost::render(const RenderSettings& settings) {
 }
 
 void PreviewHost::export_tiff(const Frame& frame, const fs::path& destination) const {
+    require(frame.encoding.is_encoded_srgb(),
+            "TIFF export writes sRGB, but this frame is encoded in " + frame.encoding.color_space +
+                (frame.encoding.cctf_encoding ? "" : " (linear)"));
     const auto& pixels = frame.pixels();
     std::string error;
     const bool written = io::write_srgb_tiff(destination, pixels.rgba16, pixels.width, pixels.height,

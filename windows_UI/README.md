@@ -78,7 +78,13 @@ The colour model, profile data and shader maths are unchanged.
 
 All engine work runs on one serial worker. Edits during a render are coalesced
 into the newest settings; superseded results never replace the displayed frame
-or newer controls. File dialogs pause pending updates until they close; opening
+or newer controls. The same worker makes the canvas images before a result is
+delivered: the frame's RGBA16 as `RGBX16FPx4` half floats (value/65535, 8 bytes
+per pixel like the RGBA16) tagged with the colour space the session's open
+reply reports (`FrameImage.hpp`; an output space it cannot name is refused,
+never defaulted), a navigator image reduced to a 1024 px long edge by area
+averaging, and from that the 180x120 strip thumbnail, also half floats. A
+superseded render is not converted. File dialogs pause pending updates until they close; opening
 and exporting lock conflicting commands. A failed
 current render retains the displayed frame and restores its controls; a retry
 is available. Export captures that same immutable frame, including when a new
@@ -185,9 +191,17 @@ batch locks and visible persistence warnings. It owns copies of all inputs.
 The captures are **offscreen scene captures**, not a live monitor screenshot.
 Software scene display does not make the engine a CPU renderer. This gate does
 not automate the native file dialogs or verify monitor profiles. At this phase
-the host renders encoded sRGB and the GUI shows an 8-bit SDR texture. A QImage
-sRGB tag is not a proof that the default Windows Qt swapchain applies a monitor
-ICC transform. Wide-gamut, EDR/HDR, ColourSync-equivalent display validation,
+the host asks the engine for encoded sRGB; the canvas receives half floats
+tagged with whatever the session reports (Qt 6.11's scene graph uploads
+`RGBX16FPx4` as an `RGBA16F` texture on D3D11). A QImage tag is not a proof
+that the default Windows Qt swapchain applies a monitor ICC transform; the
+display transform is `ColorPipeline.hpp`'s. Export reads the engine's RGBA16,
+not the display image, embeds sRGB.icc and therefore refuses a frame encoded
+in any other space. The hidden `--output-color-space "ProPhoto RGB"` option
+opens sessions in another space to exercise this path (the self-test then
+checks the tag and the export refusal and stops). `spk_qt_frame_image` holds
+every engine output space's tag against the engine's own baked primaries and
+transfer functions. Wide-gamut, EDR/HDR, ColourSync-equivalent display validation,
 original/split comparison, histogram, post-development grading and perspective
 geometry are future work. TIFF and PNG16 retain 16-bit
 pixels; PNG8/JPEG8 use 8-bit samples, and resizing is explicitly requested.

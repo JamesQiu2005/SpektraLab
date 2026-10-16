@@ -29,7 +29,13 @@ class PreviewController final : public QObject {
     Q_PROPERTY(QString status READ status NOTIFY stateChanged)
     Q_PROPERTY(QString fileName READ fileName NOTIFY frameChanged)
     Q_PROPERTY(QUrl sourceFolder READ sourceFolder NOTIFY frameChanged)
+    // The canvas's picture: the developed frame after geometry, RGBX16FPx4
+    // tagged with the session's encoding (FrameImage.hpp).
     Q_PROPERTY(QImage previewImage READ previewImage NOTIFY frameChanged)
+    // previewImage reduced to a long edge of at most 1024 px (area average,
+    // same tag), for the navigator: a second full-size texture is 264 MB at
+    // 33 MP. Changes whenever previewImage does.
+    Q_PROPERTY(QImage navigatorImage READ navigatorImage NOTIFY frameChanged)
     Q_PROPERTY(QVariantMap metadata READ metadata NOTIFY frameChanged)
     Q_PROPERTY(QVariantList films READ films NOTIFY catalogChanged)
     Q_PROPERTY(QVariantList papers READ papers NOTIFY catalogChanged)
@@ -88,8 +94,15 @@ class PreviewController final : public QObject {
     Q_PROPERTY(bool flipVertical READ flipVertical NOTIFY geometryChanged)
     Q_PROPERTY(double straightenDegrees READ straightenDegrees NOTIFY geometryChanged)
 public:
+    // Makes the full display image of a frame. Called on the worker thread,
+    // after the render and before the reply is queued; a throw fails the
+    // operation and keeps the displayed frame (the self-test injects one).
     using ImageFactory=std::function<QImage(const spk::desktop::FramePtr&)>;
-    explicit PreviewController(std::filesystem::path resources, QObject* parent=nullptr, ImageFactory imageFactory={}, QString editDirectory={});
+    // `outputColorSpace` empty: the host's display default (sRGB). Anything
+    // else is requested of every session, for tests of the tagging path;
+    // what the frame is tagged with is still what the engine reports.
+    explicit PreviewController(std::filesystem::path resources, QObject* parent=nullptr, ImageFactory imageFactory={},
+                               QString editDirectory={}, QString outputColorSpace={});
     static QImage imageFromFrame(const spk::desktop::FramePtr&);
     ~PreviewController() override;
     bool ready() const { return ready_; }
@@ -103,6 +116,7 @@ public:
     QString fileName() const;
     QUrl sourceFolder() const;
     QImage previewImage() const { return image_; }
+    QImage navigatorImage() const { return navigator_; }
     QVariantMap metadata() const;
     QVariantList films() const { return films_; }
     QVariantList papers() const { return papers_; }
@@ -212,6 +226,14 @@ signals:
     void initialized(bool success);
     void operationFinished(const QString& operation, bool success);
 private:
+    // Everything the canvases show of one frame, made on the worker.
+    struct Publication {
+        QImage full, visible, navigator;
+        spk::desktop::output::Geometry geometry;  // what `visible` applied
+        double convert_ms=0, total_ms=0;           // factory alone; all three
+    };
+    static Publication publish(const ImageFactory& factory, const spk::desktop::FramePtr& frame,
+                               const spk::desktop::output::Geometry& geometry);
     struct Reply {
         quint64 generation=0;
         quint64 settings_revision=0;
@@ -220,10 +242,11 @@ private:
         int library_index=-1;
         spk::desktop::output::Geometry geometry;
         spk::desktop::FramePtr frame;
+        Publication publication;
         spk::desktop::Catalog catalog;
     };
     using Job = std::function<Reply(spk::desktop::PreviewHost&)>;
-    void workerLoop(std::filesystem::path resources);
+    void workerLoop(std::filesystem::path resources, spk::desktop::HostOptions options);
     void deliver(Reply reply);
     void accept(Reply reply);
     void submit(Job job, QString status, QString operation);
@@ -255,6 +278,8 @@ private:
     spk::desktop::FramePtr frame_;
     QImage image_;
     QImage full_image_;
+    QImage navigator_;
+    double convert_ms_=0, publish_ms_=0;
     spk::desktop::output::Geometry geometry_;
     spk::desktop::RenderSettings extra_settings_;
     struct LibraryItem {
@@ -286,7 +311,10 @@ private:
     std::shared_ptr<std::atomic_bool> cancel_batch_;
     ImageFactory image_factory_;
     quint64 generation_=0;
-    quint64 settings_revision_=0;
+    // Written on the GUI thread only; the worker reads it to skip making
+    // images for a render that is already superseded (it only ever grows,
+    // so one stale there is stale when accept() sees it too).
+    std::atomic<quint64> settings_revision_{0};
     QString active_operation_;
     QTimer auto_apply_;
     bool dialog_open_=false;
