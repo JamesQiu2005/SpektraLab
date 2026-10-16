@@ -37,16 +37,25 @@ target_link_libraries(SpektraLabQt PRIVATE
     spk_desktop_host Qt6::Core Qt6::Gui Qt6::Qml Qt6::Quick Qt6::QuickControls2)
 # The compiled-in language tables, read from :/i18n (i18n/README.md).
 qt_add_resources(SpektraLabQt "spektralab_i18n" PREFIX "/i18n" BASE i18n FILES i18n/en.json)
-set_source_files_properties(qml/Theme.qml qml/L10n.qml PROPERTIES QT_QML_SINGLETON_TYPE TRUE)
+set_source_files_properties(qml/Theme.qml qml/L10n.qml qml/Icons.qml qml/SectionStates.qml qml/Catalog.qml
+    PROPERTIES QT_QML_SINGLETON_TYPE TRUE)
 # One module; the subdirectories are ownership, not namespaces -- every type is
 # visible to every file by its bare name. Main.qml is the window, EditorState
-# the state the panes share, L10n the text lookup.
+# the state the panes share, L10n the text lookup; Theme, Icons and the
+# controls in qml/controls are the design system ported from the macOS app.
 qt_add_qml_module(SpektraLabQt URI SpektraLab VERSION 1.0
     QML_FILES
         qml/Main.qml qml/EditorState.qml qml/L10n.qml
-        qml/Theme.qml qml/Section.qml qml/ActionButton.qml
-        qml/controls/Note.qml qml/controls/Adjustment.qml qml/controls/Effect.qml
-        qml/controls/StockList.qml
+        qml/Theme.qml qml/Icons.qml qml/SectionStates.qml qml/Catalog.qml
+        qml/Section.qml qml/ActionButton.qml
+        qml/controls/MacSection.qml qml/controls/ParamRow.qml qml/controls/ScrubSlider.qml
+        qml/controls/ValueBox.qml qml/controls/CheckRow.qml qml/controls/SquareCheck.qml
+        qml/controls/AsShotLine.qml qml/controls/PillDropdown.qml qml/controls/PillSwitch.qml
+        qml/controls/PillButton.qml qml/controls/IconButton.qml qml/controls/Triangle.qml
+        qml/controls/RailMenu.qml qml/controls/RailMenuItem.qml qml/controls/RailScrollBar.qml
+        qml/controls/RailResizeHandle.qml qml/controls/StockList.qml qml/controls/CinePill.qml
+        qml/controls/PlotPlaceholder.qml qml/controls/Note.qml
+        qml/controls/Adjustment.qml qml/controls/Effect.qml
         qml/left/LeftRail.qml qml/left/NavigatorSection.qml qml/left/FilmSection.qml
         qml/left/PrintSection.qml qml/left/CropSection.qml qml/left/EnlargerSection.qml
         qml/centre/CentrePane.qml qml/centre/TopBar.qml qml/centre/CanvasView.qml

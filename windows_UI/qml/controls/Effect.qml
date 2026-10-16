@@ -1,22 +1,31 @@
 import QtQuick
-import QtQuick.Controls
 import QtQuick.Layouts
 
-// A film effect: an on/off box over its strength slider. An absent switch reads
-// as on, matching the controller's defaults; the slider greys out while off.
+// The first Qt pane's film effect (an on/off switch over its strength),
+// kept as an adapter onto CheckRow + ScrubSlider. New code uses those two
+// directly, as FilmFormatSection does. An absent switch reads as on, as the
+// controller's defaults do; the strength greys while the effect is off.
 ColumnLayout {
     id: effect
     property string label
     property string activeKey
     property string amountKey
     property real maximum: 2
-    Layout.fillWidth: true; spacing: 1
-    CheckBox {
-        text: effect.label; font.pixelSize: 11
-        palette.windowText: Theme.text
-        checked: preview.adjustments[effect.activeKey] === undefined ? true : preview.adjustments[effect.activeKey]
-        enabled: preview.settingsEditable
-        onToggled: preview.setAdjustment(effect.activeKey, checked)
+    readonly property bool on: preview.adjustments[activeKey] === undefined ? true : preview.adjustments[activeKey] === true
+    Layout.fillWidth: true
+    spacing: Theme.rowSpacing
+    CheckRow {
+        label: effect.label
+        checked: effect.on
+        available: preview.settingsEditable
+        onToggledTo: function(v) { preview.setAdjustment(effect.activeKey, v) }
     }
-    Adjustment { label: L10n.tr("effect.strength"); setting: effect.amountKey; fallback: 1; from: 0; to: effect.maximum; available: preview.adjustments[effect.activeKey] !== false }
+    ScrubSlider {
+        label: L10n.tr("effect.strength")
+        value: preview.adjustments[effect.amountKey] === undefined ? 1 : Number(preview.adjustments[effect.amountKey])
+        from: 0; to: effect.maximum; defaultValue: 1; step: 0.05
+        gestureKey: effect.amountKey
+        available: preview.settingsEditable && effect.on
+        onMoved: function(v) { preview.setAdjustment(effect.amountKey, v) }
+    }
 }
