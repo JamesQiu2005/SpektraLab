@@ -9,7 +9,8 @@ param(
     [switch]$RunTests,
     [switch]$Fresh,
     [switch]$NoDeploy,
-    [switch]$KeepGoing
+    [switch]$KeepGoing,
+    [ValidateRange(0, 64)][int]$Jobs = 0
 )
 # MSVC 2022 build of the engine and the Qt Quick editor. Everything it needs
 # lives in -DependencyDirectory (default: ../deps beside the checkout):
@@ -84,6 +85,8 @@ try {
     if ($Fresh) { $arguments = @('--fresh') + $arguments }
     Invoke-Tool $cmake $arguments 'Configuration'
     $buildArguments = @('--build', $BuildDirectory)
+    # 0 lets Ninja use every core; parallel worktree builds pass a share.
+    if ($Jobs -gt 0) { $buildArguments += @('--parallel', $Jobs) }
     if (-not $RunTests) { $buildArguments += @('--target', 'SpektraLabQt') }
     if ($KeepGoing) { $buildArguments += @('--', '-k', '0') }
     Invoke-Tool $cmake $buildArguments 'Build'

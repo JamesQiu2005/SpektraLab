@@ -81,6 +81,30 @@ int main(int argc, char** argv) {
                     std::string("open accepted an unported effect: ") + feature.key);
         }
 
+        // The latitude's second pair runs the node without `active`
+        // (Pipeline::scene_latitude_wanted), so it is a request on its own --
+        // whether it arrives in one delta or is completed by a later one.
+        {
+            const char* second = "{\"scene_latitude_split\":0.5,\"scene_latitude_b_active\":true,"
+                                 "\"scene_latitude_b_highlight_room\":1.0}";
+            const spk_status status = spk_set_params(session.get(), second, nullptr);
+            const std::string error = spk_last_error(engine.get());
+            require(status == SPK_ERR_USER && error.find("scene latitude mapping") != std::string::npos,
+                    "second latitude pair bypassed the refusal: " + error);
+            require(params(session.get()) == before, "refused second-pair delta mutated params");
+            require(spk_set_params(session.get(), "{\"scene_latitude_b_active\":true}", nullptr) == SPK_OK,
+                    std::string("b_active without a split must stay allowed: ") + spk_last_error(engine.get()));
+            const spk_status completed = spk_set_params(session.get(), "{\"scene_latitude_split\":0.5}", nullptr);
+            require(completed == SPK_ERR_USER, "a split completing the second pair bypassed the refusal");
+            require(spk_set_params(session.get(), "{\"scene_latitude_b_active\":false}", nullptr) == SPK_OK,
+                    "could not restore b_active");
+            render(engine.get(), session.get());
+            spk_session* rejected = spk_open(engine.get(), &input, second, nullptr);
+            if (rejected) spk_session_release(rejected);
+            require(!rejected, "open accepted the second latitude pair");
+        }
+        const std::string restored = params(session.get());
+
         spk_result di{};
         char* di_json = nullptr;
         const spk_status di_status = spk_render_digital_intermediate(session.get(), &di, &di_json);
@@ -91,7 +115,7 @@ int main(int argc, char** argv) {
         require(di_status == SPK_ERR_USER && empty &&
                 di_error.find("digital intermediate") != std::string::npos,
                 "DI API did not return a clear refusal and empty result");
-        require(params(session.get()) == before, "DI refusal mutated the session");
+        require(params(session.get()) == restored, "DI refusal mutated the session");
         render(engine.get(), session.get());
 
         const float* mask = nullptr;
@@ -109,9 +133,9 @@ int main(int argc, char** argv) {
             std::string(latitude_json).find("\"scene\"") != std::string::npos;
         spk_string_free(latitude_json);
         require(latitude_status == SPK_OK && latitude_valid, "latitude analysis failed: " + latitude_error);
-        require(params(session.get()) == before, "latitude analysis mutated the session");
+        require(params(session.get()) == restored, "latitude analysis mutated the session");
         render(engine.get(), session.get());
-        std::cout << "Windows feature boundaries passed (5 flags, DI refusal, mask off, latitude analysis)\n";
+        std::cout << "Windows feature boundaries passed (5 flags, latitude second pair, DI refusal, mask off, latitude analysis)\n";
         return 0;
     } catch (const std::exception& error) {
         std::cerr << error.what() << '\n';

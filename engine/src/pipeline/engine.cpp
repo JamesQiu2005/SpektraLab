@@ -319,9 +319,8 @@ struct spk_engine {
         // These upstream effects still require kernels or Apple services that
         // have not been ported. Defaults stay usable; explicit requests fail.
         Json unported = Json::array();
-        for (const char* feature : {"digital_intermediate", "scene_latitude_mapping",
-                                    "contrast_mask", "overscan", "date_imprint"})
-            unported.push(Json(std::string(feature)));
+        for (const auto& row : kWindowsFeatures)
+            if (!row.ported) unported.push(Json(std::string(row.capability)));
         backend.set("unsupported_features", std::move(unported));
 #endif
         // Concurrent entry is safe: there is no numba here, and renders on
@@ -1623,9 +1622,11 @@ spk_status spk_render_digital_intermediate(spk_session* session, spk_result* out
     g_error.clear();
     std::memset(out, 0, sizeof *out);
 #ifndef __APPLE__
-    if (out_json) *out_json = nullptr;
-    g_error = windows_unported_error(true, false, false, false, false);
-    return SPK_ERR_USER;
+    if (const char* unported = windows_unported_error(WindowsFeature::DigitalIntermediate, true)) {
+        if (out_json) *out_json = nullptr;
+        g_error = unported;
+        return SPK_ERR_USER;
+    }
 #endif
     if (session->params.film.info.is_positive()) {
         g_error = "a slide film has no orange mask and no negative to reverse, so it has no "
@@ -1707,7 +1708,7 @@ spk_status spk_set_params(spk_session* session, const char* params_delta_json, c
 #ifndef __APPLE__
     // Reject before applying the delta, so a failed request cannot leave the
     // session's params ahead of its still-valid, previously built pipeline.
-    if (const char* unported = windows_unported_delta_error(delta)) {
+    if (const char* unported = windows_unported_delta_error(delta, session->params)) {
         g_error = unported;
         return SPK_ERR_USER;
     }

@@ -16,7 +16,7 @@ void Pipeline::overscan_frame(uint32_t& frame_w, uint32_t& frame_h) const {
 
 bool Pipeline::set_overscan_frame(uint32_t, uint32_t, std::string& error) {
     if (!overscan_wanted()) return true;
-    error = windows_unported_error(false, false, false, true, false);
+    error = windows_unported_error(WindowsFeature::Overscan, true);
     return false;
 }
 
@@ -27,8 +27,8 @@ std::string Pipeline::overscan_geometry_json() const { return "{\"valid\":false}
 
 bool Pipeline::node_overscan(const Image& in, Image& out, std::string& error) {
     if (params_.film_render.overscan.active || params_.film_render.date_imprint.active) {
-        error = windows_unported_error(false, false, false, params_.film_render.overscan.active,
-                                        params_.film_render.date_imprint.active);
+        error = windows_unported_error(params_.film_render.overscan.active ? WindowsFeature::Overscan
+                                                                           : WindowsFeature::DateImprint, true);
         return false;
     }
     out = in;
@@ -55,7 +55,7 @@ bool Pipeline::prepare_contrast_mask(const Image&, std::string& error, std::vect
     release_contrast_mask();
     if (delta) delta->clear();
     if (!contrast_mask_wanted()) return true;
-    error = windows_unported_error(false, false, true, false, false);
+    error = windows_unported_error(WindowsFeature::ContrastMask, true);
     return false;
 }
 
@@ -66,7 +66,7 @@ bool Pipeline::contrast_mask_field(const Image& cmy, std::vector<float>& delta, 
 }
 
 bool Pipeline::node_contrast_mask_epilogue(const Image&, Image&, std::string& error) {
-    error = windows_unported_error(false, false, true, false, false);
+    error = windows_unported_error(WindowsFeature::ContrastMask, true);
     return false;
 }
 
