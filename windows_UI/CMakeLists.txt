@@ -168,7 +168,7 @@ if(BUILD_TESTING)
     add_test(NAME spk_qt_postdev_gpu COMMAND spk_qt_postdev_test --gpu)
     if(WIN32)
         set_tests_properties(spk_qt_postdev spk_qt_postdev_gpu PROPERTIES
-            ENVIRONMENT_MODIFICATION "PATH=path_list_prepend:$<TARGET_FILE_DIR:Qt6::Core>")
+            ENVIRONMENT_MODIFICATION "${qt_test_runtime_path}")
     endif()
     if(SPEKTRALAB_GLSLANG)
         add_test(NAME spk_qt_postdev_glsl COMMAND "${SPEKTRALAB_GLSLANG}" -V --target-env vulkan1.0
