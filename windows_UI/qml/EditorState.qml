@@ -40,18 +40,32 @@ QtObject {
 
     // The two rails (EditorWindow.swift): each folds with its sidebar button
     // on the tool bar, and its width is the user's between the Theme bounds
-    // (PanelResize.swift). Held for this run only, like the sections.
-    property bool leftCollapsed: false
-    property bool rightCollapsed: false
-    property real leftWidth: Theme.leftRailStandard
-    property real rightWidth: Theme.rightRailStandard
-    function setLeftWidth(w) { leftWidth = Math.max(Theme.leftRailNarrowest, Math.min(Theme.leftRailWidest, w)) }
-    function setRightWidth(w) { rightWidth = Math.max(Theme.rightRailNarrowest, Math.min(Theme.rightRailWidest, w)) }
+    // (PanelResize.swift). Kept in the preferences file under "layout." (the
+    // Mac's ui2.leftCollapsed / PanelWidthStore), which a test run keeps in
+    // its own directory (AppSettings.hpp); Settings > Reset All Layout clears
+    // them (resetLayout()).
+    property bool leftCollapsed: AppSettings.value("layout.leftCollapsed", false) === true
+    property bool rightCollapsed: AppSettings.value("layout.rightCollapsed", false) === true
+    property real leftWidth: clampLeft(Number(AppSettings.value("layout.leftRailWidth", Theme.leftRailStandard)))
+    property real rightWidth: clampRight(Number(AppSettings.value("layout.rightRailWidth", Theme.rightRailStandard)))
+    onLeftCollapsedChanged: AppSettings.setValue("layout.leftCollapsed", leftCollapsed)
+    onRightCollapsedChanged: AppSettings.setValue("layout.rightCollapsed", rightCollapsed)
+    function clampLeft(w) { return isNaN(w) ? Theme.leftRailStandard : Math.max(Theme.leftRailNarrowest, Math.min(Theme.leftRailWidest, w)) }
+    function clampRight(w) { return isNaN(w) ? Theme.rightRailStandard : Math.max(Theme.rightRailNarrowest, Math.min(Theme.rightRailWidest, w)) }
+    function setLeftWidth(w) { leftWidth = clampLeft(w); AppSettings.setValue("layout.leftRailWidth", leftWidth) }
+    function setRightWidth(w) { rightWidth = clampRight(w); AppSettings.setValue("layout.rightRailWidth", rightWidth) }
+    function toggleSidePanels() { var fold = !(leftCollapsed && rightCollapsed); leftCollapsed = fold; rightCollapsed = fold }
+    // Back to the drawing: the caller then clears the stored "layout." keys.
+    function resetLayout() {
+        leftCollapsed = false; rightCollapsed = false; filmstripCollapsed = false
+        leftWidth = Theme.leftRailStandard; rightWidth = Theme.rightRailStandard
+    }
     // The Parameters rail's tab: 0 Pre-Dev, 1 Post-Dev (not built yet).
     property int parametersTab: 0
     // The filmstrip folds with the tab on the canvas's lower edge (the Mac's
     // one surviving collapse tab, CollapseTab.swift).
-    property bool filmstripCollapsed: false
+    property bool filmstripCollapsed: AppSettings.value("layout.filmstripCollapsed", false) === true
+    onFilmstripCollapsedChanged: AppSettings.setValue("layout.filmstripCollapsed", filmstripCollapsed)
 
     // What part of the frame the canvas shows, normalised to the frame: the
     // whole of it while fitted, a window into it at 100 %. The navigator
@@ -79,6 +93,18 @@ QtObject {
     // Requests for what Main.qml owns: the import dialog and the export options.
     signal importRequested()
     signal exportOptionsRequested()
+
+    // The application menu (shell/AppMenu.qml) and Main.qml's Shortcuts share
+    // these gates and requests, so a key and its menu item do one thing.
+    readonly property bool canUndo: preview.settingsEditable && preview.canUndo && !cropMode
+    readonly property bool canRedo: preview.settingsEditable && preview.canRedo && !cropMode
+    readonly property bool canSelectAll: canBrowse && preview.libraryItems.length > 0
+    readonly property bool canSync: canBrowse && preview.hasFrame && preview.selectedCount > 0
+    readonly property bool canResetPhoto: preview.settingsEditable && preview.hasFrame && !cropMode
+    signal settingsRequested(string page)
+    signal aboutRequested()
+    signal quitRequested()
+    signal appMenuRequested(bool open)
 
     function resetView(toFit) { if (canvas) canvas.resetView(toFit) }
     function startCrop() {

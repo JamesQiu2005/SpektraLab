@@ -208,9 +208,30 @@ if(BUILD_TESTING)
 endif()
 
 # --- The application shell (lane ui-app-shell) ---
-# The app preferences file (src/AppSettings.*): the Settings window's values,
-# the display colour management choice and the layout, as one JSON file.
-target_sources(SpektraLabQt PRIVATE src/AppSettings.hpp src/AppSettings.cpp)
+# The Settings and About windows, the application menu and the preferences
+# file (src/AppSettings.*, src/AppShell.*, qml/shell/). The version is the
+# macOS app's MARKETING_VERSION (modern_UI/Spektrafilm/Spektrafilm.xcodeproj/
+# project.pbxproj:1334), so both builds of one release say the same number.
+set(SPEKTRALAB_VERSION "1.3.3")
+target_sources(SpektraLabQt PRIVATE src/AppSettings.hpp src/AppSettings.cpp src/AppShell.hpp src/AppShell.cpp
+    src/ShellCapture.hpp src/ShellCapture.cpp)
+target_compile_definitions(SpektraLabQt PRIVATE SPEKTRALAB_VERSION="${SPEKTRALAB_VERSION}")
+qt_target_qml_sources(SpektraLabQt
+    QML_FILES
+        qml/shell/ShellWindow.qml qml/shell/SettingsWindow.qml qml/shell/SettingsGroup.qml
+        qml/shell/SettingsReadout.qml qml/shell/AboutWindow.qml qml/shell/LicenceWindow.qml
+        qml/shell/AppMenu.qml qml/shell/MenuCommand.qml qml/shell/LinkText.qml
+    NO_CACHEGEN)
+# volk (engine/third_party/volk, MIT) is compiled into the engine on Windows;
+# its notice travels with the others in licenses/, where the About window
+# lists it.
+set(spk_volk_license "${CMAKE_CURRENT_SOURCE_DIR}/../engine/third_party/volk/LICENSE.md")
+if(EXISTS "${spk_volk_license}")
+    add_custom_command(TARGET spektralab_qt_resources POST_BUILD
+        COMMAND "${CMAKE_COMMAND}" -E make_directory "$<TARGET_FILE_DIR:SpektraLabQt>/licenses"
+        COMMAND "${CMAKE_COMMAND}" -E copy_if_different "${spk_volk_license}" "$<TARGET_FILE_DIR:SpektraLabQt>/licenses/volk-LICENSE.md"
+        VERBATIM)
+endif()
 if(BUILD_TESTING)
     # The preferences file: paths, round trip, atomic writes, unknown keys.
     qt_add_executable(spk_qt_app_settings_test tests/app_settings.cpp src/AppSettings.hpp src/AppSettings.cpp)
@@ -218,7 +239,14 @@ if(BUILD_TESTING)
     target_compile_features(spk_qt_app_settings_test PRIVATE cxx_std_20)
     target_link_libraries(spk_qt_app_settings_test PRIVATE Qt6::Core Qt6::Qml)
     add_test(NAME spk_qt_app_settings COMMAND spk_qt_app_settings_test "${CMAKE_CURRENT_BINARY_DIR}/app-settings-test")
+    # The Settings and About windows load, every page and a licence text are
+    # captured, and no QML warning is logged (ShellCapture.hpp): the real
+    # executable, offscreen, with its preferences inside the build tree.
+    add_test(NAME spk_qt_shell_smoke COMMAND "${CMAKE_COMMAND}" "-DAPP=$<TARGET_FILE:SpektraLabQt>"
+        "-DOUTPUT=${CMAKE_CURRENT_BINARY_DIR}/shell-smoke" -P "${CMAKE_CURRENT_SOURCE_DIR}/tests/shell_smoke.cmake")
+    set_tests_properties(spk_qt_shell_smoke PROPERTIES TIMEOUT 180
+        ENVIRONMENT "QT_QPA_PLATFORM=offscreen;QT_QUICK_BACKEND=software;QML_DISABLE_DISK_CACHE=1;QSG_RHI_DISABLE_DISK_CACHE=1")
     if(WIN32)
-        set_tests_properties(spk_qt_app_settings PROPERTIES ENVIRONMENT_MODIFICATION "${qt_test_runtime_path}")
+        set_tests_properties(spk_qt_app_settings spk_qt_shell_smoke PROPERTIES ENVIRONMENT_MODIFICATION "${qt_test_runtime_path}")
     endif()
 endif()
