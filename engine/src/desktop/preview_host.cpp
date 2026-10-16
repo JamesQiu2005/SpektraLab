@@ -571,6 +571,7 @@ PreviewHost::~PreviewHost() = default;
 const Catalog& PreviewHost::catalog() const noexcept { return impl_->catalog; }
 double PreviewHost::engine_create_ms() const noexcept { return impl_->engine_create_ms; }
 FramePtr PreviewHost::current() const noexcept { return impl_->frame; }
+const io::DecodedRaw& PreviewHost::decoded() const noexcept { return impl_->decoded; }
 
 FramePtr PreviewHost::open_raw(const fs::path& source, DecodeMode mode, const RenderSettings& settings) {
     const auto started = Clock::now();

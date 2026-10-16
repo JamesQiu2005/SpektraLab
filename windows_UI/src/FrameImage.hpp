@@ -14,6 +14,7 @@
 #include <QColorSpace>
 #include <QImage>
 #include <QSize>
+#include <vector>
 
 namespace spk::desktop::display {
 
@@ -52,5 +53,37 @@ inline QImage navigatorImage(const QImage& visible) {
     return downscaled(visible, {kNavigatorLongEdge, kNavigatorLongEdge});
 }
 inline QImage thumbnailImage(const QImage& navigator) { return downscaled(navigator, kThumbnailBox); }
+
+// The Original: the photograph before any film simulation (macOS TopBar
+// "Original" and Space, ImageDecoder.swift's `display` decode), made from the
+// host's own decode -- packed linear LibRaw ProPhoto RGB, the engine's input
+// -- and *not* the negative. It is put into `encoding`, the space and curve
+// the print is in, so the print and the Original are tagged alike and go
+// through the same display LUT: a before/after split compares two renderings,
+// never two colour spaces (Renderer.swift's header makes the same rule).
+//
+// A neutral rendering: a colorimetric conversion (Qt's, ProPhoto's D50 to
+// the target's white by Qt's Bradford adaptation) and the space's own
+// transfer function, clipped to [0,1] -- no tone curve, no exposure. Apple's
+// default RAW rendering, which the Mac shows, adds its own tone curve and
+// baseline exposure; LibRaw has no equivalent, so the Windows Original reads
+// darker and flatter than the Mac's. Geometry is the decode's (RAW orientation
+// applied, as the engine received it), so it has the frame's size.
+//
+// RGBX16FPx4, alpha 1. Rows run on up to eight threads. Throws on an empty or
+// inconsistent decode or an encoding colorSpace() refuses.
+QImage originalImage(const io::DecodedRaw& decoded, const OutputEncoding& encoding);
+
+// The canvas histogram (macOS Renderer.encodeHistogram + publishHistogram):
+// 4 x 256 bins -- R, G, B, then Rec. 709 luma -- of the *encoded* values,
+// each channel clamped to [0,1] and binned at round(v * 255). One pixel in
+// `stride` along each axis, stride = max(1, floor(sqrt(w h / 200 000))) as the
+// Mac's kernel takes it, so a 33 MP frame costs ~200 000 samples. Normalised
+// to the tallest bin outside the two at each end (clipped black and white
+// would flatten everything else), then capped at 1. All zeros for a null
+// image. Any thread.
+inline constexpr int kHistogramBins = 256;
+inline constexpr double kHistogramSamples = 200000;
+std::vector<float> histogram(const QImage& rgbx16fp);
 
 }  // namespace spk::desktop::display
