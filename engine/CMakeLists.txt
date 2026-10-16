@@ -124,6 +124,7 @@ if(NOT APPLE)
             spk_reduce_max spk_boost spk_bw_correct spk_edr spk_cctf_decode
             spk_zoom_bilinear_mirror spk_geometry_resample_df
             spk_lut3d_trilinear spk_di_normalise
+            spk_overscan_canvas spk_overscan_film_present spk_overscan_light
             CACHE INTERNAL "")
         set(vulkan_spirv)
         file(GLOB vulkan_includes "${CMAKE_CURRENT_SOURCE_DIR}/src/shaders/vulkan/*.glsl")
