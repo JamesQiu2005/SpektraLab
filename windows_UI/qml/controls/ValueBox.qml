@@ -71,6 +71,22 @@ Item {
         elide: Text.ElideRight
         font.family: Theme.fontFamily; font.pixelSize: Theme.fontSmall; font.weight: Theme.weightText
     }
+    // While typing, a press anywhere else in the window commits, as a Windows
+    // field does: a click on a rail row or the canvas takes no focus in Qt
+    // Quick, so without this the box would stay open until Enter or Esc. It
+    // lies over the whole window only while the editor is open and lets the
+    // press through to whatever was clicked.
+    MouseArea {
+        parent: editor.active && box.Window.contentItem ? box.Window.contentItem : box
+        anchors.fill: parent
+        z: 100000
+        visible: editor.active
+        onPressed: function(mouse) {
+            var p = mapToItem(box, mouse.x, mouse.y)
+            if (p.x < 0 || p.y < 0 || p.x > box.width || p.y > box.height) box.endTyping(true)
+            mouse.accepted = false
+        }
+    }
     // The text field exists only while typing: a rail holds two dozen value
     // boxes, and none of them needs an editor until it is clicked.
     Loader {
