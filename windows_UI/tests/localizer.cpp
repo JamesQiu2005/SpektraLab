@@ -4,6 +4,7 @@
 // source qml directory and a scratch directory (inside the build tree) for the
 // test's own language files. Needs neither a GPU nor a QML engine.
 #include "Localizer.hpp"
+#include "Messages.hpp"
 #include <QCoreApplication>
 #include <QDir>
 #include <QDirIterator>
@@ -75,6 +76,17 @@ int main(int argc,char** argv) {
             }
         }
         check(used.size()>50,"QML calls L10n.tr() for almost nothing");
+
+        // The controller's status lines (Messages.hpp) are looked up in the
+        // same tables; its English fallback must say exactly what en.json says,
+        // or a build without the Localizer would read differently.
+        for(const auto& message:spk::desktop::messages::kMessages) {
+            const auto key=QString::fromUtf8(message.key);
+            if(!english.contains(key)||localizer.translate(key)!=QString::fromUtf8(message.english))
+                std::fprintf(stderr,"Messages.hpp and en.json disagree: %s\n",message.key);
+            check(english.contains(key),"a Messages.hpp key is not in en.json");
+            check(localizer.translate(key)==QString::fromUtf8(message.english),"Messages.hpp's English differs from en.json");
+        }
 
         // Placeholders: {N} by position, repeated or reordered; anything else
         // in braces is text.
