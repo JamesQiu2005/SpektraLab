@@ -21,9 +21,9 @@ struct WindowsFeatureRow {
 
 inline constexpr WindowsFeatureRow kWindowsFeatures[] = {
     {WindowsFeature::DigitalIntermediate, "digital_intermediate",
-     "digital intermediate is not implemented by the Windows Vulkan backend yet", false},
+     "digital intermediate is not implemented by the Windows Vulkan backend yet", true},
     {WindowsFeature::SceneLatitude, "scene_latitude_mapping",
-     "scene latitude mapping is not implemented by the Windows Vulkan backend yet", false},
+     "scene latitude mapping is not implemented by the Windows Vulkan backend yet", true},
     {WindowsFeature::ContrastMask, "contrast_mask",
      "contrast mask is not implemented by the Windows Vulkan backend yet", true},
     {WindowsFeature::Overscan, "overscan",

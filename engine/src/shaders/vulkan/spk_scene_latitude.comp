@@ -1,0 +1,133 @@
+#version 450
+
+// RFC-023's Scene Latitude Mapping, scene_latitude.metal::spk_scene_latitude:
+// a positive scalar gain per pixel from its norm (power | Y | max), computed
+// on the stop axis and applied to the linear triple. A norm that is zero,
+// negative, NaN or infinite takes k = 1 (§11). `p` keeps Metal's 19 floats:
+//   0 K_h   1 H_h (0 = off)   2 K_s   3 H_s (0 = off)   4 m   5 L_max
+//   6 norm (0 power, 1 Y, 2 max)   7..9 the working space's Y row   10 n_ref
+//   11 width  12 height  13 split (0 = none)  14..17 the second frame's
+//   K_h H_h K_s H_s   18 the image's first row in the frame
+// Metal's max/clamp/isfinite keep NaN semantics GLSL leaves undefined, so
+// those are explicit comparisons below.
+layout(local_size_x = 256) in;
+// vulkan_gpu.cpp sets this from the device's measured fma behaviour.
+layout(constant_id = 0) const bool SPK_FUSED_FMA = true;
+layout(set = 0, binding = 0, std430) readonly buffer Input { float value[]; } input_data;
+layout(set = 0, binding = 1, std430) readonly buffer Parameters { float value[]; } p;
+layout(set = 0, binding = 2, std430) readonly buffer Count { uint value[]; } count_data;
+layout(set = 0, binding = 3, std430) writeonly buffer Output { float value[]; } output_data;
+
+// vulkan_gpu.cpp folds a dispatch past maxComputeWorkGroupCount[0] (65535 on
+// lavapipe and Intel) into rows of workgroups; this is the 1D index it means.
+uint spk_global_index() {
+    return gl_GlobalInvocationID.y * (gl_NumWorkGroups.x * gl_WorkGroupSize.x) + gl_GlobalInvocationID.x;
+}
+
+// g_m(D) - D, the branch's departure, in the forms that do not cancel near the
+// knee: exactly 0 at D = 0 through the multiply, negative beyond it. H > 0 and
+// D > 0 wherever pow is reached, so its bases are in GLSL's defined domain.
+float slm_departure(float D, float H, float m) {
+    if (!(D > 0.0)) return 0.0;
+    if (m == 2.0) {
+        float r = sqrt(H * H + D * D);
+        return -(D * D * D) / (r * (H + r));
+    }
+    if (m == 1.0) return -(D * D) / (H + D);
+    return D * (H / pow(pow(H, m) + pow(D, m), 1.0 / m) - 1.0);
+}
+
+// spk_geometry_resample_df's exact product: a * b == hi + lo.
+vec2 two_prod(float a, float b) {
+    precise float hi = a * b;
+    if (SPK_FUSED_FMA) {
+        precise float lo = fma(a, b, -hi);
+        return vec2(hi, lo);
+    }
+    precise float ca = 4097.0 * a;
+    precise float ahi = ca - (ca - a);
+    precise float alo = a - ahi;
+    precise float cb = 4097.0 * b;
+    precise float bhi = cb - (cb - b);
+    precise float blo = b - bhi;
+    precise float lo = ((ahi * bhi - hi) + ahi * blo + alo * bhi) + alo * blo;
+    return vec2(hi, lo);
+}
+
+// n - s d with its sign always right, and its value exact whenever n/d lies
+// within an ulp of s (n is a half-integer, d an integer, both exact floats):
+// n - hi is then exact (Sterbenz) and so is the result.
+float residual(float n, float s, float d) {
+    vec2 sd = two_prod(s, d);
+    precise float head = n - sd.x;
+    precise float r = head - sd.y;
+    return r;
+}
+
+// Metal's `along >= split` with along = n / d, a correctly rounded division
+// in Metal's precise mode. GLSL's division is only good to 2.5 ULP, which
+// moves a column (or row) whose position falls exactly on `split` -- the
+// centre column of an odd width at 0.5 -- to the other frame: measured on an
+// RTX 3070, a plain `n / d >= split` does exactly that (spk_vulkan_di_latitude).
+// So the rounded quotient is never formed: n/d is placed against `s` and the
+// float below it exactly, and the half-way rule picks the side a correct
+// rounding would.
+bool along_reaches(float n, float d, float s) {
+    float r1 = residual(n, s, d);
+    if (r1 >= 0.0) return true;                                   // n/d >= s
+    float below = uintBitsToFloat(floatBitsToUint(s) - 1u);      // s > 0 here
+    float r2 = residual(n, below, d);
+    if (!(r2 > 0.0)) return false;                                // n/d <= below
+    // below < n/d < s: the rounding goes to the nearer, ties to the even one.
+    if (r2 != -r1) return r2 > -r1;
+    return (floatBitsToUint(s) & 1u) == 0u;
+}
+
+void main() {
+    uint i = spk_global_index();
+    if (i >= count_data.value[0]) return;
+    float r = input_data.value[3u * i], g = input_data.value[3u * i + 1u];
+    float b = input_data.value[3u * i + 2u];
+    // fmax(x, 0): NaN gives 0. Negative components stay in the signal.
+    float cr = r > 0.0 ? r : 0.0, cg = g > 0.0 ? g : 0.0, cb = b > 0.0 ? b : 0.0;
+
+    float v;
+    uint norm = uint(p.value[6]);
+    if (norm == 1u) {
+        v = p.value[7] * cr + p.value[8] * cg + p.value[9] * cb;
+    } else if (norm == 2u) {
+        v = max(cr, max(cg, cb));
+    } else {
+        float s2 = cr * cr + cg * cg + cb * cb;
+        v = s2 > 0.0 ? (cr * cr * cr + cg * cg * cg + cb * cb * cb) / s2 : 0.0;
+    }
+
+    float k = 1.0;
+    // isfinite(v) && v > 0, as comparisons: false for NaN and +inf alike.
+    if (v > 0.0 && v <= 3.4028234663852886e38) {
+        float n_ref = p.value[10];
+        float E = log2(max(v, n_ref * 5.9604644775390625e-8) / n_ref);   // floor n_ref 2^-24
+        if (!(E > -24.0)) E = -24.0;
+        else if (E > 24.0) E = 24.0;
+        float d = 0.0;
+        // A half-frame pair: from `split` along the long edge, the second
+        // frame's own knees and rooms (p[14..17]).
+        float Kh = p.value[0], Hh = p.value[1], Ks = p.value[2], Hs = p.value[3];
+        if (p.value[13] > 0.0) {
+            uint w = uint(p.value[11]), h = uint(p.value[12]);
+            precise float n = w >= h ? float(i % w) + 0.5 : float(i / w) + p.value[18] + 0.5;
+            if (along_reaches(n, float(w >= h ? w : h), p.value[13])) {
+                Kh = p.value[14]; Hh = p.value[15]; Ks = p.value[16]; Hs = p.value[17];
+            }
+        }
+        if (Hh > 0.0 && E > Kh) d = slm_departure(E - Kh, Hh, p.value[4]);
+        else if (Hs > 0.0 && E < Ks) d = -slm_departure(Ks - E, Hs, p.value[4]);
+        if (d > 0.0) { float L = p.value[5]; d = d * L / sqrt(L * L + d * d); }
+        k = exp2(d);
+        if (!(k > 9.313225746154785e-10)) k = 9.313225746154785e-10;   // 2^-30; Metal's clamp: NaN -> low
+        else if (k > 1073741824.0) k = 1073741824.0;                   // 2^30
+    }
+    output_data.value[3u * i] = r * k;
+    output_data.value[3u * i + 1u] = g * k;
+    output_data.value[3u * i + 2u] = b * k;
+}
