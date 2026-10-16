@@ -62,6 +62,14 @@ if(APPLE)
 else()
     target_sources(spektralab_pipeline PRIVATE src/pipeline/windows_unported.cpp)
 endif()
+# RFC-031/032: the film edge and the date back. overscan.cpp is the same on
+# every platform; only its 2-D raster differs (overscan_raster.hpp).
+if(APPLE)
+    target_sources(spektralab_pipeline PRIVATE src/pipeline/overscan_raster_apple.cpp)
+else()
+    target_sources(spektralab_pipeline PRIVATE src/pipeline/overscan.cpp
+        src/pipeline/overscan_raster_portable.cpp src/pipeline/edge_raster.cpp)
+endif()
 target_link_libraries(spektralab_pipeline PRIVATE spektralab_core)
 target_include_directories(spektralab_pipeline PRIVATE
     "${CMAKE_CURRENT_SOURCE_DIR}/include"
@@ -271,6 +279,15 @@ if(NOT APPLE)
                 add_test(NAME spk_vulkan_${probe}
                     COMMAND spk_vulkan_${probe} "${vulkan_resource_dir}")
             endforeach()
+
+            # The portable imprint raster, CPU only; it reads the staged fonts.
+            add_executable(spk_edge_raster tests/edge_raster_test.cpp)
+            target_include_directories(spk_edge_raster PRIVATE
+                "${CMAKE_CURRENT_SOURCE_DIR}/include"
+                "${CMAKE_CURRENT_SOURCE_DIR}/src")
+            target_link_libraries(spk_edge_raster PRIVATE spektralab_engine)
+            add_dependencies(spk_edge_raster spektralab_vulkan_resources)
+            add_test(NAME spk_edge_raster COMMAND spk_edge_raster "${vulkan_resource_dir}")
 
             if(SPEKTRALAB_BUILD_TEST_DLL)
                 add_executable(spk_windows_feature_boundaries tests/windows_feature_boundaries.cpp)
