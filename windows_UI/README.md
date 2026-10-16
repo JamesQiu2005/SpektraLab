@@ -360,6 +360,44 @@ texture node), a full grade within one count through the identity and a LUT,
 on a half-float frame, mapped onto the source, across tiles (WARP: 0 counts
 off through the identity, a float target 0.0001 counts from `Grade::apply`).
 
+**The soft proof** (`ProofTransform.hpp`, `SoftProof.hpp`). **S** (or the top
+bar's Proof pill, or View ▸ Soft Proof) shows the canvas as the export page's
+selected recipe will write it; **Shift+S** (View ▸ Gamut Warning, the triangle
+beside the pill) paints magenta over the colours that recipe's space cannot
+hold. The Mac proves on its export page only (`Export/SoftProof.swift`); the
+Windows proof is that same transform on the canvas, live under every edit.
+Per pixel, in the canvas shader's PROOF variants (`shaders/colorcanvas.frag`;
+the CPU form is `spk::color::sampleProof`, which the software backend runs):
+the frame's curve off, the engine's CAT02 3×3, CAM16-UCS gamut compression into
+the recipe's space with the export's own setting (`exporting::exportTransform`:
+off when the destination holds the frame's space, else the chroma knee without
+the lightness shoulder), the file's clamp, then the window's display LUT *for
+the recipe space* — entered past its shaper, so the table takes the recipe's
+linear light. Every number is the engine's (`spk_output_transform`); the
+arithmetic is `engine/host/output.cpp`'s, line for line, as the Mac's
+`Canvas/Shaders.metal` `outputTransform`. A colour is flagged where the export
+could not keep it: its chroma lay outside the destination before the knee
+(`d > 1`, the Mac shader's `outside`, the share its export page reports as
+"rolled into") or a channel stayed outside [0, 1] after the gamut map (what the
+file clips). The warning colour is a display value written after the LUT and
+the dither, never through a LUT (AGENTS.md trap 27).
+
+Why per pixel and not a 3-D table of the composite: the gamut map is far from
+smooth where it works hardest. Near black the hue of a saturated colour swings
+with the smallest change, and colours rolled onto the destination's boundary
+follow its cusps. A 65³ table of source → export → display measured 15-33
+counts from the export (`spk_qt_soft_proof_test --sweep`, ProPhoto into sRGB
+and Display P3 on four displays), with 0.6-4.8 % of 216 332 probes over one
+count, and the error only roughly halving from 33³ to 65³. Per pixel the proof
+is within one count of the file everywhere (`spk_qt_soft_proof`: at most 1.1
+counts before rounding over every recipe space from a ProPhoto and an sRGB
+session on four displays; the flag agrees with the export's on all but one
+probe in 216 332), and the shader within one count of that CPU form on D3D11
+WARP and the software backend (`spk_qt_color_canvas`), with the warning exactly
+magenta wherever both flag. On this machine's RTX 3070 a 3840 × 2160 canvas
+draws in 0.38 ms through the display LUT, 0.62 ms as a proof and 0.84 ms with
+the warning (`spk_qt_color_canvas_test --hardware --benchmark`).
+
 **Tests.** `spk_qt_color_core` runs on the CPU, with no GPU, no shown window
 and no installed profile. Its ICC profiles are built in the test, including a
 CMYK one and an A2B-only one written byte by byte. It checks:

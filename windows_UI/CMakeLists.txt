@@ -42,12 +42,18 @@ set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS "${CMAKE_CURRENT_
 function(spk_qt_add_canvas_shaders target)
     qt_add_shaders(${target} "${target}_canvas_vertex" BATCHABLE PREFIX "/" GLSL "300es,330"
         FILES shaders/colorcanvas.vert)
-    foreach(variant IN ITEMS "plain;0;0" "lut3d;1;0" "lut2d;2;0" "copy;3;0" "lut3d_curves;1;1" "lut2d_curves;2;1")
+    # The soft proof's variants (PROOF=1) run the export transform per pixel
+    # before the recipe space's display LUT (ProofTransform.hpp).
+    foreach(variant IN ITEMS "plain;0;0;0" "lut3d;1;0;0" "lut2d;2;0;0" "copy;3;0;0" "lut3d_curves;1;1;0" "lut2d_curves;2;1;0"
+                             "plain_proof;0;0;1" "lut3d_proof;1;0;1" "lut2d_proof;2;0;1" "lut3d_curves_proof;1;1;1"
+                             "lut2d_curves_proof;2;1;1")
         list(GET variant 0 name)
         list(GET variant 1 mode)
         list(GET variant 2 curves)
+        list(GET variant 3 proof)
         qt_add_shaders(${target} "${target}_canvas_${name}" PREFIX "/" GLSL "300es,330"
-            DEFINES "LUT_MODE=${mode};CURVES=${curves};POSTDEV_GLSL_SHA1=x${spk_postdev_glsl_sha1}" FILES shaders/colorcanvas.frag
+            DEFINES "LUT_MODE=${mode};CURVES=${curves};PROOF=${proof};POSTDEV_GLSL_SHA1=x${spk_postdev_glsl_sha1}"
+            FILES shaders/colorcanvas.frag
             OUTPUTS shaders/colorcanvas_${name}.frag.qsb)
     endforeach()
 endfunction()
@@ -71,7 +77,7 @@ endif()
 # The export page's sources, shared by the app and every test that builds the
 # controller.
 set(spk_qt_export_sources src/ExportRecipe.hpp src/ExportRecipe.cpp src/RecipeExport.hpp src/RecipeExport.cpp
-    src/PreviewControllerExport.cpp)
+    src/PreviewControllerExport.cpp src/SoftProof.hpp src/SoftProof.cpp src/ProofTransform.hpp)
 
 qt_add_executable(SpektraLabQt WIN32
     src/main.cpp src/Messages.hpp src/PreviewController.hpp src/PreviewController.cpp
@@ -234,17 +240,22 @@ if(BUILD_TESTING)
     # The canvas through forced display LUTs, against a CPU reference: on the
     # GPU (D3D11 WARP through QQuickRenderControl; exit 77 = no WARP, skipped
     # loudly) and through the software backend's CPU path.
+    # The soft proof's case runs the engine's own transform (SoftProof.hpp),
+    # so the test links the host and takes the resources.
     qt_add_executable(spk_qt_color_canvas_test tests/color_canvas.cpp
         src/FrameCanvas.hpp src/FrameCanvas.cpp src/CanvasMath.hpp src/CanvasMath.cpp
         src/ColorCanvasNode.hpp src/ColorCanvasNode.cpp
         src/ColorPipeline.hpp src/ColorPipeline.cpp src/DisplayColor.hpp src/DisplayColor.cpp
-        src/ColorLut.hpp src/ColorLut.cpp)
+        src/ColorLut.hpp src/ColorLut.cpp src/ProofTransform.hpp src/SoftProof.hpp src/SoftProof.cpp
+        src/RecipeExport.cpp src/ExportRecipe.cpp src/FrameOutput.cpp src/FrameImage.cpp)
     target_include_directories(spk_qt_color_canvas_test PRIVATE src)
     target_compile_features(spk_qt_color_canvas_test PRIVATE cxx_std_20)
-    target_link_libraries(spk_qt_color_canvas_test PRIVATE Qt6::Core Qt6::Gui Qt6::GuiPrivate Qt6::Quick)
+    target_link_libraries(spk_qt_color_canvas_test PRIVATE spk_desktop_host spk_qt_host_output
+        Qt6::Core Qt6::Gui Qt6::GuiPrivate Qt6::Quick)
+    add_dependencies(spk_qt_color_canvas_test spektralab_qt_resources)
     spk_qt_add_canvas_shaders(spk_qt_color_canvas_test)
-    add_test(NAME spk_qt_color_canvas COMMAND spk_qt_color_canvas_test)
-    add_test(NAME spk_qt_color_canvas_software COMMAND spk_qt_color_canvas_test --software)
+    add_test(NAME spk_qt_color_canvas COMMAND spk_qt_color_canvas_test "$<TARGET_FILE_DIR:SpektraLabQt>/resources")
+    add_test(NAME spk_qt_color_canvas_software COMMAND spk_qt_color_canvas_test --software "$<TARGET_FILE_DIR:SpektraLabQt>/resources")
     set_tests_properties(spk_qt_color_canvas PROPERTIES SKIP_RETURN_CODE 77)
     # The shipped tables and the QML keys, plus a scratch directory inside the
     # build tree for the test's own language files.
@@ -297,6 +308,24 @@ if(BUILD_TESTING)
     add_test(NAME spk_qt_color_core COMMAND spk_qt_color_core_test "${CMAKE_CURRENT_BINARY_DIR}/color-core-test")
     if(WIN32)
         set_tests_properties(spk_qt_color_core PROPERTIES ENVIRONMENT_MODIFICATION "${qt_test_runtime_path}")
+    endif()
+    # The canvas soft proof against the export it proves, through the real
+    # engine's transform: every recipe space from a ProPhoto and an sRGB
+    # session on four displays within one count, the gamut flag on synthetic
+    # patches, and the pipeline's proof cache. No RAW, no GPU. `--sweep`
+    # measures the other table forms.
+    qt_add_executable(spk_qt_soft_proof_test tests/soft_proof.cpp
+        src/ColorPipeline.hpp src/ColorPipeline.cpp src/DisplayColor.hpp src/DisplayColor.cpp
+        src/ColorLut.hpp src/ColorLut.cpp src/SoftProof.hpp src/SoftProof.cpp src/ProofTransform.hpp
+        src/RecipeExport.cpp src/ExportRecipe.cpp src/FrameOutput.cpp src/FrameImage.cpp)
+    target_include_directories(spk_qt_soft_proof_test PRIVATE src)
+    target_compile_features(spk_qt_soft_proof_test PRIVATE cxx_std_20)
+    target_link_libraries(spk_qt_soft_proof_test PRIVATE spk_desktop_host spk_qt_host_output
+        Qt6::Core Qt6::Gui Qt6::GuiPrivate Qt6::Quick)
+    add_dependencies(spk_qt_soft_proof_test spektralab_qt_resources)
+    add_test(NAME spk_qt_soft_proof COMMAND spk_qt_soft_proof_test "$<TARGET_FILE_DIR:SpektraLabQt>/resources")
+    if(WIN32)
+        set_tests_properties(spk_qt_soft_proof PROPERTIES ENVIRONMENT_MODIFICATION "${qt_test_runtime_path}")
     endif()
 
     foreach(target spk_qt_library_workflow_test spk_qt_controller_settings_test spk_qt_editing_workflow_test spk_qt_export_workflow_test

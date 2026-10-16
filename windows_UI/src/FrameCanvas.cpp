@@ -1,5 +1,6 @@
 #include "FrameCanvas.hpp"
 #include "ColorCanvasNode.hpp"
+#include "ColorLut.hpp"
 #include "ColorPipeline.hpp"
 #include <QMouseEvent>
 #include <QNativeGestureEvent>
@@ -147,16 +148,45 @@ void FrameCanvas::attachPipeline(QQuickWindow* window) {
     });
     update();
 }
+QVariant FrameCanvas::proof() const {return QVariant::fromValue(proof_);}
+void FrameCanvas::setProof(const QVariant& value) {
+    const auto next=value.canConvert<ProofTransformPtr>()?value.value<ProofTransformPtr>():ProofTransformPtr();
+    if(next==proof_)return;
+    proof_=next;update();emit proofChanged();
+}
+void FrameCanvas::setGamutWarning(bool value) {
+    if(value==gamutWarning_)return;
+    gamutWarning_=value;update();emit proofChanged();
+}
+FrameCanvas::PaintColour FrameCanvas::paintColour() const {
+    static const auto identity=std::make_shared<const ColorLut>();
+    PaintColour colour;
+    // An untagged image is sRGB, as it was when the canvas drew it unmanaged.
+    const auto space=image_.colorSpace().isValid()?image_.colorSpace():QColorSpace(QColorSpace::SRgb);
+    // The proof: the export's transform per pixel, then the display LUT for
+    // the recipe space -- once that LUT is this display's (a recipe space is
+    // never shown unconverted). An identity proof is the display LUT alone.
+    if(pipeline_&&proof_&&spk::color::sameEncoding(space,proof_->source)) {
+        if(auto ready=pipeline_->readyLut(proof_->identity?space:proof_->target)) {
+            colour.lut=std::move(ready);colour.proofed=true;
+            if(!proof_->identity)colour.proof=proof_;
+        }
+    }
+    if(!colour.proofed&&pipeline_)colour.lut=pipeline_->lut(space);
+    if(!colour.lut)colour.lut=identity;
+    if(colour.proof&&gamutWarning_)
+        colour.warning={kGamutWarningColour[0],kGamutWarningColour[1],kGamutWarningColour[2],1.0f};
+    return colour;
+}
 QSGNode* FrameCanvas::updatePaintNode(QSGNode* old,UpdatePaintNodeData*) {
     auto* node=static_cast<ColorCanvasNode*>(old);
     if(image_.isNull()||!window()){delete node;return nullptr;}
     if(!node)node=new ColorCanvasNode;
-    static const auto identity=std::make_shared<const ColorLut>();
-    // An untagged image is sRGB, as it was when the canvas drew it unmanaged.
-    const auto space=image_.colorSpace().isValid()?image_.colorSpace():QColorSpace(QColorSpace::SRgb);
+    // The display LUT, or the proof's while one is set and built.
+    const auto colour=paintColour();
     CanvasPaint paint;
     paint.image=image_;paint.revision=revision_;
-    paint.lut=pipeline_?pipeline_->lut(space):nullptr;if(!paint.lut)paint.lut=identity;
+    paint.lut=colour.lut;paint.proof=colour.proof;paint.warning=colour.warning;
     paint.dither=pipeline_&&pipeline_->dither();
     paint.rect=imageRect();paint.smooth=scale()<1.0;
     paint.grade=grade_;paint.gradeRevision=grade_revision_;paint.sourceMap=sourceMap_;

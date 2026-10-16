@@ -281,6 +281,14 @@ std::shared_ptr<const ColorLut> ColorPipeline::lut(const QColorSpace& source) co
     return d_->resolve(d_->servedFor(source.isValid() ? source : QColorSpace(QColorSpace::SRgb)));
 }
 
+std::shared_ptr<const ColorLut> ColorPipeline::readyLut(const QColorSpace& source) const {
+    if (d_->override) return d_->override;
+    const QColorSpace space = source.isValid() ? source : QColorSpace(QColorSpace::SRgb);
+    auto& entry = d_->servedFor(space);
+    auto lut = d_->resolve(entry);
+    return entry.current && entry.targetHash == d_->target.hash ? lut : nullptr;
+}
+
 QString ColorPipeline::mode() const { return d_->mode; }
 void ColorPipeline::setMode(const QString& mode) {
     if (mode == d_->mode) return;

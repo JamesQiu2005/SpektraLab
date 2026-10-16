@@ -195,11 +195,7 @@ QByteArray iccProfile(const std::string& space,const fs::path& resources) {
     return icc;
 }
 
-Converted convert(const QImage& rgba64,const OutputEncoding& from,const std::string& to,spk_engine* engine) {
-    if(rgba64.isNull()||rgba64.format()!=QImage::Format_RGBA64)fail(QStringLiteral("Conversion needs an RGBA16 image"));
-    Converted out;
-    if(from.color_space==to&&from.cctf_encoding){out.rgba64=rgba64;out.identity=true;return out;}
-    if(!from.cctf_encoding)fail(QStringLiteral("The frame is linear %1; the export converts encoded frames").arg(text(from.color_space)));
+spkhost::OutputTransform exportTransform(const std::string& from,const std::string& to,spk_engine* engine) {
     if(!engine)fail(QStringLiteral("No engine to convert the export with"));
     spkhost::OutputTransform transform;
     std::string error;
@@ -213,10 +209,19 @@ Converted convert(const QImage& rgba64,const OutputEncoding& from,const std::str
     // *not* its lightness shoulder, which the engine already ran before it
     // encoded the working space (ColourManagement.swift:153-164,
     // gamutCompressionWithoutLightness).
-    const char* spec=holds(to,from.color_space)?R"({"algorithm":"off","lightness_compression_active":false})"
-                                                :R"({"lightness_compression_active":false})";
-    if(!transform.fetch(engine,from.color_space,to,error,spec))
+    const char* spec=holds(to,from)?R"({"algorithm":"off","lightness_compression_active":false})"
+                                   :R"({"lightness_compression_active":false})";
+    if(!transform.fetch(engine,from,to,error,spec))
         fail(QStringLiteral("Could not convert to the recipe's colour space: ")+text(error));
+    return transform;
+}
+
+Converted convert(const QImage& rgba64,const OutputEncoding& from,const std::string& to,spk_engine* engine) {
+    if(rgba64.isNull()||rgba64.format()!=QImage::Format_RGBA64)fail(QStringLiteral("Conversion needs an RGBA16 image"));
+    Converted out;
+    if(from.color_space==to&&from.cctf_encoding){out.rgba64=rgba64;out.identity=true;return out;}
+    if(!from.cctf_encoding)fail(QStringLiteral("The frame is linear %1; the export converts encoded frames").arg(text(from.color_space)));
+    const auto transform=exportTransform(from.color_space,to,engine);
     const int w=rgba64.width(),h=rgba64.height();
     out.rgba64=QImage(w,h,QImage::Format_RGBA64);
     if(out.rgba64.isNull())fail(QStringLiteral("Cannot allocate the converted export"));
@@ -441,6 +446,32 @@ Outcome run(const Job& job,const FramePtr& frame,spk_engine* engine) {
                            "The file is in Display P3.").arg(asked);
     }
     return outcome;
+}
+
+void exportLegacy(const FramePtr& frame,const fs::path& destination,const output::Geometry& geometry,
+                  const output::ExportOptions& options,const fs::path& resources,
+                  const std::function<void(QImage&,const OutputEncoding&)>& grade,spk_engine* engine) {
+    if(!frame)fail(QStringLiteral("No rendered photograph to export"));
+    // An sRGB session: the writer's own path, byte for byte the old file.
+    if(frame->encoding.is_encoded_srgb()){output::exportFrame(frame,destination,geometry,options,resources,grade);return;}
+    // Anything else: framed() as a recipe frames it -- grade on the uncropped
+    // frame in its own encoding, geometry, size, 16 bits kept -- then one
+    // conversion into sRGB, then the depth the format asks for.
+    QImage source=framePixels(frame);
+    if(grade) {
+        source=source.copy();
+        if(source.isNull())fail(QStringLiteral("Cannot allocate the graded photograph"));
+        grade(source,frame->encoding);
+    }
+    output::ExportOptions sized;
+    sized.format=output::Format::TIFF16;
+    sized.maxLongEdge=options.maxLongEdge;
+    QImage pixels=output::exportImage(source,geometry,sized);
+    if(pixels.constBits()==source.constBits())pixels=pixels.copy();
+    const auto converted=convert(pixels,frame->encoding,"sRGB",engine);
+    output::ExportOptions write=options;
+    write.maxLongEdge=0;   // already sized
+    output::exportImageFile(converted.rgba64,destination,output::Geometry{},write,resources);
 }
 
 }  // namespace spk::desktop::exporting

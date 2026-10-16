@@ -1,4 +1,5 @@
 #include "ColorCanvasNode.hpp"
+#include "ColorLut.hpp"
 #include <QFloat16>
 #include <QQuickWindow>
 #include <QtGui/qrgbafloat.h>
@@ -68,13 +69,79 @@ private:
     bool pending_=true;
 };
 
+// The soft proof's C_max(J', h') table (ProofKernel::cmax) as the texture
+// shaders/colorcanvas.frag's PROOF variants fetch from: columns h, rows L, one
+// float per texel -- R32F where the RHI has it, else RGBA32F (.r read). Only
+// fetched; the shader interpolates it as the CPU transform does.
+class ColorCanvasNode::ProofTable final : public QSGTexture {
+public:
+    explicit ProofTable(ProofTransformPtr proof):proof_(std::move(proof)) {setFiltering(Nearest);}
+    ~ProofTable() override {delete texture_;}
+    const ProofTransformPtr& proof() const {return proof_;}
+    qint64 comparisonKey() const override {return qint64(quintptr(this));}
+    QRhiTexture* rhiTexture() const override {return texture_;}
+    QSize textureSize() const override {return QSize(int(proof_->kernel.cmaxCols),int(proof_->kernel.cmaxRows));}
+    bool hasAlphaChannel() const override {return false;}
+    bool hasMipmaps() const override {return false;}
+    void commitTextureOperations(QRhi* rhi,QRhiResourceUpdateBatch* updates) override {
+        if(texture_||failed_)return;
+        const auto& k=proof_->kernel;
+        const qsizetype count=qsizetype(k.cmaxRows)*k.cmaxCols;
+        if(count<=0||k.cmax.size()!=size_t(count)){failed_=true;return;}
+        const bool r32=rhi->isTextureFormatSupported(QRhiTexture::R32F);
+        texture_=rhi->newTexture(r32?QRhiTexture::R32F:QRhiTexture::RGBA32F,textureSize());
+        if(!texture_->create()) {
+            qWarning("FrameCanvas: cannot create the soft proof's C_max texture");
+            delete texture_;texture_=nullptr;failed_=true;return;
+        }
+        QByteArray bytes;
+        if(r32)bytes=QByteArray(reinterpret_cast<const char*>(k.cmax.data()),count*qsizetype(sizeof(float)));
+        else {
+            bytes=QByteArray(count*16,'\0');
+            auto* out=reinterpret_cast<float*>(bytes.data());
+            for(qsizetype i=0;i<count;++i)out[i*4]=k.cmax[size_t(i)];
+        }
+        updates->uploadTexture(texture_,QRhiTextureUploadEntry(0,0,QRhiTextureSubresourceUploadDescription(bytes)));
+    }
+private:
+    ProofTransformPtr proof_;
+    QRhiTexture* texture_=nullptr;
+    bool failed_=false;
+};
+
 namespace {
 std::atomic<int> maxTextureSizeForTesting{0};
 std::atomic<bool> forceLutAtlasForTesting{false};
 std::atomic<int> lastTileCountForTesting{0};
 
-// The shader variant: shaders/colorcanvas.frag built per LUT_MODE and CURVES.
-enum Variant {NoLut=0,VolumeLut=1,AtlasLut=2,Copy=3,VolumeCurves=4,AtlasCurves=5};
+// The shader variant: shaders/colorcanvas.frag built per LUT_MODE, CURVES and
+// PROOF. A proof variant is its display variant + kProofVariants.
+enum Variant {NoLut=0,VolumeLut=1,AtlasLut=2,Copy=3,VolumeCurves=4,AtlasCurves=5,
+              NoLutProof=6,VolumeProof=7,AtlasProof=8,VolumeCurvesProof=9,AtlasCurvesProof=10};
+constexpr int kVariants=11;
+Variant proofVariant(Variant v) {
+    switch(v) {
+    case NoLut: return NoLutProof;
+    case VolumeLut: return VolumeProof;
+    case AtlasLut: return AtlasProof;
+    case VolumeCurves: return VolumeCurvesProof;
+    case AtlasCurves: return AtlasCurvesProof;
+    default: return v;
+    }
+}
+
+// ProofKernel as the shader's uniforms from offset 288: three row-major 3x3s
+// as vec4 rows, k[0..21] in six vec4, the modes and the C_max size.
+constexpr int kProofFloats=68;
+std::array<float,kProofFloats> proofUniforms(const ProofKernel& k) {
+    std::array<float,kProofFloats> u{};
+    auto rows=[&u](int at,const std::array<float,9>& m){for(int r=0;r<3;++r)for(int c=0;c<3;++c)u[size_t(at+r*4+c)]=m[size_t(r*3+c)];};
+    rows(0,k.matrix);rows(12,k.toXyz);rows(24,k.toRgb);
+    for(int i=0;i<22;++i)u[size_t(36+i)]=k.k[size_t(i)];
+    u[60]=float(k.sourceMode);u[61]=float(k.targetMode);u[62]=k.cam16?1.0f:0.0f;u[63]=k.lightness?1.0f:0.0f;
+    u[64]=float(k.cmaxRows);u[65]=float(k.cmaxCols);u[66]=k.identity?1.0f:0.0f;
+    return u;
+}
 
 bool isHalfFloat(QImage::Format format) {
     return format==QImage::Format_RGBX16FPx4 || format==QImage::Format_RGBA16FPx4 ||
@@ -314,7 +381,7 @@ public:
         // A Copy blends only a frame with alpha, as QSGOpaqueTextureMaterial.
         setFlag(Blending,variant!=Copy || frame->hasAlphaChannel());
     }
-    QSGMaterialType* type() const override {static QSGMaterialType types[6];return &types[variant_];}
+    QSGMaterialType* type() const override {static QSGMaterialType types[kVariants];return &types[variant_];}
     QSGMaterialShader* createShader(QSGRendererInterface::RenderMode) const override;
     int compare(const QSGMaterial* other) const override {
         const auto* that=static_cast<const CanvasMaterial*>(other);
@@ -326,6 +393,9 @@ public:
         if(int c=order(postdevCurves.get(),that->postdevCurves.get()))return c;
         if(int c=std::memcmp(grade.data(),that->grade.data(),sizeof grade))return c<0?-1:1;
         if(int c=std::memcmp(source.data(),that->source.data(),sizeof source))return c<0?-1:1;
+        if(int c=std::memcmp(warning.data(),that->warning.data(),sizeof warning))return c<0?-1:1;
+        if(int c=order(proofTable.get(),that->proofTable.get()))return c;
+        if(int c=std::memcmp(proof.data(),that->proof.data(),sizeof proof))return c<0?-1:1;
         return order(dither,that->dither);
     }
     Variant variant() const {return variant_;}
@@ -338,20 +408,31 @@ public:
     std::shared_ptr<ColorCanvasNode::CurveTable> postdevCurves;
     std::array<float,postdev::std140Bytes/sizeof(float)> grade{};
     std::array<float,8> source{1,0,0,0,0,1,0,0};
+    std::array<float,4> warning{};         // the gamut warning (CanvasPaint)
+    // The soft proof: the kernel's uniforms and its C_max texture (proof
+    // variants only).
+    std::array<float,kProofFloats> proof{};
+    std::shared_ptr<ColorCanvasNode::ProofTable> proofTable;
 private:
     Variant variant_;
     FrameTexture* frame_;                  // owned by the tile
 };
 
 // The uniform block of shaders/colorcanvas.*, std140: the matrix, opacity
-// and LUT parameters, then Post-Dev's source map (two vec4) and its grade.
+// and LUT parameters, then Post-Dev's source map (two vec4) and its grade,
+// then the gamut warning's vec4.
 constexpr int kMatrixOffset=0,kOpacityOffset=64,kParametersOffset=68,kSourceOffset=80,kGradeOffset=112;
-constexpr int kUniformBytes=kGradeOffset+int(postdev::std140Bytes);
+constexpr int kWarningOffset=kGradeOffset+int(postdev::std140Bytes);
+static_assert(kWarningOffset==272,"shaders/colorcanvas.frag declares the warning at offset 272");
+constexpr int kProofOffset=kWarningOffset+16;
+constexpr int kUniformBytes=kProofOffset+kProofFloats*4;
+static_assert(kUniformBytes==560,"shaders/colorcanvas.frag's block ends at 560");
 
 class CanvasShader final : public QSGMaterialShader {
 public:
     explicit CanvasShader(Variant variant) {
-        static const char* const names[]={"plain","lut3d","lut2d","copy","lut3d_curves","lut2d_curves"};
+        static const char* const names[kVariants]={"plain","lut3d","lut2d","copy","lut3d_curves","lut2d_curves",
+            "plain_proof","lut3d_proof","lut2d_proof","lut3d_curves_proof","lut2d_curves_proof"};
         setShaderFileName(VertexStage,QStringLiteral(":/shaders/colorcanvas.vert.qsb"));
         setShaderFileName(FragmentStage,QStringLiteral(":/shaders/colorcanvas_%1.frag.qsb").arg(QLatin1StringView(names[variant])));
     }
@@ -373,13 +454,16 @@ public:
         std::memcpy(buffer->data()+kParametersOffset,parameters,sizeof parameters);
         std::memcpy(buffer->data()+kSourceOffset,material->source.data(),sizeof material->source);
         std::memcpy(buffer->data()+kGradeOffset,material->grade.data(),sizeof material->grade);
+        std::memcpy(buffer->data()+kWarningOffset,material->warning.data(),sizeof material->warning);
+        std::memcpy(buffer->data()+kProofOffset,material->proof.data(),sizeof material->proof);
         return true;
     }
     void updateSampledImage(RenderState& state,int binding,QSGTexture** texture,QSGMaterial* newMaterial,QSGMaterial*) override {
         auto* material=static_cast<CanvasMaterial*>(newMaterial);
         QSGTexture* bound=binding==1?static_cast<QSGTexture*>(material->frame()):
             binding==2?static_cast<QSGTexture*>(material->lut.get()):
-            binding==3?static_cast<QSGTexture*>(material->curves.get()):material->postdevCurves.get();
+            binding==3?static_cast<QSGTexture*>(material->curves.get()):
+            binding==5?static_cast<QSGTexture*>(material->proofTable.get()):material->postdevCurves.get();
         if(bound)bound->commitTextureOperations(state.rhi(),state.resourceUpdateBatch());
         *texture=bound;
     }
@@ -406,8 +490,9 @@ quint32 wang(quint32 h) {
 float triangular(quint32 h) {return (float(h&0xffffu)-float(h>>16))/65536.0f;}
 
 // Trilinear interpolation between the eight nodes around the clamped input,
-// float weights: what the shader's lookup() does with its eight fetches.
-void lookup(const ColorLut& lut,const float in[3],float out[3]) {
+// float weights: what the shader's lookup() does with its eight fetches. All
+// four channels: alpha is the gamut flag.
+void lookup(const ColorLut& lut,const float in[3],float out[4]) {
     const int n=lut.size;
     int index[3];float fraction[3];
     for(int k=0;k<3;++k) {
@@ -420,7 +505,7 @@ void lookup(const ColorLut& lut,const float in[3],float out[3]) {
     const float *p000=node(0,0,0),*p100=node(1,0,0),*p010=node(0,1,0),*p110=node(1,1,0);
     const float *p001=node(0,0,1),*p101=node(1,0,1),*p011=node(0,1,1),*p111=node(1,1,1);
     const float fr=fraction[0],fg=fraction[1],fb=fraction[2];
-    for(int c=0;c<3;++c) {
+    for(int c=0;c<4;++c) {
         const float x00=p000[c]+(p100[c]-p000[c])*fr,x10=p010[c]+(p110[c]-p010[c])*fr;
         const float x01=p001[c]+(p101[c]-p001[c])*fr,x11=p011[c]+(p111[c]-p011[c])*fr;
         const float y0=x00+(x10-x00)*fg,y1=x01+(x11-x01)*fg;
@@ -439,17 +524,19 @@ float curveAt(const std::vector<float>& curve,int m,float x,int c) {
 
 // The display transform of one straight colour, clamped: the table alone, or
 // shaper -> table -> output(sqrt) when the LUT has curves (the shader's order).
-void transform(const ColorLut& lut,float c[3]) {
-    float mapped[3];
+// Returns the table's interpolated alpha, the gamut flag.
+float transform(const ColorLut& lut,float c[3]) {
+    float mapped[4];
     if(lut.hasCurves()) {
         for(int k=0;k<3;++k)c[k]=std::clamp(curveAt(lut.shaper,lut.curveSize,c[k],k),0.0f,1.0f);
         lookup(lut,c,mapped);
         for(int k=0;k<3;++k)
             c[k]=std::clamp(curveAt(lut.output,lut.curveSize,std::sqrt(std::clamp(mapped[k],0.0f,1.0f)),k),0.0f,1.0f);
-        return;
+        return mapped[3];
     }
     lookup(lut,c,mapped);
     for(int k=0;k<3;++k)c[k]=std::clamp(mapped[k],0.0f,1.0f);
+    return mapped[3];
 }
 
 // Rows split over the machine's cores: a 24 MP frame is ~24M lookups, and the
@@ -475,14 +562,15 @@ bool displayLutActive(const ColorLut& lut) {
 }
 
 QImage applyDisplayLutCpu(const QImage& image,const ColorLut& lut,bool dither,const postdev::Grade* grade,
-                          const postdev::SourceMap& map) {
+                          const postdev::SourceMap& map,const ProofTransform* proof,const std::array<float,4>& warning) {
     if(image.isNull())return image;
+    const bool proofing=proof && proof->evaluate;
     const bool active=displayLutActive(lut);
     const bool graded=grade && !grade->isIdentity();
     const auto format=image.format();
     const bool eightBit=format==QImage::Format_RGB32 || format==QImage::Format_ARGB32 ||
         format==QImage::Format_ARGB32_Premultiplied;
-    if(!active && eightBit && !graded)return image;
+    if(!active && eightBit && !graded && !proofing)return image;
     const bool deep=isDeep(image),alpha=image.hasAlphaChannel();
     const QImage source=eightBit || isHalfFloat(format)?image:image.convertToFormat(
         deep?(alpha?QImage::Format_RGBA16FPx4:QImage::Format_RGBX16FPx4):(alpha?QImage::Format_ARGB32:QImage::Format_RGB32));
@@ -494,17 +582,20 @@ QImage applyDisplayLutCpu(const QImage& image,const ColorLut& lut,bool dither,co
     // As in the shader: dither only where it can matter, never on an 8-bit
     // frame under the identity LUT and no grade (that path is the image
     // itself, above).
-    const float amplitude=dither && (active || deep || graded)?1.0f/255.0f:0.0f;
+    const float amplitude=dither && (active || deep || graded || proofing)?1.0f/255.0f:0.0f;
+    const bool warn=proofing && warning[3]>0.0f;
     const double fullWidth=source.width(),fullHeight=source.height();
     // qRound of the clamped value is what QImage::pixel() does for a half-
     // float image, so the identity path agrees with it to the bit.
     auto quantize=[](float v){return qRound(std::clamp(v,0.0f,1.0f)*255.0f);};
     const int width=source.width();
     forRows(source.height(),qsizetype(width)*source.height(),[&](int first,int last) {
+        // One row at a time: the proof's transform takes the row at once.
+        std::vector<float> row(size_t(width)*4),proofed(proofing?size_t(width)*4:0),encoded(proofing?size_t(width)*3:0);
         for(int y=first;y<last;++y) {
             auto* out=reinterpret_cast<QRgb*>(output.scanLine(y));
             for(int x=0;x<width;++x) {
-                float c[4];
+                float* c=&row[size_t(x)*4];
                 if(half) {
                     const auto p=reinterpret_cast<const QRgbaFloat16*>(source.constScanLine(y))[x];
                     c[0]=p.red();c[1]=p.green();c[2]=p.blue();c[3]=p.alpha();
@@ -519,14 +610,23 @@ QImage applyDisplayLutCpu(const QImage& image,const ColorLut& lut,bool dither,co
                 if(graded) {
                     // The shader's sourceUv at this pixel's centre.
                     const auto [su,sv]=map((x+0.5)/fullWidth,(y+0.5)/fullHeight);
-                    const auto out=grade->pixel({c[0],c[1],c[2]},float(su),float(sv));
-                    c[0]=out[0];c[1]=out[1];c[2]=out[2];
+                    const auto graded=grade->pixel({c[0],c[1],c[2]},float(su),float(sv));
+                    c[0]=graded[0];c[1]=graded[1];c[2]=graded[2];
                 }
-                if(active)transform(lut,c);
+                if(proofing)for(int k=0;k<3;++k)encoded[size_t(x)*3+k]=c[k];
+            }
+            if(proofing)spk::color::sampleProof(lut,*proof,encoded.data(),size_t(width),proofed.data());
+            for(int x=0;x<width;++x) {
+                float* c=&row[size_t(x)*4];
+                float flag=1.0f;
+                if(proofing){const float* p=&proofed[size_t(x)*4];c[0]=p[0];c[1]=p[1];c[2]=p[2];flag=p[3];}
+                else if(active)transform(lut,c);
                 if(amplitude>0) {
                     const quint32 hr=wang(quint32(x)^wang(quint32(y))),hg=wang(hr),hb=wang(hg);
                     c[0]+=triangular(hr)*amplitude;c[1]+=triangular(hg)*amplitude;c[2]+=triangular(hb)*amplitude;
                 }
+                // The shader's test, after the dither: a display value.
+                if(warn && flag<0.5f){c[0]=warning[0];c[1]=warning[1];c[2]=warning[2];}
                 const QRgb straight=qRgba(quantize(c[0]),quantize(c[1]),quantize(c[2]),quantize(c[3]));
                 out[x]=alpha?qPremultiply(straight):(straight|0xff000000u);
             }
@@ -534,7 +634,6 @@ QImage applyDisplayLutCpu(const QImage& image,const ColorLut& lut,bool dither,co
     });
     return output;
 }
-
 struct ColorCanvasNode::Tile {
     QSGGeometryNode* node=nullptr;   // a child of the canvas node, which deletes it
     std::unique_ptr<FrameTexture> texture=std::make_unique<FrameTexture>();
@@ -614,6 +713,15 @@ bool ColorCanvasNode::updateRhi(QQuickWindow* window,const CanvasPaint& paint) {
             std::call_once(warned,[]{qWarning("FrameCanvas: the display LUT cannot be a texture here; drawing without display colour management");});
         }
     }
+    // The soft proof: the same display variant with the export transform in
+    // front (the LUT is then the recipe space's), its numbers and its C_max
+    // texture, made once per transform.
+    std::array<float,kProofFloats> proofBlock{};
+    if(paint.proof) {
+        mode=proofVariant(mode);
+        if(!proofTable_||proofTable_->proof()!=paint.proof)proofTable_=std::make_shared<ProofTable>(paint.proof);
+        proofBlock=proofUniforms(paint.proof->kernel);
+    } else proofTable_.reset();
     // Post-Dev: the grade's block (zeros, inactive, without one) and, when
     // its curves changed, the canvas's curve texture.
     const bool graded=paint.grade && !paint.grade->isIdentity();
@@ -641,6 +749,8 @@ bool ColorCanvasNode::updateRhi(QQuickWindow* window,const CanvasPaint& paint) {
     // frame never takes it: the copy has no Post-Dev.
     const bool copy=mode==NoLut && dither==0 && !graded;
     const auto& map=paint.sourceMap;
+    // The warning marks what the proof's transform flags; nothing without one.
+    const std::array<float,4> warning=paint.proof&&paint.warning[3]>0.0f?paint.warning:std::array<float,4>{};
     for(auto& tile:tiles_) {
         auto* material=static_cast<CanvasMaterial*>(tile->node->material());
         if(material->variant()!=mode) {
@@ -656,9 +766,11 @@ bool ColorCanvasNode::updateRhi(QQuickWindow* window,const CanvasPaint& paint) {
         const std::array<float,8> source{float(map.a*sw),float(map.b*sh),float(map.a*sl+map.b*st+map.c),0,
                                          float(map.d*sw),float(map.e*sh),float(map.d*sl+map.e*st+map.f),0};
         if(material->lut!=lut || material->curves!=curves || material->dither!=dither ||
-           material->postdevCurves!=curves_ || material->grade!=block || material->source!=source || curvesChanged) {
+           material->postdevCurves!=curves_ || material->grade!=block || material->source!=source ||
+           material->warning!=warning || material->proof!=proofBlock || material->proofTable!=proofTable_ || curvesChanged) {
             material->lut=lut;material->curves=curves;material->dither=dither;
-            material->postdevCurves=curves_;material->grade=block;material->source=source;
+            material->postdevCurves=curves_;material->grade=block;material->source=source;material->warning=warning;
+            material->proof=proofBlock;material->proofTable=proofTable_;
             tile->node->markDirty(QSGNode::DirtyMaterial);
         }
         if(copy!=(tile->node->opaqueMaterial()!=nullptr))
@@ -694,15 +806,18 @@ bool ColorCanvasNode::updateSoftware(QQuickWindow* window,const CanvasPaint& pai
     const quint64 lut=active?paint.lut->key:0;
     const bool graded=paint.grade && !paint.grade->isIdentity();
     const quint64 grade=graded?paint.gradeRevision:0;
+    const std::array<float,4> warning=paint.proof&&paint.warning[3]>0.0f?paint.warning:std::array<float,4>{};
     if(!software_ || paint.revision!=revision_ || active!=softwareLutActive_ || lut!=softwareLut_ ||
-       paint.dither!=softwareDither_ || grade!=softwareGrade_ || (graded && !(paint.sourceMap==softwareMap_))) {
+       paint.dither!=softwareDither_ || grade!=softwareGrade_ || (graded && !(paint.sourceMap==softwareMap_)) ||
+       paint.proof!=softwareProof_ || warning!=softwareWarning_) {
         auto* texture=window->createTextureFromImage(applyDisplayLutCpu(paint.image,*paint.lut,paint.dither,
-                                                                        graded?paint.grade.get():nullptr,paint.sourceMap));
+                                                                        graded?paint.grade.get():nullptr,paint.sourceMap,
+                                                                        paint.proof.get(),warning));
         if(!texture)return false;
         if(!software_){software_=new QSGSimpleTextureNode;appendChildNode(software_);}
         software_->setTexture(texture);software_->setOwnsTexture(true);
         revision_=paint.revision;softwareLutActive_=active;softwareLut_=lut;softwareDither_=paint.dither;
-        softwareGrade_=grade;softwareMap_=paint.sourceMap;
+        softwareGrade_=grade;softwareMap_=paint.sourceMap;softwareProof_=paint.proof;softwareWarning_=warning;
     }
     software_->setFiltering(paint.smooth?QSGTexture::Linear:QSGTexture::Nearest);
     software_->setRect(paint.rect);
