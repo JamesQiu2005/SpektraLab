@@ -107,4 +107,19 @@ if(BUILD_TESTING)
     target_link_libraries(spk_qt_editing_workflow_test PRIVATE spk_desktop_host Qt6::Core Qt6::Gui)
     # Full-RAW fixtures and a fresh output directory are explicit test arguments;
     # no absent-fixture skip can masquerade as a green CTest run.
+
+    # Display colour management on the CPU: synthetic ICC profiles, the LUT
+    # against Qt's transform through a model of the shader's lookup, and
+    # simulated monitors driving ColorPipeline. No GPU, no shown window, no
+    # installed profile. `--probe-display` prints this machine's displays.
+    qt_add_executable(spk_qt_color_core_test tests/color_core.cpp
+        src/ColorPipeline.hpp src/ColorPipeline.cpp src/DisplayColor.hpp src/DisplayColor.cpp
+        src/ColorLut.hpp src/ColorLut.cpp)
+    target_include_directories(spk_qt_color_core_test PRIVATE src)
+    target_compile_features(spk_qt_color_core_test PRIVATE cxx_std_20)
+    target_link_libraries(spk_qt_color_core_test PRIVATE Qt6::Core Qt6::Gui Qt6::Quick)
+    add_test(NAME spk_qt_color_core COMMAND spk_qt_color_core_test "${CMAKE_CURRENT_BINARY_DIR}/color-core-test")
+    if(WIN32)
+        set_tests_properties(spk_qt_color_core PROPERTIES ENVIRONMENT_MODIFICATION "${qt_test_runtime_path}")
+    endif()
 endif()
