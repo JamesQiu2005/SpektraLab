@@ -23,11 +23,11 @@ language is a file, not a code change.
   `SpektraLabQt.exe`, if there is one. A later table for the same language
   overrides it key by key, so a translator can fix or add text without a
   rebuild.
-- The language is English unless something sets `Localizer.language` (or
-  calls `L10n.setLanguage(code)`): to a loaded code, or to `"system"`, which
-  follows the Windows display languages. Nothing selects a language from the
-  system automatically, there is no language menu yet, and the choice is not
-  persisted.
+- The language is English unless Settings ▸ General ▸ Language (or
+  `Localizer.language` / `L10n.setLanguage(code)`) sets it: to a loaded code,
+  or to `"system"` (Follow the system), which follows the Windows display
+  languages. The choice is applied at once and kept in the preferences file
+  (`general.language`); a language whose table is gone falls back to English.
 
 ## File format
 
@@ -78,7 +78,7 @@ translation; numbers arrive already formatted (`"2.31"`, not `2.3071`).
 1. Copy `en.json` to `<code>.json`, set the header, translate the values.
    A key you leave out, or leave empty, shows the English.
 2. To try it without rebuilding, put the file in `i18n\` beside
-   `SpektraLabQt.exe` and set the language (there is no menu yet). To ship
+   `SpektraLabQt.exe` and choose it in Settings ▸ General. To ship
    it, add it to the `qt_add_resources(... spektralab_i18n ...)` list in
    `windows_UI/CMakeLists.txt`.
 3. Run CTest: `spk_qt_localizer` checks that every shipped table only uses
@@ -98,5 +98,7 @@ puts it back.
 
 ## Not localised yet
 
-Status and error text produced in C++ (`src/PreviewController.cpp`, the
-host's messages) reaches QML already written and is shown as is.
+The controller's status lines come from the same tables
+(`src/Messages.hpp`), except when produced on a worker thread (the batch
+summary), which falls back to `Messages.hpp`'s English. The engine's and the
+host's own error text reaches QML already written and is shown as is.

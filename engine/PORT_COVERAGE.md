@@ -24,7 +24,8 @@ Status words:
 Nothing here was run on a real GPU or on real Windows unless a row says so;
 the Windows_Port branch's own acceptance (RTX 5070 Ti, Windows, MinGW GCC 15.2)
 is recorded in `WINDOWS_FEATURE_COVERAGE.md` and predates main's 36 later
-commits.
+commits. "On an RTX 3070, Windows" means MSVC 19.44 (Visual Studio 17.14),
+where every CTest of this branch runs (47 on 2026-10-16).
 
 ---
 
@@ -118,8 +119,10 @@ between the two lines is verified only by the CTests named above.
 **Nothing is refused any more.** The five features `engine/PORT_PLAN.md`
 planned (Cineon DI, scene latitude mapping, contrast mask, the date back and,
 last, Film Edge) are ported and tested on an RTX 3070 under Windows and MSVC
-2022 (27/27 CTest, the rows above); `unsupported_features` is empty and
-`windows_unported.hpp` keeps its table for the next upstream effect. None of
+2022 (the rows above; the build with the Qt editor passes 47/47 CTest, 25 of
+them the engine's and the desktop host's); `unsupported_features` is empty and
+`windows_unported.hpp` keeps its table for the next upstream effect. The
+Vulkan backend has 42 kernels, two of them diagnostic probes. None of
 the five has been run on lavapipe or wine, and none has whole-image Metal
 parity (PORT_PLAN §0's Mac dumps do not exist yet).
 

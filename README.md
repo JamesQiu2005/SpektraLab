@@ -123,13 +123,27 @@ and the run still reports 0 failures in ~20 s — trust the duration.
 
 ## Windows development
 
-This branch also contains a C++/Vulkan backend, native LibRaw decoding,
-RGB16 TIFF export and Windows desktop viewers.
-See the [Windows build guide](engine/WINDOWS.md) and
+This branch also contains a Windows port: the same C++ engine on a Vulkan
+backend, native LibRaw 0.22.2 decoding, and a Qt Quick editor laid out as the
+macOS app, built with Visual Studio 2022 (MSVC) and Qt 6.11.3. Every engine
+feature is ported, Film Edge, Date Back, the contrast mask, the Cineon DI and
+Scene Placement included. The editor has the Pre-Dev and Post-Dev rails,
+half-frame pairs, the library and Settings Clipboard, the export page with
+its colour spaces, a ProPhoto RGB working space and display colour management
+per monitor with a soft proof. It is a development build: no installer or
+signed release, no CLI or MCP server, no EDR, and no whole-image comparison
+with the Mac yet.
+
+```powershell
+& .\windows_UI\build-msvc.ps1 -DependencyDirectory ..\deps -RunTests -Package
+```
+
+See the [Qt editor and its build guide](windows_UI/README.md) (prerequisites,
+the dependency folder, tests and the zip package), what the port
+[added since it started](windows_UI/CHANGES-WINDOWS.md), the
+[engine on Windows](engine/WINDOWS.md) and its
 [feature coverage](engine/WINDOWS_FEATURE_COVERAGE.md) for the tested scope.
-The [Qt Quick frontend](windows_UI/README.md) brings the film/print editor layout
-to Windows; the [minimal Win32 viewer](engine/WINDOWS_DESKTOP.md) is also retained.
-The macOS product described above has additional interface and display features.
+The [minimal Win32 viewer](engine/WINDOWS_DESKTOP.md) is also retained.
 
 ## Credits and licence
 
