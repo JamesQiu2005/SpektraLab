@@ -210,36 +210,75 @@ pipeline asks again after any of these:
 - a 3 s poll (one query measured 1.3 ms on the development machine);
 - a call to `reload()`.
 
-LUTs (65³ RGBA float, 4.4 MB) are built on a worker thread, which took 20 to
-160 ms when measured. The previous LUT is served until the new one lands, and
+LUTs are built on a worker thread, in about 20 ms with curves and 56 ms
+without (measured). The previous LUT is served until the new one lands, and
 six LUTs are cached. `SPEKTRALAB_COLOR_LOG=1` logs each decision and build.
 
-**Accuracy.** A single 3D LUT maps encoded values to encoded values, and that
-design has a limit. Measured on 8-bit inputs, with clamped LUT output compared
-against Qt's own transform:
+**Two forms.** When both the source and the display are matrix/TRC profiles,
+the LUT has curves:
 
-| case | worst error |
-|---|---|
-| sRGB to Display P3 | 0.09 counts (ΔE\*ab 0.05) |
-| sRGB to Adobe RGB, no channel at codes 1-3 | 0.21 counts |
-| sRGB to Adobe RGB, a channel at codes 1-3 (all 582,939) | 3.4 counts (ΔE\*ab 0.80) |
-| sRGB to a gamma 2.6 display, no channel at codes 1-3 | 0.31 counts |
-| sRGB to a gamma 2.6 display, a channel at codes 1-3 | 6.7 counts (ΔE\*ab 0.99) |
-| sRGB colours carried in ProPhoto, back to sRGB | 14.5 counts (ΔE\*ab 0.84) |
+- the shaper decodes the source to linear light;
+- a 65³ table holds the 3×3 between the two linear spaces, unclamped, with the
+  gamut flag in alpha;
+- a 4096-entry output curve, indexed by √u, encodes for the display.
 
-The large count errors share one cause. A pure power curve is steepest at
-zero, and the first cell, or any cell where an output channel crosses zero,
-cannot follow it. Every case stays under ΔE\*ab 1, and the tests pin each bound.
-A 1D output curve applied after the 3D lookup would remove the error. That
-would need a change to the contract.
+A LUT-based (A2B/B2A) display has no 3×3 to factor out. It keeps one 65³ table
+from encoded source to encoded display.
+
+**Accuracy.** Measured on 8-bit inputs, comparing the shader model's clamped
+output against Qt's own transform. The "before" column is the encoded table
+that every display used before the curves; codes 1-3 were searched
+exhaustively.
+
+| case | before | with curves |
+|---|---|---|
+| sRGB to Adobe RGB, a channel at codes 1-3 | 3.43 counts | 0.004 counts |
+| sRGB to a gamma 2.6 display | 6.72 counts | 0.354 counts (Qt's float noise in a zero channel) |
+| sRGB to Display P3 | 0.085 counts | 0.000 counts |
+| sRGB colours carried in ProPhoto, back to sRGB | 14.5 counts | 0.002 counts |
+| sRGB to this machine's HP Z31x profile (real, via `--probe-display`) | 7.20 counts, at (255,29,0) | 0.004 counts; (255,29,0) 0.000 |
+
+**What the canvas needs for that accuracy.** The table works in linear light,
+so its errors are a fixed amount of light. A matrix with cancelling terms, and
+then a display curve steep near zero, magnify that light wherever an output
+channel is near zero. The table needs float32 entries and full-precision
+weights (eight `texelFetch`, filtered in the shader). The curves can use the
+hardware filter.
+
+D3D11 and Vulkan promise only 8 bits of filter-weight precision. On the
+replica of this machine's profile, the table under 8-bit hardware weights
+misses by:
+
+| table size | weights rounded | weights truncated |
+|---|---|---|
+| 65 | 1.90 counts | 3.07 counts |
+| 129 | 1.41 counts | 2.18 counts |
+
+No feasible size fixes that. A half-float table measured 0.15 counts and
+half-float curves 0.27 counts. Half-float curves cost 1.34 counts on the
+ProPhoto round trip. With float weights, the table size does not affect
+accuracy: 9 nodes are already exact. The size only sets the gamut flag's
+resolution: of ProPhoto colours, 1.2 % are misflagged at 65, 2.4 % at 33 and
+4.3 % at 17. `spk_qt_color_core_test --sweep` prints these measurements.
+
+The encoded table for LUT-based displays keeps its old limit near black. On a
+synthetic wide-gamut lut16 display, the table misses Qt by up to 3.3 counts
+(1.6 counts away from codes 1-3). Qt's own evaluation of that profile differs
+from the display it describes by 9.2 counts, and the table adds nothing
+measurable to that. Qt 6.11.3 reads lut16 PCSXYZ with 0xFFFF as 1.0, where
+ICC's legacy encoding has 0x8000 as 1.0. That was measured on a synthetic
+profile; whether real lut16/XYZ display profiles are read at half scale is not
+yet checked against one.
 
 **Tests.** `spk_qt_color_core` runs on the CPU, with no GPU, no shown window
 and no installed profile. Its ICC profiles are built in the test, including a
 CMYK one and an A2B-only one written byte by byte. It checks:
 
-- identity, swapped primaries, gamma 2.6, Display P3, Adobe RGB and ProPhoto,
-  through the shader model;
-- 8-bit filter weights and half-float texels;
+- identity, swapped primaries, gamma 2.6, Display P3, Adobe RGB, a replica of
+  the HP Z31x profile and ProPhoto, through the shader model, in both forms;
+- exact filtering and the recommended canvas path, both held to half a count;
+  8-bit hardware weights and half floats are measured;
+- a LUT-based display (A2B/B2A lut16), which keeps the encoded table;
 - the fallbacks;
 - `ColorPipeline` on simulated monitors: two monitors, a screen change, a
   profile recalibrated in place (once through the poll), ACM, HDR, the three

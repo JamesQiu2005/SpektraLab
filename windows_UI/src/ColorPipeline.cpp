@@ -136,7 +136,8 @@ struct ColorPipeline::Impl {
             const QColorSpace to = QColorSpace::fromIccProfile(targetIcc);
             std::shared_ptr<const ColorLut> result = identityLut();
             if (from.isValid() && to.isValid() && !sameEncoding(from, to)) {
-                auto built = buildLut(from, to, kLutSize, cancel.get());
+                // Curves for a matrix/TRC display, one encoded table otherwise.
+                auto built = buildLut(from, to, cancel.get());
                 if (!built) return; // cancelled: the pipeline is going away
                 if (!isNearIdentity(*built)) result = std::move(built);
             }
@@ -153,8 +154,10 @@ struct ColorPipeline::Impl {
         if (cache.size() > kCachedLuts) cache.pop_back();
         if (colorLog())
             qInfo().noquote() << QStringLiteral("color: LUT %1 built in %2 ms (%3)")
-                                     .arg(what).arg(ms).arg(lut->isIdentity() ? QStringLiteral("identity")
-                                                                             : QStringLiteral("%1^3").arg(lut->size));
+                                     .arg(what).arg(ms)
+                                     .arg(lut->isIdentity() ? QStringLiteral("identity")
+                                          : lut->hasCurves() ? QStringLiteral("%1^3 linear table, %2-entry curves").arg(lut->size).arg(lut->curveSize)
+                                                             : QStringLiteral("%1^3 encoded table").arg(lut->size));
         bool used = false;
         for (auto& entry : served) {
             if (entry.hash != key.first || target.hash != key.second) continue;
