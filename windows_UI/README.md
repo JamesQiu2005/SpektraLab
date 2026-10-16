@@ -113,7 +113,8 @@ build, unsigned and without an installer. On 2026-10-16 (1.3.3) it was
 **Tests.** `-RunTests` runs CTest (47 tests as of 2026-10-16: 18 for the
 engine and its test DLL, 4 native RAW, 3 desktop host, 22 for the Qt editor;
 the engine's are described in [engine/WINDOWS.md](../engine/WINDOWS.md)). To
-rerun them without rebuilding, from a shell with the same `TEMP`:
+rerun them without rebuilding, use Visual Studio's `ctest` (a Developer
+PowerShell has it on `PATH`), with `TEMP`/`TMP` pointed into the build tree:
 
 ```powershell
 ctest --test-dir <build> --output-on-failure

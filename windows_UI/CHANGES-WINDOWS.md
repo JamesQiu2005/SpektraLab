@@ -87,12 +87,15 @@ the next upstream effect ([engine/WINDOWS_FEATURE_COVERAGE.md](../engine/WINDOWS
 
 Twenty of its 22 CTests are new (all but `spk_qt_frame_output` and
 `spk_qt_edit_store`); the RAW gates gained the export and pairs workflows.
-See [README.md](README.md#validation).
+See [README.md](README.md#validation). On 2026-10-16, with the commands
+documented there, the self-test (7IV05267.ARW) passed and the library (150
+checks), editing (271), export (119) and pairs (74) gates passed on
+DSC_5601.NEF / DSC_5602.NEF.
 
 ## Packaging
 
 `build-msvc.ps1 -Package` on 2026-10-16 (version 1.3.3, Release):
-`SpektraLab-Windows-1.3.3-x64.zip`, 54 071 867 bytes (51.6 MB), 1654 files
+`SpektraLab-Windows-1.3.3-x64.zip`, 54 073 047 bytes (51.6 MB), 1654 files
 under one top folder, every entry name with `/` separators. Extracted into a
 new folder and started with `--open DSC_5601.NEF --snapshot <png>` (the
 Windows platform plugin, not offscreen; `PATH` reduced to `System32` and the
