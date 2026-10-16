@@ -206,3 +206,19 @@ if(BUILD_TESTING)
         set_tests_properties(spk_qt_color_core PROPERTIES ENVIRONMENT_MODIFICATION "${qt_test_runtime_path}")
     endif()
 endif()
+
+# --- The application shell (lane ui-app-shell) ---
+# The app preferences file (src/AppSettings.*): the Settings window's values,
+# the display colour management choice and the layout, as one JSON file.
+target_sources(SpektraLabQt PRIVATE src/AppSettings.hpp src/AppSettings.cpp)
+if(BUILD_TESTING)
+    # The preferences file: paths, round trip, atomic writes, unknown keys.
+    qt_add_executable(spk_qt_app_settings_test tests/app_settings.cpp src/AppSettings.hpp src/AppSettings.cpp)
+    target_include_directories(spk_qt_app_settings_test PRIVATE src)
+    target_compile_features(spk_qt_app_settings_test PRIVATE cxx_std_20)
+    target_link_libraries(spk_qt_app_settings_test PRIVATE Qt6::Core Qt6::Qml)
+    add_test(NAME spk_qt_app_settings COMMAND spk_qt_app_settings_test "${CMAKE_CURRENT_BINARY_DIR}/app-settings-test")
+    if(WIN32)
+        set_tests_properties(spk_qt_app_settings PROPERTIES ENVIRONMENT_MODIFICATION "${qt_test_runtime_path}")
+    endif()
+endif()
