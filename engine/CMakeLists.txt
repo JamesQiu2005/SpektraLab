@@ -303,6 +303,14 @@ if(NOT APPLE)
                 target_link_libraries(spk_date_back PRIVATE spektralab_engine_shared)
                 add_test(NAME spk_date_back COMMAND spk_date_back "${vulkan_resource_dir}")
 
+                # Film Edge end to end through the C ABI: what
+                # tests/overscan_checks.py checks, without Python.
+                add_executable(spk_film_edge tests/film_edge_render.cpp)
+                target_compile_features(spk_film_edge PRIVATE cxx_std_20)
+                target_include_directories(spk_film_edge PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/include")
+                target_link_libraries(spk_film_edge PRIVATE spektralab_engine_shared)
+                add_test(NAME spk_film_edge COMMAND spk_film_edge "${vulkan_resource_dir}")
+
                 add_executable(spk_render_fixture tests/render_fixture.cpp)
                 target_compile_features(spk_render_fixture PRIVATE cxx_std_20)
                 target_include_directories(spk_render_fixture PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/include")
