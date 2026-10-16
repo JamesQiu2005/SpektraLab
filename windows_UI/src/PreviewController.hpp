@@ -87,6 +87,36 @@ class PreviewController final : public QObject {
     Q_PROPERTY(bool flipHorizontal READ flipHorizontal NOTIFY geometryChanged)
     Q_PROPERTY(bool flipVertical READ flipVertical NOTIFY geometryChanged)
     Q_PROPERTY(double straightenDegrees READ straightenDegrees NOTIFY geometryChanged)
+    // Film Edge and Date Back (FilmEdgeSection.swift, DateBackSection.swift).
+    // Their controls are settings rows (overscan_*, date_imprint_*,
+    // date_back_*, read through `parameters` and written with setParameter);
+    // these are what the sections show beside them:
+    //   filmFormats  the Format menu: {id, title, group: "135"|"120"|
+    //                "panoramic", gate ("36 x 24"), ratio, stripCost, filedCost}
+    //   filmEdge     {active, edgeText, fNumber, pictureWidth, pictureHeight,
+    //                filmWidth, filmHeight, filmMeasured, upright, gateRatio,
+    //                shown, canvasWidth, canvasHeight, gates: [[8 numbers]]} --
+    //                the picture's pixels and the film around them (measured
+    //                from spk_overscan_geometry once a render of this framing
+    //                has landed, else macOS's FilmCanvasEstimate); `gates` are
+    //                the gate quads normalised to the shown frame
+    //   dateBack     {camera, cameraTitle, cameraFromEdge, hasBack, effective,
+    //                printsInMargin, prints: {lcd, dots, data}, onCamera:
+    //                {lcd, dots, data}, exifDate, hasExifDate, examples:
+    //                {japan, us}, printed, dataText, dataPrintable, turned,
+    //                sizeMax}
+    //   frameIsCut   the shown frame carries the crop (the engine was handed
+    //                the picture cut by it): no geometry is applied over it
+    //   geometryInNegative  the wanted settings cut the frame: a crop, turn or
+    //                flip re-develops instead of re-sampling the print
+    //   cropLockRatio  the gate's width / height in source pixels while a film
+    //                edge holds the crop (0: free), for the crop editor's drag
+    Q_PROPERTY(QVariantList filmFormats READ filmFormats CONSTANT)
+    Q_PROPERTY(QVariantMap filmEdge READ filmEdge NOTIFY filmEdgeChanged)
+    Q_PROPERTY(QVariantMap dateBack READ dateBack NOTIFY filmEdgeChanged)
+    Q_PROPERTY(bool frameIsCut READ frameIsCut NOTIFY frameChanged)
+    Q_PROPERTY(bool geometryInNegative READ geometryInNegative NOTIFY filmEdgeChanged)
+    Q_PROPERTY(double cropLockRatio READ cropLockRatio NOTIFY filmEdgeChanged)
 public:
     using ImageFactory=std::function<QImage(const spk::desktop::FramePtr&)>;
     explicit PreviewController(std::filesystem::path resources, QObject* parent=nullptr, ImageFactory imageFactory={}, QString editDirectory={});
@@ -125,7 +155,15 @@ public:
     QVariantList libraryItems() const;
     int activeIndex() const { return active_index_; }
     int selectedCount() const;
-    QImage uncroppedImage() const { return full_image_; }
+    // A cut frame's uncropped picture is the undeveloped decode (the guide
+    // the crop editor frames over); any other frame's is the whole print.
+    QImage uncroppedImage() const { return frame_&&frame_->cut&&!source_image_.isNull()?source_image_:full_image_; }
+    QVariantList filmFormats() const;
+    QVariantMap filmEdge() const;
+    QVariantMap dateBack() const;
+    bool frameIsCut() const { return frame_&&frame_->cut; }
+    bool geometryInNegative() const;
+    double cropLockRatio() const;
     QRectF cropRect() const { return geometry_.crop; }
     int quarterTurns() const { return geometry_.quarterTurns; }
     bool flipHorizontal() const { return geometry_.flipHorizontal; }
@@ -200,7 +238,24 @@ public:
     Q_INVOKABLE void cancelExport();
     Q_INVOKABLE void resetSettings();
     Q_INVOKABLE void setDialogOpen(bool open);
+    // The section switches: switching on takes the crop into the gate (and
+    // keeps the user's own to give back), a Date Back switched on takes the
+    // first face the camera can print (FilmEdgeSection.setActive,
+    // DateBackSection.setActive). setParameter on the same rows does the same.
+    Q_INVOKABLE bool setFilmEdgeActive(bool on);
+    Q_INVOKABLE bool setDateBackActive(bool on);
+    // The Framing row's glyph: the gate upright or across, the picture
+    // unturned (Session.flipFilmEdgeGate).
+    Q_INVOKABLE void flipFilmEdgeGate();
+    // The dice: another camera body (it becomes the user's body for new
+    // frames) and another advance of this frame (FilmEdgeSection.swift:205-234).
+    Q_INVOKABLE void anotherCameraBody();
+    Q_INVOKABLE void anotherFrameAdvance();
+    // The user's camera body: the camera seed a new frame takes, kept per user
+    // beside the edit store (FilmEdgeSettings.bodySeed), drawn the first time.
+    int bodySeed();
 signals:
+    void filmEdgeChanged();
     void stateChanged();
     void catalogChanged();
     void settingsChanged();
@@ -246,6 +301,17 @@ private:
     bool chooseFilm(int index);
     bool choosePaper(int index);
     void schedulePreview();
+    // Film Edge: the frame's facts for the host's rules, the crop held at the
+    // gate (Session.filmEdgeWillChange), and the image a frame is shown as.
+    spk::desktop::PhotoInfo photoInfo(const spk::desktop::output::Geometry&) const;
+    bool wantsCut(const spk::desktop::output::Geometry&) const;
+    QSize decodeSize() const;
+    void filmEdgeWillChange(const spk::desktop::RenderSettings& from,const spk::desktop::RenderSettings& to,
+                            spk::desktop::output::Geometry& geometry,std::optional<spk::desktop::output::Geometry>& held) const;
+    spk::desktop::output::Geometry heldAtGate(const spk::desktop::output::Geometry&,const spk::desktop::RenderSettings&,
+                                              int landscape=-1) const;
+    bool applySettings(spk::desktop::RenderSettings next,const QString& editKey);
+    void setBodySeed(int seed);
     bool ready_=false, busy_=true, failed_=false;
     QString status_=uiText("status.startingEngine");
     QVariantList films_, papers_;
@@ -255,13 +321,16 @@ private:
     spk::desktop::FramePtr frame_;
     QImage image_;
     QImage full_image_;
+    QImage source_image_;
     spk::desktop::output::Geometry geometry_;
+    std::optional<spk::desktop::output::Geometry> held_geometry_;
     spk::desktop::RenderSettings extra_settings_;
     struct LibraryItem {
         QUrl url;
         spk::desktop::RenderSettings settings;
         spk::desktop::DecodeMode mode=spk::desktop::DecodeMode::compatible16;
         spk::desktop::output::Geometry geometry;
+        std::optional<spk::desktop::output::Geometry> held;
         QImage thumbnail;
         QString error;
         bool selected=true;
@@ -276,6 +345,7 @@ private:
     std::vector<LibraryItem> library_;
     int active_index_=-1;
     std::filesystem::path resources_;
+    QString edit_directory_;
     spk::desktop::editing::Store edit_store_;
     QTimer save_timer_;
     int gesture_index_=-1;

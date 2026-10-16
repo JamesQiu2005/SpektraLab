@@ -3,7 +3,12 @@
 #include <QMetaObject>
 #include <QDir>
 #include <QFileInfo>
+#include <QJsonArray>
+#include <QJsonDocument>
+#include <QJsonObject>
+#include <QRandomGenerator>
 #include <QSet>
+#include <QSettings>
 #include <QStandardPaths>
 #include <algorithm>
 #include <cmath>
@@ -40,12 +45,53 @@ bool sameSettings(desktop::RenderSettings a, desktop::RenderSettings b) {
     return exposure&&a==b;
 }
 bool sameState(const editing::State& a,const editing::State& b) {
-    return sameSettings(a.settings,b.settings)&&a.mode==b.mode&&a.geometry==b.geometry;
+    return sameSettings(a.settings,b.settings)&&a.mode==b.mode&&a.geometry==b.geometry&&a.heldGeometry==b.heldGeometry;
+}
+// The editor's geometry as the host takes it for a cut frame, and back.
+desktop::EngineCut toCut(const output::Geometry& g) {
+    return {g.crop.x(),g.crop.y(),g.crop.width(),g.crop.height(),g.quarterTurns,g.flipHorizontal,g.flipVertical,g.straightenDegrees};
+}
+output::Geometry fromCut(const desktop::EngineCut& c) {
+    return {QRectF(c.x,c.y,c.w,c.h),c.quarter_turns,c.flip_h,c.flip_v,c.straighten_deg};
 }
 QImage visibleImage(const desktop::FramePtr& frame,const QImage& full,const output::Geometry& geometry) {
+    // A cut frame already carries the crop (and the film around it): the
+    // canvas, the thumbnails and the export take it whole (macOS
+    // Session.canvasGeometry, Session+FilmEdge.swift:456).
+    if(frame&&frame->cut)return full;
     if(geometry.quarterTurns==0&&!geometry.flipHorizontal&&!geometry.flipVertical&&geometry.straightenDegrees==0)
         return output::displayImage(full,geometry.crop);
     return output::displayFrame(frame,geometry);
+}
+QImage sourceImage(const desktop::FramePtr& frame) {
+    if(!frame||!frame->source_preview)return {};
+    const auto preview=frame->source_preview;
+    auto held=std::make_unique<std::shared_ptr<const desktop::Frame::SourcePreview>>(preview);
+    QImage image(preview->bgra8.data(),int(preview->width),int(preview->height),qsizetype(preview->width)*4,
+                 QImage::Format_ARGB32,[](void* p){delete static_cast<std::shared_ptr<const desktop::Frame::SourcePreview>*>(p);},held.get());
+    if(image.isNull())return {};
+    held.release();
+    image.setColorSpace(QColorSpace::SRgb);
+    return image;
+}
+// The size the engine's film canvas will be before it is measured: macOS
+// FilmCanvasEstimate (Session+FilmEdge.swift:145-176), which errs large.
+QSize filmCanvasEstimate(QSize picture,const desktop::FilmFormat& format,const QString& view) {
+    const double w=picture.width(),h=picture.height();
+    if(w<=0||h<=0)return {};
+    const double px=std::max(format.long_mm,format.short_mm)/std::max(w,h);
+    const double acrossMM=format.gauge=="135"?24.0:56.0;
+    const bool vertical=std::abs(w*px-acrossMM)<std::abs(h*px-acrossMM)&&w!=h;
+    const double alongPx=vertical?h:w;
+    const double filmWidth=format.gauge=="135"?35.0:61.0;
+    double marginMM,acrossCanvasMM;
+    if(view==QLatin1String("filed")){marginMM=1.0;acrossCanvasMM=(vertical?w:h)*px+2.2;}
+    else {
+        marginMM=format.id=="135_half"?0.5:(format.perforated?0.95:2.35);
+        acrossCanvasMM=filmWidth+(format.perforated?0:0.15);
+    }
+    const double along=alongPx+2*std::round(marginMM/px),across=std::round(acrossCanvasMM/px);
+    return vertical?QSize(int(across),int(along)):QSize(int(along),int(across));
 }
 output::ExportOptions exportOptions(int format,int quality,int maxEdge) {
     if(format<0||format>3||quality<1||quality>100||maxEdge<0||maxEdge>100000)
@@ -115,8 +161,13 @@ QImage PreviewController::imageFromFrame(const desktop::FramePtr& frame) {
 
 PreviewController::PreviewController(std::filesystem::path resources,QObject* parent,ImageFactory factory,QString editDirectory)
     :QObject(parent),resources_(resources),
-     edit_store_(editDirectory.isEmpty()?QStandardPaths::writableLocation(QStandardPaths::AppLocalDataLocation)+"/Edits":editDirectory),
+     edit_directory_(editDirectory.isEmpty()?QStandardPaths::writableLocation(QStandardPaths::AppLocalDataLocation)+"/Edits":editDirectory),
+     edit_store_(edit_directory_),
      image_factory_(factory?std::move(factory):ImageFactory(imageFromFrame)) {
+    // What the Film Edge and Date Back sections show follows the settings,
+    // the frame and the crop.
+    for(auto signal:{&PreviewController::settingsChanged,&PreviewController::frameChanged,&PreviewController::geometryChanged})
+        connect(this,signal,this,&PreviewController::filmEdgeChanged);
     auto_apply_.setSingleShot(true);auto_apply_.setInterval(180);
     connect(&auto_apply_,&QTimer::timeout,this,[this]{if(dirty())apply();});
     save_timer_.setSingleShot(true);save_timer_.setInterval(350);
@@ -175,11 +226,24 @@ void PreviewController::accept(Reply reply) {
         try {
             auto next=image_factory_(reply.frame);
             if(next.isNull())throw std::runtime_error("Cannot create the display image");
-            const auto geometry=reply.operation=="open"?reply.geometry:geometry_;
+            const bool opened=reply.operation=="open";
+            auto geometry=opened?reply.geometry:geometry_;
+            // A film edge holds the crop at its gate (Session.holdFilmEdgeCrop):
+            // when the host had to reshape the crop it was asked for, that is
+            // the framing -- on open, or for a render of the crop still wanted.
+            const bool reshaped=reply.frame->cut&&fromCut(reply.frame->geometry)!=reply.geometry&&
+                                (opened||geometry_==reply.geometry);
+            if(reshaped)geometry=fromCut(reply.frame->geometry);
             auto visible=visibleImage(reply.frame,next,geometry);
-            frame_=std::move(reply.frame);full_image_=std::move(next);image_=std::move(visible);
+            auto source=sourceImage(reply.frame);
+            frame_=std::move(reply.frame);full_image_=std::move(next);image_=std::move(visible);source_image_=std::move(source);
             geometry_=geometry;
-            if(reply.operation=="open")active_index_=reply.library_index;
+            if(opened) {
+                active_index_=reply.library_index;
+                held_geometry_=active_index_>=0&&active_index_<int(library_.size())?library_[active_index_].held:std::nullopt;
+            }
+            // The user's own crop, given back when the film edge goes off.
+            if(reshaped&&!held_geometry_&&std::get<bool>(frame_->settings.get("overscan_active")))held_geometry_=reply.geometry;
         }
         catch(const std::exception& e){failed_=true;status_=text(e.what());if(frame_)restoreSettings();}
         if(!failed_) {
@@ -228,8 +292,12 @@ void PreviewController::loadSettings(const desktop::RenderSettings& s,desktop::D
 }
 bool PreviewController::dirty() const {
     if(!frame_)return false;
+    // A frame cut for the engine is also stale when the geometry it was cut
+    // with is not the one wanted, or when the frame should (not) be cut.
+    const bool cut=wantsCut(geometry_);
     return !sameSettings(settings(),frame_->settings)||
-        decode_mode_!=(frame_->decode_mode==desktop::DecodeMode::headroom?1:0);
+        decode_mode_!=(frame_->decode_mode==desktop::DecodeMode::headroom?1:0)||
+        cut!=frame_->cut||(cut&&toCut(geometry_)!=frame_->geometry);
 }
 bool PreviewController::filmIsPositive() const {
     return film_index_>=0&&std::size_t(film_index_)<catalog_.films.size()&&catalog_.films[film_index_].is_positive;
@@ -238,8 +306,11 @@ QString PreviewController::fileName() const {return frame_?QString::fromStdWStri
 QUrl PreviewController::sourceFolder() const {return frame_?QUrl::fromLocalFile(QString::fromStdWString(frame_->source.parent_path().wstring())):QUrl();}
 QVariantMap PreviewController::metadata() const {
     if(!frame_)return {};
+    // The source is the whole decode the crop is drawn in, also while the
+    // frame is the film around a cut picture.
+    const auto source=decodeSize();
     return {{"width",image_.width()},{"height",image_.height()},
-        {"sourceWidth",frame_->width()},{"sourceHeight",frame_->height()},
+        {"sourceWidth",source.width()},{"sourceHeight",source.height()},
         {"camera",text(frame_->metadata.make+" "+frame_->metadata.model)},
         {"decodeMs",frame_->timings.decode_ms},{"renderMs",frame_->timings.render_ms},
         {"totalMs",frame_->timings.total_ms},{"cached",frame_->reprint()},{"scanFilm",frame_->scan_film},
@@ -382,7 +453,21 @@ QVariantList PreviewController::paperCatalog() const {
         {"reason",QString()},{"noPrintProfile",true}});
     return result;
 }
-void PreviewController::resetSettings(){if(!settingsEditable())return;loadSettings({},desktop::DecodeMode::compatible16);changed();}
+void PreviewController::resetSettings(){
+    if(!settingsEditable())return;
+    // A new photograph's settings, but this frame keeps its film edge seeds,
+    // and a film edge switched off gives the crop back.
+    desktop::RenderSettings fresh;
+    for(const char* key:{"overscan_camera_seed","overscan_frame_seed","overscan_frame_number","film_edge_seeded"})
+        fresh.set(key,extra_settings_.get(key));
+    auto geometry=geometry_;auto held=held_geometry_;
+    filmEdgeWillChange(extra_settings_,fresh,geometry,held);
+    const bool moved=geometry!=geometry_;
+    geometry_=geometry;held_geometry_=held;
+    if(moved&&frame_){try{image_=visibleImage(frame_,full_image_,geometry_);}catch(const std::exception&){}}
+    loadSettings(fresh,desktop::DecodeMode::compatible16);changed();
+    if(moved){emit geometryChanged();emit frameChanged();}
+}
 void PreviewController::openRaw(const QUrl& url) {
     // Changing sources and exporting remain single flight. Parameter edits
     // can be coalesced during a render, but cannot retarget an in-flight open.
@@ -398,20 +483,23 @@ void PreviewController::openItem(int index) {
     const auto item=library_.at(index);const auto p=path(item.url);
     const auto gen=++generation_;
     submit([p,item,gen,index](auto& host){Reply r;r.generation=gen;r.operation="open";r.library_index=index;r.geometry=item.geometry;
-        try{r.frame=host.open_raw(p,item.mode,item.settings);}catch(const std::exception& e){r.error=text(e.what());}return r;},uiText("status.opening"),"open");
+        try{r.frame=host.open_raw(p,item.mode,item.settings,toCut(item.geometry));}catch(const std::exception& e){r.error=text(e.what());}return r;},uiText("status.opening"),"open");
 }
 void PreviewController::apply() {
     if(!frame_||busy_||dialog_open_)return;
     const auto s=settings();const auto shown=frame_;const auto gen=++generation_;const auto revision=settings_revision_;
     const auto mode=decode_mode_?desktop::DecodeMode::headroom:desktop::DecodeMode::compatible16;
-    submit([s,shown,gen,revision,mode](auto& host){Reply r;r.generation=gen;r.settings_revision=revision;r.operation="render";
+    // The geometry goes too: the host cuts the picture with it when the
+    // settings ask for that (a film edge, a date on a cropped frame).
+    const auto g=geometry_;const auto cut=toCut(g);
+    submit([s,shown,gen,revision,mode,g,cut](auto& host){Reply r;r.generation=gen;r.settings_revision=revision;r.operation="render";r.geometry=g;
         try {
             // Publication can fail after a successful worker open (for example,
             // a display allocation failure). Reconcile against the image the
             // user is actually editing before reusing the worker's session.
             const auto active=host.current();
             r.frame=active&&active->source==shown->source&&active->decode_mode==mode
-                ?host.render(s):host.open_raw(shown->source,mode,s);
+                ?host.render(s,cut):host.open_raw(shown->source,mode,s,cut);
         }catch(const std::exception& e){r.error=text(e.what());}return r;},uiText("status.rendering"),"render");
 }
 void PreviewController::exportTiff(const QUrl& url) {
@@ -419,7 +507,10 @@ void PreviewController::exportTiff(const QUrl& url) {
 }
 void PreviewController::exportImage(const QUrl& url,int format,int quality,int maxLongEdge) {
     if(!frame_||busy_||!url.isLocalFile())return;
-    const auto p=path(url);const auto held=frame_;const auto gen=++generation_;const auto geometry=geometry_;const auto resources=resources_;
+    // A cut frame is exported whole: with a film edge the file is the strip
+    // (Session.printGeometry, Session+FilmEdge.swift:459).
+    const auto p=path(url);const auto held=frame_;const auto gen=++generation_;const auto resources=resources_;
+    const auto geometry=frame_->cut?output::Geometry{}:geometry_;
     submit([p,held,gen,geometry,resources,format,quality,maxLongEdge](auto&){Reply r;r.generation=gen;r.operation="export";
         try{output::exportFrame(held,p,geometry,exportOptions(format,quality,maxLongEdge),resources);}catch(const std::exception& e){r.error=text(e.what());}return r;},uiText("status.exporting"),"export");
 }
@@ -494,8 +585,179 @@ bool PreviewController::applyParameter(const desktop::SettingField& field,deskto
     }
     auto next=extra_settings_;
     next.set(field.key,std::move(value));
-    if(next!=extra_settings_){extra_settings_=std::move(next);changed(text(field.key));}
+    // Date Back switched on takes a face its camera can print.
+    if(field.key=="date_imprint_active"&&std::get<bool>(next.get("date_imprint_active"))) {
+        const auto photo=photoInfo(geometry_);
+        if(!desktop::date_back_prints(next,photo,std::get<std::string>(next.get("date_imprint_style"))))
+            for(const char* face:{"lcd","dots","data"})
+                if(desktop::date_back_prints(next,photo,face)){next.set("date_imprint_style",std::string(face));break;}
+    }
+    return applySettings(std::move(next),text(field.key));
+}
+// One edit of the settings, with what macOS does around a Film Edge change
+// (Session.filmEdgeWillChange, Session+FilmEdge.swift:396-417): the crop goes
+// into the gate and comes back out with it, and the body the user picks is
+// their body for new frames. Settings and crop move as one undo step.
+bool PreviewController::applySettings(desktop::RenderSettings next,const QString& editKey) {
+    if(next==extra_settings_)return true;
+    auto geometry=geometry_;auto held=held_geometry_;
+    filmEdgeWillChange(extra_settings_,next,geometry,held);
+    const double body=std::get<double>(extra_settings_.get("overscan_camera_seed"));
+    const bool moved=geometry!=geometry_;
+    extra_settings_=std::move(next);
+    geometry_=geometry;held_geometry_=held;
+    if(moved&&frame_){try{image_=visibleImage(frame_,full_image_,geometry_);}catch(const std::exception&){}}
+    const double nowBody=std::get<double>(extra_settings_.get("overscan_camera_seed"));
+    if(nowBody!=body)setBodySeed(int(nowBody));
+    changed(editKey);
+    if(moved){emit geometryChanged();emit frameChanged();}
     return true;
+}
+QSize PreviewController::decodeSize() const {
+    if(!frame_)return {};
+    return frame_->decode_width&&frame_->decode_height?QSize(int(frame_->decode_width),int(frame_->decode_height))
+                                                      :QSize(int(frame_->width()),int(frame_->height()));
+}
+desktop::PhotoInfo PreviewController::photoInfo(const output::Geometry& g) const {
+    desktop::PhotoInfo photo;
+    if(frame_)photo.shooting=frame_->metadata.shooting;
+    const auto size=decodeSize();
+    photo.decode_width=std::uint32_t(std::max(0,size.width()));photo.decode_height=std::uint32_t(std::max(0,size.height()));
+    photo.geometry=toCut(g);
+    return photo;
+}
+bool PreviewController::wantsCut(const output::Geometry& g) const {return desktop::cuts_frame(settings(),photoInfo(g));}
+output::Geometry PreviewController::heldAtGate(const output::Geometry& g,const desktop::RenderSettings& s,int landscape) const {
+    const auto size=decodeSize();
+    if(size.isEmpty())return g;
+    return fromCut(desktop::gate_framed(toCut(g),s,std::uint32_t(size.width()),std::uint32_t(size.height()),landscape));
+}
+void PreviewController::filmEdgeWillChange(const desktop::RenderSettings& from,const desktop::RenderSettings& to,
+                                           output::Geometry& geometry,std::optional<output::Geometry>& held) const {
+    const bool was=std::get<bool>(from.get("overscan_active")),now=std::get<bool>(to.get("overscan_active"));
+    if(!was&&now) {
+        held=geometry;
+        geometry=heldAtGate(geometry,to,-1);
+    } else if(was&&!now) {
+        if(held)geometry=*held;
+        held.reset();
+    } else if(now&&from.get("overscan_format")!=to.get("overscan_format")) {
+        geometry=heldAtGate(geometry,to,-1);
+    }
+}
+bool PreviewController::setFilmEdgeActive(bool on){return setParameter("overscan_active",on);}
+bool PreviewController::setDateBackActive(bool on){return setParameter("date_imprint_active",on);}
+void PreviewController::flipFilmEdgeGate() {
+    if(!std::get<bool>(extra_settings_.get("overscan_active")))return;
+    const auto size=decodeSize();if(size.isEmpty())return;
+    const bool landscape=geometry_.crop.width()*size.width()>=geometry_.crop.height()*size.height();
+    setGeometry(heldAtGate(geometry_,extra_settings_,landscape?0:1),"filmEdgeGate");
+}
+void PreviewController::anotherCameraBody() {
+    // Body numbers stay short enough to read as a serial plate (1...999).
+    const int current=int(std::get<double>(extra_settings_.get("overscan_camera_seed")));
+    int next=current;
+    while(next==current)next=QRandomGenerator::global()->bounded(1,1000);
+    setParameter("overscan_camera_seed",double(next));
+}
+void PreviewController::anotherFrameAdvance() {
+    const auto current=std::get<double>(extra_settings_.get("overscan_frame_seed"));
+    double next=current;
+    while(next==current)next=double(QRandomGenerator::global()->bounded(1,2147483647));
+    setParameter("overscan_frame_seed",next);
+}
+int PreviewController::bodySeed() {
+    QSettings store(edit_directory_+"/preferences.ini",QSettings::IniFormat);
+    const int stored=store.value("filmEdge/bodySeed",0).toInt();
+    if(stored>0)return stored;
+    const int drawn=QRandomGenerator::global()->bounded(1,1000);
+    setBodySeed(drawn);
+    return drawn;
+}
+void PreviewController::setBodySeed(int seed) {
+    if(seed<=0)return;
+    QDir().mkpath(edit_directory_);
+    QSettings store(edit_directory_+"/preferences.ini",QSettings::IniFormat);
+    store.setValue("filmEdge/bodySeed",seed);
+}
+bool PreviewController::geometryInNegative() const {return wantsCut(geometry_);}
+double PreviewController::cropLockRatio() const {
+    if(!std::get<bool>(extra_settings_.get("overscan_active")))return 0;
+    const auto size=decodeSize();
+    const bool landscape=size.isEmpty()||geometry_.crop.width()*size.width()>=geometry_.crop.height()*size.height();
+    return desktop::gate_ratio(extra_settings_,landscape);
+}
+QVariantList PreviewController::filmFormats() const {
+    QVariantList out;
+    for(const auto& f:desktop::film_formats())
+        out.push_back(QVariantMap{{"id",text(f.id)},{"title",text(f.title)},{"group",text(f.group)},
+            {"gate",text(f.gate_label)},{"ratio",text(f.ratio)},{"stripCost",f.strip_cost},{"filedCost",f.filed_cost},
+            {"perforated",f.perforated},{"longMm",f.long_mm},{"shortMm",f.short_mm}});
+    return out;
+}
+QVariantMap PreviewController::filmEdge() const {
+    const auto s=settings();
+    const bool active=std::get<bool>(s.get("overscan_active"));
+    const auto* format=desktop::film_format(std::get<std::string>(s.get("overscan_format")));
+    QVariantMap out{{"active",active},
+        {"edgeText",format?text(desktop::edge_text(catalog_,s.film_stock,format->gauge)):QString()},
+        {"fNumber",frame_?frame_->metadata.shooting.f_number:0.0}};
+    // The picture's own pixels: the crop at the decode's size (Session
+    // .edgePicturePixels), and the film built around them.
+    const auto size=decodeSize();
+    std::uint32_t pw=0,ph=0;
+    if(!size.isEmpty())desktop::cut_size(toCut(geometry_),std::uint32_t(size.width()),std::uint32_t(size.height()),pw,ph);
+    out["pictureWidth"]=int(pw);out["pictureHeight"]=int(ph);
+    out["upright"]=geometry_.crop.width()*std::max(1,size.width())<geometry_.crop.height()*std::max(1,size.height());
+    out["gateRatio"]=cropLockRatio();
+    // Measured: spk_overscan_geometry of the frame on screen, when it is a
+    // film edge render of the framing wanted now.
+    QJsonObject geometry;
+    if(frame_&&frame_->cut)geometry=QJsonDocument::fromJson(QByteArray::fromStdString(frame_->overscan_geometry)).object();
+    const bool valid=geometry.value("valid").toBool();
+    const bool current=valid&&active&&frame_->geometry==toCut(geometry_)&&sameSettings(frame_->settings,s);
+    QSize film;
+    if(current)film=QSize(geometry.value("canvas_w").toInt(),geometry.value("canvas_h").toInt());
+    else if(format&&pw&&ph)film=filmCanvasEstimate(QSize(int(pw),int(ph)),*format,QString::fromStdString(std::get<std::string>(s.get("overscan_mode"))));
+    out["filmWidth"]=film.width();out["filmHeight"]=film.height();out["filmMeasured"]=current;
+    out["shown"]=valid;
+    out["canvasWidth"]=geometry.value("canvas_w").toInt();out["canvasHeight"]=geometry.value("canvas_h").toInt();
+    QVariantList gates;
+    for(const auto& quad:geometry.value("gates").toArray()) {
+        QVariantList q;for(const auto& v:quad.toArray())q.push_back(v.toDouble());
+        gates.push_back(q);
+    }
+    out["gates"]=gates;
+    return out;
+}
+QVariantMap PreviewController::dateBack() const {
+    const auto s=settings();
+    const auto photo=photoInfo(geometry_);
+    const auto* camera=desktop::date_back_camera(s,photo);
+    QVariantMap prints,onCamera;bool any=false;
+    for(const char* face:{"lcd","dots","data"}) {
+        const bool p=desktop::date_back_prints(s,photo,face);any=any||p;
+        prints[face]=p;onCamera[face]=camera&&camera->has_date_back;
+    }
+    const auto& shooting=photo.shooting;
+    const auto exif=desktop::date_text(shooting,std::get<std::string>(s.get("date_back_order")));
+    // The menu's examples: this frame's date in each order, or the drawing's.
+    spk::io::ShootingData example=shooting;
+    if(example.year==0){example.year=2026;example.month=10;example.day=1;}
+    std::uint32_t pw=0,ph=0;
+    if(photo.decode_width)desktop::cut_size(photo.geometry,photo.decode_width,photo.decode_height,pw,ph);
+    // A half frame held level is the portrait one (DateBackSection.cameraNote).
+    const bool turned=camera&&pw&&ph&&((ph>pw)!=(camera->id=="135_half"));
+    const bool halfData=std::get<std::string>(s.get("date_imprint_style"))=="data"&&camera&&camera->id=="135_half";
+    return {{"camera",camera?text(camera->id):QString()},{"cameraTitle",camera?text(camera->title):QString()},
+        {"cameraFromEdge",std::get<bool>(s.get("overscan_active"))},{"hasBack",any},
+        {"effective",desktop::date_back_effective(s,photo)},{"printsInMargin",camera&&camera->prints_in_margin},
+        {"panoramic",camera&&!camera->has_date_back},
+        {"prints",prints},{"onCamera",onCamera},{"exifDate",text(exif)},{"hasExifDate",shooting.year!=0},
+        {"examples",QVariantMap{{"japan",text(desktop::date_text(example,"japan"))},{"us",text(desktop::date_text(example,"us"))}}},
+        {"printed",text(desktop::printed_date_text(s,shooting))},{"dataText",text(desktop::data_text(shooting))},
+        {"dataPrintable",desktop::date_back_prints(s,photo,"data")},{"turned",turned},{"sizeMax",halfData?1.0:3.0},
+        {"pictureKnown",pw>0}};
 }
 QVariantList PreviewController::libraryItems() const {
     QVariantList result;
@@ -516,13 +778,13 @@ void PreviewController::saveActiveSettings(bool recordHistory) {
     const auto mode=decode_mode_?desktop::DecodeMode::headroom:desktop::DecodeMode::compatible16;
     // A saved pending edit has no rendered thumbnail yet. Do not let the
     // strip present an older look as if it represented the new settings.
-    const bool changed=!sameSettings(item.settings,desired)||item.mode!=mode||item.geometry!=geometry_;
+    const bool changed=!sameSettings(item.settings,desired)||item.mode!=mode||item.geometry!=geometry_||item.held!=held_geometry_;
     if(changed){
         if(recordHistory)recordEdit(item,itemState(item));
         item.thumbnail={};item.pending_save=true;
     }
     item.settings=desired;item.mode=mode;
-    item.geometry=geometry_;
+    item.geometry=geometry_;item.held=held_geometry_;
     if(changed){scheduleSave();emit libraryChanged();emit historyChanged();}
 }
 void PreviewController::updateThumbnail() {
@@ -542,7 +804,20 @@ int PreviewController::addFile(const QUrl& url) {
     item.mode=decode_mode_?desktop::DecodeMode::headroom:desktop::DecodeMode::compatible16;
     const auto stored=edit_store_.load(local,catalog_);
     item.save_blocked=stored.blocked;item.save_warning=stored.warning;item.preserved=stored.preserved;
-    if(stored.state){item.settings=stored.state->settings;item.mode=stored.state->mode;item.geometry=stored.state->geometry;item.has_stored=true;}
+    if(stored.state){item.settings=stored.state->settings;item.mode=stored.state->mode;item.geometry=stored.state->geometry;
+                     item.held=stored.state->heldGeometry;item.has_stored=true;}
+    // A frame's film edge seeds, the first time it is opened (Session
+    // .seedFilmEdge): a frame seed of its own, the user's body, and its
+    // number on the roll -- its place in the session. A new photo is seeded
+    // even when its preset came from another photo; it has its own crop, so
+    // a film edge it inherits holds nothing of the other photo's.
+    if(!item.has_stored||!std::get<bool>(item.settings.get("film_edge_seeded"))) {
+        const auto file=info.canonicalFilePath().toUtf8();
+        desktop::seed_film_edge(item.settings,std::string_view(file.constData(),std::size_t(file.size())),
+                                int(library_.size()),bodySeed());
+        if(!item.has_stored)item.held=std::get<bool>(item.settings.get("overscan_active"))
+            ?std::optional<output::Geometry>(output::Geometry{}):std::nullopt;
+    }
     library_.push_back(std::move(item));emit libraryChanged();return int(library_.size())-1;
 }
 void PreviewController::openFiles(const QVariantList& urls) {
@@ -568,11 +843,15 @@ void PreviewController::syncSelectedSettings(bool includeCrop) {
     saveActiveSettings();int count=0;
     for(int i=0;i<int(library_.size());++i)if(i!=active_index_&&library_[i].selected){
         auto& item=library_[i];auto next=currentState();
+        // Film Edge and Date Back stay the recipient's (SettingsClipboard
+        // .swift:75-76), and with them the crop its film edge holds.
+        next.settings=desktop::synced_settings(next.settings,item.settings);
+        next.heldGeometry=item.held;
         if(!includeCrop)next.geometry=item.geometry;
         if(sameState(itemState(item),next))continue;
         // Each recipient owns its own undo history, just like its settings.
         item.undo.push_back(itemState(item));if(item.undo.size()>64)item.undo.erase(item.undo.begin());item.redo.clear();
-        item.settings=next.settings;item.mode=next.mode;item.geometry=next.geometry;item.pending_save=true;
+        item.settings=next.settings;item.mode=next.mode;item.geometry=next.geometry;item.held=next.heldGeometry;item.pending_save=true;
         item.thumbnail={};item.error.clear();++count;
     }
     status_=uiText(includeCrop?"status.syncedWithCrop":"status.syncedKeepingCrops",{QString::number(count)});
@@ -581,13 +860,25 @@ void PreviewController::syncSelectedSettings(bool includeCrop) {
 void PreviewController::setCropRect(const QRectF& crop) {
     auto next=geometry_;next.crop=crop;setGeometry(next,"cropRect");
 }
-void PreviewController::setGeometry(const output::Geometry& geometry,const QString& editKey) {
-    if(!frame_||busy_||dialog_open_||geometry==geometry_)return;
+void PreviewController::setGeometry(const output::Geometry& requested,const QString& editKey) {
+    if(!frame_||busy_||dialog_open_)return;
+    // A film edge holds the crop at its gate's shape, in the crop's own
+    // orientation (Geometry.lockedRatio, Session+FilmEdge.swift:375-390).
+    const auto geometry=std::get<bool>(extra_settings_.get("overscan_active"))?heldAtGate(requested,extra_settings_,-1):requested;
+    if(geometry==geometry_)return;
     try {
         auto next=visibleImage(frame_,full_image_,geometry);
         if(gesture_index_>=0&&gesture_key_!=editKey)endEditGesture();
-        image_=std::move(next);geometry_=geometry;saveActiveSettings(true);updateThumbnail();
-        failed_=false;emit geometryChanged();emit frameChanged();emit stateChanged();
+        image_=std::move(next);geometry_=geometry;saveActiveSettings(true);
+        failed_=false;
+        // In the negative (a film edge, a date on a cropped frame) the crop
+        // is the framing in the gate: it re-develops, as a setting does.
+        if(frame_->cut||wantsCut(geometry_)) {
+            ++settings_revision_;auto_apply_.stop();schedulePreview();
+            status_=uiText("status.updatingPreview");emit settingsChanged();
+        }
+        updateThumbnail();
+        emit geometryChanged();emit frameChanged();emit stateChanged();
     } catch(const std::exception& e){failed_=true;status_=text(e.what());emit stateChanged();}
 }
 void PreviewController::resetCrop(){setCropRect(QRectF(0,0,1,1));}
@@ -596,7 +887,8 @@ void PreviewController::setCropAspect(double ratio) {
     if(ratio==0){resetCrop();return;}
     // Ratios describe the displayed result, even after a quarter turn.
     if(geometry_.quarterTurns%2)ratio=1/ratio;
-    const double original=double(frame_->width())/frame_->height();
+    const auto size=decodeSize();
+    const double original=double(size.width())/size.height();
     double w=1,h=1;
     if(original>ratio)w=ratio/original;else h=original/ratio;
     setCropRect(QRectF((1-w)/2,(1-h)/2,w,h));
@@ -604,10 +896,10 @@ void PreviewController::setCropAspect(double ratio) {
 void PreviewController::cancelExport(){if(cancel_batch_)cancel_batch_->store(true);}
 
 editing::State PreviewController::itemState(const LibraryItem& item) {
-    return {item.settings,item.mode,item.geometry};
+    return {item.settings,item.mode,item.geometry,item.held};
 }
 editing::State PreviewController::currentState() const {
-    return {settings(),decode_mode_?desktop::DecodeMode::headroom:desktop::DecodeMode::compatible16,geometry_};
+    return {settings(),decode_mode_?desktop::DecodeMode::headroom:desktop::DecodeMode::compatible16,geometry_,held_geometry_};
 }
 bool PreviewController::canUndo() const {
     return settingsEditable()&&active_index_>=0&&!library_[active_index_].undo.empty();
@@ -653,7 +945,7 @@ void PreviewController::restoreHistory(bool redo) {
         const bool geometryChangedNow=target.geometry!=geometry_;
         auto next=geometryChangedNow?visibleImage(frame_,full_image_,target.geometry):image_;
         to.push_back(currentState());if(to.size()>64)to.erase(to.begin());from.pop_back();
-        geometry_=target.geometry;image_=std::move(next);
+        geometry_=target.geometry;held_geometry_=target.heldGeometry;image_=std::move(next);
         loadSettings(target.settings,target.mode);saveActiveSettings();
         ++settings_revision_;auto_apply_.stop();schedulePreview();updateThumbnail();
         failed_=false;status_=uiText(redo?"status.redone":"status.undone");
@@ -727,9 +1019,16 @@ void PreviewController::exportBatch(const QUrl& folder,int format,int quality,in
                 try {
                     if(std::filesystem::exists(target))++skipped;
                     else {
-                        const bool useShown=held&&held->source==source&&held->decode_mode==item.mode&&sameSettings(held->settings,item.settings);
-                        const auto developed=useShown?held:host.open_raw(source,item.mode,item.settings);
-                        output::exportFrame(developed,target,item.geometry,options,resources);++done;
+                        // The shown frame serves when it was developed from the
+                        // same settings and, if cut, from the same framing.
+                        bool useShown=held&&held->source==source&&held->decode_mode==item.mode&&sameSettings(held->settings,item.settings);
+                        if(useShown) {
+                            desktop::PhotoInfo photo{held->metadata.shooting,held->decode_width,held->decode_height,toCut(item.geometry)};
+                            const bool cut=desktop::cuts_frame(item.settings,photo);
+                            useShown=cut==held->cut&&(!cut||held->geometry==toCut(item.geometry));
+                        }
+                        const auto developed=useShown?held:host.open_raw(source,item.mode,item.settings,toCut(item.geometry));
+                        output::exportFrame(developed,target,developed->cut?output::Geometry{}:item.geometry,options,resources);++done;
                     }
                 }catch(const std::exception& e){++errors;details.append(name+": "+text(e.what()));}
                 ++processed;
