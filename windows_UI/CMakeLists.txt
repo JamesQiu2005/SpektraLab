@@ -378,6 +378,46 @@ if(BUILD_TESTING)
     target_sources(spk_qt_recipe_export_test PRIVATE ${spektralab_postdev_core_sources}
         src/PostDevSurfaces.hpp src/PostDevSurfaces.cpp)
 endif()
+
+# --- Half-frame pairs (lane ui-pairs) ---
+# The pair's model and record (src/HalfFramePair.*), the controller's half
+# (src/PreviewControllerPairs.cpp) and their QML (the Half-Frame Pair section
+# under the Navigator, the holes on the canvas). Every target that compiles
+# PreviewController.cpp compiles these with it.
+set(spektralab_pair_sources src/HalfFramePair.hpp src/HalfFramePair.cpp src/PreviewControllerPairs.cpp)
+target_sources(SpektraLabQt PRIVATE ${spektralab_pair_sources})
+qt_target_qml_sources(SpektraLabQt
+    QML_FILES qml/left/PairSection.qml qml/centre/PairOverlay.qml qml/centre/PairFramePicker.qml
+    NO_CACHEGEN)
+if(BUILD_TESTING)
+    foreach(target spk_qt_library_workflow_test spk_qt_controller_settings_test spk_qt_editing_workflow_test
+                   spk_qt_export_workflow_test spk_qt_film_edge_state_test spk_qt_predev_test)
+        target_sources(${target} PRIVATE ${spektralab_pair_sources})
+    endforeach()
+    # The pair's model without an engine, a GPU or a RAW: the record's round
+    # trip and its unknown fields, where each edit of the rails lands (the
+    # picked frame, + Film, the film), what the engine is handed, undo states.
+    qt_add_executable(spk_qt_pairs_test tests/pairs.cpp src/HalfFramePair.cpp src/EditStore.cpp src/PostDev.cpp)
+    target_include_directories(spk_qt_pairs_test PRIVATE src)
+    target_compile_features(spk_qt_pairs_test PRIVATE cxx_std_20)
+    target_link_libraries(spk_qt_pairs_test PRIVATE spk_desktop_host Qt6::Core Qt6::Gui)
+    add_test(NAME spk_qt_pairs COMMAND spk_qt_pairs_test "${CMAKE_CURRENT_BINARY_DIR}/pairs-test")
+    # A pair end to end through the real controller, engine and two RAWs
+    # (copied): Ctrl+J, per-frame edits, undo, the record across a restart, the
+    # recipe export as one picture. Arguments: <resources> <RAW> <second RAW>
+    # <new output directory>; run as a gate like the other workflow tests.
+    qt_add_executable(spk_qt_pairs_workflow_test tests/pairs_workflow.cpp
+        src/PreviewController.hpp src/PreviewController.cpp src/FrameOutput.cpp src/FrameImage.cpp src/EditStore.cpp
+        ${spk_qt_export_sources} ${spektralab_predev_sources} ${spektralab_pair_sources}
+        ${spektralab_postdev_controller_sources})
+    target_include_directories(spk_qt_pairs_workflow_test PRIVATE src)
+    target_compile_features(spk_qt_pairs_workflow_test PRIVATE cxx_std_20)
+    target_link_libraries(spk_qt_pairs_workflow_test PRIVATE spk_desktop_host spk_qt_host_output Qt6::Core Qt6::Gui)
+    if(WIN32)
+        set_tests_properties(spk_qt_pairs PROPERTIES ENVIRONMENT_MODIFICATION "${qt_test_runtime_path}")
+    endif()
+endif()
+
 # --- The application shell (lane ui-app-shell) ---
 # The Settings and About windows, the application menu and the preferences
 # file (src/AppSettings.*, src/AppShell.*, qml/shell/). The version is the

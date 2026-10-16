@@ -192,7 +192,20 @@ Rectangle {
                         }
                     }
                     MenuSeparator {}
-                    RailMenuItem { text: L10n.tr("strip.menu.newPair"); enabled: false }
+                    // Session.newPair (Ctrl+J): the selected photographs, in
+                    // the strip's order, fill the holes.
+                    RailMenuItem {
+                        text: L10n.tr("strip.menu.newPair")
+                        enabled: preview.canMakePair && strip.editor.canBrowse
+                        onTriggered: preview.newPair()
+                    }
+                    RailMenuItem {
+                        visible: cell.modelData.pair === true
+                        height: visible ? implicitHeight : 0
+                        text: L10n.tr("strip.menu.deletePair")
+                        enabled: strip.editor.canBrowse
+                        onTriggered: preview.deletePair(cell.index)
+                    }
                     RailMenuItem {
                         text: L10n.tr("info.resetPhoto")
                         enabled: cell.open && preview.settingsEditable

@@ -36,6 +36,9 @@ inline constexpr Message kMessages[] = {
     {"status.syncedKeepingCrops", "Photos synced: {0} (each keeps its own crop)."},
     {"status.undone", "Undid the last adjustment to this photo"},
     {"status.redone", "Redid the adjustment to this photo"},
+    // Session.makePair's status (Session.swift:4778-4779).
+    {"status.pairMade", "Half-frame pair made: click a frame to pick it."},
+    {"status.pairAddSecond", "Half-frame pair: add the second frame with the + on the empty hole."},
     {"saved.unsaved", "Some settings are not saved; see the warning below"},
     {"saved.saving", "Saving settings…"},
     {"saved.saved", "This photo's settings are saved"},

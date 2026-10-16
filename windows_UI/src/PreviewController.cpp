@@ -49,7 +49,7 @@ bool sameSettings(desktop::RenderSettings a, desktop::RenderSettings b) {
 }
 bool sameState(const editing::State& a,const editing::State& b) {
     return sameSettings(a.settings,b.settings)&&a.mode==b.mode&&a.geometry==b.geometry&&a.heldGeometry==b.heldGeometry&&
-        a.postDev==b.postDev;
+        a.postDev==b.postDev&&a.pair==b.pair;
 }
 // The editor's geometry as the host takes it for a cut frame, and back.
 desktop::EngineCut toCut(const output::Geometry& g) {
@@ -197,6 +197,14 @@ PreviewController::PreviewController(std::filesystem::path resources,QObject* pa
     // the frame and the crop.
     for(auto signal:{&PreviewController::settingsChanged,&PreviewController::frameChanged,&PreviewController::geometryChanged})
         connect(this,signal,this,&PreviewController::filmEdgeChanged);
+    // The half-frame pair's view follows the frame, the library and the rails
+    // (PreviewControllerPairs.cpp); a placement waits for its develop.
+    for(auto signal:{&PreviewController::settingsChanged,&PreviewController::frameChanged,&PreviewController::libraryChanged,
+                     &PreviewController::stateChanged})
+        connect(this,signal,this,&PreviewController::pairChanged);
+    connect(this,&PreviewController::frameChanged,this,&PreviewController::pairFrameLanded);
+    pair_commit_.setSingleShot(true);pair_commit_.setInterval(280);
+    connect(&pair_commit_,&QTimer::timeout,this,&PreviewController::commitPairDrag);
     auto_apply_.setSingleShot(true);auto_apply_.setInterval(180);
     connect(&auto_apply_,&QTimer::timeout,this,[this]{if(dirty())apply();});
     save_timer_.setSingleShot(true);save_timer_.setInterval(350);
@@ -247,6 +255,7 @@ void PreviewController::accept(Reply reply) {
     // The Original rides the same worker but is no operation: it neither
     // holds the controller busy nor reports one finished.
     if(reply.operation=="original"){acceptOriginal(std::move(reply));return;}
+    if(reply.operation=="pair-analysis")return; // only asks the worker to measure the pair's frame again
     if(reply.generation!=generation_)return; // a retired generation never replaces the canvas
     const bool superseded=reply.operation=="render"&&reply.settings_revision!=settings_revision_;
     busy_=false;active_operation_.clear();failed_=!superseded&&!reply.error.isEmpty();
@@ -337,6 +346,9 @@ desktop::RenderSettings PreviewController::settings() const {
     s.print_exposure=std::exp2(-exposure_ev_);return s;
 }
 void PreviewController::restoreSettings() {
+    // A pair's frame was developed with the engine's settings; the rails show
+    // the film and the picked frame (HalfFramePair.hpp shown()).
+    if(pairActive()&&frame_&&frame_->pair){loadSettings(pairShown(),frame_->decode_mode);saveActiveSettings();return;}
     const auto s=frame_?frame_->settings:desktop::RenderSettings{};
     loadSettings(s,frame_?frame_->decode_mode:desktop::DecodeMode::compatible16);
     saveActiveSettings();
@@ -351,6 +363,7 @@ void PreviewController::loadSettings(const desktop::RenderSettings& s,desktop::D
 }
 bool PreviewController::dirty() const {
     if(!frame_)return false;
+    if(pairActive())return pairDirty();
     // A frame cut for the engine is also stale when the geometry it was cut
     // with is not the one wanted, or when the frame should (not) be cut.
     const bool cut=wantsCut(geometry_);
@@ -544,6 +557,7 @@ void PreviewController::resetFilmStock() {
 }
 void PreviewController::resetEnlarger() {
     if(!settingsEditable())return;
+    if(pairActive()){resetPairEnlarger();return;} // the picked frame's print, or the film's (PreviewControllerPairs.cpp)
     auto next=extra_settings_;
     next.y_filter_shift=0;next.m_filter_shift=0;next.set("preflash_exposure",0.0);
     if(next==extra_settings_&&exposure_ev_==0)return;
@@ -619,7 +633,7 @@ void PreviewController::resetSettings(){
     for(const char* key:{"overscan_camera_seed","overscan_frame_seed","overscan_frame_number","film_edge_seeded"})
         fresh.set(key,extra_settings_.get(key));
     auto geometry=geometry_;auto held=held_geometry_;
-    filmEdgeWillChange(extra_settings_,fresh,geometry,held);
+    if(!pairActive())filmEdgeWillChange(extra_settings_,fresh,geometry,held);
     const bool moved=geometry!=geometry_;
     geometry_=geometry;held_geometry_=held;
     if(moved&&frame_){try{image_=visibleImage(frame_,full_image_,geometry_);navigator_=desktop::display::navigatorImage(image_);}catch(const std::exception&){}}
@@ -632,12 +646,14 @@ void PreviewController::openRaw(const QUrl& url) {
     if(!ready_||busy_||!url.isLocalFile())return;
     saveActiveSettings();
     const int index=addFile(url);if(index<0)return;
+    adoptPairs(); // the folder's half-frame pairs follow their first frames (never before `index`)
     // A known photo restores its own saved settings. A genuinely new photo
     // still starts with the current preset; opening never overwrites a sidecar.
     openItem(index);
 }
 void PreviewController::openItem(int index) {
     endEditGesture();
+    if(library_.at(index).pair){openPairItem(index);return;}
     const auto item=library_.at(index);const auto p=path(item.url);
     const auto gen=++generation_;const auto factory=image_factory_;
     submit([p,item,gen,index,factory](auto& host){Reply r;r.generation=gen;r.operation="open";r.library_index=index;r.geometry=item.geometry;
@@ -650,6 +666,7 @@ void PreviewController::openItem(int index) {
 }
 void PreviewController::apply() {
     if(!frame_||busy_||dialog_open_)return;
+    if(pairActive()){applyPair();return;}
     const auto s=settings();const auto shown=frame_;const auto gen=++generation_;const auto revision=settings_revision_.load();
     const auto mode=decode_mode_?desktop::DecodeMode::headroom:desktop::DecodeMode::compatible16;
     // The geometry goes too: the host cuts the picture with it when the
@@ -772,7 +789,9 @@ bool PreviewController::applyParameter(const desktop::SettingField& field,deskto
 bool PreviewController::applySettings(desktop::RenderSettings next,const QString& editKey) {
     if(next==extra_settings_)return true;
     auto geometry=geometry_;auto held=held_geometry_;
-    filmEdgeWillChange(extra_settings_,next,geometry,held);
+    // A pair's piece is already the gate's shape: no crop to hold
+    // (Session+FilmEdge.swift:400-405).
+    if(!pairActive())filmEdgeWillChange(extra_settings_,next,geometry,held);
     const double body=std::get<double>(extra_settings_.get("overscan_camera_seed"));
     const bool moved=geometry!=geometry_;
     extra_settings_=std::move(next);
@@ -795,6 +814,7 @@ desktop::PhotoInfo PreviewController::photoInfo(const output::Geometry& g) const
     const auto size=decodeSize();
     photo.decode_width=std::uint32_t(std::max(0,size.width()));photo.decode_height=std::uint32_t(std::max(0,size.height()));
     photo.geometry=toCut(g);
+    photo.pair.active=pairActive(); // a pair's date back is a half-frame camera's; its piece is never cut
     return photo;
 }
 bool PreviewController::wantsCut(const output::Geometry& g) const {return desktop::cuts_frame(settings(),photoInfo(g));}
@@ -934,9 +954,9 @@ QVariantList PreviewController::libraryItems() const {
     QVariantList result;
     for(int i=0;i<int(library_.size());++i) {
         const auto& item=library_[i];
-        result.push_back(QVariantMap{{"name",QFileInfo(item.url.toLocalFile()).fileName()},
+        result.push_back(QVariantMap{{"name",item.pair?desktop::pairs::title(item.url.toLocalFile()):QFileInfo(item.url.toLocalFile()).fileName()},
             {"url",item.url},{"thumbnail",item.thumbnail},{"active",i==active_index_},
-            {"selected",item.selected},{"error",item.error}});
+            {"selected",item.selected},{"error",item.error},{"pair",item.pair.has_value()}});
     }
     return result;
 }
@@ -945,6 +965,7 @@ int PreviewController::selectedCount() const {
 }
 void PreviewController::saveActiveSettings(bool recordHistory) {
     if(active_index_<0||active_index_>=int(library_.size()))return;
+    if(library_[active_index_].pair){savePairSettings(recordHistory);return;}
     auto& item=library_[active_index_];const auto desired=settings();
     const auto mode=decode_mode_?desktop::DecodeMode::headroom:desktop::DecodeMode::compatible16;
     // A saved pending edit has no rendered thumbnail yet. Do not let the
@@ -973,6 +994,7 @@ int PreviewController::addFile(const QUrl& url) {
     if(!url.isLocalFile())return -1;
     const QFileInfo info(url.toLocalFile());
     if(!info.isFile())return -1;
+    if(desktop::pairs::isPairFile(info.filePath()))return addPairFile(info.canonicalFilePath());
     const auto local=QUrl::fromLocalFile(info.canonicalFilePath());
     for(int i=0;i<int(library_.size());++i)
         if(library_[i].url.toLocalFile().compare(local.toLocalFile(),Qt::CaseInsensitive)==0)return i;
@@ -1000,6 +1022,11 @@ void PreviewController::openFiles(const QVariantList& urls) {
     if(!ready_||busy_)return;
     saveActiveSettings();int first=-1;
     for(const auto& url:urls){const int index=addFile(url.toUrl());if(first<0&&index>=0)first=index;}
+    // The folders' half-frame pairs follow their first frames; the first
+    // photograph is found again after they are in.
+    const QUrl opened=first>=0?library_[first].url:QUrl();
+    adoptPairs();
+    for(int i=0;i<int(library_.size())&&first>=0;++i)if(library_[i].url==opened){first=i;break;}
     if(first>=0)openItem(first);
 }
 void PreviewController::selectImage(int index) {
@@ -1019,11 +1046,15 @@ void PreviewController::syncSelectedSettings(bool includeCrop) {
     saveActiveSettings();int count=0;
     for(int i=0;i<int(library_.size());++i)if(i!=active_index_&&library_[i].selected){
         auto& item=library_[i];auto next=currentState();
+        // From a pair, what the rails show (the film and the picked frame);
+        // onto a pair, its film -- its frames keep their own state.
+        if(next.pair){next.settings=settings();next.pair.reset();}
+        next.pair=item.pair;
         // Film Edge and Date Back stay the recipient's (SettingsClipboard
         // .swift:75-76), and with them the crop its film edge holds.
         next.settings=desktop::synced_settings(next.settings,item.settings);
         next.heldGeometry=item.held;
-        if(!includeCrop)next.geometry=item.geometry;
+        if(!includeCrop||item.pair)next.geometry=item.geometry;
         // Post-Dev is not copied: the Mac's clipboard groups leave
         // `adjustments` out (SettingsClipboard.swift notCopied), and its Sync
         // writes exactly those groups (Session.syncSettings).
@@ -1048,6 +1079,8 @@ void PreviewController::setCropGeometry(const QRectF& crop,double straightenDegr
 }
 void PreviewController::setGeometry(const output::Geometry& requested,const QString& editKey) {
     if(!frame_||busy_||dialog_open_)return;
+    // A pair has no crop: its frames are placed under their holes instead.
+    if(pairActive())return;
     // A film edge holds the crop at its gate's shape, in the crop's own
     // orientation (Geometry.lockedRatio, Session+FilmEdge.swift:375-390).
     const auto geometry=std::get<bool>(extra_settings_.get("overscan_active"))?heldAtGate(requested,extra_settings_,-1):requested;
@@ -1085,9 +1118,10 @@ void PreviewController::setCropAspect(double ratio) {
 void PreviewController::cancelExport(){if(cancel_batch_)cancel_batch_->store(true);}
 
 editing::State PreviewController::itemState(const LibraryItem& item) {
-    return {item.settings,item.mode,item.geometry,item.held,item.postdev};
+    return {item.settings,item.mode,item.geometry,item.held,item.postdev,item.pair};
 }
 editing::State PreviewController::currentState() const {
+    if(pairActive())return pairState();
     return {settings(),decode_mode_?desktop::DecodeMode::headroom:desktop::DecodeMode::compatible16,geometry_,held_geometry_,postdev_};
 }
 bool PreviewController::canUndo() const {
@@ -1140,7 +1174,9 @@ void PreviewController::restoreHistory(bool redo) {
         histogram_=std::move(bins);
         if(geometryChangedNow)refreshOriginal(false);
         const bool gradeChangedNow=target.postDev!=postdev_;postdev_=target.postDev;
-        loadSettings(target.settings,target.mode);saveActiveSettings();
+        if(target.pair)restorePair(target); // the piece, its frames and their grades, then the rails from them
+        else loadSettings(target.settings,target.mode);
+        saveActiveSettings();
         if(gradeChangedNow)emit postDevChanged();
         ++settings_revision_;auto_apply_.stop();schedulePreview();updateThumbnail();
         failed_=false;status_=uiText(redo?"status.redone":"status.undone");
@@ -1154,6 +1190,7 @@ void PreviewController::scheduleSave() {
 void PreviewController::flushEdits() {
     save_timer_.stop();
     for(auto& item:library_)if(item.pending_save&&!item.save_blocked) {
+        if(item.pair){savePair(item);continue;} // the pair's own record (HalfFramePair.hpp)
         try {edit_store_.save(item.url,itemState(item));item.pending_save=false;item.has_stored=true;item.save_warning.clear();}
         catch(const std::exception& e){item.save_warning=text(e.what());}
     }
@@ -1222,7 +1259,8 @@ void PreviewController::exportBatch(const QUrl& folder,int format,int quality,in
                             const bool cut=desktop::cuts_frame(item.settings,photo);
                             useShown=cut==held->cut&&(!cut||held->geometry==toCut(item.geometry));
                         }
-                        const auto developed=useShown?held:host.open_raw(source,item.mode,item.settings,toCut(item.geometry));
+                        const auto developed=item.pair?developPair(host,item,held) // one picture (Exporter.swift)
+                            :useShown?held:host.open_raw(source,item.mode,item.settings,toCut(item.geometry));
                         output::exportFrame(developed,target,developed->cut?output::Geometry{}:item.geometry,options,resources,
                                             desktop::postdev::exportGrade(item.postdev));++done;
                     }

@@ -203,7 +203,7 @@ if(NOT APPLE)
                 # White balance at decode reuses spektralab-host's
                 # Temperature/Tint conversion, which reads LibRaw's matrix.
                 add_library(spk_desktop_host STATIC src/desktop/preview_host.cpp
-                    src/desktop/raw_white_balance.cpp host/white_balance.cpp)
+                    src/desktop/raw_white_balance.cpp host/white_balance.cpp src/desktop/half_frame_pair.cpp)
                 target_compile_features(spk_desktop_host PUBLIC cxx_std_20)
                 target_include_directories(spk_desktop_host PUBLIC
                     "${CMAKE_CURRENT_SOURCE_DIR}/src" "${CMAKE_CURRENT_SOURCE_DIR}/include")
@@ -235,6 +235,12 @@ if(NOT APPLE)
                     add_executable(spk_desktop_white_balance_test tests/desktop_white_balance.cpp)
                     target_link_libraries(spk_desktop_white_balance_test PRIVATE spk_desktop_host)
                     add_test(NAME spk_desktop_white_balance COMMAND spk_desktop_white_balance_test)
+                    # Half-frame pairs without a GPU or a RAW: the piece's
+                    # layout, the placement gestures, the composition on
+                    # synthetic pictures, the gates and the pair's wire.
+                    add_executable(spk_desktop_pair_test tests/desktop_pair.cpp)
+                    target_link_libraries(spk_desktop_pair_test PRIVATE spk_desktop_host)
+                    add_test(NAME spk_desktop_pair COMMAND spk_desktop_pair_test)
                 endif()
             endif()
             if(BUILD_TESTING)

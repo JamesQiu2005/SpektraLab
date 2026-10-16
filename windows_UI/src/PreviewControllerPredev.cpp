@@ -43,14 +43,15 @@ double since(std::chrono::steady_clock::time_point start) {
     return std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - start).count();
 }
 
-// The camera's own white balance for the frame on screen.
-std::optional<predev::AsShot> cameraPair(const desktop::FramePtr& frame) {
+// The camera's own white balance for the frame on screen (on a half-frame
+// pair, the camera frame's own decode: PreviewController::shotMetadata).
+std::optional<predev::AsShot> cameraPair(const spk::io::RawMetadata* metadata) {
     double temperature = 0, tint = 0;
-    if (!frame || !desktop::as_shot_white_balance(frame->metadata, temperature, tint)) return std::nullopt;
+    if (!metadata || !desktop::as_shot_white_balance(*metadata, temperature, tint)) return std::nullopt;
     return predev::AsShot{temperature, tint};
 }
 // A camera LibRaw has no three-colour matrix for cannot be re-balanced.
-bool balanceable(const desktop::FramePtr& frame) { return !frame || frame->metadata.colors == 3; }
+bool balanceable(const spk::io::RawMetadata* metadata) { return !metadata || metadata->colors == 3; }
 
 // The Scene Placement rows as the engine's curve, and back.
 constexpr const char* curveRows[] = {"scene_latitude_active", "scene_latitude_norm", "scene_latitude_highlight_knee",
@@ -148,6 +149,7 @@ void PreviewController::analyse(desktop::PreviewHost& host) {
     Json request = Json::object();
     request.set("highlight_pull_back", Json(number(frame->settings, "scene_latitude_highlight_pull_back")));
     request.set("shadow_pull_back", Json(number(frame->settings, "scene_latitude_shadow_pull_back")));
+    pairFitRequest(frame, request);  // a half-frame pair: the camera frame's hole and pull-backs
     out = nullptr;
     if (spk_scene_latitude(session, request.dump().c_str(), &out) == SPK_OK && out) {
         Json reply;
@@ -177,7 +179,7 @@ void PreviewController::takeAnalysis(std::shared_ptr<const Analysis> a) {
 
 QVariantMap PreviewController::whiteBalance() const {
     const auto value = desktop::white_balance(extra_settings_);
-    const auto camera = cameraPair(frame_);
+    const auto camera = cameraPair(shotMetadata());
     const auto ticked = predev::boxes(value, camera);
     const bool following = value.as_shot() && camera;
     QVariantMap out{{"mode", qtext(value.mode)},
@@ -187,12 +189,12 @@ QVariantMap PreviewController::whiteBalance() const {
         {"asShotKnown", bool(camera)}, {"boxesEnabled", bool(camera)},
         {"asShotTemperature", camera ? QVariant(camera->temperature) : QVariant()},
         {"asShotTint", camera ? QVariant(camera->tint) : QVariant()},
-        {"enabled", balanceable(frame_)},
+        {"enabled", balanceable(shotMetadata())},
         // macOS's sliders (WhiteBalanceRows.swift:40-56): their ranges and
         // zero ticks; the rows themselves take 2000..50000 K.
         {"temperatureFrom", 2000.0}, {"temperatureTo", 12000.0}, {"tintFrom", -150.0}, {"tintTo", 150.0},
         {"temperatureZero", camera ? camera->temperature : 5500.0}, {"tintZero", camera ? camera->tint : 0.0},
-        {"pickAvailable", bool(frame_) && balanceable(frame_) && ready_ && !busy_ && !dialog_open_}};
+        {"pickAvailable", bool(frame_) && !frame_->pair && balanceable(shotMetadata()) && ready_ && !busy_ && !dialog_open_}};
     return out;
 }
 
@@ -205,7 +207,7 @@ QVariantList PreviewController::whiteBalancePresets() const {
 }
 
 bool PreviewController::editWhiteBalance(const desktop::WhiteBalance& value, const QString& editKey) {
-    if (!settingsEditable() || !balanceable(frame_)) return false;
+    if (!settingsEditable() || !balanceable(shotMetadata())) return false;
     auto next = extra_settings_;
     try {
         desktop::set_white_balance(next, value);
@@ -222,30 +224,31 @@ bool PreviewController::editWhiteBalance(const desktop::WhiteBalance& value, con
 }
 
 bool PreviewController::setWhiteBalancePreset(const QString& id) {
-    const auto next = predev::withPreset(desktop::white_balance(extra_settings_), id.toStdString(), cameraPair(frame_));
+    const auto next = predev::withPreset(desktop::white_balance(extra_settings_), id.toStdString(), cameraPair(shotMetadata()));
     return next && editWhiteBalance(*next, QStringLiteral("white_balance"));
 }
 bool PreviewController::setTemperature(double kelvin) {
-    return editWhiteBalance(predev::withTemperature(desktop::white_balance(extra_settings_), kelvin, cameraPair(frame_)),
+    return editWhiteBalance(predev::withTemperature(desktop::white_balance(extra_settings_), kelvin, cameraPair(shotMetadata())),
                             QStringLiteral("white_balance_temperature"));
 }
 bool PreviewController::setTint(double tint) {
-    return editWhiteBalance(predev::withTint(desktop::white_balance(extra_settings_), tint, cameraPair(frame_)),
+    return editWhiteBalance(predev::withTint(desktop::white_balance(extra_settings_), tint, cameraPair(shotMetadata())),
                             QStringLiteral("white_balance_tint"));
 }
 bool PreviewController::setTemperatureAsShot(bool on) {
-    const auto camera = cameraPair(frame_);
+    const auto camera = cameraPair(shotMetadata());
     return camera && editWhiteBalance(predev::applyingBoxes(desktop::white_balance(extra_settings_), on, std::nullopt,
                                                             camera), QStringLiteral("white_balance"));
 }
 bool PreviewController::setTintAsShot(bool on) {
-    const auto camera = cameraPair(frame_);
+    const auto camera = cameraPair(shotMetadata());
     return camera && editWhiteBalance(predev::applyingBoxes(desktop::white_balance(extra_settings_), std::nullopt, on,
                                                             camera), QStringLiteral("white_balance"));
 }
 
 bool PreviewController::pickNeutral(double x, double y) {
-    if (!ready_ || !frame_ || busy_ || dialog_open_ || frame_->metadata.colors != 3) return false;
+    // Not on a half-frame pair: its piece is two decodes (not ported).
+    if (!ready_ || !frame_ || busy_ || dialog_open_ || frame_->metadata.colors != 3 || frame_->pair) return false;
     // A cut frame (Film Edge, a date on a cropped frame) shows the picture
     // the engine was handed, inside the strip, with its geometry already in
     // it: the point is found in that picture, then in the decode through
@@ -393,6 +396,7 @@ void PreviewController::takeSolve(desktop::FramePtr frame, std::string reply, QS
 }
 
 QVariantMap PreviewController::metering() const {
+    if (auto pair = pairMetering()) return *pair;  // a half-frame pair: the camera frame's own meter
     QVariantMap out{{"available", false}};
     if (!frame_ || !analysis_ || analysis_->frame->source != frame_->source || !analysis_->meteredEv) return out;
     QVariantMap byMethod;
@@ -447,7 +451,7 @@ QVariantMap PreviewController::scenePlacement() const {
     const double shadow = number(current, "scene_latitude_shadow_pull_back");
     // Enabled on a measurement that still describes the controls (measures).
     const bool measured = frame_ && analysis_ && analysis_->frame->source == frame_->source && analysis_->reading &&
-                          measures(analysis_->frame->settings, current);
+                          measures(analysis_->frame->settings, measurable(current));
     QVariantMap out{{"enabled", measured}, {"active", flag(current, "scene_latitude_active")},
         {"highlight", highlight}, {"shadow", shadow}, {"from", predev::placementLow}, {"to", predev::placementHigh},
         {"highlightWindow", QVariant()}, {"shadowWindow", QVariant()}, {"highlightMessage", QString()},
@@ -479,7 +483,7 @@ bool PreviewController::placeScene(double highlight, double shadow, const QStrin
     // Solved only against a measurement of these controls; a stale one would
     // commit a curve for another medium (measures). The next measurement
     // lands with the render already on its way.
-    if (!measures(analysis_->frame->settings, current)) return false;
+    if (!measures(analysis_->frame->settings, measurable(current))) return false;
     const auto side = moving == QLatin1String("shadow") ? predev::Side::shadow : predev::Side::highlight;
     const auto& reading = *analysis_->reading;
     const auto base = curveOf(current);

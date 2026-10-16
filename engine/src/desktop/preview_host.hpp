@@ -3,13 +3,16 @@
 #pragma once
 
 #include "core/json.hpp"
+#include "half_frame_pair.hpp"
 #include "io/raw_decoder.hpp"
 #include "spektrafilm/spk_engine.h"
+#include <array>
 #include <cstdint>
 #include <filesystem>
 #include <functional>
 #include <map>
 #include <memory>
+#include <optional>
 #include <string>
 #include <string_view>
 #include <variant>
@@ -226,12 +229,34 @@ struct EngineCut {
 void cut_size(const EngineCut& cut, std::uint32_t width, std::uint32_t height,
               std::uint32_t& out_width, std::uint32_t& out_height);
 
+// A half-frame pair's second frame's own Scene Placement: the engine's second
+// curve (API-SPEC "Scene Placement per frame", scene_latitude_b_*), which takes
+// over past scene_latitude_split. Defaults are the engine's (params.hpp).
+struct PairLatitude {
+    bool active = false;
+    double highlight_knee = 2.0, highlight_room = 0.0, shadow_knee = -2.0, shadow_room = 0.0;
+    bool operator==(const PairLatitude&) const = default;
+};
+
 // What the host knows of the frame beyond its settings: its EXIF, its
 // decoded size (0 x 0 before a decode) and the geometry it is shown with.
 struct PhotoInfo {
     io::ShootingData shooting;
     std::uint32_t decode_width = 0, decode_height = 0;
     EngineCut geometry;
+    // A half-frame pair's piece (macOS FilmEdgeSettings.pair and what
+    // Session.resolved fills in for it, Session+FilmEdge.swift:280-298): the
+    // piece is `135_half` exposed twice whether or not the film edge is on,
+    // never cut (it already is the gate's shape), each frame with its own date
+    // and its own Scene Placement past `split`; film_format_mm is the piece's
+    // long edge. `shooting` above is the first frame's.
+    struct Pair {
+        bool active = false;
+        io::ShootingData second;      // the second frame's EXIF (its date)
+        double split = 0.0;           // scene_latitude_split
+        PairLatitude latitude_b;      // the second frame's curve
+        bool operator==(const Pair&) const = default;
+    } pair;
 };
 
 // The macOS rules, each with its source:
@@ -323,6 +348,42 @@ Json opening_params(const RenderSettings& settings, const Catalog& catalog,
 // stock change, on which the engine reloads the colour pair's pack itself.
 Json changed_params(const RenderSettings& before, const RenderSettings& after, const Catalog& catalog,
                     const PhotoInfo* photo = nullptr);
+// The same across a change of the frame's facts too: a half-frame pair's
+// second curve and date are the photo's, not settings rows.
+Json changed_params(const RenderSettings& before, const RenderSettings& after, const Catalog& catalog,
+                    const PhotoInfo& photo_before, const PhotoInfo& photo_after);
+
+// --- half-frame pairs -------------------------------------------------------
+//
+// What the host composes a pair's piece from (macOS HalfFramePair.Hole and
+// PairComposer.decode): each frame decoded with its own white balance, cut by
+// its own geometry, turned and placed under its hole (half_frame_pair.hpp) and
+// exposed on its own -- the engine's meter run on that picture alone, plus
+// the frame's own Film Exposure (Session.pairExposure, :4428-4478) -- the
+// piece developed with the meter off. A frame with a print of its own is the
+// same negative printed again with `print` and cut into its hole
+// (Session.pairLayered, :5117-5159).
+struct PairHole {
+    std::filesystem::path source;
+    RenderSettings decode;            // its white_balance rows are the frame's decode
+    EngineCut geometry;               // the frame's own crop, straighten, turns, flips
+    PairPlacement placement;
+    double exposure_ev = 0.0;         // the frame's own exposure, on top of its meter
+    bool meter = true;                // false: the AE pill's Custom, no meter
+    std::string meter_method = "balanced";
+    std::optional<RenderSettings> print;  // the settings this frame is printed with
+    bool operator==(const PairHole&) const = default;
+};
+struct PairInput {
+    std::array<std::optional<PairHole>, 2> holes;
+    double spacing_mm = 1.0;          // effective: 1 on a strip
+    bool turned = false;
+    PairLatitude latitude_b;          // the second frame's curve
+    bool operator==(const PairInput&) const = default;
+};
+// Whether two inputs compose the same piece: everything but the prints and the
+// second curve, which the session takes without a new picture.
+bool same_piece(const PairInput& a, const PairInput& b);
 
 // How a session's RGBA16 code values are encoded: the output colour space
 // spk_open *resolved* (its reply's params.output_color_space, RFC-018 §5.1)
@@ -394,6 +455,23 @@ public:
         std::vector<std::uint8_t> bgra8;
     };
     std::shared_ptr<const SourcePreview> source_preview;
+    // A half-frame pair's piece (render_pair): `source` is the pair's own
+    // record, the decode is the composed piece, and these say what is where.
+    // `pair_holes` are the holes on the frame, normalised (the engine's gates
+    // on a strip); `pair_metered` what the meter chose for each picture alone
+    // (0 for Custom or an empty hole); `pair_metadata` each frame's decode
+    // (its camera white balance), `metadata` above being the first's.
+    // `pair_layered`: a frame's own print was cut into its hole.
+    bool pair = false;
+    PairInput pair_input;
+    std::array<bool, 2> pair_filled{};
+    std::array<PairRect, 2> pair_holes{};
+    std::array<double, 2> pair_metered{};
+    std::array<io::RawMetadata, 2> pair_metadata{};
+    // Each frame's picture as its hole takes it (after its own geometry,
+    // before the placement's turns), for the placement gestures' arithmetic.
+    std::array<std::uint32_t, 2> pair_picture_w{}, pair_picture_h{};
+    bool pair_layered = false;
 
     const spk_result& pixels() const noexcept { return result_; }
     std::uint32_t width() const noexcept { return result_.width; }
@@ -404,6 +482,9 @@ public:
 private:
     Frame() = default;
     spk_result result_{};
+    // A composed frame's own pixels (a pair's prints cut together):
+    // result_.rgba16 points here and result_.texture is null.
+    std::vector<std::uint16_t> owned_;
     friend class PreviewHost;
 };
 
@@ -465,6 +546,15 @@ public:
     // open_raw of the current source instead; a new cut (cuts_frame) reopens
     // the session from the retained decode.
     FramePtr render(const RenderSettings& settings, const EngineCut& geometry = EngineCut());
+    // A half-frame pair, identified by its record `identity`: composes the
+    // piece (each frame decoded once and kept while it is in a hole, metered
+    // once per decode and intent), develops it with `settings`, and cuts each
+    // frame's own print into its hole. The same piece again only sends what
+    // changed, like render(). A hole whose file is gone or will not decode is
+    // an empty hole, not a failed pair (PairComposer.decode). Transactional
+    // like open_raw. render() refuses while a pair is the current frame.
+    FramePtr render_pair(const std::filesystem::path& identity, const PairInput& pair, DecodeMode mode,
+                         const RenderSettings& settings);
     // Exports exactly the supplied frame, even after a newer one was opened.
     // Existing files are never overwritten. Returns only after the writer
     // has completed and closed the file; errors retain its cleanup details.

@@ -881,6 +881,11 @@ int main(int argc,char** argv) {
     QCommandLineOption outputSpace("output-color-space","Engine output colour space to request (testing)","name");
     outputSpace.setFlags(QCommandLineOption::HiddenFromHelp);
     parser.addOption(outputSpace);
+    // Testing only: with --snapshot of a half-frame pair (--open <pair>.spkpair),
+    // pick "first" or "second" before the capture, so the active hole shows.
+    QCommandLineOption pairLayer("pair-layer","With --snapshot of a pair: the hole to pick (testing)","side");
+    pairLayer.setFlags(QCommandLineOption::HiddenFromHelp);
+    parser.addOption(pairLayer);
     parser.process(app);
     const QString requestedSpace=parser.isSet(outputSpace)?parser.value(outputSpace):
         QString::fromLatin1(spk::desktop::kDisplayOutputColorSpace);
@@ -972,8 +977,10 @@ int main(int argc,char** argv) {
                     QCoreApplication::exit(saved?0:1);
                 });
             };
-            QObject::connect(&controller,&PreviewController::operationFinished,&app,[&controller,sets,capture](const QString& operation,bool ok){
+            const auto layer=parser.value(pairLayer);
+            QObject::connect(&controller,&PreviewController::operationFinished,&app,[&controller,sets,capture,layer](const QString& operation,bool ok){
                 if(!ok){QCoreApplication::exit(1);return;}
+                if(operation=="open"&&!layer.isEmpty())controller.setPairLayer(layer);
                 if(operation=="open"&&!sets.isEmpty()) {
                     // --set: each row as the sections would set it; the
                     // capture waits for the frame they develop.

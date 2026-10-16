@@ -481,4 +481,13 @@ void Store::save(const QUrl& source, const State& state) const {
                                 QCryptographicHash::hash(bytes, QCryptographicHash::Sha256), {}, catalog});
 }
 
+QJsonObject stateToJson(const State& state) { return stateJson(state); }
+State stateFromJson(const QJsonObject& value, const Catalog* catalog, QStringList* unknown) {
+    return parseState(value, currentVersion, catalog, unknown);
+}
+QJsonObject geometryToJson(const output::Geometry& geometry) { return geometryJson(geometry); }
+output::Geometry geometryFromJson(const QJsonObject& value, const QString& label, QStringList* unknown) {
+    return parseGeometry(value, label, unknown);
+}
+
 } // namespace spk::desktop::editing

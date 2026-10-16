@@ -1,8 +1,10 @@
 #pragma once
 
 #include "FrameOutput.hpp"
+#include "HalfFramePair.hpp"
 #include "PostDev.hpp"
 #include <QHash>
+#include <QJsonObject>
 #include <QString>
 #include <QStringList>
 #include <QUrl>
@@ -45,8 +47,20 @@ struct State {
     std::optional<output::Geometry> heldGeometry;
     // The Post-Dev grade (Layer 2), saved as the optional "state.postDev".
     postdev::Params postDev;
+    // A half-frame pair's piece and its frames' own state (HalfFramePair.hpp):
+    // set for a pair, whose `settings` are then the film's. Saved in the
+    // pair's own record (pairs::save), never in a photograph's.
+    std::optional<pairs::Pair> pair;
     bool operator==(const State&) const = default;
 };
+
+// The record's "state" and "geometry" objects as this store writes and reads
+// them (version 2), for the half-frame pair's record, which carries a state
+// of its own (pairs::save / pairs::load). stateFromJson throws.
+QJsonObject stateToJson(const State& state);
+State stateFromJson(const QJsonObject& value, const Catalog* catalog, QStringList* unknown);
+QJsonObject geometryToJson(const output::Geometry& geometry);
+output::Geometry geometryFromJson(const QJsonObject& value, const QString& label, QStringList* unknown);
 
 struct LoadResult {
     std::optional<State> state;

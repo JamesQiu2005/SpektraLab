@@ -5,6 +5,7 @@
 #include "EditStore.hpp"
 #include "Messages.hpp"
 #include <QImage>
+#include <QPointF>
 #include <QObject>
 #include <QPointF>
 #include <QStringList>
@@ -219,6 +220,20 @@ class PreviewController final : public QObject {
     Q_PROPERTY(QVariantList postDevSourceMap READ postDevSourceMap NOTIFY frameChanged)
     // The scalar controls: [{path, from, to, initial, snap}] (postdev::fields).
     Q_PROPERTY(QVariantList postDevFields READ postDevFields CONSTANT)
+    // --- half-frame pairs (PreviewControllerPairs.cpp) -----------------------
+    // The pair on the canvas (HalfFramePair.swift, PairSection.swift), or
+    // {active: false}: {active, title, turned, spacing (the gap used), userSpacing,
+    // onStrip, complete, filled, layer: "film"|"first"|"second", cameraSide
+    // ("first"|"second"|""), placing (crop mode inside a hole), holes: [{side,
+    // filled, exists, name, path, rect: {x, y, width, height} normalised to the
+    // shown frame, placement: {scale, x, y, quarterTurns}, ownPrint, printScope,
+    // exposureScope: "frame"|"film", metered}] x2, drag: {active, side, scale,
+    // offsetX, offsetY} (the gesture's motion of the hole's picture, u -> u*scale
+    // + offset), candidates: [{index, name, used}] (the folder's photographs)}.
+    Q_PROPERTY(QVariantMap pair READ pair NOTIFY pairChanged)
+    // New Half-Frame Pair (Ctrl+J) and Enter Half-Frame Pair (Film Edge on Half).
+    Q_PROPERTY(bool canMakePair READ canMakePair NOTIFY pairChanged)
+    Q_PROPERTY(bool canEnterPair READ canEnterPair NOTIFY pairChanged)
 public:
     // Makes the full display image of a frame. Called on the worker thread,
     // after the render and before the reply is queued; a throw fails the
@@ -477,7 +492,50 @@ public:
     Q_INVOKABLE double arcTheta(double fraction, bool left) const;
     Q_INVOKABLE double arcValue(double x, double y, double centreX, double centreY, bool left, double low, double high) const;
     Q_INVOKABLE double arcFraction(double value, double low, double high) const;
+    // --- half-frame pairs (PreviewControllerPairs.cpp) -----------------------
+    QVariantMap pair() const;
+    bool canMakePair() const;
+    bool canEnterPair() const;
+    // Session.newPair (Ctrl+J): the selected photographs fill the holes in the
+    // filmstrip's order -- two fill both, one the first, none leaves both
+    // empty; the look is the first one's. Session.enterPair: the photograph on
+    // the canvas becomes the first frame, its film edge kept on Half.
+    Q_INVOKABLE bool newPair();
+    Q_INVOKABLE bool enterPair();
+    // Picks the film or a hole ("film", "first", "second"); a click on the
+    // canvas at (x, y), normalised to the shown frame, picks what is under it.
+    Q_INVOKABLE void setPairLayer(const QString& layer);
+    Q_INVOKABLE QString pairHoleAt(double x, double y) const;
+    Q_INVOKABLE void pairClicked(double x, double y);
+    // The piece's edits, each one undo step: a photograph (its library index)
+    // into a hole, or none; the two frames swapped; the camera turned; the gap;
+    // a hole's picture turned, its crop reset, its scopes ("print" or
+    // "exposure" to "frame" or "film").
+    Q_INVOKABLE bool setPairFrame(const QString& side, int libraryIndex);
+    Q_INVOKABLE void removePairFrame(const QString& side);
+    Q_INVOKABLE void swapPairFrames();
+    Q_INVOKABLE void setPairTurned(bool turned);
+    Q_INVOKABLE void setPairSpacing(double mm);
+    Q_INVOKABLE void turnPairPicture(const QString& side);
+    Q_INVOKABLE void resetPairPlacement(const QString& side);
+    Q_INVOKABLE void setPairScope(const QString& which, const QString& scope);
+    // The crop mode inside a hole (Session.togglePairPlacing, placementBegan/
+    // Moved/Ended, placementZoomed): a drag moves the picked frame's picture
+    // under its hole, the wheel scales it about the pointer; points are
+    // normalised to the shown frame. Written on release (a zoom when it rests)
+    // as one undo step; until its develop lands the canvas draws the motion.
+    Q_INVOKABLE void setPairPlacing(bool on);
+    Q_INVOKABLE bool beginPairDrag(double x, double y);
+    Q_INVOKABLE void movePairDrag(double x, double y);
+    Q_INVOKABLE void endPairDrag();
+    Q_INVOKABLE bool zoomPairPlacement(double factor, double x, double y);
+    // The section's sliders: shown at once, written when they rest.
+    Q_INVOKABLE void previewPairPlacement(const QString& side, double scale, double x, double y);
+    Q_INVOKABLE void openPairFrameAlone(const QString& side);
+    // Deletes a pair's record (the photographs it showed are untouched).
+    Q_INVOKABLE bool deletePair(int index);
 signals:
+    void pairChanged();
     void filmEdgeChanged();
     void postDevChanged();
     void histogramChanged();
@@ -620,6 +678,9 @@ private:
         // A newer build's fields in this photo's record, kept by its saves.
         QStringList preserved;
         spk::desktop::postdev::Params postdev;   // its Post-Dev grade
+        // A half-frame pair (its url is the pair's record): its piece and its
+        // frames' own state; `settings` are then the film's.
+        std::optional<spk::desktop::pairs::Pair> pair;
     };
     static spk::desktop::editing::State itemState(const LibraryItem&);
     void recordEdit(LibraryItem&,const spk::desktop::editing::State& before);
@@ -682,4 +743,54 @@ private:
     spk::desktop::postdev::Params postdev_;
     std::vector<float> graded_histogram_;   // empty: no grade, histogram_ is shown
     QTimer postdev_refresh_;
+    // --- half-frame pairs (PreviewControllerPairs.cpp) -------------------------
+    // The hooks the rest of the controller calls for a pair item.
+    bool pairActive() const;
+    spk::desktop::RenderSettings pairShown() const;
+    spk::desktop::editing::State pairState() const;
+    bool pairDirty() const;
+    void savePairSettings(bool recordHistory);
+    void openPairItem(int index);
+    void applyPair();
+    int addPairFile(const QString& path);
+    void adoptPairs();
+    void savePair(LibraryItem& item);
+    void restorePair(const spk::desktop::editing::State& target);
+    // A pair item's development for an export (the shown frame when it is
+    // this pair as it is now); throws for an incomplete pair (answer B9).
+    spk::desktop::FramePtr developPair(spk::desktop::PreviewHost& host, const LibraryItem& item,
+                                       const spk::desktop::FramePtr& shown) const;
+    // The Pre-Dev rail on a pair: the camera frame's own decode (its camera
+    // white balance), what Scene Placement's measurement is compared with, the
+    // Fit's region and pull-backs, and the camera frame's meter reading.
+    const spk::io::RawMetadata* shotMetadata() const;
+    spk::desktop::RenderSettings measurable(const spk::desktop::RenderSettings& shown) const;
+    void pairFitRequest(const spk::desktop::FramePtr& frame, spk::Json& request);
+    std::optional<QVariantMap> pairMetering() const;
+    void editPair(const std::function<void(spk::desktop::pairs::Pair&, spk::desktop::RenderSettings&)>& change,
+                  const QString& editKey);
+    void makePair(int first, int second, spk::desktop::RenderSettings look, bool turned, bool keepFilmEdge);
+    int insertItem(LibraryItem item, int at);
+    void setPairLayerIndex(spk::desktop::pairs::Layer layer);
+    void requestPairAnalysis();
+    void resetPairEnlarger();
+    void commitPairDrag();
+    void pairFrameLanded();
+    spk::desktop::PairRect pairHoleRect(int side) const;
+    spk::desktop::pairs::Layer pair_layer_ = spk::desktop::pairs::Layer::film;
+    int pair_camera_side_ = 0;
+    bool pair_placing_ = false;
+    struct PairDrag {
+        int side = 0;
+        QPointF start;
+        spk::desktop::PairPlacement origin, live;
+        double sourceWidth = 0, sourceHeight = 0;
+        bool settling = false;   // written, waiting for its develop
+    };
+    std::optional<PairDrag> pair_drag_;
+    QTimer pair_commit_;
+    // The Fit's region and pull-backs for the worker's analysis of a pair.
+    struct PairFit { int side = -1; double highlight = 0, shadow = 0; bool turned = false; double spacing = 1; };
+    std::mutex pair_fit_mutex_;
+    PairFit pair_fit_;
 };

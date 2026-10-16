@@ -85,6 +85,7 @@ Item {
         }
     }
     CropOverlay { canvas: frameCanvas; editor: view.editor }
+    PairOverlay { canvas: frameCanvas; editor: view.editor }
     // The split's furniture: the line, the grip and the two labels. The line
     // and grip take the drag; the rest of the canvas keeps its pan.
     Item {
