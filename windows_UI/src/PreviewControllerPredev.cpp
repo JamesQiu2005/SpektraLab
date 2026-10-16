@@ -194,7 +194,7 @@ QVariantMap PreviewController::whiteBalance() const {
         // zero ticks; the rows themselves take 2000..50000 K.
         {"temperatureFrom", 2000.0}, {"temperatureTo", 12000.0}, {"tintFrom", -150.0}, {"tintTo", 150.0},
         {"temperatureZero", camera ? camera->temperature : 5500.0}, {"tintZero", camera ? camera->tint : 0.0},
-        {"pickAvailable", bool(frame_) && !frame_->pair && balanceable(shotMetadata()) && ready_ && !busy_ && !dialog_open_}};
+        {"pickAvailable", bool(frame_) && balanceable(shotMetadata()) && ready_ && !busy_ && !dialog_open_}};
     return out;
 }
 
@@ -247,14 +247,30 @@ bool PreviewController::setTintAsShot(bool on) {
 }
 
 bool PreviewController::pickNeutral(double x, double y) {
-    // Not on a half-frame pair: its piece is two decodes (not ported).
-    if (!ready_ || !frame_ || busy_ || dialog_open_ || frame_->metadata.colors != 3 || frame_->pair) return false;
+    if (!ready_ || !frame_ || busy_ || dialog_open_) return false;
+    // A half-frame pair: the hole under the point picks its frame, and the
+    // pick is that frame's -- sampled on the piece the engine was handed,
+    // divided by the gain its hole was exposed with, against its own decode
+    // (Session.setFocusDecode: the picked frame's white balance).
+    spk::io::RawMetadata metadata = frame_->metadata;
+    double gain = 1.0;
+    std::optional<QPointF> point;
+    if (frame_->pair) {
+        int side = -1;
+        double u = 0, v = 0;
+        if (!pairNeutralPoint(x, y, side, u, v) || !frame_->pair_input.holes[side]) return false;
+        metadata = frame_->pair_metadata[side];
+        const auto& hole = *frame_->pair_input.holes[side];
+        gain = std::exp2((hole.meter ? frame_->pair_metered[side] : 0.0) + hole.exposure_ev);
+        setPairLayer(side == 0 ? QStringLiteral("first") : QStringLiteral("second"));
+        point = QPointF(u, v);
+    }
+    if (metadata.colors != 3) return false;
     // A cut frame (Film Edge, a date on a cropped frame) shows the picture
     // the engine was handed, inside the strip, with its geometry already in
     // it: the point is found in that picture, then in the decode through
     // the geometry the frame was cut with.
-    std::optional<QPointF> point;
-    if (frame_->cut) {
+    if (!point && frame_->cut) {
         const auto picture = cutPictureRect();
         const QPointF at((x * frame_->width() - picture.x()) / picture.width(),
                          (y * frame_->height() - picture.y()) / picture.height());
@@ -262,13 +278,13 @@ bool PreviewController::pickNeutral(double x, double y) {
         const auto& c = frame_->geometry;
         point = predev::sourcePoint(QSize(int(frame_->decode_width), int(frame_->decode_height)),
                                     {QRectF(c.x, c.y, c.w, c.h), c.quarter_turns, c.flip_h, c.flip_v, c.straighten_deg}, at);
-    } else {
+    } else if (!point) {
         point = predev::sourcePoint(QSize(int(frame_->width()), int(frame_->height())), geometry_, QPointF(x, y));
     }
     if (!point) return false;
     const auto shown = frame_;
     const auto gen = ++generation_;
-    submit([this, shown, gen, p = *point](desktop::PreviewHost& host) {
+    submit([this, shown, gen, p = *point, metadata, gain](desktop::PreviewHost& host) {
         Reply r;
         r.generation = gen;
         r.operation = "pick-neutral";
@@ -282,8 +298,30 @@ bool PreviewController::pickNeutral(double x, double y) {
             error = "The photograph changed before the pick; pick again";
         } else {
             std::array<double, 3> rgb{};
-            if (desktop::sample_decoded(host.input(), p.x(), p.y(), 4, rgb, error))
-                desktop::neutral_white_balance(active->metadata, rgb, kelvin, tint, error);
+            const auto& input = host.input();
+            bool sampled = false;
+            if (gain == 1.0) {
+                sampled = desktop::sample_decoded(input, p.x(), p.y(), 4, rgb, error);
+            } else if (input.width && input.height) {
+                // A pair's hole was exposed by a gain: the box around the point,
+                // back at the decode's own values, so its clip is the decode's.
+                spk::io::DecodedRaw box;
+                box.width = box.height = 9;
+                box.metadata.headroom_enabled = input.metadata.headroom_enabled;
+                box.rgb.resize(9 * 9 * 3);
+                const long cx = std::clamp(long(p.x() * input.width), 0L, long(input.width) - 1);
+                const long cy = std::clamp(long(p.y() * input.height), 0L, long(input.height) - 1);
+                for (long j = 0; j < 9; ++j)
+                    for (long i = 0; i < 9; ++i) {
+                        const long x = std::clamp(cx + i - 4, 0L, long(input.width) - 1);
+                        const long y = std::clamp(cy + j - 4, 0L, long(input.height) - 1);
+                        for (int c = 0; c < 3; ++c)
+                            box.rgb[std::size_t(j * 9 + i) * 3 + c] =
+                                float(input.rgb[(std::size_t(y) * input.width + std::size_t(x)) * 3 + c] / gain);
+                    }
+                sampled = desktop::sample_decoded(box, (4 + 0.5) / 9.0, (4 + 0.5) / 9.0, 4, rgb, error);
+            }
+            if (sampled) desktop::neutral_white_balance(metadata, rgb, kelvin, tint, error);
         }
         // A refusal is the picker's answer, not a failed render: it is
         // reported apart (neutralPicked), and the controls are left alone.

@@ -94,6 +94,23 @@ std::array<double, 3> holeMean(const PreviewController& c, int side) {
     return {sum[0] / n, sum[1] / n, sum[2] / n};
 }
 double luma(const std::array<double, 3>& m) { return 0.2126 * m[0] + 0.7152 * m[1] + 0.0722 * m[2]; }
+// The mean luma inside a hole (inset by a tenth) of an image the size of the
+// frame: the canvas's picture, or an exported file.
+double imageHoleLuma(const QImage& image, const QVariantMap& r) {
+    const double W = image.width(), H = image.height();
+    const int x0 = int((r["x"].toDouble() + 0.1 * r["width"].toDouble()) * W), x1 = int((r["x"].toDouble() + 0.9 * r["width"].toDouble()) * W);
+    const int y0 = int((r["y"].toDouble() + 0.1 * r["height"].toDouble()) * H), y1 = int((r["y"].toDouble() + 0.9 * r["height"].toDouble()) * H);
+    const int step = std::max(1, (x1 - x0) / 120);
+    double sum = 0;
+    long n = 0;
+    for (int y = y0; y < y1; y += step)
+        for (int x = x0; x < x1; x += step) {
+            const QColor c = image.pixelColor(x, y);
+            sum += 0.2126 * c.redF() + 0.7152 * c.greenF() + 0.0722 * c.blueF();
+            ++n;
+        }
+    return n ? sum / n : 0;
+}
 double param(const PreviewController& c, const char* key) { return c.parameters().value(key).toDouble(); }
 recipes::Recipe recipe(recipes::Format format, const QString& folder) {
     recipes::Recipe r;
@@ -234,6 +251,56 @@ int main(int argc, char** argv) {
             c.setPairLayer("first");
             check(std::abs(param(c, "y_filter_shift")) < 1e-9, "the first frame kept the film's old print");
 
+            // ---- Post-Dev on one frame (Session.layerAdjustments, pairLayered) ----
+            c.setPairLayer("first");
+            const QImage ungraded = c.previewImage();
+            check(c.setPostDev("exposure", 1.0), "a Post-Dev exposure on the first frame");
+            waitFor([&] { return c.previewImage().cacheKey() != ungraded.cacheKey(); }, "the picture graded frame by frame");
+            check(c.canvasPostDev().value("enabled").toBool() == false, "the canvas adds no grade of its own: the picture is graded");
+            const QImage graded = c.previewImage();
+            const double ug0 = imageHoleLuma(ungraded, rectOf(hole(c, 0))), ug1 = imageHoleLuma(ungraded, rectOf(hole(c, 1)));
+            const double gr0 = imageHoleLuma(graded, rectOf(hole(c, 0))), gr1 = imageHoleLuma(graded, rectOf(hole(c, 1)));
+            report["postDev"] = QString("first %1 -> %2, second %3 -> %4").arg(ug0).arg(gr0).arg(ug1).arg(gr1);
+            check(gr0 > ug0 * 1.1 && std::abs(gr1 - ug1) < 0.002, "the first frame's grade brightens the first picture only");
+            c.setPairLayer("second");
+            check(c.postDev().value("exposure").toDouble() == 0, "the second frame's Post-Dev is still the film's");
+            c.setPairLayer("film");
+            check(c.postDev().value("exposure").toDouble() == 0, "and the film's own grade is untouched");
+            c.setPairLayer("first");
+            check(c.postDev().value("exposure").toDouble() == 1.0, "the rail shows the picked frame's own grade");
+            c.undo();
+            settle(200);
+            check(c.postDev().value("exposure").toDouble() == 0 && c.canvasPostDev().value("enabled").toBool(),
+                  "undo takes the frame's grade back: one grade again, on the canvas");
+            c.redo();
+            waitFor([&] { return !c.canvasPostDev().value("enabled").toBool(); }, "redo of the frame's grade");
+            check(c.postDev().value("exposure").toDouble() == 1.0, "redo puts it back");
+
+            // ---- the neutral picker on a pair: the hole under it picks the frame ----
+            c.setPairLayer("film");
+            {
+                bool picked = false, ok = false;
+                QString why;
+                auto connection = QObject::connect(&c, &PreviewController::neutralPicked, [&](bool success, const QString& message) {
+                    picked = true; ok = success; why = message;
+                });
+                const auto r = rectOf(hole(c, 1));
+                check(c.pickNeutral(r["x"].toDouble() + 0.35 * r["width"].toDouble(), r["y"].toDouble() + 0.75 * r["height"].toDouble()),
+                      "the neutral picker starts on the second hole");
+                waitFor([&] { return picked && !c.busy(); }, "the neutral pick");
+                QObject::disconnect(connection);
+                check(ok, "the pick is answered: " + why);
+                idle(c, "the picked white balance's develop");
+                check(c.pair().value("layer").toString() == "second" && c.whiteBalance().value("mode").toString() == "custom",
+                      "the pick picked the second frame and set its own white balance");
+                c.setPairLayer("first");
+                check(std::abs(c.whiteBalance().value("temperature").toDouble() - 3000) < 1, "the first frame's is untouched");
+                c.undo();
+                idle(c, "undo the pick");
+                c.setPairLayer("second");
+                check(c.whiteBalance().value("mode").toString() == "as_shot", "one undo takes the pick back");
+            }
+
             // ---- the crop mode inside a hole: drag moves, wheel scales ----
             c.setPairLayer("first");
             c.setPairPlacing(true);
@@ -276,6 +343,16 @@ int main(int argc, char** argv) {
             QImageReader reader(jpeg.files[0]);
             const QSize size = reader.size();
             check(size.width() == int(c.frame()->width()) && size.height() == int(c.frame()->height()), "the picture is the piece the canvas shows");
+            {
+                // Graded frame by frame as the canvas is: the two holes stand in
+                // the file as they stand on the canvas.
+                const QImage file = QImageReader(jpeg.files[0]).read();
+                const QImage shown = c.previewImage();
+                const double f0 = imageHoleLuma(file, rectOf(hole(c, 0))), f1 = imageHoleLuma(file, rectOf(hole(c, 1)));
+                const double s0 = imageHoleLuma(shown, rectOf(hole(c, 0))), s1 = imageHoleLuma(shown, rectOf(hole(c, 1)));
+                report["exportGrade"] = QString("file %1 / %2, canvas %3 / %4").arg(f0).arg(f1).arg(s0).arg(s1);
+                check(std::abs(f0 - s0) < 0.02 && std::abs(f1 - s1) < 0.02, "the file carries each frame's own grade, as the canvas shows it");
+            }
             const auto tiff = run(c, recipe(recipes::Format::tiff, dest + "/export"));
             check(tiff.files.size() == 1 && QFileInfo(tiff.files[0]).suffix() == "tif" && !tiff.warning, "and as a TIFF");
             report["export"] = QFileInfo(jpeg.files[0]).fileName() + " " + QString::number(size.width()) + "x" + QString::number(size.height());
@@ -310,6 +387,8 @@ int main(int argc, char** argv) {
             check(c.whiteBalance().value("mode").toString() == "custom" &&
                       std::abs(hole(c, 0).value("placement").toMap().value("scale").toDouble() - 1.5) < 1e-9,
                   "the first frame's white balance and crop too");
+            check(c.postDev().value("exposure").toDouble() == 1.0 && !c.canvasPostDev().value("enabled").toBool(),
+                  "and its own Post-Dev grade");
 
             // ---- Sync from the pair: the picked frame's look, not its film edge ----
             check(c.setParameter("grain_amount", 1.6), "a film setting on the pair");
