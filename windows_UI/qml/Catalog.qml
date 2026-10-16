@@ -65,6 +65,13 @@ QtObject {
             rows.push({ name: L10n.tr("print.group.cine"), key: -1, cine: false, header: true, enabled: false, reason: "" })
             rows = rows.concat(cine)
         }
+        // The Mac's Digital group: RFC-028's Digital Intermediate, the
+        // negative unmasked and reversed as Cineon-style log -- a switch
+        // beside the paper, not a paper. The Windows engine boundary does
+        // not offer it yet, so its row keeps its place greyed.
+        rows.push({ name: L10n.tr("print.group.digital"), key: -1, cine: false, header: true, enabled: false, reason: "" })
+        rows.push({ name: L10n.tr("print.digitalIntermediate"), key: -3, cine: false, header: false,
+                    enabled: false, reason: L10n.tr("placeholder.digitalIntermediate") })
         rows.push({ name: L10n.tr("print.group.positive"), key: -1, cine: false, header: true, enabled: false, reason: "" })
         rows.push({ name: L10n.tr("print.none"), key: noPrintKey, cine: false, header: false,
                     enabled: positiveFilm, reason: positiveFilm ? "" : L10n.tr("print.reason.noScanNegative") })

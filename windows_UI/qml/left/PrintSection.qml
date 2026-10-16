@@ -3,7 +3,8 @@ import QtQuick.Controls
 import QtQuick.Layouts
 
 // Print (PrintProfileSection.swift): the papers grouped Still / Cine, then
-// Positive with "No Print Profile"; under them Print Effects and Extended
+// Digital (the Digital Intermediate, greyed until the engine boundary offers
+// it) and Positive with "No Print Profile"; under them Print Effects and Extended
 // Dynamic Range, the print stage's two switches.
 //
 // A slide film is scanned directly (the controller's rule, as on the Mac):
@@ -26,7 +27,8 @@ MacSection {
 
     StockList {
         listObjectName: "paperList"
-        visibleRows: 13
+        // Every paper, the Digital row and "No Print Profile" without scrolling.
+        visibleRows: 15
         rows: Catalog.paperRows(preview.papers, preview.filmIsPositive)
         currentKey: preview.filmIsPositive ? Catalog.noPrintKey : preview.paperIndex
         editable: preview.settingsEditable
