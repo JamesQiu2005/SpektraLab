@@ -26,7 +26,7 @@ find_package(Qt6 6.8 REQUIRED COMPONENTS Core Gui Qml Quick QuickControls2)
 qt_standard_project_setup(REQUIRES 6.8)
 
 qt_add_executable(SpektraLabQt WIN32
-    src/main.cpp src/PreviewController.hpp src/PreviewController.cpp
+    src/main.cpp src/Messages.hpp src/PreviewController.hpp src/PreviewController.cpp
     src/FrameOutput.hpp src/FrameOutput.cpp
     src/EditStore.hpp src/EditStore.cpp
     src/FrameCanvas.hpp src/FrameCanvas.cpp)
@@ -66,7 +66,24 @@ if(BUILD_TESTING)
     target_include_directories(spk_qt_edit_store_test PRIVATE src)
     target_compile_features(spk_qt_edit_store_test PRIVATE cxx_std_20)
     target_link_libraries(spk_qt_edit_store_test PRIVATE spk_desktop_host Qt6::Core Qt6::Gui)
-    add_test(NAME spk_qt_edit_store COMMAND spk_qt_edit_store_test)
+    # Scratch roots inside the build tree, never the system temporary folder.
+    add_test(NAME spk_qt_edit_store COMMAND spk_qt_edit_store_test "${CMAKE_CURRENT_BINARY_DIR}/edit-store-test")
+    # The controller's settings API (generic parameters, legacy names,
+    # defaults, locks) needs the engine's catalogue but no photograph.
+    qt_add_executable(spk_qt_controller_settings_test tests/controller_settings.cpp
+        src/PreviewController.hpp src/PreviewController.cpp src/FrameOutput.cpp src/EditStore.cpp)
+    target_include_directories(spk_qt_controller_settings_test PRIVATE src)
+    target_compile_features(spk_qt_controller_settings_test PRIVATE cxx_std_20)
+    target_link_libraries(spk_qt_controller_settings_test PRIVATE spk_desktop_host Qt6::Core Qt6::Gui)
+    add_test(NAME spk_qt_controller_settings COMMAND spk_qt_controller_settings_test
+        "$<TARGET_FILE_DIR:SpektraLabQt>/resources" "${CMAKE_CURRENT_BINARY_DIR}/controller-settings-test")
+    # The settings table through the real engine on a synthetic frame: the
+    # macOS defaults are accepted, deltas stay minimal across stock changes,
+    # and the filter scale is inert at zero shifts. No RAW fixture.
+    if(TARGET spk_desktop_preview_test)
+        add_test(NAME spk_desktop_settings_engine COMMAND spk_desktop_preview_test --settings-engine
+            "$<TARGET_FILE_DIR:SpektraLabQt>/resources")
+    endif()
     if(WIN32)
         # Specify each test's DLL search path: CTest on this Windows host can
         # restore the pre-launch PATH between tests. Ambient PATH alone makes
@@ -76,7 +93,7 @@ if(BUILD_TESTING)
             get_filename_component(qt_test_compiler_directory "${CMAKE_CXX_COMPILER}" DIRECTORY)
             list(APPEND qt_test_runtime_path "PATH=path_list_prepend:${qt_test_compiler_directory}")
         endif()
-        set_tests_properties(spk_qt_frame_output spk_qt_edit_store PROPERTIES
+        set_tests_properties(spk_qt_frame_output spk_qt_edit_store spk_qt_controller_settings PROPERTIES
             ENVIRONMENT_MODIFICATION "${qt_test_runtime_path}")
     endif()
     qt_add_executable(spk_qt_editing_workflow_test tests/editing_workflow.cpp

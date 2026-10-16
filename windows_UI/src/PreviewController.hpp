@@ -2,6 +2,7 @@
 #include "desktop/preview_host.hpp"
 #include "FrameOutput.hpp"
 #include "EditStore.hpp"
+#include "Messages.hpp"
 #include <QImage>
 #include <QObject>
 #include <QTimer>
@@ -36,6 +37,11 @@ class PreviewController final : public QObject {
     Q_PROPERTY(int decodeMode READ decodeMode WRITE setDecodeMode NOTIFY settingsChanged)
     Q_PROPERTY(double exposureEv READ exposureEv WRITE setExposureEv NOTIFY settingsChanged)
     Q_PROPERTY(QVariantMap adjustments READ adjustments NOTIFY settingsChanged)
+    // Every row of the desktop settings table (preview_host.hpp), by wire
+    // name: the current wanted values, and each row's type, range, choices
+    // and initial value. A new control binds to these and calls setParameter.
+    Q_PROPERTY(QVariantMap parameters READ parameters NOTIFY settingsChanged)
+    Q_PROPERTY(QVariantList parameterFields READ parameterFields CONSTANT)
     Q_PROPERTY(QVariantList libraryItems READ libraryItems NOTIFY libraryChanged)
     Q_PROPERTY(int activeIndex READ activeIndex NOTIFY libraryChanged)
     Q_PROPERTY(int selectedCount READ selectedCount NOTIFY libraryChanged)
@@ -76,6 +82,8 @@ public:
     int decodeMode() const { return decode_mode_; }
     double exposureEv() const { return exposure_ev_; }
     QVariantMap adjustments() const;
+    QVariantMap parameters() const;
+    QVariantList parameterFields() const;
     QVariantList libraryItems() const;
     int activeIndex() const { return active_index_; }
     int selectedCount() const;
@@ -103,7 +111,15 @@ public:
     Q_INVOKABLE void setItemSelected(int index, bool selected);
     Q_INVOKABLE void selectAllPhotos(bool selected);
     Q_INVOKABLE void syncSelectedSettings(bool includeCrop=false);
+    // The first QML's camelCase names (adjustments); a wire name works too.
     Q_INVOKABLE void setAdjustment(const QString& name, const QVariant& value);
+    // Any settings-table row by wire name. A value of the wrong type, out of
+    // range or not among the row's choices is refused (false), as is any
+    // edit while settings are locked. An accepted edit is an undo step like
+    // any other: between beginEditGesture(key) and endEditGesture() a drag
+    // is one step, and the legacy names share the gesture with their keys.
+    Q_INVOKABLE QVariant parameter(const QString& key) const;
+    Q_INVOKABLE bool setParameter(const QString& key, const QVariant& value);
     Q_INVOKABLE void setCropRect(const QRectF& crop);
     Q_INVOKABLE void resetCrop();
     Q_INVOKABLE void setCropAspect(double ratio);
@@ -164,9 +180,10 @@ private:
     int addFile(const QUrl&);
     void openItem(int index);
     void changed(const QString& editKey={});
+    bool applyParameter(const spk::desktop::SettingField& field, spk::desktop::SettingValue value);
     void schedulePreview();
     bool ready_=false, busy_=true, failed_=false;
-    QString status_=QStringLiteral("正在启动渲染引擎…");
+    QString status_=uiText("status.startingEngine");
     QVariantList films_, papers_;
     spk::desktop::Catalog catalog_;
     int film_index_=0, paper_index_=0, decode_mode_=0;
@@ -187,6 +204,8 @@ private:
         std::vector<spk::desktop::editing::State> undo,redo;
         bool pending_save=false,save_blocked=false,has_stored=false;
         QString save_warning;
+        // A newer build's fields in this photo's record, kept by its saves.
+        QStringList preserved;
     };
     static spk::desktop::editing::State itemState(const LibraryItem&);
     void recordEdit(LibraryItem&,const spk::desktop::editing::State& before);

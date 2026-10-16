@@ -2,44 +2,117 @@
 // boundaries; the UI only receives immutable, independently owned frames.
 #pragma once
 
+#include "core/json.hpp"
 #include "io/raw_decoder.hpp"
 #include "spektrafilm/spk_engine.h"
 #include <cstdint>
 #include <filesystem>
+#include <functional>
+#include <map>
 #include <memory>
 #include <string>
+#include <string_view>
+#include <variant>
 #include <vector>
 
 namespace spk::desktop {
 
 enum class DecodeMode { compatible16, headroom };
 
-struct RenderSettings {
-    std::string film_stock = "kodak_portra_400";
-    std::string print_stock = "kodak_portra_endura";
-    double print_exposure = 1.0;
-    // Film exposure places the scene on the characteristic curve. The
-    // enlarger compensates its mid-grey; print_exposure controls brightness.
-    double film_exposure_ev = 0.0;
-    // Preserve the engine's existing 35 mm default, including grain scale.
-    double film_format_mm = 35.0;
-    bool grain_active = true;
-    double grain_amount = 1.0;
-    bool halation_active = true;
-    double halation_amount = 1.0;
-    bool glare_active = true;
-    double glare_amount = 1.0;
-    double y_filter_shift = 0.0;
-    double m_filter_shift = 0.0;
-
-    bool operator==(const RenderSettings&) const = default;
-};
-
 struct Stock {
     std::string id, label;
     bool is_positive = false;
 };
 struct Catalog { std::vector<Stock> films, papers; };
+
+// --- the settings table -------------------------------------------------
+//
+// One row per engine parameter a desktop frontend offers. The row is the only
+// place the parameter's wire name, type, range, layer and defaults are
+// declared: validation, the open parameters, the minimal edit delta, the
+// Windows edit store and the Qt controller's generic accessors all iterate
+// the table. Adding a control is one row in preview_host.cpp plus its QML.
+//
+// Type, layer and range mirror the row of the same name in core/params.cpp
+// (a desktop range may be narrower, never wider); spk_desktop_preview_test
+// holds the two tables together, and holds `absent` to the engine default.
+enum class SettingType { boolean, number, text };
+enum class SettingLayer { shoot, print };
+// The values a text row accepts: its own list, or a stock in the catalogue.
+enum class SettingChoices { listed, films, papers };
+using SettingValue = std::variant<bool, double, std::string>;
+
+struct SettingField {
+    std::string key;    // wire name, and the edit store's key since version 2
+    std::string label;  // English, for diagnostics
+    SettingType type = SettingType::number;
+    SettingLayer layer = SettingLayer::shoot;
+    double low = 0.0, high = 0.0;  // closed range of a number row
+    SettingChoices choices = SettingChoices::listed;
+    std::vector<std::string> listed;
+    // What a new photograph starts with. Where it differs from the engine's
+    // own default it follows the macOS app, which is the product's reference.
+    SettingValue initial;
+    // What a saved edit that predates this row was rendered with: the row was
+    // never sent, so the engine default applied. Loading such a record with
+    // this value, not `initial`, keeps it looking the way it was made.
+    SettingValue absent;
+};
+
+const std::vector<SettingField>& setting_fields();
+const SettingField* find_setting(std::string_view key);  // nullptr when unknown
+// Empty when `value` has the row's type, lies in its range and is one of its
+// choices; otherwise the user-facing reason. Stocks are checked against
+// `catalog` when one is given (a caller without one checks their syntax).
+std::string check_setting(const SettingField& field, const SettingValue& value,
+                          const Catalog* catalog = nullptr);
+
+struct RenderSettings {
+    // Named members for the rows C++ callers address directly (both desktop
+    // frontends and the host tests). Their values still come from the table:
+    // the constructor applies every row's `initial`. A row without a member
+    // is stored by key and reached through get/set.
+    std::string film_stock, print_stock;
+    double print_exposure{};
+    // Film exposure (wire `exposure_compensation_ev`) places the scene on the
+    // characteristic curve. The enlarger compensates its mid-grey;
+    // print_exposure controls brightness.
+    double film_exposure_ev{};
+    double film_format_mm{};
+    bool grain_active{};
+    double grain_amount{};
+    bool halation_active{};
+    double halation_amount{};
+    bool glare_active{};
+    double glare_amount{};
+    double y_filter_shift{};
+    double m_filter_shift{};
+
+    RenderSettings();
+    // By wire name. Both throw std::invalid_argument for an unknown key or a
+    // value of the wrong type; neither checks the range (validate_settings
+    // and check_setting do), so a caller can still build an invalid request.
+    SettingValue get(std::string_view key) const;
+    void set(std::string_view key, SettingValue value);
+
+    bool operator==(const RenderSettings&) const = default;
+
+private:
+    // Every row without a named member, always present, so the defaulted
+    // comparison sees each value exactly once.
+    std::map<std::string, SettingValue, std::less<>> by_key_;
+};
+
+// Checks every row (the stocks against `catalog`) and throws
+// std::runtime_error naming the first bad one. Returns whether the film is a
+// positive, which is scanned directly instead of printed.
+bool validate_settings(const RenderSettings& settings, const Catalog& catalog);
+// The complete parameters spk_open receives: the host's fixed I/O policy,
+// scan_film and every row.
+Json opening_params(const RenderSettings& settings, bool scan_film);
+// Only the rows that differ, so an edit never invalidates more of the
+// session than it changed. A film change also carries scan_film.
+Json changed_params(const RenderSettings& before, const RenderSettings& after, bool scan_film);
 
 // Wall-clock calls, including CPU result readback in render_ms. total_ms is
 // the complete host call, not a sum of nested measurements. Engine creation
@@ -107,7 +180,7 @@ public:
     // New-file open is transactional: decode/open/render/display conversion
     // must all succeed before replacing the previous session and frame.
     FramePtr open_raw(const std::filesystem::path& source, DecodeMode mode,
-                      const RenderSettings& settings = {});
+                      const RenderSettings& settings = RenderSettings());
     // Only changed settings are sent. Print-side edits request spk_reprint;
     // the result's actual cache flag determines whether reuse occurred.
     // A failure never mutates the previously returned Frame.
