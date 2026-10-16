@@ -30,4 +30,17 @@ bool as_shot_temperature_tint(const LibRaw& raw, double& temperature_k, double& 
 bool multipliers_for(const LibRaw& raw, double temperature_k, double tint, std::array<float, 4>& mul,
                      std::string& error);
 
+// The same arithmetic on the numbers LibRaw holds, for a caller that has
+// them without a LibRaw (the Windows desktop host keeps them in a decode's
+// metadata): `xyz_to_camera` is `cam_xyz`'s three rows, row-major. The two
+// LibRaw overloads above are these.
+//
+// temperature_tint_for is the illuminant whose neutral the camera records as
+// `camera_rgb` (any scale) -- the as-shot one is camera_rgb = 1 / cam_mul,
+// and a picked neutral is that patch's camera response.
+bool temperature_tint_for(const std::array<double, 9>& xyz_to_camera, const std::array<double, 3>& camera_rgb,
+                          double& temperature_k, double& tint);
+bool multipliers_for(const std::array<double, 9>& xyz_to_camera, double temperature_k, double tint,
+                     std::array<float, 4>& mul, std::string& error);
+
 }  // namespace spkhost

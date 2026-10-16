@@ -41,15 +41,17 @@ bool invert3(const double m[9], double out[9]) {
     return true;
 }
 
-bool camera_matrix(const LibRaw& raw, double m[9]) {
-    if (raw.imgdata.idata.colors != 3) return false;
+bool usable_matrix(const std::array<double, 9>& m) {
     double sum = 0;
-    for (int r = 0; r < 3; ++r)
-        for (int c = 0; c < 3; ++c) {
-            m[r * 3 + c] = raw.imgdata.color.cam_xyz[r][c];
-            sum += std::fabs(m[r * 3 + c]);
-        }
+    for (double v : m) sum += std::fabs(v);
     return sum > 0 && std::isfinite(sum);
+}
+
+bool camera_matrix(const LibRaw& raw, std::array<double, 9>& m) {
+    if (raw.imgdata.idata.colors != 3) return false;
+    for (int r = 0; r < 3; ++r)
+        for (int c = 0; c < 3; ++c) m[r * 3 + c] = raw.imgdata.color.cam_xyz[r][c];
+    return usable_matrix(m);
 }
 
 }  // namespace
@@ -107,12 +109,11 @@ void xy_to_temperature_tint(double x, double y, double& temperature, double& tin
     }
 }
 
-bool as_shot_temperature_tint(const LibRaw& raw, double& temperature, double& tint) {
-    double m[9], inv[9];
-    if (!camera_matrix(raw, m) || !invert3(m, inv)) return false;
-    const float* mul = raw.imgdata.color.cam_mul;
-    if (!(mul[0] > 0 && mul[1] > 0 && mul[2] > 0)) return false;
-    const double neutral[3] = {1.0 / mul[0], 1.0 / mul[1], 1.0 / mul[2]};
+bool temperature_tint_for(const std::array<double, 9>& m, const std::array<double, 3>& neutral,
+                          double& temperature, double& tint) {
+    double inv[9];
+    if (!usable_matrix(m) || !invert3(m.data(), inv)) return false;
+    if (!(neutral[0] > 0 && neutral[1] > 0 && neutral[2] > 0)) return false;
     double xyz[3];
     for (int r = 0; r < 3; ++r) xyz[r] = inv[r * 3] * neutral[0] + inv[r * 3 + 1] * neutral[1] + inv[r * 3 + 2] * neutral[2];
     const double s = xyz[0] + xyz[1] + xyz[2];
@@ -121,10 +122,27 @@ bool as_shot_temperature_tint(const LibRaw& raw, double& temperature, double& ti
     return std::isfinite(temperature) && std::isfinite(tint);
 }
 
+bool as_shot_temperature_tint(const LibRaw& raw, double& temperature, double& tint) {
+    std::array<double, 9> m;
+    if (!camera_matrix(raw, m)) return false;
+    const float* mul = raw.imgdata.color.cam_mul;
+    if (!(mul[0] > 0 && mul[1] > 0 && mul[2] > 0)) return false;
+    return temperature_tint_for(m, {1.0 / mul[0], 1.0 / mul[1], 1.0 / mul[2]}, temperature, tint);
+}
+
 bool multipliers_for(const LibRaw& raw, double temperature, double tint, std::array<float, 4>& mul,
                      std::string& error) {
-    double m[9];
+    std::array<double, 9> m;
     if (!camera_matrix(raw, m)) {
+        error = "this camera has no three-colour XYZ matrix in LibRaw; white balance cannot be set";
+        return false;
+    }
+    return multipliers_for(m, temperature, tint, mul, error);
+}
+
+bool multipliers_for(const std::array<double, 9>& m, double temperature, double tint, std::array<float, 4>& mul,
+                     std::string& error) {
+    if (!usable_matrix(m)) {
         error = "this camera has no three-colour XYZ matrix in LibRaw; white balance cannot be set";
         return false;
     }

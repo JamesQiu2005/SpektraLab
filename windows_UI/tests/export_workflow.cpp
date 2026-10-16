@@ -158,9 +158,9 @@ int main(int argc, char** argv) {
             waitFor([&] { return c.hasFrame(); }, "first photo"); idle(c, "open");
             check(c.libraryItems().size() == 3 && c.selectedCount() == 3, "three photos, all selected");
 
-            // ---- recipes persist across stores, in the folder beside Edits ----
+            // ---- recipes persist across stores, beside app-settings.json ----
             const QString store = recipes::storePath(dest + "/edits");
-            check(store == dest + "/export-recipes.json", "store path beside the edit store");
+            check(store == dest + "/edits/export-recipes.json", "store path inside the edit store, beside app-settings.json");
             {
                 ExportRecipeStore a(store);
                 check(QFileInfo::exists(store) && a.recipes().size() == 4, "seeded with the Mac's four defaults");

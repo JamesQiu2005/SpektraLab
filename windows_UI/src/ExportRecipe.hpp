@@ -147,9 +147,10 @@ struct LoadResult { QList<Recipe> recipes; QString problem; bool existed = false
 LoadResult load(const QString& path);
 // Atomic (QSaveFile). Empty string on success, else the reason.
 QString save(const QString& path, const QList<Recipe>& recipes);
-// Where the file lives: beside the edit store's folder, so the default is
-// <AppLocalData>/export-recipes.json next to <AppLocalData>/Edits and a test
-// that passes --edit-store <dir>/edits gets <dir>/export-recipes.json.
+// Where the file lives: beside app-settings.json (AppSettings::resolveFilePath
+// has the same rule) -- <AppLocalData>/export-recipes.json, or inside the
+// directory a test passes as --edit-store. The app itself puts it beside
+// whatever settings file it opened.
 QString storePath(const QString& editDirectory);
 
 }  // namespace spk::desktop::recipes

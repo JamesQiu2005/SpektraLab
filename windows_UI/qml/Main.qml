@@ -2,6 +2,7 @@ import QtQuick
 import QtQuick.Controls
 import QtQuick.Layouts
 import QtQuick.Dialogs
+import SpektraLab.Native 1.0
 
 // The editor window: the three panes, the file dialogs, the export options and
 // the keyboard shortcuts. Each pane is its own file -- left/, centre/, right/,
@@ -56,13 +57,34 @@ ApplicationWindow {
         if (preview.busy) { editorState.closePending = true; event.accepted = false }
     }
 
+    // The shell (qml/shell/): Settings, About and the application menu. The
+    // --capture-shell run (ShellCapture.hpp) drives these four by name.
+    function openSettings(page) { settingsWindow.openPage(page === undefined ? "" : page) }
+    function openAbout() { aboutWindow.present() }
+    function openAppMenu() { editorState.appMenuRequested(true) }
+    function closeAppMenu() { editorState.appMenuRequested(false) }
+
     EditorState {
         id: editorState
+        objectName: "editorState"
         canvas: centre.canvas
         onCropModeChanged: window.updateDialogState()
         onImportRequested: openDialog.open()
         onExportOptionsRequested: exportPage.open()
+        onSettingsRequested: function(page) { window.openSettings(page) }
+        onAboutRequested: window.openAbout()
+        onQuitRequested: window.close()
     }
+    SettingsWindow {
+        id: settingsWindow
+        editorWindow: window
+        onResetLayoutRequested: {
+            editorState.resetLayout()
+            AppSettings.removePrefix("layout.")
+            SectionStates.reset()
+        }
+    }
+    AboutWindow { id: aboutWindow; editorWindow: window }
     Connections {
         target: preview
         function onStateChanged() { if (editorState.closePending && !preview.busy) window.close() }
@@ -78,16 +100,30 @@ ApplicationWindow {
     }
     Shortcut { sequences: [StandardKey.Open]; enabled: editorState.canBrowse; onActivated: openDialog.open() }
     Shortcut { sequence: "Ctrl+E"; enabled: editorState.canExport; onActivated: editorState.openExport() }
-    Shortcut { sequence: "Ctrl+0"; enabled: preview.hasFrame; onActivated: editorState.resetView(true) }
-    Shortcut { sequence: "Ctrl+1"; enabled: preview.hasFrame && !editorState.cropMode; onActivated: editorState.resetView(false) }
-    // The Mac's Cmd+= / Cmd+- on the zoom buttons; the canvas steps between
-    // fit and 100 % (EditorState.zoomIn / zoomOut).
+    // Zoom, the Mac's View menu as Windows spells it: Ctrl+0 / Ctrl+1 and
+    // Capture One's `,` / `.` are fit and 100 %; Ctrl+= / Ctrl+- step the
+    // ladder (ViewportState.zoomSteps) about the centre; Z toggles fit and
+    // 100 % (MetalCanvasView keyDown). Single keys yield to a focused text
+    // field, which takes them as typing. All wait while the crop editor is up.
+    Shortcut { sequences: ["Ctrl+0", ","]; enabled: preview.hasFrame && !editorState.zoomLocked; onActivated: editorState.resetView(true) }
+    Shortcut { sequences: ["Ctrl+1", "."]; enabled: preview.hasFrame && !editorState.zoomLocked; onActivated: editorState.zoomTo(1) }
+    Shortcut { sequence: "Z"; enabled: preview.hasFrame && !editorState.zoomLocked && centre.canvas !== null; onActivated: centre.canvas.toggleHundred(centre.canvas.width / 2, centre.canvas.height / 2) }
     Shortcut { sequences: [StandardKey.ZoomIn, "Ctrl+="]; enabled: editorState.canZoomIn; onActivated: editorState.zoomIn() }
     Shortcut { sequences: [StandardKey.ZoomOut]; enabled: editorState.canZoomOut; onActivated: editorState.zoomOut() }
+    // Before / after: the Mac's Y (Capture One's), and Alt+\ for its
+    // Option-\. Ctrl+\ is left alone; Alt+letter is the Windows menu mnemonic.
+    Shortcut { sequences: ["Y", "Alt+\\"]; enabled: editorState.canCompare || editorState.comparing; onActivated: editorState.toggleCompare() }
     // Full screen: the Mac's Ctrl+Cmd+F, as Windows spells it.
     Shortcut { sequence: "F11"; onActivated: window.visibility = window.visibility === Window.FullScreen ? Window.Windowed : Window.FullScreen }
     Shortcut { sequence: "Ctrl+Z"; enabled: preview.settingsEditable && preview.canUndo && !editorState.cropMode && !window.editingText; onActivated: preview.undo() }
     Shortcut { sequences: ["Ctrl+Shift+Z", "Ctrl+Y"]; enabled: preview.settingsEditable && preview.canRedo && !editorState.cropMode && !window.editingText; onActivated: preview.redo() }
+    // The application menu's other keys (SpektrafilmApp.swift: Cmd+, Cmd+A
+    // Cmd+B Shift+Cmd+F, as Windows spells them; Ctrl+Q for Exit).
+    Shortcut { sequence: "Ctrl+,"; onActivated: window.openSettings() }
+    Shortcut { sequence: "Ctrl+Q"; onActivated: window.close() }
+    Shortcut { sequence: "Ctrl+A"; enabled: editorState.canSelectAll && !window.editingText; onActivated: preview.selectAllPhotos(true) }
+    Shortcut { sequence: "Ctrl+B"; onActivated: editorState.toggleSidePanels() }
+    Shortcut { sequence: "Ctrl+Shift+F"; onActivated: editorState.filmstripCollapsed = !editorState.filmstripCollapsed }
     Shortcut { sequence: "Escape"; enabled: editorState.cropMode; onActivated: editorState.cancelCrop() }
     Shortcut { sequence: "Return"; enabled: editorState.cropMode; onActivated: editorState.finishCrop() }
 

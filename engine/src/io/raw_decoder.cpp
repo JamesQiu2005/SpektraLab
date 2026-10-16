@@ -111,6 +111,9 @@ bool capture_source_metadata(const LibRaw& raw, RawMetadata& metadata,
         sizes.iwidth, sizes.iheight, sizes.top_margin, sizes.left_margin,
         sizes.pixel_aspect};
     metadata.raw_flip = sizes.flip;
+    metadata.colors = data.idata.colors;
+    for (unsigned row = 0; row < 3; ++row)
+        for (unsigned col = 0; col < 3; ++col) metadata.xyz_to_camera[row * 3 + col] = color.cam_xyz[row][col];
     metadata.as_shot_wb_applied = color.as_shot_wb_applied != 0;
     metadata.black = color.black;
     metadata.white_level = color.maximum;
@@ -329,6 +332,11 @@ bool decode_raw_compatible(const std::filesystem::path& source, const std::array
 
 bool decode_raw_headroom(const std::filesystem::path& source,
                          DecodedRaw& out, std::string& error) {
+    return decode_raw_headroom(source, nullptr, out, error);
+}
+
+bool decode_raw_headroom(const std::filesystem::path& source, const std::array<float, 4>* user_mul,
+                         DecodedRaw& out, std::string& error) {
     error.clear();
     const auto total_start = Clock::now();
     try {
@@ -341,6 +349,19 @@ bool decode_raw_headroom(const std::filesystem::path& source,
         // LibRaw's Ignore mode prevents WB multipliers above one, but does not
         // reconstruct sensor saturation and still uses uint16 intermediates.
         raw->imgdata.params.highlight = 1;
+        if (user_mul) {
+            // As in the compatible policy; with highlight set, scale_colors()
+            // normalises these by their largest exactly as it does the
+            // as-shot ones, which headroom_exposure_restore requires.
+            for (unsigned c = 0; c < 4; ++c) {
+                if (!std::isfinite((*user_mul)[c]) || (*user_mul)[c] <= 0.0f) {
+                    error = "RAW process: invalid user white-balance multiplier";
+                    return false;
+                }
+                raw->imgdata.params.user_mul[c] = (*user_mul)[c];
+            }
+            raw->imgdata.params.use_camera_wb = 0;
+        }
         DecodedRaw decoded;
         auto start = Clock::now();
         const int open_status = raw->open_file(source.c_str());
@@ -371,7 +392,7 @@ bool decode_raw_headroom(const std::filesystem::path& source,
             return false;
         }
         decoded.metadata.process_warnings = raw->imgdata.process_warnings;
-        if (decoded.metadata.process_warnings & LIBRAW_WARN_BAD_CAMERA_WB) {
+        if (!user_mul && (decoded.metadata.process_warnings & LIBRAW_WARN_BAD_CAMERA_WB)) {
             error = "RAW process: LibRaw rejected camera/as-shot white balance";
             return false;
         }

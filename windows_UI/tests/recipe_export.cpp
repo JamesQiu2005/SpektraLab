@@ -323,7 +323,7 @@ int main(int argc, char** argv) {
                   "an unreadable file falls back and is left alone");
             check(recipes::defaults()[1].colorSpace == "kCGColorSpaceROMMRGB" && recipes::defaults()[3].format == Format::di,
                   "the Mac's four default recipes");
-            check(recipes::storePath(scratch + "/edits") == scratch + "/export-recipes.json", "store beside the edit store");
+            check(recipes::storePath(scratch + "/edits") == scratch + "/edits/export-recipes.json", "store inside an explicit edit store, beside app-settings.json");
         }
 
         // ---------------- existing-file policies, against real files ----------------

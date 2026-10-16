@@ -344,9 +344,11 @@ QString save(const QString& path,const QList<Recipe>& recipes) {
 }
 
 QString storePath(const QString& editDirectory) {
-    const QString edits=editDirectory.isEmpty()
-        ?QStandardPaths::writableLocation(QStandardPaths::AppLocalDataLocation)+QStringLiteral("/Edits"):editDirectory;
-    return QFileInfo(QDir::cleanPath(edits)).absolutePath()+QStringLiteral("/export-recipes.json");
+    // AppSettings::resolveFilePath's rule for app-settings.json, so the two
+    // files share a folder: inside an explicit edit store, else AppLocalData.
+    const QString folder=editDirectory.isEmpty()
+        ?QStandardPaths::writableLocation(QStandardPaths::AppLocalDataLocation):QFileInfo(editDirectory).absoluteFilePath();
+    return QDir(folder).filePath(QStringLiteral("export-recipes.json"));
 }
 
 }  // namespace spk::desktop::recipes

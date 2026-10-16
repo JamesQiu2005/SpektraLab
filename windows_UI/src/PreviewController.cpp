@@ -116,8 +116,17 @@ PreviewController::Publication PreviewController::publish(const ImageFactory& fa
     p.convert_ms=double(clock.nsecsElapsed())/1e6;
     p.visible=visibleImage(frame,p.full,geometry);
     p.navigator=desktop::display::navigatorImage(p.visible);
+    const auto histogramStart=clock.nsecsElapsed();
+    p.histogram=desktop::display::histogram(p.visible);
+    p.uncropped_histogram=desktop::display::histogram(p.full);
+    p.histogram_ms=double(clock.nsecsElapsed()-histogramStart)/1e6;
     p.total_ms=double(clock.nsecsElapsed())/1e6;
     return p;
+}
+QList<double> PreviewController::bins(const std::vector<float>& values) {
+    QList<double> result;result.reserve(qsizetype(values.size()));
+    for(const float v:values)result.append(v);
+    return result;
 }
 
 PreviewController::PreviewController(std::filesystem::path resources,QObject* parent,ImageFactory factory,QString editDirectory,
@@ -156,6 +165,7 @@ void PreviewController::workerLoop(std::filesystem::path resources,desktop::Host
         {std::unique_lock lock(mutex_);wake_.wait(lock,[&]{return stopping_||!jobs_.empty();});
          if(stopping_)break;job=std::move(jobs_.front());jobs_.pop_front();}
         deliver(job(*host));
+        analyse(*host); // the Pre-Dev rail's readings of a new frame (PreviewControllerPredev.cpp)
     }
 }
 void PreviewController::deliver(Reply reply) {
@@ -170,6 +180,9 @@ void PreviewController::submit(Job job,QString status,QString operation) {
 void PreviewController::accept(Reply reply) {
     // A proof is not an operation: it changes no state but its own picture.
     if(reply.operation=="proof"){acceptProof(std::move(reply));return;}
+    // The Original rides the same worker but is no operation: it neither
+    // holds the controller busy nor reports one finished.
+    if(reply.operation=="original"){acceptOriginal(std::move(reply));return;}
     if(reply.generation!=generation_)return; // a retired generation never replaces the canvas
     const bool superseded=reply.operation=="render"&&reply.settings_revision!=settings_revision_;
     busy_=false;active_operation_.clear();failed_=!superseded&&!reply.error.isEmpty();
@@ -197,12 +210,19 @@ void PreviewController::accept(Reply reply) {
             if(published.geometry!=geometry) {
                 published.visible=visibleImage(reply.frame,published.full,geometry);
                 published.navigator=desktop::display::navigatorImage(published.visible);
+                published.histogram=desktop::display::histogram(published.visible);
             }
+            // A new decode (another photo, or another decode mode) makes the
+            // held Original stale; a re-render of the same decode does not.
+            const bool decodeChanged=!frame_||frame_->source!=reply.frame->source||
+                frame_->decode_mode!=reply.frame->decode_mode||reply.operation=="open";
             frame_=std::move(reply.frame);full_image_=std::move(published.full);
             image_=std::move(published.visible);navigator_=std::move(published.navigator);
-            convert_ms_=published.convert_ms;publish_ms_=published.total_ms;
+            histogram_=std::move(published.histogram);uncropped_histogram_=std::move(published.uncropped_histogram);
+            convert_ms_=published.convert_ms;publish_ms_=published.total_ms;histogram_ms_=published.histogram_ms;
             geometry_=geometry;
             if(reply.operation=="open")active_index_=reply.library_index;
+            refreshOriginal(decodeChanged);
         }
         catch(const std::exception& e){failed_=true;status_=text(e.what());if(frame_)restoreSettings();}
         if(!failed_) {
@@ -270,7 +290,67 @@ QVariantMap PreviewController::metadata() const {
         {"totalMs",frame_->timings.total_ms},{"cached",frame_->reprint()},{"scanFilm",frame_->scan_film},
         {"mode",frame_->decode_mode==desktop::DecodeMode::headroom?"headroom":"compatible16"},
         {"colorSpace",text(frame_->encoding.color_space)},{"transferEncoded",frame_->encoding.cctf_encoding},
-        {"convertMs",convert_ms_},{"publishMs",publish_ms_}};
+        {"convertMs",convert_ms_},{"publishMs",publish_ms_},{"histogramMs",histogram_ms_},
+        {"originalDecodeMs",original_decode_ms_},{"originalMs",original_ms_},{"originalError",original_error_}};
+}
+void PreviewController::setOriginalWanted(bool wanted) {
+    if(wanted==original_wanted_)return;
+    original_wanted_=wanted;
+    if(wanted&&original_.isNull()&&!original_pending_)requestOriginal();
+    emit originalChanged();
+}
+void PreviewController::refreshOriginal(bool decodeChanged) {
+    const bool stale=decodeChanged||original_geometry_!=geometry_||
+        (!original_full_.isNull()&&frame_&&original_full_.size()!=QSize(int(frame_->width()),int(frame_->height())));
+    if(decodeChanged)original_full_={};
+    if(stale||!frame_) {
+        // Retire anything in flight: its image no longer fits this frame.
+        ++original_token_;original_pending_=false;
+        original_={};original_histogram_.clear();
+    }
+    if(original_wanted_&&original_.isNull())requestOriginal();
+    emit originalChanged();
+}
+void PreviewController::requestOriginal() {
+    if(!frame_)return;
+    const auto token=++original_token_;original_pending_=true;original_error_.clear();
+    const auto whole=original_full_;const auto geometry=geometry_;const auto encoding=frame_->encoding;
+    const auto source=frame_->source;const auto mode=frame_->decode_mode;
+    const QSize size(int(frame_->width()),int(frame_->height()));
+    {std::lock_guard lock(mutex_);
+     jobs_.push_back([whole,geometry,encoding,source,mode,size,token](desktop::PreviewHost& host){
+        Reply r;r.operation="original";r.original_token=token;r.original_geometry=geometry;
+        try {
+            QElapsedTimer clock;clock.start();
+            auto full=whole;
+            if(full.isNull()) {
+                // Only the decode this frame was developed from: the host
+                // may have moved on (another photo, a failed publication).
+                const auto current=host.current();
+                if(!current||current->source!=source||current->decode_mode!=mode)
+                    throw std::runtime_error("The decode behind this photo is no longer held");
+                full=desktop::display::originalImage(host.decoded(),encoding);
+                if(full.size()!=size)throw std::runtime_error("The Original does not match the developed frame's size");
+                r.original_full=full;r.original_decode_ms=double(clock.nsecsElapsed())/1e6;
+            }
+            // The print's own geometry function, on the same pixel edges
+            // (FrameOutput.hpp displayImage), so the two share every crop,
+            // turn, flip and straighten.
+            r.original=output::displayImage(full,geometry);
+            r.original_histogram=desktop::display::histogram(r.original);
+            r.original_ms=double(clock.nsecsElapsed())/1e6;
+        }catch(const std::exception& e){r.original={};r.original_full={};r.error=text(e.what());}
+        return r;});}
+    wake_.notify_one();
+}
+void PreviewController::acceptOriginal(Reply reply) {
+    if(reply.original_token!=original_token_||!frame_)return;
+    original_pending_=false;
+    if(!reply.error.isEmpty()){original_error_=reply.error;emit originalChanged();return;}
+    if(!reply.original_full.isNull()){original_full_=std::move(reply.original_full);original_decode_ms_=reply.original_decode_ms;}
+    original_=std::move(reply.original);original_histogram_=std::move(reply.original_histogram);
+    original_geometry_=reply.original_geometry;original_ms_=reply.original_ms;
+    emit originalChanged();
 }
 void PreviewController::schedulePreview(){if(!dialog_open_&&gesture_key_!="straightenDegrees"&&frame_&&dirty()&&!auto_apply_.isActive())auto_apply_.start();}
 void PreviewController::setDialogOpen(bool open){
@@ -606,6 +686,7 @@ void PreviewController::syncSelectedSettings(bool includeCrop) {
     for(int i=0;i<int(library_.size());++i)if(i!=active_index_&&library_[i].selected){
         auto& item=library_[i];auto next=currentState();
         if(!includeCrop)next.geometry=item.geometry;
+        next.settings=pastedPlacement(next.settings);
         if(sameState(itemState(item),next))continue;
         // Each recipient owns its own undo history, just like its settings.
         item.undo.push_back(itemState(item));if(item.undo.size()>64)item.undo.erase(item.undo.begin());item.redo.clear();
@@ -618,14 +699,21 @@ void PreviewController::syncSelectedSettings(bool includeCrop) {
 void PreviewController::setCropRect(const QRectF& crop) {
     auto next=geometry_;next.crop=crop;setGeometry(next,"cropRect");
 }
+void PreviewController::setCropGeometry(const QRectF& crop,double straightenDegrees) {
+    if(!std::isfinite(straightenDegrees))return;
+    auto next=geometry_;next.crop=crop;next.straightenDegrees=std::clamp(straightenDegrees,-45.0,45.0);
+    setGeometry(next,"cropRect");
+}
 void PreviewController::setGeometry(const output::Geometry& geometry,const QString& editKey) {
     if(!frame_||busy_||dialog_open_||geometry==geometry_)return;
     try {
         auto next=visibleImage(frame_,full_image_,geometry);
         auto navigator=desktop::display::navigatorImage(next);
+        auto bins=desktop::display::histogram(next);
         if(gesture_index_>=0&&gesture_key_!=editKey)endEditGesture();
-        image_=std::move(next);navigator_=std::move(navigator);geometry_=geometry;saveActiveSettings(true);updateThumbnail();
-        failed_=false;emit geometryChanged();emit frameChanged();emit stateChanged();
+        image_=std::move(next);navigator_=std::move(navigator);histogram_=std::move(bins);
+        geometry_=geometry;saveActiveSettings(true);updateThumbnail();
+        failed_=false;refreshOriginal(false);emit geometryChanged();emit frameChanged();emit stateChanged();
     } catch(const std::exception& e){failed_=true;status_=text(e.what());emit stateChanged();}
 }
 void PreviewController::resetCrop(){setCropRect(QRectF(0,0,1,1));}
@@ -691,8 +779,10 @@ void PreviewController::restoreHistory(bool redo) {
         const bool geometryChangedNow=target.geometry!=geometry_;
         auto next=geometryChangedNow?visibleImage(frame_,full_image_,target.geometry):image_;
         auto navigator=geometryChangedNow?desktop::display::navigatorImage(next):navigator_;
+        auto bins=geometryChangedNow?desktop::display::histogram(next):histogram_;
         to.push_back(currentState());if(to.size()>64)to.erase(to.begin());from.pop_back();
-        geometry_=target.geometry;image_=std::move(next);navigator_=std::move(navigator);
+        geometry_=target.geometry;image_=std::move(next);navigator_=std::move(navigator);histogram_=std::move(bins);
+        if(geometryChangedNow)refreshOriginal(false);
         loadSettings(target.settings,target.mode);saveActiveSettings();
         ++settings_revision_;auto_apply_.stop();schedulePreview();updateThumbnail();
         failed_=false;status_=uiText(redo?"status.redone":"status.undone");
