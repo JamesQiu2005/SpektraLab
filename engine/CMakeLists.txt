@@ -54,11 +54,12 @@ add_library(spektralab_pipeline OBJECT
     src/pipeline/engine.cpp
     src/pipeline/pipeline.cpp
     src/pipeline/scene_latitude.cpp
+    src/pipeline/contrast_mask.cpp
 )
 set_target_properties(spektralab_pipeline PROPERTIES POSITION_INDEPENDENT_CODE ON)
 if(APPLE)
     target_sources(spektralab_pipeline PRIVATE
-        src/pipeline/contrast_mask.cpp src/pipeline/overscan.cpp)
+        src/pipeline/overscan.cpp)
 else()
     target_sources(spektralab_pipeline PRIVATE src/pipeline/windows_unported.cpp)
 endif()
