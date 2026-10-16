@@ -104,6 +104,19 @@ if(BUILD_TESTING)
         add_test(NAME spk_desktop_settings_engine COMMAND spk_desktop_preview_test --settings-engine
             "$<TARGET_FILE_DIR:SpektraLabQt>/resources")
     endif()
+    # The canvas through forced display LUTs, against a CPU reference: on the
+    # GPU (D3D11 WARP through QQuickRenderControl; exit 77 = no WARP, skipped
+    # loudly) and through the software backend's CPU path.
+    qt_add_executable(spk_qt_color_canvas_test tests/color_canvas.cpp
+        src/FrameCanvas.hpp src/FrameCanvas.cpp src/ColorCanvasNode.hpp src/ColorCanvasNode.cpp
+        src/ColorPipeline.hpp src/ColorPipeline.cpp)
+    target_include_directories(spk_qt_color_canvas_test PRIVATE src)
+    target_compile_features(spk_qt_color_canvas_test PRIVATE cxx_std_20)
+    target_link_libraries(spk_qt_color_canvas_test PRIVATE Qt6::Core Qt6::Gui Qt6::GuiPrivate Qt6::Quick)
+    spk_qt_add_canvas_shaders(spk_qt_color_canvas_test)
+    add_test(NAME spk_qt_color_canvas COMMAND spk_qt_color_canvas_test)
+    add_test(NAME spk_qt_color_canvas_software COMMAND spk_qt_color_canvas_test --software)
+    set_tests_properties(spk_qt_color_canvas PROPERTIES SKIP_RETURN_CODE 77)
     if(WIN32)
         # Specify each test's DLL search path: CTest on this Windows host can
         # restore the pre-launch PATH between tests. Ambient PATH alone makes
@@ -113,7 +126,8 @@ if(BUILD_TESTING)
             get_filename_component(qt_test_compiler_directory "${CMAKE_CXX_COMPILER}" DIRECTORY)
             list(APPEND qt_test_runtime_path "PATH=path_list_prepend:${qt_test_compiler_directory}")
         endif()
-        set_tests_properties(spk_qt_frame_output spk_qt_edit_store spk_qt_controller_settings PROPERTIES
+        set_tests_properties(spk_qt_frame_output spk_qt_edit_store spk_qt_controller_settings
+            spk_qt_color_canvas spk_qt_color_canvas_software PROPERTIES
             ENVIRONMENT_MODIFICATION "${qt_test_runtime_path}")
     endif()
     qt_add_executable(spk_qt_editing_workflow_test tests/editing_workflow.cpp
