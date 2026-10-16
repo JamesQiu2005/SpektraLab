@@ -327,6 +327,16 @@ if(BUILD_TESTING)
             "${CMAKE_CURRENT_SOURCE_DIR}/shaders/postdev_probe.frag")
     endif()
 endif()
+
+# Post-Dev in the application (lane ui-postdev-integration): the canvas
+# grades in its fragment shader (shaders/colorcanvas.frag includes
+# postdev.glsl) and its software path.
+set(spektralab_postdev_core_sources src/PostDev.hpp src/PostDev.cpp src/PostDevView.hpp src/PostDevView.cpp)
+target_sources(SpektraLabQt PRIVATE ${spektralab_postdev_core_sources})
+if(BUILD_TESTING)
+    target_sources(spk_qt_color_canvas_test PRIVATE ${spektralab_postdev_core_sources})
+endif()
+
 # --- The application shell (lane ui-app-shell) ---
 # The Settings and About windows, the application menu and the preferences
 # file (src/AppSettings.*, src/AppShell.*, qml/shell/). The version is the

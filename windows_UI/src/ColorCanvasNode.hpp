@@ -21,7 +21,15 @@
 //
 // Only the picture goes through the LUT. Letterbox, masks and guides are
 // other items and keep their literal display values (AGENTS.md trap 27).
+//
+// Post-Dev (Layer 2, PostDev.hpp) runs between the sample and the LUT on
+// both paths: shaders/postdev.glsl in every RHI variant but the bare copy,
+// with the grade in the uniform block and its curves in a 256 x 5 float
+// texture per canvas, and Grade::pixel in applyDisplayLutCpu. Each sample is
+// graded at its place on the uncropped source (CanvasPaint::sourceMap). An
+// identity or absent grade leaves every path exactly as it was.
 #include "ColorPipeline.hpp"
+#include "PostDevView.hpp"
 #include <QImage>
 #include <QRectF>
 #include <QSGNode>
@@ -41,6 +49,11 @@ struct CanvasPaint {
     bool dither = false;                  // ColorPipeline::dither()
     QRectF rect;                          // the image in item coordinates
     bool smooth = false;                  // Linear (below 100 %) or Nearest
+    // Post-Dev: null, or an identity grade, is none. gradeRevision changes
+    // whenever grade does; sourceMap places the image on the source.
+    std::shared_ptr<const spk::desktop::postdev::Grade> grade;
+    quint64 gradeRevision = 0;
+    spk::desktop::postdev::SourceMap sourceMap;
 };
 
 class ColorCanvasNode final : public QSGNode {
@@ -52,6 +65,7 @@ public:
     bool update(QQuickWindow* window, const CanvasPaint& paint);
 
     struct Tile;
+    class CurveTable;
 private:
     bool updateRhi(QQuickWindow* window, const CanvasPaint& paint);
     bool updateSoftware(QQuickWindow* window, const CanvasPaint& paint);
@@ -65,13 +79,21 @@ private:
     QSGSimpleTextureNode* software_ = nullptr;
     quint64 softwareLut_ = 0;
     bool softwareLutActive_ = false, softwareDither_ = false;
+    // Post-Dev: the curve texture every tile's material shares, and what the
+    // software texture was graded with.
+    std::shared_ptr<CurveTable> curves_;
+    quint64 curvesRevision_ = ~quint64(0), softwareGrade_ = 0;
+    spk::desktop::postdev::SourceMap softwareMap_;
 };
 
-// The CPU form of the shader, for the software backend: trilinear lookup at
-// the same nodes (inside the shaper and output curves when the LUT has them),
-// the same clamps and dither, rounded to 8 bits. An 8-bit image under the
-// identity LUT is returned unchanged.
-QImage applyDisplayLutCpu(const QImage& image, const ColorLut& lut, bool dither);
+// The CPU form of the shader, for the software backend: Post-Dev (`grade`,
+// each pixel at `map` of its centre; null or identity: none), then trilinear
+// lookup at the same nodes (inside the shaper and output curves when the LUT
+// has them), the same clamps and dither, rounded to 8 bits. An 8-bit image
+// under the identity LUT and no grade is returned unchanged.
+QImage applyDisplayLutCpu(const QImage& image, const ColorLut& lut, bool dither,
+                          const spk::desktop::postdev::Grade* grade = nullptr,
+                          const spk::desktop::postdev::SourceMap& map = {});
 
 // True when `lut` is a usable non-identity LUT (size >= 2, complete data,
 // and complete curves if it has any).

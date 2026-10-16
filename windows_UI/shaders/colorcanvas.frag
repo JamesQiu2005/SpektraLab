@@ -1,4 +1,5 @@
 #version 440
+#extension GL_GOOGLE_include_directive : enable
 // The picture of a FrameCanvas through the display LUT (ColorPipeline.hpp).
 // Built once per variant (windows_UI/CMakeLists.txt):
 //   LUT_MODE 0  no lookup (the identity LUT), with the dither a deep frame
@@ -13,6 +14,16 @@
 // The frame is sampled first and the LUT applied per screen pixel, so the
 // canvas filtering happens in the source encoding, as the contract says.
 // Frame textures hold premultiplied alpha (ColorCanvasNode.cpp).
+//
+// Every variant but the bare copy grades the sample with Post-Dev (Layer 2,
+// shaders/postdev.glsl) after unpremultiplying and before the LUT, as the
+// Mac's layer2 pass runs before its display transform. An inactive grade
+// (bypassed or identity: grade.switches.x == 0) returns the sample untouched,
+// and the node never picks the copy for an active one. sourceU/sourceV map
+// the tile's texture coordinate to the sample's place on the uncropped,
+// unturned source, where the vignette is: su = dot(sourceU.xyz, (t, 1)).
+#include "postdev.glsl"
+
 layout(location = 0) in vec2 vTexCoord;
 layout(location = 0) out vec4 fragColor;
 
@@ -22,9 +33,16 @@ layout(std140, binding = 0) uniform buf {
     float lutSize;         // N, table nodes per axis
     float ditherAmplitude; // 0, or one 8-bit output step (1/255)
     float curveSize;       // M, entries per curve
+    vec4 sourceU;          // offset 80
+    vec4 sourceV;          // offset 96
+    PostDev grade;         // offset 112, 160 bytes: postdev::std140()
 };
 
 layout(binding = 1) uniform sampler2D frameTexture;
+#if LUT_MODE != 3
+// 256 x 5, postdev::curveTables(); only fetched.
+layout(binding = 4) uniform sampler2D postdevCurves;
+#endif
 #if LUT_MODE == 1
 layout(binding = 2) uniform sampler3D lutTexture;
 #elif LUT_MODE == 2
@@ -115,6 +133,8 @@ void main()
 #else
     vec4 c = texture(frameTexture, vTexCoord);
     vec3 rgb = clamp(c.a > 0.0 ? c.rgb / c.a : vec3(0.0), 0.0, 1.0);
+    vec3 t = vec3(vTexCoord, 1.0);
+    rgb = postdev(rgb, vec2(dot(sourceU.xyz, t), dot(sourceV.xyz, t)), grade, postdevCurves);
 #if CURVES
     // The shaper's output is clamped like any table input.
     rgb = clamp(curve(rgb, 0), 0.0, 1.0);
