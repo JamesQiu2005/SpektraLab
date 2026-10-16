@@ -168,6 +168,8 @@ void PreviewController::submit(Job job,QString status,QString operation) {
     wake_.notify_one();
 }
 void PreviewController::accept(Reply reply) {
+    // A proof is not an operation: it changes no state but its own picture.
+    if(reply.operation=="proof"){acceptProof(std::move(reply));return;}
     if(reply.generation!=generation_)return; // a retired generation never replaces the canvas
     const bool superseded=reply.operation=="render"&&reply.settings_revision!=settings_revision_;
     busy_=false;active_operation_.clear();failed_=!superseded&&!reply.error.isEmpty();
@@ -222,6 +224,8 @@ void PreviewController::accept(Reply reply) {
     emit libraryChanged();
     emit historyChanged();
     emit stateChanged();
+    // The recipe's result first, so a listener to operationFinished sees it.
+    if(reply.recipe)emit exportFinished(reply.summary,reply.warning||failed_,reply.files);
     if(reply.operation=="init")emit initialized(!failed_);
     else emit operationFinished(reply.operation,!failed_);
     // Export holds an immutable displayed frame. An edit made just before it

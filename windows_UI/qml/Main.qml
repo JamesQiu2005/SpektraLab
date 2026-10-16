@@ -46,16 +46,11 @@ ApplicationWindow {
 
     // Any modal surface pauses pending preview updates until it closes.
     function updateDialogState() {
-        preview.setDialogOpen(editorState.cropMode || openDialog.visible || saveDialog.visible || batchDialog.visible || exportPopup.visible)
+        preview.setDialogOpen(editorState.cropMode || openDialog.visible || exportPage.visible)
     }
     function startCrop() { editorState.startCrop() }
     function openExport() { editorState.openExport() }
     function showExportOptions() { editorState.openExport() }
-    function formatFilter() {
-        if (editorState.exportFormat === 3) return [L10n.tr("dialog.filter.jpeg") + " (*.jpg *.jpeg)"]
-        if (editorState.exportFormat === 1 || editorState.exportFormat === 2) return [L10n.tr("dialog.filter.png") + " (*.png)"]
-        return [L10n.tr("dialog.filter.tiff16") + " (*.tif *.tiff)"]
-    }
     onClosing: function(event) {
         if (preview.batchExporting) preview.cancelExport()
         if (preview.busy) { editorState.closePending = true; event.accepted = false }
@@ -66,7 +61,7 @@ ApplicationWindow {
         canvas: centre.canvas
         onCropModeChanged: window.updateDialogState()
         onImportRequested: openDialog.open()
-        onExportOptionsRequested: exportPopup.open()
+        onExportOptionsRequested: exportPage.open()
     }
     Connections {
         target: preview
@@ -80,23 +75,6 @@ ApplicationWindow {
         nameFilters: [L10n.tr("dialog.filter.cameraRaw") + " (*.arw *.nef *.nrw *.dng *.cr2 *.cr3 *.raf *.rw2 *.orf *.pef *.srw)", L10n.tr("dialog.filter.allFiles") + " (*)"]
         onVisibleChanged: window.updateDialogState()
         onAccepted: preview.openFiles(selectedFiles)
-    }
-    FileDialog {
-        id: saveDialog
-        title: L10n.tr("dialog.export.title")
-        fileMode: FileDialog.SaveFile
-        nameFilters: window.formatFilter()
-        defaultSuffix: editorState.exportFormat === 3 ? "jpg" : editorState.exportFormat === 0 ? "tif" : "png"
-        currentFolder: preview.sourceFolder
-        onVisibleChanged: window.updateDialogState()
-        onAccepted: preview.exportImage(selectedFile, editorState.exportFormat, editorState.exportQuality, editorState.exportLongEdge)
-    }
-    FolderDialog {
-        id: batchDialog
-        title: L10n.tr("dialog.batch.title")
-        currentFolder: preview.sourceFolder
-        onVisibleChanged: window.updateDialogState()
-        onAccepted: preview.exportBatch(selectedFolder, editorState.exportFormat, editorState.exportQuality, editorState.exportLongEdge)
     }
     Shortcut { sequences: [StandardKey.Open]; enabled: editorState.canBrowse; onActivated: openDialog.open() }
     Shortcut { sequence: "Ctrl+E"; enabled: editorState.canExport; onActivated: editorState.openExport() }
@@ -121,12 +99,12 @@ ApplicationWindow {
         CentrePane { id: centre; editor: editorState }
         RightRail { editor: editorState; z: 1 }
     }
-    ExportPopup {
-        id: exportPopup
+    // The export page (ExportPage.swift). Still "exportPopup" to the
+    // self-test, which opens it with openExport() and closes it with close().
+    ExportPage {
+        id: exportPage
         objectName: "exportPopup"
         editor: editorState
         onVisibleChanged: window.updateDialogState()
-        onExportCurrentRequested: saveDialog.open()
-        onExportBatchRequested: batchDialog.open()
     }
 }

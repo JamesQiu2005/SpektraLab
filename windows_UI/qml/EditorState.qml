@@ -29,10 +29,7 @@ QtObject {
     property bool cropMode: false
     property rect draftCrop: Qt.rect(0, 0, 1, 1)
 
-    // Export options, shared by the options popup and the file dialogs.
-    property int exportFormat: 0       // 0 TIFF16, 1 PNG8, 2 PNG16, 3 JPEG8
-    property int exportQuality: 95
-    property int exportLongEdge: 0     // 0 = the crop's own size
+    // Export settings live in the recipes (exportRecipes, ExportRecipe.hpp).
 
     readonly property bool canEditCrop: preview.hasFrame && !preview.busy && !preview.batchExporting
     readonly property bool canBrowse: preview.ready && !preview.busy && !preview.batchExporting && !cropMode
