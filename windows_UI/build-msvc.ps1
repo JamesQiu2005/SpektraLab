@@ -184,9 +184,18 @@ try {
         if (-not (Test-Path -LiteralPath (Join-Path $stage 'licenses/Qt/qtbase/LGPL-3.0-only.txt'))) {
             Write-Warning 'The package lacks Qt''s licence texts (see the deployment warning above); do not distribute it.'
         }
-        Add-Type -AssemblyName System.IO.Compression.FileSystem
-        [IO.Compression.ZipFile]::CreateFromDirectory($stage, $zip, [IO.Compression.CompressionLevel]::Optimal, $true)
+        # Entry by entry: Windows PowerShell's ZipFile.CreateFromDirectory
+        # writes backslash separators, which the zip format does not allow and
+        # other unzippers turn into file names.
+        Add-Type -AssemblyName System.IO.Compression, System.IO.Compression.FileSystem
         $files = @(Get-ChildItem -LiteralPath $stage -Recurse -File)
+        $archive = [IO.Compression.ZipFile]::Open($zip, [IO.Compression.ZipArchiveMode]::Create)
+        try {
+            foreach ($file in $files) {
+                $entry = "$name/" + $file.FullName.Substring($stage.Length + 1).Replace('\', '/')
+                [void][IO.Compression.ZipFileExtensions]::CreateEntryFromFile($archive, $file.FullName, $entry, [IO.Compression.CompressionLevel]::Optimal)
+            }
+        } finally { $archive.Dispose() }
         $bytes = (Get-Item -LiteralPath $zip).Length
         Write-Output ("Package: {0} ({1:N1} MB, {2} files)" -f $zip, ($bytes / 1MB), $files.Count)
     }
