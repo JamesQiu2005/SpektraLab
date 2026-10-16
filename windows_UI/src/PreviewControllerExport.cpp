@@ -100,7 +100,8 @@ void PreviewController::exportWithRecipe(const QVariantMap& json) {
                 // Post-Dev on the uncropped frame before geometry (the Mac's
                 // Exporter.filePixels); empty for an ungraded photograph, and
                 // never applied to a DI (RecipeExport.cpp framed()).
-                job.grade=desktop::postdev::exportGrade(item.postdev);
+                // A half-frame pair grades each frame as its own (pairExportGrade).
+                job.grade=item.pair?pairExportGrade(item,frame):desktop::postdev::exportGrade(item.postdev);
                 const auto outcome=exporting::run(job,frame,host.engine());
                 if(outcome.kind==exporting::Outcome::skipped) {
                     ++skipped;
@@ -143,7 +144,7 @@ void PreviewController::requestExportProof(const QVariantMap& json) {
     const auto gen=++proof_generation_;
     // The proof is the file: graded as the export grades (the navigator is
     // the cropped frame, so each pixel is graded at its source position).
-    const auto grade=desktop::postdev::gradeFor(postdev_,navigator.colorSpace());
+    const auto grade=desktop::postdev::gradeFor(canvasGrade(),navigator.colorSpace());
     const auto map=desktop::postdev::shownSourceMap(frame,geometry_);
     Job job=[this,gen,recipe,frame,navigator,grade,map](desktop::PreviewHost& host){
         Reply r;r.generation=gen;r.operation="proof";

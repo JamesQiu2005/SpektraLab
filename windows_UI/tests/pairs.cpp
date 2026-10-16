@@ -91,7 +91,9 @@ int main(int argc, char** argv) {
     print.set("y_filter_shift", 0.3);
     print.print_exposure = 0.5;
     pair.holes[0]->print = print;
-    pair.holes[0]->postDev = QJsonObject{{"exposure", 0.4}};
+    postdev::Params ownGrade;
+    ownGrade.exposure = 0.4;
+    pair.holes[0]->grade = ownGrade;
     pair.spacingMM = 1.5;
     pair.turned = true;
     pairs::save(path, pair, state);

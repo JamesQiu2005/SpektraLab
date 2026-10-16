@@ -4,6 +4,7 @@
 #include "FrameOutput.hpp"
 #include "EditStore.hpp"
 #include "Messages.hpp"
+#include "PostDevSurfaces.hpp"
 #include <QImage>
 #include <QPointF>
 #include <QObject>
@@ -234,6 +235,11 @@ class PreviewController final : public QObject {
     // New Half-Frame Pair (Ctrl+J) and Enter Half-Frame Pair (Film Edge on Half).
     Q_PROPERTY(bool canMakePair READ canMakePair NOTIFY pairChanged)
     Q_PROPERTY(bool canEnterPair READ canEnterPair NOTIFY pairChanged)
+    // What the canvas and the navigator grade with: postDev, except on a pair
+    // whose frames grade for themselves -- its picture (previewImage) is then
+    // graded frame by frame already and the canvas adds none (Session.swift
+    // canvasAdjustments :2604-2607, pairLayered :5117-5159).
+    Q_PROPERTY(QVariantMap canvasPostDev READ canvasPostDev NOTIFY postDevChanged)
 public:
     // Makes the full display image of a frame. Called on the worker thread,
     // after the render and before the reply is queued; a throw fails the
@@ -496,6 +502,7 @@ public:
     QVariantMap pair() const;
     bool canMakePair() const;
     bool canEnterPair() const;
+    QVariantMap canvasPostDev() const;
     // Session.newPair (Ctrl+J): the selected photographs fill the holes in the
     // filmstrip's order -- two fill both, one the first, none leaves both
     // empty; the look is the first one's. Session.enterPair: the photograph on
@@ -773,6 +780,23 @@ private:
     int insertItem(LibraryItem item, int at);
     void setPairLayerIndex(spk::desktop::pairs::Layer layer);
     void requestPairAnalysis();
+    // Post-Dev on a pair (Session.layerAdjustments, pairIsLayered, pairLayered,
+    // exportAdjustments, :4997-5112): the grade the rail shows and edits -- the
+    // picked frame's own, else the film's; whether any frame grades for itself;
+    // the picture graded frame by frame (the canvas then adds none); the
+    // export's hook doing the same on the file's pixels.
+    spk::desktop::postdev::Params pairShownGrade() const;
+    bool pairGradeLayered(const LibraryItem& item) const;
+    bool editPairGrade(const spk::desktop::postdev::Params& next, const QString& editKey);
+    void regradePair();
+    spk::desktop::postdev::Params canvasGrade() const;
+    spk::desktop::postdev::FrameGrade pairExportGrade(const LibraryItem& item, const spk::desktop::FramePtr& frame) const;
+    // The neutral picker on a pair: the hole under (x, y) of the shown frame
+    // and the point on the piece the engine was handed.
+    bool pairNeutralPoint(double x, double y, int& side, double& u, double& v) const;
+    QTimer pair_grade_timer_;
+    const void* pair_graded_for_ = nullptr;
+    bool pair_graded_ = false;
     void resetPairEnlarger();
     void commitPairDrag();
     void pairFrameLanded();

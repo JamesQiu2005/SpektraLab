@@ -34,7 +34,7 @@ MacSection {
                                                                        : preview.navigatorImage
                 // Graded like the canvas (Post-Dev), each pixel at its place
                 // on the source: the navigator image is the cropped print.
-                postDev: section.editor.cropMode && section.editor.canvas ? section.editor.canvas.postDev : preview.postDev
+                postDev: section.editor.cropMode && section.editor.canvas ? section.editor.canvas.postDev : preview.canvasPostDev
                 sourceMap: section.editor.cropMode ? [] : preview.postDevSourceMap
                 enabled: false
             }

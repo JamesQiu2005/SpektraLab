@@ -16,7 +16,8 @@
 //            given one -- printKeys(); nil prints as the film does;
 //   scopes   Frame or + Film: whether an edit of the frame also moves the film
 //            around it by the same amount (answers B1-B3);
-//   postDev  its own Post-Dev grade, kept opaque for the Post-Dev lane.
+//   grade    its own Post-Dev grade (Hole.adjustments, HalfFramePair.swift:54-55);
+//            nil follows the film's, the pair's own state.postDev.
 // Everything else -- stocks, effects, Film Edge, Date Back -- is the pair's
 // own settings (the film), stored in the record's "state" exactly as a
 // photograph's edit (EditStore.hpp, version 2).
@@ -26,6 +27,7 @@
 // it back where it belongs, so every existing control works on a pair
 // unchanged.
 #include "FrameOutput.hpp"
+#include "PostDev.hpp"
 #include "desktop/preview_host.hpp"
 #include <QJsonObject>
 #include <QString>
@@ -57,7 +59,7 @@ struct Hole {
     std::optional<RenderSettings> print; // its own print (printKeys), or the film's
     Scope printScope = Scope::film;      // the enlarger starts on the film as well
     Scope exposureScope = Scope::frame;  // exposure on the frame (answers B1-B3)
-    QJsonObject postDev;                 // its own Post-Dev grade, opaque here
+    std::optional<postdev::Params> grade; // its own Post-Dev grade; nil: the film's
     bool operator==(const Hole&) const = default;
 };
 
@@ -95,7 +97,7 @@ QStringList pairsIn(const QString& editDirectory, const QString& folder);
 //                                   "frame": { <camera row>: value, ... },
 //                                   "print": null | { <print row>: value, ... },
 //                                   "printScope": "film"|"frame", "exposureScope": "frame"|"film",
-//                                   "postDev": {...} }, x2 ] },
+//                                   "postDev": null | <PostDev.hpp state.postDev> }, x2 ] },
 //     "state": <EditStore state: the film's settings, decodeMode, geometry, heldGeometry> }
 // Rows are checked against the settings table as the edit store checks them;
 // a key this build does not know is kept by the next save.

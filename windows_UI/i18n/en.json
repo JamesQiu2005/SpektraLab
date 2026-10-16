@@ -501,7 +501,7 @@
         "pair.replace": "Replace…",
         "pair.addFrame": "Add Frame…",
         "pair.remove": "Remove",
-        "pair.frameNote": "Its metering, exposure and white balance are in Input / Camera on the right; its print in Enlarger.",
+        "pair.frameNote": "Its metering, exposure and white balance are in Input / Camera on the right, its grade in Post-Dev; its print in Enlarger.",
         "pair.emptyNote": "An empty hole is unexposed film. Fill both to export the pair.",
         "pair.noCrop": "A half-frame pair has no crop: each frame is placed under its hole.",
         "pair.filter": "Filter by name",

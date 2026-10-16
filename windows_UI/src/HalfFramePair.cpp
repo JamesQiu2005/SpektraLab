@@ -117,7 +117,7 @@ QJsonObject holeJson(const Hole& h) {
         {"frame", rowsJson(h.frame, cameraKeys())},
         {"print", h.print ? QJsonValue(rowsJson(*h.print, printKeys())) : QJsonValue()},
         {"printScope", scopeName(h.printScope)}, {"exposureScope", scopeName(h.exposureScope)}};
-    if (!h.postDev.isEmpty()) o.insert("postDev", h.postDev);
+    o.insert("postDev", h.grade ? QJsonValue(postdev::toJson(*h.grade)) : QJsonValue());
     return o;
 }
 Hole parseHole(const QJsonObject& o, const QString& label, QStringList& preserved) {
@@ -139,7 +139,8 @@ Hole parseHole(const QJsonObject& o, const QString& label, QStringList& preserve
     }
     h.printScope = parseScope(o.value("printScope"), Scope::film);
     h.exposureScope = parseScope(o.value("exposureScope"), Scope::frame);
-    h.postDev = o.value("postDev").toObject();
+    if (o.value("postDev").isObject())
+        h.grade = postdev::fromJson(o.value("postDev").toObject(), &preserved, label + ".postDev");
     static const QStringList known{"path", "placement", "geometry", "frame", "print", "printScope", "exposureScope", "postDev"};
     for (auto it = o.begin(); it != o.end(); ++it)
         if (!known.contains(it.key())) preserved.append(label + "." + it.key());

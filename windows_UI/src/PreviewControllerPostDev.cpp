@@ -83,7 +83,8 @@ void PreviewController::setupPostDev() {
 }
 
 void PreviewController::loadPostDev() {
-    const auto next=active_index_>=0&&active_index_<int(library_.size())?library_[active_index_].postdev:postdev::Params{};
+    // A half-frame pair's rail is about its picked frame (PreviewControllerPairs.cpp).
+    const auto next=pairActive()?pairShownGrade():active_index_>=0&&active_index_<int(library_.size())?library_[active_index_].postdev:postdev::Params{};
     if(next==postdev_)return;
     postdev_=next;emit postDevChanged();
 }
@@ -91,6 +92,7 @@ void PreviewController::loadPostDev() {
 bool PreviewController::editPostDev(const postdev::Params& next,const QString& editKey) {
     if(!settingsEditable()||!frame_||active_index_<0||active_index_>=int(library_.size()))return false;
     if(next==postdev_)return true;
+    if(pairActive())return editPairGrade(next,editKey); // the picked frame's own grade, or the film's
     if(gesture_index_>=0&&gesture_key_!=editKey)endEditGesture();
     auto& item=library_[active_index_];
     // Before the change, so undo returns to it; one step per gesture.
@@ -102,7 +104,8 @@ bool PreviewController::editPostDev(const postdev::Params& next,const QString& e
 }
 
 void PreviewController::refreshPostDevSurfaces() {
-    const auto grade=frame_&&!navigator_.isNull()?postdev::gradeFor(postdev_,navigator_.colorSpace()):std::nullopt;
+    // canvasGrade: none on a pair whose picture is graded frame by frame already.
+    const auto grade=frame_&&!navigator_.isNull()?postdev::gradeFor(canvasGrade(),navigator_.colorSpace()):std::nullopt;
     const bool had=!graded_histogram_.empty();
     if(grade) {
         try {
@@ -119,7 +122,7 @@ void PreviewController::refreshPostDevSurfaces() {
 
 QImage PreviewController::gradedThumbnail(QImage thumbnail) const {
     if(thumbnail.isNull()||!frame_)return thumbnail;
-    const auto grade=postdev::gradeFor(postdev_,thumbnail.colorSpace());
+    const auto grade=postdev::gradeFor(canvasGrade(),thumbnail.colorSpace());
     if(!grade)return thumbnail;
     try {
         // A thumbnail of the cropped frame: each pixel at its source position.

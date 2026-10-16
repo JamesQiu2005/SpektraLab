@@ -65,7 +65,7 @@ Item {
         // never on the Original, which is the decode before any of it.
         // A cut frame's crop editor shows the undeveloped whole decode, which
         // the Mac draws as the Original (Session.swift:407-411), ungraded.
-        postDev: view.showOriginal || (view.editor.cropMode && preview.frameIsCut) ? ({}) : preview.postDev
+        postDev: view.showOriginal || (view.editor.cropMode && preview.frameIsCut) ? ({}) : preview.canvasPostDev
         sourceMap: view.editor.cropMode ? [] : preview.postDevSourceMap
     }
     // The split's left half: the Original in exactly the print's rectangle,

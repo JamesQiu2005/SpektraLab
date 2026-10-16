@@ -205,6 +205,9 @@ PreviewController::PreviewController(std::filesystem::path resources,QObject* pa
     connect(this,&PreviewController::frameChanged,this,&PreviewController::pairFrameLanded);
     pair_commit_.setSingleShot(true);pair_commit_.setInterval(280);
     connect(&pair_commit_,&QTimer::timeout,this,&PreviewController::commitPairDrag);
+    // A pair's frames graded each as its own, once per pause in a drag.
+    pair_grade_timer_.setSingleShot(true);pair_grade_timer_.setInterval(60);
+    connect(&pair_grade_timer_,&QTimer::timeout,this,&PreviewController::regradePair);
     auto_apply_.setSingleShot(true);auto_apply_.setInterval(180);
     connect(&auto_apply_,&QTimer::timeout,this,[this]{if(dirty())apply();});
     save_timer_.setSingleShot(true);save_timer_.setInterval(350);
@@ -698,7 +701,7 @@ void PreviewController::exportImage(const QUrl& url,int format,int quality,int m
     // export path grades (PostDevSurfaces.hpp; AGENTS.md trap 33) -- for a
     // cut frame the whole film canvas, as the Mac grades it (Exporter
     // .filePixels: applyLayer2 on the engine's print, then printGeometry).
-    const auto grade=desktop::postdev::exportGrade(postdev_);
+    const auto grade=pairActive()?pairExportGrade(library_[active_index_],held):desktop::postdev::exportGrade(postdev_);
     submit([p,held,gen,geometry,resources,format,quality,maxLongEdge,grade](auto&){Reply r;r.generation=gen;r.operation="export";
         try{output::exportFrame(held,p,geometry,exportOptions(format,quality,maxLongEdge),resources,grade);}catch(const std::exception& e){r.error=text(e.what());}return r;},uiText("status.exporting"),"export");
 }
@@ -1262,7 +1265,7 @@ void PreviewController::exportBatch(const QUrl& folder,int format,int quality,in
                         const auto developed=item.pair?developPair(host,item,held) // one picture (Exporter.swift)
                             :useShown?held:host.open_raw(source,item.mode,item.settings,toCut(item.geometry));
                         output::exportFrame(developed,target,developed->cut?output::Geometry{}:item.geometry,options,resources,
-                                            desktop::postdev::exportGrade(item.postdev));++done;
+                                            item.pair?pairExportGrade(item,developed):desktop::postdev::exportGrade(item.postdev));++done;
                     }
                 }catch(const std::exception& e){++errors;details.append(name+": "+text(e.what()));}
                 ++processed;

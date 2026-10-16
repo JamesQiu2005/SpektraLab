@@ -13,12 +13,14 @@
 // develops the piece (PreviewHost::render_pair).
 #include "PreviewController.hpp"
 #include "FrameImage.hpp"
+#include "PostDevSurfaces.hpp"
 #include <QDir>
 #include <QFile>
 #include <QFileInfo>
 #include <QMetaObject>
 #include <algorithm>
 #include <cmath>
+#include <cstring>
 
 namespace {
 namespace desktop = spk::desktop;
@@ -47,6 +49,44 @@ bool sameRender(desktop::RenderSettings a, desktop::RenderSettings b) {
     const bool exposure = std::abs(a.print_exposure - b.print_exposure) < 1e-12;
     a.print_exposure = b.print_exposure;
     return exposure && a == b;
+}
+
+// A pair's frames graded each as its own (Session.pairLayered :5147-5158,
+// Renderer.compositePair): the film's grade over the whole picture -- the gap,
+// the rebate -- and in each hole whose frame has a grade of its own, that grade
+// on the ungraded print instead. Each hole is graded at its place on the whole
+// picture (the vignette is the piece's, as the Mac's grades the whole base
+// texture before it cuts the hole out). `image` is a frame-sized picture in
+// `space`: the canvas's half floats or the export's RGBA64.
+void gradePairImage(QImage& image, const desktop::postdev::Params& film,
+                    const std::array<std::optional<desktop::postdev::Params>, 2>& own,
+                    const std::array<desktop::PairRect, 2>& holes, const QColorSpace& space) {
+    namespace postdev = desktop::postdev;
+    const int W = image.width(), H = image.height();
+    if (W <= 0 || H <= 0) return;
+    std::array<QImage, 2> saved;
+    std::array<QRect, 2> pixels;
+    for (int side = 0; side < 2; ++side) {
+        if (!own[side] || *own[side] == film) continue;
+        const auto& r = holes[side];
+        const int x0 = std::clamp(int(std::lround(r.x * W)), 0, W), x1 = std::clamp(int(std::lround((r.x + r.w) * W)), x0, W);
+        const int y0 = std::clamp(int(std::lround(r.y * H)), 0, H), y1 = std::clamp(int(std::lround((r.y + r.h) * H)), y0, H);
+        if (x1 <= x0 || y1 <= y0) continue;
+        pixels[side] = QRect(x0, y0, x1 - x0, y1 - y0);
+        saved[side] = image.copy(pixels[side]);
+    }
+    if (const auto grade = postdev::gradeFor(film, space)) postdev::gradeImage(image, *grade, {});
+    const int bpp = image.depth() / 8;
+    for (int side = 0; side < 2; ++side) {
+        if (saved[side].isNull()) continue;
+        const QRect& p = pixels[side];
+        if (const auto grade = postdev::gradeFor(*own[side], space))
+            postdev::gradeImage(saved[side], *grade,
+                                {double(p.width()) / W, 0, double(p.x()) / W, 0, double(p.height()) / H, double(p.y()) / H});
+        for (int y = 0; y < p.height(); ++y)
+            std::memcpy(image.scanLine(p.y() + y) + qsizetype(p.x()) * bpp, saved[side].constScanLine(y),
+                        std::size_t(p.width()) * bpp);
+    }
 }
 }  // namespace
 
@@ -140,6 +180,8 @@ void PreviewController::openPairItem(int index) {
     pair_placing_ = false;
     pair_drag_.reset();
     pair_commit_.stop();
+    pair_graded_ = false;
+    pair_graded_for_ = nullptr;
     pair_layer_ = Layer::film;
     pair_camera_side_ = pairs::cameraSide(*item.pair, Layer::film, 0);
     {
@@ -267,6 +309,10 @@ void PreviewController::restorePair(const editing::State& target) {
     item.thumbnail = {};
     pair_drag_.reset();
     loadSettings(pairShown(), target.mode);
+    postdev_ = pairShownGrade();
+    pair_graded_for_ = nullptr;
+    pair_grade_timer_.start();
+    emit postDevChanged();
     scheduleSave();
     emit pairChanged();
 }
@@ -564,6 +610,8 @@ void PreviewController::setPairLayerIndex(Layer layer) {
     }
     loadSettings(pairShown(), item.mode);
     saveActiveSettings();
+    // The Post-Dev tab is about the picked frame (Session.layerAdjustments).
+    if (const auto grade = pairShownGrade(); grade != postdev_) { postdev_ = grade; emit postDevChanged(); }
     if (before != after) requestPairAnalysis();
     emit pairChanged();
 }
@@ -820,8 +868,132 @@ void PreviewController::commitPairDrag() {
 
 void PreviewController::pairFrameLanded() {
     // Session.placementLanded (:4691-4695).
+    // A new print of the pair: graded frame by frame again (pairLayered).
+    if (pairActive() && frame_ && frame_->pair && frame_.get() != pair_graded_for_) regradePair();
     if (!pair_drag_ || !pair_drag_->settling) return;
     if (!frame_ || !frame_->pair || !frame_->pair_input.holes[pair_drag_->side] ||
         frame_->pair_input.holes[pair_drag_->side]->placement == pair_drag_->live)
         pair_drag_.reset();
+}
+
+// --- Post-Dev on a pair ------------------------------------------------------------
+//
+// One negative, printed up to three times and graded frame by frame
+// (Session.swift :4913-4919): the film's grade on the whole picture, each
+// frame's own where it has one (Hole.adjustments, HalfFramePair.swift:54-55).
+// The canvas then draws the result with no grade of its own and the export
+// writes the same picture (canvasAdjustments :2604-2607, exportAdjustments
+// :5110-5112). While no frame grades for itself the piece is one grade, the
+// film's, on the GPU like any photograph's.
+
+desktop::postdev::Params PreviewController::pairShownGrade() const {
+    // Session.layerAdjustments (:5100-5108): the picked frame's own, the film's
+    // until it is given one; with the film picked the film's.
+    const auto& item = library_[active_index_];
+    const int side = pair_layer_ != Layer::film && item.pair->holes[int(pair_layer_) - 1] ? int(pair_layer_) - 1 : -1;
+    if (side >= 0 && item.pair->holes[side]->grade) return *item.pair->holes[side]->grade;
+    return item.postdev;
+}
+
+bool PreviewController::pairGradeLayered(const LibraryItem& item) const {
+    // The grade half of Session.pairIsLayered (:4999-5007).
+    if (!item.pair) return false;
+    for (const auto& hole : item.pair->holes)
+        if (hole && hole->grade && *hole->grade != item.postdev) return true;
+    return false;
+}
+
+desktop::postdev::Params PreviewController::canvasGrade() const {
+    if (pairActive() && pairGradeLayered(library_[active_index_])) {
+        desktop::postdev::Params none;
+        none.enabled = false;
+        return none;
+    }
+    return postdev_;
+}
+
+QVariantMap PreviewController::canvasPostDev() const { return desktop::postdev::toJson(canvasGrade()).toVariantMap(); }
+
+bool PreviewController::editPairGrade(const desktop::postdev::Params& next, const QString& editKey) {
+    // Session.layerAdjustments' setter: the picked frame's own grade, else the
+    // film's; one undo step a gesture, saved with the pair, and no render --
+    // the picture is graded again from the print it already has.
+    auto& item = library_[active_index_];
+    if (gesture_index_ >= 0 && gesture_key_ != editKey) endEditGesture();
+    recordEdit(item, itemState(item));
+    const int side = pair_layer_ != Layer::film && item.pair->holes[int(pair_layer_) - 1] ? int(pair_layer_) - 1 : -1;
+    if (side >= 0) item.pair->holes[side]->grade = next;
+    else item.postdev = next;
+    postdev_ = next;
+    item.pending_save = true;
+    failed_ = false;
+    pair_graded_for_ = nullptr;
+    pair_grade_timer_.start();
+    scheduleSave();
+    emit postDevChanged();
+    emit historyChanged();
+    return true;
+}
+
+void PreviewController::regradePair() {
+    pair_grade_timer_.stop();
+    if (!pairActive() || !frame_ || !frame_->pair || full_image_.isNull()) {
+        pair_graded_ = false;
+        return;
+    }
+    const auto& item = library_[active_index_];
+    const bool layered = pairGradeLayered(item);
+    if (!layered && !pair_graded_) { pair_graded_for_ = frame_.get(); return; }
+    try {
+        // A pair is never cut and has no crop: the picture is the whole print.
+        QImage picture = output::displayImage(full_image_, QRectF(0, 0, 1, 1));
+        if (layered) {
+            picture = picture.copy();
+            gradePairImage(picture, item.postdev, {item.pair->holes[0] ? item.pair->holes[0]->grade : std::nullopt,
+                                                   item.pair->holes[1] ? item.pair->holes[1]->grade : std::nullopt},
+                           frame_->pair_holes, picture.colorSpace());
+        }
+        image_ = std::move(picture);
+        navigator_ = desktop::display::navigatorImage(image_);
+        histogram_ = desktop::display::histogram(image_);
+        pair_graded_ = layered;
+        pair_graded_for_ = frame_.get();
+        emit frameChanged();
+    } catch (const std::exception& e) {
+        status_ = text(e.what());
+        emit stateChanged();
+    }
+}
+
+desktop::postdev::FrameGrade PreviewController::pairExportGrade(const LibraryItem& item, const desktop::FramePtr& frame) const {
+    if (!frame || !frame->pair || !pairGradeLayered(item)) return desktop::postdev::exportGrade(item.postdev);
+    const auto film = item.postdev;
+    const std::array<std::optional<desktop::postdev::Params>, 2> own{
+        item.pair->holes[0] ? item.pair->holes[0]->grade : std::nullopt,
+        item.pair->holes[1] ? item.pair->holes[1]->grade : std::nullopt};
+    const auto holes = frame->pair_holes;
+    return [film, own, holes](QImage& image, const desktop::OutputEncoding& encoding) {
+        const auto space = desktop::display::colorSpace(encoding);
+        if (!desktop::postdev::midGreyFor(space))
+            throw std::runtime_error("Post-Dev cannot grade a frame encoded in " + encoding.color_space);
+        gradePairImage(image, film, own, holes, space);
+    };
+}
+
+bool PreviewController::pairNeutralPoint(double x, double y, int& side, double& u, double& v) const {
+    if (!frame_ || !frame_->pair) return false;
+    for (int s = 0; s < 2; ++s) {
+        const auto& r = frame_->pair_holes[s];
+        if (!frame_->pair_filled[s] || !r.contains(x, y) || r.w <= 0 || r.h <= 0) continue;
+        // The hole on the shown frame (a gate on a strip) to the same hole on
+        // the piece the engine was handed.
+        const bool turned = frame_->pair_input.turned;
+        const auto l = desktop::pair_layout(turned ? frame_->decode_width : frame_->decode_height,
+                                            frame_->pair_input.spacing_mm, turned).normalised(s);
+        side = s;
+        u = l.x + (x - r.x) / r.w * l.w;
+        v = l.y + (y - r.y) / r.h * l.h;
+        return true;
+    }
+    return false;
 }
