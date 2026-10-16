@@ -382,6 +382,11 @@ void PreviewController::takeSolve(desktop::FramePtr frame, std::string reply, QS
     if (next != extra_settings_) {
         extra_settings_ = std::move(next);
         changed(QStringLiteral("process"));
+    } else {
+        // Shifts already at 0: no reprint follows, so nothing else would
+        // replace the "Updating the film look" line the submit put up.
+        status_ = uiText("status.previewCurrent");
+        emit stateChanged();
     }
     emit processed(true, QString());
     emit settingsChanged();
