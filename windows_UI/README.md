@@ -456,7 +456,8 @@ geometry -> long edge -> one conversion through `spk_output_transform`
 space (the bundled `sRGB.icc`; profiles matching the engine's curves
 otherwise). TIFF 16-bit, PNG 8/16, JPEG with quality; EXIF from the camera
 file (LibRaw); a TIFF preview page; the Digital Intermediate (Cineon, untagged,
-the view LUTs beside it). Writes publish atomically; nothing is replaced
+the view LUTs beside it); Open With hands the finished files to the default
+app, File Explorer or a chosen application. Writes publish atomically; nothing is replaced
 unless the recipe says overwrite. A batch runs as one locked operation, so
 the open frame and selection hold still (AGENTS.md trap 34), and Stop works
 between photos.
