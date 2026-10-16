@@ -55,16 +55,15 @@ endfunction()
 # The portable host's colour and file half (engine/host/output.cpp: the
 # engine's output transform per pixel, ICC, EXIF, TIFF/PNG/JPEG, .cube; and
 # image_io's EXIF probe), linked rather than rewritten. main.cpp, the host's
-# process loop, stays out.
+# process loop, stays out. image_io and its TIFF, stb and platform parts are
+# compiled once, in spk_desktop_host, which decodes TIFF/JPEG/PNG with them.
 set(spk_engine_host "${CMAKE_CURRENT_SOURCE_DIR}/../engine/host")
-add_library(spk_qt_host_output STATIC
-    ${spk_engine_host}/output.cpp ${spk_engine_host}/image_io.cpp ${spk_engine_host}/platform.cpp
-    ${spk_engine_host}/stb_impl.cpp ${spk_engine_host}/tiff_ifd.cpp ${spk_engine_host}/white_balance.cpp)
+add_library(spk_qt_host_output STATIC ${spk_engine_host}/output.cpp)
 target_compile_features(spk_qt_host_output PUBLIC cxx_std_20)
 target_include_directories(spk_qt_host_output PUBLIC "${spk_engine_host}"
     "${spk_engine_host}/../include" "${spk_engine_host}/../src" "${spk_engine_host}/../src/core"
     "${spk_engine_host}/../third_party/stb")
-target_link_libraries(spk_qt_host_output PUBLIC spk_image_io spk_libraw spektralab_engine spektralab_core)
+target_link_libraries(spk_qt_host_output PUBLIC spk_desktop_host spk_image_io spk_libraw spektralab_engine spektralab_core)
 if(WIN32)
     target_link_libraries(spk_qt_host_output PUBLIC ws2_32 shell32)
 endif()
@@ -460,4 +459,18 @@ if(BUILD_TESTING)
     if(WIN32)
         set_tests_properties(spk_qt_app_settings spk_qt_shell_smoke PROPERTIES ENVIRONMENT_MODIFICATION "${qt_test_runtime_path}")
     endif()
+endif()
+
+# --- The library and the settings clipboard (lane ui-library) ---
+if(BUILD_TESTING)
+    # TIFF/JPEG/PNG at the door through the real engine: each encoded file
+    # develops like its linear equivalent (AGENTS.md traps 11 and 12), with a
+    # control showing a forgotten transfer function is visible. No Qt, no RAW.
+    add_executable(spk_qt_flat_input_test tests/flat_input.cpp)
+    target_compile_features(spk_qt_flat_input_test PRIVATE cxx_std_20)
+    target_include_directories(spk_qt_flat_input_test PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/../engine/third_party/stb")
+    target_link_libraries(spk_qt_flat_input_test PRIVATE spk_desktop_host)
+    add_dependencies(spk_qt_flat_input_test spektralab_qt_resources)
+    add_test(NAME spk_qt_flat_input COMMAND spk_qt_flat_input_test
+        "$<TARGET_FILE_DIR:SpektraLabQt>/resources" "${CMAKE_CURRENT_BINARY_DIR}/flat-input-test")
 endif()

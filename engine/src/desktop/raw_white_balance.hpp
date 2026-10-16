@@ -64,8 +64,25 @@ bool as_shot_white_balance(const io::RawMetadata& metadata, double& temperature,
 // unpack) and hands the decoder the multipliers that neutralise it; that
 // header read is counted in `out.timings.open_ms`. On failure `out` is
 // unchanged and `error` says why.
+//
+// A TIFF, JPEG or PNG is decoded here too, at the door (AGENTS.md trap 12):
+// engine/host/image_io's decode_linear_prophoto takes the file's embedded
+// matrix/TRC profile (or the macOS decoder's assumptions -- an untagged 8-bit
+// file is sRGB, an untagged deep TIFF linear ProPhoto; ImageDecoder.swift
+// decodeFlat, :266-288) off its transfer function and into linear ProPhoto,
+// so the engine's input contract -- scene-linear, `input_cctf_decoding`
+// false -- holds for every file it is handed. A flat file is already a
+// rendering: it has no camera white balance (`metadata.colors` stays 0, so
+// the Camera section's rows are disabled for it, as they are for a flat file
+// on macOS) and `mode` changes nothing. `metadata.decoder_name` names the
+// file and the space it was read in ("TIFF, sRGB IEC61966-2.1").
 bool decode_raw(const std::filesystem::path& source, DecodeMode mode, const RenderSettings& settings,
                 io::DecodedRaw& out, std::string& error);
+
+// Whether `source` is a flat (encoded) file the decode above reads through
+// image_io rather than LibRaw: by its signature, as image_io sniffs it, for
+// anything without a RAW extension.
+bool flat_file(const std::filesystem::path& source);
 
 // --- the neutral picker ----------------------------------------------------
 //

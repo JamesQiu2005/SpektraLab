@@ -2,13 +2,17 @@
 // The host's Temperature/Tint arithmetic (engine/host is spektralab-host's
 // directory; its white_balance.cpp is compiled into spk_desktop_host too).
 #include "../../host/white_balance.hpp"
+// TIFF/JPEG/PNG at the door (decode_flat), the host's own reader.
+#include "../../host/image_io.hpp"
 
 #include <libraw/libraw.h>
 
 #include <algorithm>
+#include <cctype>
 #include <chrono>
 #include <cmath>
 #include <cstdint>
+#include <cstdio>
 #include <memory>
 #include <stdexcept>
 
@@ -63,8 +67,59 @@ bool as_shot_white_balance(const io::RawMetadata& metadata, double& temperature,
                                          temperature, tint);
 }
 
+bool flat_file(const std::filesystem::path& source) {
+    const auto kind = spkhost::sniff_kind(source);
+    return kind == spkhost::FileKind::Tiff || kind == spkhost::FileKind::Jpeg || kind == spkhost::FileKind::Png;
+}
+
+namespace {
+
+// A flat file at the door: its own encoding off, linear ProPhoto out, the
+// shooting data its EXIF carries for the date back and the film edge (only
+// the fields image_io reads; one it lacks stays absent, never invented).
+bool decode_flat(const std::filesystem::path& source, io::DecodedRaw& out, std::string& error) {
+    const auto started = std::chrono::steady_clock::now();
+    spkhost::FloatImage image;
+    spkhost::Probe probe;
+    std::string space;
+    if (!spkhost::decode_linear_prophoto(source, {}, image, probe, error, &space)) return false;
+    if (image.width == 0 || image.height == 0 || image.rgb.size() != std::size_t(image.width) * image.height * 3) {
+        error = "the decoded frame has no pixels";
+        return false;
+    }
+    io::DecodedRaw decoded;
+    decoded.width = image.width;
+    decoded.height = image.height;
+    decoded.rgb = std::move(image.rgb);
+    const auto& meta = probe.metadata;
+    decoded.metadata.make = meta.make;
+    decoded.metadata.model = meta.model;
+    std::string kind = spkhost::kind_name(probe.kind);
+    for (char& c : kind) c = char(std::toupper(static_cast<unsigned char>(c)));
+    decoded.metadata.decoder_name = kind + ", " + space;
+    auto& shooting = decoded.metadata.shooting;
+    int year = 0, month = 0, day = 0;
+    if (meta.datetime_original.size() >= 10 &&
+        std::sscanf(meta.datetime_original.c_str(), "%d:%d:%d", &year, &month, &day) == 3 && year > 0 && month >= 1 &&
+        month <= 12 && day >= 1 && day <= 31) {
+        shooting.year = year;
+        shooting.month = month;
+        shooting.day = day;
+    }
+    if (meta.shutter_s && *meta.shutter_s > 0) shooting.exposure_time = *meta.shutter_s;
+    if (meta.aperture && *meta.aperture > 0) shooting.f_number = *meta.aperture;
+    decoded.timings.total_ms = decoded.timings.convert_ms =
+        std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - started).count();
+    out = std::move(decoded);
+    return true;
+}
+
+}  // namespace
+
 bool decode_raw(const std::filesystem::path& source, DecodeMode mode, const RenderSettings& settings,
                 io::DecodedRaw& out, std::string& error) {
+    // A flat file has no camera to balance and one decode (header above).
+    if (flat_file(source)) return decode_flat(source, out, error);
     const WhiteBalance wb = white_balance(settings);
     std::array<float, 4> mul{};
     const std::array<float, 4>* user = nullptr;
