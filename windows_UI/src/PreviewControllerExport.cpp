@@ -67,7 +67,12 @@ void PreviewController::exportWithRecipe(const QVariantMap& json) {
                 const bool shown=held&&held->source==source&&held->decode_mode==item.mode&&
                                  sameRender(held->settings,item.settings)&&sameFraming(held);
                 desktop::FramePtr frame;
-                if(di) {
+                // A half-frame pair exports as one picture, the piece as the
+                // canvas shows it (Exporter.swift; PreviewControllerPairs.cpp).
+                if(item.pair) {
+                    frame=developPair(host,item,held);
+                    if(di)frame=host.render_digital_intermediate();
+                } else if(di) {
                     // The DI comes from the session, so the session must be
                     // this photograph's, with its own settings and framing.
                     const auto current=host.current();
@@ -81,6 +86,13 @@ void PreviewController::exportWithRecipe(const QVariantMap& json) {
                 job.recipe=recipe;job.source=item.url.toLocalFile();job.resources=resources;
                 job.geometry=frame->cut?desktop::output::Geometry{}:item.geometry;
                 job.name.originalName=QFileInfo(job.source).completeBaseName();
+                if(item.pair) {
+                    // Its EXIF is its first frame's (PairComposer.decode sourceEXIF);
+                    // its name the pair's own.
+                    job.name.originalName=desktop::pairs::title(job.source);
+                    const auto& first=item.pair->holes[0]?item.pair->holes[0]:item.pair->holes[1];
+                    if(first)job.source=first->path;
+                }
                 job.name.filmStock=text(item.settings.film_stock);
                 job.name.printStock=text(item.settings.print_stock);
                 job.name.date=today;
