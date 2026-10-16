@@ -92,8 +92,11 @@ double own_grain(std::string_view film);
 // field, and what it changes is written in wire_params.
 enum class SettingType { boolean, number, text };
 enum class SettingLayer { shoot, print };
-// The values a text row accepts: its own list, or a stock in the catalogue.
-enum class SettingChoices { listed, films, papers };
+// The values a text row accepts: its own list, a stock in the catalogue, or
+// (`free`) any short line of printable text -- the Date Back's typed date.
+enum class SettingChoices { listed, films, papers, free };
+// The longest `free` text: a date back's line (the data face holds 22).
+inline constexpr std::size_t kFreeTextMax = 32;
 using SettingValue = std::variant<bool, double, std::string>;
 
 struct SettingField {
@@ -167,6 +170,116 @@ private:
 // scanned instead of printed: a positive always is, and a negative when
 // `scan_film` (macOS's "No Print Profile") is on.
 bool validate_settings(const RenderSettings& settings, const Catalog& catalog);
+
+// --- Film Edge and Date Back (RFC-031/032) --------------------------------
+//
+// macOS keeps both as FilmEdgeSettings and DateBackSettings (Model/
+// FilmEdge.swift). Their wire fields are rows of the table; what macOS keeps
+// beside them that is no engine field is product rows -- the date's order,
+// the shooting-data switch, where the printed text comes from and the user's
+// own text, and whether the frame has been given its seeds. What the macOS
+// session resolves for the engine (Session.resolvedFilmEdge, Session+
+// FilmEdge.swift:257-268) -- the stock's edge print, the f-number, the date
+// and the data as printed -- is not stored: wire_params resolves it from the
+// frame (PhotoInfo), so a frame's record never carries another frame's date.
+
+// One format of the Format menu (FilmEdgeFormat, FilmEdge.swift:9-81, and
+// its words in FilmEdgeSection.swift:547-622), in the menu's order.
+struct FilmFormat {
+    std::string id;                  // overscan_format
+    std::string title;               // the pill's: "135", "Half", "6x7"
+    std::string group;               // "135" | "120" | "panoramic"
+    double long_mm = 0, short_mm = 0;  // the gate, held level
+    std::string gauge;               // the film it runs on: "135" | "120"
+    bool perforated = false;
+    std::string gate_label;          // "36 x 24", after the pill
+    std::string ratio;               // the menu's second line: "3:2"
+    double strip_cost = 0, filed_cost = 0;  // film pixels per picture pixel
+    bool prints_in_margin = false;   // 120: the date back prints beside the frame
+    bool has_date_back = false;      // what a date back prints on (no panoramic one)
+};
+const std::vector<FilmFormat>& film_formats();
+const FilmFormat* film_format(std::string_view id);  // nullptr when unknown
+
+// The photograph's geometry as the editor applies it after the engine
+// (windows_UI FrameOutput: crop in the unturned source, straighten with zoom
+// to fill, clockwise quarter turns, flips in the output axes). With a film
+// edge the engine is handed the picture already cut by it: the engine takes
+// the frame it is given as the gate (Session+FilmEdge.swift:5-18), so the
+// crop becomes the framing in the gate and is part of the negative.
+struct EngineCut {
+    double x = 0, y = 0, w = 1, h = 1;  // normalised, top-left, in the source
+    int quarter_turns = 0;              // clockwise, 0..3
+    bool flip_h = false, flip_v = false;
+    double straighten_deg = 0;          // -45..45
+    bool identity() const;
+    bool operator==(const EngineCut&) const = default;
+};
+// The cut picture's size from a width x height decode, as the editor rounds
+// the crop (FrameOutput cropPixels), after the quarter turns.
+void cut_size(const EngineCut& cut, std::uint32_t width, std::uint32_t height,
+              std::uint32_t& out_width, std::uint32_t& out_height);
+
+// What the host knows of the frame beyond its settings: its EXIF, its
+// decoded size (0 x 0 before a decode) and the geometry it is shown with.
+struct PhotoInfo {
+    io::ShootingData shooting;
+    std::uint32_t decode_width = 0, decode_height = 0;
+    EngineCut geometry;
+};
+
+// The macOS rules, each with its source:
+//  - the date back's camera: the film edge's format while it is on, else the
+//    one Film Format describes when that is unambiguous -- 36 x 24, 24 x 18 or
+//    56 x 41.5 mm, +-1 mm (Session.dateBackCamera, Session+FilmEdge.swift:542-562);
+//    nullptr when it describes no camera that had a date back;
+//  - a face prints when the camera carries it, and the data face, or any face
+//    on 120, only with a film edge (DateBackSettings.prints, FilmEdge.swift:340);
+//  - the date is drawn when on, printable, and in the frame or with a film
+//    edge to print between (DateBackSettings.effective, FilmEdge.swift:353);
+//  - the frame is cut for the engine with a film edge, or with the date
+//    alone on a geometry that is not the identity (FilmParams.cutsFrame).
+const FilmFormat* date_back_camera(const RenderSettings& settings, const PhotoInfo& photo);
+bool date_back_prints(const RenderSettings& settings, const PhotoInfo& photo, std::string_view face);
+bool date_back_effective(const RenderSettings& settings, const PhotoInfo& photo);
+bool date_back_prints_data(const RenderSettings& settings, const PhotoInfo& photo);
+bool cuts_frame(const RenderSettings& settings, const PhotoInfo& photo);
+// The stock's edge print (Session.edgeText, Session+FilmEdge.swift:215-243).
+std::string edge_text(const Catalog& catalog, std::string_view film, std::string_view gauge);
+// The date as a date back writes it, "'26 10 1" (DateBackSettings.format), in
+// `order` "japan" or "us"; "" without a date.
+std::string date_text(const io::ShootingData& shooting, std::string_view order);
+// The data face's line, "1/250 F5.6 A +0.3 24mm" (ShootingData.dataText).
+std::string data_text(const io::ShootingData& shooting);
+// What date_imprint_text carries: the user's typed text when the source is
+// "typed", else the data line on the data face or the EXIF date.
+std::string printed_date_text(const RenderSettings& settings, const io::ShootingData& shooting);
+
+// The crop held by the gate (Session.gateRatio / gateFramed, Session+
+// FilmEdge.swift:370-390): width over height of the crop in source pixels,
+// the gate on its side for a landscape crop and upright for a portrait one.
+double gate_ratio(const RenderSettings& settings, bool landscape);
+// True when the cut's crop has the gate's shape within 2 % (the engine
+// refuses past 5 %).
+bool gate_shaped(const EngineCut& cut, const RenderSettings& settings, std::uint32_t width, std::uint32_t height);
+// The crop reshaped to the gate about its centre, keeping its area, then
+// fitted inside the frame (Geometry.constrained, Geometry.swift:592-610).
+// `landscape` < 0 keeps the crop's own orientation; 0 / 1 force one.
+EngineCut gate_framed(const EngineCut& cut, const RenderSettings& settings, std::uint32_t width,
+                      std::uint32_t height, int landscape = -1);
+
+// Settings Sync and the clipboard copy no Film Edge and no Date Back
+// (SettingsClipboard.swift:75-76, "not copied until a group is decided"):
+// every overscan_* and date_imprint_* row and their product rows stay the
+// recipient's.
+bool per_photo_setting(std::string_view key);
+RenderSettings synced_settings(const RenderSettings& from, const RenderSettings& recipient);
+// A new frame's seeds (Session.seedFilmEdge, Session+FilmEdge.swift:348-356):
+// a frame seed of its own, stable for the file; the user's body; and its
+// number on the roll, its place in the session (index % 99 + 1), or 0 -- the
+// seed's draw -- for a frame opened on its own (index < 0).
+std::uint32_t frame_seed_for(std::string_view path_utf8);
+void seed_film_edge(RenderSettings& settings, std::string_view path_utf8, int index, int body_seed);
 // What the settings put on the wire: every wire row, under the product's
 // rules -- macOS FilmParams.wire (Params.swift:726-825):
 //  - scan_film is on for a slide film whatever the row says;
@@ -178,16 +291,28 @@ bool validate_settings(const RenderSettings& settings, const Catalog& catalog);
 //  - a black-and-white film on a silver paper also carries Multigrade filter
 //    2 as the neutral pack, c/m/y_filter_neutral 0/0/68, because the engine's
 //    filter table has no silver paper and would keep the last colour pair's.
-// A stock the catalogue does not know is taken as a colour negative.
-Json wire_params(const RenderSettings& settings, const Catalog& catalog);
+//  - Film Edge and Date Back (FilmEdgeSettings.wire, DateBackSettings.wire,
+//    FilmEdge.swift:194-214, 375-404): overscan_edge_text and
+//    overscan_f_number are the stock's print and the EXIF aperture while the
+//    film edge is on, else empty and 0; date_imprint_active is the date
+//    drawn (date_back_effective); while it is, date_imprint_text and
+//    date_imprint_data_text are the printed text and the data line, the film
+//    edge's or Film Format's camera rides on overscan_format, and on a frame
+//    the date alone cuts, film_format_mm and the date's size and insets
+//    follow the cut (FilmParams.wireFilmFormatMM / dateScale). Seeds and the
+//    frame number are integers on the wire.
+// A stock the catalogue does not know is taken as a colour negative. Without
+// `photo` the frame is an unknown 3:2 one with no EXIF.
+Json wire_params(const RenderSettings& settings, const Catalog& catalog, const PhotoInfo* photo = nullptr);
 // The complete parameters spk_open receives: the host's fixed I/O policy and
 // wire_params.
-Json opening_params(const RenderSettings& settings, const Catalog& catalog);
+Json opening_params(const RenderSettings& settings, const Catalog& catalog, const PhotoInfo* photo = nullptr);
 // Only the wire values that differ, so an edit never invalidates more of the
 // session than it changed. A film change also carries scan_film. A field that
 // leaves the wire (the silver pack) is not sent: leaving a silver pair is a
 // stock change, on which the engine reloads the colour pair's pack itself.
-Json changed_params(const RenderSettings& before, const RenderSettings& after, const Catalog& catalog);
+Json changed_params(const RenderSettings& before, const RenderSettings& after, const Catalog& catalog,
+                    const PhotoInfo* photo = nullptr);
 
 // Wall-clock calls, including CPU result readback in render_ms. total_ms is
 // the complete host call, not a sum of nested measurements. Engine creation
@@ -218,6 +343,27 @@ public:
     // Top-down tightly packed BGRA8 encoded sRGB. Only the display copy is
     // reduced to 8 bits; pixels() retains the original full-size RGBA16.
     std::vector<std::uint8_t> bgra8;
+    // Film Edge / Date Back: the geometry the frame was asked for, and whether
+    // the engine was handed the picture cut by it (cuts_frame) -- then these
+    // pixels already carry the crop, and the film around it, and the editor
+    // applies no geometry of its own. `geometry` may differ from the one asked
+    // for: a film edge holds the crop at the gate's shape (gate_framed).
+    EngineCut geometry;
+    bool cut = false;
+    std::uint32_t decode_width = 0, decode_height = 0;   // the whole decode
+    std::uint32_t picture_width = 0, picture_height = 0; // what the engine was handed
+    // spk_overscan_geometry's reply for this render: {"valid": false} without
+    // a film edge; else the canvas, its pitch and the gate quads, normalised.
+    std::string overscan_geometry;
+    // The whole decode, undeveloped, for framing a cut picture in the gate
+    // (README §4: the guide over the undeveloped picture): top-down BGRA8
+    // sRGB, long edge at most 2048. Shared between the frames of one decode;
+    // null until a frame of it is cut.
+    struct SourcePreview {
+        std::uint32_t width = 0, height = 0;
+        std::vector<std::uint8_t> bgra8;
+    };
+    std::shared_ptr<const SourcePreview> source_preview;
 
     const spk_result& pixels() const noexcept { return result_; }
     std::uint32_t width() const noexcept { return result_.width; }
@@ -254,12 +400,15 @@ public:
 
     // New-file open is transactional: decode/open/render/display conversion
     // must all succeed before replacing the previous session and frame.
+    // `geometry` is the photograph's; it reaches the engine only when the
+    // settings cut the frame (cuts_frame), and then a changed one reopens the
+    // session on the newly cut picture from the retained decode.
     FramePtr open_raw(const std::filesystem::path& source, DecodeMode mode,
-                      const RenderSettings& settings = RenderSettings());
+                      const RenderSettings& settings = RenderSettings(), const EngineCut& geometry = EngineCut());
     // Only changed settings are sent. Print-side edits request spk_reprint;
     // the result's actual cache flag determines whether reuse occurred.
     // A failure never mutates the previously returned Frame.
-    FramePtr render(const RenderSettings& settings);
+    FramePtr render(const RenderSettings& settings, const EngineCut& geometry = EngineCut());
     // Exports exactly the supplied frame, even after a newer one was opened.
     // Existing files are never overwritten. Returns only after the writer
     // has completed and closed the file; errors retain its cleanup details.

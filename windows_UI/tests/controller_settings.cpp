@@ -282,7 +282,10 @@ int main(int argc, char** argv) {
         check(c.setParameter("print_effects", false) && c.parameter("print_effects") == false, "Print Effects off");
         for (const auto& entry : c.parameterFields()) {
             const auto row = entry.toMap();
-            check(row.value("sent").toBool() == (row.value("key") != "print_effects"), "parameterFields sent flag");
+            // Product rows (Print Effects, the Date Back's order, source and
+            // text, the film edge's seeded flag) shape the wire, not sent.
+            check(row.value("sent").toBool() == desktop::find_setting(row.value("key").toString().toStdString())->wire &&
+                  (row.value("key") != "print_effects" || !row.value("sent").toBool()), "parameterFields sent flag");
         }
 
         // Locked while a file dialog is open, as every other edit is.

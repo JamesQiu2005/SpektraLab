@@ -2,13 +2,16 @@
 #include "io/image_writer.hpp"
 
 #include <algorithm>
+#include <cctype>
 #include <chrono>
 #include <cmath>
 #include <cstdio>
 #include <fstream>
 #include <limits>
+#include <optional>
 #include <set>
 #include <stdexcept>
+#include <thread>
 #include <type_traits>
 #include <utility>
 
@@ -197,6 +200,17 @@ Row product(std::string key, std::string label, SettingLayer layer, bool initial
     row.field.wire = false;
     return row;
 }
+// A product row with a list of choices, or (no list) free text.
+Row product(std::string key, std::string label, SettingLayer layer, std::vector<std::string> listed,
+            std::string initial) {
+    SettingField f{std::move(key), std::move(label), SettingType::text, layer};
+    f.choices = listed.empty() ? SettingChoices::free : SettingChoices::listed;
+    f.listed = std::move(listed);
+    f.initial = initial;
+    f.absent = std::move(initial);
+    f.wire = false;
+    return {std::move(f), {}};
+}
 Row text(std::string key, std::string label, SettingLayer layer, SettingChoices choices,
          std::vector<std::string> listed, std::string initial, std::string absent, Member member = {}) {
     SettingField f{std::move(key), std::move(label), SettingType::text, layer};
@@ -280,6 +294,56 @@ const std::vector<Row>& rows() {
         // menu's check, ParameterSections.swift:193). Never on a black-and-white
         // film, whatever this says (wire_params).
         t.push_back(boolean("grain_sublayers_active", "Sub-layer grain", SHOOT, true));
+        // Film Edge (FilmEdgeSection.swift, FilmEdgeSettings in FilmEdge.swift:
+        // 98-133), each at the engine's default, which is also macOS's. What
+        // the session resolves -- the edge print, the f-number -- is no row
+        // (wire_params). The carrier is the engine's: macOS draws no control
+        // for it and leaves it `none` (FilmEdgeSection.swift:597-600).
+        std::vector<std::string> formats;
+        for (const FilmFormat& f : film_formats()) formats.push_back(f.id);
+        t.push_back(boolean("overscan_active", "Film edge", SHOOT, false));
+        t.push_back(text("overscan_format", "Film edge format", SHOOT, SettingChoices::listed, formats, "135", "135"));
+        t.push_back(text("overscan_mode", "Film edge view", SHOOT, SettingChoices::listed, {"strip", "filed"},
+                         "strip", "strip"));
+        t.push_back(text("overscan_gate", "Gate", SHOOT, SettingChoices::listed,
+                         {"auto", "square", "rounded", "eared", "shouldered", "kicked"}, "auto", "auto"));
+        t.push_back(text("overscan_holes", "Holes", SHOOT, SettingChoices::listed, {"white", "black"}, "white", "white"));
+        t.push_back(text("overscan_carrier", "Carrier", SHOOT, SettingChoices::listed, {"none", "black", "open"},
+                         "none", "none"));
+        // The body (per user: a new frame takes the user's) and the advance
+        // (per frame); both seeds, integers on the wire (seed_film_edge).
+        t.push_back(number("overscan_camera_seed", "Camera body", SHOOT, 0.0, 2147483647.0, 1.0, 1.0));
+        t.push_back(number("overscan_frame_seed", "Frame advance", SHOOT, 0.0, 2147483647.0, 1.0, 1.0));
+        // 0 is "Auto", the frame seed's draw (FilmEdgeSettings.frameNumber).
+        t.push_back(number("overscan_frame_number", "Frame number", SHOOT, 0.0, 99.0, 0.0, 0.0));
+        t.push_back(number("overscan_fog", "Edge fog", SHOOT, 0.0, 4.0, 1.0, 1.0));
+        t.push_back(number("overscan_leaks", "Spool leaks", SHOOT, 0.0, 4.0, 0.0, 0.0));
+        // FilmEdgeSettings.seeded: a frame from before the film edge has none
+        // and is given its seeds the first time it is opened.
+        t.push_back(product("film_edge_seeded", "Film edge seeded", SHOOT, false));
+        // Date Back (DateBackSection.swift, DateBackSettings in FilmEdge.swift:
+        // 244-317). macOS draws no inset control ("not here yet"); the rows
+        // keep its 3.0 / 2.4 mm, which the engine shares.
+        t.push_back(boolean("date_imprint_active", "Date back", SHOOT, false));
+        t.push_back(text("date_imprint_style", "Date face", SHOOT, SettingChoices::listed, {"lcd", "dots", "data"},
+                         "lcd", "lcd"));
+        // `rebate` is the section's "Between" (DateBackPlacement.between).
+        t.push_back(text("date_imprint_placement", "Date placement", SHOOT, SettingChoices::listed,
+                         {"frame", "rebate"}, "frame", "frame"));
+        t.push_back(text("date_imprint_corner", "Date corner", SHOOT, SettingChoices::listed,
+                         {"br", "bl", "tr", "tl"}, "br", "br"));
+        t.push_back(number("date_imprint_inset_x", "Date inset across (mm)", SHOOT, 0.0, 30.0, 3.0, 3.0));
+        t.push_back(number("date_imprint_inset_y", "Date inset up (mm)", SHOOT, 0.0, 30.0, 2.4, 2.4));
+        t.push_back(number("date_imprint_size", "Date size", SHOOT, 0.4, 3.0, 1.0, 1.0));
+        t.push_back(number("date_imprint_ev", "Date brightness (stops)", SHOOT, -2.0, 8.0, 3.5, 3.5));
+        // DateBackOrder (FilmEdge.swift:236-242): "japan" is '26 10 1.
+        t.push_back(product("date_back_order", "Date order", SHOOT, {"japan", "us"}, "japan"));
+        // DateBackSettings.withData: the shooting data as well as the date.
+        t.push_back(product("date_back_with_data", "Shooting data", SHOOT, false));
+        // Where the printed date comes from: the EXIF date, or the user's own
+        // text (DateBackSettings.customText, README "or a date you type").
+        t.push_back(product("date_back_text_source", "Date source", SHOOT, {"exif", "typed"}, "exif"));
+        t.push_back(product("date_back_custom_text", "Typed date", SHOOT, {}, ""));
         return t;
     }();
     return table;
@@ -311,15 +375,138 @@ Json to_json(const SettingValue& value) {
     return std::visit([](const auto& v) { return Json(v); }, value);
 }
 
-SessionPtr open_session(spk_engine* engine, const io::DecodedRaw& decoded,
-                        const RenderSettings& settings, const Catalog& catalog) {
-    const spk_image input{decoded.rgb.data(), decoded.width, decoded.height, 3};
-    const auto params = opening_params(settings, catalog).dump();
+SessionPtr open_session(spk_engine* engine, const float* rgb, std::uint32_t width, std::uint32_t height,
+                        const RenderSettings& settings, const Catalog& catalog, const PhotoInfo& photo) {
+    const spk_image input{rgb, width, height, 3};
+    const auto params = opening_params(settings, catalog, &photo).dump();
     // No reply is needed here; the host has no allocator or JSON lifetime to
     // share with the UI, and the C API validates the complete delta itself.
     SessionPtr session(spk_open(engine, &input, params.c_str(), nullptr), &spk_session_release);
     require(bool(session), "Open image: " + std::string(spk_last_error(engine)));
     return session;
+}
+
+// The crop's pixel rectangle, rounded as windows_UI FrameOutput cropPixels.
+void crop_pixels(const EngineCut& g, std::uint32_t width, std::uint32_t height, std::uint32_t& left,
+                 std::uint32_t& top, std::uint32_t& w, std::uint32_t& h) {
+    const auto edge = [](double v, std::uint32_t size, long lo, long hi) {
+        return std::clamp(std::lround(v * double(size)), lo, hi);
+    };
+    const long l = edge(g.x, width, 0, long(width) - 1), t = edge(g.y, height, 0, long(height) - 1);
+    const long r = edge(g.x + g.w, width, l + 1, long(width)), b = edge(g.y + g.h, height, t + 1, long(height));
+    left = std::uint32_t(l); top = std::uint32_t(t); w = std::uint32_t(r - l); h = std::uint32_t(b - t);
+}
+
+// The decode cut by the geometry for the engine, the same picture the editor
+// shows (FrameOutput applyGeometry: crop, straighten with zoom to fill at the
+// crop's size, clockwise quarter turns, flips in the output axes), on the
+// linear float RGB. One pass: each output pixel maps back through the flips,
+// the turns and the straightening to a bilinear sample of the crop.
+std::vector<float> cut_decode(const io::DecodedRaw& in, const EngineCut& g, std::uint32_t& out_w,
+                              std::uint32_t& out_h) {
+    require(g.x >= 0 && g.y >= 0 && g.w > 0 && g.h > 0 && g.x + g.w <= 1.0 + 1e-9 && g.y + g.h <= 1.0 + 1e-9 &&
+                g.quarter_turns >= 0 && g.quarter_turns <= 3 && std::isfinite(g.straighten_deg) &&
+                std::abs(g.straighten_deg) <= 45.0, "Film edge: invalid crop geometry");
+    std::uint32_t left = 0, top = 0, cw = 0, ch = 0;
+    crop_pixels(g, in.width, in.height, left, top, cw, ch);
+    const bool turned = g.quarter_turns % 2 == 1;
+    out_w = turned ? ch : cw;
+    out_h = turned ? cw : ch;
+    std::vector<float> out(std::size_t(out_w) * out_h * 3);
+    const double angle = g.straighten_deg * std::acos(-1.0) / 180.0;
+    const double cosine = std::cos(angle), sine = std::sin(angle);
+    const double zoom = std::max(std::abs(cosine) + std::abs(sine) * ch / cw, std::abs(cosine) + std::abs(sine) * cw / ch);
+    const double c = cosine / zoom, s = sine / zoom, cx = (cw - 1) * 0.5, cy = (ch - 1) * 0.5;
+    const auto rows = [&](std::uint32_t y0, std::uint32_t y1) {
+        for (std::uint32_t Y = y0; Y < y1; ++Y)
+            for (std::uint32_t X = 0; X < out_w; ++X) {
+                // Undo the flips, then the clockwise turns: (x, y) in the
+                // straightened crop, cw x ch.
+                const std::uint32_t fx = g.flip_h ? out_w - 1 - X : X, fy = g.flip_v ? out_h - 1 - Y : Y;
+                std::uint32_t x = fx, y = fy;
+                switch (g.quarter_turns) {
+                case 1: x = fy; y = ch - 1 - fx; break;
+                case 2: x = cw - 1 - fx; y = ch - 1 - fy; break;
+                case 3: x = cw - 1 - fy; y = fx; break;
+                default: break;
+                }
+                float* dst = out.data() + (std::size_t(Y) * out_w + X) * 3;
+                if (g.straighten_deg == 0.0) {
+                    const float* src = in.rgb.data() + (std::size_t(top + y) * in.width + left + x) * 3;
+                    dst[0] = src[0]; dst[1] = src[1]; dst[2] = src[2];
+                    continue;
+                }
+                const double sx = std::clamp(cx + c * (x - cx) + s * (y - cy), 0.0, double(cw - 1));
+                const double sy = std::clamp(cy - s * (x - cx) + c * (y - cy), 0.0, double(ch - 1));
+                const std::uint32_t x0 = std::uint32_t(sx), y0 = std::uint32_t(sy);
+                const std::uint32_t x1 = std::min(x0 + 1, cw - 1), y1 = std::min(y0 + 1, ch - 1);
+                const double ax = sx - x0, ay = sy - y0;
+                const auto at = [&](std::uint32_t px, std::uint32_t py) {
+                    return in.rgb.data() + (std::size_t(top + py) * in.width + left + px) * 3;
+                };
+                const float *a = at(x0, y0), *b = at(x1, y0), *d = at(x0, y1), *e = at(x1, y1);
+                for (int k = 0; k < 3; ++k)
+                    dst[k] = float((a[k] + (b[k] - a[k]) * ax) * (1 - ay) + (d[k] + (e[k] - d[k]) * ax) * ay);
+            }
+    };
+    const std::uint32_t workers = std::clamp(std::thread::hardware_concurrency(), 1u, 8u);
+    std::vector<std::thread> threads;
+    const std::uint32_t band = (out_h + workers - 1) / workers;
+    for (std::uint32_t i = 0; i < workers; ++i) {
+        const std::uint32_t y0 = i * band, y1 = std::min(out_h, y0 + band);
+        if (y0 < y1) threads.emplace_back(rows, y0, y1);
+    }
+    for (auto& t : threads) t.join();
+    return out;
+}
+
+// The whole decode undeveloped, for framing in the gate: box-downsampled to
+// a long edge of at most 2048, linear ProPhoto (D50) to sRGB (D65, Bradford),
+// its mean luminance placed at 18 %, sRGB encoded. Only a guide to frame
+// with; the print is the engine's.
+std::shared_ptr<const Frame::SourcePreview> source_preview(const io::DecodedRaw& in) {
+    auto preview = std::make_shared<Frame::SourcePreview>();
+    const std::uint32_t k = std::max(1u, (std::max(in.width, in.height) + 2047) / 2048);
+    preview->width = std::max(1u, in.width / k);
+    preview->height = std::max(1u, in.height / k);
+    std::vector<float> linear(std::size_t(preview->width) * preview->height * 3);
+    double mean = 0.0;
+    for (std::uint32_t y = 0; y < preview->height; ++y)
+        for (std::uint32_t x = 0; x < preview->width; ++x) {
+            double sum[3] = {};
+            for (std::uint32_t j = 0; j < k; ++j) {
+                const float* row = in.rgb.data() + (std::size_t(y * k + j) * in.width + x * k) * 3;
+                for (std::uint32_t i = 0; i < k * 3; ++i) sum[i % 3] += row[i];
+            }
+            float* p = linear.data() + (std::size_t(y) * preview->width + x) * 3;
+            for (int c = 0; c < 3; ++c) p[c] = float(sum[c] / double(k * k));
+            mean += 0.2880402 * p[0] + 0.7118741 * p[1] + 0.0000857 * p[2];
+        }
+    mean /= double(preview->width) * preview->height;
+    const double gain = std::clamp(mean > 0.0 ? 0.18 / mean : 1.0, 0.125, 32.0);
+    constexpr double m[9] = {2.03406, -0.72733, -0.30674, -0.22881, 1.23173, -0.00292, -0.00857, -0.15329, 1.16186};
+    const auto encode = [](double v) {
+        v = std::clamp(v, 0.0, 1.0);
+        v = v <= 0.0031308 ? 12.92 * v : 1.055 * std::pow(v, 1.0 / 2.4) - 0.055;
+        return std::uint8_t(std::lround(v * 255.0));
+    };
+    preview->bgra8.resize(std::size_t(preview->width) * preview->height * 4);
+    for (std::size_t i = 0, n = std::size_t(preview->width) * preview->height; i < n; ++i) {
+        const float* p = linear.data() + i * 3;
+        std::uint8_t* q = preview->bgra8.data() + i * 4;
+        for (int c = 0; c < 3; ++c)
+            q[2 - c] = encode(gain * (m[3 * c] * p[0] + m[3 * c + 1] * p[1] + m[3 * c + 2] * p[2]));
+        q[3] = 255;
+    }
+    return preview;
+}
+
+std::string read_overscan_geometry(spk_session* session) {
+    char* text = nullptr;
+    if (spk_overscan_geometry(session, &text) != SPK_OK || !text) return "{\"valid\":false}";
+    std::string out(text);
+    spk_string_free(text);
+    return out;
 }
 }  // namespace
 
@@ -352,7 +539,13 @@ std::string check_setting(const SettingField& field, const SettingValue& value, 
             return field.label + " must be between " + number_text(field.low) + " and " + number_text(field.high);
     } else if (field.type == SettingType::text) {
         const auto& v = std::get<std::string>(value);
-        if (field.choices == SettingChoices::listed) {
+        if (field.choices == SettingChoices::free) {
+            // What a date back's faces can print: one short line of ASCII.
+            if (v.size() > kFreeTextMax ||
+                std::any_of(v.begin(), v.end(), [](unsigned char c) { return c < 0x20 || c > 0x7E; }))
+                return field.label + " must be at most " + std::to_string(kFreeTextMax) +
+                       " printable ASCII characters";
+        } else if (field.choices == SettingChoices::listed) {
             if (std::find(field.listed.begin(), field.listed.end(), v) == field.listed.end()) {
                 std::string names;
                 for (const auto& name : field.listed) names += (names.empty() ? "" : ", ") + name;
@@ -404,7 +597,254 @@ bool validate_settings(const RenderSettings& settings, const Catalog& catalog) {
     return catalog.film(settings.film_stock)->is_positive || std::get<bool>(settings.get("scan_film"));
 }
 
-Json wire_params(const RenderSettings& settings, const Catalog& catalog) {
+// --- Film Edge and Date Back ------------------------------------------------
+
+const std::vector<FilmFormat>& film_formats() {
+    // FilmEdgeFormat (FilmEdge.swift:9-81): the gate held level, the film it
+    // runs on; its words and costs (FilmEdgeSection.swift:547-622). Which
+    // date faces a camera draws: 135 and 120 all three, panoramic none
+    // (FilmEdgeFormat.draws); 120 prints them in the margin (printsInMargin).
+    static const std::vector<FilmFormat> formats = [] {
+        const std::string x = "\xC3\x97";  // the multiplication sign
+        std::vector<FilmFormat> f;
+        const auto add = [&](std::string id, std::string title, std::string group, double l, double s,
+                             std::string gauge, std::string gate, std::string ratio, double strip, double filed) {
+            FilmFormat fmt{std::move(id), std::move(title), group, l, s, gauge, gauge == "135",
+                           std::move(gate), std::move(ratio), strip, filed};
+            fmt.prints_in_margin = group == "120";
+            fmt.has_date_back = group != "panoramic";
+            f.push_back(std::move(fmt));
+        };
+        add("135", "135", "135", 36, 24, "135", "36 " + x + " 24", "3:2", 1.52, 1.15);
+        add("135_half", "Half", "135", 24, 18, "135", "18 " + x + " 24", "3:4", 1.54, 1.20);
+        add("120_645", "645", "120", 56, 41.5, "120", "56 " + x + " 41.5", "1.35", 1.20, 1.09);
+        add("120_6x6", "6" + x + "6", "120", 56, 56, "120", "56 " + x + " 56", "1:1", 1.17, 1.07);
+        add("120_6x7", "6" + x + "7", "120", 69.5, 56, "120", "56 " + x + " 69.5", "1.24", 1.15, 1.07);
+        add("120_6x8", "6" + x + "8", "120", 76, 56, "120", "56 " + x + " 76", "1.36", 1.15, 1.06);
+        add("120_6x9", "6" + x + "9", "120", 84, 56, "120", "56 " + x + " 84", "3:2", 1.14, 1.06);
+        add("135_xpan", "XPan", "panoramic", 65, 24, "135", "24 " + x + " 65", "2.7", 1.50, 1.12);
+        add("120_6x12", "6" + x + "12", "panoramic", 112, 56, "120", "56 " + x + " 112", "2:1", 1.13, 1.06);
+        add("120_6x17", "6" + x + "17", "panoramic", 168, 56, "120", "56 " + x + " 168", "3:1", 1.12, 1.05);
+        return f;
+    }();
+    return formats;
+}
+
+const FilmFormat* film_format(std::string_view id) {
+    for (const FilmFormat& f : film_formats())
+        if (f.id == id) return &f;
+    return nullptr;
+}
+
+bool EngineCut::identity() const {
+    return x == 0 && y == 0 && w == 1 && h == 1 && quarter_turns == 0 && !flip_h && !flip_v && straighten_deg == 0;
+}
+
+void cut_size(const EngineCut& cut, std::uint32_t width, std::uint32_t height, std::uint32_t& out_width,
+              std::uint32_t& out_height) {
+    std::uint32_t left = 0, top = 0, w = width, h = height;
+    if (width && height) crop_pixels(cut, width, height, left, top, w, h);
+    const bool turned = cut.quarter_turns % 2 == 1;
+    out_width = turned ? h : w;
+    out_height = turned ? w : h;
+}
+
+namespace {
+std::string text_of(const RenderSettings& s, const char* key) { return std::get<std::string>(s.get(key)); }
+bool bool_of(const RenderSettings& s, const char* key) { return std::get<bool>(s.get(key)); }
+double number_of(const RenderSettings& s, const char* key) { return std::get<double>(s.get(key)); }
+// "1.8", "2", "11": one decimal without a trailing ".0" (ShootingData.trimmed).
+std::string trimmed(double v) {
+    char b[32];
+    std::snprintf(b, sizeof b, "%.1f", v);
+    std::string s = b;
+    if (s.size() > 2 && s.compare(s.size() - 2, 2, ".0") == 0) s.resize(s.size() - 2);
+    return s;
+}
+}  // namespace
+
+const FilmFormat* date_back_camera(const RenderSettings& settings, const PhotoInfo& photo) {
+    if (bool_of(settings, "overscan_active")) return film_format(text_of(settings, "overscan_format"));
+    // The Film Format frame, both sides: the wire's long edge and the
+    // photograph's aspect (Session.filmFormatSidesMM); a 3:2 frame before
+    // its decode is known.
+    const double w = photo.decode_width, h = photo.decode_height;
+    const double aspect = w > 0 && h > 0 ? std::max(w, h) / std::min(w, h) : 1.5;
+    const double long_mm = settings.film_format_mm, short_mm = long_mm / std::max(aspect, 1.0);
+    for (const char* id : {"135", "135_half", "120_645"}) {
+        const FilmFormat* f = film_format(id);
+        if (std::abs(f->long_mm - long_mm) <= 1.0 && std::abs(f->short_mm - short_mm) <= 1.0) return f;
+    }
+    return nullptr;
+}
+
+bool date_back_prints(const RenderSettings& settings, const PhotoInfo& photo, std::string_view face) {
+    const FilmFormat* camera = date_back_camera(settings, photo);
+    if (!camera || !camera->has_date_back) return false;
+    return face == "data" || camera->prints_in_margin ? bool_of(settings, "overscan_active") : true;
+}
+
+bool date_back_effective(const RenderSettings& settings, const PhotoInfo& photo) {
+    if (!bool_of(settings, "date_imprint_active")) return false;
+    const std::string face = text_of(settings, "date_imprint_style");
+    if (!date_back_prints(settings, photo, face)) return false;
+    return face == "data" || text_of(settings, "date_imprint_placement") == "frame" ||
+           bool_of(settings, "overscan_active");
+}
+
+bool date_back_prints_data(const RenderSettings& settings, const PhotoInfo& photo) {
+    return bool_of(settings, "date_back_with_data") && text_of(settings, "date_imprint_style") != "data" &&
+           date_back_prints(settings, photo, "data");
+}
+
+bool cuts_frame(const RenderSettings& settings, const PhotoInfo& photo) {
+    return bool_of(settings, "overscan_active") ||
+           (date_back_effective(settings, photo) && !photo.geometry.identity());
+}
+
+std::string edge_text(const Catalog& catalog, std::string_view film, std::string_view gauge) {
+    // The film's own words where it prints something other than its name,
+    // read off the strips (Session.edgeText, Session+FilmEdge.swift:217-238).
+    struct Own { const char* id; const char* on135; const char* on120; };
+    static constexpr Own own[] = {
+        {"kodak_gold_200", "KODAK GB 200-7", "KODAK 200"},
+        {"kodak_portra_800", "KODAK PORTRA 800-3", "KODAK PORTRA 800"},
+        {"kodak_portra_800_push1", "KODAK PORTRA 800-3", "KODAK PORTRA 800"},
+        {"kodak_portra_800_push2", "KODAK PORTRA 800-3", "KODAK PORTRA 800"},
+        {"kodak_ultramax_400", "KODAK GC 400", "KODAK GC 400"},
+        {"kodak_ektachrome_100", "KODAK E100", "KODAK E100"},
+        {"fujifilm_c200", "FUJI 200", "FUJI 200"},
+        {"fujifilm_xtra_400", "S-400", "FUJI S-400"},
+        {"fujifilm_pro_400h", "PRO400H", "FUJI PRO400H"},
+        {"fujifilm_provia_100f", "FUJI RDPIII", "FUJI RDPIII"},
+        {"fujifilm_velvia_100", "RVP100", "FUJI RVP100"},
+        {"kodak_vision3_50d", "EASTMAN 5203", "EASTMAN 5203"},
+        {"kodak_vision3_250d", "EASTMAN 5207", "EASTMAN 5207"},
+        {"kodak_vision3_200t", "EASTMAN 5213", "EASTMAN 5213"},
+        {"kodak_vision3_500t", "EASTMAN 5219", "EASTMAN 5219"},
+        {"kodak_tri_x_400", "KODAK 400TX", "KODAK 400TX"},
+        {"kodak_tmax_100", "KODAK 100TMX", "KODAK 100TMX"},
+        {"fujifilm_neopan_acros_100_ii", "FUJI 100 ACROS II", "FUJI 100 ACROS II"},
+        {"ilford_hp5_plus_400", "ILFORD HP5 PLUS", "ILFORD HP5 PLUS"},
+    };
+    for (const Own& o : own)
+        if (film == o.id) return gauge == "120" ? o.on120 : o.on135;
+    const Stock* stock = catalog.film(film);
+    if (!stock) return {};
+    // The name in capitals, without a "(Push 1)": a push is processing.
+    std::string name = stock->label.substr(0, stock->label.find('('));
+    while (!name.empty() && name.back() == ' ') name.pop_back();
+    while (!name.empty() && name.front() == ' ') name.erase(name.begin());
+    for (char& c : name) c = char(std::toupper(static_cast<unsigned char>(c)));
+    return name;
+}
+
+std::string date_text(const io::ShootingData& shooting, std::string_view order) {
+    if (shooting.year == 0) return {};
+    char yy[8];
+    std::snprintf(yy, sizeof yy, "'%02d", ((shooting.year % 100) + 100) % 100);
+    const std::string m = std::to_string(shooting.month), d = std::to_string(shooting.day);
+    return order == "us" ? m + " " + d + " " + yy : std::string(yy) + " " + m + " " + d;
+}
+
+std::string data_text(const io::ShootingData& shooting) {
+    std::vector<std::string> fields;
+    if (shooting.exposure_time > 0) {
+        const double t = shooting.exposure_time;
+        fields.push_back(t >= 1 ? trimmed(t) + "s" : "1/" + std::to_string(std::lround(1.0 / t)));
+    }
+    if (shooting.f_number > 0) fields.push_back("F" + trimmed(shooting.f_number));
+    if (shooting.exposure_program >= 1 && shooting.exposure_program <= 4)
+        fields.push_back(std::string(1, "MPAS"[shooting.exposure_program - 1]));
+    if (shooting.has_bias) {
+        const double r = std::round(shooting.exposure_bias * 10.0) / 10.0;
+        if (r != 0.0) {
+            char b[16];
+            std::snprintf(b, sizeof b, "%+.1f", r);
+            fields.push_back(b);
+        }
+    }
+    if (shooting.focal_35mm > 0) fields.push_back(std::to_string(std::lround(shooting.focal_35mm)) + "mm");
+    // Nikon's between-frames line holds 22: fields drop from the right.
+    const auto joined = [&] {
+        std::string s;
+        for (const auto& f : fields) s += (s.empty() ? "" : " ") + f;
+        return s;
+    };
+    while (joined().size() > 22) fields.pop_back();
+    return joined();
+}
+
+std::string printed_date_text(const RenderSettings& settings, const io::ShootingData& shooting) {
+    if (text_of(settings, "date_back_text_source") == "typed") return text_of(settings, "date_back_custom_text");
+    return text_of(settings, "date_imprint_style") == "data" ? data_text(shooting)
+                                                              : date_text(shooting, text_of(settings, "date_back_order"));
+}
+
+double gate_ratio(const RenderSettings& settings, bool landscape) {
+    const FilmFormat* f = film_format(text_of(settings, "overscan_format"));
+    const double l = f ? f->long_mm : 36.0, s = f ? f->short_mm : 24.0;
+    return landscape ? l / s : s / l;
+}
+
+bool gate_shaped(const EngineCut& cut, const RenderSettings& settings, std::uint32_t width, std::uint32_t height) {
+    const double pw = cut.w * width, ph = cut.h * height;
+    if (!(pw > 0 && ph > 0)) return false;
+    return std::abs((pw / ph) / gate_ratio(settings, pw >= ph) - 1.0) <= 0.02;
+}
+
+EngineCut gate_framed(const EngineCut& cut, const RenderSettings& settings, std::uint32_t width,
+                      std::uint32_t height, int landscape) {
+    if (width == 0 || height == 0) return cut;
+    const double W = width, H = height;
+    const double pw = cut.w * W, ph = cut.h * H;
+    const double ratio = gate_ratio(settings, landscape < 0 ? pw >= ph : landscape > 0);
+    // Keep the area, then fit inside the frame (Geometry.constrained).
+    const double area = std::max(pw * ph, 1.0);
+    double nw = std::sqrt(area * ratio), nh = nw / ratio;
+    const double fit = std::min({1.0, W / nw, H / nh});
+    nw *= fit;
+    nh *= fit;
+    EngineCut out = cut;
+    out.w = std::min(1.0, nw / W);
+    out.h = std::min(1.0, nh / H);
+    out.x = std::clamp(cut.x + cut.w / 2 - out.w / 2, 0.0, 1.0 - out.w);
+    out.y = std::clamp(cut.y + cut.h / 2 - out.h / 2, 0.0, 1.0 - out.h);
+    return out;
+}
+
+bool per_photo_setting(std::string_view key) {
+    return key.starts_with("overscan_") || key.starts_with("date_imprint_") || key.starts_with("date_back_") ||
+           key == "film_edge_seeded";
+}
+
+RenderSettings synced_settings(const RenderSettings& from, const RenderSettings& recipient) {
+    RenderSettings out = from;
+    for (const SettingField& field : setting_fields())
+        if (per_photo_setting(field.key)) out.set(field.key, recipient.get(field.key));
+    return out;
+}
+
+std::uint32_t frame_seed_for(std::string_view path_utf8) {
+    // macOS hashes the path with SHA-256 (Session.frameSeed); any stable,
+    // well-spread hash serves: FNV-1a over the path, ASCII case folded since
+    // Windows paths are case-insensitive, kept to the wire's positive range.
+    std::uint32_t hash = 2166136261u;
+    for (unsigned char c : path_utf8) {
+        hash ^= std::uint32_t(c >= 'A' && c <= 'Z' ? c + 32 : (c == '\\' ? '/' : c));
+        hash *= 16777619u;
+    }
+    return hash & 0x7FFFFFFFu;
+}
+
+void seed_film_edge(RenderSettings& settings, std::string_view path_utf8, int index, int body_seed) {
+    settings.set("overscan_frame_seed", double(frame_seed_for(path_utf8)));
+    settings.set("overscan_camera_seed", double(std::clamp(body_seed, 0, 2147483647)));
+    settings.set("overscan_frame_number", index >= 0 ? double(index % 99 + 1) : 0.0);
+    settings.set("film_edge_seeded", true);
+}
+
+Json wire_params(const RenderSettings& settings, const Catalog& catalog, const PhotoInfo* photo) {
     const Stock* film = catalog.film(settings.film_stock);
     const Stock* paper = catalog.paper(settings.print_stock);
     const bool silver_film = film && film->is_monochrome;
@@ -440,10 +880,57 @@ Json wire_params(const RenderSettings& settings, const Catalog& catalog) {
         wire.set("m_filter_neutral", Json(0.0));
         wire.set("y_filter_neutral", Json(68.0));
     }
+    // Film Edge and Date Back (FilmEdgeSettings.wire, DateBackSettings.wire,
+    // FilmEdge.swift:194-214, 375-404). The seeds and the frame number are
+    // integers on the wire.
+    const PhotoInfo unknown;
+    const PhotoInfo& frame = photo ? *photo : unknown;
+    for (const char* key : {"overscan_camera_seed", "overscan_frame_seed", "overscan_frame_number"})
+        wire.set(key, Json(std::round(number_of(settings, key))));
+    // What the session resolves for the engine (Session.resolvedFilmEdge):
+    // the stock's edge print and the lens's f-number, while the film edge is on.
+    const bool edge = bool_of(settings, "overscan_active");
+    const FilmFormat* format = film_format(text_of(settings, "overscan_format"));
+    wire.set("overscan_edge_text",
+             Json(edge && format ? edge_text(catalog, settings.film_stock, format->gauge) : std::string()));
+    wire.set("overscan_f_number", Json(edge ? std::clamp(frame.shooting.f_number, 0.0, 64.0) : 0.0));
+    const bool date = date_back_effective(settings, frame);
+    wire.set("date_imprint_active", Json(date));
+    std::string printed, data;
+    if (date) {
+        const FilmFormat* camera = date_back_camera(settings, frame);
+        // The engine reads the film's direction from the camera's format,
+        // with or without the film edge around it.
+        if (!edge) wire.set("overscan_format", Json(camera->id));
+        printed = printed_date_text(settings, frame.shooting);
+        if (date_back_prints_data(settings, frame)) data = data_text(frame.shooting);
+        // The date alone on a cut frame keeps its size and insets in the
+        // picture and the grain its pitch (FilmParams.wireFilmFormatMM and
+        // dateScale, FilmEdge.swift:423-433): film_format_mm is the cut's
+        // long edge, the date scaled by the cut against the camera's frame.
+        double scale = 1.0;
+        if (!edge && !frame.geometry.identity() && frame.decode_width && frame.decode_height) {
+            std::uint32_t cw = 0, ch = 0;
+            cut_size(frame.geometry, frame.decode_width, frame.decode_height, cw, ch);
+            const double cut_mm = settings.film_format_mm * double(std::max(cw, ch)) /
+                                  double(std::max(frame.decode_width, frame.decode_height));
+            const SettingField& mm = row_for("film_format_mm").field;
+            wire.set("film_format_mm", Json(std::clamp(cut_mm, mm.low, mm.high)));
+            scale = std::clamp(cut_mm / camera->long_mm, 0.05, 1.0);
+        }
+        // Data between half frames has only the 1 mm gap (answer B19).
+        double size = std::clamp(number_of(settings, "date_imprint_size"), 0.4, 3.0);
+        if (text_of(settings, "date_imprint_style") == "data" && camera->id == "135_half") size = std::min(size, 1.0);
+        wire.set("date_imprint_size", Json(std::clamp(size * scale, 0.4, 3.0)));
+        wire.set("date_imprint_inset_x", Json(std::clamp(number_of(settings, "date_imprint_inset_x") * scale, 0.0, 30.0)));
+        wire.set("date_imprint_inset_y", Json(std::clamp(number_of(settings, "date_imprint_inset_y") * scale, 0.0, 30.0)));
+    }
+    wire.set("date_imprint_text", Json(printed));
+    wire.set("date_imprint_data_text", Json(data));
     return wire;
 }
 
-Json opening_params(const RenderSettings& settings, const Catalog& catalog) {
+Json opening_params(const RenderSettings& settings, const Catalog& catalog, const PhotoInfo* photo) {
     Json params = Json::object();
     params.set("input_color_space", Json(std::string("ProPhoto RGB")));
     params.set("input_cctf_decoding", Json(false));
@@ -454,14 +941,15 @@ Json opening_params(const RenderSettings& settings, const Catalog& catalog) {
     // 1.0: the extended range would only clip. Off, as on a silver paper.
     params.set("extended_dynamic_range", Json(false));
     // Named, not iterated as a temporary: fields() is a reference into it.
-    const Json wire = wire_params(settings, catalog);
+    const Json wire = wire_params(settings, catalog, photo);
     for (const auto& [key, value] : wire.fields()) params.set(key, value);
     return params;
 }
 
-Json changed_params(const RenderSettings& before, const RenderSettings& after, const Catalog& catalog) {
-    const Json was = wire_params(before, catalog);
-    const Json now = wire_params(after, catalog);
+Json changed_params(const RenderSettings& before, const RenderSettings& after, const Catalog& catalog,
+                    const PhotoInfo* photo) {
+    const Json was = wire_params(before, catalog, photo);
+    const Json now = wire_params(after, catalog, photo);
     Json delta = Json::object();
     // The C API retains carried user controls when loading another stock.
     // Send only changed fields: an unchanged SHOOT field in a paper-only
@@ -521,7 +1009,35 @@ struct PreviewHost::Impl {
     // Ordinary parameter edits reuse the current GPU source and negative.
     io::DecodedRaw decoded;
     FramePtr frame;
+    // The geometry the session's picture was cut with (Film Edge, Date Back),
+    // or none for the whole decode; and the decode's undeveloped preview,
+    // made the first time a frame of it is cut.
+    std::optional<EngineCut> session_cut;
+    std::shared_ptr<const Frame::SourcePreview> preview;
 };
+
+namespace {
+// What the engine is handed for these settings and this geometry: whether
+// the frame is cut, the geometry it is cut with (held at the gate's shape by
+// a film edge, as Session.holdFilmEdgeCrop does before a develop), and the
+// frame's facts for wire_params.
+struct EngineInput {
+    PhotoInfo photo;
+    bool cut = false;
+};
+EngineInput engine_input(const RenderSettings& settings, const io::DecodedRaw& decoded, const EngineCut& geometry) {
+    EngineInput in;
+    in.photo.shooting = decoded.metadata.shooting;
+    in.photo.decode_width = decoded.width;
+    in.photo.decode_height = decoded.height;
+    in.photo.geometry = geometry;
+    in.cut = cuts_frame(settings, in.photo);
+    if (in.cut && std::get<bool>(settings.get("overscan_active")) &&
+        !gate_shaped(geometry, settings, decoded.width, decoded.height))
+        in.photo.geometry = gate_framed(geometry, settings, decoded.width, decoded.height);
+    return in;
+}
+}  // namespace
 
 PreviewHost::PreviewHost(const fs::path& resources) : impl_(std::make_unique<Impl>()) {
     impl_->resources = fs::absolute(resources);
@@ -541,7 +1057,8 @@ const Catalog& PreviewHost::catalog() const noexcept { return impl_->catalog; }
 double PreviewHost::engine_create_ms() const noexcept { return impl_->engine_create_ms; }
 FramePtr PreviewHost::current() const noexcept { return impl_->frame; }
 
-FramePtr PreviewHost::open_raw(const fs::path& source, DecodeMode mode, const RenderSettings& settings) {
+FramePtr PreviewHost::open_raw(const fs::path& source, DecodeMode mode, const RenderSettings& settings,
+                               const EngineCut& geometry) {
     const auto started = Clock::now();
     const bool scan_film = validate_settings(settings, impl_->catalog);
     require(mode == DecodeMode::compatible16 || mode == DecodeMode::headroom, "Unknown RAW decode mode");
@@ -563,7 +1080,13 @@ FramePtr PreviewHost::open_raw(const fs::path& source, DecodeMode mode, const Re
     next->metadata = decoded.metadata;
     next->decode_timings = decoded.timings;
     t = Clock::now();
-    auto session = open_session(impl_->engine.get(), decoded, settings, impl_->catalog);
+    const EngineInput input = engine_input(settings, decoded, geometry);
+    std::vector<float> cut_rgb;
+    std::uint32_t pw = decoded.width, ph = decoded.height;
+    if (input.cut) cut_rgb = cut_decode(decoded, input.photo.geometry, pw, ph);
+    auto session = open_session(impl_->engine.get(), input.cut ? cut_rgb.data() : decoded.rgb.data(), pw, ph,
+                                settings, impl_->catalog, input.photo);
+    cut_rgb = {};
     next->timings.open_ms = elapsed(t);
     t = Clock::now();
     const auto status = spk_render(session.get(), "full", &next->result_);
@@ -573,15 +1096,26 @@ FramePtr PreviewHost::open_raw(const fs::path& source, DecodeMode mode, const Re
     t = Clock::now();
     next->bgra8 = rgba16_to_bgra8(next->result_);
     next->timings.display_ms = elapsed(t);
+    next->geometry = input.photo.geometry;
+    next->cut = input.cut;
+    next->decode_width = decoded.width;
+    next->decode_height = decoded.height;
+    next->picture_width = pw;
+    next->picture_height = ph;
+    next->overscan_geometry = read_overscan_geometry(session.get());
+    auto preview = input.cut ? source_preview(decoded) : nullptr;
+    next->source_preview = preview;
     // Commit only after all allocations and GPU/CPU work succeeded.
     impl_->session = std::move(session);
+    impl_->session_cut = input.cut ? std::optional<EngineCut>(input.photo.geometry) : std::nullopt;
+    impl_->preview = std::move(preview);
     impl_->decoded = std::move(decoded);
     impl_->frame = next;
     next->timings.total_ms = elapsed(started);
     return next;
 }
 
-FramePtr PreviewHost::render(const RenderSettings& settings) {
+FramePtr PreviewHost::render(const RenderSettings& settings, const EngineCut& geometry) {
     const auto started = Clock::now();
     require(bool(impl_->frame), "Open a RAW image before rendering");
     const bool scan_film = validate_settings(settings, impl_->catalog);
@@ -592,14 +1126,27 @@ FramePtr PreviewHost::render(const RenderSettings& settings) {
     next->scan_film = scan_film;
     next->metadata = impl_->frame->metadata;
     next->decode_timings = impl_->frame->decode_timings;
-    const auto delta = changed_params(impl_->frame->settings, settings, impl_->catalog);
+    const EngineInput input = engine_input(settings, impl_->decoded, geometry);
+    const auto wanted_cut = input.cut ? std::optional<EngineCut>(input.photo.geometry) : std::nullopt;
+    const auto delta = changed_params(impl_->frame->settings, settings, impl_->catalog, &input.photo);
+    std::uint32_t pw = impl_->decoded.width, ph = impl_->decoded.height;
+    if (impl_->session && wanted_cut == impl_->session_cut) {
+        pw = impl_->frame->picture_width;
+        ph = impl_->frame->picture_height;
+    }
     try {
         auto t = Clock::now();
-        if (!impl_->session) {
+        if (!impl_->session || wanted_cut != impl_->session_cut) {
             // C API settings changes may fail after applying part of their
             // state. Never reuse such a session; rebuild from the retained
             // decoded input on the next request, without decoding the file.
-            impl_->session = open_session(impl_->engine.get(), impl_->decoded, settings, impl_->catalog);
+            // A new cut is a new picture for the engine: the same rebuild.
+            impl_->session.reset();
+            std::vector<float> cut_rgb;
+            if (input.cut) cut_rgb = cut_decode(impl_->decoded, input.photo.geometry, pw, ph);
+            impl_->session = open_session(impl_->engine.get(), input.cut ? cut_rgb.data() : impl_->decoded.rgb.data(),
+                                          pw, ph, settings, impl_->catalog, input.photo);
+            impl_->session_cut = wanted_cut;
             next->timings.open_ms = elapsed(t);
         } else if (!delta.fields().empty()) {
             const auto text = delta.dump();
@@ -615,10 +1162,19 @@ FramePtr PreviewHost::render(const RenderSettings& settings) {
         t = Clock::now();
         next->bgra8 = rgba16_to_bgra8(next->result_);
         next->timings.display_ms = elapsed(t);
+        next->overscan_geometry = read_overscan_geometry(impl_->session.get());
+        if (input.cut && !impl_->preview) impl_->preview = source_preview(impl_->decoded);
     } catch (...) {
         impl_->session.reset();
         throw;
     }
+    next->geometry = input.photo.geometry;
+    next->cut = input.cut;
+    next->decode_width = impl_->decoded.width;
+    next->decode_height = impl_->decoded.height;
+    next->picture_width = pw;
+    next->picture_height = ph;
+    next->source_preview = input.cut ? impl_->preview : nullptr;
     impl_->frame = next;
     next->timings.total_ms = elapsed(started);
     return next;
