@@ -206,3 +206,31 @@ if(BUILD_TESTING)
         set_tests_properties(spk_qt_color_core PROPERTIES ENVIRONMENT_MODIFICATION "${qt_test_runtime_path}")
     endif()
 endif()
+
+# Post-Dev (Layer 2, src/PostDev.*): the model, its JSON, the curve and the CPU
+# path against a double transcription of the Mac's Shaders.metal (--cpu), and
+# shaders/postdev.glsl through a QRhi offscreen render on D3D11, WARP preferred,
+# against the CPU path (--gpu; fails rather than skips without a device). qsb
+# baking the probe shaders is itself the check that postdev.glsl compiles for
+# every target the canvas uses; glslang checks it as GLSL 450 as well.
+if(BUILD_TESTING)
+    find_package(Qt6 6.8 REQUIRED COMPONENTS ShaderTools GuiPrivate)
+    qt_add_executable(spk_qt_postdev_test tests/postdev.cpp src/PostDev.hpp src/PostDev.cpp)
+    target_include_directories(spk_qt_postdev_test PRIVATE src)
+    target_compile_features(spk_qt_postdev_test PRIVATE cxx_std_20)
+    target_link_libraries(spk_qt_postdev_test PRIVATE Qt6::Core Qt6::Gui Qt6::GuiPrivate)
+    qt_add_shaders(spk_qt_postdev_test "spk_qt_postdev_probe" PREFIX "/postdev"
+        GLSL "300es,330" HLSL 50 MSL 12
+        FILES shaders/postdev_probe.vert shaders/postdev_probe.frag)
+    add_test(NAME spk_qt_postdev COMMAND spk_qt_postdev_test --cpu)
+    add_test(NAME spk_qt_postdev_gpu COMMAND spk_qt_postdev_test --gpu)
+    if(WIN32)
+        set_tests_properties(spk_qt_postdev spk_qt_postdev_gpu PROPERTIES
+            ENVIRONMENT_MODIFICATION "${qt_test_runtime_path}")
+    endif()
+    if(SPEKTRALAB_GLSLANG)
+        add_test(NAME spk_qt_postdev_glsl COMMAND "${SPEKTRALAB_GLSLANG}" -V --target-env vulkan1.0
+            --glsl-version 450 -o "${CMAKE_CURRENT_BINARY_DIR}/postdev_probe_450.spv"
+            "${CMAKE_CURRENT_SOURCE_DIR}/shaders/postdev_probe.frag")
+    endif()
+endif()
