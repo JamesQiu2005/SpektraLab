@@ -1055,6 +1055,12 @@ Json opening_params(const RenderSettings& settings, const Catalog& catalog, cons
     // this host's output is an SDR sRGB frame that spk_to_rgba16 clamps to
     // 1.0: the extended range would only clip. Off, as on a silver paper.
     params.set("extended_dynamic_range", Json(false));
+    // SpektraLab's defaults rather than the reference's, asked for by name
+    // as macOS does (Session.swift openDelta): Film Exposure then moves the
+    // finished print's brightness. Without it the enlarger re-times the print
+    // for the film exposure (AGENTS.md trap 30) and the slider only reshapes
+    // contrast and saturation around a fixed mid-grey.
+    params.set("product_defaults", Json(true));
     // Named, not iterated as a temporary: fields() is a reference into it.
     const Json wire = wire_params(settings, catalog, photo);
     for (const auto& [key, value] : wire.fields()) params.set(key, value);

@@ -150,13 +150,21 @@ void settings_schema() {
     // The complete open request, fixed I/O policy included, is one the
     // engine's schema accepts: no misspelt or retired wire name -- the
     // black-and-white pair's neutral pack included.
+    // `product_defaults` is spk_open's own option, taken out before it
+    // validates (engine.cpp), and has no schema row.
+    const auto render_params = [](const Json& open) {
+        Json rest = Json::object();
+        for (const auto& [key, value] : open.fields())
+            if (key != "product_defaults") rest.set(key, value);
+        return rest;
+    };
     std::string error, param;
-    if (!spk::validate_delta(opening_params(RenderSettings{}, test_catalog()), error, param))
+    if (!spk::validate_delta(render_params(opening_params(RenderSettings{}, test_catalog())), error, param))
         throw std::runtime_error("default opening parameters fail the engine schema: " + error);
     RenderSettings silver;
     silver.film_stock = "kodak_tri_x_400";
     silver.print_stock = "ilford_multigrade_iv_rc";
-    if (!spk::validate_delta(opening_params(silver, test_catalog()), error, param))
+    if (!spk::validate_delta(render_params(opening_params(silver, test_catalog())), error, param))
         throw std::runtime_error("black-and-white opening parameters fail the engine schema: " + error);
 }
 
@@ -568,7 +576,10 @@ void settings_deltas() {
     check(!open.at("scan_film").as_bool() && open.at("output_color_space").as_string() == "sRGB" &&
           open.at("input_color_space").as_string() == "ProPhoto RGB" && !open.at("extended_dynamic_range").as_bool(),
           "opening parameters lost the host's fixed policy");
-    check(open.fields().size() == wire_rows + 4 + 5, "opening parameters carry an unexpected field");
+    // SpektraLab's defaults, as macOS asks for them (Session.swift openDelta):
+    // without them Film Exposure barely moves the print.
+    check(open.at("product_defaults").as_bool(false), "opening parameters do not ask for the product defaults");
+    check(open.fields().size() == wire_rows + 5 + 5, "opening parameters carry an unexpected field");
     RenderSettings slide_open = base;
     slide_open.film_stock = "kodak_ektachrome_100";
     check(opening_params(slide_open, catalog).at("scan_film").as_bool(), "a slide opened printed");
@@ -1216,6 +1227,18 @@ void settings_engine(const fs::path& resources) {
     session_matches(current);
     Rendered opened;
     check(spk_render(session.get(), "full", &opened.result) == SPK_OK, "first render");
+    // Film Exposure moves the finished print, as on macOS (product_defaults
+    // in the open): a stop over prints clearly brighter, where the reference
+    // re-times the enlarger and holds the mid-grey (AGENTS.md trap 30).
+    {
+        RenderSettings exposed = current;
+        exposed.film_exposure_ev = 1.0;
+        SessionPtr over = open(exposed);
+        Rendered up;
+        check(spk_render(over.get(), "full", &up.result) == SPK_OK, "render a stop over");
+        std::cout << "film exposure +1 EV: mean green " << opened.mean_green() << " -> " << up.mean_green() << '\n';
+        check(up.mean_green() > opened.mean_green() * 1.15, "Film Exposure +1 EV did not brighten the print");
+    }
 
     // What a frame is tagged with comes from the engine's reply: the
     // desktop's sRGB request, a ProPhoto request, and no request at all --
