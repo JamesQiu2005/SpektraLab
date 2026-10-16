@@ -395,6 +395,10 @@
         "placement.highlight": "Highlight",
         "placement.shadow": "Shadow",
         "placement.reset": "Turn Scene Placement off",
+        "placement.reasonNotDeveloped": "Develop the frame first.",
+        "placement.reasonMeasuring": "Waiting for the latitude measurement of the current settings.",
+        "placement.highlightHelp": "Stops the scene's top is drawn in toward the medium before the film sees it. The band on the track is what the fit can take.",
+        "placement.shadowHelp": "Stops the scene's bottom is drawn in toward the medium before the film sees it. The band on the track is what the fit can take.",
 
         "mask.title": "Tone Mask",
         "mask.enable": "Enable",
@@ -404,6 +408,8 @@
         "mask.radius": "Radius",
         "mask.caption": "Change in paper exposure against the blurred negative, stops",
         "mask.reset": "Reset the Tone Mask",
+        "mask.reasonPrintEffectsOff": "Print Effects is off in the Print section.",
+        "mask.reasonInactive": "Enable the Tone Mask to set it.",
 
         "decode.title": "RAW Decode",
         "decode.mode": "Decode",
