@@ -7,9 +7,11 @@ import SpektraLab.Native 1.0
 // canvas is framed and the rest dimmed, and a click or drag in the well puts
 // that point at the canvas's centre.
 //
-// It shows the canvas's own image -- the cropped print, or the whole source
+// It shows the canvas's frame -- the cropped print, or the whole source
 // while the crop editor is up -- so it cannot show a different frame from
-// the canvas (the Mac's trap 33).
+// the canvas (the Mac's trap 33). Outside the crop editor that is the
+// controller's navigator image, the same visible frame reduced to 1024 px,
+// rather than a second full-resolution texture (251 MiB of RGBA16F at 33 MP).
 MacSection {
     id: section
     required property EditorState editor
@@ -28,7 +30,8 @@ MacSection {
             FrameCanvas {
                 id: thumb
                 anchors.fill: parent
-                image: section.editor.canvas ? section.editor.canvas.image : preview.previewImage
+                image: section.editor.cropMode && section.editor.canvas ? section.editor.canvas.image
+                                                                       : preview.navigatorImage
                 enabled: false
             }
             // Everything off the canvas dimmed, what is on it framed.

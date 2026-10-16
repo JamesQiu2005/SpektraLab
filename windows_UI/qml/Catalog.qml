@@ -2,81 +2,92 @@ pragma Singleton
 import QtQuick
 
 // The film and paper lists as the rails draw them: group captions and rows,
-// built from the controller's catalogue (`preview.films` / `preview.papers`,
-// each `{ id, name, positive }`). One place, so the Film and Print sections
-// and anything later that lists stocks agree on groups and badges.
+// built from the controller's macOS-ordered catalogues (`preview.filmCatalog`
+// / `preview.paperCatalog`, PreviewController.hpp). One place, so the Film and
+// Print sections and anything later that lists stocks agree on groups,
+// captions and badges.
 //
-// Rows are `{ name, key, cine, header, enabled, reason }`; `key` is the
-// stock's index in the controller's catalogue, -1 for captions and for the
-// "No Print Profile" row.
+// Rows are `{ name, key, cine, header, enabled, reason, help }`; `key` is the
+// stock's id (the controller's selectFilm / selectPaper argument), "" for a
+// caption. The CINE badge is the catalogue's own `cine` flag (the Mac's
+// `info.use == "cine"`), not a guess from the id.
 QtObject {
-    // Whether a stock is cinema stock, for the CINE badge and the Cine paper
-    // group. The macOS catalogue says so in each profile's `info.use`, which
-    // the Windows controller does not pass to QML yet; until it does (a
-    // `cine` field on each catalogue entry is honoured when present), the
-    // stock id decides: Kodak's Vision3 and Verita camera films and the 2383 /
-    // 2393 print films -- exactly the "use": "cine" entries of the Mac's
-    // StockCatalog.json.
-    function isCine(stock) {
-        if (stock.cine !== undefined) return !!stock.cine
-        var id = String(stock.id === undefined ? "" : stock.id)
-        return id.indexOf("kodak_vision3_") === 0 || id.indexOf("kodak_verita_") === 0
-            || id === "kodak_2383" || id === "kodak_2393"
+    // The film list's three groups, as StockCatalog.filmGroups names them;
+    // a group with nothing in it gets no caption (FilmSection.swift stockRows).
+    function filmCaption(group) {
+        if (group === "positive") return L10n.tr("film.group.positive")
+        if (group === "negative") return L10n.tr("film.group.negative")
+        if (group === "blackAndWhite") return L10n.tr("film.group.blackAndWhite")
+        return group
+    }
+    function paperCaption(group) {
+        if (group === "still") return L10n.tr("print.group.still")
+        if (group === "cine") return L10n.tr("print.group.cine")
+        if (group === "positive") return L10n.tr("print.group.positive")
+        return group
+    }
+    function caption(name) {
+        return { name: name, key: "", cine: false, header: true, enabled: false, reason: "", help: "" }
     }
 
-    // Positive, then Negative -- the Mac's two visible groups, taken from the
-    // catalogue's type rather than from any order in a drawing. An empty
-    // group gets no caption.
+    // Positive, Negative, Black & White, in the catalogue's order.
     function filmRows(films) {
         var rows = []
-        var groups = [{ positive: true, caption: L10n.tr("film.group.positive") },
-                      { positive: false, caption: L10n.tr("film.group.negative") }]
-        for (var g = 0; g < groups.length; ++g) {
-            var members = []
-            for (var i = 0; i < films.length; ++i)
-                if (films[i].positive === groups[g].positive)
-                    members.push({ name: films[i].name, key: i, cine: isCine(films[i]), header: false, enabled: true, reason: "" })
-            if (members.length === 0) continue
-            rows.push({ name: groups[g].caption, key: -1, cine: false, header: true, enabled: false, reason: "" })
-            rows = rows.concat(members)
+        var group = null
+        for (var i = 0; i < films.length; ++i) {
+            var f = films[i]
+            if (f.group !== group) { group = f.group; rows.push(caption(filmCaption(group))) }
+            rows.push({ name: f.name, key: String(f.id), cine: f.cine === true, header: false,
+                        enabled: true, reason: "", help: "" })
         }
         return rows
     }
 
-    // Still, Cine, then Positive with its one row, "No Print Profile" --
-    // scanning the developed film instead of printing it. A slide film is
-    // scanned directly (the controller's rule), so while one is chosen every
-    // paper greys with the reason and "No Print Profile" is the answer; for a
-    // negative the Windows controller has no scan-only switch yet, so that
-    // row is the one that greys.
-    function paperRows(papers, positiveFilm) {
-        var still = [], cine = []
-        for (var i = 0; i < papers.length; ++i) {
-            var row = { name: papers[i].name, key: i, cine: isCine(papers[i]), header: false,
-                        enabled: !positiveFilm, reason: positiveFilm ? L10n.tr("print.reason.slideFilm") : "" }
-            if (row.cine) cine.push(row); else still.push(row)
-        }
+    // Why a paper row is greyed, from the controller's `reason`
+    // (PrintProfileSection.swift:71-79).
+    function paperReason(reason) {
+        if (reason === "positiveFilm") return L10n.tr("print.reason.positiveFilm")
+        if (reason === "silverPaper") return L10n.tr("print.reason.silverPaper")
+        if (reason === "colourPaper") return L10n.tr("print.reason.colourPaper")
+        return ""
+    }
+
+    // Still, Cine, then Digital (the Digital Intermediate, greyed: it needs a
+    // Cineon canvas view Windows does not have yet), then Positive with its
+    // one row, "No Print Profile" -- scanning the developed film instead of
+    // printing it, offered for any film (PrintProfileSection.swift:81-113).
+    function paperRows(papers) {
         var rows = []
-        if (still.length > 0) {
-            rows.push({ name: L10n.tr("print.group.still"), key: -1, cine: false, header: true, enabled: false, reason: "" })
-            rows = rows.concat(still)
+        var group = null
+        var tail = []
+        for (var i = 0; i < papers.length; ++i) {
+            var p = papers[i]
+            if (p.noPrintProfile === true) {
+                tail.push({ name: L10n.tr("print.none"), key: String(p.id), cine: false, header: false,
+                            enabled: true, reason: "", help: L10n.tr("print.noneHelp") })
+                continue
+            }
+            if (p.group === "positive") {
+                tail.unshift({ name: p.name, key: String(p.id), cine: p.cine === true, header: false,
+                               enabled: p.enabled === true, reason: paperReason(String(p.reason || "")), help: "" })
+                continue
+            }
+            if (p.group !== group) { group = p.group; rows.push(caption(paperCaption(group))) }
+            rows.push({ name: p.name, key: String(p.id), cine: p.cine === true, header: false,
+                        enabled: p.enabled === true, reason: paperReason(String(p.reason || "")), help: "" })
         }
-        if (cine.length > 0) {
-            rows.push({ name: L10n.tr("print.group.cine"), key: -1, cine: false, header: true, enabled: false, reason: "" })
-            rows = rows.concat(cine)
+        rows.push(caption(L10n.tr("print.group.digital")))
+        rows.push({ name: L10n.tr("print.digitalIntermediate"), key: digitalKey, cine: false, header: false,
+                    enabled: false, reason: L10n.tr("placeholder.digitalIntermediate"), help: "" })
+        if (tail.length > 0) {
+            rows.push(caption(paperCaption("positive")))
+            rows = rows.concat(tail)
         }
-        // The Mac's Digital group: RFC-028's Digital Intermediate, the
-        // negative unmasked and reversed as Cineon-style log -- a switch
-        // beside the paper, not a paper. The Windows engine boundary does
-        // not offer it yet, so its row keeps its place greyed.
-        rows.push({ name: L10n.tr("print.group.digital"), key: -1, cine: false, header: true, enabled: false, reason: "" })
-        rows.push({ name: L10n.tr("print.digitalIntermediate"), key: -3, cine: false, header: false,
-                    enabled: false, reason: L10n.tr("placeholder.digitalIntermediate") })
-        rows.push({ name: L10n.tr("print.group.positive"), key: -1, cine: false, header: true, enabled: false, reason: "" })
-        rows.push({ name: L10n.tr("print.none"), key: noPrintKey, cine: false, header: false,
-                    enabled: positiveFilm, reason: positiveFilm ? "" : L10n.tr("print.reason.noScanNegative") })
         return rows
     }
-    // The "No Print Profile" row's key: not a catalogue index.
-    readonly property int noPrintKey: -2
+    // The Digital Intermediate's row: a switch beside the paper on the Mac,
+    // not a paper id (PrintProfileSection.swift:59).
+    readonly property string digitalKey: "__digital_intermediate__"
+    // "No Print Profile" (PreviewController's printSelection while scanning).
+    readonly property string noPrintKey: "__scan_film__"
 }

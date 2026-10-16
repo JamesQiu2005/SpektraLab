@@ -1,4 +1,5 @@
 #include "FrameOutput.hpp"
+#include "FrameImage.hpp"
 #include "io/image_writer.hpp"
 #include <QColorSpace>
 #include <QDir>
@@ -168,8 +169,8 @@ QRect cropPixels(QSize fullSize,QRectF crop) {
     return {left,top,right-left,bottom-top};
 }
 
-QImage displayImage(const QImage& full8,QRectF crop) {
-    return displayImage(full8,Geometry{crop});
+QImage displayImage(const QImage& full,QRectF crop) {
+    return displayImage(full,Geometry{crop});
 }
 
 void validateGeometry(QSize size,const Geometry& geometry) {
@@ -180,9 +181,9 @@ void validateGeometry(QSize size,const Geometry& geometry) {
         fail(QStringLiteral("Straightening must be between -45 and +45 degrees"));
 }
 
-QImage displayImage(const QImage& full8,const Geometry& geometry) {
-    auto output=applyGeometry(full8,geometry);
-    if(output.format()!=full8.format())output=output.convertToFormat(full8.format());
+QImage displayImage(const QImage& full,const Geometry& geometry) {
+    auto output=applyGeometry(full,geometry);
+    if(output.format()!=full.format())output=output.convertToFormat(full.format());
     if(output.isNull())fail(QStringLiteral("Cannot allocate the transformed preview"));
     return output;
 }
@@ -218,11 +219,11 @@ QImage exportImage(const QImage& fullRgba64,const Geometry& geometry,const Expor
 }
 
 QImage displayFrame(const FramePtr& frame,const Geometry& geometry) {
-    const auto pixels=exportImage(framePixels(frame),geometry,{});
-    auto output=pixels.convertToFormat(QImage::Format_ARGB32);
-    if(output.isNull())fail(QStringLiteral("Cannot allocate the transformed preview"));
-    output.setColorSpace(QColorSpace::SRgb);
-    return output;
+    const auto source=framePixels(frame);
+    // Tag before transforming, so an encoding the display cannot name is
+    // refused before any work; the pixels keep the session's encoding.
+    const auto space=display::colorSpace(frame->encoding);
+    return display::halfImage(exportImage(source,geometry,{}),space);
 }
 
 bool formatAvailable(Format format) {
@@ -284,6 +285,14 @@ void exportFrame(const FramePtr& frame,const fs::path& destination,const Geometr
                  const ExportOptions& options,const fs::path& resources) {
     // The caller's immutable FramePtr stays alive throughout this synchronous
     // function; crop/downsize/detach cannot modify its retained RGBA16 result.
-    exportImageFile(framePixels(frame),destination,geometry,options,resources);
+    const auto pixels=framePixels(frame);
+    // Every writer labels the file with the bundled sRGB profile. A frame in
+    // any other encoding would be mislabelled, so it is refused until export
+    // converts out of the working space.
+    if(!frame->encoding.is_encoded_srgb())
+        fail(QStringLiteral("Export writes sRGB, but this frame is encoded in %1%2")
+             .arg(QString::fromStdString(frame->encoding.color_space),
+                  frame->encoding.cctf_encoding?QString():QStringLiteral(" (linear)")));
+    exportImageFile(pixels,destination,geometry,options,resources);
 }
 } // namespace spk::desktop::output

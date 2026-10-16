@@ -3,12 +3,14 @@ import QtQuick.Controls
 
 // Input / Camera (CameraSection.swift): how the photograph enters the film.
 //
-// Metering is the meter's intent (the settings table's
-// `auto_exposure_method`): overall correctness, a subject in the middle, the
-// brightest part kept, the darkest kept. A photo saved before the field
-// existed meters with the engine's own method and shows it by name; it is not
-// offered. The Mac's "Custom" (meter off) needs an auto-exposure switch the
-// Windows table does not have.
+// Metering is the controller's aeMethod (Params.swift AEMethod): Custom is
+// the meter off (auto_exposure false -- Film Exposure is then the whole of the
+// film exposure, from the linearized frame), and the four intents meter with
+// auto_exposure_method: overall correctness, a subject in the middle, the
+// brightest part kept, the darkest kept. Custom leaves the intent alone, so
+// switching the meter back on returns to it. A photo saved before the field
+// existed meters with the engine's own method ("legacy") and shows it by name;
+// it is not offered.
 //
 // Film Exposure sits under it because the two are one decision read in two
 // lines: the method chooses a baseline and the slider offsets it. It moves
@@ -22,8 +24,17 @@ MacSection {
     id: section
     sectionId: "camera"
     title: L10n.tr("camera.title")
-    readonly property var methods: ["balanced", "center", "protect_highlights", "protect_shadows"]
-    readonly property string method: preview.parameters.auto_exposure_method === undefined ? "balanced" : String(preview.parameters.auto_exposure_method)
+    readonly property var methods: preview.aeMethodChoices
+    readonly property string method: preview.aeMethod
+    readonly property string legacyName: preview.parameters.auto_exposure_method === undefined ? "" : String(preview.parameters.auto_exposure_method)
+    function methodTitle(m) {
+        if (m === "custom") return L10n.tr("camera.metering.custom")
+        if (m === "balanced") return L10n.tr("camera.metering.balanced")
+        if (m === "center") return L10n.tr("camera.metering.center")
+        if (m === "protect_highlights") return L10n.tr("camera.metering.protectHighlights")
+        if (m === "protect_shadows") return L10n.tr("camera.metering.protectShadows")
+        return m
+    }
     resetVisible: true
     resetAvailable: preview.settingsEditable
     resetToolTip: L10n.tr("camera.resetFilmExposure")
@@ -39,16 +50,17 @@ MacSection {
         label: L10n.tr("camera.metering")
         available: preview.settingsEditable
         PillDropdown {
-            readonly property bool legacy: section.methods.indexOf(section.method) < 0
+            objectName: "meteringPill"
+            readonly property bool legacy: section.method === "legacy"
             model: {
-                var titles = [L10n.tr("camera.metering.balanced"), L10n.tr("camera.metering.center"),
-                              L10n.tr("camera.metering.protectHighlights"), L10n.tr("camera.metering.protectShadows")]
-                if (legacy) titles.push(L10n.tr("camera.metering.legacy", [section.method.replace("_", "-")]))
+                var titles = []
+                for (var i = 0; i < section.methods.length; ++i) titles.push(section.methodTitle(section.methods[i]))
+                if (legacy) titles.push(L10n.tr("camera.metering.legacy", [section.legacyName.replace(/_/g, "-")]))
                 return titles
             }
             // Reads `model` so a language switch re-runs the binding.
-            currentIndex: { model; return legacy ? 4 : section.methods.indexOf(section.method) }
-            onActivated: function(index) { if (index < section.methods.length) preview.setParameter("auto_exposure_method", section.methods[index]) }
+            currentIndex: { model; return legacy ? section.methods.length : section.methods.indexOf(section.method) }
+            onActivated: function(index) { if (index < section.methods.length) preview.aeMethod = section.methods[index] }
         }
     }
     ScrubSlider {

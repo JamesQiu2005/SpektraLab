@@ -565,6 +565,34 @@ void settings_deltas() {
     RenderSettings slide_open = base;
     slide_open.film_stock = "kodak_ektachrome_100";
     check(opening_params(slide_open, catalog).at("scan_film").as_bool(), "a slide opened printed");
+    // The request is the host's option; it is not what a frame is tagged
+    // with (output_encoding reads the reply, below and in --settings-engine).
+    check(opening_params(base, catalog, "ProPhoto RGB").at("output_color_space").as_string() == "ProPhoto RGB" &&
+          opening_params(base, catalog, "ProPhoto RGB").at("output_cctf_encoding").as_bool(),
+          "requested output colour space not passed through");
+
+    // The open reply's resolved encoding, and refusals for a reply that does
+    // not say: a frame must never be tagged from a default.
+    const auto reply = [](const char* text) {
+        Json value;
+        std::string error;
+        if (!Json::parse(text, value, error)) throw std::runtime_error("test reply: " + error);
+        return value;
+    };
+    check(output_encoding(reply(R"({"params":{"output_color_space":"ProPhoto RGB","output_cctf_encoding":true}})")) ==
+              OutputEncoding{"ProPhoto RGB", true}, "resolved encoding not read from the reply");
+    check(output_encoding(reply(R"({"params":{"output_color_space":"sRGB","output_cctf_encoding":false}})")) ==
+              OutputEncoding{"sRGB", false}, "linear output not read from the reply");
+    check(OutputEncoding{"sRGB", true}.is_encoded_srgb() && !OutputEncoding{"sRGB", false}.is_encoded_srgb() &&
+          !OutputEncoding{"Display P3", true}.is_encoded_srgb(), "encoded-sRGB test is wrong");
+    for (const char* bad : {R"({})", R"({"params":{}})", R"({"params":[]})",
+                            R"({"params":{"output_cctf_encoding":true}})",
+                            R"({"params":{"output_color_space":"","output_cctf_encoding":true}})",
+                            R"({"params":{"output_color_space":3,"output_cctf_encoding":true}})",
+                            R"({"params":{"output_color_space":"sRGB"}})",
+                            R"({"params":{"output_color_space":"sRGB","output_cctf_encoding":1}})",
+                            R"({"output_color_space":"sRGB","output_cctf_encoding":true})"})
+        rejected([&] { output_encoding(reply(bad)); }, "open reply without a resolved encoding accepted");
 
     check(changed_params(base, base, catalog).fields().empty(), "unchanged settings produced a delta");
     // Each wire row alone produces exactly its own key; a film change also
@@ -1176,6 +1204,32 @@ void settings_engine(const fs::path& resources) {
     Rendered opened;
     check(spk_render(session.get(), "full", &opened.result) == SPK_OK, "first render");
 
+    // What a frame is tagged with comes from the engine's reply: the
+    // desktop's sRGB request, a ProPhoto request, and no request at all --
+    // where only the engine knows the answer (its RFC-018 default).
+    const auto resolved = [&](const Json& params) {
+        char* text = nullptr;
+        SessionPtr probe(spk_open(engine.get(), &input, params.dump().c_str(), &text), &spk_session_release);
+        const std::unique_ptr<char, decltype(&spk_string_free)> owner(text, &spk_string_free);
+        if (!probe || !text) throw std::runtime_error("open for the encoding probe: " + error());
+        Json reply;
+        std::string parse_error;
+        check(Json::parse(text, reply, parse_error), "open reply is not JSON");
+        return output_encoding(reply);
+    };
+    check(resolved(opening_params(current, catalog)) == OutputEncoding{"sRGB", true},
+          "the desktop's sRGB session reports another encoding");
+    check(resolved(opening_params(current, catalog, "ProPhoto RGB")) == OutputEncoding{"ProPhoto RGB", true},
+          "a ProPhoto session reports another encoding");
+    Json unrequested = Json::object();
+    const Json requested = opening_params(current, catalog);
+    for (const auto& kv : requested.fields())
+        if (kv.first != "output_color_space" && kv.first != "output_cctf_encoding") unrequested.set(kv.first, kv.second);
+    const auto engine_default = resolved(unrequested);
+    check(engine_default == OutputEncoding{spk::Params{}.io.output_color_space, true} &&
+          engine_default.color_space != kDisplayOutputColorSpace,
+          "an unrequested output space did not come back as the engine's own default");
+
     const auto edit = [&](const RenderSettings& next, bool expect_cached) {
         const auto delta = changed_params(current, next, catalog);
         check(!delta.fields().empty(), "edit produced no delta");
@@ -1343,7 +1397,7 @@ void settings_engine(const fs::path& resources) {
         photo.shooting.f_number = 4.0;
         photo.shooting.year = 2026; photo.shooting.month = 10; photo.shooting.day = 16;
         const auto open_film = [&](const RenderSettings& settings) {
-            SessionPtr s(spk_open(engine.get(), &input, opening_params(settings, catalog, &photo).dump().c_str(), nullptr),
+            SessionPtr s(spk_open(engine.get(), &input, opening_params(settings, catalog, kDisplayOutputColorSpace, &photo).dump().c_str(), nullptr),
                          &spk_session_release);
             if (!s) throw std::runtime_error("open with a film edge: " + error());
             return s;

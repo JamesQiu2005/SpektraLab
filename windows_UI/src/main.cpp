@@ -1,10 +1,16 @@
 #include "PreviewController.hpp"
+#include "AppSettings.hpp"
+#include "AppShell.hpp"
+#include "ShellCapture.hpp"
+#include "ColorPipeline.hpp"
 #include "FrameCanvas.hpp"
+#include "FrameImage.hpp"
 #include "Localizer.hpp"
 #include "Messages.hpp"
 #include <QCommandLineParser>
 #include <QThread>
 #include <QCryptographicHash>
+#include <QElapsedTimer>
 #include <QDir>
 #include <QFile>
 #include <QGuiApplication>
@@ -16,18 +22,83 @@
 #include <QQuickStyle>
 #include <QQuickWindow>
 #include <QMouseEvent>
+#include <QStandardPaths>
 #include <QStringList>
 #include <QTimer>
+#include <QtCore/qfloat16.h>
+#include <array>
+#include <atomic>
 #include <cmath>
 #include <cstdio>
+#include <cstring>
 #include <memory>
+#include <vector>
 
 namespace {
-QString fingerprint(const spk::desktop::FramePtr& frame) {
-    if(!frame)return {};
-    return QString::fromLatin1(QCryptographicHash::hash(
-        QByteArrayView(reinterpret_cast<const char*>(frame->bgra8.data()),qsizetype(frame->bgra8.size())),
-        QCryptographicHash::Sha256).toHex());
+namespace display=spk::desktop::display;
+// The harness's own time, reported so a slow run can be split into what the
+// app took and what the checks took.
+double harnessHashMs=0;
+struct HashClock {
+    QElapsedTimer t;HashClock(){t.start();}~HashClock(){harnessHashMs+=double(t.nsecsElapsed())/1e6;}
+};
+// The engine frame's own RGBA16 rows (padding excluded): what must never
+// change under a held FramePtr. Kept as a copy and compared byte for byte --
+// stronger than a digest, and a 251 MB SHA-256 costs ~1.5 s on this machine.
+std::vector<std::uint16_t> frameRows(const spk::desktop::FramePtr& frame) {
+    const HashClock clock;
+    const auto& pixels=frame->pixels();
+    std::vector<std::uint16_t> rows(std::size_t(pixels.width)*pixels.height*4);
+    for(std::uint32_t y=0;y<pixels.height;++y)
+        std::memcpy(rows.data()+std::size_t(y)*pixels.width*4,pixels.rgba16+std::size_t(y)*pixels.row_stride_px*4,
+                    std::size_t(pixels.width)*8);
+    return rows;
+}
+bool sameRows(const spk::desktop::FramePtr& frame,const std::vector<std::uint16_t>& rows) {
+    const HashClock clock;
+    const auto& pixels=frame->pixels();
+    if(rows.size()!=std::size_t(pixels.width)*pixels.height*4)return false;
+    for(std::uint32_t y=0;y<pixels.height;++y)
+        if(std::memcmp(rows.data()+std::size_t(y)*pixels.width*4,pixels.rgba16+std::size_t(y)*pixels.row_stride_px*4,
+                       std::size_t(pixels.width)*8)!=0)return false;
+    return true;
+}
+// An identity for the report, not a security claim: MD5 of the displayed
+// half floats (row bytes, no padding).
+QString imageHash(const QImage& image) {
+    const HashClock clock;
+    QCryptographicHash hash(QCryptographicHash::Md5);
+    const auto rowBytes=qsizetype(image.width())*image.depth()/8;
+    for(int y=0;y<image.height();++y)hash.addData(QByteArrayView(reinterpret_cast<const char*>(image.constScanLine(y)),rowBytes));
+    return QString::fromLatin1(hash.result().toHex());
+}
+// Every channel of the published image is the frame's code/65535 to within
+// half a half-float step, plus the float product's ulp (FrameImage rounds
+// float(code)/65535 to the nearest half; spk_qt_frame_image pins it exactly).
+bool imageHoldsFrame(const QImage& image,const spk::desktop::FramePtr& frame) {
+    const auto& pixels=frame->pixels();
+    if(image.format()!=QImage::Format_RGBX16FPx4||image.width()!=int(pixels.width)||image.height()!=int(pixels.height))return false;
+    std::vector<float> row(std::size_t(pixels.width)*4);
+    for(int y=0;y<image.height();++y) {
+        qFloatFromFloat16(row.data(),reinterpret_cast<const qfloat16*>(image.constScanLine(y)),qsizetype(row.size()));
+        const auto* source=pixels.rgba16+std::size_t(y)*pixels.row_stride_px*4;
+        for(std::size_t i=0;i<row.size();++i) {
+            const double expected=i%4==3?1.0:source[i]/65535.0;
+            const double step=expected<std::ldexp(1.0,-14)?std::ldexp(1.0,-24):std::ldexp(1.0,std::ilogb(expected)-10);
+            if(std::abs(double(row[i])-expected)>step*0.5+expected*std::ldexp(1.0,-23)+1e-12)return false;
+        }
+    }
+    return true;
+}
+// Mean of each colour channel over an RGBX16FPx4 image.
+std::array<double,3> meanColour(const QImage& image) {
+    std::array<double,3> sum{};std::vector<float> row(std::size_t(image.width())*4);
+    for(int y=0;y<image.height();++y) {
+        qFloatFromFloat16(row.data(),reinterpret_cast<const qfloat16*>(image.constScanLine(y)),qsizetype(row.size()));
+        for(std::size_t x=0;x<row.size();x+=4)for(int c=0;c<3;++c)sum[c]+=row[x+c];
+    }
+    for(auto& s:sum)s/=double(image.width())*image.height();
+    return sum;
 }
 
 // This is an actual QML/controller/engine test with saved window captures. It
@@ -36,9 +107,14 @@ QString fingerprint(const spk::desktop::FramePtr& frame) {
 class SelfTest final:public QObject {
 public:
     SelfTest(PreviewController& controller,QQuickWindow& window,QString input,QString reject,
-             QString output,std::shared_ptr<bool> failDisplay)
+             QString output,std::shared_ptr<std::atomic_bool> failDisplay,QString requestedSpace)
         :controller_(controller),window_(window),input_(std::move(input)),reject_(std::move(reject)),
-         output_(std::move(output)),fail_display_(std::move(failDisplay)) {
+         output_(std::move(output)),requested_space_(std::move(requestedSpace)),fail_display_(std::move(failDisplay)) {
+        elapsed_.start();
+        // The canvas dithers deep (half-float) frames by one output LSB, even
+        // under the identity LUT; the pixel comparisons below are exact, so
+        // this harness draws undithered.
+        ColorPipeline::forWindow(&window_)->setDither(false);
         canvas_=window_.findChild<FrameCanvas*>("frameCanvas");
         QObject::connect(&controller_,&PreviewController::initialized,this,[this](bool ok){
             if(!require(ok,"engine_init"))return;
@@ -87,13 +163,68 @@ private:
         capture_=window_.grabWindow();
         return require(!capture_.isNull()&&capture_.save(output_+"/"+name+".png"),"capture_"+name);
     }
+    // What the canvases receive for the opened frame: half floats tagged with
+    // the space the session reported, the frame's own codes, a reduced
+    // navigator and a 16-bit-class thumbnail.
+    bool checkPublication() {
+        const auto& encoding=original_->encoding;
+        const auto metadata=controller_.metadata();
+        checks_["output_color_space"]=QString::fromStdString(encoding.color_space);
+        checks_["output_cctf_encoding"]=encoding.cctf_encoding;
+        checks_["display_convert_ms"]=metadata.value("convertMs").toDouble();
+        checks_["display_publish_ms"]=metadata.value("publishMs").toDouble();
+        if(!require(QString::fromStdString(encoding.color_space)==requested_space_&&encoding.cctf_encoding,
+                    "session_reports_requested_output_space"))return false;
+        const auto shown=controller_.uncroppedImage(),preview=controller_.previewImage();
+        // Independently of display::colorSpace, the two spaces this gate runs
+        // in have a Qt name to land on.
+        const QColorSpace named=requested_space_=="sRGB"?QColorSpace(QColorSpace::SRgb):
+            requested_space_=="ProPhoto RGB"?QColorSpace(QColorSpace::ProPhotoRgb):display::colorSpace(encoding);
+        if(!require(shown.format()==QImage::Format_RGBX16FPx4&&shown.colorSpace()==display::colorSpace(encoding)&&
+                    shown.colorSpace()==named&&preview.colorSpace()==shown.colorSpace(),
+                    "display_half_float_tagged_with_session_space"))return false;
+        if(!require(imageHoldsFrame(shown,original_),"display_holds_frame_codes_within_half_precision"))return false;
+        const auto navigator=controller_.navigatorImage();
+        const int previewEdge=std::max(preview.width(),preview.height());
+        const int navigatorEdge=std::max(navigator.width(),navigator.height());
+        const auto previewMean=meanColour(preview),navigatorMean=meanColour(navigator);
+        double meanError=0;for(int c=0;c<3;++c)meanError=std::max(meanError,std::abs(previewMean[c]-navigatorMean[c]));
+        checks_["navigator_width"]=navigator.width();checks_["navigator_height"]=navigator.height();
+        checks_["navigator_mean_error"]=meanError;
+        if(!require(navigator.format()==QImage::Format_RGBX16FPx4&&navigator.colorSpace()==preview.colorSpace()&&
+                    navigatorEdge==std::min(display::kNavigatorLongEdge,previewEdge)&&
+                    std::abs(double(navigator.width())/navigator.height()-double(preview.width())/preview.height())<
+                        2.0/std::min(navigator.width(),navigator.height())&&meanError<1e-3,
+                    "navigator_reduced_same_tag_mean_kept"))return false;
+        const auto items=controller_.libraryItems();
+        const auto thumbnail=items.value(controller_.activeIndex()).toMap().value("thumbnail").value<QImage>();
+        return require(thumbnail.format()==QImage::Format_RGBX16FPx4&&thumbnail.colorSpace()==preview.colorSpace()&&
+                       thumbnail.width()<=display::kThumbnailBox.width()&&thumbnail.height()<=display::kThumbnailBox.height()&&
+                       (thumbnail.width()==display::kThumbnailBox.width()||thumbnail.height()==display::kThumbnailBox.height()),
+                       "thumbnail_half_float_fits_strip");
+    }
     void step(const QString& operation,bool ok) {
         if(done_)return;
         if(stage_==0) {
             if(!require(operation=="open"&&ok&&controller_.hasFrame(),"open_raw"))return;
-            original_=controller_.frame();original_hash_=fingerprint(original_);
+            original_=controller_.frame();original_rows_=frameRows(original_);
             checks_["width"]=int(original_->width());checks_["height"]=int(original_->height());
             checks_["film_count"]=controller_.films().size();checks_["paper_count"]=controller_.papers().size();
+            QElapsedTimer publicationCheck;publicationCheck.start();
+            const bool published=checkPublication();
+            checks_["harness_publication_check_ms"]=double(publicationCheck.nsecsElapsed())/1e6;
+            if(!published)return;
+            if(!original_->encoding.is_encoded_srgb()) {
+                // A working-space session (--output-color-space): its frames
+                // are tagged above; the writers embed sRGB.icc, so export
+                // must refuse rather than mislabel. The rest assumes sRGB.
+                stage_=30;
+                later([this]{
+                    if(!capture("working-space"))return;
+                    controller_.exportTiff(QUrl::fromLocalFile(output_+"/working-space.tif"));
+                });
+                return;
+            }
             stage_=1;
             later([this]{
                 if(!capture("fit"))return;
@@ -105,7 +236,10 @@ private:
                     if(!require(std::abs(rect.width()*ratio-original_->width())<0.01&&std::abs(canvas_->scalePercent()-100)<1e-9,"physical_100_percent"))return;
                     if(!capture("100-percent"))return;
                     // Interior canvas samples prove the texture is displaying
-                    // this frame at one physical pixel per source pixel.
+                    // this frame at one physical pixel per source pixel. The
+                    // image is half floats; pixel() rounds each to 8 bits
+                    // (QRgbaFloat16::toArgb32), as the software scene graph's
+                    // painter does into the 8-bit window, so this stays exact.
                     const auto origin=canvas_->mapToScene(QPointF());
                     bool exact=true;int samples=0;
                     for(double fx:{0.3,0.5,0.7})for(double fy:{0.3,0.5,0.7}) {
@@ -143,7 +277,7 @@ private:
             QTimer::singleShot(5000,this,[this]{if(!done_&&stage_==2)finish(false,"automatic brightness preview did not run");});
         } else if(stage_==2) {
             if(!require(operation=="render"&&ok&&controller_.frame()!=original_&&controller_.frame()->reprint(),"brightness_reprint"))return;
-            if(!require(fingerprint(original_)==original_hash_,"old_frame_immutable"))return;
+            if(!require(sameRows(original_,original_rows_),"old_frame_immutable"))return;
             held_=controller_.frame();stage_=3;controller_.openRaw(QUrl::fromLocalFile(reject_));
         } else if(stage_==3) {
             if(!require(operation=="open"&&!ok&&controller_.frame()==held_,"failed_raw_retains_frame"))return;
@@ -160,7 +294,7 @@ private:
         } else if(stage_==6) {
             if(!require(operation=="render"&&ok&&controller_.frame()->source==held_->source&&
                         controller_.frame()->decode_mode==held_->decode_mode&&!controller_.frame()->reprint(),"publication_failure_reconciles_worker_session"))return;
-            if(!require(fingerprint(original_)==original_hash_,"held_frame_still_immutable"))return;
+            if(!require(sameRows(original_,original_rows_),"held_frame_still_immutable"))return;
             const int negative=filmIndex("kodak_ektar_100");
             if(!require(negative>=0,"negative_test_stock_in_catalog"))return;
             stage_=7;controller_.setFilmIndex(negative);
@@ -244,7 +378,9 @@ private:
                 slide_results_.append(QJsonObject{{"film",id},{"scan_film",controller_.frame()->scan_film},
                     {"decode_mode",headroom_slides_?"headroom":"compatible16"},
                     {"width",int(controller_.frame()->width())},{"height",int(controller_.frame()->height())},
-                    {"display_sha256",fingerprint(controller_.frame())},{"render_ms",controller_.frame()->timings.render_ms},
+                    {"display_rgbx16fp_md5",imageHash(canvas_->image())},
+                    {"render_ms",controller_.frame()->timings.render_ms},
+                    {"convert_ms",controller_.metadata().value("convertMs").toDouble()},
                     {"screenshot","slide-"+caseName+".png"}});
                 if(++slide_index_<slide_ids_.size())selectSlide();
                 else {stage_=16;controller_.setFilmIndex(negative_film_);}
@@ -276,7 +412,7 @@ private:
             if(!require(operation=="render"&&ok&&controller_.frame()->settings==initial&&exposureIs(0)&&
                         !controller_.frame()->scan_film&&controller_.decodeMode()==0&&!controller_.dirty(),
                         "reset_settings_automatically_updates_preview"))return;
-            if(!require(fingerprint(original_)==original_hash_,"original_frame_immutable_after_all_auto_edits"))return;
+            if(!require(sameRows(original_,original_rows_),"original_frame_immutable_after_all_auto_edits"))return;
             stage_=20;
             later([this]{
                 if(!capture("final"))return;
@@ -345,6 +481,11 @@ private:
                     });
                 });
             });
+        } else if(stage_==30) {
+            if(!require(operation=="export"&&!ok&&!QFileInfo::exists(output_+"/working-space.tif")&&
+                        controller_.status().contains(QString::fromStdString(original_->encoding.color_space))&&
+                        controller_.frame()==original_,"export_refuses_frame_not_encoded_in_srgb"))return;
+            finish(true,{});
         } else {
             require(false,"unexpected_operation_during_settle");
         }
@@ -352,6 +493,7 @@ private:
     void finish(bool success,const QString& error) {
         if(done_)return;done_=true;
         checks_["passed"]=success;checks_["error"]=error;
+        checks_["elapsed_ms"]=double(elapsed_.elapsed());checks_["harness_hash_ms"]=harnessHashMs;
         checks_["qt_version"]=QString(qVersion());checks_["platform"]=QGuiApplication::platformName();
         checks_["quick_backend_requested"]=qEnvironmentVariable("QT_QUICK_BACKEND");
         checks_["slide_results"]=slide_results_;
@@ -361,7 +503,8 @@ private:
         QCoreApplication::exit(success?0:1);
     }
     PreviewController& controller_;QQuickWindow& window_;FrameCanvas* canvas_=nullptr;
-    QString input_,reject_,output_,original_hash_;std::shared_ptr<bool> fail_display_;
+    QString input_,reject_,output_,requested_space_;std::vector<std::uint16_t> original_rows_;std::shared_ptr<std::atomic_bool> fail_display_;
+    QElapsedTimer elapsed_;
     spk::desktop::FramePtr original_,held_;QJsonObject checks_;int stage_=0;bool done_=false;
     int frame_publications_=0,operations_finished_=0,saved_publications_=0,saved_operations_=0;
     int remembered_paper_=0,negative_film_=0,slide_index_=0;double remembered_ev_=0;
@@ -371,6 +514,30 @@ private:
     bool headroom_slides_=false;
     QImage capture_;
 };
+
+// Where the per-photo edits go when a run overrides them: the self-test's
+// own directory, --edit-store, a snapshot's sibling directory; empty for the
+// default (AppLocalDataLocation/Edits). The app preferences follow it
+// (AppSettings::resolveFilePath), so a test never touches the user's.
+QString editDirectoryFor(const QString& selfTest,const QString& editStore,const QString& snapshot) {
+    if(!selfTest.isEmpty())return QDir(selfTest).absoluteFilePath("edits");
+    if(!editStore.isEmpty())return QFileInfo(editStore).absoluteFilePath();
+    if(!snapshot.isEmpty())return QFileInfo(snapshot).absoluteFilePath()+"-edits";
+    return {};
+}
+// An option's value read from argv before QGuiApplication (and its parser)
+// exists: "--name value", "--name=value", or with one dash, as the parser
+// accepts them.
+QString earlyOption(int argc,char** argv,const char* name) {
+    const QString longName=QString::fromLatin1(name);
+    for(int i=1;i<argc;++i) {
+        QString arg=QString::fromLocal8Bit(argv[i]);
+        if(arg.startsWith("--"))arg.remove(0,2);else if(arg.startsWith('-'))arg.remove(0,1);else continue;
+        if(arg==longName&&i+1<argc)return QString::fromLocal8Bit(argv[i+1]);
+        if(arg.startsWith(longName+'='))return arg.mid(longName.size()+1);
+    }
+    return {};
+}
 }
 
 int main(int argc,char** argv) {
@@ -382,11 +549,26 @@ int main(int argc,char** argv) {
     // Preserve Qt diagnostics when launched by a validation runner with
     // redirected stderr, even though the production executable has no console.
     qInstallMessageHandler([](QtMsgType type,const QMessageLogContext& context,const QString& message){
+        ShellCapture::noteMessage(type,context,message);
         const auto bytes=qFormatLogMessage(type,context,message).toUtf8();
         std::fwrite(bytes.data(),1,std::size_t(bytes.size()),stderr);std::fputc('\n',stderr);std::fflush(stderr);
     });
+    // Before the application object, so AppLocalDataLocation is known to the
+    // early read of the preferences below.
+    QCoreApplication::setOrganizationName("SpektraLab");QCoreApplication::setApplicationName("SpektraLab Windows");
+    // Settings > General > Scale (the Mac's InterfaceScale, Theme.swift): Qt
+    // scales the whole window by QT_SCALE_FACTOR, which must be set before the
+    // application exists -- so the choice applies at the next start, and an
+    // explicit QT_SCALE_FACTOR in the environment wins.
+    const QString earlySettings=AppSettings::resolveFilePath(earlyOption(argc,argv,"settings-file"),
+        editDirectoryFor(earlyOption(argc,argv,"self-test"),earlyOption(argc,argv,"edit-store"),earlyOption(argc,argv,"snapshot")));
+    AppInfo::Startup startup;
+    startup.interfaceScaleFromEnvironment=!qEnvironmentVariableIsEmpty("QT_SCALE_FACTOR");
+    startup.activeInterfaceScale=AppSettings::readValue(earlySettings,QStringLiteral("general.interfaceScale")).toString();
+    if(!AppInfo::interfaceScales().contains(startup.activeInterfaceScale))startup.activeInterfaceScale=QStringLiteral("115");
+    if(!startup.interfaceScaleFromEnvironment&&startup.activeInterfaceScale!=QLatin1String("115"))
+        qputenv("QT_SCALE_FACTOR",QByteArray::number(AppInfo::scaleFactor(startup.activeInterfaceScale),'f',4));
     QGuiApplication app(argc,argv);
-    app.setOrganizationName("SpektraLab");app.setApplicationName("SpektraLab Windows");
     QQuickStyle::setStyle("Basic");
     QCommandLineParser parser;parser.setApplicationDescription("SpektraLab Windows Qt Quick preview");parser.addHelpOption();
     parser.addOptions({{"resources","Engine resource directory","directory"},
@@ -396,8 +578,21 @@ int main(int argc,char** argv) {
                        {"set","With --snapshot: set a settings row by wire name once the RAW is open (repeatable; "
                               "true/false, a number or text), and capture after it has developed","key=value"},
                        {"self-test","Run real RAW frontend checks and save a report in a NEW directory","directory"},
-                       {"reject","Unsupported RAW for the failed-open check","file"}});
+                       {"reject","Unsupported RAW for the failed-open check","file"},
+                       {"settings-file","Use this app preferences file (default: beside the edit store)","file"}});
+    // Testing only: capture the Settings and About windows into a NEW
+    // directory and exit (ShellCapture.hpp).
+    QCommandLineOption captureShell("capture-shell","Capture the Settings and About windows (testing)","directory");
+    captureShell.setFlags(QCommandLineOption::HiddenFromHelp);
+    parser.addOption(captureShell);
+    // Testing only, so hidden: ask sessions for another output space (e.g.
+    // "ProPhoto RGB") to exercise the tagging path before the app switches.
+    QCommandLineOption outputSpace("output-color-space","Engine output colour space to request (testing)","name");
+    outputSpace.setFlags(QCommandLineOption::HiddenFromHelp);
+    parser.addOption(outputSpace);
     parser.process(app);
+    const QString requestedSpace=parser.isSet(outputSpace)?parser.value(outputSpace):
+        QString::fromLatin1(spk::desktop::kDisplayOutputColorSpace);
     const auto resources=parser.isSet("resources")?parser.value("resources"):QCoreApplication::applicationDirPath()+"/resources";
     const bool testing=parser.isSet("self-test");
     const bool snapshot=parser.isSet("snapshot");
@@ -410,16 +605,35 @@ int main(int argc,char** argv) {
         testReject=QDir(testOutput).absoluteFilePath("rejected."+QFileInfo(testReject).suffix());
         if(!QFile::copy(parser.value("open"),testInput)||!QFile::copy(parser.value("reject"),testReject))return 2;
     }
-    const QString editDirectory=testing?QDir(testOutput).absoluteFilePath("edits"):
-        parser.isSet("edit-store")?QFileInfo(parser.value("edit-store")).absoluteFilePath():
-        snapshot?QFileInfo(parser.value("snapshot")).absoluteFilePath()+"-edits":QString{};
-    auto failDisplay=std::make_shared<bool>(false);
+    const bool capturingShell=parser.isSet(captureShell);
+    const auto shellOutput=parser.value(captureShell);
+    if(capturingShell&&(testing||snapshot||QFileInfo::exists(shellOutput)||!QDir().mkpath(shellOutput)))return 2;
+    const QString editDirectory=editDirectoryFor(testing?testOutput:QString(),parser.value("edit-store"),
+                                                 snapshot?parser.value("snapshot"):QString());
+    // Declared before the QML engine, so it outlives every binding that
+    // writes to it; it flushes when destroyed.
+    AppSettings appSettings(AppSettings::resolveFilePath(parser.value("settings-file"),editDirectory));
+    startup.settingsFile=appSettings.filePath();
+    startup.editDirectory=editDirectory.isEmpty()?QStandardPaths::writableLocation(QStandardPaths::AppLocalDataLocation)+"/Edits":editDirectory;
+    AppInfo appInfo(startup);
+    DisplaySettings displaySettings(appSettings);
+    // Set on the GUI thread, consumed by the factory on the worker.
+    auto failDisplay=std::make_shared<std::atomic_bool>(false);
     PreviewController controller(std::filesystem::path(resources.toStdWString()),nullptr,
-        [failDisplay](const auto& frame){if(*failDisplay){*failDisplay=false;throw std::runtime_error("Injected display publication failure");}return PreviewController::imageFromFrame(frame);},editDirectory);
+        [failDisplay](const auto& frame){if(failDisplay->exchange(false))throw std::runtime_error("Injected display publication failure");return PreviewController::imageFromFrame(frame);},
+        editDirectory,parser.isSet(outputSpace)?requestedSpace:QString());
     qmlRegisterType<FrameCanvas>("SpektraLab.Native",1,0,"FrameCanvas");
     // QML text by key (qml/L10n.qml): compiled-in tables, then <app>/i18n.
     Localizer localizer;localizer.loadStandardLocations();
+    // Settings > General > Language, as the user left it (a language whose
+    // table is gone falls back to English inside the Localizer).
+    if(const auto language=appSettings.value("general.language").toString();!language.isEmpty())localizer.setLanguage(language);
     qmlRegisterSingletonInstance("SpektraLab.Native",1,0,"Localizer",&localizer);
+    // The shell's state (AppSettings.hpp, AppShell.hpp): preferences, the
+    // display colour management choice, and what the About window reports.
+    qmlRegisterSingletonInstance("SpektraLab.Native",1,0,"AppSettings",&appSettings);
+    qmlRegisterSingletonInstance("SpektraLab.Native",1,0,"DisplayColour",&displaySettings);
+    qmlRegisterSingletonInstance("SpektraLab.Native",1,0,"AppInfo",&appInfo);
     // The controller's status lines (Messages.hpp) come from the same tables.
     // The Localizer is GUI-thread only, so a worker thread's call (the batch
     // summary) falls back to Messages.hpp's English.
@@ -435,10 +649,18 @@ int main(int argc,char** argv) {
     QObject::connect(&engine,&QQmlApplicationEngine::objectCreationFailed,&app,[]{QCoreApplication::exit(2);},Qt::QueuedConnection);
     engine.loadFromModule("SpektraLab","Main");
     if(engine.rootObjects().isEmpty())return 2;
+    // The stored display choice on the editor window's pipeline before its
+    // first frame (and before the self-test sets its own dither below).
+    displaySettings.attach(qobject_cast<QQuickWindow*>(engine.rootObjects().first()));
+    QObject::connect(&app,&QCoreApplication::aboutToQuit,&appSettings,[&appSettings]{appSettings.flush();});
     std::unique_ptr<SelfTest> test;
-    if(testing) {
+    std::unique_ptr<ShellCapture> shellCapture;
+    if(capturingShell) {
         auto* window=qobject_cast<QQuickWindow*>(engine.rootObjects().first());if(!window)return 2;
-        test=std::make_unique<SelfTest>(controller,*window,testInput,testReject,testOutput,failDisplay);
+        shellCapture=std::make_unique<ShellCapture>(*window,QDir(shellOutput).absolutePath());
+    } else if(testing) {
+        auto* window=qobject_cast<QQuickWindow*>(engine.rootObjects().first());if(!window)return 2;
+        test=std::make_unique<SelfTest>(controller,*window,testInput,testReject,testOutput,failDisplay,requestedSpace);
     } else if(parser.isSet("open")) {
         if(snapshot) {
             auto* window=qobject_cast<QQuickWindow*>(engine.rootObjects().first());if(!window)return 2;

@@ -2,6 +2,7 @@
 // the UI uses these same slots. Unit geometry/writer cases live separately.
 #include "PreviewController.hpp"
 #include "FrameOutput.hpp"
+#include "display_checks.hpp"
 #include <QCryptographicHash>
 #include <QDir>
 #include <QElapsedTimer>
@@ -53,13 +54,29 @@ void idle(PreviewController& controller,const QString& description,bool allowFai
     waitFor([&]{return !controller.busy()&&!controller.dirty()&&!controller.batchExporting();},description);
     check(allowFailure||!controller.failed(),description+": "+controller.status());
 }
-bool samePixels(const QImage& left,const QImage& right) {
-    if(left.isNull()||right.isNull()||left.size()!=right.size())return false;
-    const auto a=left.convertToFormat(QImage::Format_RGBA8888);
-    const auto b=right.convertToFormat(QImage::Format_RGBA8888);
-    for(int y=0;y<a.height();++y)
-        if(std::memcmp(a.constScanLine(y),b.constScanLine(y),std::size_t(a.width())*4)!=0)return false;
-    return true;
+// Displayed images are half floats: compared exactly, format and tag included.
+using display_checks::sameImage;
+output::Geometry geometryOf(const PreviewController& controller) {
+    return {controller.cropRect(),controller.quarterTurns(),controller.flipHorizontal(),
+            controller.flipVertical(),controller.straightenDegrees()};
+}
+// An 8-bit file against what was on screen, two ways: exactly the export
+// path's quantisation of the engine frame the display came from, and
+// consistent with every displayed half float (display_checks.hpp).
+struct Shown {
+    QImage image;
+    spk::desktop::FramePtr frame;
+    output::Geometry geometry;
+};
+Shown shown(const PreviewController& controller) {
+    return {controller.previewImage().copy(),controller.frame(),geometryOf(controller)};
+}
+qint64 ambiguousSamples=0;
+bool fileShows(const QImage& file,const Shown& expected,const display_checks::ExportDisplayAgreement& agreement) {
+    if(!display_checks::sameRgb8(file,display_checks::expected8(expected.frame,expected.geometry)))return false;
+    const auto result=agreement.compare(file,expected.image);
+    ambiguousSamples+=result.ambiguous;
+    return result.samples==qint64(file.width())*file.height()*3&&result.disagreements==0;
 }
 QByteArray fileHash(const QString& path) {
     QFile file(path);check(file.open(QIODevice::ReadOnly),"Cannot read "+path);
@@ -101,6 +118,7 @@ int main(int argc,char** argv) {
         check(QFile::copy(original.absoluteFilePath(),first)&&QFile::copy(original.absoluteFilePath(),second),
               "Cannot make independent fixture copies");
         QJsonArray operations;
+        const display_checks::ExportDisplayAgreement agreement;
         {
             PreviewController controller(resources,nullptr,{},destination+"/edits");
             QObject::connect(&controller,&PreviewController::operationFinished,&controller,
@@ -142,13 +160,16 @@ int main(int argc,char** argv) {
             const auto fullFrame=controller.frame();
             controller.setCropRect(cropA);
             check(controller.frame()==fullFrame&&!controller.busy(),"Crop unnecessarily re-rendered the film");
-            check(samePixels(controller.previewImage(),uncropped.copy(output::cropPixels(uncropped.size(),cropA))),
+            check(sameImage(controller.previewImage(),uncropped.copy(output::cropPixels(uncropped.size(),cropA))),
                   "Crop preview disagrees with the original frame's pixel rectangle");
+            check(controller.previewImage().format()==QImage::Format_RGBX16FPx4&&
+                  controller.previewImage().colorSpace()==spk::desktop::display::colorSpace(fullFrame->encoding),
+                  "Crop preview is not the frame's half floats in its own colour space");
             const auto cropped=controller.previewImage();
             for(const auto invalid : {QRectF(0,0,0,1),QRectF(-0.1,0,1,1),QRectF(0.8,0,0.5,1),
                                       QRectF(0,0,std::numeric_limits<double>::quiet_NaN(),1)}) {
                 controller.setCropRect(invalid);
-                check(controller.cropRect()==cropA&&samePixels(controller.previewImage(),cropped),
+                check(controller.cropRect()==cropA&&sameImage(controller.previewImage(),cropped),
                       "Invalid crop changed the visible photograph");
             }
             controller.setExposureEv(0.75);
@@ -169,16 +190,16 @@ int main(int argc,char** argv) {
                   "Synchronizing did not copy the source photograph's adjustments");
             check(controller.cropRect()==cropB,"Default synchronization copied crop geometry");
             controller.setExposureEv(-0.5);idle(controller,"independent second-photo brightness");
-            const auto expectedB=controller.previewImage().copy();
+            const auto expectedB=shown(controller);
             controller.selectImage(0);idle(controller,"return to first photograph before export");
             check(controller.exposureEv()==0.75&&controller.cropRect()==cropA,
                   "Editing the second photograph mutated the first photograph");
-            const auto expectedA=controller.previewImage().copy();
+            const auto expectedA=shown(controller);
 
             const QString single=destination+"/displayed.png";
             controller.exportImage(QUrl::fromLocalFile(single),1,95,0);
             idle(controller,"single cropped PNG export");
-            check(samePixels(readImage(single),expectedA),"PNG8 pixels differ from the cropped displayed photograph");
+            check(fileShows(readImage(single),expectedA,agreement),"PNG8 pixels differ from the cropped displayed photograph");
             const auto originalHash=fileHash(single);
             const int beforeRefusal=operations.size();
             controller.exportImage(QUrl::fromLocalFile(single),1,95,0);
@@ -186,7 +207,7 @@ int main(int argc,char** argv) {
             check(operations.size()>beforeRefusal&&!operations.last().toObject().value("success").toBool(),
                   "An existing single export was not refused");
             check(fileHash(single)==originalHash,"Single export changed an existing file");
-            check(samePixels(controller.previewImage(),expectedA),"Failed export changed the displayed frame");
+            check(sameImage(controller.previewImage(),expectedA.image),"Failed export changed the displayed frame");
 
             const QString png16=destination+"/small-16bit.png",jpeg=destination+"/small.jpg";
             controller.exportImage(QUrl::fromLocalFile(png16),2,95,128);
@@ -224,8 +245,8 @@ int main(int argc,char** argv) {
             idle(controller,"batch of two independent photographs");
             check(controller.batchProgress()==2,"Batch did not report both completed photographs");
             const QString firstExport=batch+"/alpha.png",secondExport=batch+"/beta.png";
-            check(samePixels(readImage(firstExport),expectedA),"Batch alpha filename contains the wrong photograph/settings/crop");
-            check(samePixels(readImage(secondExport),expectedB),"Batch beta filename contains the wrong photograph/settings/crop");
+            check(fileShows(readImage(firstExport),expectedA,agreement),"Batch alpha filename contains the wrong photograph/settings/crop");
+            check(fileShows(readImage(secondExport),expectedB,agreement),"Batch beta filename contains the wrong photograph/settings/crop");
             const auto firstHash=fileHash(firstExport),secondHash=fileHash(secondExport);
 
             // Batch's final development left beta in the worker, while the
@@ -238,10 +259,10 @@ int main(int argc,char** argv) {
             check(controller.frame()!=beforeBatchEdit&&controller.exposureEv()==1.0&&
                   controller.frame()->settings.print_exposure==0.5&&controller.cropRect()==cropA,
                   "Post-batch edit did not publish alpha with its requested settings");
-            check(!samePixels(controller.previewImage(),expectedA),"Post-batch brightness edit did not change alpha");
+            check(!sameImage(controller.previewImage(),expectedA.image),"Post-batch brightness edit did not change alpha");
             controller.setExposureEv(0.75);idle(controller,"restore deterministic alpha after batch");
             checkCurrent(controller,0,first);
-            check(samePixels(controller.previewImage(),expectedA),
+            check(sameImage(controller.previewImage(),expectedA.image),
                   "Restoring alpha after batch did not recover its deterministic pixels");
 
             controller.exportBatch(QUrl::fromLocalFile(batch),1,95,0);
@@ -268,7 +289,7 @@ int main(int argc,char** argv) {
             const auto lastSource=sourcePath(controller);
             controller.openRaw(QUrl::fromLocalFile(rejected.absoluteFilePath()));
             idle(controller,"unsupported RAW preserves current photograph",true);
-            check(controller.failed()&&controller.frame()==lastFrame&&samePixels(controller.previewImage(),lastPreview),
+            check(controller.failed()&&controller.frame()==lastFrame&&sameImage(controller.previewImage(),lastPreview),
                   "Failed RAW import replaced the visible photograph");
             checkCurrent(controller,lastIndex,lastSource);
 
@@ -286,7 +307,7 @@ int main(int argc,char** argv) {
                   controller.status().contains(rejected.completeBaseName()),
                   "Mixed batch concealed the unsupported RAW failure");
             check(controller.batchProgress()==3,"Mixed batch did not account for every selected file");
-            check(controller.frame()==lastFrame&&samePixels(controller.previewImage(),lastPreview),
+            check(controller.frame()==lastFrame&&sameImage(controller.previewImage(),lastPreview),
                   "Mixed batch failure replaced the editor's displayed photograph");
             checkCurrent(controller,lastIndex,lastSource);
             for(const auto& name : {QStringLiteral("alpha.png"),QStringLiteral("beta.png")}) {
@@ -301,6 +322,7 @@ int main(int argc,char** argv) {
             report.insert("alpha_png_sha256",QString::fromLatin1(firstHash));
             report.insert("beta_png_sha256",QString::fromLatin1(secondHash));
             report.insert("cancelled_files",cancelledFiles.size());
+            report.insert("export_display_ambiguous_samples",double(ambiguousSamples));
         }
         report.insert("operations",operations);
         report.insert("status","passed");

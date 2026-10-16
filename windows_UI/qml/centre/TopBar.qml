@@ -1,10 +1,13 @@
 import QtQuick
 import QtQuick.Controls
 import QtQuick.Layouts
+import SpektraLab.Native 1.0
 
-// The canvas's own bar (TopBar.swift, v4): the left rail's toggle, the file
+// The canvas's own bar (TopBar.swift, v4): the application menu (Windows
+// only: the Mac's menu bar, shell/AppMenu.qml), the left rail's toggle, the file
 // (import, export), the tools (select, crop), Windows' undo / redo, the
-// Process and Original capsules, the photo's line (file · size · colour space)
+// Process and Original capsules, the photo's line (file · size · colour space
+// → display, with a warning badge when colour management falls back)
 // ...... before/after, the zoom pill, zoom out / in, the right rail's toggle.
 // Both sidebar toggles live here, so each is on screen whichever rail is
 // folded.
@@ -28,7 +31,11 @@ Rectangle {
         anchors.fill: parent
         anchors.leftMargin: Theme.barPadding; anchors.rightMargin: Theme.barPadding
         spacing: 0
+        // The application menu (shell/AppMenu.qml): where the Mac's menu bar
+        // commands are on Windows.
+        AppMenu { editor: bar.editor }
         IconButton {
+            Layout.leftMargin: Theme.barIconGap
             glyph: Icons.sidebarLeft; glyphSize: 15
             toolTip: bar.editor.leftCollapsed ? L10n.tr("toolbar.showLeftRail") : L10n.tr("toolbar.hideLeftRail")
             onClicked: bar.editor.leftCollapsed = !bar.editor.leftCollapsed
@@ -103,22 +110,63 @@ Rectangle {
             running: preview.busy
             visible: running
         }
-        // The photo's line: what is open, at what size, in what colour space,
-        // and -- in the accent -- that the canvas is about to change.
+        // The photo's line: what is open and at what size, and -- in the
+        // accent -- that the canvas is about to change.
         Text {
             id: photoLine
             Layout.leftMargin: 12
             Layout.fillWidth: true
             Layout.minimumWidth: 40
-            text: preview.hasFrame
-                ? preview.fileName + "  ·  " + preview.metadata.width + "×" + preview.metadata.height + "  ·  " + L10n.tr("toolbar.colourSpace")
-                : preview.status
+            text: preview.hasFrame ? preview.fileName + "  ·  " + preview.metadata.width + "×" + preview.metadata.height : preview.status
             elide: Text.ElideRight
             color: Theme.dim
             font.family: Theme.fontFamily; font.pixelSize: Theme.fontMeta; font.weight: Theme.weightText
             HoverHandler { id: lineHover }
             ToolTip.visible: lineHover.hovered && photoLine.truncated
             ToolTip.text: text
+        }
+        // Its colour: the frame's space and the display it is managed to
+        // (DisplayColour, the window's ColorPipeline), e.g. "sRGB → HP Z31x"
+        // or "sRGB → sRGB (assumed)". Its own item, so a long file name
+        // elides before it; the monitor's name only (the profile file is in
+        // the tooltip and Settings > Display), and a badge when colour
+        // management falls back.
+        Text {
+            id: colourLine
+            objectName: "colourLine"
+            Layout.leftMargin: 8
+            Layout.maximumWidth: 190
+            visible: preview.hasFrame
+            readonly property string frameSpace: preview.metadata.colorSpace ? preview.metadata.colorSpace : L10n.tr("toolbar.colourSpace")
+            // "HP Z31x - HP Z31x AdobeRGB Profile.icm" -> "HP Z31x".
+            readonly property string monitor: {
+                var name = DisplayColour.displayName
+                var cut = name.indexOf(" - ")
+                return cut > 0 ? name.substring(0, cut) : name
+            }
+            text: frameSpace + (monitor.length > 0 ? " " + L10n.tr("toolbar.displayTarget", [monitor]) : "")
+            elide: Text.ElideRight
+            color: Theme.dim
+            font.family: Theme.fontFamily; font.pixelSize: Theme.fontMeta; font.weight: Theme.weightText
+            HoverHandler { id: colourHover }
+            ToolTip.visible: colourHover.hovered
+            ToolTip.text: L10n.tr("toolbar.displayHelp", [DisplayColour.displayName]) + (DisplayColour.status.length > 0 ? "\n" + DisplayColour.status : "")
+            ToolTip.delay: 500
+            TapHandler { onTapped: bar.editor.settingsRequested("display") }
+        }
+        Text {
+            id: colourWarning
+            objectName: "colourWarning"
+            Layout.leftMargin: 4
+            visible: DisplayColour.status.length > 0
+            text: Icons.warning
+            color: Theme.warning
+            font.family: Theme.iconFamily; font.pixelSize: 12
+            HoverHandler { id: warningHover }
+            ToolTip.visible: warningHover.hovered
+            ToolTip.text: L10n.tr("toolbar.displayWarning", [DisplayColour.status])
+            ToolTip.delay: 300
+            TapHandler { onTapped: bar.editor.settingsRequested("display") }
         }
         Text {
             Layout.leftMargin: 8

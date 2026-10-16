@@ -46,7 +46,7 @@ endfunction()
 
 qt_add_executable(SpektraLabQt WIN32
     src/main.cpp src/Messages.hpp src/PreviewController.hpp src/PreviewController.cpp
-    src/FrameOutput.hpp src/FrameOutput.cpp
+    src/FrameOutput.hpp src/FrameOutput.cpp src/FrameImage.hpp src/FrameImage.cpp
     src/EditStore.hpp src/EditStore.cpp
     src/FrameCanvas.hpp src/FrameCanvas.cpp
     src/ColorCanvasNode.hpp src/ColorCanvasNode.cpp
@@ -105,14 +105,24 @@ add_dependencies(spektralab_qt_resources spektralab_vulkan_resources)
 add_dependencies(SpektraLabQt spektralab_qt_resources)
 
 if(BUILD_TESTING)
-    qt_add_executable(spk_qt_frame_output_test tests/frame_output.cpp src/FrameOutput.cpp)
+    qt_add_executable(spk_qt_frame_output_test tests/frame_output.cpp src/FrameOutput.cpp src/FrameImage.cpp)
     target_include_directories(spk_qt_frame_output_test PRIVATE src)
     target_compile_features(spk_qt_frame_output_test PRIVATE cxx_std_20)
     target_link_libraries(spk_qt_frame_output_test PRIVATE spk_desktop_host Qt6::Core Qt6::Gui)
     add_test(NAME spk_qt_frame_output COMMAND spk_qt_frame_output_test "$<TARGET_FILE_DIR:SpektraLabQt>/resources")
 
-    qt_add_executable(spk_qt_library_workflow_test tests/library_workflow.cpp
-        src/PreviewController.hpp src/PreviewController.cpp src/FrameOutput.cpp src/EditStore.cpp)
+    # The canvas images: every engine output space against the engine's own
+    # baked primaries and transfer functions, the half-float conversion of
+    # all 65536 codes, and the navigator/thumbnail reduction. No RAW or GPU.
+    qt_add_executable(spk_qt_frame_image_test tests/frame_image.cpp tests/display_checks.hpp
+        src/FrameImage.cpp src/FrameOutput.cpp)
+    target_include_directories(spk_qt_frame_image_test PRIVATE src)
+    target_compile_features(spk_qt_frame_image_test PRIVATE cxx_std_20)
+    target_link_libraries(spk_qt_frame_image_test PRIVATE spk_desktop_host Qt6::Core Qt6::Gui)
+    add_test(NAME spk_qt_frame_image COMMAND spk_qt_frame_image_test "$<TARGET_FILE_DIR:SpektraLabQt>/resources")
+
+    qt_add_executable(spk_qt_library_workflow_test tests/library_workflow.cpp tests/display_checks.hpp
+        src/PreviewController.hpp src/PreviewController.cpp src/FrameOutput.cpp src/FrameImage.cpp src/EditStore.cpp)
     target_include_directories(spk_qt_library_workflow_test PRIVATE src)
     target_compile_features(spk_qt_library_workflow_test PRIVATE cxx_std_20)
     target_link_libraries(spk_qt_library_workflow_test PRIVATE spk_desktop_host Qt6::Core Qt6::Gui)
@@ -125,7 +135,7 @@ if(BUILD_TESTING)
     # The controller's settings API (generic parameters, legacy names,
     # defaults, locks) needs the engine's catalogue but no photograph.
     qt_add_executable(spk_qt_controller_settings_test tests/controller_settings.cpp
-        src/PreviewController.hpp src/PreviewController.cpp src/FrameOutput.cpp src/EditStore.cpp)
+        src/PreviewController.hpp src/PreviewController.cpp src/FrameOutput.cpp src/FrameImage.cpp src/EditStore.cpp)
     target_include_directories(spk_qt_controller_settings_test PRIVATE src)
     target_compile_features(spk_qt_controller_settings_test PRIVATE cxx_std_20)
     target_link_libraries(spk_qt_controller_settings_test PRIVATE spk_desktop_host Qt6::Core Qt6::Gui)
@@ -135,7 +145,7 @@ if(BUILD_TESTING)
     # rules, the edit store's round trip and Sync. The catalogue but no RAW;
     # a fresh scratch directory per run.
     qt_add_executable(spk_qt_film_edge_state_test tests/film_edge_state.cpp
-        src/PreviewController.hpp src/PreviewController.cpp src/FrameOutput.cpp src/EditStore.cpp)
+        src/PreviewController.hpp src/PreviewController.cpp src/FrameOutput.cpp src/FrameImage.cpp src/EditStore.cpp)
     target_include_directories(spk_qt_film_edge_state_test PRIVATE src)
     target_compile_features(spk_qt_film_edge_state_test PRIVATE cxx_std_20)
     target_link_libraries(spk_qt_film_edge_state_test PRIVATE spk_desktop_host Qt6::Core Qt6::Gui)
@@ -179,12 +189,12 @@ if(BUILD_TESTING)
             get_filename_component(qt_test_compiler_directory "${CMAKE_CXX_COMPILER}" DIRECTORY)
             list(APPEND qt_test_runtime_path "PATH=path_list_prepend:${qt_test_compiler_directory}")
         endif()
-        set_tests_properties(spk_qt_frame_output spk_qt_edit_store spk_qt_controller_settings spk_qt_film_edge_state spk_qt_localizer
-            spk_qt_color_canvas spk_qt_color_canvas_software PROPERTIES
+        set_tests_properties(spk_qt_frame_output spk_qt_frame_image spk_qt_edit_store spk_qt_controller_settings
+            spk_qt_film_edge_state spk_qt_localizer spk_qt_color_canvas spk_qt_color_canvas_software PROPERTIES
             ENVIRONMENT_MODIFICATION "${qt_test_runtime_path}")
     endif()
-    qt_add_executable(spk_qt_editing_workflow_test tests/editing_workflow.cpp
-        src/PreviewController.hpp src/PreviewController.cpp src/FrameOutput.cpp src/EditStore.cpp)
+    qt_add_executable(spk_qt_editing_workflow_test tests/editing_workflow.cpp tests/display_checks.hpp
+        src/PreviewController.hpp src/PreviewController.cpp src/FrameOutput.cpp src/FrameImage.cpp src/EditStore.cpp)
     target_include_directories(spk_qt_editing_workflow_test PRIVATE src)
     target_compile_features(spk_qt_editing_workflow_test PRIVATE cxx_std_20)
     target_link_libraries(spk_qt_editing_workflow_test PRIVATE spk_desktop_host Qt6::Core Qt6::Gui)
@@ -204,5 +214,76 @@ if(BUILD_TESTING)
     add_test(NAME spk_qt_color_core COMMAND spk_qt_color_core_test "${CMAKE_CURRENT_BINARY_DIR}/color-core-test")
     if(WIN32)
         set_tests_properties(spk_qt_color_core PROPERTIES ENVIRONMENT_MODIFICATION "${qt_test_runtime_path}")
+    endif()
+endif()
+
+# Post-Dev (Layer 2, src/PostDev.*): the model, its JSON, the curve and the CPU
+# path against a double transcription of the Mac's Shaders.metal (--cpu), and
+# shaders/postdev.glsl through a QRhi offscreen render on D3D11, WARP preferred,
+# against the CPU path (--gpu; fails rather than skips without a device). qsb
+# baking the probe shaders is itself the check that postdev.glsl compiles for
+# every target the canvas uses; glslang checks it as GLSL 450 as well.
+if(BUILD_TESTING)
+    find_package(Qt6 6.8 REQUIRED COMPONENTS ShaderTools GuiPrivate)
+    qt_add_executable(spk_qt_postdev_test tests/postdev.cpp src/PostDev.hpp src/PostDev.cpp)
+    target_include_directories(spk_qt_postdev_test PRIVATE src)
+    target_compile_features(spk_qt_postdev_test PRIVATE cxx_std_20)
+    target_link_libraries(spk_qt_postdev_test PRIVATE Qt6::Core Qt6::Gui Qt6::GuiPrivate)
+    qt_add_shaders(spk_qt_postdev_test "spk_qt_postdev_probe" PREFIX "/postdev"
+        GLSL "300es,330" HLSL 50 MSL 12
+        FILES shaders/postdev_probe.vert shaders/postdev_probe.frag)
+    add_test(NAME spk_qt_postdev COMMAND spk_qt_postdev_test --cpu)
+    add_test(NAME spk_qt_postdev_gpu COMMAND spk_qt_postdev_test --gpu)
+    if(WIN32)
+        set_tests_properties(spk_qt_postdev spk_qt_postdev_gpu PROPERTIES
+            ENVIRONMENT_MODIFICATION "${qt_test_runtime_path}")
+    endif()
+    if(SPEKTRALAB_GLSLANG)
+        add_test(NAME spk_qt_postdev_glsl COMMAND "${SPEKTRALAB_GLSLANG}" -V --target-env vulkan1.0
+            --glsl-version 450 -o "${CMAKE_CURRENT_BINARY_DIR}/postdev_probe_450.spv"
+            "${CMAKE_CURRENT_SOURCE_DIR}/shaders/postdev_probe.frag")
+    endif()
+endif()
+# --- The application shell (lane ui-app-shell) ---
+# The Settings and About windows, the application menu and the preferences
+# file (src/AppSettings.*, src/AppShell.*, qml/shell/). The version is the
+# macOS app's MARKETING_VERSION (modern_UI/Spektrafilm/Spektrafilm.xcodeproj/
+# project.pbxproj:1334), so both builds of one release say the same number.
+set(SPEKTRALAB_VERSION "1.3.3")
+target_sources(SpektraLabQt PRIVATE src/AppSettings.hpp src/AppSettings.cpp src/AppShell.hpp src/AppShell.cpp
+    src/ShellCapture.hpp src/ShellCapture.cpp)
+target_compile_definitions(SpektraLabQt PRIVATE SPEKTRALAB_VERSION="${SPEKTRALAB_VERSION}")
+qt_target_qml_sources(SpektraLabQt
+    QML_FILES
+        qml/shell/ShellWindow.qml qml/shell/SettingsWindow.qml qml/shell/SettingsGroup.qml
+        qml/shell/SettingsReadout.qml qml/shell/AboutWindow.qml qml/shell/LicenceWindow.qml
+        qml/shell/AppMenu.qml qml/shell/MenuCommand.qml qml/shell/LinkText.qml
+    NO_CACHEGEN)
+# volk (engine/third_party/volk, MIT) is compiled into the engine on Windows;
+# its notice travels with the others in licenses/, where the About window
+# lists it.
+set(spk_volk_license "${CMAKE_CURRENT_SOURCE_DIR}/../engine/third_party/volk/LICENSE.md")
+if(EXISTS "${spk_volk_license}")
+    add_custom_command(TARGET spektralab_qt_resources POST_BUILD
+        COMMAND "${CMAKE_COMMAND}" -E make_directory "$<TARGET_FILE_DIR:SpektraLabQt>/licenses"
+        COMMAND "${CMAKE_COMMAND}" -E copy_if_different "${spk_volk_license}" "$<TARGET_FILE_DIR:SpektraLabQt>/licenses/volk-LICENSE.md"
+        VERBATIM)
+endif()
+if(BUILD_TESTING)
+    # The preferences file: paths, round trip, atomic writes, unknown keys.
+    qt_add_executable(spk_qt_app_settings_test tests/app_settings.cpp src/AppSettings.hpp src/AppSettings.cpp)
+    target_include_directories(spk_qt_app_settings_test PRIVATE src)
+    target_compile_features(spk_qt_app_settings_test PRIVATE cxx_std_20)
+    target_link_libraries(spk_qt_app_settings_test PRIVATE Qt6::Core Qt6::Qml)
+    add_test(NAME spk_qt_app_settings COMMAND spk_qt_app_settings_test "${CMAKE_CURRENT_BINARY_DIR}/app-settings-test")
+    # The Settings and About windows load, every page and a licence text are
+    # captured, and no QML warning is logged (ShellCapture.hpp): the real
+    # executable, offscreen, with its preferences inside the build tree.
+    add_test(NAME spk_qt_shell_smoke COMMAND "${CMAKE_COMMAND}" "-DAPP=$<TARGET_FILE:SpektraLabQt>"
+        "-DOUTPUT=${CMAKE_CURRENT_BINARY_DIR}/shell-smoke" -P "${CMAKE_CURRENT_SOURCE_DIR}/tests/shell_smoke.cmake")
+    set_tests_properties(spk_qt_shell_smoke PROPERTIES TIMEOUT 180
+        ENVIRONMENT "QT_QPA_PLATFORM=offscreen;QT_QUICK_BACKEND=software;QML_DISABLE_DISK_CACHE=1;QSG_RHI_DISABLE_DISK_CACHE=1")
+    if(WIN32)
+        set_tests_properties(spk_qt_app_settings spk_qt_shell_smoke PROPERTIES ENVIRONMENT_MODIFICATION "${qt_test_runtime_path}")
     endif()
 endif()
