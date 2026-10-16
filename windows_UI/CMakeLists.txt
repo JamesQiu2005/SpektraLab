@@ -34,6 +34,9 @@ qt_add_executable(SpektraLabQt WIN32
 target_compile_features(SpektraLabQt PRIVATE cxx_std_20)
 target_link_libraries(SpektraLabQt PRIVATE
     spk_desktop_host Qt6::Core Qt6::Gui Qt6::Qml Qt6::Quick Qt6::QuickControls2)
+# The colour core behind ColorPipeline: display-profile discovery and the LUT.
+target_sources(SpektraLabQt PRIVATE
+    src/DisplayColor.hpp src/DisplayColor.cpp src/ColorLut.hpp src/ColorLut.cpp)
 set_source_files_properties(qml/Theme.qml PROPERTIES QT_QML_SINGLETON_TYPE TRUE)
 qt_add_qml_module(SpektraLabQt URI SpektraLab VERSION 1.0
     QML_FILES qml/Main.qml qml/Theme.qml qml/Section.qml qml/ActionButton.qml
