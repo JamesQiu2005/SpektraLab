@@ -1,20 +1,226 @@
-# Windows Qt Quick frontend
+# Windows Qt Quick editor
 
 This is a native Qt Quick/C++ application using the existing synchronous
-`spk_desktop_host`. There is no Python, Node, browser or subprocess renderer at
-runtime. The interface is the macOS app's (see below); controls whose
-feature is not on Windows yet are shown greyed with the reason, not omitted.
+`spk_desktop_host` and the engine's Vulkan backend. There is no Python, Node,
+browser or subprocess renderer at runtime. The interface is the macOS app's
+(below); the few controls whose feature is not on Windows keep their place
+greyed and say why on hover, rather than being omitted. What it adds
+relative to upstream's starting point is summarised in
+[CHANGES-WINDOWS.md](CHANGES-WINDOWS.md); the comparison with the Mac, row by
+row, is [DESIGN_ALIGNMENT.md](DESIGN_ALIGNMENT.md).
 
-Implemented: multi-file and whole-folder import (RAW, TIFF, JPEG, PNG) and
-drag/drop; independent per-photo
-film/paper, decode, exposure, grain, halation, glare, film format and filter
-settings; a navigator and selected-photo strip; free/ratio cropping; and
-TIFF16, PNG8/16, JPEG8 export with JPEG quality and optional downsize. Batch
-export processes selected photos serially, supports cancellation between files,
-and skips existing files. Single export refuses overwrites. Output stays sRGB
-with the bundled ICC profile. Select-all, the Settings Clipboard (Copy, Paste,
-Sync with the Mac's seven groups) copy settings between photos, preserving
-their own crops.
+In brief: RAW (LibRaw 0.22.2), TIFF, JPEG and PNG input; a library with the
+Mac's filmstrip and Settings Clipboard; the Pre-Dev rail (white balance,
+Process, Latitude, Scene Placement, Tone Mask, film format and effects,
+enlarger); Film Edge and Date Back; half-frame pairs; the Post-Dev grade;
+canvas tools (zoom ladder, histogram, Original, before/after, crop grips);
+the Mac's export page with its recipes and colour spaces; a ProPhoto RGB
+working space; display colour management per monitor with a soft proof and
+gamut warning; Settings and About windows; English interface text through a
+JSON Localizer.
+
+## Build (MSVC 2022)
+
+The validated toolchain is Visual Studio 2022 17.14 (MSVC 19.44.35229,
+toolset 14.44.35207) with the CMake 3.31.6 and Ninja that ship with it, Qt
+6.11.3 `msvc2022_64`, on Windows 11 with an NVIDIA RTX 3070.
+
+**Prerequisites.**
+
+- Visual Studio 2022 with the *Desktop development with C++* workload. The
+  script imports the x64 environment from `VsDevCmd.bat` into its own process
+  and uses Visual Studio's bundled CMake (`CommonExtensions/Microsoft/CMake`)
+  and Ninja, not whichever is first on `PATH`. If `VsDevCmd.bat` cannot find
+  `vswhere.exe`, put `C:\Program Files (x86)\Microsoft Visual Studio\Installer`
+  on that shell's `PATH` first.
+- A GPU driver with Vulkan 1.0. `vulkan-1.dll` comes from the driver and is
+  loaded at run time through volk (`engine/third_party/volk`), so no Vulkan
+  SDK or import library is needed.
+- Windows PowerShell 5.1.
+
+**Dependencies.** Everything else is local, in one folder
+(`-DependencyDirectory`, default `../deps` beside the checkout); the script
+checks each before it configures:
+
+```
+deps/
+  qt-6.11.3-msvc2022_64/   official Qt 6.11.3 msvc2022_64 archives (qtbase,
+                           qtdeclarative, qtshadertools, qtsvg), extracted
+  qt-6.11.3-licenses/      the licence texts pinned in dependencies/qt-licenses.json
+                           (<module>/<file>; optional -- the build warns without them)
+  Vulkan-Headers/          KhronosGroup/Vulkan-Headers, tag vulkan-sdk-1.4.341.0
+  glslang-16.6.0/          KhronosGroup/glslang 16.6.0 Windows release (bin/glslang.exe)
+  LibRaw-0.22.2/           engine/setup-libraw.ps1 (pinned, SHA-256 checked)
+  tex-gyre-heros/          the CTAN faces; already copied into
+                           engine/resources_portable/fonts, so the build reads the copy
+```
+
+No script fetches the MSVC Qt archives yet (`setup-qt.ps1` fetches the MinGW
+SDK, below, and the same licence texts); `dependencies/qt-packages.json` pins
+the MinGW archives only. Vulkan headers and glslang are build inputs only:
+neither is shipped.
+
+**Build, test and package.** From any directory:
+
+```powershell
+& <checkout>\windows_UI\build-msvc.ps1 -DependencyDirectory <deps> `
+    -BuildDirectory <build> -Jobs 6 -RunTests -Package
+```
+
+| Option | Effect |
+|---|---|
+| `-DependencyDirectory` | the folder above (default `../deps` beside the checkout) |
+| `-BuildDirectory` | the CMake/Ninja tree (default `../build/msvc-<configuration>`) |
+| `-VsDevCmd` | path to `VsDevCmd.bat` (the default is the development machine's; pass yours) |
+| `-QtDirectory` | a Qt other than `<deps>/qt-6.11.3-msvc2022_64` |
+| `-Configuration` | `Release` (default), `RelWithDebInfo` or `Debug` |
+| `-RunTests` | build every target and run CTest; without it only `SpektraLabQt` is built |
+| `-Package` | after a successful Release build and deploy (and the tests, with `-RunTests`), write the zip below |
+| `-Jobs N` | Ninja's parallelism (0, the default, uses every core) |
+| `-Fresh` | discard the existing CMake configuration |
+| `-NoDeploy` | skip windeployqt, the runtime and the licence copies |
+| `-KeepGoing` | Ninja `-k 0` |
+
+The Visual Studio environment and `PATH` are restored when the script exits.
+With `-RunTests`, `TEMP`/`TMP` point into `<build>/tmp` so every test's scratch
+file stays in the build tree.
+
+**The app folder.** `<build>/app` is self-contained for x64 Windows:
+`SpektraLabQt.exe`, the Qt DLLs, plugins and QML that `windeployqt` chose
+(plus `platforms/qoffscreen.dll` for `--self-test` and `--snapshot`), the MSVC
+runtime DLLs from Visual Studio's redistributable folder, `resources/` (the
+engine's baked data, SPIR-V kernels, spektrafilm's profiles beside the
+black-and-white product profiles, the TeX Gyre Heros faces, `sRGB.icc`, the
+Digital Intermediate's view LUTs) and `licenses/` (every notice:
+[THIRD_PARTY.md](THIRD_PARTY.md) lists them). Keep the folder whole when moving
+it. The Vulkan driver is the machine's own.
+
+**The package.** `-Package` copies that folder into
+`<build>/package/SpektraLab-Windows-<version>-x64/` and zips it to
+`<build>/package/SpektraLab-Windows-<version>-x64.zip`, the version being the
+About window's (`SPEKTRALAB_VERSION` in `CMakeLists.txt`). Left out:
+`vc_redist.x64.exe` (the runtime DLLs are already beside the executable),
+debug and link artefacts, test executables and anything personal (edit
+records, folder orders, preferences and recipes, which live under the user's
+`AppData`, never in `app/`). It refuses to package unless the executable, the
+Qt and runtime DLLs, the platform plugin, the QML, the engine resources,
+fonts, B&W profiles and the licence texts are there. The zip has one top
+folder; unzip it anywhere and run `SpektraLabQt.exe`. It is a development
+build, unsigned and without an installer. On 2026-10-16 (1.3.3) it was
+51.6 MB and 1654 files, and ran from a fresh extraction
+([CHANGES-WINDOWS.md](CHANGES-WINDOWS.md#packaging)).
+
+**Tests.** `-RunTests` runs CTest (47 tests as of 2026-10-16: 18 for the
+engine and its test DLL, 4 native RAW, 3 desktop host, 22 for the Qt editor;
+the engine's are described in [engine/WINDOWS.md](../engine/WINDOWS.md)). To
+rerun them without rebuilding, from a shell with the same `TEMP`:
+
+```powershell
+ctest --test-dir <build> --output-on-failure
+```
+
+None needs a private RAW. `spk_qt_recipe_export` reads EXIF from one when
+configured with `-DSPEKTRALAB_TEST_RAW=<file>`.
+
+**The RAW gates** are not in CTest: each needs camera files and a new output
+directory, and copies its inputs before opening them (a develop writes an edit
+record). Any file LibRaw refuses serves as the rejected RAW -- a Nikon HE/HE*
+NEF, or a non-RAW file named `.NEF`.
+
+```powershell
+$env:QT_QPA_PLATFORM = 'offscreen'; $env:QT_QUICK_BACKEND = 'software'
+$env:QML_DISABLE_DISK_CACHE = '1'; $env:QSG_RHI_DISABLE_DISK_CACHE = '1'
+$env:PATH = "<build>\app;$env:PATH"; $env:QT_PLUGIN_PATH = "<build>\app"
+# The real executable: QML, controller and engine (output directory must be new)
+Start-Process <build>\app\SpektraLabQt.exe -Wait -NoNewWindow -ArgumentList `
+    '--open', 'C:\photos\supported.ARW', '--reject', 'C:\photos\rejected.NEF', `
+    '--self-test', 'C:\validation\self-test'
+# Library, editing and export workflows: <resources> <RAW> <rejected RAW> <new dir>
+<build>\windows_UI\spk_qt_library_workflow_test.exe <build>\app\resources `
+    C:\photos\supported.NEF C:\photos\rejected.NEF C:\validation\library
+<build>\windows_UI\spk_qt_editing_workflow_test.exe <build>\app\resources `
+    C:\photos\supported.NEF C:\photos\rejected.NEF C:\validation\editing
+<build>\windows_UI\spk_qt_export_workflow_test.exe <build>\app\resources `
+    C:\photos\supported.NEF C:\photos\rejected.NEF C:\validation\export
+# Half-frame pairs: <resources> <RAW> <second RAW> <new dir>
+<build>\windows_UI\spk_qt_pairs_workflow_test.exe <build>\app\resources `
+    C:\photos\a.NEF C:\photos\b.NEF C:\validation\pairs
+```
+
+`SpektraLabQt.exe` is a GUI-subsystem executable, hence `Start-Process
+-Wait`; it exits nonzero on failure and writes a JSON report and its captures.
+What each gate checks is under [Validation](#validation).
+
+### Build with MinGW (the first route, not re-validated)
+
+The first Windows build used the official Qt 6.11.3 MinGW SDK with its
+MinGW-w64 13.1 compiler (`build.ps1`, `setup-qt.ps1`). It has not been run
+since the MSVC build replaced it, and later lanes were validated on MSVC only;
+it is kept for reference. Do not link those Qt binaries with the earlier GCC
+15 build of the engine.
+
+```powershell
+# From the repository root. The bootstrap uses only PowerShell and Windows
+# bsdtar, downloads into ../deps and checks pinned SHA256 for every file.
+./windows_UI/setup-qt.ps1 -DependencyDirectory ../deps
+./windows_UI/build.ps1 -SourceDirectory . -BuildDirectory ./build/qt -RunTests
+```
+
+`dependencies/qt-packages.json` lists the exact official MinGW archives and
+hashes; `dependencies/qt-licenses.json` each official licence text and hash.
+`setup-qt.ps1 -VerifyOnly` checks the existing cache and tool versions without
+network or extraction (the initial download is about 278 MB). It does not
+install Vulkan headers, glslang, CMake or LibRaw. `build.ps1` also deploys the
+MinGW runtime and its licences (`licenses/MinGW/`).
+
+For a parent build, enable the native RAW and desktop host targets and call
+`add_subdirectory(windows_UI)` after `add_subdirectory(engine)` (the top-level
+`CMakeLists.txt` does, with `-DSPEKTRALAB_BUILD_QT=ON`). The macOS build is
+untouched. Resources are synchronized on every build, including builds where
+the executable itself does not need relinking; deployment is a build-script
+step.
+
+## The window
+
+The window follows the macOS editor (`modern_UI/.../Windows/EditorWindow.swift`
+and `screenshots/Screenshot_English.png`): the "Film and Print" rail, the
+centre column (tool bar, canvas, filmstrip) and the "Parameters" rail with its
+Pre-Dev / Post-Dev switch, flush and separated by hairlines. Both rails fold
+from the tool bar's sidebar buttons and take a user width (drag the inner
+edge; double-click returns it), the filmstrip folds from the tab on the
+canvas's lower edge, and every section folds from its header. The design
+system is ported from the Mac's `Theme.swift`: `qml/Theme.qml` (colours,
+type, metrics), `qml/Icons.qml` (Segoe Fluent Icons / Segoe MDL2 Assets
+glyphs; nothing bundled) and the controls in `qml/controls` -- `MacSection`,
+`ParamRow`, `ScrubSlider` with its `ValueBox` (drag, wheel, click to type,
+double-click to reset; one undo step per gesture), `CheckRow`, `PillDropdown`,
+`PillSwitch`, `PillButton`, `IconButton`, `StockList`, `RailMenu`. Each file
+says its API at the top.
+
+The QML is one file per pane (`qml/left`, `qml/centre`, `qml/right`,
+`qml/export`, `qml/shell`); `qml/Main.qml` holds the window, dialogs and
+shortcuts and `qml/EditorState.qml` the state the panes share. The window has
+no menu bar: a menu button leads the tool bar with the Mac's commands that
+Windows carries out (Import, Export, Undo, Redo, Select All Photos, Sync
+Settings, Reset This Photo's Settings, View, Settings, About, Exit), each with
+its key.
+
+Still greyed, with the reason on hover: Lens Correction (LibRaw has no lens
+profiles), Extended Dynamic Range print profiles (no HDR output path), the
+paper list's Digital group on the canvas (no Cineon view of the canvas yet;
+the Digital Intermediate *export* works), and in Settings every Mac setting
+without a Windows backend (below).
+
+Slide film is scanned directly, matching the upstream macOS film-stage rule.
+The host resolves this from each profile's `info.type`, including Provia 100F,
+Velvia 100, Ektachrome 100 and Kodachrome 64. Paper and paper-brightness controls
+are disabled for slides; their previous settings return with negative film.
+The black-and-white films (Tri-X 400, T-Max 100, Neopan 100 Acros II, HP5 Plus
+400) and the Multigrade IV RC paper are in the lists, deployed from
+`engine/resources_product` beside spektrafilm's profiles, under the Mac's
+stock rules.
+
+## The library and the Settings Clipboard
 
 **The library** (the Mac's `Filmstrip.swift`, `Library.swift`, `FrameOrder.swift`,
 README "Select and sync photos"). Ctrl+O opens files, Ctrl+Shift+O (or the
@@ -35,7 +241,9 @@ while a text field has the keyboard, AGENTS.md trap 32). Dragging a thumbnail
 along the strip moves it, and the order is kept for its folder (beside the
 edits, `Order/<folder>-<hash>.order.json`) and laid over the listing next time,
 a new file after its own neighbour. None of this moves while a batch export
-runs (AGENTS.md trap 34).
+runs (AGENTS.md trap 34). Only the current photo is fully decoded and
+developed; small thumbnails are retained, not one full RAW/GPU session per
+imported photo.
 
 **The Settings Clipboard** (`SettingsClipboard.swift`, RFC-027; left rail,
 folded by default): the seven groups -- Film & Paper, Exposure, White Balance,
@@ -53,31 +261,79 @@ C++ form `setSettingValues`) applies several settings rows as one edit -- one
 undo step, one render -- for Film Exposure's As Shot and Film Format's Reset,
 All Effects On/Off and Reset Effect Strengths.
 
-The QML is one file per pane (`qml/left`, `qml/centre`, `qml/right`,
-`qml/export`); `qml/Main.qml` holds the window, dialogs and shortcuts and
-`qml/EditorState.qml` the state the panes share. Every user-visible QML
-string is looked up by key from `i18n/en.json` through the C++ `Localizer`;
-English is the only shipped language, and [i18n/README.md](i18n/README.md)
-says how to add another.
+## Pre-Dev
 
-The window follows the macOS editor (`modern_UI/.../Windows/EditorWindow.swift`
-and `screenshots/Screenshot_English.png`): the "Film and Print" rail, the
-centre column (tool bar, canvas, filmstrip) and the "Parameters" rail with its
-Pre-Dev / Post-Dev switch, flush and separated by hairlines. Both rails fold
-from the tool bar's sidebar buttons and take a user width (drag the inner
-edge; double-click returns it), the filmstrip folds from the tab on the
-canvas's lower edge, and every section folds from its header. The design
-system is ported from the Mac's `Theme.swift`: `qml/Theme.qml` (colours,
-type, metrics), `qml/Icons.qml` (Segoe Fluent Icons / Segoe MDL2 Assets
-glyphs; nothing bundled) and the controls in `qml/controls` -- `MacSection`,
-`ParamRow`, `ScrubSlider` with its `ValueBox` (drag, wheel, click to type,
-double-click to reset; one undo step per gesture), `CheckRow`, `PillDropdown`,
-`PillSwitch`, `PillButton`, `IconButton`, `StockList`, `RailMenu`. Each file
-says its API at the top. The Mac's sections and tools that Windows cannot
-drive yet (Latitude, white balance, Scene Placement, Tone Mask, Print Effects,
-EDR, pre-flash, Film Edge, Date Back,
-Process, Original, before/after) keep their place greyed, and say
-why on hover, so a later change fills them in place.
+The Parameters rail's first tab, after the Mac's `ParameterSections.swift`.
+Every row is a desktop settings-table row (`engine/src/desktop/preview_host.hpp`)
+sent to the engine by its wire name; new photos take the macOS defaults.
+
+- **Latitude** draws what the Mac's `LatitudePlot` draws from the engine's
+  latitude reading: the frame's histogram on the fixed -8..8 stop axis, the
+  ISO 6846 window, the separation band, Below / Within / Above and the summary
+  line. With no reading it says why (develop first, or the engine's
+  "unmeasurable" / "no light"); a reading being replaced stays up, dimmed.
+- **Input / Camera**: Metering (with Custom), Film Exposure with the Mac's
+  derived As Shot box and the meter's reading; white balance at decode --
+  Temperature (2000-12000 K) and Tint (-150..150) with each row's As Shot box,
+  greyed for a camera LibRaw has no matrix for -- the white balance presets
+  and the neutral picker (one click on the picture). Vignetting is the
+  Post-Dev grade's lens fall-off, as on the Mac. Lens Correction stays greyed.
+- **Film Format**: the film's size and side, which scale grain, halation and
+  coupler diffusion in micrometres, and every effect row with its switch and
+  strength.
+- **Scene Placement**: Highlight and Shadow, each step brought onto the Fit's
+  window, solved and committed as `Session.placeScene` does; the usable window
+  is drawn on each track and the reason a row stopped is its second line.
+- **Tone Mask** (the contrast mask, RFC-024): Enable, Highlights, Shadows,
+  Core and Radius with the mask's curve. The Mac hides it behind a feature
+  flag; Windows shows it, folded, because the engine carries it.
+- **Decode**: `compatible16` or the restricted-Bayer `headroom` mode
+  ([engine/WINDOWS_NATIVE_RAW.md](../engine/WINDOWS_NATIVE_RAW.md)); and Photo
+  Info.
+
+On the left rail, **Enlarger** has the print exposure (-3..3 stops), the
+yellow and magenta filters and pre-flash, and **Print** the paper, its
+brightness and Print Effects. **Process** (the tool bar's capsule) solves
+auto-exposure and the filter pack for this paper and reports the result in
+the status footer.
+
+## Film Edge and Date Back
+
+The left rail's two sections are the Mac's (`FilmEdgeSection.swift`,
+`DateBackSection.swift`), over the engine's overscan and date imprint
+(RFC-031/032; [engine/WINDOWS_FEATURE_COVERAGE.md](../engine/WINDOWS_FEATURE_COVERAGE.md)).
+**Film Edge**: the format (135, half frame, XPan, 645 to 6x9, 6x12, 6x17) with
+the gate's size, View (Strip / Filed), Framing in the gate, Gate, Holes,
+Carrier, Body and Advance with their Another buttons, the frame number, edge
+fog and spool leaks. Switching it on frames the crop in the gate and
+switching it off gives the user's own crop back (`heldGeometry`), as one undo
+step; with the frame cut, a crop is a new negative and re-develops. **Date
+Back**: LCD / Dots / Data faces (a face its camera cannot print greyed), the
+EXIF or a typed date, shooting data, In frame / Between (which needs Film
+Edge), the 120 margin, size and brightness. The edge text is set in TeX Gyre
+Heros, the bundled stand-in for the Mac's Helvetica Neue. Sync keeps each
+recipient's film edge, date back and held crop.
+
+## Half-frame pairs
+
+Two frames on one frame's worth of 135, after the Mac's `Session.swift`
+"the half-frame pair" and `PairOverlay.swift`: Ctrl+J (New Half-Frame Pair)
+from two selected photographs, or Enter Half-Frame Pair under Film Edge's
+*Half*. The canvas shows two holes, an empty one with a **+**; a click picks a
+hole and the rails then act on that frame alone (its camera, white balance,
+Scene Placement fitted on its hole, enlarger and Post-Dev), with "Applies to:
+Frame / + Film" on the Enlarger; a right click opens the Mac's hole menu
+(Replace, Crop This Frame, Turn Picture 90°, Reset Crop, Remove, Open Frame
+Alone, Swap, Turn the Camera, Zoom to Fit, Export). In the crop mode a drag
+moves the picture under its hole and the wheel scales it about the pointer.
+The pair section under the Navigator lists Film / Left / Right with Camera
+Level / Turned, Spacing and Swap. A pair is one item in the filmstrip, saved
+in its own record (`<edits>/Pairs/<name>.spkpair`), and exports as one
+picture with its first frame's EXIF; an empty hole refuses the export. The
+neutral picker is not offered on a pair. The pair's canvas and its export are
+compared in one colour space by `spk_qt_pairs_workflow_test`.
+
+## Post-Dev
 
 Post-Dev (Layer 2, the Parameters rail's second tab, `src/PostDev.hpp`): White
 Balance, Exposure (exposure, contrast, brightness, saturation | highlights,
@@ -94,198 +350,149 @@ count the graded frame. Every pixel is graded at its place on the uncropped
 source, so the vignette is the print's (`PostDevView.hpp`); with Film Edge on
 the whole film canvas is graded, rebate included, as the Mac grades the
 engine's print (Renderer `encodeLayer2(src: base)`, Exporter `applyLayer2`), and
-the crop editor's undeveloped decode is not (the Mac shows it as the Original). Each edit is one
-undo step, needs no render and is saved with the photo as `state.postDev` (a
-Mac sidecar's `adjustments` object reads verbatim); Sync and the clipboard do
-not copy it (the Mac's `SettingsClipboard` leaves it out); Reset This Photo's
-Settings resets it. Ctrl+Shift+B (or the menu's Bypass / Restore Adjustments)
-switches the grade off and on, as a stored edit. Every export -- the export
-page's recipes, Export TIFF/PNG/JPEG, batch export and the proof -- grades the
-uncropped frame before the geometry, so the file is what the canvas shows. The
-Mac's filmstrip shows the print without Layer 2; Windows grades it (AGENTS.md
-trap 33). Windows frames are encoded sRGB until the ProPhoto working space
-lands, so the tone pivot is sRGB's mid-grey and the gains act on sRGB
-primaries; the arithmetic is otherwise the Mac's.
+the crop editor's undeveloped decode is not (the Mac shows it as the Original).
+Each edit is one undo step, needs no render and is saved with the photo as
+`state.postDev` (a Mac sidecar's `adjustments` object reads verbatim); Sync
+and the clipboard do not copy it (the Mac's `SettingsClipboard` leaves it
+out); Reset This Photo's Settings resets it. Ctrl+Shift+B (or the menu's
+Bypass / Restore Adjustments) switches the grade off and on, as a stored
+edit. Every export -- the export page's recipes, the legacy exports, batch
+export and the proof -- grades the uncropped frame before the geometry, so
+the file is what the canvas shows. The Mac's filmstrip shows the print
+without Layer 2; Windows grades it (AGENTS.md trap 33). Frames are encoded
+ProPhoto RGB (the working space, below), so the grade pivots at ProPhoto's
+mid-grey (0.3857, the Mac's) and its gains act on ProPhoto primaries.
 
-Ctrl+O imports, Ctrl+E opens export options, Ctrl+0 fits and Ctrl+1 selects
-physical 100% (Ctrl+= / Ctrl+- step between the two, and the tool bar's zoom
-pill toggles them). Double-click also switches fit/100%. F11 is full screen.
-Ctrl+Shift+B bypasses or restores the Post-Dev grade.
-Ctrl+click in the filmstrip adds a photo to, or removes it from, the selection
-that Sync, Paste and batch export use. Changes update the preview
-automatically after a 180 ms settling delay. The filmstrip restores each
-photo's wanted edits, including edits pending when the user switches away.
-Edits automatically save under the application's local data directory (`Edits`)
-and restore when the same photo is reopened. RAW files and their directories
-are not modified. Save failures, incompatible records, changed sources and
-conflicting writes from another app instance remain visible and preserve the
-existing record. After a concurrent-write conflict, restart the application and
-reopen the photo to load the other instance's saved settings. Undo/redo is per
-photo, bounded to 64 in-memory steps, and a
-slider drag is one step. Undo history itself is not persisted. Only the current
-photo is fully decoded/developed; unvisited
-photos show their file's own preview until opened. Small thumbnails are retained,
-not one full RAW/GPU session per imported photo.
-
-Crop is post-render geometry and does not re-run the emulsion. Preview,
-navigator and exports share the same rounded source-pixel edges. The first
-Windows crop supports free drag, 1:1, 3:2, 4:3 and 16:9, clockwise/counterclockwise
-quarter turns, horizontal/vertical flips and -45 to +45 degree straightening.
-Straightening applies on release, uses original 16-bit samples and zooms to
-fill the crop; quarter turns/flips are lossless. The crop editor uses the
-unrotated source explicitly, while presets describe the final output ratio.
-The strip and the export page show the whole photo under its crop mask. See [DESIGN_ALIGNMENT.md](DESIGN_ALIGNMENT.md) for the
-author's drawing transcription and upstream comparison.
-
-Slide film is scanned directly, matching the upstream macOS film-stage rule.
-The host resolves this from each profile's `info.type`, including Provia 100F,
-Velvia 100, Ektachrome 100 and Kodachrome 64. Paper and paper-brightness controls
-are disabled for slides; their previous settings return with negative film.
-The colour model, profile data and shader maths are unchanged.
+## The canvas
 
 All engine work runs on one serial worker. Edits during a render are coalesced
 into the newest settings; superseded results never replace the displayed frame
-or newer controls. The same worker makes the canvas images before a result is
-delivered: the frame's RGBA16 as `RGBX16FPx4` half floats (value/65535, 8 bytes
-per pixel like the RGBA16) tagged with the colour space the session's open
-reply reports (`FrameImage.hpp`; an output space it cannot name is refused,
-never defaulted), a navigator image reduced to a 1024 px long edge by area
-averaging, and from that the 180x120 strip thumbnail, also half floats. A
-superseded render is not converted. File dialogs pause pending updates until they close; opening
-and exporting lock conflicting commands. A failed
-current render retains the displayed frame and restores its controls; a retry
-is available. Export captures that same immutable frame, including when a new
-preview is pending, and pending edits resume after export succeeds or fails.
-Closing during work waits for the current operation. A failed image-publication
-allocation is reconciled against the displayed source/decode mode on the next
-render.
+or newer controls. Changes update the preview after a 180 ms settling delay.
+The same worker makes the canvas images before a result is delivered: the
+frame's RGBA16 as `RGBX16FPx4` half floats (value/65535, 8 bytes per pixel like
+the RGBA16) tagged with the colour space the session's open reply reports
+(`FrameImage.hpp`; an output space it cannot name is refused, never
+defaulted), a navigator image reduced to a 1024 px long edge by area
+averaging, and from that the 180x120 strip thumbnail, also half floats; the
+Original and the histogram are made there too. A superseded render is not
+converted. File dialogs pause pending updates until they close; opening and
+exporting lock conflicting commands. A failed current render retains the
+displayed frame and restores its controls; a retry is available. Closing
+during work waits for the current operation.
 
-Ctrl+Z undoes the current photo; Ctrl+Shift+Z / Ctrl+Y redo. Text editors retain
-their own undo shortcuts. Synchronization is undoable on each recipient photo.
-Batch export and file dialogs lock history commands along with other edits.
-`--edit-store <absolute-directory>` overrides the persistent directory; all
-automated tests inject an isolated directory, including `--self-test` and
-`--snapshot`, so no test reads or writes the user's real edit store. Persistent
-photo identity includes canonical path, size, modification time and first/last
-64 KiB hash. Renamed/moved source files are not automatically matched yet.
+**Canvas tools** (after the Mac's `ViewportState.swift`, `TopBar.swift`,
+`HistogramView.swift`, `CompareOverlay.swift`, `CropOverlay.swift`):
 
-## Build
+- Zoom: fit or 5-800 % in the Mac's steps, about a point. 100 % and every
+  whole multiple put the image origin on the window's physical pixel grid.
+  Ctrl+wheel, touchpad pinch or the native zoom gesture zoom about the pointer
+  (the Mac uses Cmd/Option+scroll); the wheel pans, Shift+wheel pans across;
+  double-click and Z toggle fit/100 %. The zoom pill opens Fit, 25, 50, 100,
+  200, 400 %; Ctrl+= / Ctrl+- step; Ctrl+0 and Ctrl+1 (or , and .) are fit and
+  100 %. Zoom is locked in the crop editor. F11 is full screen.
+- Histogram: RGB and luma of what the canvas shows -- the cropped print, the
+  uncropped source in the crop editor, the Original while shown.
+- Original: the bar's pill pins it, Space shows it while held, badge
+  "original · decode". Before/after: the compare button, Y or Alt+\\; a
+  divider anchored to the picture, with Before/After labels.
+- Crop editor: corner blocks and edge bars, resize with the opposite side
+  pinned under the aspect (Shift locks a free shape), body move, thirds while
+  dragging, Ctrl-drag to straighten along a line (the Mac's Cmd-drag); drawing
+  a new rectangle starts outside the frame or with Alt.
 
-Use the official Qt 6.11.3 Windows MinGW SDK with its MinGW-w64 13.1 compiler.
-Do not link these Qt binaries with the earlier GCC 15 Windows build. Build into
-an independent directory; the script changes only its own process PATH.
-Use `-Fresh` to discard an existing CMake configuration before rebuilding.
+**Crop** is post-render geometry and does not re-run the emulsion. Preview,
+navigator and exports share the same rounded source-pixel edges. Free drag,
+1:1, 3:2, 4:3 and 16:9, clockwise/counterclockwise quarter turns,
+horizontal/vertical flips and -45 to +45 degree straightening. Straightening
+applies on release, uses original 16-bit samples and zooms to fill the crop;
+quarter turns/flips are lossless. The crop editor uses the unrotated source
+explicitly, while presets describe the final output ratio. The strip and the
+export page show the whole photo under its crop mask. While Film Edge holds
+the crop, the crop keeps the gate's shape and Crop says "Held by Film Edge".
 
-```powershell
-# From the repository root. The bootstrap uses only PowerShell and Windows
-# bsdtar, downloads into ../deps and checks pinned SHA256 for every file.
-./windows_UI/setup-qt.ps1 -DependencyDirectory ../deps
-./windows_UI/build.ps1 -SourceDirectory . -BuildDirectory ./build/qt -RunTests
-```
+## Edits, undo and persistence
 
-Local dependencies are in the workspace's `deps/qt-6.11.3`, alongside Vulkan
-headers, glslang and LibRaw used by the engine. `-DependencyDirectory` overrides
-that location. The output `app/` is self-contained for this Windows machine;
-keep the complete directory with its DLLs, QML plugins, resources and notices.
-The Vulkan driver is supplied by Windows/the installed GPU driver.
+Edits save automatically under the application's local data directory
+(`%LOCALAPPDATA%\SpektraLab\SpektraLab Windows\Edits`) and restore when the
+same photo is reopened; RAW files and their directories are not modified. The
+record is version 2 (`src/EditStore.hpp`): settings keyed by the desktop
+settings table and validated against its types, ranges and choices, the decode
+mode, the geometry, the held crop and `postDev`. Version 1 records still load
+and are rewritten as version 2 by the first save; a key this build does not
+know is a newer build's and is kept as it was, and a later version is
+preserved, never read. Save failures, incompatible records, changed sources
+and conflicting writes from another app instance remain visible and preserve
+the existing record; after a concurrent-write conflict, restart the
+application and reopen the photo to load the other instance's settings.
+Persistent photo identity includes canonical path, size, modification time and
+first/last 64 KiB hash. Renamed/moved source files are not automatically
+matched yet.
 
-`dependencies/qt-packages.json` lists the exact official archives and hashes;
-`dependencies/qt-licenses.json` lists each official source license and hash.
-`setup-qt.ps1 -VerifyOnly` verifies the existing archive/license cache and tool
-versions without network or extraction. The initial download is about 278 MB.
-This script does not install Vulkan headers, glslang, CMake or LibRaw; set those
-up using the repository's Windows engine instructions first. It neither
-downloads an unpinned "latest" SDK nor depends on a private local manifest.
+Ctrl+Z undoes the current photo; Ctrl+Shift+Z / Ctrl+Y redo. Undo/redo is per
+photo, bounded to 64 in-memory steps, and a slider drag is one step; the
+history itself is not persisted. Text editors retain their own undo
+shortcuts. Synchronization is undoable on each recipient photo. Batch export
+and file dialogs lock history commands along with other edits. The filmstrip
+restores each photo's wanted edits, including edits pending when the user
+switches away.
 
-For a parent build, enable the native RAW and desktop host targets and call
-`add_subdirectory(windows_UI)` after `add_subdirectory(engine)`. The Qt frontend
-links the existing `spk_desktop_host`; the macOS build is untouched. Resources
-are synchronized on every build, including builds where the executable itself
-does not need relinking. Deployment is an explicit build-script step.
+`--edit-store <absolute-directory>` overrides the persistent directory, and
+the preferences (`app-settings.json`) and export recipes
+(`export-recipes.json`) follow it; every automated test injects an isolated
+directory, including `--self-test` and `--snapshot` (`<snapshot>-edits`), so no
+test reads or writes the user's real store.
 
-## Validation
+## Export
 
-The first validated build used Qt 6.11.3 / MinGW 13.1 on an RTX 5070 Ti:
-16 engine CTests passed, followed by the real 4688 x 7028 ARW scene test below.
-The same decoded input produced byte-identical deterministic RGBA16 full and
-print-edit outputs under this compiler and the existing GCC 15.2 baseline.
-The Vulkan startup gate uses an exact product-residual reference because the
-legacy MSVCRT `fmaf` returns incorrect residuals for some of the probe inputs;
-the GPU comparison remains exact and also has fixed-bit regression vectors.
+Ctrl+E opens the Mac's export page (`Export/ExportPage.swift`,
+`ExportRecipe.swift`, `Exporter.swift`): the settings rail (Export Formula,
+Location, Naming, Format and Size, Summary, and a Windows Metadata section),
+the proof in the middle and the worklist down the right. Recipes are read and
+written in the Mac's own JSON (`export-recipes.json`), with its four naming
+tokens, the existing-file policies (-1, -2 suffixes / overwrite / skip) and
+its four default recipes. The chain is `Exporter.filePixels`': [Post-Dev] ->
+geometry -> long edge -> one conversion through `spk_output_transform`
+(`engine/host/output.cpp`) -> depth -> file, tagged with an ICC for the
+space (the bundled `sRGB.icc`; profiles matching the engine's curves
+otherwise). TIFF 16-bit, PNG 8/16, JPEG with quality; EXIF from the camera
+file (LibRaw); a TIFF preview page; the Digital Intermediate (Cineon, untagged,
+the view LUTs beside it). Writes publish atomically; nothing is replaced
+unless the recipe says overwrite. A batch runs as one locked operation, so
+the open frame and selection hold still (AGENTS.md trap 34), and Stop works
+between photos.
 
-```powershell
-$env:QT_QPA_PLATFORM='offscreen'
-$env:QT_QUICK_BACKEND='software'
-./build/qt/app/SpektraLabQt.exe --open C:/photos/supported.ARW `
-  --reject C:/photos/unsupported-HE.NEF --self-test C:/SpektraLab-validation/new-qt-test
-```
+The legacy exports (Export TIFF/PNG/JPEG and batch export) remain: they
+convert into sRGB and embed `sRGB.icc`, byte for byte an sRGB recipe export of
+the same frame. Single export captures the displayed frame, including when a
+new preview is pending, and refuses overwrites; batch export processes
+selected photos serially, supports cancellation between files and skips
+existing files.
 
-The output directory must not exist. The test drives actual QML/controller
-operations and the native Vulkan engine, saves fit/100%/final PNG captures,
-exports the displayed frame, checks negative-cache use, film/paper changes,
-failed RAW retention, overwrite refusal with pending settings, single flight,
-panning and physical-pixel scale, old-frame immutability, and injected display
-publication failure recovery. It also checks automatic selection/brightness,
-rapid edits before and during rendering, returning to the displayed settings,
-all four slide films, negative/slide transitions, automatic decode changes and
-reset. It exits nonzero on failure and writes JSON and scene captures.
+## The working space
 
-`spk_qt_frame_output` is an additional CTest for shared crop geometry, actual
-PNG/JPEG/TIFF pixels/depth/ICC, JPEG quality, resize, extension agreement,
-atomic no-overwrite publication (including concurrent writers), and cleanup.
-The explicit full-RAW library gate uses isolated copies of both photo inputs:
-
-```powershell
-# Use the same Qt/MinGW runtime PATH as build.ps1 and the SDK's plugin directory.
-./build/qt/spk_qt_library_workflow_test.exe ./build/qt/app/resources `
-  C:/photos/supported.ARW C:/photos/unsupported-HE.NEF `
-  C:/SpektraLab-validation/new-library-test
-```
-
-It checks pending edits while switching photos, independent crops, synchronization,
-preview/export pixel agreement, PNG16 and JPEG size, batch source/filename
-agreement, selection locks, no-overwrite, cancellation and failed RAW retention.
-The output directory must be new; missing fixtures are a hard failure.
-
-`spk_qt_edit_store` adds strict document/version validation, atomic save failure,
-source replacement (including before first save), concurrent-instance conflicts
-and preservation of damaged/future records to CTest. `spk_qt_editing_workflow_test`
-uses the same four arguments as the library gate and verifies history during
-in-flight renders, geometry/PNG agreement, mirrored rotation direction,
-destructor flushing of pending changes, recreation/reopening, per-photo history,
-batch locks and visible persistence warnings. It owns copies of all inputs.
-
-The captures are **offscreen scene captures**, not a live monitor screenshot.
-Software scene display does not make the engine a CPU renderer. This gate does
-not automate the native file dialogs or verify monitor profiles.
-
-**The working space.** As on the Mac (ARCHITECTURE.md §7.5), every session asks
-the engine for encoded **ProPhoto RGB** (`PreviewController::kWorkingSpace`) and
-the canvas receives half floats tagged with whatever the session reports (Qt
-6.11's scene graph uploads `RGBX16FPx4` as an `RGBA16F` texture on D3D11). A
-QImage tag is not a proof that the default Windows Qt swapchain applies a
-monitor ICC transform; the display transform is `ColorPipeline.hpp`'s. Every
-export reads the engine's RGBA16, not the display image, and leaves the working
+As on the Mac (ARCHITECTURE.md §7.5), every session asks the engine for
+encoded **ProPhoto RGB** (`PreviewController::kWorkingSpace`) and the canvas
+receives half floats tagged with whatever the session reports (Qt 6.11's scene
+graph uploads `RGBX16FPx4` as an `RGBA16F` texture on D3D11). Every export
+reads the engine's RGBA16, not the display image, and leaves the working
 space exactly once: the export page through the engine's output transform into
 the recipe's space (`RecipeExport.hpp`), and the legacy single and batch export
-(which embed sRGB.icc) through the same conversion into sRGB first
-(`exporting::exportLegacy`) -- byte for byte an sRGB recipe export of the same
-frame. The hidden `--output-color-space sRGB` option opens the old sRGB
-session, where an sRGB recipe export is byte-identical to the legacy writer's
-file; the self-test runs in either (in a ProPhoto session it also checks the
-sRGB PNG conversion). `spk_qt_frame_image` holds every engine output space's
-tag against the engine's own baked primaries and transfer functions. Post-Dev
-grades at ProPhoto's pivot (0.3857, the Mac's); the histogram bins the
-encoded working space, as the Mac's `encodeHistogram` bins its Layer 2
-texture; the Original is put into the session's space; the Digital
-Intermediate carries ProPhoto primaries, which its view LUTs assume. The GDI
-viewer (`engine/tools/windows_preview.cpp`) keeps the host's sRGB default and
-its BGRA8. EDR/HDR and ColourSync-equivalent display validation are future
-work. TIFF and PNG16 retain 16-bit pixels; PNG8/JPEG8 use 8-bit samples, and
-resizing is explicitly requested.
+through the same conversion into sRGB first (`exporting::exportLegacy`). The
+hidden `--output-color-space sRGB` option opens the old sRGB session, where an
+sRGB recipe export is byte-identical to the legacy writer's file; the
+self-test runs in either (in a ProPhoto session it also checks the sRGB PNG
+conversion). `spk_qt_frame_image` holds every engine output space's tag
+against the engine's own baked primaries and transfer functions. The
+histogram bins the encoded working space, as the Mac's `encodeHistogram` bins
+its Layer 2 texture; the Original is put into the session's space; the
+Digital Intermediate carries ProPhoto primaries, which its view LUTs assume.
+The GDI viewer (`engine/tools/windows_preview.cpp`) keeps the host's sRGB
+default and its BGRA8. TIFF and PNG16 retain 16-bit pixels; PNG8/JPEG8 use
+8-bit samples, and resizing is explicitly requested. Output is SDR: EDR/HDR
+output is future work.
 
 Nikon HE/HE* RAW remains explicitly unsupported by this LibRaw build. A failed
-NEF open must leave the previous ARW and its session usable.
+NEF open must leave the previous photo and its session usable.
 
 ## Display colour management
 
@@ -293,7 +500,11 @@ Each window has a `ColorPipeline` (`src/ColorPipeline.hpp` is the contract).
 A canvas asks it for the LUT from its frame's encoded colour space to the
 display; UI chrome is never managed. The colour core is `DisplayColor.*`
 (which profile) and `ColorLut.*` (the LUT, and a CPU model of the shader's
-texel-centre trilinear lookup that the tests measure against).
+texel-centre trilinear lookup that the tests measure against). Settings ▸
+Display chooses the mode, shows what the canvas is managed to and why, and
+offers Reload and the dither; the tool bar's photo line says the frame's
+space and the display it is managed to (`<space> -> <display>`), with a
+warning badge when it falls back.
 
 **Which profile.** In `automatic` mode, the profile is the one for the monitor
 Qt reports for the window. The pipeline follows the window to another monitor.
@@ -465,3 +676,96 @@ CMYK one and an A2B-only one written byte by byte. It checks:
 `spk_qt_color_core_test --probe-display` prints what each Windows query says
 about this machine's monitors, and the LUT accuracy for the real profile. It
 only reads.
+
+## Settings, About and the interface text
+
+**Settings** (Ctrl+,; the Mac's `SettingsWindow.swift` pages in its order --
+General, Rendering, Memory, Diagnostics, Agents -- with Display after
+General). General: the language (the loaded tables, or Follow the system;
+applied at once and kept), the interface scale (100/115/130 %, applied at the
+next start through `QT_SCALE_FACTOR`; an environment `QT_SCALE_FACTOR` wins),
+Reset All Layout and this session's build. Display: above. Diagnostics: where
+this session keeps its preferences, edits and licence texts, with Show in
+Explorer. Every Mac setting without a Windows backend is shown greyed with the
+reason under it, nothing invented: preview resolution, fast stock preview, DI
+blue compensation, crop re-maps, decouple effects, the memory and disk-cache
+readouts and caps, log level, per-node timings, job logs, log retention, the
+diagnostic bundle, the update check and agent access (the `spektralab` CLI
+and MCP server are macOS-only). Preferences are `app-settings.json` beside the
+edit store.
+
+**About** (`AboutWindow.swift`): name, version (the Mac's `MARKETING_VERSION`,
+`SPEKTRALAB_VERSION` in `CMakeLists.txt`), engine build (`spk_build_info`), Qt
+and compiler, the canvas's graphics adapter, the credits in the form CC BY-SA
+asks for, the GPL's written offer with the source URL, and every text in the
+deployed `licenses/` folder in a viewer, read from the files; a text the build
+should carry and lacks is listed as missing.
+
+**Interface text.** Every user-visible QML string, and the controller's status
+lines, is looked up by key from `i18n/en.json` through the C++ `Localizer`;
+English is the only shipped language, and [i18n/README.md](i18n/README.md)
+says how to add another.
+
+**Keys.** Ctrl+O imports files, Ctrl+Shift+O a folder, Ctrl+E opens export,
+Ctrl+A selects all photos, Ctrl+Shift+C / Ctrl+Shift+V copy and paste
+settings, Ctrl+J makes a half-frame pair, Ctrl+Shift+B bypasses the Post-Dev
+grade, S / Shift+S soft proof and gamut warning, Space shows the Original, Y
+or Alt+\\ before/after, Ctrl+, opens Settings, Ctrl+Q quits; the zoom keys are
+under Canvas tools.
+
+## Validation
+
+**CTest** (47, all passing on 2026-10-16 with MSVC 19.44 on an RTX 3070). The
+Qt editor's 22:
+
+| test | holds |
+|---|---|
+| `spk_qt_frame_output` | shared crop geometry, actual PNG/JPEG/TIFF pixels/depth/ICC, JPEG quality, resize, extension agreement, atomic no-overwrite publication (including concurrent writers), cleanup |
+| `spk_qt_recipe_export` | the Mac's recipe JSON, naming, existing-file policies against real files, sRGB byte identity with the old writer, every colour space from an sRGB and a ProPhoto session against an independent CIE conversion and through its embedded ICC, EXIF, preview page, DI |
+| `spk_qt_frame_image` | every engine output space's canvas tag against the engine's primaries and curves |
+| `spk_qt_edit_store` | strict document/version validation, version 1 to 2, atomic save failure, source replacement, concurrent-instance conflicts, damaged/future records preserved |
+| `spk_qt_controller_settings`, `spk_desktop_settings_engine` | the controller's settings API (generic parameters, legacy names, defaults, locks); the settings table through the real engine on a synthetic frame |
+| `spk_qt_film_edge_state` | Film Edge / Date Back rows, refusals, gate lock, held crop, Sync's rule, the record's round trip |
+| `spk_qt_canvas_tools` | zoom ladder, physical alignment, clamp, crop grips, straighten line, histograms, the Original's conversion and geometry |
+| `spk_qt_color_canvas`, `spk_qt_color_canvas_software` | the canvas on D3D11 WARP and the software backend (above) |
+| `spk_qt_localizer` | every shipped table uses only `en.json`'s keys, and every key the QML asks for exists |
+| `spk_qt_color_core`, `spk_qt_soft_proof` | the display LUT and the proof (above) |
+| `spk_qt_predev` | the Fit and the placement window on a synthetic ramp through the real engine, `spk_solve`'s report, the Tone Mask curve, the white-balance rules, the neutral picker's geometry, the controller's Pre-Dev API |
+| `spk_qt_postdev`, `spk_qt_postdev_gpu`, `spk_qt_postdev_glsl` | the grade and its record on the CPU; the same grade through QRhi held to the CPU path; `postdev.glsl` compiled by glslang |
+| `spk_qt_pairs` | the pair's record, where each edit lands, what the engine is handed |
+| `spk_qt_app_settings`, `spk_qt_shell_smoke` | the preferences file; Settings and About load offscreen with no QML warning |
+| `spk_qt_library`, `spk_qt_flat_input` | folder listing, order, crop-masked thumbnails; TIFF/JPEG/PNG decoded at the door against independent conversions |
+
+**The RAW gates** (commands under Build). The self-test drives actual
+QML/controller operations and the native Vulkan engine, saves fit/100%/final
+PNG captures, exports the displayed frame, checks negative-cache use,
+film/paper changes, failed RAW retention, overwrite refusal with pending
+settings, single flight, panning and physical-pixel scale, old-frame
+immutability, injected display publication failure recovery, automatic
+selection/brightness, rapid edits before and during rendering, returning to
+the displayed settings, all four slide films, negative/slide transitions,
+automatic decode changes and reset, and the canvas tools; it exits nonzero on
+failure and writes JSON and scene captures. The library gate checks pending
+edits while switching photos, independent crops, synchronization,
+preview/export pixel agreement, PNG16 and JPEG size, batch source/filename
+agreement, selection locks, no-overwrite, cancellation and failed RAW
+retention. The editing gate verifies history during in-flight renders,
+geometry/PNG agreement, mirrored rotation direction, destructor flushing of
+pending changes, recreation/reopening, per-photo history, batch locks and
+visible persistence warnings. The export gate covers recipe persistence,
+identity on a developed frame, EXIF, policies, DI, batch Stop and a ProPhoto
+session; the pairs gate Ctrl+J, per-frame edits, undo, the record across a
+restart and the pair's export as one picture.
+
+The captures are **offscreen scene captures**, not a live monitor screenshot.
+Software scene display does not make the engine a CPU renderer. These gates
+do not automate the native file dialogs or verify a monitor's colour; no
+display has been measured with an instrument.
+
+The first validated build (Qt 6.11.3 / MinGW 13.1 on an RTX 5070 Ti) passed
+16 engine CTests and the real 4688 x 7028 ARW scene test; the same decoded
+input produced byte-identical deterministic RGBA16 full and print-edit outputs
+under that compiler and the earlier GCC 15.2 baseline. The Vulkan startup gate
+uses an exact product-residual reference because the legacy MSVCRT `fmaf`
+returns incorrect residuals for some of the probe inputs; the GPU comparison
+remains exact and also has fixed-bit regression vectors.
