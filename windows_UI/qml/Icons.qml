@@ -34,4 +34,6 @@ QtObject {
     readonly property string check: "\uE73E"
     readonly property string photo: "\uE91B"
     readonly property string warning: "\uE7BA"
+    readonly property string add: "\uE710"             // plus (the export page's recipe list)
+    readonly property string remove: "\uE738"          // minus
 }

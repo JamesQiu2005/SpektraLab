@@ -472,6 +472,19 @@ public:
     // encoded in sRGB is refused rather than mislabelled.
     void export_tiff(const Frame& frame, const std::filesystem::path& destination) const;
 
+    // The engine this host renders with, for the engine-level calls an export
+    // makes beside the session (spk_output_transform's tables, valid for the
+    // engine's lifetime). Same thread rule as every other member.
+    spk_engine* engine() const noexcept;
+    // RFC-028: the current frame's Digital Intermediate, full tier, through
+    // spk_render_digital_intermediate on the host's session (rebuilt from the
+    // retained input if a failure dropped it). The session's own frame and
+    // cached prints are untouched. The result is Kodak Cineon log in the
+    // session's working primaries: `encoding` is {"Cineon log/<primaries>",
+    // true}, which no display or writer mistakes for a colour space. A slide
+    // film has none and throws.
+    FramePtr render_digital_intermediate();
+
 private:
     struct Impl;
     std::unique_ptr<Impl> impl_;

@@ -1310,4 +1310,60 @@ void PreviewHost::export_tiff(const Frame& frame, const fs::path& destination) c
     require(written, "TIFF export: " + error);
 }
 
+spk_engine* PreviewHost::engine() const noexcept { return impl_->engine.get(); }
+
+FramePtr PreviewHost::render_digital_intermediate() {
+    const auto started = Clock::now();
+    require(bool(impl_->frame), "Open a RAW image before exporting its Digital Intermediate");
+    const FramePtr& current = impl_->frame;
+    if (!impl_->session) {
+        // Reopened as the current frame was made: whole, or cut by its
+        // geometry (Film Edge, Date Back on a cropped frame).
+        const EngineInput input = engine_input(current->settings, impl_->decoded, current->geometry);
+        std::vector<float> cut_rgb;
+        std::uint32_t pw = impl_->decoded.width, ph = impl_->decoded.height;
+        if (input.cut) cut_rgb = cut_decode(impl_->decoded, input.photo.geometry, pw, ph);
+        auto opened = open_session(impl_->engine.get(), input.cut ? cut_rgb.data() : impl_->decoded.rgb.data(), pw,
+                                   ph, current->settings, impl_->catalog, impl_->options.output_color_space,
+                                   input.photo);
+        impl_->session = std::move(opened.session);
+        impl_->encoding = opened.encoding;
+        impl_->session_cut = input.cut ? std::optional<EngineCut>(input.photo.geometry) : std::nullopt;
+    }
+    auto next = std::shared_ptr<Frame>(new Frame());
+    next->source = current->source;
+    next->decode_mode = current->decode_mode;
+    next->settings = current->settings;
+    next->scan_film = current->scan_film;
+    next->metadata = current->metadata;
+    next->decode_timings = current->decode_timings;
+    // The DI is the session's negative: cut as the current frame is, the film
+    // around it included, so it takes no geometry of its own either.
+    next->geometry = current->geometry;
+    next->cut = current->cut;
+    next->decode_width = current->decode_width;
+    next->decode_height = current->decode_height;
+    next->picture_width = current->picture_width;
+    next->picture_height = current->picture_height;
+    next->overscan_geometry = current->overscan_geometry;
+    char* reply_text = nullptr;
+    const auto t = Clock::now();
+    const auto status = spk_render_digital_intermediate(impl_->session.get(), &next->result_, &reply_text);
+    const std::unique_ptr<char, decltype(&spk_string_free)> reply_owner(reply_text, &spk_string_free);
+    require(status == SPK_OK, "Digital Intermediate: " + std::string(spk_last_error(impl_->engine.get())));
+    next->timings.render_ms = elapsed(t);
+    next->timings.engine_render_ms = next->result_.elapsed_ms;
+    std::string primaries = impl_->encoding.color_space;
+    if (reply_text) {
+        Json reply;
+        std::string error;
+        if (Json::parse(reply_text, reply, error) && reply.is_object() && reply.has("primaries") &&
+            reply.at("primaries").is_string())
+            primaries = reply.at("primaries").as_string();
+    }
+    next->encoding = {"Cineon log/" + primaries, true};
+    next->timings.total_ms = elapsed(started);
+    return next;
+}
+
 }  // namespace spk::desktop
