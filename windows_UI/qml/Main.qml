@@ -47,7 +47,7 @@ ApplicationWindow {
 
     // Any modal surface pauses pending preview updates until it closes.
     function updateDialogState() {
-        preview.setDialogOpen(editorState.cropMode || openDialog.visible || exportPage.visible)
+        preview.setDialogOpen(editorState.cropMode || openDialog.visible || folderDialog.visible || exportPage.visible)
     }
     function startCrop() { editorState.startCrop() }
     function openExport() { editorState.openExport() }
@@ -70,6 +70,7 @@ ApplicationWindow {
         canvas: centre.canvas
         onCropModeChanged: window.updateDialogState()
         onImportRequested: openDialog.open()
+        onFolderRequested: folderDialog.open()
         onExportOptionsRequested: exportPage.open()
         onSettingsRequested: function(page) { window.openSettings(page) }
         onAboutRequested: window.openAbout()
@@ -94,11 +95,33 @@ ApplicationWindow {
         id: openDialog
         title: L10n.tr("dialog.import.title")
         fileMode: FileDialog.OpenFiles
-        nameFilters: [L10n.tr("dialog.filter.cameraRaw") + " (*.arw *.nef *.nrw *.dng *.cr2 *.cr3 *.raf *.rw2 *.orf *.pef *.srw)", L10n.tr("dialog.filter.allFiles") + " (*)"]
+        // ImageDecoder.openable: the RAWs, and TIFF / JPEG / PNG decoded at
+        // the door (their profile, else sRGB or linear ProPhoto).
+        nameFilters: [L10n.tr("dialog.filter.photos") + " (*.arw *.nef *.nrw *.dng *.cr2 *.cr3 *.raf *.rw2 *.orf *.pef *.srw *.3fr *.iiq *.tif *.tiff *.jpg *.jpeg *.png)",
+                      L10n.tr("dialog.filter.cameraRaw") + " (*.arw *.nef *.nrw *.dng *.cr2 *.cr3 *.raf *.rw2 *.orf *.pef *.srw *.3fr *.iiq)",
+                      L10n.tr("dialog.filter.images") + " (*.tif *.tiff *.jpg *.jpeg *.png)",
+                      L10n.tr("dialog.filter.allFiles") + " (*)"]
         onVisibleChanged: window.updateDialogState()
         onAccepted: preview.openFiles(selectedFiles)
     }
+    // Open Folder (Library.chooseFilesOrFolder takes a folder too): every
+    // photo in it, not its subfolders, in the order kept for it.
+    FolderDialog {
+        id: folderDialog
+        title: L10n.tr("dialog.folder.title")
+        onVisibleChanged: window.updateDialogState()
+        onAccepted: preview.openFolder(selectedFolder)
+    }
     Shortcut { sequences: [StandardKey.Open]; enabled: editorState.canBrowse; onActivated: openDialog.open() }
+    Shortcut { sequence: "Ctrl+Shift+O"; enabled: editorState.canBrowse; onActivated: folderDialog.open() }
+    // The filmstrip's keys (Session.stepFrame, the Mac's Left / Right): a
+    // plain click on the neighbour. Single keys yield to a focused text field
+    // (AGENTS.md trap 32), which takes them as caret moves.
+    Shortcut { sequence: "Left"; enabled: editorState.canBrowse && !window.editingText && preview.activeIndex > 0; onActivated: editorState.stepPhoto(-1) }
+    Shortcut { sequence: "Right"; enabled: editorState.canBrowse && !window.editingText && preview.activeIndex >= 0 && preview.activeIndex < preview.libraryItems.length - 1; onActivated: editorState.stepPhoto(1) }
+    // The Settings Clipboard (Shift-Cmd-C / Shift-Cmd-V on the Mac).
+    Shortcut { sequence: "Ctrl+Shift+C"; enabled: editorState.canCopySettings && !window.editingText; onActivated: preview.copySettings() }
+    Shortcut { sequence: "Ctrl+Shift+V"; enabled: editorState.canPasteSettings && !window.editingText; onActivated: preview.pasteSettings() }
     Shortcut { sequence: "Ctrl+E"; enabled: editorState.canExport; onActivated: editorState.openExport() }
     // Zoom, the Mac's View menu as Windows spells it: Ctrl+0 / Ctrl+1 and
     // Capture One's `,` / `.` are fit and 100 %; Ctrl+= / Ctrl+- step the

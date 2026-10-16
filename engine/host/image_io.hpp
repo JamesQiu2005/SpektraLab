@@ -65,8 +65,11 @@ struct DecodeOptions {
 // Thrown as a plain error string prefixed "unsupported:" when a decode option
 // cannot be honoured for this file.
 constexpr const char* kUnsupportedPrefix = "unsupported: ";
+// `space`, when given, receives what a flat file was read as: its ICC
+// profile's description, or the assumption ("sRGB (assumed)", "linear
+// ProPhoto RGB (assumed)"); "camera RAW" for a RAW.
 bool decode_linear_prophoto(const std::filesystem::path& path, const DecodeOptions& options,
-                            FloatImage& out, Probe& probe, std::string& error);
+                            FloatImage& out, Probe& probe, std::string& error, std::string* space = nullptr);
 
 // A display thumbnail, sRGB 8-bit, orientation applied, long edge <= long_edge.
 // RAW: the embedded preview when there is one, else a half-size decode.

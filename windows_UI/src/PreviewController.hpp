@@ -6,7 +6,13 @@
 #include "Messages.hpp"
 #include "PostDevSurfaces.hpp"
 #include "ProofTransform.hpp"
+#include "Library.hpp"
+#include "SettingsClipboard.hpp"
 #include <QImage>
+#include <QSet>
+#include <QThreadPool>
+#include <memory>
+#include <optional>
 #include <QPointF>
 #include <QObject>
 #include <QPointF>
@@ -256,6 +262,23 @@ class PreviewController final : public QObject {
     // graded frame by frame already and the canvas adds none (Session.swift
     // canvasAdjustments :2604-2607, pairLayered :5117-5159).
     Q_PROPERTY(QVariantMap canvasPostDev READ canvasPostDev NOTIFY postDevChanged)
+    // --- the library and the settings clipboard (PreviewControllerLibrary.cpp)
+    // The Settings Clipboard section's boxes (ClipboardSection.swift): each
+    // {id, ticked} in the section's order, ticked = what the next Copy or
+    // Sync takes; persisted beside the edits.
+    Q_PROPERTY(QVariantList clipboardGroups READ clipboardGroups NOTIFY clipboardChanged)
+    // What the section reads off the clipboard and the selection: holds,
+    // source, groups (held), canCopy, canPaste, canSync, pasteTargets,
+    // syncTargets (Session.canCopySettings ... syncTargets, :3736-3770).
+    Q_PROPERTY(QVariantMap clipboard READ clipboardState NOTIFY clipboardChanged)
+    // How many library items still wait for their file's own picture.
+    Q_PROPERTY(int previewsPending READ previewsPending NOTIFY libraryChanged)
+    // The filmstrip reads one item at a time (libraryItem): the count is its
+    // model, and the revision -- bumped by every libraryChanged -- what makes
+    // each cell read its item again, without rebuilding the whole list per
+    // cell or recreating the cells (a drag in flight keeps its own).
+    Q_PROPERTY(int libraryCount READ libraryCount NOTIFY libraryChanged)
+    Q_PROPERTY(int libraryRevision READ libraryRevision NOTIFY libraryChanged)
 public:
     // Makes the full display image of a frame. Called on the worker thread,
     // after the render and before the reply is queued; a throw fails the
@@ -342,8 +365,56 @@ public:
     void setExposureEv(double value);
     spk::desktop::FramePtr frame() const { return frame_; }
     Q_INVOKABLE void openRaw(const QUrl& path);
+    // Files and folders (Session.open(urls:)): a folder brings every file it
+    // holds that opens (Library.frames(at:): not its subfolders), in Finder's
+    // order with the folder's kept order laid over it (FrameOrder), and the
+    // first of them opens. Refused while anything runs, a batch export first.
     Q_INVOKABLE void openFiles(const QVariantList& urls);
+    Q_INVOKABLE void openFolder(const QUrl& folder);
+    // The photograph on the canvas, the picked set untouched (Session.select);
+    // the filmstrip's clicks are clickPhoto.
     Q_INVOKABLE void selectImage(int index);
+    // A left click on a thumbnail (Session.click, :1409-1444): a plain click
+    // picks exactly this photograph and opens it; with Ctrl it joins or
+    // leaves the picked set and the canvas stays where it is -- the open
+    // photograph cannot leave the set. No-ops during a batch export.
+    Q_INVOKABLE void clickPhoto(int index, bool command);
+    // The chevrons and Left/Right (Session.selectRelative): a plain click on
+    // the neighbour, clamped at the ends.
+    Q_INVOKABLE void stepPhoto(int delta);
+    // A thumbnail dragged along the strip (Session.moveFrame, :2629-2641):
+    // `from` takes `to`'s place. itemOrderChanged() when it is let go keeps
+    // the order for its folder (FrameOrder.save). Refused while anything runs.
+    Q_INVOKABLE bool moveItem(int from, int to);
+    Q_INVOKABLE void itemOrderChanged();
+    // The settings clipboard (SettingsClipboard.swift, RFC-027).
+    Q_INVOKABLE void setClipboardGroup(const QString& id, bool ticked);
+    // Ctrl+Shift+C: the ticked groups of the photograph on the canvas.
+    Q_INVOKABLE bool copySettings();
+    // Ctrl+Shift+V: what the clipboard holds onto every picked photograph
+    // (the open one live, as one undo step; the others in their records,
+    // each with its own undo step), or onto the open one when none is
+    // picked. Returns how many photographs changed.
+    Q_INVOKABLE int pasteSettings();
+    // Several settings rows as ONE edit -- one undo step, one render: the
+    // QML actions that set more than one row at once (Film Exposure's As
+    // Shot, Film Format's Reset and effect switches). Keys are wire names as
+    // setParameter takes them; film_stock goes before print_stock, the rest
+    // in the map's order. Every value's type, range and choices are checked
+    // first: an unknown key or a bad value refuses the whole edit and changes
+    // nothing. A row the editor's own rules then turn down (a paper the film
+    // cannot print on, a print exposure for a slide) is skipped and the call
+    // returns false; what did apply is still the one step.
+    Q_INVOKABLE bool setParameters(const QVariantMap& values);
+    // The C++ equivalent, in the order given.
+    bool setSettingValues(const std::vector<std::pair<std::string, spk::desktop::SettingValue>>& values);
+    Q_INVOKABLE QVariantMap libraryItem(int index) const;
+    int libraryCount() const { return int(library_.size()); }
+    int libraryRevision() const { return library_revision_; }
+    QVariantList clipboardGroups() const;
+    QVariantMap clipboardState() const;
+    const std::optional<spk::desktop::clipboard::Clip>& heldClip() const { return clip_; }
+    int previewsPending() const;
     Q_INVOKABLE void setItemSelected(int index, bool selected);
     Q_INVOKABLE void selectAllPhotos(bool selected);
     Q_INVOKABLE void syncSelectedSettings(bool includeCrop=false);
@@ -571,6 +642,7 @@ public:
     // Deletes a pair's record (the photographs it showed are untouched).
     Q_INVOKABLE bool deletePair(int index);
 signals:
+    void clipboardChanged();
     void pairChanged();
     void filmEdgeChanged();
     void postDevChanged();
@@ -601,6 +673,9 @@ private:
         QImage full, visible, navigator;
         std::vector<float> histogram, uncropped_histogram;  // of visible, of full
         QImage source;  // a cut frame's undeveloped decode (Frame::source_preview)
+        // The whole print, unturned and uncropped, at the strip's size: what
+        // the filmstrip masks with the crop (CropMaskedThumbnail.swift).
+        QImage whole;
         spk::desktop::output::Geometry geometry;  // what `visible` applied
         double convert_ms=0, total_ms=0;           // factory alone; all three
         double histogram_ms=0;                     // both histograms
@@ -721,7 +796,20 @@ private:
         // A half-frame pair (its url is the pair's record): its piece and its
         // frames' own state; `settings` are then the film's.
         std::optional<spk::desktop::pairs::Pair> pair;
+        // The filmstrip's picture (Filmstrip.swift, ThumbnailCache.swift): the
+        // file's own preview -- a RAW's embedded JPEG, a flat file read small --
+        // until the photograph has been rendered, then the rendered print,
+        // whole; either is masked with the crop as the strip shows it.
+        QImage preview;
+        bool preview_requested=false;
+        QImage whole;
+        bool whole_cut=false;   // a cut frame's print already is its framing
+        mutable QImage strip;
+        mutable qint64 strip_source=0;
+        mutable spk::desktop::output::Geometry strip_geometry;
     };
+    // The per-item pictures a job snapshot does not need.
+    static void dropImages(LibraryItem& item);
     static spk::desktop::editing::State itemState(const LibraryItem&);
     void recordEdit(LibraryItem&,const spk::desktop::editing::State& before);
     std::vector<LibraryItem> library_;
@@ -859,4 +947,40 @@ private:
     struct PairFit { int side = -1; double highlight = 0, shadow = 0; bool turned = false; double spacing = 1; };
     std::mutex pair_fit_mutex_;
     PairFit pair_fit_;
+
+    // --- the library and the settings clipboard (PreviewControllerLibrary.cpp)
+    void setupLibrary();     // the constructor's part
+    // Asks the preview pool for every item's own picture still missing.
+    void requestPreviews();
+    void takePreview(const QUrl& url, QImage preview);
+    // The item's strip picture: its whole print (else its file's preview),
+    // masked with the crop the strip shows for it.
+    QImage stripImage(int index) const;
+    // The open photograph's whole print, thumbnail-sized, graded.
+    QImage wholeThumbnail() const;
+    // `items` (indices into library_) reordered by the folder's kept order.
+    void applyFolderOrder(int from);
+    // Moves library_[from] to `to`, keeping every index that names an item.
+    void moveLibraryItem(int from, int to);
+    // A clip written onto one photograph that is not open: its record, its
+    // own undo step; false when nothing changed.
+    // `crop`, when given, goes too (Sync with crop; never onto a pair).
+    bool pasteOffline(const spk::desktop::clipboard::Clip& clip, int index,
+                      const spk::desktop::output::Geometry* crop = nullptr);
+    bool pasteLive(const spk::desktop::clipboard::Clip& clip);
+    std::vector<int> syncTargets() const;
+    std::vector<int> pasteTargets() const;
+    QSet<spk::desktop::clipboard::Group> storedClipboardGroups() const;
+    // setParameters' scope: the edits inside it are one gesture, one step.
+    void beginBatchEdit();
+    void endBatchEdit();
+    QImage whole_thumb_;
+    spk::desktop::library::FrameOrder order_;
+    QSet<spk::desktop::clipboard::Group> clipboard_groups_;
+    std::optional<spk::desktop::clipboard::Clip> clip_;
+    std::unique_ptr<QThreadPool> preview_pool_;
+    QTimer preview_flush_;
+    int previews_running_=0;
+    int batch_edit_=0;
+    int library_revision_=0;
 };

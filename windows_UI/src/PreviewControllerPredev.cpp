@@ -190,6 +190,9 @@ QVariantMap PreviewController::whiteBalance() const {
         {"asShotTemperature", camera ? QVariant(camera->temperature) : QVariant()},
         {"asShotTint", camera ? QVariant(camera->tint) : QVariant()},
         {"enabled", balanceable(shotMetadata())},
+        // A TIFF, JPEG or PNG has no camera white balance to move (it is
+        // already a rendering: ImageDecoder.swift decodeFlat).
+        {"raw", !frame_ || pairActive() || desktop::library::rawFile(QString::fromStdWString(frame_->source.wstring()))},
         // macOS's sliders (WhiteBalanceRows.swift:40-56): their ranges and
         // zero ticks; the rows themselves take 2000..50000 K.
         {"temperatureFrom", 2000.0}, {"temperatureTo", 12000.0}, {"tintFrom", -150.0}, {"tintTo", 150.0},

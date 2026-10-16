@@ -5,14 +5,53 @@ This is a native Qt Quick/C++ application using the existing synchronous
 runtime. The interface is the macOS app's (see below); controls whose
 feature is not on Windows yet are shown greyed with the reason, not omitted.
 
-Implemented: multi-file RAW import and drag/drop; independent per-photo
+Implemented: multi-file and whole-folder import (RAW, TIFF, JPEG, PNG) and
+drag/drop; independent per-photo
 film/paper, decode, exposure, grain, halation, glare, film format and filter
 settings; a navigator and selected-photo strip; free/ratio cropping; and
 TIFF16, PNG8/16, JPEG8 export with JPEG quality and optional downsize. Batch
 export processes selected photos serially, supports cancellation between files,
 and skips existing files. Single export refuses overwrites. Output stays sRGB
-with the bundled ICC profile. Select-all and synchronization copy supported
-settings to selected photos, preserving their own crops by default.
+with the bundled ICC profile. Select-all, the Settings Clipboard (Copy, Paste,
+Sync with the Mac's seven groups) copy settings between photos, preserving
+their own crops.
+
+**The library** (the Mac's `Filmstrip.swift`, `Library.swift`, `FrameOrder.swift`,
+README "Select and sync photos"). Ctrl+O opens files, Ctrl+Shift+O (or the
+menu's Open Folder) a folder: every photo in it -- not its subfolders -- in
+Finder's order (numbers as numbers), and a folder or files dropped on the
+canvas or the strip do the same. A TIFF, JPEG or PNG is decoded at the door
+(`engine/src/desktop/raw_white_balance.hpp`): its ICC profile, else sRGB for an
+8-bit file and linear ProPhoto for an untagged 16-bit/float TIFF, as the Mac's
+`ImageDecoder` assumes, into the engine's scene-linear input; it has no camera
+white balance or RAW decode to choose, and Photo Info says what it was read as.
+Each thumbnail is the whole photograph with everything outside its crop under
+a nearly opaque mask, turned and flipped as the canvas is
+(`CropMaskedThumbnail.swift`); until a photo has been rendered it is the file's
+own preview (a RAW's embedded JPEG), read off the GUI thread. A plain click
+opens a photo and selects it alone; Ctrl+click adds or removes a photo without
+moving the open one, which cannot leave the selection; Left / Right step (not
+while a text field has the keyboard, AGENTS.md trap 32). Dragging a thumbnail
+along the strip moves it, and the order is kept for its folder (beside the
+edits, `Order/<folder>-<hash>.order.json`) and laid over the listing next time,
+a new file after its own neighbour. None of this moves while a batch export
+runs (AGENTS.md trap 34).
+
+**The Settings Clipboard** (`SettingsClipboard.swift`, RFC-027; left rail,
+folded by default): the seven groups -- Film & Paper, Exposure, White Balance,
+Film Effects, Print Effects, Scene Placement, Masks (the Tone Mask, which this
+build shows) -- choose what the next Copy (Ctrl+Shift+C) or Sync takes; the
+line under them says what the clipboard holds. Paste (Ctrl+Shift+V) writes
+exactly the held groups onto every selected photo (the open one live, as one
+undo step; the others in their records, each with its own undo step), Sync to
+N a fresh copy of the open photo's ticked groups onto the other selected
+photos. Crop, Post-Dev, the decode mode, Film Edge and Date Back stay with each
+photo; As Shot white balance stays the target's own camera's, and a Scene
+Placement arrives as its pull-backs and is fitted again on the target. Paste
+and Sync wait for a batch export. `PreviewController::setParameters` (and its
+C++ form `setSettingValues`) applies several settings rows as one edit -- one
+undo step, one render -- for Film Exposure's As Shot and Film Format's Reset,
+All Effects On/Off and Reset Effect Strengths.
 
 The QML is one file per pane (`qml/left`, `qml/centre`, `qml/right`,
 `qml/export`); `qml/Main.qml` holds the window, dialogs and shortcuts and
@@ -36,7 +75,7 @@ double-click to reset; one undo step per gesture), `CheckRow`, `PillDropdown`,
 `PillSwitch`, `PillButton`, `IconButton`, `StockList`, `RailMenu`. Each file
 says its API at the top. The Mac's sections and tools that Windows cannot
 drive yet (Latitude, white balance, Scene Placement, Tone Mask, Print Effects,
-EDR, pre-flash, Film Edge, Date Back, the settings clipboard's copy and paste,
+EDR, pre-flash, Film Edge, Date Back,
 Process, Original, before/after) keep their place greyed, and say
 why on hover, so a later change fills them in place.
 
@@ -73,7 +112,7 @@ physical 100% (Ctrl+= / Ctrl+- step between the two, and the tool bar's zoom
 pill toggles them). Double-click also switches fit/100%. F11 is full screen.
 Ctrl+Shift+B bypasses or restores the Post-Dev grade.
 Ctrl+click in the filmstrip adds a photo to, or removes it from, the selection
-that Sync and batch export use. Changes update the preview
+that Sync, Paste and batch export use. Changes update the preview
 automatically after a 180 ms settling delay. The filmstrip restores each
 photo's wanted edits, including edits pending when the user switches away.
 Edits automatically save under the application's local data directory (`Edits`)
@@ -85,7 +124,7 @@ reopen the photo to load the other instance's saved settings. Undo/redo is per
 photo, bounded to 64 in-memory steps, and a
 slider drag is one step. Undo history itself is not persisted. Only the current
 photo is fully decoded/developed; unvisited
-photos have an explicit placeholder until opened. Small thumbnails are retained,
+photos show their file's own preview until opened. Small thumbnails are retained,
 not one full RAW/GPU session per imported photo.
 
 Crop is post-render geometry and does not re-run the emulsion. Preview,
@@ -95,8 +134,7 @@ quarter turns, horizontal/vertical flips and -45 to +45 degree straightening.
 Straightening applies on release, uses original 16-bit samples and zooms to
 fill the crop; quarter turns/flips are lossless. The crop editor uses the
 unrotated source explicitly, while presets describe the final output ratio.
-Masked full-photo strip thumbnails remain pending. The strip currently
-shows the cropped output. See [DESIGN_ALIGNMENT.md](DESIGN_ALIGNMENT.md) for the
+The strip and the export page show the whole photo under its crop mask. See [DESIGN_ALIGNMENT.md](DESIGN_ALIGNMENT.md) for the
 author's drawing transcription and upstream comparison.
 
 Slide film is scanned directly, matching the upstream macOS film-stage rule.

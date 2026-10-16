@@ -46,18 +46,20 @@ MacSection {
         }
         return true
     }
-    function setEffects(on) {
-        preview.setParameter("grain_active", on)
-        preview.setParameter("halation_active", on)
-        preview.setParameter("glare_active", on)
-    }
-    function resetStrengths() {
-        for (var key in strengthDefaults) preview.setParameter(key, strengthDefaults[key])
-    }
+    // Each of these is one edit -- one undo step, one render -- through
+    // setParameters, as the Mac's menu commands write the sidecar once.
+    function effects(on) { return { grain_active: on, halation_active: on, glare_active: on } }
+    function setEffects(on) { preview.setParameters(effects(on)) }
+    function resetStrengths() { preview.setParameters(strengthDefaults) }
     resetVisible: true
     resetAvailable: editable
     resetToolTip: L10n.tr("format.reset")
-    onResetRequested: { preview.setAdjustment("filmFormatMm", 35); setEffects(true); resetStrengths() }
+    onResetRequested: {
+        var all = effects(true)
+        for (var key in strengthDefaults) all[key] = strengthDefaults[key]
+        all.film_format_mm = 35
+        preview.setParameters(all)
+    }
     menuItems: [
         RailMenuItem { text: L10n.tr("format.allEffectsOn"); enabled: section.editable; onTriggered: section.setEffects(true) },
         RailMenuItem { text: L10n.tr("format.allEffectsOff"); enabled: section.editable; onTriggered: section.setEffects(false) },

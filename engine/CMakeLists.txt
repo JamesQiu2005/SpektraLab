@@ -201,13 +201,18 @@ if(NOT APPLE)
             endif()
             if(WIN32 AND SPEKTRALAB_BUILD_DESKTOP)
                 # White balance at decode reuses spektralab-host's
-                # Temperature/Tint conversion, which reads LibRaw's matrix.
+                # Temperature/Tint conversion, which reads LibRaw's matrix; a
+                # TIFF/JPEG/PNG is decoded at the door by spektralab-host's
+                # reader (host/image_io, with its TIFF, stb and platform parts),
+                # compiled here once for every desktop target.
                 add_library(spk_desktop_host STATIC src/desktop/preview_host.cpp
-                    src/desktop/raw_white_balance.cpp host/white_balance.cpp src/desktop/half_frame_pair.cpp)
+                    src/desktop/raw_white_balance.cpp host/white_balance.cpp src/desktop/half_frame_pair.cpp
+                    host/image_io.cpp host/platform.cpp host/tiff_ifd.cpp host/stb_impl.cpp)
                 target_compile_features(spk_desktop_host PUBLIC cxx_std_20)
                 target_include_directories(spk_desktop_host PUBLIC
-                    "${CMAKE_CURRENT_SOURCE_DIR}/src" "${CMAKE_CURRENT_SOURCE_DIR}/include")
-                target_link_libraries(spk_desktop_host PUBLIC spk_image_io spektralab_engine PRIVATE spk_libraw)
+                    "${CMAKE_CURRENT_SOURCE_DIR}/src" "${CMAKE_CURRENT_SOURCE_DIR}/include"
+                    PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/host" "${CMAKE_CURRENT_SOURCE_DIR}/third_party/stb")
+                target_link_libraries(spk_desktop_host PUBLIC spk_image_io spektralab_engine shell32 PRIVATE spk_libraw)
                 add_executable(SpektraLab WIN32 tools/windows_preview.cpp)
                 target_link_libraries(SpektraLab PRIVATE spk_desktop_host comctl32 comdlg32 shell32 gdi32 user32)
                 file(MAKE_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}/licenses")

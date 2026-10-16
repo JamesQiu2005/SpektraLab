@@ -64,7 +64,8 @@ MacSection {
         MenuSeparator {},
         RailMenuItem {
             text: L10n.tr("crop.wholeFrame"); enabled: section.usable
-            onTriggered: { preview.resetCrop(); preview.setStraightenDegrees(0); section.editor.resetView(true) }
+            // The crop and the level as one edit (one undo step).
+            onTriggered: { preview.setCropGeometry(Qt.rect(0, 0, 1, 1), 0); section.editor.resetView(true) }
         }
     ]
 

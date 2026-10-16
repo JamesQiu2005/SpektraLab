@@ -959,6 +959,13 @@ int main(int argc,char** argv) {
     QCommandLineOption gamutWarningOption("gamut-warning","With --snapshot and --proof: show the gamut warning (testing)");
     proofOption.setFlags(QCommandLineOption::HiddenFromHelp);gamutWarningOption.setFlags(QCommandLineOption::HiddenFromHelp);
     parser.addOption(proofOption);parser.addOption(gamutWarningOption);
+    // Testing only: with --snapshot (--open may be a folder), crop the opened
+    // photo to x,y,w,h[,quarter turns] and Sync the crop to the selected
+    // others, so the strip shows its crop masks; the capture waits for every
+    // file's own preview.
+    QCommandLineOption snapshotCrop("snapshot-crop","With --snapshot: crop and sync the crop to the library (testing)","x,y,w,h[,turns]");
+    snapshotCrop.setFlags(QCommandLineOption::HiddenFromHelp);
+    parser.addOption(snapshotCrop);
     parser.process(app);
     const QString requestedSpace=parser.isSet(outputSpace)?parser.value(outputSpace):
         QString::fromLatin1(PreviewController::kWorkingSpace);
@@ -1057,7 +1064,12 @@ int main(int argc,char** argv) {
                 controller.setProofRecipe({{"name","proof"},{"format","TIFF 16-bit"},{"colorSpace",QVariantMap{{"builtIn",QVariantMap{{"_0",key}}}}}});
                 controller.setSoftProof(true);controller.setGamutWarning(warn);
             }
-            const auto capture=[window,destination,proofOn=!proofSpace.isEmpty()]{
+            // Once every library item's own preview is in (the strip shows it)
+            // and the canvas draws through its display LUT -- and the proof
+            // LUT when --proof asks -- then a beat for the scene graph.
+            auto shoot=std::make_shared<std::function<void()>>();
+            *shoot=[window,destination,&controller,shoot,proofOn=!proofSpace.isEmpty()]{
+                if(controller.previewsPending()>0){QTimer::singleShot(100,window,*shoot);return;}
                 auto* canvas=window->findChild<FrameCanvas*>("frameCanvas");
                 auto poll=std::make_shared<std::function<void(int)>>();
                 *poll=[window,destination,proofOn,canvas,poll](int left){
@@ -1075,10 +1087,18 @@ int main(int argc,char** argv) {
                 };
                 (*poll)(400);
             };
+            const auto capture=[shoot]{(*shoot)();};
             const auto layer=parser.value(pairLayer);
-            QObject::connect(&controller,&PreviewController::operationFinished,&app,[&controller,sets,capture,layer](const QString& operation,bool ok){
+            const auto crop=parser.value(snapshotCrop).split(',');
+            QObject::connect(&controller,&PreviewController::operationFinished,&app,[&controller,sets,capture,layer,crop](const QString& operation,bool ok){
                 if(!ok){QCoreApplication::exit(1);return;}
                 if(operation=="open"&&!layer.isEmpty())controller.setPairLayer(layer);
+                if(operation=="open"&&crop.size()>=4) {
+                    controller.setCropGeometry(QRectF(crop[0].toDouble(),crop[1].toDouble(),crop[2].toDouble(),crop[3].toDouble()),0);
+                    for(int turns=crop.size()>4?crop[4].toInt():0;turns>0;--turns)controller.rotateClockwise();
+                    controller.selectAllPhotos(true);controller.syncSelectedSettings(true);
+                    controller.flushEdits();
+                }
                 if(operation=="open"&&!sets.isEmpty()) {
                     // --set: each row as the sections would set it; the
                     // capture waits for the frame they develop.

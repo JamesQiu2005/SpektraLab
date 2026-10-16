@@ -163,7 +163,19 @@ QtObject {
     readonly property bool canUndo: preview.settingsEditable && preview.canUndo && !cropMode
     readonly property bool canRedo: preview.settingsEditable && preview.canRedo && !cropMode
     readonly property bool canSelectAll: canBrowse && preview.libraryItems.length > 0
-    readonly property bool canSync: canBrowse && preview.hasFrame && preview.selectedCount > 0
+    // The Settings Clipboard (Session.canCopySettings / canPasteSettings /
+    // canSyncSettings): Sync and Paste wait for a batch export; Sync needs
+    // a ticked group and another selected photo.
+    readonly property bool canSync: canBrowse && preview.clipboard.canSync === true
+    readonly property bool canCopySettings: !cropMode && preview.clipboard.canCopy === true
+    readonly property bool canPasteSettings: !cropMode && preview.clipboard.canPaste === true
+    signal folderRequested()
+    // Left / Right and the strip's chevrons: leave the crop editor, then the
+    // neighbour as a plain click would open it.
+    function stepPhoto(delta) {
+        cropMode = false
+        preview.stepPhoto(delta)
+    }
     readonly property bool canResetPhoto: preview.settingsEditable && preview.hasFrame && !cropMode
     // Post-Dev's bypass (Ctrl+Shift+B and the menu's Bypass / Restore
     // Adjustments): an edit of the open photograph, so it waits like one.

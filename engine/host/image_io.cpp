@@ -776,7 +776,7 @@ bool probe_file(const fs::path& path, Probe& out, std::string& error) {
 }
 
 bool decode_linear_prophoto(const fs::path& path, const DecodeOptions& options, FloatImage& out,
-                            Probe& probe, std::string& error) {
+                            Probe& probe, std::string& error, std::string* space_out) {
     if (!probe_file(path, probe, error)) return false;
     const bool custom_wb = options.temperature_k.has_value();
     if (custom_wb && probe.kind != FileKind::Raw) {
@@ -805,12 +805,14 @@ bool decode_linear_prophoto(const fs::path& path, const DecodeOptions& options, 
         out.width = decoded.width;
         out.height = decoded.height;
         out.rgb = std::move(decoded.rgb);   // LibRaw already applied the flip
+        if (space_out) *space_out = "camera RAW";
         return true;
     }
     Raster r;
     if (!read_raster(path, probe.kind, r, false, error)) return false;
     std::string note;
     const RgbSpace space = raster_space(r, &note);
+    if (space_out) *space_out = space.description.empty() ? std::string("embedded ICC profile") : space.description;
     encoded_to_linear_prophoto(space, r.rgb, r.codes);
     uint32_t w = r.width, h = r.height;
     apply_orientation(r.rgb, w, h, 3, r.meta.orientation);
