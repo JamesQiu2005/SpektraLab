@@ -14,6 +14,7 @@
 #include "Localizer.hpp"
 #include "Messages.hpp"
 #include <QCommandLineParser>
+#include <QSGRendererInterface>
 #include <QThread>
 #include <QCryptographicHash>
 #include <QElapsedTimer>
@@ -202,7 +203,15 @@ private:
             if(sx<0||sy<0||sx>=image.width()||sy>=image.height())continue;
             const QImage pixel=image.copy(sx,sy,1,1);
             const QRgb expected=applyDisplayLutCpu(pixel,*colour.lut,false,nullptr,{},colour.proof.get(),colour.warning).pixel(0,0);
-            exact=exact&&capture_.pixel(x,y)==expected;++samples;
+            // The software scene graph runs applyDisplayLutCpu itself, so it
+            // must match bit for bit. A GPU rounds the same exact value to 8
+            // bits its own way: spk_qt_color_canvas measured ~11 % of pixels
+            // one count off on an RTX 3070 with 0.0000 counts of error before
+            // rounding, so a windowed run on hardware allows one count.
+            const int tolerance=window_.rendererInterface()->graphicsApi()==QSGRendererInterface::Software?0:1;
+            const QRgb got=capture_.pixel(x,y);
+            exact=exact&&std::abs(qRed(got)-qRed(expected))<=tolerance&&std::abs(qGreen(got)-qGreen(expected))<=tolerance&&
+                  std::abs(qBlue(got)-qBlue(expected))<=tolerance;++samples;
             const QRgb warn=qRgb(int(FrameCanvas::kGamutWarningColour[0]*255),int(FrameCanvas::kGamutWarningColour[1]*255),
                                  int(FrameCanvas::kGamutWarningColour[2]*255));
             if(flagged&&colour.warning[3]>0&&expected==warn)++*flagged;
@@ -366,8 +375,14 @@ private:
                     if(!require(sourcePixelsExact(canvas_->paintColour()),"100_percent_source_pixels_exact"))return;
                     canvas_->panBy(1e9,1e9);const auto edge=canvas_->imageRect();
                     canvas_->panBy(-1,-1);const auto back=canvas_->imageRect();
-                    if(!require((edge.width()<=canvas_->width()||std::abs(back.x()-edge.x()+1)<0.01)&&
-                                (edge.height()<=canvas_->height()||std::abs(back.y()-edge.y()+1)<0.01),"pan_clamp_no_dead_zone"))return;
+                    // At 100 % the image origin snaps to the physical pixel grid
+                    // (FrameCanvas::imageRect), so at a fractional scale (150 %)
+                    // a one-point pan moves it by a whole number of physical
+                    // pixels: within one physical pixel of one point, never 0.
+                    const double slack=1.0/ratio+0.01;
+                    const auto moved=[slack](double before,double after){const double d=before-after;return d>0.01&&std::abs(d-1)<slack;};
+                    if(!require((edge.width()<=canvas_->width()||moved(edge.x(),back.x()))&&
+                                (edge.height()<=canvas_->height()||moved(edge.y(),back.y())),"pan_clamp_no_dead_zone"))return;
                     canvas_->resetView(true);
                     controller_.exportTiff(QUrl::fromLocalFile(output_+"/displayed-frame.tif"));
                     // While export is queued, commands that could replace the
