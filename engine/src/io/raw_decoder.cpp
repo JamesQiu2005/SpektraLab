@@ -6,7 +6,9 @@
 #include <algorithm>
 #include <chrono>
 #include <cmath>
+#include <cstdio>
 #include <cstring>
+#include <ctime>
 #include <exception>
 #include <limits>
 #include <iterator>
@@ -131,6 +133,70 @@ bool capture_source_metadata(const LibRaw& raw, RawMetadata& metadata,
     return true;
 }
 
+// The three EXIF tags LibRaw does not keep: DateTimeOriginal as written (its
+// `timestamp` is that string through mktime, which a time zone can move), and
+// ExposureProgram and ExposureBiasValue, which it does not read at all. Taken
+// from its EXIF parser callback, which is handed every tag of the EXIF IFD
+// with the stream at the tag's value.
+struct ExifTags {
+    std::string date;
+    int program = 0;
+    bool has_bias = false;
+    double bias = 0.0;
+};
+
+std::uint32_t exif_word(const unsigned char* b, int n, unsigned order) {
+    std::uint32_t v = 0;
+    for (int i = 0; i < n; ++i) v |= std::uint32_t(b[order == 0x4D4D ? n - 1 - i : i]) << (8 * i);
+    return v;
+}
+
+void exif_tag(void* context, int tag, int type, int len, unsigned int order, void* stream, INT64) {
+    auto& tags = *static_cast<ExifTags*>(context);
+    auto* in = static_cast<LibRaw_abstract_datastream*>(stream);
+    unsigned char b[32] = {};
+    if (tag == 0x9003 && type == 2 && len >= 10 && tags.date.empty()) {  // DateTimeOriginal
+        const int n = std::min(len, 31);
+        if (in->read(b, 1, n) == n) tags.date.assign(reinterpret_cast<const char*>(b), std::size_t(std::min(n, 19)));
+    } else if (tag == 0x8822 && type == 3 && len >= 1) {               // ExposureProgram
+        if (in->read(b, 1, 2) == 2) tags.program = int(exif_word(b, 2, order));
+    } else if (tag == 0x9204 && type == 10 && len >= 1) {              // ExposureBiasValue
+        if (in->read(b, 1, 8) == 8) {
+            const auto num = std::int32_t(exif_word(b, 4, order)), den = std::int32_t(exif_word(b + 4, 4, order));
+            if (den != 0) { tags.has_bias = true; tags.bias = double(num) / double(den); }
+        }
+    }
+}
+
+// ShootingData.init(exif:) and .day(_:) (Session+FilmEdge.swift:58-79): a
+// date only as "yyyy:MM:dd ...", a value only when positive and finite.
+void capture_shooting_data(const LibRaw& raw, const ExifTags& tags, ShootingData& out) {
+    out = ShootingData{};
+    int y = 0, m = 0, d = 0;
+    if (tags.date.size() >= 10 && std::sscanf(tags.date.c_str(), "%4d:%2d:%2d", &y, &m, &d) == 3 &&
+        y > 1800 && m >= 1 && m <= 12 && d >= 1 && d <= 31) {
+        out.year = y; out.month = m; out.day = d;
+    } else if (raw.imgdata.other.timestamp > 0) {
+        // A file whose date LibRaw read elsewhere (a maker's own block): its
+        // time_t came from mktime, so localtime gives the written day back.
+        std::tm t{};
+        const std::time_t stamp = raw.imgdata.other.timestamp;
+#ifdef _WIN32
+        if (localtime_s(&t, &stamp) == 0 && t.tm_year + 1900 > 1800)
+#else
+        if (localtime_r(&stamp, &t) && t.tm_year + 1900 > 1800)
+#endif
+        { out.year = t.tm_year + 1900; out.month = t.tm_mon + 1; out.day = t.tm_mday; }
+    }
+    const auto positive = [](double v) { return std::isfinite(v) && v > 0.0 ? v : 0.0; };
+    out.exposure_time = positive(raw.imgdata.other.shutter);
+    out.f_number = positive(raw.imgdata.other.aperture);
+    out.focal_35mm = positive(double(raw.imgdata.lens.FocalLengthIn35mmFormat));
+    out.exposure_program = tags.program;
+    out.has_bias = tags.has_bias && std::isfinite(tags.bias);
+    out.exposure_bias = out.has_bias ? tags.bias : 0.0;
+}
+
 bool supported_headroom_source(LibRaw& raw, std::string& error) {
     const auto& data = raw.imgdata;
     if (data.idata.colors != 3 || data.idata.filters <= 1000 ||
@@ -241,6 +307,8 @@ bool decode_raw_compatible(const std::filesystem::path& source, const std::array
             raw->imgdata.params.use_camera_wb = 0;
         }
         DecodedRaw decoded;
+        ExifTags exif;
+        raw->set_exifparser_handler(&exif_tag, &exif);
         auto start = Clock::now();
         // filesystem::path::value_type is wchar_t on Windows, selecting
         // LibRaw's Unicode filename overload without an ANSI conversion.
@@ -248,6 +316,7 @@ bool decode_raw_compatible(const std::filesystem::path& source, const std::array
         decoded.timings.open_ms = elapsed_ms(start);
         if (!libraw_ok(open_status, "RAW open", error)) return false;
         if (!supported_compression(*raw, error)) return false;
+        capture_shooting_data(*raw, exif, decoded.metadata.shooting);
 
         start = Clock::now();
         const int unpack_status = raw->unpack();
@@ -363,11 +432,14 @@ bool decode_raw_headroom(const std::filesystem::path& source, const std::array<f
             raw->imgdata.params.use_camera_wb = 0;
         }
         DecodedRaw decoded;
+        ExifTags exif;
+        raw->set_exifparser_handler(&exif_tag, &exif);
         auto start = Clock::now();
         const int open_status = raw->open_file(source.c_str());
         decoded.timings.open_ms = elapsed_ms(start);
         if (!libraw_ok(open_status, "RAW open", error)) return false;
         if (!supported_compression(*raw, error)) return false;
+        capture_shooting_data(*raw, exif, decoded.metadata.shooting);
 
         start = Clock::now();
         const int unpack_status = raw->unpack();

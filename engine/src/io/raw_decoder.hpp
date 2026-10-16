@@ -24,6 +24,22 @@ struct RawSourceSizes {
     double pixel_aspect = 1.0;
 };
 
+// The handful of EXIF values a Film Edge or Date Back prints: macOS
+// ShootingData (Session+FilmEdge.swift:39-79), read from the same tags --
+// DateTimeOriginal, ExposureTime, FNumber, ExposureProgram, ExposureBiasValue
+// and FocalLenIn35mmFilm. A field the file does not carry stays at its
+// "absent" value and is left out of what is printed, never invented.
+struct ShootingData {
+    int year = 0, month = 0, day = 0;  // DateTimeOriginal's day; year 0 = no date
+    double exposure_time = 0.0;        // seconds; 0 = absent
+    double f_number = 0.0;             // 0 = absent
+    int exposure_program = 0;          // 1 M, 2 P, 3 A, 4 S, other or 0: no letter
+    bool has_bias = false;
+    double exposure_bias = 0.0;        // the camera's own compensation, EV
+    double focal_35mm = 0.0;           // 0 = absent
+    bool operator==(const ShootingData&) const = default;
+};
+
 struct RawMetadata {
     std::string libraw_version;
     std::uint32_t libraw_capabilities = 0;
@@ -60,6 +76,7 @@ struct RawMetadata {
     bool headroom_enabled = false;
     double white_balance_exposure_restore = 1.0;
     std::array<float, 12> camera_to_output{};
+    ShootingData shooting;
 };
 
 struct DecodedRaw {

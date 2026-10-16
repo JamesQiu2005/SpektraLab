@@ -15,7 +15,14 @@ MacSection {
     required property EditorState editor
     sectionId: "crop"
     title: L10n.tr("crop.title")
-    readonly property bool usable: editor.canEditCrop && !editor.cropMode
+    // While a film edge is on, it frames the picture in its gate: the crop is
+    // the Film Edge section's Framing, and these rows wait (CropSection.swift
+    // :32-54, "Held by Film Edge").
+    readonly property bool held: preview.parameters.overscan_active === true
+    readonly property string heldReason: L10n.tr("crop.heldReason")
+    readonly property string waitReason: held ? heldReason : editor.cropMode ? L10n.tr("crop.waitForEditor") : ""
+    caption: held ? L10n.tr("crop.heldByFilmEdge") : ""
+    readonly property bool usable: editor.canEditCrop && !editor.cropMode && !held
     // Ratios describe the displayed result, after any quarter turn (the
     // controller's convention); 0 is Free.
     readonly property var ratios: [0, 1, 1.5, 4 / 3, 16 / 9]
@@ -64,6 +71,7 @@ MacSection {
     ParamRow {
         label: L10n.tr("crop.aspect")
         available: section.usable
+        reason: section.waitReason
         // The ratio pill takes the slot less the orientation button's room.
         Item {
             width: parent.width - orientationButton.width - 6
@@ -108,13 +116,13 @@ MacSection {
         gestureKey: "straightenDegrees"
         available: section.usable
         toolTip: L10n.tr("crop.straightenNote")
-        reason: section.editor.cropMode ? L10n.tr("crop.waitForEditor") : ""
+        reason: section.waitReason
         onMoved: function(v) { preview.setStraightenDegrees(Math.round(v * 10) / 10) }
     }
     ParamRow {
         label: L10n.tr("crop.rotate")
         available: section.usable
-        reason: section.editor.cropMode ? L10n.tr("crop.waitForEditor") : ""
+        reason: section.waitReason
         Row {
             anchors.verticalCenter: parent.verticalCenter
             spacing: 4

@@ -286,8 +286,12 @@ int main(int argc, char** argv) {
                                  "scene_latitude_needs_fit"};
         for (const auto& entry : c.parameterFields()) {
             const auto row = entry.toMap();
-            check(row.value("sent").toBool() == !unsent.contains(row.value("key").toString()),
-                  "parameterFields sent flag: " + row.value("key").toString().toStdString());
+            // The Date Back's order, source and text and the film edge's
+            // seeded flag are product rows too.
+            const auto key = row.value("key").toString();
+            check(row.value("sent").toBool() == !(unsent.contains(key) || key.startsWith("date_back_") ||
+                                                  key == "film_edge_seeded"),
+                  "parameterFields sent flag: " + key.toStdString());
         }
 
         // Locked while a file dialog is open, as every other edit is.

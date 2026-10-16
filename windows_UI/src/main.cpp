@@ -408,8 +408,12 @@ private:
                         controller_.frame()->timings.decode_ms>0&&!controller_.dirty(),"decode_mode_automatically_returns_compatible"))return;
             stage_=19;controller_.resetSettings();
         } else if(stage_==19) {
-            // Reset is a new photograph's settings: the table's initial values.
-            const spk::desktop::RenderSettings initial;
+            // Reset is a new photograph's settings: the table's initial values,
+            // but the frame keeps its film edge seeds (its body, advance and
+            // number on the roll, Session.seedFilmEdge).
+            spk::desktop::RenderSettings initial;
+            for(const char* key:{"overscan_camera_seed","overscan_frame_seed","overscan_frame_number","film_edge_seeded"})
+                initial.set(key,controller_.frame()->settings.get(key));
             if(!require(operation=="render"&&ok&&controller_.frame()->settings==initial&&exposureIs(0)&&
                         !controller_.frame()->scan_film&&controller_.decodeMode()==0&&!controller_.dirty(),
                         "reset_settings_automatically_updates_preview"))return;
@@ -797,6 +801,8 @@ int main(int argc,char** argv) {
                        {"open","Open a RAW file","file"},
                        {"snapshot","Save one rendered window capture to a new PNG and exit (requires --open)","file"},
                        {"edit-store","Override the per-photo edit directory (tests use an isolated directory)","directory"},
+                       {"set","With --snapshot: set a settings row by wire name once the RAW is open (repeatable; "
+                              "true/false, a number or text), and capture after it has developed","key=value"},
                        {"self-test","Run real RAW frontend checks and save a report in a NEW directory","directory"},
                        {"reject","Unsupported RAW for the failed-open check","file"},
                        {"settings-file","Use this app preferences file (default: beside the edit store)","file"}});
@@ -889,14 +895,30 @@ int main(int argc,char** argv) {
         if(snapshot) {
             auto* window=qobject_cast<QQuickWindow*>(engine.rootObjects().first());if(!window)return 2;
             const auto destination=parser.value("snapshot");
-            QObject::connect(&controller,&PreviewController::operationFinished,&app,[window,destination](const QString& operation,bool ok){
-                if(operation!="open")return;
-                if(!ok){QCoreApplication::exit(1);return;}
+            const auto sets=parser.values("set");
+            const auto capture=[window,destination]{
                 QTimer::singleShot(250,window,[window,destination]{
                     QFile file(destination);const auto scene=window->grabWindow();
                     const bool saved=!scene.isNull()&&file.open(QIODevice::WriteOnly|QIODevice::NewOnly)&&scene.save(&file,"PNG")&&file.flush();
                     QCoreApplication::exit(saved?0:1);
                 });
+            };
+            QObject::connect(&controller,&PreviewController::operationFinished,&app,[&controller,sets,capture](const QString& operation,bool ok){
+                if(!ok){QCoreApplication::exit(1);return;}
+                if(operation=="open"&&!sets.isEmpty()) {
+                    // --set: each row as the sections would set it; the
+                    // capture waits for the frame they develop.
+                    for(const auto& entry:sets) {
+                        const auto eq=entry.indexOf('=');
+                        const auto key=entry.left(eq),text=eq<0?QString():entry.mid(eq+1);
+                        bool number=false;const double value=text.toDouble(&number);
+                        const QVariant v=text=="true"?QVariant(true):text=="false"?QVariant(false):number?QVariant(value):QVariant(text);
+                        if(eq<=0||!controller.setParameter(key,v)){QCoreApplication::exit(1);return;}
+                    }
+                    controller.apply();
+                    return;
+                }
+                if((operation=="open"&&sets.isEmpty())||(operation=="render"&&!controller.dirty()))capture();
             });
             QTimer::singleShot(60000,&app,[]{QCoreApplication::exit(1);});
         }

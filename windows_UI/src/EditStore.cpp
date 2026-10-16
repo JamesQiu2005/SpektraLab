@@ -144,6 +144,13 @@ SettingValue settingValue(const SettingField& field, const QJsonValue& value, co
     }
     case SettingType::text: {
         require(value.isString(), QStringLiteral("Saved edit field must be text: ") + name);
+        if (field.choices == SettingChoices::free) {
+            // The user's own line (the Date Back's typed date): the row's
+            // length and character rule, exactly as the host checks it.
+            auto text = value.toString().toStdString();
+            require(check_setting(field, text).empty(), QStringLiteral("Saved edit field has unsupported text: ") + name);
+            return text;
+        }
         if (field.choices != SettingChoices::listed) return stockId(value.toString(), field, catalog);
         auto text = value.toString().toStdString();
         require(check_setting(field, text).empty(), QStringLiteral("Saved edit field has an unsupported value: ") + name);
@@ -195,50 +202,68 @@ RenderSettings parseSettings(const QJsonObject& s, int version, const Catalog* c
     return out;
 }
 
+QJsonObject geometryJson(const output::Geometry& g) {
+    return QJsonObject{
+        {"crop", QJsonObject{{"x", g.crop.x()}, {"y", g.crop.y()},
+                              {"width", g.crop.width()}, {"height", g.crop.height()}}},
+        {"quarterTurns", g.quarterTurns}, {"flipHorizontal", g.flipHorizontal},
+        {"flipVertical", g.flipVertical}, {"straightenDegrees", g.straightenDegrees}};
+}
 QJsonObject stateJson(const State& state) {
-    const auto& g = state.geometry;
     QString mode;
     switch (state.mode) {
     case DecodeMode::compatible16: mode = QStringLiteral("compatible16"); break;
     case DecodeMode::headroom: mode = QStringLiteral("headroom"); break;
     default: fail(QStringLiteral("Saved edits contain an unsupported RAW decode mode"));
     }
+    // heldGeometry is always written, null when there is none, so a save
+    // over a record that had one clears it rather than keeping it as a newer
+    // build's field.
     return {{"settings", settingsJson(state.settings)},
-        {"decodeMode", mode}, {"geometry", QJsonObject{
-            {"crop", QJsonObject{{"x", g.crop.x()}, {"y", g.crop.y()},
-                                  {"width", g.crop.width()}, {"height", g.crop.height()}}},
-            {"quarterTurns", g.quarterTurns}, {"flipHorizontal", g.flipHorizontal},
-            {"flipVertical", g.flipVertical}, {"straightenDegrees", g.straightenDegrees}}}};
+        {"decodeMode", mode}, {"geometry", geometryJson(state.geometry)},
+        {"heldGeometry", state.heldGeometry ? QJsonValue(geometryJson(*state.heldGeometry)) : QJsonValue()}};
+}
+output::Geometry parseGeometry(const QJsonObject& g, const QString& label, QStringList* extra) {
+    keys(g, {"crop", "quarterTurns", "flipHorizontal", "flipVertical", "straightenDegrees"}, label, extra);
+    // A rectangle has exactly four numbers in every version.
+    const auto crop = object(g, "crop");
+    keys(crop, {"x", "y", "width", "height"}, label + QStringLiteral(".crop"));
+    const double x = number(crop, "x", 0.0, 1.0), y = number(crop, "y", 0.0, 1.0);
+    const double width = number(crop, "width", 0.0, 1.0), height = number(crop, "height", 0.0, 1.0);
+    require(width > 0 && height > 0 && x + width <= 1.0 && y + height <= 1.0,
+            QStringLiteral("Saved crop is empty or outside the image"));
+    output::Geometry geometry;
+    geometry.crop = QRectF(x, y, width, height);
+    const double turns = number(g, "quarterTurns", 0.0, 3.0);
+    require(std::floor(turns) == turns, QStringLiteral("Saved quarter turns must be an integer"));
+    geometry.quarterTurns = int(turns);
+    geometry.flipHorizontal = boolean(g, "flipHorizontal");
+    geometry.flipVertical = boolean(g, "flipVertical");
+    geometry.straightenDegrees = number(g, "straightenDegrees", -45.0, 45.0);
+    return geometry;
 }
 // `unknown` collects version-2 fields this build does not know; a caller
 // that does not need them may pass nullptr. Version 1 has none to collect.
 State parseState(const QJsonObject& value, int version, const Catalog* catalog, QStringList* unknown) {
     QStringList ignored;
     QStringList* extra = version == 1 ? nullptr : unknown ? unknown : &ignored;
-    keys(value, {"settings", "decodeMode", "geometry"}, QStringLiteral("state"), extra);
+    // Version 2's optional heldGeometry -- the user's own crop while a film
+    // edge holds the crop at its gate (macOS Sidecar.heldCrop) -- is known
+    // here; a record from before it has none.
+    QJsonObject required = value;
+    const auto held = version == 1 ? QJsonValue() : required.take(QStringLiteral("heldGeometry"));
+    keys(required, {"settings", "decodeMode", "geometry"}, QStringLiteral("state"), extra);
     State state;
     state.settings = parseSettings(object(value, "settings"), version, catalog, extra);
     const auto mode = string(value, "decodeMode");
     require(mode == "compatible16" || mode == "headroom",
             QStringLiteral("Saved edits contain an unsupported RAW decode mode"));
     state.mode = mode == "headroom" ? DecodeMode::headroom : DecodeMode::compatible16;
-    const auto g = object(value, "geometry");
-    keys(g, {"crop", "quarterTurns", "flipHorizontal", "flipVertical", "straightenDegrees"},
-         QStringLiteral("state.geometry"), extra);
-    // A rectangle has exactly four numbers in every version.
-    const auto crop = object(g, "crop");
-    keys(crop, {"x", "y", "width", "height"}, QStringLiteral("state.geometry.crop"));
-    const double x = number(crop, "x", 0.0, 1.0), y = number(crop, "y", 0.0, 1.0);
-    const double width = number(crop, "width", 0.0, 1.0), height = number(crop, "height", 0.0, 1.0);
-    require(width > 0 && height > 0 && x + width <= 1.0 && y + height <= 1.0,
-            QStringLiteral("Saved crop is empty or outside the image"));
-    state.geometry.crop = QRectF(x, y, width, height);
-    const double turns = number(g, "quarterTurns", 0.0, 3.0);
-    require(std::floor(turns) == turns, QStringLiteral("Saved quarter turns must be an integer"));
-    state.geometry.quarterTurns = int(turns);
-    state.geometry.flipHorizontal = boolean(g, "flipHorizontal");
-    state.geometry.flipVertical = boolean(g, "flipVertical");
-    state.geometry.straightenDegrees = number(g, "straightenDegrees", -45.0, 45.0);
+    state.geometry = parseGeometry(object(value, "geometry"), QStringLiteral("state.geometry"), extra);
+    if (!held.isNull() && !held.isUndefined()) {
+        require(held.isObject(), QStringLiteral("Saved edit field must be an object: heldGeometry"));
+        state.heldGeometry = parseGeometry(held.toObject(), QStringLiteral("state.heldGeometry"), extra);
+    }
     return state;
 }
 

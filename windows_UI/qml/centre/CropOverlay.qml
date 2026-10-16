@@ -120,6 +120,11 @@ Item {
         font.family: Theme.fontFamily; font.pixelSize: Theme.fontMeta; font.weight: Theme.weightTitle
         style: Text.Raised; styleColor: "#99000000"
     }
+    // While a film edge holds the crop at its gate, editor.cropLockRatio is
+    // the gate's shape (preview.cropLockRatio): the grips keep it, a drawn
+    // rectangle keeps it too, and a drag inside the crop moves the picture
+    // under the gate (FilmEdgeSection.swift: "the picture moves under a gate
+    // fixed at the format's aspect").
     MouseArea {
         id: gesture
         anchors.fill: parent; enabled: cropOverlay.editor.canEditCrop
@@ -155,6 +160,7 @@ Item {
         // A drawn rectangle is free, as this editor has always drawn it;
         // Shift keeps the shape the crop had.
         function drawRatio(modifiers) {
+            if (preview.cropLockRatio > 0) return preview.cropLockRatio  // the film edge's gate
             var c = startCrop
             return (modifiers & Qt.ShiftModifier) && c.height > 0 ? c.width * cropOverlay.sourceSize.width / (c.height * cropOverlay.sourceSize.height) : 0
         }

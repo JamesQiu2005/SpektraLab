@@ -127,7 +127,10 @@ void settings_schema() {
         if (row == schema.end()) throw std::runtime_error("settings row is not an engine wire field: " + field.key);
         const auto expected = field.type == SettingType::boolean ? spk::FieldType::Bool
                             : field.type == SettingType::number ? spk::FieldType::Float : spk::FieldType::Str;
-        check(row->type == expected, "settings row type differs from the engine schema");
+        // A number row may carry an integer field (the film edge's seeds and
+        // frame number); wire_params sends it rounded.
+        check(row->type == expected || (field.type == SettingType::number && row->type == spk::FieldType::Int),
+              "settings row type differs from the engine schema");
         check((field.layer == SettingLayer::shoot) == (row->layer == spk::Layer::Shoot),
               "settings row layer differs from the engine schema");
         if (field.type == SettingType::number)
@@ -233,6 +236,16 @@ void settings_validation() {
                 check(error.find(field.label) != std::string::npos, "range error does not name the setting");
                 check(!check_setting(field, SettingValue(value)).empty(), "check_setting accepted a bad number");
             }
+        } else if (field.type == SettingType::text && field.choices == SettingChoices::free) {
+            // Free text: one short line of printable ASCII, nothing else.
+            for (const std::string bad : {std::string(kFreeTextMax + 1, '1'), std::string("'26\n10 1"),
+                                          std::string("\xC3\x97")}) {
+                RenderSettings invalid;
+                invalid.set(field.key, bad);
+                rejected([&] { validate_settings(invalid, catalog); }, "bad free text accepted");
+            }
+            check(check_setting(field, SettingValue(std::string(kFreeTextMax, '1'))).empty() &&
+                  check_setting(field, SettingValue(std::string("'26 10 1"))).empty(), "a printable line refused");
         } else if (field.type == SettingType::text) {
             RenderSettings invalid;
             invalid.set(field.key, std::string("__not_a_choice__"));
@@ -320,7 +333,12 @@ void wire_rules() {
         ++wire_rows;
         check(same_json(plain.at(field.key), json_of(base.get(field.key))), "a colour negative's row was rewritten");
     }
-    check(plain.fields().size() == wire_rows, "a colour pair carries extra fields");
+    // Beyond the rows: the four values the host resolves for the film edge
+    // and the date back, empty while both are off.
+    for (const char* key : {"overscan_edge_text", "date_imprint_text", "date_imprint_data_text"})
+        check(plain.at(key).as_string().empty(), "a resolved film edge text is sent with the film edge off");
+    check(plain.at("overscan_f_number").as_double() == 0.0, "an f-number is sent with the film edge off");
+    check(plain.fields().size() == wire_rows + 4, "a colour pair carries extra fields");
     // A slide is scanned whatever the row says; No Print Profile scans a negative.
     RenderSettings slide = base;
     slide.film_stock = "kodak_ektachrome_100";
@@ -356,7 +374,7 @@ void wire_rules() {
           "grain sub-layers sent on a black-and-white film");
     check(std::abs(bw.at("grain_amount").as_double() - 1.70) < 1e-12, "black-and-white grain is not the film's own");
     check(bw.at("c_filter_neutral").as_double() == 0.0 && bw.at("m_filter_neutral").as_double() == 0.0 &&
-          bw.at("y_filter_neutral").as_double() == 68.0 && bw.fields().size() == wire_rows + 3,
+          bw.at("y_filter_neutral").as_double() == 68.0 && bw.fields().size() == wire_rows + 4 + 3,
           "silver pair lacks Multigrade filter 2");
     silver.grain_amount = 1.5;  // x1.70 is past the wire's 2
     check(wire_params(silver, catalog).at("grain_amount").as_double() == 2.0, "grain amount escaped its range");
@@ -368,6 +386,172 @@ void wire_rules() {
     RenderSettings unknown = base;
     unknown.film_stock = "kodak_vision3_500t";
     check(!wire_params(unknown, catalog).at("scan_film").as_bool(), "an unknown film was scanned");
+}
+
+// Film Edge and Date Back, rule by rule, each against its macOS source
+// (Model/FilmEdge.swift, Model/Session+FilmEdge.swift). No engine: the wire
+// these produce is held by the engine in --settings-engine.
+void film_edge_rules() {
+    const auto catalog = test_catalog();
+    // The Format menu, in the Mac's order, with its gates.
+    std::vector<std::string> ids;
+    for (const auto& f : film_formats()) ids.push_back(f.id);
+    check(ids == std::vector<std::string>{"135", "135_half", "120_645", "120_6x6", "120_6x7", "120_6x8", "120_6x9",
+                                          "135_xpan", "120_6x12", "120_6x17"}, "film formats or their order");
+    check(film_format("120_6x7")->long_mm == 69.5 && film_format("135_half")->short_mm == 18 &&
+          film_format("135_xpan")->perforated && !film_format("135_xpan")->has_date_back &&
+          film_format("120_645")->prints_in_margin && !film_format("135")->prints_in_margin && !film_format("nope"),
+          "film format table");
+    // The stock's edge print: the film's own words, else the name in capitals.
+    check(edge_text(catalog, "kodak_gold_200", "135") == "KODAK GB 200-7" &&
+          edge_text(catalog, "kodak_gold_200", "120") == "KODAK 200" &&
+          edge_text(catalog, "kodak_portra_400", "135") == "PORTRA 400" && edge_text(catalog, "nope", "135").empty(),
+          "edge print");
+    // The date as a back writes it, and the data line after the F6.
+    spk::io::ShootingData shot;
+    check(date_text(shot, "japan").empty() && data_text(shot).empty(), "a frame without EXIF printed something");
+    shot.year = 2026; shot.month = 10; shot.day = 1;
+    check(date_text(shot, "japan") == "'26 10 1" && date_text(shot, "us") == "10 1 '26", "date orders");
+    shot.year = 2009;
+    check(date_text(shot, "japan") == "'09 10 1", "two-digit year");
+    shot.exposure_time = 1.0 / 250; shot.f_number = 5.6; shot.exposure_program = 3;
+    shot.has_bias = true; shot.exposure_bias = 0.33; shot.focal_35mm = 24;
+    check(data_text(shot) == "1/250 F5.6 A +0.3 24mm", "the data line");
+    shot.exposure_time = 2.0; shot.f_number = 11; shot.exposure_bias = 0.04; shot.exposure_program = 7;
+    check(data_text(shot) == "2s F11 24mm", "seconds, a whole f-number, no zero bias, no scene-program letter");
+    shot.exposure_time = 1.0 / 8000; shot.f_number = 1.4; shot.exposure_program = 1; shot.exposure_bias = -1.7;
+    shot.focal_35mm = 105;
+    check(data_text(shot) == "1/8000 F1.4 M -1.7", "a line past 22 drops from the right");
+    // The date back's camera and what it prints.
+    RenderSettings s;
+    PhotoInfo photo;
+    photo.decode_width = 6000; photo.decode_height = 4000;
+    check(date_back_camera(s, photo)->id == "135", "35 mm on a 3:2 frame is not 135");
+    s.film_format_mm = 24; photo.decode_width = 4000; photo.decode_height = 3000;
+    check(date_back_camera(s, photo)->id == "135_half", "24 mm on 4:3 is not half frame");
+    s.film_format_mm = 56; photo.decode_width = 5600; photo.decode_height = 4150;
+    check(date_back_camera(s, photo)->id == "120_645", "56 mm on 1.35 is not 645");
+    for (const char* face : {"lcd", "dots", "data"})
+        check(!date_back_prints(s, photo, face), "a 645 back printed without the film edge");
+    photo.decode_height = 5600;
+    check(!date_back_camera(s, photo), "a 6x6 Film Format found a date back");
+    s.set("overscan_active", true);
+    s.set("overscan_format", std::string("120_6x7"));
+    check(date_back_camera(s, photo)->id == "120_6x7" && date_back_prints(s, photo, "dots"), "the film edge's camera");
+    s.set("overscan_format", std::string("135_xpan"));
+    check(!date_back_prints(s, photo, "lcd"), "a panoramic camera printed a date");
+    RenderSettings d;
+    photo = PhotoInfo{};
+    d.set("date_imprint_active", true);
+    check(date_back_effective(d, photo) && !cuts_frame(d, photo), "a date in the bare frame");
+    d.set("date_imprint_style", std::string("data"));
+    check(!date_back_effective(d, photo), "the data face printed without a film edge");
+    d.set("date_imprint_style", std::string("lcd"));
+    d.set("date_imprint_placement", std::string("rebate"));
+    check(!date_back_effective(d, photo), "between frames printed without a film edge");
+    d.set("overscan_active", true);
+    check(date_back_effective(d, photo) && cuts_frame(d, photo), "between frames with the film edge");
+    d.set("overscan_active", false);
+    d.set("date_imprint_placement", std::string("frame"));
+    photo.geometry.w = 0.5;
+    check(cuts_frame(d, photo), "the date alone on a cropped frame does not cut it");
+    // What they put on the wire.
+    {
+        RenderSettings e;
+        e.set("overscan_active", true);
+        e.set("overscan_frame_number", 7.0);
+        PhotoInfo p;
+        p.shooting.f_number = 2.8;
+        p.shooting.year = 2026; p.shooting.month = 10; p.shooting.day = 16;
+        const Json w = wire_params(e, catalog, &p);
+        check(w.at("overscan_edge_text").as_string() == "PORTRA 400" && w.at("overscan_f_number").as_double() == 2.8 &&
+              w.at("overscan_frame_number").as_double() == 7.0 && !w.at("date_imprint_active").as_bool(),
+              "film edge wire");
+        e.set("date_imprint_active", true);
+        e.set("date_imprint_placement", std::string("rebate"));
+        e.set("date_back_with_data", true);
+        p.shooting.exposure_time = 1.0 / 60;
+        Json w2 = wire_params(e, catalog, &p);
+        check(w2.at("date_imprint_active").as_bool() && w2.at("date_imprint_text").as_string() == "'26 10 16" &&
+              w2.at("date_imprint_data_text").as_string() == "1/60 F2.8", "date with the shooting data");
+        e.set("date_back_text_source", std::string("typed"));
+        e.set("date_back_custom_text", std::string("HELLO 1"));
+        e.set("date_back_order", std::string("us"));
+        check(wire_params(e, catalog, &p).at("date_imprint_text").as_string() == "HELLO 1", "typed text");
+        e.set("date_back_text_source", std::string("exif"));
+        check(wire_params(e, catalog, &p).at("date_imprint_text").as_string() == "10 16 '26", "the US order");
+        // The date alone on a frame cropped to half its width: the cut's own
+        // long edge is the film format, and the date keeps its size in it.
+        RenderSettings a;
+        a.set("date_imprint_active", true);
+        PhotoInfo q;
+        q.decode_width = 6000; q.decode_height = 4000;
+        q.geometry.w = 0.5;
+        const Json w3 = wire_params(a, catalog, &q);
+        check(std::abs(w3.at("film_format_mm").as_double() - 35.0 * 4000 / 6000) < 1e-9 &&
+              std::abs(w3.at("date_imprint_size").as_double() - std::max(0.4, 35.0 * 4000 / 6000 / 36)) < 1e-9 &&
+              std::abs(w3.at("date_imprint_inset_x").as_double() - 3.0 * 35.0 * 4000 / 6000 / 36) < 1e-9 &&
+              w3.at("overscan_format").as_string() == "135", "the date on a cut frame");
+    }
+    // The crop held by the gate.
+    {
+        RenderSettings g;
+        g.set("overscan_active", true);
+        EngineCut whole;
+        check(gate_shaped(whole, g, 6000, 4000) && !gate_shaped(whole, g, 6000, 4500), "135 gate shape");
+        g.set("overscan_format", std::string("120_6x6"));
+        const EngineCut square = gate_framed(whole, g, 6000, 4000);
+        check(std::abs(square.w * 6000 - 4000) < 1e-6 && std::abs(square.h - 1.0) < 1e-12 &&
+              std::abs(square.x - 1.0 / 6) < 1e-12 && square.y == 0 && gate_shaped(square, g, 6000, 4000),
+              "the 6x6 gate does not fit the frame about its centre");
+        g.set("overscan_format", std::string("135"));
+        const EngineCut upright = gate_framed(whole, g, 6000, 4000, 0);
+        check(std::abs((upright.w * 6000) / (upright.h * 4000) - 2.0 / 3) < 1e-9 && gate_shaped(upright, g, 6000, 4000) &&
+              std::abs(gate_ratio(g, false) - 2.0 / 3) < 1e-12, "the gate turned upright");
+        EngineCut small;
+        small.x = 0.9; small.y = 0.9; small.w = 0.1; small.h = 0.05;
+        const EngineCut kept = gate_framed(small, g, 6000, 4000);
+        check(kept.x + kept.w <= 1.0 + 1e-12 && kept.y + kept.h <= 1.0 + 1e-12 && gate_shaped(kept, g, 6000, 4000),
+              "a held crop left the frame");
+        std::uint32_t cw = 0, ch = 0;
+        EngineCut turned;
+        turned.w = 0.5; turned.quarter_turns = 1;
+        cut_size(turned, 6000, 4000, cw, ch);
+        check(cw == 4000 && ch == 3000 && !turned.identity() && whole.identity(), "the cut's size after a turn");
+    }
+    // Sync keeps the recipient's film edge and date back.
+    {
+        RenderSettings from, to;
+        from.set("overscan_active", true);
+        from.set("date_imprint_active", true);
+        from.set("date_back_custom_text", std::string("FROM"));
+        from.grain_active = false;
+        to.set("overscan_frame_seed", 77.0);
+        const RenderSettings synced = synced_settings(from, to);
+        check(!synced.grain_active && !std::get<bool>(synced.get("overscan_active")) &&
+              !std::get<bool>(synced.get("date_imprint_active")) &&
+              std::get<std::string>(synced.get("date_back_custom_text")).empty() &&
+              synced.get("overscan_frame_seed") == SettingValue(77.0), "sync copied a film edge or date back");
+        check(per_photo_setting("overscan_fog") && per_photo_setting("date_back_order") &&
+              per_photo_setting("film_edge_seeded") && !per_photo_setting("grain_amount"), "per-photo rows");
+    }
+    // A frame's seeds.
+    {
+        RenderSettings f;
+        seed_film_edge(f, "E:/Photos/DSC_0001.NEF", 0, 123);
+        check(f.get("overscan_frame_seed") == SettingValue(double(frame_seed_for("E:/Photos/DSC_0001.NEF"))) &&
+              f.get("overscan_camera_seed") == SettingValue(123.0) && f.get("overscan_frame_number") == SettingValue(1.0) &&
+              std::get<bool>(f.get("film_edge_seeded")) && validate_settings(f, catalog) == false, "seeding");
+        seed_film_edge(f, "E:/Photos/DSC_0001.NEF", 98, 5);
+        check(f.get("overscan_frame_number") == SettingValue(99.0), "frame 99");
+        seed_film_edge(f, "E:/Photos/DSC_0001.NEF", 99, 5);
+        check(f.get("overscan_frame_number") == SettingValue(1.0), "the roll after 99");
+        seed_film_edge(f, "E:/Photos/DSC_0001.NEF", -1, 5);
+        check(f.get("overscan_frame_number") == SettingValue(0.0), "a frame opened alone");
+        check(frame_seed_for("E:\\Photos\\dsc_0001.nef") == frame_seed_for("E:/Photos/DSC_0001.NEF") &&
+              frame_seed_for("E:/Photos/DSC_0002.NEF") != frame_seed_for("E:/Photos/DSC_0001.NEF") &&
+              frame_seed_for("x") <= 0x7FFFFFFFu, "frame seeds");
+    }
 }
 
 void settings_deltas() {
@@ -384,7 +568,7 @@ void settings_deltas() {
     check(!open.at("scan_film").as_bool() && open.at("output_color_space").as_string() == "sRGB" &&
           open.at("input_color_space").as_string() == "ProPhoto RGB" && !open.at("extended_dynamic_range").as_bool(),
           "opening parameters lost the host's fixed policy");
-    check(open.fields().size() == wire_rows + 5, "opening parameters carry an unexpected field");
+    check(open.fields().size() == wire_rows + 4 + 5, "opening parameters carry an unexpected field");
     RenderSettings slide_open = base;
     slide_open.film_stock = "kodak_ektachrome_100";
     check(opening_params(slide_open, catalog).at("scan_film").as_bool(), "a slide opened printed");
@@ -431,7 +615,8 @@ void settings_deltas() {
         case SettingType::number: value = std::get<double>(base.get(field.key)) == field.high ? field.low : field.high; break;
         case SettingType::text:
             value = field.key == "film_stock" ? std::string("kodak_ektar_100")
-                  : field.key == "print_stock" ? std::string("kodak_portra_endura") : field.listed.back();
+                  : field.key == "print_stock" ? std::string("kodak_portra_endura")
+                  : field.choices == SettingChoices::free ? std::string("'26 10 1") : field.listed.back();
             break;
         }
         after.set(field.key, value);
@@ -440,9 +625,14 @@ void settings_deltas() {
             check(delta.fields().empty(), "an unchanged row produced a delta");
             continue;
         }
+        // A product row produces the wire values it changes: Print Effects
+        // off turns glare off (pre-flash is at 0); the Date Back's change
+        // nothing while it is off. The film edge switched on brings the
+        // stock's edge print with it (the f-number stays 0 without EXIF).
         std::vector<std::string> expected;
         if (field.wire) expected.push_back(field.key);
         else if (field.key == "print_effects") expected.push_back("glare_active");
+        if (field.key == "overscan_active") expected.push_back("overscan_edge_text");
         if (field.key == "film_stock") expected.push_back("scan_film");
         std::sort(expected.begin(), expected.end());
         if (keys_of(delta) != expected) throw std::runtime_error("delta is not minimal for " + field.key);
@@ -1220,6 +1410,59 @@ void settings_engine(const fs::path& resources) {
                   << ", mean " << mid << '\n';
         check(spread < 2e-3 && mid > 0.05 && mid < 0.95, "a black-and-white print is not a neutral picture");
     }
+
+    // Film Edge and Date Back through the table on the 3:2 frame (the 135
+    // gate's shape): the session holds what wire_params resolved, the render
+    // is the film canvas spk_overscan_geometry reports, larger than the frame,
+    // and the date changes only the print it is on.
+    {
+        RenderSettings film;
+        film.grain_active = false;
+        film.glare_active = false;
+        film.set("overscan_active", true);
+        film.set("overscan_frame_number", 12.0);
+        PhotoInfo photo;
+        photo.decode_width = width;
+        photo.decode_height = height;
+        photo.shooting.f_number = 4.0;
+        photo.shooting.year = 2026; photo.shooting.month = 10; photo.shooting.day = 16;
+        const auto open_film = [&](const RenderSettings& settings) {
+            SessionPtr s(spk_open(engine.get(), &input, opening_params(settings, catalog, kDisplayOutputColorSpace, &photo).dump().c_str(), nullptr),
+                         &spk_session_release);
+            if (!s) throw std::runtime_error("open with a film edge: " + error());
+            return s;
+        };
+        SessionPtr s = open_film(film);
+        Rendered strip;
+        check(spk_render(s.get(), "full", &strip.result) == SPK_OK, "render with a film edge");
+        const Json held = session_params(s.get());
+        const Json wire = wire_params(film, catalog, &photo);
+        for (const auto& [key, value] : wire.fields())
+            if (!same_json(held.at(key), value))
+                throw std::runtime_error("film edge session does not hold the table's " + key + ": " + held.at(key).dump());
+        check(held.at("overscan_edge_text").as_string() == edge_text(catalog, "kodak_portra_400", "135") &&
+              !held.at("overscan_edge_text").as_string().empty() && held.at("overscan_f_number").as_double() == 4.0,
+              "the film edge's resolved fields");
+        char* text = nullptr;
+        check(spk_overscan_geometry(s.get(), &text) == SPK_OK && text, "overscan geometry");
+        Json geometry;
+        std::string parse_error;
+        const bool parsed = Json::parse(text, geometry, parse_error);
+        spk_string_free(text);
+        check(parsed && geometry.at("valid").as_bool(), "overscan geometry is not valid after a render");
+        const auto cw = std::uint32_t(geometry.at("canvas_w").as_double()), ch = std::uint32_t(geometry.at("canvas_h").as_double());
+        std::cout << "film edge on the " << width << " x " << height << " frame: canvas " << cw << " x " << ch << '\n';
+        check(strip.result.width == cw && strip.result.height == ch && cw > width && ch > height,
+              "the film edge render is not the canvas around the frame");
+        // The date: printed in the frame, and the print changes with it.
+        RenderSettings dated = film;
+        dated.set("date_imprint_active", true);
+        SessionPtr d = open_film(dated);
+        Rendered with_date;
+        check(spk_render(d.get(), "full", &with_date.result) == SPK_OK, "render with the date");
+        check(session_params(d.get()).at("date_imprint_text").as_string() == "'26 10 16" &&
+              with_date.result.width == cw && with_date.pixels() != strip.pixels(), "the date did not print");
+    }
 }
 
 void integration(const fs::path& resources, const fs::path& arw,
@@ -1329,6 +1572,7 @@ int main(int argc, char** argv) {
         settings_validation();
         catalogue_rules();
         wire_rules();
+        film_edge_rules();
         settings_deltas();
         conversion();
         viewport_geometry();

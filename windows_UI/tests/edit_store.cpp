@@ -63,6 +63,8 @@ QJsonObject toVersion1(QJsonObject document) {
             if (!version1Keys.contains(QString::fromStdString(field.key))) f.remove(QString::fromStdString(field.key));
         f["film_exposure_ev"] = f.take("exposure_compensation_ev");
     });
+    // Version 1 had no held crop either (a film edge's, added in version 2).
+    mutateObject(document, "state", [](auto& s) { s.remove("heldGeometry"); });
     return document;
 }
 QByteArray bytesOf(const QJsonObject& document) { return QJsonDocument(document).toJson(); }

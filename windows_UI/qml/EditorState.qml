@@ -33,7 +33,10 @@ QtObject {
     // The aspect a crop grip keeps (source px width / height, 0 free): the
     // Crop section's preset when the committed crop is one (CropSection.qml
     // reads the same shape), as the Mac's grips keep Geometry.aspect.
+    // While a film edge holds the crop, the lock is its gate's shape
+    // (preview.cropLockRatio, Session+FilmEdge.swift gateFramed).
     readonly property real cropLockRatio: {
+        if (preview.cropLockRatio > 0) return preview.cropLockRatio
         var c = preview.cropRect
         var w = preview.metadata.sourceWidth, h = preview.metadata.sourceHeight
         if (!preview.hasFrame || w === undefined || c.height <= 0) return 0

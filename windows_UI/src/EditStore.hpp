@@ -15,7 +15,8 @@
 //     "state": { "settings": { <wire name>: value, ... },
 //                "decodeMode": "compatible16" | "headroom",
 //                "geometry": { "crop": {x, y, width, height}, "quarterTurns",
-//                              "flipHorizontal", "flipVertical", "straightenDegrees" } } }
+//                              "flipHorizontal", "flipVertical", "straightenDegrees" },
+//                "heldGeometry": null | { as "geometry" } } }   (optional)
 // Settings are keyed by the desktop settings table (preview_host.hpp) and
 // validated against its type, range and choices. Version 1's thirteen keys
 // are required; a row added since is optional and, when absent, takes the
@@ -31,6 +32,11 @@ struct State {
     RenderSettings settings;
     DecodeMode mode = DecodeMode::compatible16;
     output::Geometry geometry;
+    // The user's own crop while a film edge holds `geometry` at its gate's
+    // shape, given back when the film edge is switched off (macOS
+    // Sidecar.heldCrop, Session+FilmEdge.swift:396-417). Saved as the
+    // optional "state.heldGeometry", null when there is none.
+    std::optional<output::Geometry> heldGeometry;
     bool operator==(const State&) const = default;
 };
 

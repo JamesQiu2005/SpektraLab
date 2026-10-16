@@ -220,6 +220,73 @@ int main(int argc,char** argv) {
                       c.frame()->settings.print_stock==paper.toString().toStdString(),"Colour pair renders again after undo");
             }
 
+            {
+                // Film Edge on the RAW (FilmEdgeSection.swift, Session+FilmEdge
+                // .swift): the crop goes into the 135 gate, the engine is handed
+                // the picture cut by it, and the frame is the film around it --
+                // the canvas spk_overscan_geometry reports, with the gate where
+                // it says. The export writes the strip; the film edge off gives
+                // the crop back; one undo step each.
+                const auto before=geometry(c);const auto plainFrame=c.frame();
+                check(c.setFilmEdgeActive(true),"Switch the film edge on");
+                const auto held=geometry(c);
+                const QSizeF source(plainFrame->decode_width,plainFrame->decode_height);
+                const double ratio=held.crop.width()*source.width()/(held.crop.height()*source.height());
+                check(std::abs(ratio-1.5)<0.02*1.5&&held.quarterTurns==before.quarterTurns&&
+                      held.straightenDegrees==before.straightenDegrees,"The crop is held at the 135 gate's shape");
+                idle(c,"Develop the frame on the film");
+                const auto strip=c.frame();
+                check(strip->cut&&strip->geometry.x==held.crop.x()&&std::abs(strip->geometry.w-held.crop.width())<1e-12,
+                      "The engine was handed the picture cut by the held crop");
+                const QJsonObject layout=QJsonDocument::fromJson(QByteArray::fromStdString(strip->overscan_geometry)).object();
+                check(layout["valid"].toBool()&&layout["canvas_w"].toInt()==int(strip->width())&&
+                      layout["canvas_h"].toInt()==int(strip->height()),"The frame is the canvas spk_overscan_geometry reports");
+                check(strip->width()>strip->picture_width&&strip->height()>strip->picture_height,
+                      "The film is larger than the picture");
+                // The gate's quad, in canvas pixels, is the picture's size.
+                const auto quad=layout["gates"].toArray().first().toArray();
+                double x0=1e9,x1=-1e9,y0=1e9,y1=-1e9;
+                for(int i=0;i<4;++i){
+                    const double x=quad[2*i].toDouble()*strip->width(),y=quad[2*i+1].toDouble()*strip->height();
+                    x0=std::min(x0,x);x1=std::max(x1,x);y0=std::min(y0,y);y1=std::max(y1,y);
+                }
+                std::cout<<"film edge on the RAW: picture "<<strip->picture_width<<" x "<<strip->picture_height
+                         <<" in a film of "<<strip->width()<<" x "<<strip->height()<<", gate "<<(x1-x0)<<" x "<<(y1-y0)
+                         <<" at "<<x0<<", "<<y0<<'\n';
+                check(std::abs((x1-x0)-strip->picture_width)<0.03*strip->picture_width&&
+                      std::abs((y1-y0)-strip->picture_height)<0.03*strip->picture_height&&x0>0&&y0>0&&
+                      x1<strip->width()&&y1<strip->height(),"The gate holds the picture inside the film");
+                check(c.previewImage().size()==QSize(int(strip->width()),int(strip->height()))&&
+                      c.frameIsCut()&&!c.uncroppedImage().isNull()&&c.uncroppedImage().size()!=c.previewImage().size(),
+                      "The canvas shows the strip whole; the crop editor frames over the whole decode");
+                const auto edge=c.filmEdge();
+                check(edge["filmMeasured"].toBool()&&edge["filmWidth"].toInt()==int(strip->width())&&
+                      edge["pictureWidth"].toInt()==int(strip->picture_width),"The section's size caption is measured");
+                const QString png=destination+"/film-edge.png";
+                c.exportImage(QUrl::fromLocalFile(png),1,95,0);idle(c,"Export the strip");
+                check(display_checks::sameRgb8(readImage(png),display_checks::expected8(c.frame(),output::Geometry{})),
+                      "The export writes the whole strip, with no geometry over it");
+                // A new framing re-develops; the crop stays the gate's shape.
+                auto moved=held;moved.crop.translate(-held.crop.x()*0.5,0);
+                c.setCropRect(moved.crop);
+                check(c.dirty()&&std::abs(c.cropRect().x()-moved.crop.x())<1e-12,"A new framing is a new negative");
+                idle(c,"Develop the new framing");
+                check(c.frame()!=strip&&c.frame()->cut&&std::abs(c.frame()->geometry.x-moved.crop.x())<1e-12,
+                      "The new framing reached the engine");
+                // The date back prints in the frame, on the film.
+                check(c.setDateBackActive(true)&&c.dateBack()["effective"].toBool(),"Switch the date back on");
+                idle(c,"Develop the date");
+                check(c.frame()->cut&&c.frame()->width()==strip->width(),"The date prints on the same film");
+                c.undo();check(!c.parameter("date_imprint_active").toBool(),"One undo takes the date off");
+                c.undo();check(geometry(c)==held,"One undo restores the framing");
+                check(c.setFilmEdgeActive(false)&&geometry(c)==before,"The film edge off gives the crop back");
+                idle(c,"Develop without the film edge");
+                check(!c.frame()->cut&&c.frame()->width()==plainFrame->width(),"The frame is the photograph again");
+                c.undo();check(c.parameter("overscan_active").toBool()&&geometry(c)==held,"Undo puts the crop back in the gate");
+                c.redo();check(!c.parameter("overscan_active").toBool()&&geometry(c)==before,"Redo gives it back again");
+                idle(c,"Settle without the film edge");
+            }
+
             c.selectImage(1);idle(c,"Select untouched second photograph");checkPhoto(c,1,second);
             check(!c.canUndo()&&!c.canRedo()&&near(c.exposureEv(),0)&&c.quarterTurns()==0,
                   "Second photograph has independent empty history and geometry");
