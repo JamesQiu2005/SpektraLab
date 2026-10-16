@@ -14,6 +14,13 @@ and skips existing files. Single export refuses overwrites. Output stays sRGB
 with the bundled ICC profile. Select-all and synchronization copy supported
 settings to selected photos, preserving their own crops by default.
 
+The QML is one file per pane (`qml/left`, `qml/centre`, `qml/right`,
+`qml/export`, shared controls in `qml/controls`); `qml/Main.qml` holds the
+window, dialogs and shortcuts and `qml/EditorState.qml` the state the panes
+share. Every user-visible QML string is looked up by key from
+`i18n/en.json` through the C++ `Localizer`; English is the only shipped
+language, and [i18n/README.md](i18n/README.md) says how to add another.
+
 Ctrl+O imports, Ctrl+E opens export options, Ctrl+0 fits and Ctrl+1 selects
 physical 100%. Double-click also switches fit/100%. Changes update the preview
 automatically after a 180 ms settling delay. The filmstrip restores each
@@ -165,3 +172,80 @@ pixels; PNG8/JPEG8 use 8-bit samples, and resizing is explicitly requested.
 
 Nikon HE/HE* RAW remains explicitly unsupported by this LibRaw build. A failed
 NEF open must leave the previous ARW and its session usable.
+
+## Display colour management
+
+Each window has a `ColorPipeline` (`src/ColorPipeline.hpp` is the contract).
+A canvas asks it for the LUT from its frame's encoded colour space to the
+display; UI chrome is never managed. The colour core is `DisplayColor.*`
+(which profile) and `ColorLut.*` (the LUT, and a CPU model of the shader's
+texel-centre trilinear lookup that the tests measure against).
+
+**Which profile.** In `automatic` mode, the profile is the one for the monitor
+Qt reports for the window. The pipeline follows the window to another monitor.
+Windows is asked in this order: `ColorProfileGetDisplayDefault` (Windows 10
+build 20348 and later, loaded at run time), then `WcsGetDefaultColorProfile`,
+then `GetICMProfileW`. Calibration `vcgt` curves are ignored, because the
+graphics card applies them. `srgb` mode assumes an sRGB display, so sRGB frames
+are drawn unchanged. `custom` mode uses a chosen `.icc` file. The intent is
+relative colorimetric with clipping, which is Qt's only intent. Nodes outside
+the display gamut get alpha 0, for a gamut warning.
+
+**Windows Advanced Color.** In legacy SDR the canvas targets the display
+profile. Under Auto Color Management, Windows treats the 8-bit swapchain as
+sRGB and manages it to the display itself. The canvas then targets sRGB and
+the status line says so. HDR also targets sRGB for now, with a note, until
+there is an HDR swapchain.
+
+**Fallbacks.** Some profiles fall back to sRGB with an English warning that
+names the file and the reason: missing, unreadable, truncated, CMYK, greyscale,
+or A2B-only (a profile Qt cannot use as a target).
+
+**Profile changes.** Windows sends no notification when a profile changes. The
+pipeline asks again after any of these:
+
+- a screen change, or a screen added or removed;
+- `WM_DISPLAYCHANGE`, `WM_SETTINGCHANGE` or `WM_DPICHANGED`;
+- the application becoming active;
+- a 3 s poll (one query measured 1.3 ms on the development machine);
+- a call to `reload()`.
+
+LUTs (65³ RGBA float, 4.4 MB) are built on a worker thread, which took 20 to
+160 ms when measured. The previous LUT is served until the new one lands, and
+six LUTs are cached. `SPEKTRALAB_COLOR_LOG=1` logs each decision and build.
+
+**Accuracy.** A single 3D LUT maps encoded values to encoded values, and that
+design has a limit. Measured on 8-bit inputs, with clamped LUT output compared
+against Qt's own transform:
+
+| case | worst error |
+|---|---|
+| sRGB to Display P3 | 0.09 counts (ΔE\*ab 0.05) |
+| sRGB to Adobe RGB, no channel at codes 1-3 | 0.21 counts |
+| sRGB to Adobe RGB, a channel at codes 1-3 (all 582,939) | 3.4 counts (ΔE\*ab 0.80) |
+| sRGB to a gamma 2.6 display, no channel at codes 1-3 | 0.31 counts |
+| sRGB to a gamma 2.6 display, a channel at codes 1-3 | 6.7 counts (ΔE\*ab 0.99) |
+| sRGB colours carried in ProPhoto, back to sRGB | 14.5 counts (ΔE\*ab 0.84) |
+
+The large count errors share one cause. A pure power curve is steepest at
+zero, and the first cell, or any cell where an output channel crosses zero,
+cannot follow it. Every case stays under ΔE\*ab 1, and the tests pin each bound.
+A 1D output curve applied after the 3D lookup would remove the error. That
+would need a change to the contract.
+
+**Tests.** `spk_qt_color_core` runs on the CPU, with no GPU, no shown window
+and no installed profile. Its ICC profiles are built in the test, including a
+CMYK one and an A2B-only one written byte by byte. It checks:
+
+- identity, swapped primaries, gamma 2.6, Display P3, Adobe RGB and ProPhoto,
+  through the shader model;
+- 8-bit filter weights and half-float texels;
+- the fallbacks;
+- `ColorPipeline` on simulated monitors: two monitors, a screen change, a
+  profile recalibrated in place (once through the poll), ACM, HDR, the three
+  modes, the cache, and the old LUT served until a rebuild lands;
+- `forWindow` called from a render thread.
+
+`spk_qt_color_core_test --probe-display` prints what each Windows query says
+about this machine's monitors, and the LUT accuracy for the real profile. It
+only reads.

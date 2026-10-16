@@ -9,9 +9,10 @@ nothing here. Off Apple the engine is the same C++ (`src/core`,
 
 Related documents:
 
-- `engine/PORT_COVERAGE.md` -- what of the API spec runs on Vulkan, what is
-  refused, what was verified and how.
-- `engine/PORT_PLAN.md` -- the handoff for the five refused features.
+- `engine/PORT_COVERAGE.md` -- what of the API spec runs on Vulkan (as of
+  2026-10-16 nothing is refused), what was verified and how.
+- `engine/PORT_PLAN.md` -- the handoff for the five features once refused,
+  all since ported on Windows.
 - `engine/PORT_NOTES.md` -- the running log of this port.
 - `engine/WINDOWS.md`, `WINDOWS_DESKTOP.md`, `WINDOWS_NATIVE_RAW.md`,
   `WINDOWS_FEATURE_COVERAGE.md` -- the original Windows port (native MSVC/MinGW
@@ -95,8 +96,10 @@ file, and the staged directory copied under a non-ASCII name.
 | | what | where |
 |---|---|---|
 | `spk_core_schema`, `spk_core_setup` | the portable core: schema and setup constants | ctest |
-| `spk_vulkan_smoke`, `_grain`, `_pointwise`, `_resample`, `_transfer`, `_geometry`, `_lut_di` | every Vulkan kernel against float64 or exact references | ctest |
-| `spk_windows_feature_boundaries` | the refused features are refused and leave the session usable | ctest |
+| `spk_vulkan_smoke`, `_grain`, `_pointwise`, `_resample`, `_transfer`, `_geometry`, `_lut_di`, `_contrast_mask`, `_overscan`, `_di_latitude`, `_overscan_add_mask` | every Vulkan kernel against float64 or exact references | ctest |
+| `spk_edge_raster` | the portable edge-print raster (CPU) | ctest |
+| `spk_windows_feature_boundaries` | capabilities list no unsupported feature, and every effect once refused is accepted and renders | ctest |
+| `spk_date_back`, `spk_film_edge` | the date back and Film Edge end to end through the C ABI (run on an RTX 3070, Windows; not on lavapipe) | ctest |
 | `spk_windows_c_abi` | a render through the shared library's C ABI | ctest |
 | `spk_raw_decoder_errors`, `spk_raw_metadata_link`, `spk_raw_headroom` | LibRaw integration | ctest |
 | `engine/tests/host_smoke.py` | every host method end to end, error paths, cancel, white balance, EXIF, Unicode paths; RAW files given on the command line | `python3 engine/tests/host_smoke.py --host <exe> [--resources <dir>] [--wrapper wine] [RAW...]` |
@@ -131,8 +134,12 @@ A minimal client is `engine/tests/host_smoke.py` (`class Host`): write
 
 ## 6. What is not there
 
-- The five refused features (contrast mask, scene latitude mapping, Cineon
-  DI, overscan/film edge, date back): `PORT_PLAN.md`.
+- Nothing is refused (2026-10-16): the five features `PORT_PLAN.md` planned
+  (contrast mask, scene latitude mapping, Cineon DI, overscan/film edge, date
+  back) are ported, but tested only on an RTX 3070 under Windows, not on
+  lavapipe or wine, and without whole-image Metal parity.
+  `engine/tests/host_smoke.py` still expects them refused and needs updating
+  before it is next run.
 - Lens correction at decode (LibRaw has no lens profiles).
 - Verified real-GPU runs on Linux, and runs on real Windows: only lavapipe
   and wine here. The original Windows port's RTX acceptance predates main's

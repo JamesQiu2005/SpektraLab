@@ -87,7 +87,9 @@ result. `texture` is its opaque ownership handle, **not a drawable Vulkan
 image**. Respect `row_stride_px` and release with `spk_result_free`. Previously
 returned results remain valid after further renders and after their session
 or engine is destroyed. Existing public C API signatures are unchanged; the
-three additional upstream entry points are exported, bringing the total to 28.
+three additional upstream entry points are exported, bringing the total to 28,
+and `spk_overscan_geometry` (declared since RFC-032, missing from
+`windows_exports.def` until 2026-10-16) makes 29.
 
 Compute planes and caches use device-local GPU memory. Explicit upload,
 device-copy and readback operations use staging buffers; readback prefers
@@ -98,11 +100,16 @@ is a measurement of physical peak VRAM.
 
 ## Reproduce the local gates
 
-The integrated Win32 build passed **16 CTest tests**. The backend-only build
-has 11, and the native RAW build without desktop has 15. These cover schema,
+The integrated Win32 build passed **16 CTest tests** at the first port (11
+backend-only, 15 native RAW without desktop). As of 2026-10-16 the MSVC 2022
+build with the Qt editor (`windows_UI/build-msvc.ps1 -RunTests`) runs **27**
+on an RTX 3070: 18 for the backend and its test DLL, 22 with native RAW, 23
+with the minimal desktop host and 27 with the Qt editor's four. These cover schema,
 setup, GPU math and transfers, geometry, LUT/DI, C ABI ownership, TIFF, RAW
 error handling, headroom math, metadata-only LibRaw linkage and desktop
-conversion/viewport boundaries. The default desktop CTest does not open a
+conversion/viewport boundaries, and the effects ported later: the contrast
+mask, the Cineon DI, scene latitude mapping, the date back and Film Edge
+(`spk_film_edge`, end to end through the DLL). The default desktop CTest does not open a
 visible window or require a private RAW fixture.
 
 ```powershell
@@ -139,8 +146,9 @@ developer render outputs are not distributed with this repository.
 
 ## Correctness and performance boundaries
 
-The Vulkan port contains 34 registered kernels, including two diagnostic
-probes. The independent IIR, resample, geometry and LUT/DI tests compare with
+The Vulkan port contains 42 registered kernels, including two diagnostic
+probes (34 at the first port; the contrast mask's two, the Cineon DI encode,
+scene latitude and Film Edge's four came later). The independent IIR, resample, geometry and LUT/DI tests compare with
 analytic or float64 references. Grain tests check exact Philox integers and
 distribution moments; they do not establish equality of every seeded Metal
 Poisson draw. Exact repeated-image comparisons disable stochastic effects.

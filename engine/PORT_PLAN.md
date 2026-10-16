@@ -1,5 +1,15 @@
 # Porting the five refused features to Vulkan -- a handoff
 
+**Status (2026-10-16): all five are ported** on the Windows Vulkan backend
+and tested on an RTX 3070 under MSVC 2022 -- the Cineon DI, scene latitude
+mapping, the contrast mask, the date back and, last, Film Edge
+(`spk_film_edge`). `capabilities.backend.unsupported_features` is empty;
+`windows_unported.hpp` keeps its table for the next upstream effect, and
+`windows_unported.cpp` is gone. What this plan asked for and nobody has done
+yet is §0's whole-feature acceptance against Mac dumps, and any run on
+lavapipe. The rest of this file is the handoff as written, and its line
+numbers are history.
+
 **Status (owner's decision, 2026-10-06):** contrast mask, scene latitude
 mapping, Cineon Digital Intermediate, overscan/film edge and the date back
 stay **refused** off Apple. `capabilities.backend.unsupported_features` lists

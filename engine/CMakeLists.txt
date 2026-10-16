@@ -55,20 +55,15 @@ add_library(spektralab_pipeline OBJECT
     src/pipeline/pipeline.cpp
     src/pipeline/scene_latitude.cpp
     src/pipeline/contrast_mask.cpp
+    src/pipeline/overscan.cpp
 )
 set_target_properties(spektralab_pipeline PROPERTIES POSITION_INDEPENDENT_CODE ON)
-if(APPLE)
-    target_sources(spektralab_pipeline PRIVATE
-        src/pipeline/overscan.cpp)
-else()
-    target_sources(spektralab_pipeline PRIVATE src/pipeline/windows_unported.cpp)
-endif()
 # RFC-031/032: the film edge and the date back. overscan.cpp is the same on
 # every platform; only its 2-D raster differs (overscan_raster.hpp).
 if(APPLE)
     target_sources(spektralab_pipeline PRIVATE src/pipeline/overscan_raster_apple.cpp)
 else()
-    target_sources(spektralab_pipeline PRIVATE src/pipeline/overscan.cpp
+    target_sources(spektralab_pipeline PRIVATE
         src/pipeline/overscan_raster_portable.cpp src/pipeline/edge_raster.cpp)
 endif()
 target_link_libraries(spektralab_pipeline PRIVATE spektralab_core)
@@ -307,6 +302,14 @@ if(NOT APPLE)
                 target_include_directories(spk_date_back PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/include")
                 target_link_libraries(spk_date_back PRIVATE spektralab_engine_shared)
                 add_test(NAME spk_date_back COMMAND spk_date_back "${vulkan_resource_dir}")
+
+                # Film Edge end to end through the C ABI: what
+                # tests/overscan_checks.py checks, without Python.
+                add_executable(spk_film_edge tests/film_edge_render.cpp)
+                target_compile_features(spk_film_edge PRIVATE cxx_std_20)
+                target_include_directories(spk_film_edge PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/include")
+                target_link_libraries(spk_film_edge PRIVATE spektralab_engine_shared)
+                add_test(NAME spk_film_edge COMMAND spk_film_edge "${vulkan_resource_dir}")
 
                 add_executable(spk_render_fixture tests/render_fixture.cpp)
                 target_compile_features(spk_render_fixture PRIVATE cxx_std_20)

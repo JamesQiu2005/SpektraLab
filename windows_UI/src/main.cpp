@@ -1,6 +1,9 @@
 #include "PreviewController.hpp"
 #include "FrameCanvas.hpp"
+#include "Localizer.hpp"
+#include "Messages.hpp"
 #include <QCommandLineParser>
+#include <QThread>
 #include <QCryptographicHash>
 #include <QDir>
 #include <QFile>
@@ -396,6 +399,20 @@ int main(int argc,char** argv) {
     PreviewController controller(std::filesystem::path(resources.toStdWString()),nullptr,
         [failDisplay](const auto& frame){if(*failDisplay){*failDisplay=false;throw std::runtime_error("Injected display publication failure");}return PreviewController::imageFromFrame(frame);},editDirectory);
     qmlRegisterType<FrameCanvas>("SpektraLab.Native",1,0,"FrameCanvas");
+    // QML text by key (qml/L10n.qml): compiled-in tables, then <app>/i18n.
+    Localizer localizer;localizer.loadStandardLocations();
+    qmlRegisterSingletonInstance("SpektraLab.Native",1,0,"Localizer",&localizer);
+    // The controller's status lines (Messages.hpp) come from the same tables.
+    // The Localizer is GUI-thread only, so a worker thread's call (the batch
+    // summary) falls back to Messages.hpp's English.
+    spk::desktop::messages::lookup()=[&localizer](std::string_view key,const QStringList& args)->QString{
+        if(QThread::currentThread()!=localizer.thread())return {};
+        QVariantList values;for(const auto& arg:args)values.push_back(arg);
+        return localizer.translate(QString::fromUtf8(key.data(),qsizetype(key.size())),values);
+    };
+    // Declared after the Localizer, so destroyed first: the controller outlives
+    // both and may still produce a status line while it shuts down.
+    struct ClearLookup{~ClearLookup(){spk::desktop::messages::lookup()=nullptr;}} clearLookup;
     QQmlApplicationEngine engine;engine.rootContext()->setContextProperty("preview",&controller);
     QObject::connect(&engine,&QQmlApplicationEngine::objectCreationFailed,&app,[]{QCoreApplication::exit(2);},Qt::QueuedConnection);
     engine.loadFromModule("SpektraLab","Main");

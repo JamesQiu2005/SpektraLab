@@ -120,13 +120,15 @@ int main(int argc, char** argv) {
     try {
         Engine engine(spk_engine_create(argv[1], nullptr));
         require(bool(engine), std::string("engine: ") + spk_last_error(nullptr));
-        // The capabilities stop listing the date back and still list overscan.
+        // The capabilities list neither the date back nor, since Film Edge
+        // was ported, overscan (spk_windows_feature_boundaries holds the list
+        // empty).
         const std::string caps = spk_capabilities(engine.get());
         const size_t list = caps.find("\"unsupported_features\"");
         require(list != std::string::npos, "capabilities lost unsupported_features");
         const std::string unported = caps.substr(list, caps.find(']', list) - list);
         require(unported.find("\"date_imprint\"") == std::string::npos, "date_imprint is still advertised as unsupported");
-        require(unported.find("\"overscan\"") != std::string::npos, "overscan is no longer advertised as unsupported");
+        require(unported.find("\"overscan\"") == std::string::npos, "overscan is still advertised as unsupported");
 
         // The frame is 35 mm long (film_format_mm's default), so 1080 px is
         // 0.0324 mm a pixel and a 1.3 mm LCD digit is 40 px tall. Boxes follow
