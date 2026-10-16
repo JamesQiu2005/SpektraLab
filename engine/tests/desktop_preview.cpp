@@ -393,7 +393,8 @@ void settings_deltas() {
     // Each wire row alone produces exactly its own key; a film change also
     // carries the resolved scan mode. A product row produces the wire values
     // it changes: Print Effects off turns glare off (pre-flash is at 0, the
-    // Tone Mask is off); the placement's UI state changes none.
+    // Tone Mask is off); the white balance and the placement's UI state
+    // change none -- the white balance is the decode (render re-opens).
     for (const auto& field : setting_fields()) {
         RenderSettings after = base;
         SettingValue value;

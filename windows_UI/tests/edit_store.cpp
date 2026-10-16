@@ -318,11 +318,14 @@ int main(int argc, char** argv) {
             check(store.load(url, catalog).state == std::optional(state), "restored record after the new rows");
         }
         {
-            // The Pre-Dev rows -- Scene Placement's curve and UI state, the
-            // Tone Mask -- the same way: version 2's optional keys,
-            // round-tripped away from default, `absent` when missing, refused
-            // outside their ranges and choices.
+            // The Pre-Dev rows -- white balance, Scene Placement's curve and
+            // UI state, the Tone Mask -- the same way: version 2's optional
+            // keys, round-tripped away from default, `absent` when missing,
+            // refused outside their ranges and choices.
             auto predev = state;
+            predev.settings.set("white_balance", std::string("custom"));
+            predev.settings.set("white_balance_temperature", 3150.0);
+            predev.settings.set("white_balance_tint", -12.5);
             predev.settings.set("scene_latitude_active", true);
             predev.settings.set("scene_latitude_norm", std::string("y"));
             predev.settings.set("scene_latitude_highlight_knee", 0.875);
@@ -341,7 +344,8 @@ int main(int argc, char** argv) {
             predev.settings.set("contrast_mask_scale", 0.05);
             store.save(url, predev);
             check(store.load(url, catalog).state == std::optional(predev), "the Pre-Dev rows did not round-trip");
-            const QStringList added{"scene_latitude_active", "scene_latitude_norm", "scene_latitude_highlight_knee",
+            const QStringList added{"white_balance", "white_balance_temperature", "white_balance_tint",
+                "scene_latitude_active", "scene_latitude_norm", "scene_latitude_highlight_knee",
                 "scene_latitude_highlight_room", "scene_latitude_shadow_knee", "scene_latitude_shadow_room",
                 "scene_latitude_rolloff", "scene_latitude_max_lift", "scene_latitude_highlight_pull_back",
                 "scene_latitude_shadow_pull_back", "scene_latitude_needs_fit", "contrast_mask_active",
@@ -357,6 +361,8 @@ int main(int argc, char** argv) {
                 check(field && loaded.state->settings.get(field->key) == field->absent,
                       "a missing Pre-Dev row did not take what the record was made with");
             }
+            corrupt([](auto& d) { mutateSettings(d, [](auto& f) { f["white_balance"] = "candlelight"; }); });
+            corrupt([](auto& d) { mutateSettings(d, [](auto& f) { f["white_balance_temperature"] = 1900.0; }); });
             corrupt([](auto& d) { mutateSettings(d, [](auto& f) { f["scene_latitude_norm"] = "luma"; }); });
             corrupt([](auto& d) { mutateSettings(d, [](auto& f) { f["scene_latitude_highlight_pull_back"] = 8.5; }); });
             corrupt([](auto& d) { mutateSettings(d, [](auto& f) { f["contrast_mask_scale"] = 0.25; }); });

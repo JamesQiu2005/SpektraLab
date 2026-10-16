@@ -1,5 +1,6 @@
 #include "preview_host.hpp"
 #include "io/image_writer.hpp"
+#include "raw_white_balance.hpp"
 
 #include <algorithm>
 #include <chrono>
@@ -287,6 +288,20 @@ const std::vector<Row>& rows() {
             row.field.wire = false;
             return row;
         };
+        // The Camera section's white balance (WhiteBalanceRows.swift; the
+        // values are Sidecar.swift DecodeSettings', :8-26). A decode setting
+        // on macOS (ImageDecoder.swift:233-238) and here: open_raw reads these
+        // three into the RAW decoder (raw_white_balance.hpp), so a change
+        // re-decodes and develops a new negative. As Shot follows the camera
+        // and ignores the numbers; a preset is its Kelvin at tint 0.
+        // 2000..50000 K is the host protocol's range (engine/host/main.cpp);
+        // macOS's sliders show 2000..12000 K and -150..150.
+        t.push_back(unsent(text("white_balance", "White balance", SHOOT, SettingChoices::listed,
+                                {"as_shot", "daylight", "cloudy", "shade", "tungsten", "fluorescent", "custom"},
+                                "as_shot", "as_shot")));
+        t.push_back(unsent(number("white_balance_temperature", "Temperature (K)", SHOOT,
+                                  2000.0, 50000.0, 5500.0, 5500.0)));
+        t.push_back(unsent(number("white_balance_tint", "Tint", SHOOT, -150.0, 150.0, 0.0, 0.0)));
         // RFC-023's Scene Latitude (API-SPEC §12), the Scene Placement section
         // (ParameterSections.swift:212-258): the resolved curve the Fit solved,
         // never the pull-backs (RFC-023 §8.3), at the engine's defaults, which
@@ -591,6 +606,8 @@ PreviewHost::~PreviewHost() = default;
 const Catalog& PreviewHost::catalog() const noexcept { return impl_->catalog; }
 double PreviewHost::engine_create_ms() const noexcept { return impl_->engine_create_ms; }
 FramePtr PreviewHost::current() const noexcept { return impl_->frame; }
+spk_session* PreviewHost::session() const noexcept { return impl_->session.get(); }
+const io::DecodedRaw& PreviewHost::input() const noexcept { return impl_->decoded; }
 
 FramePtr PreviewHost::open_raw(const fs::path& source, DecodeMode mode, const RenderSettings& settings) {
     const auto started = Clock::now();
@@ -606,9 +623,8 @@ FramePtr PreviewHost::open_raw(const fs::path& source, DecodeMode mode, const Re
     io::DecodedRaw decoded;
     std::string error;
     auto t = Clock::now();
-    const bool decoded_ok = mode == DecodeMode::headroom
-        ? io::decode_raw_headroom(path, decoded, error)
-        : io::decode_raw_compatible(path, decoded, error);
+    // The settings' white balance is applied here, at decode (raw_white_balance.hpp).
+    const bool decoded_ok = decode_raw(path, mode, settings, decoded, error);
     require(decoded_ok, "RAW decode: " + error);
     next->timings.decode_ms = elapsed(t);
     next->metadata = decoded.metadata;
@@ -635,6 +651,11 @@ FramePtr PreviewHost::open_raw(const fs::path& source, DecodeMode mode, const Re
 FramePtr PreviewHost::render(const RenderSettings& settings) {
     const auto started = Clock::now();
     require(bool(impl_->frame), "Open a RAW image before rendering");
+    // A white balance is no wire field: it is the decode, so the file is
+    // decoded again and a new negative developed (macOS re-decodes too,
+    // Session.swift:2694-2725). open_raw is transactional, as below.
+    if (!same_decode(impl_->frame->settings, settings))
+        return open_raw(impl_->frame->source, impl_->frame->decode_mode, settings);
     const bool scan_film = validate_settings(settings, impl_->catalog);
     auto next = std::shared_ptr<Frame>(new Frame());
     next->source = impl_->frame->source;

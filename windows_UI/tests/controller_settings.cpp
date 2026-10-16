@@ -278,11 +278,12 @@ int main(int argc, char** argv) {
         check(c.exposureEv() == 0 && c.parameter("preflash_exposure").toDouble() == 0.0 &&
               c.parameter("y_filter_shift").toDouble() == 0.0 && c.parameter("m_filter_shift").toDouble() == 0.0,
               "Enlarger reset");
-        // Print Effects is a row that is not sent; so is the placement's UI
-        // state (RFC-023 §8.3).
+        // Print Effects is a row that is not sent; so are the white balance
+        // (the decode) and the placement's UI state (RFC-023 §8.3).
         check(c.setParameter("print_effects", false) && c.parameter("print_effects") == false, "Print Effects off");
-        const QStringList unsent{"print_effects", "scene_latitude_highlight_pull_back",
-                                 "scene_latitude_shadow_pull_back", "scene_latitude_needs_fit"};
+        const QStringList unsent{"print_effects", "white_balance", "white_balance_temperature", "white_balance_tint",
+                                 "scene_latitude_highlight_pull_back", "scene_latitude_shadow_pull_back",
+                                 "scene_latitude_needs_fit"};
         for (const auto& entry : c.parameterFields()) {
             const auto row = entry.toMap();
             check(row.value("sent").toBool() == !unsent.contains(row.value("key").toString()),

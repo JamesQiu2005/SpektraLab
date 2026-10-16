@@ -252,6 +252,13 @@ public:
     const Catalog& catalog() const noexcept;
     double engine_create_ms() const noexcept;
     FramePtr current() const noexcept;
+    // What current() was made from, for the analysis calls that never render
+    // (spk_solve, spk_scene_latitude) and the neutral picker's sample: the
+    // live session -- nullptr before the first open, and after a failed edit
+    // until the next render reopens it -- and the decoded RAW it was opened
+    // on. On this same worker thread only; neither may be retained.
+    spk_session* session() const noexcept;
+    const io::DecodedRaw& input() const noexcept;
 
     // New-file open is transactional: decode/open/render/display conversion
     // must all succeed before replacing the previous session and frame.
@@ -259,7 +266,9 @@ public:
                       const RenderSettings& settings = RenderSettings());
     // Only changed settings are sent. Print-side edits request spk_reprint;
     // the result's actual cache flag determines whether reuse occurred.
-    // A failure never mutates the previously returned Frame.
+    // A failure never mutates the previously returned Frame. Settings that
+    // decode differently (a white balance, raw_white_balance.hpp) are an
+    // open_raw of the current source instead.
     FramePtr render(const RenderSettings& settings);
     // Exports exactly the supplied frame, even after a newer one was opened.
     // Existing files are never overwritten. Returns only after the writer

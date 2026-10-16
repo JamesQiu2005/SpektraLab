@@ -48,6 +48,12 @@ struct RawMetadata {
     std::uint32_t process_warnings = 0;
     // Row-major 3 x 4 camera-to-linear-sRGB matrix used by LibRaw.
     std::array<float, 12> rgb_cam{};
+    // LibRaw's colour count and its XYZ->camera matrix (`cam_xyz`'s first
+    // three rows, row-major), as the file was identified: what a white
+    // balance in Temperature/Tint is converted through (engine/host/
+    // white_balance.hpp). Zero for a camera LibRaw has no matrix for.
+    int colors = 0;
+    std::array<double, 9> xyz_to_camera{};
     // Opt-in headroom policy only. The matrix is LibRaw's actual camera-to-
     // ProPhoto matrix, captured at its float conversion boundary. The scale
     // restores the min-WB exposure convention after max-WB normalisation.
@@ -93,6 +99,13 @@ bool decode_raw_compatible(const std::filesystem::path& source, const std::array
 // Unsupported sensor/layout/WB cases fail explicitly; compatible16 is never
 // substituted. On failure, out is unchanged.
 bool decode_raw_headroom(const std::filesystem::path& source,
+                         DecodedRaw& out, std::string& error);
+
+// The headroom policy with caller-chosen multipliers, as the compatible
+// overload above takes them. LibRaw normalises them by their largest, as it
+// does the as-shot ones under this policy, so the exposure restore holds.
+// nullptr is the overload above. Used by the Windows desktop host.
+bool decode_raw_headroom(const std::filesystem::path& source, const std::array<float, 4>* user_mul,
                          DecodedRaw& out, std::string& error);
 
 }  // namespace spk::io
