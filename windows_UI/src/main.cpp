@@ -60,6 +60,14 @@ private:
         for(int i=0;i<films.size();++i)if(films[i].toMap().value("id").toString()==id)return i;
         return -1;
     }
+    // The next paper the current (colour) film can print on: the silver
+    // paper is refused for it (StockCatalog.canPrint).
+    int nextColourPaper(int from) const {
+        const auto papers=controller_.papers();
+        int i=from;
+        do i=(i+1)%int(papers.size());while(i!=from&&papers[i].toMap().value("monochrome").toBool());
+        return i;
+    }
     bool exposureIs(double ev) const {
         return std::abs(controller_.exposureEv()-ev)<1e-12&&
             std::abs(controller_.frame()->settings.print_exposure-std::exp2(-ev))<1e-12;
@@ -159,10 +167,13 @@ private:
         } else if(stage_==7) {
             if(!require(operation=="render"&&ok&&!controller_.frame()->reprint()&&
                         controller_.frame()->settings.film_stock!=held_->settings.film_stock,"film_change_renders_selected_stock"))return;
-            stage_=8;controller_.setPaperIndex((controller_.paperIndex()+1)%controller_.papers().size());
+            // macOS Session.selectFilmStock: the film brings its own paper.
+            if(!require(controller_.frame()->settings.print_stock=="kodak_portra_endura","film_change_takes_its_own_paper"))return;
+            film_paper_=controller_.frame()->settings.print_stock;
+            stage_=8;controller_.setPaperIndex(nextColourPaper(controller_.paperIndex()));
         } else if(stage_==8) {
             if(!require(operation=="render"&&ok&&controller_.frame()->reprint()&&
-                        controller_.frame()->settings.print_stock!=held_->settings.print_stock,"paper_change_reprints_selected_stock"))return;
+                        controller_.frame()->settings.print_stock!=film_paper_,"paper_change_reprints_selected_stock"))return;
             checkpoint();stage_=9;
             controller_.setExposureEv(-0.2);controller_.setExposureEv(0.3);controller_.setExposureEv(0.8);
             if(!require(!controller_.busy()&&controller_.frame()==held_,"rapid_idle_edits_are_debounced"))return;
@@ -350,6 +361,7 @@ private:
     spk::desktop::FramePtr original_,held_;QJsonObject checks_;int stage_=0;bool done_=false;
     int frame_publications_=0,operations_finished_=0,saved_publications_=0,saved_operations_=0;
     int remembered_paper_=0,negative_film_=0,slide_index_=0;double remembered_ev_=0;
+    std::string film_paper_;
     const QStringList slide_ids_{"fujifilm_provia_100f","fujifilm_velvia_100","kodak_ektachrome_100","kodak_kodachrome_64"};
     QJsonArray slide_results_;
     bool headroom_slides_=false;
