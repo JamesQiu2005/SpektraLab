@@ -2,6 +2,7 @@
 #include "desktop/preview_host.hpp"
 #include "FrameOutput.hpp"
 #include "EditStore.hpp"
+#include "Messages.hpp"
 #include <QImage>
 #include <QObject>
 #include <QTimer>
@@ -182,7 +183,7 @@ private:
     bool applyParameter(const spk::desktop::SettingField& field, spk::desktop::SettingValue value);
     void schedulePreview();
     bool ready_=false, busy_=true, failed_=false;
-    QString status_=QStringLiteral("正在启动渲染引擎…");
+    QString status_=uiText("status.startingEngine");
     QVariantList films_, papers_;
     spk::desktop::Catalog catalog_;
     int film_index_=0, paper_index_=0, decode_mode_=0;

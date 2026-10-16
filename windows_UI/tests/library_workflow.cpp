@@ -282,7 +282,7 @@ int main(int argc,char** argv) {
             check(QDir().mkpath(mixed),"Cannot create mixed batch directory");
             controller.exportBatch(QUrl::fromLocalFile(mixed),1,95,64);
             idle(controller,"batch containing supported and unsupported RAW files",true);
-            check(controller.failed()&&controller.status().contains(QStringLiteral("失败"))&&
+            check(controller.failed()&&controller.status().contains(QStringLiteral("1 failed"))&&
                   controller.status().contains(rejected.completeBaseName()),
                   "Mixed batch concealed the unsupported RAW failure");
             check(controller.batchProgress()==3,"Mixed batch did not account for every selected file");

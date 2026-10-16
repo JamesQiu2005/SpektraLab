@@ -797,7 +797,7 @@ void integration(const fs::path& resources, const fs::path& arw,
     report.set("arw", Json(path_text(arw))); report.set("nef", Json(path_text(nef)));
     FramePtr first;
     std::uint64_t first_pixels = 0, first_display = 0;
-    const auto exported = destination / fs::path(u8"已显示帧-原始16位.tif");
+    const auto exported = destination / fs::path(u8"\u5df2\u663e\u793a\u5e27-\u539f\u59cb16\u4f4d.tif");
     {
         PreviewHost host(resources);
         check(!host.current(), "new host already has a frame");

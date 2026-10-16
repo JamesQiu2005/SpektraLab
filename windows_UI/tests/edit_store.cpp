@@ -74,10 +74,11 @@ int main(int argc, char** argv) {
         QTemporaryDir temporary(scratch.isEmpty() ? QDir::tempPath() + "/spk-edit-store-XXXXXX"
                                                   : scratch + "/run-XXXXXX");
         check(temporary.isValid(), "temporary root unavailable");
-        const auto sources = temporary.filePath(QString::fromUtf8("照片 文件夹"));
-
+        // CJK folder and file names with spaces, written as escapes: the
+        // store must handle non-ASCII paths whatever the system code page.
+        const auto sources = temporary.filePath(QString::fromUtf8("\u7167\u7247 \u6587\u4ef6\u5939"));
         check(QDir().mkpath(sources), "cannot create source folder");
-        const auto source = QDir(sources).filePath(QString::fromUtf8("海边 日落.ARW"));
+        const auto source = QDir(sources).filePath(QString::fromUtf8("\u6d77\u8fb9 \u65e5\u843d.ARW"));
         QByteArray input(200000, 'R');
         for (qsizetype i = 0; i < input.size(); ++i) input[i] = char((i * 31 + i / 257) % 251);
         write(source, input);
