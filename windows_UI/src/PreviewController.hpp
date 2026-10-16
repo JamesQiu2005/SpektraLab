@@ -94,6 +94,12 @@ class PreviewController final : public QObject {
     Q_PROPERTY(bool flipHorizontal READ flipHorizontal NOTIFY geometryChanged)
     Q_PROPERTY(bool flipVertical READ flipVertical NOTIFY geometryChanged)
     Q_PROPERTY(double straightenDegrees READ straightenDegrees NOTIFY geometryChanged)
+    // The export page's proof (ExportPage.swift's centre pane): the displayed
+    // frame at navigator size, through the same conversion the file gets,
+    // tagged with the destination space. exportProofInfo: {space, clipped,
+    // identity, digitalIntermediate}.
+    Q_PROPERTY(QImage exportProof READ exportProof NOTIFY exportProofChanged)
+    Q_PROPERTY(QVariantMap exportProofInfo READ exportProofInfo NOTIFY exportProofChanged)
     // --- the Pre-Dev rail (PreviewControllerPredev.cpp) ---------------------
     // The Camera section's white balance (WhiteBalanceRows.swift): a decode
     // setting, so an edit re-decodes the RAW. {mode: as_shot|daylight|cloudy|
@@ -291,6 +297,17 @@ public:
     Q_INVOKABLE void exportImage(const QUrl& path, int format, int quality, int maxLongEdge);
     Q_INVOKABLE void exportBatch(const QUrl& folder, int format, int quality, int maxLongEdge);
     Q_INVOKABLE void cancelExport();
+    // The export page's Export (ExportPage.run): every selected photo -- the
+    // displayed one when none is -- under one recipe (ExportRecipe.hpp JSON),
+    // one at a time on the worker, as a "batch-export" operation so the open
+    // frame and the picked set hold still while it runs (AGENTS.md trap 34).
+    // Ends with exportFinished.
+    Q_INVOKABLE void exportWithRecipe(const QVariantMap& recipe);
+    // Recompute exportProof for a recipe; coalesced, never marks the
+    // controller busy.
+    Q_INVOKABLE void requestExportProof(const QVariantMap& recipe);
+    QImage exportProof() const { return export_proof_; }
+    QVariantMap exportProofInfo() const { return export_proof_info_; }
     Q_INVOKABLE void resetSettings();
     Q_INVOKABLE void setDialogOpen(bool open);
 
@@ -344,6 +361,11 @@ signals:
     void historyChanged();
     void initialized(bool success);
     void operationFinished(const QString& operation, bool success);
+    // A recipe export ended: the page's result note (ExportPage.run's
+    // "Wrote ..." plus the problems), whether any problem is in it, and the
+    // files written (images, then any view LUTs).
+    void exportFinished(const QString& summary, bool warning, const QStringList& files);
+    void exportProofChanged();
     // The Pre-Dev rail's outcomes: `message` is "" on success, else why.
     void neutralPicked(bool success, const QString& message);
     void processed(bool success, const QString& message);
@@ -370,6 +392,12 @@ private:
         spk::desktop::FramePtr frame;
         Publication publication;
         spk::desktop::Catalog catalog;
+        // A recipe export's result (exportFinished) and a proof's picture.
+        bool recipe=false, warning=false;
+        QString summary;
+        QStringList files;
+        QImage proof;
+        QVariantMap proofInfo;
         // operation "original": the whole Original when it was made from the
         // decode (else empty), the visible one, its histogram and token.
         QImage original_full, original;
@@ -465,6 +493,10 @@ private:
     QString active_operation_;
     QTimer auto_apply_;
     bool dialog_open_=false;
+    QImage export_proof_;
+    QVariantMap export_proof_info_;
+    std::atomic<quint64> proof_generation_{0};   // the worker skips a superseded proof
+    void acceptProof(Reply reply);
     std::mutex mutex_;
     std::condition_variable wake_;
     std::deque<Job> jobs_;

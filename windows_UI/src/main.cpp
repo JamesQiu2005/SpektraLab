@@ -1,4 +1,5 @@
 #include "PreviewController.hpp"
+#include "ExportRecipeStore.hpp"
 #include "AppSettings.hpp"
 #include "AppShell.hpp"
 #include "ShellCapture.hpp"
@@ -16,6 +17,7 @@
 #include <QDir>
 #include <QFile>
 #include <QGuiApplication>
+#include <QImageReader>
 #include <QJsonArray>
 #include <QJsonDocument>
 #include <QJsonObject>
@@ -129,6 +131,9 @@ public:
         QObject::connect(&controller_,&PreviewController::operationFinished,this,
             [this](const QString& operation,bool ok){++operations_finished_;step(operation,ok);});
         QObject::connect(&controller_,&PreviewController::frameChanged,this,[this]{++frame_publications_;});
+        // A recipe export's files; emitted before its operationFinished.
+        QObject::connect(&controller_,&PreviewController::exportFinished,this,
+            [this](const QString& summary,bool,const QStringList& files){exported_=files;checks_["recipe_export_summary"]=summary;});
         QTimer::singleShot(180000,this,[this]{if(!done_)finish(false,"timeout");});
     }
 private:
@@ -208,6 +213,38 @@ private:
                        (thumbnail.width()==display::kThumbnailBox.width()||thumbnail.height()==display::kThumbnailBox.height()),
                        "thumbnail_half_float_fits_strip");
     }
+    // A recipe in the export page's JSON (ExportRecipe.hpp): one folder, the
+    // original name, nothing beside the original.
+    static QVariantMap recipe(const char* format,const char* space,const QString& folder,bool exif) {
+        return {{"name","self-test"},{"format",format},
+                {"colorSpace",QVariantMap{{"builtIn",QVariantMap{{"_0",space}}}}},
+                {"folder",QVariantMap{{"fixed",QVariantMap{{"path",folder}}}}},{"subfolder",""},
+                {"naming",QVariantMap{{"order",QStringList{"originalName","filmStock","printStock","date"}},
+                                      {"tokens",QStringList{"originalName"}},{"separator","_"}}},
+                {"existing","skip"},{"quality",0.95},{"outputSize",QVariantMap{{"original",true}}},
+                {"metadata",QVariantMap{{"exif",exif},{"fields",QStringList{"camera","lens","exposure","date"}}}}};
+    }
+    static QByteArray sha256(const QString& path) {
+        QFile file(path);if(!file.open(QIODevice::ReadOnly))return {};
+        QCryptographicHash hash(QCryptographicHash::Sha256);hash.addData(&file);return hash.result().toHex();
+    }
+    // The pending-preview hold while a file dialog is open (stage 2).
+    void startDialogChecks() {
+        stage_=2;controller_.setExposureEv(0.5);
+        controller_.setDialogOpen(true);
+        later([this]{
+            if(!require(!controller_.busy()&&!controller_.settingsEditable()&&controller_.dirty()&&
+                        controller_.frame()==original_,"file_dialog_suspends_pending_preview"))return;
+            controller_.setExposureEv(1);
+            if(!require(controller_.exposureEv()==0.5,"file_dialog_holds_selected_settings"))return;
+            controller_.setDialogOpen(false);
+        },400);
+        // The reprint is ~0.3-1.5 s; 15 s (was 5) because a shared GPU busy
+        // with another process's Vulkan work made it miss 5 s here, measured
+        // (brightness_preview_after_ms in the report).
+        dialog_checks_.start();
+        QTimer::singleShot(15000,this,[this]{if(!done_&&stage_==2)finish(false,"automatic brightness preview did not run");});
+    }
     void step(const QString& operation,bool ok) {
         if(done_)return;
         if(stage_==0) {
@@ -270,17 +307,33 @@ private:
             });
         } else if(stage_==1) {
             if(!require(operation=="export"&&ok&&QFileInfo(output_+"/displayed-frame.tif").size()>0,"export_displayed_frame"))return;
-            stage_=2;controller_.setExposureEv(0.5);
-            controller_.setDialogOpen(true);
-            later([this]{
-                if(!require(!controller_.busy()&&!controller_.settingsEditable()&&controller_.dirty()&&
-                            controller_.frame()==original_,"file_dialog_suspends_pending_preview"))return;
-                controller_.setExposureEv(1);
-                if(!require(controller_.exposureEv()==0.5,"file_dialog_holds_selected_settings"))return;
-                controller_.setDialogOpen(false);
-            },400);
-            QTimer::singleShot(5000,this,[this]{if(!done_&&stage_==2)finish(false,"automatic brightness preview did not run");});
+            // The export page's path for the same frame and the same settings
+            // (sRGB, TIFF, no EXIF): byte for byte the file above.
+            stage_=40;
+            controller_.exportWithRecipe(recipe("TIFF 16-bit","kCGColorSpaceSRGB",output_+"/recipe",false));
+            controller_.openRaw(QUrl::fromLocalFile(reject_));
+            require(controller_.batchExporting()&&controller_.frame()==original_,"recipe_export_holds_the_open_frame");
+        } else if(stage_==40) {
+            const QString recipeFile=output_+"/recipe/input.tif";
+            if(!require(operation=="batch-export"&&ok&&exported_.size()==1&&QDir::cleanPath(exported_.first())==QDir::cleanPath(recipeFile),"recipe_export_srgb_tiff"))return;
+            const bool same=sha256(recipeFile)==sha256(output_+"/displayed-frame.tif");
+            checks_["recipe_srgb_tiff_sha256"]=QString::fromLatin1(sha256(recipeFile));
+            if(!require(same,"recipe_srgb_export_byte_identical_to_old_export"))return;
+            stage_=41;exported_.clear();
+            controller_.exportWithRecipe(recipe("JPEG","kCGColorSpaceDisplayP3",output_+"/recipe",true));
+        } else if(stage_==41) {
+            const QString jpeg=output_+"/recipe/input.jpg";
+            if(!require(operation=="batch-export"&&ok&&QDir::cleanPath(exported_.value(0))==QDir::cleanPath(jpeg),"recipe_export_p3_jpeg"))return;
+            QFile file(jpeg);file.open(QIODevice::ReadOnly);const auto bytes=file.readAll();
+            const auto make=QString::fromStdString(original_->metadata.make).toLatin1();
+            QImageReader reader(jpeg);const auto space=reader.read().colorSpace();
+            if(!require(bytes.contains(QByteArray("Exif\0\0",6))&&!make.isEmpty()&&bytes.contains(make)&&
+                        space.isValid()&&space.description()=="Display P3"&&
+                        space.primaries()==QColorSpace::Primaries::DciP3D65,"recipe_export_p3_jpeg_tagged_with_exif"))return;
+            startDialogChecks();
         } else if(stage_==2) {
+            checks_["brightness_preview_after_ms"]=double(dialog_checks_.elapsed());
+            if(controller_.frame())checks_["brightness_render_ms"]=controller_.frame()->timings.render_ms;
             if(!require(operation=="render"&&ok&&controller_.frame()!=original_&&controller_.frame()->reprint(),"brightness_reprint"))return;
             if(!require(sameRows(original_,original_rows_),"old_frame_immutable"))return;
             held_=controller_.frame();stage_=3;controller_.openRaw(QUrl::fromLocalFile(reject_));
@@ -487,6 +540,16 @@ private:
             if(!require(operation=="export"&&!ok&&!QFileInfo::exists(output_+"/working-space.tif")&&
                         controller_.status().contains(QString::fromStdString(original_->encoding.color_space))&&
                         controller_.frame()==original_,"export_refuses_frame_not_encoded_in_srgb"))return;
+            // The export page converts instead of refusing: the working-space
+            // frame through the engine's transform into sRGB.
+            stage_=31;exported_.clear();
+            controller_.exportWithRecipe(recipe("PNG 8-bit","kCGColorSpaceSRGB",output_+"/recipe",false));
+        } else if(stage_==31) {
+            const QString png=output_+"/recipe/input.png";
+            QImageReader reader(png);const auto image=reader.read();
+            if(!require(operation=="batch-export"&&ok&&QDir::cleanPath(exported_.value(0))==QDir::cleanPath(png)&&!image.isNull()&&
+                        image.width()==int(original_->width())&&image.colorSpace().isValid()&&
+                        image.colorSpace().primaries()==QColorSpace::Primaries::SRgb,"recipe_export_converts_working_space_to_srgb"))return;
             finish(true,{});
         } else {
             require(false,"unexpected_operation_during_settle");
@@ -733,6 +796,8 @@ private:
     std::string film_paper_;
     const QStringList slide_ids_{"fujifilm_provia_100f","fujifilm_velvia_100","kodak_ektachrome_100","kodak_kodachrome_64"};
     QJsonArray slide_results_;
+    QStringList exported_;
+    QElapsedTimer dialog_checks_;
     bool headroom_slides_=false;
     QImage capture_;
 };
@@ -868,7 +933,11 @@ int main(int argc,char** argv) {
     // Declared after the Localizer, so destroyed first: the controller outlives
     // both and may still produce a status line while it shuts down.
     struct ClearLookup{~ClearLookup(){spk::desktop::messages::lookup()=nullptr;}} clearLookup;
+    // The export page's recipes: export-recipes.json beside app-settings.json
+    // (<AppLocalData>, the --edit-store / test directory, or --settings-file's).
+    ExportRecipeStore exportRecipes(QFileInfo(appSettings.filePath()).absoluteDir().filePath(QStringLiteral("export-recipes.json")));
     QQmlApplicationEngine engine;engine.rootContext()->setContextProperty("preview",&controller);
+    engine.rootContext()->setContextProperty("exportRecipes",&exportRecipes);
     QObject::connect(&engine,&QQmlApplicationEngine::objectCreationFailed,&app,[]{QCoreApplication::exit(2);},Qt::QueuedConnection);
     engine.loadFromModule("SpektraLab","Main");
     if(engine.rootObjects().isEmpty())return 2;

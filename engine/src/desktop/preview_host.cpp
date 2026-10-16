@@ -752,4 +752,43 @@ void PreviewHost::export_tiff(const Frame& frame, const fs::path& destination) c
     require(written, "TIFF export: " + error);
 }
 
+spk_engine* PreviewHost::engine() const noexcept { return impl_->engine.get(); }
+
+FramePtr PreviewHost::render_digital_intermediate() {
+    const auto started = Clock::now();
+    require(bool(impl_->frame), "Open a RAW image before exporting its Digital Intermediate");
+    const FramePtr& current = impl_->frame;
+    if (!impl_->session) {
+        auto opened = open_session(impl_->engine.get(), impl_->decoded, current->settings, impl_->catalog,
+                                   impl_->options.output_color_space);
+        impl_->session = std::move(opened.session);
+        impl_->encoding = opened.encoding;
+    }
+    auto next = std::shared_ptr<Frame>(new Frame());
+    next->source = current->source;
+    next->decode_mode = current->decode_mode;
+    next->settings = current->settings;
+    next->scan_film = current->scan_film;
+    next->metadata = current->metadata;
+    next->decode_timings = current->decode_timings;
+    char* reply_text = nullptr;
+    const auto t = Clock::now();
+    const auto status = spk_render_digital_intermediate(impl_->session.get(), &next->result_, &reply_text);
+    const std::unique_ptr<char, decltype(&spk_string_free)> reply_owner(reply_text, &spk_string_free);
+    require(status == SPK_OK, "Digital Intermediate: " + std::string(spk_last_error(impl_->engine.get())));
+    next->timings.render_ms = elapsed(t);
+    next->timings.engine_render_ms = next->result_.elapsed_ms;
+    std::string primaries = impl_->encoding.color_space;
+    if (reply_text) {
+        Json reply;
+        std::string error;
+        if (Json::parse(reply_text, reply, error) && reply.is_object() && reply.has("primaries") &&
+            reply.at("primaries").is_string())
+            primaries = reply.at("primaries").as_string();
+    }
+    next->encoding = {"Cineon log/" + primaries, true};
+    next->timings.total_ms = elapsed(started);
+    return next;
+}
+
 }  // namespace spk::desktop
