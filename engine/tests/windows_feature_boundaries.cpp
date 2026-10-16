@@ -110,8 +110,8 @@ int main(int argc, char** argv) {
         {
             const std::string undated = params(session.get());
             const char* on = "{\"date_imprint_active\":true,\"date_imprint_text\":\"'26 10 16\"}";
-            require(spk_set_params(session.get(), on, nullptr) == SPK_OK,
-                    std::string("date imprint refused: ") + spk_last_error(engine.get()));
+            const spk_status accepted = spk_set_params(session.get(), on, nullptr);
+            require(accepted == SPK_OK, std::string("date imprint refused: ") + spk_last_error(engine.get()));
             render(engine.get(), session.get());
             const std::string dated = params(session.get());
             const spk_status status = spk_set_params(session.get(), "{\"overscan_active\":true}", nullptr);

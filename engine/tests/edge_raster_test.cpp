@@ -44,6 +44,14 @@ void require(bool ok, const std::string& what) {
     ++checks;
 }
 
+// For a call that reports through error: taken by reference, so it is read
+// after the call has run (a message built in the argument list may be built
+// before it -- the order of evaluation is unspecified).
+void require_call(bool ok, const std::string& what, const std::string& error) {
+    if (!ok) throw std::runtime_error(what + ": " + error);
+    ++checks;
+}
+
 struct P2 { double x, y; };
 using Poly = std::vector<P2>;
 
@@ -367,8 +375,8 @@ void check_text(const std::string& fonts) {
     imprint::set_font_directory(fonts);
     edge_raster::Font bold, regular;
     std::string error;
-    require(bold.load(fonts + "/texgyreheros-bold.otf", error), "bold face: " + error);
-    require(regular.load(fonts + "/texgyreheros-regular.otf", error), "regular face: " + error);
+    require_call(bold.load(fonts + "/texgyreheros-bold.otf", error), "bold face", error);
+    require_call(regular.load(fonts + "/texgyreheros-regular.otf", error), "regular face", error);
     require(bold.units_per_em() == 1000 && bold.cap_height() == 729, "TeX Gyre Heros: 1000 units, caps 729");
 
     // Kodak 120 (overscan.cpp): "KODAK" in Helvetica Neue Bold scaled x1.3,
@@ -415,7 +423,7 @@ void check_text(const std::string& fonts) {
     std::vector<float> cov;
     int x0, y0, w, h;
     error.clear();
-    require(imprint::rasterise(L, g, cov, x0, y0, w, h, error) && error.empty(), "Kodak line rasterises: " + error);
+    require_call(imprint::rasterise(L, g, cov, x0, y0, w, h, error) && error.empty(), "Kodak line rasterises", error);
     dump("kodak_120_name", cov, w, h);
     auto cv =[&](int x, int y) { return cov[size_t(y - y0) * size_t(w) + size_t(x - x0)]; };
     int left = 1 << 30, right = -1;
@@ -475,7 +483,7 @@ void check_text(const std::string& fonts) {
     n.text = "24"; n.hscale = 1.25; n.scale_advances = false; n.tracking_mm = 0.25; n.size_mm = 1.22 / kCap;
     nums.ops.push_back(n);
     nums.blur_mm = 0.022;
-    require(imprint::rasterise(L, nums, cov, x0, y0, w, h, error) && error.empty(), "Kodak 135 numbers rasterise: " + error);
+    require_call(imprint::rasterise(L, nums, cov, x0, y0, w, h, error) && error.empty(), "Kodak 135 numbers rasterise", error);
     dump("kodak_135_numbers", cov, w, h);
     imprint::Group upright, turned;
     imprint::Op tail = op;
@@ -485,9 +493,9 @@ void check_text(const std::string& fonts) {
     tail.rot_deg = 90.0; tail.s = 5.0; tail.t = 0.2;
     turned.ops.push_back(tail);
     double ink_up = 0.0, ink_turned = 0.0;
-    require(imprint::rasterise(L, upright, cov, x0, y0, w, h, error), "regular face rasterises: " + error);
+    require_call(imprint::rasterise(L, upright, cov, x0, y0, w, h, error), "regular face rasterises", error);
     for (float v : cov) ink_up += v;
-    require(imprint::rasterise(L, turned, cov, x0, y0, w, h, error), "turned line rasterises: " + error);
+    require_call(imprint::rasterise(L, turned, cov, x0, y0, w, h, error), "turned line rasterises", error);
     for (float v : cov) ink_turned += v;
     dump("c200_tail_turned", cov, w, h);
     require(std::fabs(ink_turned / ink_up - 1.0) < 0.003, "a quarter turn changed the ink");
@@ -508,7 +516,7 @@ void check_text(const std::string& fonts) {
     seg.kind = imprint::Op::Poly; seg.pts = {4.0, 0.5, 4.6, 0.5, 4.62, 0.65, 4.02, 0.65};
     shapes.ops.push_back(seg);
     error.clear();
-    require(imprint::rasterise(L, shapes, cov, x0, y0, w, h, error) && error.empty(), "shapes need no font: " + error);
+    require_call(imprint::rasterise(L, shapes, cov, x0, y0, w, h, error) && error.empty(), "shapes need no font", error);
     imprint::Op odd = op;
     odd.font = "Futura";
     imprint::Group futura;
@@ -549,7 +557,7 @@ void time_band() {
     int x0, y0, w, h;
     std::string error;
     const auto t0 = std::chrono::steady_clock::now();
-    require(imprint::rasterise(L, g, cov, x0, y0, w, h, error), "edge band: " + error);
+    require_call(imprint::rasterise(L, g, cov, x0, y0, w, h, error), "edge band", error);
     const double total = std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - t0).count();
     std::vector<float> again(cov.size(), 0.5f);
     const auto t1 = std::chrono::steady_clock::now();

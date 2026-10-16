@@ -215,8 +215,9 @@ int main(int argc, char** argv) {
         // Switching the date on and off through set_params, as the app does.
         {
             const std::string on = "{" + std::string(date + 1) + ",\"date_imprint_style\":\"lcd\"}";
-            require(spk_set_params(base_land.get(), on.c_str(), nullptr) == SPK_OK,
-                    std::string("set_params refused the date: ") + spk_last_error(engine.get()));
+            // The status first: the message's spk_last_error must follow the call.
+            const spk_status st = spk_set_params(base_land.get(), on.c_str(), nullptr);
+            require(st == SPK_OK, std::string("set_params refused the date: ") + spk_last_error(engine.get()));
             require(render(base_land.get(), engine.get(), 1080, 720) == lcd_br, "the date via set_params renders differently");
             require(spk_set_params(base_land.get(), "{\"date_imprint_active\":false}", nullptr) == SPK_OK,
                     "could not switch the date off");
