@@ -36,7 +36,10 @@ struct ScratchDirectory {
 };
 
 void check_rejected(const std::filesystem::path& path, const char* label) {
-    for(auto decode : {&spk::io::decode_raw_compatible, &spk::io::decode_raw_headroom}) {
+    // decode_raw_compatible is overloaded; name the signature so the braced
+    // list has one element type (MSVC does not resolve the overload set here).
+    using Decode = bool (*)(const std::filesystem::path&, spk::io::DecodedRaw&, std::string&);
+    for(Decode decode : {static_cast<Decode>(&spk::io::decode_raw_compatible), static_cast<Decode>(&spk::io::decode_raw_headroom)}) {
     spk::io::DecodedRaw prior;
     prior.width = 7;
     prior.height = 11;

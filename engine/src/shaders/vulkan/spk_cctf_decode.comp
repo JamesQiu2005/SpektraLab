@@ -27,12 +27,15 @@ float decode(float value, uint mode) {
         case 2u: return value < 0.0 ? uintBitsToFloat(0x7fc00000u)
                                   : pow(value, 563.0 / 256.0);
         case 3u: {
-            // Keep alpha/beta as float operations. glslang otherwise folds
-            // const expressions in its wider parser precision, which shifts
-            // this breakpoint by several float ULPs and selects the wrong
-            // side of BT.709's small discontinuity next to the join.
-            float alpha = 1.099, beta = 0.018;
-            float breakpoint = alpha * pow(beta, 0.45) - (alpha - 1.0);
+            // The breakpoint is float(1.099f * powf(0.018f, 0.45f) - 0.099f)
+            // with a correctly rounded powf, as the host and Metal's precise
+            // pow give it. It is a bit pattern rather than an expression:
+            // glslang folds const expressions in its wider parser precision,
+            // and GLSL's pow is only accurate to a few ULP (an RTX 3070 lands
+            // one ULP high), and either selects the wrong side of BT.709's
+            // small discontinuity next to the join.
+            float alpha = 1.099;
+            float breakpoint = uintBitsToFloat(0x3da66554u);  // 0.0812479556
             return breakpoint > value ? value / 4.5
                       : signed_power((value + (alpha - 1.0)) / alpha, 1.0 / 0.45);
         }

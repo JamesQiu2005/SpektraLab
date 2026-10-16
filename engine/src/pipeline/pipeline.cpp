@@ -4,6 +4,7 @@
 #include "windows_unported.hpp"
 #endif
 
+#include <algorithm>
 #include <chrono>
 #include <cmath>
 #include <cstring>

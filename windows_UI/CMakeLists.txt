@@ -17,6 +17,11 @@ endif()
 if(NOT TARGET spk_desktop_host)
     message(FATAL_ERROR "Build the engine's spk_desktop_host before windows_UI")
 endif()
+if(MSVC)
+    # UTF-8 sources; see engine/CMakeLists.txt.
+    add_compile_options(/utf-8 /Zc:__cplusplus)
+    add_compile_definitions(NOMINMAX)
+endif()
 find_package(Qt6 6.8 REQUIRED COMPONENTS Core Gui Qml Quick QuickControls2)
 qt_standard_project_setup(REQUIRES 6.8)
 

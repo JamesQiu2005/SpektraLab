@@ -11,6 +11,15 @@
 #   SPEKTRALAB_LIBRAW_SOURCE    LibRaw 0.22.2 source tree (RAW decode)
 # The Vulkan loader is never linked: engine/third_party/volk opens it at run
 # time. glslangValidator compiles the kernels to SPIR-V at build time.
+
+# The sources are UTF-8 (comments carry µm, ×, §). Without /utf-8 MSVC reads
+# them in the system code page, and on a CJK locale (936) a multibyte sequence
+# at the end of a // comment can swallow the line after it.
+if(MSVC)
+    add_compile_options(/utf-8 /Zc:__cplusplus)
+    add_compile_definitions(NOMINMAX _USE_MATH_DEFINES _CRT_SECURE_NO_WARNINGS)
+endif()
+
 add_library(spektralab_core STATIC
     src/core/blob.cpp
     src/core/cam16.cpp
