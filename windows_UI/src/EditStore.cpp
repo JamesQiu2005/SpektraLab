@@ -208,15 +208,29 @@ QJsonObject stateJson(const State& state) {
             {"crop", QJsonObject{{"x", g.crop.x()}, {"y", g.crop.y()},
                                   {"width", g.crop.width()}, {"height", g.crop.height()}}},
             {"quarterTurns", g.quarterTurns}, {"flipHorizontal", g.flipHorizontal},
-            {"flipVertical", g.flipVertical}, {"straightenDegrees", g.straightenDegrees}}}};
+            {"flipVertical", g.flipVertical}, {"straightenDegrees", g.straightenDegrees}}},
+        {"postDev", postdev::toJson(state.postDev)}};
 }
 // `unknown` collects version-2 fields this build does not know; a caller
 // that does not need them may pass nullptr. Version 1 has none to collect.
 State parseState(const QJsonObject& value, int version, const Catalog* catalog, QStringList* unknown) {
     QStringList ignored;
     QStringList* extra = version == 1 ? nullptr : unknown ? unknown : &ignored;
-    keys(value, {"settings", "decodeMode", "geometry"}, QStringLiteral("state"), extra);
+    // postDev is optional, so it is not among the required keys; it is known
+    // all the same, never reported as a newer build's field.
+    QStringList stateExtra;
+    keys(value, {"settings", "decodeMode", "geometry"}, QStringLiteral("state"), extra ? &stateExtra : nullptr);
+    stateExtra.removeAll(QStringLiteral("state.postDev"));
+    if (extra) *extra += stateExtra;
+    require(version != 1 || !value.contains(QStringLiteral("postDev")),
+            QStringLiteral("Saved edits contain missing or unsupported fields in state"));
     State state;
+    if (value.contains(QStringLiteral("postDev"))) {
+        const auto grade = value.value(QStringLiteral("postDev"));
+        require(grade.isObject(), QStringLiteral("Saved edit field must be an object: postDev"));
+        // Strict like the rest: a wrong type or range refuses the record.
+        state.postDev = postdev::fromJson(grade.toObject(), extra, QStringLiteral("state.postDev"));
+    }
     state.settings = parseSettings(object(value, "settings"), version, catalog, extra);
     const auto mode = string(value, "decodeMode");
     require(mode == "compatible16" || mode == "headroom",

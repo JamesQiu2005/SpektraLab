@@ -3,6 +3,7 @@
 // lanes touch different files; the members are declared in the header.
 #include "PreviewController.hpp"
 #include "FrameImage.hpp"
+#include "PostDevSurfaces.hpp"
 #include "RecipeExport.hpp"
 #include <QFileInfo>
 #include <QJsonObject>
@@ -64,8 +65,10 @@ void PreviewController::exportWithRecipe(const QVariantMap& json) {
                 job.name.filmStock=text(item.settings.film_stock);
                 job.name.printStock=text(item.settings.print_stock);
                 job.name.date=today;
-                // job.grade: the Post-Dev hook (RecipeExport.hpp) -- unset
-                // until Post-Dev is wired into the editor.
+                // Post-Dev on the uncropped frame before geometry (the Mac's
+                // Exporter.filePixels); empty for an ungraded photograph, and
+                // never applied to a DI (RecipeExport.cpp framed()).
+                job.grade=desktop::postdev::exportGrade(item.postdev);
                 const auto outcome=exporting::run(job,frame,host.engine());
                 if(outcome.kind==exporting::Outcome::skipped) {
                     ++skipped;
@@ -106,13 +109,19 @@ void PreviewController::requestExportProof(const QVariantMap& json) {
     const auto recipe=recipes::Recipe::fromJson(QJsonObject::fromVariantMap(json));
     const auto frame=frame_;const auto navigator=navigator_;
     const auto gen=++proof_generation_;
-    Job job=[this,gen,recipe,frame,navigator](desktop::PreviewHost& host){
+    // The proof is the file: graded as the export grades (the navigator is
+    // the cropped frame, so each pixel is graded at its source position).
+    const auto grade=desktop::postdev::gradeFor(postdev_,navigator.colorSpace());
+    const auto map=desktop::postdev::sourceMap(QSize(int(frame->width()),int(frame->height())),geometry_);
+    Job job=[this,gen,recipe,frame,navigator,grade,map](desktop::PreviewHost& host){
         Reply r;r.generation=gen;r.operation="proof";
         // A later request has already replaced this one: skip the work.
         if(proof_generation_.load()!=gen)return r;
         try {
             const bool di=recipe.format==recipes::Format::di;
-            const QImage rgba64=navigator.convertToFormat(QImage::Format_RGBA64);
+            QImage graded=navigator;
+            if(grade&&!di)desktop::postdev::gradeImage(graded,*grade,map);
+            const QImage rgba64=graded.convertToFormat(QImage::Format_RGBA64);
             QVariantMap info{{"digitalIntermediate",di}};
             if(di) {
                 // The DI holds Cineon codes, not colours; the page shows the

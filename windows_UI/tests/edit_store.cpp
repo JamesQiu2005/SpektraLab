@@ -63,6 +63,8 @@ QJsonObject toVersion1(QJsonObject document) {
             if (!version1Keys.contains(QString::fromStdString(field.key))) f.remove(QString::fromStdString(field.key));
         f["film_exposure_ev"] = f.take("exposure_compensation_ev");
     });
+    // Post-Dev came with version 2's state.postDev.
+    mutateObject(document, "state", [](auto& s) { s.remove("postDev"); });
     return document;
 }
 QByteArray bytesOf(const QJsonObject& document) { return QJsonDocument(document).toJson(); }
@@ -505,6 +507,104 @@ int main(int argc, char** argv) {
                 "store wrote edits beside the source image");
         check(QDir(root).entryList({"*.lock", "*.tmp"}, QDir::Files).isEmpty(),
               "store left lock or temporary files behind");
+
+        // --- Post-Dev: state.postDev (PostDev.hpp, the Mac's `adjustments`) ---
+        {
+            namespace postdev = spk::desktop::postdev;
+            const auto graded = QDir(sources).filePath("graded.ARW");
+            write(graded, "a graded photograph");
+            const auto gradedUrl = QUrl::fromLocalFile(graded);
+            editing::Store gradedStore(root);
+            check(!gradedStore.load(gradedUrl, catalog).state, "graded source had prior state");
+            editing::State g = state;
+            g.postDev.enabled = false;
+            g.postDev.temperature = 35;
+            g.postDev.exposure = -0.75;
+            g.postDev.whitePoint = 12;
+            g.postDev.curves.rgb.points = {{0, 0}, {0.25, 0.2}, {0.75, 0.85}, {1, 1}};
+            g.postDev.curves.blue.points = {{0, 0.05}, {1, 0.95}};
+            g.postDev.colorBalance.shadows = {200, 0.4, -0.25};
+            g.postDev.vignette = {-40, 30};
+            gradedStore.save(gradedUrl, g);
+            const auto gradedPath = gradedStore.filePath(gradedUrl);
+            const auto written = QJsonDocument::fromJson(read(gradedPath)).object();
+            const auto postDev = written["state"].toObject()["postDev"].toObject();
+            check(postDev["enabled"] == false && postDev["temperature"].toDouble() == 35 &&
+                      postDev["curves"].toObject()["rgb"].toObject()["points"].toArray().size() == 4 &&
+                      postDev["colorBalance"].toObject()["shadows"].toObject()["hue"].toDouble() == 200 &&
+                      postDev["vignette"].toObject()["midpoint"].toDouble() == 30,
+                  "state.postDev is written in the Mac's adjustments shape");
+            check(editing::Store(root).load(gradedUrl, catalog).state == std::optional(g),
+                  "Post-Dev round-trips through the store, bypass included");
+
+            // A Mac sidecar's `adjustments` object, verbatim (Adjustments.swift
+            // Codable, CGPoint as [x, y]), with a key from a newer build.
+            const auto mac = QJsonDocument::fromJson(R"({
+                "enabled": true, "temperature": -12.5, "tint": 7, "exposure": 0.5,
+                "contrast": 10, "brightness": -5, "saturation": 15, "highlights": -30,
+                "shadows": 20, "blackPoint": 3, "whitePoint": 0,
+                "curves": {"rgb": {"points": [[0, 0], [0.5, 0.56], [1, 1]]},
+                           "luma": {"points": [[0, 0], [1, 1]]},
+                           "red": {"points": [[0, 0], [1, 1]]},
+                           "green": {"points": [[0, 0.02], [0.5, 0.5], [1, 1]]},
+                           "blue": {"points": [[0, 0], [1, 1]]}},
+                "colorBalance": {"master": {"hue": 30, "saturation": 0.1, "luminance": 0},
+                                 "shadows": {"hue": 220, "saturation": 0.3, "luminance": -0.1},
+                                 "midtones": {"hue": 0, "saturation": 0, "luminance": 0},
+                                 "highlights": {"hue": 45, "saturation": 0.2, "luminance": 0.05}},
+                "vignette": {"amount": -25, "midpoint": 50},
+                "grain": {"amount": 1}})").object();
+            check(!mac.isEmpty(), "the Mac literal parses");
+            auto document = written;
+            mutateObject(document, "state", [&](auto& s) { s["postDev"] = mac; });
+            write(gradedPath, bytesOf(document));
+            editing::Store macStore(root);
+            const auto macResult = macStore.load(gradedUrl, catalog);
+            check(macResult.state && !macResult.blocked && macResult.preserved == QStringList{"state.postDev.grain"},
+                  "a Mac sidecar's adjustments load, its unknown key reported for preservation");
+            const auto& p = macResult.state->postDev;
+            check(p.enabled && p.temperature == -12.5 && p.tint == 7 && p.exposure == 0.5 && p.contrast == 10 &&
+                      p.brightness == -5 && p.saturation == 15 && p.highlights == -30 && p.shadows == 20 &&
+                      p.blackPoint == 3 && p.curves.rgb.points.size() == 3 && p.curves.rgb.points[1].y == 0.56 &&
+                      p.curves.green.points[0].y == 0.02 && p.colorBalance.shadows.hue == 220 &&
+                      p.colorBalance.highlights.luminance == 0.05 && p.vignette.amount == -25,
+                  "every Mac adjustments field reads verbatim");
+            auto next = *macResult.state;
+            next.postDev.tint = -3;
+            macStore.save(gradedUrl, next);
+            const auto kept = QJsonDocument::fromJson(read(gradedPath)).object()["state"].toObject()["postDev"].toObject();
+            check(kept["grain"].toObject()["amount"].toDouble() == 1 && kept["tint"].toDouble() == -3,
+                  "a newer build's Post-Dev key survives the next save");
+
+            // Older records and strictness.
+            auto withoutPostDev = written;
+            mutateObject(withoutPostDev, "state", [](auto& s) { s.remove("postDev"); });
+            write(gradedPath, bytesOf(withoutPostDev));
+            const auto plain = editing::Store(root).load(gradedUrl, catalog);
+            check(plain.state && plain.state->postDev == postdev::Params{} && plain.preserved.isEmpty(),
+                  "a record without postDev is the pure print");
+            for (const auto& [label, change] : std::initializer_list<std::pair<const char*, std::function<void(QJsonObject&)>>>{
+                     {"out of range", [](QJsonObject& o) { o["exposure"] = 3.5; }},
+                     {"wrong type", [](QJsonObject& o) { o["enabled"] = 1; }},
+                     {"unsorted curve", [](QJsonObject& o) {
+                          o["curves"] = QJsonObject{{"rgb", QJsonObject{{"points", QJsonArray{QJsonArray{0, 0}, QJsonArray{0.6, 0.5},
+                                                                                             QJsonArray{0.4, 0.4}, QJsonArray{1, 1}}}}}};
+                      }}}) {
+                auto bad = written;
+                mutateObject(bad, "state", [&](auto& s) { mutateObject(s, "postDev", change); });
+                write(gradedPath, bytesOf(bad));
+                const auto refused = editing::Store(root).load(gradedUrl, catalog);
+                check(!refused.state && refused.blocked, (std::string("an invalid postDev is refused: ") + label).c_str());
+            }
+            auto version1 = toVersion1(written);
+            auto version1Graded = version1;
+            mutateObject(version1Graded, "state", [&](auto& s) { s["postDev"] = postDev; });
+            write(gradedPath, bytesOf(version1Graded));
+            check(!editing::Store(root).load(gradedUrl, catalog).state, "a version-1 record cannot carry postDev");
+            write(gradedPath, bytesOf(version1));
+            const auto old = editing::Store(root).load(gradedUrl, catalog);
+            check(old.state && old.state->postDev == postdev::Params{}, "a version-1 record loads ungraded");
+        }
 
         std::printf("Edit store: %d checks passed; explicit temporary files only.\n", checks);
         return 0;

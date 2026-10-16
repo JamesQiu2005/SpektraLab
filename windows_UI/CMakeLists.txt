@@ -330,13 +330,27 @@ endif()
 
 # Post-Dev in the application (lane ui-postdev-integration): the canvas
 # grades in its fragment shader (shaders/colorcanvas.frag includes
-# postdev.glsl) and its software path.
+# postdev.glsl) and its software path, the edit store keeps `state.postDev`,
+# every export grades the uncropped frame before geometry, and the right
+# rail's Post-Dev side edits it (PreviewControllerPostDev.cpp, qml/right/
+# PostDev*.qml). The model and canvas half needs no engine; the controller
+# half rides with PreviewController.cpp in every target that builds it.
 set(spektralab_postdev_core_sources src/PostDev.hpp src/PostDev.cpp src/PostDevView.hpp src/PostDevView.cpp)
-target_sources(SpektraLabQt PRIVATE ${spektralab_postdev_core_sources})
+set(spektralab_postdev_controller_sources ${spektralab_postdev_core_sources}
+    src/PostDevSurfaces.hpp src/PostDevSurfaces.cpp src/PreviewControllerPostDev.cpp)
+target_sources(SpektraLabQt PRIVATE ${spektralab_postdev_controller_sources})
 if(BUILD_TESTING)
+    foreach(target spk_qt_library_workflow_test spk_qt_controller_settings_test spk_qt_editing_workflow_test
+                   spk_qt_export_workflow_test spk_qt_predev_test)
+        target_sources(${target} PRIVATE ${spektralab_postdev_controller_sources})
+    endforeach()
+    # The store parses `state.postDev`; the canvas test grades on WARP and on
+    # the CPU; the recipe test grades an export through Job::grade.
+    target_sources(spk_qt_edit_store_test PRIVATE src/PostDev.cpp)
     target_sources(spk_qt_color_canvas_test PRIVATE ${spektralab_postdev_core_sources})
+    target_sources(spk_qt_recipe_export_test PRIVATE ${spektralab_postdev_core_sources}
+        src/PostDevSurfaces.hpp src/PostDevSurfaces.cpp)
 endif()
-
 # --- The application shell (lane ui-app-shell) ---
 # The Settings and About windows, the application menu and the preferences
 # file (src/AppSettings.*, src/AppShell.*, qml/shell/). The version is the

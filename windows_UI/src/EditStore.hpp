@@ -1,6 +1,7 @@
 #pragma once
 
 #include "FrameOutput.hpp"
+#include "PostDev.hpp"
 #include <QHash>
 #include <QString>
 #include <QStringList>
@@ -15,7 +16,12 @@
 //     "state": { "settings": { <wire name>: value, ... },
 //                "decodeMode": "compatible16" | "headroom",
 //                "geometry": { "crop": {x, y, width, height}, "quarterTurns",
-//                              "flipHorizontal", "flipVertical", "straightenDegrees" } } }
+//                              "flipHorizontal", "flipVertical", "straightenDegrees" },
+//                "postDev": { <the Mac sidecar's `adjustments`: PostDev.hpp> } } }
+// `postDev` (Post-Dev, Layer 2) is optional: a record without it -- every
+// record from before it, version 1 included -- is the pure print (Params{}).
+// Its keys are optional and strict as PostDev.hpp says; a key this build
+// does not know is a newer build's, reported in `preserved` and kept.
 // Settings are keyed by the desktop settings table (preview_host.hpp) and
 // validated against its type, range and choices. Version 1's thirteen keys
 // are required; a row added since is optional and, when absent, takes the
@@ -31,6 +37,7 @@ struct State {
     RenderSettings settings;
     DecodeMode mode = DecodeMode::compatible16;
     output::Geometry geometry;
+    postdev::Params postDev;
     bool operator==(const State&) const = default;
 };
 

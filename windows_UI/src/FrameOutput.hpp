@@ -4,6 +4,7 @@
 #include <QImage>
 #include <QRectF>
 #include <filesystem>
+#include <functional>
 
 // Geometry belongs after the engine. Every output surface uses these same
 // pixel edges; cropping never changes the emulsion or re-renders its grain.
@@ -75,5 +76,13 @@ void exportFrame(const FramePtr& frame, const std::filesystem::path& destination
 void exportFrame(const FramePtr& frame, const std::filesystem::path& destination,
                  const Geometry& geometry, const ExportOptions& options,
                  const std::filesystem::path& resources);
+// The same with Post-Dev (postdev::exportGrade): `grade` runs on a private
+// copy of the uncropped RGBA64 frame, in the frame's encoding, before the
+// geometry -- the order of RecipeExport and the Mac's Exporter.filePixels.
+// An empty `grade` is the overload above, byte for byte.
+void exportFrame(const FramePtr& frame, const std::filesystem::path& destination,
+                 const Geometry& geometry, const ExportOptions& options,
+                 const std::filesystem::path& resources,
+                 const std::function<void(QImage&, const OutputEncoding&)>& grade);
 
 } // namespace spk::desktop::output

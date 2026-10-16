@@ -12,6 +12,7 @@
 #include "ExportRecipe.hpp"
 #include "FrameImage.hpp"
 #include "FrameOutput.hpp"
+#include "PostDevSurfaces.hpp"
 #include "RecipeExport.hpp"
 #include "output.hpp"
 #include "image_io.hpp"
@@ -621,6 +622,91 @@ int main(int argc, char** argv) {
         } else {
             std::printf("RAW EXIF checks not run: pass a RAW as the third argument\n");
         }
+        // ---------------- Post-Dev: the export hook and the surfaces' source map ----------------
+        // The hook grades the uncropped frame (Grade::apply) and an identity
+        // grade is no hook at all. Every surface grades the displayed (cropped,
+        // turned, flipped, straightened) picture at its place on the source
+        // (postdev::sourceMap): for a geometry that resamples nothing that is
+        // the export's "grade, then geometry" to within one 16-bit code (the
+        // two paths compute the vignette's u, v in float by different
+        // routes), and the map lands every displayed pixel on the source pixel
+        // geometry copied into it.
+        {
+            namespace postdev = spk::desktop::postdev;
+            postdev::Params params;
+            params.temperature = 25; params.exposure = 0.4; params.contrast = 15; params.highlights = -20;
+            params.shadows = 30; params.saturation = -15; params.curves.rgb.points = {{0, 0}, {0.4, 0.33}, {1, 1}};
+            params.colorBalance.highlights = {50, 0.35, 0.1}; params.vignette = {-60, 20};
+            check(!postdev::exportGrade(postdev::Params{}), "an identity grade is no export hook");
+            postdev::Params bypassed = params; bypassed.enabled = false;
+            check(!postdev::exportGrade(bypassed), "a bypassed grade is no export hook");
+            const auto hook = postdev::exportGrade(params);
+            check(bool(hook), "a grade is an export hook");
+            const QImage frame = busyFrame(240, 160);
+            QImage hooked = frame.copy();
+            hook(hooked, spk::desktop::OutputEncoding{"sRGB", true});
+            QImage applied = frame.copy();
+            postdev::Grade(params, postdev::srgbMidGrey).apply(applied);
+            check(hooked == applied && hooked != frame, "the hook is Grade::apply at sRGB's mid-grey");
+            QImage proPhoto = frame.copy();
+            hook(proPhoto, spk::desktop::OutputEncoding{"ProPhoto RGB", true});
+            QImage proPhotoApplied = frame.copy();
+            postdev::Grade(params, postdev::proPhotoMidGrey).apply(proPhotoApplied);
+            check(proPhoto == proPhotoApplied && proPhoto != hooked, "a ProPhoto frame grades about ProPhoto's mid-grey");
+            bool refused = false;
+            try { QImage linear = frame.copy(); hook(linear, spk::desktop::OutputEncoding{"sRGB", false}); }
+            catch(const std::exception&) { refused = true; }
+            check(refused, "a linear frame is never graded");
+
+            int worstCode = 0;
+            for(const output::Geometry g : {output::Geometry{QRectF(0.1, 0.2, 0.7, 0.5), 0, false, false, 0},
+                                            output::Geometry{QRectF(0.05, 0.1, 0.6, 0.85), 1, true, false, 0},
+                                            output::Geometry{QRectF(0.2, 0.0, 0.8, 1.0), 3, false, true, 0},
+                                            output::Geometry{QRectF(0, 0, 1, 1), 2, true, true, 0}}) {
+                const auto map = postdev::sourceMap(frame.size(), g);
+                // Grade, then geometry: the export's order.
+                const QImage exported = output::exportImage(applied, g, {});
+                // Geometry, then each pixel graded at its source position.
+                QImage shown = output::exportImage(frame, g, {});
+                postdev::gradeImage(shown, postdev::Grade(params, postdev::srgbMidGrey), map);
+                check(shown.size() == exported.size(), "same picture size");
+                for(int y = 0; y < shown.height(); ++y) {
+                    const auto* a = reinterpret_cast<const std::uint16_t*>(shown.constScanLine(y));
+                    const auto* b = reinterpret_cast<const std::uint16_t*>(exported.constScanLine(y));
+                    for(int i = 0; i < shown.width() * 4; ++i) worstCode = std::max(worstCode, std::abs(int(a[i]) - int(b[i])));
+                }
+                // Where the map says each displayed pixel came from, against
+                // the pixel geometry actually copied there (busyFrame's red
+                // and green are x and y).
+                const QImage moved = output::exportImage(frame, g, {});
+                for(int y = 0; y < moved.height(); y += 7)
+                    for(int x = 0; x < moved.width(); x += 5) {
+                        const auto* p = reinterpret_cast<const std::uint16_t*>(moved.constScanLine(y)) + 4 * x;
+                        const double sx = p[0] / 65535.0 * (frame.width() - 1), sy = p[1] / 65535.0 * (frame.height() - 1);
+                        const auto [u, v] = map((x + 0.5) / moved.width(), (y + 0.5) / moved.height());
+                        check(std::abs(u * frame.width() - 0.5 - sx) < 0.51 && std::abs(v * frame.height() - 0.5 - sy) < 0.51,
+                              QString("source map lands on the copied pixel (%1, %2)").arg(x).arg(y));
+                    }
+            }
+            report["postdev_shown_vs_exported_max_code"] = worstCode;
+            check(worstCode <= 1, QString("grading the shown picture agrees with grade-then-geometry: %1 codes").arg(worstCode));
+            // Straightened: the map follows FrameOutput's rotation about the
+            // crop's centre with its zoom (within the bilinear sample's pixel).
+            const output::Geometry tilted{QRectF(0.1, 0.1, 0.8, 0.8), 0, false, false, 7.5};
+            const auto map = postdev::sourceMap(frame.size(), tilted);
+            const QImage moved = output::exportImage(frame, tilted, {});
+            double worstPixel = 0;
+            for(int y = 4; y < moved.height() - 4; y += 9)
+                for(int x = 4; x < moved.width() - 4; x += 9) {
+                    const auto* p = reinterpret_cast<const std::uint16_t*>(moved.constScanLine(y)) + 4 * x;
+                    const double sx = p[0] / 65535.0 * (frame.width() - 1), sy = p[1] / 65535.0 * (frame.height() - 1);
+                    const auto [u, v] = map((x + 0.5) / moved.width(), (y + 0.5) / moved.height());
+                    worstPixel = std::max({worstPixel, std::abs(u * frame.width() - 0.5 - sx), std::abs(v * frame.height() - 0.5 - sy)});
+                }
+            report["postdev_straighten_map_max_px"] = worstPixel;
+            check(worstPixel < 0.05, QString("the straightened map follows the rotation: %1 px").arg(worstPixel));
+        }
+
         spk_engine_destroy(engine);
         report["checks"] = checks;
         report["passed"] = true;
