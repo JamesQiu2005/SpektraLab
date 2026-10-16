@@ -339,6 +339,23 @@ if(BUILD_TESTING)
             "${CMAKE_CURRENT_SOURCE_DIR}/shaders/postdev_probe.frag")
     endif()
 endif()
+# --- Half-frame pairs (lane ui-pairs) ---
+# The pair's model and its own record in the edit store's directory
+# (src/HalfFramePair.*).
+if(BUILD_TESTING)
+    # The pair's model without an engine, a GPU or a RAW: the record's round
+    # trip and its unknown fields, where each edit of the rails lands (the
+    # picked frame, + Film, the film), what the engine is handed, undo states.
+    qt_add_executable(spk_qt_pairs_test tests/pairs.cpp src/HalfFramePair.cpp src/EditStore.cpp)
+    target_include_directories(spk_qt_pairs_test PRIVATE src)
+    target_compile_features(spk_qt_pairs_test PRIVATE cxx_std_20)
+    target_link_libraries(spk_qt_pairs_test PRIVATE spk_desktop_host Qt6::Core Qt6::Gui)
+    add_test(NAME spk_qt_pairs COMMAND spk_qt_pairs_test "${CMAKE_CURRENT_BINARY_DIR}/pairs-test")
+    if(WIN32)
+        set_tests_properties(spk_qt_pairs PROPERTIES ENVIRONMENT_MODIFICATION "${qt_test_runtime_path}")
+    endif()
+endif()
+
 # --- The application shell (lane ui-app-shell) ---
 # The Settings and About windows, the application menu and the preferences
 # file (src/AppSettings.*, src/AppShell.*, qml/shell/). The version is the
