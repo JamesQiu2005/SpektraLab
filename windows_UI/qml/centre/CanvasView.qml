@@ -138,6 +138,29 @@ Item {
             onPositionChanged: function(mouse) { if (pressed) track(mouse) }
         }
     }
+    // The neutral picker (EditorState.pickingNeutral; MetalCanvasView's
+    // crosshair and `picked(normalised:)`): over everything else while armed,
+    // a cross on the canvas, and a click on the picture hands the point,
+    // normalised to the picture as shown, to the controller. A click off the
+    // picture leaves it armed, as the Mac's does; Esc disarms.
+    MouseArea {
+        objectName: "neutralPicker"
+        anchors.fill: parent
+        visible: view.editor.pickingNeutral && !view.editor.cropMode
+        hoverEnabled: true
+        cursorShape: Qt.CrossCursor
+        onClicked: function(mouse) {
+            var r = view.picture
+            if (r.width <= 0 || r.height <= 0) return
+            var nx = (mouse.x - r.x) / r.width, ny = (mouse.y - r.y) / r.height
+            if (nx >= 0 && nx <= 1 && ny >= 0 && ny <= 1) view.editor.pickNeutralAt(nx, ny)
+        }
+    }
+    Shortcut {
+        sequence: "Escape"
+        enabled: view.editor.pickingNeutral && !view.editor.cropMode
+        onActivated: view.editor.togglePickNeutral()
+    }
     Column {
         anchors.centerIn: parent
         spacing: 10

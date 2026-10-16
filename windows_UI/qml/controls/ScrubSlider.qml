@@ -19,6 +19,12 @@ import QtQuick.Layouts
 //   format(v), parse(t)   override the display and the typed-text parser
 //   gradient              track colours left to right (the Mac's white
 //                         balance and filter tracks); empty: plain ground
+//   usable                [[from, to], ...] the part of the range the value can
+//                         rest on, when that is not all of it (Scene
+//                         Placement's pull-backs the Fit takes): drawn as a
+//                         band around the track, so where the knob can go is
+//                         visible before anyone drags (ScrubSlider.swift
+//                         `usable`). Empty: no band
 //   gestureKey            when set, every drag, scrub or wheel burst is one
 //                         undo step: preview.beginEditGesture(key) ...
 //                         preview.endEditGesture()
@@ -51,6 +57,7 @@ ParamRow {
     }
     property var parse: null
     property var gradient: []
+    property var usable: []
     property string gestureKey
     property bool live: true
     // A track drag, or a scrub / wheel burst on the value box.
@@ -100,6 +107,20 @@ ParamRow {
                     GradientStop { position: 0; color: slider.gradient.length > 0 ? slider.gradient[0] : Theme.ground }
                     GradientStop { position: 0.5; color: slider.gradient.length > 2 ? slider.gradient[1] : slider.gradient.length > 0 ? slider.gradient[0] : Theme.ground }
                     GradientStop { position: 1; color: slider.gradient.length > 0 ? slider.gradient[slider.gradient.length - 1] : Theme.ground }
+                }
+            }
+            // The usable band(s): a 5 px capsule in the dim ink at 35 %, at
+            // least 3 px wide so a single resting value still shows.
+            Repeater {
+                model: slider.usable
+                Rectangle {
+                    readonly property real lo: slider.fraction(Math.min(modelData[0], modelData[1]))
+                    readonly property real hi: slider.fraction(Math.max(modelData[0], modelData[1]))
+                    x: Theme.knobWidth / 2 + lo * track.usable
+                    width: Math.max((hi - lo) * track.usable, 3)
+                    height: 5; radius: 2.5
+                    anchors.verticalCenter: parent.verticalCenter
+                    color: Theme.dim; opacity: 0.35
                 }
             }
             // The default's tick, unless it is at an end or under the knob.

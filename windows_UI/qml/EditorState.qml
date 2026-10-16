@@ -180,4 +180,64 @@ QtObject {
     function cancelCrop() { cropMode = false; resetView(true) }
     function toggleCrop() { if (cropMode) finishCrop(); else startCrop() }
     function openExport() { if (canExport) exportOptionsRequested() }
+
+    // --- the Pre-Dev rail's tools (CameraSection.swift, TopBar.swift) ---
+    // The neutral picker (Session.wbPickerActive): the Camera section's menu
+    // arms it, the canvas shows a cross and its next click on the picture
+    // calls preview.pickNeutral with the point normalised to the picture as
+    // shown (CanvasView.qml); one pick and it disarms, as the Mac's does
+    // (Session.picked). Esc, the crop editor or another photo disarm it.
+    property bool pickingNeutral: false
+    readonly property bool canPickNeutral: preview.hasFrame && preview.whiteBalance.pickAvailable === true
+                                           && !preview.busy && !preview.batchExporting && !cropMode
+    onCanPickNeutralChanged: if (!canPickNeutral && pickingNeutral && !preview.busy) pickingNeutral = false
+    onCropModeChanged: if (cropMode) pickingNeutral = false
+    function togglePickNeutral() {
+        if (pickingNeutral) { pickingNeutral = false; actionNote = ""; return }
+        if (!canPickNeutral) return
+        pickingNeutral = true
+        setActionNote(L10n.tr("camera.pickNeutralHint"), false)
+    }
+    function pickNeutralAt(nx, ny) {
+        if (!pickingNeutral) return
+        pickingNeutral = false
+        if (nx < 0 || ny < 0 || nx > 1 || ny > 1) return
+        if (!preview.pickNeutral(nx, ny)) setActionNote(L10n.tr("camera.pickNeutralUnavailable"), true)
+        else actionNote = ""
+    }
+    // Process (TopBar.swift `action`, Session.solveNow).
+    readonly property bool canProcess: preview.canProcess && !preview.batchExporting && !cropMode
+    function process() {
+        if (!canProcess) return
+        actionNote = ""
+        preview.process()
+    }
+    // The outcome of the last of these, for the status footer: the photo it
+    // was about, so it goes away when another photo opens.
+    property string actionNote
+    property bool actionNoteWarning: false
+    property string actionNoteFile
+    function setActionNote(text, warning) {
+        actionNote = text; actionNoteWarning = warning; actionNoteFile = preview.fileName
+    }
+    readonly property Connections predevWatch: Connections {
+        target: preview
+        function onNeutralPicked(success, message) {
+            if (success) {
+                var wb = preview.whiteBalance
+                editorState.setActionNote(L10n.tr("camera.pickNeutralDone",
+                    [Math.round(Number(wb.temperature)), (Number(wb.tint) >= 0 ? "+" : "") + Number(wb.tint).toFixed(1)]), false)
+            } else {
+                editorState.setActionNote(L10n.tr("camera.pickNeutralFailed", [message]), true)
+            }
+        }
+        function onProcessed(success, message) {
+            if (!success) { editorState.setActionNote(L10n.tr("toolbar.processFailed", [message]), true); return }
+            var f = preview.metering.filters
+            editorState.setActionNote(f ? L10n.tr("toolbar.processed", [Number(f.c).toFixed(1), Number(f.m).toFixed(1), Number(f.y).toFixed(1)])
+                                        : L10n.tr("toolbar.processedPlain"), false)
+        }
+    }
+    readonly property int predevPhoto: preview.activeIndex
+    onPredevPhotoChanged: pickingNeutral = false
 }
