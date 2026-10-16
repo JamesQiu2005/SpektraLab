@@ -5,6 +5,16 @@
 // point) and the capabilities' `unsupported_features` list all read this one
 // table, so a feature cannot be refused while advertised or the reverse. A
 // port flips its row's `ported` in the same commit that lands the kernels.
+//
+// Every row is ported as of 2026-10-16 (Film Edge was the last), so nothing
+// is refused and capabilities report `unsupported_features: []` -- still
+// emitted, since hosts read it (`?? []`) and an absent key is not the same
+// promise. The table stays rather than being folded away, for two reasons:
+// upstream keeps adding effects after the port (all five rows arrived that
+// way), and the next one is refused by adding a row here, not by re-plumbing
+// four call sites; and a row flipped back to `false` is a clean per-feature
+// off switch if a port misbehaves on some device. spk_windows_feature_boundaries
+// asserts the list is empty and that each row's request renders.
 #pragma once
 #include "params.hpp"
 
@@ -27,7 +37,7 @@ inline constexpr WindowsFeatureRow kWindowsFeatures[] = {
     {WindowsFeature::ContrastMask, "contrast_mask",
      "contrast mask is not implemented by the Windows Vulkan backend yet", true},
     {WindowsFeature::Overscan, "overscan",
-     "overscan is not implemented by the Windows Vulkan backend yet", false},
+     "overscan is not implemented by the Windows Vulkan backend yet", true},
     {WindowsFeature::DateImprint, "date_imprint",
      "date imprint is not implemented by the Windows Vulkan backend yet", true},
 };
