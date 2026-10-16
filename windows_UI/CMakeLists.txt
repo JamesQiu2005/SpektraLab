@@ -22,18 +22,37 @@ if(MSVC)
     add_compile_options(/utf-8 /Zc:__cplusplus)
     add_compile_definitions(NOMINMAX)
 endif()
-find_package(Qt6 6.8 REQUIRED COMPONENTS Core Gui Qml Quick QuickControls2)
+find_package(Qt6 6.8 REQUIRED COMPONENTS Core Gui Qml Quick QuickControls2 ShaderTools)
+# rhi/qrhi.h: the canvas's frame and display-LUT textures (ColorCanvasNode.cpp).
+find_package(Qt6 6.8 REQUIRED COMPONENTS GuiPrivate)
 qt_standard_project_setup(REQUIRES 6.8)
+
+# The canvas material's shaders. The fragment shader is one source built per
+# variant (no lookup, 3D texture, 2D atlas, bare copy; see its header); GLSL
+# 300 es/330 because it uses integer arithmetic and sampler3D.
+function(spk_qt_add_canvas_shaders target)
+    qt_add_shaders(${target} "${target}_canvas_vertex" BATCHABLE PREFIX "/" GLSL "300es,330"
+        FILES shaders/colorcanvas.vert)
+    foreach(variant IN ITEMS "plain;0" "lut3d;1" "lut2d;2" "copy;3")
+        list(GET variant 0 name)
+        list(GET variant 1 mode)
+        qt_add_shaders(${target} "${target}_canvas_${name}" PREFIX "/" GLSL "300es,330"
+            DEFINES "LUT_MODE=${mode}" FILES shaders/colorcanvas.frag
+            OUTPUTS shaders/colorcanvas_${name}.frag.qsb)
+    endforeach()
+endfunction()
 
 qt_add_executable(SpektraLabQt WIN32
     src/main.cpp src/Messages.hpp src/PreviewController.hpp src/PreviewController.cpp
     src/FrameOutput.hpp src/FrameOutput.cpp
     src/EditStore.hpp src/EditStore.cpp
     src/FrameCanvas.hpp src/FrameCanvas.cpp
+    src/ColorCanvasNode.hpp src/ColorCanvasNode.cpp
     src/ColorPipeline.hpp src/ColorPipeline.cpp)
 target_compile_features(SpektraLabQt PRIVATE cxx_std_20)
 target_link_libraries(SpektraLabQt PRIVATE
-    spk_desktop_host Qt6::Core Qt6::Gui Qt6::Qml Qt6::Quick Qt6::QuickControls2)
+    spk_desktop_host Qt6::Core Qt6::Gui Qt6::GuiPrivate Qt6::Qml Qt6::Quick Qt6::QuickControls2)
+spk_qt_add_canvas_shaders(SpektraLabQt)
 set_source_files_properties(qml/Theme.qml PROPERTIES QT_QML_SINGLETON_TYPE TRUE)
 qt_add_qml_module(SpektraLabQt URI SpektraLab VERSION 1.0
     QML_FILES qml/Main.qml qml/Theme.qml qml/Section.qml qml/ActionButton.qml

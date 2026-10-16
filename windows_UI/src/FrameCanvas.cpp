@@ -1,13 +1,16 @@
 #include "FrameCanvas.hpp"
+#include "ColorCanvasNode.hpp"
+#include "ColorPipeline.hpp"
 #include <QMouseEvent>
 #include <QQuickWindow>
-#include <QSGSimpleTextureNode>
 #include <algorithm>
 #include <cmath>
 
-namespace {class ImageNode final:public QSGSimpleTextureNode {public:quint64 revision=0;};}
 FrameCanvas::FrameCanvas(QQuickItem* parent):QQuickItem(parent) {
     setFlag(ItemHasContents,true);setClip(true);setAcceptedMouseButtons(Qt::LeftButton);
+    // Constructed straight into a window: the base constructor's scene change
+    // did not reach itemChange() here.
+    if(window())attachPipeline(window());
 }
 void FrameCanvas::setImage(const QImage& image) {
     if(image.cacheKey()==image_.cacheKey())return;
@@ -44,23 +47,36 @@ void FrameCanvas::panBy(double x,double y) {
     if(fit_||image_.isNull())return;
     pan_+=QPointF(x,y);clampPan();update();emit viewChanged();
 }
+// The pipeline is created here, on the GUI thread, so that updatePaintNode
+// (render thread, GUI blocked) only reads it. changed() can come from the LUT
+// builder's thread; the automatic connection queues it to this item.
+void FrameCanvas::attachPipeline(QQuickWindow* window) {
+    QObject::disconnect(pipelineChanged_);
+    pipeline_=ColorPipeline::forWindow(window);
+    if(pipeline_)pipelineChanged_=connect(pipeline_,&ColorPipeline::changed,this,&QQuickItem::update);
+    update();
+}
 QSGNode* FrameCanvas::updatePaintNode(QSGNode* old,UpdatePaintNodeData*) {
-    auto* node=static_cast<ImageNode*>(old);
+    auto* node=static_cast<ColorCanvasNode*>(old);
     if(image_.isNull()||!window()){delete node;return nullptr;}
-    if(!node)node=new ImageNode;
-    if(node->revision!=revision_) {
-        auto* texture=window()->createTextureFromImage(image_);
-        if(!texture){delete node;return nullptr;}
-        node->setTexture(texture);node->setOwnsTexture(true);node->revision=revision_;
-    }
-    node->setFiltering(scale()>=1.0?QSGTexture::Nearest:QSGTexture::Linear);
-    node->setRect(imageRect());return node;
+    if(!node)node=new ColorCanvasNode;
+    static const auto identity=std::make_shared<const ColorLut>();
+    // An untagged image is sRGB, as it was when the canvas drew it unmanaged.
+    const auto space=image_.colorSpace().isValid()?image_.colorSpace():QColorSpace(QColorSpace::SRgb);
+    CanvasPaint paint;
+    paint.image=image_;paint.revision=revision_;
+    paint.lut=pipeline_?pipeline_->lut(space):nullptr;if(!paint.lut)paint.lut=identity;
+    paint.dither=pipeline_&&pipeline_->dither();
+    paint.rect=imageRect();paint.smooth=scale()<1.0;
+    if(!node->update(window(),paint)){delete node;return nullptr;}
+    return node;
 }
 void FrameCanvas::geometryChange(const QRectF& next,const QRectF& previous) {
     QQuickItem::geometryChange(next,previous);clampPan();update();emit viewChanged();
 }
 void FrameCanvas::itemChange(ItemChange change,const ItemChangeData& data) {
     QQuickItem::itemChange(change,data);
+    if(change==ItemSceneChange)attachPipeline(data.window);
     if(change==ItemDevicePixelRatioHasChanged){clampPan();update();emit viewChanged();}
 }
 void FrameCanvas::mousePressEvent(QMouseEvent* e) {
