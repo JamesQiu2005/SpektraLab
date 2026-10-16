@@ -10,12 +10,9 @@ layout(location = 0) out vec2 vTexCoord;
 layout(std140, binding = 0) uniform buf {
     mat4 qt_Matrix;
     float qt_Opacity;
-    float lutScale;
-    float lutOffset;
     float lutSize;
     float ditherAmplitude;
-    float curveScale;
-    float curveOffset;
+    float curveSize;
 };
 
 void main()

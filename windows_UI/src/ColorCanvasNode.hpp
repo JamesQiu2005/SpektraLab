@@ -83,9 +83,6 @@ namespace canvas_testing {
 // canvas's next paint (call update() on it).
 void setMaxTextureSize(int pixels);
 void setForceLutAtlas(bool force);
-// Tests only: store the 1-D curves as 32-bit floats instead of half floats,
-// for LUT keys not yet uploaded (the test measures both).
-void setCurvesFloat32(bool float32);
 // Tiles in the most recently built RHI node; 0 after a software paint.
 int lastTileCount();
 }

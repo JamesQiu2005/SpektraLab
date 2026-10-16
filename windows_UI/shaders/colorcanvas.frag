@@ -3,10 +3,9 @@
 // Built once per variant (windows_UI/CMakeLists.txt):
 //   LUT_MODE 0  no lookup (the identity LUT), with the dither a deep frame
 //               gets and the inherited opacity;
-//   LUT_MODE 1  the LUT as a 3D texture, filtered by the sampler;
-//   LUT_MODE 2  the LUT as a 2D atlas (N slices of N x N side by side along x)
-//               for an RHI without 3D textures: bilinear within a slice, the
-//               mix between the two nearest blue slices done here;
+//   LUT_MODE 1  the table as a 3D texture (N x N x N, blue the slice);
+//   LUT_MODE 2  the table as a 2D atlas (N slices of N x N side by side along
+//               x) for an RHI without 3D textures;
 //   LUT_MODE 3  a bare texture read: an 8-bit frame under the identity at full
 //               opacity, which must render exactly as Qt's texture node did.
 // CURVES 1 (with LUT_MODE 1 or 2) adds the contract's 1-D curves around the
@@ -20,12 +19,9 @@ layout(location = 0) out vec4 fragColor;
 layout(std140, binding = 0) uniform buf {
     mat4 qt_Matrix;
     float qt_Opacity;
-    float lutScale;        // (N - 1) / N
-    float lutOffset;       // 0.5 / N
-    float lutSize;         // N
+    float lutSize;         // N, table nodes per axis
     float ditherAmplitude; // 0, or one 8-bit output step (1/255)
-    float curveScale;      // (M - 1) / M, M = curve entries
-    float curveOffset;     // 0.5 / M
+    float curveSize;       // M, entries per curve
 };
 
 layout(binding = 1) uniform sampler2D frameTexture;
@@ -34,21 +30,8 @@ layout(binding = 2) uniform sampler3D lutTexture;
 #elif LUT_MODE == 2
 layout(binding = 2) uniform sampler2D lutTexture;
 #endif
-#if CURVES
-// M x 2: the shaper in row 0, the output curve in row 1, read at row centres.
-layout(binding = 3) uniform sampler2D curveTexture;
 
-// Each channel through its own curve, at texel centres like the table. The
-// sampler's filtering is fine here: with 4096 entries even an 8-bit weight
-// is within 1e-6 of the exact position.
-vec3 curve(vec3 x, float row)
-{
-    vec3 c = x * curveScale + curveOffset;
-    return vec3(texture(curveTexture, vec2(c.r, row)).r,
-                texture(curveTexture, vec2(c.g, row)).g,
-                texture(curveTexture, vec2(c.b, row)).b);
-}
-
+#if LUT_MODE == 1 || LUT_MODE == 2
 vec3 node(ivec3 i)
 {
 #if LUT_MODE == 1
@@ -58,12 +41,14 @@ vec3 node(ivec3 i)
 #endif
 }
 
-// With curves the table works on the shaper's output, linear light, where
-// the shadows fall inside the first cell. A sampler's filter weights carry
-// only the 8 fractional bits D3D11 promises, 1/256 of a cell: measured on
-// WARP, the gamma-2.2 round trip lost (2, 0, 10) to black. So the eight
-// nodes are fetched and interpolated in float.
-vec3 lookupExact(vec3 c)
+// The table, trilinear between its eight nodes around c in [0,1] (node i at
+// i / (N - 1)), with float weights. A sampler's filter weights carry only the
+// 8 fractional bits D3D11 promises, 1/256 of a cell. With curves the table
+// holds linear light, where that is a fixed amount of light that the output
+// curve magnifies near black: measured on WARP, hardware filtering turned the
+// gamma-2.2 round trip's (2, 0, 10) to black, and the colour core measured
+// 1.9 to 3.1 counts on this machine's display profile.
+vec3 lookup(vec3 c)
 {
     vec3 p = c * (lutSize - 1.0);
     vec3 cell = min(floor(p), vec3(lutSize - 2.0));
@@ -77,26 +62,29 @@ vec3 lookupExact(vec3 c)
 }
 #endif
 
-#if LUT_MODE == 1 || LUT_MODE == 2
-// Node i of the LUT sits at the centre of texel i: an input c in [0,1] is
-// addressed at c * (N - 1) / N + 0.5 / N, so 0 and 1 land on the first and
-// last nodes instead of half a texel outside them. It matters doubly for the
-// 3D texture: the scene graph's sampler repeats along the third axis, so
-// blue = 0 addressed at 0 would average the first and last slices (measured:
-// a channel swap turned black into 128 without the offset).
-vec3 lookup(vec3 c)
+#if CURVES
+// M x 2: the shaper in row 0, the output curve in row 1.
+layout(binding = 3) uniform sampler2D curveTexture;
+
+// One channel of a curve at x in [0,1] (entry i at i / (M - 1)), linear
+// between the two entries around it, with a float weight. The sampler could
+// filter the curves well enough (the colour core: 0.03 counts on 8-bit
+// weights), but these are 32-bit float textures, which a D3D11 device need
+// not be able to filter at all; fetching needs no filtering support.
+float curveChannel(float x, int row, int channel)
 {
-#if LUT_MODE == 1
-    return texture(lutTexture, c * lutScale + lutOffset).rgb;
-#else
-    float slice = c.b * (lutSize - 1.0);
-    float b0 = min(floor(slice), lutSize - 2.0);
-    float x = c.r * lutScale + lutOffset;
-    float y = c.g * lutScale + lutOffset;
-    vec3 near = texture(lutTexture, vec2((b0 + x) / lutSize, y)).rgb;
-    vec3 far = texture(lutTexture, vec2((b0 + 1.0 + x) / lutSize, y)).rgb;
-    return mix(near, far, slice - b0);
-#endif
+    float p = x * (curveSize - 1.0);
+    float entry = min(floor(p), curveSize - 2.0);
+    int i = int(entry);
+    float a = texelFetch(curveTexture, ivec2(i, row), 0)[channel];
+    float b = texelFetch(curveTexture, ivec2(i + 1, row), 0)[channel];
+    return mix(a, b, p - entry);
+}
+
+// Each channel through its own curve.
+vec3 curve(vec3 x, int row)
+{
+    return vec3(curveChannel(x.r, row, 0), curveChannel(x.g, row, 1), curveChannel(x.b, row, 2));
 }
 #endif
 
@@ -129,9 +117,9 @@ void main()
     vec3 rgb = clamp(c.a > 0.0 ? c.rgb / c.a : vec3(0.0), 0.0, 1.0);
 #if CURVES
     // The shaper's output is clamped like any table input.
-    rgb = clamp(curve(rgb, 0.25), 0.0, 1.0);
-    rgb = clamp(lookupExact(rgb), 0.0, 1.0);
-    rgb = clamp(curve(sqrt(rgb), 0.75), 0.0, 1.0);
+    rgb = clamp(curve(rgb, 0), 0.0, 1.0);
+    rgb = clamp(lookup(rgb), 0.0, 1.0);
+    rgb = clamp(curve(sqrt(rgb), 1), 0.0, 1.0);
 #elif LUT_MODE != 0
     rgb = clamp(lookup(rgb), 0.0, 1.0);
 #endif

@@ -273,20 +273,23 @@ yet checked against one.
 **The canvas.** `FrameCanvas` (main canvas, navigator, filmstrip) draws its
 image through `ColorCanvasNode`: a custom scene-graph material
 (`shaders/colorcanvas.*`) that samples the frame as before (Nearest at or
-above 100 %, Linear below), then looks it up in the LUT at texel centres,
-clamps, and adds one 8-bit step of triangular dither when asked. The table is
-a half-float 3D texture (a 2D atlas without 3D textures), shared per window
-and LUT key. With the contract's 1-D curves, the shader runs shaper, table and
-output curve, and interpolates the table's eight nodes in float, because 8-bit
-filter weights lose the shadows of a table over linear light. Under the
-identity, an 8-bit frame is drawn by a bare texture read, exactly as Qt's
-texture node drew it. RGBX16FPx4 frames keep half-float precision up to the
-LUT. Frames over the 16384 px texture limit are tiled with a one-texel apron.
-The software backend (the self-test) runs the same path on the CPU.
-`spk_qt_color_canvas` renders on D3D11 WARP through `QQuickRenderControl` and
-reads back against an independent reference: exact for the identity, within
-one count through every LUT, curves, tile seam and translucency case, with the
-letterbox untouched. `spk_qt_color_canvas_software` runs the CPU path.
+above 100 %, Linear below), runs it through the LUT (shaper, table, output
+curve when the LUT has curves), clamps, and adds one 8-bit step of triangular
+dither when asked. The table (a 3D texture, or a 2D atlas without 3D
+textures) and the curves are 32-bit float, shared per window and LUT key, and
+only fetched: the shader interpolates the table's eight nodes and each
+curve's two entries with float weights, so no 8-bit filter weight touches
+them and no float filtering support is needed. Under the identity, an 8-bit
+frame is drawn by a bare texture read, exactly as Qt's texture node drew it.
+RGBX16FPx4 frames keep half-float precision up to the LUT. Frames over the
+16384 px texture limit are tiled with a one-texel apron. The software backend
+(the self-test) runs the same path on the CPU. `spk_qt_color_canvas` renders
+on D3D11 WARP through `QQuickRenderControl` and reads back against an
+independent reference and against the colour core's model of the recommended
+canvas sampling: exact for the identity, within one count through every LUT,
+curve, tile seam and translucency case (a float target measures the curved
+path within 0.0004 counts of exact), with the letterbox untouched.
+`spk_qt_color_canvas_software` runs the CPU path.
 
 **Tests.** `spk_qt_color_core` runs on the CPU, with no GPU, no shown window
 and no installed profile. Its ICC profiles are built in the test, including a

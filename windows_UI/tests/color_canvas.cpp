@@ -10,6 +10,7 @@
 // Exit 77 (CTest: skipped) when no D3D11 device can be created, with a
 // message on stderr; anything else that goes wrong is a failure.
 #include "ColorCanvasNode.hpp"
+#include "ColorLut.hpp"
 #include "ColorPipeline.hpp"
 #include "FrameCanvas.hpp"
 #include <QGuiApplication>
@@ -268,8 +269,10 @@ struct Comparison {
 // Inside the image rectangle every pixel against the reference (the LUT's
 // output composited over the letterbox by the frame's alpha times the item
 // opacity); outside it every pixel against the letterbox, exactly.
+// With `model`, the expected colour is the colour core's own CPU model of the
+// canvas (spk::color::sampleLut) instead of this file's reference.
 Comparison compare(const QImage& got,const QRect& imageRect,const QImage& source,const ColorLut& lut,
-                   QPoint sourceOrigin={},double opacity=1.0) {
+                   QPoint sourceOrigin={},double opacity=1.0,const spk::color::LutSampling* model=nullptr) {
     const Rgb ground{kLetterbox.redF(),kLetterbox.greenF(),kLetterbox.blueF()};
     Comparison result;
     for(int y=0;y<got.height();++y)for(int x=0;x<got.width();++x) {
@@ -283,6 +286,10 @@ Comparison compare(const QImage& got,const QRect& imageRect,const QImage& source
         const int sx=x-imageRect.x()+sourceOrigin.x(),sy=y-imageRect.y()+sourceOrigin.y();
         const auto in=sourcePixel(source,sx,sy);
         Rgb expected=referenceTransform(lut,{in[0],in[1],in[2]});
+        if(model) {
+            const auto m=spk::color::sampleLut(lut,float(in[0]),float(in[1]),float(in[2]),*model);
+            for(int k=0;k<3;++k)expected[k]=std::clamp(double(m[k]),0.0,1.0);
+        }
         const double a=in[3]*opacity;
         for(int k=0;k<3;++k)expected[k]=expected[k]*a+ground[k]*(1-a);
         const int e[3]={quantize(expected[0]),quantize(expected[1]),quantize(expected[2])};
@@ -434,12 +441,13 @@ void run(bool software) {
         canvas_testing::setForceLutAtlas(false);
     }
 
-    // The contract's 1-D curves around the table, 4096 entries as the core
-    // will build them. A gamma-2.2 shaper, an identity table and the inverse
+    // The contract's 1-D curves around the table, 4096 entries as the colour
+    // core builds them. A gamma-2.2 shaper, an identity table and the inverse
     // output curve make the identity; sRGB decode -> matrix -> gamma-2.2
     // encode is held to the reference, into Adobe RGB (in gamut) and from it
     // (negative coefficients: the table's output is clamped before the output
-    // curve). The curves go up as half floats unless the test asks for 32-bit.
+    // curve). Then LUTs the colour core itself builds, held to its own CPU
+    // model of the recommended canvas sampling (ColorLut.hpp).
     {
         constexpr int kCurve=4096;
         auto srgbDecode=[](double x){return x<=0.04045?x/12.92:std::pow((x+0.055)/1.055,2.4);};
@@ -453,52 +461,53 @@ void run(bool software) {
         expect("curves: gamma 2.2 round trip is the identity",compare(h.render(),rect,frame,*identity),1);
         const auto adobe=curvesLut(65,kCurve,202,srgbDecode,toAdobe,encode22);
         h.pipeline().setLutOverrideForTesting(adobe);
-        expect("curves: sRGB -> Adobe RGB, half-float curves",compare(h.render(),rect,frame,*adobe),1);
+        expect("curves: sRGB -> Adobe RGB",compare(h.render(),rect,frame,*adobe),1);
         const auto clipped=curvesLut(65,kCurve,203,encode22,fromAdobe,srgbDecode);
         h.pipeline().setLutOverrideForTesting(clipped);
         expect("curves: out of gamut, clamped before output",compare(h.render(),rect,frame,*clipped),1);
+
+        const spk::color::LutSampling recommended{8,true,true,false,false};
+        const QColorSpace srgb(QColorSpace::SRgb),adobeRgb(QColorSpace::AdobeRgb),proPhoto(QColorSpace::ProPhotoRgb),
+            p3(QColorSpace::DisplayP3);
+        const std::pair<const char*,std::shared_ptr<const ColorLut>> built[]={
+            {"core: curved sRGB -> Adobe RGB, vs its model",spk::color::buildCurvedLut(srgb,adobeRgb)},
+            {"core: curved ProPhoto -> sRGB, vs its model",spk::color::buildCurvedLut(proPhoto,srgb)},
+            {"core: encoded sRGB -> Display P3, vs its model",spk::color::buildEncodedLut(srgb,p3)}};
+        for(const auto& [name,lut]:built) {
+            check(lut && displayLutActive(*lut) && lut->hasCurves()==(std::string(name).find("curved")!=std::string::npos),
+                  std::string(name)+": the colour core did not build the expected LUT");
+            h.pipeline().setLutOverrideForTesting(lut);
+            expect(name,compare(h.render(),rect,frame,*lut,{},1.0,&recommended),1);
+        }
         if(!software) {
-            canvas_testing::setCurvesFloat32(true);
-            const auto adobe32=curvesLut(65,kCurve,204,srgbDecode,toAdobe,encode22);
-            h.pipeline().setLutOverrideForTesting(adobe32);
-            expect("curves: sRGB -> Adobe RGB, 32-bit curves",compare(h.render(),rect,frame,*adobe32),1);
-            canvas_testing::setCurvesFloat32(false);
             canvas_testing::setForceLutAtlas(true);
-            const auto adobeAtlas=curvesLut(65,kCurve,205,srgbDecode,toAdobe,encode22);
-            h.pipeline().setLutOverrideForTesting(adobeAtlas);
-            expect("atlas: curves, sRGB -> Adobe RGB",compare(h.render(),rect,frame,*adobeAtlas),1);
+            h.pipeline().setLutOverrideForTesting(built[1].second);
+            expect("atlas: core curved ProPhoto -> sRGB",compare(h.render(),rect,frame,*built[1].second,{},1.0,&recommended),1);
             canvas_testing::setForceLutAtlas(false);
 
-            // How far the shader's output lies from the reference before the
-            // 8-bit rounding, read from a 32-bit float target: the measurement
-            // behind storing the curves as half floats.
+            // How far the shader's output lies from exact float filtering
+            // before the 8-bit rounding, read from a 32-bit float target.
             Harness precise(QSize(320,240),false,true);
             precise.canvas().setFit(false);
             precise.canvas().setImage(frame);
-            double worstHalf=0;
-            for(const bool float32:{false,true}) {
-                canvas_testing::setCurvesFloat32(float32);
-                for(const auto& [name,lut]:{std::pair{"sRGB -> Adobe RGB",curvesLut(65,kCurve,float32?211:210,srgbDecode,toAdobe,encode22)},
-                                            std::pair{"gamma 2.2 round trip",curvesLut(65,kCurve,float32?213:212,
-                                                [](double x){return std::pow(x,2.2);},unit,[](double u){return std::pow(u,1/2.2);})}}) {
-                    precise.pipeline().setLutOverrideForTesting(lut);
-                    const QImage out=precise.render();
-                    const QRect area=wholeRect(precise.canvas());
-                    double worst=0;
-                    for(int y=area.top();y<=area.bottom();++y)for(int x=area.left();x<=area.right();++x) {
-                        const auto in=sourcePixel(frame,x-area.x(),y-area.y());
-                        const Rgb expected=referenceTransform(*lut,{in[0],in[1],in[2]});
-                        const auto p=reinterpret_cast<const QRgbaFloat32*>(out.constScanLine(y))[x];
-                        const double got[3]={p.red(),p.green(),p.blue()};
-                        for(int k=0;k<3;++k)worst=std::max(worst,std::abs(got[k]-expected[k])*255);
-                    }
-                    if(!float32)worstHalf=std::max(worstHalf,worst);
-                    std::printf("  curves as %-7s %-26s %.4f counts from the reference before rounding\n",
-                                float32?"float32":"float16",name,worst);
+            double worstAll=0;
+            for(const auto& [name,lut]:{std::pair{"gamma 2.2 round trip",roundTrip},std::pair{"sRGB -> Adobe RGB",adobe},
+                                        std::pair{"core ProPhoto -> sRGB",built[1].second}}) {
+                precise.pipeline().setLutOverrideForTesting(lut);
+                const QImage out=precise.render();
+                const QRect area=wholeRect(precise.canvas());
+                double worst=0;
+                for(int y=area.top();y<=area.bottom();++y)for(int x=area.left();x<=area.right();++x) {
+                    const auto in=sourcePixel(frame,x-area.x(),y-area.y());
+                    const Rgb expected=referenceTransform(*lut,{in[0],in[1],in[2]});
+                    const auto p=reinterpret_cast<const QRgbaFloat32*>(out.constScanLine(y))[x];
+                    const double got[3]={p.red(),p.green(),p.blue()};
+                    for(int k=0;k<3;++k)worst=std::max(worst,std::abs(got[k]-expected[k])*255);
                 }
+                worstAll=std::max(worstAll,worst);
+                std::printf("  %-44s %.4f counts from exact before rounding\n",(std::string("float target: ")+name).c_str(),worst);
             }
-            canvas_testing::setCurvesFloat32(false);
-            check(worstHalf<0.25,"half-float curves are more than a quarter count from the reference");
+            check(worstAll<0.25,"the curved path is more than a quarter count from exact before rounding");
         }
     }
 

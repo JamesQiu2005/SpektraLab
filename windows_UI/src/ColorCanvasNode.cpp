@@ -21,7 +21,6 @@ namespace {
 std::atomic<int> maxTextureSizeForTesting{0};
 std::atomic<bool> forceLutAtlasForTesting{false};
 std::atomic<int> lastTileCountForTesting{0};
-std::atomic<QRhiTexture::Format> curveFormat{QRhiTexture::RGBA16F};
 
 // The shader variant: shaders/colorcanvas.frag built per LUT_MODE and CURVES.
 enum Variant {NoLut=0,VolumeLut=1,AtlasLut=2,Copy=3,VolumeCurves=4,AtlasCurves=5};
@@ -129,18 +128,19 @@ private:
 
 // One part of the display LUT as a texture: the table, 3D (N x N x N, blue
 // the slice) or as the 2D atlas (N*N x N, slice b at x = b*N), or the 1-D
-// curves (M x 2: shaper in row 0, output curve in row 1). Half float: it is
-// filterable on every D3D11 device (32-bit float need not be), and its 11
-// significant bits put a table node within 1/8 of an 8-bit step. For 4096-
-// entry curves, read from a float target (tests/color_canvas.cpp): at most
-// 0.11 (WARP) and 0.16 (RTX 3070) of an 8-bit step from exact with half-float
-// curves, 0.04 with 32-bit ones -- what is left there is the half-float table.
+// curves (M x 2: shaper in row 0, output curve in row 1). All 32-bit float:
+// with curves the table holds linear light, where storage rounding is a fixed
+// amount of light that the output curve magnifies near black (the colour core
+// measured 1.34 counts for half-float curves on the ProPhoto round trip). The
+// shader only fetches from these textures and interpolates with float
+// weights, so they need no filtering support, which a D3D11 device need not
+// have for 32-bit float formats.
 enum class LutPart {Volume,Atlas,Curves};
 class LutTexture final : public QSGTexture {
 public:
     LutTexture(std::shared_ptr<const ColorLut> lut,LutPart part,QRhiTexture::Format format)
         :lut_(std::move(lut)),size_(part==LutPart::Curves?lut_->curveSize:lut_->size),part_(part),format_(format) {
-        setFiltering(Linear);
+        setFiltering(Nearest);  // only ever fetched; the shader interpolates
     }
     ~LutTexture() override {delete texture_;}
     qint64 comparisonKey() const override {return qint64(quintptr(this));}
@@ -217,9 +217,12 @@ const char lutCacheCleanupKey=0;
 
 std::shared_ptr<LutTexture> sharedLutTexture(QRhi* rhi,const std::shared_ptr<const ColorLut>& lut,LutPart part) {
     const QRhiTexture::Flags flags=part==LutPart::Volume?QRhiTexture::Flags{QRhiTexture::ThreeDimensional}:QRhiTexture::Flags{};
-    const auto preferred=part==LutPart::Curves?curveFormat.load():QRhiTexture::RGBA16F;
-    QRhiTexture::Format format=preferred;
-    if(!rhi->isTextureFormatSupported(format,flags))format=preferred==QRhiTexture::RGBA16F?QRhiTexture::RGBA32F:QRhiTexture::RGBA16F;
+    QRhiTexture::Format format=QRhiTexture::RGBA32F;
+    if(!rhi->isTextureFormatSupported(format,flags)) {
+        format=QRhiTexture::RGBA16F;
+        static std::once_flag warned;
+        std::call_once(warned,[]{qWarning("FrameCanvas: no 32-bit float textures; the display LUT is stored as half floats");});
+    }
     if(!rhi->isTextureFormatSupported(format,flags))return nullptr;
     const QSize extent=part==LutPart::Volume?QSize(lut->size,lut->size):
         part==LutPart::Atlas?QSize(lut->size*lut->size,lut->size):QSize(lut->curveSize,2);
@@ -282,7 +285,7 @@ private:
 };
 
 // The uniform block of shaders/colorcanvas.*, std140.
-constexpr int kMatrixOffset=0,kOpacityOffset=64,kParametersOffset=68,kUniformBytes=92;
+constexpr int kMatrixOffset=0,kOpacityOffset=64,kParametersOffset=68,kUniformBytes=80;
 
 class CanvasShader final : public QSGMaterialShader {
 public:
@@ -305,8 +308,7 @@ public:
         const auto* material=static_cast<CanvasMaterial*>(newMaterial);
         const float n=material->lut?float(material->lut->size()):0.0f;
         const float m=material->curves?float(material->curves->size()):0.0f;
-        const float parameters[6]={n>0?(n-1)/n:1.0f,n>0?0.5f/n:0.0f,n,material->dither,
-                                   m>0?(m-1)/m:1.0f,m>0?0.5f/m:0.0f};
+        const float parameters[3]={n,material->dither,m};
         std::memcpy(buffer->data()+kParametersOffset,parameters,sizeof parameters);
         return true;
     }
@@ -339,8 +341,8 @@ quint32 wang(quint32 h) {
 }
 float triangular(quint32 h) {return (float(h&0xffffu)-float(h>>16))/65536.0f;}
 
-// Trilinear interpolation between the eight nodes around the clamped input:
-// what the 3D texture's sampler does at the texel centres the shader uses.
+// Trilinear interpolation between the eight nodes around the clamped input,
+// float weights: what the shader's lookup() does with its eight fetches.
 void lookup(const ColorLut& lut,const float in[3],float out[3]) {
     const int n=lut.size;
     int index[3];float fraction[3];
@@ -363,7 +365,7 @@ void lookup(const ColorLut& lut,const float in[3],float out[3]) {
 }
 
 // Channel `c` of a 1-D curve at x in [0,1]: linear interpolation between its
-// entries, what a linear sampler returns at the shader's texel centres.
+// two entries around x, float weight, as the shader's curveChannel().
 float curveAt(const std::vector<float>& curve,int m,float x,int c) {
     const float position=std::clamp(x,0.0f,1.0f)*float(m-1);
     const int i=std::min(int(position),m-2);
@@ -609,6 +611,5 @@ bool ColorCanvasNode::updateSoftware(QQuickWindow* window,const CanvasPaint& pai
 namespace canvas_testing {
 void setMaxTextureSize(int pixels) {maxTextureSizeForTesting=pixels;}
 void setForceLutAtlas(bool force) {forceLutAtlasForTesting=force;}
-void setCurvesFloat32(bool float32) {curveFormat=float32?QRhiTexture::RGBA32F:QRhiTexture::RGBA16F;}
 int lastTileCount() {return lastTileCountForTesting.load();}
 }
