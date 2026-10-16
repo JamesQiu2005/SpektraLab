@@ -28,16 +28,18 @@ find_package(Qt6 6.8 REQUIRED COMPONENTS GuiPrivate)
 qt_standard_project_setup(REQUIRES 6.8)
 
 # The canvas material's shaders. The fragment shader is one source built per
-# variant (no lookup, 3D texture, 2D atlas, bare copy; see its header); GLSL
-# 300 es/330 because it uses integer arithmetic and sampler3D.
+# variant (no lookup, 3D texture, 2D atlas, bare copy, and both tables with
+# the 1-D curves; see its header); GLSL 300 es/330 because it uses integer
+# arithmetic and sampler3D.
 function(spk_qt_add_canvas_shaders target)
     qt_add_shaders(${target} "${target}_canvas_vertex" BATCHABLE PREFIX "/" GLSL "300es,330"
         FILES shaders/colorcanvas.vert)
-    foreach(variant IN ITEMS "plain;0" "lut3d;1" "lut2d;2" "copy;3")
+    foreach(variant IN ITEMS "plain;0;0" "lut3d;1;0" "lut2d;2;0" "copy;3;0" "lut3d_curves;1;1" "lut2d_curves;2;1")
         list(GET variant 0 name)
         list(GET variant 1 mode)
+        list(GET variant 2 curves)
         qt_add_shaders(${target} "${target}_canvas_${name}" PREFIX "/" GLSL "300es,330"
-            DEFINES "LUT_MODE=${mode}" FILES shaders/colorcanvas.frag
+            DEFINES "LUT_MODE=${mode};CURVES=${curves}" FILES shaders/colorcanvas.frag
             OUTPUTS shaders/colorcanvas_${name}.frag.qsb)
     endforeach()
 endfunction()

@@ -14,6 +14,8 @@ layout(std140, binding = 0) uniform buf {
     float lutOffset;
     float lutSize;
     float ditherAmplitude;
+    float curveScale;
+    float curveOffset;
 };
 
 void main()

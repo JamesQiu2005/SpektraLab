@@ -11,6 +11,7 @@
 #include <rhi/qrhi.h>
 #include <algorithm>
 #include <atomic>
+#include <cmath>
 #include <cstring>
 #include <mutex>
 #include <thread>
@@ -20,9 +21,10 @@ namespace {
 std::atomic<int> maxTextureSizeForTesting{0};
 std::atomic<bool> forceLutAtlasForTesting{false};
 std::atomic<int> lastTileCountForTesting{0};
+std::atomic<QRhiTexture::Format> curveFormat{QRhiTexture::RGBA16F};
 
-// The shader variant: shaders/colorcanvas.frag built with LUT_MODE 0..3.
-enum Variant {NoLut=0,VolumeLut=1,AtlasLut=2,Copy=3};
+// The shader variant: shaders/colorcanvas.frag built per LUT_MODE and CURVES.
+enum Variant {NoLut=0,VolumeLut=1,AtlasLut=2,Copy=3,VolumeCurves=4,AtlasCurves=5};
 
 bool isHalfFloat(QImage::Format format) {
     return format==QImage::Format_RGBX16FPx4 || format==QImage::Format_RGBA16FPx4 ||
@@ -125,17 +127,27 @@ private:
 
 // ---- The LUT ---------------------------------------------------------------
 
-// The display LUT as a texture: 3D (N x N x N, blue the slice) or the 2D
-// atlas (N*N x N, slice b at x = b*N). Half float: it is filterable everywhere
-// and its 11 significant bits put a node within 1/8 of an 8-bit step.
+// One part of the display LUT as a texture: the table, 3D (N x N x N, blue
+// the slice) or as the 2D atlas (N*N x N, slice b at x = b*N), or the 1-D
+// curves (M x 2: shaper in row 0, output curve in row 1). Half float: it is
+// filterable on every D3D11 device (32-bit float need not be), and its 11
+// significant bits put a table node within 1/8 of an 8-bit step. For 4096-
+// entry curves, read from a float target (tests/color_canvas.cpp): at most
+// 0.11 (WARP) and 0.16 (RTX 3070) of an 8-bit step from exact with half-float
+// curves, 0.04 with 32-bit ones -- what is left there is the half-float table.
+enum class LutPart {Volume,Atlas,Curves};
 class LutTexture final : public QSGTexture {
 public:
-    LutTexture(std::shared_ptr<const ColorLut> lut,bool atlas,QRhiTexture::Format format)
-        :lut_(std::move(lut)),size_(lut_->size),atlas_(atlas),format_(format) {setFiltering(Linear);}
+    LutTexture(std::shared_ptr<const ColorLut> lut,LutPart part,QRhiTexture::Format format)
+        :lut_(std::move(lut)),size_(part==LutPart::Curves?lut_->curveSize:lut_->size),part_(part),format_(format) {
+        setFiltering(Linear);
+    }
     ~LutTexture() override {delete texture_;}
     qint64 comparisonKey() const override {return qint64(quintptr(this));}
     QRhiTexture* rhiTexture() const override {return texture_;}
-    QSize textureSize() const override {return atlas_?QSize(size_*size_,size_):QSize(size_,size_);}
+    QSize textureSize() const override {
+        return part_==LutPart::Volume?QSize(size_,size_):part_==LutPart::Atlas?QSize(size_*size_,size_):QSize(size_,2);
+    }
     bool hasAlphaChannel() const override {return true;}
     bool hasMipmaps() const override {return false;}
     int size() const {return size_;}
@@ -144,10 +156,10 @@ public:
         if(!lut_)return;
         const auto lut=std::move(lut_);
         const int n=size_;
-        texture_=atlas_?rhi->newTexture(format_,QSize(n*n,n)):
-            rhi->newTexture(format_,n,n,n,1,QRhiTexture::ThreeDimensional);
+        texture_=part_==LutPart::Volume?rhi->newTexture(format_,n,n,n,1,QRhiTexture::ThreeDimensional):
+            rhi->newTexture(format_,textureSize());
         if(!texture_->create()) {
-            qWarning("FrameCanvas: cannot create the %d^3 display LUT texture",n);
+            qWarning("FrameCanvas: cannot create a display LUT texture (%d entries)",n);
             delete texture_;texture_=nullptr;return;
         }
         const bool half=format_==QRhiTexture::RGBA16F;
@@ -156,9 +168,16 @@ public:
             if(half)qFloatToFloat16(reinterpret_cast<qfloat16*>(destination),source,count);
             else std::memcpy(destination,source,size_t(count)*sizeof(float));
         };
+        if(part_==LutPart::Curves) {
+            QByteArray bytes(qsizetype(n)*2*texel,Qt::Uninitialized);
+            store(bytes.data(),lut->shaper.data(),qsizetype(n)*4);
+            store(bytes.data()+qsizetype(n)*texel,lut->output.data(),qsizetype(n)*4);
+            updates->uploadTexture(texture_,QRhiTextureUploadEntry(0,0,QRhiTextureSubresourceUploadDescription(bytes)));
+            return;
+        }
         // ColorLut keeps node (r, g, b) at ((b*N + g)*N + r)*4: a row is r,
         // a slice is (r, g) at one b.
-        if(atlas_) {
+        if(part_==LutPart::Atlas) {
             QByteArray bytes(qsizetype(n)*n*n*texel,Qt::Uninitialized);
             for(int g=0;g<n;++g)
                 for(int b=0;b<n;++b)
@@ -182,7 +201,7 @@ public:
 private:
     std::shared_ptr<const ColorLut> lut_;  // until uploaded
     int size_;
-    bool atlas_;
+    LutPart part_;
     QRhiTexture::Format format_;
     QRhiTexture* texture_=nullptr;
 };
@@ -191,16 +210,22 @@ private:
 // key. Materials hold the strong references; the last canvas to drop a LUT
 // frees it. A QRhi cleanup callback releases whatever is still alive when the
 // QRhi goes (window closed, scene graph invalidated, device lost).
-struct LutEntry {quint64 key;bool atlas;std::weak_ptr<LutTexture> texture;};
+struct LutEntry {quint64 key;LutPart part;std::weak_ptr<LutTexture> texture;};
 std::mutex lutCacheMutex;
 std::unordered_map<QRhi*,std::vector<LutEntry>> lutCache;
 const char lutCacheCleanupKey=0;
 
-std::shared_ptr<LutTexture> sharedLutTexture(QRhi* rhi,const std::shared_ptr<const ColorLut>& lut,bool atlas) {
-    const QRhiTexture::Flags flags=atlas?QRhiTexture::Flags{}:QRhiTexture::Flags{QRhiTexture::ThreeDimensional};
-    QRhiTexture::Format format=QRhiTexture::RGBA16F;
-    if(!rhi->isTextureFormatSupported(format,flags))format=QRhiTexture::RGBA32F;
+std::shared_ptr<LutTexture> sharedLutTexture(QRhi* rhi,const std::shared_ptr<const ColorLut>& lut,LutPart part) {
+    const QRhiTexture::Flags flags=part==LutPart::Volume?QRhiTexture::Flags{QRhiTexture::ThreeDimensional}:QRhiTexture::Flags{};
+    const auto preferred=part==LutPart::Curves?curveFormat.load():QRhiTexture::RGBA16F;
+    QRhiTexture::Format format=preferred;
+    if(!rhi->isTextureFormatSupported(format,flags))format=preferred==QRhiTexture::RGBA16F?QRhiTexture::RGBA32F:QRhiTexture::RGBA16F;
     if(!rhi->isTextureFormatSupported(format,flags))return nullptr;
+    const QSize extent=part==LutPart::Volume?QSize(lut->size,lut->size):
+        part==LutPart::Atlas?QSize(lut->size*lut->size,lut->size):QSize(lut->curveSize,2);
+    // QRhi reports no 3D limit; D3D11's is 2048, far above any table here.
+    const int limit=rhi->resourceLimit(QRhi::TextureSizeMax);
+    if(extent.width()>limit || extent.height()>limit)return nullptr;
     std::lock_guard lock(lutCacheMutex);
     auto [found,inserted]=lutCache.try_emplace(rhi);
     if(inserted) {
@@ -215,10 +240,10 @@ std::shared_ptr<LutTexture> sharedLutTexture(QRhi* rhi,const std::shared_ptr<con
     auto& entries=found->second;
     std::erase_if(entries,[](const LutEntry& entry){return entry.texture.expired();});
     for(const auto& entry:entries)
-        if(entry.key==lut->key && entry.atlas==atlas)
+        if(entry.key==lut->key && entry.part==part)
             if(auto texture=entry.texture.lock())return texture;
-    auto texture=std::make_shared<LutTexture>(lut,atlas,format);
-    entries.push_back({lut->key,atlas,texture});
+    auto texture=std::make_shared<LutTexture>(lut,part,format);
+    entries.push_back({lut->key,part,texture});
     return texture;
 }
 
@@ -235,18 +260,21 @@ public:
         // A Copy blends only a frame with alpha, as QSGOpaqueTextureMaterial.
         setFlag(Blending,variant!=Copy || frame->hasAlphaChannel());
     }
-    QSGMaterialType* type() const override {static QSGMaterialType types[4];return &types[variant_];}
+    QSGMaterialType* type() const override {static QSGMaterialType types[6];return &types[variant_];}
     QSGMaterialShader* createShader(QSGRendererInterface::RenderMode) const override;
     int compare(const QSGMaterial* other) const override {
         const auto* that=static_cast<const CanvasMaterial*>(other);
         auto order=[](auto a,auto b){return a<b?-1:(b<a?1:0);};
+        auto key=[](const std::shared_ptr<LutTexture>& t){return t?t->comparisonKey():0;};
         if(int c=order(frame_->comparisonKey(),that->frame_->comparisonKey()))return c;
-        if(int c=order(lut?lut->comparisonKey():0,that->lut?that->lut->comparisonKey():0))return c;
+        if(int c=order(key(lut),key(that->lut)))return c;
+        if(int c=order(key(curves),key(that->curves)))return c;
         return order(dither,that->dither);
     }
     Variant variant() const {return variant_;}
     FrameTexture* frame() const {return frame_;}
-    std::shared_ptr<LutTexture> lut;       // null without a lookup
+    std::shared_ptr<LutTexture> lut;       // the table; null without a lookup
+    std::shared_ptr<LutTexture> curves;    // the 1-D curves; null without them
     float dither=0;
 private:
     Variant variant_;
@@ -254,12 +282,12 @@ private:
 };
 
 // The uniform block of shaders/colorcanvas.*, std140.
-constexpr int kMatrixOffset=0,kOpacityOffset=64,kParametersOffset=68,kUniformBytes=84;
+constexpr int kMatrixOffset=0,kOpacityOffset=64,kParametersOffset=68,kUniformBytes=92;
 
 class CanvasShader final : public QSGMaterialShader {
 public:
     explicit CanvasShader(Variant variant) {
-        static const char* const names[]={"plain","lut3d","lut2d","copy"};
+        static const char* const names[]={"plain","lut3d","lut2d","copy","lut3d_curves","lut2d_curves"};
         setShaderFileName(VertexStage,QStringLiteral(":/shaders/colorcanvas.vert.qsb"));
         setShaderFileName(FragmentStage,QStringLiteral(":/shaders/colorcanvas_%1.frag.qsb").arg(QLatin1StringView(names[variant])));
     }
@@ -276,13 +304,16 @@ public:
         }
         const auto* material=static_cast<CanvasMaterial*>(newMaterial);
         const float n=material->lut?float(material->lut->size()):0.0f;
-        const float parameters[4]={n>0?(n-1)/n:1.0f,n>0?0.5f/n:0.0f,n,material->dither};
+        const float m=material->curves?float(material->curves->size()):0.0f;
+        const float parameters[6]={n>0?(n-1)/n:1.0f,n>0?0.5f/n:0.0f,n,material->dither,
+                                   m>0?(m-1)/m:1.0f,m>0?0.5f/m:0.0f};
         std::memcpy(buffer->data()+kParametersOffset,parameters,sizeof parameters);
         return true;
     }
     void updateSampledImage(RenderState& state,int binding,QSGTexture** texture,QSGMaterial* newMaterial,QSGMaterial*) override {
         auto* material=static_cast<CanvasMaterial*>(newMaterial);
-        QSGTexture* bound=binding==1?static_cast<QSGTexture*>(material->frame()):material->lut.get();
+        QSGTexture* bound=binding==1?static_cast<QSGTexture*>(material->frame()):
+            binding==2?material->lut.get():material->curves.get();
         if(bound)bound->commitTextureOperations(state.rhi(),state.resourceUpdateBatch());
         *texture=bound;
     }
@@ -331,6 +362,30 @@ void lookup(const ColorLut& lut,const float in[3],float out[3]) {
     }
 }
 
+// Channel `c` of a 1-D curve at x in [0,1]: linear interpolation between its
+// entries, what a linear sampler returns at the shader's texel centres.
+float curveAt(const std::vector<float>& curve,int m,float x,int c) {
+    const float position=std::clamp(x,0.0f,1.0f)*float(m-1);
+    const int i=std::min(int(position),m-2);
+    const float a=curve[size_t(i)*4+c],b=curve[size_t(i+1)*4+c];
+    return a+(b-a)*(position-float(i));
+}
+
+// The display transform of one straight colour, clamped: the table alone, or
+// shaper -> table -> output(sqrt) when the LUT has curves (the shader's order).
+void transform(const ColorLut& lut,float c[3]) {
+    float mapped[3];
+    if(lut.hasCurves()) {
+        for(int k=0;k<3;++k)c[k]=std::clamp(curveAt(lut.shaper,lut.curveSize,c[k],k),0.0f,1.0f);
+        lookup(lut,c,mapped);
+        for(int k=0;k<3;++k)
+            c[k]=std::clamp(curveAt(lut.output,lut.curveSize,std::sqrt(std::clamp(mapped[k],0.0f,1.0f)),k),0.0f,1.0f);
+        return;
+    }
+    lookup(lut,c,mapped);
+    for(int k=0;k<3;++k)c[k]=std::clamp(mapped[k],0.0f,1.0f);
+}
+
 // Rows split over the machine's cores: a 24 MP frame is ~24M lookups, and the
 // software backend converts it on every publication.
 template<class Function> void forRows(int height,qsizetype pixels,Function rows) {
@@ -345,7 +400,12 @@ template<class Function> void forRows(int height,qsizetype pixels,Function rows)
 }
 
 bool displayLutActive(const ColorLut& lut) {
-    return lut.size>=2 && lut.rgba.size()==size_t(lut.size)*size_t(lut.size)*size_t(lut.size)*4;
+    const bool table=lut.size>=2 && lut.rgba.size()==size_t(lut.size)*size_t(lut.size)*size_t(lut.size)*4;
+    // Malformed curves void the whole LUT: its table expects the shaper's
+    // output, so applying it to encoded values would be wrong, not just coarse.
+    const bool curves=lut.curveSize==0 || (lut.curveSize>=2 && lut.shaper.size()==size_t(lut.curveSize)*4 &&
+                                           lut.output.size()==size_t(lut.curveSize)*4);
+    return table && curves;
 }
 
 QImage applyDisplayLutCpu(const QImage& image,const ColorLut& lut,bool dither) {
@@ -386,10 +446,7 @@ QImage applyDisplayLutCpu(const QImage& image,const ColorLut& lut,bool dither) {
                     if(c[3]>0){c[0]/=c[3];c[1]/=c[3];c[2]/=c[3];}else c[0]=c[1]=c[2]=0;
                 }
                 for(int k=0;k<3;++k)c[k]=std::clamp(c[k],0.0f,1.0f);
-                if(active) {
-                    float mapped[3];lookup(lut,c,mapped);
-                    for(int k=0;k<3;++k)c[k]=std::clamp(mapped[k],0.0f,1.0f);
-                }
+                if(active)transform(lut,c);
                 if(amplitude>0) {
                     const quint32 hr=wang(quint32(x)^wang(quint32(y))),hg=wang(hr),hb=wang(hg);
                     c[0]+=triangular(hr)*amplitude;c[1]+=triangular(hg)*amplitude;c[2]+=triangular(hb)*amplitude;
@@ -468,14 +525,17 @@ bool ColorCanvasNode::updateRhi(QQuickWindow* window,const CanvasPaint& paint) {
     }
 
     Variant mode=NoLut;
-    std::shared_ptr<LutTexture> lut;
+    std::shared_ptr<LutTexture> lut,curves;
     if(displayLutActive(*paint.lut)) {
         const bool atlas=forceLutAtlasForTesting.load() || !rhi->isFeatureSupported(QRhi::ThreeDimensionalTextures);
-        lut=sharedLutTexture(rhi,paint.lut,atlas);
-        if(lut)mode=atlas?AtlasLut:VolumeLut;
+        lut=sharedLutTexture(rhi,paint.lut,atlas?LutPart::Atlas:LutPart::Volume);
+        if(paint.lut->hasCurves())curves=sharedLutTexture(rhi,paint.lut,LutPart::Curves);
+        if(lut && (curves || !paint.lut->hasCurves()))
+            mode=curves?(atlas?AtlasCurves:VolumeCurves):(atlas?AtlasLut:VolumeLut);
         else {
+            lut.reset();curves.reset();
             static std::once_flag warned;
-            std::call_once(warned,[]{qWarning("FrameCanvas: no LUT texture format; drawing without display colour management");});
+            std::call_once(warned,[]{qWarning("FrameCanvas: the display LUT cannot be a texture here; drawing without display colour management");});
         }
     }
     // One output step of triangular dither before the 8-bit swap chain
@@ -497,8 +557,8 @@ bool ColorCanvasNode::updateRhi(QQuickWindow* window,const CanvasPaint& paint) {
             material=new CanvasMaterial(mode,tile->texture.get());
             tile->node->setMaterial(material);  // deletes the previous one (OwnsMaterial)
         }
-        if(material->lut!=lut || material->dither!=dither) {
-            material->lut=lut;material->dither=dither;
+        if(material->lut!=lut || material->curves!=curves || material->dither!=dither) {
+            material->lut=lut;material->curves=curves;material->dither=dither;
             tile->node->markDirty(QSGNode::DirtyMaterial);
         }
         if(copy!=(tile->node->opaqueMaterial()!=nullptr))
@@ -549,5 +609,6 @@ bool ColorCanvasNode::updateSoftware(QQuickWindow* window,const CanvasPaint& pai
 namespace canvas_testing {
 void setMaxTextureSize(int pixels) {maxTextureSizeForTesting=pixels;}
 void setForceLutAtlas(bool force) {forceLutAtlasForTesting=force;}
+void setCurvesFloat32(bool float32) {curveFormat=float32?QRhiTexture::RGBA32F:QRhiTexture::RGBA16F;}
 int lastTileCount() {return lastTileCountForTesting.load();}
 }

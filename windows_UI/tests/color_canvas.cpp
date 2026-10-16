@@ -81,7 +81,9 @@ private:
 // FrameCanvas on top.
 class Harness {
 public:
-    Harness(QSize size,bool software):size_(size),software_(software) {
+    // A float target (RHI only) measures the shader's output before any 8-bit
+    // rounding.
+    Harness(QSize size,bool software,bool floatTarget=false):size_(size),software_(software),floatTarget_(floatTarget) {
         window_=std::make_unique<QQuickWindow>(&control_);
         if(!software) {
             // WARP: the same answer on every machine, and no GPU needed.
@@ -106,7 +108,8 @@ public:
         if(!control_.initialize())throw Skip("QQuickRenderControl could not create a D3D11 device (WARP)");
         QRhi* rhi=control_.rhi();
         check(rhi!=nullptr,"render control has no QRhi");
-        texture_.reset(rhi->newTexture(QRhiTexture::RGBA8,size,1,QRhiTexture::RenderTarget|QRhiTexture::UsedAsTransferSource));
+        texture_.reset(rhi->newTexture(floatTarget?QRhiTexture::RGBA32F:QRhiTexture::RGBA8,size,1,
+                                       QRhiTexture::RenderTarget|QRhiTexture::UsedAsTransferSource));
         check(texture_->create(),"cannot create the render target texture");
         depth_.reset(rhi->newRenderBuffer(QRhiRenderBuffer::DepthStencil,size,1));
         check(depth_->create(),"cannot create the depth-stencil buffer");
@@ -137,17 +140,19 @@ public:
         readback->readBackTexture(texture_.get(),&result);
         control_.commandBuffer()->resourceUpdate(readback);
         control_.endFrame();  // an offscreen frame: complete when this returns
-        check(result.pixelSize==size_ && result.data.size()>=qsizetype(size_.width())*size_.height()*4,"readback incomplete");
+        const int texel=floatTarget_?16:4;
+        check(result.pixelSize==size_ && result.data.size()>=qsizetype(size_.width())*size_.height()*texel,"readback incomplete");
         QImage image(reinterpret_cast<const uchar*>(result.data.constData()),size_.width(),size_.height(),
-                     QImage::Format_RGBA8888_Premultiplied);
-        QImage copy=image.convertToFormat(QImage::Format_ARGB32);
+                     qsizetype(size_.width())*texel,
+                     floatTarget_?QImage::Format_RGBA32FPx4_Premultiplied:QImage::Format_RGBA8888_Premultiplied);
+        QImage copy=image.convertToFormat(floatTarget_?QImage::Format_RGBA32FPx4:QImage::Format_ARGB32);
         return control_.rhi()->isYUpInFramebuffer()?copy.flipped(Qt::Vertical):copy;
     }
 private:
     // Destroyed bottom to top: RHI resources, then the window (its scene
     // graph), then the render control that owns the QRhi.
     QSize size_;
-    bool software_;
+    bool software_,floatTarget_;
     QQuickRenderControl control_;
     std::unique_ptr<QQuickWindow> window_;
     FrameCanvas* canvas_=nullptr;
@@ -189,6 +194,45 @@ Rgb referenceLookup(const ColorLut& lut,Rgb c) {
         for(int k=0;k<3;++k)out[k]+=w*node[k];
     }
     for(auto& v:out)v=std::clamp(v,0.0,1.0);
+    return out;
+}
+
+// A LUT with the contract's 1-D curves: the per-channel shaper, the table as
+// a 3x3 matrix over the shaper's output (left unclamped, as a profile's would
+// be), and the output curve as a function of the table's output u (stored
+// against sqrt(u), as the contract indexes it).
+std::shared_ptr<const ColorLut> curvesLut(int n,int m,quint64 key,const std::function<double(double)>& shaper,
+                                          const std::array<double,9>& matrix,const std::function<double(double)>& output) {
+    auto lut=std::make_shared<ColorLut>(*makeLut(n,key,[&](const Rgb& t) {
+        Rgb out;
+        for(int k=0;k<3;++k)out[k]=matrix[k*3]*t[0]+matrix[k*3+1]*t[1]+matrix[k*3+2]*t[2];
+        return out;
+    }));
+    lut->curveSize=m;lut->shaper.resize(size_t(m)*4);lut->output.resize(size_t(m)*4);
+    for(int j=0;j<m;++j) {
+        const double x=j/double(m-1);
+        for(int k=0;k<3;++k) {
+            lut->shaper[size_t(j)*4+k]=float(shaper(x));
+            lut->output[size_t(j)*4+k]=float(output(x*x));
+        }
+        lut->shaper[size_t(j)*4+3]=lut->output[size_t(j)*4+3]=1;
+    }
+    return lut;
+}
+double referenceCurve(const std::vector<float>& curve,int m,double x,int c) {
+    const double p=std::clamp(x,0.0,1.0)*(m-1);
+    const int i=std::min(int(p),m-2);
+    return curve[size_t(i)*4+c]+(curve[size_t(i+1)*4+c]-curve[size_t(i)*4+c])*(p-i);
+}
+// The whole display transform: shaper -> table -> output(sqrt), each step
+// clamped as the contract says; the table alone without curves.
+Rgb referenceTransform(const ColorLut& lut,Rgb c) {
+    for(auto& v:c)v=std::clamp(v,0.0,1.0);
+    if(lut.size==0 || !lut.hasCurves())return referenceLookup(lut,c);
+    for(int k=0;k<3;++k)c[k]=std::clamp(referenceCurve(lut.shaper,lut.curveSize,c[k],k),0.0,1.0);
+    const Rgb u=referenceLookup(lut,c);
+    Rgb out;
+    for(int k=0;k<3;++k)out[k]=std::clamp(referenceCurve(lut.output,lut.curveSize,std::sqrt(u[k]),k),0.0,1.0);
     return out;
 }
 int quantize(double v) {return int(std::floor(std::clamp(v,0.0,1.0)*255.0+0.5));}
@@ -237,7 +281,7 @@ Comparison compare(const QImage& got,const QRect& imageRect,const QImage& source
         }
         const int sx=x-imageRect.x()+sourceOrigin.x(),sy=y-imageRect.y()+sourceOrigin.y();
         const auto in=sourcePixel(source,sx,sy);
-        Rgb expected=referenceLookup(lut,{in[0],in[1],in[2]});
+        Rgb expected=referenceTransform(lut,{in[0],in[1],in[2]});
         const double a=in[3]*opacity;
         for(int k=0;k<3;++k)expected[k]=expected[k]*a+ground[k]*(1-a);
         const int e[3]={quantize(expected[0]),quantize(expected[1]),quantize(expected[2])};
@@ -387,6 +431,74 @@ void run(bool software) {
         h.pipeline().setLutOverrideForTesting(gamma);
         expect("atlas: gamma",compare(h.render(),rect,frame,*gamma),1);
         canvas_testing::setForceLutAtlas(false);
+    }
+
+    // The contract's 1-D curves around the table, 4096 entries as the core
+    // will build them. A gamma-2.2 shaper, an identity table and the inverse
+    // output curve make the identity; sRGB decode -> matrix -> gamma-2.2
+    // encode is held to the reference, into Adobe RGB (in gamut) and from it
+    // (negative coefficients: the table's output is clamped before the output
+    // curve). The curves go up as half floats unless the test asks for 32-bit.
+    {
+        constexpr int kCurve=4096;
+        auto srgbDecode=[](double x){return x<=0.04045?x/12.92:std::pow((x+0.055)/1.055,2.4);};
+        auto encode22=[](double u){return std::pow(u,256.0/563.0);};
+        const std::array<double,9> unit{1,0,0,0,1,0,0,0,1};
+        const std::array<double,9> toAdobe{0.7151627,0.2848373,0,0,1,0,0,0.0411705,0.9588295};
+        const std::array<double,9> fromAdobe{1.3982832,-0.3982831,0,0,1,0,0,-0.0429383,1.0429383};
+        const auto roundTrip=curvesLut(65,kCurve,201,[](double x){return std::pow(x,2.2);},unit,
+                                       [](double u){return std::pow(u,1/2.2);});
+        h.pipeline().setLutOverrideForTesting(roundTrip);
+        expect("curves: gamma 2.2 round trip is the identity",compare(h.render(),rect,frame,*identity),1);
+        const auto adobe=curvesLut(65,kCurve,202,srgbDecode,toAdobe,encode22);
+        h.pipeline().setLutOverrideForTesting(adobe);
+        expect("curves: sRGB -> Adobe RGB, half-float curves",compare(h.render(),rect,frame,*adobe),1);
+        const auto clipped=curvesLut(65,kCurve,203,encode22,fromAdobe,srgbDecode);
+        h.pipeline().setLutOverrideForTesting(clipped);
+        expect("curves: out of gamut, clamped before output",compare(h.render(),rect,frame,*clipped),1);
+        if(!software) {
+            canvas_testing::setCurvesFloat32(true);
+            const auto adobe32=curvesLut(65,kCurve,204,srgbDecode,toAdobe,encode22);
+            h.pipeline().setLutOverrideForTesting(adobe32);
+            expect("curves: sRGB -> Adobe RGB, 32-bit curves",compare(h.render(),rect,frame,*adobe32),1);
+            canvas_testing::setCurvesFloat32(false);
+            canvas_testing::setForceLutAtlas(true);
+            const auto adobeAtlas=curvesLut(65,kCurve,205,srgbDecode,toAdobe,encode22);
+            h.pipeline().setLutOverrideForTesting(adobeAtlas);
+            expect("atlas: curves, sRGB -> Adobe RGB",compare(h.render(),rect,frame,*adobeAtlas),1);
+            canvas_testing::setForceLutAtlas(false);
+
+            // How far the shader's output lies from the reference before the
+            // 8-bit rounding, read from a 32-bit float target: the measurement
+            // behind storing the curves as half floats.
+            Harness precise(QSize(320,240),false,true);
+            precise.canvas().setFit(false);
+            precise.canvas().setImage(frame);
+            double worstHalf=0;
+            for(const bool float32:{false,true}) {
+                canvas_testing::setCurvesFloat32(float32);
+                for(const auto& [name,lut]:{std::pair{"sRGB -> Adobe RGB",curvesLut(65,kCurve,float32?211:210,srgbDecode,toAdobe,encode22)},
+                                            std::pair{"gamma 2.2 round trip",curvesLut(65,kCurve,float32?213:212,
+                                                [](double x){return std::pow(x,2.2);},unit,[](double u){return std::pow(u,1/2.2);})}}) {
+                    precise.pipeline().setLutOverrideForTesting(lut);
+                    const QImage out=precise.render();
+                    const QRect area=wholeRect(precise.canvas());
+                    double worst=0;
+                    for(int y=area.top();y<=area.bottom();++y)for(int x=area.left();x<=area.right();++x) {
+                        const auto in=sourcePixel(frame,x-area.x(),y-area.y());
+                        const Rgb expected=referenceTransform(*lut,{in[0],in[1],in[2]});
+                        const auto p=reinterpret_cast<const QRgbaFloat32*>(out.constScanLine(y))[x];
+                        const double got[3]={p.red(),p.green(),p.blue()};
+                        for(int k=0;k<3;++k)worst=std::max(worst,std::abs(got[k]-expected[k])*255);
+                    }
+                    if(!float32)worstHalf=std::max(worstHalf,worst);
+                    std::printf("  curves as %-7s %-26s %.4f counts from the reference before rounding\n",
+                                float32?"float32":"float16",name,worst);
+                }
+            }
+            canvas_testing::setCurvesFloat32(false);
+            check(worstHalf<0.25,"half-float curves are more than a quarter count from the reference");
+        }
     }
 
     // Dither: one LSB of triangular noise where the LUT runs; never on an

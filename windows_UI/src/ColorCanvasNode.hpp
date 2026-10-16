@@ -6,7 +6,8 @@
 // a custom material (shaders/colorcanvas.*): the frame keeps its own encoding
 // in the texture (8-bit, or half float for RGBX16FPx4 and other deep images),
 // is sampled as before (Nearest at or above 100 %, Linear below) and then
-// goes through the LUT per screen pixel. Under the identity LUT an 8-bit
+// goes through the LUT per screen pixel (with the contract's 1-D curves
+// around the table when the LUT has them). Under the identity LUT an 8-bit
 // frame is drawn by a bare texture read, exactly as Qt's texture node drew
 // it. Images larger than the RHI's texture limit (16384 on D3D11) are split
 // into tiles with a one-texel apron, so Linear filtering is continuous across
@@ -67,11 +68,13 @@ private:
 };
 
 // The CPU form of the shader, for the software backend: trilinear lookup at
-// the same nodes, the same clamps and dither, rounded to 8 bits. An 8-bit
-// image under the identity LUT is returned unchanged.
+// the same nodes (inside the shaper and output curves when the LUT has them),
+// the same clamps and dither, rounded to 8 bits. An 8-bit image under the
+// identity LUT is returned unchanged.
 QImage applyDisplayLutCpu(const QImage& image, const ColorLut& lut, bool dither);
 
-// True when `lut` is a usable non-identity LUT (size >= 2, complete data).
+// True when `lut` is a usable non-identity LUT (size >= 2, complete data,
+// and complete curves if it has any).
 bool displayLutActive(const ColorLut& lut);
 
 namespace canvas_testing {
@@ -80,6 +83,9 @@ namespace canvas_testing {
 // canvas's next paint (call update() on it).
 void setMaxTextureSize(int pixels);
 void setForceLutAtlas(bool force);
+// Tests only: store the 1-D curves as 32-bit floats instead of half floats,
+// for LUT keys not yet uploaded (the test measures both).
+void setCurvesFloat32(bool float32);
 // Tiles in the most recently built RHI node; 0 after a software paint.
 int lastTileCount();
 }
