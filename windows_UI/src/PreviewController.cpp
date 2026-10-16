@@ -156,6 +156,7 @@ void PreviewController::workerLoop(std::filesystem::path resources,desktop::Host
         {std::unique_lock lock(mutex_);wake_.wait(lock,[&]{return stopping_||!jobs_.empty();});
          if(stopping_)break;job=std::move(jobs_.front());jobs_.pop_front();}
         deliver(job(*host));
+        analyse(*host); // the Pre-Dev rail's readings of a new frame (PreviewControllerPredev.cpp)
     }
 }
 void PreviewController::deliver(Reply reply) {
@@ -602,6 +603,7 @@ void PreviewController::syncSelectedSettings(bool includeCrop) {
     for(int i=0;i<int(library_.size());++i)if(i!=active_index_&&library_[i].selected){
         auto& item=library_[i];auto next=currentState();
         if(!includeCrop)next.geometry=item.geometry;
+        next.settings=pastedPlacement(next.settings);
         if(sameState(itemState(item),next))continue;
         // Each recipient owns its own undo history, just like its settings.
         item.undo.push_back(itemState(item));if(item.undo.size()>64)item.undo.erase(item.undo.begin());item.redo.clear();

@@ -200,11 +200,14 @@ if(NOT APPLE)
                 add_subdirectory(host)
             endif()
             if(WIN32 AND SPEKTRALAB_BUILD_DESKTOP)
-                add_library(spk_desktop_host STATIC src/desktop/preview_host.cpp)
+                # White balance at decode reuses spektralab-host's
+                # Temperature/Tint conversion, which reads LibRaw's matrix.
+                add_library(spk_desktop_host STATIC src/desktop/preview_host.cpp
+                    src/desktop/raw_white_balance.cpp host/white_balance.cpp)
                 target_compile_features(spk_desktop_host PUBLIC cxx_std_20)
                 target_include_directories(spk_desktop_host PUBLIC
                     "${CMAKE_CURRENT_SOURCE_DIR}/src" "${CMAKE_CURRENT_SOURCE_DIR}/include")
-                target_link_libraries(spk_desktop_host PUBLIC spk_image_io spektralab_engine)
+                target_link_libraries(spk_desktop_host PUBLIC spk_image_io spektralab_engine PRIVATE spk_libraw)
                 add_executable(SpektraLab WIN32 tools/windows_preview.cpp)
                 target_link_libraries(SpektraLab PRIVATE spk_desktop_host comctl32 comdlg32 shell32 gdi32 user32)
                 file(MAKE_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}/licenses")
@@ -227,6 +230,11 @@ if(NOT APPLE)
                     add_executable(spk_desktop_preview_test tests/desktop_preview.cpp)
                     target_link_libraries(spk_desktop_preview_test PRIVATE spk_desktop_host)
                     add_test(NAME spk_desktop_preview COMMAND spk_desktop_preview_test)
+                    # White balance at decode and the neutral picker on a
+                    # synthetic camera; no RAW, no GPU.
+                    add_executable(spk_desktop_white_balance_test tests/desktop_white_balance.cpp)
+                    target_link_libraries(spk_desktop_white_balance_test PRIVATE spk_desktop_host)
+                    add_test(NAME spk_desktop_white_balance COMMAND spk_desktop_white_balance_test)
                 endif()
             endif()
             if(BUILD_TESTING)

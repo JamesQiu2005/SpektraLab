@@ -339,6 +339,13 @@ void wire_rules() {
           "Print Effects off still sends glare or pre-flash");
     check(effects.glare_active && effects.get("preflash_exposure") == SettingValue(0.02),
           "Print Effects off forgot glare or pre-flash");
+    // ...and the Tone Mask (Params.swift:763), whose settings it keeps too.
+    RenderSettings masked = base;
+    masked.set("contrast_mask_active", true);
+    check(wire_params(masked, catalog).at("contrast_mask_active").as_bool(), "the tone mask is not sent");
+    masked.set("print_effects", false);
+    check(!wire_params(masked, catalog).at("contrast_mask_active").as_bool() &&
+          std::get<bool>(masked.get("contrast_mask_active")), "Print Effects off sent the tone mask, or forgot it");
     // Black and white: one grain layer, the film's own grain, and on the
     // silver paper Multigrade filter 2 as the neutral pack.
     RenderSettings silver = base;
@@ -413,7 +420,9 @@ void settings_deltas() {
     check(changed_params(base, base, catalog).fields().empty(), "unchanged settings produced a delta");
     // Each wire row alone produces exactly its own key; a film change also
     // carries the resolved scan mode. A product row produces the wire values
-    // it changes: Print Effects off turns glare off (pre-flash is at 0).
+    // it changes: Print Effects off turns glare off (pre-flash is at 0, the
+    // Tone Mask is off); the white balance and the placement's UI state
+    // change none -- the white balance is the decode (render re-opens).
     for (const auto& field : setting_fields()) {
         RenderSettings after = base;
         SettingValue value;
@@ -427,7 +436,13 @@ void settings_deltas() {
         }
         after.set(field.key, value);
         const auto delta = changed_params(base, after, catalog);
-        std::vector<std::string> expected{field.wire ? field.key : std::string("glare_active")};
+        if (after == base) {  // a one-choice row (contrast_mask_scheme) cannot change
+            check(delta.fields().empty(), "an unchanged row produced a delta");
+            continue;
+        }
+        std::vector<std::string> expected;
+        if (field.wire) expected.push_back(field.key);
+        else if (field.key == "print_effects") expected.push_back("glare_active");
         if (field.key == "film_stock") expected.push_back("scan_film");
         std::sort(expected.begin(), expected.end());
         if (keys_of(delta) != expected) throw std::runtime_error("delta is not minimal for " + field.key);
@@ -1141,7 +1156,24 @@ void settings_engine(const fs::path& resources) {
     check(silver->channel_spread() < 2e-3, "a black-and-white print has colour in it");
     next.film_stock = "kodak_portra_400";
     next.print_stock = "kodak_supra_endura";
-    (void)edit(next, false);
+    const auto colour = edit(next, false);
+    // The Pre-Dev rows. The Tone Mask is a print edit: it reprints the cached
+    // negative (API-SPEC §11) and moves the print. A resolved Scene Placement
+    // curve -- what the Fit would commit -- is a shoot edit and re-develops
+    // (API-SPEC §12); a highlight knee half a stop over the metered mid-grey
+    // reaches into this frame, which runs about two stops over it. Both are
+    // still on the session when Print Effects goes off below, and the fresh
+    // open at the end holds them to what a session opened with them renders.
+    next.set("contrast_mask_active", true);
+    next.set("contrast_mask_highlights", 1.5);
+    next.set("contrast_mask_shadows", 1.0);
+    const auto masked = edit(next, true);
+    check(masked->pixels() != colour->pixels(), "the tone mask did not change the print");
+    next.set("scene_latitude_active", true);
+    next.set("scene_latitude_highlight_knee", 0.5);
+    next.set("scene_latitude_highlight_room", 1.5);
+    const auto placed = edit(next, false);
+    check(placed->pixels() != masked->pixels(), "a scene placement curve did not change the render");
     Json neutral_db;
     {
         std::ifstream file(resources / "neutral_print_filters.json", std::ios::binary);

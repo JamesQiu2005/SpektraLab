@@ -176,8 +176,9 @@ inline constexpr const char* kDisplayOutputColorSpace = "sRGB";
 // What the settings put on the wire: every wire row, under the product's
 // rules -- macOS FilmParams.wire (Params.swift:726-825):
 //  - scan_film is on for a slide film whatever the row says;
-//  - glare_active and preflash_exposure are off while print_effects is off
-//    (the Print section's Print Effects), their own values kept;
+//  - glare_active, preflash_exposure and contrast_mask_active are off while
+//    print_effects is off (the Print section's Print Effects), their own
+//    values kept;
 //  - grain_sublayers_active is off on a black-and-white film;
 //  - grain_amount is the row times the film's own grain (own_grain), within
 //    the row's range;
@@ -289,6 +290,13 @@ public:
     const Catalog& catalog() const noexcept;
     double engine_create_ms() const noexcept;
     FramePtr current() const noexcept;
+    // What current() was made from, for the analysis calls that never render
+    // (spk_solve, spk_scene_latitude) and the neutral picker's sample: the
+    // live session -- nullptr before the first open, and after a failed edit
+    // until the next render reopens it -- and the decoded RAW it was opened
+    // on. On this same worker thread only; neither may be retained.
+    spk_session* session() const noexcept;
+    const io::DecodedRaw& input() const noexcept;
 
     // New-file open is transactional: decode/open/render/display conversion
     // must all succeed before replacing the previous session and frame.
@@ -296,7 +304,9 @@ public:
                       const RenderSettings& settings = RenderSettings());
     // Only changed settings are sent. Print-side edits request spk_reprint;
     // the result's actual cache flag determines whether reuse occurred.
-    // A failure never mutates the previously returned Frame.
+    // A failure never mutates the previously returned Frame. Settings that
+    // decode differently (a white balance, raw_white_balance.hpp) are an
+    // open_raw of the current source instead.
     FramePtr render(const RenderSettings& settings);
     // Exports exactly the supplied frame, even after a newer one was opened.
     // Existing files are never overwritten. Returns only after the writer

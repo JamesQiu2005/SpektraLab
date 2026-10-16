@@ -310,6 +310,129 @@ int main(int argc,char** argv) {
             check(bytes(record)==futureBytes,"Explicit flush preserves unsupported future record");
         }
         check(bytes(record)==futureBytes,"Destructor flush also preserves future record");
+
+        // The Pre-Dev rail on the RAW (PreviewControllerPredev.cpp), in a
+        // controller, fixtures and edit store of its own.
+        check(QDir().mkpath(destination+"/predev"),"Create the Pre-Dev fixture directory");
+        const QString gamma=destination+"/predev/gamma."+original.suffix(),delta=destination+"/predev/delta."+original.suffix();
+        check(QFile::copy(original.absoluteFilePath(),gamma)&&QFile::copy(original.absoluteFilePath(),delta),"Copy the Pre-Dev fixtures");
+        {
+            PreviewController c(resources,nullptr,{},destination+"/predev-edits");ready(c);
+            c.openFiles({QUrl::fromLocalFile(gamma),QUrl::fromLocalFile(delta)});idle(c,"Open the Pre-Dev fixtures");
+            const auto measured=[&](const QString& name){
+                const auto shown=c.frame();
+                waitFor([&]{return c.frame()!=shown||(c.latitude().value("available").toBool()&&c.metering().value("available").toBool());},name);
+            };
+            // The meter and the latitude of the frame on screen, measured on
+            // the worker after the develop.
+            measured("Latitude and meter of the developed frame");
+            const auto latitude=c.latitude();const auto meter=c.metering();
+            std::cout<<"latitude on the RAW: "<<latitude["summary"].toString().replace(QChar(0x00A0),' ').toStdString()
+                     <<"; below "<<latitude["below"].toDouble()<<" within "<<latitude["within"].toDouble()<<" above "
+                     <<latitude["above"].toDouble()<<"; "<<meter["label"].toString().toStdString()<<"; spk_scene_latitude "
+                     <<latitude["analysisMs"].toDouble()<<" ms, spk_solve "<<meter["solveMs"].toDouble()<<" ms on a "
+                     <<c.frame()->width()<<"x"<<c.frame()->height()<<" frame\n";
+            check(std::abs(latitude["below"].toDouble()+latitude["within"].toDouble()+latitude["above"].toDouble()-1)<1e-6&&
+                  latitude["heldStops"].toDouble()>2&&latitude["fractions"].toList().size()==128,"The latitude readout of the RAW");
+
+            // White balance: As Shot is the camera's; a temperature re-decodes
+            // and develops a new negative; a print edit after it does not.
+            const auto wb=c.whiteBalance();
+            check(wb["mode"]=="as_shot"&&wb["asShotKnown"].toBool()&&wb["temperatureAsShot"].toBool()&&wb["tintAsShot"].toBool()&&
+                  wb["temperature"]==wb["asShotTemperature"],"As Shot reads the camera's white balance");
+            const auto shotMultipliers=c.frame()->metadata.post_scale_pre_mul;
+            check(c.setTemperature(3200),"Temperature 3200 K accepted");idle(c,"Re-decode at 3200 K");
+            check(!c.frame()->reprint()&&!c.frame()->negative_was_cached()&&c.frame()->timings.decode_ms>0&&
+                  c.frame()->metadata.post_scale_pre_mul!=shotMultipliers&&!c.whiteBalance()["temperatureAsShot"].toBool()&&
+                  c.whiteBalance()["tintAsShot"].toBool(),"A white balance re-decodes the RAW; the tint stays the camera's");
+            std::cout<<"white balance on the RAW: as shot "<<wb["asShotTemperature"].toDouble()<<" K / "<<wb["asShotTint"].toDouble()
+                     <<"; 3200 K re-decode "<<c.frame()->timings.decode_ms<<" ms, render "<<c.frame()->timings.render_ms<<" ms\n";
+            c.setExposureEv(c.exposureEv()+.1);idle(c,"A print edit after the white balance");
+            check(c.frame()->reprint()&&c.frame()->negative_was_cached()&&c.frame()->timings.decode_ms==0,
+                  "A print edit after a white balance reprints the cached negative without decoding");
+            // A print edit re-probes the medium (its key holds the enlarger)
+            // and keeps the scene: the analysis's cost after a reprint.
+            {
+                const auto printed=c.frame();
+                waitFor([&]{return c.frame()!=printed||c.latitude().value("current").toBool();},"Latitude after a print edit");
+                std::cout<<"latitude after a reprint: spk_scene_latitude "<<c.latitude()["analysisMs"].toDouble()<<" ms\n";
+            }
+            c.undo();c.undo();idle(c,"Undo back to As Shot");
+            check(c.whiteBalance()["mode"]=="as_shot"&&c.frame()->metadata.post_scale_pre_mul==shotMultipliers,
+                  "Undo restores As Shot and the camera's multipliers");
+
+            // The neutral picker, at the middle of the shown picture.
+            bool pickDone=false,pickOk=false;QString pickMessage;
+            auto pickConnection=QObject::connect(&c,&PreviewController::neutralPicked,&c,[&](bool ok,const QString& m){pickDone=true;pickOk=ok;pickMessage=m;});
+            check(c.pickNeutral(.5,.5),"The neutral picker starts");
+            waitFor([&]{return pickDone;},"The neutral pick");idle(c,"Re-decode at the picked white balance");
+            QObject::disconnect(pickConnection);
+            if(pickOk) {
+                check(c.whiteBalance()["mode"]=="custom"&&std::get<std::string>(c.frame()->settings.get("white_balance"))=="custom"&&
+                      c.frame()->timings.decode_ms>0,"A pick is Custom, re-decoded");
+                std::cout<<"neutral pick on the RAW: "<<c.whiteBalance()["temperature"].toDouble()<<" K / "<<c.whiteBalance()["tint"].toDouble()<<"\n";
+                c.undo();idle(c,"Undo the pick");
+            } else {
+                std::cout<<"neutral pick on the RAW refused: "<<pickMessage.toStdString()<<"\n";
+                check(!pickMessage.isEmpty()&&c.whiteBalance()["mode"]=="as_shot","A refused pick says why and changes nothing");
+            }
+
+            // Process: the shifts are offsets from the solved pack, so they go
+            // back to 0 in one undo step; the pack is reported.
+            check(c.setParameter("y_filter_shift",.3)&&c.setParameter("m_filter_shift",-.2),"Shifts before Process");
+            idle(c,"Render the shifts");
+            bool processDone=false,processOk=false;
+            auto processConnection=QObject::connect(&c,&PreviewController::processed,&c,[&](bool ok,const QString&){processDone=true;processOk=ok;});
+            check(c.process(),"Process starts");waitFor([&]{return processDone;},"Process");idle(c,"Reprint after Process");
+            QObject::disconnect(processConnection);
+            check(processOk&&c.parameter("y_filter_shift").toDouble()==0&&c.parameter("m_filter_shift").toDouble()==0,
+                  "Process zeroes the shifts");
+            check(c.frame()->reprint()&&c.frame()->settings.y_filter_shift==0,"Process's reprint shows the solved pack");
+            const auto pack=c.metering()["filters"].toMap();
+            check(pack.contains("c")&&pack.contains("m")&&pack.contains("y"),"Process reports the pack");
+            std::cout<<"Process on the RAW: pack C "<<pack["c"].toDouble()<<" M "<<pack["m"].toDouble()<<" Y "<<pack["y"].toDouble()<<"\n";
+            c.undo();
+            check(near(c.parameter("y_filter_shift").toDouble(),.3)&&near(c.parameter("m_filter_shift").toDouble(),-.2),
+                  "One undo restores both shifts");
+            idle(c,"Undo Process");
+
+            // Scene Placement: a highlight step through the Fit, committed and
+            // re-developed; synced, the other photograph fits its own.
+            measured("Latitude after Process");
+            const auto placement=c.scenePlacement();
+            check(placement["enabled"].toBool(),"Scene Placement is enabled on a measured frame");
+            const auto window=placement["highlightWindow"].toMap();
+            if(window["hasSpan"].toBool()) {
+                const double step=std::min(window["from"].toDouble()+.25,window["to"].toDouble());
+                const double aboveBefore=c.latitude()["above"].toDouble();
+                check(c.placeScene(step,0,"highlight")&&c.scenePlacement()["active"].toBool()&&
+                      near(c.scenePlacement()["highlight"].toDouble(),step),"A highlight step is committed");
+                check(c.latitude()["above"].toDouble()<=aboveBefore,"The graph follows the committed curve at once");
+                idle(c,"Re-develop with the placement");
+                check(!c.frame()->negative_was_cached()&&std::get<bool>(c.frame()->settings.get("scene_latitude_active")),
+                      "A placement re-develops");
+                const auto knee=c.parameter("scene_latitude_highlight_knee").toDouble();
+                std::cout<<"placement on the RAW: highlight "<<step<<" stops (window "<<window["from"].toDouble()<<" .. "
+                         <<window["to"].toDouble()<<"), knee "<<knee<<", above "<<aboveBefore<<" -> "<<c.latitude()["above"].toDouble()<<"\n";
+                c.selectAllPhotos(false);c.setItemSelected(1,true);c.syncSelectedSettings(false);
+                c.selectImage(1);idle(c,"Open the synced photograph");
+                waitFor([&]{return c.activeIndex()==1&&c.parameter("scene_latitude_needs_fit")==false&&!c.dirty()&&!c.busy();},
+                        "The synced placement is fitted on its own frame");
+                check(std::get<bool>(c.frame()->settings.get("scene_latitude_active"))&&
+                      near(c.parameter("scene_latitude_highlight_pull_back").toDouble(),step)&&
+                      std::abs(c.parameter("scene_latitude_highlight_knee").toDouble()-knee)<1e-9,
+                      "A synced placement carries its pull-back and is fitted on its own frame (the same file: the same knee)");
+                c.undo();idle(c,"Undo the sync");
+                check(!c.scenePlacement()["active"].toBool(),"The recipient undoes the synced placement");
+                c.selectImage(0);idle(c,"Back to the placed photograph");
+                c.undo();idle(c,"Undo the placement");
+                check(!c.scenePlacement()["active"].toBool()&&!std::get<bool>(c.frame()->settings.get("scene_latitude_active")),
+                      "Undo turns the placement off");
+            } else {
+                std::cout<<"placement on the RAW: no highlight window: "<<placement["highlightMessage"].toString().toStdString()<<"\n";
+                check(!placement["highlightMessage"].toString().isEmpty(),"A side with no window says why");
+            }
+        }
         report["passed"]=true;
     } catch(const std::exception& error) {
         report["passed"]=false;report["error"]=QString::fromUtf8(error.what());
