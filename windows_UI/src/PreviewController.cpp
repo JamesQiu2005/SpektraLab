@@ -1,6 +1,7 @@
 #include "PreviewController.hpp"
 #include "FrameImage.hpp"
 #include "PostDevSurfaces.hpp"
+#include "RecipeExport.hpp"
 #include <QElapsedTimer>
 #include <QMetaObject>
 #include <QDir>
@@ -206,7 +207,7 @@ PreviewController::PreviewController(std::filesystem::path resources,QObject* pa
     // The canvas is fed from pixels() (publish), so the host's 8-bit copy
     // would be 132 MB per 33 MP frame nobody reads.
     desktop::HostOptions options;options.bgra8_display=false;
-    if(!outputColorSpace.isEmpty())options.output_color_space=outputColorSpace.toStdString();
+    options.output_color_space=outputColorSpace.isEmpty()?std::string(kWorkingSpace):outputColorSpace.toStdString();
     setupPostDev();
     worker_=std::thread([this,resources=std::move(resources),options]{workerLoop(resources,options);});
 }
@@ -685,8 +686,11 @@ void PreviewController::exportImage(const QUrl& url,int format,int quality,int m
     // cut frame the whole film canvas, as the Mac grades it (Exporter
     // .filePixels: applyLayer2 on the engine's print, then printGeometry).
     const auto grade=desktop::postdev::exportGrade(postdev_);
-    submit([p,held,gen,geometry,resources,format,quality,maxLongEdge,grade](auto&){Reply r;r.generation=gen;r.operation="export";
-        try{output::exportFrame(held,p,geometry,exportOptions(format,quality,maxLongEdge),resources,grade);}catch(const std::exception& e){r.error=text(e.what());}return r;},uiText("status.exporting"),"export");
+    // A frame in the working space is converted into sRGB once before the
+    // sRGB-tagged writers see it (RecipeExport.hpp exportLegacy).
+    submit([p,held,gen,geometry,resources,format,quality,maxLongEdge,grade](auto& host){Reply r;r.generation=gen;r.operation="export";
+        try{desktop::exporting::exportLegacy(held,p,geometry,exportOptions(format,quality,maxLongEdge),resources,grade,host.engine());}
+        catch(const std::exception& e){r.error=text(e.what());}return r;},uiText("status.exporting"),"export");
 }
 
 QVariantMap PreviewController::adjustments() const {
@@ -1226,8 +1230,8 @@ void PreviewController::exportBatch(const QUrl& folder,int format,int quality,in
                             useShown=cut==held->cut&&(!cut||held->geometry==toCut(item.geometry));
                         }
                         const auto developed=useShown?held:host.open_raw(source,item.mode,item.settings,toCut(item.geometry));
-                        output::exportFrame(developed,target,developed->cut?output::Geometry{}:item.geometry,options,resources,
-                                            desktop::postdev::exportGrade(item.postdev));++done;
+                        desktop::exporting::exportLegacy(developed,target,developed->cut?output::Geometry{}:item.geometry,options,
+                                                         resources,desktop::postdev::exportGrade(item.postdev),host.engine());++done;
                     }
                 }catch(const std::exception& e){++errors;details.append(name+": "+text(e.what()));}
                 ++processed;

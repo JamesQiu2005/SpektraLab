@@ -240,9 +240,14 @@ public:
     // after the render and before the reply is queued; a throw fails the
     // operation and keeps the displayed frame (the self-test injects one).
     using ImageFactory=std::function<QImage(const spk::desktop::FramePtr&)>;
-    // `outputColorSpace` empty: the host's display default (sRGB). Anything
-    // else is requested of every session, for tests of the tagging path;
-    // what the frame is tagged with is still what the engine reports.
+    // The session's working space, as the macOS app's (ARCHITECTURE.md 7.5:
+    // the engine renders encoded ProPhoto RGB; the canvas converts for the
+    // display, every export converts once into its recipe's space). Asked of
+    // every session unless the caller names another; what the frame is
+    // tagged with is still what the engine reports (Frame::encoding).
+    static constexpr const char* kWorkingSpace = "ProPhoto RGB";
+    // `outputColorSpace` empty: kWorkingSpace. "sRGB" keeps the old sRGB
+    // session, which tests use to pin the byte-identical sRGB export.
     explicit PreviewController(std::filesystem::path resources, QObject* parent=nullptr, ImageFactory imageFactory={},
                                QString editDirectory={}, QString outputColorSpace={});
     static QImage imageFromFrame(const spk::desktop::FramePtr&);

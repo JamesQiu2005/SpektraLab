@@ -171,9 +171,12 @@ private:
 // `scan_film` (macOS's "No Print Profile") is on.
 bool validate_settings(const RenderSettings& settings, const Catalog& catalog);
 
-// What the desktop asks spk_open to render into until the frontend converts
-// from the working space itself (the engine's own default is ProPhoto RGB,
-// RFC-018 §5.1). A request, not a fact: see OutputEncoding.
+// The host's default request of spk_open: what the GDI viewer
+// (engine/tools/windows_preview.cpp) draws as BGRA8 without a colour
+// transform. The Qt frontend asks for the working space instead (ProPhoto RGB,
+// the engine's own default, RFC-018 §5.1: PreviewController::kWorkingSpace)
+// and converts for the display and every export itself. A request, not a
+// fact: see OutputEncoding.
 inline constexpr const char* kDisplayOutputColorSpace = "sRGB";
 
 
@@ -416,8 +419,9 @@ std::vector<std::uint8_t> rgba16_to_bgra8(const spk_result& result);
 
 struct HostOptions {
     // Requested of every session this host opens; Frame::encoding records
-    // what the engine resolved. Anything but sRGB is for tests until the
-    // frontend converts out of the working space (export writes sRGB only).
+    // what the engine resolved. The Qt frontend asks for ProPhoto RGB; the
+    // GDI viewer keeps sRGB (its BGRA8 is drawn untransformed), as does
+    // export_tiff, which writes sRGB.icc and refuses any other encoding.
     std::string output_color_space = kDisplayOutputColorSpace;
     // The GDI viewer draws Frame::bgra8. The Qt frontend publishes its own
     // half-float image from pixels() and turns this off: at 33 MP the copy

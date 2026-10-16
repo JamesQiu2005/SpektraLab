@@ -9,6 +9,7 @@
 #include <QImage>
 #include <algorithm>
 #include <cstring>
+#include <functional>
 #include <vector>
 
 namespace display_checks {
@@ -38,11 +39,35 @@ inline QImage framePixels(const spk::desktop::FramePtr& frame) {
                   qsizetype(p.row_stride_px)*8,QImage::Format_RGBA64);
 }
 
-// What a PNG8 export of `frame` with `geometry` must hold, by the export
-// path itself.
-inline QImage expected8(const spk::desktop::FramePtr& frame,const output::Geometry& geometry) {
+// The frame's own codes after `geometry`, quantised to 8 bits as a PNG8
+// export quantises: what the displayed half floats are held to (the display
+// shows the frame's own encoding).
+inline QImage frame8(const spk::desktop::FramePtr& frame,const output::Geometry& geometry) {
     output::ExportOptions options;options.format=output::Format::PNG8;
     return output::exportImage(framePixels(frame),geometry,options);
+}
+
+// The legacy export's conversion of a framed RGBA64 image out of the frame's
+// encoding into sRGB (the workflow tests pass exporting::convert on an engine
+// of their own; RecipeExport.hpp exportLegacy runs the same).
+using ToSrgb=std::function<QImage(const QImage& rgba64,const spk::desktop::OutputEncoding& from)>;
+
+// What a legacy export of `frame` with `geometry` in `format` must hold, by
+// the export path itself: an sRGB frame's own codes; any other encoding (the
+// ProPhoto working space) framed and sized in its encoding, then converted
+// into sRGB by `toSrgb`, then quantised. Without `toSrgb` the frame must be
+// sRGB.
+inline QImage expectedFile(const spk::desktop::FramePtr& frame,const output::Geometry& geometry,output::Format format,
+                           const ToSrgb& toSrgb={},const QImage& graded={}) {
+    output::ExportOptions options;options.format=format;
+    const QImage source=graded.isNull()?framePixels(frame):graded;
+    if(frame->encoding.is_encoded_srgb()||!toSrgb)return output::exportImage(source,geometry,options);
+    output::ExportOptions keep;keep.format=output::Format::TIFF16;
+    const QImage framed=output::exportImage(source,geometry,keep).copy();
+    return output::exportImage(toSrgb(framed,frame->encoding),output::Geometry{},options);
+}
+inline QImage expected8(const spk::desktop::FramePtr& frame,const output::Geometry& geometry,const ToSrgb& toSrgb={}) {
+    return expectedFile(frame,geometry,output::Format::PNG8,toSrgb);
 }
 
 // Whether an 8-bit export and a half-float display can be the same 16-bit
