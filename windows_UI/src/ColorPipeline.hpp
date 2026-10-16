@@ -19,6 +19,7 @@
 #include <vector>
 
 class QQuickWindow;
+namespace spk::color { class ProfileSource; }
 
 // The display transform sampled on an N x N x N grid over the source's encoded
 // RGB in [0,1]. Node (r, g, b) is at index ((b * N + g) * N + r) * 4. RGB hold
@@ -73,6 +74,22 @@ public:
     void setLutOverrideForTesting(std::shared_ptr<const ColorLut> lut);
 
     ~ColorPipeline() override;
+
+    // The colour space LUTs are built to now: the display profile, or sRGB
+    // in every fallback (srgb mode, Auto Color Management, HDR, a profile Qt
+    // cannot use as a target).
+    QColorSpace targetColorSpace() const;
+
+    // Tests only: replace the Windows queries (DisplayColor.hpp) with
+    // simulated monitors, and pretend the window is on `screenId`.
+    void setProfileSourceForTesting(std::shared_ptr<spk::color::ProfileSource> source);
+    void setScreenForTesting(const QString& screenId);
+
+public slots:
+    // Ask the OS about the window's monitor again now. Windows announces no
+    // profile change, so this also runs after screen changes, display and
+    // setting messages, application activation and on a 3 s poll.
+    void reload();
 
 signals:
     void changed();
