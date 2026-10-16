@@ -60,13 +60,13 @@ float cctf_encode_mode(float v, uint32_t mode) {
 }
 
 bool OutputTransform::fetch(spk_engine* engine, const std::string& src, const std::string& dst,
-                            std::string& error) {
+                            std::string& error, const char* gamut_compress_json) {
     src_ = src;
     dst_ = dst;
     char* json = nullptr;
     const float* cmax = nullptr;
     uint32_t count = 0;
-    if (spk_output_transform(engine, src.c_str(), dst.c_str(), nullptr, &json, &cmax, &count) != SPK_OK) {
+    if (spk_output_transform(engine, src.c_str(), dst.c_str(), gamut_compress_json, &json, &cmax, &count) != SPK_OK) {
         error = spk_last_error(engine);
         return false;
     }
@@ -497,6 +497,7 @@ static void exif_fields(IfdBuilder& exif, const Exif& e, uint32_t w, uint32_t h)
     exif.ascii(0x9003, e.datetime_original);
     rational_value(exif, 0x920A, e.focal_mm, false);
     exif.ascii(0xA434, e.lens);
+    if (e.color_space) exif.shorts(0xA001, {e.color_space});
     exif.longs(0xA002, {w});
     exif.longs(0xA003, {h});
 }
@@ -526,7 +527,12 @@ std::vector<uint8_t> exif_block(const Exif& e, uint32_t w, uint32_t h) {
 }
 
 bool encode_tiff(const void* rgb, uint32_t w, uint32_t h, uint32_t bits, const std::vector<uint8_t>& icc,
-                 std::vector<uint8_t>& out, std::string& error, const Exif* exif_fields_in) {
+                 std::vector<uint8_t>& out, std::string& error, const Exif* exif_fields_in,
+                 const TiffPreview* preview) {
+    if (preview && (!preview->rgb || !preview->width || !preview->height)) {
+        error = "TIFF preview page has no pixels";
+        return false;
+    }
     if (bits != 8 && bits != 16) { error = "TIFF bits must be 8 or 16"; return false; }
     const uint64_t row_bytes = uint64_t(w) * 3 * (bits / 8);
     const uint64_t image_bytes = row_bytes * h;
@@ -585,6 +591,37 @@ bool encode_tiff(const void* rgb, uint32_t w, uint32_t h, uint32_t bits, const s
             out[start + 2 * i] = uint8_t(src[i]);
             out[start + 2 * i + 1] = uint8_t(src[i] >> 8);
         }
+    }
+    if (preview) {
+        // IFD1 after the first page's pixels, then its own pixels; IFD0's
+        // next-IFD offset (after its entries) is patched to point at it.
+        const uint64_t preview_bytes = uint64_t(preview->width) * preview->height * 3;
+        size_t ifd1_at = out.size();
+        if (ifd1_at & 1) ++ifd1_at;
+        IfdBuilder page;
+        page.longs(254, {1});
+        page.longs(256, {preview->width});
+        page.longs(257, {preview->height});
+        page.shorts(258, {8, 8, 8});
+        page.shorts(259, {1});
+        page.shorts(262, {2});
+        const size_t page_offsets = page.placeholder(273, 1);
+        page.shorts(277, {3});
+        page.longs(278, {preview->height});
+        page.longs(279, {uint32_t(preview_bytes)});
+        page.shorts(284, {1});
+        if (!preview->icc.empty()) page.undefined(34675, preview->icc);
+        const size_t preview_at = (ifd1_at + page.size() + 15) & ~size_t(15);
+        if (preview_at + preview_bytes > 0xFFFFFFF0ull) { error = "image too large for a classic TIFF"; return false; }
+        page.patch(page_offsets, {uint32_t(preview_at)});
+        const auto b = page.serialize(ifd1_at);
+        out.resize(ifd1_at, 0);
+        out.insert(out.end(), b.begin(), b.end());
+        out.resize(preview_at, 0);
+        out.insert(out.end(), preview->rgb, preview->rgb + preview_bytes);
+        const size_t entries = size_t(out[ifd_at]) | (size_t(out[ifd_at + 1]) << 8);
+        const size_t next = ifd_at + 2 + entries * 12;
+        for (int i = 0; i < 4; ++i) out[next + i] = uint8_t(uint32_t(ifd1_at) >> (8 * i));
     }
     return true;
 }
