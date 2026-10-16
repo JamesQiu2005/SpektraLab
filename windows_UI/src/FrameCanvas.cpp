@@ -215,18 +215,24 @@ void FrameCanvas::mouseDoubleClickEvent(QMouseEvent* e){
 }
 void FrameCanvas::wheelEvent(QWheelEvent* e) {
     if(!interactive_||image_.isNull()){e->ignore();return;}
-    if(e->modifiers()&Qt::ControlModifier) {
-        // One notch (120) is a quarter stop of magnification, 2^(1/4); a
-        // touchpad's fine deltas zoom smoothly by the same law.
-        const double notches=e->angleDelta().y()/120.0;
-        if(notches!=0){sync();zoomAbout(canvas::zoomOf(view_)*std::exp2(notches/4),e->position().x(),e->position().y());}
-        e->accept();return;
-    }
-    if(view_.fit){e->ignore();return;}
     // Pixel deltas from a precision touchpad pan 1:1; a wheel notch is 60 px.
     QPointF delta=!e->pixelDelta().isNull()?QPointF(e->pixelDelta()):QPointF(e->angleDelta())/2.0;
-    if(e->modifiers()&Qt::ShiftModifier&&delta.x()==0)delta=QPointF(delta.y(),0);
-    panBy(delta.x(),delta.y());e->accept();
+    const auto modifiers=e->modifiers();
+    // Shift pans across, Alt up and down (Qt may hand Alt's turn over as a
+    // horizontal one, so either axis serves), and a tilted wheel pans
+    // across by itself. Everything else zooms.
+    const bool across=modifiers&Qt::ShiftModifier||(delta.y()==0&&delta.x()!=0&&!(modifiers&Qt::AltModifier));
+    if(across||modifiers&Qt::AltModifier) {
+        if(view_.fit){e->ignore();return;}
+        const double amount=delta.y()!=0?delta.y():delta.x();
+        if(across)panBy(amount,0);else panBy(0,amount);
+        e->accept();return;
+    }
+    // One notch (120) is a quarter stop of magnification, 2^(1/4); a
+    // touchpad's fine deltas zoom smoothly by the same law.
+    const double notches=e->angleDelta().y()/120.0;
+    if(notches!=0){sync();zoomAbout(canvas::zoomOf(view_)*std::exp2(notches/4),e->position().x(),e->position().y());}
+    e->accept();
 }
 bool FrameCanvas::event(QEvent* e) {
     if(e->type()==QEvent::NativeGesture&&interactive_&&!image_.isNull()) {

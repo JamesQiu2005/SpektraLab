@@ -40,6 +40,41 @@ Item {
     readonly property rect picture: frameCanvas.imageRect
     readonly property real splitX: picture.x + editor.comparePosition * picture.width
 
+    // A scroll bar along one edge of the canvas while the picture is larger
+    // than the canvas on that axis -- a Windows photo viewer's; the Mac's
+    // canvas has none and pans on a scroll. The thumb is the part of the
+    // picture in view, and dragging it or clicking the track pans the canvas.
+    component CanvasScrollBar: ScrollBar {
+        id: bar
+        required property FrameCanvas target
+        required property bool alongX
+        readonly property rect picture: target.imageRect
+        readonly property real extent: alongX ? picture.width : picture.height
+        readonly property real span: alongX ? target.width : target.height
+        readonly property real origin: alongX ? picture.x : picture.y
+        orientation: alongX ? Qt.Horizontal : Qt.Vertical
+        visible: target.interactive && !target.fit && extent > span + 0.5
+        policy: ScrollBar.AlwaysOn
+        padding: 2
+        size: extent > 0 ? Math.min(1, span / extent) : 1
+        Binding on position {
+            value: bar.extent > 0 ? -bar.origin / bar.extent : 0
+            when: !bar.pressed
+            restoreMode: Binding.RestoreNone
+        }
+        onPositionChanged: {
+            if (!pressed) return
+            var shift = -position * extent - origin
+            if (alongX) target.panBy(shift, 0); else target.panBy(0, shift)
+        }
+        background: Rectangle { radius: 5; color: Qt.rgba(0, 0, 0, bar.hovered || bar.pressed ? 0.35 : 0.2) }
+        contentItem: Rectangle {
+            implicitWidth: 6; implicitHeight: 6; radius: 3
+            color: Theme.text
+            opacity: bar.pressed ? 0.9 : bar.hovered ? 0.7 : 0.45
+        }
+    }
+
     // The grip's two filled arrowheads (CompareOverlay.swift arrowtriangle).
     component Arrow: Shape {
         id: arrow
@@ -150,6 +185,22 @@ Item {
             onPositionChanged: function(mouse) { if (pressed) track(mouse) }
         }
     }
+    CanvasScrollBar {
+        id: horizontalBar
+        objectName: "canvasHorizontalScrollBar"
+        target: frameCanvas; alongX: true
+        anchors.left: parent.left; anchors.bottom: parent.bottom
+        anchors.right: parent.right; anchors.rightMargin: verticalBar.visible ? verticalBar.width : 0
+        height: 10
+    }
+    CanvasScrollBar {
+        id: verticalBar
+        objectName: "canvasVerticalScrollBar"
+        target: frameCanvas; alongX: false
+        anchors.top: parent.top; anchors.right: parent.right
+        anchors.bottom: parent.bottom; anchors.bottomMargin: horizontalBar.visible ? horizontalBar.height : 0
+        width: 10
+    }
     // The neutral picker (EditorState.pickingNeutral; MetalCanvasView's
     // crosshair and `picked(normalised:)`): over everything else while armed,
     // a cross on the canvas, and a click on the picture hands the point,
@@ -212,7 +263,7 @@ Item {
         Rectangle {
             id: stripTab
             anchors.horizontalCenter: parent.horizontalCenter; anchors.bottom: parent.bottom
-            anchors.bottomMargin: 4
+            anchors.bottomMargin: horizontalBar.visible ? horizontalBar.height + 4 : 4
             width: 42; height: 14; radius: 7
             visible: edgeHover.hovered || view.editor.filmstripCollapsed
             color: tabMouse.containsMouse ? "#d0383837" : "#b02d2d2c"

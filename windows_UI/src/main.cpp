@@ -736,6 +736,17 @@ private:
         if(!require(std::abs(canvas_->scalePercent()-100*std::exp2(0.25))<1e-6&&
                     std::abs(photoAfter.x()-photoBefore.x())<1e-6&&std::abs(photoAfter.y()-photoBefore.y())<1e-6,
                     "ctrl_wheel_zooms_about_pointer"))return;
+        // The plain wheel zooms the same way; Shift+wheel pans across.
+        QWheelEvent plain(scene,window_.mapToGlobal(scene),QPoint(),QPoint(0,120),Qt::NoButton,Qt::NoModifier,Qt::NoScrollPhase,false);
+        QCoreApplication::sendEvent(&window_,&plain);
+        checks_["wheel_percent"]=canvas_->scalePercent();
+        if(!require(std::abs(canvas_->scalePercent()-100*std::exp2(0.5))<1e-6,"wheel_zooms"))return;
+        const auto beforePan=canvas_->imageRect();
+        QWheelEvent across(scene,window_.mapToGlobal(scene),QPoint(),QPoint(0,-120),Qt::NoButton,Qt::ShiftModifier,Qt::NoScrollPhase,false);
+        QCoreApplication::sendEvent(&window_,&across);
+        const auto afterPan=canvas_->imageRect();
+        if(!require(std::abs(canvas_->scalePercent()-100*std::exp2(0.5))<1e-6&&std::abs(afterPan.x()-beforePan.x()+60)<1e-6&&
+                    afterPan.y()==beforePan.y(),"shift_wheel_pans_across"))return;
         // The navigator frames what the canvas shows.
         canvas_->zoomTo(2);
         later([this]{
@@ -744,8 +755,40 @@ private:
             const double x0=std::max(0.0,-r.x()/r.width()),x1=std::min(1.0,(canvas_->width()-r.x())/r.width());
             if(!require(fraction.width()<0.999&&std::abs(fraction.x()-x0)<1e-6&&std::abs(fraction.right()-x1)<1e-6,
                         "navigator_frames_zoomed_view")||!capture("zoom-200"))return;
+            checkScrollBars();
+        });
+    }
+    // The canvas's scroll bars at 200 %: each thumb is the part of the picture
+    // in view, dragging one pans the canvas, and at fit both are gone.
+    void checkScrollBars() {
+        auto* across=window_.findChild<QQuickItem*>("canvasHorizontalScrollBar");
+        auto* down=window_.findChild<QQuickItem*>("canvasVerticalScrollBar");
+        const auto r=canvas_->imageRect();
+        const auto matches=[&](QQuickItem* bar,double extent,double span,double origin){
+            return std::abs(bar->property("size").toDouble()-span/extent)<1e-6&&
+                   std::abs(bar->property("position").toDouble()+origin/extent)<1e-6;
+        };
+        if(!require(across&&down&&across->isVisible()&&down->isVisible()&&
+                    matches(across,r.width(),canvas_->width(),r.x())&&matches(down,r.height(),canvas_->height(),r.y()),
+                    "scroll_bars_show_the_view"))return;
+        auto* thumb=across->property("contentItem").value<QQuickItem*>();
+        if(!require(thumb&&thumb->width()>4,"scroll_bar_thumb"))return;
+        const auto from=thumb->mapToScene(QPointF(thumb->width()*0.5,thumb->height()*0.5));
+        drag(from,from-QPointF(40,0));
+        later([this,across,r]{
+            const auto moved=canvas_->imageRect();
+            // The thumb travels the track as the view travels the picture.
+            const double track=across->width()-across->property("leftPadding").toDouble()-across->property("rightPadding").toDouble();
+            const double expected=40*r.width()/track;
+            checks_["scroll_bar_pan_px"]=moved.x()-r.x();
+            if(!require(std::abs(moved.x()-r.x()-expected)<0.1*expected&&moved.y()==r.y()&&
+                        std::abs(canvas_->scalePercent()-200)<1e-9,"scroll_bar_drag_pans"))return;
             canvas_->resetView(true);
-            later([this]{checkOriginal();});
+            later([this,across]{
+                auto* down=window_.findChild<QQuickItem*>("canvasVerticalScrollBar");
+                if(!require(!across->isVisible()&&!down->isVisible(),"scroll_bars_hidden_at_fit"))return;
+                checkOriginal();
+            });
         });
     }
     // The Original: the decode, in the print's tag and geometry (trap 33's

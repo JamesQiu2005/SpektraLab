@@ -386,9 +386,12 @@ during work waits for the current operation.
 
 - Zoom: fit or 5-800 % in the Mac's steps, about a point. 100 % and every
   whole multiple put the image origin on the window's physical pixel grid.
-  Ctrl+wheel, touchpad pinch or the native zoom gesture zoom about the pointer
-  (the Mac uses Cmd/Option+scroll); the wheel pans, Shift+wheel pans across;
-  double-click and Z toggle fit/100 %. The zoom pill opens Fit, 25, 50, 100,
+  The wheel (with or without Ctrl), touchpad pinch or the native zoom gesture
+  zoom about the pointer, a quarter stop per notch (the Mac pans on a scroll
+  and zooms with Cmd/Option); Shift+wheel or a tilted wheel pans across,
+  Alt+wheel up and down. Zoomed past the canvas, scroll bars on its bottom and
+  right edges pan it, as does a drag; double-click and Z toggle fit/100 %.
+  The zoom pill opens Fit, 25, 50, 100,
   200, 400 %; Ctrl+= / Ctrl+- step; Ctrl+0 and Ctrl+1 (or , and .) are fit and
   100 %. Zoom is locked in the crop editor. F11 is full screen.
 - Histogram: RGB and luma of what the canvas shows -- the cropped print, the

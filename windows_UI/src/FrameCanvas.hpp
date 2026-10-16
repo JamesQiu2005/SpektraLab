@@ -15,12 +15,13 @@
 // items behind it.
 //
 // The view is CanvasMath's: fitted, or a zoom from 5 % to 800 % with the
-// macOS steps (ViewportState.swift), panned under the one clamp. A wheel turn
-// with Ctrl held, a touchpad pinch (which Windows delivers as Ctrl+wheel) or
-// a native zoom gesture zooms about the pointer; a plain wheel pans
-// vertically and Shift+wheel horizontally, as a Windows document view does
-// (the Mac pans on a plain scroll and zooms with Cmd or Option). A
-// double-click toggles fit and 100 % about the pointer (the Mac's Z).
+// macOS steps (ViewportState.swift), panned under the one clamp. The wheel
+// (with or without Ctrl), a touchpad pinch (which Windows delivers as
+// Ctrl+wheel) or a native zoom gesture zooms about the pointer, as a Windows
+// photo viewer does; Shift+wheel and a tilted wheel pan across, Alt+wheel up
+// and down, and the canvas's scroll bars and a drag pan too (the Mac pans on
+// a plain scroll and zooms with Cmd or Option). A double-click toggles fit
+// and 100 % about the pointer (the Mac's Z).
 //
 // `follow` makes this canvas draw its image in another canvas's rectangle --
 // the before/after split's left half, which must sit pixel for pixel on the
