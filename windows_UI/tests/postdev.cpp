@@ -1,18 +1,25 @@
-// spk_qt_postdev: Post-Dev (Layer 2) -- src/PostDev.{hpp,cpp}. No RAW, no
-// engine, no shown window.
+// spk_qt_postdev: Post-Dev (Layer 2) -- src/PostDev.{hpp,cpp} and
+// shaders/postdev.glsl. No RAW, no engine, no shown window.
 //   --cpu    the model and its ranges, the uniforms, the curve against a
 //            transcription of CurveMath.swift, the CPU path against a
 //            double-precision transcription of Shaders.metal, identity,
 //            determinism across thread counts, JSON, the wheel, and the
-//            std140 block's order.
+//            std140 layout read back from the baked probe shader.
+//   --gpu    shaders/postdev.glsl through a QRhi offscreen render (D3D11,
+//            WARP preferred) against the CPU path. Fails -- never skips --
+//            when no D3D11 device can be made. `--gpu-default` runs the same
+//            on the default adapter (by hand; not a CTest).
 //   --bench [width height]   CPU timing (default 7008 x 4672, 32.7 MP).
 #include "PostDev.hpp"
 #include <QColorSpace>
+#include <QFile>
 #include <QGuiApplication>
 #include <QImage>
 #include <QJsonArray>
 #include <QJsonDocument>
 #include <QJsonObject>
+#include <rhi/qrhi.h>
+#include <rhi/qshader.h>
 #include <algorithm>
 #include <array>
 #include <chrono>
@@ -482,6 +489,9 @@ std::string describe(const std::vector<float>& input, const std::vector<float>& 
            fmt(" want (%.9g, %.9g, %.9g)", ref.rgba[4 * p], ref.rgba[4 * p + 1], ref.rgba[4 * p + 2]) +
            fmt(" sensitivity %.3g", ref.sensitivity[p]);
 }
+Reference asReference(const std::vector<float>& rgba, const Reference& conditioning) {
+    return {std::vector<double>(rgba.begin(), rgba.end()), conditioning.sensitivity};
+}
 
 std::vector<float> cpuFrame(std::vector<float> rgba, int w, int h, const pd::Grade& grade, int threads = 1) {
     grade.apply(rgba.data(), w, h, 4, 0, threads);
@@ -496,6 +506,10 @@ std::vector<float> cpuFrame(std::vector<float> rgba, int w, int h, const pd::Gra
 // transcription is float rounding, the closed-form exposure and powf. The
 // measured worst cases are printed.
 constexpr double oracleTolerance = 1.0 / 65535.0;
+// GPU against CPU, on the same terms. D3D's pow is exp2(y log2 x) at limited
+// precision and FXC may reassociate; WARP and an RTX 3070 both measure far
+// below this wherever the grade is well-conditioned.
+constexpr double gpuTolerance = 1e-4;
 
 // ---------------------------------------------------------------------------
 // --cpu
@@ -972,8 +986,37 @@ void testWheel() {
     check(pd::wheel::arcFraction(0.5, -1, 1) == 0.75 && pd::wheel::arcFraction(5, 0, 1) == 1, "fractions");
 }
 
+QShader loadShader(const char* path) {
+    QFile file(QString::fromLatin1(path));
+    check(file.open(QIODevice::ReadOnly), std::string("baked shader present: ") + path);
+    const QShader shader = QShader::fromSerialized(file.readAll());
+    check(shader.isValid(), std::string("baked shader valid: ") + path);
+    return shader;
+}
+
 void testStd140() {
-    // The C++ side writes each float where PostDev.hpp says it is.
+    // The block as qsb reflected it from postdev.glsl, against std140().
+    const QShader fs = loadShader(":/postdev/shaders/postdev_probe.frag.qsb");
+    for (const auto& target : {QShaderKey(QShader::SpirvShader, QShaderVersion(100)),
+                               QShaderKey(QShader::HlslShader, QShaderVersion(50)),
+                               QShaderKey(QShader::GlslShader, QShaderVersion(300, QShaderVersion::GlslEs)),
+                               QShaderKey(QShader::GlslShader, QShaderVersion(330)),
+                               QShaderKey(QShader::MslShader, QShaderVersion(12))})
+        check(!fs.shader(target).shader().isEmpty(), "postdev.glsl baked for every canvas target");
+    const auto blocks = fs.description().uniformBlocks();
+    check(blocks.size() == 1 && blocks[0].blockName == "buf", "one uniform block");
+    const auto& members = blocks[0].members;
+    check(members.size() == 2 && members[0].name == "grade" && members[0].offset == 0 && members[0].size == 160 &&
+              members[1].name == "frame" && members[1].offset == 160,
+          "PostDev is 160 bytes at offset 0");
+    const char* names[] = {"wbExposure", "tone", "range", "cbMaster", "cbShadows",
+                           "cbMidtones", "cbHighlights", "cbLum", "vignette", "switches"};
+    const auto& fieldsOf = members[0].structMembers;
+    check(fieldsOf.size() == 10, "ten vec4");
+    for (int i = 0; i < 10; ++i)
+        check(fieldsOf[i].name == names[i] && fieldsOf[i].offset == 16 * i && fieldsOf[i].size == 16,
+              std::string("std140 offset of ") + names[i]);
+    // And the C++ side writes each one where the shader reads it.
     pd::Params p;
     p.temperature = 50;
     p.exposure = -1;
@@ -995,7 +1038,7 @@ void testStd140() {
               b[9] == u.blackPoint && b[10] == u.whitePoint && b[11] == pd::srgbMidGrey && b[24] == u.cbHighlights[0] &&
               b[31] == u.cbLum[3] && b[32] == u.vignetteAmount && b[33] == u.vignetteMidpoint && b[36] == 1 &&
               b[37] == 1 && b[38] == 1,
-          "std140() fills the block in the documented order");
+          "std140() fills the block in the shader's order");
 }
 
 void cpuTests() {
@@ -1009,6 +1052,137 @@ void cpuTests() {
     testJson();
     testWheel();
     testStd140();
+}
+
+// ---------------------------------------------------------------------------
+// --gpu: postdev.glsl through QRhi, one texel out per texel in.
+// ---------------------------------------------------------------------------
+
+class Probe {
+public:
+    Probe(QRhi* rhi, int w, int h, std::vector<float> frame) : rhi_(rhi), w_(w), h_(h), frame_(std::move(frame)) {
+        const QShader vs = loadShader(":/postdev/shaders/postdev_probe.vert.qsb");
+        const QShader fs = loadShader(":/postdev/shaders/postdev_probe.frag.qsb");
+        check(rhi->isTextureFormatSupported(QRhiTexture::RGBA32F) && rhi->isTextureFormatSupported(QRhiTexture::R32F),
+              "float textures");
+        src_.reset(rhi->newTexture(QRhiTexture::RGBA32F, QSize(w, h)));
+        curves_.reset(rhi->newTexture(QRhiTexture::R32F, QSize(pd::curveTableSize, 5)));
+        dst_.reset(rhi->newTexture(QRhiTexture::RGBA32F, QSize(w, h), 1,
+                                   QRhiTexture::RenderTarget | QRhiTexture::UsedAsTransferSource));
+        check(src_->create() && curves_->create() && dst_->create(), "textures created");
+        rt_.reset(rhi->newTextureRenderTarget({dst_.get()}));
+        rp_.reset(rt_->newCompatibleRenderPassDescriptor());
+        rt_->setRenderPassDescriptor(rp_.get());
+        check(rt_->create(), "render target created");
+        ubuf_.reset(rhi->newBuffer(QRhiBuffer::Dynamic, QRhiBuffer::UniformBuffer, 176));
+        check(ubuf_->create(), "uniform buffer created");
+        sampler_.reset(rhi->newSampler(QRhiSampler::Nearest, QRhiSampler::Nearest, QRhiSampler::None,
+                                       QRhiSampler::ClampToEdge, QRhiSampler::ClampToEdge));
+        check(sampler_->create(), "sampler created");
+        srb_.reset(rhi->newShaderResourceBindings());
+        srb_->setBindings({QRhiShaderResourceBinding::uniformBuffer(0, QRhiShaderResourceBinding::FragmentStage, ubuf_.get()),
+                           QRhiShaderResourceBinding::sampledTexture(1, QRhiShaderResourceBinding::FragmentStage,
+                                                                     src_.get(), sampler_.get()),
+                           QRhiShaderResourceBinding::sampledTexture(2, QRhiShaderResourceBinding::FragmentStage,
+                                                                     curves_.get(), sampler_.get())});
+        check(srb_->create(), "bindings created");
+        pipeline_.reset(rhi->newGraphicsPipeline());
+        pipeline_->setShaderStages({{QRhiShaderStage::Vertex, vs}, {QRhiShaderStage::Fragment, fs}});
+        pipeline_->setVertexInputLayout({});
+        pipeline_->setShaderResourceBindings(srb_.get());
+        pipeline_->setRenderPassDescriptor(rp_.get());
+        check(pipeline_->create(), "pipeline created (HLSL compiled)");
+    }
+
+    std::vector<float> run(const pd::Grade& grade) {
+        QRhiCommandBuffer* cb = nullptr;
+        check(rhi_->beginOffscreenFrame(&cb) == QRhi::FrameOpSuccess, "offscreen frame");
+        QRhiResourceUpdateBatch* updates = rhi_->nextResourceUpdateBatch();
+        // Tightly packed rows: RGBA32F and R32F, no row pitch to state.
+        if (!uploaded_) {
+            updates->uploadTexture(src_.get(), QRhiTextureUploadDescription(QRhiTextureUploadEntry(
+                                                   0, 0, QRhiTextureSubresourceUploadDescription(
+                                                             frame_.data(), quint32(frame_.size() * sizeof(float))))));
+            uploaded_ = true;
+        }
+        tables_ = grade.tables();
+        updates->uploadTexture(curves_.get(), QRhiTextureUploadDescription(QRhiTextureUploadEntry(
+                                                  0, 0, QRhiTextureSubresourceUploadDescription(
+                                                            tables_.data(), quint32(tables_.size() * sizeof(float))))));
+        const auto block = pd::std140(grade);
+        std::copy(block.begin(), block.end(), uniforms_.begin());
+        uniforms_[40] = float(w_);
+        uniforms_[41] = float(h_);
+        updates->updateDynamicBuffer(ubuf_.get(), 0, quint32(uniforms_.size() * sizeof(float)), uniforms_.data());
+        cb->beginPass(rt_.get(), QColor(0, 0, 0, 0), {1.0f, 0}, updates);
+        cb->setGraphicsPipeline(pipeline_.get());
+        cb->setViewport({0, 0, float(w_), float(h_)});
+        cb->setShaderResources();
+        cb->draw(3);
+        QRhiReadbackResult result;
+        QRhiResourceUpdateBatch* readback = rhi_->nextResourceUpdateBatch();
+        readback->readBackTexture(QRhiReadbackDescription(dst_.get()), &result);
+        cb->endPass(readback);
+        check(rhi_->endOffscreenFrame() == QRhi::FrameOpSuccess, "frame finished");
+        check(result.data.size() == qsizetype(size_t(w_) * h_ * 4 * sizeof(float)), "read back the whole target");
+        std::vector<float> out(size_t(w_) * h_ * 4);
+        std::memcpy(out.data(), result.data.constData(), size_t(result.data.size()));
+        return out;
+    }
+
+private:
+    QRhi* rhi_;
+    int w_, h_;
+    std::vector<float> frame_;
+    pd::CurveTables tables_{};
+    std::array<float, 44> uniforms_{};
+    bool uploaded_ = false;
+    std::unique_ptr<QRhiTexture> src_, curves_, dst_;
+    std::unique_ptr<QRhiTextureRenderTarget> rt_;
+    std::unique_ptr<QRhiRenderPassDescriptor> rp_;
+    std::unique_ptr<QRhiBuffer> ubuf_;
+    std::unique_ptr<QRhiSampler> sampler_;
+    std::unique_ptr<QRhiShaderResourceBindings> srb_;
+    std::unique_ptr<QRhiGraphicsPipeline> pipeline_;
+};
+
+// WARP by default: it is on every Windows 10/11 machine and renders the same
+// everywhere. `--gpu-default` asks for the default adapter instead, by hand.
+void gpuTests(bool preferSoftware) {
+    QRhiD3D11InitParams params;
+    std::unique_ptr<QRhi> rhi;
+    if (preferSoftware) rhi.reset(QRhi::create(QRhi::D3D11, &params, QRhi::PreferSoftwareRenderer));
+    if (!rhi) rhi.reset(QRhi::create(QRhi::D3D11, &params));
+    check(rhi != nullptr, "a D3D11 device (WARP or the default adapter)");
+    std::printf("  GPU: %s (%s)\n", rhi->driverInfo().deviceName.constData(),
+                preferSoftware ? "software adapter preferred" : "default adapter");
+    const auto frame = syntheticFrame(frameW, frameH, 1);
+    Probe probe(rhi.get(), frameW, frameH, frame);
+    // Identity on the GPU is the input, bit for bit, out-of-range values too.
+    const auto same = probe.run(pd::Grade(pd::Params{}));
+    bool exact = true;
+    for (size_t i = 0; i < frame.size(); ++i)
+        if (i % 4 != 3 && std::memcmp(&same[i], &frame[i], sizeof(float)) != 0) exact = false;
+    check(exact, "GPU identity is bit-exact");
+    std::vector<GroupSummary> againstCpu, againstMac;
+    for (const auto& c : cases()) {
+        const pd::Grade grade(c.params, c.midGrey);
+        const auto gpu = probe.run(grade);
+        const auto mac = oracleFrame(frame, frameW, frameH, oracle(c.params, c.midGrey));
+        const auto cpu = asReference(cpuFrame(frame, frameW, frameH, grade), mac);
+        const auto vsCpu = compare(gpu, cpu, gpuTolerance);
+        const auto vsMac = compare(gpu, mac, gpuTolerance);
+        note(againstCpu, c.group, vsCpu);
+        note(againstMac, c.group, vsMac);
+        check(vsCpu.pass, "GPU vs CPU beyond 1e-4 + 16 ulps' conditioning: " + c.group + " " + c.name +
+                              describe(frame, gpu, cpu, vsCpu.failedAt));
+        check(vsCpu.worstWellConditioned <= gpuTolerance, "flat 1e-4 bar: " + c.group + " " + c.name);
+        check(vsMac.pass, "GPU vs Shaders.metal transcription: " + c.group + " " + c.name +
+                              describe(frame, gpu, mac, vsMac.failedAt));
+    }
+    print("GPU vs the CPU path (|error|):", againstCpu);
+    print("GPU vs the double transcription of Shaders.metal (|error|):", againstMac);
+    std::printf("  GPU: %zu grades rendered\n", cases().size());
 }
 
 // ---------------------------------------------------------------------------
@@ -1057,10 +1231,14 @@ int main(int argc, char** argv) {
     qputenv("QT_QPA_PLATFORM", "offscreen");
     QGuiApplication application(argc, argv);
     const auto args = application.arguments();
+    bool cpu = args.contains("--cpu"), gpu = args.contains("--gpu");
+    const bool hardware = args.contains("--gpu-default");
     const int benchAt = int(args.indexOf("--bench"));
-    const bool cpu = args.contains("--cpu") || benchAt < 0;
+    if (!cpu && !gpu && !hardware && benchAt < 0) cpu = gpu = true;
     try {
         if (cpu) cpuTests();
+        if (gpu) gpuTests(true);
+        if (hardware) gpuTests(false);
         if (benchAt >= 0) {
             const int w = args.value(benchAt + 1).toInt(), h = args.value(benchAt + 2).toInt();
             benchmark(w > 0 ? w : 7008, h > 0 ? h : 4672);
