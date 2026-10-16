@@ -468,6 +468,9 @@ public:
     std::array<PairRect, 2> pair_holes{};
     std::array<double, 2> pair_metered{};
     std::array<io::RawMetadata, 2> pair_metadata{};
+    // Each frame's picture as its hole takes it (after its own geometry,
+    // before the placement's turns), for the placement gestures' arithmetic.
+    std::array<std::uint32_t, 2> pair_picture_w{}, pair_picture_h{};
     bool pair_layered = false;
 
     const spk_result& pixels() const noexcept { return result_; }

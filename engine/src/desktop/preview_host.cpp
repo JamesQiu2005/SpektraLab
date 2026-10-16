@@ -1456,6 +1456,8 @@ FramePtr PreviewHost::render_pair(const fs::path& identity, const PairInput& pai
         next->pair_filled = previous->pair_filled;
         next->pair_metered = previous->pair_metered;
         next->pair_metadata = previous->pair_metadata;
+        next->pair_picture_w = previous->pair_picture_w;
+        next->pair_picture_h = previous->pair_picture_h;
         next->metadata = previous->metadata;
     } else {
         // Each hole's picture: kept, or decoded now with the frame's own white
@@ -1491,6 +1493,8 @@ FramePtr PreviewHost::render_pair(const fs::path& identity, const PairInput& pai
             pictures[side] = kept->picture;
             next->pair_metadata[side] = kept->metadata;
             next->pair_filled[side] = true;
+            next->pair_picture_w[side] = kept->picture->width;
+            next->pair_picture_h[side] = kept->picture->height;
         }
         next->timings.decode_ms = elapsed(t);
         // Each hole exposed as the meter would expose it alone, plus its own
