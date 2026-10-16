@@ -198,6 +198,20 @@ template<class Body> void parallelRows(int height,Body body) {
     for(auto& thread:pool)thread.join();
     if(error)std::rethrow_exception(error);
 }
+
+// The tone curve of a camera RAW's Original, on linear light with the RAW's
+// white at 1 (LibRaw's scale, bright=1): x^p / (x^p + K), rescaled so 1 stays
+// 1. It puts 0.10 -- about 3.3 stops under clipping, where ISO-calibrated
+// cameras put a metered mid-grey -- at 18 % grey, as a camera's own rendering
+// does, with a toe of slope p in log-log below it and a soft shoulder that
+// reaches white at the RAW's white without a hard clip.
+constexpr double kToneContrast=1.3,kToneGreyIn=0.10,kToneGreyOut=0.18;
+double rawDisplayTone(double x) {
+    const double a=std::pow(kToneGreyIn,kToneContrast);
+    const double k=(1.0-kToneGreyOut)*a/(kToneGreyOut-a);
+    const double xp=std::pow(std::clamp(x,0.0,1.0),kToneContrast);
+    return (1.0+k)*xp/(xp+k);
+}
 }
 
 QImage originalImage(const io::DecodedRaw& decoded,const OutputEncoding& encoding) {
@@ -239,14 +253,44 @@ QImage originalImage(const io::DecodedRaw& decoded,const OutputEncoding& encodin
         const float v=float(i)/(nodes-1);
         encode[i]=qfloat16(std::clamp(toEncoded.map(QRgbaFloat32{v,v,v,1.f}).g,0.f,1.f));
     }
+    // A camera RAW is rendered for the eye, as Apple's default decode is for
+    // the Mac's Original: the DNG baseline exposure, then the tone curve
+    // above, in linear ProPhoto and hue-preserving the way the DNG SDK's
+    // baseline RGB tone is -- the curve on the largest and smallest channel,
+    // the middle one kept at its place between them. A flat file is already
+    // a rendering and keeps the neutral conversion.
+    const bool render=decoded.metadata.camera_raw;
+    const float gain=float(std::exp2(decoded.metadata.baseline_exposure_ev));
+    std::vector<float> tone(render?nodes:0);
+    for(std::size_t i=0;i<tone.size();++i)tone[i]=float(rawDisplayTone(double(i)/(nodes-1)));
+    const auto curve=[&](float v){return tone[std::size_t(v*(nodes-1)+0.5f)];};
     QImage image(int(width),int(height),QImage::Format_RGBX16FPx4);
     if(image.isNull())fail("Cannot allocate the Original");
     const qfloat16 one(1.0f);
     parallelRows(int(height),[&](int y0,int y1){
         for(int y=y0;y<y1;++y) {
-            const float* p=decoded.rgb.data()+std::size_t(y)*width*3;
+            const float* row=decoded.rgb.data()+std::size_t(y)*width*3;
             auto* q=reinterpret_cast<qfloat16*>(image.scanLine(y));
-            for(std::uint32_t x=0;x<width;++x,p+=3,q+=4) {
+            float rendered[3];
+            for(std::uint32_t x=0;x<width;++x,row+=3,q+=4) {
+                const float* p=row;
+                if(render) {
+                    for(int c=0;c<3;++c) {
+                        const float v=row[c]*gain;
+                        rendered[c]=v>0.f?(v<1.f?v:1.f):0.f;
+                    }
+                    const int hi=rendered[0]>=rendered[1]?(rendered[0]>=rendered[2]?0:2):(rendered[1]>=rendered[2]?1:2);
+                    const int lo=rendered[0]<rendered[1]?(rendered[0]<rendered[2]?0:2):(rendered[1]<rendered[2]?1:2);
+                    if(hi==lo||rendered[hi]==rendered[lo]) {
+                        rendered[0]=rendered[1]=rendered[2]=curve(rendered[hi]);
+                    } else {
+                        const int mid=3-hi-lo;
+                        const float top=curve(rendered[hi]),bottom=curve(rendered[lo]);
+                        rendered[mid]=bottom+(top-bottom)*(rendered[mid]-rendered[lo])/(rendered[hi]-rendered[lo]);
+                        rendered[hi]=top;rendered[lo]=bottom;
+                    }
+                    p=rendered;
+                }
                 for(int c=0;c<3;++c) {
                     const float v=m[c][0]*p[0]+m[c][1]*p[1]+m[c][2]*p[2];
                     // NaN fails both comparisons and lands on black.

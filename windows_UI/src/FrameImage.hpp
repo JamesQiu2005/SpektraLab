@@ -62,13 +62,18 @@ inline QImage thumbnailImage(const QImage& navigator) { return downscaled(naviga
 // through the same display LUT: a before/after split compares two renderings,
 // never two colour spaces (Renderer.swift's header makes the same rule).
 //
-// A neutral rendering: a colorimetric conversion (Qt's, ProPhoto's D50 to
-// the target's white by Qt's Bradford adaptation) and the space's own
-// transfer function, clipped to [0,1] -- no tone curve, no exposure. Apple's
-// default RAW rendering, which the Mac shows, adds its own tone curve and
-// baseline exposure; LibRaw has no equivalent, so the Windows Original reads
-// darker and flatter than the Mac's. Geometry is the decode's (RAW orientation
-// applied, as the engine received it), so it has the frame's size.
+// A camera RAW (metadata.camera_raw) is first rendered for the eye, standing
+// in for Apple's default RAW rendering, which the Mac shows and LibRaw has no
+// equivalent of: the DNG baseline exposure, then a fixed camera-style tone
+// curve (RAW 0.10 to 18 % grey, a toe and a soft shoulder to the RAW's white),
+// hue-preserving in linear ProPhoto. Like Apple's it is not metered, so an
+// under-exposed shot still reads under-exposed. Without it the Original was
+// the sensor's linear response, dark and flat beside the print. A flat file
+// is already a rendering and skips it. Then a colorimetric conversion (Qt's,
+// ProPhoto's D50 to the target's white by Qt's Bradford adaptation) and the
+// space's own transfer function, clipped to [0,1]. Geometry is the decode's
+// (RAW orientation applied, as the engine received it), so it has the
+// frame's size.
 //
 // RGBX16FPx4, alpha 1. Rows run on up to eight threads. Throws on an empty or
 // inconsistent decode or an encoding colorSpace() refuses.

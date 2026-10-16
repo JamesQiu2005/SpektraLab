@@ -270,6 +270,43 @@ void originalColour() {
     check(bigOriginal.size()==QSize(7008,4672),"the 33 MP Original has the decode's size");
 }
 
+// A camera RAW's Original is rendered for the eye (Apple's default decode on
+// the Mac): RAW 0.10 grey is 18 % grey, black and the RAW's white stay put,
+// the DNG baseline exposure adds its stops, and a colour keeps its hue.
+void originalRawLook() {
+    const OutputEncoding srgb{"sRGB",true};
+    const QColorSpace prophotoLinear(QColorSpace::Primaries::ProPhotoRgb,QColorSpace::TransferFunction::Linear);
+    const auto toSrgb=prophotoLinear.transformationToColorSpace(QColorSpace(QColorSpace::SRgb));
+    const auto encodeSrgb=QColorSpace(QColorSpace::SRgbLinear).transformationToColorSpace(QColorSpace(QColorSpace::SRgb));
+    const std::array<std::array<float,3>,5> raw{{{0.10f,0.10f,0.10f},{0,0,0},{1,1,1},{0.05f,0.05f,0.05f},{0.12f,0.06f,0.03f}}};
+    auto d=decode(5,1,[&](int x,int){return raw[x];});
+    const auto neutral=floats(display::originalImage(d,srgb),0);
+    d.metadata.camera_raw=true;
+    const auto rendered=floats(display::originalImage(d,srgb),0);
+    const float grey=encodeSrgb.map(QRgbaFloat32{0.18f,0.18f,0.18f,1}).g;
+    std::printf("RAW Original: 0.10 grey %.4f (neutral %.4f), 0.05 grey %.4f (neutral %.4f)\n",
+                rendered[1],neutral[1],rendered[13],neutral[13]);
+    check(near(rendered[0],grey,2e-3)&&near(rendered[1],grey,2e-3)&&near(rendered[2],grey,2e-3),"RAW 0.10 grey renders as 18 % grey");
+    check(rendered[4]==0&&rendered[5]==0&&rendered[6]==0,"black stays black");
+    check(near(rendered[8],1,1e-3)&&near(rendered[9],1,1e-3)&&near(rendered[10],1,1e-3),"the RAW's white stays white");
+    check(rendered[13]>neutral[13]+0.05&&rendered[13]<rendered[1],"a darker grey is lifted and stays darker");
+    // Hue: the middle channel keeps its place between the other two, in
+    // linear ProPhoto, which is what the sRGB result is converted from.
+    const float* c=raw[4].data();
+    const auto expected=[&]{
+        const float ratio=(c[1]-c[2])/(c[0]-c[2]);
+        const auto t=[](double x){const double a=std::pow(0.10,1.3),k=0.82*a/(0.18-a),xp=std::pow(x,1.3);return float((1+k)*xp/(xp+k));};
+        const float top=t(c[0]),bottom=t(c[2]);
+        return toSrgb.map(QRgbaFloat32{top,bottom+(top-bottom)*ratio,bottom,1});
+    }();
+    check(near(rendered[16],expected.r,3e-3)&&near(rendered[17],expected.g,3e-3)&&near(rendered[18],expected.b,3e-3),
+          "a colour is toned on its largest and smallest channel, its hue kept");
+    // The DNG baseline exposure: one stop up makes RAW 0.05 the 0.10 grey.
+    d.metadata.baseline_exposure_ev=1.0;
+    const auto lifted=floats(display::originalImage(d,srgb),0);
+    check(near(lifted[12],grey,2e-3),"the DNG baseline exposure adds its stops");
+}
+
 // The Original against the print, through the two geometry paths the
 // controller uses: the print's turned frames come from its RGBA16 through
 // exportImage (output::displayFrame), the Original from its half-float image
@@ -338,6 +375,7 @@ int main(int argc,char** argv) {
         straightenLine();
         histograms();
         originalColour();
+        originalRawLook();
         originalGeometry();
     } catch(const std::exception& e) {
         std::fprintf(stderr,"FAIL after %d checks: %s\n",checks,e.what());

@@ -77,6 +77,13 @@ struct RawMetadata {
     double white_balance_exposure_restore = 1.0;
     std::array<float, 12> camera_to_output{};
     ShootingData shooting;
+    // Set by the two RAW policies (capture_source_metadata): the data is
+    // sensor response. False for a flat file decoded at the door, which is
+    // already somebody's rendering of a scene.
+    bool camera_raw = false;
+    // The DNG BaselineExposure tag in EV, zero when the file has none (every
+    // non-DNG RAW). A display rendering of the RAW adds it; the engine does not.
+    double baseline_exposure_ev = 0.0;
 };
 
 struct DecodedRaw {

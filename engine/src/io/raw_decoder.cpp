@@ -102,6 +102,11 @@ bool capture_source_metadata(const LibRaw& raw, RawMetadata& metadata,
         metadata.black_level_per_channel[c] = static_cast<std::uint32_t>(black);
         metadata.camera_white_level_per_channel[c] = color.linear_max[c];
     }
+    metadata.camera_raw = true;
+    // identify() copies the tag into imgdata.color without its parsed-field
+    // bit; an absent tag keeps LibRaw's -999 sentinel, which the range drops.
+    const float baseline = data.color.dng_levels.baseline_exposure;
+    metadata.baseline_exposure_ev = std::isfinite(baseline) && std::abs(baseline) <= 8.0f ? double(baseline) : 0.0;
     metadata.libraw_version = LibRaw::version();
     metadata.libraw_capabilities = LibRaw::capabilities();
     metadata.make.assign(data.idata.make,
