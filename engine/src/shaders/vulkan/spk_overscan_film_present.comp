@@ -1,0 +1,31 @@
+#version 450
+#extension GL_GOOGLE_include_directive : require
+
+// overscan.metal::spk_overscan_film_present (RFC-032 §26 ④): where there is no
+// film -- the perforations, and outside the strip -- the negative's density
+// goes to the cmy that cancels this film's base. Packed CMY in and out, one
+// thread per canvas pixel; n[0] is the pixel count.
+layout(local_size_x = 256) in;
+layout(set = 0, binding = 0, std430) readonly buffer Cmy { float cmy[]; };
+layout(set = 0, binding = 2, std430) readonly buffer Count { uint n[]; };
+layout(set = 0, binding = 3, std430) writeonly buffer Output { float dst[]; };
+#include "spk_overscan.glsl"
+
+// vulkan_gpu.cpp folds a dispatch past maxComputeWorkGroupCount[0] (65535 on
+// lavapipe and Intel) into rows of workgroups; this is the 1D index it means.
+uint spk_global_index() {
+    return gl_GlobalInvocationID.y * (gl_NumWorkGroups.x * gl_WorkGroupSize.x) + gl_GlobalInvocationID.x;
+}
+
+void main() {
+    uint i = spk_global_index();
+    if (i >= n[0]) return;
+    uint cw = uint(P[P_CW]);
+    float a = film_alpha(canvas_to_film(float(i % cw), float(i / cw)));
+    vec3 c = vec3(cmy[3u * i], cmy[3u * i + 1u], cmy[3u * i + 2u]);
+    vec3 hole = vec3(P[P_HOLE_C], P[P_HOLE_M], P[P_HOLE_Y]);
+    vec3 r3 = a * c + (1.0 - a) * hole;
+    dst[3u * i] = r3.x;
+    dst[3u * i + 1u] = r3.y;
+    dst[3u * i + 2u] = r3.z;
+}

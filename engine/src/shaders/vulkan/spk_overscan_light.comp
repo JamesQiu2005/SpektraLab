@@ -1,0 +1,77 @@
+#version 450
+#extension GL_GOOGLE_include_directive : require
+
+// overscan.metal::spk_overscan_light (RFC-032 §30.5, §31): the scan's view of
+// the holes -- the picture's own white or a black backing inside them, the cut
+// wall's soft shoulder around them, and the carrier past the film's long
+// edges. Linear output RGB in and out, packed, one thread per canvas pixel;
+// n[0] is the pixel count.
+layout(local_size_x = 256) in;
+layout(set = 0, binding = 0, std430) readonly buffer Rgb { float rgb[]; };
+layout(set = 0, binding = 2, std430) readonly buffer Count { uint n[]; };
+layout(set = 0, binding = 3, std430) writeonly buffer Output { float dst[]; };
+#include "spk_overscan.glsl"
+
+// vulkan_gpu.cpp folds a dispatch past maxComputeWorkGroupCount[0] (65535 on
+// lavapipe and Intel) into rows of workgroups; this is the 1D index it means.
+uint spk_global_index() {
+    return gl_GlobalInvocationID.y * (gl_NumWorkGroups.x * gl_WorkGroupSize.x) + gl_GlobalInvocationID.x;
+}
+
+void main() {
+    uint i = spk_global_index();
+    if (i >= n[0]) return;
+    uint cw = uint(P[P_CW]);
+    vec2 st = canvas_to_film(float(i % cw), float(i / cw));
+    float a = film_alpha(st);
+    bool white = P[P_HOLES_LIGHT] > 0.5;
+    vec3 light = vec3(P[P_LIGHT_R], P[P_LIGHT_G], P[P_LIGHT_B]);
+    vec3 c = vec3(rgb[3u * i], rgb[3u * i + 1u], rgb[3u * i + 2u]);
+    if (P[P_PERFORATED] > 0.5) {
+        uint hole;
+        float d = perf_sdf(st, hole);
+        // The cut's soft shoulder just outside the hole, and a faint cream
+        // line on a few edges inside (RFC-032 §31.5; measured on the owner's
+        // reference, overscan.metal says how).
+        uint seed = uint(P[P_PERF_SEED]);
+        int h = int(hole & 0xFFFFu);
+        if (d > -0.03 && d < 0.15) {
+            const float e = 0.003;
+            uint hh;
+            vec2 g = vec2(perf_sdf(st + vec2(e, 0.0), hh) - perf_sdf(st - vec2(e, 0.0), hh),
+                          perf_sdf(st + vec2(0.0, e), hh) - perf_sdf(st - vec2(0.0, e), hh));
+            vec2 nrm = g / max(length(g), 1e-6);
+            vec2 vdir = vec2(P[P_WALL_VS], P[P_WALL_VT]);
+            // per hole, patchy along the outline, a little more on the side
+            // the scan leans to (`patchy` is Metal's `patch`, a GLSL keyword)
+            float per_hole = 0.4 + 0.6 * hash_f(h, seed ^ 0xE1u);
+            float patchy = smoothstep(0.25, 0.75, 0.5 * (value_noise(st.x / 0.35, seed ^ uint(h)) +
+                                                         value_noise(st.y / 0.35, seed ^ uint(h) ^ 0x3Cu)));
+            float side = 0.6 + 0.8 * max(0.0, dot(nrm, vdir));
+            float k = per_hole * patchy * side;
+            // the base's tint, mostly washed out
+            vec3 tint = mix(vec3(1.0), vec3(P[P_BASE_R], P[P_BASE_G], P[P_BASE_B]), 0.3);
+            float lam = P[P_WALL_SCATTER];
+            if (d >= 0.0) {
+                float lift = P[P_WALL_GLOW] * k * exp(-d / lam);
+                c += lift * tint * (white ? light : vec3(1.0));
+            } else if (white && hash_f(h, seed ^ 0xE4u) < 0.5) {
+                light *= 1.0 - 0.12 * k * (1.0 - tint) * exp(d / 0.012);
+            }
+        }
+        if (white && d >= 0.0) {
+            // a faint flare from the hole's light into the film, on some holes
+            float fl = 0.012 * hash_f(h, seed ^ 0xC4u) * step(0.5, hash_f(h, seed ^ 0xC5u));
+            c += fl * exp(-d / 0.025) * light;
+        }
+    }
+    // Past the film's long edges is the scan's carrier, not a hole: black, or
+    // the scan's open light.
+    float W = P[P_FILM_W], px = P[P_PX];
+    float on_strip = P[P_CARRIER] > 1.5 ? 1.0 : clamp(min(st.y, W - st.y) / px + 0.5, 0.0, 1.0);
+    float in_film = on_strip > 0.0 ? a / on_strip : 0.0;
+    vec3 r3 = mix(vec3(P[P_CARRIER]), mix(light, c, in_film), on_strip);
+    dst[3u * i] = r3.x;
+    dst[3u * i + 1u] = r3.y;
+    dst[3u * i + 2u] = r3.z;
+}

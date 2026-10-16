@@ -126,6 +126,7 @@ if(NOT APPLE)
             spk_zoom_bilinear_mirror spk_geometry_resample_df
             spk_lut3d_trilinear spk_di_normalise
             spk_mask_reduce spk_mask_epilogue
+            spk_overscan_canvas spk_overscan_film_present spk_overscan_light
             CACHE INTERNAL "")
         set(vulkan_spirv)
         file(GLOB vulkan_includes "${CMAKE_CURRENT_SOURCE_DIR}/src/shaders/vulkan/*.glsl")
@@ -255,7 +256,7 @@ if(NOT APPLE)
             add_test(NAME spk_vulkan_smoke
                 COMMAND spk_vulkan_smoke "${vulkan_resource_dir}")
 
-            foreach(probe grain pointwise resample transfer geometry lut_di contrast_mask)
+            foreach(probe grain pointwise resample transfer geometry lut_di contrast_mask overscan)
                 add_executable(spk_vulkan_${probe} tests/gpu_vulkan_${probe}.cpp)
                 target_include_directories(spk_vulkan_${probe} PRIVATE
                     "${CMAKE_CURRENT_SOURCE_DIR}/include"
