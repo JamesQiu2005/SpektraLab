@@ -6,13 +6,18 @@ layout(location = 0) in vec4 qt_VertexPosition;
 layout(location = 1) in vec2 qt_VertexTexCoord;
 layout(location = 0) out vec2 vTexCoord;
 
-// Same block as colorcanvas.frag; offsets are written by CanvasShader.
+// Same block as colorcanvas.frag; offsets are written by CanvasShader. The
+// fragment shader's `PostDev grade` is ten vec4 in std140, which is exactly
+// the layout of the array here, so this stage needs no include.
 layout(std140, binding = 0) uniform buf {
     mat4 qt_Matrix;
     float qt_Opacity;
     float lutSize;
     float ditherAmplitude;
     float curveSize;
+    vec4 sourceU;
+    vec4 sourceV;
+    vec4 postdevBlock[10];
 };
 
 void main()

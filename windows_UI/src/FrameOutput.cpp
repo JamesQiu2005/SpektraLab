@@ -283,9 +283,15 @@ void exportFrame(const FramePtr& frame,const fs::path& destination,QRectF crop,
 
 void exportFrame(const FramePtr& frame,const fs::path& destination,const Geometry& geometry,
                  const ExportOptions& options,const fs::path& resources) {
+    exportFrame(frame,destination,geometry,options,resources,{});
+}
+
+void exportFrame(const FramePtr& frame,const fs::path& destination,const Geometry& geometry,
+                 const ExportOptions& options,const fs::path& resources,
+                 const std::function<void(QImage&,const OutputEncoding&)>& grade) {
     // The caller's immutable FramePtr stays alive throughout this synchronous
     // function; crop/downsize/detach cannot modify its retained RGBA16 result.
-    const auto pixels=framePixels(frame);
+    auto pixels=framePixels(frame);
     // Every writer labels the file with the bundled sRGB profile. A frame in
     // any other encoding would be mislabelled, so it is refused until export
     // converts out of the working space.
@@ -293,6 +299,12 @@ void exportFrame(const FramePtr& frame,const fs::path& destination,const Geometr
         fail(QStringLiteral("Export writes sRGB, but this frame is encoded in %1%2")
              .arg(QString::fromStdString(frame->encoding.color_space),
                   frame->encoding.cctf_encoding?QString():QStringLiteral(" (linear)")));
+    if(grade) {
+        // A private copy: the engine's frame is shared and immutable.
+        pixels=pixels.copy();
+        if(pixels.isNull())fail(QStringLiteral("Cannot allocate the graded photograph"));
+        grade(pixels,frame->encoding);
+    }
     exportImageFile(pixels,destination,geometry,options,resources);
 }
 } // namespace spk::desktop::output

@@ -3,6 +3,7 @@
 #include "PreviewController.hpp"
 #include "EditStore.hpp"
 #include "FrameOutput.hpp"
+#include "PostDevSurfaces.hpp"
 #include "display_checks.hpp"
 #include <QDir>
 #include <QElapsedTimer>
@@ -517,6 +518,138 @@ int main(int argc,char** argv) {
             } else {
                 std::cout<<"placement on the RAW: no highlight window: "<<placement["highlightMessage"].toString().toStdString()<<"\n";
                 check(!placement["highlightMessage"].toString().isEmpty(),"A side with no window says why");
+            }
+        }
+
+        // Post-Dev (Layer 2, PreviewControllerPostDev.cpp) on the RAW, in a
+        // controller, fixtures and edit store of its own: undo steps, no
+        // render, the graded surfaces, Sync's rule, persistence, and every
+        // export path graded on the uncropped frame before geometry.
+        {
+            namespace postdev=spk::desktop::postdev;
+            check(QDir().mkpath(destination+"/postdev"),"Create the Post-Dev fixture directory");
+            const QString epsilon=destination+"/postdev/epsilon."+original.suffix(),zeta=destination+"/postdev/zeta."+original.suffix();
+            check(QFile::copy(original.absoluteFilePath(),epsilon)&&QFile::copy(original.absoluteFilePath(),zeta),"Copy the Post-Dev fixtures");
+            const QString gradedEdits=destination+"/postdev-edits";
+            postdev::Params kept;
+            {
+                PreviewController c(resources,nullptr,{},gradedEdits);ready(c);
+                c.openFiles({QUrl::fromLocalFile(epsilon),QUrl::fromLocalFile(zeta)});idle(c,"Open the Post-Dev fixtures");
+                const auto frame=c.frame();const auto operationsBefore=operations.size();
+                check(c.postDevNeutral()&&c.postDevEnabled()&&!c.canUndo()&&c.postDevSourceMap().size()==6,"A photograph opens ungraded");
+                // A slider drag is one undo step and never renders.
+                c.beginEditGesture("postDev.temperature");
+                for(const double v:{5.,15.,30.})check(c.setPostDev("temperature",v),"A temperature step is accepted");
+                c.endEditGesture();
+                check(c.postDevParams().temperature==30&&c.postDev()["temperature"].toDouble()==30&&c.frame()==frame&&!c.busy()&&!c.dirty(),
+                      "A Post-Dev drag needs no render");
+                c.undo();check(c.postDevParams().temperature==0&&!c.canUndo(),"One undo reverts the whole Post-Dev drag");
+                c.redo();check(c.postDevParams().temperature==30&&!c.canRedo(),"One redo restores it");
+                check(!c.setPostDev("temperature",101.)&&!c.setPostDev("nonsense",1.)&&!c.setPostDev("enabled",1)&&
+                      !c.setColorZone("nowhere",10,.1),"Out-of-range, unknown and mistyped Post-Dev values are refused");
+                // A curve edit: the press inserts, the drag moves, the release
+                // ends it -- one step (CurveEditor.qml's gesture).
+                c.beginEditGesture("postDev.curves.rgb");
+                const int index=c.insertCurvePoint("rgb",.5,.5);
+                check(index==1,"The curve's insert lands between its ends");
+                c.moveCurvePoint("rgb",index,.45,.6);c.moveCurvePoint("rgb",index,.4,.65);
+                c.endEditGesture();
+                const auto points=c.postDevParams().curves.rgb.points;
+                check(points.size()==3&&points[1]==postdev::CurvePoint{.4,.65}&&near(c.curveValue("rgb",.4),.65)&&
+                      c.curvePointNear("rgb",.41,.64,200,190)==1&&c.curvePointNear("rgb",.6,.2,200,190)==-1,
+                      "The dragged point holds its place and is the one under the pointer");
+                c.undo();check(c.postDevParams().curves.rgb.isIdentity()&&c.postDevParams().temperature==30,
+                               "One undo removes the whole curve edit and nothing before it");
+                c.redo();check(c.postDevParams().curves.rgb.points.size()==3,"One redo restores the curve edit");
+                check(!c.removeCurvePoint("rgb",0)&&!c.curvePointDeletable("rgb",2)&&c.removeCurvePoint("rgb",1)&&
+                      c.postDevParams().curves.rgb.isIdentity(),"The curve's ends stay; an interior point goes");
+                c.undo();
+                check(c.setColorZone("shadows",210,.4)&&c.setPostDev("colorBalance.shadows.luminance",-.2)&&
+                      c.setPostDev("vignette.amount",-35.)&&c.setPostDev("exposure",.25)&&c.setPostDev("contrast",10.),
+                      "Wheel, arc, vignette and exposure edits");
+                check(c.frame()==frame&&operations.size()==operationsBefore&&!c.busy(),"No Post-Dev edit started an operation");
+                // The surfaces the controller grades itself: the strip's
+                // thumbnail and the histogram, each the canvas's frame graded.
+                const auto map=postdev::sourceMap(QSize(int(frame->width()),int(frame->height())),
+                                                  {c.cropRect(),c.quarterTurns(),c.flipHorizontal(),c.flipVertical(),c.straightenDegrees()});
+                const auto grade=postdev::gradeFor(c.postDevParams(),c.navigatorImage().colorSpace());
+                check(bool(grade),"The grade applies to the session's encoding");
+                QImage expectedThumb=spk::desktop::display::thumbnailImage(c.navigatorImage());
+                postdev::gradeImage(expectedThumb,*grade,map);
+                waitFor([&]{return sameImage(c.libraryItems()[0].toMap()["thumbnail"].value<QImage>(),expectedThumb);},
+                        "The strip's thumbnail is the canvas's frame, graded");
+                QImage gradedNavigator=c.navigatorImage();postdev::gradeImage(gradedNavigator,*grade,map);
+                const auto expectedBins=spk::desktop::display::histogram(gradedNavigator);
+                waitFor([&]{const auto h=c.histogram();return h.size()==qsizetype(expectedBins.size())&&h[200]==double(expectedBins[200])&&h[700]==double(expectedBins[700]);},
+                        "The histogram counts the graded frame");
+                // Sync copies the photograph's settings, never its grade (the
+                // Mac's clipboard leaves `adjustments` out).
+                kept=c.postDevParams();
+                c.selectAllPhotos(true);c.syncSelectedSettings(false);
+                c.selectImage(1);idle(c,"Open the synced Post-Dev photograph");
+                check(c.activeIndex()==1&&c.postDevNeutral()&&c.postDevEnabled(),"Sync does not carry Post-Dev");
+                c.setPostDev("tint",-20.);
+                c.selectImage(0);idle(c,"Back to the graded photograph");
+                check(c.postDevParams()==kept,"Each photograph keeps its own grade across a switch");
+                // Bypass: a stored, undoable edit.
+                c.togglePostDevBypass();
+                check(!c.postDevEnabled()&&c.postDevParams().temperature==30,"Bypass keeps the grade, switched off");
+                c.undo();check(c.postDevEnabled(),"Bypass is an undo step");
+                c.redo();check(!c.postDevEnabled(),"and redoes");
+                c.togglePostDevBypass();check(c.postDevEnabled(),"Restore Adjustments");
+
+                // Every export grades the uncropped frame, then frames it.
+                c.setCropRect(QRectF(.1,.15,.6,.7));c.rotateClockwise();c.setFlipHorizontal(true);
+                const output::Geometry g{c.cropRect(),c.quarterTurns(),c.flipHorizontal(),c.flipVertical(),c.straightenDegrees()};
+                const auto shownFrame=c.frame();   // what every export below writes
+                const auto& px=shownFrame->pixels();
+                const QImage source=QImage(reinterpret_cast<const uchar*>(px.rgba16),int(px.width),int(px.height),
+                                           qsizetype(px.row_stride_px)*8,QImage::Format_RGBA64).copy();
+                QImage graded=source.copy();postdev::Grade(c.postDevParams(),postdev::srgbMidGrey).apply(graded);
+                const auto expectGraded=output::exportImage(graded,g,{output::Format::PNG16,95,0});
+                const auto expectPlain=output::exportImage(source,g,{output::Format::PNG16,95,0});
+                const auto same16=[](const QImage& file,const QImage& expected){
+                    const auto a=file.convertToFormat(QImage::Format_RGBA64);
+                    if(a.size()!=expected.size())return false;
+                    for(int y=0;y<a.height();++y)
+                        if(std::memcmp(a.constScanLine(y),expected.constScanLine(y),size_t(a.width())*8)!=0)return false;
+                    return true;
+                };
+                const QString png=destination+"/postdev/graded.png";
+                c.exportImage(QUrl::fromLocalFile(png),2,95,0);idle(c,"Export the graded photograph");
+                check(same16(readImage(png),expectGraded)&&!same16(readImage(png),expectPlain),
+                      "The export is Grade::apply on the uncropped frame, then the geometry, code for code");
+                const QString legacyTiff=destination+"/postdev/legacy.tif";
+                c.exportTiff(QUrl::fromLocalFile(legacyTiff));idle(c,"Export the graded TIFF");
+                c.selectAllPhotos(false);
+                c.exportWithRecipe({{"name","post-dev"},{"format","TIFF 16-bit"},
+                    {"colorSpace",QVariantMap{{"builtIn",QVariantMap{{"_0","kCGColorSpaceSRGB"}}}}},
+                    {"folder",QVariantMap{{"fixed",QVariantMap{{"path",destination+"/postdev/recipe"}}}}},{"subfolder",""},
+                    {"naming",QVariantMap{{"order",QStringList{"originalName","filmStock","printStock","date"}},
+                                          {"tokens",QStringList{"originalName"}},{"separator","_"}}},
+                    {"existing","skip"},{"quality",0.95},{"outputSize",QVariantMap{{"original",true}}},
+                    {"metadata",QVariantMap{{"exif",false},{"fields",QStringList{}}}}});
+                idle(c,"Export the graded photograph under a recipe");
+                check(bytes(destination+"/postdev/recipe/epsilon.tif")==bytes(legacyTiff),
+                      "The recipe export grades exactly as the legacy export (sRGB TIFF byte for byte)");
+                c.togglePostDevBypass();
+                const QString bypassed=destination+"/postdev/bypassed.png";
+                c.exportImage(QUrl::fromLocalFile(bypassed),2,95,0);idle(c,"Export the bypassed photograph");
+                check(same16(readImage(bypassed),expectPlain),"Bypass reaches the export: the ungraded print");
+                c.togglePostDevBypass();
+                kept=c.postDevParams();
+                check(c.persistenceWarning().isEmpty(),"No Post-Dev persistence warning");
+            }
+            {
+                PreviewController c(resources,nullptr,{},gradedEdits);ready(c);
+                c.openFiles({QUrl::fromLocalFile(epsilon)});idle(c,"Reopen the graded photograph");
+                check(c.postDevParams()==kept&&!c.canUndo(),"The grade survives the controller and reopening");
+                c.openFiles({QUrl::fromLocalFile(zeta)});idle(c,"Reopen the second photograph");
+                check(c.postDevParams().tint==-20&&c.postDevParams().temperature==0,"The second photograph's own grade survives");
+                c.resetSettings();
+                check(c.postDevNeutral()&&c.postDevEnabled(),"Reset This Photo's Settings returns Post-Dev to the print");
+                c.undo();check(c.postDevParams().tint==-20,"and is one undo step");
+                idle(c,"Settle the reset's undo");
             }
         }
         report["passed"]=true;

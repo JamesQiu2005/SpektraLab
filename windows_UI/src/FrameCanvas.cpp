@@ -32,9 +32,36 @@ void FrameCanvas::sync() {
 void FrameCanvas::changeView(const canvas::View& next) {
     view_=next;update();emit viewChanged();
 }
+void FrameCanvas::setPostDev(const QVariantMap& value) {
+    if(value==postDev_)return;
+    postDev_=value;
+    QString error;
+    params_=spk::desktop::postdev::paramsFrom(value,&error);
+    if(!error.isEmpty())qWarning("FrameCanvas: Post-Dev grade refused, drawing without it: %s",qUtf8Printable(error));
+    refreshGrade();update();emit postDevChanged();
+}
+void FrameCanvas::setSourceMap(const QVariantList& value) {
+    const auto map=spk::desktop::postdev::sourceMapFrom(value);
+    if(map==sourceMap_)return;
+    sourceMap_=map;update();emit postDevChanged();
+}
+// The grade depends on the parameters and on the image's encoding (its tone
+// pivot), so a new image re-derives it; an unchanged result keeps its
+// revision, and with it the curve texture already uploaded.
+void FrameCanvas::refreshGrade() {
+    const auto space=image_.colorSpace().isValid()?image_.colorSpace():QColorSpace(QColorSpace::SRgb);
+    const auto next=spk::desktop::postdev::gradeFor(params_,space);
+    if(!next){grade_.reset();return;}
+    namespace postdev=spk::desktop::postdev;
+    if(grade_&&postdev::std140(*grade_)==postdev::std140(*next)&&grade_->tables()==next->tables())return;
+    grade_=std::make_shared<const spk::desktop::postdev::Grade>(*next);++grade_revision_;
+}
 void FrameCanvas::setImage(const QImage& image) {
     if(image.cacheKey()==image_.cacheKey())return;
-    const bool changedSize=image.size()!=image_.size();image_=image;++revision_;
+    const bool changedSize=image.size()!=image_.size();
+    const bool changedSpace=image.colorSpace()!=image_.colorSpace();
+    image_=image;++revision_;
+    if(changedSpace)refreshGrade();
     sync();
     // A new size is a new frame (or a new crop): keep the zoom, centred.
     if(changedSize&&!view_.fit&&view_.dpr>0) {
@@ -132,6 +159,7 @@ QSGNode* FrameCanvas::updatePaintNode(QSGNode* old,UpdatePaintNodeData*) {
     paint.lut=pipeline_?pipeline_->lut(space):nullptr;if(!paint.lut)paint.lut=identity;
     paint.dither=pipeline_&&pipeline_->dither();
     paint.rect=imageRect();paint.smooth=scale()<1.0;
+    paint.grade=grade_;paint.gradeRevision=grade_revision_;paint.sourceMap=sourceMap_;
     if(!node->update(window(),paint)){delete node;return nullptr;}
     return node;
 }

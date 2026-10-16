@@ -1,8 +1,10 @@
 #pragma once
 #include "CanvasMath.hpp"
+#include "PostDevView.hpp"
 #include <QImage>
 #include <QPointer>
 #include <QQuickItem>
+#include <memory>
 
 class ColorPipeline;
 
@@ -22,9 +24,19 @@ class ColorPipeline;
 // `follow` makes this canvas draw its image in another canvas's rectangle --
 // the before/after split's left half, which must sit pixel for pixel on the
 // print it is compared with.
+//
+// `postDev` grades the picture with Post-Dev (Layer 2) between the sample
+// and the display LUT (ColorCanvasNode.hpp): the controller's postDev map
+// (PostDev.hpp's `state.postDev` shape; empty: no grade), at the tone pivot
+// of the image's own encoding (postdev::midGreyFor). `sourceMap` places the
+// image on the uncropped source for the vignette (PostDevView.hpp, six
+// numbers; empty: the image is the whole source) -- the controller's
+// postDevSourceMap for its cropped previewImage and navigatorImage.
 class FrameCanvas : public QQuickItem {
     Q_OBJECT
     Q_PROPERTY(QImage image READ image WRITE setImage NOTIFY imageChanged)
+    Q_PROPERTY(QVariantMap postDev READ postDev WRITE setPostDev NOTIFY postDevChanged)
+    Q_PROPERTY(QVariantList sourceMap READ sourceMap WRITE setSourceMap NOTIFY postDevChanged)
     Q_PROPERTY(bool fit READ fit WRITE setFit NOTIFY viewChanged)
     Q_PROPERTY(double scalePercent READ scalePercent NOTIFY viewChanged)
     Q_PROPERTY(QRectF imageRect READ imageRect NOTIFY viewChanged)
@@ -47,6 +59,12 @@ public:
     void setInteractive(bool value);
     FrameCanvas* follow() const { return follow_; }
     void setFollow(FrameCanvas* canvas);
+    QVariantMap postDev() const { return postDev_; }
+    void setPostDev(const QVariantMap& value);
+    QVariantList sourceMap() const { return spk::desktop::postdev::toVariant(sourceMap_); }
+    void setSourceMap(const QVariantList& value);
+    // The grade the next paint applies (null: none), for tests.
+    std::shared_ptr<const spk::desktop::postdev::Grade> grade() const { return grade_; }
     // Fitted, or 100 % about the canvas's centre (Ctrl+0 / Ctrl+1).
     Q_INVOKABLE void resetView(bool fit=true);
     Q_INVOKABLE void panBy(double x,double y);
@@ -65,6 +83,7 @@ signals:
     void viewChanged();
     void interactiveChanged();
     void followChanged();
+    void postDevChanged();
 protected:
     QSGNode* updatePaintNode(QSGNode* old,UpdatePaintNodeData*) override;
     void geometryChange(const QRectF& next,const QRectF& previous) override;
@@ -82,6 +101,12 @@ private:
     void sync();
     void changeView(const spk::desktop::canvas::View& next);
     void attachPipeline(QQuickWindow* window);
+    void refreshGrade();
+    QVariantMap postDev_;
+    spk::desktop::postdev::Params params_;
+    spk::desktop::postdev::SourceMap sourceMap_;
+    std::shared_ptr<const spk::desktop::postdev::Grade> grade_;
+    quint64 grade_revision_=0;
     QPointer<ColorPipeline> pipeline_;
     QMetaObject::Connection pipelineChanged_, frameSwapped_;
     QPointer<FrameCanvas> follow_;

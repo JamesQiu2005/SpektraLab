@@ -12,8 +12,8 @@ import QtQuick.Layouts
 //
 // Every row here shares one label column (Theme.parameterLabelWidth, the
 // Mac's `SliderMetrics.parameters`), so the tracks start on one line.
-// Post-Dev -- the grade on the finished scan -- is not built on Windows yet;
-// its side of the switch is greyed with the reason.
+// Post-Dev -- the grade on the finished scan -- is the switch's other side
+// (PostDevPanel.qml), with its own scroll position.
 Rectangle {
     id: rail
     required property EditorState editor
@@ -40,15 +40,21 @@ Rectangle {
                 anchors.left: railTitle.right; anchors.leftMargin: 10
                 anchors.verticalCenter: parent.verticalCenter
                 model: [L10n.tr("rail.preDev"), L10n.tr("rail.postDev")]
+                objectName: "parametersTabSwitch"
                 currentIndex: rail.editor.parametersTab
-                optionEnabled: [true, false]
-                optionToolTips: ["", L10n.tr("placeholder.postDev")]
+                // Post-Dev is out of sight most of the time and changes every
+                // file: the switch says when its grade is not the identity
+                // (RightPanel.swift postDevEdited).
+                readonly property bool postDevEdited: preview.hasFrame && preview.postDevEnabled && !preview.postDevNeutral
+                optionMarked: [false, postDevEdited]
+                optionToolTips: ["", postDevEdited ? L10n.tr("postDev.tabEdited") : L10n.tr("postDev.tabHelp")]
                 onActivated: function(index) { rail.editor.parametersTab = index }
             }
         }
         Rectangle { Layout.fillWidth: true; Layout.preferredHeight: 1; color: Theme.rule }
         ScrollView {
             id: scroll
+            visible: rail.editor.parametersTab === 0
             Layout.fillWidth: true; Layout.fillHeight: true
             clip: true
             contentWidth: availableWidth
@@ -66,6 +72,8 @@ Rectangle {
                 InfoSection { divider: false }
             }
         }
+        // Post-Dev (RightSections.swift): the grade on the finished print.
+        PostDevPanel { visible: rail.editor.parametersTab === 1 }
         StatusSection { editor: rail.editor }
     }
     Rectangle { anchors.left: parent.left; width: 1; height: parent.height; color: Theme.ruleRegion }

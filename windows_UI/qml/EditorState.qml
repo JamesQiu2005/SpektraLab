@@ -106,11 +106,14 @@ QtObject {
     function toggleSidePanels() { var fold = !(leftCollapsed && rightCollapsed); leftCollapsed = fold; rightCollapsed = fold }
     // Back to the drawing: the caller then clears the stored "layout." keys.
     function resetLayout() {
-        leftCollapsed = false; rightCollapsed = false; filmstripCollapsed = false
+        leftCollapsed = false; rightCollapsed = false; filmstripCollapsed = false; parametersTab = 0
         leftWidth = Theme.leftRailStandard; rightWidth = Theme.rightRailStandard
     }
-    // The Parameters rail's tab: 0 Pre-Dev, 1 Post-Dev (not built yet).
-    property int parametersTab: 0
+    // The Parameters rail's tab: 0 Pre-Dev, 1 Post-Dev -- a view choice,
+    // remembered across launches as the Mac's (RightPanel.swift @AppStorage
+    // "parametersTab").
+    property int parametersTab: AppSettings.value("layout.parametersTab", 0) === 1 ? 1 : 0
+    onParametersTabChanged: AppSettings.setValue("layout.parametersTab", parametersTab)
     // The filmstrip folds with the tab on the canvas's lower edge (the Mac's
     // one surviving collapse tab, CollapseTab.swift).
     property bool filmstripCollapsed: AppSettings.value("layout.filmstripCollapsed", false) === true
@@ -154,6 +157,9 @@ QtObject {
     readonly property bool canSelectAll: canBrowse && preview.libraryItems.length > 0
     readonly property bool canSync: canBrowse && preview.hasFrame && preview.selectedCount > 0
     readonly property bool canResetPhoto: preview.settingsEditable && preview.hasFrame && !cropMode
+    // Post-Dev's bypass (Ctrl+Shift+B and the menu's Bypass / Restore
+    // Adjustments): an edit of the open photograph, so it waits like one.
+    readonly property bool canBypass: preview.settingsEditable && preview.hasFrame && !cropMode
     signal settingsRequested(string page)
     signal aboutRequested()
     signal quitRequested()

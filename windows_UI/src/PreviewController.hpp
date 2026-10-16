@@ -6,6 +6,7 @@
 #include "Messages.hpp"
 #include <QImage>
 #include <QObject>
+#include <QPointF>
 #include <QStringList>
 #include <QTimer>
 #include <QUrl>
@@ -156,7 +157,9 @@ class PreviewController final : public QObject {
     // histogram counts (AGENTS.md trap 33) -- and the whole source the crop
     // editor shows (uncroppedImage). Made on the worker with the images, and
     // on the GUI thread from the new previewImage after a geometry edit.
-    Q_PROPERTY(QList<double> histogram READ histogram NOTIFY frameChanged)
+    // With a Post-Dev grade, the histogram counts the graded navigator image
+    // (PreviewControllerPostDev.cpp), as the canvas shows it graded.
+    Q_PROPERTY(QList<double> histogram READ histogram NOTIFY histogramChanged)
     Q_PROPERTY(QList<double> uncroppedHistogram READ uncroppedHistogram NOTIFY frameChanged)
     // The Original (macOS TopBar "Original", Space, and the left of the
     // before/after split): the decode before any film simulation, tagged like
@@ -199,6 +202,23 @@ class PreviewController final : public QObject {
     Q_PROPERTY(bool frameIsCut READ frameIsCut NOTIFY frameChanged)
     Q_PROPERTY(bool geometryInNegative READ geometryInNegative NOTIFY filmEdgeChanged)
     Q_PROPERTY(double cropLockRatio READ cropLockRatio NOTIFY filmEdgeChanged)
+    // --- Post-Dev, Layer 2 (PreviewControllerPostDev.cpp) -------------------
+    // The open photograph's grade in the edit store's `state.postDev` shape
+    // (PostDev.hpp; the Mac sidecar's `adjustments`): enabled, temperature,
+    // tint, exposure, contrast, brightness, saturation, highlights, shadows,
+    // blackPoint, whitePoint, curves {rgb, luma, red, green, blue: {points:
+    // [[x, y], ...]}}, colorBalance {master, shadows, midtones, highlights:
+    // {hue, saturation, luminance}}, vignette {amount, midpoint}. FrameCanvas
+    // takes it as is (its `postDev`).
+    Q_PROPERTY(QVariantMap postDev READ postDev NOTIFY postDevChanged)
+    Q_PROPERTY(bool postDevEnabled READ postDevEnabled NOTIFY postDevChanged)
+    // Every field at its default, `enabled` aside (Adjustments.isNeutral).
+    Q_PROPERTY(bool postDevNeutral READ postDevNeutral NOTIFY postDevChanged)
+    // Where previewImage (and navigatorImage) sit on the uncropped source:
+    // FrameCanvas's `sourceMap` (PostDevView.hpp), for the vignette.
+    Q_PROPERTY(QVariantList postDevSourceMap READ postDevSourceMap NOTIFY frameChanged)
+    // The scalar controls: [{path, from, to, initial, snap}] (postdev::fields).
+    Q_PROPERTY(QVariantList postDevFields READ postDevFields CONSTANT)
 public:
     // Makes the full display image of a frame. Called on the worker thread,
     // after the render and before the reply is queued; a throw fails the
@@ -259,7 +279,7 @@ public:
     bool flipHorizontal() const { return geometry_.flipHorizontal; }
     bool flipVertical() const { return geometry_.flipVertical; }
     double straightenDegrees() const { return geometry_.straightenDegrees; }
-    QList<double> histogram() const { return bins(histogram_); }
+    QList<double> histogram() const { return bins(graded_histogram_.empty()?histogram_:graded_histogram_); }
     QList<double> uncroppedHistogram() const { return bins(uncropped_histogram_); }
     bool originalWanted() const { return original_wanted_; }
     void setOriginalWanted(bool wanted);
@@ -407,8 +427,60 @@ public:
     // The user's camera body: the camera seed a new frame takes, kept per user
     // beside the edit store (FilmEdgeSettings.bodySeed), drawn the first time.
     int bodySeed();
+
+    // --- Post-Dev, Layer 2 (PreviewControllerPostDev.cpp) -------------------
+    // Every edit is an undo step of the open photograph, saved with it, and
+    // needs no render: the canvas grades on the GPU. Between
+    // beginEditGesture(key) and endEditGesture() a drag is one step; the keys
+    // the rail uses are "postDev.<path>" for a slider, "postDev.curves.<channel>"
+    // for a curve drag and "postDev.colorBalance.<zone>" for a wheel drag.
+    // False when refused: no photograph, settings locked, an unknown path or
+    // channel, a value outside its range.
+    spk::desktop::postdev::Params postDevParams() const { return postdev_; }
+    QVariantMap postDev() const;
+    bool postDevEnabled() const { return postdev_.enabled; }
+    bool postDevNeutral() const { return postdev_.isNeutral(); }
+    QVariantList postDevSourceMap() const;
+    QVariantList postDevFields() const;
+    // A scalar by its path ("temperature", "vignette.amount",
+    // "colorBalance.shadows.luminance", ...) or "enabled" (a bool).
+    Q_INVOKABLE bool setPostDev(const QString& path, const QVariant& value);
+    // A wheel drag: one zone's hue and saturation together.
+    Q_INVOKABLE bool setColorZone(const QString& zone, double hue, double saturation);
+    // A wheel's double-click: the zone back to neutral (hue, saturation and
+    // luminance 0), one step.
+    Q_INVOKABLE bool resetColorZone(const QString& zone);
+    // The section resets: "whiteBalance", "exposure", "curves",
+    // "colorBalance", "vignette", or "" for all of it (`enabled` is kept, as
+    // Session.resetAdjustments keeps it).
+    Q_INVOKABLE void resetPostDev(const QString& group);
+    // Bypass (the Mac's Shift-Command-B, Ctrl+Shift+B here): `enabled`
+    // toggled, a stored edit that reaches the export too.
+    Q_INVOKABLE void togglePostDevBypass();
+    // The curve editor (CurveEditor.swift over postdev::Curve). Channels
+    // "rgb", "luma", "red", "green", "blue"; points in the unit square, y up.
+    Q_INVOKABLE QVariantList curveSamples(const QString& channel, int count) const;
+    Q_INVOKABLE double curveValue(const QString& channel, double x) const;
+    // The point within 10 px of (x, y) on a plot of width x height, or -1.
+    Q_INVOKABLE int curvePointNear(const QString& channel, double x, double y, double width, double height) const;
+    Q_INVOKABLE bool curvePointDeletable(const QString& channel, int index) const;
+    // Inserted point's index, or -1 (32 points at most, or refused).
+    Q_INVOKABLE int insertCurvePoint(const QString& channel, double x, double y);
+    Q_INVOKABLE bool moveCurvePoint(const QString& channel, int index, double x, double y);
+    Q_INVOKABLE bool removeCurvePoint(const QString& channel, int index);
+    Q_INVOKABLE bool resetCurve(const QString& channel);
+    // The colour wheel's arithmetic (ColorWheel.swift via postdev::wheel), so
+    // QML draws and hit-tests with the model's own numbers. Left = the
+    // saturation arc, right = the luminance arc.
+    Q_INVOKABLE QVariantMap wheelZoneAt(double x, double y, double diameter) const;
+    Q_INVOKABLE QPointF wheelPoint(double hue, double saturation, double diameter) const;
+    Q_INVOKABLE double arcTheta(double fraction, bool left) const;
+    Q_INVOKABLE double arcValue(double x, double y, double centreX, double centreY, bool left, double low, double high) const;
+    Q_INVOKABLE double arcFraction(double value, double low, double high) const;
 signals:
     void filmEdgeChanged();
+    void postDevChanged();
+    void histogramChanged();
     void stateChanged();
     void catalogChanged();
     void settingsChanged();
@@ -547,6 +619,7 @@ private:
         QString save_warning;
         // A newer build's fields in this photo's record, kept by its saves.
         QStringList preserved;
+        spk::desktop::postdev::Params postdev;   // its Post-Dev grade
     };
     static spk::desktop::editing::State itemState(const LibraryItem&);
     void recordEdit(LibraryItem&,const spk::desktop::editing::State& before);
@@ -597,4 +670,16 @@ private:
     std::shared_ptr<const Analysis> analysis_;            // the latest the UI took
     QVariantMap filters_;    // Process's pack, with the photograph, film and paper it is for
     QVariantMap refusal_;    // the last placement refusal
+
+    // --- Post-Dev, Layer 2 (PreviewControllerPostDev.cpp) ---------------------
+    void setupPostDev();     // the constructor's part
+    void loadPostDev();      // the open photograph's grade becomes the current one
+    bool editPostDev(const spk::desktop::postdev::Params& next, const QString& editKey);
+    // At most every 100 ms after a grade or frame change: the histogram of the
+    // graded navigator image and the active thumbnail, graded.
+    void refreshPostDevSurfaces();
+    QImage gradedThumbnail(QImage thumbnail) const;
+    spk::desktop::postdev::Params postdev_;
+    std::vector<float> graded_histogram_;   // empty: no grade, histogram_ is shown
+    QTimer postdev_refresh_;
 };

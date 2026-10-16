@@ -1,5 +1,6 @@
 #include "PreviewController.hpp"
 #include "FrameImage.hpp"
+#include "PostDevSurfaces.hpp"
 #include <QElapsedTimer>
 #include <QMetaObject>
 #include <QDir>
@@ -47,7 +48,8 @@ bool sameSettings(desktop::RenderSettings a, desktop::RenderSettings b) {
     return exposure&&a==b;
 }
 bool sameState(const editing::State& a,const editing::State& b) {
-    return sameSettings(a.settings,b.settings)&&a.mode==b.mode&&a.geometry==b.geometry&&a.heldGeometry==b.heldGeometry;
+    return sameSettings(a.settings,b.settings)&&a.mode==b.mode&&a.geometry==b.geometry&&a.heldGeometry==b.heldGeometry&&
+        a.postDev==b.postDev;
 }
 // The editor's geometry as the host takes it for a cut frame, and back.
 desktop::EngineCut toCut(const output::Geometry& g) {
@@ -203,6 +205,7 @@ PreviewController::PreviewController(std::filesystem::path resources,QObject* pa
     // would be 132 MB per 33 MP frame nobody reads.
     desktop::HostOptions options;options.bgra8_display=false;
     if(!outputColorSpace.isEmpty())options.output_color_space=outputColorSpace.toStdString();
+    setupPostDev();
     worker_=std::thread([this,resources=std::move(resources),options]{workerLoop(resources,options);});
 }
 PreviewController::~PreviewController() {
@@ -293,6 +296,7 @@ void PreviewController::accept(Reply reply) {
             if(opened) {
                 active_index_=reply.library_index;
                 held_geometry_=active_index_>=0&&active_index_<int(library_.size())?library_[active_index_].held:std::nullopt;
+                loadPostDev();
             }
             // The user's own crop, given back when the film edge goes off.
             if(reshaped&&!held_geometry_&&std::get<bool>(frame_->settings.get("overscan_active")))held_geometry_=reply.geometry;
@@ -606,6 +610,9 @@ QVariantList PreviewController::paperCatalog() const {
 }
 void PreviewController::resetSettings(){
     if(!settingsEditable())return;
+    // Post-Dev returns to the pure print with the rest (one undo step);
+    // Bypass stays as it was, as Session.resetAdjustments keeps it.
+    if(!postdev_.isNeutral()){const bool enabled=postdev_.enabled;postdev_={};postdev_.enabled=enabled;emit postDevChanged();}
     // A new photograph's settings, but this frame keeps its film edge seeds,
     // and a film edge switched off gives the crop back.
     desktop::RenderSettings fresh;
@@ -670,8 +677,13 @@ void PreviewController::exportImage(const QUrl& url,int format,int quality,int m
     // (Session.printGeometry, Session+FilmEdge.swift:459).
     const auto p=path(url);const auto held=frame_;const auto gen=++generation_;const auto resources=resources_;
     const auto geometry=frame_->cut?output::Geometry{}:geometry_;
-    submit([p,held,gen,geometry,resources,format,quality,maxLongEdge](auto&){Reply r;r.generation=gen;r.operation="export";
-        try{output::exportFrame(held,p,geometry,exportOptions(format,quality,maxLongEdge),resources);}catch(const std::exception& e){r.error=text(e.what());}return r;},uiText("status.exporting"),"export");
+    // Post-Dev on the frame the engine returned, before geometry, as every
+    // export path grades (PostDevSurfaces.hpp; AGENTS.md trap 33) -- for a
+    // cut frame the whole film canvas, as the Mac grades it (Exporter
+    // .filePixels: applyLayer2 on the engine's print, then printGeometry).
+    const auto grade=desktop::postdev::exportGrade(postdev_);
+    submit([p,held,gen,geometry,resources,format,quality,maxLongEdge,grade](auto&){Reply r;r.generation=gen;r.operation="export";
+        try{output::exportFrame(held,p,geometry,exportOptions(format,quality,maxLongEdge),resources,grade);}catch(const std::exception& e){r.error=text(e.what());}return r;},uiText("status.exporting"),"export");
 }
 
 QVariantMap PreviewController::adjustments() const {
@@ -938,20 +950,23 @@ void PreviewController::saveActiveSettings(bool recordHistory) {
     // A saved pending edit has no rendered thumbnail yet. Do not let the
     // strip present an older look as if it represented the new settings.
     const bool changed=!sameSettings(item.settings,desired)||item.mode!=mode||item.geometry!=geometry_||item.held!=held_geometry_;
-    if(changed){
+    // A Post-Dev change needs no render: the thumbnail is regraded, not dropped.
+    const bool graded=item.postdev!=postdev_;
+    if(changed||graded){
         if(recordHistory)recordEdit(item,itemState(item));
-        item.thumbnail={};item.pending_save=true;
+        if(changed)item.thumbnail={};
+        item.pending_save=true;
     }
     item.settings=desired;item.mode=mode;
-    item.geometry=geometry_;item.held=held_geometry_;
-    if(changed){scheduleSave();emit libraryChanged();emit historyChanged();}
+    item.geometry=geometry_;item.held=held_geometry_;item.postdev=postdev_;
+    if(changed||graded){scheduleSave();emit libraryChanged();emit historyChanged();}
 }
 void PreviewController::updateThumbnail() {
     if(active_index_<0||active_index_>=int(library_.size()))return;
     auto& item=library_[active_index_];
     // From the navigator (at most 1024 px, already area-averaged), so this
     // stays cheap on the GUI thread and keeps 16-bit-class precision.
-    item.thumbnail=dirty()||navigator_.isNull()?QImage{}:desktop::display::thumbnailImage(navigator_);
+    item.thumbnail=dirty()||navigator_.isNull()?QImage{}:gradedThumbnail(desktop::display::thumbnailImage(navigator_));
     item.error.clear();emit libraryChanged();
 }
 int PreviewController::addFile(const QUrl& url) {
@@ -966,7 +981,7 @@ int PreviewController::addFile(const QUrl& url) {
     const auto stored=edit_store_.load(local,catalog_);
     item.save_blocked=stored.blocked;item.save_warning=stored.warning;item.preserved=stored.preserved;
     if(stored.state){item.settings=stored.state->settings;item.mode=stored.state->mode;item.geometry=stored.state->geometry;
-                     item.held=stored.state->heldGeometry;item.has_stored=true;}
+                     item.held=stored.state->heldGeometry;item.postdev=stored.state->postDev;item.has_stored=true;}
     // A frame's film edge seeds, the first time it is opened (Session
     // .seedFilmEdge): a frame seed of its own, the user's body, and its
     // number on the roll -- its place in the session. A new photo is seeded
@@ -1009,6 +1024,10 @@ void PreviewController::syncSelectedSettings(bool includeCrop) {
         next.settings=desktop::synced_settings(next.settings,item.settings);
         next.heldGeometry=item.held;
         if(!includeCrop)next.geometry=item.geometry;
+        // Post-Dev is not copied: the Mac's clipboard groups leave
+        // `adjustments` out (SettingsClipboard.swift notCopied), and its Sync
+        // writes exactly those groups (Session.syncSettings).
+        next.postDev=item.postdev;
         next.settings=pastedPlacement(next.settings);
         if(sameState(itemState(item),next))continue;
         // Each recipient owns its own undo history, just like its settings.
@@ -1066,10 +1085,10 @@ void PreviewController::setCropAspect(double ratio) {
 void PreviewController::cancelExport(){if(cancel_batch_)cancel_batch_->store(true);}
 
 editing::State PreviewController::itemState(const LibraryItem& item) {
-    return {item.settings,item.mode,item.geometry,item.held};
+    return {item.settings,item.mode,item.geometry,item.held,item.postdev};
 }
 editing::State PreviewController::currentState() const {
-    return {settings(),decode_mode_?desktop::DecodeMode::headroom:desktop::DecodeMode::compatible16,geometry_,held_geometry_};
+    return {settings(),decode_mode_?desktop::DecodeMode::headroom:desktop::DecodeMode::compatible16,geometry_,held_geometry_,postdev_};
 }
 bool PreviewController::canUndo() const {
     return settingsEditable()&&active_index_>=0&&!library_[active_index_].undo.empty();
@@ -1120,7 +1139,9 @@ void PreviewController::restoreHistory(bool redo) {
         geometry_=target.geometry;held_geometry_=target.heldGeometry;image_=std::move(next);navigator_=std::move(navigator);
         histogram_=std::move(bins);
         if(geometryChangedNow)refreshOriginal(false);
+        const bool gradeChangedNow=target.postDev!=postdev_;postdev_=target.postDev;
         loadSettings(target.settings,target.mode);saveActiveSettings();
+        if(gradeChangedNow)emit postDevChanged();
         ++settings_revision_;auto_apply_.stop();schedulePreview();updateThumbnail();
         failed_=false;status_=uiText(redo?"status.redone":"status.undone");
         if(geometryChangedNow){emit geometryChanged();emit frameChanged();}
@@ -1202,7 +1223,8 @@ void PreviewController::exportBatch(const QUrl& folder,int format,int quality,in
                             useShown=cut==held->cut&&(!cut||held->geometry==toCut(item.geometry));
                         }
                         const auto developed=useShown?held:host.open_raw(source,item.mode,item.settings,toCut(item.geometry));
-                        output::exportFrame(developed,target,developed->cut?output::Geometry{}:item.geometry,options,resources);++done;
+                        output::exportFrame(developed,target,developed->cut?output::Geometry{}:item.geometry,options,resources,
+                                            desktop::postdev::exportGrade(item.postdev));++done;
                     }
                 }catch(const std::exception& e){++errors;details.append(name+": "+text(e.what()));}
                 ++processed;

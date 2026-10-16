@@ -30,9 +30,9 @@ import QtQuick.Controls
 // neutral picker are in the section's "..." as the Mac has them; the picker
 // arms the canvas (EditorState.pickingNeutral, CanvasView.qml).
 //
-// Vignetting is the Mac's Layer 2 lens fall-off -- the same control as the
-// Post-Dev grade's vignette on Windows -- so it is greyed here with that
-// reason; Lens Correction is greyed because LibRaw has no lens profiles.
+// Vignetting is the Mac's Layer 2 lens fall-off: the Post-Dev grade's
+// vignette (PostDevSlider, `vignette.amount`), which the Mac shows here and
+// only here. Lens Correction is greyed because LibRaw has no lens profiles.
 MacSection {
     id: section
     sectionId: "camera"
@@ -204,12 +204,14 @@ MacSection {
             onToggledTo: function(on) { preview.setTintAsShot(on) }
         }
     }
-    ScrubSlider {
+    // The Post-Dev grade's vignette (CameraSection.swift:82-85: Layer 2's
+    // lens fall-off, here "because that is where a photographer looks for
+    // it"); its range and snap from postdev::fields, one undo step a drag.
+    PostDevSlider {
+        objectName: "cameraVignetting"
+        path: "vignette.amount"
         label: L10n.tr("camera.vignetting")
-        from: -100; to: 100; defaultValue: 0; step: 1; decimals: 0; signed: true
-        value: 0
-        available: false
-        reason: L10n.tr("camera.vignettingReason")
+        toolTip: L10n.tr("postDev.vignettingNote")
     }
     CheckRow {
         label: L10n.tr("camera.lensCorrection")

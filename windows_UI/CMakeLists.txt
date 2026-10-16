@@ -31,6 +31,14 @@ qt_standard_project_setup(REQUIRES 6.8)
 # variant (no lookup, 3D texture, 2D atlas, bare copy, and both tables with
 # the 1-D curves; see its header); GLSL 300 es/330 because it uses integer
 # arithmetic and sampler3D.
+#
+# The fragment shader includes shaders/postdev.glsl, which qt_add_shaders does
+# not know as an input. Its hash is passed as an (unused) define, and the file
+# is a configure dependency: editing it reconfigures, the define changes, and
+# every variant's qsb command line with it, so the canvas shaders rebuild.
+file(SHA1 "${CMAKE_CURRENT_SOURCE_DIR}/shaders/postdev.glsl" spk_postdev_glsl_sha1)
+string(SUBSTRING "${spk_postdev_glsl_sha1}" 0 16 spk_postdev_glsl_sha1)
+set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS "${CMAKE_CURRENT_SOURCE_DIR}/shaders/postdev.glsl")
 function(spk_qt_add_canvas_shaders target)
     qt_add_shaders(${target} "${target}_canvas_vertex" BATCHABLE PREFIX "/" GLSL "300es,330"
         FILES shaders/colorcanvas.vert)
@@ -39,7 +47,7 @@ function(spk_qt_add_canvas_shaders target)
         list(GET variant 1 mode)
         list(GET variant 2 curves)
         qt_add_shaders(${target} "${target}_canvas_${name}" PREFIX "/" GLSL "300es,330"
-            DEFINES "LUT_MODE=${mode};CURVES=${curves}" FILES shaders/colorcanvas.frag
+            DEFINES "LUT_MODE=${mode};CURVES=${curves};POSTDEV_GLSL_SHA1=x${spk_postdev_glsl_sha1}" FILES shaders/colorcanvas.frag
             OUTPUTS shaders/colorcanvas_${name}.frag.qsb)
     endforeach()
 endfunction()
@@ -338,6 +346,37 @@ if(BUILD_TESTING)
             --glsl-version 450 -o "${CMAKE_CURRENT_BINARY_DIR}/postdev_probe_450.spv"
             "${CMAKE_CURRENT_SOURCE_DIR}/shaders/postdev_probe.frag")
     endif()
+endif()
+
+# Post-Dev in the application (lane ui-postdev-integration): the canvas
+# grades in its fragment shader (shaders/colorcanvas.frag includes
+# postdev.glsl) and its software path, the edit store keeps `state.postDev`,
+# every export grades the uncropped frame before geometry, and the right
+# rail's Post-Dev side edits it (PreviewControllerPostDev.cpp, qml/right/
+# PostDev*.qml). The model and canvas half needs no engine; the controller
+# half rides with PreviewController.cpp in every target that builds it.
+set(spektralab_postdev_core_sources src/PostDev.hpp src/PostDev.cpp src/PostDevView.hpp src/PostDevView.cpp)
+set(spektralab_postdev_controller_sources ${spektralab_postdev_core_sources}
+    src/PostDevSurfaces.hpp src/PostDevSurfaces.cpp src/PreviewControllerPostDev.cpp)
+target_sources(SpektraLabQt PRIVATE ${spektralab_postdev_controller_sources})
+qt_target_qml_sources(SpektraLabQt
+    QML_FILES
+        qml/controls/PostDevSlider.qml qml/controls/CurveEditor.qml qml/controls/ZoneWheel.qml
+        qml/controls/ColorBalanceEditor.qml
+        qml/right/PostDevPanel.qml qml/right/PostDevWhiteBalanceSection.qml qml/right/PostDevExposureSection.qml
+        qml/right/PostDevCurveSection.qml qml/right/PostDevColorBalanceSection.qml
+    NO_CACHEGEN)
+if(BUILD_TESTING)
+    foreach(target spk_qt_library_workflow_test spk_qt_controller_settings_test spk_qt_editing_workflow_test
+                   spk_qt_export_workflow_test spk_qt_predev_test spk_qt_film_edge_state_test)
+        target_sources(${target} PRIVATE ${spektralab_postdev_controller_sources})
+    endforeach()
+    # The store parses `state.postDev`; the canvas test grades on WARP and on
+    # the CPU; the recipe test grades an export through Job::grade.
+    target_sources(spk_qt_edit_store_test PRIVATE src/PostDev.cpp)
+    target_sources(spk_qt_color_canvas_test PRIVATE ${spektralab_postdev_core_sources})
+    target_sources(spk_qt_recipe_export_test PRIVATE ${spektralab_postdev_core_sources}
+        src/PostDevSurfaces.hpp src/PostDevSurfaces.cpp)
 endif()
 # --- The application shell (lane ui-app-shell) ---
 # The Settings and About windows, the application menu and the preferences

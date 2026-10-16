@@ -17,6 +17,57 @@
 #include <thread>
 #include <unordered_map>
 
+namespace postdev=spk::desktop::postdev;
+
+// Post-Dev's curve tables (postdev::curveTables) as the 256 x 5 texture
+// shaders/postdev.glsl fetches from: R32F where the RHI has it, else RGBA32F
+// (only .r is read), else half floats. One per canvas, shared by its tiles'
+// materials; it always holds tables (the identity's until a grade arrives),
+// because every variant but the copy declares the binding.
+class ColorCanvasNode::CurveTable final : public QSGTexture {
+public:
+    CurveTable():tables_(postdev::curveTables({})) {setFiltering(Nearest);}
+    ~CurveTable() override {delete texture_;}
+    void setTables(const postdev::CurveTables& tables) {tables_=tables;pending_=true;}
+    qint64 comparisonKey() const override {return qint64(quintptr(this));}
+    QRhiTexture* rhiTexture() const override {return texture_;}
+    QSize textureSize() const override {return QSize(postdev::curveTableSize,5);}
+    bool hasAlphaChannel() const override {return false;}
+    bool hasMipmaps() const override {return false;}
+    void commitTextureOperations(QRhi* rhi,QRhiResourceUpdateBatch* updates) override {
+        if(!pending_)return;
+        if(!texture_) {
+            format_=rhi->isTextureFormatSupported(QRhiTexture::R32F)?QRhiTexture::R32F:
+                rhi->isTextureFormatSupported(QRhiTexture::RGBA32F)?QRhiTexture::RGBA32F:QRhiTexture::RGBA16F;
+            texture_=rhi->newTexture(format_,textureSize());
+            if(!texture_->create()) {
+                qWarning("FrameCanvas: cannot create the Post-Dev curve texture");
+                delete texture_;texture_=nullptr;return;
+            }
+        }
+        pending_=false;
+        constexpr qsizetype count=qsizetype(5)*postdev::curveTableSize;
+        QByteArray bytes;
+        if(format_==QRhiTexture::R32F) {
+            bytes=QByteArray(reinterpret_cast<const char*>(tables_.data()),count*qsizetype(sizeof(float)));
+        } else if(format_==QRhiTexture::RGBA32F) {
+            bytes=QByteArray(count*16,'\0');
+            auto* out=reinterpret_cast<float*>(bytes.data());
+            for(qsizetype i=0;i<count;++i)out[i*4]=tables_[size_t(i)];
+        } else {
+            bytes=QByteArray(count*8,'\0');
+            auto* out=reinterpret_cast<qfloat16*>(bytes.data());
+            for(qsizetype i=0;i<count;++i)out[i*4]=qfloat16(tables_[size_t(i)]);
+        }
+        updates->uploadTexture(texture_,QRhiTextureUploadEntry(0,0,QRhiTextureSubresourceUploadDescription(bytes)));
+    }
+private:
+    postdev::CurveTables tables_;
+    QRhiTexture::Format format_=QRhiTexture::R32F;
+    QRhiTexture* texture_=nullptr;
+    bool pending_=true;
+};
+
 namespace {
 std::atomic<int> maxTextureSizeForTesting{0};
 std::atomic<bool> forceLutAtlasForTesting{false};
@@ -272,6 +323,9 @@ public:
         if(int c=order(frame_->comparisonKey(),that->frame_->comparisonKey()))return c;
         if(int c=order(key(lut),key(that->lut)))return c;
         if(int c=order(key(curves),key(that->curves)))return c;
+        if(int c=order(postdevCurves.get(),that->postdevCurves.get()))return c;
+        if(int c=std::memcmp(grade.data(),that->grade.data(),sizeof grade))return c<0?-1:1;
+        if(int c=std::memcmp(source.data(),that->source.data(),sizeof source))return c<0?-1:1;
         return order(dither,that->dither);
     }
     Variant variant() const {return variant_;}
@@ -279,13 +333,20 @@ public:
     std::shared_ptr<LutTexture> lut;       // the table; null without a lookup
     std::shared_ptr<LutTexture> curves;    // the 1-D curves; null without them
     float dither=0;
+    // Post-Dev: the canvas's curve texture, the std140 grade (all zeros is
+    // inactive) and this tile's texture coordinate -> source map, two rows.
+    std::shared_ptr<ColorCanvasNode::CurveTable> postdevCurves;
+    std::array<float,postdev::std140Bytes/sizeof(float)> grade{};
+    std::array<float,8> source{1,0,0,0,0,1,0,0};
 private:
     Variant variant_;
     FrameTexture* frame_;                  // owned by the tile
 };
 
-// The uniform block of shaders/colorcanvas.*, std140.
-constexpr int kMatrixOffset=0,kOpacityOffset=64,kParametersOffset=68,kUniformBytes=80;
+// The uniform block of shaders/colorcanvas.*, std140: the matrix, opacity
+// and LUT parameters, then Post-Dev's source map (two vec4) and its grade.
+constexpr int kMatrixOffset=0,kOpacityOffset=64,kParametersOffset=68,kSourceOffset=80,kGradeOffset=112;
+constexpr int kUniformBytes=kGradeOffset+int(postdev::std140Bytes);
 
 class CanvasShader final : public QSGMaterialShader {
 public:
@@ -310,12 +371,15 @@ public:
         const float m=material->curves?float(material->curves->size()):0.0f;
         const float parameters[3]={n,material->dither,m};
         std::memcpy(buffer->data()+kParametersOffset,parameters,sizeof parameters);
+        std::memcpy(buffer->data()+kSourceOffset,material->source.data(),sizeof material->source);
+        std::memcpy(buffer->data()+kGradeOffset,material->grade.data(),sizeof material->grade);
         return true;
     }
     void updateSampledImage(RenderState& state,int binding,QSGTexture** texture,QSGMaterial* newMaterial,QSGMaterial*) override {
         auto* material=static_cast<CanvasMaterial*>(newMaterial);
         QSGTexture* bound=binding==1?static_cast<QSGTexture*>(material->frame()):
-            binding==2?material->lut.get():material->curves.get();
+            binding==2?static_cast<QSGTexture*>(material->lut.get()):
+            binding==3?static_cast<QSGTexture*>(material->curves.get()):material->postdevCurves.get();
         if(bound)bound->commitTextureOperations(state.rhi(),state.resourceUpdateBatch());
         *texture=bound;
     }
@@ -410,13 +474,15 @@ bool displayLutActive(const ColorLut& lut) {
     return table && curves;
 }
 
-QImage applyDisplayLutCpu(const QImage& image,const ColorLut& lut,bool dither) {
+QImage applyDisplayLutCpu(const QImage& image,const ColorLut& lut,bool dither,const postdev::Grade* grade,
+                          const postdev::SourceMap& map) {
     if(image.isNull())return image;
     const bool active=displayLutActive(lut);
+    const bool graded=grade && !grade->isIdentity();
     const auto format=image.format();
     const bool eightBit=format==QImage::Format_RGB32 || format==QImage::Format_ARGB32 ||
         format==QImage::Format_ARGB32_Premultiplied;
-    if(!active && eightBit)return image;
+    if(!active && eightBit && !graded)return image;
     const bool deep=isDeep(image),alpha=image.hasAlphaChannel();
     const QImage source=eightBit || isHalfFloat(format)?image:image.convertToFormat(
         deep?(alpha?QImage::Format_RGBA16FPx4:QImage::Format_RGBX16FPx4):(alpha?QImage::Format_ARGB32:QImage::Format_RGB32));
@@ -426,8 +492,10 @@ QImage applyDisplayLutCpu(const QImage& image,const ColorLut& lut,bool dither) {
     const bool premultiplied=source.format()==QImage::Format_ARGB32_Premultiplied ||
         source.format()==QImage::Format_RGBA16FPx4_Premultiplied;
     // As in the shader: dither only where it can matter, never on an 8-bit
-    // frame under the identity LUT (that path is the image itself, above).
-    const float amplitude=dither && (active || deep)?1.0f/255.0f:0.0f;
+    // frame under the identity LUT and no grade (that path is the image
+    // itself, above).
+    const float amplitude=dither && (active || deep || graded)?1.0f/255.0f:0.0f;
+    const double fullWidth=source.width(),fullHeight=source.height();
     // qRound of the clamped value is what QImage::pixel() does for a half-
     // float image, so the identity path agrees with it to the bit.
     auto quantize=[](float v){return qRound(std::clamp(v,0.0f,1.0f)*255.0f);};
@@ -448,6 +516,12 @@ QImage applyDisplayLutCpu(const QImage& image,const ColorLut& lut,bool dither) {
                     if(c[3]>0){c[0]/=c[3];c[1]/=c[3];c[2]/=c[3];}else c[0]=c[1]=c[2]=0;
                 }
                 for(int k=0;k<3;++k)c[k]=std::clamp(c[k],0.0f,1.0f);
+                if(graded) {
+                    // The shader's sourceUv at this pixel's centre.
+                    const auto [su,sv]=map((x+0.5)/fullWidth,(y+0.5)/fullHeight);
+                    const auto out=grade->pixel({c[0],c[1],c[2]},float(su),float(sv));
+                    c[0]=out[0];c[1]=out[1];c[2]=out[2];
+                }
                 if(active)transform(lut,c);
                 if(amplitude>0) {
                     const quint32 hr=wang(quint32(x)^wang(quint32(y))),hg=wang(hr),hb=wang(hg);
@@ -540,27 +614,51 @@ bool ColorCanvasNode::updateRhi(QQuickWindow* window,const CanvasPaint& paint) {
             std::call_once(warned,[]{qWarning("FrameCanvas: the display LUT cannot be a texture here; drawing without display colour management");});
         }
     }
+    // Post-Dev: the grade's block (zeros, inactive, without one) and, when
+    // its curves changed, the canvas's curve texture.
+    const bool graded=paint.grade && !paint.grade->isIdentity();
+    std::array<float,postdev::std140Bytes/sizeof(float)> block{};
+    bool curvesChanged=false;
+    if(!curves_)curves_=std::make_shared<CurveTable>();
+    if(graded) {
+        block=postdev::std140(*paint.grade);
+        if(paint.gradeRevision!=curvesRevision_) {
+            curves_->setTables(paint.grade->tables());curvesRevision_=paint.gradeRevision;curvesChanged=true;
+        }
+    }
     // One output step of triangular dither before the 8-bit swap chain
-    // quantises: wherever the LUT runs, and for a deep frame even under the
-    // identity (its extra bits would otherwise band). Never for an 8-bit
-    // frame under the identity, which must stay bit-exact.
-    const float dither=paint.dither && (mode!=NoLut || deep_)?1.0f/255.0f:0.0f;
+    // quantises: wherever the LUT or a grade runs, and for a deep frame even
+    // under the identity (its extra bits would otherwise band). Never for an
+    // 8-bit frame under the identity, which must stay bit-exact.
+    const float dither=paint.dither && (mode!=NoLut || deep_ || graded)?1.0f/255.0f:0.0f;
     const auto filtering=paint.smooth?QSGTexture::Linear:QSGTexture::Nearest;
     const double scaleX=paint.rect.width()/imageSize_.width(),scaleY=paint.rect.height()/imageSize_.height();
     // At full opacity, the identity without dither is drawn by a bare texture
     // read, the shader Qt's own texture node used. Measured on WARP with the
     // test's frame reduced to 34 %: any arithmetic after the read (even
     // "* qt_Opacity") moved 86 % of its pixels by one count against Qt's node;
-    // on an RTX 3070 the arithmetic version matched it exactly.
-    const bool copy=mode==NoLut && dither==0;
+    // on an RTX 3070 the arithmetic version matched it exactly. A graded
+    // frame never takes it: the copy has no Post-Dev.
+    const bool copy=mode==NoLut && dither==0 && !graded;
+    const auto& map=paint.sourceMap;
     for(auto& tile:tiles_) {
         auto* material=static_cast<CanvasMaterial*>(tile->node->material());
         if(material->variant()!=mode) {
             material=new CanvasMaterial(mode,tile->texture.get());
             tile->node->setMaterial(material);  // deletes the previous one (OwnsMaterial)
         }
-        if(material->lut!=lut || material->curves!=curves || material->dither!=dither) {
+        // This tile's texture coordinate t covers source pixels [src.left,
+        // src.right] of the image: image u = (src.left + t.x src.width) / W,
+        // then the paint's map to the source.
+        const auto& held=tile->source;
+        const double sl=double(held.left())/imageSize_.width(),sw=double(held.width())/imageSize_.width();
+        const double st=double(held.top())/imageSize_.height(),sh=double(held.height())/imageSize_.height();
+        const std::array<float,8> source{float(map.a*sw),float(map.b*sh),float(map.a*sl+map.b*st+map.c),0,
+                                         float(map.d*sw),float(map.e*sh),float(map.d*sl+map.e*st+map.f),0};
+        if(material->lut!=lut || material->curves!=curves || material->dither!=dither ||
+           material->postdevCurves!=curves_ || material->grade!=block || material->source!=source || curvesChanged) {
             material->lut=lut;material->curves=curves;material->dither=dither;
+            material->postdevCurves=curves_;material->grade=block;material->source=source;
             tile->node->markDirty(QSGNode::DirtyMaterial);
         }
         if(copy!=(tile->node->opaqueMaterial()!=nullptr))
@@ -594,13 +692,17 @@ bool ColorCanvasNode::updateSoftware(QQuickWindow* window,const CanvasPaint& pai
     }
     const bool active=displayLutActive(*paint.lut);
     const quint64 lut=active?paint.lut->key:0;
+    const bool graded=paint.grade && !paint.grade->isIdentity();
+    const quint64 grade=graded?paint.gradeRevision:0;
     if(!software_ || paint.revision!=revision_ || active!=softwareLutActive_ || lut!=softwareLut_ ||
-       paint.dither!=softwareDither_) {
-        auto* texture=window->createTextureFromImage(applyDisplayLutCpu(paint.image,*paint.lut,paint.dither));
+       paint.dither!=softwareDither_ || grade!=softwareGrade_ || (graded && !(paint.sourceMap==softwareMap_))) {
+        auto* texture=window->createTextureFromImage(applyDisplayLutCpu(paint.image,*paint.lut,paint.dither,
+                                                                        graded?paint.grade.get():nullptr,paint.sourceMap));
         if(!texture)return false;
         if(!software_){software_=new QSGSimpleTextureNode;appendChildNode(software_);}
         software_->setTexture(texture);software_->setOwnsTexture(true);
         revision_=paint.revision;softwareLutActive_=active;softwareLut_=lut;softwareDither_=paint.dither;
+        softwareGrade_=grade;softwareMap_=paint.sourceMap;
     }
     software_->setFiltering(paint.smooth?QSGTexture::Linear:QSGTexture::Nearest);
     software_->setRect(paint.rect);

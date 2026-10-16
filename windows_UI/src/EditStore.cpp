@@ -221,7 +221,8 @@ QJsonObject stateJson(const State& state) {
     // build's field.
     return {{"settings", settingsJson(state.settings)},
         {"decodeMode", mode}, {"geometry", geometryJson(state.geometry)},
-        {"heldGeometry", state.heldGeometry ? QJsonValue(geometryJson(*state.heldGeometry)) : QJsonValue()}};
+        {"heldGeometry", state.heldGeometry ? QJsonValue(geometryJson(*state.heldGeometry)) : QJsonValue()},
+        {"postDev", postdev::toJson(state.postDev)}};
 }
 output::Geometry parseGeometry(const QJsonObject& g, const QString& label, QStringList* extra) {
     keys(g, {"crop", "quarterTurns", "flipHorizontal", "flipVertical", "straightenDegrees"}, label, extra);
@@ -248,12 +249,20 @@ State parseState(const QJsonObject& value, int version, const Catalog* catalog, 
     QStringList ignored;
     QStringList* extra = version == 1 ? nullptr : unknown ? unknown : &ignored;
     // Version 2's optional heldGeometry -- the user's own crop while a film
-    // edge holds the crop at its gate (macOS Sidecar.heldCrop) -- is known
-    // here; a record from before it has none.
+    // edge holds the crop at its gate (macOS Sidecar.heldCrop) -- and postDev
+    // (Post-Dev, Layer 2) are known here; a record from before them has
+    // neither, and version 1 can carry neither (its keys are exact).
     QJsonObject required = value;
     const auto held = version == 1 ? QJsonValue() : required.take(QStringLiteral("heldGeometry"));
+    const auto graded = version == 1 ? QJsonValue(QJsonValue::Undefined) : required.take(QStringLiteral("postDev"));
     keys(required, {"settings", "decodeMode", "geometry"}, QStringLiteral("state"), extra);
     State state;
+    if (!graded.isUndefined()) {
+        const auto grade = graded;
+        require(grade.isObject(), QStringLiteral("Saved edit field must be an object: postDev"));
+        // Strict like the rest: a wrong type or range refuses the record.
+        state.postDev = postdev::fromJson(grade.toObject(), extra, QStringLiteral("state.postDev"));
+    }
     state.settings = parseSettings(object(value, "settings"), version, catalog, extra);
     const auto mode = string(value, "decodeMode");
     require(mode == "compatible16" || mode == "headroom",

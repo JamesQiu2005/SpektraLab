@@ -247,6 +247,10 @@ std::array<double,4> sourcePixel(const QImage& image,int x,int y) {
         const auto p=reinterpret_cast<const QRgbaFloat16*>(image.constScanLine(y))[x];
         return {double(float(p.red())),double(float(p.green())),double(float(p.blue())),double(float(p.alpha()))};
     }
+    case QImage::Format_RGBA32FPx4: case QImage::Format_RGBX32FPx4: {
+        const auto p=reinterpret_cast<const QRgbaFloat32*>(image.constScanLine(y))[x];
+        return {double(p.red()),double(p.green()),double(p.blue()),double(p.alpha())};
+    }
     case QImage::Format_ARGB32_Premultiplied: {
         const QRgb p=reinterpret_cast<const QRgb*>(image.constScanLine(y))[x];
         const double a=qAlpha(p)/255.0;
@@ -381,6 +385,122 @@ QImage ramp(int width,int height,QImage::Format format) {
     }
     image.setColorSpace(QColorSpace::SRgb);
     return image;
+}
+
+// --- Post-Dev on the canvas -----------------------------------------------
+namespace postdev=spk::desktop::postdev;
+QVariantMap mapOf(const postdev::Params& p) {return postdev::toJson(p).toVariantMap();}
+// Every stage of the layer at once: white balance, exposure, contrast,
+// brightness, highlights/shadows, black/white point, saturation, colour
+// balance, curves (luma, RGB, blue) and the vignette.
+postdev::Params gradeParams() {
+    postdev::Params p;
+    p.temperature=30;p.tint=-10;p.exposure=0.5;p.contrast=20;p.brightness=-10;p.saturation=-20;
+    p.highlights=-30;p.shadows=25;p.blackPoint=4;p.whitePoint=6;
+    p.curves.rgb.points={{0,0},{0.3,0.25},{0.7,0.78},{1,1}};
+    p.curves.luma.points={{0,0.02},{1,0.98}};
+    p.curves.blue.points={{0,0},{0.5,0.45},{1,1}};
+    p.colorBalance.shadows={220,0.4,-0.1};p.colorBalance.highlights={40,0.3,0.05};
+    p.vignette={-60,20};
+    return p;
+}
+// The CPU path's answer as a float image: Grade::apply over the frame (each
+// pixel at ((x + 0.5) / W, (y + 0.5) / H)), or, with a map, each pixel at its
+// mapped source position (PostDevView's gradeImage). compare() then puts it
+// through the reference LUT.
+QImage gradedReference(const QImage& source,const postdev::Grade& grade,const postdev::SourceMap* map=nullptr) {
+    QImage f=source.convertToFormat(QImage::Format_RGBA32FPx4);
+    if(map)postdev::gradeImage(f,grade,*map,1);else grade.apply(f,1);
+    return f;
+}
+
+void runPostDev(Harness& h,bool software) {
+    auto& canvas=h.canvas();
+    const auto identity=std::make_shared<const ColorLut>();
+    const auto gamma=makeLut(33,302,[](const Rgb& c){return Rgb{std::pow(c[0],1/2.2),std::pow(c[1],1/2.2),std::pow(c[2],1/2.2)};});
+    canvas.setFit(false);canvas.setOpacity(1);
+    h.pipeline().setLutOverrideForTesting(identity);h.pipeline().setDither(false);
+    canvas.setSourceMap({});
+    const QImage frame=pattern8(256,192);
+    canvas.setImage(frame);
+    h.render();
+    const QRect rect=wholeRect(canvas);
+
+    // An identity grade, and a bypassed one, are no grade: the bare copy,
+    // bit for bit (the canvas tests above rely on it).
+    canvas.setPostDev(mapOf(postdev::Params{}));
+    check(!canvas.grade(),"an identity Post-Dev map made a grade");
+    expect("post-dev identity: exact",compare(h.render(),rect,frame,*identity),0);
+    auto bypassed=gradeParams();bypassed.enabled=false;
+    canvas.setPostDev(mapOf(bypassed));
+    check(!canvas.grade(),"a bypassed Post-Dev map made a grade");
+    expect("post-dev bypassed: exact",compare(h.render(),rect,frame,*identity),0);
+    {
+        qint64 n=0;const int worst=againstPlain(h,frame,&n);
+        std::printf("  %-44s max diff %d, %lld pixels differ\n","post-dev bypassed vs Qt's texture node",worst,n);
+        check(worst==0,"a bypassed grade differs from the old canvas");
+    }
+
+    // The grade against Grade::apply (sRGB frame: sRGB's mid-grey).
+    const auto params=gradeParams();
+    const postdev::Grade grade(params,postdev::srgbMidGrey);
+    canvas.setPostDev(mapOf(params));
+    check(canvas.grade()&&postdev::std140(*canvas.grade())==postdev::std140(grade),"the canvas grades at the frame's mid-grey");
+    const QImage reference=gradedReference(frame,grade);
+    const auto graded=compare(h.render(),rect,reference,*identity);
+    expect("post-dev grade vs Grade::apply",graded,1);
+    const auto ungraded=compare(h.render(),rect,frame,*identity);
+    check(ungraded.maxDiff>20,"the grade changed nothing visible");
+    h.pipeline().setLutOverrideForTesting(gamma);
+    expect("post-dev grade, then gamma LUT",compare(h.render(),rect,reference,*gamma),1);
+    h.pipeline().setLutOverrideForTesting(identity);
+
+    // A cropped, turned, flipped picture: each pixel graded at its source
+    // position (the vignette is the uncropped print's).
+    const postdev::SourceMap turned{0.0,-0.5,0.75,0.6,0.0,0.1};
+    canvas.setSourceMap(postdev::toVariant(turned));
+    const QImage mappedReference=gradedReference(frame,grade,&turned);
+    expect("post-dev grade, mapped onto the source",compare(h.render(),rect,mappedReference,*identity),1);
+    check(compare(h.render(),rect,reference,*identity).maxDiff>2,"the source map did not move the vignette");
+
+    // A deep frame keeps its bits into the grade.
+    {
+        const QImage deep=ramp(1024,64,QImage::Format_RGBX16FPx4);
+        canvas.setImage(deep);canvas.setSourceMap({});
+        h.render();
+        expect("post-dev grade, half-float frame",compare(h.render(),wholeRect(canvas),gradedReference(deep,grade),*identity),1);
+        canvas.setImage(frame);canvas.setSourceMap(postdev::toVariant(turned));
+    }
+    if(!software) {
+        // Tiles: each one's texture coordinates composed with the map.
+        canvas_testing::setMaxTextureSize(100);
+        canvas.update();
+        const QImage tiled=h.render();
+        const int tiles=canvas_testing::lastTileCount();
+        canvas_testing::setMaxTextureSize(0);canvas.update();
+        check(tiles>=6,"the Post-Dev tile case did not tile");
+        expect("post-dev grade across tiles, mapped",compare(tiled,rect,mappedReference,*identity),1);
+        // Before rounding, from a float target.
+        Harness precise(QSize(320,240),false,true);
+        precise.canvas().setFit(false);
+        precise.canvas().setImage(frame);
+        precise.canvas().setPostDev(mapOf(params));
+        const QImage out=precise.render();
+        const QRect area=wholeRect(precise.canvas());
+        double worst=0;
+        for(int y=area.top();y<=area.bottom();++y)for(int x=area.left();x<=area.right();++x) {
+            const auto e=reinterpret_cast<const QRgbaFloat32*>(reference.constScanLine(y-area.y()))[x-area.x()];
+            const auto p=reinterpret_cast<const QRgbaFloat32*>(out.constScanLine(y))[x];
+            worst=std::max({worst,std::abs(double(p.red())-e.red())*255,std::abs(double(p.green())-e.green())*255,
+                            std::abs(double(p.blue())-e.blue())*255});
+        }
+        std::printf("  %-44s %.4f counts from Grade::apply before rounding\n","float target: post-dev grade",worst);
+        check(worst<0.5,"the shader's grade is half a count or more from Grade::apply");
+    }
+    // Back to no grade: exact again.
+    canvas.setPostDev({});canvas.setSourceMap({});
+    check(!canvas.grade(),"an empty Post-Dev map left a grade");
+    expect("post-dev removed: exact",compare(h.render(),rect,frame,*identity),0);
 }
 
 void run(bool software) {
@@ -647,6 +767,8 @@ void run(bool software) {
         std::printf("  %-44s max diff %d, %lld pixels differ\n","fit 36.7 %, 3 tiles vs 1 texture",worst,moved);
         check(worst<=1,"a tile seam is visible under Linear filtering");
     }
+
+    runPostDev(h,software);
 }
 }
 
