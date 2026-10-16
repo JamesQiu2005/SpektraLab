@@ -142,6 +142,25 @@ class PreviewController final : public QObject {
     // radiusTo 12, curve [{x, y}] (x -6..6 stops of blurred negative, y the
     // change in paper exposure clamped to -3..3, ToneMaskPlot), isDefault}.
     Q_PROPERTY(QVariantMap toneMask READ toneMask NOTIFY settingsChanged)
+    // --- canvas tools (FrameImage.hpp histogram / originalImage) ---
+    // 4 x 256 normalised bins (R, G, B, luma) of what each surface shows: the
+    // print as cropped (previewImage) -- not the uncropped print the Mac's
+    // histogram counts (AGENTS.md trap 33) -- and the whole source the crop
+    // editor shows (uncroppedImage). Made on the worker with the images, and
+    // on the GUI thread from the new previewImage after a geometry edit.
+    Q_PROPERTY(QList<double> histogram READ histogram NOTIFY frameChanged)
+    Q_PROPERTY(QList<double> uncroppedHistogram READ uncroppedHistogram NOTIFY frameChanged)
+    // The Original (macOS TopBar "Original", Space, and the left of the
+    // before/after split): the decode before any film simulation, tagged like
+    // the print and with the print's geometry, so the two share size, crop,
+    // turn and display transform. Made on the worker, on demand: while the
+    // canvas wants it (originalWanted), it is kept current with the frame
+    // and the geometry; originalPending while a new one is on its way.
+    Q_PROPERTY(bool originalWanted READ originalWanted WRITE setOriginalWanted NOTIFY originalChanged)
+    Q_PROPERTY(QImage originalImage READ originalImage NOTIFY originalChanged)
+    Q_PROPERTY(bool originalReady READ originalReady NOTIFY originalChanged)
+    Q_PROPERTY(bool originalPending READ originalPending NOTIFY originalChanged)
+    Q_PROPERTY(QList<double> originalHistogram READ originalHistogram NOTIFY originalChanged)
 public:
     // Makes the full display image of a frame. Called on the worker thread,
     // after the render and before the reply is queued; a throw fails the
@@ -194,6 +213,14 @@ public:
     bool flipHorizontal() const { return geometry_.flipHorizontal; }
     bool flipVertical() const { return geometry_.flipVertical; }
     double straightenDegrees() const { return geometry_.straightenDegrees; }
+    QList<double> histogram() const { return bins(histogram_); }
+    QList<double> uncroppedHistogram() const { return bins(uncropped_histogram_); }
+    bool originalWanted() const { return original_wanted_; }
+    void setOriginalWanted(bool wanted);
+    QImage originalImage() const { return original_; }
+    bool originalReady() const { return !original_.isNull(); }
+    bool originalPending() const { return original_pending_; }
+    QList<double> originalHistogram() const { return bins(original_histogram_); }
     bool canUndo() const;
     bool canRedo() const;
     QString persistenceWarning() const;
@@ -243,6 +270,9 @@ public:
     // .PrintTrim): brightness, both filter shifts and pre-flash to 0.
     Q_INVOKABLE void resetEnlarger();
     Q_INVOKABLE void setCropRect(const QRectF& crop);
+    // The crop editor's commit: the rectangle and the straighten its line
+    // gesture set, as one undo step.
+    Q_INVOKABLE void setCropGeometry(const QRectF& crop, double straightenDegrees);
     Q_INVOKABLE void resetCrop();
     Q_INVOKABLE void setCropAspect(double ratio);
     Q_INVOKABLE void rotateClockwise();
@@ -317,13 +347,17 @@ signals:
     // The Pre-Dev rail's outcomes: `message` is "" on success, else why.
     void neutralPicked(bool success, const QString& message);
     void processed(bool success, const QString& message);
+    void originalChanged();
 private:
     // Everything the canvases show of one frame, made on the worker.
     struct Publication {
         QImage full, visible, navigator;
+        std::vector<float> histogram, uncropped_histogram;  // of visible, of full
         spk::desktop::output::Geometry geometry;  // what `visible` applied
         double convert_ms=0, total_ms=0;           // factory alone; all three
+        double histogram_ms=0;                     // both histograms
     };
+    static QList<double> bins(const std::vector<float>& values);
     static Publication publish(const ImageFactory& factory, const spk::desktop::FramePtr& frame,
                                const spk::desktop::output::Geometry& geometry);
     struct Reply {
@@ -336,6 +370,13 @@ private:
         spk::desktop::FramePtr frame;
         Publication publication;
         spk::desktop::Catalog catalog;
+        // operation "original": the whole Original when it was made from the
+        // decode (else empty), the visible one, its histogram and token.
+        QImage original_full, original;
+        std::vector<float> original_histogram;
+        spk::desktop::output::Geometry original_geometry;
+        quint64 original_token=0;
+        double original_decode_ms=0, original_ms=0;
     };
     using Job = std::function<Reply(spk::desktop::PreviewHost&)>;
     void workerLoop(std::filesystem::path resources, spk::desktop::HostOptions options);
@@ -361,6 +402,11 @@ private:
     bool chooseFilm(int index);
     bool choosePaper(int index);
     void schedulePreview();
+    // The Original: drop what no longer matches the frame (a new decode) or
+    // the geometry, and ask the worker for a new one while it is wanted.
+    void refreshOriginal(bool decodeChanged);
+    void requestOriginal();
+    void acceptOriginal(Reply reply);
     bool ready_=false, busy_=true, failed_=false;
     QString status_=uiText("status.startingEngine");
     QVariantList films_, papers_;
@@ -372,6 +418,15 @@ private:
     QImage full_image_;
     QImage navigator_;
     double convert_ms_=0, publish_ms_=0;
+    std::vector<float> histogram_, uncropped_histogram_;
+    double histogram_ms_=0;
+    QImage original_full_, original_;
+    std::vector<float> original_histogram_;
+    spk::desktop::output::Geometry original_geometry_;
+    bool original_wanted_=false, original_pending_=false;
+    quint64 original_token_=0;
+    double original_decode_ms_=0, original_ms_=0;
+    QString original_error_;
     spk::desktop::output::Geometry geometry_;
     spk::desktop::RenderSettings extra_settings_;
     struct LibraryItem {

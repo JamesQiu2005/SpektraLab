@@ -297,6 +297,11 @@ public:
     // on. On this same worker thread only; neither may be retained.
     spk_session* session() const noexcept;
     const io::DecodedRaw& input() const noexcept;
+    // The decode current() was developed from (linear ProPhoto, RAW
+    // orientation applied): what the Qt frontend shows as the Original. Empty
+    // before the first open; replaced only by a successful open_raw. Read on
+    // the host's own thread, like every other call.
+    const io::DecodedRaw& decoded() const noexcept;
 
     // New-file open is transactional: decode/open/render/display conversion
     // must all succeed before replacing the previous session and frame.

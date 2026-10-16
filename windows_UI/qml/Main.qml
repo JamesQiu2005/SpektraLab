@@ -71,6 +71,7 @@ ApplicationWindow {
 
     EditorState {
         id: editorState
+        objectName: "editorState"
         canvas: centre.canvas
         onCropModeChanged: window.updateDialogState()
         onImportRequested: openDialog.open()
@@ -121,12 +122,19 @@ ApplicationWindow {
     }
     Shortcut { sequences: [StandardKey.Open]; enabled: editorState.canBrowse; onActivated: openDialog.open() }
     Shortcut { sequence: "Ctrl+E"; enabled: editorState.canExport; onActivated: editorState.openExport() }
-    Shortcut { sequence: "Ctrl+0"; enabled: preview.hasFrame; onActivated: editorState.resetView(true) }
-    Shortcut { sequence: "Ctrl+1"; enabled: preview.hasFrame && !editorState.cropMode; onActivated: editorState.resetView(false) }
-    // The Mac's Cmd+= / Cmd+- on the zoom buttons; the canvas steps between
-    // fit and 100 % (EditorState.zoomIn / zoomOut).
+    // Zoom, the Mac's View menu as Windows spells it: Ctrl+0 / Ctrl+1 and
+    // Capture One's `,` / `.` are fit and 100 %; Ctrl+= / Ctrl+- step the
+    // ladder (ViewportState.zoomSteps) about the centre; Z toggles fit and
+    // 100 % (MetalCanvasView keyDown). Single keys yield to a focused text
+    // field, which takes them as typing. All wait while the crop editor is up.
+    Shortcut { sequences: ["Ctrl+0", ","]; enabled: preview.hasFrame && !editorState.zoomLocked; onActivated: editorState.resetView(true) }
+    Shortcut { sequences: ["Ctrl+1", "."]; enabled: preview.hasFrame && !editorState.zoomLocked; onActivated: editorState.zoomTo(1) }
+    Shortcut { sequence: "Z"; enabled: preview.hasFrame && !editorState.zoomLocked && centre.canvas !== null; onActivated: centre.canvas.toggleHundred(centre.canvas.width / 2, centre.canvas.height / 2) }
     Shortcut { sequences: [StandardKey.ZoomIn, "Ctrl+="]; enabled: editorState.canZoomIn; onActivated: editorState.zoomIn() }
     Shortcut { sequences: [StandardKey.ZoomOut]; enabled: editorState.canZoomOut; onActivated: editorState.zoomOut() }
+    // Before / after: the Mac's Y (Capture One's), and Alt+\ for its
+    // Option-\. Ctrl+\ is left alone; Alt+letter is the Windows menu mnemonic.
+    Shortcut { sequences: ["Y", "Alt+\\"]; enabled: editorState.canCompare || editorState.comparing; onActivated: editorState.toggleCompare() }
     // Full screen: the Mac's Ctrl+Cmd+F, as Windows spells it.
     Shortcut { sequence: "F11"; onActivated: window.visibility = window.visibility === Window.FullScreen ? Window.Windowed : Window.FullScreen }
     Shortcut { sequence: "Ctrl+Z"; enabled: preview.settingsEditable && preview.canUndo && !editorState.cropMode && !window.editingText; onActivated: preview.undo() }

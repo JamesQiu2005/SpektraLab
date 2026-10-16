@@ -25,9 +25,58 @@ QtObject {
     property bool closePending: false
 
     // The crop editor: the canvas shows the uncropped source and `draftCrop`
-    // (normalised to it) follows the drag until finishCrop() commits it.
+    // (normalised to it) follows the drag until finishCrop() commits it;
+    // `draftStraighten` is what the Ctrl-drag line asked for, applied with it.
     property bool cropMode: false
     property rect draftCrop: Qt.rect(0, 0, 1, 1)
+    property real draftStraighten: 0
+    // The aspect a crop grip keeps (source px width / height, 0 free): the
+    // Crop section's preset when the committed crop is one (CropSection.qml
+    // reads the same shape), as the Mac's grips keep Geometry.aspect.
+    readonly property real cropLockRatio: {
+        var c = preview.cropRect
+        var w = preview.metadata.sourceWidth, h = preview.metadata.sourceHeight
+        if (!preview.hasFrame || w === undefined || c.height <= 0) return 0
+        if (c.x === 0 && c.y === 0 && c.width === 1 && c.height === 1) return 0
+        var r = c.width * w / (c.height * h)
+        var shown = preview.quarterTurns % 2 !== 0 ? 1 / r : r
+        var folded = shown >= 1 ? shown : 1 / shown
+        var presets = [1, 1.5, 4 / 3, 16 / 9]
+        for (var i = 0; i < presets.length; ++i)
+            if (Math.abs(folded - presets[i]) < 0.002) return r
+        return 0
+    }
+
+    // --- the canvas tools (TopBar.swift, MetalCanvasView.swift) ---
+    // The Original: pinned by the tool bar's pill, or held with Space. It and
+    // the before/after split both end the crop editor, as the Mac's
+    // toggledOriginal and comparing leave the crop tool (Session.swift).
+    property bool originalPinned: false
+    readonly property bool showingOriginal: preview.hasFrame && !cropMode && (originalPinned || CanvasTools.spaceHeld)
+    // Before / after: the Original left of a vertical split, the print right
+    // of it; the split is a fraction of the picture's width, so it stays on
+    // the same part of the frame under zoom and pan (CompareOverlay.swift).
+    property bool comparing: false
+    property real comparePosition: 0.5
+    readonly property bool canCompare: preview.hasFrame && !preview.batchExporting
+    function toggleOriginal() {
+        if (!preview.hasFrame) return
+        if (!originalPinned && cropMode) finishCrop()
+        originalPinned = !originalPinned
+    }
+    function toggleCompare() {
+        if (!canCompare && !comparing) return
+        if (!comparing && cropMode) finishCrop()
+        comparing = !comparing
+    }
+    function setComparePosition(p) { comparePosition = Math.max(0, Math.min(1, p)) }
+    // The controller makes the Original only while something shows it.
+    readonly property bool originalWanted: preview.hasFrame && (showingOriginal || comparing)
+    onOriginalWantedChanged: preview.originalWanted = originalWanted
+    readonly property Connections spaceWatch: Connections {
+        target: CanvasTools
+        function onSpaceHeldChanged() { if (CanvasTools.spaceHeld && editorState.cropMode) editorState.finishCrop() }
+    }
 
     // Export options, shared by the options popup and the file dialogs.
     property int exportFormat: 0       // 0 TIFF16, 1 PNG8, 2 PNG16, 3 JPEG8
@@ -83,12 +132,16 @@ QtObject {
         var r = canvas.imageRect
         canvas.panBy(canvas.width / 2 - (r.x + nx * r.width), canvas.height / 2 - (r.y + ny * r.height))
     }
-    // The canvas has two scales, fit and one physical pixel per source pixel
-    // (FrameCanvas); zoom in and out step between them until it has more.
-    readonly property bool canZoomIn: preview.hasFrame && !cropMode && fit
-    readonly property bool canZoomOut: preview.hasFrame && !fit
-    function zoomIn() { if (canZoomIn) resetView(false) }
-    function zoomOut() { if (canZoomOut) resetView(true) }
+    // Zoom (ViewportState.swift): fit, or 5 % to 800 % in the Mac's steps,
+    // Ctrl+= / Ctrl+- and the bar's buttons stepping about the centre. Locked
+    // while the crop editor is up, as the Mac's crop tool locks it
+    // (Session.zoomLocked): the editor shows the whole source, fitted.
+    readonly property bool zoomLocked: cropMode
+    readonly property bool canZoomIn: preview.hasFrame && !zoomLocked && canvas !== null && canvas.canZoomIn
+    readonly property bool canZoomOut: preview.hasFrame && !zoomLocked && canvas !== null && canvas.canZoomOut
+    function zoomIn() { if (canZoomIn) canvas.zoomStep(1) }
+    function zoomOut() { if (canZoomOut) canvas.zoomStep(-1) }
+    function zoomTo(fraction) { if (canvas && preview.hasFrame && !zoomLocked) canvas.zoomTo(fraction) }
 
     // Requests for what Main.qml owns: the import dialog and the export options.
     signal importRequested()
@@ -110,14 +163,18 @@ QtObject {
     function startCrop() {
         if (!canEditCrop) return
         draftCrop = preview.cropRect
+        draftStraighten = preview.straightenDegrees
+        originalPinned = false
+        comparing = false
         cropMode = true
         Qt.callLater(function() { editorState.resetView(true) })
     }
     function finishCrop() {
         var next = draftCrop
+        var angle = draftStraighten
         var commit = cropMode && canEditCrop
         cropMode = false
-        if (commit) preview.setCropRect(next)
+        if (commit) preview.setCropGeometry(next, angle)
         Qt.callLater(function() { editorState.resetView(true) })
     }
     function cancelCrop() { cropMode = false; resetView(true) }

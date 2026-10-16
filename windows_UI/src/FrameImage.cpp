@@ -1,12 +1,17 @@
 #include "FrameImage.hpp"
 #include "core/colour.hpp"
+#include <QColorTransform>
 #include <QList>
 #include <QtCore/qfloat16.h>
+#include <QtGui/qrgbafloat.h>
 #include <algorithm>
 #include <cmath>
+#include <exception>
 #include <limits>
+#include <mutex>
 #include <stdexcept>
 #include <string>
+#include <thread>
 #include <vector>
 
 namespace spk::desktop::display {
@@ -175,6 +180,111 @@ QImage downscaled(const QImage& image,QSize bound) {
     }
     output.setColorSpace(image.colorSpace());
     return output;
+}
+
+namespace {
+// Rows [0, height) split over up to eight threads; the first exception wins.
+template<class Body> void parallelRows(int height,Body body) {
+    const int threads=std::clamp(int(std::thread::hardware_concurrency()),1,8);
+    const int chunk=(height+threads-1)/threads;
+    std::vector<std::thread> pool;std::exception_ptr error;std::mutex guard;
+    for(int t=0;t<threads;++t) {
+        const int y0=t*chunk,y1=std::min(height,y0+chunk);
+        if(y0>=y1)break;
+        pool.emplace_back([&,y0,y1]{
+            try{body(y0,y1);}catch(...){std::lock_guard lock(guard);if(!error)error=std::current_exception();}
+        });
+    }
+    for(auto& thread:pool)thread.join();
+    if(error)std::rethrow_exception(error);
+}
+}
+
+QImage originalImage(const io::DecodedRaw& decoded,const OutputEncoding& encoding) {
+    const auto width=decoded.width,height=decoded.height;
+    if(width==0||height==0||width>std::uint32_t(std::numeric_limits<int>::max())||
+       height>std::uint32_t(std::numeric_limits<int>::max())||
+       decoded.rgb.size()!=std::size_t(width)*height*3)
+        fail("The decoded photograph is empty or inconsistent");
+    const QColorSpace target=colorSpace(encoding);
+    const QColorSpace targetLinear=target.withTransferFunction(QColorSpace::TransferFunction::Linear);
+    const QColorSpace prophotoLinear(QColorSpace::Primaries::ProPhotoRgb,QColorSpace::TransferFunction::Linear);
+    // The 3x3 from linear ProPhoto to the target's linear light. Qt maps
+    // colours, not matrices, so it is read off as the inverse of the target
+    // primaries in ProPhoto: every space colorSpace() names lies inside the
+    // ProPhoto gamut, so those three colours map without any clipping.
+    const auto toProPhoto=targetLinear.transformationToColorSpace(prophotoLinear);
+    double inverse[3][3];
+    for(int c=0;c<3;++c) {
+        const QRgbaFloat32 unit{c==0?1.f:0.f,c==1?1.f:0.f,c==2?1.f:0.f,1.f};
+        const auto mapped=toProPhoto.map(unit);
+        inverse[0][c]=mapped.r;inverse[1][c]=mapped.g;inverse[2][c]=mapped.b;
+    }
+    const double det=inverse[0][0]*(inverse[1][1]*inverse[2][2]-inverse[1][2]*inverse[2][1])
+                    -inverse[0][1]*(inverse[1][0]*inverse[2][2]-inverse[1][2]*inverse[2][0])
+                    +inverse[0][2]*(inverse[1][0]*inverse[2][1]-inverse[1][1]*inverse[2][0]);
+    if(!std::isfinite(det)||std::abs(det)<1e-9)fail("Cannot derive the Original's colour conversion");
+    float m[3][3];
+    for(int r=0;r<3;++r)for(int c=0;c<3;++c) {
+        // Cofactor of (c, r) over the determinant: the inverse's (r, c).
+        const int r1=(c+1)%3,r2=(c+2)%3,c1=(r+1)%3,c2=(r+2)%3;
+        m[r][c]=float((inverse[r1][c1]*inverse[r2][c2]-inverse[r1][c2]*inverse[r2][c1])/det);
+    }
+    // The target's encoding on a 16-bit linear grid, as half floats: 1/65535
+    // steps are below a tenth of an 8-bit count after any display curve.
+    constexpr int nodes=65536;
+    std::vector<qfloat16> encode(nodes);
+    const auto toEncoded=targetLinear.transformationToColorSpace(target);
+    for(int i=0;i<nodes;++i) {
+        const float v=float(i)/(nodes-1);
+        encode[i]=qfloat16(std::clamp(toEncoded.map(QRgbaFloat32{v,v,v,1.f}).g,0.f,1.f));
+    }
+    QImage image(int(width),int(height),QImage::Format_RGBX16FPx4);
+    if(image.isNull())fail("Cannot allocate the Original");
+    const qfloat16 one(1.0f);
+    parallelRows(int(height),[&](int y0,int y1){
+        for(int y=y0;y<y1;++y) {
+            const float* p=decoded.rgb.data()+std::size_t(y)*width*3;
+            auto* q=reinterpret_cast<qfloat16*>(image.scanLine(y));
+            for(std::uint32_t x=0;x<width;++x,p+=3,q+=4) {
+                for(int c=0;c<3;++c) {
+                    const float v=m[c][0]*p[0]+m[c][1]*p[1]+m[c][2]*p[2];
+                    // NaN fails both comparisons and lands on black.
+                    const float t=v>0.f?(v<1.f?v:1.f):0.f;
+                    q[c]=encode[std::size_t(t*(nodes-1)+0.5f)];
+                }
+                q[3]=one;
+            }
+        }
+    });
+    image.setColorSpace(target);
+    return image;
+}
+
+std::vector<float> histogram(const QImage& image) {
+    std::vector<float> bins(4*kHistogramBins,0.f);
+    if(image.isNull()||image.format()!=QImage::Format_RGBX16FPx4)return bins;
+    const int width=image.width(),height=image.height();
+    const int stride=std::max(1,int(std::sqrt(double(width)*height/kHistogramSamples)));
+    std::vector<std::uint32_t> counts(4*kHistogramBins,0);
+    auto bin=[](float v){return int((v>0.f?(v<1.f?v:1.f):0.f)*255.f+0.5f);};
+    for(int y=0;y<height;y+=stride) {
+        const auto* row=reinterpret_cast<const qfloat16*>(image.constScanLine(y));
+        for(int x=0;x<width;x+=stride) {
+            const qfloat16* p=row+std::size_t(x)*4;
+            const float r=p[0],g=p[1],b=p[2];
+            const float cr=std::clamp(r,0.f,1.f),cg=std::clamp(g,0.f,1.f),cb=std::clamp(b,0.f,1.f);
+            ++counts[bin(r)];++counts[kHistogramBins+bin(g)];++counts[2*kHistogramBins+bin(b)];
+            ++counts[3*kHistogramBins+bin(0.2126f*cr+0.7152f*cg+0.0722f*cb)];
+        }
+    }
+    float peak=1;
+    for(int i=0;i<4*kHistogramBins;++i) {
+        const int k=i%kHistogramBins;
+        if(k>1&&k<kHistogramBins-2)peak=std::max(peak,float(counts[i]));
+    }
+    for(int i=0;i<4*kHistogramBins;++i)bins[i]=std::min(1.f,float(counts[i])/peak);
+    return bins;
 }
 
 }  // namespace spk::desktop::display

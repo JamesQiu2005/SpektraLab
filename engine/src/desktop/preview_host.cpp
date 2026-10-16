@@ -639,6 +639,7 @@ double PreviewHost::engine_create_ms() const noexcept { return impl_->engine_cre
 FramePtr PreviewHost::current() const noexcept { return impl_->frame; }
 spk_session* PreviewHost::session() const noexcept { return impl_->session.get(); }
 const io::DecodedRaw& PreviewHost::input() const noexcept { return impl_->decoded; }
+const io::DecodedRaw& PreviewHost::decoded() const noexcept { return impl_->decoded; }
 
 FramePtr PreviewHost::open_raw(const fs::path& source, DecodeMode mode, const RenderSettings& settings) {
     const auto started = Clock::now();

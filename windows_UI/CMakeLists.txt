@@ -48,7 +48,8 @@ qt_add_executable(SpektraLabQt WIN32
     src/main.cpp src/Messages.hpp src/PreviewController.hpp src/PreviewController.cpp
     src/FrameOutput.hpp src/FrameOutput.cpp src/FrameImage.hpp src/FrameImage.cpp
     src/EditStore.hpp src/EditStore.cpp
-    src/FrameCanvas.hpp src/FrameCanvas.cpp
+    src/FrameCanvas.hpp src/FrameCanvas.cpp src/CanvasMath.hpp src/CanvasMath.cpp
+    src/CanvasTools.hpp src/CanvasTools.cpp
     src/ColorCanvasNode.hpp src/ColorCanvasNode.cpp
     src/ColorPipeline.hpp src/ColorPipeline.cpp
     src/Localizer.hpp src/Localizer.cpp)
@@ -79,7 +80,7 @@ qt_add_qml_module(SpektraLabQt URI SpektraLab VERSION 1.0
         qml/controls/RailMenu.qml qml/controls/RailMenuItem.qml qml/controls/RailScrollBar.qml
         qml/controls/RailResizeHandle.qml qml/controls/StockList.qml qml/controls/CinePill.qml
         qml/controls/PlotPlaceholder.qml qml/controls/Note.qml
-        qml/controls/Adjustment.qml qml/controls/Effect.qml
+        qml/controls/Adjustment.qml qml/controls/Effect.qml qml/controls/HistogramPlot.qml
         qml/left/LeftRail.qml qml/left/NavigatorSection.qml qml/left/ClipboardSection.qml
         qml/left/FilmSection.qml qml/left/PrintSection.qml qml/left/CropSection.qml
         qml/left/EnlargerSection.qml
@@ -155,11 +156,22 @@ if(BUILD_TESTING)
         add_test(NAME spk_desktop_settings_engine COMMAND spk_desktop_preview_test --settings-engine
             "$<TARGET_FILE_DIR:SpektraLabQt>/resources")
     endif()
+    # The canvas tools without a window or a RAW: the zoom ladder and the
+    # physical-pixel alignment of 100 %, the crop grips, the histogram on
+    # synthetic frames (cropped against uncropped), and the Original's
+    # geometry and encoding against the print's (AGENTS.md trap 33).
+    qt_add_executable(spk_qt_canvas_tools_test tests/canvas_tools.cpp src/CanvasMath.hpp src/CanvasMath.cpp
+        src/FrameImage.cpp src/FrameOutput.cpp)
+    target_include_directories(spk_qt_canvas_tools_test PRIVATE src)
+    target_compile_features(spk_qt_canvas_tools_test PRIVATE cxx_std_20)
+    target_link_libraries(spk_qt_canvas_tools_test PRIVATE spk_desktop_host Qt6::Core Qt6::Gui)
+    add_test(NAME spk_qt_canvas_tools COMMAND spk_qt_canvas_tools_test)
     # The canvas through forced display LUTs, against a CPU reference: on the
     # GPU (D3D11 WARP through QQuickRenderControl; exit 77 = no WARP, skipped
     # loudly) and through the software backend's CPU path.
     qt_add_executable(spk_qt_color_canvas_test tests/color_canvas.cpp
-        src/FrameCanvas.hpp src/FrameCanvas.cpp src/ColorCanvasNode.hpp src/ColorCanvasNode.cpp
+        src/FrameCanvas.hpp src/FrameCanvas.cpp src/CanvasMath.hpp src/CanvasMath.cpp
+        src/ColorCanvasNode.hpp src/ColorCanvasNode.cpp
         src/ColorPipeline.hpp src/ColorPipeline.cpp src/DisplayColor.hpp src/DisplayColor.cpp
         src/ColorLut.hpp src/ColorLut.cpp)
     target_include_directories(spk_qt_color_canvas_test PRIVATE src)
@@ -186,7 +198,7 @@ if(BUILD_TESTING)
             get_filename_component(qt_test_compiler_directory "${CMAKE_CXX_COMPILER}" DIRECTORY)
             list(APPEND qt_test_runtime_path "PATH=path_list_prepend:${qt_test_compiler_directory}")
         endif()
-        set_tests_properties(spk_qt_frame_output spk_qt_frame_image spk_qt_edit_store spk_qt_controller_settings
+        set_tests_properties(spk_qt_frame_output spk_qt_frame_image spk_qt_edit_store spk_qt_controller_settings spk_qt_canvas_tools
             spk_qt_localizer spk_qt_color_canvas spk_qt_color_canvas_software PROPERTIES
             ENVIRONMENT_MODIFICATION "${qt_test_runtime_path}")
     endif()
