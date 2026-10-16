@@ -1,0 +1,36 @@
+#version 450
+
+// overscan.metal's spk_overscan_add_mask: a rasterised imprint (coverage,
+// canvas-aligned) added as exposure, in place. M = {x0, y0, mw, mh, cw, ch,
+// e_r, e_g, e_b}; mask pixel i is canvas pixel (x0 + i % mw, y0 + i / mw).
+// Each thread owns one canvas pixel and every dispatch completes before the
+// next is recorded (vulkan_gpu.cpp), so the read-modify-write cannot race.
+layout(local_size_x = 256) in;
+layout(set = 0, binding = 0, std430) readonly buffer Mask { float value[]; } mask_data;
+layout(set = 0, binding = 1, std430) readonly buffer Meta { float value[]; } meta;
+layout(set = 0, binding = 2, std430) readonly buffer Count { uint value[]; } count_data;
+layout(set = 0, binding = 3, std430) buffer Canvas { float value[]; } canvas;
+
+// vulkan_gpu.cpp folds a dispatch past maxComputeWorkGroupCount[0] (65535 on
+// lavapipe and Intel) into rows of workgroups; this is the 1D index it means.
+uint spk_global_index() {
+    return gl_GlobalInvocationID.y * (gl_NumWorkGroups.x * gl_WorkGroupSize.x) + gl_GlobalInvocationID.x;
+}
+
+void main() {
+    uint i = spk_global_index();
+    if (i >= count_data.value[0]) return;
+    uint mw = uint(meta.value[2]);
+    int x = int(meta.value[0]) + int(i % mw), y = int(meta.value[1]) + int(i / mw);
+    if (x < 0 || y < 0 || x >= int(meta.value[4]) || y >= int(meta.value[5])) return;
+    float c = mask_data.value[i];
+    if (c <= 0.0) return;
+    uint o = 3u * (uint(y) * uint(meta.value[4]) + uint(x));
+    // One rounding for the product and one for the sum, as written.
+    precise float r = canvas.value[o] + c * meta.value[6];
+    precise float g = canvas.value[o + 1u] + c * meta.value[7];
+    precise float b = canvas.value[o + 2u] + c * meta.value[8];
+    canvas.value[o] = r;
+    canvas.value[o + 1u] = g;
+    canvas.value[o + 2u] = b;
+}

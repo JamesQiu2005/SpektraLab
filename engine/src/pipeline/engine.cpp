@@ -48,6 +48,7 @@
 #include "print_lut.hpp"
 #include "setup_cache.hpp"
 #ifndef __APPLE__
+#include "overscan_raster.hpp"
 #include "windows_unported.hpp"
 #endif
 
@@ -578,6 +579,8 @@ spk_engine* spk_engine_create(const char* resources_dir, void* device) {
 
 #ifndef __APPLE__
     if (device) { g_error = "Windows device-buffer input is not implemented yet; pass null"; return nullptr; }
+    // The film edge's faces (overscan_raster_portable.cpp), read on first use.
+    imprint::set_font_directory(engine->resources_dir + "/fonts");
     engine->gpu = gpu::Gpu::create_vulkan(engine->resources_dir + "/vulkan", error);
 #else
     engine->gpu = gpu::Gpu::create_metal(device, engine->resources_dir + "/spektrafilm.metallib", error);
