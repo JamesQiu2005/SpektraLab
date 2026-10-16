@@ -1,5 +1,6 @@
 #include "PreviewController.hpp"
 #include "FrameCanvas.hpp"
+#include "Localizer.hpp"
 #include <QCommandLineParser>
 #include <QCryptographicHash>
 #include <QDir>
@@ -396,6 +397,9 @@ int main(int argc,char** argv) {
     PreviewController controller(std::filesystem::path(resources.toStdWString()),nullptr,
         [failDisplay](const auto& frame){if(*failDisplay){*failDisplay=false;throw std::runtime_error("Injected display publication failure");}return PreviewController::imageFromFrame(frame);},editDirectory);
     qmlRegisterType<FrameCanvas>("SpektraLab.Native",1,0,"FrameCanvas");
+    // QML text by key (qml/L10n.qml): compiled-in tables, then <app>/i18n.
+    Localizer localizer;localizer.loadStandardLocations();
+    qmlRegisterSingletonInstance("SpektraLab.Native",1,0,"Localizer",&localizer);
     QQmlApplicationEngine engine;engine.rootContext()->setContextProperty("preview",&controller);
     QObject::connect(&engine,&QQmlApplicationEngine::objectCreationFailed,&app,[]{QCoreApplication::exit(2);},Qt::QueuedConnection);
     engine.loadFromModule("SpektraLab","Main");

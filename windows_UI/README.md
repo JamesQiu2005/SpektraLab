@@ -14,6 +14,13 @@ and skips existing files. Single export refuses overwrites. Output stays sRGB
 with the bundled ICC profile. Select-all and synchronization copy supported
 settings to selected photos, preserving their own crops by default.
 
+The QML is one file per pane (`qml/left`, `qml/centre`, `qml/right`,
+`qml/export`, shared controls in `qml/controls`); `qml/Main.qml` holds the
+window, dialogs and shortcuts and `qml/EditorState.qml` the state the panes
+share. Every user-visible QML string is looked up by key from
+`i18n/en.json` through the C++ `Localizer`; English is the only shipped
+language, and [i18n/README.md](i18n/README.md) says how to add another.
+
 Ctrl+O imports, Ctrl+E opens export options, Ctrl+0 fits and Ctrl+1 selects
 physical 100%. Double-click also switches fit/100%. Changes update the preview
 automatically after a 180 ms settling delay. The filmstrip restores each
