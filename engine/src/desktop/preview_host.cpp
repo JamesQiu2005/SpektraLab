@@ -741,6 +741,9 @@ std::string trimmed(double v) {
 }  // namespace
 
 const FilmFormat* date_back_camera(const RenderSettings& settings, const PhotoInfo& photo) {
+    // A pair is a half-frame camera's, with or without the film around it
+    // (Session+FilmEdge.swift:288-289).
+    if (photo.pair.active) return film_format("135_half");
     if (bool_of(settings, "overscan_active")) return film_format(text_of(settings, "overscan_format"));
     // The Film Format frame, both sides: the wire's long edge and the
     // photograph's aspect (Session.filmFormatSidesMM); a 3:2 frame before
@@ -775,6 +778,9 @@ bool date_back_prints_data(const RenderSettings& settings, const PhotoInfo& phot
 }
 
 bool cuts_frame(const RenderSettings& settings, const PhotoInfo& photo) {
+    // A pair's piece is already the gate's shape: there is no crop to hold
+    // (Session.filmEdgeWillChange, Session+FilmEdge.swift:400-405).
+    if (photo.pair.active) return false;
     return bool_of(settings, "overscan_active") ||
            (date_back_effective(settings, photo) && !photo.geometry.identity());
 }
@@ -972,7 +978,8 @@ Json wire_params(const RenderSettings& settings, const Catalog& catalog, const P
     // What the session resolves for the engine (Session.resolvedFilmEdge):
     // the stock's edge print and the lens's f-number, while the film edge is on.
     const bool edge = bool_of(settings, "overscan_active");
-    const FilmFormat* format = film_format(text_of(settings, "overscan_format"));
+    const bool pair = frame.pair.active;
+    const FilmFormat* format = film_format(pair ? std::string("135_half") : text_of(settings, "overscan_format"));
     wire.set("overscan_edge_text",
              Json(edge && format ? edge_text(catalog, settings.film_stock, format->gauge) : std::string()));
     wire.set("overscan_f_number", Json(edge ? std::clamp(frame.shooting.f_number, 0.0, 64.0) : 0.0));
@@ -1009,6 +1016,31 @@ Json wire_params(const RenderSettings& settings, const Catalog& catalog, const P
     }
     wire.set("date_imprint_text", Json(printed));
     wire.set("date_imprint_data_text", Json(data));
+    if (pair) {
+        // A half-frame pair (FilmEdge.swift:194-214, 396-402; Params.swift
+        // pairPlacementWire, :623-635): 135 half exposed twice on one strip,
+        // or the piece itself when only the date asks for the camera; each
+        // frame with its own date and its own Scene Placement past the split.
+        if (edge || date) {
+            wire.set("overscan_format", Json(std::string("135_half")));
+            wire.set("overscan_pair", Json(true));
+        }
+        std::string second;
+        if (date) {
+            second = text_of(settings, "date_back_text_source") == "typed" ? text_of(settings, "date_back_custom_text")
+                   : text_of(settings, "date_imprint_style") == "data"
+                       ? data_text(frame.pair.second)
+                       : date_text(frame.pair.second, text_of(settings, "date_back_order"));
+        }
+        wire.set("date_imprint_text_b", Json(second));
+        const PairLatitude& b = frame.pair.latitude_b;
+        wire.set("scene_latitude_split", Json(std::clamp(frame.pair.split, 0.0, 1.0)));
+        wire.set("scene_latitude_b_active", Json(b.active));
+        wire.set("scene_latitude_b_highlight_knee", Json(std::clamp(b.highlight_knee, -24.0, 24.0)));
+        wire.set("scene_latitude_b_highlight_room", Json(std::clamp(b.highlight_room, 0.0, 24.0)));
+        wire.set("scene_latitude_b_shadow_knee", Json(std::clamp(b.shadow_knee, -24.0, 24.0)));
+        wire.set("scene_latitude_b_shadow_room", Json(std::clamp(b.shadow_room, 0.0, 24.0)));
+    }
     return wire;
 }
 
@@ -1031,8 +1063,28 @@ Json opening_params(const RenderSettings& settings, const Catalog& catalog, cons
 
 Json changed_params(const RenderSettings& before, const RenderSettings& after, const Catalog& catalog,
                     const PhotoInfo* photo) {
-    const Json was = wire_params(before, catalog, photo);
-    const Json now = wire_params(after, catalog, photo);
+    const PhotoInfo unknown;
+    return changed_params(before, after, catalog, photo ? *photo : unknown, photo ? *photo : unknown);
+}
+
+bool same_piece(const PairInput& a, const PairInput& b) {
+    if (a.spacing_mm != b.spacing_mm || a.turned != b.turned) return false;
+    for (int side = 0; side < 2; ++side) {
+        const auto &x = a.holes[side], &y = b.holes[side];
+        if (bool(x) != bool(y)) return false;
+        if (!x) continue;
+        PairHole p = *x, q = *y;
+        p.print.reset();
+        q.print.reset();
+        if (!(p == q)) return false;
+    }
+    return true;
+}
+
+Json changed_params(const RenderSettings& before, const RenderSettings& after, const Catalog& catalog,
+                    const PhotoInfo& photo_before, const PhotoInfo& photo_after) {
+    const Json was = wire_params(before, catalog, &photo_before);
+    const Json now = wire_params(after, catalog, &photo_after);
     Json delta = Json::object();
     // The C API retains carried user controls when loading another stock.
     // Send only changed fields: an unchanged SHOOT field in a paper-only
@@ -1114,6 +1166,24 @@ struct PreviewHost::Impl {
     // made the first time a frame of it is cut.
     std::optional<EngineCut> session_cut;
     std::shared_ptr<const Frame::SourcePreview> preview;
+    // A half-frame pair (render_pair): each frame's picture -- decoded with
+    // its own white balance and cut by its own geometry -- kept while it is in
+    // a hole, so a step that changes neither (a placement, an exposure, the
+    // gap, the other frame) composes without decoding again; most recent
+    // first, two holes and a spare (PairComposer.Rendered). The meter's
+    // readings per picture and intent. While `pair` is set the session holds
+    // that piece, opened with `pair_photo`.
+    struct HolePicture {
+        std::string key;
+        std::shared_ptr<const PairPicture> picture;
+        io::RawMetadata metadata;
+    };
+    std::vector<HolePicture> holes;
+    std::map<std::string, double> meters;
+    std::optional<PairInput> pair;
+    fs::path pair_identity;
+    PhotoInfo pair_photo;
+    PairLayout pair_layout;
 };
 
 namespace {
@@ -1136,6 +1206,59 @@ EngineInput engine_input(const RenderSettings& settings, const io::DecodedRaw& d
         !gate_shaped(geometry, settings, decoded.width, decoded.height))
         in.photo.geometry = gate_framed(geometry, settings, decoded.width, decoded.height);
     return in;
+}
+
+// --- half-frame pairs -------------------------------------------------------
+
+// Everything a hole's picture is made of (PairComposer.renderKey): the file as
+// it is on disk, the decode and the frame's own geometry -- not where the
+// picture sits under its hole or how it is exposed, which compose.
+std::string hole_key(const PairHole& hole, DecodeMode mode) {
+    std::error_code ec;
+    const auto size = fs::file_size(hole.source, ec);
+    const auto stamp = fs::last_write_time(hole.source, ec).time_since_epoch().count();
+    const WhiteBalance wb = white_balance(hole.decode);
+    const EngineCut& g = hole.geometry;
+    char tail[256];
+    std::snprintf(tail, sizeof tail, "|%llu|%lld|%d|%s|%.6g|%.6g|%.9g,%.9g,%.9g,%.9g,%d,%d,%d,%.9g",
+                  static_cast<unsigned long long>(ec ? 0 : size), static_cast<long long>(stamp), int(mode),
+                  wb.mode.c_str(), wb.as_shot() ? 0.0 : wb.temperature, wb.as_shot() ? 0.0 : wb.tint, g.x, g.y, g.w, g.h,
+                  g.quarter_turns, int(g.flip_h), int(g.flip_v), g.straighten_deg);
+    return utf8(fs::absolute(hole.source)) + tail;
+}
+
+// What the meter chooses for one picture alone (Session.pairExposure,
+// :4440-4457): the picture small, the frame's own intent, no film edge, no
+// date, no placement, a half frame's 24 mm, through spk_solve "exposure".
+double meter_picture(spk_engine* engine, const PairPicture& picture, const PairHole& hole, RenderSettings settings,
+                     const Catalog& catalog, const std::string& output_color_space) {
+    const std::uint32_t k = std::max(1u, (std::max(picture.width, picture.height) + 1023) / 1024);
+    const std::uint32_t w = std::max(1u, picture.width / k), h = std::max(1u, picture.height / k);
+    std::vector<float> small(std::size_t(w) * h * 3);
+    for (std::uint32_t y = 0; y < h; ++y)
+        for (std::uint32_t x = 0; x < w; ++x) {
+            double sum[3] = {};
+            for (std::uint32_t j = 0; j < k; ++j) {
+                const float* row = picture.rgb.data() + (std::size_t(y * k + j) * picture.width + x * k) * 3;
+                for (std::uint32_t i = 0; i < k * 3; ++i) sum[i % 3] += row[i];
+            }
+            for (int c = 0; c < 3; ++c) small[(std::size_t(y) * w + x) * 3 + c] = float(sum[c] / double(k * k));
+        }
+    settings.set("auto_exposure", true);
+    settings.set("auto_exposure_method", hole.meter_method);
+    settings.film_exposure_ev = 0;
+    settings.film_format_mm = kHoleAcrossMM;
+    for (const char* key : {"overscan_active", "date_imprint_active", "scene_latitude_active"}) settings.set(key, false);
+    auto opened = open_session(engine, small.data(), w, h, settings, catalog, output_color_space, PhotoInfo{});
+    char* out = nullptr;
+    double ev = 0.0;
+    if (spk_solve(opened.session.get(), "exposure", &out) == SPK_OK && out) {
+        Json reply;
+        std::string error;
+        if (Json::parse(out, reply, error)) ev = reply.at("solved_params").at("exposure_compensation_ev").as_double(0.0);
+    }
+    if (out) spk_string_free(out);
+    return std::isfinite(ev) ? ev : 0.0;
 }
 }  // namespace
 
@@ -1218,6 +1341,9 @@ FramePtr PreviewHost::open_raw(const fs::path& source, DecodeMode mode, const Re
     impl_->preview = std::move(preview);
     impl_->decoded = std::move(decoded);
     impl_->frame = next;
+    // A photograph replaces a pair: its pictures are not kept behind it.
+    impl_->pair.reset();
+    impl_->holes.clear();
     next->timings.total_ms = elapsed(started);
     return next;
 }
@@ -1225,6 +1351,7 @@ FramePtr PreviewHost::open_raw(const fs::path& source, DecodeMode mode, const Re
 FramePtr PreviewHost::render(const RenderSettings& settings, const EngineCut& geometry) {
     const auto started = Clock::now();
     require(bool(impl_->frame), "Open a RAW image before rendering");
+    require(!impl_->pair, "A half-frame pair renders through render_pair");
     // A white balance is no wire field: it is the decode, so the file is
     // decoded again and a new negative developed (macOS re-decodes too,
     // Session.swift:2694-2725). open_raw is transactional, as below.
@@ -1299,6 +1426,231 @@ FramePtr PreviewHost::render(const RenderSettings& settings, const EngineCut& ge
     return next;
 }
 
+FramePtr PreviewHost::render_pair(const fs::path& identity, const PairInput& pair, DecodeMode mode,
+                                  const RenderSettings& settings) {
+    const auto started = Clock::now();
+    const bool scan_film = validate_settings(settings, impl_->catalog);
+    require(mode == DecodeMode::compatible16 || mode == DecodeMode::headroom, "Unknown RAW decode mode");
+    const FramePtr previous = impl_->frame;
+    const bool same = previous && previous->pair && impl_->pair && impl_->session && impl_->pair_identity == identity &&
+                      previous->decode_mode == mode && same_piece(*impl_->pair, pair);
+    auto next = std::shared_ptr<Frame>(new Frame());
+    next->source = identity;
+    next->decode_mode = mode;
+    next->settings = settings;
+    next->scan_film = scan_film;
+    next->pair = true;
+    next->pair_input = pair;
+    PhotoInfo photo;
+    PairLayout layout;
+    // The piece, composed only when it is another piece; the photo's facts
+    // (the second curve) may move on the same one.
+    std::optional<io::DecodedRaw> composed;
+    SessionPtr session{nullptr, &spk_session_release};
+    OutputEncoding encoding = impl_->encoding;
+    auto t = Clock::now();
+    if (same) {
+        layout = impl_->pair_layout;
+        photo = impl_->pair_photo;
+        photo.pair.latitude_b = pair.latitude_b;
+        next->pair_filled = previous->pair_filled;
+        next->pair_metered = previous->pair_metered;
+        next->pair_metadata = previous->pair_metadata;
+        next->metadata = previous->metadata;
+    } else {
+        // Each hole's picture: kept, or decoded now with the frame's own white
+        // balance and cut by its own geometry. One that cannot be had is an
+        // empty hole (PairComposer.decode, :30-43).
+        std::array<std::shared_ptr<const PairPicture>, 2> pictures;
+        std::array<std::string, 2> keys;
+        for (int side = 0; side < 2; ++side) {
+            const auto& hole = pair.holes[side];
+            if (!hole || !fs::is_regular_file(hole->source)) continue;
+            keys[side] = hole_key(*hole, mode);
+            auto kept = std::find_if(impl_->holes.begin(), impl_->holes.end(),
+                                     [&](const Impl::HolePicture& h) { return h.key == keys[side]; });
+            if (kept == impl_->holes.end()) {
+                io::DecodedRaw decoded;
+                std::string error;
+                if (!decode_raw(hole->source, mode, hole->decode, decoded, error)) continue;
+                auto picture = std::make_shared<PairPicture>();
+                if (hole->geometry.identity()) {
+                    picture->width = decoded.width;
+                    picture->height = decoded.height;
+                    picture->rgb = std::move(decoded.rgb);
+                } else {
+                    picture->rgb = cut_decode(decoded, hole->geometry, picture->width, picture->height);
+                }
+                impl_->holes.insert(impl_->holes.begin(), {keys[side], std::move(picture), std::move(decoded.metadata)});
+                if (impl_->holes.size() > 3) impl_->holes.pop_back();
+                kept = impl_->holes.begin();
+            } else if (kept != impl_->holes.begin()) {
+                std::rotate(impl_->holes.begin(), kept, kept + 1);
+                kept = impl_->holes.begin();
+            }
+            pictures[side] = kept->picture;
+            next->pair_metadata[side] = kept->metadata;
+            next->pair_filled[side] = true;
+        }
+        next->timings.decode_ms = elapsed(t);
+        // Each hole exposed as the meter would expose it alone, plus its own
+        // exposure: a plain gain on its picture (PairComposer.exposed).
+        std::array<double, 2> gains{};
+        std::array<PairPlacement, 2> placements{};
+        for (int side = 0; side < 2; ++side) {
+            if (!pair.holes[side]) continue;
+            placements[side] = pair.holes[side]->placement;
+            if (!pictures[side]) continue;
+            const auto& hole = *pair.holes[side];
+            double metered = 0.0;
+            if (hole.meter) {
+                const std::string key = keys[side] + "|" + hole.meter_method + "|" + settings.film_stock;
+                const auto known = impl_->meters.find(key);
+                if (known != impl_->meters.end()) metered = known->second;
+                else {
+                    metered = meter_picture(impl_->engine.get(), *pictures[side], hole, settings, impl_->catalog,
+                                            impl_->options.output_color_space);
+                    impl_->meters[key] = metered;
+                }
+            }
+            next->pair_metered[side] = metered;
+            gains[side] = metered + hole.exposure_ev;
+        }
+        layout = pair_layout_for({pictures[0].get(), pictures[1].get()}, placements, pair.spacing_mm, pair.turned);
+        io::DecodedRaw piece;
+        piece.rgb = compose_pair(layout, {pictures[0].get(), pictures[1].get()}, placements, gains);
+        piece.width = layout.width();
+        piece.height = layout.height();
+        // The piece's EXIF is its first frame's, as on the Mac.
+        piece.metadata = next->pair_filled[0] ? next->pair_metadata[0] : next->pair_metadata[1];
+        next->metadata = piece.metadata;
+        photo.shooting = piece.metadata.shooting;
+        photo.decode_width = piece.width;
+        photo.decode_height = piece.height;
+        photo.pair.active = true;
+        photo.pair.second = next->pair_metadata[1].shooting;
+        photo.pair.split = pair_split(layout);
+        photo.pair.latitude_b = pair.latitude_b;
+        t = Clock::now();
+        auto opened = open_session(impl_->engine.get(), piece.rgb.data(), piece.width, piece.height, settings,
+                                   impl_->catalog, impl_->options.output_color_space, photo);
+        session = std::move(opened.session);
+        encoding = opened.encoding;
+        next->timings.open_ms = elapsed(t);
+        composed = std::move(piece);
+    }
+    spk_session* live = same ? impl_->session.get() : session.get();
+    try {
+        t = Clock::now();
+        if (same) {
+            const auto delta = changed_params(previous->settings, settings, impl_->catalog, impl_->pair_photo, photo);
+            if (!delta.fields().empty()) {
+                const auto text = delta.dump();
+                require(spk_set_params(live, text.c_str(), nullptr) == SPK_OK,
+                        "Apply settings: " + std::string(spk_last_error(impl_->engine.get())));
+            }
+            next->timings.params_ms = elapsed(t);
+            t = Clock::now();
+            require(spk_reprint(live, "full", &next->result_) == SPK_OK,
+                    "Render: " + std::string(spk_last_error(impl_->engine.get())));
+        } else {
+            require(spk_render(live, "full", &next->result_) == SPK_OK,
+                    "Render: " + std::string(spk_last_error(impl_->engine.get())));
+        }
+        next->timings.render_ms = elapsed(t);
+        next->timings.engine_render_ms = next->result_.elapsed_ms;
+        next->encoding = encoding;
+        next->overscan_geometry = read_overscan_geometry(live);
+        // Where the holes are on the frame: the engine's gates on a strip,
+        // the layout's rectangles otherwise (Session.pairHoleRects).
+        std::array<PairRect, 2> gates;
+        if (std::get<bool>(settings.get("overscan_active")) && pair_gate_rects(next->overscan_geometry, pair.turned, gates))
+            next->pair_holes = gates;
+        else
+            next->pair_holes = {layout.normalised(0), layout.normalised(1)};
+        // A frame with a print of its own: the same negative printed with its
+        // settings and cut into its hole, the session put back to the film's
+        // print after (Session.pairLayered, Renderer.compositePair).
+        bool layered = false;
+        for (int side = 0; side < 2; ++side) layered = layered || (pair.holes[side] && pair.holes[side]->print && next->pair_filled[side]);
+        if (layered) {
+            const auto& base = next->result_;
+            const std::uint32_t W = base.width, H = base.height;
+            next->owned_.resize(std::size_t(W) * H * 4);
+            for (std::uint32_t y = 0; y < H; ++y)
+                std::copy_n(base.rgba16 + std::size_t(y) * base.row_stride_px * 4, std::size_t(W) * 4,
+                            next->owned_.data() + std::size_t(y) * W * 4);
+            for (int side = 0; side < 2; ++side) {
+                const auto& hole = pair.holes[side];
+                if (!hole || !hole->print || !next->pair_filled[side]) continue;
+                const auto delta = changed_params(settings, *hole->print, impl_->catalog, photo, photo);
+                if (!delta.fields().empty()) {
+                    const auto text = delta.dump();
+                    require(spk_set_params(live, text.c_str(), nullptr) == SPK_OK,
+                            "Print a frame: " + std::string(spk_last_error(impl_->engine.get())));
+                }
+                spk_result own{};
+                const auto status = spk_reprint(live, "full", &own);
+                const auto release = [&] { spk_result_free(&own); };
+                if (status != SPK_OK || own.width != W || own.height != H) {
+                    release();
+                    throw std::runtime_error("Print a frame: " + std::string(spk_last_error(impl_->engine.get())));
+                }
+                const PairRect& r = next->pair_holes[side];
+                const std::uint32_t x0 = std::uint32_t(std::clamp(std::lround(r.x * W), 0L, long(W)));
+                const std::uint32_t x1 = std::uint32_t(std::clamp(std::lround((r.x + r.w) * W), long(x0), long(W)));
+                const std::uint32_t y0 = std::uint32_t(std::clamp(std::lround(r.y * H), 0L, long(H)));
+                const std::uint32_t y1 = std::uint32_t(std::clamp(std::lround((r.y + r.h) * H), long(y0), long(H)));
+                for (std::uint32_t y = y0; y < y1; ++y)
+                    std::copy_n(own.rgba16 + (std::size_t(y) * own.row_stride_px + x0) * 4, std::size_t(x1 - x0) * 4,
+                                next->owned_.data() + (std::size_t(y) * W + x0) * 4);
+                release();
+                const auto back = changed_params(*hole->print, settings, impl_->catalog, photo, photo);
+                if (!back.fields().empty()) {
+                    const auto text = back.dump();
+                    require(spk_set_params(live, text.c_str(), nullptr) == SPK_OK,
+                            "Print the film: " + std::string(spk_last_error(impl_->engine.get())));
+                }
+            }
+            spk_result_free(&next->result_);
+            next->result_ = spk_result{};
+            next->result_.rgba16 = next->owned_.data();
+            next->result_.width = W;
+            next->result_.height = H;
+            next->result_.row_stride_px = W;
+            next->pair_layered = true;
+        }
+        if (impl_->options.bgra8_display) {
+            t = Clock::now();
+            next->bgra8 = rgba16_to_bgra8(next->result_);
+            next->timings.display_ms = elapsed(t);
+        }
+    } catch (...) {
+        // A session that may have taken part of a delta is never reused.
+        if (same) impl_->session.reset();
+        throw;
+    }
+    next->decode_width = photo.decode_width;
+    next->decode_height = photo.decode_height;
+    next->picture_width = photo.decode_width;
+    next->picture_height = photo.decode_height;
+    // Commit only after everything succeeded.
+    if (!same) {
+        impl_->session = std::move(session);
+        impl_->encoding = encoding;
+        impl_->decoded = std::move(*composed);
+        impl_->session_cut.reset();
+        impl_->preview.reset();
+        impl_->pair_identity = identity;
+        impl_->pair_layout = layout;
+    }
+    impl_->pair = pair;
+    impl_->pair_photo = photo;
+    impl_->frame = next;
+    next->timings.total_ms = elapsed(started);
+    return next;
+}
+
 void PreviewHost::export_tiff(const Frame& frame, const fs::path& destination) const {
     require(frame.encoding.is_encoded_srgb(),
             "TIFF export writes sRGB, but this frame is encoded in " + frame.encoding.color_space +
@@ -1319,7 +1671,9 @@ FramePtr PreviewHost::render_digital_intermediate() {
     if (!impl_->session) {
         // Reopened as the current frame was made: whole, or cut by its
         // geometry (Film Edge, Date Back on a cropped frame).
-        const EngineInput input = engine_input(current->settings, impl_->decoded, current->geometry);
+        EngineInput input = engine_input(current->settings, impl_->decoded, current->geometry);
+        // A pair's piece is handed whole, with the pair's own facts.
+        if (impl_->pair) input = {impl_->pair_photo, false};
         std::vector<float> cut_rgb;
         std::uint32_t pw = impl_->decoded.width, ph = impl_->decoded.height;
         if (input.cut) cut_rgb = cut_decode(impl_->decoded, input.photo.geometry, pw, ph);
