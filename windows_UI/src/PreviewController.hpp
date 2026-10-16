@@ -1,5 +1,6 @@
 #pragma once
 #include "desktop/preview_host.hpp"
+#include "desktop/raw_white_balance.hpp"
 #include "FrameOutput.hpp"
 #include "EditStore.hpp"
 #include "Messages.hpp"
@@ -87,6 +88,54 @@ class PreviewController final : public QObject {
     Q_PROPERTY(bool flipHorizontal READ flipHorizontal NOTIFY geometryChanged)
     Q_PROPERTY(bool flipVertical READ flipVertical NOTIFY geometryChanged)
     Q_PROPERTY(double straightenDegrees READ straightenDegrees NOTIFY geometryChanged)
+    // --- the Pre-Dev rail (PreviewControllerPredev.cpp) ---------------------
+    // The Camera section's white balance (WhiteBalanceRows.swift): a decode
+    // setting, so an edit re-decodes the RAW. {mode: as_shot|daylight|cloudy|
+    // shade|tungsten|fluorescent|custom, temperature, tint (what the decode
+    // uses: the camera's under As Shot), temperatureAsShot, tintAsShot (the
+    // two boxes), asShotKnown, asShotTemperature, asShotTint, enabled (false
+    // only for a camera LibRaw has no matrix for), boxesEnabled (a camera
+    // pair is known), temperatureFrom/To 2000/12000, tintFrom/To -150/150
+    // (macOS's sliders), temperatureZero/tintZero (their zero ticks: the
+    // camera's pair, else 5500/0), pickAvailable}.
+    Q_PROPERTY(QVariantMap whiteBalance READ whiteBalance NOTIFY settingsChanged)
+    // The Camera menu's presets, macOS's order: [{id, label, kelvin (0 for
+    // As Shot)}] -- every mode but Custom (CameraSection.swift:128-137).
+    Q_PROPERTY(QVariantList whiteBalancePresets READ whiteBalancePresets CONSTANT)
+    // Process (TopBar.swift:81, Session.solveNow): a frame shown, nothing in flight.
+    Q_PROPERTY(bool canProcess READ canProcess NOTIFY stateChanged)
+    // The meter's report for the frame on screen, from spk_solve after each
+    // develop (Session.swift:2314-2329) and from Process: {available,
+    // exposureEv (the session's metering intent; macOS's "auto +0.3 EV"),
+    // label, byMethod {balanced, center, protect_highlights,
+    // protect_shadows}, filters {c, m, y} (after Process: the neutral pack
+    // the engine solved for this film and paper), solveMs}.
+    Q_PROPERTY(QVariantMap metering READ metering NOTIFY settingsChanged)
+    // The Latitude section (LatitudeSection.swift), for a QML Canvas:
+    // {available, failure (why not, in the engine's words), failureKind:
+    // ""|"unmeasurable"|"noLight"|"other", axisFrom -8, axisTo 8, centres[],
+    // fractions[] (the frame after the committed placement), binWidth,
+    // shadowEv, highlightEv, heldStops, below, within, above (0..1),
+    // separation [{ev, strength 0..1}], hasCore, coreFrom, coreTo, under,
+    // over (past the axis), summary ("4.31 stops held · ..."), film, paper,
+    // scanned, analysisMs, current (measured on the very frame shown; false
+    // while a newer render of the photograph is still being measured)}.
+    Q_PROPERTY(QVariantMap latitude READ latitude NOTIFY settingsChanged)
+    // Scene Placement (ParameterSections.swift:212-258): {enabled (a
+    // measurement of this frame is in hand), active, highlight, shadow (the
+    // committed pull-backs, stops), from 0, to 8, highlightWindow,
+    // shadowWindow ({hasSpan, from, to, below, above}: the band the Fit
+    // takes, the other side held), highlightMessage, shadowMessage (why the
+    // row stopped, or why no pull-back works; "" otherwise), refusal
+    // ({code, side, message} or null)}.
+    Q_PROPERTY(QVariantMap scenePlacement READ scenePlacement NOTIFY settingsChanged)
+    // The Tone Mask section (ParameterSections.swift:272-323): {allowed
+    // (Print Effects on), reason ("printEffectsOff" or ""), active,
+    // rowsEnabled (allowed and active), highlights, shadows, core, scale,
+    // radiusPercent (scale x 100, the Radius slider), radiusFrom 0.2,
+    // radiusTo 12, curve [{x, y}] (x -6..6 stops of blurred negative, y the
+    // change in paper exposure clamped to -3..3, ToneMaskPlot), isDefault}.
+    Q_PROPERTY(QVariantMap toneMask READ toneMask NOTIFY settingsChanged)
 public:
     using ImageFactory=std::function<QImage(const spk::desktop::FramePtr&)>;
     explicit PreviewController(std::filesystem::path resources, QObject* parent=nullptr, ImageFactory imageFactory={}, QString editDirectory={});
@@ -200,6 +249,46 @@ public:
     Q_INVOKABLE void cancelExport();
     Q_INVOKABLE void resetSettings();
     Q_INVOKABLE void setDialogOpen(bool open);
+
+    // --- the Pre-Dev rail (PreviewControllerPredev.cpp) ---------------------
+    QVariantMap whiteBalance() const;
+    QVariantList whiteBalancePresets() const;
+    bool canProcess() const;
+    QVariantMap metering() const;
+    QVariantMap latitude() const;
+    QVariantMap scenePlacement() const;
+    QVariantMap toneMask() const;
+    // White balance, each an undo step (a drag between beginEditGesture and
+    // endEditGesture is one; the keys are "white_balance_temperature",
+    // "white_balance_tint" and "white_balance"). False when refused: locked,
+    // out of range (2000..50000 K, -150..150), an unknown preset, or a camera
+    // with no matrix. Session.swift:2781-2814.
+    Q_INVOKABLE bool setWhiteBalancePreset(const QString& id);
+    Q_INVOKABLE bool setTemperature(double kelvin);
+    Q_INVOKABLE bool setTint(double tint);
+    Q_INVOKABLE bool setTemperatureAsShot(bool on);
+    Q_INVOKABLE bool setTintAsShot(bool on);
+    // The neutral picker (Session.pickNeutral): a point normalised to the
+    // picture the canvas shows (after crop, straighten, turns and flips),
+    // sampled in the decoded RAW (a radius-4 box) on the worker; the answer
+    // becomes Custom, one undo step, and the RAW re-decodes. False when it
+    // cannot start; neutralPicked reports the outcome.
+    Q_INVOKABLE bool pickNeutral(double x, double y);
+    // Process (Session.solveNow, :3884-3931): spk_solve "both" on the frame
+    // shown -- the meter and the enlarger's neutral pack for this film and
+    // paper -- then the Y/M filter shifts back to 0, one undo step, and a
+    // reprint. False when it cannot start; processed reports the outcome.
+    Q_INVOKABLE bool process();
+    // Scene Placement's sliders (Session.placeScene, Latitude.swift:434-461):
+    // `moving` is "highlight" or "shadow", the slider under the hand; its
+    // value is brought into the band the Fit takes, the curve is solved by
+    // the engine's own Fit on the last measurement and committed, an undo
+    // step (key "scene_placement"). False with no measurement of this frame,
+    // or when the side that is not moving no longer fits (nothing changes).
+    Q_INVOKABLE bool placeScene(double highlight, double shadow, const QString& moving);
+    // The sections' resets (ParameterSections.swift:222-225, :282-286).
+    Q_INVOKABLE void resetScenePlacement();
+    Q_INVOKABLE void resetToneMask();
 signals:
     void stateChanged();
     void catalogChanged();
@@ -211,6 +300,9 @@ signals:
     void historyChanged();
     void initialized(bool success);
     void operationFinished(const QString& operation, bool success);
+    // The Pre-Dev rail's outcomes: `message` is "" on success, else why.
+    void neutralPicked(bool success, const QString& message);
+    void processed(bool success, const QString& message);
 private:
     struct Reply {
         quint64 generation=0;
@@ -295,4 +387,21 @@ private:
     std::deque<Job> jobs_;
     bool stopping_=false;
     std::thread worker_;
+
+    // --- the Pre-Dev rail (PreviewControllerPredev.cpp) -----------------------
+    struct Analysis;  // one frame's meter and latitude, measured on the worker
+    // On the worker after every job: once per frame the session renders.
+    void analyse(spk::desktop::PreviewHost& host);
+    void takeAnalysis(std::shared_ptr<const Analysis> analysis);
+    void takeSolve(spk::desktop::FramePtr frame, std::string reply, QString error);
+    void takeNeutral(spk::desktop::FramePtr frame, double kelvin, double tint, QString error);
+    bool editWhiteBalance(const spk::desktop::WhiteBalance& next, const QString& editKey);
+    void resolvePendingPlacement();
+    // A synced photograph gets the placement's intent, not the curve fitted
+    // to this one (RFC-027 §4.1, SettingsClipboard.swift:171-185).
+    static spk::desktop::RenderSettings pastedPlacement(spk::desktop::RenderSettings settings);
+    std::weak_ptr<const spk::desktop::Frame> analysed_;   // the worker's own
+    std::shared_ptr<const Analysis> analysis_;            // the latest the UI took
+    QVariantMap filters_;    // Process's pack, with the photograph, film and paper it is for
+    QVariantMap refusal_;    // the last placement refusal
 };

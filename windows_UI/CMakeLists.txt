@@ -71,6 +71,13 @@ add_custom_target(spektralab_qt_resources ALL
 add_dependencies(spektralab_qt_resources spektralab_vulkan_resources)
 add_dependencies(SpektraLabQt spektralab_qt_resources)
 
+# The Pre-Dev rail's backend: PreviewController's white balance, Process,
+# Latitude, Scene Placement and Tone Mask (PreviewControllerPredev.cpp).
+# Every target that compiles PreviewController.cpp compiles these with it.
+set(spektralab_predev_sources src/PreviewControllerPredev.cpp
+    src/LatitudeModel.hpp src/LatitudeModel.cpp src/WhiteBalance.hpp src/WhiteBalance.cpp)
+target_sources(SpektraLabQt PRIVATE ${spektralab_predev_sources})
+
 if(BUILD_TESTING)
     qt_add_executable(spk_qt_frame_output_test tests/frame_output.cpp src/FrameOutput.cpp)
     target_include_directories(spk_qt_frame_output_test PRIVATE src)
@@ -146,5 +153,24 @@ if(BUILD_TESTING)
     add_test(NAME spk_qt_color_core COMMAND spk_qt_color_core_test "${CMAKE_CURRENT_BINARY_DIR}/color-core-test")
     if(WIN32)
         set_tests_properties(spk_qt_color_core PROPERTIES ENVIRONMENT_MODIFICATION "${qt_test_runtime_path}")
+    endif()
+
+    foreach(target spk_qt_library_workflow_test spk_qt_controller_settings_test spk_qt_editing_workflow_test)
+        target_sources(${target} PRIVATE ${spektralab_predev_sources})
+    endforeach()
+    # The Pre-Dev backend without a RAW: the latitude readout, the engine's
+    # Fit and the placement window on a synthetic ramp through the real
+    # engine, spk_solve's report, the Tone Mask curve, the white-balance rules,
+    # the eyedropper's geometry against FrameOutput's, and the controller's
+    # Pre-Dev API with no photograph open.
+    qt_add_executable(spk_qt_predev_test tests/predev.cpp src/PreviewController.hpp src/PreviewController.cpp
+        src/FrameOutput.cpp src/EditStore.cpp ${spektralab_predev_sources})
+    target_include_directories(spk_qt_predev_test PRIVATE src)
+    target_compile_features(spk_qt_predev_test PRIVATE cxx_std_20)
+    target_link_libraries(spk_qt_predev_test PRIVATE spk_desktop_host Qt6::Core Qt6::Gui)
+    add_test(NAME spk_qt_predev COMMAND spk_qt_predev_test
+        "$<TARGET_FILE_DIR:SpektraLabQt>/resources" "${CMAKE_CURRENT_BINARY_DIR}/predev-test")
+    if(WIN32)
+        set_tests_properties(spk_qt_predev PROPERTIES ENVIRONMENT_MODIFICATION "${qt_test_runtime_path}")
     endif()
 endif()
