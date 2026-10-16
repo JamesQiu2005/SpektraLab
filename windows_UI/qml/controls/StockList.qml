@@ -8,8 +8,9 @@ import QtQuick.Layouts
 // in near-black, and the CINE badge after a cinema stock.
 //
 //   rows          Catalog.filmRows() / paperRows(): `{ name, key, cine,
-//                 header, enabled, reason }`; `key` is the controller's
-//                 catalogue index
+//                 header, enabled, reason, help }`; `key` is the stock's id.
+//                 A greyed row's hover text is its `reason`, a live row's its
+//                 `help` (StockRow's rowEnabled / .help)
 //   currentKey    the chosen row's key
 //   highlighted   false keeps the list where it is but draws no capsule
 //   editable      false: no row takes a click (settings locked)
@@ -23,13 +24,13 @@ import QtQuick.Layouts
 Item {
     id: stock
     property var rows: []
-    property int currentKey: -1
+    property var currentKey: ""
     property bool highlighted: true
     property bool editable: true
     property int visibleRows: 9
     property alias listObjectName: list.objectName
     readonly property int rowHeight: Theme.listRowHeight
-    signal picked(int key)
+    signal picked(var key)
 
     implicitHeight: rowHeight * Math.min(visibleRows, Math.max(1, rows.length))
     implicitWidth: 200
@@ -116,8 +117,9 @@ Item {
                 cursorShape: row.usable && stock.editable ? Qt.PointingHandCursor : Qt.ArrowCursor
                 onClicked: if (row.usable && stock.editable) stock.picked(row.modelData.key)
             }
-            ToolTip.visible: rowMouse.containsMouse && !row.usable && !row.header && String(row.modelData.reason || "").length > 0
-            ToolTip.text: String(row.modelData.reason || "")
+            readonly property string hint: row.header ? "" : String((row.usable ? row.modelData.help : row.modelData.reason) || "")
+            ToolTip.visible: rowMouse.containsMouse && hint.length > 0
+            ToolTip.text: hint
             ToolTip.delay: 500
         }
     }

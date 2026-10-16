@@ -1,33 +1,32 @@
 import QtQuick
 import QtQuick.Controls
 
-// Film (FilmSection.swift): the stock list, Positive then Negative, with the
-// CINE badge on cinema stocks (Catalog.qml). The reset arrow and its menu
-// item return the film to Portra 400, the stock a new photograph starts on,
-// and say so in words (the Mac's rule for a reset whose scope is not obvious).
+// Film (FilmSection.swift): the stock list in the Mac's groups -- Positive,
+// Negative, Black & White -- from the controller's catalogue, with the CINE
+// badge on cinema stocks. A click is Session.selectFilmStock's rule
+// (preview.selectFilm): the film takes its own paper, and a black-and-white
+// film its silver paper, in the same undo step. The reset arrow and the
+// "..." menu's one item return the film to Portra 400 (resetFilmStock, which
+// also leaves a silver paper behind) and say so in words.
 MacSection {
     id: section
     sectionId: "film"
     title: L10n.tr("film.title")
     inset: false
     resetVisible: true
-    resetAvailable: preview.settingsEditable && preview.films.length > 0
+    resetAvailable: preview.settingsEditable && preview.filmCatalog.length > 0
     resetToolTip: L10n.tr("film.reset")
-    onResetRequested: section.resetFilm()
+    onResetRequested: preview.resetFilmStock()
     menuItems: [
-        RailMenuItem { text: L10n.tr("film.reset"); enabled: section.resetAvailable; onTriggered: section.resetFilm() }
+        RailMenuItem { text: L10n.tr("film.reset"); enabled: section.resetAvailable; onTriggered: preview.resetFilmStock() }
     ]
-
-    // By id through the settings table, so the controller's own rules (a
-    // slide film is scanned without a paper) apply as for a click.
-    function resetFilm() { preview.setParameter("film_stock", "kodak_portra_400") }
 
     StockList {
         listObjectName: "filmList"
         visibleRows: 14
-        rows: Catalog.filmRows(preview.films)
-        currentKey: preview.filmIndex
+        rows: Catalog.filmRows(preview.filmCatalog)
+        currentKey: preview.parameters.film_stock === undefined ? "" : String(preview.parameters.film_stock)
         editable: preview.settingsEditable
-        onPicked: function(key) { preview.filmIndex = key }
+        onPicked: function(key) { preview.selectFilm(key) }
     }
 }
