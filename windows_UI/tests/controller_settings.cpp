@@ -278,11 +278,15 @@ int main(int argc, char** argv) {
         check(c.exposureEv() == 0 && c.parameter("preflash_exposure").toDouble() == 0.0 &&
               c.parameter("y_filter_shift").toDouble() == 0.0 && c.parameter("m_filter_shift").toDouble() == 0.0,
               "Enlarger reset");
-        // Print Effects is a row that is not sent.
+        // Print Effects is a row that is not sent; so is the placement's UI
+        // state (RFC-023 §8.3).
         check(c.setParameter("print_effects", false) && c.parameter("print_effects") == false, "Print Effects off");
+        const QStringList unsent{"print_effects", "scene_latitude_highlight_pull_back",
+                                 "scene_latitude_shadow_pull_back", "scene_latitude_needs_fit"};
         for (const auto& entry : c.parameterFields()) {
             const auto row = entry.toMap();
-            check(row.value("sent").toBool() == (row.value("key") != "print_effects"), "parameterFields sent flag");
+            check(row.value("sent").toBool() == !unsent.contains(row.value("key").toString()),
+                  "parameterFields sent flag: " + row.value("key").toString().toStdString());
         }
 
         // Locked while a file dialog is open, as every other edit is.

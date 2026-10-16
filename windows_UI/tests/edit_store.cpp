@@ -318,6 +318,53 @@ int main(int argc, char** argv) {
             check(store.load(url, catalog).state == std::optional(state), "restored record after the new rows");
         }
         {
+            // The Pre-Dev rows -- Scene Placement's curve and UI state, the
+            // Tone Mask -- the same way: version 2's optional keys,
+            // round-tripped away from default, `absent` when missing, refused
+            // outside their ranges and choices.
+            auto predev = state;
+            predev.settings.set("scene_latitude_active", true);
+            predev.settings.set("scene_latitude_norm", std::string("y"));
+            predev.settings.set("scene_latitude_highlight_knee", 0.875);
+            predev.settings.set("scene_latitude_highlight_room", 1.625);
+            predev.settings.set("scene_latitude_shadow_knee", -1.25);
+            predev.settings.set("scene_latitude_shadow_room", 2.5);
+            predev.settings.set("scene_latitude_rolloff", 3.0);
+            predev.settings.set("scene_latitude_max_lift", 6.0);
+            predev.settings.set("scene_latitude_highlight_pull_back", 1.5);
+            predev.settings.set("scene_latitude_shadow_pull_back", 0.75);
+            predev.settings.set("scene_latitude_needs_fit", true);
+            predev.settings.set("contrast_mask_active", true);
+            predev.settings.set("contrast_mask_highlights", 1.25);
+            predev.settings.set("contrast_mask_shadows", 0.5);
+            predev.settings.set("contrast_mask_core", 2.0);
+            predev.settings.set("contrast_mask_scale", 0.05);
+            store.save(url, predev);
+            check(store.load(url, catalog).state == std::optional(predev), "the Pre-Dev rows did not round-trip");
+            const QStringList added{"scene_latitude_active", "scene_latitude_norm", "scene_latitude_highlight_knee",
+                "scene_latitude_highlight_room", "scene_latitude_shadow_knee", "scene_latitude_shadow_room",
+                "scene_latitude_rolloff", "scene_latitude_max_lift", "scene_latitude_highlight_pull_back",
+                "scene_latitude_shadow_pull_back", "scene_latitude_needs_fit", "contrast_mask_active",
+                "contrast_mask_highlights", "contrast_mask_shadows", "contrast_mask_core", "contrast_mask_scale",
+                "contrast_mask_scheme"};
+            auto before = QJsonDocument::fromJson(read(path)).object();
+            mutateSettings(before, [&](auto& f) { for (const auto& key : added) f.remove(key); });
+            write(path, bytesOf(before));
+            const auto loaded = store.load(url, catalog);
+            check(loaded.state && loaded.version == 2 && loaded.preserved.isEmpty(), "a record without the Pre-Dev rows");
+            for (const auto& key : added) {
+                const auto* field = spk::desktop::find_setting(key.toStdString());
+                check(field && loaded.state->settings.get(field->key) == field->absent,
+                      "a missing Pre-Dev row did not take what the record was made with");
+            }
+            corrupt([](auto& d) { mutateSettings(d, [](auto& f) { f["scene_latitude_norm"] = "luma"; }); });
+            corrupt([](auto& d) { mutateSettings(d, [](auto& f) { f["scene_latitude_highlight_pull_back"] = 8.5; }); });
+            corrupt([](auto& d) { mutateSettings(d, [](auto& f) { f["contrast_mask_scale"] = 0.25; }); });
+            corrupt([](auto& d) { mutateSettings(d, [](auto& f) { f["contrast_mask_scheme"] = "guided"; }); });
+            write(path, validBytes);
+            check(store.load(url, catalog).state == std::optional(state), "restored record after the Pre-Dev rows");
+        }
+        {
             // A newer build's fields are reported, ignored and kept by the
             // next save, at each level such a build may extend.
             auto newer = validJson;

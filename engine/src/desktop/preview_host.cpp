@@ -280,6 +280,52 @@ const std::vector<Row>& rows() {
         // menu's check, ParameterSections.swift:193). Never on a black-and-white
         // film, whatever this says (wire_params).
         t.push_back(boolean("grain_sublayers_active", "Sub-layer grain", SHOOT, true));
+
+        // The Pre-Dev rail's rows. A product row here is no engine field:
+        // stored, validated, saved, undone and synced like any row, never sent.
+        const auto unsent = [](Row row) {
+            row.field.wire = false;
+            return row;
+        };
+        // RFC-023's Scene Latitude (API-SPEC §12), the Scene Placement section
+        // (ParameterSections.swift:212-258): the resolved curve the Fit solved,
+        // never the pull-backs (RFC-023 §8.3), at the engine's defaults, which
+        // are macOS's (Params.swift SceneLatitudeSettings, :294-312). Shoot
+        // layer: an edit re-develops. Set by the controller's placeScene through
+        // the Fit (core/latitude_fit.hpp); spk_set_params refuses a curve whose
+        // knees cross with both sides on.
+        t.push_back(boolean("scene_latitude_active", "Scene placement", SHOOT, false));
+        t.push_back(text("scene_latitude_norm", "Scene placement norm", SHOOT, SettingChoices::listed,
+                         {"power", "y", "max"}, "power", "power"));
+        t.push_back(number("scene_latitude_highlight_knee", "Highlight knee (EV)", SHOOT, -24.0, 24.0, 2.0, 2.0));
+        t.push_back(number("scene_latitude_highlight_room", "Highlight room (EV)", SHOOT, 0.0, 24.0, 0.0, 0.0));
+        t.push_back(number("scene_latitude_shadow_knee", "Shadow knee (EV)", SHOOT, -24.0, 24.0, -2.0, -2.0));
+        t.push_back(number("scene_latitude_shadow_room", "Shadow room (EV)", SHOOT, 0.0, 24.0, 0.0, 0.0));
+        t.push_back(number("scene_latitude_rolloff", "Placement roll-off", SHOOT, 1.0, 4.0, 2.0, 2.0));
+        t.push_back(number("scene_latitude_max_lift", "Largest shadow lift (EV)", SHOOT, 0.25, 12.0, 4.0, 4.0));
+        // ...and the UI state the curve was solved from, kept with the
+        // photograph and never sent (§8.3): the two sliders' pull-backs in
+        // stops, 0 being the side off, on macOS's 0..8 track (Latitude.swift
+        // placementRange); and RFC-027 §4.1's pending fit -- a synced
+        // placement carries its pull-backs and waits for its own frame's Fit
+        // (Sidecar.swift placementNeedsFit, SettingsClipboard.swift:171-185).
+        t.push_back(unsent(number("scene_latitude_highlight_pull_back", "Highlight pull-back (EV)", SHOOT,
+                                  0.0, 8.0, 0.0, 0.0)));
+        t.push_back(unsent(number("scene_latitude_shadow_pull_back", "Shadow pull-back (EV)", SHOOT,
+                                  0.0, 8.0, 0.0, 0.0)));
+        t.push_back(unsent(boolean("scene_latitude_needs_fit", "Placement awaiting its fit", SHOOT, false)));
+        // RFC-024's Tone Mask (API-SPEC §11), the Tone Mask section
+        // (ParameterSections.swift:272-323; Params.swift ContrastMaskSettings,
+        // :253-281), at the engine's defaults, which are macOS's. Print layer:
+        // an edit reprints the cached negative. Off with Print Effects
+        // (wire_params).
+        t.push_back(boolean("contrast_mask_active", "Tone mask", PRINT, false));
+        t.push_back(number("contrast_mask_highlights", "Tone mask highlights (EV)", PRINT, 0.0, 3.0, 0.0, 0.0));
+        t.push_back(number("contrast_mask_shadows", "Tone mask shadows (EV)", PRINT, 0.0, 3.0, 0.0, 0.0));
+        t.push_back(number("contrast_mask_core", "Tone mask core (EV)", PRINT, 0.0, 3.0, 1.0, 1.0));
+        t.push_back(number("contrast_mask_scale", "Tone mask radius", PRINT, 0.002, 0.12, 0.03, 0.03));
+        t.push_back(text("contrast_mask_scheme", "Tone mask base", PRINT, SettingChoices::listed, {"gaussian"},
+                         "gaussian", "gaussian"));
         return t;
     }();
     return table;
@@ -422,6 +468,11 @@ Json wire_params(const RenderSettings& settings, const Catalog& catalog) {
     // exactly what was there (Params.swift:756, :759).
     wire.set("glare_active", Json(settings.glare_active && print_effects));
     if (!print_effects) wire.set("preflash_exposure", Json(0.0));
+    // The Tone Mask too (Params.swift:763; ToneMaskSection greys while Print
+    // Effects is off). macOS also gates it on FeatureFlags.toneMask, false in
+    // its builds since the owner's decision of 2026-09-29 (FeatureFlags.swift
+    // :43-52); here the rows are live and the QML decides what to offer.
+    wire.set("contrast_mask_active", Json(std::get<bool>(settings.get("contrast_mask_active")) && print_effects));
     // The three sub-layers are the colour films' model; nothing on a B&W
     // sheet supports the split (owner, 2026-10-09; Params.swift:744-750).
     wire.set("grain_sublayers_active", Json(std::get<bool>(settings.get("grain_sublayers_active")) && !silver_film));

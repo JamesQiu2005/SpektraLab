@@ -170,8 +170,9 @@ bool validate_settings(const RenderSettings& settings, const Catalog& catalog);
 // What the settings put on the wire: every wire row, under the product's
 // rules -- macOS FilmParams.wire (Params.swift:726-825):
 //  - scan_film is on for a slide film whatever the row says;
-//  - glare_active and preflash_exposure are off while print_effects is off
-//    (the Print section's Print Effects), their own values kept;
+//  - glare_active, preflash_exposure and contrast_mask_active are off while
+//    print_effects is off (the Print section's Print Effects), their own
+//    values kept;
 //  - grain_sublayers_active is off on a black-and-white film;
 //  - grain_amount is the row times the film's own grain (own_grain), within
 //    the row's range;
