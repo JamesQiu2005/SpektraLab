@@ -339,6 +339,13 @@ set(spektralab_postdev_core_sources src/PostDev.hpp src/PostDev.cpp src/PostDevV
 set(spektralab_postdev_controller_sources ${spektralab_postdev_core_sources}
     src/PostDevSurfaces.hpp src/PostDevSurfaces.cpp src/PreviewControllerPostDev.cpp)
 target_sources(SpektraLabQt PRIVATE ${spektralab_postdev_controller_sources})
+qt_target_qml_sources(SpektraLabQt
+    QML_FILES
+        qml/controls/PostDevSlider.qml qml/controls/CurveEditor.qml qml/controls/ZoneWheel.qml
+        qml/controls/ColorBalanceEditor.qml
+        qml/right/PostDevPanel.qml qml/right/PostDevWhiteBalanceSection.qml qml/right/PostDevExposureSection.qml
+        qml/right/PostDevCurveSection.qml qml/right/PostDevColorBalanceSection.qml qml/right/PostDevVignetteSection.qml
+    NO_CACHEGEN)
 if(BUILD_TESTING)
     foreach(target spk_qt_library_workflow_test spk_qt_controller_settings_test spk_qt_editing_workflow_test
                    spk_qt_export_workflow_test spk_qt_predev_test)

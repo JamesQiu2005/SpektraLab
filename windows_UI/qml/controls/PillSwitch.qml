@@ -11,6 +11,8 @@ import QtQuick.Controls
 //   optionEnabled    per side, true when absent; a disabled side greys and
 //                    takes no click
 //   optionToolTips   per side: the reason a side is disabled, or its help
+//   optionMarked     per side, an accent dot after the title (the Mac's
+//                    `marked`: Post-Dev's grade is not neutral)
 //   activated(index) the user chose another side
 Item {
     id: control
@@ -18,6 +20,7 @@ Item {
     property int currentIndex: 0
     property var optionEnabled: []
     property var optionToolTips: []
+    property var optionMarked: []
     // The narrowest a side may be, so two titles of different lengths still
     // make two equal halves (the Mac's 83.5 px tabs, less a little).
     property real sideWidth: 72
@@ -56,6 +59,13 @@ Item {
                     color: side.chosen ? Theme.selectionInk : Theme.secondaryText
                     opacity: side.usable ? 1 : Theme.disabledOpacity
                     font.family: Theme.fontFamily; font.pixelSize: Theme.fontLabel; font.weight: Theme.weightText
+                }
+                Rectangle {
+                    visible: control.optionMarked.length > side.index && control.optionMarked[side.index] === true
+                    anchors.left: label.right; anchors.leftMargin: 3
+                    anchors.verticalCenter: label.verticalCenter
+                    width: 5; height: 5; radius: 2.5
+                    color: Theme.accent
                 }
                 MouseArea {
                     anchors.fill: parent

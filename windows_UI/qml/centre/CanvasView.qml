@@ -61,6 +61,10 @@ Item {
         anchors.fill: parent
         image: view.editor.cropMode ? preview.uncroppedImage : view.showOriginal ? preview.originalImage : preview.previewImage
         interactive: !view.editor.cropMode
+        // Post-Dev on the print and in the crop editor (the whole source),
+        // never on the Original, which is the decode before any of it.
+        postDev: view.showOriginal ? ({}) : preview.postDev
+        sourceMap: view.editor.cropMode ? [] : preview.postDevSourceMap
     }
     // The split's left half: the Original in exactly the print's rectangle,
     // clipped at the line.

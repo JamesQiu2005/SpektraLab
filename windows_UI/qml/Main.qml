@@ -124,6 +124,9 @@ ApplicationWindow {
     Shortcut { sequence: "Ctrl+A"; enabled: editorState.canSelectAll && !window.editingText; onActivated: preview.selectAllPhotos(true) }
     Shortcut { sequence: "Ctrl+B"; onActivated: editorState.toggleSidePanels() }
     Shortcut { sequence: "Ctrl+Shift+F"; onActivated: editorState.filmstripCollapsed = !editorState.filmstripCollapsed }
+    // Bypass / Restore Adjustments, the Mac's Shift-Cmd-B: Post-Dev's
+    // `enabled`, a stored edit that reaches the export (EditorState.canBypass).
+    Shortcut { sequence: "Ctrl+Shift+B"; enabled: editorState.canBypass && !window.editingText; onActivated: preview.togglePostDevBypass() }
     Shortcut { sequence: "Escape"; enabled: editorState.cropMode; onActivated: editorState.cancelCrop() }
     Shortcut { sequence: "Return"; enabled: editorState.cropMode; onActivated: editorState.finishCrop() }
 

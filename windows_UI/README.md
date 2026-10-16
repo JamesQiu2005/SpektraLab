@@ -37,12 +37,37 @@ double-click to reset; one undo step per gesture), `CheckRow`, `PillDropdown`,
 says its API at the top. The Mac's sections and tools that Windows cannot
 drive yet (Latitude, white balance, Scene Placement, Tone Mask, Print Effects,
 EDR, pre-flash, Film Edge, Date Back, the settings clipboard's copy and paste,
-Process, Original, before/after, Post-Dev) keep their place greyed, and say
+Process, Original, before/after) keep their place greyed, and say
 why on hover, so a later change fills them in place.
+
+Post-Dev (Layer 2, the Parameters rail's second tab, `src/PostDev.hpp`): White
+Balance, Exposure (exposure, contrast, brightness, saturation | highlights,
+shadows, black and white point), Curve (RGB, Luma, Red, Green, Blue; click to
+add a point, drag, drag off the plot or right-click to delete, double-click to
+reset), Color Balance (Master, 3-Way, Shadow, Midtone, Highlight wheels with
+their saturation and luminance arcs) and Vignetting -- the Mac's grade on the
+finished print, in its order and arithmetic. The canvas grades on the GPU
+between the sample and the display LUT (`shaders/colorcanvas.frag` includes
+`postdev.glsl`; the software backend runs the same `Grade` on the CPU), the
+navigator and crop editor likewise, and the strip thumbnail and the histogram
+count the graded frame. Every pixel is graded at its place on the uncropped
+source, so the vignette is the print's (`PostDevView.hpp`). Each edit is one
+undo step, needs no render and is saved with the photo as `state.postDev` (a
+Mac sidecar's `adjustments` object reads verbatim); Sync and the clipboard do
+not copy it (the Mac's `SettingsClipboard` leaves it out); Reset This Photo's
+Settings resets it. Ctrl+Shift+B (or the menu's Bypass / Restore Adjustments)
+switches the grade off and on, as a stored edit. Every export -- the export
+page's recipes, Export TIFF/PNG/JPEG, batch export and the proof -- grades the
+uncropped frame before the geometry, so the file is what the canvas shows. The
+Mac's filmstrip shows the print without Layer 2; Windows grades it (AGENTS.md
+trap 33). Windows frames are encoded sRGB until the ProPhoto working space
+lands, so the tone pivot is sRGB's mid-grey and the gains act on sRGB
+primaries; the arithmetic is otherwise the Mac's.
 
 Ctrl+O imports, Ctrl+E opens export options, Ctrl+0 fits and Ctrl+1 selects
 physical 100% (Ctrl+= / Ctrl+- step between the two, and the tool bar's zoom
 pill toggles them). Double-click also switches fit/100%. F11 is full screen.
+Ctrl+Shift+B bypasses or restores the Post-Dev grade.
 Ctrl+click in the filmstrip adds a photo to, or removes it from, the selection
 that Sync and batch export use. Changes update the preview
 automatically after a 180 ms settling delay. The filmstrip restores each
@@ -202,7 +227,7 @@ opens sessions in another space to exercise this path (the self-test then
 checks the tag and the export refusal and stops). `spk_qt_frame_image` holds
 every engine output space's tag against the engine's own baked primaries and
 transfer functions. Wide-gamut, EDR/HDR, ColourSync-equivalent display validation,
-original/split comparison, histogram, post-development grading and perspective
+original/split comparison, histogram and perspective
 geometry are future work. TIFF and PNG16 retain 16-bit
 pixels; PNG8/JPEG8 use 8-bit samples, and resizing is explicitly requested.
 
@@ -325,7 +350,11 @@ independent reference and against the colour core's model of the recommended
 canvas sampling: exact for the identity, within one count through every LUT,
 curve, tile seam and translucency case (a float target measures the curved
 path within 0.0004 counts of exact), with the letterbox untouched.
-`spk_qt_color_canvas_software` runs the CPU path.
+`spk_qt_color_canvas_software` runs the CPU path. Both also hold the Post-Dev
+grade to `Grade::apply`: an identity or bypassed grade exact (and exactly Qt's
+texture node), a full grade within one count through the identity and a LUT,
+on a half-float frame, mapped onto the source, across tiles (WARP: 0 counts
+off through the identity, a float target 0.0001 counts from `Grade::apply`).
 
 **Tests.** `spk_qt_color_core` runs on the CPU, with no GPU, no shown window
 and no installed profile. Its ICC profiles are built in the test, including a

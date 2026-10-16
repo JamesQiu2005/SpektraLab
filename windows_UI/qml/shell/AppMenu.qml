@@ -9,7 +9,7 @@ import QtQuick.Controls
 //
 // Left out because Windows cannot do them yet, rather than shown dead in a
 // menu: Copy / Paste Settings (the clipboard's groups, ClipboardSection),
-// Before / After and Bypass Adjustments, Restart Render Service, the half-
+// Before / After, Restart Render Service, the half-
 // frame pair, the Mac's frame and crop menus' commands without a Windows
 // shortcut, and Reveal Settings in Finder (Settings > Diagnostics shows the
 // folders instead).
@@ -55,6 +55,14 @@ Item {
         MenuCommand { text: L10n.tr("menu.selectAll"); shortcutText: "Ctrl+A"; enabled: root.editor.canSelectAll; onTriggered: preview.selectAllPhotos(true) }
         MenuCommand { text: L10n.tr("menu.sync"); enabled: root.editor.canSync; onTriggered: preview.syncSelectedSettings(false) }
         MenuCommand { text: L10n.tr("menu.resetPhoto"); enabled: root.editor.canResetPhoto; onTriggered: preview.resetSettings() }
+        // The label is the state read-out, as the Mac's (SpektrafilmApp.swift:171).
+        MenuCommand {
+            objectName: "bypassCommand"
+            text: preview.postDevEnabled ? L10n.tr("menu.bypassAdjustments") : L10n.tr("menu.restoreAdjustments")
+            shortcutText: "Ctrl+Shift+B"
+            enabled: root.editor.canBypass
+            onTriggered: preview.togglePostDevBypass()
+        }
         MenuSeparator {}
         RailMenu {
             title: L10n.tr("menu.view")
