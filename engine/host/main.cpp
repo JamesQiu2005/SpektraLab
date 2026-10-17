@@ -11,6 +11,7 @@
 // the macOS app reaches it -- the host is a client of the engine, not a
 // second implementation of any of it.
 
+#include <algorithm>
 #include <atomic>
 #include <chrono>
 #include <cmath>
@@ -28,6 +29,12 @@
 #include <string>
 #include <thread>
 #include <vector>
+#ifdef _WIN32
+#ifndef NOMINMAX
+#define NOMINMAX
+#endif
+#include <windows.h>
+#endif
 
 #include "image_io.hpp"
 #include "json.hpp"
@@ -158,12 +165,21 @@ struct State {
     bool running_cancelled = false;
 } g;
 
-std::shared_ptr<Session> find_session(const Json& params) {
+std::shared_ptr<Session> find_session(const Json& params, bool restore_pixels = true) {
     const std::string id = params.at("session").as_string();
-    std::lock_guard<std::mutex> lock(g.sessions_mutex);
-    auto it = g.sessions.find(id);
-    if (it == g.sessions.end()) throw HostError{"not_found", "no session '" + id + "'"};
-    return it->second;
+    std::shared_ptr<Session> session;
+    {
+        std::lock_guard<std::mutex> lock(g.sessions_mutex);
+        auto it = g.sessions.find(id);
+        if (it == g.sessions.end()) throw HostError{"not_found", "no session '" + id + "'"};
+        session = it->second;
+    }
+    // Only the worker changes residency. Keep the registry available to the
+    // cancellation reader while restoring a potentially large cached frame.
+    std::string error;
+    if (restore_pixels && !spk::view::resume(session->handle, error))
+        throw HostError{"io_error", "cannot restore editor cache: " + error};
+    return session;
 }
 
 [[noreturn]] void engine_fail(spk_status status, const std::string& what) {
@@ -474,6 +490,9 @@ struct Decoded {
 Decoded decode_frame(const fs::path& path, const DecodeOptions& options) {
     std::error_code ec;
     if (!fs::exists(path, ec)) throw HostError{"not_found", "not found: " + path_utf8(path)};
+    // Do this before LibRaw allocates, not only later in engine_open. Cached
+    // session planes remain alive; only unused GPU scratch/staging is reclaimed.
+    spk::view::trim_idle_memory(g.engine);
     const auto t0 = Clock::now();
     Decoded d;
     std::string error;
@@ -561,7 +580,7 @@ Json m_open(const Request& q) {
 // id and its params. The engine session is replaced (a new source means a new
 // negative); on any failure the old one is untouched.
 Json m_redecode(const Request& q) {
-    auto s = find_session(q.params);
+    auto s = find_session(q.params, false);
     const DecodeOptions options = decode_options(q.params.at("decode"));
     Decoded d = decode_frame(utf8_path(s->path), options);
     char* current = nullptr;
@@ -617,7 +636,7 @@ Json m_set_params(const Request& q) {
 }
 
 Json m_get_params(const Request& q) {
-    auto s = find_session(q.params);
+    auto s = find_session(q.params, false);
     char* reply = nullptr;
     const spk_status st = spk_get_params(s->handle, &reply);
     if (st != SPK_OK) engine_fail(st, "get_params");
@@ -766,7 +785,7 @@ Json m_scene_latitude(const Request& q) {
 }
 
 Json m_overscan_geometry(const Request& q) {
-    auto s = find_session(q.params);
+    auto s = find_session(q.params, false);
     char* reply = nullptr;
     const spk_status st = spk_overscan_geometry(s->handle, &reply);
     if (st != SPK_OK) engine_fail(st, "overscan_geometry");
@@ -800,7 +819,7 @@ Json m_preview_stock_lut(const Request& q, std::vector<uint8_t>& payload) {
 }
 
 Json m_progress(const Request& q) {
-    auto s = find_session(q.params);
+    auto s = find_session(q.params, false);
     const std::string id = optional_string(q.params, "engine_progress_id");
     char* reply = nullptr;
     const spk_status st = spk_progress(s->handle, id.empty() ? nullptr : id.c_str(), &reply);
@@ -886,7 +905,9 @@ Json m_export_frame(const Request& q) {
     bool private_session = false;
     std::string source_path;
     if (!optional_string(q.params, "session").empty()) {
-        s = find_session(q.params);
+        // A different decode snapshot needs a private source. Inspect only
+        // metadata first, so an already suspended editor stays on disk.
+        s = find_session(q.params, false);
         if (q.params.has("decode")) {
             const auto requested = decode_options(q.params.at("decode"));
             if (requested.raw_mode != s->decode.raw_mode || requested.temperature_k != s->decode.temperature_k ||
@@ -900,6 +921,21 @@ Json m_export_frame(const Request& q) {
     } else source_path = require_string(q.params, "source_path");
     Json open_timings;
     if (!s) {
+        std::vector<std::shared_ptr<Session>> editors;
+        {
+            std::lock_guard<std::mutex> lock(g.sessions_mutex);
+            for (const auto& entry : g.sessions) editors.push_back(entry.second);
+        }
+        // Preserve the exact random film result. Re-decoding/re-rendering an
+        // editor to save memory would change its grain after batch export.
+        for (const auto& editor : editors) {
+            check_cancelled();
+            std::string why;
+            if (!spk::view::suspend(editor->handle, why))
+                throw HostError{"io_error", "cannot suspend editor cache: " + why};
+        }
+        spk::view::trim_idle_memory(g.engine);
+        check_cancelled();
         Request open = q;
         open.params.set("path", str(source_path));
         const auto opened = m_open(open);
@@ -918,10 +954,13 @@ Json m_export_frame(const Request& q) {
     } close{s, private_session};
     running.bind(s->id);
     check_cancelled();
+    std::string error;
+    if (!spk::view::resume(s->handle, error))
+        throw HostError{"io_error", "cannot restore editor cache: " + error};
+    check_cancelled();
     apply_snapshot(s, q.params);
     progress_event(*s, progress, 0, "render");
     spk::view::Result v;
-    std::string error;
     if (!spk::view::render(s->handle, req, v, error)) {
         check_cancelled(); throw HostError{"engine_error", error};
     }
@@ -940,12 +979,8 @@ Json m_export_frame(const Request& q) {
         if (format == "jpeg") encoded = encode_jpeg_file(file, v.pixels.data(), v.width, v.height,
             q.params.at("quality").as_int(92), icc, why, &exif);
         else if (format == "png") encoded = encode_png8_file(file, v.pixels.data(), v.width, v.height, icc, why, &exif);
-        else {
-            std::vector<uint8_t> bytes;
-            encoded = encode_tiff(v.pixels.data(),
-                v.width, v.height, format == "tiff16" ? 16 : 8, icc, bytes, why, &exif);
-            if (encoded) encoded = std::fwrite(bytes.data(), 1, bytes.size(), file) == bytes.size();
-        }
+        else encoded = encode_tiff_file(file, v.pixels.data(),
+            v.width, v.height, format == "tiff16" ? 16 : 8, icc, why, &exif);
         check_cancelled(); // cancellation during compression never commits a partial file
         return encoded;
     }, overwrite, error);
@@ -1126,18 +1161,47 @@ std::condition_variable g_queue_cv;
 std::deque<Request> g_queue;
 bool g_queue_closed = false;
 
+bool memory_pressure() {
+#ifdef _WIN32
+    MEMORYSTATUSEX m{};
+    m.dwLength = sizeof(m);
+    if (!GlobalMemoryStatusEx(&m)) return false;
+    constexpr uint64_t reserve = 512ull << 20;
+    return m.ullAvailPhys < std::max<uint64_t>(reserve, m.ullTotalPhys / 10) ||
+           m.ullAvailPageFile < reserve;
+#else
+    return false;
+#endif
+}
+
 void worker() {
+    auto last_active = Clock::now();
+    bool idle_trimmed = false;
+    auto trim_if_idle = [&] {
+        if (!idle_trimmed && (Clock::now() - last_active >= std::chrono::seconds(5) || memory_pressure())) {
+            const auto freed = spk::view::trim_idle_memory(g.engine);
+            log_line(2, "idle memory trim: " + std::to_string(freed) + " device scratch bytes");
+            idle_trimmed = true;
+        }
+    };
     for (;;) {
         Request q;
         {
             std::unique_lock<std::mutex> lock(g_queue_mutex);
-            g_queue_cv.wait(lock, [] { return g_queue_closed || !g_queue.empty(); });
+            if (!g_queue_cv.wait_for(lock, std::chrono::seconds(1), [] { return g_queue_closed || !g_queue.empty(); })) {
+                lock.unlock();
+                try { trim_if_idle(); }
+                catch (const std::exception& e) { log_line(1, std::string("idle memory trim failed: ") + e.what()); }
+                continue;
+            }
             if (g_queue.empty()) return;
             q = std::move(g_queue.front());
             g_queue.pop_front();
         }
         const auto t0 = Clock::now();
         try {
+            trim_if_idle();
+            if (memory_pressure()) spk::view::trim_idle_memory(g.engine);
             dispatch(q);
         } catch (const HostError& e) {
             respond_error(q.id, e.code, e.message);
@@ -1145,6 +1209,14 @@ void worker() {
             respond_error(q.id, "internal", "out of memory");
         } catch (const std::exception& e) {
             respond_error(q.id, "internal", e.what());
+        }
+        // Diagnostics polling must not keep a frame-sized pool alive forever.
+        const bool metadata_only = q.method == "memory_report" || q.method == "hello" ||
+            q.method == "capabilities" || q.method == "params_schema" || q.method == "print_lut_catalog" ||
+            q.method == "get_params" || q.method == "progress" || q.method == "overscan_geometry";
+        if (!metadata_only) {
+            last_active = Clock::now();
+            idle_trimmed = false;
         }
         log_line(2, q.method + " #" + std::to_string(q.id) + " " + std::to_string(int(ms_since(t0))) + " ms");
     }

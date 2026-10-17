@@ -366,6 +366,11 @@ bool decode_raw_compatible(const std::filesystem::path& source, const std::array
         }
         decoded.width = image->width;
         decoded.height = image->height;
+        // The oriented RGB16 output owns its allocation independently of
+        // LibRaw, and all source metadata has been captured above. Release
+        // LibRaw's sensor and four-channel image before allocating float RGB
+        // so those full-size buffers do not overlap unnecessarily.
+        raw.reset();
         decoded.rgb.resize(static_cast<std::size_t>(samples));
         for (std::size_t i = 0; i < decoded.rgb.size(); ++i) {
             std::uint16_t value;

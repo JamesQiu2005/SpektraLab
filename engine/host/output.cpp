@@ -1,6 +1,7 @@
 #include "output.hpp"
 
 #include <algorithm>
+#include <bit>
 #include <cmath>
 #include <cstdlib>
 #include <cstring>
@@ -523,12 +524,18 @@ std::vector<uint8_t> exif_block(const Exif& e, uint32_t w, uint32_t h) {
     return out;
 }
 
-bool encode_tiff(const void* rgb, uint32_t w, uint32_t h, uint32_t bits, const std::vector<uint8_t>& icc,
-                 std::vector<uint8_t>& out, std::string& error, const Exif* exif_fields_in) {
+static bool tiff_prefix(uint32_t w, uint32_t h, uint32_t bits, const std::vector<uint8_t>& icc,
+                        std::vector<uint8_t>& out, size_t& image_bytes, std::string& error,
+                        const Exif* exif_fields_in) {
     if (bits != 8 && bits != 16) { error = "TIFF bits must be 8 or 16"; return false; }
+    if (!w || !h) { error = "TIFF dimensions must be non-zero"; return false; }
     const uint64_t row_bytes = uint64_t(w) * 3 * (bits / 8);
-    const uint64_t image_bytes = row_bytes * h;
-    if (image_bytes > 0xF0000000ull) { error = "image too large for a classic TIFF"; return false; }
+    // Check before multiplying: dimensions are supplied by callers, and a
+    // wrapped byte count must never turn a giant image into a small buffer.
+    if (row_bytes > 0xF0000000ull || h > 0xF0000000ull / row_bytes || icc.size() > UINT32_MAX) {
+        error = "image too large for a classic TIFF"; return false;
+    }
+    image_bytes = size_t(row_bytes * h);
     const uint32_t rows_per_strip =
         uint32_t(std::max<uint64_t>(1, std::min<uint64_t>(h, (1u << 20) / std::max<uint64_t>(1, row_bytes))));
     const uint32_t strips = (h + rows_per_strip - 1) / rows_per_strip;
@@ -560,6 +567,7 @@ bool encode_tiff(const void* rgb, uint32_t w, uint32_t h, uint32_t bits, const s
     }
     const size_t ifd_at = 8, exif_at = ifd_at + ifd.size();
     const size_t pixel_at = (exif_at + (exif_fields_in ? exif.size() : 0) + 15) & ~size_t(15);
+    if (pixel_at > UINT32_MAX - image_bytes) { error = "image too large for a classic TIFF"; return false; }
     std::vector<uint32_t> offs(strips);
     for (uint32_t s = 0; s < strips; ++s) offs[s] = uint32_t(pixel_at + uint64_t(s) * rows_per_strip * row_bytes);
     ifd.patch(offsets, offs);
@@ -574,15 +582,66 @@ bool encode_tiff(const void* rgb, uint32_t w, uint32_t h, uint32_t bits, const s
     }
     if (out.size() > pixel_at) { error = "internal TIFF layout error"; return false; }
     out.resize(pixel_at, 0);
+    return true;
+}
+
+bool encode_tiff(const void* rgb, uint32_t w, uint32_t h, uint32_t bits, const std::vector<uint8_t>& icc,
+                 std::vector<uint8_t>& out, std::string& error, const Exif* exif_fields_in) {
+    error.clear();
+    if (!rgb) { error = "TIFF pixel buffer is null"; return false; }
+    size_t image_bytes;
+    if (!tiff_prefix(w, h, bits, icc, out, image_bytes, error, exif_fields_in)) return false;
     const size_t start = out.size();
-    out.resize(start + size_t(image_bytes));
-    if (bits == 8) std::memcpy(&out[start], rgb, size_t(image_bytes));
+    out.resize(start + image_bytes);
+    if (bits == 8) std::memcpy(&out[start], rgb, image_bytes);
     else {
-        const uint16_t* src = static_cast<const uint16_t*>(rgb);
-        for (size_t i = 0; i < size_t(image_bytes) / 2; ++i) {
-            out[start + 2 * i] = uint8_t(src[i]);
-            out[start + 2 * i + 1] = uint8_t(src[i] >> 8);
+        const auto* src = static_cast<const uint8_t*>(rgb);
+        for (size_t i = 0; i < image_bytes; i += 2) {
+            uint16_t sample;
+            std::memcpy(&sample, src + i, sizeof(sample));
+            out[start + i] = uint8_t(sample);
+            out[start + i + 1] = uint8_t(sample >> 8);
         }
+    }
+    return true;
+}
+
+bool encode_tiff_file(std::FILE* file, const void* rgb, uint32_t w, uint32_t h, uint32_t bits,
+                      const std::vector<uint8_t>& icc, std::string& error, const Exif* exif_fields_in) {
+    error.clear();
+    if (!file || !rgb) { error = "TIFF file or pixel buffer is null"; return false; }
+    std::vector<uint8_t> prefix;
+    size_t image_bytes;
+    if (!tiff_prefix(w, h, bits, icc, prefix, image_bytes, error, exif_fields_in)) return false;
+    const auto write = [&](const void* data, size_t size) {
+        if (std::fwrite(data, 1, size, file) == size) return true;
+        error = "TIFF write failed";
+        return false;
+    };
+    if (!write(prefix.data(), prefix.size())) return false;
+    // TIFF strips remain uncompressed and byte-identical to encode_tiff.
+    // Write from the owned readback in bounded chunks; never build a second
+    // full-frame file buffer. Only a big-endian host needs a conversion slab.
+    constexpr size_t chunk_bytes = 1u << 20;
+    std::vector<uint8_t> converted;
+    if constexpr (std::endian::native != std::endian::little) {
+        if (bits == 16) converted.resize(std::min(chunk_bytes, image_bytes));
+    }
+    const auto* src = static_cast<const uint8_t*>(rgb);
+    for (size_t offset = 0; offset < image_bytes;) {
+        const size_t count = std::min(chunk_bytes, image_bytes - offset);
+        const void* chunk = src + offset;
+        if (!converted.empty()) {
+            for (size_t i = 0; i < count; i += 2) {
+                uint16_t sample;
+                std::memcpy(&sample, src + offset + i, sizeof(sample));
+                converted[i] = uint8_t(sample);
+                converted[i + 1] = uint8_t(sample >> 8);
+            }
+            chunk = converted.data();
+        }
+        if (!write(chunk, count)) return false;
+        offset += count;
     }
     return true;
 }

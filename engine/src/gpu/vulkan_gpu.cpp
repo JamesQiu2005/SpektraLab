@@ -1,7 +1,7 @@
 // vulkan_gpu.cpp -- synchronous Vulkan compute with explicit host transfers.
 //
 // Compute planes remain device-local; independent reusable host buffers stage
-// uploads and readbacks. Every submission completes before returning, so no
+// uploads and readbacks in bounded chunks. Every submission completes before returning, so no
 // pooled or staging buffer can be reused while the device still reads it.
 // Command batching and native texture export are subsequent steps.
 //
@@ -135,6 +135,18 @@ public:
     }
 
     bool initialize(std::string& error) {
+        // A diagnostic override can make chunk boundaries cheap to exercise,
+        // but cannot turn staging back into an unbounded full-frame allocation.
+        if (const char* cap = std::getenv("SPEKTRAFILM_VULKAN_STAGING_BYTES"); cap && *cap) {
+            char* end = nullptr;
+            const unsigned long long value = std::strtoull(cap, &end, 10);
+            if (*cap < '0' || *cap > '9' || end == cap || *end || value < 4 ||
+                value > kMaxStagingBytes || value % 4) {
+                error = "SPEKTRAFILM_VULKAN_STAGING_BYTES must be a multiple of four between 4 and 67108864";
+                return false;
+            }
+            staging_chunk_bytes_ = size_t(value);
+        }
         // volkInitialize is idempotent; it only resolves the loader's entry.
         VkResult loader = volkInitialize();
         if (loader != VK_SUCCESS) {
@@ -491,11 +503,13 @@ public:
         if (!bytes) return true;
         std::lock_guard<std::mutex> lock(dispatch_mutex_);
         const auto start = diagnostic_start();
-        if (!ensure_staging(read_staging_, bytes, true, error)) return false;
-        if (!submit_sync([&](VkCommandBuffer command) {
+        if (!ensure_staging(read_staging_, std::min(bytes, staging_chunk_bytes_), true, error)) return false;
+        for (size_t offset = 0; offset < bytes;) {
+            const size_t chunk = std::min(bytes - offset, staging_chunk_bytes_);
+            if (!submit_sync([&](VkCommandBuffer command) {
                 device_barrier(command, VK_PIPELINE_STAGE_TRANSFER_BIT,
                                VK_ACCESS_TRANSFER_READ_BIT | VK_ACCESS_TRANSFER_WRITE_BIT);
-                VkBufferCopy range{VkDeviceSize(src_offset), 0, VkDeviceSize(bytes)};
+                VkBufferCopy range{VkDeviceSize(src_offset + offset), 0, VkDeviceSize(chunk)};
                 vkCmdCopyBuffer(command, src->handle, read_staging_.handle, 1, &range);
                 VkBufferMemoryBarrier barrier{};
                 barrier.sType = VK_STRUCTURE_TYPE_BUFFER_MEMORY_BARRIER;
@@ -505,12 +519,14 @@ public:
                 barrier.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
                 barrier.buffer = read_staging_.handle;
                 barrier.offset = 0;
-                barrier.size = VkDeviceSize(bytes);
+                barrier.size = VkDeviceSize(chunk);
                 vkCmdPipelineBarrier(command, VK_PIPELINE_STAGE_TRANSFER_BIT,
                                      VK_PIPELINE_STAGE_HOST_BIT, 0, 0, nullptr, 1, &barrier, 0, nullptr);
             }, "Vulkan host readback", error) ||
-            !mapped_range(read_staging_, bytes, false, error)) return false;
-        std::memcpy(dst, read_staging_.mapped, bytes);
+                !mapped_range(read_staging_, chunk, false, error)) return false;
+            std::memcpy(static_cast<unsigned char*>(dst) + offset, read_staging_.mapped, chunk);
+            offset += chunk;
+        }
         transfer_timing("read", bytes, start);
         return true;
     }
@@ -656,6 +672,9 @@ public:
         return out;
     }
     size_t trim_pool(size_t keep_bytes) override {
+        // Match transfer/dispatch lock order. Every queue submission is
+        // synchronous, so owning this lock also makes staging safe to destroy.
+        std::lock_guard<std::mutex> dispatch_lock(dispatch_mutex_);
         std::lock_guard<std::mutex> lock(buffers_mutex_);
         size_t total = 0, freed = 0;
         for (const Buffer* b : buffers_) if (!b->persistent) total += b->bytes;
@@ -670,12 +689,22 @@ public:
             destroy_buffer(b);
             delete b;
         }
+        if (keep_bytes == 0) {
+            const VkDeviceSize staging_freed = upload_staging_.allocation_bytes + read_staging_.allocation_bytes;
+            destroy_buffer(&upload_staging_);
+            destroy_buffer(&read_staging_);
+            if (transfer_timings_ && staging_freed)
+                std::fprintf(stderr, "{\"vulkan_staging_trim\":true,\"freed_bytes\":%llu,"
+                    "\"upload_staging_bytes\":0,\"read_staging_bytes\":0}\n",
+                    static_cast<unsigned long long>(staging_freed));
+        }
         return freed;
     }
     bool take_critical_pressure() override { return false; }
 
 private:
     using Clock = std::chrono::steady_clock;
+    static constexpr size_t kMaxStagingBytes = size_t(64) * 1024 * 1024;
 
     Clock::time_point diagnostic_start() const {
         return transfer_timings_ ? Clock::now() : Clock::time_point{};
@@ -750,10 +779,12 @@ private:
 
     bool ensure_staging(Buffer& staging, size_t bytes, bool readback, std::string& error) {
         if (staging.handle && staging.bytes >= bytes) return true;
+        // The preceding synchronous transfer is complete. Free the previous
+        // block before growing, so growth does not temporarily double staging.
+        destroy_buffer(&staging);
         Buffer replacement;
         replacement.bytes = bytes;
         if (!create_buffer(replacement, error, true, readback)) return false;
-        destroy_buffer(&staging);
         staging = replacement;
         return true;
     }
@@ -802,15 +833,18 @@ private:
         BufferRef out = allocate(bytes, persistent, error);
         if (!out) return {};
         std::lock_guard<std::mutex> lock(dispatch_mutex_);
-        if (!ensure_staging(upload_staging_, bytes, false, error)) return {};
-        if (narrow) {
-            float* dst = static_cast<float*>(upload_staging_.mapped);
-            for (size_t i = 0; i < bytes / sizeof(float); ++i) dst[i] = float(narrow[i]);
-        } else {
-            std::memcpy(upload_staging_.mapped, raw, bytes);
-        }
-        if (!mapped_range(upload_staging_, bytes, true, error)) return {};
-        if (!submit_sync([&](VkCommandBuffer command) {
+        if (!ensure_staging(upload_staging_, std::min(bytes, staging_chunk_bytes_), false, error)) return {};
+        for (size_t offset = 0; offset < bytes;) {
+            const size_t chunk = std::min(bytes - offset, staging_chunk_bytes_);
+            if (narrow) {
+                float* dst = static_cast<float*>(upload_staging_.mapped);
+                for (size_t i = 0; i < chunk / sizeof(float); ++i)
+                    dst[i] = float(narrow[offset / sizeof(float) + i]);
+            } else {
+                std::memcpy(upload_staging_.mapped, static_cast<const unsigned char*>(raw) + offset, chunk);
+            }
+            if (!mapped_range(upload_staging_, chunk, true, error)) return {};
+            if (!submit_sync([&](VkCommandBuffer command) {
                 device_barrier(command, VK_PIPELINE_STAGE_TRANSFER_BIT, VK_ACCESS_TRANSFER_WRITE_BIT);
                 VkBufferMemoryBarrier host{};
                 host.sType = VK_STRUCTURE_TYPE_BUFFER_MEMORY_BARRIER;
@@ -820,13 +854,15 @@ private:
                 host.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
                 host.buffer = upload_staging_.handle;
                 host.offset = 0;
-                host.size = VkDeviceSize(bytes);
+                host.size = VkDeviceSize(chunk);
                 vkCmdPipelineBarrier(command, VK_PIPELINE_STAGE_HOST_BIT,
                                      VK_PIPELINE_STAGE_TRANSFER_BIT, 0, 0, nullptr, 1, &host, 0, nullptr);
-                VkBufferCopy range{0, 0, VkDeviceSize(bytes)};
+                VkBufferCopy range{0, VkDeviceSize(offset), VkDeviceSize(chunk)};
                 vkCmdCopyBuffer(command, upload_staging_.handle, out.get()->handle, 1, &range);
                 transfer_written(command);
             }, "Vulkan upload", error)) return {};
+            offset += chunk;
+        }
         transfer_timing("upload", bytes, start);
         return out;
     }
@@ -1042,6 +1078,7 @@ private:
     std::mutex dispatch_mutex_;
     Buffer upload_staging_;
     Buffer read_staging_;
+    size_t staging_chunk_bytes_ = kMaxStagingBytes;
     bool transfer_timings_ = false;
     std::vector<Buffer*> buffers_;
     PoolAudit audit_;
