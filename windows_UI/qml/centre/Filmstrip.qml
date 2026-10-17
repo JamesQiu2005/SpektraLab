@@ -101,6 +101,24 @@ Rectangle {
             model: preview.libraryCount
             currentIndex: preview.activeIndex
             onCurrentIndexChanged: positionViewAtIndex(currentIndex, ListView.Contain)
+            // The wheel scrolls the strip across. A horizontal ListView only
+            // follows a sideways delta, which an ordinary mouse never sends:
+            // here its vertical wheel scrolls too, a notch a cell (down /
+            // toward you moves on to later photos), and a touchpad's pixel
+            // deltas move the strip 1:1 in either direction.
+            WheelHandler {
+                target: null
+                onWheel: function(event) {
+                    const step = Math.round(Theme.thumbHeight * 1.5) + Theme.stripSpacing
+                    const pixels = event.pixelDelta.x !== 0 ? event.pixelDelta.x : event.pixelDelta.y
+                    const notches = (event.angleDelta.x !== 0 ? event.angleDelta.x : event.angleDelta.y) / 120
+                    const shift = pixels !== 0 ? pixels : notches * step
+                    const lo = filmstrip.originX - filmstrip.leftMargin
+                    const hi = Math.max(lo, filmstrip.originX + filmstrip.contentWidth + filmstrip.rightMargin - filmstrip.width)
+                    filmstrip.contentX = Math.max(lo, Math.min(hi, filmstrip.contentX - shift))
+                    event.accepted = true
+                }
+            }
             ScrollBar.horizontal: ScrollBar {
                 id: hbar
                 height: 6
