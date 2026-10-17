@@ -117,17 +117,45 @@ Popup {
         nameFilters: [L10n.tr("export.openWith.filter") + " (*.exe)"]
         onAccepted: exportRecipes.setOpenWithApplication(selectedFile)
     }
+    // The Mac's "Rename Recipe" alert: a draft name, Rename (also Return) or
+    // Cancel (also Escape). The field keeps what was typed when it loses
+    // focus -- clicking Rename takes focus off it before onAccepted reads it.
     Dialog {
         id: renameDialog
+        objectName: "exportRenameDialog"
+        parent: Overlay.overlay
         anchors.centerIn: parent
         modal: true
         title: L10n.tr("export.formula.renameTitle")
-        standardButtons: Dialog.Ok | Dialog.Cancel
         background: Rectangle { color: Theme.card; border.color: Theme.ruleRegion; radius: 8 }
         contentItem: ColumnLayout {
             spacing: 8
             Note { text: L10n.tr("export.formula.renameNote") }
-            ExportField { id: renameField; Layout.preferredWidth: 260; modelText: page.recipe.name }
+            ExportField {
+                id: renameField
+                objectName: "exportRenameField"
+                Layout.preferredWidth: 260
+                keepsDraft: true
+                placeholder: L10n.tr("export.formula.renamePlaceholder")
+                onAccepted: renameDialog.accept()
+            }
+        }
+        footer: Item {
+            implicitHeight: renameButtons.implicitHeight + 24
+            Row {
+                id: renameButtons
+                anchors.right: parent.right; anchors.rightMargin: 12
+                anchors.top: parent.top; anchors.topMargin: 4
+                spacing: 8
+                ActionButton { text: L10n.tr("action.cancel"); onClicked: renameDialog.reject() }
+                ActionButton {
+                    objectName: "exportRenameButton"
+                    accented: true
+                    text: L10n.tr("export.formula.renameAction")
+                    enabled: renameField.text.trim().length > 0
+                    onClicked: renameDialog.accept()
+                }
+            }
         }
         onOpened: { renameField.text = page.recipe.name; renameField.forceActiveFocus(); renameField.selectAll() }
         onAccepted: exportRecipes.rename(renameField.text)

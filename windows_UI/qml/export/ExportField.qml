@@ -8,11 +8,15 @@ import QtQuick.Controls
 //   text           the model's value (bind it)
 //   placeholder    shown while empty ("none")
 //   numeric        digits only, centred
+//   keepsDraft     keep the typed text after committing (a dialog's draft,
+//                  read when the dialog is accepted) rather than going back
+//                  to modelText
 //   committed(text)  the user's new value, on Return or focus loss
 TextField {
     id: field
     property string placeholder
     property bool numeric: false
+    property bool keepsDraft: false
     property string modelText
     signal committed(string value)
     text: modelText
@@ -34,5 +38,8 @@ TextField {
         border.width: field.activeFocus ? 1 : 0
         border.color: Theme.accent
     }
-    onEditingFinished: { committed(text); text = Qt.binding(function() { return field.modelText }) }
+    onEditingFinished: {
+        committed(text)
+        if (!keepsDraft) text = Qt.binding(function() { return field.modelText })
+    }
 }

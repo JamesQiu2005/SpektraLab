@@ -740,6 +740,8 @@
         "export.formula.lastRecipe": "The last recipe cannot be deleted",
         "export.formula.renameTitle": "Rename Recipe",
         "export.formula.renameNote": "The name in the recipe list.",
+        "export.formula.renamePlaceholder": "Name",
+        "export.formula.renameAction": "Rename",
         "export.location.title": "Location",
         "export.location.folder": "Folder",
         "export.location.beside": "Beside the original",

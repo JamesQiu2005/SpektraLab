@@ -27,6 +27,7 @@
 #include <QJsonObject>
 #include <QQmlApplicationEngine>
 #include <QQmlContext>
+#include <QQmlEngine>
 #include <QQuickStyle>
 #include <QQuickWindow>
 #include <QKeyEvent>
@@ -609,6 +610,7 @@ private:
                         if(!require(QMetaObject::invokeMethod(&window_,"openExport"),"export_options_open"))return;
                         later([this]{
                             if(!require(!controller_.settingsEditable(),"export_options_suspend_edits")||!capture("export-options"))return;
+                            checkRecipeRename([this]{
                             auto* popup=window_.findChild<QObject*>("exportPopup");
                             if(!require(popup&&QMetaObject::invokeMethod(popup,"close"),"export_options_close"))return;
                             later([this]{
@@ -630,6 +632,7 @@ private:
                                     if(!require(redoButton&&QMetaObject::invokeMethod(redoButton,"clicked")&&controller_.straightenDegrees()==3.5,"qml_redo_button"))return;
                                     afterPicture([this]{checkHistogram();});
                                 });
+                            });
                             });
                         });
                     });
@@ -662,6 +665,41 @@ private:
         QCoreApplication::sendEvent(&window_,&event);
     }
     QObject* editor() const {return window_.findChild<QObject*>("editorState");}
+    // The export page's Rename Recipe dialog, on the open page: a name typed
+    // and then left (focus taken by the Rename button) is the one applied, and
+    // Return in the field renames and closes. The recipe's name is put back.
+    void checkRecipeRename(std::function<void()> then) {
+        auto* store=qmlContext(&window_)?qmlContext(&window_)->contextProperty("exportRecipes").value<QObject*>():nullptr;
+        auto* dialog=window_.findChild<QObject*>("exportRenameDialog");
+        if(!require(store&&dialog,"recipe_rename_dialog_found"))return;
+        const auto name=[store]{return store->property("selected").toMap().value("name").toString();};
+        const QString original=name();
+        if(!require(QMetaObject::invokeMethod(dialog,"open"),"recipe_rename_dialog_opens"))return;
+        waitFor([dialog]{return dialog->property("opened").toBool();},[=,this]{
+            auto* field=window_.findChild<QQuickItem*>("exportRenameField");
+            if(!require(field&&field->hasActiveFocus()&&field->property("text").toString()==original,"recipe_rename_field_drafts_the_name"))return;
+            if(!capture("export-rename"))return;
+            field->setProperty("text",QStringLiteral("Rename Check"));
+            field->setFocus(false);
+            if(!require(!field->hasActiveFocus()&&field->property("text").toString()=="Rename Check","recipe_rename_draft_survives_focus_loss"))return;
+            auto* button=window_.findChild<QObject*>("exportRenameButton");
+            if(!require(button&&button->property("enabled").toBool()&&QMetaObject::invokeMethod(button,"clicked"),"recipe_rename_button"))return;
+            if(!require(name()=="Rename Check","recipe_rename_applies_the_draft"))return;
+            waitFor([dialog]{return !dialog->property("visible").toBool();},[=,this]{
+                QMetaObject::invokeMethod(dialog,"open");
+                waitFor([dialog,field]{return dialog->property("opened").toBool()&&field->hasActiveFocus();},[=,this]{
+                    field->setProperty("text",QStringLiteral("Rename Return"));
+                    key(QEvent::KeyPress,Qt::Key_Return);key(QEvent::KeyRelease,Qt::Key_Return);
+                    if(!require(name()=="Rename Return","recipe_rename_return_applies"))return;
+                    waitFor([dialog]{return !dialog->property("visible").toBool();},[=,this]{
+                        QMetaObject::invokeMethod(store,"rename",Q_ARG(QString,original));
+                        if(!require(name()==original,"recipe_rename_restored"))return;
+                        then();
+                    },"recipe_rename_return_closes",3000);
+                },"recipe_rename_dialog_reopens",3000);
+            },"recipe_rename_dialog_closes",3000);
+        },"recipe_rename_dialog_opened",3000);
+    }
     // Polls every 50 ms; `then` once `ready` holds, a failed `name` after the timeout.
     void waitFor(std::function<bool()> ready,std::function<void()> then,const QString& name,int timeoutMs=30000) {
         auto clock=std::make_shared<QElapsedTimer>();clock->start();
