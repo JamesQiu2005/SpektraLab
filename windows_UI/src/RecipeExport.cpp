@@ -8,7 +8,6 @@
 #include <QFile>
 #include <QFileInfo>
 #include <QImageWriter>
-#include <QTemporaryDir>
 #include <algorithm>
 #include <array>
 #include <cctype>
@@ -258,9 +257,8 @@ Published writeImage(const QImage& pixels,const std::string& space,const fs::pat
     const std::vector<std::uint8_t> exifBlock=o.exif?spkhost::exif_block(*o.exif,std::uint32_t(pixels.width()),
                                                                          std::uint32_t(pixels.height()))
                                                    :std::vector<std::uint8_t>{};
-    QTemporaryDir staging(target.absoluteDir().filePath(QStringLiteral(".spektralab-export-XXXXXX")));
-    if(!staging.isValid())fail(QStringLiteral("Cannot create an export temporary file in this folder"));
-    const auto partial=nativePath(staging.filePath(QStringLiteral("output.partial")));
+    const output::StagingDir staging(target.absolutePath());
+    const auto partial=staging.filePath(QStringLiteral("output.partial"));
     const bool tiff=o.format==Format::tiff||o.format==Format::di;
     if(tiff) {
         const bool legacy=space=="sRGB"&&!o.untagged&&!o.exif&&!o.preview;

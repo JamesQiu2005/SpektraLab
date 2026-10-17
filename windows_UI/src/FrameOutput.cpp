@@ -6,7 +6,7 @@
 #include <QFile>
 #include <QFileInfo>
 #include <QImageWriter>
-#include <QTemporaryDir>
+#include <QRandomGenerator>
 #include <QTransform>
 #include <algorithm>
 #include <cmath>
@@ -83,6 +83,30 @@ void publish(const fs::path& partial,const fs::path& destination) {
 #endif
 }
 
+} // namespace
+
+StagingDir::StagingDir(const QString& folder) {
+    const auto base=nativePath(QDir::toNativeSeparators(folder));
+    static constexpr char letters[]="abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789";
+    for(int attempt=0;attempt<64;++attempt) {
+        QString name=QStringLiteral(".spektralab-export-");
+        for(int i=0;i<6;++i)name+=QLatin1Char(letters[QRandomGenerator::global()->bounded(int(sizeof letters-1))]);
+        const auto candidate=base/nativePath(name);
+        std::error_code error;
+        if(fs::create_directory(candidate,error)){path_=candidate;return;}
+        if(error)fail(QStringLiteral("Cannot create an export temporary folder in %1: %2")
+                      .arg(QDir::toNativeSeparators(folder),QString::fromLocal8Bit(error.message())));
+        // false without an error: the name is taken; draw another.
+    }
+    fail(QStringLiteral("Cannot create an export temporary folder in %1").arg(QDir::toNativeSeparators(folder)));
+}
+StagingDir::~StagingDir() {
+    std::error_code ignored;
+    fs::remove_all(path_,ignored);
+}
+fs::path StagingDir::filePath(const QString& name) const { return path_/nativePath(name); }
+
+namespace {
 QImage framePixels(const FramePtr& frame) {
     if(!frame)fail(QStringLiteral("No rendered photograph to export"));
     const auto& result=frame->pixels();
@@ -263,9 +287,8 @@ void exportImageFile(const QImage& fullRgba64,const fs::path& destination,
     if(!target.absoluteDir().exists())fail(QStringLiteral("The export folder does not exist"));
     auto pixels=exportImage(fullRgba64,geometry,options);
     pixels.setColorSpace(profile(resources));
-    QTemporaryDir staging(target.absoluteDir().filePath(QStringLiteral(".spektralab-export-XXXXXX")));
-    if(!staging.isValid())fail(QStringLiteral("Cannot create an export temporary file in this folder"));
-    const auto partial=nativePath(staging.filePath(QStringLiteral("output.partial")));
+    const StagingDir staging(target.absolutePath());
+    const auto partial=staging.filePath(QStringLiteral("output.partial"));
     if(options.format==Format::TIFF16) {
         std::string error;
         if(!io::write_srgb_tiff(partial,reinterpret_cast<const std::uint16_t*>(pixels.constBits()),

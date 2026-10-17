@@ -53,6 +53,22 @@ QImage exportImage(const QImage& fullRgba64, const Geometry& geometry,
                    const ExportOptions& options);
 bool formatAvailable(Format format);
 
+// The private folder an export is written in beside its destination, removed
+// with anything left in it when this goes. It takes the folder's inherited
+// permissions: QTemporaryDir asks for owner-only ones, which an SMB share (a
+// NAS) can refuse after the folder is made -- the export failed and left the
+// folder behind. Throws std::runtime_error with the system's reason.
+class StagingDir {
+public:
+    explicit StagingDir(const QString& folder);
+    ~StagingDir();
+    StagingDir(const StagingDir&) = delete;
+    StagingDir& operator=(const StagingDir&) = delete;
+    std::filesystem::path filePath(const QString& name) const;
+private:
+    std::filesystem::path path_;
+};
+
 // Uses the explicitly bundled resources/io/sRGB.icc. Writes a complete file
 // in a private temporary directory beside the destination, then publishes it
 // atomically with no replacement, including if another writer wins a race.
