@@ -109,6 +109,10 @@ try {
         # directory runs on a machine without the VC++ redistributable.
         $crt = Get-ChildItem -Path (Join-Path $env:VCToolsRedistDir 'x64') -Directory -Filter 'Microsoft.VC*.CRT' | Select-Object -First 1
         if ($crt -and $Configuration -ne 'Debug') { Copy-Item -Path "$($crt.FullName)/*.dll" -Destination $app -Force }
+        # LibRaw's demosaic runs under OpenMP (engine/cmake/LibRaw.cmake), whose
+        # runtime is the redistributable's vcomp140.dll.
+        $omp = Get-ChildItem -Path (Join-Path $env:VCToolsRedistDir 'x64') -Directory -Filter 'Microsoft.VC*.OpenMP' | Select-Object -First 1
+        if ($omp -and $Configuration -ne 'Debug') { Copy-Item -Path "$($omp.FullName)/vcomp140.dll" -Destination $app -Force }
         New-Item -ItemType Directory -Path "$app/licenses" -Force | Out-Null
         Invoke-Tool $cmake @('-E', 'copy_directory', "$QtDirectory/sbom", "$app/licenses/Qt-SBOM") 'Qt SBOM copy'
         # The binary archives carry no licence texts; the pinned official ones
@@ -173,7 +177,7 @@ try {
         }
         # What the folder cannot run or be distributed without.
         foreach ($required in @('SpektraLabQt.exe', 'Qt6Core.dll', 'Qt6Quick.dll', 'platforms/qwindows.dll',
-                                'qml/QtQuick/Controls', 'vcruntime140.dll', 'msvcp140.dll',
+                                'qml/QtQuick/Controls', 'vcruntime140.dll', 'msvcp140.dll', 'vcomp140.dll',
                                 'resources/vulkan/spk_affine3.spv', 'resources/spektrafilm_constants.bin',
                                 'resources/profiles/kodak_portra_400.json',
                                 'resources/profiles/kodak_tri_x_400.json', 'resources/fonts/texgyreheros-regular.otf',

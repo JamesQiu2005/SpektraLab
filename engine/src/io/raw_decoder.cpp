@@ -384,12 +384,20 @@ bool decode_raw_compatible(const std::filesystem::path& source, const std::array
         decoded.width = image->width;
         decoded.height = image->height;
         decoded.rgb.resize(static_cast<std::size_t>(samples));
+        // Every code's float, once: the same values the per-sample divide
+        // gave, without 100 M double divides on a 36 MP frame.
+        static const std::vector<float> code_to_float = [] {
+            std::vector<float> table(65536);
+            for (std::size_t v = 0; v < table.size(); ++v)
+                table[v] = static_cast<float>(static_cast<double>(v) / 65535.0);
+            return table;
+        }();
         for (std::size_t i = 0; i < decoded.rgb.size(); ++i) {
             std::uint16_t value;
             // LibRaw returns native-endian 16-bit samples. memcpy avoids
             // imposing alignment or aliasing assumptions on its byte array.
             std::memcpy(&value, image->data + i * sizeof(value), sizeof(value));
-            decoded.rgb[i] = static_cast<float>(static_cast<double>(value) / 65535.0);
+            decoded.rgb[i] = code_to_float[value];
         }
         decoded.timings.convert_ms = elapsed_ms(start);
         decoded.timings.total_ms = elapsed_ms(total_start);

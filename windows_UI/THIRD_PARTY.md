@@ -23,7 +23,7 @@ not use a Qt commercial licence.
 | TeX Gyre Heros 2.004 | the film edge's text faces, `resources/fonts/` (stand-ins for Helvetica Neue); source <https://mirrors.ctan.org/fonts/tex-gyre/opentype/>, unmodified | GUST Font License (LPPL 1.3c) | `TeX-Gyre-Heros-GUST-FONT-LICENSE.txt`; version and SHA-256 in the source tree's `engine/resources_portable/fonts/NOTICE.md` |
 | stb (`stb_image` 2.30, `stb_image_write` 1.16, `stb_truetype` 1.26) | compiled in: JPEG/PNG decode and encode, zlib inflate, the font outlines; <https://github.com/nothings/stb> commit `2c980bb` | MIT (or public domain; MIT taken) | `stb-LICENSE` |
 | volk (tag `vulkan-sdk-1.4.341.0`) | compiled in: loads `vulkan-1.dll` from the GPU driver at run time; <https://github.com/zeux/volk> | MIT | `volk-LICENSE.md` |
-| Microsoft Visual C++ runtime | `vcruntime140*.dll`, `msvcp140*.dll`, `concrt140.dll`, `vccorlib140.dll`, from Visual Studio 2022's redistributable folder | Microsoft's redistribution terms for Visual Studio's distributable code | none copied |
+| Microsoft Visual C++ runtime | `vcruntime140*.dll`, `msvcp140*.dll`, `concrt140.dll`, `vccorlib140.dll`, and the OpenMP runtime `vcomp140.dll` (LibRaw's demosaic), from Visual Studio 2022's redistributable folder | Microsoft's redistribution terms for Visual Studio's distributable code | none copied |
 | Direct3D shader compilers | `d3dcompiler_47.dll`, `dxcompiler.dll`, `dxil.dll`, which windeployqt copies for Qt's D3D backends | Microsoft's redistribution terms for the Windows SDK | none copied |
 
 Not shipped: the Vulkan loader (`vulkan-1.dll` is the GPU driver's) and

@@ -61,6 +61,24 @@ Axis areaAxis(int from,int to) {
     }
     return axis;
 }
+
+// Rows [0, height) split over up to eight threads; the first exception wins.
+// Each row is computed by one thread in the serial order, so the result does
+// not depend on the split.
+template<class Body> void parallelRows(int height,Body body) {
+    const int threads=std::clamp(int(std::thread::hardware_concurrency()),1,8);
+    const int chunk=(height+threads-1)/threads;
+    std::vector<std::thread> pool;std::exception_ptr error;std::mutex guard;
+    for(int t=0;t<threads;++t) {
+        const int y0=t*chunk,y1=std::min(height,y0+chunk);
+        if(y0>=y1)break;
+        pool.emplace_back([&,y0,y1]{
+            try{body(y0,y1);}catch(...){std::lock_guard lock(guard);if(!error)error=std::current_exception();}
+        });
+    }
+    for(auto& thread:pool)thread.join();
+    if(error)std::rethrow_exception(error);
+}
 }
 
 QColorSpace colorSpace(const OutputEncoding& encoding) {
@@ -104,20 +122,23 @@ QImage halfImage(const std::uint16_t* rgba16,int width,int height,qsizetype stri
     if(!space.isValid())fail("The display image needs a valid colour space");
     QImage image(width,height,QImage::Format_RGBX16FPx4);
     if(image.isNull())fail("Cannot allocate the display image");
-    std::vector<float> row(std::size_t(width)*4);
     // Qt's own RGBA64 -> float conversion (QRgbaFloat::fromRgba64) multiplies
     // by this float; matching it keeps a converted RGBA64 image identical.
     constexpr float scale=1.0f/65535.0f;
-    for(int y=0;y<height;++y) {
-        const auto* source=rgba16+qsizetype(y)*strideInPixels*4;
-        for(int x=0;x<width;++x) {
-            const auto* p=source+std::size_t(x)*4;
-            if(p[3]!=65535)fail("Display requires opaque RGBA16 pixels");
-            float* q=row.data()+std::size_t(x)*4;
-            q[0]=float(p[0])*scale;q[1]=float(p[1])*scale;q[2]=float(p[2])*scale;q[3]=1.0f;
+    // Rows across the cores: ~130 ms for a 36 MP frame on one.
+    parallelRows(height,[&](int y0,int y1){
+        std::vector<float> row(std::size_t(width)*4);
+        for(int y=y0;y<y1;++y) {
+            const auto* source=rgba16+qsizetype(y)*strideInPixels*4;
+            for(int x=0;x<width;++x) {
+                const auto* p=source+std::size_t(x)*4;
+                if(p[3]!=65535)fail("Display requires opaque RGBA16 pixels");
+                float* q=row.data()+std::size_t(x)*4;
+                q[0]=float(p[0])*scale;q[1]=float(p[1])*scale;q[2]=float(p[2])*scale;q[3]=1.0f;
+            }
+            storeHalfRow(image,y,row.data());
         }
-        storeHalfRow(image,y,row.data());
-    }
+    });
     image.setColorSpace(space);
     return image;
 }
@@ -149,56 +170,44 @@ QImage downscaled(const QImage& image,QSize bound) {
     QImage output(outWidth,outHeight,QImage::Format_RGBX16FPx4);
     if(output.isNull())fail("Cannot allocate the reduced display image");
     const Axis columns=areaAxis(width,outWidth),rows=areaAxis(height,outHeight);
-    std::vector<float> source(std::size_t(width)*4),cached(std::size_t(outWidth)*3);
-    std::vector<float> sum(std::size_t(outWidth)*3),row(std::size_t(outWidth)*4);
-    int cachedRow=-1;
-    // One source row, reduced horizontally into `out` (RGB per output column).
-    auto reduce=[&](int y,std::vector<float>& out) {
-        qFloatFromFloat16(source.data(),reinterpret_cast<const qfloat16*>(image.constScanLine(y)),qsizetype(width)*4);
-        for(int i=0;i<outWidth;++i) {
-            const float* w=columns.weight.data()+columns.offset[i];
-            const float* p=source.data()+std::size_t(columns.first[i])*4;
-            float r=0,g=0,b=0;
-            for(int k=0;k<columns.count[i];++k,p+=4){r+=w[k]*p[0];g+=w[k]*p[1];b+=w[k]*p[2];}
-            out[std::size_t(i)*3]=r;out[std::size_t(i)*3+1]=g;out[std::size_t(i)*3+2]=b;
+    // Output rows across the cores, each block with its own buffers; every
+    // output row is the same sums in the same order whichever block has it.
+    parallelRows(outHeight,[&](int o0,int o1){
+        std::vector<float> source(std::size_t(width)*4),cached(std::size_t(outWidth)*3);
+        std::vector<float> sum(std::size_t(outWidth)*3),row(std::size_t(outWidth)*4);
+        int cachedRow=-1;
+        // One source row, reduced horizontally into `out` (RGB per output column).
+        auto reduce=[&](int y,std::vector<float>& out) {
+            qFloatFromFloat16(source.data(),reinterpret_cast<const qfloat16*>(image.constScanLine(y)),qsizetype(width)*4);
+            for(int i=0;i<outWidth;++i) {
+                const float* w=columns.weight.data()+columns.offset[i];
+                const float* p=source.data()+std::size_t(columns.first[i])*4;
+                float r=0,g=0,b=0;
+                for(int k=0;k<columns.count[i];++k,p+=4){r+=w[k]*p[0];g+=w[k]*p[1];b+=w[k]*p[2];}
+                out[std::size_t(i)*3]=r;out[std::size_t(i)*3+1]=g;out[std::size_t(i)*3+2]=b;
+            }
+        };
+        for(int o=o0;o<o1;++o) {
+            std::fill(sum.begin(),sum.end(),0.0f);
+            const float* w=rows.weight.data()+rows.offset[o];
+            for(int k=0;k<rows.count[o];++k) {
+                const int y=rows.first[o]+k;
+                // A row straddling two outputs is reduced once and reused.
+                if(y!=cachedRow){reduce(y,cached);cachedRow=y;}
+                for(std::size_t i=0;i<sum.size();++i)sum[i]+=w[k]*cached[i];
+            }
+            for(int i=0;i<outWidth;++i) {
+                row[std::size_t(i)*4]=sum[std::size_t(i)*3];row[std::size_t(i)*4+1]=sum[std::size_t(i)*3+1];
+                row[std::size_t(i)*4+2]=sum[std::size_t(i)*3+2];row[std::size_t(i)*4+3]=1.0f;
+            }
+            storeHalfRow(output,o,row.data());
         }
-    };
-    for(int o=0;o<outHeight;++o) {
-        std::fill(sum.begin(),sum.end(),0.0f);
-        const float* w=rows.weight.data()+rows.offset[o];
-        for(int k=0;k<rows.count[o];++k) {
-            const int y=rows.first[o]+k;
-            // A row straddling two outputs is reduced once and reused.
-            if(y!=cachedRow){reduce(y,cached);cachedRow=y;}
-            for(std::size_t i=0;i<sum.size();++i)sum[i]+=w[k]*cached[i];
-        }
-        for(int i=0;i<outWidth;++i) {
-            row[std::size_t(i)*4]=sum[std::size_t(i)*3];row[std::size_t(i)*4+1]=sum[std::size_t(i)*3+1];
-            row[std::size_t(i)*4+2]=sum[std::size_t(i)*3+2];row[std::size_t(i)*4+3]=1.0f;
-        }
-        storeHalfRow(output,o,row.data());
-    }
+    });
     output.setColorSpace(image.colorSpace());
     return output;
 }
 
 namespace {
-// Rows [0, height) split over up to eight threads; the first exception wins.
-template<class Body> void parallelRows(int height,Body body) {
-    const int threads=std::clamp(int(std::thread::hardware_concurrency()),1,8);
-    const int chunk=(height+threads-1)/threads;
-    std::vector<std::thread> pool;std::exception_ptr error;std::mutex guard;
-    for(int t=0;t<threads;++t) {
-        const int y0=t*chunk,y1=std::min(height,y0+chunk);
-        if(y0>=y1)break;
-        pool.emplace_back([&,y0,y1]{
-            try{body(y0,y1);}catch(...){std::lock_guard lock(guard);if(!error)error=std::current_exception();}
-        });
-    }
-    for(auto& thread:pool)thread.join();
-    if(error)std::rethrow_exception(error);
-}
-
 // The tone curve of a camera RAW's Original, on linear light with the RAW's
 // white at 1 (LibRaw's scale, bright=1): x^p / (x^p + K), rescaled so 1 stays
 // 1. It puts 0.10 -- about 3.3 stops under clipping, where ISO-calibrated

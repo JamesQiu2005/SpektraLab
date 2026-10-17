@@ -29,6 +29,14 @@ endif()
 if(CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")
     target_compile_options(spk_libraw PRIVATE -w)
 endif()
+# The demosaic on every core. LibRaw's AHD runs its tiles under OpenMP when
+# _OPENMP is defined (libraw_types.h enables it for MSVC 2010+); each tile is
+# computed alone, so the result does not depend on the thread count. Single-
+# threaded it was ~3.8 s of a 36 MP open. The runtime, vcomp140.dll, is
+# deployed beside the app (build-msvc.ps1).
+if(MSVC)
+    target_compile_options(spk_libraw PRIVATE /openmp)
+endif()
 # Select the LGPL-2.1 option offered by the LibRaw dual license.
 file(MAKE_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}/third-party/LibRaw")
 foreach(notice LICENSE.LGPL COPYRIGHT)
