@@ -162,7 +162,7 @@ QtObject {
     // these gates and requests, so a key and its menu item do one thing.
     readonly property bool canUndo: preview.settingsEditable && preview.canUndo && !cropMode
     readonly property bool canRedo: preview.settingsEditable && preview.canRedo && !cropMode
-    readonly property bool canSelectAll: canBrowse && preview.libraryItems.length > 0
+    readonly property bool canSelectAll: canBrowse && preview.libraryCount > 0
     // The Settings Clipboard (Session.canCopySettings / canPasteSettings /
     // canSyncSettings): Sync and Paste wait for a batch export; Sync needs
     // a ticked group and another selected photo.

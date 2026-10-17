@@ -39,7 +39,11 @@ Popup {
     Overlay.modal: Rectangle { color: "transparent" }
 
     // --- what the page reads off the controller ---
-    readonly property var items: preview.libraryItems
+    // Only while the page is shown: every library item, strip picture
+    // included, rebuilt on each library change -- with a folder of hundreds
+    // loading its previews that held the GUI thread whether the page was
+    // open or not.
+    readonly property var items: page.visible ? preview.libraryItems : []
     readonly property var worklist: {
         var out = []
         for (var i = 0; i < items.length; ++i)

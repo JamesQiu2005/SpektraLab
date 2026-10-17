@@ -740,7 +740,11 @@ private:
     void restoreHistory(bool redo);
     void scheduleSave();
     void updateThumbnail();
-    int addFile(const QUrl&);
+    // `preloaded`: the photograph's saved record, read beforehand (openFiles
+    // reads a folder's records in parallel); null reads it here.
+    int addFile(const QUrl&,const spk::desktop::editing::LoadResult* preloaded=nullptr);
+    // While openFiles adds a folder: the strip is told once, at the end.
+    bool adding_files_=false;
     void openItem(int index);
     void changed(const QString& editKey={});
     bool applyParameter(const spk::desktop::SettingField& field, spk::desktop::SettingValue value);

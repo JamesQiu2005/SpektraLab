@@ -2,6 +2,7 @@
 #include "HalfFramePair.hpp"
 
 #include <QCollator>
+#include <vector>
 #include <QColorSpace>
 #include <QCryptographicHash>
 #include <QDir>
@@ -47,15 +48,25 @@ bool openable(const QString& path) {
 
 QStringList folderFiles(const QString& folder) {
     const QDir dir(folder);
-    QStringList files;
+    // The folder is made canonical once and its entries joined to it -- a
+    // canonical path per file is a walk of every component, ~0.3 ms each on
+    // Windows, which a folder of hundreds felt -- except a link, which is
+    // resolved to what it names as before. Sorted on the names themselves.
+    const QString root = canonical(dir.absolutePath());
+    struct Entry { QString name, path; };
+    std::vector<Entry> entries;
     for (const auto& info : dir.entryInfoList(QDir::Files | QDir::NoDotAndDotDot, QDir::NoSort))
-        if (!info.isHidden() && openable(info.fileName())) files.push_back(canonical(info.filePath()));
+        if (!info.isHidden() && openable(info.fileName()))
+            entries.push_back({info.fileName(), info.isSymLink() ? canonical(info.filePath())
+                                                                 : QDir::cleanPath(root + QLatin1Char('/') + info.fileName())});
     QCollator collator;
     collator.setNumericMode(true);
     collator.setCaseSensitivity(Qt::CaseInsensitive);
-    std::stable_sort(files.begin(), files.end(), [&](const QString& a, const QString& b) {
-        return collator.compare(QFileInfo(a).fileName(), QFileInfo(b).fileName()) < 0;
-    });
+    std::stable_sort(entries.begin(), entries.end(),
+                     [&](const Entry& a, const Entry& b) { return collator.compare(a.name, b.name) < 0; });
+    QStringList files;
+    files.reserve(qsizetype(entries.size()));
+    for (const auto& entry : entries) files.push_back(entry.path);
     return files;
 }
 

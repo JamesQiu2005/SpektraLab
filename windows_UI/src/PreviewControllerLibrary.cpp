@@ -15,6 +15,7 @@
 #include <QFileInfo>
 #include <QHash>
 #include <QSettings>
+#include <QThread>
 #include <algorithm>
 #include <cmath>
 
@@ -71,10 +72,12 @@ void PreviewController::setupLibrary() {
     connect(this,&PreviewController::libraryChanged,this,[this]{++library_revision_;});
     order_=library::FrameOrder(QDir(edit_directory_).filePath(QStringLiteral("Order")));
     clipboard_groups_=storedClipboardGroups();
-    // Two readers: a RAW's embedded preview is a JPEG decode, a flat file a
-    // small read; the engine's worker keeps the rest of the machine.
+    // A quarter of the cores, two to six readers: a RAW's preview is a small
+    // embedded JPEG (image_io thumbnail picks it), a flat file a read, and
+    // a folder of hundreds should fill the strip in seconds; the engine's
+    // worker and LibRaw's demosaic keep the rest of the machine.
     preview_pool_=std::make_unique<QThreadPool>();
-    preview_pool_->setMaxThreadCount(2);
+    preview_pool_->setMaxThreadCount(std::clamp(QThread::idealThreadCount()/4,2,6));
     // Previews land one by one; the strip is rebuilt at most every 60 ms.
     preview_flush_.setSingleShot(true);preview_flush_.setInterval(60);
     connect(&preview_flush_,&QTimer::timeout,this,&PreviewController::libraryChanged);

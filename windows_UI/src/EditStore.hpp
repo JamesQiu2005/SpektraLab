@@ -8,6 +8,7 @@
 #include <QString>
 #include <QStringList>
 #include <QUrl>
+#include <mutex>
 #include <optional>
 
 // Per-photo edits belong to the application's own directory, never beside a
@@ -91,9 +92,12 @@ private:
         std::optional<Catalog> catalog;
     };
     QString directory_;
-    // All calls belong to the controller thread. Remember what it loaded so
-    // a changed source or another app instance cannot silently lose edits.
+    // Remember what was loaded so a changed source or another app instance
+    // cannot silently lose edits. load() may run on several threads at once
+    // (a folder's records are read in the background, PreviewController
+    // openFiles); the mutex guards the map, never the file work.
     mutable QHash<QString, Observation> observations_;
+    mutable std::mutex mutex_;
 };
 
 } // namespace spk::desktop::editing

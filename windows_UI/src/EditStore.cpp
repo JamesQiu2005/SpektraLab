@@ -405,6 +405,7 @@ LoadResult Store::load(const QUrl& source, const Catalog& catalog) const {
         const auto path = filePath(source);
         const auto sourceId = identity(sourcePath(source));
         if (!recordExists(path)) {
+            std::lock_guard lock(mutex_);
             observations_.insert(key, {fingerprint(sourceId), {}, {}, catalog});
             return {};
         }
@@ -412,12 +413,16 @@ LoadResult Store::load(const QUrl& source, const Catalog& catalog) const {
         int version = 0;
         QStringList preserved;
         const auto document = readDocument(path, &recordDigest, &version, &preserved);
-        observations_.insert(key, {fingerprint(sourceId), recordDigest, {}, catalog});
+        {
+            std::lock_guard lock(mutex_);
+            observations_.insert(key, {fingerprint(sourceId), recordDigest, {}, catalog});
+        }
         auto state = checkDocument(document, version, sourceId, &catalog, &preserved);
         return {std::move(state), {}, false, version, preserved};
     } catch (const std::exception& error) {
         const auto warning = QString::fromUtf8(error.what());
         if (!key.isEmpty()) {
+            std::lock_guard lock(mutex_);
             auto& observation = observations_[key];
             observation.warning = warning;
             observation.catalog = catalog;
@@ -428,17 +433,22 @@ LoadResult Store::load(const QUrl& source, const Catalog& catalog) const {
 void Store::save(const QUrl& source, const State& state) const {
     const auto key = observationKey(source);
     const auto path = filePath(source);
-    const auto observed = observations_.constFind(key);
-    if (observed != observations_.cend() && !observed->warning.isEmpty()) fail(observed->warning);
+    // A copy, taken under the lock: the background loads may insert meanwhile.
+    std::optional<Observation> observed;
+    {
+        std::lock_guard lock(mutex_);
+        if (const auto found = observations_.constFind(key); found != observations_.cend()) observed = *found;
+    }
+    if (observed && !observed->warning.isEmpty()) fail(observed->warning);
     const auto value = stateJson(state);
-    const auto catalog = observed != observations_.cend() ? observed->catalog : std::optional<Catalog>{};
+    const auto catalog = observed ? observed->catalog : std::optional<Catalog>{};
     // Root callers load with a current catalogue first. Direct save callers
     // have no catalogue, but still receive complete shape/range validation.
     const Catalog* stocks = catalog ? &*catalog : nullptr;
     (void)parseState(value, currentVersion, stocks, nullptr);
     const auto sourceFile = sourcePath(source);
     const auto sourceId = identity(sourceFile);
-    if (observed != observations_.cend())
+    if (observed)
         require(observed->source == fingerprint(sourceId),
                 QStringLiteral("The source file changed after it was opened; edits remain unsaved"));
     require(pathIdentity(QFileInfo(sourceFile).absolutePath()) !=
@@ -456,7 +466,7 @@ void Store::save(const QUrl& source, const State& state) const {
         previous = readDocument(path, &previousDigest, &previousVersion, nullptr);
         (void)checkDocument(previous, previousVersion, sourceId, nullptr, nullptr);
     }
-    if (observed != observations_.cend())
+    if (observed)
         require(observed->record == previousDigest,
                 QStringLiteral("Saved edits changed in another instance; restart the app and reopen the photo before saving"));
     // A version-1 record is rewritten whole (it can hold nothing unknown). A
@@ -477,6 +487,7 @@ void Store::save(const QUrl& source, const State& state) const {
     require(file.open(QIODevice::WriteOnly), QStringLiteral("Cannot open saved edits for atomic writing: ") + file.errorString());
     require(file.write(bytes) == bytes.size(), QStringLiteral("Cannot write saved edits: ") + file.errorString());
     require(file.commit(), QStringLiteral("Cannot atomically save edits: ") + file.errorString());
+    std::lock_guard guard(mutex_);
     observations_.insert(key, {fingerprint(sourceId),
                                 QCryptographicHash::hash(bytes, QCryptographicHash::Sha256), {}, catalog});
 }

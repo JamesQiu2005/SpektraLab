@@ -235,7 +235,12 @@ white balance or RAW decode to choose, and Photo Info says what it was read as.
 Each thumbnail is the whole photograph with everything outside its crop under
 a nearly opaque mask, turned and flipped as the canvas is
 (`CropMaskedThumbnail.swift`); until a photo has been rendered it is the file's
-own preview (a RAW's embedded JPEG), read off the GUI thread. A plain click
+own preview (a RAW's smallest embedded JPEG that covers the strip, not its
+full-size one), read off the GUI thread by a quarter of the cores. A folder of
+hundreds is listed in one go: the saved edits of its new files are read in
+parallel and the strip is told once (measured: 300 photos listed in 0.26 s,
+every preview in 3 s; a 403-file folder's snapshot 54 s before, 5.7 s after;
+`spk_qt_library_workflow_test`'s large-folder block pins it). A plain click
 opens a photo and selects it alone; Ctrl+click adds or removes a photo without
 moving the open one, which cannot leave the selection; Left / Right step (not
 while a text field has the keyboard, AGENTS.md trap 32). Dragging a thumbnail

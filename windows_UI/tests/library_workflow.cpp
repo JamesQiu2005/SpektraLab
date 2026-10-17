@@ -23,6 +23,12 @@
 #include <iostream>
 #include <limits>
 #include <stdexcept>
+#ifdef _WIN32
+#ifndef NOMINMAX
+#define NOMINMAX
+#endif
+#include <windows.h>   // CreateHardLinkW: the large folder's frames
+#endif
 
 namespace {
 namespace output=spk::desktop::output;
@@ -339,6 +345,45 @@ int main(int argc,char** argv) {
             report.insert("beta_png_sha256",QString::fromLatin1(secondHash));
             report.insert("cancelled_files",cancelledFiles.size());
             report.insert("export_display_ambiguous_samples",double(ambiguousSamples));
+        }
+        // ---- A large folder: 300 photographs (hard links to one fixture, so
+        // no disk is spent). The import call returns quickly, the GUI thread
+        // is never held long while every file's own preview arrives, and the
+        // first photograph opens ----
+        {
+            const QString big=destination+"/big";
+            check(QDir().mkpath(big),"Cannot create the large folder");
+            constexpr int count=300;
+            for(int i=0;i<count;++i) {
+                const QString link=QStringLiteral("%1/frame_%2.%3").arg(big).arg(i,3,10,QChar('0')).arg(original.suffix());
+                const auto target=QDir::toNativeSeparators(first).toStdWString(),name=QDir::toNativeSeparators(link).toStdWString();
+                check(CreateHardLinkW(name.c_str(),target.c_str(),nullptr)!=0,"Cannot hard-link a large-folder frame");
+            }
+            PreviewController controller(resources,nullptr,{},destination+"/big-edits");
+            waitFor([&]{return controller.ready()||controller.failed();},"engine initialization for the large folder");
+            // The longest the event loop goes without running, from a 5 ms
+            // timer's late arrivals.
+            qint64 worstGap=0;QElapsedTimer tick;QTimer probe;probe.setInterval(5);
+            QObject::connect(&probe,&QTimer::timeout,[&]{worstGap=std::max(worstGap,tick.restart());});
+            QElapsedTimer clock;clock.start();
+            controller.openFiles({QUrl::fromLocalFile(big)});
+            const double importMs=double(clock.elapsed());
+            check(controller.libraryCount()==count,"The large folder lists every photograph");
+            tick.start();probe.start();
+            waitFor([&]{return controller.previewsPending()==0&&!controller.busy();},"every preview of the large folder");
+            probe.stop();
+            const double allMs=double(clock.elapsed());
+            int previews=0;
+            for(int i=0;i<count;++i)previews+=!controller.libraryItem(i).value("strip").value<QImage>().isNull();
+            std::cout<<"large folder: "<<count<<" photographs listed in "<<importMs<<" ms, every preview in "<<allMs
+                     <<" ms, longest GUI stall meanwhile "<<worstGap<<" ms\n";
+            report.insert("large_folder_import_ms",importMs);
+            report.insert("large_folder_previews_ms",allMs);
+            report.insert("large_folder_worst_stall_ms",double(worstGap));
+            check(previews==count,"Every photograph of the large folder has its own preview");
+            check(controller.frame()&&controller.activeIndex()==0,"The large folder's first photograph opens");
+            check(importMs<1500,"The large folder is listed without holding the GUI thread");
+            check(worstGap<400,"The GUI thread is never held long while the large folder's previews arrive");
         }
         report.insert("operations",operations);
         report.insert("status","passed");

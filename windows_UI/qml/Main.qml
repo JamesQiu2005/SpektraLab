@@ -118,7 +118,7 @@ ApplicationWindow {
     // plain click on the neighbour. Single keys yield to a focused text field
     // (AGENTS.md trap 32), which takes them as caret moves.
     Shortcut { sequence: "Left"; enabled: editorState.canBrowse && !window.editingText && preview.activeIndex > 0; onActivated: editorState.stepPhoto(-1) }
-    Shortcut { sequence: "Right"; enabled: editorState.canBrowse && !window.editingText && preview.activeIndex >= 0 && preview.activeIndex < preview.libraryItems.length - 1; onActivated: editorState.stepPhoto(1) }
+    Shortcut { sequence: "Right"; enabled: editorState.canBrowse && !window.editingText && preview.activeIndex >= 0 && preview.activeIndex < preview.libraryCount - 1; onActivated: editorState.stepPhoto(1) }
     // The Settings Clipboard (Shift-Cmd-C / Shift-Cmd-V on the Mac).
     Shortcut { sequence: "Ctrl+Shift+C"; enabled: editorState.canCopySettings && !window.editingText; onActivated: preview.copySettings() }
     Shortcut { sequence: "Ctrl+Shift+V"; enabled: editorState.canPasteSettings && !window.editingText; onActivated: preview.pasteSettings() }

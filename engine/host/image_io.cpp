@@ -872,7 +872,27 @@ bool thumbnail(const fs::path& path, uint32_t long_edge, Rgba8& out, std::string
         const int orientation = flip_to_orientation(raw->imgdata.sizes.flip);
         std::vector<float> rgb;
         uint32_t w = 0, h = 0;
-        if (raw->unpack_thumb() == LIBRAW_SUCCESS) {
+        // The smallest embedded JPEG that still covers `long_edge`, not the
+        // largest LibRaw would pick: a D810's is the full 7360 x 4912, ~0.25 s
+        // to decode for a 360 px strip picture, where its 570 px one is a few
+        // milliseconds. The largest when none is big enough; LibRaw's own
+        // choice when the list has no JPEG or the pick fails to unpack.
+        const auto& list = raw->imgdata.thumbs_list;
+        int pick = -1, largest = -1;
+        for (int i = 0; i < std::min(list.thumbcount, LIBRAW_THUMBNAIL_MAXCOUNT); ++i) {
+            const auto& t = list.thumblist[i];
+            if (t.tformat != LIBRAW_INTERNAL_THUMBNAIL_JPEG || !t.tlength) continue;
+            const uint32_t edge = std::max<uint32_t>(t.twidth, t.theight);
+            const auto edge_of = [&](int k) {
+                return std::max<uint32_t>(list.thumblist[k].twidth, list.thumblist[k].theight);
+            };
+            if (largest < 0 || edge > edge_of(largest)) largest = i;
+            if (edge >= long_edge && (pick < 0 || edge < edge_of(pick))) pick = i;
+        }
+        if (pick < 0) pick = largest;
+        const bool unpacked = (pick >= 0 && raw->unpack_thumb_ex(pick) == LIBRAW_SUCCESS) ||
+                              raw->unpack_thumb() == LIBRAW_SUCCESS;
+        if (unpacked) {
             const auto& th = raw->imgdata.thumbnail;
             if (th.tformat == LIBRAW_THUMBNAIL_JPEG && th.thumb) {
                 int iw, ih, comp;

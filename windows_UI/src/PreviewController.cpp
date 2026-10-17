@@ -13,11 +13,14 @@
 #include <QSet>
 #include <QSettings>
 #include <QStandardPaths>
+#include <QThread>
 #include <algorithm>
+#include <atomic>
 #include <cmath>
 #include <cstring>
 #include <iterator>
 #include <optional>
+#include <thread>
 #include <type_traits>
 #include <variant>
 
@@ -1097,17 +1100,24 @@ void PreviewController::updateThumbnail() {
     item.whole_cut=frame_&&frame_->cut;
     item.error.clear();emit libraryChanged();
 }
-int PreviewController::addFile(const QUrl& url) {
+int PreviewController::addFile(const QUrl& url,const desktop::editing::LoadResult* preloaded) {
     if(!url.isLocalFile())return -1;
-    const QFileInfo info(url.toLocalFile());
-    if(!info.isFile())return -1;
-    if(desktop::pairs::isPairFile(info.filePath()))return addPairFile(info.canonicalFilePath());
-    const auto local=QUrl::fromLocalFile(info.canonicalFilePath());
-    for(int i=0;i<int(library_.size());++i)
-        if(library_[i].url.toLocalFile().compare(local.toLocalFile(),Qt::CaseInsensitive)==0)return i;
+    QUrl local;QString canonicalPath;
+    if(preloaded) {
+        // From openFiles: a canonical path (library::expand) of a file the
+        // library does not list yet, its record already read.
+        canonicalPath=url.toLocalFile();local=url;
+    } else {
+        const QFileInfo info(url.toLocalFile());
+        if(!info.isFile())return -1;
+        if(desktop::pairs::isPairFile(info.filePath()))return addPairFile(info.canonicalFilePath());
+        canonicalPath=info.canonicalFilePath();local=QUrl::fromLocalFile(canonicalPath);
+        for(int i=0;i<int(library_.size());++i)
+            if(library_[i].url.toLocalFile().compare(local.toLocalFile(),Qt::CaseInsensitive)==0)return i;
+    }
     LibraryItem item;item.url=local;item.settings=settings();
     item.mode=decode_mode_?desktop::DecodeMode::headroom:desktop::DecodeMode::compatible16;
-    const auto stored=edit_store_.load(local,catalog_);
+    const auto stored=preloaded?*preloaded:edit_store_.load(local,catalog_);
     item.save_blocked=stored.blocked;item.save_warning=stored.warning;item.preserved=stored.preserved;
     if(stored.state){item.settings=stored.state->settings;item.mode=stored.state->mode;item.geometry=stored.state->geometry;
                      item.held=stored.state->heldGeometry;item.postdev=stored.state->postDev;item.has_stored=true;}
@@ -1117,13 +1127,16 @@ int PreviewController::addFile(const QUrl& url) {
     // even when its preset came from another photo; it has its own crop, so
     // a film edge it inherits holds nothing of the other photo's.
     if(!item.has_stored||!std::get<bool>(item.settings.get("film_edge_seeded"))) {
-        const auto file=info.canonicalFilePath().toUtf8();
+        const auto file=canonicalPath.toUtf8();
         desktop::seed_film_edge(item.settings,std::string_view(file.constData(),std::size_t(file.size())),
                                 int(library_.size()),bodySeed());
         if(!item.has_stored)item.held=std::get<bool>(item.settings.get("overscan_active"))
             ?std::optional<output::Geometry>(output::Geometry{}):std::nullopt;
     }
-    library_.push_back(std::move(item));emit libraryChanged();return int(library_.size())-1;
+    library_.push_back(std::move(item));
+    // openFiles adds a folder in one go and tells the strip once (adding_files_).
+    if(!adding_files_)emit libraryChanged();
+    return int(library_.size())-1;
 }
 void PreviewController::openFiles(const QVariantList& urls) {
     if(!ready_||busy_)return;
@@ -1137,7 +1150,39 @@ void PreviewController::openFiles(const QVariantList& urls) {
     }
     saveActiveSettings();int first=-1;
     const int before=int(library_.size());
-    for(const auto& file:files){const int index=addFile(QUrl::fromLocalFile(file));if(first<0&&index>=0)first=index;}
+    // Each photograph's saved record is a read and a fingerprint of the
+    // file (EditStore identity: 128 KiB hashed): for a folder of hundreds
+    // that was seconds on the GUI thread, file after file. The records of
+    // the files not listed yet are read in parallel first, then the items
+    // are added in the folder's order, and the strip is told once.
+    QSet<QString> listed;
+    for(const auto& item:library_)listed.insert(item.url.toLocalFile().toLower());
+    std::vector<QString> fresh;std::vector<std::size_t> freshAt(std::size_t(files.size()),std::size_t(-1));
+    // library::expand's paths are canonical files already.
+    for(int i=0;i<files.size();++i) {
+        const auto& canonical=files[i];
+        if(desktop::pairs::isPairFile(canonical)||listed.contains(canonical.toLower()))continue;
+        listed.insert(canonical.toLower());freshAt[std::size_t(i)]=fresh.size();fresh.push_back(canonical);
+    }
+    std::vector<desktop::editing::LoadResult> records(fresh.size());
+    {
+        const int threads=std::clamp(QThread::idealThreadCount(),1,8);
+        std::atomic<std::size_t> next{0};
+        std::vector<std::thread> pool;
+        for(int t=0;t<std::min<int>(threads,int(fresh.size()));++t)
+            pool.emplace_back([&]{
+                for(std::size_t k;(k=next++)<fresh.size();)records[k]=edit_store_.load(QUrl::fromLocalFile(fresh[k]),catalog_);
+            });
+        for(auto& thread:pool)thread.join();
+    }
+    adding_files_=true;
+    for(int i=0;i<files.size();++i) {
+        const auto at=freshAt[std::size_t(i)];
+        const int index=addFile(QUrl::fromLocalFile(files[i]),at==std::size_t(-1)?nullptr:&records[at]);
+        if(first<0&&index>=0)first=index;
+    }
+    adding_files_=false;
+    emit libraryChanged();
     // The folders' half-frame pairs follow their first frames, then what was
     // added takes its folder's kept order with them; the first photograph is
     // found again after they are in.
