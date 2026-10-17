@@ -21,6 +21,9 @@ exist yet) or validation beyond the machine named.
 - `-Package` writes `SpektraLab-Windows-<version>-x64.zip` from the deployed
   folder, without test binaries, the redistributable installer or anything
   personal ([README.md](README.md#build-msvc-2022)).
+- `-Installer` also builds `SpektraLab-Windows-<version>-x64-Setup.exe` with
+  Inno Setup 6 (`installer/SpektraLab.iss`): per user or all users, Start
+  menu shortcut, uninstaller ([README.md](README.md#build-msvc-2022)).
 - The executable carries the product icon (`resources/SpektraLab.ico`, the
   icon in `desktop/src-tauri/icons/`, 16-256 px) as `IDI_ICON1`, which
   Explorer, the taskbar and every Qt window use.

@@ -37,6 +37,7 @@ already beside the executable).
 | Vulkan-Headers, tag `vulkan-sdk-1.4.341.0` (<https://github.com/KhronosGroup/Vulkan-Headers>) | headers only, compiled against | Apache-2.0 / MIT |
 | glslang 16.6.0 (<https://github.com/KhronosGroup/glslang>) | compiles the GLSL kernels to the shipped SPIR-V | BSD-3-Clause and others, per its `LICENSE.txt` |
 | Visual Studio 2022 (MSVC, CMake, Ninja) | the compiler and build tools | Microsoft's licence; CMake BSD-3-Clause; Ninja Apache-2.0 |
+| Inno Setup 6.7.3 (<https://jrsoftware.org/isinfo.php>) | `-Installer` only: compiles `installer/SpektraLab.iss`; its setup and uninstaller runtime is inside the `-Setup.exe`, not in the application folder | Inno Setup License (free, commercial use included) |
 
 The older MinGW build (`build.ps1`) also deploys the MinGW-w64 runtime and
 copies its licences to `MinGW/` (source:

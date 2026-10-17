@@ -11,6 +11,8 @@ param(
     [switch]$NoDeploy,
     [switch]$KeepGoing,
     [switch]$Package,
+    [switch]$Installer,
+    [string]$InnoSetupCompiler,
     [ValidateRange(0, 64)][int]$Jobs = 0
 )
 # MSVC 2022 build of the engine and the Qt Quick editor. Everything it needs
@@ -24,9 +26,13 @@ param(
 # the rest of the environment are restored on exit.
 # -Package (Release, deployed) zips the app folder, after the tests when
 # -RunTests is given, into <build>/package/SpektraLab-Windows-<version>-x64.zip.
+# -Installer does the same and then compiles installer/SpektraLab.iss from that
+# staged folder into SpektraLab-Windows-<version>-x64-Setup.exe beside it, with
+# Inno Setup 6 (-InnoSetupCompiler, default <deps>/InnoSetup6/ISCC.exe).
 $ErrorActionPreference = 'Stop'
+if ($Installer) { $Package = $true }
 if ($Package -and ($Configuration -ne 'Release' -or $NoDeploy)) {
-    throw '-Package needs a deployed Release build: drop -NoDeploy and use -Configuration Release.'
+    throw '-Package and -Installer need a deployed Release build: drop -NoDeploy and use -Configuration Release.'
 }
 $SourceDirectory = [IO.Path]::GetFullPath($SourceDirectory)
 if (-not (Test-Path -LiteralPath (Join-Path $SourceDirectory 'engine/CMakeLists.txt'))) {
@@ -45,6 +51,13 @@ $libraw = Join-Path $DependencyDirectory 'LibRaw-0.22.2'
 foreach ($file in @($VsDevCmd, "$QtDirectory/bin/windeployqt.exe", "$QtDirectory/lib/cmake/Qt6/Qt6Config.cmake",
                     "$vulkanHeaders/vulkan/vulkan_core.h", $glslang, "$libraw/libraw/libraw.h")) {
     if (-not (Test-Path -LiteralPath $file)) { throw "Missing local dependency: $file" }
+}
+if ($Installer) {
+    # Checked before the build, not after it.
+    if (-not $InnoSetupCompiler) { $InnoSetupCompiler = Join-Path $DependencyDirectory 'InnoSetup6/ISCC.exe' }
+    if (-not (Test-Path -LiteralPath $InnoSetupCompiler)) {
+        throw "Inno Setup 6 is missing: $InnoSetupCompiler (see README, 'Installer'), or pass -InnoSetupCompiler."
+    }
 }
 
 # Windows PowerShell turns a native tool's stderr into a terminating error
@@ -144,7 +157,8 @@ try {
         # SPEKTRALAB_VERSION, the macOS app's MARKETING_VERSION).
         $cmakeLists = Get-Content -LiteralPath (Join-Path $PSScriptRoot 'CMakeLists.txt') -Raw
         if ($cmakeLists -notmatch 'set\(SPEKTRALAB_VERSION "([^"]+)"\)') { throw 'SPEKTRALAB_VERSION not found in windows_UI/CMakeLists.txt.' }
-        $name = "SpektraLab-Windows-$($Matches[1])-x64"
+        $version = $Matches[1]
+        $name = "SpektraLab-Windows-$version-x64"
         $packageDirectory = Join-Path $BuildDirectory 'package'
         $stage = Join-Path $packageDirectory $name
         $zip = Join-Path $packageDirectory "$name.zip"
@@ -202,6 +216,14 @@ try {
         } finally { $archive.Dispose() }
         $bytes = (Get-Item -LiteralPath $zip).Length
         Write-Output ("Package: {0} ({1:N1} MB, {2} files)" -f $zip, ($bytes / 1MB), $files.Count)
+        if ($Installer) {
+            $setup = Join-Path $packageDirectory "$name-Setup.exe"
+            if (Test-Path -LiteralPath $setup) { Remove-Item -LiteralPath $setup -Force }
+            Invoke-Tool $InnoSetupCompiler @('/Q', "/DAppVersion=$version", "/DSourceDir=$stage", "/DOutputDir=$packageDirectory",
+                                             (Join-Path $PSScriptRoot 'installer/SpektraLab.iss')) 'Inno Setup'
+            if (-not (Test-Path -LiteralPath $setup)) { throw "Inno Setup did not write $setup" }
+            Write-Output ("Installer: {0} ({1:N1} MB)" -f $setup, ((Get-Item -LiteralPath $setup).Length / 1MB))
+        }
     }
 } finally {
     foreach ($name in @(Get-ChildItem Env: | ForEach-Object Name)) {

@@ -53,6 +53,7 @@ deps/
   LibRaw-0.22.2/           engine/setup-libraw.ps1 (pinned, SHA-256 checked)
   tex-gyre-heros/          the CTAN faces; already copied into
                            engine/resources_portable/fonts, so the build reads the copy
+  InnoSetup6/              Inno Setup 6.7.3, only for -Installer (see The installer)
 ```
 
 No script fetches the MSVC Qt archives yet (`setup-qt.ps1` fetches the MinGW
@@ -76,6 +77,8 @@ neither is shipped.
 | `-Configuration` | `Release` (default), `RelWithDebInfo` or `Debug` |
 | `-RunTests` | build every target and run CTest; without it only `SpektraLabQt` is built |
 | `-Package` | after a successful Release build and deploy (and the tests, with `-RunTests`), write the zip below |
+| `-Installer` | `-Package`, then the installer below from the same folder |
+| `-InnoSetupCompiler` | an `ISCC.exe` other than `<deps>/InnoSetup6/ISCC.exe` |
 | `-Jobs N` | Ninja's parallelism (0, the default, uses every core) |
 | `-Fresh` | discard the existing CMake configuration |
 | `-NoDeploy` | skip windeployqt, the runtime and the licence copies |
@@ -106,9 +109,28 @@ records, folder orders, preferences and recipes, which live under the user's
 Qt and runtime DLLs, the platform plugin, the QML, the engine resources,
 fonts, B&W profiles and the licence texts are there. The zip has one top
 folder; unzip it anywhere and run `SpektraLabQt.exe`. It is a development
-build, unsigned and without an installer. On 2026-10-16 (1.3.3) it was
+build and unsigned. On 2026-10-16 (1.3.3) it was
 51.6 MB and 1654 files, and ran from a fresh extraction
 ([CHANGES-WINDOWS.md](CHANGES-WINDOWS.md#packaging)).
+
+**The installer.** `-Installer` packages as above, then compiles
+[installer/SpektraLab.iss](installer/SpektraLab.iss) with Inno Setup 6 from
+the same staged folder into
+`<build>/package/SpektraLab-Windows-<version>-x64-Setup.exe`. It installs for
+the current user without administrator rights
+(`%LOCALAPPDATA%\Programs\SpektraLab`) or, if chosen on its first page, for
+all users (`Program Files`); adds a Start menu shortcut, an optional desktop
+one and an uninstaller; and asks a running SpektraLab to close first. An
+upgrade replaces `qml/`, `resources/` and `licenses/` whole. Uninstalling
+leaves the edits, folder orders, recipes and preferences in `AppData`. The
+setup is unsigned, so SmartScreen warns on first run. Inno Setup is a build
+tool only: install it into `<deps>/InnoSetup6` from its signed release
+([jrsoftware.org](https://jrsoftware.org/isdl.php)), for example portably,
+which writes nothing to the registry:
+
+```powershell
+innosetup-6.7.3.exe /VERYSILENT /CURRENTUSER /PORTABLE=1 /DIR="<deps>\InnoSetup6" /NOICONS /TASKS=""
+```
 
 **Tests.** `-RunTests` runs CTest (47 tests as of 2026-10-16: 18 for the
 engine and its test DLL, 4 native RAW, 3 desktop host, 22 for the Qt editor;
