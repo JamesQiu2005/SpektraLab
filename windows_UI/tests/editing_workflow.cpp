@@ -302,6 +302,12 @@ int main(int argc,char** argv) {
                 auto moved=held;moved.crop.translate(-held.crop.x()*0.5,0);
                 c.setCropRect(moved.crop);
                 check(c.dirty()&&std::abs(c.cropRect().x()-moved.crop.x())<1e-12,"A new framing is a new negative");
+                // A cut frame re-develops on its geometry, so a geometry edit
+                // still waits while it develops.
+                c.apply();
+                check(c.busy()&&!c.geometryEditable(),"A cut frame's geometry waits while it develops");
+                c.setStraightenDegrees(held.straightenDegrees+1);
+                check(near(c.straightenDegrees(),held.straightenDegrees),"A geometry edit on a developing cut frame is refused");
                 idle(c,"Develop the new framing");
                 check(c.frame()!=strip&&c.frame()->cut&&std::abs(c.frame()->geometry.x-moved.crop.x())<1e-12,
                       "The new framing reached the engine");
@@ -748,6 +754,28 @@ int main(int argc,char** argv) {
             waitFor(fullFrame,"The full frame of the last edit");
             check(!c.failed()&&near(c.frame()->settings.print_exposure,std::exp2(-0.8))&&c.frame()->full_tier,
                   "After a cancelled full frame the last edit's full frame lands");
+            // A straighten made while the full frame develops is kept: a frame
+            // not cut does not re-develop for its geometry, so the full render
+            // runs on (no second one) and lands with its picture made again at
+            // the straighten's angle.
+            c.setExposureEv(0.6);
+            waitFor([&]{return liveFrame()&&!c.dirty();},"A print edit's live frame, before a straighten");
+            waitFor([&]{return c.busy();},"The print edit's full frame starts");
+            const auto developing=c.frame();
+            check(!developing->cut&&!developing->full_tier&&c.geometryEditable(),
+                  "A live frame's geometry is editable while its full frame develops");
+            int renders=0;
+            auto renderConnection=QObject::connect(&c,&PreviewController::operationFinished,&c,
+                [&](const QString& name,bool){if(name=="render")++renders;});
+            c.setStraightenDegrees(-3);c.setStraightenDegrees(-3.5);
+            check(near(c.straightenDegrees(),-3.5)&&!c.failed()&&c.busy()&&!c.dirty(),
+                  "A straighten during the full render applies, and re-develops nothing");
+            waitFor(fullFrame,"The full frame under the straighten");
+            settled(c,"The full frame's straightened picture");
+            QObject::disconnect(renderConnection);
+            check(!c.failed()&&renders==1&&c.frame()!=developing&&c.frame()->full_tier&&near(c.straightenDegrees(),-3.5)&&
+                  c.previewImage().devicePixelRatio()==1&&sameImage(c.previewImage(),output::displayFrame(c.frame(),geometry(c))),
+                  "The straighten survives the full frame landing: the one full render, at the straighten's angle");
         }
         report["passed"]=true;
     } catch(const std::exception& error) {

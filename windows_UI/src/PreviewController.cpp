@@ -376,13 +376,11 @@ void PreviewController::accept(Reply reply) {
     if(reply.operation=="render")full_job_=false;
     if(reply.generation!=generation_)return; // a retired generation never replaces the canvas
     // A full render the next edit cancelled is superseded too: that edit's
-    // own render follows. So is one whose picture was cut with a geometry no
-    // longer wanted (a cut frame's picture is the frame, whatever the crop):
-    // geometry edits wait while a render is busy and an undo supersedes it, so
-    // this should never hold, but the picture is never made again here on the
-    // GUI thread -- the next render (or the full frame) brings the right one.
-    const bool superseded=reply.operation=="render"&&(reply.settings_revision!=settings_revision_||reply.cancelled||
-        (reply.frame&&!reply.frame->cut&&reply.geometry!=geometry_));
+    // own render follows. A render whose picture was cut with a geometry no
+    // longer wanted is not: a frame not cut is the same frame whatever the
+    // crop (geometryEditable), so it lands and its picture is made again off
+    // the GUI thread below. A cut frame's geometry edit supersedes by revision.
+    const bool superseded=reply.operation=="render"&&(reply.settings_revision!=settings_revision_||reply.cancelled);
     busy_=false;active_operation_.clear();failed_=!superseded&&!reply.error.isEmpty();
     if(superseded) {
         // The worker may finish an earlier choice after the next click. Keep
@@ -398,6 +396,7 @@ void PreviewController::accept(Reply reply) {
     } else if(reply.frame) {
         // The worker made the images; publish no new UI state unless all are
         // in hand.
+        bool repicture=false;
         try {
             auto published=std::move(reply.publication);
             if(published.full.isNull())throw std::runtime_error("Cannot create the display image");
@@ -411,8 +410,12 @@ void PreviewController::accept(Reply reply) {
             if(reshaped)geometry=fromCut(reply.frame->geometry);
             // The worker's picture is cut with `geometry`: an open's own, or
             // today's for a render that is not superseded. A cut frame's
-            // picture is the frame whichever crop it was asked for.
-            if(published.geometry!=geometry&&!reply.frame->cut)
+            // picture is the frame whichever crop it was asked for. A render
+            // the geometry moved under while it developed (a straighten drag
+            // through a live frame's full render) keeps its frame, and the
+            // picture is made again with today's geometry (requestGeometryPicture).
+            repicture=!reply.frame->cut&&published.geometry!=geometry;
+            if(repicture&&opened)
                 throw std::runtime_error("The developed picture does not match the crop");
             // A new decode (another photo, or another decode mode) makes the
             // held Original stale; a re-render of the same decode does not.
@@ -421,8 +424,13 @@ void PreviewController::accept(Reply reply) {
             // A picture still being made from the old frame no longer applies.
             retireVisible();
             frame_=std::move(reply.frame);full_image_=std::move(published.full);
-            image_=std::move(published.visible);navigator_=std::move(published.navigator);
-            histogram_=std::move(published.histogram);uncropped_histogram_=std::move(published.uncropped_histogram);
+            // A picture cut with an old geometry is never shown: the last
+            // picture stays until today's lands (requestGeometryPicture below).
+            if(!repicture) {
+                image_=std::move(published.visible);navigator_=std::move(published.navigator);
+                histogram_=std::move(published.histogram);
+            }
+            uncropped_histogram_=std::move(published.uncropped_histogram);
             source_image_=std::move(published.source);
             whole_thumb_=std::move(published.whole);
             convert_ms_=published.convert_ms;publish_ms_=published.total_ms;histogram_ms_=published.histogram_ms;
@@ -436,6 +444,7 @@ void PreviewController::accept(Reply reply) {
             // The user's own crop, given back when the film edge goes off.
             if(reshaped&&!held_geometry_&&std::get<bool>(frame_->settings.get("overscan_active")))held_geometry_=reply.geometry;
             refreshOriginal(decodeChanged);
+            if(repicture)requestGeometryPicture();
         }
         catch(const std::exception& e){failed_=true;status_=text(e.what());if(frame_)restoreSettings();}
         if(!failed_) {
@@ -443,7 +452,11 @@ void PreviewController::accept(Reply reply) {
             updateThumbnail();
             status_=uiText(!frame_->full_tier?"status.renderedPreview":frame_->reprint()?"status.renderedReusedNegative":"status.rendered",
                            {QString::number(frame_->timings.render_ms/1000,'f',2)});
-            emit frameChanged();emit geometryChanged();if(reply.operation=="open")emit sourceOpened();
+            // The frame lands with its picture: frameChanged then comes from
+            // the picture made again, so the canvas never pairs the new
+            // frame's scale with the last picture.
+            if(!repicture)emit frameChanged();
+            emit geometryChanged();if(reply.operation=="open")emit sourceOpened();
         }
     } else if(reply.operation=="export") status_=uiText("status.exported");
     else if(reply.operation=="batch-export")status_=reply.message;
@@ -1245,7 +1258,9 @@ void PreviewController::setCropGeometry(const QRectF& crop,double straightenDegr
     setGeometry(next,"cropRect");
 }
 void PreviewController::setGeometry(const output::Geometry& requested,const QString& editKey) {
-    if(!frame_||busy_||dialog_open_)return;
+    // Also while a frame not cut develops -- a live frame's full render runs
+    // for seconds at 33 MP, and a straighten drag must not lose its steps.
+    if(!geometryEditable()||dialog_open_)return;
     // A pair has no crop: its frames are placed under their holes instead.
     if(pairActive())return;
     // A film edge holds the crop at its gate's shape, in the crop's own
@@ -1261,8 +1276,10 @@ void PreviewController::setGeometry(const output::Geometry& requested,const QStr
         failed_=false;
         // In the negative (a film edge, a date on a cropped frame) the crop
         // is the framing in the gate: it re-develops, as a setting does.
+        // The full frame of the previous state is then no longer wanted.
         if(frame_->cut||wantsCut(geometry_)) {
             ++settings_revision_;auto_apply_.stop();schedulePreview();
+            full_timer_.stop();if(full_job_)cancelFullRender();
             status_=uiText("status.updatingPreview");emit settingsChanged();
         }
         requestGeometryPicture();updateThumbnail();refreshOriginal(false);
