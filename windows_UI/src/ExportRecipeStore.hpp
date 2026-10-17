@@ -67,6 +67,9 @@ public:
     Q_INVOKABLE QString sampleName(const QUrl& source, const QString& film, const QString& paper) const;
     // Every distinct folder the recipe writes into for these sources.
     Q_INVOKABLE QStringList destinationFolders(const QVariantList& sources) const;   // QUrls
+    // The selected recipe's fixed folder, for its folder dialog to open on;
+    // empty beside the original or when the folder has gone.
+    Q_INVOKABLE QUrl folderUrl() const;
     // Open a folder in Explorer, walking up to the nearest one that exists
     // (the subfolder is created by the export, not before).
     Q_INVOKABLE void reveal(const QString& folder) const;

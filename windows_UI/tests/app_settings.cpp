@@ -168,6 +168,27 @@ int main(int argc,char** argv) {
         check(readAll(badPath+".bad")=="{\"display.mode\": \"srgb\",","the unreadable file was not kept as .bad");
         check(readObject(badPath).value("display.dither").toBool(),"the new file was not written");
 
+        // Dialog folders: a folder is kept as itself, a file as its folder,
+        // and one that has gone opens nowhere in particular.
+        {
+            const QString dialogs=QDir(scratch).filePath("dialogs");
+            const QString photos=QDir(dialogs).filePath("photos"),gone=QDir(dialogs).filePath("gone");
+            QDir(dialogs).removeRecursively();
+            check(QDir().mkpath(photos)&&QDir().mkpath(gone),"cannot create the dialog folders");
+            write(QDir(photos).filePath("a.ARW"),"x");
+            AppSettings settings(QDir(dialogs).filePath(AppSettings::kFileName));settings.setWriteDelayMs(0);
+            check(settings.dialogFolder("open").isEmpty(),"a dialog never used has a folder");
+            settings.rememberDialogFolder("open",QUrl::fromLocalFile(QDir(photos).filePath("a.ARW")));
+            check(settings.dialogFolder("open")==QUrl::fromLocalFile(photos),"a chosen file does not remember its folder");
+            settings.rememberDialogFolder("exportFolder",QUrl::fromLocalFile(gone));
+            check(settings.dialogFolder("exportFolder")==QUrl::fromLocalFile(gone)&&settings.dialogFolder("open")==QUrl::fromLocalFile(photos),
+                  "a chosen folder is not remembered as itself, or not per kind");
+            check(readObject(settings.filePath()).value("dialog.open.folder").toString()==QDir::cleanPath(photos),"a dialog folder is not persisted");
+            check(QDir(gone).removeRecursively()&&settings.dialogFolder("exportFolder").isEmpty(),"a folder that has gone is offered");
+            settings.rememberDialogFolder("open",QUrl());
+            check(settings.dialogFolder("open")==QUrl::fromLocalFile(photos),"a cancelled choice replaced the folder");
+        }
+
         std::printf("spk_qt_app_settings: %d checks passed\n",checks);
         return 0;
     } catch(const std::exception& error) {

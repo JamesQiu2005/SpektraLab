@@ -107,7 +107,7 @@ qt_add_qml_module(SpektraLabQt URI SpektraLab VERSION 1.0
     QML_FILES
         qml/Main.qml qml/EditorState.qml qml/L10n.qml
         qml/Theme.qml qml/Icons.qml qml/SectionStates.qml qml/Catalog.qml
-        qml/Section.qml qml/ActionButton.qml
+        qml/Section.qml qml/ActionButton.qml qml/RememberedDialog.qml
         qml/controls/MacSection.qml qml/controls/ParamRow.qml qml/controls/ScrubSlider.qml
         qml/controls/ValueBox.qml qml/controls/CheckRow.qml qml/controls/SquareCheck.qml
         qml/controls/AsShotLine.qml qml/controls/PillDropdown.qml qml/controls/PillSwitch.qml

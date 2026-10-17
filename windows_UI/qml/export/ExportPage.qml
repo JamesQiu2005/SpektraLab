@@ -106,16 +106,34 @@ Popup {
         }
     }
 
-    FolderDialog {
+    // Opens on the recipe's own folder when it has one, else where the last
+    // one was chosen.
+    RememberedDialog {
         id: folderDialog
-        title: L10n.tr("export.location.chooseTitle")
-        onAccepted: exportRecipes.setFolder(selectedFolder)
+        objectName: "exportFolderDialogLoader"
+        folder: function() { return page.recipe.besideOriginal ? AppSettings.dialogFolder("exportFolder") : exportRecipes.folderUrl() }
+        dialog: FolderDialog {
+            objectName: "exportFolderDialog"
+            title: L10n.tr("export.location.chooseTitle")
+            onAccepted: {
+                AppSettings.rememberDialogFolder("exportFolder", selectedFolder)
+                exportRecipes.setFolder(selectedFolder)
+            }
+        }
     }
-    FileDialog {
+    // An ordinary file dialog for an .exe, not Windows' Open With chooser:
+    // the folder of the last application chosen is the app's to remember.
+    RememberedDialog {
         id: appDialog
-        title: L10n.tr("export.openWith.chooseTitle")
-        nameFilters: [L10n.tr("export.openWith.filter") + " (*.exe)"]
-        onAccepted: exportRecipes.setOpenWithApplication(selectedFile)
+        folder: function() { return AppSettings.dialogFolder("openWith") }
+        dialog: FileDialog {
+            title: L10n.tr("export.openWith.chooseTitle")
+            nameFilters: [L10n.tr("export.openWith.filter") + " (*.exe)"]
+            onAccepted: {
+                AppSettings.rememberDialogFolder("openWith", selectedFile)
+                exportRecipes.setOpenWithApplication(selectedFile)
+            }
+        }
     }
     // The Mac's "Rename Recipe" alert: a draft name, Rename (also Return) or
     // Cancel (also Escape). The field keeps what was typed when it loses
@@ -252,7 +270,7 @@ Popup {
                             sectionId: "exportLocation"
                             title: L10n.tr("export.location.title")
                             menuItems: [
-                                RailMenuItem { text: L10n.tr("export.location.choose"); onTriggered: folderDialog.open() },
+                                RailMenuItem { text: L10n.tr("export.location.choose"); onTriggered: folderDialog.openRemembered() },
                                 RailMenuItem { text: L10n.tr("export.location.useOwn"); onTriggered: exportRecipes.setBesideOriginal() },
                                 MenuSeparator {},
                                 RailMenuItem { text: L10n.tr("export.location.clearSubfolder"); onTriggered: exportRecipes.setSubfolder("") },
@@ -262,12 +280,19 @@ Popup {
                                 label: L10n.tr("export.location.folder")
                                 toolTip: page.recipe.besideOriginal ? L10n.tr("export.location.besideHelp") : L10n.tr("export.location.fixedHelp")
                                 PillDropdown {
+                                    objectName: "exportFolderPicker"
                                     model: page.recipe.besideOriginal ? [L10n.tr("export.location.beside"), L10n.tr("export.location.chooseItem")]
                                                                       : [L10n.tr("export.location.beside"), page.recipe.folderLabel, L10n.tr("export.location.chooseItem")]
-                                    currentIndex: { model; return page.recipe.besideOriginal ? 0 : 1 }
+                                    readonly property int shown: { model; return page.recipe.besideOriginal ? 0 : 1 }
+                                    currentIndex: shown
+                                    // "Choose..." is an action, not a place: the pill goes back to
+                                    // the recipe's folder, and follows it when the dialog sets one.
+                                    // A plain assignment here would end the binding for good -- the
+                                    // pill then stayed on "Beside the original" after a choice.
                                     onActivated: function(i) {
                                         if (i === 0) exportRecipes.setBesideOriginal()
-                                        else if (i === model.length - 1) { currentIndex = page.recipe.besideOriginal ? 0 : 1; folderDialog.open() }
+                                        else if (i === model.length - 1) folderDialog.openRemembered()
+                                        currentIndex = Qt.binding(function() { return shown })
                                     }
                                 }
                             }
@@ -448,10 +473,12 @@ Popup {
                                         m.push(L10n.tr("export.openWith.choose"))
                                         return m
                                     }
-                                    currentIndex: { model; return custom ? 3 : values.indexOf(page.recipe.openWith) }
+                                    readonly property int shown: { model; return custom ? 3 : values.indexOf(page.recipe.openWith) }
+                                    currentIndex: shown
                                     onActivated: function(i) {
                                         if (i < 3) exportRecipes.setOpenWith(values[i])
-                                        else if (i === model.length - 1) appDialog.open()
+                                        else if (i === model.length - 1) appDialog.openRemembered()
+                                        currentIndex = Qt.binding(function() { return shown })
                                     }
                                 }
                             }

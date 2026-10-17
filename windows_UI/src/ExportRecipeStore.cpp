@@ -173,6 +173,10 @@ QString ExportRecipeStore::sampleName(const QUrl& url,const QString& film,const 
     return r.format==recipes::Format::di?stem+QStringLiteral("_DI.tif"):stem+u'.'+recipes::formatExtension(r.format);
 }
 
+QUrl ExportRecipeStore::folderUrl() const {
+    const auto& r=current();
+    return !r.besideOriginal&&!r.folder.isEmpty()&&QFileInfo(r.folder).isDir()?QUrl::fromLocalFile(r.folder):QUrl();
+}
 QStringList ExportRecipeStore::destinationFolders(const QVariantList& sources) const {
     QStringList out;QSet<QString> seen;
     for(const auto& v:sources) {

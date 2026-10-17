@@ -32,6 +32,7 @@
 #include <QObject>
 #include <QString>
 #include <QTimer>
+#include <QUrl>
 #include <QVariant>
 
 class AppSettings final:public QObject {
@@ -73,6 +74,16 @@ public:
     // Write now if anything changed; true when the file holds the current
     // values afterwards.
     Q_INVOKABLE bool flush();
+
+    // Where a file dialog of `kind` ("open", "exportFolder", "openWith") was
+    // last accepted, as the folder to open the next one in. Empty when there
+    // is none or the folder has gone (an unplugged drive): the dialog then
+    // opens in its own default. Read when a dialog opens, never in a binding,
+    // so an offline network folder cannot stall the window.
+    Q_INVOKABLE QUrl dialogFolder(const QString& kind) const;
+    // Remembers `chosen` for `kind`: a folder as itself, a file as the
+    // folder holding it ("dialog.<kind>.folder").
+    Q_INVOKABLE void rememberDialogFolder(const QString& kind,const QUrl& chosen);
 
     // Delay before a scheduled write; 0 writes on every change (tests).
     void setWriteDelayMs(int ms) {timer_.setInterval(ms);}

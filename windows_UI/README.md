@@ -760,7 +760,11 @@ blue compensation, crop re-maps, decouple effects, the memory and disk-cache
 readouts and caps, log level, per-node timings, job logs, log retention, the
 diagnostic bundle, the update check and agent access (the `spektralab` CLI
 and MCP server are macOS-only). Preferences are `app-settings.json` beside the
-edit store.
+edit store. It also keeps where each file dialog was last accepted
+(`dialog.<kind>.folder`: Open and Open Folder share one, the export folder and
+the Open With application each have their own), and every opening makes a
+new dialog (`RememberedDialog.qml`), because Qt applies a dialog's starting
+folder on its first show only.
 
 **About** (`AboutWindow.swift`): name, version (the Mac's `MARKETING_VERSION`,
 `SPEKTRALAB_VERSION` in `CMakeLists.txt`), engine build (`spk_build_info`), Qt

@@ -85,6 +85,18 @@ void AppSettings::remove(const QString& key) {
     touch(key);
 }
 
+QUrl AppSettings::dialogFolder(const QString& kind) const {
+    const QString folder=value(QStringLiteral("dialog.%1.folder").arg(kind)).toString();
+    return !folder.isEmpty()&&QFileInfo(folder).isDir()?QUrl::fromLocalFile(folder):QUrl();
+}
+
+void AppSettings::rememberDialogFolder(const QString& kind,const QUrl& chosen) {
+    const QString path=chosen.toLocalFile();
+    if(path.isEmpty())return;
+    const QFileInfo info(path);
+    setValue(QStringLiteral("dialog.%1.folder").arg(kind),QDir::cleanPath(info.isDir()?info.absoluteFilePath():info.absolutePath()));
+}
+
 void AppSettings::removePrefix(const QString& prefix) {
     QStringList gone;
     for(auto it=root_.constBegin();it!=root_.constEnd();++it)if(it.key().startsWith(prefix))gone.push_back(it.key());

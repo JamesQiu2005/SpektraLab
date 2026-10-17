@@ -694,11 +694,79 @@ private:
                     waitFor([dialog]{return !dialog->property("visible").toBool();},[=,this]{
                         QMetaObject::invokeMethod(store,"rename",Q_ARG(QString,original));
                         if(!require(name()==original,"recipe_rename_restored"))return;
-                        then();
+                        checkExportFolderPicker(then);
                     },"recipe_rename_return_closes",3000);
                 },"recipe_rename_dialog_reopens",3000);
             },"recipe_rename_dialog_closes",3000);
         },"recipe_rename_dialog_opened",3000);
+    }
+    // The export page's Folder pill through "Choose...": accepting a folder
+    // leaves the pill on it (it stayed on "Beside the original" while an
+    // assignment held its index), and the next dialog opens on it. A dialog
+    // applies its folder on its first show only, which is why each opening
+    // makes a new one (RememberedDialog.qml); the second opening is the check.
+    void checkExportFolderPicker(std::function<void()> then) {
+        auto* store=qmlContext(&window_)->contextProperty("exportRecipes").value<QObject*>();
+        auto* settings=qmlEngine(&window_)->singletonInstance<QObject*>("SpektraLab.Native","AppSettings");
+        auto* picker=window_.findChild<QObject*>("exportFolderPicker");
+        auto* loader=window_.findChild<QObject*>("exportFolderDialogLoader");
+        if(!require(store&&settings&&picker&&loader,"export_folder_picker_found"))return;
+        const auto selected=[store]{return store->property("selected").toMap();};
+        const auto dialog=[loader]{return loader->property("item").value<QObject*>();};
+        const auto shown=[loader]{return loader->property("shown").toBool();};
+        QMetaObject::invokeMethod(store,"setBesideOriginal");
+        if(!require(picker->property("currentIndex").toInt()==0,"export_folder_picker_beside"))return;
+        const QString fixed=output_+"/fixed-export";
+        if(!require(QDir().mkpath(fixed),"export_folder_fixture"))return;
+        QMetaObject::invokeMethod(picker,"activated",Q_ARG(int,1));   // "Choose..." while beside
+        waitFor(shown,[=,this]{
+            if(!require(dialog()->setProperty("selectedFolder",QUrl::fromLocalFile(fixed))&&QMetaObject::invokeMethod(dialog(),"accept"),
+                        "export_folder_dialog_accepts"))return;
+            waitFor([=]{return !shown()&&!dialog();},[=,this]{
+                QUrl exportFolder;
+                QMetaObject::invokeMethod(settings,"dialogFolder",Q_RETURN_ARG(QUrl,exportFolder),Q_ARG(QString,QStringLiteral("exportFolder")));
+                if(!require(!selected().value("besideOriginal").toBool()&&
+                            QDir::cleanPath(QDir::fromNativeSeparators(selected().value("folder").toString()))==QDir::cleanPath(fixed),"export_folder_chosen"))return;
+                if(!require(picker->property("currentIndex").toInt()==1&&
+                            picker->property("displayText").toString()==selected().value("folderLabel").toString(),"export_folder_picker_follows_choice"))return;
+                if(!require(QDir::cleanPath(exportFolder.toLocalFile())==QDir::cleanPath(fixed),"export_folder_dialog_remembered"))return;
+                // Again, now with a folder: the dialog opens on it, and a
+                // cancel leaves the pill where it was.
+                QMetaObject::invokeMethod(picker,"activated",Q_ARG(int,2));
+                waitFor(shown,[=,this]{
+                    if(!require(QDir::cleanPath(dialog()->property("currentFolder").toUrl().toLocalFile())==QDir::cleanPath(fixed),
+                                "export_folder_dialog_opens_on_recipe_folder"))return;
+                    QMetaObject::invokeMethod(dialog(),"reject");
+                    waitFor([=]{return !shown()&&!dialog();},[=,this]{
+                        if(!require(picker->property("currentIndex").toInt()==1,"export_folder_picker_survives_cancel"))return;
+                        QMetaObject::invokeMethod(store,"setBesideOriginal");
+                        if(!require(picker->property("currentIndex").toInt()==0,"export_folder_picker_back_beside"))return;
+                        checkOpenDialogFolder(then);
+                    },"export_folder_dialog_cancels",3000);
+                },"export_folder_dialog_reopens",3000);
+            },"export_folder_dialog_closes",3000);
+        },"export_folder_dialog_opens",3000);
+    }
+    // The editor's Open dialog opens where the last Open was accepted -- the
+    // second time too, which a reused dialog did not.
+    void checkOpenDialogFolder(std::function<void()> then) {
+        auto* settings=qmlEngine(&window_)->singletonInstance<QObject*>("SpektraLab.Native","AppSettings");
+        auto* loader=window_.findChild<QObject*>("openDialogLoader");
+        if(!require(settings&&loader,"open_dialog_found"))return;
+        const auto dialog=[loader]{return loader->property("item").value<QObject*>();};
+        const auto shown=[loader]{return loader->property("shown").toBool();};
+        const auto openAt=[=,this](const QString& folder,const QString& name,std::function<void()> next) {
+            QMetaObject::invokeMethod(settings,"rememberDialogFolder",Q_ARG(QString,QStringLiteral("open")),Q_ARG(QUrl,QUrl::fromLocalFile(folder)));
+            if(!require(QMetaObject::invokeMethod(loader,"openRemembered"),name+"_opens"))return;
+            waitFor(shown,[=,this]{
+                if(!require(QDir::cleanPath(dialog()->property("currentFolder").toUrl().toLocalFile())==QDir::cleanPath(folder),name))return;
+                QMetaObject::invokeMethod(dialog(),"reject");
+                waitFor([=]{return !shown()&&!dialog();},next,name+"_cancels",3000);
+            },name+"_visible",3000);
+        };
+        openAt(QFileInfo(input_).absolutePath(),QStringLiteral("open_dialog_opens_where_last_accepted"),[=,this]{
+            openAt(output_+"/fixed-export",QStringLiteral("open_dialog_follows_the_next_choice"),then);
+        });
     }
     // Polls every 50 ms; `then` once `ready` holds, a failed `name` after the timeout.
     void waitFor(std::function<bool()> ready,std::function<void()> then,const QString& name,int timeoutMs=30000) {
