@@ -233,6 +233,9 @@ PreviewController::PreviewController(std::filesystem::path resources,QObject* pa
     // render 400 ms after the last edit, ARCHITECTURE.md §7.3).
     full_timer_.setSingleShot(true);full_timer_.setInterval(400);
     connect(&full_timer_,&QTimer::timeout,this,&PreviewController::renderFull);
+    // One thread: a newer picture replaces the one not yet started, never
+    // runs beside it (requestVisible).
+    visible_pool_=std::make_unique<QThreadPool>();visible_pool_->setMaxThreadCount(1);
     save_timer_.setSingleShot(true);save_timer_.setInterval(350);
     connect(&save_timer_,&QTimer::timeout,this,&PreviewController::flushEdits);
     // The canvas is fed from pixels() (publish), so the host's 8-bit copy
@@ -247,6 +250,7 @@ PreviewController::~PreviewController() {
     // The preview readers post to this object: none may still be running
     // when it goes (a reply already queued is dropped with the object).
     if(preview_pool_){preview_pool_->clear();preview_pool_->waitForDone();}
+    if(visible_pool_){visible_pool_->clear();visible_pool_->waitForDone();}
     auto_apply_.stop();
     endEditGesture();flushEdits();
     if(cancel_batch_)cancel_batch_->store(true);
@@ -309,6 +313,49 @@ void PreviewController::renderFull() {
         }catch(const desktop::RenderCancelled&){r.frame=nullptr;r.cancelled=true;}
         catch(const std::exception& e){r.frame=nullptr;r.error=text(e.what());}return r;},uiText("status.renderingFull"),"render");
 }
+void PreviewController::requestVisible(VisibleJob make,VisibleTake take) {
+    visible_next_=VisibleRequest{++visible_request_,std::move(make),std::move(take)};
+    visible_current_pending_=true;
+    if(!visible_running_)runVisible();
+}
+void PreviewController::retireVisible() {
+    ++visible_request_;visible_next_.reset();visible_current_pending_=false;
+    pair_grading_for_=nullptr;
+}
+void PreviewController::runVisible() {
+    auto request=std::move(*visible_next_);visible_next_.reset();
+    visible_running_=true;
+    visible_pool_->start([this,request=std::move(request)]{
+        Visible made;
+        try{made=request.make();}catch(const std::exception& e){made={};made.error=text(e.what());}
+        // Destroying the controller waits for this job, so `this` is alive;
+        // a reply still queued then goes with the object.
+        QMetaObject::invokeMethod(this,[this,id=request.id,take=request.take,made=std::move(made)]() mutable {
+            visible_running_=false;
+            if(id==visible_request_){visible_current_pending_=false;take(std::move(made));}
+            if(visible_next_&&!visible_running_)runVisible();
+        },Qt::QueuedConnection);
+    });
+}
+void PreviewController::requestGeometryPicture() {
+    if(!frame_)return;
+    // A cut frame already carries the crop: its picture is the frame whatever
+    // the geometry (visibleImage), and the render that follows replaces it.
+    if(frame_->cut){retireVisible();return;}
+    const auto frame=frame_;const auto full=full_image_;const auto geometry=geometry_;
+    requestVisible([frame,full,geometry]{
+        Visible v;
+        v.image=visibleImage(frame,full,geometry);
+        v.navigator=desktop::display::navigatorImage(v.image);
+        v.histogram=desktop::display::histogram(v.image);
+        return v;
+    },[this](Visible v){
+        if(!v.error.isEmpty()){failed_=true;status_=v.error;emit stateChanged();return;}
+        image_=std::move(v.image);navigator_=std::move(v.navigator);histogram_=std::move(v.histogram);
+        updateThumbnail();
+        emit frameChanged();
+    });
+}
 void PreviewController::deliver(Reply reply) {
     QMetaObject::invokeMethod(this,[this,reply=std::move(reply)]() mutable {accept(std::move(reply));},Qt::QueuedConnection);
 }
@@ -329,8 +376,13 @@ void PreviewController::accept(Reply reply) {
     if(reply.operation=="render")full_job_=false;
     if(reply.generation!=generation_)return; // a retired generation never replaces the canvas
     // A full render the next edit cancelled is superseded too: that edit's
-    // own render follows.
-    const bool superseded=reply.operation=="render"&&(reply.settings_revision!=settings_revision_||reply.cancelled);
+    // own render follows. So is one whose picture was cut with a geometry no
+    // longer wanted (a cut frame's picture is the frame, whatever the crop):
+    // geometry edits wait while a render is busy and an undo supersedes it, so
+    // this should never hold, but the picture is never made again here on the
+    // GUI thread -- the next render (or the full frame) brings the right one.
+    const bool superseded=reply.operation=="render"&&(reply.settings_revision!=settings_revision_||reply.cancelled||
+        (reply.frame&&!reply.frame->cut&&reply.geometry!=geometry_));
     busy_=false;active_operation_.clear();failed_=!superseded&&!reply.error.isEmpty();
     if(superseded) {
         // The worker may finish an earlier choice after the next click. Keep
@@ -357,18 +409,17 @@ void PreviewController::accept(Reply reply) {
             const bool reshaped=reply.frame->cut&&fromCut(reply.frame->geometry)!=reply.geometry&&
                                 (opened||geometry_==reply.geometry);
             if(reshaped)geometry=fromCut(reply.frame->geometry);
-            // A render that is not superseded was submitted with today's
-            // geometry (an undo during it supersedes it). Should that ever
-            // not hold, show the right crop rather than the worker's.
-            if(published.geometry!=geometry) {
-                published.visible=visibleImage(reply.frame,published.full,geometry);
-                published.navigator=desktop::display::navigatorImage(published.visible);
-                published.histogram=desktop::display::histogram(published.visible);
-            }
+            // The worker's picture is cut with `geometry`: an open's own, or
+            // today's for a render that is not superseded. A cut frame's
+            // picture is the frame whichever crop it was asked for.
+            if(published.geometry!=geometry&&!reply.frame->cut)
+                throw std::runtime_error("The developed picture does not match the crop");
             // A new decode (another photo, or another decode mode) makes the
             // held Original stale; a re-render of the same decode does not.
             const bool decodeChanged=!frame_||frame_->source!=reply.frame->source||
                 frame_->decode_mode!=reply.frame->decode_mode||reply.operation=="open";
+            // A picture still being made from the old frame no longer applies.
+            retireVisible();
             frame_=std::move(reply.frame);full_image_=std::move(published.full);
             image_=std::move(published.visible);navigator_=std::move(published.navigator);
             histogram_=std::move(published.histogram);uncropped_histogram_=std::move(published.uncropped_histogram);
@@ -381,6 +432,7 @@ void PreviewController::accept(Reply reply) {
                 held_geometry_=active_index_>=0&&active_index_<int(library_.size())?library_[active_index_].held:std::nullopt;
                 loadPostDev();
             }
+            if(published.pair_grades)takePairGrades(*published.pair_grades);
             // The user's own crop, given back when the film edge goes off.
             if(reshaped&&!held_geometry_&&std::get<bool>(frame_->settings.get("overscan_active")))held_geometry_=reply.geometry;
             refreshOriginal(decodeChanged);
@@ -725,9 +777,9 @@ void PreviewController::resetSettings(){
     if(!pairActive())filmEdgeWillChange(extra_settings_,fresh,geometry,held);
     const bool moved=geometry!=geometry_;
     geometry_=geometry;held_geometry_=held;
-    if(moved&&frame_){try{image_=visibleImage(frame_,full_image_,geometry_);navigator_=desktop::display::navigatorImage(image_);}catch(const std::exception&){}}
+    if(moved)requestGeometryPicture();  // the picture follows, with frameChanged
     loadSettings(fresh,desktop::DecodeMode::compatible16);changed();
-    if(moved){emit geometryChanged();emit frameChanged();}
+    if(moved)emit geometryChanged();
 }
 void PreviewController::openRaw(const QUrl& url) {
     // Changing sources and exporting remain single flight. Parameter edits
@@ -893,11 +945,11 @@ bool PreviewController::applySettings(desktop::RenderSettings next,const QString
     const bool moved=geometry!=geometry_;
     extra_settings_=std::move(next);
     geometry_=geometry;held_geometry_=held;
-    if(moved&&frame_){try{image_=visibleImage(frame_,full_image_,geometry_);navigator_=desktop::display::navigatorImage(image_);}catch(const std::exception&){}}
+    if(moved)requestGeometryPicture();  // the picture follows, with frameChanged
     const double nowBody=std::get<double>(extra_settings_.get("overscan_camera_seed"));
     if(nowBody!=body)setBodySeed(int(nowBody));
     changed(editKey);
-    if(moved){emit geometryChanged();emit frameChanged();}
+    if(moved)emit geometryChanged();
     return true;
 }
 QSize PreviewController::decodeSize() const {
@@ -1091,8 +1143,10 @@ void PreviewController::updateThumbnail() {
     if(active_index_<0||active_index_>=int(library_.size()))return;
     auto& item=library_[active_index_];
     // From the navigator (at most 1024 px, already area-averaged), so this
-    // stays cheap on the GUI thread and keeps 16-bit-class precision.
-    item.thumbnail=dirty()||navigator_.isNull()?QImage{}:gradedThumbnail(desktop::display::thumbnailImage(navigator_));
+    // stays cheap on the GUI thread and keeps 16-bit-class precision. None
+    // while the picture is being made again: the navigator is the last one's.
+    item.thumbnail=dirty()||navigator_.isNull()||!pictureSettled()?QImage{}
+        :gradedThumbnail(desktop::display::thumbnailImage(navigator_));
     item.whole=item.thumbnail.isNull()?QImage{}:wholeThumbnail();
     item.whole_cut=frame_&&frame_->cut;
     item.error.clear();emit libraryChanged();
@@ -1199,11 +1253,10 @@ void PreviewController::setGeometry(const output::Geometry& requested,const QStr
     const auto geometry=std::get<bool>(extra_settings_.get("overscan_active"))?heldAtGate(requested,extra_settings_,-1):requested;
     if(geometry==geometry_)return;
     try {
-        auto next=visibleImage(frame_,full_image_,geometry);
-        auto navigator=desktop::display::navigatorImage(next);
-        auto bins=desktop::display::histogram(next);
+        // Refused before anything moves; the picture itself is made off the
+        // GUI thread (requestGeometryPicture) and lands with frameChanged.
+        if(!frame_->cut)output::validateGeometry(full_image_.size(),geometry);
         if(gesture_index_>=0&&gesture_key_!=editKey)endEditGesture();
-        image_=std::move(next);navigator_=std::move(navigator);histogram_=std::move(bins);
         geometry_=geometry;saveActiveSettings(true);
         failed_=false;
         // In the negative (a film edge, a date on a cropped frame) the crop
@@ -1212,8 +1265,8 @@ void PreviewController::setGeometry(const output::Geometry& requested,const QStr
             ++settings_revision_;auto_apply_.stop();schedulePreview();
             status_=uiText("status.updatingPreview");emit settingsChanged();
         }
-        updateThumbnail();refreshOriginal(false);
-        emit geometryChanged();emit frameChanged();emit stateChanged();
+        requestGeometryPicture();updateThumbnail();refreshOriginal(false);
+        emit geometryChanged();emit stateChanged();
     } catch(const std::exception& e){failed_=true;status_=text(e.what());emit stateChanged();}
 }
 void PreviewController::resetCrop(){setCropRect(QRectF(0,0,1,1));}
@@ -1276,16 +1329,14 @@ void PreviewController::restoreHistory(bool redo) {
     if(from.empty())return;
     const auto target=from.back();
     try {
-        // Prepare geometry before moving the history cursor. Allocation or
-        // validation failure leaves the frame and both stacks intact.
+        // Validate geometry before moving the history cursor: a refusal leaves
+        // the frame and both stacks intact. The picture follows off the GUI
+        // thread (requestGeometryPicture) and lands with frameChanged.
         const bool geometryChangedNow=target.geometry!=geometry_;
-        auto next=geometryChangedNow?visibleImage(frame_,full_image_,target.geometry):image_;
-        auto navigator=geometryChangedNow?desktop::display::navigatorImage(next):navigator_;
-        auto bins=geometryChangedNow?desktop::display::histogram(next):histogram_;
+        if(geometryChangedNow&&!frame_->cut)output::validateGeometry(full_image_.size(),target.geometry);
         to.push_back(currentState());if(to.size()>64)to.erase(to.begin());from.pop_back();
-        geometry_=target.geometry;held_geometry_=target.heldGeometry;image_=std::move(next);navigator_=std::move(navigator);
-        histogram_=std::move(bins);
-        if(geometryChangedNow)refreshOriginal(false);
+        geometry_=target.geometry;held_geometry_=target.heldGeometry;
+        if(geometryChangedNow){requestGeometryPicture();refreshOriginal(false);}
         const bool gradeChangedNow=target.postDev!=postdev_;postdev_=target.postDev;
         if(target.pair)restorePair(target); // the piece, its frames and their grades, then the rails from them
         else loadSettings(target.settings,target.mode);
@@ -1293,7 +1344,7 @@ void PreviewController::restoreHistory(bool redo) {
         if(gradeChangedNow)emit postDevChanged();
         ++settings_revision_;auto_apply_.stop();schedulePreview();updateThumbnail();
         failed_=false;status_=uiText(redo?"status.redone":"status.undone");
-        if(geometryChangedNow){emit geometryChanged();emit frameChanged();}
+        if(geometryChangedNow)emit geometryChanged();
         emit settingsChanged();emit stateChanged();emit historyChanged();
     }catch(const std::exception& e){failed_=true;status_=text(e.what());emit stateChanged();}
 }

@@ -60,7 +60,7 @@ void settle(int ms) {
     loop.exec();
 }
 void idle(PreviewController& c, const QString& what) {
-    waitFor([&] { return !c.busy() && !c.dirty() && !c.batchExporting(); }, what);
+    waitFor([&] { return !c.busy() && !c.dirty() && !c.batchExporting() && c.pictureSettled(); }, what);
 }
 QByteArray sha(const QString& path) {
     QFile f(path);

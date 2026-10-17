@@ -67,7 +67,7 @@ void waitFor(const std::function<bool()>& condition, const QString& what, int ms
     check(condition(), "timed out waiting for " + what);
 }
 void idle(PreviewController& c, const QString& what) {
-    waitFor([&] { return !c.busy() && !c.dirty() && !c.batchExporting(); }, what);
+    waitFor([&] { return !c.busy() && !c.dirty() && !c.batchExporting() && c.pictureSettled(); }, what);
     check(!c.failed(), what + ": " + c.status());
 }
 void touch(const QString& path) {
@@ -251,6 +251,7 @@ void controller(const std::filesystem::path& resources, const QString& scratch) 
 
         // The crop mask on the open photo's whole print.
         c.setCropRect(QRectF(0.25, 0.25, 0.5, 0.5));
+        waitFor([&] { return c.pictureSettled(); }, "the cropped picture");  // made off the GUI thread
         const auto strip = c.libraryItems()[0].toMap().value("strip").value<QImage>();
         const auto thumb = c.libraryItems()[0].toMap().value("thumbnail").value<QImage>();
         check(std::abs(double(strip.width()) / strip.height() - 1.5) < 0.05 &&

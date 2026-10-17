@@ -523,6 +523,17 @@ if(BUILD_TESTING)
     if(WIN32)
         set_tests_properties(spk_qt_library PROPERTIES ENVIRONMENT_MODIFICATION "${qt_test_runtime_path}")
     endif()
+    # Geometry edits at full resolution timed on the GUI thread (straighten
+    # and crop drags). A measurement, not a gate: it needs a camera RAW.
+    #   spk_qt_geometry_bench <resources> <RAW> <new-output-directory>
+    qt_add_executable(spk_qt_geometry_bench tests/geometry_bench.cpp
+        src/PreviewController.hpp src/PreviewController.cpp src/FrameOutput.cpp src/FrameImage.cpp src/EditStore.cpp
+        ${spk_qt_export_sources} ${spektralab_predev_sources} ${spektralab_pair_sources}
+        ${spektralab_postdev_controller_sources} ${spektralab_library_sources})
+    target_include_directories(spk_qt_geometry_bench PRIVATE src)
+    target_compile_features(spk_qt_geometry_bench PRIVATE cxx_std_20)
+    target_link_libraries(spk_qt_geometry_bench PRIVATE spk_desktop_host spk_qt_host_output Qt6::Core Qt6::Gui)
+    add_dependencies(spk_qt_geometry_bench spektralab_qt_resources)
     # TIFF/JPEG/PNG at the door through the real engine: each encoded file
     # develops like its linear equivalent (AGENTS.md traps 11 and 12), with a
     # control showing a forgotten transfer function is visible. No Qt, no RAW.

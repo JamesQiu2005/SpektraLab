@@ -11,6 +11,7 @@
 #include <QImage>
 #include <QSet>
 #include <QThreadPool>
+#include <array>
 #include <memory>
 #include <optional>
 #include <QPointF>
@@ -318,6 +319,11 @@ public:
     QString fileName() const;
     QUrl sourceFolder() const;
     QImage previewImage() const { return image_; }
+    // False while the canvas's picture is being made again from the frame
+    // already developed (a geometry edit, a pair's grade): previewImage,
+    // navigatorImage and the histogram are then the last picture's, and
+    // frameChanged says when the new one is in. See requestVisible.
+    bool pictureSettled() const { return !visible_current_pending_; }
     double frameScale() const { return frame_&&frame_->width()>0?double(frame_->logicalWidth())/frame_->width():1.0; }
     bool fullResolution() const { return !frame_||frame_->full_tier; }
     QImage navigatorImage() const { return navigator_; }
@@ -681,6 +687,14 @@ signals:
     void processed(bool success, const QString& message);
     void originalChanged();
 private:
+    // The grades a pair's picture is made with: the film's, and each frame's
+    // own where it has one (PreviewControllerPairs.cpp).
+    struct PairGrades {
+        spk::desktop::postdev::Params film;
+        std::array<std::optional<spk::desktop::postdev::Params>, 2> own;
+        bool operator==(const PairGrades&) const = default;
+        bool layered() const;   // a frame grades for itself (Session.pairIsLayered)
+    };
     // Everything the canvases show of one frame, made on the worker.
     struct Publication {
         QImage full, visible, navigator;
@@ -692,6 +706,9 @@ private:
         spk::desktop::output::Geometry geometry;  // what `visible` applied
         double convert_ms=0, total_ms=0;           // factory alone; all three
         double histogram_ms=0;                     // both histograms
+        // A pair's print: `visible` graded frame by frame with these on the
+        // worker when they are layered, so no ungraded picture is shown first.
+        std::optional<PairGrades> pair_grades;
     };
     static QList<double> bins(const std::vector<float>& values);
     static Publication publish(const ImageFactory& factory, const spk::desktop::FramePtr& frame,
@@ -883,6 +900,36 @@ private:
     bool stopping_=false;
     std::thread worker_;
 
+    // --- the canvas's picture made again, off the GUI thread ------------------
+    // A geometry edit (crop, turn, flip, straighten), an undo or redo across
+    // one, a film edge moving the crop and a pair's frame-by-frame grade make
+    // the picture again from the frame already developed: at full resolution
+    // 33 MP of CPU work, about a second per straighten step when it ran on the
+    // GUI thread. It runs on visible_pool_'s one thread instead, beside the
+    // worker (a render in flight does not hold it up). Requests coalesce -- the
+    // newest replaces one not yet started -- and a result lands only while its
+    // request is still the newest: each later request and each picture
+    // published another way (accept, retireVisible) retires it, so the canvas
+    // never shows a crop that is not the current geometry. Until it lands the
+    // canvas keeps the last picture, as it does while a render is in flight.
+    struct Visible {
+        QImage image, navigator;
+        std::vector<float> histogram;
+        QString error;   // the job threw: nothing else is set
+    };
+    using VisibleJob = std::function<Visible()>;
+    using VisibleTake = std::function<void(Visible)>;
+    void requestVisible(VisibleJob make, VisibleTake take);
+    void retireVisible();
+    void runVisible();
+    // image_, navigator_ and histogram_ for geometry_, from full_image_.
+    void requestGeometryPicture();
+    struct VisibleRequest { quint64 id=0; VisibleJob make; VisibleTake take; };
+    std::optional<VisibleRequest> visible_next_;
+    bool visible_running_=false, visible_current_pending_=false;
+    quint64 visible_request_=0;
+    std::unique_ptr<QThreadPool> visible_pool_;
+
     // --- the Pre-Dev rail (PreviewControllerPredev.cpp) -----------------------
     struct Analysis;  // one frame's meter and latitude, measured on the worker
     // On the worker after every job: once per frame the session renders.
@@ -948,6 +995,16 @@ private:
     // export's hook doing the same on the file's pixels.
     spk::desktop::postdev::Params pairShownGrade() const;
     bool pairGradeLayered(const LibraryItem& item) const;
+    static PairGrades pairGrades(const LibraryItem& item);
+    // The pair's print as the canvas shows it: graded frame by frame when the
+    // grades are layered, else the print itself. Pure; runs off the GUI thread.
+    static Visible gradedPair(const QImage& full, const PairGrades& grades,
+                              const std::array<spk::desktop::PairRect, 2>& holes);
+    // On the worker: a pair print's publication graded with `grades`.
+    static void gradePublication(Publication& publication, const PairGrades& grades,
+                                 const std::array<spk::desktop::PairRect, 2>& holes);
+    // A pair print the worker graded with `grades` has been published.
+    void takePairGrades(const PairGrades& grades);
     bool editPairGrade(const spk::desktop::postdev::Params& next, const QString& editKey);
     void regradePair();
     spk::desktop::postdev::Params canvasGrade() const;
@@ -957,6 +1014,7 @@ private:
     bool pairNeutralPoint(double x, double y, int& side, double& u, double& v) const;
     QTimer pair_grade_timer_;
     const void* pair_graded_for_ = nullptr;
+    const void* pair_grading_for_ = nullptr;   // a regrade of this frame is on its way (requestVisible)
     bool pair_graded_ = false;
     void resetPairEnlarger();
     void commitPairDrag();

@@ -145,6 +145,11 @@ private:
         checks_[name]=value;if(!value){finish(false,name+": "+controller_.status());return false;}return true;
     }
     void later(std::function<void()> action,int delayMs=180){QTimer::singleShot(delayMs,this,[this,action=std::move(action)]{if(!done_)action();});}
+    // A geometry edit's picture is made off the GUI thread: `later`, once it
+    // has landed (PreviewController::pictureSettled).
+    void afterPicture(std::function<void()> action) {
+        waitFor([this]{return controller_.pictureSettled();},[this,action=std::move(action)]{later(action);},"geometry_picture_lands");
+    }
     int filmIndex(const QString& id) const {
         const auto films=controller_.films();
         for(int i=0;i<films.size();++i)if(films[i].toMap().value("id").toString()==id)return i;
@@ -575,9 +580,9 @@ private:
                 if(!capture("library"))return;
                 const auto unchanged=controller_.frame();
                 controller_.setCropAspect(1);
-                if(!require(controller_.frame()==unchanged&&controller_.previewImage().width()==controller_.previewImage().height(),
-                            "crop_changes_display_without_redeveloping"))return;
-                later([this]{
+                if(!require(controller_.frame()==unchanged&&!controller_.busy(),"crop_changes_display_without_redeveloping"))return;
+                afterPicture([this]{
+                    if(!require(controller_.previewImage().width()==controller_.previewImage().height(),"crop_picture_is_square"))return;
                     if(!require(canvas_->image().cacheKey()==controller_.previewImage().cacheKey(),"cropped_canvas_matches_output")||!capture("cropped"))return;
                     if(!require(QMetaObject::invokeMethod(&window_,"startCrop"),"crop_editor_opens"))return;
                     later([this]{
@@ -616,14 +621,14 @@ private:
                                 if(!require(controller_.straightenDegrees()==0&&controller_.canRedo(),"geometry_undo"))return;
                                 controller_.redo();controller_.flushEdits();
                                 if(!require(controller_.straightenDegrees()==3.5&&controller_.persistenceWarning().isEmpty(),"geometry_redo_and_persist"))return;
-                                later([this]{
+                                afterPicture([this]{
                                     if(!require(canvas_->image().cacheKey()==controller_.previewImage().cacheKey(),"transformed_canvas_matches_output")||!capture("geometry"))return;
                                     auto* undoButton=window_.findChild<QObject*>("undoButton");
                                     if(!require(undoButton&&undoButton->property("enabled").toBool()&&QMetaObject::invokeMethod(undoButton,"clicked"),"qml_undo_button"))return;
                                     if(!require(controller_.straightenDegrees()==0,"qml_undo_reaches_geometry"))return;
                                     auto* redoButton=window_.findChild<QObject*>("redoButton");
                                     if(!require(redoButton&&QMetaObject::invokeMethod(redoButton,"clicked")&&controller_.straightenDegrees()==3.5,"qml_redo_button"))return;
-                                    later([this]{checkHistogram();});
+                                    afterPicture([this]{checkHistogram();});
                                 });
                             });
                         });
@@ -897,7 +902,7 @@ private:
             if(!require(!window_.property("cropMode").toBool()&&std::abs(committed.x()-moved.x())<1e-9&&
                         std::abs(committed.width()-moved.width())<1e-9&&std::abs(controller_.straightenDegrees()-held)<1e-9,
                         "crop_editor_commits_grips_and_line"))return;
-            later([this]{
+            afterPicture([this]{
                 if(!require(canvas_->image().cacheKey()==controller_.previewImage().cacheKey(),"cropped_straightened_canvas_matches_output")||
                    !capture("crop-committed"))return;
                 checkProof();
@@ -1138,12 +1143,13 @@ int main(int argc,char** argv) {
                 controller.setProofRecipe({{"name","proof"},{"format","TIFF 16-bit"},{"colorSpace",QVariantMap{{"builtIn",QVariantMap{{"_0",key}}}}}});
                 controller.setSoftProof(true);controller.setGamutWarning(warn);
             }
-            // Once every library item's own preview is in (the strip shows it)
+            // Once every library item's own preview is in (the strip shows it), a
+            // geometry edit's picture has landed (it is made off the GUI thread)
             // and the canvas draws through its display LUT -- and the proof
             // LUT when --proof asks -- then a beat for the scene graph.
             auto shoot=std::make_shared<std::function<void()>>();
             *shoot=[window,destination,&controller,shoot,proofOn=!proofSpace.isEmpty()]{
-                if(controller.previewsPending()>0){QTimer::singleShot(100,window,*shoot);return;}
+                if(controller.previewsPending()>0||!controller.pictureSettled()){QTimer::singleShot(100,window,*shoot);return;}
                 auto* canvas=window->findChild<FrameCanvas*>("frameCanvas");
                 auto poll=std::make_shared<std::function<void(int)>>();
                 *poll=[window,destination,proofOn,canvas,poll](int left){

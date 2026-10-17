@@ -62,23 +62,6 @@ Axis areaAxis(int from,int to) {
     return axis;
 }
 
-// Rows [0, height) split over up to eight threads; the first exception wins.
-// Each row is computed by one thread in the serial order, so the result does
-// not depend on the split.
-template<class Body> void parallelRows(int height,Body body) {
-    const int threads=std::clamp(int(std::thread::hardware_concurrency()),1,8);
-    const int chunk=(height+threads-1)/threads;
-    std::vector<std::thread> pool;std::exception_ptr error;std::mutex guard;
-    for(int t=0;t<threads;++t) {
-        const int y0=t*chunk,y1=std::min(height,y0+chunk);
-        if(y0>=y1)break;
-        pool.emplace_back([&,y0,y1]{
-            try{body(y0,y1);}catch(...){std::lock_guard lock(guard);if(!error)error=std::current_exception();}
-        });
-    }
-    for(auto& thread:pool)thread.join();
-    if(error)std::rethrow_exception(error);
-}
 }
 
 QColorSpace colorSpace(const OutputEncoding& encoding) {

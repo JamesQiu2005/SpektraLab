@@ -52,7 +52,7 @@ void waitFor(const std::function<bool()>& condition,const QString& description) 
     check(condition(),"Timed out waiting for "+description);
 }
 void idle(PreviewController& controller,const QString& description,bool allowFailure=false) {
-    waitFor([&]{return !controller.busy()&&!controller.dirty()&&!controller.batchExporting();},description);
+    waitFor([&]{return !controller.busy()&&!controller.dirty()&&!controller.batchExporting()&&controller.pictureSettled();},description);
     check(allowFailure||!controller.failed(),description+": "+controller.status());
 }
 // Displayed images are half floats: compared exactly, format and tag included.
@@ -176,6 +176,8 @@ int main(int argc,char** argv) {
             const auto fullFrame=controller.frame();
             controller.setCropRect(cropA);
             check(controller.frame()==fullFrame&&!controller.busy(),"Crop unnecessarily re-rendered the film");
+            // The cropped picture is made off the GUI thread and lands later.
+            waitFor([&]{return controller.pictureSettled();},"the cropped picture");
             check(sameImage(controller.previewImage(),uncropped.copy(output::cropPixels(uncropped.size(),cropA))),
                   "Crop preview disagrees with the original frame's pixel rectangle");
             check(controller.previewImage().format()==QImage::Format_RGBX16FPx4&&
