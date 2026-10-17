@@ -38,6 +38,9 @@ class PreviewController final : public QObject {
     Q_PROPERTY(bool failed READ failed NOTIFY stateChanged)
     Q_PROPERTY(bool dirty READ dirty NOTIFY settingsChanged)
     Q_PROPERTY(bool settingsEditable READ settingsEditable NOTIFY stateChanged)
+    // A crop, turn or flip can be made: also while a frame not cut develops,
+    // since its geometry only re-samples the print (setGeometry).
+    Q_PROPERTY(bool geometryEditable READ geometryEditable NOTIFY stateChanged)
     Q_PROPERTY(bool filmIsPositive READ filmIsPositive NOTIFY settingsChanged)
     Q_PROPERTY(QString status READ status NOTIFY stateChanged)
     Q_PROPERTY(QString fileName READ fileName NOTIFY frameChanged)
@@ -326,6 +329,14 @@ public:
     bool failed() const { return failed_; }
     bool dirty() const;
     bool settingsEditable() const { return ready_&&!dialog_open_&&(!busy_||active_operation_=="render"); }
+    // A cut frame (a film edge, a date on a cropped frame) re-develops on its
+    // geometry, so it waits for the render as before; any other frame does
+    // not, and a render that lands under a newer geometry has its picture
+    // made again (accept). Not dialog_open_, which the crop editor itself
+    // sets (Main.qml) and setGeometry checks on commit.
+    bool geometryEditable() const {
+        return frame_&&(!busy_||(active_operation_=="render"&&!frame_->cut&&!frame_->pair));
+    }
     bool filmIsPositive() const;
     QString status() const { return status_; }
     QString fileName() const;

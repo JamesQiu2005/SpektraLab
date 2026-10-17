@@ -404,7 +404,12 @@ edit develop the engine's `live` tier at that long edge, and 400 ms after the
 edits stop the full frame follows (`PreviewHost` `Tier`, `HostOptions::
 preview_long_edge`). An edit while the full frame is developing cancels it
 (`cancel_full_render`, the one render that sent nothing, so the session is
-kept). The live frame is published with a device pixel ratio of its pixels
+kept). A crop, turn, flip or straighten does not, unless the frame is cut (a
+film edge, a date on a cropped frame): a frame not cut is the same frame
+whatever its geometry, so the edit applies while any render develops
+(`geometryEditable`) and the render lands with its picture made again at the
+newest geometry; a cut frame's geometry waits for its render, as before. The
+live frame is published with a device pixel ratio of its pixels
 over the full frame's, so the canvas lays it out as the full frame -- zoom,
 100 %, pan and the Original's placement do not move when the full frame lands
 -- and draws it filtered; `frameScale`, `fullResolution` and the reported size

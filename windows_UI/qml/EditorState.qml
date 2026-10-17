@@ -91,7 +91,9 @@ QtObject {
 
     // Export settings live in the recipes (exportRecipes, ExportRecipe.hpp).
 
-    readonly property bool canEditCrop: preview.hasFrame && !preview.busy && !preview.batchExporting
+    // Also while a frame not cut develops (the live frame's full render):
+    // its crop only re-samples the print (PreviewController.geometryEditable).
+    readonly property bool canEditCrop: preview.hasFrame && preview.geometryEditable && !preview.batchExporting
     readonly property bool canBrowse: preview.ready && !preview.busy && !preview.batchExporting && !cropMode
     readonly property bool canExport: preview.hasFrame && !preview.busy && !cropMode
 
