@@ -1024,6 +1024,13 @@ int main(int argc,char** argv) {
     QCommandLineOption snapshotCrop("snapshot-crop","With --snapshot: crop and sync the crop to the library (testing)","x,y,w,h[,turns]");
     snapshotCrop.setFlags(QCommandLineOption::HiddenFromHelp);
     parser.addOption(snapshotCrop);
+    // Testing: the live tier's long edge, 0 for none. The self-test's stage
+    // machine counts every operation and the snapshots capture one frame, so
+    // both develop at full resolution unless this asks otherwise; the live
+    // tier has its own workflow test (tests/editing_workflow.cpp, its last block).
+    QCommandLineOption previewEdgeOption("preview-long-edge","The preview resolution's long edge, 0 for none (testing)","pixels");
+    previewEdgeOption.setFlags(QCommandLineOption::HiddenFromHelp);
+    parser.addOption(previewEdgeOption);
     parser.process(app);
     const QString requestedSpace=parser.isSet(outputSpace)?parser.value(outputSpace):
         QString::fromLatin1(PreviewController::kWorkingSpace);
@@ -1053,9 +1060,18 @@ int main(int argc,char** argv) {
     DisplaySettings displaySettings(appSettings);
     // Set on the GUI thread, consumed by the factory on the worker.
     auto failDisplay=std::make_shared<std::atomic_bool>(false);
+    // The preview resolution (Settings > Rendering), macOS's choices and
+    // default (ARCHITECTURE.md §7.3): every edit develops at this long edge
+    // and the full frame follows when the edits stop. Read once, at start.
+    const int previewEdge=[&]{
+        if(parser.isSet(previewEdgeOption))return std::clamp(parser.value(previewEdgeOption).toInt(),0,8192);
+        if(testing||snapshot)return 0;
+        const int v=appSettings.value("rendering.previewLongEdge",2560).toInt();
+        return v==1080||v==1920||v==2560||v==3840?v:2560;
+    }();
     PreviewController controller(std::filesystem::path(resources.toStdWString()),nullptr,
         [failDisplay](const auto& frame){if(failDisplay->exchange(false))throw std::runtime_error("Injected display publication failure");return PreviewController::imageFromFrame(frame);},
-        editDirectory,requestedSpace);
+        editDirectory,requestedSpace,previewEdge);
     qmlRegisterType<FrameCanvas>("SpektraLab.Native",1,0,"FrameCanvas");
     // The crop grips' arithmetic and the held Space key (CanvasTools.hpp).
     CanvasTools canvasTools;

@@ -13,6 +13,7 @@
 #include <map>
 #include <memory>
 #include <optional>
+#include <stdexcept>
 #include <string>
 #include <string_view>
 #include <variant>
@@ -476,9 +477,20 @@ public:
     std::array<std::uint32_t, 2> pair_picture_w{}, pair_picture_h{};
     bool pair_layered = false;
 
+    // Which tier made these pixels. A live frame (HostOptions::
+    // preview_long_edge) is the picture at the preview resolution; the full
+    // one is the frame at its own. `logical_width/height` are the frame's
+    // size at full resolution either way -- exact for a full frame, the live
+    // size scaled by the picture's own reduction for a live one -- so the
+    // canvas can keep its magnification when the full frame replaces it.
+    bool full_tier = true;
+    std::uint32_t logical_width = 0, logical_height = 0;
+
     const spk_result& pixels() const noexcept { return result_; }
     std::uint32_t width() const noexcept { return result_.width; }
     std::uint32_t height() const noexcept { return result_.height; }
+    std::uint32_t logicalWidth() const noexcept { return logical_width ? logical_width : result_.width; }
+    std::uint32_t logicalHeight() const noexcept { return logical_height ? logical_height : result_.height; }
     bool reprint() const noexcept { return result_.reprint != 0; }
     bool negative_was_cached() const noexcept { return result_.negative_was_cached != 0; }
 
@@ -508,6 +520,24 @@ struct HostOptions {
     // half-float image from pixels() and turns this off: at 33 MP the copy
     // is 132 MB per frame nobody reads.
     bool bgra8_display = true;
+    // The engine's `live` tier long edge (io.preview_long_edge, 800..8192),
+    // which a Tier::live call renders at; macOS calls it the preview
+    // resolution. 0: no live tier -- every call renders the full frame, as
+    // the GDI viewer and the tools always have.
+    std::uint32_t preview_long_edge = 0;
+};
+
+// What a render call develops: the preview resolution while someone edits,
+// the frame's own once they stop (ARCHITECTURE.md §7.3, macOS's full render
+// 400 ms after the last edit). Tier::live is Tier::full when the host has no
+// live tier, and a live frame of a picture no larger than the preview is
+// already full resolution (Frame::full_tier).
+enum class Tier { live, full };
+
+// Thrown by a render the user's next edit cancelled (PreviewHost::
+// cancel_full_render): no failure, and the session is kept as it was.
+struct RenderCancelled : std::runtime_error {
+    RenderCancelled() : std::runtime_error("Render cancelled") {}
 };
 
 // Construct, call and destroy on one serial worker thread. Public operations
@@ -542,14 +572,23 @@ public:
     // settings cut the frame (cuts_frame), and then a changed one reopens the
     // session on the newly cut picture from the retained decode.
     FramePtr open_raw(const std::filesystem::path& source, DecodeMode mode,
-                      const RenderSettings& settings = RenderSettings(), const EngineCut& geometry = EngineCut());
+                      const RenderSettings& settings = RenderSettings(), const EngineCut& geometry = EngineCut(),
+                      Tier tier = Tier::full);
     // Only changed settings are sent. Print-side edits request spk_reprint;
     // the result's actual cache flag determines whether reuse occurred.
     // A failure never mutates the previously returned Frame. Settings that
     // decode differently (a white balance, raw_white_balance.hpp) are an
     // open_raw of the current source instead; a new cut (cuts_frame) reopens
     // the session from the retained decode.
-    FramePtr render(const RenderSettings& settings, const EngineCut& geometry = EngineCut());
+    //
+    // Tier::full with the settings and cut the session already holds (the
+    // full frame after a live one) sends nothing, and is the one render
+    // cancel_full_render may stop: it then throws RenderCancelled and keeps
+    // the session.
+    FramePtr render(const RenderSettings& settings, const EngineCut& geometry = EngineCut(), Tier tier = Tier::full);
+    // From any thread: stop a cancellable full render in flight, if any (a
+    // no-op otherwise). Never waits for it.
+    void cancel_full_render() noexcept;
     // A half-frame pair, identified by its record `identity`: composes the
     // piece (each frame decoded once and kept while it is in a hole, metered
     // once per decode and intent), develops it with `settings`, and cuts each
@@ -558,7 +597,7 @@ public:
     // an empty hole, not a failed pair (PairComposer.decode). Transactional
     // like open_raw. render() refuses while a pair is the current frame.
     FramePtr render_pair(const std::filesystem::path& identity, const PairInput& pair, DecodeMode mode,
-                         const RenderSettings& settings);
+                         const RenderSettings& settings, Tier tier = Tier::full);
     // Exports exactly the supplied frame, even after a newer one was opened.
     // Existing files are never overwritten. Returns only after the writer
     // has completed and closed the file; errors retain its cleanup details.

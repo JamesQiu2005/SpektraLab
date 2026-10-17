@@ -311,9 +311,24 @@ ShellWindow {
             Page {
                 SettingsGroup {
                     title: L10n.tr("settings.rendering.preview")
-                    Absent { label: L10n.tr("settings.rendering.preview"); reason: L10n.tr("settings.rendering.previewReason") }
+                    // The live tier's long edge (main.cpp reads it at start).
+                    ParamRow {
+                        label: L10n.tr("settings.rendering.previewResolution")
+                        PillDropdown {
+                            objectName: "previewResolution"
+                            readonly property var edges: [1080, 1920, 2560, 3840]
+                            model: ["1080", "1920", L10n.tr("settings.rendering.previewDefault", ["2560"]), "3840"]
+                            currentIndex: {
+                                AppSettings.revision
+                                var i = edges.indexOf(Number(AppSettings.value("rendering.previewLongEdge", 2560)))
+                                return i < 0 ? 2 : i
+                            }
+                            onActivated: function(index) { AppSettings.setValue("rendering.previewLongEdge", edges[index]) }
+                        }
+                    }
+                    Note { text: L10n.tr("settings.rendering.previewNote") }
                     CheckRow { label: L10n.tr("settings.rendering.fastStock"); available: false; reason: L10n.tr("settings.rendering.fastStockReason") }
-                    Note { text: L10n.tr("settings.rendering.previewReason") + " " + L10n.tr("settings.rendering.fastStockReason") }
+                    Note { text: L10n.tr("settings.rendering.fastStockReason") }
                 }
                 SettingsGroup {
                     title: L10n.tr("settings.rendering.di")

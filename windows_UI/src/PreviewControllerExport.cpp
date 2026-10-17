@@ -82,7 +82,7 @@ void PreviewController::exportWithRecipe(const QVariantMap& json) {
                        !sameRender(current->settings,item.settings)||!sameFraming(current))
                         host.open_raw(source,item.mode,item.settings,cut);
                     frame=host.render_digital_intermediate();
-                } else frame=shown?held:host.open_raw(source,item.mode,item.settings,cut);
+                } else frame=shown?fullFrame(host,held):host.open_raw(source,item.mode,item.settings,cut);
                 if(cancel->load())break;
                 exporting::Job job;
                 job.recipe=recipe;job.source=item.url.toLocalFile();job.resources=resources;

@@ -670,6 +670,58 @@ int main(int argc,char** argv) {
                 idle(c,"Settle the reset's undo");
             }
         }
+        // ---- The live tier (ARCHITECTURE.md §7.3): an open and every edit at
+        // the preview resolution, the full frame once the edits stop, the next
+        // edit cancelling it, and every export at full resolution ----
+        {
+            const QString live=destination+"/fixtures/live."+original.suffix();
+            check(QFile::copy(original.absoluteFilePath(),live),"Copy the live-tier fixture");
+            PreviewController c(resources,nullptr,{},destination+"/live-edits",{},1600);ready(c);
+            const auto liveFrame=[&]{return c.frame()&&!c.busy()&&!c.frame()->full_tier;};
+            const auto fullFrame=[&]{return c.frame()&&!c.busy()&&!c.dirty()&&c.fullResolution();};
+            QElapsedTimer clock;clock.start();
+            c.openFiles({QUrl::fromLocalFile(live)});
+            waitFor(liveFrame,"The live frame of a new photograph");
+            const double liveOpenMs=double(clock.elapsed());
+            const auto opened=c.frame();
+            const int decodeLong=int(std::max(opened->decode_width,opened->decode_height));
+            check(std::max(opened->width(),opened->height())==1600&&!c.fullResolution()&&
+                  c.previewImage().devicePixelRatio()<1,"A photograph opens at the preview resolution");
+            check(std::abs(int(std::max(opened->logicalWidth(),opened->logicalHeight()))-decodeLong)<=2&&
+                  std::abs(c.frameScale()*opened->width()-opened->logicalWidth())<1e-6&&
+                  std::abs(std::max(c.metadata()["width"].toInt(),c.metadata()["height"].toInt())-decodeLong)<=2,
+                  "and stands for the full frame: its logical size, scale and reported size are the photograph's");
+            waitFor(fullFrame,"The full frame follows the live one");
+            const double fullOpenMs=double(clock.elapsed());
+            check(c.frame()->full_tier&&int(std::max(c.frame()->width(),c.frame()->height()))==decodeLong&&
+                  c.previewImage().devicePixelRatio()==1&&c.frameScale()==1,"The full frame is the photograph's own resolution");
+            std::cout<<"live tier: first picture "<<liveOpenMs<<" ms, full frame "<<fullOpenMs<<" ms after the open\n";
+            // A print edit: the live frame reprints its own cached negative.
+            c.setExposureEv(0.5);
+            waitFor([&]{return liveFrame()&&!c.dirty();},"A print edit's live frame");
+            const double liveEditMs=c.frame()->timings.render_ms;
+            check(c.frame()->reprint()&&near(c.frame()->settings.print_exposure,std::exp2(-0.5)),"A print edit reprints the live negative");
+            // An export while the live frame is shown writes the full frame.
+            const QString exported=destination+"/live-export.png";
+            c.exportImage(QUrl::fromLocalFile(exported),2,95,0);
+            waitFor([&]{return !c.busy()&&QFileInfo(exported).size()>0;},"Export while the live frame is shown");
+            const QSize written=QImageReader(exported).size();
+            check(std::max(written.width(),written.height())==decodeLong,"An export of a live frame is full resolution");
+            waitFor(fullFrame,"The full frame of the print edit");
+            const double fullEditMs=c.frame()->timings.render_ms;
+            std::cout<<"live tier: print edit "<<liveEditMs<<" ms live, "<<fullEditMs<<" ms full\n";
+            check(liveEditMs<fullEditMs,"The live frame of an edit is faster than its full frame");
+            // A film edit re-develops; the edit made while its full frame is
+            // in flight cancels it, and the final state is the last edit's.
+            c.setFilmIndex((c.filmIndex()+1)%std::max(1,int(c.films().size())));
+            waitFor([&]{return liveFrame()&&!c.dirty();},"A film edit's live frame");
+            waitFor([&]{return c.busy();},"The film edit's full frame starts");
+            c.setExposureEv(0.8);
+            check(!c.failed(),"An edit during the full frame is no failure");
+            waitFor(fullFrame,"The full frame of the last edit");
+            check(!c.failed()&&near(c.frame()->settings.print_exposure,std::exp2(-0.8))&&c.frame()->full_tier,
+                  "After a cancelled full frame the last edit's full frame lands");
+        }
         report["passed"]=true;
     } catch(const std::exception& error) {
         report["passed"]=false;report["error"]=QString::fromUtf8(error.what());

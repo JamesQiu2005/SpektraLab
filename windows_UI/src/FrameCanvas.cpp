@@ -21,12 +21,21 @@ canvas::View FrameCanvas::view() const {
     if(follow_)return follow_->view();
     return view_;
 }
+// The image's size in the frame's own pixels: a live frame carries a device
+// pixel ratio below 1 (PreviewController publish), and is laid out -- zoom,
+// 100 %, pan -- as the full frame it stands for.
+QSize FrameCanvas::logicalSize() const {
+    if(image_.isNull())return {};
+    const double r=image_.devicePixelRatio();
+    if(r<=0||r==1)return image_.size();
+    return QSize(int(std::lround(image_.width()/r)),int(std::lround(image_.height()/r)));
+}
 // The item's size, scale factor and place in the window, read fresh: an
 // ancestor moving (a rail resized) moves the item without telling it.
 void FrameCanvas::sync() {
     const QSizeF size(width(),height());
     if(size!=view_.canvas||dpr()!=view_.dpr)view_=canvas::resized(view_,size,dpr());
-    view_.image=image_.size();
+    view_.image=logicalSize();
     view_.sceneOrigin=mapToScene(QPointF());
     view_=canvas::clamped(view_);
 }
@@ -59,15 +68,18 @@ void FrameCanvas::refreshGrade() {
 }
 void FrameCanvas::setImage(const QImage& image) {
     if(image.cacheKey()==image_.cacheKey())return;
-    const bool changedSize=image.size()!=image_.size();
+    const QSize before=logicalSize();
     const bool changedSpace=image.colorSpace()!=image_.colorSpace();
     image_=image;++revision_;
     if(changedSpace)refreshGrade();
     sync();
-    // A new size is a new frame (or a new crop): keep the zoom, centred.
-    if(changedSize&&!view_.fit&&view_.dpr>0) {
+    // A new size is a new frame (or a new crop): keep the zoom, centred. The
+    // full frame replacing its live one is the same size here (logicalSize),
+    // so the view stays exactly where it was.
+    const QSize after=logicalSize();
+    if(after!=before&&!view_.fit&&view_.dpr>0) {
         const double z=view_.zoom/view_.dpr;
-        view_.offset=QPointF((width()-image_.width()*z)*0.5,(height()-image_.height()*z)*0.5);
+        view_.offset=QPointF((width()-after.width()*z)*0.5,(height()-after.height()*z)*0.5);
         view_=canvas::clamped(view_);
     }
     update();emit imageChanged();emit viewChanged();
@@ -90,7 +102,7 @@ double FrameCanvas::scalePercent() const {return image_.isNull()?0:scale()*100;}
 QRectF FrameCanvas::imageRect() const {
     if(image_.isNull())return {};
     auto v=view();
-    if(follow_){v.image=image_.size();v.sceneOrigin=mapToScene(QPointF());}
+    if(follow_){v.image=logicalSize();v.sceneOrigin=mapToScene(QPointF());}
     return canvas::imageRect(v);
 }
 bool FrameCanvas::canZoomIn() const {return !image_.isNull()&&canvas::zoomOf(view())<canvas::kMaxZoom-1e-9;}
@@ -188,7 +200,9 @@ QSGNode* FrameCanvas::updatePaintNode(QSGNode* old,UpdatePaintNodeData*) {
     paint.image=image_;paint.revision=revision_;
     paint.lut=colour.lut;paint.proof=colour.proof;paint.warning=colour.warning;
     paint.dither=pipeline_&&pipeline_->dither();
-    paint.rect=imageRect();paint.smooth=scale()<1.0;
+    // Filtered when reduced, and when a live frame is drawn larger than its
+    // pixels (its device pixel ratio below 1).
+    paint.rect=imageRect();paint.smooth=scale()<1.0||image_.devicePixelRatio()<1.0;
     paint.grade=grade_;paint.gradeRevision=grade_revision_;paint.sourceMap=sourceMap_;
     if(!node->update(window(),paint)){delete node;return nullptr;}
     return node;

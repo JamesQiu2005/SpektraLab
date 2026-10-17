@@ -375,6 +375,23 @@ mid-grey (0.3857, the Mac's) and its gains act on ProPhoto primaries.
 All engine work runs on one serial worker. Edits during a render are coalesced
 into the newest settings; superseded results never replace the displayed frame
 or newer controls. Changes update the preview after a 180 ms settling delay.
+
+**The preview resolution** (Settings > Rendering: 1080, 1920, 2560 by default,
+3840; read at start), as on the Mac (ARCHITECTURE.md §7.3): an open and every
+edit develop the engine's `live` tier at that long edge, and 400 ms after the
+edits stop the full frame follows (`PreviewHost` `Tier`, `HostOptions::
+preview_long_edge`). An edit while the full frame is developing cancels it
+(`cancel_full_render`, the one render that sent nothing, so the session is
+kept). The live frame is published with a device pixel ratio of its pixels
+over the full frame's, so the canvas lays it out as the full frame -- zoom,
+100 %, pan and the Original's placement do not move when the full frame lands
+-- and draws it filtered; `frameScale`, `fullResolution` and the reported size
+say the same to the QML. Every export renders the full frame first
+(`fullFrame`). Measured on a 36 MP D810 frame at 1600: a print edit 11 ms live
+against 436 ms full, the first picture of an open at 2.0 s and the full frame
+at 3.1 s. The self-test and `--snapshot` develop at full resolution unless
+`--preview-long-edge` says otherwise; the editing workflow's last block tests
+the live tier.
 The same worker makes the canvas images before a result is delivered: the
 frame's RGBA16 as `RGBX16FPx4` half floats (value/65535, 8 bytes per pixel like
 the RGBA16) tagged with the colour space the session's open reply reports
@@ -692,13 +709,13 @@ only reads.
 
 **Settings** (Ctrl+,; the Mac's `SettingsWindow.swift` pages in its order --
 General, Rendering, Memory, Diagnostics, Agents -- with Display after
-General). General: the language (the loaded tables, or Follow the system;
+General). Rendering: the preview resolution (The canvas, above). General: the language (the loaded tables, or Follow the system;
 applied at once and kept), the interface scale (100/115/130 %, applied at the
 next start through `QT_SCALE_FACTOR`; an environment `QT_SCALE_FACTOR` wins),
 Reset All Layout and this session's build. Display: above. Diagnostics: where
 this session keeps its preferences, edits and licence texts, with Show in
 Explorer. Every Mac setting without a Windows backend is shown greyed with the
-reason under it, nothing invented: preview resolution, fast stock preview, DI
+reason under it, nothing invented: fast stock preview, DI
 blue compensation, crop re-maps, decouple effects, the memory and disk-cache
 readouts and caps, log level, per-node timings, job logs, log retention, the
 diagnostic bundle, the update check and agent access (the `spektralab` CLI

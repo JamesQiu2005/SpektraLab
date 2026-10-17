@@ -66,9 +66,12 @@ QImage visibleImage(const desktop::FramePtr& frame,const QImage& full,const outp
     // canvas, the thumbnails and the export take it whole (macOS
     // Session.canvasGeometry, Session+FilmEdge.swift:456).
     if(frame&&frame->cut)return full;
-    if(geometry.quarterTurns==0&&!geometry.flipHorizontal&&!geometry.flipVertical&&geometry.straightenDegrees==0)
-        return output::displayImage(full,geometry.crop);
-    return output::displayFrame(frame,geometry);
+    QImage shown=geometry.quarterTurns==0&&!geometry.flipHorizontal&&!geometry.flipVertical&&geometry.straightenDegrees==0
+        ?output::displayImage(full,geometry.crop):output::displayFrame(frame,geometry);
+    // A live frame's pixels stand for the full frame's: the canvas reads the
+    // scale off the image (publish), so the crop carries it too.
+    if(shown.devicePixelRatio()!=full.devicePixelRatio())shown.setDevicePixelRatio(full.devicePixelRatio());
+    return shown;
 }
 // A cut frame's undeveloped whole decode (Frame::source_preview, encoded
 // sRGB) as the canvases take every picture: RGBX16FPx4 tagged with its colour
@@ -169,6 +172,13 @@ PreviewController::Publication PreviewController::publish(const ImageFactory& fa
     Publication p;p.geometry=geometry;
     p.full=factory(frame);
     if(p.full.isNull())throw std::runtime_error("Cannot create the display image");
+    // A live frame (Frame::full_tier false) is the full frame at fewer
+    // pixels: its device pixel ratio is pixels over the full frame's, so its
+    // device-independent size is the full frame's and the canvas keeps zoom,
+    // 100 % and the Original's placement when the full frame replaces it --
+    // the scale arriving with the image, never a frame behind it.
+    if(frame->width()>0&&frame->logicalWidth()!=frame->width())
+        p.full.setDevicePixelRatio(double(frame->width())/frame->logicalWidth());
     p.convert_ms=double(clock.nsecsElapsed())/1e6;
     p.visible=visibleImage(frame,p.full,geometry);
     p.navigator=desktop::display::navigatorImage(p.visible);
@@ -195,8 +205,8 @@ QList<double> PreviewController::bins(const std::vector<float>& values) {
 }
 
 PreviewController::PreviewController(std::filesystem::path resources,QObject* parent,ImageFactory factory,QString editDirectory,
-                                     QString outputColorSpace)
-    :QObject(parent),resources_(resources),
+                                     QString outputColorSpace,int previewLongEdge)
+    :QObject(parent),resources_(resources),preview_long_edge_(previewLongEdge>0?std::uint32_t(previewLongEdge):0u),
      edit_directory_(editDirectory.isEmpty()?QStandardPaths::writableLocation(QStandardPaths::AppLocalDataLocation)+"/Edits":editDirectory),
      edit_store_(edit_directory_),
      image_factory_(factory?std::move(factory):ImageFactory(imageFromFrame)) {
@@ -219,11 +229,15 @@ PreviewController::PreviewController(std::filesystem::path resources,QObject* pa
     connect(this,&PreviewController::frameChanged,this,&PreviewController::refreshSoftProof);
     auto_apply_.setSingleShot(true);auto_apply_.setInterval(180);
     connect(&auto_apply_,&QTimer::timeout,this,[this]{if(dirty())apply();});
+    // The full frame, once the edits have stopped (macOS starts its native
+    // render 400 ms after the last edit, ARCHITECTURE.md §7.3).
+    full_timer_.setSingleShot(true);full_timer_.setInterval(400);
+    connect(&full_timer_,&QTimer::timeout,this,&PreviewController::renderFull);
     save_timer_.setSingleShot(true);save_timer_.setInterval(350);
     connect(&save_timer_,&QTimer::timeout,this,&PreviewController::flushEdits);
     // The canvas is fed from pixels() (publish), so the host's 8-bit copy
     // would be 132 MB per 33 MP frame nobody reads.
-    desktop::HostOptions options;options.bgra8_display=false;
+    desktop::HostOptions options;options.bgra8_display=false;options.preview_long_edge=preview_long_edge_;
     options.output_color_space=outputColorSpace.isEmpty()?std::string(kWorkingSpace):outputColorSpace.toStdString();
     setupPostDev();
     setupLibrary();
@@ -248,6 +262,7 @@ void PreviewController::workerLoop(std::filesystem::path resources,desktop::Host
     catch(const std::exception& e){init.error=text(e.what());}
     deliver(std::move(init));
     if(!host)return;
+    {std::lock_guard lock(host_mutex_);host_=host.get();}
     for(;;) {
         Job job;
         {std::unique_lock lock(mutex_);wake_.wait(lock,[&]{return stopping_||!jobs_.empty();});
@@ -255,6 +270,44 @@ void PreviewController::workerLoop(std::filesystem::path resources,desktop::Host
         deliver(job(*host));
         analyse(*host); // the Pre-Dev rail's readings of a new frame (PreviewControllerPredev.cpp)
     }
+    // No cancel may reach the host once it starts going.
+    std::lock_guard lock(host_mutex_);host_=nullptr;
+}
+void PreviewController::cancelFullRender() {
+    std::lock_guard lock(host_mutex_);
+    if(host_)host_->cancel_full_render();
+}
+desktop::FramePtr PreviewController::fullFrame(desktop::PreviewHost& host,const desktop::FramePtr& held) {
+    if(!held||held->full_tier)return held;
+    // The session holds this photograph: the full tier of its settings (an
+    // empty delta when they are the session's). Otherwise it is opened again.
+    const auto current=host.current();
+    if(current&&!current->pair&&current->source==held->source&&current->decode_mode==held->decode_mode)
+        return host.render(held->settings,held->geometry,desktop::Tier::full);
+    return host.open_raw(held->source,held->decode_mode,held->settings,held->geometry,desktop::Tier::full);
+}
+// The full frame follows a live one once the edits have stopped. Not for a
+// pair, whose pieces render whole (PreviewControllerPairs.cpp).
+void PreviewController::scheduleFullRender() {
+    if(preview_long_edge_==0||!frame_||frame_->full_tier||frame_->pair||busy_||dialog_open_||dirty()){full_timer_.stop();return;}
+    full_timer_.start();
+}
+void PreviewController::renderFull() {
+    if(preview_long_edge_==0||!frame_||frame_->full_tier||frame_->pair||busy_||dialog_open_||dirty())return;
+    const auto s=frame_->settings;const auto shown=frame_;const auto gen=++generation_;const auto revision=settings_revision_.load();
+    const auto factory=image_factory_;const auto geometry=geometry_;
+    full_job_=true;
+    submit([this,s,shown,gen,revision,factory,geometry](auto& host){Reply r;r.generation=gen;r.settings_revision=revision;r.operation="render";r.geometry=geometry;
+        try {
+            const auto active=host.current();
+            // Only on the session that made the live frame; anything else is
+            // a newer state the next edit's render reconciles.
+            if(!active||active->source!=shown->source||active->decode_mode!=shown->decode_mode)
+                throw desktop::RenderCancelled();
+            r.frame=host.render(s,shown->geometry,desktop::Tier::full);
+            if(settings_revision_.load()==revision)r.publication=publish(factory,r.frame,geometry);
+        }catch(const desktop::RenderCancelled&){r.frame=nullptr;r.cancelled=true;}
+        catch(const std::exception& e){r.frame=nullptr;r.error=text(e.what());}return r;},uiText("status.renderingFull"),"render");
 }
 void PreviewController::deliver(Reply reply) {
     QMetaObject::invokeMethod(this,[this,reply=std::move(reply)]() mutable {accept(std::move(reply));},Qt::QueuedConnection);
@@ -273,8 +326,11 @@ void PreviewController::accept(Reply reply) {
     // holds the controller busy nor reports one finished.
     if(reply.operation=="original"){acceptOriginal(std::move(reply));return;}
     if(reply.operation=="pair-analysis")return; // only asks the worker to measure the pair's frame again
+    if(reply.operation=="render")full_job_=false;
     if(reply.generation!=generation_)return; // a retired generation never replaces the canvas
-    const bool superseded=reply.operation=="render"&&reply.settings_revision!=settings_revision_;
+    // A full render the next edit cancelled is superseded too: that edit's
+    // own render follows.
+    const bool superseded=reply.operation=="render"&&(reply.settings_revision!=settings_revision_||reply.cancelled);
     busy_=false;active_operation_.clear();failed_=!superseded&&!reply.error.isEmpty();
     if(superseded) {
         // The worker may finish an earlier choice after the next click. Keep
@@ -333,7 +389,7 @@ void PreviewController::accept(Reply reply) {
         if(!failed_) {
             restoreSettings();
             updateThumbnail();
-            status_=uiText(frame_->reprint()?"status.renderedReusedNegative":"status.rendered",
+            status_=uiText(!frame_->full_tier?"status.renderedPreview":frame_->reprint()?"status.renderedReusedNegative":"status.rendered",
                            {QString::number(frame_->timings.render_ms/1000,'f',2)});
             emit frameChanged();emit geometryChanged();if(reply.operation=="open")emit sourceOpened();
         }
@@ -356,6 +412,8 @@ void PreviewController::accept(Reply reply) {
     // Export holds an immutable displayed frame. An edit made just before it
     // began still needs applying, including after an overwrite refusal.
     if((superseded||reply.operation=="export"||reply.operation=="batch-export")&&!busy_)schedulePreview();
+    // A live frame on screen and nothing left to apply: its full frame next.
+    scheduleFullRender();
 }
 desktop::RenderSettings PreviewController::settings() const {
     desktop::RenderSettings s=extra_settings_;
@@ -402,7 +460,9 @@ QVariantMap PreviewController::metadata() const {
     // A TIFF, JPEG or PNG was decoded at the door (raw_white_balance.hpp):
     // `input` says what it was read as ("TIFF, Adobe RGB (1998)").
     const bool raw=pairActive()||library::rawFile(QString::fromStdWString(frame_->source.wstring()));
-    return {{"width",image_.width()},{"height",image_.height()},
+    // The picture's size at full resolution, also while a live frame is shown.
+    const double k=frameScale();
+    return {{"width",int(std::lround(image_.width()*k))},{"height",int(std::lround(image_.height()*k))},{"fullResolution",fullResolution()},
         {"sourceWidth",source.width()},{"sourceHeight",source.height()},
         {"camera",text(frame_->metadata.make+" "+frame_->metadata.model).trimmed()},
         {"raw",raw},{"input",raw?QString():text(frame_->metadata.decoder_name)},
@@ -439,7 +499,9 @@ void PreviewController::refreshOriginal(bool decodeChanged) {
 // centre without a film edge -- the date alone cuts no strip around it).
 QRectF PreviewController::cutPictureRect() const {
     if(!frame_||!frame_->cut)return {};
-    const double sw=frame_->width(),sh=frame_->height();
+    // In the strip's pixels at full resolution, the picture's own unit, also
+    // while a live frame is shown (frameScale).
+    const double sw=frame_->logicalWidth(),sh=frame_->logicalHeight();
     const auto layout=QJsonDocument::fromJson(QByteArray::fromStdString(frame_->overscan_geometry)).object();
     const auto quad=layout.value("gates").toArray().first().toArray();
     double cx=sw/2,cy=sh/2;
@@ -457,7 +519,9 @@ QRectF PreviewController::cutPictureRect() const {
     // own geometry -- in the gate's place on a canvas the strip's size, so
     // the two still share size and placement (before/after, Space).
     const bool cut=frame_->cut;const auto cutGeometry=fromCut(frame_->geometry);
-    const QSize strip(int(frame_->width()),int(frame_->height()));
+    // The strip at full resolution: the Original is the full decode, and the
+    // canvas draws a live print and it in the same full-size rectangle.
+    const QSize strip(int(frame_->logicalWidth()),int(frame_->logicalHeight()));
     const QPoint gate=cut?cutPictureRect().topLeft().toPoint():QPoint();
     original_for_=frame_.get();
     {std::lock_guard lock(mutex_);
@@ -518,6 +582,8 @@ void PreviewController::changed(const QString& editKey){
     if(!batch_edit_&&gesture_index_>=0&&gesture_key_!=canonicalEditKey(editKey))endEditGesture();
     saveActiveSettings(true);
     ++settings_revision_;auto_apply_.stop();schedulePreview();
+    // The full frame of the previous state is no longer wanted.
+    full_timer_.stop();if(full_job_)cancelFullRender();
     if(frame_)status_=uiText("status.updatingPreview");
     failed_=false;emit settingsChanged();emit stateChanged();
 }
@@ -682,12 +748,13 @@ void PreviewController::openItem(int index) {
     if(library_.at(index).pair){openPairItem(index);return;}
     const auto item=library_.at(index);const auto p=path(item.url);
     const auto gen=++generation_;const auto factory=image_factory_;
-    submit([p,item,gen,index,factory](auto& host){Reply r;r.generation=gen;r.operation="open";r.library_index=index;r.geometry=item.geometry;
+    const auto tier=preview_long_edge_?desktop::Tier::live:desktop::Tier::full;
+    submit([p,item,gen,index,factory,tier](auto& host){Reply r;r.generation=gen;r.operation="open";r.library_index=index;r.geometry=item.geometry;
         // A frame whose images cannot be made is not delivered: the reply
         // fails and the displayed frame stays (the host's session has moved
         // on; the next render reconciles it). The geometry goes too: the host
         // cuts the picture with it when the settings ask for that.
-        try{r.frame=host.open_raw(p,item.mode,item.settings,toCut(item.geometry));r.publication=publish(factory,r.frame,item.geometry);}
+        try{r.frame=host.open_raw(p,item.mode,item.settings,toCut(item.geometry),tier);r.publication=publish(factory,r.frame,item.geometry);}
         catch(const std::exception& e){r.frame=nullptr;r.error=text(e.what());}return r;},uiText("status.opening"),"open");
 }
 void PreviewController::apply() {
@@ -698,14 +765,15 @@ void PreviewController::apply() {
     // The geometry goes too: the host cuts the picture with it when the
     // settings ask for that (a film edge, a date on a cropped frame).
     const auto factory=image_factory_;const auto geometry=geometry_;const auto cut=toCut(geometry);
-    submit([this,s,shown,gen,revision,mode,factory,geometry,cut](auto& host){Reply r;r.generation=gen;r.settings_revision=revision;r.operation="render";r.geometry=geometry;
+    const auto tier=preview_long_edge_?desktop::Tier::live:desktop::Tier::full;
+    submit([this,s,shown,gen,revision,mode,factory,geometry,cut,tier](auto& host){Reply r;r.generation=gen;r.settings_revision=revision;r.operation="render";r.geometry=geometry;
         try {
             // Publication can fail after a successful worker open (for example,
             // a display allocation failure). Reconcile against the image the
             // user is actually editing before reusing the worker's session.
             const auto active=host.current();
             r.frame=active&&active->source==shown->source&&active->decode_mode==mode
-                ?host.render(s,cut):host.open_raw(shown->source,mode,s,cut);
+                ?host.render(s,cut,tier):host.open_raw(shown->source,mode,s,cut,tier);
             // accept() drops a superseded result unseen; converting 33 MP
             // for it would only delay the render that replaces it.
             if(settings_revision_.load()==revision)r.publication=publish(factory,r.frame,geometry);
@@ -728,7 +796,7 @@ void PreviewController::exportImage(const QUrl& url,int format,int quality,int m
     // A frame in the working space is converted into sRGB once before the
     // sRGB-tagged writers see it (RecipeExport.hpp exportLegacy).
     submit([p,held,gen,geometry,resources,format,quality,maxLongEdge,grade](auto& host){Reply r;r.generation=gen;r.operation="export";
-        try{desktop::exporting::exportLegacy(held,p,geometry,exportOptions(format,quality,maxLongEdge),resources,grade,host.engine());}
+        try{desktop::exporting::exportLegacy(fullFrame(host,held),p,geometry,exportOptions(format,quality,maxLongEdge),resources,grade,host.engine());}
         catch(const std::exception& e){r.error=text(e.what());}return r;},uiText("status.exporting"),"export");
 }
 
@@ -835,7 +903,7 @@ bool PreviewController::applySettings(desktop::RenderSettings next,const QString
 QSize PreviewController::decodeSize() const {
     if(!frame_)return {};
     return frame_->decode_width&&frame_->decode_height?QSize(int(frame_->decode_width),int(frame_->decode_height))
-                                                      :QSize(int(frame_->width()),int(frame_->height()));
+                                                      :QSize(int(frame_->logicalWidth()),int(frame_->logicalHeight()));
 }
 desktop::PhotoInfo PreviewController::photoInfo(const output::Geometry& g) const {
     desktop::PhotoInfo photo;
@@ -1305,7 +1373,7 @@ void PreviewController::exportBatch(const QUrl& folder,int format,int quality,in
                             useShown=cut==held->cut&&(!cut||held->geometry==toCut(item.geometry));
                         }
                         const auto developed=item.pair?developPair(host,item,held) // one picture (Exporter.swift)
-                            :useShown?held:host.open_raw(source,item.mode,item.settings,toCut(item.geometry));
+                            :useShown?fullFrame(host,held):host.open_raw(source,item.mode,item.settings,toCut(item.geometry));
                         desktop::exporting::exportLegacy(developed,target,developed->cut?output::Geometry{}:item.geometry,options,
                                                          resources,item.pair?pairExportGrade(item,developed):desktop::postdev::exportGrade(item.postdev),host.engine());++done;
                     }

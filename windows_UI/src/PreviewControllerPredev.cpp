@@ -275,14 +275,14 @@ bool PreviewController::pickNeutral(double x, double y) {
     // the geometry the frame was cut with.
     if (!point && frame_->cut) {
         const auto picture = cutPictureRect();
-        const QPointF at((x * frame_->width() - picture.x()) / picture.width(),
-                         (y * frame_->height() - picture.y()) / picture.height());
+        const QPointF at((x * frame_->logicalWidth() - picture.x()) / picture.width(),
+                         (y * frame_->logicalHeight() - picture.y()) / picture.height());
         if (at.x() < 0 || at.y() < 0 || at.x() > 1 || at.y() > 1) return false;
         const auto& c = frame_->geometry;
         point = predev::sourcePoint(QSize(int(frame_->decode_width), int(frame_->decode_height)),
                                     {QRectF(c.x, c.y, c.w, c.h), c.quarter_turns, c.flip_h, c.flip_v, c.straighten_deg}, at);
     } else if (!point) {
-        point = predev::sourcePoint(QSize(int(frame_->width()), int(frame_->height())), geometry_, QPointF(x, y));
+        point = predev::sourcePoint(QSize(int(frame_->logicalWidth()), int(frame_->logicalHeight())), geometry_, QPointF(x, y));
     }
     if (!point) return false;
     const auto shown = frame_;

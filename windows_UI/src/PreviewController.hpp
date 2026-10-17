@@ -43,6 +43,14 @@ class PreviewController final : public QObject {
     // The canvas's picture: the developed frame after geometry, RGBX16FPx4
     // tagged with the session's encoding (FrameImage.hpp).
     Q_PROPERTY(QImage previewImage READ previewImage NOTIFY frameChanged)
+    // While someone edits, the frame is developed at the preview resolution
+    // (the live tier) and the full one follows once they stop. frameScale is
+    // the frame's full size over its pixels -- 1 for a full frame -- which the
+    // canvas multiplies previewImage's and the uncropped print's size by, so
+    // zoom, 100 % and the Original's placement are the full frame's
+    // throughout; fullResolution says the full frame has landed.
+    Q_PROPERTY(double frameScale READ frameScale NOTIFY frameChanged)
+    Q_PROPERTY(bool fullResolution READ fullResolution NOTIFY frameChanged)
     // previewImage reduced to a long edge of at most 1024 px (area average,
     // same tag), for the navigator: a second full-size texture is 264 MB at
     // 33 MP. Changes whenever previewImage does.
@@ -292,8 +300,11 @@ public:
     static constexpr const char* kWorkingSpace = "ProPhoto RGB";
     // `outputColorSpace` empty: kWorkingSpace. "sRGB" keeps the old sRGB
     // session, which tests use to pin the byte-identical sRGB export.
+    // `previewLongEdge`: the live tier's long edge (HostOptions::
+    // preview_long_edge); 0 develops every edit at full resolution, as the
+    // workflow tests pin.
     explicit PreviewController(std::filesystem::path resources, QObject* parent=nullptr, ImageFactory imageFactory={},
-                               QString editDirectory={}, QString outputColorSpace={});
+                               QString editDirectory={}, QString outputColorSpace={}, int previewLongEdge=0);
     static QImage imageFromFrame(const spk::desktop::FramePtr&);
     ~PreviewController() override;
     bool ready() const { return ready_; }
@@ -307,6 +318,8 @@ public:
     QString fileName() const;
     QUrl sourceFolder() const;
     QImage previewImage() const { return image_; }
+    double frameScale() const { return frame_&&frame_->width()>0?double(frame_->logicalWidth())/frame_->width():1.0; }
+    bool fullResolution() const { return !frame_||frame_->full_tier; }
     QImage navigatorImage() const { return navigator_; }
     QVariantMap metadata() const;
     QVariantList films() const { return films_; }
@@ -692,6 +705,9 @@ private:
         spk::desktop::output::Geometry geometry;
         spk::desktop::FramePtr frame;
         Publication publication;
+        // A full render the next edit stopped (PreviewHost::RenderCancelled):
+        // no failure, and the displayed frame stays.
+        bool cancelled=false;
         spk::desktop::Catalog catalog;
         // A recipe export's result (exportFinished) and a proof's picture.
         bool recipe=false, warning=false;
@@ -832,6 +848,21 @@ private:
     std::atomic<quint64> settings_revision_{0};
     QString active_operation_;
     QTimer auto_apply_;
+    // The full frame after a live one (ARCHITECTURE.md §7.3): started once
+    // the edits have stopped for full_timer_'s interval, cancelled by the next
+    // edit through the host (cancel_full_render), which the GUI thread reaches
+    // under host_mutex_ while the worker's host exists.
+    std::uint32_t preview_long_edge_=0;
+    QTimer full_timer_;
+    bool full_job_=false;
+    std::mutex host_mutex_;
+    spk::desktop::PreviewHost* host_=nullptr;
+    void scheduleFullRender();
+    void renderFull();
+    void cancelFullRender();
+    // `held` at full resolution: itself when it is, else developed again at
+    // the full tier with its own settings -- what every export writes.
+    static spk::desktop::FramePtr fullFrame(spk::desktop::PreviewHost& host, const spk::desktop::FramePtr& held);
     bool dialog_open_=false;
     QImage export_proof_;
     QVariantMap export_proof_info_;

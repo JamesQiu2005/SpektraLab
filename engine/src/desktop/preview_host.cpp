@@ -7,8 +7,10 @@
 #include <chrono>
 #include <cmath>
 #include <cstdio>
+#include <cstring>
 #include <fstream>
 #include <limits>
+#include <mutex>
 #include <optional>
 #include <set>
 #include <stdexcept>
@@ -451,9 +453,15 @@ struct OpenedSession {
 // the settings cut the frame (Film Edge, Date Back on a cropped frame).
 OpenedSession open_session(spk_engine* engine, const float* rgb, std::uint32_t width, std::uint32_t height,
                            const RenderSettings& settings, const Catalog& catalog,
-                           const std::string& output_color_space, const PhotoInfo& photo) {
+                           const std::string& output_color_space, const PhotoInfo& photo,
+                           std::uint32_t preview_long_edge = 0) {
     const spk_image input{rgb, width, height, 3};
-    const auto params = opening_params(settings, catalog, output_color_space, &photo).dump();
+    Json request = opening_params(settings, catalog, output_color_space, &photo);
+    // The live tier's size (HostOptions::preview_long_edge): a session
+    // setting, not a frame's, so it is no settings row.
+    if (preview_long_edge > 0)
+        request.set("preview_long_edge", Json(double(std::clamp<std::uint32_t>(preview_long_edge, 800, 8192))));
+    const auto params = request.dump();
     // The reply is read for one thing: what the session renders into. The
     // request above is not evidence of that (RFC-018 §5.1, AGENTS.md trap 28).
     char* reply_text = nullptr;
@@ -1196,7 +1204,40 @@ struct PreviewHost::Impl {
     fs::path pair_identity;
     PhotoInfo pair_photo;
     PairLayout pair_layout;
+    // The session a cancellable full render is running on (render's no-delta
+    // Tier::full), for cancel_full_render on another thread. The worker sets
+    // and clears it under the mutex around the engine call, so the session
+    // cannot be released while a cancel reaches it.
+    std::mutex cancel_mutex;
+    spk_session* cancellable = nullptr;
 };
+
+namespace {
+// The engine tier a call renders: `live` only when the host has one.
+const char* tier_name(const HostOptions& options, Tier tier) {
+    return tier == Tier::live && options.preview_long_edge > 0 ? "live" : "full";
+}
+
+// Which tier `frame` is and its size at full resolution. The live tier scales
+// the picture's long edge to the preview size and never up (engine.cpp
+// tier_image), so a picture no larger than that is already full resolution;
+// a larger one's frame (the picture, or the film canvas around it) is the
+// live size times the picture's own reduction.
+void set_tier(Frame& frame, const HostOptions& options, const char* tier, std::uint32_t picture_w,
+              std::uint32_t picture_h) {
+    const std::uint32_t picture_long = std::max(picture_w, picture_h);
+    const std::uint32_t edge = std::clamp<std::uint32_t>(options.preview_long_edge, 800, 8192);
+    frame.full_tier = std::strcmp(tier, "full") == 0 || picture_long <= edge;
+    if (frame.full_tier) {
+        frame.logical_width = frame.width();
+        frame.logical_height = frame.height();
+        return;
+    }
+    const double scale = double(picture_long) / double(edge);
+    frame.logical_width = std::uint32_t(std::lround(frame.width() * scale));
+    frame.logical_height = std::uint32_t(std::lround(frame.height() * scale));
+}
+}  // namespace
 
 namespace {
 // What the engine is handed for these settings and this geometry: whether
@@ -1297,7 +1338,7 @@ const io::DecodedRaw& PreviewHost::input() const noexcept { return impl_->decode
 const io::DecodedRaw& PreviewHost::decoded() const noexcept { return impl_->decoded; }
 
 FramePtr PreviewHost::open_raw(const fs::path& source, DecodeMode mode, const RenderSettings& settings,
-                               const EngineCut& geometry) {
+                               const EngineCut& geometry, Tier tier) {
     const auto started = Clock::now();
     const bool scan_film = validate_settings(settings, impl_->catalog);
     require(mode == DecodeMode::compatible16 || mode == DecodeMode::headroom, "Unknown RAW decode mode");
@@ -1323,12 +1364,13 @@ FramePtr PreviewHost::open_raw(const fs::path& source, DecodeMode mode, const Re
     std::uint32_t pw = decoded.width, ph = decoded.height;
     if (input.cut) cut_rgb = cut_decode(decoded, input.photo.geometry, pw, ph);
     auto opened = open_session(impl_->engine.get(), input.cut ? cut_rgb.data() : decoded.rgb.data(), pw, ph,
-                               settings, impl_->catalog, impl_->options.output_color_space, input.photo);
+                               settings, impl_->catalog, impl_->options.output_color_space, input.photo,
+                               impl_->options.preview_long_edge);
     cut_rgb = {};
     next->timings.open_ms = elapsed(t);
     next->encoding = opened.encoding;
     t = Clock::now();
-    const auto status = spk_render(opened.session.get(), "full", &next->result_);
+    const auto status = spk_render(opened.session.get(), tier_name(impl_->options, tier), &next->result_);
     require(status == SPK_OK, "Render: " + std::string(spk_last_error(impl_->engine.get())));
     next->timings.render_ms = elapsed(t);
     next->timings.engine_render_ms = next->result_.elapsed_ms;
@@ -1343,6 +1385,7 @@ FramePtr PreviewHost::open_raw(const fs::path& source, DecodeMode mode, const Re
     next->decode_height = decoded.height;
     next->picture_width = pw;
     next->picture_height = ph;
+    set_tier(*next, impl_->options, tier_name(impl_->options, tier), pw, ph);
     next->overscan_geometry = read_overscan_geometry(opened.session.get());
     auto preview = input.cut ? source_preview(decoded) : nullptr;
     next->source_preview = preview;
@@ -1360,7 +1403,7 @@ FramePtr PreviewHost::open_raw(const fs::path& source, DecodeMode mode, const Re
     return next;
 }
 
-FramePtr PreviewHost::render(const RenderSettings& settings, const EngineCut& geometry) {
+FramePtr PreviewHost::render(const RenderSettings& settings, const EngineCut& geometry, Tier tier) {
     const auto started = Clock::now();
     require(bool(impl_->frame), "Open a RAW image before rendering");
     require(!impl_->pair, "A half-frame pair renders through render_pair");
@@ -1368,7 +1411,8 @@ FramePtr PreviewHost::render(const RenderSettings& settings, const EngineCut& ge
     // decoded again and a new negative developed (macOS re-decodes too,
     // Session.swift:2694-2725). open_raw is transactional, as below.
     if (!same_decode(impl_->frame->settings, settings))
-        return open_raw(impl_->frame->source, impl_->frame->decode_mode, settings, geometry);
+        return open_raw(impl_->frame->source, impl_->frame->decode_mode, settings, geometry, tier);
+    const char* tier_id = tier_name(impl_->options, tier);
     const bool scan_film = validate_settings(settings, impl_->catalog);
     auto next = std::shared_ptr<Frame>(new Frame());
     next->source = impl_->frame->source;
@@ -1396,7 +1440,8 @@ FramePtr PreviewHost::render(const RenderSettings& settings, const EngineCut& ge
             std::vector<float> cut_rgb;
             if (input.cut) cut_rgb = cut_decode(impl_->decoded, input.photo.geometry, pw, ph);
             auto opened = open_session(impl_->engine.get(), input.cut ? cut_rgb.data() : impl_->decoded.rgb.data(),
-                                       pw, ph, settings, impl_->catalog, impl_->options.output_color_space, input.photo);
+                                       pw, ph, settings, impl_->catalog, impl_->options.output_color_space, input.photo,
+                                       impl_->options.preview_long_edge);
             impl_->session = std::move(opened.session);
             impl_->encoding = opened.encoding;
             impl_->session_cut = wanted_cut;
@@ -1408,7 +1453,22 @@ FramePtr PreviewHost::render(const RenderSettings& settings, const EngineCut& ge
             next->timings.params_ms = elapsed(t);
         }
         t = Clock::now();
-        const auto status = spk_reprint(impl_->session.get(), "full", &next->result_);
+        // The full frame of what the session already holds -- nothing sent,
+        // nothing reopened -- is the one render the next edit may cancel: the
+        // session's settings are then still the current frame's, so stopping
+        // it half way leaves nothing to reconcile.
+        const bool cancellable = std::strcmp(tier_id, "full") == 0 && next->timings.open_ms == 0.0 &&
+                                 delta.fields().empty();
+        if (cancellable) {
+            std::lock_guard lock(impl_->cancel_mutex);
+            impl_->cancellable = impl_->session.get();
+        }
+        const auto status = spk_reprint(impl_->session.get(), tier_id, &next->result_);
+        if (cancellable) {
+            std::lock_guard lock(impl_->cancel_mutex);
+            impl_->cancellable = nullptr;
+        }
+        if (cancellable && status == SPK_ERR_CANCELLED) throw RenderCancelled();
         require(status == SPK_OK, "Render: " + std::string(spk_last_error(impl_->engine.get())));
         next->timings.render_ms = elapsed(t);
         next->timings.engine_render_ms = next->result_.elapsed_ms;
@@ -1422,6 +1482,8 @@ FramePtr PreviewHost::render(const RenderSettings& settings, const EngineCut& ge
         }
         next->overscan_geometry = read_overscan_geometry(impl_->session.get());
         if (input.cut && !impl_->preview) impl_->preview = source_preview(impl_->decoded);
+    } catch (const RenderCancelled&) {
+        throw;   // the session holds exactly what it held: keep it
     } catch (...) {
         impl_->session.reset();
         throw;
@@ -1432,6 +1494,7 @@ FramePtr PreviewHost::render(const RenderSettings& settings, const EngineCut& ge
     next->decode_height = impl_->decoded.height;
     next->picture_width = pw;
     next->picture_height = ph;
+    set_tier(*next, impl_->options, tier_id, pw, ph);
     next->source_preview = input.cut ? impl_->preview : nullptr;
     impl_->frame = next;
     next->timings.total_ms = elapsed(started);
@@ -1439,7 +1502,8 @@ FramePtr PreviewHost::render(const RenderSettings& settings, const EngineCut& ge
 }
 
 FramePtr PreviewHost::render_pair(const fs::path& identity, const PairInput& pair, DecodeMode mode,
-                                  const RenderSettings& settings) {
+                                  const RenderSettings& settings, Tier tier) {
+    const char* tier_id = tier_name(impl_->options, tier);
     const auto started = Clock::now();
     const bool scan_film = validate_settings(settings, impl_->catalog);
     require(mode == DecodeMode::compatible16 || mode == DecodeMode::headroom, "Unknown RAW decode mode");
@@ -1549,7 +1613,7 @@ FramePtr PreviewHost::render_pair(const fs::path& identity, const PairInput& pai
         photo.pair.latitude_b = pair.latitude_b;
         t = Clock::now();
         auto opened = open_session(impl_->engine.get(), piece.rgb.data(), piece.width, piece.height, settings,
-                                   impl_->catalog, impl_->options.output_color_space, photo);
+                                   impl_->catalog, impl_->options.output_color_space, photo, impl_->options.preview_long_edge);
         session = std::move(opened.session);
         encoding = opened.encoding;
         next->timings.open_ms = elapsed(t);
@@ -1567,10 +1631,10 @@ FramePtr PreviewHost::render_pair(const fs::path& identity, const PairInput& pai
             }
             next->timings.params_ms = elapsed(t);
             t = Clock::now();
-            require(spk_reprint(live, "full", &next->result_) == SPK_OK,
+            require(spk_reprint(live, tier_id, &next->result_) == SPK_OK,
                     "Render: " + std::string(spk_last_error(impl_->engine.get())));
         } else {
-            require(spk_render(live, "full", &next->result_) == SPK_OK,
+            require(spk_render(live, tier_id, &next->result_) == SPK_OK,
                     "Render: " + std::string(spk_last_error(impl_->engine.get())));
         }
         next->timings.render_ms = elapsed(t);
@@ -1606,7 +1670,7 @@ FramePtr PreviewHost::render_pair(const fs::path& identity, const PairInput& pai
                             "Print a frame: " + std::string(spk_last_error(impl_->engine.get())));
                 }
                 spk_result own{};
-                const auto status = spk_reprint(live, "full", &own);
+                const auto status = spk_reprint(live, tier_id, &own);
                 const auto release = [&] { spk_result_free(&own); };
                 if (status != SPK_OK || own.width != W || own.height != H) {
                     release();
@@ -1650,6 +1714,7 @@ FramePtr PreviewHost::render_pair(const fs::path& identity, const PairInput& pai
     next->decode_height = photo.decode_height;
     next->picture_width = photo.decode_width;
     next->picture_height = photo.decode_height;
+    set_tier(*next, impl_->options, tier_id, photo.decode_width, photo.decode_height);
     // Commit only after everything succeeded.
     if (!same) {
         impl_->session = std::move(session);
@@ -1680,6 +1745,13 @@ void PreviewHost::export_tiff(const Frame& frame, const fs::path& destination) c
 
 spk_engine* PreviewHost::engine() const noexcept { return impl_->engine.get(); }
 
+void PreviewHost::cancel_full_render() noexcept {
+    // spk_cancel takes no lock and never waits (engine.cpp); the mutex only
+    // keeps the session alive while it is reached.
+    std::lock_guard lock(impl_->cancel_mutex);
+    if (impl_->cancellable) spk_cancel(impl_->cancellable, nullptr);
+}
+
 FramePtr PreviewHost::render_digital_intermediate() {
     const auto started = Clock::now();
     require(bool(impl_->frame), "Open a RAW image before exporting its Digital Intermediate");
@@ -1695,7 +1767,7 @@ FramePtr PreviewHost::render_digital_intermediate() {
         if (input.cut) cut_rgb = cut_decode(impl_->decoded, input.photo.geometry, pw, ph);
         auto opened = open_session(impl_->engine.get(), input.cut ? cut_rgb.data() : impl_->decoded.rgb.data(), pw,
                                    ph, current->settings, impl_->catalog, impl_->options.output_color_space,
-                                   input.photo);
+                                   input.photo, impl_->options.preview_long_edge);
         impl_->session = std::move(opened.session);
         impl_->encoding = opened.encoding;
         impl_->session_cut = input.cut ? std::optional<EngineCut>(input.photo.geometry) : std::nullopt;

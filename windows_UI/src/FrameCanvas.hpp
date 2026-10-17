@@ -131,6 +131,7 @@ protected:
 private:
     double dpr() const;
     double scale() const;
+    QSize logicalSize() const;
     void sync();
     void changeView(const spk::desktop::canvas::View& next);
     void attachPipeline(QQuickWindow* window);
