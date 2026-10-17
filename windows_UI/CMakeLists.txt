@@ -79,6 +79,7 @@ set(spk_qt_export_sources src/ExportRecipe.hpp src/ExportRecipe.cpp src/RecipeEx
     src/PreviewControllerExport.cpp src/SoftProof.hpp src/SoftProof.cpp src/ProofTransform.hpp)
 
 qt_add_executable(SpektraLabQt WIN32
+    resources/SpektraLab.rc
     src/main.cpp src/Messages.hpp src/PreviewController.hpp src/PreviewController.cpp
     ${spk_qt_export_sources} src/ExportRecipeStore.hpp src/ExportRecipeStore.cpp
     src/FrameOutput.hpp src/FrameOutput.cpp src/FrameImage.hpp src/FrameImage.cpp

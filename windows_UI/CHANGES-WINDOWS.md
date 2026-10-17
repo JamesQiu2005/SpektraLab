@@ -21,6 +21,9 @@ exist yet) or validation beyond the machine named.
 - `-Package` writes `SpektraLab-Windows-<version>-x64.zip` from the deployed
   folder, without test binaries, the redistributable installer or anything
   personal ([README.md](README.md#build-msvc-2022)).
+- The executable carries the product icon (`resources/SpektraLab.ico`, the
+  icon in `desktop/src-tauri/icons/`, 16-256 px) as `IDI_ICON1`, which
+  Explorer, the taskbar and every Qt window use.
 - CTest: 47 tests (16 at the first MinGW port).
 
 ## Engine (Vulkan)

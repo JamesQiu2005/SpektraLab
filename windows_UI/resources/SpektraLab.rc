@@ -1,0 +1,4 @@
+// The executable's icon: Explorer, the taskbar and Alt+Tab read it from here,
+// and Qt's Windows backend gives every window the icon named IDI_ICON1.
+// SpektraLab.ico is the product icon, as desktop/src-tauri/icons/icon.ico.
+IDI_ICON1 ICON "SpektraLab.ico"
