@@ -169,6 +169,53 @@ void verifyGeometry(const QImage& original,const QString& folder,const fs::path&
         }
     }
 
+    // The straighten runs its rows across threads: held bit-identical to the
+    // same bilinear arithmetic on one thread, on a frame tall enough to split
+    // unevenly, and a non-opaque pixel on the last row is still refused.
+    {
+        QImage noise(523,389,QImage::Format_RGBA64);
+        quint32 state=2463534242u;
+        auto next=[&]{state^=state<<13;state^=state>>17;state^=state<<5;return quint16(state);};
+        for(int y=0;y<noise.height();++y) {
+            auto* row=reinterpret_cast<QRgba64*>(noise.scanLine(y));
+            for(int x=0;x<noise.width();++x)row[x]=QRgba64::fromRgba64(next(),next(),next(),65535);
+        }
+        auto serial=[&](double degrees) {
+            const int width=noise.width(),height=noise.height();
+            QImage out(noise.size(),QImage::Format_RGBA64);
+            const double angle=degrees*std::acos(-1.0)/180.0,cosine=std::cos(angle),sine=std::sin(angle);
+            const double zoom=std::max(std::abs(cosine)+std::abs(sine)*height/width,std::abs(cosine)+std::abs(sine)*width/height);
+            const double c=cosine/zoom,s=sine/zoom,centerX=(width-1)*.5,centerY=(height-1)*.5;
+            for(int y=0;y<height;++y) {
+                auto* row=reinterpret_cast<QRgba64*>(out.scanLine(y));
+                for(int x=0;x<width;++x) {
+                    const double sx=std::clamp(centerX+c*(x-centerX)+s*(y-centerY),0.0,double(width-1));
+                    const double sy=std::clamp(centerY-s*(x-centerX)+c*(y-centerY),0.0,double(height-1));
+                    const int x0=int(sx),y0=int(sy),x1=std::min(x0+1,width-1),y1=std::min(y0+1,height-1);
+                    const double fx=sx-x0,fy=sy-y0;
+                    const auto* top=reinterpret_cast<const QRgba64*>(noise.constScanLine(y0));
+                    const auto* bottom=reinterpret_cast<const QRgba64*>(noise.constScanLine(y1));
+                    auto channel=[&](quint16 a,quint16 b,quint16 d,quint16 e) {
+                        return quint16(std::clamp(std::lround((a+(b-a)*fx)*(1-fy)+(d+(e-d)*fx)*fy),0L,65535L));
+                    };
+                    row[x]=QRgba64::fromRgba64(channel(top[x0].red(),top[x1].red(),bottom[x0].red(),bottom[x1].red()),
+                        channel(top[x0].green(),top[x1].green(),bottom[x0].green(),bottom[x1].green()),
+                        channel(top[x0].blue(),top[x1].blue(),bottom[x0].blue(),bottom[x1].blue()),
+                        channel(top[x0].alpha(),top[x1].alpha(),bottom[x0].alpha(),bottom[x1].alpha()));
+                }
+            }
+            return out;
+        };
+        for(const double degrees:{-31.7,-2.3,.4,6.5,44.9}) {
+            output::Geometry g;g.straightenDegrees=degrees;
+            compare64(output::exportImage(noise,g,{}),serial(degrees));
+        }
+        auto holed=noise.copy();
+        reinterpret_cast<QRgba64*>(holed.scanLine(holed.height()-1))[holed.width()-1].setAlpha(65534);
+        output::Geometry g;g.straightenDegrees=6.5;
+        rejects([&]{output::exportImage(holed,g,{});},"export accepted a non-opaque pixel on the last row");
+    }
+
     // Combined order: original-space crop, straighten, quarter turn, then
     // output-axis flips. File/display all derive from that same 16-bit image.
     output::Geometry combined{crop,1,true,false,17.5};

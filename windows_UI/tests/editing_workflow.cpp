@@ -54,8 +54,12 @@ void ready(PreviewController& c) {
         operations.append(QJsonObject{{"operation",name},{"success",success},{"status",c.status()}});
     });
 }
+// A geometry edit's picture is made off the GUI thread and lands later.
+void settled(PreviewController& c,const QString& name=QStringLiteral("the picture lands")) {
+    waitFor([&]{return c.pictureSettled();},name);
+}
 void idle(PreviewController& c,const QString& name,bool allowFailure=false) {
-    waitFor([&]{return !c.busy()&&!c.dirty();},name);
+    waitFor([&]{return !c.busy()&&!c.dirty()&&c.pictureSettled();},name);
     check(allowFailure||!c.failed(),name+": "+c.status());
 }
 output::Geometry geometry(const PreviewController& c) {
@@ -154,19 +158,33 @@ int main(int argc,char** argv) {
 
             {
                 const auto retained=c.frame();const int operationsBefore=operations.size();
-                c.setCropRect(QRectF(.13,.17,.11,.15));c.setFlipHorizontal(true);
-                const auto mirrored=c.previewImage().copy();c.rotateClockwise();
+                // Each geometry edit returns at once; its picture is made off
+                // the GUI thread. A burst lands one picture, the newest
+                // geometry's: the ones it overtook are never shown.
+                const auto before=c.previewImage();int pictures=0;
+                auto pictureConnection=QObject::connect(&c,&PreviewController::frameChanged,&c,[&]{++pictures;});
+                c.setStraightenDegrees(1);c.setStraightenDegrees(2);c.setCropRect(QRectF(.13,.17,.11,.15));c.setStraightenDegrees(0);
+                check(!c.pictureSettled()&&c.previewImage().cacheKey()==before.cacheKey(),
+                      "A geometry edit returns before its picture is made, the last picture still shown");
+                settled(c,"Burst of geometry edits");
+                QObject::disconnect(pictureConnection);
+                check(pictures==1&&sameImage(c.previewImage(),output::displayImage(c.uncroppedImage(),geometry(c))),
+                      "A burst of geometry edits lands one picture, the newest geometry's");
+                c.setFlipHorizontal(true);settled(c);
+                const auto mirrored=c.previewImage().copy();c.rotateClockwise();settled(c);
                 check(sameImage(c.previewImage(),mirrored.transformed(QTransform().rotate(90),Qt::FastTransformation))&&
                       !c.flipHorizontal()&&c.flipVertical(),"Clockwise rotation stays visually clockwise after a mirror");
-                c.rotateCounterClockwise();
+                c.rotateCounterClockwise();settled(c);
                 check(sameImage(c.previewImage(),mirrored)&&c.flipHorizontal()&&!c.flipVertical()&&c.frame()==retained,
                       "Counterclockwise rotation restores mirrored pixels and final-axis flip flags");
                 c.setFlipHorizontal(false);c.rotateClockwise();c.setFlipHorizontal(true);c.setFlipVertical(true);c.setStraightenDegrees(6.5);
+                settled(c);
                 const auto transformed=geometry(c);const auto shown=c.previewImage().copy();
                 check(c.frame()==retained&&!c.busy()&&operations.size()==operationsBefore,"Crop rotation flips and straighten do not rerender film");
                 check(sameImage(shown,output::displayFrame(retained,transformed)),"Preview uses shared full-precision geometry output");
                 c.undo();check(near(c.straightenDegrees(),0)&&c.frame()==retained,"Undo geometry changes no engine frame");
-                c.redo();check(geometry(c)==transformed&&sameImage(c.previewImage(),shown),"Redo geometry restores exact displayed pixels");
+                c.redo();settled(c);
+                check(geometry(c)==transformed&&sameImage(c.previewImage(),shown),"Redo geometry restores exact displayed pixels");
                 const QString png=destination+"/transformed.png";
                 c.exportImage(QUrl::fromLocalFile(png),1,95,0);idle(c,"Export transformed PNG8");
                 // The file is exactly the export path's quantisation of the
@@ -691,6 +709,15 @@ int main(int argc,char** argv) {
                   std::abs(c.frameScale()*opened->width()-opened->logicalWidth())<1e-6&&
                   std::abs(std::max(c.metadata()["width"].toInt(),c.metadata()["height"].toInt())-decodeLong)<=2,
                   "and stands for the full frame: its logical size, scale and reported size are the photograph's");
+            // A geometry edit's picture, made off the GUI thread, keeps the
+            // live frame's scale (the full render starts 400 ms after it).
+            const double liveRatio=c.previewImage().devicePixelRatio();
+            c.setStraightenDegrees(2.5);
+            check(near(c.straightenDegrees(),2.5),"A geometry edit applies to the live frame");
+            settled(c,"The live frame's straightened picture");
+            check(!c.fullResolution()&&c.previewImage().devicePixelRatio()==liveRatio&&
+                  sameImage(c.previewImage(),output::displayFrame(c.frame(),geometry(c))),
+                  "The live frame's geometry picture keeps its pixels-over-full-pixels scale");
             waitFor(fullFrame,"The full frame follows the live one");
             const double fullOpenMs=double(clock.elapsed());
             check(c.frame()->full_tier&&int(std::max(c.frame()->width(),c.frame()->height()))==decodeLong&&

@@ -195,7 +195,8 @@ void PreviewController::openPairItem(int index) {
     const auto mode = item.mode;
     const auto gen = ++generation_;
     const auto factory = image_factory_;
-    submit([identity, s, in, mode, gen, index, factory](desktop::PreviewHost& host) {
+    const auto grades = pairGrades(item);
+    submit([identity, s, in, mode, gen, index, factory, grades](desktop::PreviewHost& host) {
         Reply r;
         r.generation = gen;
         r.operation = "open";
@@ -203,6 +204,7 @@ void PreviewController::openPairItem(int index) {
         try {
             r.frame = host.render_pair(identity, in, mode, s);
             r.publication = publish(factory, r.frame, {});
+            gradePublication(r.publication, grades, r.frame->pair_holes);
         } catch (const std::exception& e) {
             r.frame = nullptr;
             r.error = text(e.what());
@@ -221,14 +223,18 @@ void PreviewController::applyPair() {
     const auto gen = ++generation_;
     const auto revision = settings_revision_.load();
     const auto factory = image_factory_;
-    submit([this, identity, s, in, mode, gen, revision, factory](desktop::PreviewHost& host) {
+    const auto grades = pairGrades(item);
+    submit([this, identity, s, in, mode, gen, revision, factory, grades](desktop::PreviewHost& host) {
         Reply r;
         r.generation = gen;
         r.settings_revision = revision;
         r.operation = "render";
         try {
             r.frame = host.render_pair(identity, in, mode, s);
-            if (settings_revision_.load() == revision) r.publication = publish(factory, r.frame, {});
+            if (settings_revision_.load() == revision) {
+                r.publication = publish(factory, r.frame, {});
+                gradePublication(r.publication, grades, r.frame->pair_holes);
+            }
         } catch (const std::exception& e) {
             r.frame = nullptr;
             r.error = text(e.what());
@@ -869,7 +875,8 @@ void PreviewController::commitPairDrag() {
 void PreviewController::pairFrameLanded() {
     // Session.placementLanded (:4691-4695).
     // A new print of the pair: graded frame by frame again (pairLayered).
-    if (pairActive() && frame_ && frame_->pair && frame_.get() != pair_graded_for_) regradePair();
+    if (pairActive() && frame_ && frame_->pair && frame_.get() != pair_graded_for_ && frame_.get() != pair_grading_for_)
+        regradePair();
     if (!pair_drag_ || !pair_drag_->settling) return;
     if (!frame_ || !frame_->pair || !frame_->pair_input.holes[pair_drag_->side] ||
         frame_->pair_input.holes[pair_drag_->side]->placement == pair_drag_->live)
@@ -895,12 +902,58 @@ desktop::postdev::Params PreviewController::pairShownGrade() const {
     return item.postdev;
 }
 
-bool PreviewController::pairGradeLayered(const LibraryItem& item) const {
+bool PreviewController::PairGrades::layered() const {
     // The grade half of Session.pairIsLayered (:4999-5007).
-    if (!item.pair) return false;
-    for (const auto& hole : item.pair->holes)
-        if (hole && hole->grade && *hole->grade != item.postdev) return true;
+    for (const auto& grade : own)
+        if (grade && *grade != film) return true;
     return false;
+}
+
+PreviewController::PairGrades PreviewController::pairGrades(const LibraryItem& item) {
+    PairGrades grades;
+    grades.film = item.postdev;
+    if (item.pair)
+        for (int side = 0; side < 2; ++side)
+            if (item.pair->holes[side]) grades.own[side] = item.pair->holes[side]->grade;
+    return grades;
+}
+
+bool PreviewController::pairGradeLayered(const LibraryItem& item) const {
+    return item.pair && pairGrades(item).layered();
+}
+
+PreviewController::Visible PreviewController::gradedPair(const QImage& full, const PairGrades& grades,
+                                                         const std::array<desktop::PairRect, 2>& holes) {
+    // A pair is never cut and has no crop: the picture is the whole print.
+    Visible v;
+    v.image = output::displayImage(full, QRectF(0, 0, 1, 1));
+    if (grades.layered()) {
+        v.image = v.image.copy();
+        if (v.image.isNull()) throw std::runtime_error("Cannot allocate the graded pair");
+        gradePairImage(v.image, grades.film, grades.own, holes, v.image.colorSpace());
+    }
+    v.navigator = desktop::display::navigatorImage(v.image);
+    v.histogram = desktop::display::histogram(v.image);
+    return v;
+}
+
+void PreviewController::gradePublication(Publication& publication, const PairGrades& grades,
+                                         const std::array<desktop::PairRect, 2>& holes) {
+    // Ungraded, publish() already made the picture as the canvas shows it.
+    if (grades.layered()) {
+        auto v = gradedPair(publication.full, grades, holes);
+        publication.visible = std::move(v.image);
+        publication.navigator = std::move(v.navigator);
+        publication.histogram = std::move(v.histogram);
+    }
+    publication.pair_grades = grades;
+}
+
+void PreviewController::takePairGrades(const PairGrades& grades) {
+    // Current while they are still the pair's grades; else the regrade that
+    // the edit since started (pair_grade_timer_) or pairFrameLanded makes it.
+    pair_graded_ = grades.layered();
+    pair_graded_for_ = pairActive() && pairGrades(library_[active_index_]) == grades ? frame_.get() : nullptr;
 }
 
 desktop::postdev::Params PreviewController::canvasGrade() const {
@@ -941,28 +994,35 @@ void PreviewController::regradePair() {
         pair_graded_ = false;
         return;
     }
-    const auto& item = library_[active_index_];
-    const bool layered = pairGradeLayered(item);
-    if (!layered && !pair_graded_) { pair_graded_for_ = frame_.get(); return; }
-    try {
-        // A pair is never cut and has no crop: the picture is the whole print.
-        QImage picture = output::displayImage(full_image_, QRectF(0, 0, 1, 1));
-        if (layered) {
-            picture = picture.copy();
-            gradePairImage(picture, item.postdev, {item.pair->holes[0] ? item.pair->holes[0]->grade : std::nullopt,
-                                                   item.pair->holes[1] ? item.pair->holes[1]->grade : std::nullopt},
-                           frame_->pair_holes, picture.colorSpace());
-        }
-        image_ = std::move(picture);
-        navigator_ = desktop::display::navigatorImage(image_);
-        histogram_ = desktop::display::histogram(image_);
-        pair_graded_ = layered;
+    const auto grades = pairGrades(library_[active_index_]);
+    const bool layered = grades.layered();
+    if (!layered && !pair_graded_) {
+        if (pair_grading_for_) retireVisible();  // a layered regrade still on its way would grade it again
         pair_graded_for_ = frame_.get();
-        emit frameChanged();
-    } catch (const std::exception& e) {
-        status_ = text(e.what());
-        emit stateChanged();
+        return;
     }
+    // The whole print graded on the picture lane, not here: a full frame's
+    // CPU grade (requestVisible). The frame cannot change before it lands --
+    // a new one retires the request.
+    const auto full = full_image_;
+    const auto holes = frame_->pair_holes;
+    const void* graded = frame_.get();
+    requestVisible([full, grades, holes] { return gradedPair(full, grades, holes); },
+                   [this, layered, graded](Visible v) {
+        pair_grading_for_ = nullptr;
+        if (!v.error.isEmpty()) {
+            status_ = v.error;
+            emit stateChanged();
+            return;
+        }
+        image_ = std::move(v.image);
+        navigator_ = std::move(v.navigator);
+        histogram_ = std::move(v.histogram);
+        pair_graded_ = layered;
+        pair_graded_for_ = graded;
+        emit frameChanged();
+    });
+    pair_grading_for_ = graded;
 }
 
 desktop::postdev::FrameGrade PreviewController::pairExportGrade(const LibraryItem& item, const desktop::FramePtr& frame) const {

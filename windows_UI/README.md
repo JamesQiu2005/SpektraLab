@@ -146,6 +146,10 @@ Start-Process <build>\app\SpektraLabQt.exe -Wait -NoNewWindow -ArgumentList `
 # Half-frame pairs: <resources> <RAW> <second RAW> <new dir>
 <build>\windows_UI\spk_qt_pairs_workflow_test.exe <build>\app\resources `
     C:\photos\a.NEF C:\photos\b.NEF C:\validation\pairs
+# Not a gate, a measurement: straighten and crop drags at full resolution,
+# each step's time on the GUI thread and when the picture lands
+<build>\windows_UI\spk_qt_geometry_bench.exe <build>\app\resources `
+    C:\photos\supported.ARW C:\validation\geometry-bench
 ```
 
 `SpektraLabQt.exe` is a GUI-subsystem executable, hence `Start-Process
@@ -397,6 +401,19 @@ against 436 ms full, the first picture of an open at 2.0 s and the full frame
 at 3.1 s. The self-test and `--snapshot` develop at full resolution unless
 `--preview-long-edge` says otherwise; the editing workflow's last block tests
 the live tier.
+A geometry edit (crop, turn, flip, straighten, an undo across one, a film edge
+moving the crop) and a half-frame pair's frame-by-frame grade make the canvas's
+picture again from the frame already developed, never on the GUI thread: a
+one-thread lane beside the worker (`requestVisible`) where the newest request
+replaces one not yet started and a result lands only while it is still the
+newest, so the canvas keeps the last picture until the current geometry's
+lands and never shows an older crop (`pictureSettled` says when it has). The
+straighten's bilinear pass runs its rows across the cores, bit-identical to one
+thread. Measured with `spk_qt_geometry_bench` (below) on the 33 MP ARW and the
+36 MP NEF at full resolution: a straighten step held the GUI thread 1.0-1.1 s
+and a crop step on a straightened frame 0.7-0.8 s; each now returns in about
+0.1 ms, and the picture lands 0.24-0.49 s after the drag stops (0.06-0.11 s for a
+plain crop).
 The same worker makes the canvas images before a result is delivered: the
 frame's RGBA16 as `RGBX16FPx4` half floats (value/65535, 8 bytes per pixel like
 the RGBA16) tagged with the colour space the session's open reply reports

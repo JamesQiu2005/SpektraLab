@@ -110,24 +110,32 @@ QImage straighten(const QImage& source,double degrees) {
                                std::abs(cosine)+std::abs(sine)*width/height);
     const double c=cosine/zoom,s=sine/zoom;
     const double centerX=(width-1)*.5,centerY=(height-1)*.5;
-    for(int y=0;y<height;++y) {
-        auto* row=reinterpret_cast<QRgba64*>(output.scanLine(y));
-        for(int x=0;x<width;++x) {
-            const double sourceX=std::clamp(centerX+c*(x-centerX)+s*(y-centerY),0.0,double(width-1));
-            const double sourceY=std::clamp(centerY-s*(x-centerX)+c*(y-centerY),0.0,double(height-1));
-            const int x0=int(sourceX),y0=int(sourceY),x1=std::min(x0+1,width-1),y1=std::min(y0+1,height-1);
-            const double fx=sourceX-x0,fy=sourceY-y0;
-            const auto* top=reinterpret_cast<const QRgba64*>(pixels.constScanLine(y0));
-            const auto* bottom=reinterpret_cast<const QRgba64*>(pixels.constScanLine(y1));
-            auto channel=[&](quint16 a,quint16 b,quint16 d,quint16 e) {
-                return quint16(std::clamp(std::lround((a+(b-a)*fx)*(1-fy)+(d+(e-d)*fx)*fy),0L,65535L));
-            };
-            row[x]=QRgba64::fromRgba64(channel(top[x0].red(),top[x1].red(),bottom[x0].red(),bottom[x1].red()),
-                channel(top[x0].green(),top[x1].green(),bottom[x0].green(),bottom[x1].green()),
-                channel(top[x0].blue(),top[x1].blue(),bottom[x0].blue(),bottom[x1].blue()),
-                channel(top[x0].alpha(),top[x1].alpha(),bottom[x0].alpha(),bottom[x1].alpha()));
+    // Rows across the cores (display::parallelRows): every output pixel is
+    // the same arithmetic on the same inputs whichever thread has its row, so
+    // the result is bit-identical to one thread's.
+    // scanLine() detaches, so it is called once here, not from the threads.
+    uchar* const outputBits=output.bits();
+    const qsizetype outputStride=output.bytesPerLine();
+    display::parallelRows(height,[&](int rowBegin,int rowEnd){
+        for(int y=rowBegin;y<rowEnd;++y) {
+            auto* row=reinterpret_cast<QRgba64*>(outputBits+outputStride*y);
+            for(int x=0;x<width;++x) {
+                const double sourceX=std::clamp(centerX+c*(x-centerX)+s*(y-centerY),0.0,double(width-1));
+                const double sourceY=std::clamp(centerY-s*(x-centerX)+c*(y-centerY),0.0,double(height-1));
+                const int x0=int(sourceX),y0=int(sourceY),x1=std::min(x0+1,width-1),y1=std::min(y0+1,height-1);
+                const double fx=sourceX-x0,fy=sourceY-y0;
+                const auto* top=reinterpret_cast<const QRgba64*>(pixels.constScanLine(y0));
+                const auto* bottom=reinterpret_cast<const QRgba64*>(pixels.constScanLine(y1));
+                auto channel=[&](quint16 a,quint16 b,quint16 d,quint16 e) {
+                    return quint16(std::clamp(std::lround((a+(b-a)*fx)*(1-fy)+(d+(e-d)*fx)*fy),0L,65535L));
+                };
+                row[x]=QRgba64::fromRgba64(channel(top[x0].red(),top[x1].red(),bottom[x0].red(),bottom[x1].red()),
+                    channel(top[x0].green(),top[x1].green(),bottom[x0].green(),bottom[x1].green()),
+                    channel(top[x0].blue(),top[x1].blue(),bottom[x0].blue(),bottom[x1].blue()),
+                    channel(top[x0].alpha(),top[x1].alpha(),bottom[x0].alpha(),bottom[x1].alpha()));
+            }
         }
-    }
+    });
     output.setColorSpace(source.colorSpace());
     return output;
 }
@@ -199,11 +207,14 @@ QImage exportImage(const QImage& fullRgba64,const Geometry& geometry,const Expor
     validateGeometry(fullRgba64.size(),geometry);
     const auto rect=cropPixels(fullRgba64.size(),geometry.crop);
     // Validate only the exported region: padding is not part of the image.
-    for(int y=rect.top();y<=rect.bottom();++y) {
-        const auto* row=reinterpret_cast<const QRgba64*>(fullRgba64.constScanLine(y));
-        for(int x=rect.left();x<=rect.right();++x)
-            if(row[x].alpha()!=65535)fail(QStringLiteral("Export requires opaque pixels"));
-    }
+    // Rows across the cores, as the straighten.
+    display::parallelRows(rect.height(),[&](int rowBegin,int rowEnd){
+        for(int y=rect.top()+rowBegin;y<rect.top()+rowEnd;++y) {
+            const auto* row=reinterpret_cast<const QRgba64*>(fullRgba64.constScanLine(y));
+            for(int x=rect.left();x<=rect.right();++x)
+                if(row[x].alpha()!=65535)fail(QStringLiteral("Export requires opaque pixels"));
+        }
+    });
     QImage output=applyGeometry(fullRgba64,geometry);
     if(options.maxLongEdge && std::max(output.width(),output.height())>options.maxLongEdge) {
         const double ratio=double(options.maxLongEdge)/std::max(output.width(),output.height());

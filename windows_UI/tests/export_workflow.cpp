@@ -48,7 +48,7 @@ void waitFor(const std::function<bool()>& condition, const QString& what, int ms
     check(condition(), "timed out waiting for " + what);
 }
 void idle(PreviewController& c, const QString& what) {
-    waitFor([&] { return !c.busy() && !c.dirty() && !c.batchExporting(); }, what);
+    waitFor([&] { return !c.busy() && !c.dirty() && !c.batchExporting() && c.pictureSettled(); }, what);
 }
 QByteArray readAll(const QString& path) { QFile f(path); check(f.open(QIODevice::ReadOnly), "read " + path); return f.readAll(); }
 QByteArray sha(const QString& path) { return QCryptographicHash::hash(readAll(path), QCryptographicHash::Sha256).toHex(); }
