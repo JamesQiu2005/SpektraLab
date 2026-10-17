@@ -11,11 +11,14 @@
 #include "FrameImage.hpp"
 #include "PostDevSurfaces.hpp"
 #include "image_io.hpp"
+#include <QColorSpace>
 #include <QDir>
 #include <QFileInfo>
 #include <QHash>
 #include <QSettings>
+#include <QMetaObject>
 #include <QThread>
+#include <QTransform>
 #include <algorithm>
 #include <cmath>
 
@@ -118,6 +121,99 @@ void PreviewController::requestPreviews() {
             QMetaObject::invokeMethod(this,[this,url,image]{takePreview(url,image);},Qt::QueuedConnection);
         });
     }
+}
+
+// --- switching photographs: the placeholder and the picture cache -------------
+
+namespace {
+// A file's own preview cut and turned as the photograph is, for the canvas
+// while it opens: the crop (in the source's own coordinates), quarter turns
+// and flips -- not the straighten, a degree or two nobody sees in a second.
+QImage framedPreview(const QImage& preview,const spk::desktop::output::Geometry& g) {
+    if(preview.isNull())return {};
+    const QRect cut=QRectF(g.crop.x()*preview.width(),g.crop.y()*preview.height(),
+                           g.crop.width()*preview.width(),g.crop.height()*preview.height()).toAlignedRect()&preview.rect();
+    QImage out=cut.isEmpty()?preview:preview.copy(cut);
+    if(g.quarterTurns%4)out=out.transformed(QTransform().rotate(90.0*(g.quarterTurns%4)));
+    Qt::Orientations flips;
+    if(g.flipHorizontal)flips|=Qt::Horizontal;
+    if(g.flipVertical)flips|=Qt::Vertical;
+    if(flips)out=out.flipped(flips);
+    out.setColorSpace(preview.colorSpace());
+    return out;
+}
+}
+
+void PreviewController::cachePicture() {
+    // The photograph on screen as it is shown, while its frame matches its
+    // settings (not mid-edit) -- never a pair's piece.
+    if(active_index_<0||active_index_>=int(library_.size())||!frame_||frame_->pair||image_.isNull()||dirty())return;
+    const auto& item=library_[std::size_t(active_index_)];
+    if(item.pair)return;
+    CachedPicture entry;
+    try {entry.image=desktop::display::downscaled(image_,{kPictureEdge,kPictureEdge});}
+    catch(const std::exception&) {return;}
+    // A live frame's scale belongs to the canvas it was made for.
+    if(entry.image.devicePixelRatio()!=1)entry.image.setDevicePixelRatio(1);
+    entry.postDev=canvasPostDev();entry.sourceMap=postDevSourceMap();
+    entry.settings=item.settings;entry.mode=item.mode;entry.geometry=item.geometry;
+    entry.bytes=entry.image.sizeInBytes();entry.stamp=++picture_stamp_;
+    const QString key=item.url.toLocalFile().toLower();
+    if(const auto old=picture_cache_.find(key);old!=picture_cache_.end()) {
+        picture_cache_bytes_-=old->second.bytes;picture_cache_.erase(old);
+    }
+    picture_cache_bytes_+=entry.bytes;picture_cache_.emplace(key,std::move(entry));
+    while(picture_cache_bytes_>kPictureCacheBytes&&picture_cache_.size()>1) {
+        auto oldest=picture_cache_.begin();
+        for(auto it=picture_cache_.begin();it!=picture_cache_.end();++it)if(it->second.stamp<oldest->second.stamp)oldest=it;
+        picture_cache_bytes_-=oldest->second.bytes;picture_cache_.erase(oldest);
+    }
+}
+
+void PreviewController::showPlaceholder(int index) {
+    if(index<0||index>=int(library_.size())||library_[std::size_t(index)].pair){dismissPlaceholder();return;}
+    const auto& item=library_[std::size_t(index)];
+    placeholder_index_=index;placeholder_developed_=false;
+    placeholder_postdev_={};placeholder_source_map_={};
+    const auto cached=picture_cache_.find(item.url.toLocalFile().toLower());
+    if(cached!=picture_cache_.end()&&sameSettings(cached->second.settings,item.settings)&&
+       cached->second.mode==item.mode&&cached->second.geometry==item.geometry) {
+        // Its last developed picture, as it was shown: exactly what lands.
+        cached->second.stamp=++picture_stamp_;
+        placeholder_=cached->second.image;placeholder_developed_=true;
+        placeholder_postdev_=cached->second.postDev;placeholder_source_map_=cached->second.sourceMap;
+    } else {
+        // Its own preview at once (the strip's, if read), then a larger one
+        // read off the GUI thread while the decode runs.
+        placeholder_=framedPreview(item.preview,item.geometry);
+        const QUrl url=item.url;const auto file=path(url);
+        preview_pool_->start([this,url,file]{
+            QImage image;
+            try {
+                spkhost::Rgba8 rgba;std::string source,error;
+                if(spkhost::thumbnail(file,2048,rgba,source,error)&&rgba.width&&rgba.height) {
+                    QImage bytes(rgba.rgba.data(),int(rgba.width),int(rgba.height),int(rgba.width)*4,QImage::Format_RGBA8888);
+                    image=bytes.convertToFormat(QImage::Format_RGBX8888);
+                    image.setColorSpace(QColorSpace::SRgb);
+                }
+            } catch(const std::exception&) {image={};}
+            QMetaObject::invokeMethod(this,[this,url,image]{
+                // Still the photograph opening, and still on its own preview.
+                if(!placeholder_shown_||placeholder_developed_||image.isNull()||placeholder_index_<0||
+                   placeholder_index_>=int(library_.size())||library_[std::size_t(placeholder_index_)].url!=url)return;
+                placeholder_=framedPreview(image,library_[std::size_t(placeholder_index_)].geometry);
+                emit placeholderChanged();
+            },Qt::QueuedConnection);
+        });
+    }
+    placeholder_shown_=true;
+    emit placeholderChanged();
+}
+
+void PreviewController::dismissPlaceholder() {
+    if(!placeholder_shown_&&placeholder_index_<0)return;
+    placeholder_shown_=false;placeholder_index_=-1;
+    emit placeholderChanged();
 }
 
 void PreviewController::takePreview(const QUrl& url,QImage preview) {

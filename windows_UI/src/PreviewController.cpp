@@ -244,6 +244,9 @@ PreviewController::PreviewController(std::filesystem::path resources,QObject* pa
     // The canvas is fed from pixels() (publish), so the host's 8-bit copy
     // would be 132 MB per 33 MP frame nobody reads.
     desktop::HostOptions options;options.bgra8_display=false;options.preview_long_edge=preview_long_edge_;
+    // Going back to a photograph opened before skips its decode while the
+    // budget holds it (two or so 36 MP decodes; PreviewHost decode cache).
+    options.decode_cache_bytes=std::size_t(1)<<30;
     options.output_color_space=outputColorSpace.isEmpty()?std::string(kWorkingSpace):outputColorSpace.toStdString();
     setupPostDev();
     setupLibrary();
@@ -387,6 +390,8 @@ void PreviewController::accept(Reply reply) {
     const bool superseded=reply.operation=="render"&&(reply.settings_revision!=settings_revision_||reply.cancelled||
         (reply.frame&&!reply.frame->cut&&reply.geometry!=geometry_));
     busy_=false;active_operation_.clear();failed_=!superseded&&!reply.error.isEmpty();
+    // The photograph opened, or failed to: the placeholder fades out.
+    if(reply.operation=="open")dismissPlaceholder();
     if(superseded) {
         // The worker may finish an earlier choice after the next click. Keep
         // both the displayed frame and the newest desired controls; never flash
@@ -800,6 +805,8 @@ void PreviewController::openRaw(const QUrl& url) {
 }
 void PreviewController::openItem(int index) {
     endEditGesture();
+    // Leaving a photograph keeps its picture; the next shows its own at once.
+    cachePicture();showPlaceholder(index);
     if(library_.at(index).pair){openPairItem(index);return;}
     const auto item=library_.at(index);const auto p=path(item.url);
     const auto gen=++generation_;const auto factory=image_factory_;

@@ -8,6 +8,7 @@
 #include <cmath>
 #include <cstdio>
 #include <cstring>
+#include <deque>
 #include <fstream>
 #include <limits>
 #include <mutex>
@@ -1210,6 +1211,40 @@ struct PreviewHost::Impl {
     // cannot be released while a cancel reaches it.
     std::mutex cancel_mutex;
     spk_session* cancellable = nullptr;
+    // HostOptions::decode_cache_bytes: earlier photographs' decodes, most
+    // recently left first, each with what it was decoded as. Moved in when a
+    // photograph is left and out when it is opened again -- never copied.
+    struct CachedDecode {
+        fs::path source;
+        DecodeMode mode;
+        RenderSettings settings;   // the decode's own rows (same_decode)
+        io::DecodedRaw decoded;
+    };
+    std::deque<CachedDecode> decodes;
+    // The current photograph's decode goes into the cache when another
+    // replaces it (not a pair's composed piece, which is no file's decode).
+    void keep_decode() {
+        if (!options.decode_cache_bytes || !frame || pair || decoded.rgb.empty()) return;
+        const std::size_t bytes = decoded.rgb.size() * sizeof(float);
+        if (bytes > options.decode_cache_bytes) return;
+        decodes.push_front({frame->source, frame->decode_mode, frame->settings, std::move(decoded)});
+        decoded = io::DecodedRaw{};
+        std::size_t held = 0;
+        for (auto it = decodes.begin(); it != decodes.end();) {
+            held += it->decoded.rgb.size() * sizeof(float);
+            it = held > options.decode_cache_bytes ? decodes.erase(it) : std::next(it);
+        }
+    }
+    // A kept decode of this photograph with these decode settings, taken out.
+    std::optional<io::DecodedRaw> take_decode(const fs::path& source, DecodeMode mode, const RenderSettings& settings) {
+        for (auto it = decodes.begin(); it != decodes.end(); ++it) {
+            if (it->source != source || it->mode != mode || !same_decode(it->settings, settings)) continue;
+            std::optional<io::DecodedRaw> found(std::move(it->decoded));
+            decodes.erase(it);
+            return found;
+        }
+        return std::nullopt;
+    }
 };
 
 namespace {
@@ -1352,9 +1387,15 @@ FramePtr PreviewHost::open_raw(const fs::path& source, DecodeMode mode, const Re
     io::DecodedRaw decoded;
     std::string error;
     auto t = Clock::now();
-    // The settings' white balance is applied here, at decode (raw_white_balance.hpp).
-    const bool decoded_ok = decode_raw(path, mode, settings, decoded, error);
-    require(decoded_ok, "RAW decode: " + error);
+    // A photograph opened before, with the same decode, comes back from the
+    // cache (HostOptions::decode_cache_bytes); its timings are its own.
+    if (auto kept = impl_->take_decode(path, mode, settings)) {
+        decoded = std::move(*kept);
+    } else {
+        // The settings' white balance is applied here, at decode (raw_white_balance.hpp).
+        const bool decoded_ok = decode_raw(path, mode, settings, decoded, error);
+        require(decoded_ok, "RAW decode: " + error);
+    }
     next->timings.decode_ms = elapsed(t);
     next->metadata = decoded.metadata;
     next->decode_timings = decoded.timings;
@@ -1394,6 +1435,11 @@ FramePtr PreviewHost::open_raw(const fs::path& source, DecodeMode mode, const Re
     impl_->encoding = opened.encoding;
     impl_->session_cut = input.cut ? std::optional<EngineCut>(input.photo.geometry) : std::nullopt;
     impl_->preview = std::move(preview);
+    // The decode being replaced is kept for a return to it, unless it is
+    // this very decode again (the same photograph and decode settings).
+    if (!(impl_->frame && impl_->frame->source == path && impl_->frame->decode_mode == mode &&
+          same_decode(impl_->frame->settings, settings)))
+        impl_->keep_decode();
     impl_->decoded = std::move(decoded);
     impl_->frame = next;
     // A photograph replaces a pair: its pictures are not kept behind it.
@@ -1719,6 +1765,7 @@ FramePtr PreviewHost::render_pair(const fs::path& identity, const PairInput& pai
     if (!same) {
         impl_->session = std::move(session);
         impl_->encoding = encoding;
+        impl_->keep_decode();   // a photograph left for the pair is kept for a return to it
         impl_->decoded = std::move(*composed);
         impl_->session_cut.reset();
         impl_->preview.reset();

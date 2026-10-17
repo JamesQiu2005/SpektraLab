@@ -385,6 +385,19 @@ All engine work runs on one serial worker. Edits during a render are coalesced
 into the newest settings; superseded results never replace the displayed frame
 or newer controls. Changes update the preview after a 180 ms settling delay.
 
+**Switching photographs** shows the next one the moment the click lands: its
+last developed picture as it was shown, graded (the picture cache: each
+photograph's picture reduced to 2560 px when it is left, 512 MB, least
+recently used out first), else its own embedded preview cut and turned like it
+(the strip's at once, a 2048 px one read off the GUI thread a moment later).
+It sits over the canvas until the photograph's frame lands and then fades out
+over it. A thin accent bar sweeps the canvas's top edge while anything
+develops, at full strength while a photograph opens. The host keeps the
+decodes of photographs left (`HostOptions::decode_cache_bytes`, 1 GB: two or
+so 36 MP decodes), so going back to one skips its decode -- 1.5 s of a D810
+NEF -- and lands in ~0.8 s at full resolution, with its picture on screen at
+once.
+
 **The preview resolution** (Settings > Rendering: 1080, 1920, 2560 by default,
 3840; read at start), as on the Mac (ARCHITECTURE.md §7.3): an open and every
 edit develop the engine's `live` tier at that long edge, and 400 ms after the

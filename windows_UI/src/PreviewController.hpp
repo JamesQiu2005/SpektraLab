@@ -25,6 +25,7 @@
 #include <condition_variable>
 #include <deque>
 #include <functional>
+#include <map>
 #include <mutex>
 #include <thread>
 #include <atomic>
@@ -52,6 +53,17 @@ class PreviewController final : public QObject {
     // throughout; fullResolution says the full frame has landed.
     Q_PROPERTY(double frameScale READ frameScale NOTIFY frameChanged)
     Q_PROPERTY(bool fullResolution READ fullResolution NOTIFY frameChanged)
+    // Switching photographs: what the canvas shows at once while the next
+    // one opens -- its last developed picture from the picture cache, with
+    // the grade it was shown with, else its own embedded preview cut like it
+    // (a larger one replaces the strip's when it has been read). Shown while
+    // placeholderShown; the image stays after, so the canvas can fade it out
+    // over the frame that landed. `opening`: a photograph is being opened.
+    Q_PROPERTY(QImage placeholderImage READ placeholderImage NOTIFY placeholderChanged)
+    Q_PROPERTY(bool placeholderShown READ placeholderShown NOTIFY placeholderChanged)
+    Q_PROPERTY(QVariantMap placeholderPostDev READ placeholderPostDev NOTIFY placeholderChanged)
+    Q_PROPERTY(QVariantList placeholderSourceMap READ placeholderSourceMap NOTIFY placeholderChanged)
+    Q_PROPERTY(bool opening READ opening NOTIFY stateChanged)
     // previewImage reduced to a long edge of at most 1024 px (area average,
     // same tag), for the navigator: a second full-size texture is 264 MB at
     // 33 MP. Changes whenever previewImage does.
@@ -326,6 +338,14 @@ public:
     bool pictureSettled() const { return !visible_current_pending_; }
     double frameScale() const { return frame_&&frame_->width()>0?double(frame_->logicalWidth())/frame_->width():1.0; }
     bool fullResolution() const { return !frame_||frame_->full_tier; }
+    QImage placeholderImage() const { return placeholder_; }
+    bool placeholderShown() const { return placeholder_shown_; }
+    // Whether the placeholder is a developed picture (the picture cache)
+    // rather than the file's own preview.
+    bool placeholderDeveloped() const { return placeholder_developed_; }
+    QVariantMap placeholderPostDev() const { return placeholder_postdev_; }
+    QVariantList placeholderSourceMap() const { return placeholder_source_map_; }
+    bool opening() const { return busy_&&active_operation_=="open"; }
     QImage navigatorImage() const { return navigator_; }
     QVariantMap metadata() const;
     QVariantList films() const { return films_; }
@@ -661,6 +681,7 @@ public:
     // Deletes a pair's record (the photographs it showed are untouched).
     Q_INVOKABLE bool deletePair(int index);
 signals:
+    void placeholderChanged();
     void clipboardChanged();
     void pairChanged();
     void filmEdgeChanged();
@@ -796,6 +817,33 @@ private:
     double exposure_ev_=0;
     spk::desktop::FramePtr frame_;
     QImage image_;
+    // The picture cache: each photograph's last developed picture as the
+    // canvas showed it, reduced to kPictureEdge, with what it was developed
+    // with; kept when the photograph is left, least recently used first out
+    // past kPictureCacheBytes. Only the placeholder reads it.
+    struct CachedPicture {
+        QImage image;
+        QVariantMap postDev;
+        QVariantList sourceMap;
+        spk::desktop::RenderSettings settings;
+        spk::desktop::DecodeMode mode=spk::desktop::DecodeMode::compatible16;
+        spk::desktop::output::Geometry geometry;
+        qint64 bytes=0;
+        quint64 stamp=0;
+    };
+    static constexpr int kPictureEdge=2560;
+    static constexpr qint64 kPictureCacheBytes=qint64(512)<<20;
+    std::map<QString,CachedPicture> picture_cache_;
+    qint64 picture_cache_bytes_=0;
+    quint64 picture_stamp_=0;
+    QImage placeholder_;
+    bool placeholder_shown_=false,placeholder_developed_=false;
+    int placeholder_index_=-1;
+    QVariantMap placeholder_postdev_;
+    QVariantList placeholder_source_map_;
+    void cachePicture();
+    void showPlaceholder(int index);
+    void dismissPlaceholder();
     QImage full_image_;
     QImage source_image_;
     QImage navigator_;

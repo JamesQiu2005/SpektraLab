@@ -108,6 +108,28 @@ Item {
         proof: preview.proofTransform
         gamutWarning: preview.gamutWarning
     }
+    // Switching photographs (preview.placeholderShown): the next one's last
+    // developed picture, or its own embedded preview, on the ground at once
+    // -- the moment the click lands -- until its frame does; then faded out
+    // over it. Fitted, not interactive, graded as it was shown.
+    Item {
+        id: placeholderLayer
+        objectName: "placeholderLayer"
+        anchors.fill: parent
+        opacity: preview.placeholderShown ? 1 : 0
+        visible: opacity > 0
+        Behavior on opacity { NumberAnimation { duration: preview.placeholderShown ? 0 : 260; easing.type: Easing.OutCubic } }
+        Rectangle { anchors.fill: parent; color: Theme.ground }
+        FrameCanvas {
+            objectName: "placeholderCanvas"
+            anchors.fill: parent
+            image: preview.placeholderImage
+            interactive: false
+            enabled: false
+            postDev: preview.placeholderPostDev
+            sourceMap: preview.placeholderSourceMap
+        }
+    }
     // The split's left half: the Original in exactly the print's rectangle,
     // clipped at the line.
     Item {
@@ -283,6 +305,30 @@ Item {
             ToolTip.visible: tabMouse.containsMouse
             ToolTip.text: view.editor.filmstripCollapsed ? L10n.tr("canvas.showFilmstrip") : L10n.tr("canvas.hideFilmstrip")
             ToolTip.delay: 500
+        }
+    }
+    // Something is developing: a thin bar along the canvas's top edge with an
+    // accent segment sweeping it -- full strength while a photograph opens,
+    // faint while an edit's frame (or its full resolution) develops. Takes no
+    // mouse.
+    Item {
+        id: busyBar
+        objectName: "canvasBusyBar"
+        anchors.left: parent.left; anchors.right: parent.right; anchors.top: parent.top
+        height: 2
+        clip: true
+        visible: preview.busy
+        opacity: preview.opening ? 1 : 0.45
+        Rectangle {
+            id: sweep
+            width: Math.max(60, busyBar.width * 0.22); height: parent.height
+            radius: 1
+            color: Theme.accent
+            NumberAnimation on x {
+                from: -sweep.width; to: busyBar.width
+                duration: 1100; loops: Animation.Infinite
+                running: busyBar.visible
+            }
         }
     }
     Column {

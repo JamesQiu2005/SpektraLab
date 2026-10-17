@@ -386,6 +386,26 @@ int main(int argc,char** argv) {
             check(controller.frame()&&controller.activeIndex()==0,"The large folder's first photograph opens");
             check(importMs<1500,"The large folder is listed without holding the GUI thread");
             check(worstGap<400,"The GUI thread is never held long while the large folder's previews arrive");
+            // Switching: the next photograph's own preview at once and its
+            // frame after; back to the first, its developed picture at once
+            // (the picture cache) and no decode (the host's decode cache).
+            idle(controller,"the large folder settles");
+            controller.selectImage(1);
+            check(controller.placeholderShown()&&!controller.placeholderImage().isNull()&&!controller.placeholderDeveloped(),
+                  "Switching shows the next photograph's own preview at once");
+            idle(controller,"the second photograph opens");
+            check(!controller.placeholderShown()&&controller.activeIndex()==1,"The placeholder goes when the photograph lands");
+            const double coldDecode=controller.frame()->timings.decode_ms;
+            QElapsedTimer back;back.start();
+            controller.selectImage(0);
+            check(controller.placeholderShown()&&controller.placeholderDeveloped(),"Going back shows its developed picture at once");
+            idle(controller,"back to the first photograph");
+            const double warmDecode=controller.frame()->timings.decode_ms,backMs=double(back.elapsed());
+            std::cout<<"switching: decode "<<coldDecode<<" ms cold, "<<warmDecode<<" ms from the decode cache; back in "
+                     <<backMs<<" ms\n";
+            report.insert("switch_cold_decode_ms",coldDecode);
+            report.insert("switch_warm_decode_ms",warmDecode);
+            check(warmDecode<coldDecode/4,"Going back to a photograph skips its decode");
         }
         report.insert("operations",operations);
         report.insert("status","passed");

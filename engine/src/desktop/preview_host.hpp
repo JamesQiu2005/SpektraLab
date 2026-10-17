@@ -525,6 +525,12 @@ struct HostOptions {
     // resolution. 0: no live tier -- every call renders the full frame, as
     // the GDI viewer and the tools always have.
     std::uint32_t preview_long_edge = 0;
+    // Decodes of photographs opened before, kept for a return to them: the
+    // decode is most of an open (1.5 s of a 36 MP NEF), and going back and
+    // forth between frames repeats it. The budget is the float RGB held
+    // (12 bytes a pixel: ~0.44 GB for 36 MP); the least recently opened goes
+    // first. 0 keeps none, as the tools always have.
+    std::size_t decode_cache_bytes = 0;
 };
 
 // What a render call develops: the preview resolution while someone edits,
