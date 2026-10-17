@@ -5,8 +5,14 @@
 #include <cmath>
 #include <cstdio>
 #include <cstring>
+#include <cstdlib>
+#include <filesystem>
 #include <memory>
+#include <optional>
 #include <stdexcept>
+#ifdef _WIN32
+#include <process.h>
+#endif
 
 using namespace spk;
 namespace {
@@ -119,5 +125,115 @@ void cache_tests(const std::string& resources){
  s.reset();engine.reset();check(!first.pixels.empty(),"CPU result lifetime lost");
  std::puts("view cache: reuse, display without CAM16 setup, exact public-transform parity, grade, legacy invalidation, byte parity, parameter invalidation and ownership passed");
 }
+
+struct ScopedEnvironment {
+ std::string name; std::optional<std::string> previous;
+ ScopedEnvironment(const char* key,const std::string& value):name(key){
+  if(const char* p=std::getenv(key))previous=p;
+  set(value.c_str());
+ }
+ void set(const char* value){
+#ifdef _WIN32
+  _putenv_s(name.c_str(),value?value:"");
+#else
+  if(value)setenv(name.c_str(),value,1);else unsetenv(name.c_str());
+#endif
+ }
+ ~ScopedEnvironment(){set(previous?previous->c_str():nullptr);}
+};
+
+size_t residency_files(){
+#ifdef _WIN32
+ const std::string prefix="spektralab-residency-"+std::to_string(_getpid())+"-";
+ size_t n=0;
+ for(const auto& entry:std::filesystem::directory_iterator(std::filesystem::temp_directory_path()))
+  if(entry.path().filename().string().starts_with(prefix))++n;
+ return n;
+#else
+ // tmpfile() unlinks immediately on POSIX; closure still owns its lifetime.
+ return 0;
+#endif
 }
-int main(int argc,char** argv){try{check(argc==2,"resource directory required");process_tests(argv[1]);cache_tests(argv[1]);return 0;}catch(const std::exception& e){std::fprintf(stderr,"%s\n",e.what());return 1;}}
+
+void residency_tests(const std::string& resources){
+ using Engine=std::unique_ptr<spk_engine,decltype(&spk_engine_destroy)>;
+ using Session=std::unique_ptr<spk_session,decltype(&spk_session_release)>;
+ Engine engine(spk_engine_create(resources.c_str(),nullptr),spk_engine_destroy);check(bool(engine),spk_last_error(nullptr));
+ const uint32_t w=960,h=640;std::vector<float> px(size_t(w)*h*3);
+ for(size_t i=0;i<px.size();++i)px[i]=float(.02+.7*double((i*313)%997)/997);
+ spk_image image{px.data(),w,h,3};
+ // Keep the default random effects enabled: regeneration cannot satisfy the
+ // byte comparison merely because the material parameters stayed identical.
+ const char* params="{\"auto_exposure\":false,\"preview_long_edge\":800}";
+ Session s(spk_open(engine.get(),&image,params,nullptr),spk_session_release);check(bool(s),spk_last_error(engine.get()));
+ std::string e;view::Request q;q.rgba16=true;q.target_space="ProPhoto RGB";
+ view::Result full_before,live_before,after;
+ check(view::render(s.get(),q,full_before,e),e);q.tier="live";
+ check(view::render(s.get(),q,live_before,e),e);
+ auto ledger=[&](){return json(spk_memory_report(engine.get()));};
+ const auto resident=ledger();
+ const auto gpu_before=resident.at("persistent").at("bytes").as_double();
+ const auto files_before=residency_files();
+ // A mid-write error must leave all original GPU holdings and cached pixels.
+ {
+  ScopedEnvironment fail("SPK_TEST_RESIDENCY_FAILURE","write");
+  check(!view::suspend(s.get(),e),"injected temporary-file write unexpectedly succeeded");
+ }
+ check(!view::suspended(s.get()),"failed suspend removed resident session");
+ check(ledger().at("persistent").at("bytes").as_double()==gpu_before,"failed suspend leaked or dropped GPU data");
+ check(residency_files()==files_before,"failed suspend leaked temporary file");
+ check(view::render(s.get(),q,after,e)&&after.print_cached&&after.pixels==live_before.pixels,"failed suspend changed cached print");
+#ifdef _WIN32
+ {
+  const auto missing=std::filesystem::temp_directory_path()/"spektralab-nonexistent-residency-test"/"missing";
+  ScopedEnvironment temp("TMP",missing.string());
+  check(!view::suspend(s.get(),e),"invalid temporary directory accepted");
+ }
+ check(!view::suspended(s.get())&&residency_files()==files_before,"temporary-directory failure damaged session");
+#endif
+ check(view::suspend(s.get(),e),e);check(view::suspend(s.get(),e),"suspend is not idempotent");
+ check(view::suspended(s.get()),"suspended state not recorded");
+ const auto on_disk=ledger();
+ check(on_disk.at("suspended_bytes").as_double()>0,"disk bytes absent from memory ledger");
+ check(on_disk.at("persistent").at("source_bytes").as_double()==0&&
+       on_disk.at("persistent").at("cached_negative_bytes").as_double()==0&&
+       on_disk.at("persistent").at("cached_view_bytes").as_double()==0,"image GPU references survived suspension");
+ const auto gpu_suspended=on_disk.at("persistent").at("bytes").as_double();
+ check(gpu_before-gpu_suspended==on_disk.at("suspended_bytes").as_double(),"source/full-tier alias duplicated or disk bytes counted as GPU bytes");
+#ifdef _WIN32
+ check(residency_files()==files_before+1,"suspend did not own exactly one temporary file");
+#endif
+ // A partial restore allocates/uploads one plane, then fails. It must free
+ // those GPU allocations and leave the only exact snapshot available to retry.
+ {
+  ScopedEnvironment fail("SPK_TEST_RESIDENCY_FAILURE","read");
+  check(!view::resume(s.get(),e),"injected restore read unexpectedly succeeded");
+ }
+ check(view::suspended(s.get()),"failed restore discarded disk snapshot");
+ check(ledger().at("persistent").at("bytes").as_double()==gpu_suspended,"partial restore leaked GPU allocation");
+ // No RAW source exists: restoration is entirely from the exact disk bytes.
+ check(view::render(s.get(),q,after,e)&&after.print_cached&&after.pixels==live_before.pixels,"live random print changed across automatic restore");
+ q.tier="full";
+ check(view::render(s.get(),q,after,e)&&after.print_cached&&after.pixels==full_before.pixels,"full random print changed across restore");
+ check(!view::suspended(s.get())&&view::resume(s.get(),e),"resume is not idempotent");
+ check(residency_files()==files_before&&ledger().at("suspended_bytes").as_double()==0,"restored snapshot was not cleaned up");
+ check(ledger().at("persistent").at("bytes").as_double()==gpu_before,"restore did not preserve source aliases/allocation sizes");
+ // Retaining each pipeline must also preserve the next random realization.
+ // A second session took the same full/live route and is the unchanged control.
+ Session control(spk_open(engine.get(),&image,params,nullptr),spk_session_release);check(bool(control),spk_last_error(engine.get()));
+ view::Result reference;q.tier="full";check(view::render(control.get(),q,reference,e),e);
+ q.tier="live";check(view::render(control.get(),q,reference,e),e);
+ spk_result next{},next_control{};
+ check(spk_reprint(s.get(),"full",&next)==SPK_OK,spk_last_error(engine.get()));
+ check(spk_reprint(control.get(),"full",&next_control)==SPK_OK,spk_last_error(engine.get()));
+ const bool same=next.width==next_control.width&&next.height==next_control.height&&
+  next.row_stride_px==next_control.row_stride_px&&
+  std::memcmp(next.rgba16,next_control.rgba16,size_t(next.row_stride_px)*next.height*8)==0;
+ spk_result_free(&next);spk_result_free(&next_control);
+ check(same,"pipeline state/RNG changed across residency cycle");
+ control.reset();check(view::suspend(s.get(),e),e);s.reset();
+ check(residency_files()==files_before&&ledger().at("suspended_bytes").as_double()==0,"closing suspended session leaked temporary file");
+ std::puts("view residency: exact random pixels, aliases, rollback, automatic restore, RNG continuation and suspended-close cleanup passed");
+}
+}
+int main(int argc,char** argv){try{check(argc==2,"resource directory required");process_tests(argv[1]);cache_tests(argv[1]);residency_tests(argv[1]);return 0;}catch(const std::exception& e){std::fprintf(stderr,"%s\n",e.what());return 1;}}

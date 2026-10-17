@@ -23,6 +23,8 @@
 #include <algorithm>
 #include <atomic>
 #include <chrono>
+#include <cerrno>
+#include <cstdio>
 #include <cstdlib>
 #include <cstring>
 #include <fstream>
@@ -33,7 +35,15 @@
 #include <string>
 #include <unordered_map>
 #include <vector>
-#include <vector>
+
+#if defined(_WIN32)
+#ifndef NOMINMAX
+#define NOMINMAX
+#endif
+#include <windows.h>
+#include <fcntl.h>
+#include <io.h>
+#endif
 
 #include "spektrafilm/spk_engine.h"
 #include "file_path.hpp"
@@ -186,6 +196,24 @@ struct spk_session {
     // `spk_open` is documented not to retain the caller's pointer, so exactly
     // one copy is unavoidable; this makes that copy the upload.
     Image source;
+
+#ifndef __APPLE__
+    // No image buffer is retained here. The file owns the exact byte copy,
+    // and the indices preserve source/full-tier aliases on restoration.
+    struct ResidencySnapshot {
+        struct Plane { size_t bytes = 0; };
+        struct Slot {
+            size_t plane = size_t(-1);
+            uint32_t h = 0, w = 0, c = 3;
+        };
+        struct TierSlots { Slot image, negative, view_print; };
+        std::unique_ptr<std::FILE, decltype(&std::fclose)> file{nullptr, &std::fclose};
+        std::vector<Plane> planes;
+        Slot source;
+        std::unordered_map<std::string, TierSlots> tiers;
+    };
+    std::unique_ptr<ResidencySnapshot> residency;
+#endif
 
     Params params;
     std::unique_ptr<Pipeline> pipeline;
@@ -417,7 +445,7 @@ struct spk_engine {
         // ones a frame switch is supposed to give back.
         Json session_rows = Json::array();
         size_t source_bytes = 0, negative_bytes = 0;
-        size_t view_bytes = 0;
+        size_t view_bytes = 0, suspended_bytes = 0;
         int negative_count = 0;
         for (spk_session* s : sessions) {
             size_t source = 0;
@@ -442,6 +470,13 @@ struct spk_engine {
             row.set("source_bytes", Json(double(source)));
             row.set("cached_negative_bytes", Json(double(negatives)));
             row.set("cached_view_bytes", Json(double(views)));
+#ifndef __APPLE__
+            size_t on_disk = 0;
+            if (s->residency) for (const auto& plane : s->residency->planes) on_disk += plane.bytes;
+            row.set("residency_suspended", Json(bool(s->residency)));
+            row.set("suspended_bytes", Json(double(on_disk)));
+            suspended_bytes += on_disk;
+#endif
             // A session caches a negative per tier it has rendered, so this
             // is 0, 1 or 3 -- and 3 is three full planes, which is worth
             // seeing next to the byte count rather than dividing by it.
@@ -479,6 +514,8 @@ struct spk_engine {
 
         Json out = Json::object();
         out.set("total_bytes", Json(double(pool.total_bytes + pool.persistent_bytes)));
+        // Temporary-file bytes, not GPU allocations and not additive to total.
+        out.set("suspended_bytes", Json(double(suspended_bytes)));
         out.set("pool", std::move(pool_json));
         out.set("persistent", std::move(persistent));
         out.set("pressure", std::move(pressure));
@@ -1270,10 +1307,184 @@ spk_status spk_render(spk_session* session, const char* tier, spk_result* out) {
 }  // extern "C"
 
 #ifndef __APPLE__
+namespace {
+constexpr size_t kResidencyChunkBytes = 8u * 1024u * 1024u;
+
+std::FILE* residency_file(std::string& error) {
+#if defined(_WIN32)
+    // CRT tmpfile() can choose the drive root on Windows. Use the user's
+    // Unicode temp directory and an exclusive, kernel-delete-on-close file.
+    std::vector<wchar_t> temp(32768);
+    const DWORD n = GetTempPathW(DWORD(temp.size()), temp.data());
+    if (!n || n >= temp.size()) {
+        error = "residency: cannot locate temporary directory"; return nullptr;
+    }
+    static std::atomic<uint64_t> serial{0};
+    for (unsigned attempt = 0; attempt < 32; ++attempt) {
+        const auto name = std::wstring(temp.data(), n) + L"spektralab-residency-" +
+            std::to_wstring(GetCurrentProcessId()) + L"-" + std::to_wstring(GetTickCount64()) +
+            L"-" + std::to_wstring(++serial) + L".tmp";
+        HANDLE handle = CreateFileW(name.c_str(), GENERIC_READ | GENERIC_WRITE | DELETE,
+            FILE_SHARE_READ | FILE_SHARE_DELETE, nullptr, CREATE_NEW,
+            FILE_ATTRIBUTE_TEMPORARY | FILE_FLAG_DELETE_ON_CLOSE | FILE_FLAG_SEQUENTIAL_SCAN, nullptr);
+        if (handle == INVALID_HANDLE_VALUE) {
+            const auto code = GetLastError();
+            if (code == ERROR_FILE_EXISTS || code == ERROR_ALREADY_EXISTS) continue;
+            error = "residency: cannot create temporary file (Windows " + std::to_string(code) + ")";
+            return nullptr;
+        }
+        const int fd = _open_osfhandle(reinterpret_cast<intptr_t>(handle), _O_RDWR | _O_BINARY);
+        if (fd < 0) { CloseHandle(handle); error = "residency: cannot open temporary stream"; return nullptr; }
+        auto* file = _fdopen(fd, "w+b");
+        if (!file) { _close(fd); error = "residency: cannot wrap temporary stream"; }
+        return file;
+    }
+    error = "residency: cannot create a unique temporary file"; return nullptr;
+#else
+    auto* file = std::tmpfile();
+    if (!file) error = "residency: cannot create temporary file: " + std::string(std::strerror(errno));
+    return file;
+#endif
+}
+
+// Explicit test-only fault injection exercises rollback after allocation and
+// I/O, rather than merely failing to open a file. Never enabled by app settings.
+bool residency_fault(const char* point) {
+    const char* value = std::getenv("SPK_TEST_RESIDENCY_FAILURE");
+    return value && std::strcmp(value, point) == 0;
+}
+}
+
+bool spk::view::suspended(spk_session* session) {
+    if (!session) return false;
+    std::lock_guard<std::mutex> guard(session->lock);
+    return bool(session->residency);
+}
+
+bool spk::view::suspend(spk_session* session, std::string& error) {
+    if (!session) { error = "residency: session is null"; return false; }
+    std::lock_guard<std::mutex> guard(session->lock);
+    if (session->residency) return true;
+    try {
+        using Snapshot = spk_session::ResidencySnapshot;
+        auto snapshot = std::make_unique<Snapshot>();
+        auto* gpu = session->engine->gpu;
+        if (!gpu->flush(error)) return false;
+        std::vector<gpu::Buffer*> buffers;
+        std::unordered_map<gpu::Buffer*, size_t> indices;
+        const auto capture = [&](const Image& image) {
+            Snapshot::Slot slot; slot.h = image.h; slot.w = image.w; slot.c = image.c;
+            if (image.buf) {
+                auto [it, added] = indices.emplace(image.buf.get(), buffers.size());
+                slot.plane = it->second;
+                if (added) {
+                    buffers.push_back(image.buf.get());
+                    snapshot->planes.push_back({gpu->size_bytes(image.buf.get())});
+                }
+            }
+            return slot;
+        };
+        snapshot->source = capture(session->source);
+        for (const auto& [name, tier] : session->tiers)
+            snapshot->tiers.emplace(name, Snapshot::TierSlots{
+                capture(tier.image), capture(tier.negative), capture(tier.view_print)});
+        snapshot->file.reset(residency_file(error));
+        if (!snapshot->file) return false;
+        std::vector<uint8_t> chunk(kResidencyChunkBytes);
+        bool wrote = false;
+        for (size_t p = 0; p < buffers.size(); ++p) {
+            const size_t size = snapshot->planes[p].bytes;
+            for (size_t offset = 0; offset < size;) {
+                const size_t n = std::min(chunk.size(), size - offset);
+                if (!gpu->read(buffers[p], offset, chunk.data(), n, error)) return false;
+                if ((wrote && residency_fault("write")) ||
+                    std::fwrite(chunk.data(), 1, n, snapshot->file.get()) != n) {
+                    error = "residency: failed to write temporary image; GPU data retained"; return false;
+                }
+                wrote = true; offset += n;
+            }
+        }
+        if (std::fflush(snapshot->file.get()) != 0) {
+            error = "residency: failed to flush temporary image; GPU data retained"; return false;
+        }
+        // The complete disk snapshot is recoverable before any original
+        // handle is dropped. Shapes, cache flags and pipeline state survive.
+        session->source.buf.reset();
+        for (auto& [name, tier] : session->tiers) {
+            tier.image.buf.reset(); tier.negative.buf.reset(); tier.view_print.buf.reset();
+        }
+        session->residency = std::move(snapshot);
+        return true;
+    } catch (const std::exception& e) {
+        error = std::string("residency: suspend failed: ") + e.what(); return false;
+    }
+}
+
+bool spk::view::resume(spk_session* session, std::string& error) {
+    if (!session) { error = "residency: session is null"; return false; }
+    std::lock_guard<std::mutex> guard(session->lock);
+    if (!session->residency) return true;
+    try {
+        auto& snapshot = *session->residency;
+        // Hosts resume before mutating a session. Refuse an invalid caller
+        // rather than resurrecting caches belonging to a different snapshot.
+        if (snapshot.tiers.size() != session->tiers.size()) {
+            error = "residency: suspended session was modified"; return false;
+        }
+        for (const auto& [name, slots] : snapshot.tiers)
+            if (session->tiers.find(name) == session->tiers.end()) {
+                error = "residency: suspended tier was removed"; return false;
+            }
+        std::clearerr(snapshot.file.get());
+        if (std::fseek(snapshot.file.get(), 0, SEEK_SET) != 0) {
+            error = "residency: cannot rewind temporary image"; return false;
+        }
+        auto* gpu = session->engine->gpu;
+        std::vector<gpu::BufferRef> restored;
+        restored.reserve(snapshot.planes.size());
+        std::vector<uint8_t> chunk(kResidencyChunkBytes);
+        bool read = false;
+        for (const auto& plane : snapshot.planes) {
+            auto destination = gpu->alloc_persistent(plane.bytes, error);
+            if (!destination) return false;
+            for (size_t offset = 0; offset < plane.bytes;) {
+                const size_t n = std::min(chunk.size(), plane.bytes - offset);
+                if ((read && residency_fault("read")) ||
+                    std::fread(chunk.data(), 1, n, snapshot.file.get()) != n) {
+                    error = "residency: failed to read temporary image; disk snapshot retained"; return false;
+                }
+                // The upload staging is bounded. A persistent chunk avoids
+                // borrowing an oversized free render plane from the pool.
+                auto upload = gpu->upload_persistent(chunk.data(), n, error);
+                if (!upload || !gpu->copy(destination.get(), offset, upload.get(), 0, n, error)) return false;
+                read = true; offset += n;
+            }
+            restored.push_back(std::move(destination));
+        }
+        const auto install = [&](Image& image, const spk_session::ResidencySnapshot::Slot& slot) {
+            image.h = slot.h; image.w = slot.w; image.c = slot.c;
+            image.buf = slot.plane == size_t(-1) ? gpu::BufferRef{} : restored[slot.plane];
+        };
+        // Commit only after every allocation and read succeeded. Until here,
+        // RAII releases any partial GPU restoration and the file stays valid.
+        install(session->source, snapshot.source);
+        for (const auto& [name, slots] : snapshot.tiers) {
+            auto& tier = session->tiers.at(name);
+            install(tier.image, slots.image); install(tier.negative, slots.negative);
+            install(tier.view_print, slots.view_print);
+        }
+        session->residency.reset();
+        return true;
+    } catch (const std::exception& e) {
+        error = std::string("residency: resume failed: ") + e.what(); return false;
+    }
+}
+
 bool spk::view::render(spk_session* session, const Request& request, Result& result,
                        std::string& error) {
     result = Result{};
     if (!session) { error = "view: session is null"; return false; }
+    if (!resume(session, error)) return false;
     const Tier* tier = find_tier(request.tier.c_str());
     if (!tier) { error = "view: unknown tier"; return false; }
     if (request.target_space != "sRGB" && request.target_space != "Display P3" && request.target_space != "ProPhoto RGB") {
@@ -2446,6 +2657,23 @@ void spk_session_release(spk_session* session) {
     // Every buffer the session held is a counted handle, so destroying it is
     // all the releasing there is.
     delete session;
+#ifndef __APPLE__
+    // The discrete backend must not retain a multi-GB scratch arena after the
+    // last photograph closes. Keep the check and trim under the same engine
+    // lock as registration; retained C results own independent CPU memory.
+    std::lock_guard<std::mutex> guard(engine->lock);
+    if (engine->sessions.empty() && engine->gpu) {
+        engine->gpu->trim_pool(0);
+        engine->pool_frame_valid = false;
+    }
+#endif
 }
 
 }  // extern "C"
+
+#ifndef __APPLE__
+size_t spk::view::trim_idle_memory(spk_engine* engine) {
+    if (!engine || !engine->gpu) return 0;
+    return engine->gpu->trim_pool(0);
+}
+#endif

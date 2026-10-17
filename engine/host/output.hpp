@@ -76,6 +76,8 @@ bool encode_jpeg(const uint8_t* rgb, uint32_t width, uint32_t height, int qualit
                  const Exif* exif = nullptr);
 // Streaming counterparts. The caller opens a temporary file, owns fclose and
 // commits it only on success. These do not close or rename the supplied file.
+bool encode_tiff_file(std::FILE* file, const void* rgb, uint32_t width, uint32_t height, uint32_t bits,
+                      const std::vector<uint8_t>& icc, std::string& error, const Exif* exif = nullptr);
 bool encode_png8_file(std::FILE* file, const uint8_t* rgb, uint32_t width, uint32_t height,
                       const std::vector<uint8_t>& icc, std::string& error, const Exif* exif = nullptr);
 bool encode_jpeg_file(std::FILE* file, const uint8_t* rgb, uint32_t width, uint32_t height, int quality,

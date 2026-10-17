@@ -2,6 +2,7 @@
 // JPEG header checks. A different file hash is not a quality regression.
 #include "output.hpp"
 #include "platform.hpp"
+#include "tiff_ifd.hpp"
 #include "stb_image.h"
 #include "stb_image_write.h"
 #include <jpeglib.h>
@@ -91,6 +92,95 @@ static void png_metadata(const std::vector<uint8_t>& bytes, const std::vector<ui
     }
     require(seen_i && seen_e, "PNG metadata absent");
 }
+
+static void tiff_contents(const std::vector<uint8_t>& bytes, uint32_t w, uint32_t h, uint32_t bits,
+                          const std::vector<uint8_t>& pixels, const std::vector<uint8_t>& icc,
+                          const spkhost::Exif& exif) {
+    spkhost::TiffBytes t(bytes.data(), bytes.size());
+    uint32_t first = 0; spkhost::TiffBytes::Ifd ifd;
+    require(t.header(first) && t.little() && t.read_ifd(first, ifd), "TIFF header/IFD unreadable");
+    double value = 0;
+    require(t.number(ifd, 256, value) && value == w && t.number(ifd, 257, value) && value == h,
+            "TIFF dimensions changed");
+    require(t.number(ifd, 259, value) && value == 1 && t.number(ifd, 274, value) && value == 1,
+            "TIFF compression/orientation changed");
+    std::vector<double> depth, offsets, counts;
+    require(t.numbers(ifd, 258, depth) && depth == std::vector<double>({double(bits), double(bits), double(bits)}),
+            "TIFF sample depths changed");
+    require(t.numbers(ifd, 273, offsets) && t.numbers(ifd, 279, counts) && offsets.size() == counts.size(),
+            "TIFF strips unreadable");
+    require(!offsets.empty() && (pixels.size() <= (1u << 20) || offsets.size() > 1), "TIFF strip coverage");
+    std::vector<uint8_t> restored;
+    for (size_t strip = 0; strip < offsets.size(); ++strip) {
+        const size_t at = size_t(offsets[strip]), count = size_t(counts[strip]);
+        require(t.in_range(at, count), "TIFF strip bounds");
+        restored.insert(restored.end(), bytes.begin() + at, bytes.begin() + at + count);
+    }
+    require(restored == pixels, "TIFF decoded sample bytes differ");
+    std::vector<uint8_t> embedded;
+    require(t.bytes(ifd, 34675, embedded) && embedded == icc, "TIFF ICC changed");
+    std::string text;
+    require(t.text(ifd, 271, text) && text == exif.make && t.text(ifd, 272, text) && text == exif.model,
+            "TIFF camera metadata changed");
+    require(t.number(ifd, 34665, value), "TIFF EXIF absent");
+    spkhost::TiffBytes::Ifd e;
+    require(t.read_ifd(uint32_t(value), e), "TIFF EXIF unreadable");
+    require(t.number(e, 0xA002, value) && value == w && t.number(e, 0xA003, value) && value == h,
+            "TIFF EXIF dimensions changed");
+    require(t.text(e, 0x9003, text) && text == exif.datetime_original, "TIFF timestamp changed");
+}
+
+static void tiff_streaming(const std::filesystem::path& dir, const std::vector<uint8_t>& icc,
+                           const spkhost::Exif& exif) {
+    // Includes a single pixel, odd row widths and several 1 MiB strips. Vary
+    // both bytes of 16-bit samples so a byte-order bug cannot look correct.
+    for (const auto dims : {std::array<uint32_t, 2>{1, 1}, {17, 9}, {1025, 513}}) {
+        const auto w = dims[0], h = dims[1];
+        std::vector<uint16_t> rgb16(size_t(w) * h * 3);
+        std::vector<uint8_t> rgb8(rgb16.size()), little16(rgb16.size() * 2);
+        for (size_t i = 0; i < rgb16.size(); ++i) {
+            rgb16[i] = uint16_t(i * 257 + (i >> 5) * 997);
+            rgb8[i] = uint8_t(rgb16[i] >> 8);
+            little16[i * 2] = uint8_t(rgb16[i]); little16[i * 2 + 1] = uint8_t(rgb16[i] >> 8);
+        }
+        for (uint32_t bits : {8, 16}) {
+            const void* rgb = bits == 8 ? static_cast<const void*>(rgb8.data()) : rgb16.data();
+            std::vector<uint8_t> expected, streamed;
+            std::string error;
+            require(spkhost::encode_tiff(rgb, w, h, bits, icc, expected, error, &exif), error.c_str());
+            const auto path = dir / "stream.tiff";
+            auto* f = spkhost::open_file(path, "wb"); require(f, "open TIFF fixture");
+            const bool ok = spkhost::encode_tiff_file(f, rgb, w, h, bits, icc, error, &exif);
+            const bool closed = !std::fclose(f);
+            require(ok && closed, "TIFF streaming write/close");
+            require(spkhost::read_file(path, streamed, error) && streamed == expected, "TIFF streaming bytes differ");
+            tiff_contents(streamed, w, h, bits, bits == 8 ? rgb8 : little16, icc, exif);
+        }
+    }
+    uint16_t pixel[] = {1, 32768, 65535};
+    std::string error;
+    std::vector<uint8_t> out;
+    require(!spkhost::encode_tiff(nullptr, 1, 1, 16, {}, out, error), "null TIFF pixels accepted");
+    require(!spkhost::encode_tiff(pixel, 0, 1, 16, {}, out, error), "zero-width TIFF accepted");
+    require(!spkhost::encode_tiff(pixel, UINT32_MAX, UINT32_MAX, 16, {}, out, error), "overflow TIFF accepted");
+    require(!spkhost::encode_tiff_file(nullptr, pixel, 1, 1, 16, {}, error), "null TIFF file accepted");
+    auto* readonly = spkhost::open_file(dir / "stream.tiff", "rb"); require(readonly, "readonly TIFF fixture");
+    const bool wrote = spkhost::encode_tiff_file(readonly, pixel, 1, 1, 16, {}, error);
+    std::fclose(readonly);
+    require(!wrote && !error.empty(), "TIFF write failure hidden");
+
+    const auto failed = dir / "failed-stream.tiff";
+    require(!spkhost::write_file_atomic(failed, [&](std::FILE* f, std::string& why) {
+        if (!spkhost::encode_tiff_file(f, pixel, 1, 1, 16, {}, why)) return false;
+        why = "injected failure before commit";
+        return false;
+    }, false, error), "failed TIFF committed");
+    require(!std::filesystem::exists(failed), "failed TIFF destination exists");
+    for (const auto& entry : std::filesystem::directory_iterator(dir))
+        require(entry.path().filename().string().find(".failed-stream.tiff.partial-") != 0,
+                "failed TIFF temporary file leaked");
+}
+
 int main(int argc, char** argv) {
     try {
         require(argc >= 3 && argc <= 5, "usage: spk_host_codecs resources output-directory [benchmark PNG [quality|0=PNG]]");
@@ -147,8 +237,7 @@ int main(int argc, char** argv) {
             auto* f = spkhost::open_file(dir / "stream.png", "wb"); require(f, "open PNG fixture");
             require(spkhost::encode_png8_file(f, rgb.data(), w, h, icc, error, &exif), error.c_str()); require(!fclose(f), "PNG close");
             std::vector<uint8_t> streamed; require(spkhost::read_file(dir / "stream.png", streamed, error) && streamed == png, "PNG streaming differs");
-            std::vector<uint8_t> tiff; require(spkhost::encode_tiff(rgb.data(), w, h, 8, icc, tiff, error, &exif), error.c_str());
-            // TIFF writer is untouched; ensure profile construction stays valid.
+            tiff_streaming(dir, icc, exif);
             for (int q : {50, 80, 90, 91, 95, 96, 97, 98, 99, 100}) {
                 std::vector<uint8_t> old, now;
                 require(stbi_write_jpg_to_func(stb_sink, &old, w, h, 3, rgb.data(), q), "baseline JPEG");
