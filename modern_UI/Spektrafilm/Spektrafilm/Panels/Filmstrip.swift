@@ -64,7 +64,7 @@ struct Filmstrip: View {
                                     }
                                     Button(L(.helpResetDefaults)) {
                                         if frame.id == session.selection { session.resetParams(); session.resetAdjustments() }
-                                        else { Sidecar.remove(for: frame.id); session.refreshState(for: frame.id) }
+                                        else { session.resetSettings(of: frame.id) }
                                     }
                                 }
                         }

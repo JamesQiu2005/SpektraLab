@@ -27,6 +27,16 @@ final class PrintCacheTests: XCTestCase {
         return Diagnostics(defaults: defaults)
     }
 
+    /// A print on disk is a frame that was developed, and its sidecar says
+    /// so. Only such a frame is looked up in the print cache: one with no
+    /// settings opens onto its decode (`RetainedEditsTests`).
+    private func markDeveloped(_ url: URL) throws {
+        var developed = Sidecar()
+        developed.state = .processed
+        try developed.save(for: url)
+        addTeardownBlock { Sidecar.remove(for: url) }
+    }
+
     private func waitUntil(_ what: String, timeout: Double = 10,
                            _ condition: @MainActor () -> Bool) async throws {
         let deadline = Date().addingTimeInterval(timeout)
@@ -75,6 +85,7 @@ final class PrintCacheTests: XCTestCase {
             format: "rgba16Unorm",
             costMs: 1_188
         )
+        try markDeveloped(url)
 
         session.open(urls: [url])
         try await waitUntil("the print cache to land") {
@@ -117,12 +128,16 @@ final class PrintCacheTests: XCTestCase {
             format: "rgba16Unorm",
             costMs: 1_188
         )
+        try markDeveloped(url)
 
         session.open(urls: [url])
         try await waitUntil("the engine-version miss to decode") {
             session.decodeCount == 1
         }
-        XCTAssertNil(session.renderer.store.print(for: url),
-                     "a print made by a different engine version was restored")
+        // The decode is the miss. A developed frame then develops again, so a
+        // print may land — but never the planted one.
+        let shown = session.renderer.store.print(for: url)
+        XCTAssertFalse(shown.map { $0.width == 2 && $0.height == 1 } ?? false,
+                       "a print made by a different engine version was restored")
     }
 }

@@ -1,5 +1,6 @@
 //  ThumbnailCache.swift — filmstrip thumbnails from ImageIO's embedded
-//  preview, never from the engine, generated off the main actor.
+//  preview, or a developed frame's own picture once it has one, never from
+//  the engine, generated off the main actor.
 
 import AppKit
 import ImageIO
@@ -82,6 +83,14 @@ private final class ThumbnailStorage: @unchecked Sendable {
         return true
     }
 
+    /// Every size held for `url`, and its developed picture.
+    func remove(_ url: URL) {
+        lock.lock()
+        defer { lock.unlock() }
+        for key in entries.keys where key.url == url { removeLocked(key, releaseArena: true) }
+        processed[url] = nil
+    }
+
     func removeAll() {
         lock.lock()
         defer { lock.unlock() }
@@ -143,7 +152,7 @@ final class ThumbnailCache: @unchecked Sendable {
 
     init(arena: MemoryArena = MemoryArena(),
          byteLimit: Int = 256_000_000,
-         decoder: @escaping Decoder = ThumbnailCache.decodeEmbedded) {
+         decoder: @escaping Decoder = ThumbnailCache.decodeFrame) {
         storage = ThumbnailStorage(arena: arena, byteLimit: byteLimit)
         decode = decoder
     }
@@ -200,6 +209,19 @@ final class ThumbnailCache: @unchecked Sendable {
         storage.put(image, key: key, costMs: 0, replacingURL: true)
     }
 
+    /// Drop everything held for `url` — a developed picture included — and
+    /// any decode of it in flight, so the next request reads the frame
+    /// again. A reset frame is the camera's picture again.
+    func forget(_ url: URL) {
+        let stale = lock.withLock {
+            revision[url, default: 0] += 1
+            let keys = inFlight.keys.filter { $0.url == url }
+            return keys.compactMap { inFlight.removeValue(forKey: $0) }
+        }
+        stale.forEach { $0.cancel() }
+        storage.remove(url)
+    }
+
     /// A new folder is a new generation. Detached work from the old one may
     /// finish, but it cannot repopulate the cache or replace a newer result.
     func clear() {
@@ -216,6 +238,19 @@ final class ThumbnailCache: @unchecked Sendable {
 
     var cachedCount: Int { storage.count }
     var cachedBytes: Int { storage.bytes }
+
+    /// The frame as the strip should show it: its developed picture if it
+    /// has one on disk (`DevelopedThumbnails`), else the camera's.
+    ///
+    /// The RAM entry a develop puts here (`store`) is the fast path; this is
+    /// what answers once that entry has gone — evicted, or emptied by the
+    /// next `open(urls:)`, or never made in this run of the app. Answering
+    /// with the camera's preview there is what made a developed frame look
+    /// undeveloped.
+    private static func decodeFrame(_ url: URL, _ maxPixel: Int) async -> CGImage? {
+        if let developed = DevelopedThumbnails.image(for: url) { return developed }
+        return await decodeEmbedded(url, maxPixel)
+    }
 
     private static func decodeEmbedded(_ url: URL, _ maxPixel: Int) async -> CGImage? {
         if HalfFramePair.isPair(url) { return PairComposer.thumbnail(url, maxPixel: maxPixel) }

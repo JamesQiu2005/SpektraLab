@@ -58,7 +58,7 @@ struct FilmSection: View {
     /// The rule is `Session.selectFilmStock`, which the agent layer shares.
     private func select(_ id: String) { session.selectFilmStock(id) }
 
-    private var menu: some View {
+    @ViewBuilder private var menu: some View {
         // The header's arrow is this item; both say the same thing in words,
         // which is the point of §8.3 — a reset affordance whose scope is not
         // named is the ellipsis problem again.
@@ -71,6 +71,14 @@ struct FilmSection: View {
             session.params = p
             session.applyFilmStageRule()
         }
+        Divider()
+        // The whole frame, named as the whole frame: every setting, and the
+        // canvas back on the decode rather than on a develop at the defaults
+        // (`Session.resetToDecode`). ⌘Z brings it all back.
+        Button(L("Reset All Settings to the RAW Decode", zh: "重置全部设置，回到 RAW 解码")) {
+            session.resetToDecode()
+        }
+        .disabled(!session.canResetToDecode)
     }
 }
 

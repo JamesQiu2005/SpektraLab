@@ -677,7 +677,46 @@ final class Session: CanvasHost {
     /// so for the length of a re-render the bare photograph stood where the
     /// film was — correct at every instant and plainly wrong to look at.
     private var holdsFilmCanvas: Bool {
-        filmEdgeShowsFilm && wantsDevelop && renderer.live != nil && filmCanvasOn != nil && filmCanvasOn == selection
+        guard wantsDevelop, renderer.live != nil, let on = selection else { return false }
+        return (filmEdgeShowsFilm && filmCanvasOn == on) || printPreviewOn == on
+    }
+    /// The frame whose canvas is the small picture of its print
+    /// (`developedPreview`) while that print is made again. Held like the
+    /// film canvas, and for the same reason: the bare decode put up in the
+    /// meantime is the frame without its adjustments, which is exactly what
+    /// a person reads as the edit having been lost.
+    @ObservationIgnored private var printPreviewOn: URL?
+
+    /// The developed frame's last picture, as a canvas texture, when its
+    /// print is in no RAM cache.
+    ///
+    /// The filmstrip's own 320 px picture (`DevelopedThumbnails`), so it is
+    /// soft — `previewSoft` says so — but it is the frame as it was left, and
+    /// it holds the canvas for the second the print takes to come back from
+    /// disk or from a develop. None for a frame never developed, a pair (its
+    /// picture is laid out from the frames'), or a Digital Intermediate
+    /// (its picture has the DI view baked in, which the canvas would apply a
+    /// second time).
+    private func developedPreview(for url: URL) -> MTLTexture? {
+        guard sidecar.state != .unprocessed, pair == nil, !sidecar.params.digitalIntermediate,
+              let picture = DevelopedThumbnails.image(for: url) else { return nil }
+        // Back into the space the canvas holds prints in — the inverse of
+        // `updateThumbnail`'s `makeCGImage()`, which tags the print's bytes
+        // with the working space.
+        let space = ImageDecoder.workingSpace ?? ImageDecoder.displayP3
+        let w = picture.width, h = picture.height
+        var bytes = Data(count: w * h * 8)
+        let drawn = bytes.withUnsafeMutableBytes { raw -> Bool in
+            guard let ctx = CGContext(data: raw.baseAddress, width: w, height: h, bitsPerComponent: 16,
+                                      bytesPerRow: w * 8, space: space,
+                                      bitmapInfo: CGImageAlphaInfo.noneSkipLast.rawValue
+                                          | CGBitmapInfo.byteOrder16Little.rawValue) else { return false }
+            ctx.interpolationQuality = .none
+            ctx.draw(picture, in: CGRect(x: 0, y: 0, width: w, height: h))
+            return true
+        }
+        guard drawn else { return nil }
+        return renderer.store.uploadRGBA16(data: bytes, width: w, height: h)
     }
 
     // The Browse grid is gone (2026-09-17). Opening a folder no longer
@@ -832,11 +871,22 @@ final class Session: CanvasHost {
 
     // MARK: undo and the work clock
 
-    private var undoStack: [Sidecar] = []
-    /// The piece each snapshot was taken with, in step with `undoStack`: a
-    /// pair's own edits (its frames, their crops, the spacing) undo with the
-    /// look. Nil for a frame.
-    private var undoPairs: [(url: URL, pair: HalfFramePair)?] = []
+    /// One step of a frame's history: its settings before a change, and the
+    /// piece they were taken with — a pair's own edits (its frames, their
+    /// crops, the spacing) undo with the look. Nil for a frame.
+    private struct UndoStep {
+        let sidecar: Sidecar
+        let piece: (url: URL, pair: HalfFramePair)?
+    }
+    /// **One history per frame**, keyed by the frame it was taken on.
+    ///
+    /// It was one array for the session, and nothing emptied it on a frame
+    /// switch: edit frame A, move to frame B, press ⌘Z, and B was given A's
+    /// earlier settings — and saved with them, so B's own edits were gone
+    /// from its sidecar (a 1.3.3 report of adjustments disappearing).
+    /// `RetainedEditsTests` pins it. Kept per frame rather than emptied, so
+    /// coming back to A still undoes A.
+    private var undoHistory: [URL: [UndoStep]] = [:]
     private var lastUndoAt = Date.distantPast
     private(set) var workSeconds: Double = 0
     private var workStarted: Date?
@@ -1039,6 +1089,7 @@ final class Session: CanvasHost {
         }
         renderer.layer2 = sidecar.adjustments.uniforms
         Session.removeLegacyLinearCache()
+        Task.detached(priority: .utility) { DevelopedThumbnails.trim() }
         if let cache {
             Task.detached(priority: .utility) {
                 try? await cache.garbageCollect()
@@ -1286,6 +1337,8 @@ final class Session: CanvasHost {
         }
         ThumbnailCache.shared.clear()
         frames = new
+        let listed = Set(new.map(\.id))
+        undoHistory = undoHistory.filter { listed.contains($0.key) }
         // One read per frame, for both things the library shows of it.
         let saved = new.map { ($0.id, Sidecar.load(for: $0.id)) }
         frameStates = Dictionary(uniqueKeysWithValues: saved.map { ($0.0, $0.1?.state ?? .unprocessed) })
@@ -1322,6 +1375,7 @@ final class Session: CanvasHost {
     private func unloadSelection() {
         if let selection { enqueuePrintWriteback(for: selection) }
         selection = nil
+        printPreviewOn = nil
         pair = nil
         pairRightExif = nil
         renderer.store.dropIdleScratch()
@@ -1364,6 +1418,57 @@ final class Session: CanvasHost {
         if url == selection { sidecar = Sidecar.load(for: url) ?? Sidecar() }
     }
 
+    // MARK: - back to the decode
+
+    /// Whether the frame on the canvas can be reset to its decode. Not a
+    /// pair: its settings are the piece's layout as well as its look.
+    var canResetToDecode: Bool { selection != nil && pair == nil && !batchExporting }
+
+    /// Film ⋯ → Reset All Settings to the RAW Decode: the frame on the canvas
+    /// as if it had never been opened.
+    ///
+    /// Every setting goes — film, paper, exposure, colour, white balance,
+    /// crop, masks, film edge — and the canvas shows the frame's **decode**,
+    /// the baseline a first click opens onto, rather than a develop at the
+    /// defaults (which is what resetting the film and the exposure leaves).
+    /// Its picture in the filmstrip is the camera's again. One undo step: ⌘Z
+    /// puts every setting back and develops it.
+    func resetToDecode() {
+        guard canResetToDecode, let url = selection else { return }
+        lastUndoAt = .distantPast
+        pushUndo()
+        forgetSettings(of: url)
+        // From nothing: the same open a first click makes, which is what
+        // "never opened" means — the engine's frame and every picture of the
+        // old settings go with it.
+        unloadSelection()
+        select(url)
+        lastUndoAt = .distantPast
+    }
+
+    /// The filmstrip's Reset to Defaults on a frame that is not on the
+    /// canvas: its sidecar removed, and every picture of it that was made
+    /// from that sidecar with it.
+    func resetSettings(of url: URL) {
+        guard url != selection, !batchExporting else { return }
+        forgetSettings(of: url)
+    }
+
+    /// Remove a frame's settings and everything that shows them. The
+    /// filmstrip's developed picture has to go too: left in the RAM cache it
+    /// showed a reset frame still developed.
+    private func forgetSettings(of url: URL) {
+        if url == selection { saveTask?.cancel() }
+        Sidecar.remove(for: url)
+        DevelopedThumbnailWriter.shared.remove(url)
+        ThumbnailCache.shared.forget(url)
+        renderer.store.invalidatePrint(for: url)
+        frameStates[url] = .unprocessed
+        savedGeometry[url] = .default
+        filmEdgeThumbnails.remove(url)
+        NotificationCenter.default.post(name: .thumbnailUpdated, object: url)
+    }
+
     /// Drop a frame from the session. Never touches the file.
     ///
     /// It leaves the picked set with it: `selectedFrames` maps over `frames`,
@@ -1373,6 +1478,7 @@ final class Session: CanvasHost {
         if selection == url { enqueuePrintWriteback(for: url) }
         frames.removeAll { $0.id == url }
         frameStates[url] = nil
+        undoHistory[url] = nil
         picked.remove(url)
         renderer.store.invalidatePrint(for: url)
         if frames.isEmpty {
@@ -1465,6 +1571,10 @@ final class Session: CanvasHost {
         loadTask?.cancel()
         selection = url
         filmCanvasOn = nil
+        printPreviewOn = nil
+        // The first change on this frame is a step of its own, however soon
+        // after a change on the last one it comes.
+        lastUndoAt = .distantPast
         latitude.clear()
         previewSoft = false
         sourceLongEdge = 0
@@ -1511,6 +1621,14 @@ final class Session: CanvasHost {
         if let cached = renderer.store.print(for: url) {
             renderer.setLive(cached, logical: printLogicalSize(for: cached, params: sidecar.params, frame: nativeSourceSize)
                              ?? CGSize(width: cached.width, height: cached.height)); previewSoft = true
+        } else if let preview = developedPreview(for: url) {
+            // A developed frame whose print is in no RAM cache opens onto the
+            // small picture of its print, not onto its bare decode: `load`
+            // finds the print on disk or develops it again, and until then
+            // the canvas shows the frame as it was left (`holdsFilmCanvas`).
+            renderer.setLive(preview, logical: printLogicalSize(for: preview, params: sidecar.params, frame: nativeSourceSize)
+                             ?? CGSize(width: preview.width, height: preview.height)); previewSoft = true
+            printPreviewOn = url
         } else if let src = renderer.store.source(for: url) {
             renderer.setLive(src, logical: nativeSourceSize ?? CGSize(width: src.width, height: src.height)); previewSoft = true
         } else {
@@ -1926,8 +2044,15 @@ final class Session: CanvasHost {
         // already asked for its develop (a paste made while it was off the
         // canvas, RFC-027 §4) needs the decode anyway, so it skips them —
         // otherwise it would stop at the cached picture and never develop.
-        if !requiresDecode, !wantsDevelop, let picture = await cachedPrint(for: url) {
+        //
+        // The print is only looked for on a frame that has been developed. Its
+        // key is the settings, and a frame reset to nothing has the settings a
+        // develop at the defaults had, so a reset opened onto the old develop
+        // rather than the frame (`RetainedEditsTests`).
+        let developedBefore = sidecar.state != .unprocessed
+        if !requiresDecode, !wantsDevelop, developedBefore, let picture = await cachedPrint(for: url) {
             guard !Task.isCancelled, selection == url else { return }
+            printPreviewOn = nil
             sourceLongEdge = max(picture.sourceSize.width, picture.sourceSize.height)
             displaySourceSize = picture.sourceSize
             renderer.store.setPrint(
@@ -1943,6 +2068,19 @@ final class Session: CanvasHost {
             noteOpen(clock, url: url, mode: "print-cache", pixels: picture.sourceSize)
             status = "\(url.lastPathComponent)  ·  restored print"
             return
+        }
+        guard !Task.isCancelled, selection == url else {
+            noteOpen(clock, url: url, mode: "superseded", pixels: nil)
+            return
+        }
+        // A developed frame is shown developed. Its print is in no cache —
+        // evicted, dropped by the bounded write-back, cleared, or made by
+        // another engine version — so it is made again from the sidecar,
+        // which is the one record of the edit that no cache can lose. Opening
+        // it onto the decode instead is how a 1.3.3 user, coming back to
+        // frames after opening many others, found the adjustments gone.
+        if developedBefore, renderer.store.print(for: url) == nil {
+            wantsDevelop = true
         }
         if !requiresDecode, !wantsDevelop, let picture = await displayPicture(for: url, settings: settings) {
             guard !Task.isCancelled, selection == url else { return }
@@ -2437,6 +2575,7 @@ final class Session: CanvasHost {
         renderer.setLive(tex, logical: scheduler.sent.cutsFrame
                          ? filmCanvasLogicalSize(for: tex, frame: nativeSourceSize) : nativeSourceSize)
         filmCanvasOn = scheduler.sent.cutsFrame ? url : nil
+        printPreviewOn = nil
         // This print is at the **preview resolution**. For a frame bigger than
         // that it is interpolated at 100 %, so it is not the finished picture
         // yet — the native render that follows is, and this flag is what says
@@ -2537,8 +2676,18 @@ final class Session: CanvasHost {
                                       space: ImageDecoder.displayP3, bitmapInfo: CGImageAlphaInfo.noneSkipLast.rawValue) else { return }
             ctx.interpolationQuality = .high
             ctx.draw(cg, in: CGRect(x: 0, y: 0, width: w, height: h))
-            if let small = ctx.makeImage() { ThumbnailCache.shared.store(small, for: url) }
-            await MainActor.run { NotificationCenter.default.post(name: .thumbnailUpdated, object: url) }
+            guard let small = ctx.makeImage() else { return }
+            let picture = DevelopedPicture(image: small)
+            await MainActor.run { [weak self] in
+                // A frame reset while this was being made is the camera's
+                // picture again; the print it came from is not its look.
+                guard let self, self.frameStates[url] != .unprocessed else { return }
+                ThumbnailCache.shared.store(picture.image, for: url)
+                // And on disk, so the strip still shows the frame developed
+                // after the RAM cache lets it go (`DevelopedThumbnails`).
+                DevelopedThumbnailWriter.shared.submit(picture.image, for: url)
+                NotificationCenter.default.post(name: .thumbnailUpdated, object: url)
+            }
         }
     }
 
@@ -3678,23 +3827,28 @@ final class Session: CanvasHost {
     /// Snapshot before a mutation, coalesced. A slider drag sets its value
     /// dozens of times and only the state before the drag is worth keeping.
     private func pushUndo() {
+        guard let url = selection else { return }
         let now = Date()
         guard now.timeIntervalSince(lastUndoAt) > 0.5 else { return }
         lastUndoAt = now
-        undoStack.append(sidecar)
-        undoPairs.append(pair.flatMap { p in selection.map { ($0, p) } })
-        if undoStack.count > 60 { undoStack.removeFirst(); undoPairs.removeFirst() }
+        var steps = undoHistory[url, default: []]
+        steps.append(UndoStep(sidecar: sidecar, piece: pair.map { (url, $0) }))
+        if steps.count > 60 { steps.removeFirst() }
+        undoHistory[url] = steps
     }
 
-    var canUndo: Bool { !undoStack.isEmpty }
+    var canUndo: Bool { selection.map { !(undoHistory[$0]?.isEmpty ?? true) } ?? false }
 
     /// Undo is a deterministic re-render from a snapshot: the params are tiny,
     /// the service never needs to know, and grain is baked into its cached
     /// negative so a reprint is stable (HANDOFF §5).
     func undo() {
-        guard !batchExporting, selection != nil, let previous = undoStack.popLast() else { return }
+        guard !batchExporting, let frame = selection, var steps = undoHistory[frame],
+              let step = steps.popLast() else { return }
+        undoHistory[frame] = steps
         let current = sidecar
-        let piece = undoPairs.popLast() ?? nil
+        let previous = step.sidecar
+        let piece = step.piece
         sidecar = previous
         pushLayer2(previous.adjustments)
         renderer.geometry = canvasGeometry
@@ -3718,7 +3872,7 @@ final class Session: CanvasHost {
             markStale()
             scheduleSave()
             lastUndoAt = .distantPast
-            status = "Undo — \(undoStack.count) step\(undoStack.count == 1 ? "" : "s") left."
+            status = "Undo — \(steps.count) step\(steps.count == 1 ? "" : "s") left."
             return
         }
         if current.decode != previous.decode {
@@ -3730,7 +3884,7 @@ final class Session: CanvasHost {
         markStale()
         scheduleSave()
         lastUndoAt = .distantPast
-        status = "Undo — \(undoStack.count) step\(undoStack.count == 1 ? "" : "s") left."
+        status = "Undo — \(steps.count) step\(steps.count == 1 ? "" : "s") left."
     }
 
     var canCopySettings: Bool { selection != nil && !clipboardGroups.isEmpty }
@@ -4294,6 +4448,7 @@ extension Session {
         if pair != nil, selection == nil { pair = nil }
         try? FileManager.default.removeItem(at: url)
         Sidecar.remove(for: url)
+        DevelopedThumbnailWriter.shared.remove(url)
     }
 
     /// The filmstrip's picture of the pair, from its frames' own previews,

@@ -129,6 +129,7 @@
 			path = "Export";
 			sourceTree = "<group>";
 		};
+		2CC73BEDFC6E84CDE30718F9 /* DevelopedThumbnails.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "DevelopedThumbnails.swift"; sourceTree = "<group>"; };
 		4427487EA5994272B72FACF7 /* FramePipeline.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "FramePipeline.swift"; sourceTree = "<group>"; };
 		5C6EA4AC509736AE9587FCE5 /* ImageDecoder.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "ImageDecoder.swift"; sourceTree = "<group>"; };
 		0213404ECEEF9008E1F1D085 /* Library.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Library.swift"; sourceTree = "<group>"; };
@@ -137,6 +138,7 @@
 		B52F2FA09681D031C6260163 /* Import */ = {
 			isa = PBXGroup;
 			children = (
+				2CC73BEDFC6E84CDE30718F9 /* DevelopedThumbnails.swift */,
 				4427487EA5994272B72FACF7 /* FramePipeline.swift */,
 				5C6EA4AC509736AE9587FCE5 /* ImageDecoder.swift */,
 				0213404ECEEF9008E1F1D085 /* Library.swift */,
@@ -392,6 +394,7 @@
 		E3EB8BA02101A5094E3983D5 /* PrintWritebackTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "PrintWritebackTests.swift"; sourceTree = "<group>"; };
 		B365B1C93E8B4DA387D99CFA /* RailFitTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "RailFitTests.swift"; sourceTree = "<group>"; };
 		8EB35FC4E4E88A7B96A3A06A /* RendererTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "RendererTests.swift"; sourceTree = "<group>"; };
+		43C755A8BDF29799006DA74B /* RetainedEditsTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "RetainedEditsTests.swift"; sourceTree = "<group>"; };
 		50487E223A82C69D925B0D78 /* ScenePlacementTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "ScenePlacementTests.swift"; sourceTree = "<group>"; };
 		BC561F7613417B67566C6E70 /* SelectionModelTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "SelectionModelTests.swift"; sourceTree = "<group>"; };
 		AFC512B7F1A6648AC072A447 /* SessionDisplayCacheTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "SessionDisplayCacheTests.swift"; sourceTree = "<group>"; };
@@ -455,6 +458,7 @@
 				E3EB8BA02101A5094E3983D5 /* PrintWritebackTests.swift */,
 				B365B1C93E8B4DA387D99CFA /* RailFitTests.swift */,
 				8EB35FC4E4E88A7B96A3A06A /* RendererTests.swift */,
+				43C755A8BDF29799006DA74B /* RetainedEditsTests.swift */,
 				50487E223A82C69D925B0D78 /* ScenePlacementTests.swift */,
 				BC561F7613417B67566C6E70 /* SelectionModelTests.swift */,
 				AFC512B7F1A6648AC072A447 /* SessionDisplayCacheTests.swift */,
@@ -627,6 +631,7 @@
 		0216C357191760579EB98D0D /* ExportPage.swift */ = {isa = PBXBuildFile; fileRef = FB90D54AFE9C997E868AC5B3; };
 		B513635A4004FA5F08AF5CEF /* ExportRecipe.swift */ = {isa = PBXBuildFile; fileRef = 42AB706553EB1C7B8DD638C9; };
 		A84DF384B8C7128D032843A4 /* SoftProof.swift */ = {isa = PBXBuildFile; fileRef = DAC951270862F3EBF54E65A9; };
+		396A36D53584E22B3DB06FE0 /* DevelopedThumbnails.swift */ = {isa = PBXBuildFile; fileRef = 2CC73BEDFC6E84CDE30718F9; };
 		F6660EA5984BB7FEBB512200 /* FramePipeline.swift */ = {isa = PBXBuildFile; fileRef = 4427487EA5994272B72FACF7; };
 		CA2BE094757F62E51F68AC84 /* ImageDecoder.swift */ = {isa = PBXBuildFile; fileRef = 5C6EA4AC509736AE9587FCE5; };
 		1297465B9809E3E4D0ABEC0E /* Library.swift */ = {isa = PBXBuildFile; fileRef = 0213404ECEEF9008E1F1D085; };
@@ -760,6 +765,7 @@
 				0216C357191760579EB98D0D /* ExportPage.swift */,
 				B513635A4004FA5F08AF5CEF /* ExportRecipe.swift */,
 				A84DF384B8C7128D032843A4 /* SoftProof.swift */,
+				396A36D53584E22B3DB06FE0 /* DevelopedThumbnails.swift */,
 				F6660EA5984BB7FEBB512200 /* FramePipeline.swift */,
 				CA2BE094757F62E51F68AC84 /* ImageDecoder.swift */,
 				1297465B9809E3E4D0ABEC0E /* Library.swift */,
@@ -913,6 +919,7 @@
 		498EAF27D8FD685268C6725B /* PrintWritebackTests.swift */ = {isa = PBXBuildFile; fileRef = E3EB8BA02101A5094E3983D5; };
 		EE9240CA0D95A7E0E18FF462 /* RailFitTests.swift */ = {isa = PBXBuildFile; fileRef = B365B1C93E8B4DA387D99CFA; };
 		9105254BB5E54EE1AFE0A963 /* RendererTests.swift */ = {isa = PBXBuildFile; fileRef = 8EB35FC4E4E88A7B96A3A06A; };
+		8B1D81F5B2057BF7FD06AFD6 /* RetainedEditsTests.swift */ = {isa = PBXBuildFile; fileRef = 43C755A8BDF29799006DA74B; };
 		7E7FD7B216621EEA4FB2976C /* ScenePlacementTests.swift */ = {isa = PBXBuildFile; fileRef = 50487E223A82C69D925B0D78; };
 		FF7F45179CCBADB9810FC282 /* SelectionModelTests.swift */ = {isa = PBXBuildFile; fileRef = BC561F7613417B67566C6E70; };
 		52F3B7B3AF757FDF92B3462E /* SessionDisplayCacheTests.swift */ = {isa = PBXBuildFile; fileRef = AFC512B7F1A6648AC072A447; };
@@ -973,6 +980,7 @@
 		FED88698534B4BBDE58D1D4B /* ExportPage.swift */ = {isa = PBXBuildFile; fileRef = FB90D54AFE9C997E868AC5B3; };
 		A3A82A05C148FF21A2AF7375 /* ExportRecipe.swift */ = {isa = PBXBuildFile; fileRef = 42AB706553EB1C7B8DD638C9; };
 		4896A72C44598467FE52969D /* SoftProof.swift */ = {isa = PBXBuildFile; fileRef = DAC951270862F3EBF54E65A9; };
+		F7C50F8A1985FA5861613A5E /* DevelopedThumbnails.swift */ = {isa = PBXBuildFile; fileRef = 2CC73BEDFC6E84CDE30718F9; };
 		6F5C2A066215EE3B4004FEEF /* FramePipeline.swift */ = {isa = PBXBuildFile; fileRef = 4427487EA5994272B72FACF7; };
 		637B70BEEE9CC3B5EF251B7B /* ImageDecoder.swift */ = {isa = PBXBuildFile; fileRef = 5C6EA4AC509736AE9587FCE5; };
 		3FB16CB7FDC19A13FFA1FF8F /* Library.swift */ = {isa = PBXBuildFile; fileRef = 0213404ECEEF9008E1F1D085; };
@@ -1105,6 +1113,7 @@
 				498EAF27D8FD685268C6725B /* PrintWritebackTests.swift */,
 				EE9240CA0D95A7E0E18FF462 /* RailFitTests.swift */,
 				9105254BB5E54EE1AFE0A963 /* RendererTests.swift */,
+				8B1D81F5B2057BF7FD06AFD6 /* RetainedEditsTests.swift */,
 				7E7FD7B216621EEA4FB2976C /* ScenePlacementTests.swift */,
 				FF7F45179CCBADB9810FC282 /* SelectionModelTests.swift */,
 				52F3B7B3AF757FDF92B3462E /* SessionDisplayCacheTests.swift */,
@@ -1165,6 +1174,7 @@
 				FED88698534B4BBDE58D1D4B /* ExportPage.swift */,
 				A3A82A05C148FF21A2AF7375 /* ExportRecipe.swift */,
 				4896A72C44598467FE52969D /* SoftProof.swift */,
+				F7C50F8A1985FA5861613A5E /* DevelopedThumbnails.swift */,
 				6F5C2A066215EE3B4004FEEF /* FramePipeline.swift */,
 				637B70BEEE9CC3B5EF251B7B /* ImageDecoder.swift */,
 				3FB16CB7FDC19A13FFA1FF8F /* Library.swift */,
