@@ -49,7 +49,14 @@ enum TypingKeyGuard {
     static func route(_ event: NSEvent) -> Bool {
         guard let window = event.window ?? NSApp.keyWindow,
               let text = window.firstResponder as? NSTextView, text.isSelectable else {
-            // Not typing: a focused Post-Dev control may still own the arrows.
+            // Not typing: a focused Post-Dev control may still own the arrows —
+            // unless the canvas has been clicked since, which makes it first
+            // responder (`CanvasNSView.mouseDown`). The arrows are the frame's
+            // then, whatever SwiftUI's focus has or has not caught up with.
+            if (event.window ?? NSApp.keyWindow)?.firstResponder is CanvasNSView {
+                Layer2KeyFocus.shared.releaseAll()
+                return false
+            }
             return Layer2KeyFocus.shared.route(event)
         }
         // Select All belongs to text even when the photo command is enabled.
@@ -130,6 +137,9 @@ final class Layer2KeyFocus {
     func release(_ id: UUID) {
         if owner?.id == id { owner = nil }
     }
+
+    /// Whoever had them, the arrows are nobody's now (the canvas was clicked).
+    func releaseAll() { owner = nil }
 
     /// An arrow with no ⌘ or ⌃, while a control has focus: that control's.
     func route(_ event: NSEvent) -> Bool {

@@ -7,6 +7,7 @@
 //  fix); with it, the field gets the key and the item does not.
 
 import AppKit
+import Metal
 import XCTest
 
 @MainActor
@@ -131,6 +132,28 @@ final class TypingKeyGuardTests: XCTestCase {
         XCTAssertEqual(target.fired, 0, "the Frame menu took the arrow from a focused control")
         NSApp.sendEvent(try arrowEvent(in: window))
         XCTAssertEqual(target.fired, 1, "released, the arrow is the menu's again")
+    }
+
+    /// A control that still holds the arrows loses them the moment the canvas
+    /// is first responder: a click on the picture makes ←/→ step frames again.
+    ///
+    /// **Seen red** without the canvas check: the arrow went to the control.
+    func testTheCanvasTakesTheArrowsBack() throws {
+        let (target, window, _) = try harness()
+        let monitor = TypingKeyGuard.install()
+        defer { monitor.map(NSEvent.removeMonitor) }
+        let canvas = CanvasNSView(frame: NSRect(x: 0, y: 0, width: 40, height: 40), device: MTLCreateSystemDefaultDevice())
+        window.contentView?.addSubview(canvas)
+        defer { canvas.removeFromSuperview() }
+        var pressed = 0
+        let id = UUID()
+        Layer2KeyFocus.shared.claim(id) { _, _ in pressed += 1 }
+        defer { Layer2KeyFocus.shared.release(id) }
+        XCTAssertTrue(window.makeFirstResponder(canvas))
+        NSApp.sendEvent(try arrowEvent(in: window))
+        XCTAssertEqual(pressed, 0, "the control kept the arrow after the canvas took focus")
+        XCTAssertEqual(target.fired, 1, "the Frame menu did not get the arrow")
+        XCTAssertFalse(Layer2KeyFocus.shared.hasOwner)
     }
 
     private func commandZ(in window: NSWindow) throws -> NSEvent {
