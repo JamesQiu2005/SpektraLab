@@ -267,6 +267,17 @@ static inline float maskCoverage(constant MaskUniform &m, float2 uv, float3 rgb,
 /// the vignette stay in the kernel: a curve is a global statement about a
 /// tone scale and a vignette is a lens, and neither means anything applied to
 /// a region.
+///
+/// **A step whose control is at rest is not run**, so a neutral layer gives
+/// every value back to the bit. Saturation at 1 and a black and white point
+/// of 0 are the identity in arithmetic and not in float: `l + (c − l)` is
+/// not always `c`, and this target compiles with fast math, where `c / 1`
+/// is a reciprocal. Measured before the guards: a neutral layer moved 121 of
+/// 12,288 float values by one ulp (`RendererTests.
+/// testANeutralLayerGivesEveryValueBackToTheBit`). That is below a 16-bit
+/// code, so no export changed by it — but "nothing applied" should mean
+/// nothing, and a guard is cheaper than an argument about which ulps matter.
+/// White balance needs none: a gain of exactly 1 is exact.
 static inline float3 layer2Tone(float3 c, constant Layer2Uniforms &u) {
     // 1. white balance (scan-side gains on encoded values)
     c *= u.wbGain;
@@ -293,15 +304,22 @@ static inline float3 layer2Tone(float3 c, constant Layer2Uniforms &u) {
         float w = l * l;
         c += u.highlights * 0.25 * w * (u.highlights > 0 ? (1.0 - c) : c);
     }
-    // 4. black / white point (the scanner's job)
-    c = (c - u.blackPoint) / max(1.0 - u.blackPoint - u.whitePoint, 0.05);
+    // 4. black / white point (the scanner's job). Both signed: a negative
+    // black point lifts the black, a negative white point dims the white —
+    // the same line, read the other way (`Adjustments.blacks`).
+    if (u.blackPoint != 0.0 || u.whitePoint != 0.0) {
+        c = (c - u.blackPoint) / max(1.0 - u.blackPoint - u.whitePoint, 0.05);
+    }
     // 5. saturation
     l = luma(c);
-    c = l + (c - l) * u.saturation;
+    if (u.saturation != 1.0) {
+        c = l + (c - l) * u.saturation;
+    }
     // 6. colour balance — master + three zones, split at mid-grey rather than
     // at 0.5 (D1). `l` above is the raw luma saturation needs; the zones get
     // their own position.
-    {
+    if (any(u.cbMaster != 0.0) || any(u.cbShadows != 0.0) || any(u.cbMidtones != 0.0)
+        || any(u.cbHighlights != 0.0) || any(u.cbLum != 0.0)) {
         float ls = saturate(tonePosition(l, u.midGrey));
         float wS = (1.0 - ls) * (1.0 - ls);
         float wH = ls * ls;

@@ -198,24 +198,46 @@ enum AgentSchema {
         ]
 
         // --- adjustments: Layer 2, the grade on the finished print ---
+        // The ranges are the rail's, read from its one table
+        // (`Layer2Control`), so the two cannot disagree. Blacks and Whites
+        // are stored as the black and white points: Blacks is the point's
+        // negative, and both run −50…50.
+        typealias C = Layer2Control
         f += [
             .init("adjustments.enabled", .bool, "The whole grade on or off."),
-            .init("adjustments.temperature", .number(-100...100), "Print white balance, blue ↔ amber."),
-            .init("adjustments.tint", .number(-100...100), "Print white balance, green ↔ magenta."),
-            .init("adjustments.exposure", .number(-3...3), "Exposure on the scan, stops."),
-            .init("adjustments.contrast", .number(-50...50), "Contrast."),
-            .init("adjustments.brightness", .number(-50...50), "Brightness."),
-            .init("adjustments.saturation", .number(-100...100), "Saturation."),
-            .init("adjustments.highlights", .number(-100...100), "Highlight recovery."),
-            .init("adjustments.shadows", .number(-100...100), "Shadow recovery."),
-            .init("adjustments.blackPoint", .number(0...50), "Black point."),
-            .init("adjustments.whitePoint", .number(0...50), "White point."),
-            .init("adjustments.vignette.amount", .number(-100...100), "Vignetting; negative darkens the corners."),
-            .init("adjustments.vignette.midpoint", .number(0...100), "Where the vignette starts."),
+            .init("adjustments.temperature", .number(C.temperature.range), "Print white balance, blue ↔ amber."),
+            .init("adjustments.tint", .number(C.tint.range), "Print white balance, green ↔ magenta."),
+            .init("adjustments.exposure", .number(C.exposure.range), "Exposure on the scan, stops."),
+            .init("adjustments.contrast", .number(C.contrast.range), "Contrast."),
+            .init("adjustments.brightness", .number(C.brightness.range), "Brightness."),
+            .init("adjustments.saturation", .number(C.saturation.range), "Saturation."),
+            .init("adjustments.highlights", .number(C.highlights.range), "Highlight recovery."),
+            .init("adjustments.shadows", .number(C.shadows.range), "Shadow recovery."),
+            .init("adjustments.blackPoint", .number(C.blacks.range),
+                  "Black point: positive crushes the black, negative lifts it. Light's Blacks is its negative."),
+            .init("adjustments.whitePoint", .number(C.whites.range),
+                  "White point: positive brightens the white, negative dims it. Light's Whites."),
+            .init("adjustments.vignette.amount", .number(C.vignette.range), "Vignetting; negative darkens the corners."),
+            .init("adjustments.vignette.midpoint", .number(C.vignetteMidpoint.range), "Where the vignette starts."),
         ]
         for c in ["rgb", "luma", "red", "green", "blue"] {
             f.append(.init("adjustments.curves.\(c).points", .points,
-                           "The \(c) curve: [[x, y], …] from x = 0 to x = 1."))
+                           "The \(c) point curve: [[x, y], …] from x = 0 to x = 1, applied after the parametric curve."))
+        }
+        // The parametric curve of each channel, applied before its point curve.
+        let gap = ParametricCurve.splitGap
+        for c in ["rgb", "luma", "red", "green", "blue"] {
+            let p = "adjustments.curves.parametric.\(c)"
+            for r in ParametricCurve.Region.allCases {
+                f.append(.init("\(p).\(r.rawValue)", .number(ParametricCurve.amountRange),
+                               "The \(c) parametric curve's \(r.title): ±100 moves the middle of its region by half the region's width."))
+            }
+            f += [
+                .init("\(p).shadowSplit", .number(gap...(1 - 3 * gap)), "Where Shadows end and Darks begin."),
+                .init("\(p).midtoneSplit", .number((2 * gap)...(1 - 2 * gap)), "Where Darks end and Lights begin."),
+                .init("\(p).highlightSplit", .number((3 * gap)...(1 - gap)),
+                      "Where Lights end and Highlights begin. The three splits stay in order, \(gap) apart."),
+            ]
         }
         for z in ["master", "shadows", "midtones", "highlights"] {
             f += [
@@ -430,6 +452,14 @@ extension Session {
         }
         if has("geometry.crop"), want.geometry.crop.width <= 0.01 || want.geometry.crop.height <= 0.01 {
             throw AgentError.refused("The crop must be larger than 1 % of the frame on each side.")
+        }
+        // A split is checked against its neighbours here, on the end state:
+        // each is in range on its own and still the three can cross, which the
+        // rail's own handles cannot do (`ParametricCurve.setSplit`).
+        if has("adjustments.curves.parametric") {
+            for c in CurveChannel.allCases where !want.adjustments.curves.parametric[c].splitsAreOrdered {
+                throw AgentError.refused("adjustments.curves.parametric.\(c.rawValue): the splits must run shadowSplit < midtoneSplit < highlightSplit, \(ParametricCurve.splitGap) apart.")
+            }
         }
 
         // Decode first: it reopens the frame, and everything after renders on it.

@@ -113,4 +113,107 @@ final class CurveMathTests: XCTestCase {
         XCTAssertEqual(t[Curve.tableSize * 2 + 128], 0.25, accuracy: 0.02)   // row 2 = red
         XCTAssertEqual(t[128], 128.0 / 255.0, accuracy: 0.01)               // row 0 = rgb identity
     }
+
+    // MARK: - the editor's gestures, as rules
+
+    /// A press off the points adds one; a press on one takes it; a point
+    /// dragged a little out of the plot stays, held to it; a fifth of the
+    /// plot out, it goes, and the drag says so with nil; an end never goes.
+    ///
+    /// **Seen red** with `removalMargin` at 0: the point dragged a little out
+    /// was removed.
+    func testTheGestureRules() {
+        let size = CGSize(width: 200, height: 200)
+        var g = Curve.identity
+        XCTAssertEqual(g.grab(at: CGPoint(x: 0.4, y: 0.6), in: size), 1)
+        XCTAssertEqual(g.points.count, 3, "a press off the curve's points adds one there")
+        XCTAssertEqual(g.grab(at: CGPoint(x: 0.41, y: 0.6), in: size), 1)
+        XCTAssertEqual(g.points.count, 3, "a press on a point takes it")
+        XCTAssertEqual(g.drag(1, to: CGPoint(x: 0.45, y: 1.15)), 1)
+        XCTAssertEqual(g.points[1].y, 1, "a little out, it stays, held to the square")
+        XCTAssertNil(g.drag(1, to: CGPoint(x: 0.45, y: 1.25)), "a fifth of the plot out, it is gone")
+        XCTAssertEqual(g.points.count, 2)
+        XCTAssertEqual(g.drag(0, to: CGPoint(x: -0.5, y: -0.5)), 0, "an end dragged out stays")
+        XCTAssertEqual(g.points.count, 2)
+    }
+
+    // MARK: - the parametric curve
+
+    func testANeutralParametricCurveIsExactlyTheIdentity() {
+        let p = ParametricCurve()
+        XCTAssertTrue(p.isNeutral)
+        for i in 0...20 { XCTAssertEqual(p.evaluate(CGFloat(i) / 20), CGFloat(i) / 20) }
+        var split = ParametricCurve()
+        split.setSplit(.midtone, to: 0.4)
+        XCTAssertTrue(split.isNeutral, "a split with no amounts applies nothing")
+    }
+
+    /// ±100 moves the middle of the region by half its width, and the ends stay.
+    func testAnAmountMovesItsRegionsMiddle() {
+        var lift = ParametricCurve()
+        lift.shadows = 100
+        XCTAssertEqual(lift.evaluate(0.125), 0.25, accuracy: 1e-9, "Shadows +100 doubles the middle of the shadows")
+        XCTAssertEqual(lift.evaluate(0), 0); XCTAssertEqual(lift.evaluate(1), 1)
+        XCTAssertEqual(lift.evaluate(0.75), 0.75, accuracy: 1e-3, "and leaves the highlights alone")
+        var hl = ParametricCurve()
+        hl.highlights = -100
+        XCTAssertEqual(hl.evaluate(0.875), 0.75, accuracy: 1e-9)
+    }
+
+    /// Any setting of the four, with the splits anywhere, is a curve that
+    /// never falls and never leaves the square — including splits stored out
+    /// of order, which `heldSplits` puts back in order.
+    func testEveryParametricSettingIsMonotone() {
+        var state: UInt64 = 42
+        func next() -> Double {
+            state = state &* 6364136223846793005 &+ 1442695040888963407
+            return Double(state >> 11) / Double(1 << 53)
+        }
+        for trial in 0..<400 {
+            var q = ParametricCurve()
+            for r in ParametricCurve.Region.allCases { q[r] = next() * 200 - 100 }
+            if trial % 4 == 0 {
+                // Crossed, as a hand-written file could store them.
+                q.shadowSplit = next(); q.midtoneSplit = next(); q.highlightSplit = next()
+            } else {
+                q.setSplit(.midtone, to: 0.1 + next() * 0.8)
+                q.setSplit(.shadow, to: next())
+                q.setSplit(.highlight, to: next())
+            }
+            var last: CGFloat = 0
+            for i in 0...256 {
+                let y = q.evaluate(CGFloat(i) / 256)
+                XCTAssertGreaterThanOrEqual(y, last - 1e-12, "trial \(trial) falls at \(i)")
+                XCTAssertTrue((0...1).contains(y))
+                last = y
+            }
+        }
+        var crossed = ParametricCurve()
+        crossed.setSplit(.shadow, to: 0.9)
+        crossed.setSplit(.highlight, to: 0.1)
+        XCTAssertTrue(crossed.splitsAreOrdered, "setSplit keeps the order and the gap")
+    }
+
+    /// The parametric curve is applied **first**: the point curve reads what
+    /// it made, and the table is that composition. A channel with no
+    /// parametric curve is its point curve's table exactly, so 1.3's curves
+    /// draw as they did.
+    ///
+    /// **Seen red** with the composition reversed in `CurveSet.evaluate`.
+    func testTheParametricCurveComesBeforeThePointCurve() {
+        var set = CurveSet()
+        set.parametric.rgb.shadows = 100
+        set.rgb.insert(CGPoint(x: 0.25, y: 0.1))
+        let x: CGFloat = 0.125
+        XCTAssertEqual(set.evaluate(.rgb, x), set.rgb.evaluate(set.parametric.rgb.evaluate(x)), accuracy: 1e-12)
+        XCTAssertGreaterThan(abs(set.evaluate(.rgb, x) - set.parametric.rgb.evaluate(set.rgb.evaluate(x))), 0.01,
+                             "which is not the other order")
+        XCTAssertEqual(set.changedChannels, [.rgb])
+        XCTAssertEqual(Double(set.table(.rgb)[32]), Double(set.evaluate(.rgb, 32.0 / 255)), accuracy: 1e-6)
+        var plain = CurveSet()
+        plain.green.insert(CGPoint(x: 0.3, y: 0.5))
+        XCTAssertEqual(plain.table(.green), plain.green.table())
+        set.reset(.rgb)
+        XCTAssertTrue(set.isIdentity, "a channel's reset is both views")
+    }
 }

@@ -95,6 +95,28 @@ final class AgentSchemaTests: XCTestCase {
         XCTAssertEqual(after.adjustments.curves, a.curves, "a sibling object survives the merge")
     }
 
+    /// The parametric curve is in reach of an agent as it is of a person: its
+    /// amounts and splits are fields, a lifted black (a negative black point)
+    /// is in range, and three splits that cross are refused whole — each is
+    /// inside its own range, which is why the check is on the end state.
+    ///
+    /// **Seen red** without the split check in `applyAgentEdit`: the crossed
+    /// patch was applied.
+    func testTheParametricCurveIsEditableAndItsSplitsMustStayInOrder() throws {
+        _ = try AgentDocument.validate(["adjustments": ["blackPoint": -20,
+                                                        "curves": ["parametric": ["luma": ["darks": 40, "midtoneSplit": 0.45]]]]])
+        let session = Session()
+        let leaves = try session.applyAgentEdit(["adjustments": ["curves": ["parametric": ["rgb": ["lights": 30]]]]])
+        XCTAssertEqual(leaves, ["adjustments.curves.parametric.rgb.lights"])
+        XCTAssertEqual(session.adjustments.curves.parametric.rgb.lights, 30)
+        XCTAssertThrowsError(try session.applyAgentEdit(
+            ["adjustments": ["curves": ["parametric": ["red": ["shadowSplit": 0.6, "midtoneSplit": 0.3]]]]])) { e in
+            guard case AgentError.refused(let why) = e else { return XCTFail("\(e)") }
+            XCTAssertTrue(why.contains("in order") || why.contains("must run"), why)
+        }
+        XCTAssertEqual(session.adjustments.curves.parametric.red, ParametricCurve(), "nothing was written")
+    }
+
     /// The schema's ranges are the interface's (RFC-026 §3), spot-checked
     /// against the constants the controls use.
     func testRangesAreTheInterfaces() {

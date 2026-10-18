@@ -116,6 +116,73 @@ final class RendererTests: XCTestCase {
         XCTAssertEqual(pixel(out, 1, 1)[0], 0.5, accuracy: 1e-3)
     }
 
+    /// A layer that applies nothing gives every value back **to the bit**, at
+    /// float precision — not merely to the nearest 16-bit code, which is all
+    /// `testLayer2NeutralIsPassthrough` can see through an rgba16Unorm
+    /// texture. The source is float and off the 16-bit grid on purpose: a
+    /// value that is already a code survives a one-ulp wobble by rounding back
+    /// onto it, and hides the step that wobbled.
+    func testANeutralLayerGivesEveryValueBackToTheBit() throws {
+        let w = 64, h = 64
+        let src = try XCTUnwrap(renderer.store.makeWritable(width: w, height: h, format: .rgba32Float))
+        let dst = try XCTUnwrap(renderer.store.makeWritable(width: w, height: h, format: .rgba32Float))
+        var state: UInt64 = 0x9E37_79B9_7F4A_7C15
+        func next() -> Float {
+            state = state &* 6364136223846793005 &+ 1442695040888963407
+            return Float(state >> 40) / Float(1 << 24)
+        }
+        var px = [Float](repeating: 1, count: w * h * 4)
+        for i in 0..<(w * h) { for c in 0..<3 { px[i * 4 + c] = next() } }
+        px.withUnsafeBytes {
+            src.replace(region: MTLRegionMake2D(0, 0, w, h), mipmapLevel: 0, withBytes: $0.baseAddress!, bytesPerRow: w * 16)
+        }
+        _ = try XCTUnwrap(renderer.applyLayer2(to: src, uniforms: Adjustments().uniforms, into: dst))
+        var out = [Float](repeating: 0, count: w * h * 4)
+        dst.getBytes(&out, bytesPerRow: w * 16, from: MTLRegionMake2D(0, 0, w, h), mipmapLevel: 0)
+        var differ = 0, worst: Float = 0
+        for i in 0..<(w * h) {
+            for c in 0..<3 where out[i * 4 + c].bitPattern != px[i * 4 + c].bitPattern {
+                differ += 1
+                worst = max(worst, abs(out[i * 4 + c] - px[i * 4 + c]))
+            }
+        }
+        XCTAssertEqual(differ, 0, "\(differ) of \(w * h * 3) values moved under a neutral layer (worst \(worst))")
+    }
+
+    /// Blacks to the right lifts the black: a negative black point, through
+    /// the same line that crushes it (`(c − bp) / (1 − bp − wp)`). Whites to
+    /// the left dims the white.
+    func testBlacksLiftAndWhitesDim() {
+        var a = Adjustments()
+        a[.blacks] = 30
+        var out = renderer.applyLayer2(to: makeCard(), uniforms: a.uniforms)!
+        XCTAssertEqual(pixel(out, 0, 1)[0], 0.3 / 1.3, accuracy: 1e-3, "black lifted to 0.3 / 1.3")
+        XCTAssertEqual(pixel(out, 3, 0)[0], 1, accuracy: 1e-3, "white where it was")
+        a = Adjustments()
+        a[.whites] = -25
+        out = renderer.applyLayer2(to: makeCard(), uniforms: a.uniforms)!
+        XCTAssertEqual(pixel(out, 3, 0)[0], 1 / 1.25, accuracy: 1e-3, "white dimmed to 1 / 1.25")
+        XCTAssertEqual(pixel(out, 0, 1)[0], 0, accuracy: 1e-4, "black where it was")
+    }
+
+    /// A parametric curve reaches the picture through the same table as a
+    /// point curve: Darks +100 lifts mid-grey (which sits on the Darks |
+    /// Lights split, half the region's lift), and a split moved with no
+    /// amount leaves it alone.
+    func testAParametricCurveReachesTheShader() {
+        var a = Adjustments()
+        a.curves.parametric.rgb.darks = 100
+        renderer.setCurves(a.curves)
+        var out = renderer.applyLayer2(to: makeCard(), uniforms: a.uniforms)!
+        XCTAssertEqual(pixel(out, 1, 1)[0], 0.5625, accuracy: 0.01)
+        XCTAssertEqual(pixel(out, 3, 0)[0], 1, accuracy: 1e-3, "white stays white")
+        a = Adjustments()
+        a.curves.parametric.rgb.setSplit(.midtone, to: 0.4)
+        renderer.setCurves(a.curves)
+        out = renderer.applyLayer2(to: makeCard(), uniforms: a.uniforms)!
+        XCTAssertEqual(pixel(out, 1, 1)[0], 0.5, accuracy: 1e-3)
+    }
+
     func testLayer2BypassIgnoresAdjustments() {
         var a = Adjustments(); a.enabled = false; a.exposure = 2
         let out = renderer.applyLayer2(to: makeCard(), uniforms: a.uniforms)!
