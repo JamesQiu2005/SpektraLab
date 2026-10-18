@@ -111,7 +111,8 @@ Panels/LeftPanel          window buttons · "Develop" · import/export/sidebar.l
   Sections/Enlarger       Brightness (stops) · Yellow · Magenta — offsets from the solve
                           (not in the drawing; kept, collapsed, last)
 Panels/RightPanel         "Edit", sidebar.right, then the Layer 2 sections
-  Sections/RightSections  Histogram · White Balance · Exposure · Curve · Color Balance
+  Edit/                   Post-Dev: Light · Curve (Parametric | Point) · Colour
+                          (EditControls: the relative slider row and the arrows)
 Panels/Filmstrip          thumbnails, selection frame, chevrons
 Canvas/MetalCanvasView    MTKView + gestures     Canvas/Renderer   Metal state, Layer 2, histogram
 Model/Session             all state              Service/RenderScheduler   coalesced service calls

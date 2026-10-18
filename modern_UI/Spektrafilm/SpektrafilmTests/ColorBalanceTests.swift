@@ -13,9 +13,14 @@
 //      does the opposite of what it says.
 //
 //  Both live in `ColorBalanceLayout`, which is arithmetic with no view in it,
-//  so both can be checked here.
+//  so both can be checked here. So does a third, which did fail silently in
+//  1.3: **does the point sit on the colour it adds?** (`Wheel`, below.) The
+//  triangle and the arcs are no longer drawn — the Colour section puts three
+//  wheels in a row — and their tests stay with their arithmetic.
 
+import AppKit
 import CoreGraphics
+import SwiftUI
 import XCTest
 
 final class ColorBalanceTests: XCTestCase {
@@ -89,6 +94,77 @@ final class ColorBalanceTests: XCTestCase {
     /// points at the triangle rather than quietly shrinking the wheels.
     func testTheAssumedWidthIsThePanelMinusItsWell() {
         XCTAssertEqual(ColorBalanceLayout.assumedWidth, 264, accuracy: 0.001)
+    }
+
+    // MARK: - the wheel
+
+    /// **A zone's point sits on the colour it adds.** The wheel's gradient is
+    /// rendered and sampled where `Wheel.point` draws a zone of each hue, and
+    /// the colour there must be the hue the picture is given
+    /// (`ColorZone.rgbOffset`: 0° red, 120° green, 240° blue).
+    ///
+    /// 1.3's wheel failed this for every hue off the red–cyan axis: it drew
+    /// and dragged the point counter-clockwise over a gradient SwiftUI paints
+    /// clockwise, so a point on the blue of the wheel tinted the print green.
+    /// **Seen red** with `Wheel.point`'s y negated (1.3's orientation): hue
+    /// 120 sampled as 237.
+    @MainActor
+    func testAZonesPointSitsOnTheColourItAdds() throws {
+        let size: CGFloat = 200, radius: CGFloat = 80
+        let renderer = ImageRenderer(content: Circle().fill(ColorBalanceLayout.Wheel.gradient)
+            .frame(width: size, height: size))
+        renderer.scale = 1
+        let image = try XCTUnwrap(renderer.cgImage)
+        let rep = NSBitmapImageRep(cgImage: image)
+        for hue in stride(from: 0.0, to: 360, by: 30) {
+            let p = ColorBalanceLayout.Wheel.point(hue: hue, saturation: 1, radius: radius)
+            let c = try XCTUnwrap(rep.colorAt(x: Int(size / 2 + p.x), y: Int(size / 2 + p.y))?.usingColorSpace(.sRGB))
+            var drawn = c.hueComponent * 360
+            if drawn - hue > 180 { drawn -= 360 } else if hue - drawn > 180 { drawn += 360 }
+            XCTAssertEqual(drawn, hue, accuracy: 12, "the point for hue \(hue)° sits on hue \(drawn)° of the wheel")
+            // And the picture is given that hue: the offset's largest channel.
+            let o = ColorZone(hue: hue, saturation: 1).rgbOffset
+            if hue.truncatingRemainder(dividingBy: 120) == 0 {
+                let strongest = [o.x, o.y, o.z].firstIndex(of: max(o.x, o.y, o.z))
+                XCTAssertEqual(strongest, Int(hue / 120), "hue \(hue)° adds \(["red", "green", "blue"][Int(hue / 120)])")
+            }
+        }
+    }
+
+    /// The point and the zone are one mapping both ways, and a drag that has
+    /// not moved leaves the zone exactly where it was: taking hold of a
+    /// wheel never changes it.
+    ///
+    /// **Seen red** with the drag measured from the press rather than from the
+    /// point (1.3's): a press 20 pt from the point moved it there.
+    func testTakingHoldOfAWheelMovesNothing() {
+        let W = ColorBalanceLayout.Wheel.self
+        for (hue, sat) in [(0.0, 0.5), (75.0, 0.3), (210.0, 0.9), (330.0, 1.0)] {
+            let p = W.point(hue: hue, saturation: sat, radius: 40)
+            let z = W.zone(at: p, radius: 40)
+            XCTAssertEqual(z.hue, hue, accuracy: 1e-9); XCTAssertEqual(z.saturation, sat, accuracy: 1e-9)
+            let held = W.dragged(from: p, by: .zero, radius: 40)
+            XCTAssertEqual(held.hue, hue, accuracy: 1e-9); XCTAssertEqual(held.saturation, sat, accuracy: 1e-9)
+        }
+        // A drag moves the point by its travel, and saturation stops at the rim.
+        let moved = W.dragged(from: CGPoint(x: 10, y: 0), by: CGSize(width: 0, height: 10), radius: 40)
+        XCTAssertEqual(moved.hue, 45, accuracy: 1e-9, "down-right is clockwise of 3 o'clock")
+        XCTAssertEqual(W.dragged(from: .zero, by: CGSize(width: 400, height: 0), radius: 40).saturation, 1)
+        XCTAssertEqual(W.zone(at: .zero, radius: 40).hue, 0, "no saturation, no hue")
+    }
+
+    /// Three wheels side by side fit the rail at every width it can have.
+    func testThreeWheelsFitTheRailInARow() {
+        let narrow = ColorBalanceLayout.interior(panelWidth: Theme.Metric.rightPanelRange.narrowest)
+        let wide = ColorBalanceLayout.interior(panelWidth: Theme.Metric.rightPanelRange.widest)
+        for width in [narrow, ColorBalanceLayout.assumedWidth, wide] {
+            let row = ColorBalanceLayout.row(width: width - 8)
+            XCTAssertTrue(row.fits, "three wheels do not fit \(width - 8) pt")
+            XCTAssertGreaterThanOrEqual(row.wheel, 44)
+            XCTAssertLessThanOrEqual(3 * row.wheel + 2 * row.gap, width - 8 + 0.5)
+        }
+        XCTAssertGreaterThan(ColorBalanceLayout.row(width: ColorBalanceLayout.assumedWidth - 8).wheel, 72,
+                             "larger than the 3-way triangle's lower pair")
     }
 
     // MARK: - the arcs

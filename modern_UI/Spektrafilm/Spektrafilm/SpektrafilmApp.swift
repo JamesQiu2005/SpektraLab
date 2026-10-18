@@ -305,6 +305,15 @@ struct SnapshotRequest {
     /// `--settings general|rendering|memory|diagnostics|agents` — capture
     /// that page of Settings (RFC-026's paged window).
     var settings: SettingsPage?
+    /// `--post-dev light|curve|curve-point|colour` — capture the Parameters
+    /// rail on Post-Dev with that one section open (Curve in Parametric or in
+    /// Point) and a sample grade on the frame, so every control shows a value
+    /// off its rest. The persisted tab, sections and curve view, and the
+    /// frame's own grade, are put back after the capture.
+    var postDev: PostDevCapture?
+    enum PostDevCapture: String { case light, curve, curvePoint = "curve-point", colour
+        var section: String { self == .curvePoint ? "curve" : rawValue }
+    }
     /// `--folded left|right|both` — capture with a rail folded.
     ///
     /// The 2026-09-17 PRD makes one requirement about state rather than
@@ -357,6 +366,9 @@ struct SnapshotRequest {
         r.export = r.exportGrid || args.contains("--export")
         if let j = args.firstIndex(of: "--settings"), args.count > j + 1 {
             r.settings = SettingsPage(rawValue: args[j + 1])
+        }
+        if let j = args.firstIndex(of: "--post-dev"), args.count > j + 1 {
+            r.postDev = PostDevCapture(rawValue: args[j + 1])
         }
         if let j = args.firstIndex(of: "--compare") {
             r.compare = args.count > j + 1 ? (Double(args[j + 1]) ?? 0.5) : 0.5
@@ -456,6 +468,39 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
     }
 
+    /// `--post-dev`'s grade: every Light row, every Colour row and wheel, and
+    /// both curve views off their rest, by amounts a person might choose.
+    static let sampleGrade: Adjustments = {
+        var a = Adjustments()
+        a.exposure = 0.35; a.contrast = 12; a.brightness = -4
+        a.highlights = -35; a.shadows = 25; a.whites = 6; a.blacks = 8
+        a.vignette = Vignette(amount: -25, midpoint: 40)
+        a.temperature = 8; a.tint = -3; a.saturation = 10
+        a.colorBalance.shadows = ColorZone(hue: 205, saturation: 0.35, luminance: 0.05)
+        a.colorBalance.midtones = ColorZone(hue: 35, saturation: 0.15, luminance: 0)
+        a.colorBalance.highlights = ColorZone(hue: 50, saturation: 0.25, luminance: -0.1)
+        a.curves.parametric.rgb.shadows = 20
+        a.curves.parametric.rgb.highlights = -15
+        a.curves.parametric.rgb.setSplit(.midtone, to: 0.45)
+        a.curves.rgb.insert(CGPoint(x: 0.25, y: 0.22))
+        a.curves.rgb.insert(CGPoint(x: 0.75, y: 0.8))
+        return a
+    }()
+
+    /// `--post-dev`'s view settings, in this process's **argument domain**:
+    /// read like any setting, written nowhere. The user's own copy of the app
+    /// shares the persistent domain and may be open while a capture runs.
+    static func postDevDefaults(_ capture: SnapshotRequest.PostDevCapture) {
+        let d = UserDefaults.standard
+        var args = d.volatileDomain(forName: UserDefaults.argumentDomain)
+        args[Session.uiKey + "parametersTab"] = ParametersTab.postDev.rawValue
+        args[CurveMode.storageKey] = (capture == .curvePoint ? CurveMode.point : .parametric).rawValue
+        for section in ["light", "curve", "colour"] {
+            args[Session.uiKey + "section." + section] = section == capture.section
+        }
+        d.setVolatileDomain(args, forName: UserDefaults.argumentDomain)
+    }
+
     private func runSnapshot(_ req: SnapshotRequest) async {
         guard let session else { snapshotExit(2) }
         // Own window, own hosting view: the capture must not depend on when
@@ -463,6 +508,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         if let page = req.settings {
             UserDefaults.standard.set(page.rawValue, forKey: Session.uiKey + "settingsPage")
         }
+        if let capture = req.postDev { Self.postDevDefaults(capture) }
         let host = NSHostingView(rootView: req.settings != nil
             ? AnyView(SettingsWindow(session: session))
             : req.export
@@ -574,6 +620,19 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             session.geometry = g.fitted(in: session.sourceImageSize)
             try? await Task.sleep(for: .milliseconds(300))
         }
+        // The tab, the sections and the curve view were put in this process's
+        // argument domain before the window was built (`postDevDefaults`);
+        // the grade is the frame's, saved with it, so it goes back after.
+        var postDevRestore: (() -> Void)?
+        if req.postDev != nil {
+            let grade = session.adjustments
+            session.adjustments = Self.sampleGrade
+            postDevRestore = {
+                session.adjustments = grade
+                session.flushSave()
+            }
+            try? await Task.sleep(for: .milliseconds(600))
+        }
         if let position = req.compare {
             session.comparePosition = position
             session.comparing = true
@@ -601,9 +660,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         guard view.bounds.size == req.size,
               let rep = view.bitmapImageRepForCachingDisplay(in: view.bounds) else {
             FileHandle.standardError.write(Data("snapshot: wanted \(req.size), view is \(view.bounds.size)\n".utf8))
+            postDevRestore?()
             snapshotExit(3)
         }
         view.cacheDisplay(in: view.bounds, to: rep)
+        // Not a `defer`: `snapshotExit` never returns, so one would not run.
+        postDevRestore?()
         guard let png = rep.representation(using: .png, properties: [:]) else { snapshotExit(4) }
         try? png.write(to: req.output)
         print("snapshot \(Int(req.size.width))x\(Int(req.size.height)) → \(req.output.path)")

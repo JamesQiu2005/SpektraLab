@@ -116,9 +116,9 @@ final class PanelResizeWiringTests: XCTestCase {
         let s = Session()
         let d = UserDefaults.standard
         let tabKey = Session.uiKey + "parametersTab"
-        let open = ["latitude", "camera", "filmFormat", "scenePlacement", "wb2", "exposure2", "curve", "colorbalance"]
+        let open = ["latitude", "camera", "filmFormat", "scenePlacement", "light", "curve", "colour"]
             .map { Session.uiKey + "section." + $0 } + [Session.decoupleEffectsKey]
-        let keys = [tabKey] + open
+        let keys = [tabKey, CurveMode.storageKey] + open
         let saved = keys.map { d.object(forKey: $0) }
         let language = Localization.shared.language
         let scale = InterfaceScaleStore.shared.scale
@@ -140,7 +140,10 @@ final class PanelResizeWiringTests: XCTestCase {
                     d.set(tab.rawValue, forKey: tabKey)
                     // Off, then on in each format: the row names the format.
                     let edges: [FilmEdgeFormat?] = tab == .preDev ? [nil] + FilmEdgeFormat.allCases.map { $0 } : [nil]
-                    for format in edges {
+                    // Post-Dev's Curve in both of its views.
+                    let modes: [CurveMode] = tab == .postDev ? CurveMode.allCases : [.parametric]
+                    for format in edges { for mode in modes {
+                        d.set(mode.rawValue, forKey: CurveMode.storageKey)
                         var p = s.params
                         p.filmEdge.active = format != nil
                         p.filmEdge.format = format ?? .f135
@@ -149,9 +152,9 @@ final class PanelResizeWiringTests: XCTestCase {
                             .sizeThatFits(in: CGSize(width: 1, height: 4000)).width
                         XCTAssertLessThanOrEqual(
                             least, narrowest + 0.5,
-                            "\(scale.label) \(setting) \(tab) film edge \(format?.rawValue ?? "off"): "
+                            "\(scale.label) \(setting) \(tab) \(mode) film edge \(format?.rawValue ?? "off"): "
                                 + "the rail needs \(least) pt and may be \(narrowest)")
-                    }
+                    } }
                 }
             }
         }

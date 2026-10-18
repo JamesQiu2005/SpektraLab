@@ -48,10 +48,10 @@ struct RightPanel: View {
             // Withdrawn for the next version (`FeatureFlags.toneMask`).
             if FeatureFlags.toneMask { s.append(("toneMask", AnyView(ToneMaskSection(session: session)))) }
         } else {
-            s.append(("wb2", AnyView(WhiteBalanceSection(session: session))))
-            s.append(("exposure2", AnyView(ExposureSection(session: session))))
+            // Light, Curve and Colour (`Panels/Edit/`).
+            s.append(("light", AnyView(LightSection(session: session))))
             s.append(("curve", AnyView(CurveSection(session: session))))
-            s.append(("colorbalance", AnyView(ColorBalanceSection(session: session))))
+            s.append(("colour", AnyView(ColourSection(session: session))))
             // Withdrawn while the mask system is redesigned; the section
             // itself is intact (`FeatureFlags.masks`).
             if FeatureFlags.masks { s.append(("masks", AnyView(MasksSection(session: session)))) }
