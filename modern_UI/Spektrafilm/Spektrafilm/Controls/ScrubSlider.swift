@@ -182,76 +182,12 @@ struct ScrubSlider: View {
         .rowEnabled(!disabled)
     }
 
-    private var fraction: CGFloat { ScrubDrag.fraction(value, in: range) }
-    private var zeroFraction: CGFloat { ScrubDrag.fraction(zero, in: range) }
 
     private var track: some View {
         GeometryReader { geo in
-            let w = geo.size.width
-            let knobW = Theme.Metric.knobSize.width
-            let travel = w - knobW
-            let x = fraction * travel + knobW / 2
-            ZStack(alignment: .leading) {
-                Group {
-                    if let g = trackGradient {
-                        Capsule().fill(LinearGradient(colors: g, startPoint: .leading, endPoint: .trailing))
-                    } else {
-                        // `surface.control` — the same grey every pill and
-                        // field is, so the track carries no colour the rail
-                        // does not already use.
-                        //
-                        // **1.36 pt, v3's measurement**, where the
-                        // 2026-09-17 pass drew 3. The objection then was
-                        // that a hairline-thin track "in the *same grey as
-                        // the ground*" was fainter than the dividers beside
-                        // it — and it was, because `well` was `ground` and
-                        // the track sat on a well of its own colour. v3
-                        // separates rail from control, so the thin track now
-                        // has contrast of its own. What it does *not* have
-                        // is a hit target, and it does not need one: the
-                        // drag is on the full row-height `contentShape`
-                        // below, not on the ink.
-                        Capsule().fill(Theme.ground)
-                    }
-                }
-                .frame(height: m.trackHeight)
-                .padding(.horizontal, knobW / 2)
-                ForEach(Array(usable.enumerated()), id: \.offset) { _, usable in
-                    let span = range.upperBound - range.lowerBound
-                    let lo = CGFloat((max(usable.lowerBound, range.lowerBound) - range.lowerBound) / span)
-                    let hi = CGFloat((min(usable.upperBound, range.upperBound) - range.lowerBound) / span)
-                    Capsule().fill(Theme.Ink.tertiary.opacity(0.35))
-                        .frame(width: max((hi - lo) * (w - knobW), 3), height: 5)
-                        .offset(x: lo * (w - knobW) + knobW / 2)
-                        .allowsHitTesting(false)
-                }
-                // **The fill (V5):** rest to knob, in the rail's secondary
-                // ink, the track's own height. Not on a gradient track — the
-                // colour under the knob is already the reading there.
-                if trackGradient == nil,
-                   let fill = ScrubDrag.fill(value: value, rest: zero, range: range, width: travel) {
-                    Capsule().fill(Theme.sliderFill)
-                        .frame(width: (fill.upperBound - fill.lowerBound) * travel, height: m.trackHeight)
-                        .offset(x: fill.lowerBound * travel + knobW / 2)
-                        .allowsHitTesting(false)
-                }
-                // **The rest mark (V5):** always drawn, ends included — the
-                // knob covers it when it sits there. It used to be drawn only
-                // away from the ends and away from the knob, so a slider at
-                // rest showed no rest at all.
-                Rectangle().fill(Theme.restMark).frame(width: 1, height: 7)
-                    .offset(x: zeroFraction * travel + knobW / 2 - 0.5)
-                    .allowsHitTesting(false)
-                // v3's knob is a 6.13 × 5.07 dot rather than a 10 pt
-                // handle. Ink only — it is never dragged by itself; the
-                // gesture belongs to the track. It grows while held, the
-                // contact acknowledgement (not under Reduce Motion).
-                RoundedRectangle(cornerRadius: Theme.Metric.knobRadius, style: .continuous)
-                    .fill(Theme.knob)
-                    .frame(width: knobW, height: Theme.Metric.knobSize.height)
-                    .scaleEffect(dragStart != nil ? Theme.Motion.contactScale : 1)
-                    .offset(x: x - knobW / 2)
-            }
+            let travel = geo.size.width - Theme.Metric.knobSize.width
+            SliderInk(value: value, range: range, rest: zero, trackGradient: trackGradient,
+                      usable: usable, held: dragStart != nil, trackHeight: m.trackHeight)
             .frame(height: geo.size.height)
             .contentShape(Rectangle())
             .gesture(
@@ -339,6 +275,82 @@ struct ScrubSlider: View {
     private func commitText() {
         if let v = parse(text) { value = v.clamped(to: range); onCommit() }
         editing = false
+    }
+}
+
+/// **The ink of every slider on the rails**: the track (or its gradient), the
+/// usable bands, the fill from the rest to the knob, the rest mark and the
+/// knob. `ScrubSlider` and Post-Dev's `EditSliderRow` both draw through it, so
+/// the Parameters rail's two kinds of row cannot drift apart in how a track
+/// looks; they differ only in how they take a gesture.
+struct SliderInk: View {
+    let value: Double
+    let range: ClosedRange<Double>
+    let rest: Double
+    var trackGradient: [Color]? = nil
+    var usable: [ClosedRange<Double>] = []
+    /// Whether the track marks the rest and fills to it. Off where the rest
+    /// means nothing on a line (an angle of hue).
+    var showsRest = true
+    /// While a drag holds the knob it grows — the contact acknowledgement.
+    var held = false
+    var trackHeight: CGFloat
+
+    var body: some View {
+        GeometryReader { geo in
+            let w = geo.size.width
+            let knobW = Theme.Metric.knobSize.width
+            let travel = w - knobW
+            let x = ScrubDrag.fraction(value, in: range) * travel + knobW / 2
+            ZStack(alignment: .leading) {
+                Group {
+                    if let g = trackGradient {
+                        Capsule().fill(LinearGradient(colors: g, startPoint: .leading, endPoint: .trailing))
+                    } else {
+                        // `surface.control` — the same grey every pill and
+                        // field is, so the track carries no colour the rail
+                        // does not already use. 1.36 pt, v3's measurement; the
+                        // hit target is the row's `contentShape`, not the ink.
+                        Capsule().fill(Theme.ground)
+                    }
+                }
+                .frame(height: trackHeight)
+                .padding(.horizontal, knobW / 2)
+                ForEach(Array(usable.enumerated()), id: \.offset) { _, usable in
+                    let span = range.upperBound - range.lowerBound
+                    let lo = CGFloat((max(usable.lowerBound, range.lowerBound) - range.lowerBound) / span)
+                    let hi = CGFloat((min(usable.upperBound, range.upperBound) - range.lowerBound) / span)
+                    Capsule().fill(Theme.Ink.tertiary.opacity(0.35))
+                        .frame(width: max((hi - lo) * travel, 3), height: 5)
+                        .offset(x: lo * travel + knobW / 2)
+                }
+                // **The fill (V5):** rest to knob, in the rail's secondary
+                // ink, the track's own height. Not on a gradient track — the
+                // colour under the knob is already the reading there.
+                if showsRest, trackGradient == nil,
+                   let fill = ScrubDrag.fill(value: value, rest: rest, range: range, width: travel) {
+                    Capsule().fill(Theme.sliderFill)
+                        .frame(width: (fill.upperBound - fill.lowerBound) * travel, height: trackHeight)
+                        .offset(x: fill.lowerBound * travel + knobW / 2)
+                }
+                // **The rest mark (V5):** always drawn, ends included — the
+                // knob covers it when it sits there.
+                if showsRest {
+                    Rectangle().fill(Theme.restMark).frame(width: 1, height: 7)
+                        .offset(x: ScrubDrag.fraction(rest, in: range) * travel + knobW / 2 - 0.5)
+                }
+                // v3's knob is a 6.13 × 5.07 dot rather than a 10 pt handle.
+                // Ink only — it is never dragged by itself; the gesture
+                // belongs to the row.
+                RoundedRectangle(cornerRadius: Theme.Metric.knobRadius, style: .continuous)
+                    .fill(Theme.knob)
+                    .frame(width: knobW, height: Theme.Metric.knobSize.height)
+                    .scaleEffect(held ? Theme.Motion.contactScale : 1)
+                    .offset(x: x - knobW / 2)
+            }
+            .frame(height: geo.size.height)
+            .allowsHitTesting(false)
+        }
     }
 }
 

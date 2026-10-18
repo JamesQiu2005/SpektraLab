@@ -2,17 +2,14 @@
 //  share: the slider row, the arrow keys, the names, and the door onto the
 //  grade.
 //
-//  **Why a row of its own rather than `ScrubSlider`.** The rail's slider jumps
-//  to the click on a fresh press (more than 3 % of the range away), so a click
-//  meant to take hold of a value moves it, and a click on the far end of the
-//  track moves it the whole way. The Post-Dev rows are **relative**: a press
-//  anywhere on the label or the track takes hold of the value where it is,
-//  and only the drag's travel moves it. The rest is what the rail's slider
-//  already does and is kept the same way: ⌥ for a quarter of the travel, ⇧ to
-//  the control's snap, a double-click back to rest, the value an editable
-//  field. Kept local so the shared slider is not changed underneath every
-//  other rail; it is a candidate for the shared control when that is
-//  redrawn.
+//  **Why a row of its own rather than `ScrubSlider`.** Both are relative now
+//  (a press takes hold of the value where it is; only the drag's travel moves
+//  it) and both draw with the one `SliderInk`, so they look alike to the
+//  pixel. This row adds what the grade needs and the rest of the rail does
+//  not: the keyboard (below), and the history's gesture boundaries, which
+//  make a drag one undo step. ⌥ is a quarter of the travel, ⇧ the control's
+//  snap, a double-click back to rest, the value an editable field — the same
+//  as the rail's slider.
 //
 //  **The keyboard.** A row takes focus when it is pressed, and while it has
 //  it the arrows step it: one `step`, a tenth with ⌥, ten with ⇧. The Frame
@@ -149,6 +146,18 @@ enum EditText {
     @MainActor static var reset: String { L("Reset", zh: "还原") }
 }
 
+extension SectionAction {
+    /// A Post-Dev section's arrow: its tool's controls back to rest, named as
+    /// the other sections' are ("Reset Light"), greyed when the tool applies
+    /// nothing so a press asks for nothing.
+    @MainActor static func reset(_ tool: Adjustments.Tool, titled title: String, in session: Session) -> SectionAction {
+        SectionAction(help: L("Reset \(title)", zh: "重置\(title)"),
+                      enabled: !session.layerAdjustments.isNeutral(tool)) {
+            session.changeGrade { $0.reset(tool) }
+        }
+    }
+}
+
 // MARK: - the slider row
 
 /// Label | track | value, relative, keyboard-steppable. See the note at the
@@ -196,7 +205,7 @@ struct EditSliderRow: View {
         HStack(spacing: 0) {
             Text(title)
                 .font(m.labelFont)
-                .foregroundStyle(focused ? Theme.accent : Theme.Ink.secondary)
+                .foregroundStyle(focused ? Theme.text : Theme.Ink.secondary)
                 .fixedSize()
                 .padding(.trailing, 6)
                 .frame(minWidth: m.labelWidth, alignment: .leading)
@@ -264,40 +273,16 @@ struct EditSliderRow: View {
         value = (value + arrow.sign * Layer2KeyFocus.stride(step, mods)).clamped(to: range)
     }
 
-    private var fraction: CGFloat {
-        CGFloat((value - range.lowerBound) / span).clamped(to: 0...1)
-    }
-    private var restFraction: CGFloat {
-        CGFloat((rest - range.lowerBound) / span).clamped(to: 0...1)
-    }
-
+    /// The rails' one slider ink (`SliderInk`), so a Post-Dev row and a
+    /// Pre-Dev row look alike to the pixel; this row only measures the track
+    /// for the drag's rate.
     private var track: some View {
         GeometryReader { geo in
-            let w = geo.size.width
-            let knobW = Theme.Metric.knobSize.width
-            let usable = max(w - knobW, 1)
-            ZStack(alignment: .leading) {
-                Group {
-                    if let g = trackGradient {
-                        Capsule().fill(LinearGradient(colors: g, startPoint: .leading, endPoint: .trailing))
-                    } else {
-                        Capsule().fill(Theme.ground)
-                    }
-                }
-                .frame(height: m.trackHeight)
-                .padding(.horizontal, knobW / 2)
-                if centred, restFraction > 0.001, restFraction < 0.999, abs(fraction - restFraction) > 0.02 {
-                    Rectangle().fill(Theme.text.opacity(0.55)).frame(width: 1, height: 6)
-                        .offset(x: restFraction * usable + knobW / 2 - 0.5)
-                }
-                RoundedRectangle(cornerRadius: Theme.Metric.knobRadius, style: .continuous)
-                    .fill(focused ? Theme.accent : Theme.knob)
-                    .frame(width: knobW, height: Theme.Metric.knobSize.height)
-                    .offset(x: fraction * usable)
-            }
-            .frame(height: geo.size.height)
-            .onAppear { trackWidth = usable }
-            .onChange(of: usable) { _, now in trackWidth = now }
+            let usable = max(geo.size.width - Theme.Metric.knobSize.width, 1)
+            SliderInk(value: value, range: range, rest: rest, trackGradient: trackGradient,
+                      showsRest: centred, held: anchor != nil, trackHeight: m.trackHeight)
+                .onAppear { trackWidth = usable }
+                .onChange(of: usable) { _, now in trackWidth = now }
         }
         .frame(height: m.rowHeight)
     }

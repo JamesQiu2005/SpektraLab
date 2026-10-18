@@ -17,8 +17,9 @@ struct LightSection: View {
     @Bindable var session: Session
 
     var body: some View {
-        PanelSection(L("Light", zh: "光"), key: "light", menu: { AnyView(Button(EditText.reset) {
-            session.changeGrade { $0.reset(.light) } }) }, metrics: .right) {
+        let title = L("Light", zh: "光")
+        PanelSection(title, key: "light", action: .reset(.light, titled: title, in: session),
+                     metrics: .right) {
             RailRows {
                 rows([.exposure, .contrast, .brightness])
                 Hairline().padding(.vertical, 2)

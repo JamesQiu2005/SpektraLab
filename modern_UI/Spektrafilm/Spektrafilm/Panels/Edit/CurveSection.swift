@@ -47,7 +47,9 @@ struct CurveSection: View {
     private var mode: CurveMode { CurveMode(rawValue: modeRaw) ?? .parametric }
 
     var body: some View {
-        PanelSection(L(.sectionCurve), key: "curve", menu: { AnyView(Group {
+        PanelSection(L(.sectionCurve), key: "curve",
+                     action: .reset(.curve, titled: L(.sectionCurve), in: session),
+                     menu: { AnyView(Group {
             Button(L("Reset Channel", zh: "重置通道")) { session.changeGrade { $0.curves.reset(channel) } }
             Button(L(.helpResetChannels)) { session.changeGrade { $0.reset(.curve) } }
         }) }, metrics: .right) {
@@ -160,7 +162,7 @@ struct CurvePlot: View {
             .focusable(mode == .point)
             .focused($focused)
             .focusEffectDisabled()
-            .overlay(RoundedRectangle(cornerRadius: 2).stroke(focused ? Theme.accent.opacity(0.7) : .clear, lineWidth: 1))
+            .overlay(RoundedRectangle(cornerRadius: 2).stroke(focused ? Theme.text.opacity(0.5) : .clear, lineWidth: 1))
             .onChange(of: focused) { _, now in focusChanged(now) }
             .onKeyPress(keys: [.delete, .deleteForward]) { _ in
                 guard mode == .point, let i = selected, curve.isDeletable(i) else { return .ignored }
@@ -253,8 +255,10 @@ struct CurvePlot: View {
                 let held = hold?.index == i
                 let r: CGFloat = held ? 4.5 : 3.5
                 let rect = CGRect(x: q.x * size.width - r, y: (1 - q.y) * size.height - r, width: 2 * r, height: 2 * r)
-                ctx.fill(Path(rect), with: .color(i == selected ? Theme.accent : Theme.plot))
-                ctx.stroke(Path(rect), with: .color(Theme.accent), lineWidth: 1.2)
+                // A point is a white ring; the selected one is filled —
+                // selection is white, never accent.
+                ctx.fill(Path(ellipseIn: rect), with: .color(i == selected ? Theme.selection : Theme.plot))
+                ctx.stroke(Path(ellipseIn: rect), with: .color(Theme.text), lineWidth: 1.2)
             }
         }
         if let h = hover {
@@ -360,10 +364,13 @@ struct CurvePlot: View {
         } else if mode == .point, let i = selected, curve.points.indices.contains(i) {
             text = line(Double(curve.points[i].x), Double(curve.points[i].y))
         } else {
-            text = "\(L(.curveInput)) --  →  \(L(.curveOutput)) --"
+            // Nothing to read: the line keeps its height and says nothing,
+            // rather than a row of placeholder dashes.
+            text = ""
         }
         return HStack(spacing: 8) {
             Text(text)
+                .frame(minHeight: 18)
             Spacer()
             if mode == .point {
                 Button { session.curvePickerActive.toggle() } label: {
@@ -443,8 +450,9 @@ private struct SplitHandle: View {
 
     var body: some View {
         Triangle()
-            .fill(focused ? Theme.accent : Theme.knob)
+            .fill(Theme.knob)
             .frame(width: 9, height: 6)
+            .scaleEffect(focused ? Theme.Motion.contactScale : 1)
             .rotationEffect(.degrees(180))
             .frame(width: 16, height: 14)
             .contentShape(Rectangle())

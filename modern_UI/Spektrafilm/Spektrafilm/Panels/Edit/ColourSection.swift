@@ -29,8 +29,10 @@ struct ColourSection: View {
     private var balance: ColorBalance { session.layerAdjustments.colorBalance }
 
     var body: some View {
-        PanelSection(L("Colour", zh: "色彩"), key: "colour", menu: { AnyView(Button(EditText.reset) {
-            session.changeGrade { $0.reset(.colour) } }) }, metrics: .right) {
+        // "Color", as the rest of the desktop's copy spells it (Color Balance).
+        let title = L("Color", zh: "色彩")
+        PanelSection(title, key: "colour", action: .reset(.colour, titled: title, in: session),
+                     metrics: .right) {
             RailRows {
                 EditSliderRow(.temperature, session: session,
                               trackGradient: [Color(hex: 0x005982), Color(hex: 0x8FA83C), Color(hex: 0xFFF100)])
@@ -162,7 +164,7 @@ struct ZoneWheelControl: View {
             Circle().fill(ColorBalanceLayout.Wheel.gradient)
             Circle().fill(RadialGradient(colors: [Theme.card, Theme.card.opacity(0)],
                                          center: .center, startRadius: 0, endRadius: size / 2))
-            Circle().stroke(selected || focused ? Theme.accent : Theme.dim.opacity(0.6),
+            Circle().stroke(selected || focused ? Theme.selectionFrame : Theme.dim.opacity(0.6),
                             lineWidth: selected || focused ? 1.5 : 0.5)
             let p = ColorBalanceLayout.Wheel.point(hue: value.hue, saturation: value.saturation, radius: radius)
             Circle().fill(Theme.text).frame(width: 7, height: 7)

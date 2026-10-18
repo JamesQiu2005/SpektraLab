@@ -17,9 +17,9 @@ import SwiftUI
 
 struct EnlargerSection: View {
     @Bindable var session: Session
-    /// Whether the section carries Pre-flash. The Develop | Edit shell's
-    /// Darkroom gives pre-flash a page of its own (`FeatureFlags.surfaces`),
-    /// and a slider shown on two pages is two answers to "where is it".
+    /// Whether the section carries Pre-flash. A view that shows pre-flash
+    /// on its own passes false, because a slider shown in two places is two
+    /// answers to "where is it"; the rails today always carry it here.
     var includesPreflash = true
     /// Expanded by default where the section is a page of its own.
     var initiallyExpanded = false

@@ -20,10 +20,10 @@
 //  reset back. There is no confirmation dialog: on the desktop an undoable
 //  edit is not asked about twice.
 //
-//  The scopes compose: the left/right rails' Input / Camera is Film Exposure
+//  The scopes compose: the Parameters rail's Input / Camera is Film Exposure
 //  and Decode, Film Format is Format, Grain & Halation and Couplers. The
-//  Develop | Edit shell (`FeatureFlags.surfaces`) shows the parts as pages
-//  of their own, and their arrows reset the parts.
+//  parts are scopes of their own so a narrower view of a section resets
+//  only what it shows.
 
 import Foundation
 
