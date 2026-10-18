@@ -122,7 +122,10 @@ final class Session: CanvasHost {
     var adjustments: Adjustments {
         get { sidecar.adjustments }
         set { guard newValue != sidecar.adjustments else { return }
-              pushUndo()
+              // The grade keeps a history of its own, one step a gesture
+              // (`Session+EditHistory.swift`), rather than the sidecar's
+              // time-coalesced stack, which split a slow drag into several.
+              recordLayer2(from: sidecar.adjustments, to: newValue)
               // A pair's grade is in the picture it composes, frame by frame;
               // the canvas draws that picture with none of its own.
               if pair != nil {
@@ -871,12 +874,15 @@ final class Session: CanvasHost {
 
     // MARK: undo and the work clock
 
-    /// One step of a frame's history: its settings before a change, and the
+    /// One step of a frame's history: its settings before a change, the
     /// piece they were taken with — a pair's own edits (its frames, their
-    /// crops, the spacing) undo with the look. Nil for a frame.
+    /// crops, the spacing) undo with the look; nil for a frame — and when it
+    /// was taken, on `historyClock`, which is what puts it in order with the
+    /// grade's own history.
     private struct UndoStep {
         let sidecar: Sidecar
         let piece: (url: URL, pair: HalfFramePair)?
+        let stamp: Int
     }
     /// **One history per frame**, keyed by the frame it was taken on.
     ///
@@ -885,9 +891,22 @@ final class Session: CanvasHost {
     /// earlier settings — and saved with them, so B's own edits were gone
     /// from its sidecar (a 1.3.3 report of adjustments disappearing).
     /// `RetainedEditsTests` pins it. Kept per frame rather than emptied, so
-    /// coming back to A still undoes A.
+    /// coming back to A still undoes A — as the grade's history already was.
     private var undoHistory: [URL: [UndoStep]] = [:]
+    /// The stamp of the open frame's newest settings step.
+    var lastSettingsUndoStamp: Int? { selection.flatMap { undoHistory[$0]?.last?.stamp } }
     private var lastUndoAt = Date.distantPast
+    /// The grade's history, per frame, one step a gesture
+    /// (`Session+EditHistory.swift`). Keyed by the frame so that an undo
+    /// can never put one photograph's grade on another.
+    var layer2Histories: [URL: EditHistory<Adjustments>] = [:]
+    /// The grade before the gesture now under way, and the frame it is of.
+    @ObservationIgnored var layer2GestureStart: (url: URL, before: Adjustments)?
+    /// Set while an undo or a redo of the grade writes it back, so the write
+    /// is not itself recorded.
+    @ObservationIgnored var replayingLayer2 = false
+    /// One clock for both histories.
+    @ObservationIgnored var historyClock = 0
     private(set) var workSeconds: Double = 0
     private var workStarted: Date?
     private var workClock: Task<Void, Never>?
@@ -3836,12 +3855,15 @@ final class Session: CanvasHost {
     /// Snapshot before a mutation, coalesced. A slider drag sets its value
     /// dozens of times and only the state before the drag is worth keeping.
     private func pushUndo() {
+        // Any change that is not the grade's ends the grade's redo: an undone
+        // adjustment is no longer the future of what was just done.
+        dropLayer2Redo()
         guard let url = selection else { return }
         let now = Date()
         guard now.timeIntervalSince(lastUndoAt) > 0.5 else { return }
         lastUndoAt = now
         var steps = undoHistory[url, default: []]
-        steps.append(UndoStep(sidecar: sidecar, piece: pair.map { (url, $0) }))
+        steps.append(UndoStep(sidecar: sidecar, piece: pair.map { (url, $0) }, stamp: nextHistoryStamp()))
         if steps.count > 60 { steps.removeFirst() }
         undoHistory[url] = steps
     }
@@ -3858,6 +3880,11 @@ final class Session: CanvasHost {
         let current = sidecar
         let previous = step.sidecar
         let piece = step.piece
+        // The snapshot is older than every grade step still recorded (that is
+        // why ⌘Z reached it), so its grade is normally the one on screen. If
+        // it is not — the grade's history ran past its limit — the steps left
+        // describe a grade that is no longer there, and they go.
+        if previous.adjustments != current.adjustments { dropLayer2History() }
         sidecar = previous
         pushLayer2(previous.adjustments)
         renderer.geometry = canvasGeometry

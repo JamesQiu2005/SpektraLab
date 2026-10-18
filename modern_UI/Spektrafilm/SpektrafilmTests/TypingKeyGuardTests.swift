@@ -87,16 +87,70 @@ final class TypingKeyGuardTests: XCTestCase {
         XCTAssertFalse(TypingKeyGuard.route(event), "Command+A must reach photos outside text")
     }
 
-    private func harness() throws -> (Target, NSWindow, NSTextField) {
+    /// ⌘Z in a value field with typing to take back undoes the typing, not
+    /// the last slider drag. With nothing typed it is the menu's again.
+    ///
+    /// **Seen red** without the ⌘Z branch in `route`: the menu's Undo fired
+    /// and the typing stayed.
+    func testCommandZInAFieldUndoesTheTyping() throws {
+        let (target, window, field) = try harness(undo: true)
+        let text = try XCTUnwrap(window.firstResponder as? NSTextView)
+        let monitor = TypingKeyGuard.install()
+        defer { monitor.map(NSEvent.removeMonitor) }
+        text.allowsUndo = true
+        let manager = try XCTUnwrap(text.undoManager)
+        manager.groupsByEvent = false
+        text.setSelectedRange(NSRange(location: 2, length: 0))
+        manager.beginUndoGrouping()
+        text.insertText("c", replacementRange: NSRange(location: NSNotFound, length: 0))
+        manager.endUndoGrouping()
+        XCTAssertEqual(text.string, "abc")
+        NSApp.sendEvent(try commandZ(in: window))
+        XCTAssertEqual(target.fired, 0, "⌘Z in a field with typing fired the app's Undo")
+        XCTAssertEqual(text.string, "ab", "the typing was not undone")
+        // Nothing left to undo in the field: the key is the menu's.
+        XCTAssertFalse(manager.canUndo)
+        NSApp.sendEvent(try commandZ(in: window))
+        XCTAssertEqual(target.fired, 1, "with nothing typed, ⌘Z must reach the app's Undo")
+        _ = field
+    }
+
+    /// A focused Post-Dev control owns the arrows, as a field does; with no
+    /// control focused the Frame menu has them.
+    func testAFocusedPostDevControlTakesTheArrows() throws {
+        let (target, window, _) = try harness()
+        let monitor = TypingKeyGuard.install()
+        defer { monitor.map(NSEvent.removeMonitor) }
+        window.makeFirstResponder(window.contentView)
+        var pressed: [Layer2KeyFocus.Arrow] = []
+        let id = UUID()
+        Layer2KeyFocus.shared.claim(id) { arrow, _ in pressed.append(arrow) }
+        NSApp.sendEvent(try arrowEvent(in: window))
+        Layer2KeyFocus.shared.release(id)
+        XCTAssertEqual(pressed, [.left])
+        XCTAssertEqual(target.fired, 0, "the Frame menu took the arrow from a focused control")
+        NSApp.sendEvent(try arrowEvent(in: window))
+        XCTAssertEqual(target.fired, 1, "released, the arrow is the menu's again")
+    }
+
+    private func commandZ(in window: NSWindow) throws -> NSEvent {
+        try XCTUnwrap(NSEvent.keyEvent(with: .keyDown, location: .zero, modifierFlags: .command, timestamp: 0,
+                                       windowNumber: window.windowNumber, context: nil, characters: "z",
+                                       charactersIgnoringModifiers: "z", isARepeat: false, keyCode: 6))
+    }
+
+    private func harness(undo: Bool = false) throws -> (Target, NSWindow, NSTextField) {
         let app = NSApplication.shared
         let previousMenu = app.mainMenu
         let target = Target()
         let menu = NSMenu(), top = NSMenuItem(), sub = NSMenu(title: "Image")
         top.submenu = sub
         menu.addItem(top)
-        let item = NSMenuItem(title: "Next Frame", action: #selector(Target.act(_:)),
-                              keyEquivalent: String(Character(UnicodeScalar(NSLeftArrowFunctionKey)!)))
-        item.keyEquivalentModifierMask = []
+        let item = undo
+            ? NSMenuItem(title: "Undo", action: #selector(Target.act(_:)), keyEquivalent: "z")
+            : NSMenuItem(title: "Next Frame", action: #selector(Target.act(_:)),
+                         keyEquivalent: String(Character(UnicodeScalar(NSLeftArrowFunctionKey)!)))
+        item.keyEquivalentModifierMask = undo ? .command : []
         item.target = target
         sub.addItem(item)
         app.mainMenu = menu

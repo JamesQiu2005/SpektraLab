@@ -124,8 +124,15 @@ struct EditorCommands: Commands {
             Button("Open…") { session.openPanel() }.keyboardShortcut("o")
             Button("Export…") { session.showExport = true }.keyboardShortcut("e").disabled(session.selection == nil)
         }
+        // ⌘Z takes the newer step of the two histories — the grade's own,
+        // one step a gesture, and the sidecar's — and the title says which
+        // (`Session+EditHistory.swift`). Redo is the grade's alone. A text
+        // field with focus gets both keys first (`TypingKeyGuard`).
         CommandGroup(replacing: .undoRedo) {
-            Button("Undo") { session.undo() }.keyboardShortcut("z").disabled(!session.canUndo)
+            Button(session.undoMenuTitle) { session.undoLatest() }
+                .keyboardShortcut("z").disabled(!session.canUndoLatest)
+            Button(session.redoMenuTitle) { session.redoAdjustment() }
+                .keyboardShortcut("z", modifiers: [.command, .shift]).disabled(!session.canRedoAdjustment)
         }
         CommandGroup(replacing: .pasteboard) {
             Button("Copy Settings") { session.copySettings() }
