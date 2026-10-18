@@ -324,6 +324,14 @@ final class RetainedEditsTests: XCTestCase {
         }
         s.flushSave()
         XCTAssertEqual(Sidecar.load(for: url)?.params.printBrightnessStops, 0.75)
+
+        // The filmstrip's Reset to Defaults on the frame on the canvas is the
+        // same reset. It used to reset the film and the adjustments, which
+        // developed the frame again at the defaults.
+        s.resetToDefaults(url)
+        XCTAssertEqual(s.frameStates[url], .unprocessed, "the filmstrip reset left the frame developed")
+        XCTAssertNil(s.renderer.store.print(for: url))
+        XCTAssertEqual(Sidecar.load(for: url)?.state ?? .unprocessed, .unprocessed)
     }
 
     /// The filmstrip's Reset to Defaults on a frame off the canvas takes its

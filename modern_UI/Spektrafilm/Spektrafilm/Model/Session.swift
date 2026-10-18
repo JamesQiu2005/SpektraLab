@@ -1446,6 +1446,15 @@ final class Session: CanvasHost {
         lastUndoAt = .distantPast
     }
 
+    /// The filmstrip's Reset to Defaults. On the frame on the canvas it is the
+    /// same reset as Film ⋯, back to the decode; a pair keeps its pieces'
+    /// layout and loses its look, which is all `canResetToDecode` allows it.
+    func resetToDefaults(_ url: URL) {
+        if url != selection { resetSettings(of: url) }
+        else if canResetToDecode { resetToDecode() }
+        else { resetParams(); resetAdjustments() }
+    }
+
     /// The filmstrip's Reset to Defaults on a frame that is not on the
     /// canvas: its sidecar removed, and every picture of it that was made
     /// from that sidecar with it.

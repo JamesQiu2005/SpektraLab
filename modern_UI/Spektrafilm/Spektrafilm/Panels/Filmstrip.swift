@@ -62,10 +62,7 @@ struct Filmstrip: View {
                                         }
                                         .disabled(!session.canMakePair)
                                     }
-                                    Button(L(.helpResetDefaults)) {
-                                        if frame.id == session.selection { session.resetParams(); session.resetAdjustments() }
-                                        else { session.resetSettings(of: frame.id) }
-                                    }
+                                    Button(L(.helpResetDefaults)) { session.resetToDefaults(frame.id) }
                                 }
                         }
                     }
