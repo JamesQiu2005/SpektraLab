@@ -266,11 +266,17 @@ def processed_views(host, sid, path, tmp, label):
     check(h["ok"] and not px and h["result"]["generation"] == 103,
           f"{label}: private source export", h.get("error"))
     after, _ = host.call("memory_report")
+    # Private exports may suspend the editor's GPU residency. The live session
+    # identities (including their count) must stay the same, not their byte ledger.
     check(after["ok"] and before["ok"] and
-          after["result"]["persistent"]["sessions"] == before["result"]["persistent"]["sessions"],
+          sorted(s["session_id"] for s in after["result"]["persistent"]["sessions"]) ==
+          sorted(s["session_id"] for s in before["result"]["persistent"]["sessions"]),
           f"{label}: private source session released")
     h, _ = host.call("get_params", {"session": sid})
     check(h["ok"] and h["result"]["params"] == params, f"{label}: private export preserves editor")
+    h, restored = host.call("render_view", {**base, "generation": 104})
+    check(h["ok"] and h["result"]["print_cached"] and restored == first,
+          f"{label}: private export restores exact cached pixels", h.get("error"))
     # A queued private export can be cancelled without an editor session ID.
     cancelled_path = os.path.join(tmp, f"{label}-cancelled-frame.tif")
     h, _ = host.call("cancel", {"session": "", "progress_id": "private-never-ran"})

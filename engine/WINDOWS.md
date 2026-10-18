@@ -97,6 +97,12 @@ dependencies. The original per-node flush policy remains in place. Staging
 capacity is tracked separately from the engine's pool ledger; neither ledger
 is a measurement of physical peak VRAM.
 
+The October 18 memory follow-up bounds staging at 64 MiB per direction,
+reclaims idle scratch, releases LibRaw earlier, streams TIFF output and saves
+inactive editor caches exactly during private batch exports. See
+[WINDOWS_MEMORY.md](WINDOWS_MEMORY.md) for lifetime rules, measured savings,
+the disk-I/O tradeoff and regression commands.
+
 ## Reproduce the local gates
 
 The integrated Win32 build passed **16 CTest tests**. The backend-only build

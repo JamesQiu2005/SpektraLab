@@ -7,6 +7,8 @@
 #include <array>
 #include <cstdint>
 #include <cstdio>
+#include <cstdlib>
+#include <cstring>
 #include <limits>
 #include <memory>
 #include <string>
@@ -184,6 +186,98 @@ bool check_pool_lifetimes(Gpu* gpu, std::string& error) {
     std::puts("transfer lifetimes: zero fill, pool reuse, retained stability, trim, persistent release passed");
     return true;
 }
+
+class StagingOverride {
+public:
+    explicit StagingOverride(const char* value) {
+        const char* previous = std::getenv(name);
+        present_ = previous != nullptr;
+        if (previous) previous_ = previous;
+        set(value);
+    }
+    ~StagingOverride() { set(present_ ? previous_.c_str() : nullptr); }
+private:
+    static constexpr const char* name = "SPEKTRAFILM_VULKAN_STAGING_BYTES";
+    static void set(const char* value) {
+#ifdef _WIN32
+        _putenv_s(name, value ? value : "");
+#else
+        if (value) setenv(name, value, 1);
+        else unsetenv(name);
+#endif
+    }
+    std::string previous_;
+    bool present_ = false;
+};
+
+bool check_chunked_transfers(const std::string& shader_dir, std::string& error) {
+    for (const char* invalid : {"0", "3", "65537", "67108868", "-4", "4garbage",
+                                "184467440737095516160"}) {
+        StagingOverride override(invalid);
+        std::string why;
+        std::unique_ptr<Gpu> rejected(Gpu::create_vulkan(shader_dir, why));
+        if (!require(!rejected && why.find("SPEKTRAFILM_VULKAN_STAGING_BYTES") != std::string::npos,
+                     "invalid staging cap was accepted or not diagnosed", error)) return false;
+    }
+    // Deliberately not a power of two: complete device words need not end on
+    // a nonCoherentAtomSize boundary; mapped_range must round safely itself.
+    constexpr size_t cap = 1024 * 1024 + 4;
+    StagingOverride override("1048580");
+    std::unique_ptr<Gpu> gpu(Gpu::create_vulkan(shader_dir, error));
+    if (!gpu) return false;
+    // Two complete chunks and a short last one. The offset read crosses both
+    // boundaries and writes to an intentionally unaligned CPU byte address.
+    const size_t count = (2 * cap) / sizeof(uint32_t) + 13;
+    std::vector<uint32_t> input(count), got;
+    for (size_t i = 0; i < count; ++i) input[i] = uint32_t(i) * 0x9e3779b9u ^ uint32_t(i >> 3);
+    auto src = gpu->upload_persistent(input.data(), input.size() * 4, error);
+    if (!src || !read_test_buffer(gpu.get(), src, got, error) ||
+        !require(got == input, "chunked upload/read changed input bytes", error)) return false;
+    constexpr size_t source_offset = 12;
+    const size_t slice_bytes = 2 * cap + 4;
+    std::vector<uint8_t> slice(slice_bytes + 2, 0xa5);
+    if (!gpu->read(src.get(), source_offset, slice.data() + 1, slice_bytes, error) ||
+        !require(slice.front() == 0xa5 && slice.back() == 0xa5 &&
+                 std::memcmp(slice.data() + 1,
+                    reinterpret_cast<const uint8_t*>(input.data()) + source_offset, slice_bytes) == 0,
+                 "chunked offset read changed payload or host guards", error)) return false;
+    const auto before_rejected = slice;
+    std::string diagnostic;
+    if (!require(!gpu->read(src.get(), source_offset, slice.data() + 1, input.size() * 4, diagnostic) &&
+                 !diagnostic.empty() && slice == before_rejected,
+                 "invalid multi-chunk read changed its destination", error)) return false;
+
+    std::vector<double> wide(count);
+    std::vector<float> expected(count);
+    for (size_t i = 0; i < count; ++i) {
+        wide[i] = (double(i) - double(count) / 2) / 31.0;
+        expected[i] = float(wide[i]);
+    }
+    // The conversion still happens once in float32, including signed zero and
+    // non-finite values on both sides of a chunk boundary.
+    for (size_t i : {size_t(0), cap / 4 - 1, cap / 4, 2 * cap / 4, count - 1}) {
+        wide[i] = i % 2 ? -0.0 : std::numeric_limits<double>::infinity();
+        expected[i] = float(wide[i]);
+    }
+    auto narrowed = gpu->upload_persistent_f32(wide.data(), count, error);
+    std::vector<float> actual;
+    if (!narrowed || !read_test_buffer(gpu.get(), narrowed, actual, error) ||
+        !require(actual.size() == expected.size() &&
+                 std::memcmp(actual.data(), expected.data(), expected.size() * 4) == 0,
+                 "chunked double-to-float upload changed converted bytes", error)) return false;
+
+    // Trimming releases staging even with retained device buffers. The next
+    // transfer must rebuild staging without disturbing either live input.
+    gpu->trim_pool(0);
+    if (!read_test_buffer(gpu.get(), src, got, error) ||
+        !require(got == input, "trim changed a retained multi-chunk buffer", error)) return false;
+    auto zeroed = gpu->alloc_zeroed(input.size() * 4, error);
+    if (!zeroed || !gpu->copy(zeroed.get(), 0, src.get(), 0, input.size() * 4, error) ||
+        !read_test_buffer(gpu.get(), zeroed, got, error) ||
+        !require(got == input, "device copy after staging trim changed bytes", error)) return false;
+    std::puts("transfer chunks: bounded upload/read, offset guards, narrowed float upload, trim recovery passed");
+    return true;
+}
 }  // namespace
 
 int main(int argc, char** argv) {
@@ -194,6 +288,11 @@ int main(int argc, char** argv) {
     std::printf("Vulkan device: %s\n", gpu->device_name().c_str());
     if (!check_ranges(gpu.get(), error) || !check_compute_transfers(gpu.get(), error) ||
         !check_pool_lifetimes(gpu.get(), error)) {
+        std::fprintf(stderr, "transfer: %s\n", error.c_str());
+        return 1;
+    }
+    gpu.reset();
+    if (!check_chunked_transfers(std::string(argv[1]) + "/vulkan", error)) {
         std::fprintf(stderr, "transfer: %s\n", error.c_str());
         return 1;
     }

@@ -2,6 +2,7 @@
 // ownership contract; this path retains the print on the device until the final
 // display/file pixels are read once. Not part of the public engine ABI.
 #pragma once
+#include <cstddef>
 #include <cstdint>
 #include <string>
 #include <vector>
@@ -28,4 +29,17 @@ struct Result {
     double print_ms = 0, post_ms = 0, readback_ms = 0;
 };
 bool render(spk_session* session, const Request& request, Result& result, std::string& error);
+// Host-worker safe point: release unused device scratch and transfer staging,
+// without invalidating any source, negative or finished print. Returns only
+// device-pool bytes (staging has its own Vulkan diagnostic accounting).
+size_t trim_idle_memory(spk_engine* engine);
+
+// Desktop batch residency only: preserve exact source/negative/print bytes on
+// temporary disk storage while a different image uses the GPU. The session,
+// parameters and pipeline RNG remain alive. No public C ABI entry is added.
+// A host must resume before calling any source-touching public C operation;
+// render() does so itself. A failed resume leaves the disk copy intact.
+bool suspended(spk_session* session);
+bool suspend(spk_session* session, std::string& error);
+bool resume(spk_session* session, std::string& error);
 }

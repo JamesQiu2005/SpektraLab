@@ -87,6 +87,13 @@ P3 and the browser manages the monitor. It is not export gamut soft-proofing.
 | `print_lut_catalog` | `{}` | `<spk_print_lut_catalog JSON>` |
 | `memory_report` | `{}` | `<spk_memory_report JSON>` |
 
+The Windows/Linux engine also reports `suspended_bytes` for exact image-cache
+bytes held in temporary disk storage. This is **not** resident GPU memory and
+is excluded from `total_bytes`. Each `persistent.sessions` row includes
+`residency_suspended` and `suspended_bytes`; its source/negative/view byte
+counts describe only current GPU residency. The Vulkan staging allocations
+are separately reported by optional transfer diagnostics, not the pool ledger.
+
 ### Files
 | method | params | result |
 |---|---|---|
@@ -214,7 +221,19 @@ the previous floating-DCT encoder because integer-DCT substitution failed the
 high-quality fidelity gate; sampling remains 4:2:0 at Q<=90 and 4:4:4 above 90.
 PNG uses libpng plus zlib-ng at compression level 3, RGB8 lossless. Both stream
 rows to the atomic temporary file and preserve ICC/EXIF. TIFF retains its
-existing bit depth and uncompressed representation.
+existing bit depth and uncompressed representation; the complete-frame path
+writes it in bounded chunks without constructing a second full-file buffer.
+
+Before a private batch source is decoded, the host may suspend existing editor
+image caches to an owned temporary file. The exact source, negative and print
+bytes, aliases and pipeline state are preserved; no random effects are
+regenerated. The editor restores lazily before its next source-touching call.
+Closing it removes the snapshot without restoring it. A temporary-file failure
+returns `io_error` and retains either the original GPU data or a recoverable
+disk snapshot. Cancellation and failed private exports retain the editor.
+Temporary files use delete-on-close lifetime on Windows. This lowers peak
+residency at the cost of disk I/O and one restoration when returning to editing;
+it does not add concurrent RAW decoding, GPU rendering or CPU encoding.
 
 Events: `{"event": "progress", "session", "progress_id", "fraction", "stage"}`
 (stages `render`, `transform`/`encode`, `done`; emitted only for requests that
