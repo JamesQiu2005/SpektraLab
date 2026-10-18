@@ -52,6 +52,10 @@ import SwiftUI
 
 struct TopBar: View {
     @Bindable var session: Session
+    /// The Original pill's press in progress: when it began, and whether the
+    /// original was already up (a latch the hold must leave alone).
+    @State private var originalPress: OriginalPress?
+    private struct OriginalPress { let began: Date; let wasShowing: Bool }
 
     var body: some View {
         HStack(spacing: 0) {
@@ -80,14 +84,8 @@ struct TopBar: View {
                    help: "Auto-exposure and the enlarger filter pack for this paper — print this frame.",
                    active: session.canSolve, enabled: session.canSolve) { session.solveNow() }
                 .padding(.leading, Theme.Metric.barActionLeading)
-            action(L(.actionOriginal),
-                   help: session.showingOriginal
-                       ? "Showing the original — press to go back to the developed print."
-                       : "Show the RAW as Apple's decoder renders it, before any film simulation (⎵ does the same, while held).",
-                   active: session.showingOriginal, enabled: session.selection != nil) {
-                session.toggledOriginal(!session.showingOriginal)
-            }
-            .padding(.leading, Theme.Metric.actionGap)
+            originalPill
+                .padding(.leading, Theme.Metric.actionGap)
             if session.working {
                 ProgressView().controlSize(.small).scaleEffect(0.7).padding(.leading, 18)
             }
@@ -163,6 +161,48 @@ struct TopBar: View {
         .help(help)
     }
 
+    /// **Original, held (V5).** Press and hold: the original until release.
+    /// Click: the latch it has always been (`OriginalHold`). Drawn exactly
+    /// as `action(_:)` draws it; only the gesture is its own, because a
+    /// `Button` hears the release and never the press.
+    private var originalPill: some View {
+        let active = session.showingOriginal
+        let enabled = session.selection != nil
+        return Text(L(.actionOriginal))
+            .font(Theme.Font.action)
+            .foregroundStyle(active ? Theme.accent : Theme.Ink.tertiary)
+            .fixedSize()
+            .padding(.horizontal, 8)
+            .frame(minWidth: Theme.Metric.actionSize.width)
+            .frame(height: max(Theme.Metric.actionSize.height, Theme.lineHeight(size: 13.11) + 2))
+            .overlay(RoundedRectangle(cornerRadius: Theme.Metric.actionRadius, style: .continuous)
+                .stroke(active ? Theme.accent : Theme.Ink.tertiary, lineWidth: 1))
+            .frame(height: Theme.Metric.actionHitHeight)
+            .contentShape(Rectangle())
+            .gesture(
+                DragGesture(minimumDistance: 0)
+                    .onChanged { _ in
+                        guard originalPress == nil else { return }
+                        originalPress = OriginalPress(began: Date(), wasShowing: session.showingOriginal)
+                        if !session.showingOriginal { session.toggledOriginal(true) }
+                    }
+                    .onEnded { _ in
+                        guard let press = originalPress else { return }
+                        originalPress = nil
+                        let next = OriginalHold.afterRelease(wasShowing: press.wasShowing,
+                                                             held: Date().timeIntervalSince(press.began))
+                        if session.showingOriginal != next { session.toggledOriginal(next) }
+                    }
+            )
+            .rowEnabled(enabled)
+            .help(active ? L(.helpOriginalShowing) : L(.helpOriginalHold))
+            .accessibilityElement()
+            .accessibilityLabel(L(.actionOriginal))
+            .accessibilityValue(active ? L("Showing", zh: "显示中") : L("Hidden", zh: "未显示"))
+            .accessibilityAddTraits(.isButton)
+            .accessibilityAction { if enabled { session.toggledOriginal(!session.showingOriginal) } }
+    }
+
     private var statusText: String {
         // The service cannot report real progress: a render call does not
         // return until it is finished and the transport is single-flight, so
@@ -181,6 +221,8 @@ struct TopBar: View {
         }
         .buttonStyle(.plain)
         .help(help)
+        .accessibilityLabel(help)
+        .accessibilityAddTraits(session.tool == tool ? .isSelected : [])
     }
 
     /// `disabled` is for the controls the crop tool locks: greyed out, so the
@@ -199,6 +241,7 @@ struct TopBar: View {
         .buttonStyle(.plain)
         .disabled(disabled)
         .help(help)
+        .accessibilityLabel(help)
     }
 
     private var zoomPill: some View {

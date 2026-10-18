@@ -46,6 +46,12 @@ struct SectionMetrics {
 /// A direct affordance on a section header, beside its menu. v3 draws one on
 /// Camera and Film; `help` is required and is what makes the arrow legible —
 /// see the note at the top of this file about §8.3.
+///
+/// **V5 settled §8.3 for the reset arrow (2026-10-18): a section's reset
+/// resets that section and nothing else, says so by name ("Reset
+/// Enlarger"), and is silent when nothing has changed** — `enabled` false,
+/// greyed, and a press that does nothing. `reset(_:)` builds that from a
+/// `SectionReset` scope, which is where the scope's fields are written down.
 struct SectionAction {
     let systemImage: String
     let help: String
@@ -56,6 +62,13 @@ struct SectionAction {
          enabled: Bool = true, perform: @escaping () -> Void) {
         self.systemImage = systemImage; self.help = help
         self.enabled = enabled; self.perform = perform
+    }
+
+    /// The section's named, page-local reset.
+    @MainActor static func reset(_ scope: SectionReset, in session: Session) -> SectionAction {
+        SectionAction(help: scope.title, enabled: scope.hasChanges(in: session)) {
+            scope.perform(in: session)
+        }
     }
 }
 
@@ -77,7 +90,9 @@ struct SectionHeader: View {
 
     var body: some View {
         HStack(spacing: 0) {
-            Button { withAnimation(.easeOut(duration: 0.15)) { expanded.toggle() } } label: {
+            // V5's motion: short and interruptible, and under Reduce Motion
+            // a fade with no travel (`Theme.Motion`).
+            Button { withAnimation(Theme.Motion.quick) { expanded.toggle() } } label: {
                 Triangle()
                     .stroke(Theme.text, style: StrokeStyle(lineWidth: 1.2, lineJoin: .round))
                     .frame(width: Theme.Metric.disclosure.width, height: Theme.Metric.disclosure.height)
@@ -87,6 +102,10 @@ struct SectionHeader: View {
             }
             .buttonStyle(.plain)
             .padding(.leading, Theme.Metric.headerLeading)
+            // The triangle is the section's door: VoiceOver reads it as the
+            // section's name and whether it is open.
+            .accessibilityLabel(title)
+            .accessibilityValue(expanded ? L("Expanded", zh: "已展开") : L("Collapsed", zh: "已折叠"))
             if let systemImage {
                 Image(systemName: systemImage)
                     .font(.system(size: 13, weight: .regular))
@@ -99,6 +118,7 @@ struct SectionHeader: View {
                 .foregroundStyle(Theme.text)
                 .padding(.leading, Theme.Metric.headerTitleGap)
                 .fixedSize()
+                .accessibilityAddTraits(.isHeader)
             Spacer(minLength: 4)
             if let note {
                 FittingLine(text: note, size: 9, color: Theme.Ink.tertiary, alignment: .trailing)
@@ -111,6 +131,7 @@ struct SectionHeader: View {
                 // is wider than its ink, which is the pull-back.
                 CheckBox(isOn: toggle)
                     .help(toggleHelp)
+                    .accessibilityLabel(title)
                     .padding(.trailing, action == nil && menu == nil
                              ? Theme.Metric.rowInset - (Theme.Metric.controlHitTarget - Theme.Metric.checkbox) / 2
                              : 0)
@@ -129,6 +150,7 @@ struct SectionHeader: View {
                 .buttonStyle(.plain)
                 .rowEnabled(action.enabled)
                 .help(action.help)
+                .accessibilityLabel(action.help)
             }
             if let menu {
                 Menu { menu() } label: {
@@ -139,6 +161,7 @@ struct SectionHeader: View {
                 .menuIndicator(.hidden)
                 .fixedSize()
                 .padding(.trailing, Theme.Metric.headerTrailing - 8)
+                .accessibilityLabel(L("\(title) options", zh: "\(title)选项"))
             }
             // **No menu, no glyph.** There used to be an inert `EllipsisGlyph`
             // here for a section that passes none, because the drawing draws

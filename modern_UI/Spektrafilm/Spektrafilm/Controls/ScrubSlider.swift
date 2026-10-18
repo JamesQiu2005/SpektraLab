@@ -4,8 +4,63 @@
 //  sensitivity, ⇧ snaps to `snap`, double-click resets to `zero`, and the
 //  value column is an editable field. `onCommit` fires on release; continuous
 //  updates go through the binding while dragging.
+//
+//  **V5 (2026-10-18) refined five things, and the drawing did not move:**
+//
+//  - **The drag is relative.** A press anywhere on the row moves nothing; the
+//    value follows the pointer's *travel* from where it landed. It used to
+//    jump to the click point first, so the first click of a double-click
+//    reset moved the value before the reset put it back, and a click meant to
+//    grab the knob nudged it.
+//  - **The rest is drawn.** A mark at `zero` (the rest, or home, value) on
+//    every slider, and a fill from that mark to the knob, so how far a value
+//    has moved is read off the track rather than worked out from a number.
+//  - **The value is read on the row, never in a bubble**, and a bare value
+//    (no pill) is dim at rest (`Theme.Ink.value(atRest:)`). A value in a
+//    pill keeps its ink — see the note at `valueField`.
+//  - **Contact is acknowledged** by the knob growing while a drag holds it —
+//    not under Reduce Motion.
+//  - **VoiceOver** reads the label and the value, adjusts by one `snap` step
+//    per swipe, and offers Reset.
 
 import SwiftUI
+
+/// The arithmetic of a scrub, apart from the view so a test can hold it.
+enum ScrubDrag {
+    /// The value a drag has reached: where the drag **began** plus the
+    /// pointer's travel as a fraction of the track, never the point under
+    /// the pointer. `travel` is the track less one knob.
+    static func value(from start: Double, translation: CGFloat, travel: CGFloat,
+                      range: ClosedRange<Double>, fine: Bool = false, snap: Double? = nil) -> Double {
+        let span = range.upperBound - range.lowerBound
+        var v = start + Double(translation / max(travel, 1)) * span * (fine ? 0.25 : 1)
+        if let snap, snap > 0 { v = (v / snap).rounded() * snap }
+        return v.clamped(to: range)
+    }
+
+    /// Where `value` sits along the track, 0…1.
+    static func fraction(_ value: Double, in range: ClosedRange<Double>) -> CGFloat {
+        let span = range.upperBound - range.lowerBound
+        guard span > 0 else { return 0 }
+        return CGFloat((value - range.lowerBound) / span).clamped(to: 0...1)
+    }
+
+    /// The stretch of track between the rest mark and the knob, as fractions
+    /// — nil when the two are within half a point of one another on a track
+    /// `width` long, so a slider at rest draws no sliver of fill.
+    static func fill(value: Double, rest: Double, range: ClosedRange<Double>,
+                     width: CGFloat) -> ClosedRange<CGFloat>? {
+        let a = fraction(value, in: range), b = fraction(rest, in: range)
+        guard abs(a - b) * max(width, 1) > 0.5 else { return nil }
+        return min(a, b)...max(a, b)
+    }
+
+    /// The step one VoiceOver swipe takes: the ⇧ snap, or a hundredth of the
+    /// range for a slider that has none.
+    static func accessibilityStep(snap: Double, range: ClosedRange<Double>) -> Double {
+        snap > 0 ? snap : (range.upperBound - range.lowerBound) / 100
+    }
+}
 
 /// The numbers a slider is drawn with. A default-constructed one is the
 /// editor's rails, which is what every caller but the export page wants; the
@@ -85,6 +140,8 @@ struct ScrubSlider: View {
     @FocusState private var focused: Bool
 
     private var hasSecondLine: Bool { sublabelView != nil || sublabel != nil }
+    /// The value says what the rest says (see `Theme.Ink.value(atRest:)`).
+    private var atRest: Bool { format(value) == format(zero.clamped(to: range)) }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
@@ -97,6 +154,9 @@ struct ScrubSlider: View {
                     .fixedSize()
                     .padding(.trailing, 6)
                     .frame(minWidth: m.labelWidth, alignment: .leading)
+                    // The track carries the label for VoiceOver, with the
+                    // value and the adjustment; read twice it is noise.
+                    .accessibilityHidden(true)
                 track
                     .padding(.trailing, Theme.Metric.sliderValueGap)
                 valueField
@@ -122,18 +182,15 @@ struct ScrubSlider: View {
         .rowEnabled(!disabled)
     }
 
-    private var fraction: CGFloat {
-        CGFloat((value - range.lowerBound) / (range.upperBound - range.lowerBound)).clamped(to: 0...1)
-    }
-    private var zeroFraction: CGFloat {
-        CGFloat((zero - range.lowerBound) / (range.upperBound - range.lowerBound)).clamped(to: 0...1)
-    }
+    private var fraction: CGFloat { ScrubDrag.fraction(value, in: range) }
+    private var zeroFraction: CGFloat { ScrubDrag.fraction(zero, in: range) }
 
     private var track: some View {
         GeometryReader { geo in
             let w = geo.size.width
             let knobW = Theme.Metric.knobSize.width
-            let x = fraction * (w - knobW) + knobW / 2
+            let travel = w - knobW
+            let x = fraction * travel + knobW / 2
             ZStack(alignment: .leading) {
                 Group {
                     if let g = trackGradient {
@@ -168,17 +225,31 @@ struct ScrubSlider: View {
                         .offset(x: lo * (w - knobW) + knobW / 2)
                         .allowsHitTesting(false)
                 }
-                // Zero tick, only when zero is not at an end.
-                if zeroFraction > 0.001 && zeroFraction < 0.999 && abs(fraction - zeroFraction) > 0.02 {
-                    Rectangle().fill(Theme.text.opacity(0.55)).frame(width: 1, height: 6)
-                        .offset(x: zeroFraction * (w - knobW) + knobW / 2 - 0.5)
+                // **The fill (V5):** rest to knob, in the rail's secondary
+                // ink, the track's own height. Not on a gradient track — the
+                // colour under the knob is already the reading there.
+                if trackGradient == nil,
+                   let fill = ScrubDrag.fill(value: value, rest: zero, range: range, width: travel) {
+                    Capsule().fill(Theme.sliderFill)
+                        .frame(width: (fill.upperBound - fill.lowerBound) * travel, height: m.trackHeight)
+                        .offset(x: fill.lowerBound * travel + knobW / 2)
+                        .allowsHitTesting(false)
                 }
+                // **The rest mark (V5):** always drawn, ends included — the
+                // knob covers it when it sits there. It used to be drawn only
+                // away from the ends and away from the knob, so a slider at
+                // rest showed no rest at all.
+                Rectangle().fill(Theme.restMark).frame(width: 1, height: 7)
+                    .offset(x: zeroFraction * travel + knobW / 2 - 0.5)
+                    .allowsHitTesting(false)
                 // v3's knob is a 6.13 × 5.07 dot rather than a 10 pt
                 // handle. Ink only — it is never dragged by itself; the
-                // gesture belongs to the track.
+                // gesture belongs to the track. It grows while held, the
+                // contact acknowledgement (not under Reduce Motion).
                 RoundedRectangle(cornerRadius: Theme.Metric.knobRadius, style: .continuous)
                     .fill(Theme.knob)
                     .frame(width: knobW, height: Theme.Metric.knobSize.height)
+                    .scaleEffect(dragStart != nil ? Theme.Motion.contactScale : 1)
                     .offset(x: x - knobW / 2)
             }
             .frame(height: geo.size.height)
@@ -187,24 +258,42 @@ struct ScrubSlider: View {
                 DragGesture(minimumDistance: 0)
                     .onChanged { g in
                         let mods = NSEvent.modifierFlags
-                        let span = range.upperBound - range.lowerBound
-                        if dragStart == nil {
-                            dragStart = value
-                            // Jump to the click point on a fresh press.
-                            let f = ((g.startLocation.x - knobW / 2) / max(w - knobW, 1)).clamped(to: 0...1)
-                            let target = range.lowerBound + Double(f) * span
-                            if abs(target - value) > span * 0.03 { dragStart = target }
-                        }
-                        let sens: Double = mods.contains(.option) ? 0.25 : 1
-                        var v = (dragStart ?? value) + Double(g.translation.width / max(w - knobW, 1)) * span * sens
-                        if mods.contains(.shift) { v = (v / snap).rounded() * snap }
-                        value = v.clamped(to: range)
+                        // **Relative** (V5): the drag starts from the value,
+                        // not from the point pressed, so contact moves nothing.
+                        if dragStart == nil { dragStart = value }
+                        value = ScrubDrag.value(from: dragStart ?? value, translation: g.translation.width,
+                                                travel: travel, range: range,
+                                                fine: mods.contains(.option),
+                                                snap: mods.contains(.shift) ? snap : nil)
                     }
                     .onEnded { _ in dragStart = nil; onCommit() }
             )
-            .simultaneousGesture(TapGesture(count: 2).onEnded { value = zero; onCommit() })
+            .simultaneousGesture(TapGesture(count: 2).onEnded { reset() })
         }
         .frame(height: m.rowHeight)
+        .accessibilityElement()
+        .accessibilityLabel(label)
+        .accessibilityValue(format(value))
+        .accessibilityAdjustableAction { direction in
+            guard !disabled else { return }
+            let step = ScrubDrag.accessibilityStep(snap: snap, range: range)
+            switch direction {
+            case .increment: value = (value + step).clamped(to: range)
+            case .decrement: value = (value - step).clamped(to: range)
+            @unknown default: return
+            }
+            onCommit()
+        }
+        .accessibilityAction(named: Text(L(.helpReset))) { if !disabled { reset() } }
+    }
+
+    /// Back to the rest value — silent when it is already there, so a
+    /// double-click on a slider at rest asks for no render.
+    private func reset() {
+        let rest = zero.clamped(to: range)
+        guard value != rest else { return }
+        value = rest
+        onCommit()
     }
 
     private var valueField: some View {
@@ -219,11 +308,21 @@ struct ScrubSlider: View {
                     .onSubmit { commitText() }
                     .onChange(of: focused) { _, f in if !f { commitText() } }
             } else {
+                // V5 dims a value at rest. **Not inside a pill**: there the
+                // value sits on `pill` (#5F5F5F), and `tertiary` on that is
+                // the look of a greyed field (`rowEnabled(false)`) — a rail of
+                // values at rest read as a rail of disabled controls
+                // (measured on the 2026-10-18 capture). The fill and the rest
+                // mark carry "moved" there; a bare value follows V5.
                 Text(format(value))
                     .font(m.valueFont)
-                    .foregroundStyle(Theme.text)
+                    .foregroundStyle(m.valueInPill ? Theme.text : Theme.Ink.value(atRest: atRest))
                     .contentShape(Rectangle())
                     .onTapGesture { text = format(value); editing = true; focused = true }
+                    // The track reads the value already; this is the field
+                    // that takes a typed number, and says so.
+                    .accessibilityLabel(L("Type a value", zh: "输入数值"))
+                    .accessibilityAddTraits(.isButton)
             }
         }
         .lineLimit(1)
@@ -268,6 +367,7 @@ struct CheckBox: View {
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
+        .accessibilityValue(isOn ? L("On", zh: "开") : L("Off", zh: "关"))
     }
 }
 
@@ -319,6 +419,13 @@ struct ToggleRow: View {
         // the drawing's fixed row, unchanged.
         .frame(height: sublabel.isEmpty ? Theme.Metric.toggleRowHeight : nil)
         .frame(minHeight: sublabel.isEmpty ? nil : Theme.Metric.toggleRowHeight)
+        // One VoiceOver element for the row: the label is the box's name.
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel(label)
+        .accessibilityValue(isOn ? L("On", zh: "开") : L("Off", zh: "关"))
+        .accessibilityHint(sublabel)
+        .accessibilityAddTraits(.isButton)
+        .accessibilityAction { if enabled { isOn.toggle() } }
         .rowEnabled(enabled, because: reason)
         .help(help)
     }

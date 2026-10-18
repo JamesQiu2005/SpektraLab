@@ -118,16 +118,33 @@ struct SectionDivider: View {
                             .onEnded { _ in start = nil }
                     )
                     .simultaneousGesture(
-                        TapGesture(count: 2).onEnded {
-                            withAnimation(.easeOut(duration: 0.16)) {
-                                SectionLayoutStore.shared.set(nil, for: above)
-                            }
-                        }
+                        TapGesture(count: 2).onEnded { restore() }
                     )
                     .help(L("Drag to resize the section above. Double-click to return it to its own height.",
                              zh: "拖动以调整上方分区的高度；双击恢复它原本的高度。"))
+                    // VoiceOver: the handle, its height, and the two things
+                    // it can do without a drag (V5: every custom control has
+                    // an adjustable path).
+                    .accessibilityElement()
+                    .accessibilityLabel(L("Section divider", zh: "分区分隔线"))
+                    .accessibilityValue(SectionLayoutStore.shared.height(above).map { "\(Int($0)) pt" }
+                                        ?? L("Own height", zh: "原本高度"))
+                    .accessibilityAdjustableAction { direction in
+                        let store = SectionLayoutStore.shared
+                        let from = store.height(above) ?? store.measured[above] ?? 0
+                        store.set(from + (direction == .increment ? 24 : -24), for: above)
+                    }
+                    .accessibilityAction(named: Text(L("Restore height", zh: "恢复原本高度"))) { restore() }
             }
             .zIndex(1)
+    }
+
+    /// Double-click: the section above back to its own height. A short,
+    /// interruptible change, a fade under Reduce Motion (`Theme.Motion`).
+    private func restore() {
+        withAnimation(Theme.Motion.quick) {
+            SectionLayoutStore.shared.set(nil, for: above)
+        }
     }
 }
 

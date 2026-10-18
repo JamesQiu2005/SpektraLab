@@ -55,7 +55,9 @@ struct CameraSection: View {
 
     var body: some View {
         PanelSection(L(.sectionCamera), key: "camera",
-                     action: SectionAction(help: L(.helpResetFilmExposure)) { session.filmExposure = 0 },
+                     // V5: the arrow resets the section it is on — metering, exposure,
+                     // the decode and the lens fall-off — and says so by name.
+                     action: .reset(.camera, in: session),
                      menu: { AnyView(menu) }, note: pairNote) {
             RailRows {
                 PillMenu(label: L(.cameraMetering),
@@ -118,7 +120,8 @@ struct CameraSection: View {
     /// drawing *does* give every section.
     private var menu: some View {
         Group {
-            Button(L(.helpResetFilmExposure)) { session.filmExposure = 0 }
+            Button(L(.helpResetFilmExposure)) { SectionReset.filmExposure.perform(in: session) }
+                .disabled(!SectionReset.filmExposure.hasChanges(in: session))
             Divider()
             Button(L(.helpPickNeutral)) { session.wbPickerActive.toggle() }
                 .disabled(session.selection == nil)

@@ -175,6 +175,13 @@ enum Theme {
     /// `.st17` / `.st3` fill, `.st2` stroke — the one accent in the
     /// interface. **`#eca650`, not the old `#ee8a2b`**: the new drawing names
     /// it in three places and the file that names the colour wins.
+    ///
+    /// **The rule (V5, 2026-10-18): accent is for actions and state only;
+    /// selection is white, never accent.** An action is Process; a state is
+    /// a mode the window is in (the canvas tool, the before/after split, an
+    /// Original that is showing, a checkbox that is on). A *choice from a
+    /// set* — a stock, a tab, a surface, a segment — is the white capsule
+    /// (`selection` / `onSelection`) and nothing else.
     static let accent = Color(hex: 0xE1A95F)
     /// `.st16` — a **chosen** row in the film or print list. The drawing's
     /// own words for what changed: "selected entries has shallow, instead of
@@ -203,6 +210,27 @@ enum Theme {
     /// (`View.rowEnabled(_:)`), rather than a second colour per element that
     /// each caller would have to remember to use.
     static let disabledOpacity: Double = 0.38
+    /// **V5 (2026-10-18).** How dark the black over whatever a sheet or a menu
+    /// covers is. The refined system names it beside `disabledOpacity` as the
+    /// second of its two opacities; the editor has no sheet over the picture
+    /// yet, so nothing here draws it, and the next thing that covers the
+    /// canvas takes this number rather than inventing one.
+    static let scrimOpacity: Double = 0.62
+
+    // MARK: sliders (V5, 2026-10-18)
+    //
+    // The refined system's slider says where it rests and how far it has
+    // moved, not only where it is: a **mark at the rest value** and a **fill
+    // from that mark to the knob**. Both are drawn in colours the rail
+    // already has — the fill in `secondaryText`, the mark in `dim` — so a
+    // slider that has moved reads as lighter than one that has not, without
+    // a new colour. A track that is a gradient (Temperature, Tint, the two
+    // filter axes) carries no fill: its colour is already the reading.
+
+    /// The fill between the rest mark and the knob.
+    static let sliderFill = secondaryText
+    /// The rest (home) mark across the track.
+    static let restMark = dim
     /// The export page's accent — **now the same one**.
     ///
     /// `reference_layout/Export_Page/export_page.svg` names `#f08724` in
@@ -1151,6 +1179,59 @@ enum Theme {
         static let secondary = secondaryText
         /// Metadata: "As Shot", captions, an inactive tab, a unit.
         static let tertiary = dim
+
+        /// **A value at its rest is not news** (V5, 2026-10-18). A control's
+        /// value reads in `tertiary` while it says what the rest value says,
+        /// and in `primary` once it has moved, so a rail of controls shows at
+        /// a glance which of them hold an edit. "Says the same" is the
+        /// formatted text, not the number: 0.0004 reads "+0.00" and is not an
+        /// edit anyone can see.
+        static func value(atRest: Bool) -> Color { atRest ? tertiary : primary }
+    }
+
+    // MARK: motion (V5, 2026-10-18)
+    //
+    // The refined system's motion contract, on the desktop: a panel or a
+    // section changes in a short, interruptible ease (150–250 ms), and under
+    // **Reduce Motion** nothing travels — the change is an opacity fade or
+    // immediate. **The picture itself is never animated**: no transition here
+    // may be put on the canvas, and grading is never tweened between two
+    // renders (the guideline's §11 — an animated value adds latency to the
+    // one interaction that must feel instant).
+
+    enum Motion {
+        /// The system setting, read live so a change applies without a
+        /// relaunch. `NSWorkspace` is the AppKit door; SwiftUI's environment
+        /// value says the same thing but only inside a view.
+        @MainActor static var reduceMotion: Bool {
+            NSWorkspace.shared.accessibilityDisplayShouldReduceMotion
+        }
+
+        /// A rail folding, a surface or a tool changing: 180 ms, the fold the
+        /// rails have always used.
+        static let panelDuration: Double = 0.18
+        /// A section opening, a segment's thumb sliding: 150 ms.
+        static let quickDuration: Double = 0.15
+
+        /// The animation for a panel change. Under Reduce Motion it is still
+        /// an animation — the fade a transition below asks for — but a short
+        /// linear one, so nothing appears to travel.
+        @MainActor static var panel: Animation {
+            reduceMotion ? .linear(duration: 0.12) : .easeOut(duration: panelDuration)
+        }
+        @MainActor static var quick: Animation {
+            reduceMotion ? .linear(duration: 0.1) : .easeOut(duration: quickDuration)
+        }
+
+        /// A rail or a panel arriving from `edge`, or fading in place under
+        /// Reduce Motion.
+        @MainActor static func slide(from edge: Edge) -> AnyTransition {
+            reduceMotion ? .opacity : .move(edge: edge)
+        }
+
+        /// How much a knob grows while a drag holds it: the visual
+        /// acknowledgement of contact. None under Reduce Motion.
+        @MainActor static var contactScale: CGFloat { reduceMotion ? 1 : 1.3 }
     }
 }
 

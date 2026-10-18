@@ -25,10 +25,9 @@ struct FilmSection: View {
                      // are, so only the sentence around it is translated. It
                      // is not `helpResetFilmExposure`: this resets the stock,
                      // that one resets the exposure.
-                     action: SectionAction(help: L("Reset the film stock to Portra 400", zh: "将胶片重置为 Portra 400")) {
-                         var p = session.params; p.filmStock = "kodak_portra_400"; session.params = p
-                         session.applyFilmStageRule()
-                     },
+                     // V5: named, and silent while the stock is already the
+                     // default — the arrow greys rather than re-selecting it.
+                     action: .reset(.film, in: session),
                      menu: { AnyView(menu) }) {
             StockList(rows: stockRows,
                       selected: session.params.filmStock,
@@ -63,14 +62,9 @@ struct FilmSection: View {
         // which is the point of §8.3 — a reset affordance whose scope is not
         // named is the ellipsis problem again.
         Button(L("Reset the film stock to Portra 400", zh: "将胶片重置为 Portra 400")) {
-            var p = session.params; p.filmStock = "kodak_portra_400"
-            // Coming back from a black-and-white film, its paper cannot stay.
-            if !session.catalog.canPrint(film: p.filmStock, on: p.printStock) {
-                p.printStock = FilmParams.default.printStock
-            }
-            session.params = p
-            session.applyFilmStageRule()
+            SectionReset.film.perform(in: session)
         }
+        .disabled(!SectionReset.film.hasChanges(in: session))
         Divider()
         // The whole frame, named as the whole frame: every setting, and the
         // canvas back on the decode rather than on a develop at the defaults

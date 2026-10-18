@@ -95,6 +95,14 @@ enum S: String, CaseIterable, Sendable {
     case helpResetDefaults, helpUseFilmPaper
     case helpAllEffectsOn, helpAllEffectsOff, helpFastFlip, helpResetEffectStrengths
 
+    // MARK: V5 (2026-10-18): holding the Original, the Develop | Edit shell
+    // (`FeatureFlags.surfaces`) and its pages
+    case helpOriginalHold, helpOriginalShowing
+    case surfaceSwitch, helpSurfaceDevelop, helpSurfaceEdit
+    case toolLight, toolCurve, toolColor, toolDarkroom, toolCrop, editTools
+    case sectionDecode, sectionFormat, sectionGrainHalation, sectionFilmAndPaper
+    case helpBackToDevelop, helpPinDevelopRail, helpUnpinDevelopRail, helpBackToDarkroom
+
     // MARK: status and disabled reasons
     case statusFull, statusFullPending, statusEmptyFilmstrip
     case statusEDRScope, statusRightRailWBScope
@@ -357,6 +365,25 @@ extension S {
         case .helpResetFilmExposure: "Reset film exposure"
         case .helpResetChannels: "Reset all channels"
         case .helpResetCrop: "Reset crop"
+        case .helpOriginalHold: "Hold to see the original as Apple's decoder renders it, before the film; click to keep it up. Holding \\ or Space does the same."
+        case .helpOriginalShowing: "Showing the original. Click to go back to the print."
+        case .surfaceSwitch: "Develop or Edit"
+        case .helpSurfaceDevelop: "Develop: the film, the paper, the exposure and the format"
+        case .helpSurfaceEdit: "Edit: light, curve, color, the darkroom and the crop"
+        case .toolLight: "Light"
+        case .toolCurve: "Curve"
+        case .toolColor: "Color"
+        case .toolDarkroom: "Darkroom"
+        case .toolCrop: "Crop"
+        case .editTools: "Edit tools"
+        case .sectionDecode: "Decode"
+        case .sectionFormat: "Format"
+        case .sectionGrainHalation: "Grain & Halation"
+        case .sectionFilmAndPaper: "Film & Paper"
+        case .helpBackToDevelop: "Back to Develop"
+        case .helpPinDevelopRail: "Keep the Develop rail beside Edit"
+        case .helpUnpinDevelopRail: "Fold the Develop rail away while editing"
+        case .helpBackToDarkroom: "Back to Darkroom"
         case .helpStraightenZero: "Straighten to 0°"
         case .helpCropWholeFrame: "Crop to whole frame"
         case .helpRevealInFinder: "Reveal in Finder"
@@ -664,6 +691,25 @@ extension S {
         case .helpResetFilmExposure: "重置胶片曝光"
         case .helpResetChannels: "重置所有通道"
         case .helpResetCrop: "重置裁剪"
+        case .helpOriginalHold: "按住以查看原图（Apple 解码器的渲染，未经胶片）；单击则保持显示。按住 \\ 或空格键效果相同。"
+        case .helpOriginalShowing: "正在显示原图。单击返回印相。"
+        case .surfaceSwitch: "显影或调整"
+        case .helpSurfaceDevelop: "显影：胶片、相纸、曝光与画幅"
+        case .helpSurfaceEdit: "调整：光、曲线、色彩、暗房与裁剪"
+        case .toolLight: "光"
+        case .toolCurve: "曲线"
+        case .toolColor: "色彩"
+        case .toolDarkroom: "暗房"
+        case .toolCrop: "裁剪"
+        case .editTools: "调整工具"
+        case .sectionDecode: "解码"
+        case .sectionFormat: "画幅"
+        case .sectionGrainHalation: "颗粒与光晕"
+        case .sectionFilmAndPaper: "胶片与相纸"
+        case .helpBackToDevelop: "返回显影"
+        case .helpPinDevelopRail: "调整时保留显影栏"
+        case .helpUnpinDevelopRail: "调整时收起显影栏"
+        case .helpBackToDarkroom: "返回暗房"
         case .helpStraightenZero: "拉直到 0°"
         case .helpCropWholeFrame: "恢复完整画面"
         case .helpRevealInFinder: "在 Finder 中显示"

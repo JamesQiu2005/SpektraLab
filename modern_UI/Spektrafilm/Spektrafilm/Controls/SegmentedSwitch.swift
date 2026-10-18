@@ -27,6 +27,8 @@ struct SegmentedSwitch<Option: Hashable & Identifiable>: View {
     /// a film edge, a face the format has no back for.
     var enabled: (Option) -> Bool = { _ in true }
     var reason: (Option) -> String = { _ in "" }
+    /// What VoiceOver calls the switch ("Parameters", "Surface").
+    var accessibilityName: String = ""
 
     @Namespace private var thumb
 
@@ -58,16 +60,32 @@ struct SegmentedSwitch<Option: Hashable & Identifiable>: View {
                     }
                 }
                 .contentShape(Capsule())
-                .onTapGesture {
-                    guard !on else { return }
-                    withAnimation(.easeOut(duration: 0.15)) { selection = option }
-                }
+                .onTapGesture { choose(option) }
                 .rowEnabled(enabled(option), because: reason(option))
                 .accessibilityElement(children: .combine)
                 .accessibilityAddTraits(on ? [.isButton, .isSelected] : .isButton)
+                .accessibilityAction { choose(option) }
             }
         }
         .padding(Self.inset)
         .background(Capsule().fill(Theme.plot))
+        // The switch as a whole is one adjustable control too: its name, the
+        // side it is on, and a swipe to the next or previous side.
+        .accessibilityElement(children: .contain)
+        .accessibilityLabel(accessibilityName)
+        .accessibilityValue(title(selection))
+        .accessibilityAdjustableAction { direction in
+            guard let i = options.firstIndex(of: selection) else { return }
+            let j = direction == .increment ? i + 1 : i - 1
+            guard options.indices.contains(j) else { return }
+            choose(options[j])
+        }
+    }
+
+    /// V5's motion: the thumb slides in 150 ms, and under Reduce Motion it
+    /// fades where it lands instead of travelling (`Theme.Motion`).
+    private func choose(_ option: Option) {
+        guard option != selection, enabled(option) else { return }
+        withAnimation(Theme.Motion.quick) { selection = option }
     }
 }

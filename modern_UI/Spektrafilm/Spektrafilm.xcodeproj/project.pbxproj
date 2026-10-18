@@ -172,6 +172,7 @@
 		D9A5D4FB130D7DA5C1364A10 /* Latitude.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Latitude.swift"; sourceTree = "<group>"; };
 		BD3FA299D7EB9C019C5EB676 /* Mask.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Mask.swift"; sourceTree = "<group>"; };
 		2AFE54D96D2505F69D272CBC /* Params.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Params.swift"; sourceTree = "<group>"; };
+		38386554E7F4B801E587F2B4 /* SectionReset.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "SectionReset.swift"; sourceTree = "<group>"; };
 		7BD3629C55F6510F4C9ACD18 /* Session+EditHistory.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Session+EditHistory.swift"; sourceTree = "<group>"; };
 		DD7E26A3E79A78EBDD307CA5 /* Session+FilmEdge.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Session+FilmEdge.swift"; sourceTree = "<group>"; };
 		5E28E5289A5F9446065A3593 /* Session.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Session.swift"; sourceTree = "<group>"; };
@@ -197,6 +198,7 @@
 				D9A5D4FB130D7DA5C1364A10 /* Latitude.swift */,
 				BD3FA299D7EB9C019C5EB676 /* Mask.swift */,
 				2AFE54D96D2505F69D272CBC /* Params.swift */,
+				38386554E7F4B801E587F2B4 /* SectionReset.swift */,
 				7BD3629C55F6510F4C9ACD18 /* Session+EditHistory.swift */,
 				DD7E26A3E79A78EBDD307CA5 /* Session+FilmEdge.swift */,
 				5E28E5289A5F9446065A3593 /* Session.swift */,
@@ -316,6 +318,7 @@
 		1314FC9749243D900B18259C /* CollapseTab.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CollapseTab.swift"; sourceTree = "<group>"; };
 		ADC8065A5E52A589C2F6AE42 /* EditorWindow.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "EditorWindow.swift"; sourceTree = "<group>"; };
 		F67B2F725579EC801242F867 /* ExportWindow.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "ExportWindow.swift"; sourceTree = "<group>"; };
+		22E15C29320F992ACD53EF80 /* OriginalHold.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "OriginalHold.swift"; sourceTree = "<group>"; };
 		E24ECFF23445AA5E689E9456 /* SettingsWindow.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "SettingsWindow.swift"; sourceTree = "<group>"; };
 		70E6C16EAA039CB5BD2F90EA /* TopBar.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "TopBar.swift"; sourceTree = "<group>"; };
 		AE0AED7BA06FE8D91BD0CAB3 /* TrafficLights.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "TrafficLights.swift"; sourceTree = "<group>"; };
@@ -329,6 +332,7 @@
 				1314FC9749243D900B18259C /* CollapseTab.swift */,
 				ADC8065A5E52A589C2F6AE42 /* EditorWindow.swift */,
 				F67B2F725579EC801242F867 /* ExportWindow.swift */,
+				22E15C29320F992ACD53EF80 /* OriginalHold.swift */,
 				E24ECFF23445AA5E689E9456 /* SettingsWindow.swift */,
 				70E6C16EAA039CB5BD2F90EA /* TopBar.swift */,
 				AE0AED7BA06FE8D91BD0CAB3 /* TrafficLights.swift */,
@@ -375,6 +379,7 @@
 		5B3B72831326AE0EEC7F0982 /* CurveMathTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CurveMathTests.swift"; sourceTree = "<group>"; };
 		0663F0817D5D9B348B464BE0 /* DecodeResidencyTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "DecodeResidencyTests.swift"; sourceTree = "<group>"; };
 		C99D979200D504188AA630A4 /* DecodeSeparationTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "DecodeSeparationTests.swift"; sourceTree = "<group>"; };
+		F18E9A7160C40DB197C5351B /* DesignSystemV5Tests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "DesignSystemV5Tests.swift"; sourceTree = "<group>"; };
 		44EA726F9F26A195F56BB1DE /* DetentSliderTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "DetentSliderTests.swift"; sourceTree = "<group>"; };
 		F3918A05EE13A2A1E4E5C6BB /* DiagnosticsTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "DiagnosticsTests.swift"; sourceTree = "<group>"; };
 		99AC0F3BD7FFC5DBA2841C14 /* DigitalIntermediateExportTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "DigitalIntermediateExportTests.swift"; sourceTree = "<group>"; };
@@ -441,6 +446,7 @@
 				5B3B72831326AE0EEC7F0982 /* CurveMathTests.swift */,
 				0663F0817D5D9B348B464BE0 /* DecodeResidencyTests.swift */,
 				C99D979200D504188AA630A4 /* DecodeSeparationTests.swift */,
+				F18E9A7160C40DB197C5351B /* DesignSystemV5Tests.swift */,
 				44EA726F9F26A195F56BB1DE /* DetentSliderTests.swift */,
 				F3918A05EE13A2A1E4E5C6BB /* DiagnosticsTests.swift */,
 				99AC0F3BD7FFC5DBA2841C14 /* DigitalIntermediateExportTests.swift */,
@@ -673,6 +679,7 @@
 		BAAAC48691BBE6D8BA752FD5 /* Latitude.swift */ = {isa = PBXBuildFile; fileRef = D9A5D4FB130D7DA5C1364A10; };
 		A19ACBE78BD64D5DB3012243 /* Mask.swift */ = {isa = PBXBuildFile; fileRef = BD3FA299D7EB9C019C5EB676; };
 		6822B6E3426D49DCE0044D28 /* Params.swift */ = {isa = PBXBuildFile; fileRef = 2AFE54D96D2505F69D272CBC; };
+		02FF9B19F5B5F2410A417DBF /* SectionReset.swift */ = {isa = PBXBuildFile; fileRef = 38386554E7F4B801E587F2B4; };
 		310022F29516E6A5FE4318FD /* Session+EditHistory.swift */ = {isa = PBXBuildFile; fileRef = 7BD3629C55F6510F4C9ACD18; };
 		DF567A683015AAB03F594D6A /* Session+FilmEdge.swift */ = {isa = PBXBuildFile; fileRef = DD7E26A3E79A78EBDD307CA5; };
 		88BD30B14D98C97D23F43C21 /* Session.swift */ = {isa = PBXBuildFile; fileRef = 5E28E5289A5F9446065A3593; };
@@ -713,6 +720,7 @@
 		9F226DBBF6D9A09997010B68 /* CollapseTab.swift */ = {isa = PBXBuildFile; fileRef = 1314FC9749243D900B18259C; };
 		30D807F890E0D613B37D2F53 /* EditorWindow.swift */ = {isa = PBXBuildFile; fileRef = ADC8065A5E52A589C2F6AE42; };
 		4254A1EA9E8977408D6035DD /* ExportWindow.swift */ = {isa = PBXBuildFile; fileRef = F67B2F725579EC801242F867; };
+		D654F7CBEDE640E27414723A /* OriginalHold.swift */ = {isa = PBXBuildFile; fileRef = 22E15C29320F992ACD53EF80; };
 		D49716FD05732E27DBDFFF79 /* SettingsWindow.swift */ = {isa = PBXBuildFile; fileRef = E24ECFF23445AA5E689E9456; };
 		9D0538240A70E96E63507B06 /* TopBar.swift */ = {isa = PBXBuildFile; fileRef = 70E6C16EAA039CB5BD2F90EA; };
 		48D483F6B3F3E8CEACE48D45 /* TrafficLights.swift */ = {isa = PBXBuildFile; fileRef = AE0AED7BA06FE8D91BD0CAB3; };
@@ -811,6 +819,7 @@
 				BAAAC48691BBE6D8BA752FD5 /* Latitude.swift */,
 				A19ACBE78BD64D5DB3012243 /* Mask.swift */,
 				6822B6E3426D49DCE0044D28 /* Params.swift */,
+				02FF9B19F5B5F2410A417DBF /* SectionReset.swift */,
 				310022F29516E6A5FE4318FD /* Session+EditHistory.swift */,
 				DF567A683015AAB03F594D6A /* Session+FilmEdge.swift */,
 				88BD30B14D98C97D23F43C21 /* Session.swift */,
@@ -851,6 +860,7 @@
 				9F226DBBF6D9A09997010B68 /* CollapseTab.swift */,
 				30D807F890E0D613B37D2F53 /* EditorWindow.swift */,
 				4254A1EA9E8977408D6035DD /* ExportWindow.swift */,
+				D654F7CBEDE640E27414723A /* OriginalHold.swift */,
 				D49716FD05732E27DBDFFF79 /* SettingsWindow.swift */,
 				9D0538240A70E96E63507B06 /* TopBar.swift */,
 				48D483F6B3F3E8CEACE48D45 /* TrafficLights.swift */,
@@ -912,6 +922,7 @@
 		40503E09BEE176A2CAC4385A /* CurveMathTests.swift */ = {isa = PBXBuildFile; fileRef = 5B3B72831326AE0EEC7F0982; };
 		0E4C6BA7DF26BC9A328584E7 /* DecodeResidencyTests.swift */ = {isa = PBXBuildFile; fileRef = 0663F0817D5D9B348B464BE0; };
 		B90B294431E9D713F31ADA9F /* DecodeSeparationTests.swift */ = {isa = PBXBuildFile; fileRef = C99D979200D504188AA630A4; };
+		5AB32E3EA2191D6C79B7892F /* DesignSystemV5Tests.swift */ = {isa = PBXBuildFile; fileRef = F18E9A7160C40DB197C5351B; };
 		E8E2932C83D2DB247FE64D0C /* DetentSliderTests.swift */ = {isa = PBXBuildFile; fileRef = 44EA726F9F26A195F56BB1DE; };
 		4013845AB83CE4A5F3A79671 /* DiagnosticsTests.swift */ = {isa = PBXBuildFile; fileRef = F3918A05EE13A2A1E4E5C6BB; };
 		590A16CE1064C95DA1DD33AB /* DigitalIntermediateExportTests.swift */ = {isa = PBXBuildFile; fileRef = 99AC0F3BD7FFC5DBA2841C14; };
@@ -1032,6 +1043,7 @@
 		0A290D67F9F65D4D1C54E33A /* Latitude.swift */ = {isa = PBXBuildFile; fileRef = D9A5D4FB130D7DA5C1364A10; };
 		6B8029673A50DF9EFFE45066 /* Mask.swift */ = {isa = PBXBuildFile; fileRef = BD3FA299D7EB9C019C5EB676; };
 		E90F7C134FA143167A66ED5F /* Params.swift */ = {isa = PBXBuildFile; fileRef = 2AFE54D96D2505F69D272CBC; };
+		4F64EA1E0180B3DEEF849E8F /* SectionReset.swift */ = {isa = PBXBuildFile; fileRef = 38386554E7F4B801E587F2B4; };
 		B3D570A8F26D084ECDB828ED /* Session+EditHistory.swift */ = {isa = PBXBuildFile; fileRef = 7BD3629C55F6510F4C9ACD18; };
 		2EDF729FF7E2F40EE520272A /* Session+FilmEdge.swift */ = {isa = PBXBuildFile; fileRef = DD7E26A3E79A78EBDD307CA5; };
 		9BB0059CCEA6F6A2DDE94304 /* Session.swift */ = {isa = PBXBuildFile; fileRef = 5E28E5289A5F9446065A3593; };
@@ -1072,6 +1084,7 @@
 		47529647F3D60BBE8CE96974 /* CollapseTab.swift */ = {isa = PBXBuildFile; fileRef = 1314FC9749243D900B18259C; };
 		6BE641FE29553FD2270F5946 /* EditorWindow.swift */ = {isa = PBXBuildFile; fileRef = ADC8065A5E52A589C2F6AE42; };
 		451102DB41DB7EE46F2749EF /* ExportWindow.swift */ = {isa = PBXBuildFile; fileRef = F67B2F725579EC801242F867; };
+		107954CCE34F1A1DF9D38054 /* OriginalHold.swift */ = {isa = PBXBuildFile; fileRef = 22E15C29320F992ACD53EF80; };
 		DD739A4935AF06B66C19D2AE /* SettingsWindow.swift */ = {isa = PBXBuildFile; fileRef = E24ECFF23445AA5E689E9456; };
 		B3D386513DEDDEBD0B22E5D6 /* TopBar.swift */ = {isa = PBXBuildFile; fileRef = 70E6C16EAA039CB5BD2F90EA; };
 		6812CE43DD294C24BA4370E9 /* TrafficLights.swift */ = {isa = PBXBuildFile; fileRef = AE0AED7BA06FE8D91BD0CAB3; };
@@ -1112,6 +1125,7 @@
 				40503E09BEE176A2CAC4385A /* CurveMathTests.swift */,
 				0E4C6BA7DF26BC9A328584E7 /* DecodeResidencyTests.swift */,
 				B90B294431E9D713F31ADA9F /* DecodeSeparationTests.swift */,
+				5AB32E3EA2191D6C79B7892F /* DesignSystemV5Tests.swift */,
 				E8E2932C83D2DB247FE64D0C /* DetentSliderTests.swift */,
 				4013845AB83CE4A5F3A79671 /* DiagnosticsTests.swift */,
 				590A16CE1064C95DA1DD33AB /* DigitalIntermediateExportTests.swift */,
@@ -1232,6 +1246,7 @@
 				0A290D67F9F65D4D1C54E33A /* Latitude.swift */,
 				6B8029673A50DF9EFFE45066 /* Mask.swift */,
 				E90F7C134FA143167A66ED5F /* Params.swift */,
+				4F64EA1E0180B3DEEF849E8F /* SectionReset.swift */,
 				B3D570A8F26D084ECDB828ED /* Session+EditHistory.swift */,
 				2EDF729FF7E2F40EE520272A /* Session+FilmEdge.swift */,
 				9BB0059CCEA6F6A2DDE94304 /* Session.swift */,
@@ -1272,6 +1287,7 @@
 				47529647F3D60BBE8CE96974 /* CollapseTab.swift */,
 				6BE641FE29553FD2270F5946 /* EditorWindow.swift */,
 				451102DB41DB7EE46F2749EF /* ExportWindow.swift */,
+				107954CCE34F1A1DF9D38054 /* OriginalHold.swift */,
 				DD739A4935AF06B66C19D2AE /* SettingsWindow.swift */,
 				B3D386513DEDDEBD0B22E5D6 /* TopBar.swift */,
 				6812CE43DD294C24BA4370E9 /* TrafficLights.swift */,

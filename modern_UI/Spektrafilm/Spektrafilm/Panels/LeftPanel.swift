@@ -110,7 +110,7 @@ struct SidebarToggle: View {
     }
 
     var body: some View {
-        Button { withAnimation(.easeOut(duration: 0.18)) { collapsed.toggle() } } label: {
+        Button { withAnimation(Theme.Motion.panel) { collapsed.toggle() } } label: {
             Image(systemName: symbol)
                 .font(.system(size: Theme.Metric.sidebarIcon, weight: .regular))
                 .foregroundStyle(Theme.text)

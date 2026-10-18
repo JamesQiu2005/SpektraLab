@@ -32,7 +32,7 @@ struct FilmFormatSection: View {
 
     var body: some View {
         PanelSection(L(.filmFormat), key: "filmFormat",
-                     action: SectionAction(help: L(.helpResetFilmFormat)) { reset() },
+                     action: .reset(.filmFormat, in: session),
                      menu: { AnyView(menu) }) {
             RailRows {
                 if session.filmEdgeHoldsFrame {
@@ -156,15 +156,6 @@ struct FilmFormatSection: View {
                 set: { var p = session.params; p.effects[keyPath: kp] = $0; session.params = p })
     }
 
-    private func reset() {
-        session.setFilmFrame(FilmFrame.all.first { $0.id == "135" } ?? session.filmFrame)
-        session.setFilmSide(.short)
-        var p = session.params
-        p.grainActive = true; p.halationActive = true; p.glareActive = true
-        p.effects = .default
-        session.params = p
-    }
-
     private var menu: some View {
         Group {
             Button(L(.helpAllEffectsOn)) {
@@ -219,10 +210,7 @@ struct ScenePlacementSection: View {
 
     var body: some View {
         PanelSection(L(.sectionScenePlacement), key: "scenePlacement",
-                     action: SectionAction(help: L(.helpResetPlacement),
-                                           enabled: session.params.sceneLatitude.active) {
-                         session.resetScenePlacement()
-                     }) {
+                     action: .reset(.scenePlacement, in: session)) {
             RailRows {
                 row(L(.placementHighlight), side: .highlight, committed: committed.highlightPullBack,
                     other: committed.shadowPullBack) {

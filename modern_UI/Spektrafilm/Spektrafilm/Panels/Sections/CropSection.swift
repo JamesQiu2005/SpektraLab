@@ -30,6 +30,10 @@ struct CropSection: View {
         // gate, at the gate's aspect, and this crop is kept for when the film
         // edge comes off (RFC-032 §17.5).
         PanelSection(L(.sectionCrop), key: "crop", initiallyExpanded: false,
+                     // V5: the section's own named reset, like every other
+                     // section's (it was the menu's first item and nowhere
+                     // else). Not while Film Edge holds the frame.
+                     action: session.filmEdgeHoldsFrame ? nil : .reset(.crop, in: session),
                      menu: session.filmEdgeHoldsFrame ? nil : { AnyView(menu) },
                      note: session.filmEdgeHoldsFrame ? L(.edgeHeldByFilmEdge) : nil) {
             RailRows {
@@ -146,6 +150,8 @@ struct CropSection: View {
         }
         .buttonStyle(.plain)
         .help(help)
+        .accessibilityLabel(help)
+        .accessibilityAddTraits(active ? .isSelected : [])
     }
 
     /// What the crop actually costs, in the units a photographer cares about.
@@ -163,7 +169,8 @@ struct CropSection: View {
 
     private var menu: some View {
         Group {
-            Button(L(.helpResetCrop)) { session.geometry = .default }
+            Button(L(.helpResetCrop)) { SectionReset.crop.perform(in: session) }
+                .disabled(!SectionReset.crop.hasChanges(in: session))
             Button(L(.helpStraightenZero)) { session.geometry = g.straightened(to: 0, in: size) }
             Divider()
             Button(L(.helpCropWholeFrame)) {

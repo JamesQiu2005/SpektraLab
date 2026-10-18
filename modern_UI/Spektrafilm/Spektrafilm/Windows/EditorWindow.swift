@@ -76,6 +76,8 @@ struct EditorWindow: View {
                                   leading: Theme.Metric.trafficLightLeading)
                 .frame(width: 0, height: 0)
         )
+        // The window the held `\` key belongs to (`OriginalHoldKey`).
+        .background(EditorWindowMarker().frame(width: 0, height: 0))
         .ignoresSafeArea()
         .preferredColorScheme(.dark)
         .onDrop(of: [.fileURL], isTargeted: nil) { providers in
@@ -143,7 +145,7 @@ struct EditorWindow: View {
                                           width: $leftWidth.width)
                     }
                     .overlay(alignment: .trailing) { VerticalHairline().allowsHitTesting(false) }
-                    .transition(.move(edge: .leading))
+                    .transition(Theme.Motion.slide(from: .leading))
             }
             centreColumn
             if !session.rightCollapsed {
@@ -159,7 +161,7 @@ struct EditorWindow: View {
                     // rail, and the rail is the user's.
                     .environment(\.colorBalanceWidth,
                                  ColorBalanceLayout.interior(panelWidth: rightWidth.width))
-                    .transition(.move(edge: .trailing))
+                    .transition(Theme.Motion.slide(from: .trailing))
             }
         }
         .transition(.opacity)
@@ -197,7 +199,7 @@ struct EditorWindow: View {
                 // of seam a full-height divider exists to remove.
                 Filmstrip(session: session)
                     .frame(height: Theme.Metric.filmstripHeight)
-                    .transition(.move(edge: .bottom))
+                    .transition(Theme.Motion.slide(from: .bottom))
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)

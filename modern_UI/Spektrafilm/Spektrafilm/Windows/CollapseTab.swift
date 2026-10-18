@@ -66,7 +66,7 @@ struct CollapseTab: View {
     }
 
     var body: some View {
-        Button { withAnimation(.easeOut(duration: 0.18)) { collapsed.toggle() } } label: {
+        Button { withAnimation(Theme.Motion.panel) { collapsed.toggle() } } label: {
             Image(systemName: glyph)
                 .font(.system(size: 8, weight: .bold))
                 .foregroundStyle(Theme.text)
@@ -171,7 +171,7 @@ struct HoverEdgeTab: View {
     }
 
     private func toggle() {
-        withAnimation(.easeOut(duration: 0.18)) { collapsed.toggle() }
+        withAnimation(Theme.Motion.panel) { collapsed.toggle() }
     }
 
     /// The pill's own size, from the tokens the pill is drawn with.

@@ -17,11 +17,22 @@ import SwiftUI
 
 struct EnlargerSection: View {
     @Bindable var session: Session
+    /// Whether the section carries Pre-flash. The Develop | Edit shell's
+    /// Darkroom gives pre-flash a page of its own (`FeatureFlags.surfaces`),
+    /// and a slider shown on two pages is two answers to "where is it".
+    var includesPreflash = true
+    /// Expanded by default where the section is a page of its own.
+    var initiallyExpanded = false
+
+    /// The arrow's scope: the whole enlarger here, the head alone where
+    /// pre-flash has its own page.
+    private var scope: SectionReset { includesPreflash ? .enlarger : .enlargerHead }
 
     var body: some View {
         // Collapsed by default, as v4 draws it.
-        PanelSection(L(.sectionEnlarger), key: "enlarger", initiallyExpanded: false,
-                     action: SectionAction(help: L(.helpResetEnlarger)) { reset() },
+        PanelSection(L(.sectionEnlarger), key: includesPreflash ? "enlarger" : "enlarger.head",
+                     initiallyExpanded: initiallyExpanded,
+                     action: .reset(scope, in: session),
                      menu: { AnyView(menu) }) {
             RailRows {
                 // On a frame of a pair: whose print this is, and whether the
@@ -50,21 +61,30 @@ struct EnlargerSection: View {
                                            set: { session.setEnlarger(.magenta, $0) }),
                             range: -1...1, snap: 0.05, format: { String(format: "%+.2f", $0) },
                             trackGradient: [Color(hex: 0xB07CAE), Color(hex: 0x8A8A8A), Color(hex: 0x7CA87C)])
-                ScrubSlider(label: L(.enlargerPreflash), sublabel: "×100",
-                            value: Binding(get: { session.enlargerValue(.preflash) * 100 },
-                                           set: { session.setEnlarger(.preflash, ($0 / 100).clamped(to: 0...0.03)) }),
-                            range: 0...3, snap: 0.25, format: { String(format: "%.2f", $0) },
-                            disabled: !session.params.printEffects)
-                    .help(session.params.printEffects ? "" : L(.reasonPrintEffectsOff))
+                if includesPreflash { PreflashSlider(session: session) }
             }
         }
     }
 
-    private func reset() { session.resetEnlarger() }
-
     private var menu: some View {
         Group {
-            Button(L(.helpResetEnlarger)) { reset() }
+            Button(L(.helpResetEnlarger)) { scope.perform(in: session) }
+                .disabled(!scope.hasChanges(in: session))
         }
+    }
+}
+
+/// Pre-flash: a uniform exposure of the paper through the film's clear base,
+/// shown ×100 (its useful wire range is 0…0.03). One view, so the Enlarger
+/// section and the shell's own Pre-flash page draw the same row.
+struct PreflashSlider: View {
+    @Bindable var session: Session
+    var body: some View {
+        ScrubSlider(label: L(.enlargerPreflash), sublabel: "×100",
+                    value: Binding(get: { session.enlargerValue(.preflash) * 100 },
+                                   set: { session.setEnlarger(.preflash, ($0 / 100).clamped(to: 0...0.03)) }),
+                    range: 0...3, snap: 0.25, format: { String(format: "%.2f", $0) },
+                    disabled: !session.params.printEffects)
+            .help(session.params.printEffects ? "" : L(.reasonPrintEffectsOff))
     }
 }

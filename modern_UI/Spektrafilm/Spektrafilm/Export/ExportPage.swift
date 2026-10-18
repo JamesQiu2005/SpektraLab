@@ -404,9 +404,12 @@ struct ExportPage: View {
             .frame(width: M.zoomClusterWidth)
             .transition(.opacity)
         } else {
+            // Rests on 5, the page's own default (`gridColumns`), which a
+            // double-click returns to.
             DetentSlider(value: $gridColumns, range: M.gridColumns,
                          width: M.zoomClusterWidth,
-                         help: "Thumbnail size — \(gridColumns) columns")
+                         help: "Thumbnail size — \(gridColumns) columns",
+                         rest: 5, accessibilityName: L("Columns", zh: "列数"))
                 .transition(.opacity)
         }
     }

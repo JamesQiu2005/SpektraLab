@@ -164,12 +164,12 @@ struct EditorCommands: Commands {
                 .keyboardShortcut(".", modifiers: []).disabled(session.zoomLocked)
             Divider()
             Button("Toggle Side Panels") {
-                withAnimation(.easeOut(duration: 0.18)) {
+                withAnimation(Theme.Motion.panel) {
                     let c = !(session.leftCollapsed && session.rightCollapsed)
                     session.leftCollapsed = c; session.rightCollapsed = c
                 }
             }.keyboardShortcut("b", modifiers: .command)
-            Button("Toggle Filmstrip") { withAnimation { session.filmstripCollapsed.toggle() } }.keyboardShortcut("f", modifiers: [.command, .shift])
+            Button("Toggle Filmstrip") { withAnimation(Theme.Motion.panel) { session.filmstripCollapsed.toggle() } }.keyboardShortcut("f", modifiers: [.command, .shift])
             Divider()
             // The only door onto this now — the right rail's dotted-circle glyph
             // is gone, so this label is also the state read-out. It says which
@@ -395,9 +395,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     /// Typing keys go to the field being typed into, not to the menu's
     /// single-key shortcuts (`TypingKeyGuard`).
     private var typingKeyGuard: Any?
+    private var originalHoldKey: [Any] = []
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         typingKeyGuard = TypingKeyGuard.install()
+        // Holding `\` shows the original (V5; `OriginalHoldKey`). Installed
+        // after the guard, and it checks for a field being typed into itself.
+        if let session { originalHoldKey = OriginalHoldKey.install(session: session) }
         // First statement, before anything else can want to log: `start()`
         // opens the session file, and records written before it (the static
         // session's own warm-up) land in the ring buffer only.
