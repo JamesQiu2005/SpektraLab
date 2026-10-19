@@ -208,6 +208,12 @@ struct Progress {
     // made smaller, which is what §4's striped mode is for -- so it is read,
     // reported by `spk_progress`, and no more.
     bool memory_pressure_critical = false;
+    // The render's time with the Mac awake (`elapsed_ms` counts sleep too),
+    // and what the GPU did for it (`Gpu::FrameStats`). Together they tell a
+    // render the system held up from one that was slow: a batch log had a
+    // 7 s render take 1,010 s and could say nothing more (2026-10-19).
+    double awake_ms = 0;
+    gpu::Gpu::FrameStats gpu;
 };
 
 // RFC-015 §2.3: what each of the four exposure intents would choose, all from

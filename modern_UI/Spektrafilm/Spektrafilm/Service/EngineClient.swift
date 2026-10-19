@@ -641,8 +641,10 @@ actor EngineClient {
                                      width: UInt32(frame.width),
                                      height: UInt32(frame.height),
                                      channels: UInt32(frame.channels))
-        let handle: OpaquePointer? = delta.withCString { deltaPtr in
-            withUnsafePointer(to: &image) { spk_open_device(engine, $0, deltaPtr, &reply) }
+        let handle: OpaquePointer? = StallWatch.watching("open", log: log) {
+            delta.withCString { deltaPtr in
+                withUnsafePointer(to: &image) { spk_open_device(engine, $0, deltaPtr, &reply) }
+            }
         }
         // What the engine does with the buffer: one kernel to its own
         // three-channel source, and the pipeline for the stock pair. There is
@@ -683,10 +685,13 @@ actor EngineClient {
         // `preview_render` forces the film side to run; `reprint` reuses the
         // cached negative. That is the same distinction the two engine
         // entry points make.
-        let status = request.tier.withCString { tier in
-            method == .previewRender
-                ? spk_render(session, tier, &result)
-                : spk_reprint(session, tier, &result)
+        let status = StallWatch.watching(method == .previewRender ? "render" : "reprint",
+                                         tier: request.tier, log: log) {
+            request.tier.withCString { tier in
+                method == .previewRender
+                    ? spk_render(session, tier, &result)
+                    : spk_reprint(session, tier, &result)
+            }
         }
         guard status == SPK_OK else { throw ClientError.engine(lastError()) }
 
@@ -737,6 +742,17 @@ actor EngineClient {
         // export will also use, so a canvas and an export can be reconciled
         // (RFC-015 P.1, RFC-016 §1.4).
         if let ev = progress?.autoExposureEV { fields.append(.init("ev", ev)) }
+        // How the render's time was spent, beside `ms`: awake or not, and on
+        // the GPU or waiting for it. Every render, because the one that
+        // stalls is not known in advance.
+        if let p = progress {
+            if let v = p.awakeMs { fields.append(.init("awake_ms", v)) }
+            if let v = p.gpuMs { fields.append(.init("gpu_ms", v)) }
+            if let v = p.gpuCommandBuffers { fields.append(.init("gpu_cbs", v)) }
+            if let v = p.gpuWaitMsMax { fields.append(.init("gpu_wait_max_ms", v)) }
+            if let v = p.gpuQueueMsMax { fields.append(.init("gpu_queue_max_ms", v)) }
+            if p.memoryPressureCritical == true { fields.append(.init("memory_pressure_critical", true)) }
+        }
         if EngineClient.nodeTimingsRequested, let times = progress?.nodeTimes, !times.isEmpty {
             for (node, ms) in times.sorted(by: { $0.key < $1.key }) { fields.append(.init(node, ms)) }
         }

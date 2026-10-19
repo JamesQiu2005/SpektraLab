@@ -1132,6 +1132,25 @@ bool negative_for(spk_session* session, const Tier& tier, Progress* progress, Im
 // anything changing hands. So each render allocates, and the texture's own
 // reference to the buffer is what keeps the pixels alive for exactly as long
 // as the caller is looking at them.
+// Nanoseconds the Mac has been awake. `steady_clock` is `CLOCK_MONOTONIC_RAW`
+// in Apple's libc++, which counts sleep: a render measured across a sleep
+// reads as one that took all night.
+uint64_t awake_ns() {
+#if defined(__APPLE__)
+    return clock_gettime_nsec_np(CLOCK_UPTIME_RAW);
+#else
+    return uint64_t(std::chrono::duration_cast<std::chrono::nanoseconds>(
+        std::chrono::steady_clock::now().time_since_epoch()).count());
+#endif
+}
+
+// What `spk_progress` reports about a finished render's time, beside the
+// result's `elapsed_ms`. After `end_frame`, on the thread that rendered.
+void note_timing(spk_session* session, gpu::Gpu* gpu, uint64_t awake_started) {
+    session->progress.awake_ms = double(awake_ns() - awake_started) / 1e6;
+    session->progress.gpu = gpu->frame_stats();
+}
+
 bool materialise(spk_session* session, const Image& rgb, spk_result* out, std::string& error) {
     gpu::Gpu* gpu = session->engine->gpu;
     const uint32_t align = gpu->texture_row_alignment_px();
@@ -1181,6 +1200,7 @@ spk_status render_tier(spk_session* session, const char* tier_name, bool use_rep
 
     gpu::Gpu* gpu = session->engine->gpu;
     const auto started = std::chrono::steady_clock::now();
+    const uint64_t awake_started = awake_ns();
     session->progress = Progress{};
     session->progress.progress_id = "p" + std::to_string(next_id());
     // Opt-in, because turning it on serialises every node. See Progress.
@@ -1229,6 +1249,7 @@ spk_status render_tier(spk_session* session, const char* tier_name, bool use_rep
     }
     out->elapsed_ms = std::chrono::duration<double, std::milli>(
         std::chrono::steady_clock::now() - started).count();
+    note_timing(session, gpu, awake_started);
     out->reprint = use_reprint && had_negative ? 1 : 0;
     out->negative_was_cached = use_reprint && had_negative ? 1 : 0;
     std::snprintf(out->progress_id, sizeof out->progress_id, "%s",
@@ -1493,6 +1514,7 @@ spk_status spk_preview_stock_lut(spk_session* session, const char* print_stock,
 
     gpu::Gpu* gpu = session->engine->gpu;
     const auto started = std::chrono::steady_clock::now();
+    const uint64_t awake_started = awake_ns();
     session->progress = Progress{};
     session->progress.progress_id = "p" + std::to_string(next_id());
 
@@ -1533,6 +1555,7 @@ spk_status spk_preview_stock_lut(spk_session* session, const char* print_stock,
 
     out->elapsed_ms = std::chrono::duration<double, std::milli>(
         std::chrono::steady_clock::now() - started).count();
+    note_timing(session, gpu, awake_started);
     // Reported as a reprint because that is what it is -- the negative was
     // reused and only the print side was replaced.
     out->reprint = 1;
@@ -1566,6 +1589,7 @@ spk_status spk_export_di(spk_session* session, const char* print_stock, spk_resu
 
     gpu::Gpu* gpu = session->engine->gpu;
     const auto started = std::chrono::steady_clock::now();
+    const uint64_t awake_started = awake_ns();
     session->progress = Progress{};
     session->progress.progress_id = "p" + std::to_string(next_id());
 
@@ -1598,6 +1622,7 @@ spk_status spk_export_di(spk_session* session, const char* print_stock, spk_resu
 
     out->elapsed_ms = std::chrono::duration<double, std::milli>(
         std::chrono::steady_clock::now() - started).count();
+    note_timing(session, gpu, awake_started);
     out->reprint = 1;
     out->negative_was_cached = 1;
     std::snprintf(out->progress_id, sizeof out->progress_id, "%s",
@@ -1636,6 +1661,7 @@ spk_status spk_render_digital_intermediate(spk_session* session, spk_result* out
     spk_engine* engine = session->engine;
     gpu::Gpu* gpu = engine->gpu;
     const auto started = std::chrono::steady_clock::now();
+    const uint64_t awake_started = awake_ns();
     session->progress = Progress{};
     session->progress.progress_id = "p" + std::to_string(next_id());
 
@@ -1674,6 +1700,7 @@ spk_status spk_render_digital_intermediate(spk_session* session, spk_result* out
 
     out->elapsed_ms = std::chrono::duration<double, std::milli>(
         std::chrono::steady_clock::now() - started).count();
+    note_timing(session, gpu, awake_started);
     out->reprint = 1;
     out->negative_was_cached = 1;
     std::snprintf(out->progress_id, sizeof out->progress_id, "%s",
@@ -2246,6 +2273,14 @@ spk_status spk_progress(spk_session* session, const char* progress_id, char** ou
     // render started. Reported and nothing else -- the mode that would act on
     // it (§4) does not exist yet.
     out.set("memory_pressure_critical", Json(p.memory_pressure_critical));
+    // Additive (2026-10-19): the render's time awake, and its GPU's figures
+    // (`Gpu::FrameStats`). Zero before a render finishes, and from a backend
+    // that does not measure.
+    out.set("awake_ms", Json(p.awake_ms));
+    out.set("gpu_ms", Json(p.gpu.gpu_ms));
+    out.set("gpu_command_buffers", Json(double(p.gpu.command_buffers)));
+    out.set("gpu_wait_ms_max", Json(p.gpu.wait_ms_max));
+    out.set("gpu_queue_ms_max", Json(p.gpu.queue_ms_max));
     // RFC-020 §4, step 4: the plan the executor built and the passes it ran.
     // Only present when the striped path ran, so nothing an existing consumer
     // reads changes. **Not an answer to §10.4** -- that is about whether

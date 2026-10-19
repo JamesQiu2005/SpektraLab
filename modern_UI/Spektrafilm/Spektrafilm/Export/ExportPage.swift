@@ -291,6 +291,11 @@ struct ExportPage: View {
     /// proof is expensive enough that the difference matters — a queue would
     /// render every keystroke and show the first one last.
     private func makeProof() async {
+        // A batch moves the open frame once per file, and a proof of each was
+        // a full-size render the run did not need — the export makes its own.
+        // The pane keeps what it showed, and the run's end shows the file it
+        // wrote (`run()`).
+        guard !session.batchExporting else { return }
         guard !worklist.isEmpty, session.selection != nil else { proof = nil; return }
         // Nothing to show it in. In Grid mode there is no pane at all, and the
         // proof is wanted the moment the Viewer brings one back.
@@ -1652,6 +1657,19 @@ struct ExportPage: View {
             var problems: [String] = []
             var fellBack = false
             var stoppedAt: Int?
+            /// A frame the run leaves out goes in the diagnostics log as well
+            /// as on the page: the page's note is gone once the person moves
+            /// on, and a stress log of a 1,209-frame run could only count the
+            /// files written. The name goes in `frame`, which a bundle without
+            /// file names replaces with a placeholder.
+            var leftOutCount = 0
+            @MainActor func leftOut(_ url: URL, _ reason: String, page: String) {
+                problems.append(page)
+                leftOutCount += 1
+                session.log.warn(.export, "frame not exported",
+                                 [.init("frame", url.lastPathComponent), .init("reason", reason)])
+            }
+            session.log.info(.export, "batch started", [.init("frames", urls.count), .init("recipe", r.name)])
             for (i, url) in urls.enumerated() {
                 if Task.isCancelled { stoppedAt = i; break }
                 session.exportProgress = Double(i) / Double(urls.count)
@@ -1666,15 +1684,16 @@ struct ExportPage: View {
                     // it, so a nil here is a develop that failed — say why
                     // rather than suggesting a wait that will not help.
                     let why = session.refusal?.message ?? session.lastError
-                    problems.append("\(url.lastPathComponent) could not be developed"
-                                    + (why.map { ": \($0)" } ?? "."))
+                    leftOut(url, why ?? "could not be developed",
+                            page: "\(url.lastPathComponent) could not be developed" + (why.map { ": \($0)" } ?? "."))
                     continue
                 }
                 if Task.isCancelled { stoppedAt = i; break }
                 // Belt and braces for the lock above: the exporter writes the
                 // open frame, so it must be this one.
                 guard session.selection == url else {
-                    problems.append("\(url.lastPathComponent) was skipped: another frame was opened.")
+                    leftOut(url, "another frame was opened",
+                            page: "\(url.lastPathComponent) was skipped: another frame was opened.")
                     continue
                 }
                 do {
@@ -1686,17 +1705,28 @@ struct ExportPage: View {
                         if url == home, let first = files.first { shown = first }
                         fellBack = fellBack || fb
                     case .skipped(let existing):
+                        // Asked for (the recipe skips existing files), so
+                        // not a warning: a re-run over a finished batch
+                        // would be a thousand of them.
                         problems.append("\(existing.lastPathComponent) already exists — skipped.")
+                        session.log.info(.export, "frame skipped", [.init("frame", url.lastPathComponent),
+                                                                     .init("reason", "the file already exists")])
                     }
                 } catch is CancellationError {
                     stoppedAt = i; break
                 } catch {
-                    problems.append("\(url.lastPathComponent): \(EngineMessage.userFacing(error))")
+                    let why = EngineMessage.userFacing(error)
+                    leftOut(url, why, page: "\(url.lastPathComponent): \(why)")
                 }
             }
             if let stoppedAt {
                 problems.append("Stopped — \(urls.count - stoppedAt) of \(urls.count) not exported.")
             }
+            session.log.info(.export, "batch finished", [
+                .init("frames", urls.count), .init("files", written.count),
+                .init("left_out", leftOutCount),
+                .init("stopped_at", stoppedAt ?? -1),
+            ])
             session.exportProgress = nil
             if let home, session.selection != home { session.select(home) }
             if let target = shown ?? written.first { filePreview = Self.embeddedPreview(of: target) }

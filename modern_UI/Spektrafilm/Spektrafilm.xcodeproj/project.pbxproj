@@ -96,6 +96,7 @@
 		069D4AF71BED2CF673779A30 /* MemoryArena.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "MemoryArena.swift"; sourceTree = "<group>"; };
 		76C83AD6875D028F8F91F77A /* MemorySampler.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "MemorySampler.swift"; sourceTree = "<group>"; };
 		38005174C2E4036BCF6B3AEA /* PrintWriteback.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "PrintWriteback.swift"; sourceTree = "<group>"; };
+		E4B10D532137535E7BA940A9 /* StallWatch.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "StallWatch.swift"; sourceTree = "<group>"; };
 		9833FF0C88B97DC106143F45 /* Diagnostics */ = {
 			isa = PBXGroup;
 			children = (
@@ -107,7 +108,8 @@
 				560647851490C28386050AC5 /* LogFile.swift */,
 				069D4AF71BED2CF673779A30 /* MemoryArena.swift */,
 				76C83AD6875D028F8F91F77A /* MemorySampler.swift */,
-				38005174C2E4036BCF6B3AEA /* PrintWriteback.swift */
+				38005174C2E4036BCF6B3AEA /* PrintWriteback.swift */,
+				E4B10D532137535E7BA940A9 /* StallWatch.swift */
 			);
 			path = "Diagnostics";
 			sourceTree = "<group>";
@@ -394,6 +396,7 @@
 		646DADF16DBCBDD6370435F5 /* ExportPreviewChainTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "ExportPreviewChainTests.swift"; sourceTree = "<group>"; };
 		413964343C9F29FF0796E76B /* ExportPreviewTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "ExportPreviewTests.swift"; sourceTree = "<group>"; };
 		824997C1D857995E47EB764F /* ExportRecipeTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "ExportRecipeTests.swift"; sourceTree = "<group>"; };
+		331ADA8A3AC2FDA4A39D00CD /* ExportStabilityTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "ExportStabilityTests.swift"; sourceTree = "<group>"; };
 		A2A814FBE11E6DDDF9B2D859 /* FilmEdgeSectionTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "FilmEdgeSectionTests.swift"; sourceTree = "<group>"; };
 		6AC63F4336C3AEFE6BB7B4B9 /* FilmEdgeSessionTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "FilmEdgeSessionTests.swift"; sourceTree = "<group>"; };
 		E6C239066E0480AD5221C860 /* FilmEdgeTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "FilmEdgeTests.swift"; sourceTree = "<group>"; };
@@ -461,6 +464,7 @@
 				646DADF16DBCBDD6370435F5 /* ExportPreviewChainTests.swift */,
 				413964343C9F29FF0796E76B /* ExportPreviewTests.swift */,
 				824997C1D857995E47EB764F /* ExportRecipeTests.swift */,
+				331ADA8A3AC2FDA4A39D00CD /* ExportStabilityTests.swift */,
 				A2A814FBE11E6DDDF9B2D859 /* FilmEdgeSectionTests.swift */,
 				6AC63F4336C3AEFE6BB7B4B9 /* FilmEdgeSessionTests.swift */,
 				E6C239066E0480AD5221C860 /* FilmEdgeTests.swift */,
@@ -652,6 +656,7 @@
 		55EC60FF00F15893DC6539E2 /* MemoryArena.swift */ = {isa = PBXBuildFile; fileRef = 069D4AF71BED2CF673779A30; };
 		B6399CA112D24AA65ACF8E8A /* MemorySampler.swift */ = {isa = PBXBuildFile; fileRef = 76C83AD6875D028F8F91F77A; };
 		CFE162F65F592F0A71B6242B /* PrintWriteback.swift */ = {isa = PBXBuildFile; fileRef = 38005174C2E4036BCF6B3AEA; };
+		98F1BC786E846374FA8BD15C /* StallWatch.swift */ = {isa = PBXBuildFile; fileRef = E4B10D532137535E7BA940A9; };
 		EC5950216C6C0C0B1362801D /* Exporter.swift */ = {isa = PBXBuildFile; fileRef = 6266D964C7958FF3E91F147A; };
 		0216C357191760579EB98D0D /* ExportPage.swift */ = {isa = PBXBuildFile; fileRef = FB90D54AFE9C997E868AC5B3; };
 		B513635A4004FA5F08AF5CEF /* ExportRecipe.swift */ = {isa = PBXBuildFile; fileRef = 42AB706553EB1C7B8DD638C9; };
@@ -792,6 +797,7 @@
 				55EC60FF00F15893DC6539E2 /* MemoryArena.swift */,
 				B6399CA112D24AA65ACF8E8A /* MemorySampler.swift */,
 				CFE162F65F592F0A71B6242B /* PrintWriteback.swift */,
+				98F1BC786E846374FA8BD15C /* StallWatch.swift */,
 				EC5950216C6C0C0B1362801D /* Exporter.swift */,
 				0216C357191760579EB98D0D /* ExportPage.swift */,
 				B513635A4004FA5F08AF5CEF /* ExportRecipe.swift */,
@@ -937,6 +943,7 @@
 		CF1C6FB25264C58B0D9DB91F /* ExportPreviewChainTests.swift */ = {isa = PBXBuildFile; fileRef = 646DADF16DBCBDD6370435F5; };
 		C8FEA3AF5F8415D95E374854 /* ExportPreviewTests.swift */ = {isa = PBXBuildFile; fileRef = 413964343C9F29FF0796E76B; };
 		9BFFB230A984011249109B04 /* ExportRecipeTests.swift */ = {isa = PBXBuildFile; fileRef = 824997C1D857995E47EB764F; };
+		638B01BE9B4553B0C863FEE2 /* ExportStabilityTests.swift */ = {isa = PBXBuildFile; fileRef = 331ADA8A3AC2FDA4A39D00CD; };
 		7A004520735087D47A8D4124 /* FilmEdgeSectionTests.swift */ = {isa = PBXBuildFile; fileRef = A2A814FBE11E6DDDF9B2D859; };
 		0DE470F90581B57C9AE4F659 /* FilmEdgeSessionTests.swift */ = {isa = PBXBuildFile; fileRef = 6AC63F4336C3AEFE6BB7B4B9; };
 		731231102EBB9262A19B894C /* FilmEdgeTests.swift */ = {isa = PBXBuildFile; fileRef = E6C239066E0480AD5221C860; };
@@ -1016,6 +1023,7 @@
 		DD73463E02577C8489B1312F /* MemoryArena.swift */ = {isa = PBXBuildFile; fileRef = 069D4AF71BED2CF673779A30; };
 		775A58E889EE69114D32893D /* MemorySampler.swift */ = {isa = PBXBuildFile; fileRef = 76C83AD6875D028F8F91F77A; };
 		EF3A9714E6F9EA93ABE41D9A /* PrintWriteback.swift */ = {isa = PBXBuildFile; fileRef = 38005174C2E4036BCF6B3AEA; };
+		A814BE6CE2719C248A6521F9 /* StallWatch.swift */ = {isa = PBXBuildFile; fileRef = E4B10D532137535E7BA940A9; };
 		3503F8B0C24CB9DAC6603A2D /* Exporter.swift */ = {isa = PBXBuildFile; fileRef = 6266D964C7958FF3E91F147A; };
 		FED88698534B4BBDE58D1D4B /* ExportPage.swift */ = {isa = PBXBuildFile; fileRef = FB90D54AFE9C997E868AC5B3; };
 		A3A82A05C148FF21A2AF7375 /* ExportRecipe.swift */ = {isa = PBXBuildFile; fileRef = 42AB706553EB1C7B8DD638C9; };
@@ -1140,6 +1148,7 @@
 				CF1C6FB25264C58B0D9DB91F /* ExportPreviewChainTests.swift */,
 				C8FEA3AF5F8415D95E374854 /* ExportPreviewTests.swift */,
 				9BFFB230A984011249109B04 /* ExportRecipeTests.swift */,
+				638B01BE9B4553B0C863FEE2 /* ExportStabilityTests.swift */,
 				7A004520735087D47A8D4124 /* FilmEdgeSectionTests.swift */,
 				0DE470F90581B57C9AE4F659 /* FilmEdgeSessionTests.swift */,
 				731231102EBB9262A19B894C /* FilmEdgeTests.swift */,
@@ -1219,6 +1228,7 @@
 				DD73463E02577C8489B1312F /* MemoryArena.swift */,
 				775A58E889EE69114D32893D /* MemorySampler.swift */,
 				EF3A9714E6F9EA93ABE41D9A /* PrintWriteback.swift */,
+				A814BE6CE2719C248A6521F9 /* StallWatch.swift */,
 				3503F8B0C24CB9DAC6603A2D /* Exporter.swift */,
 				FED88698534B4BBDE58D1D4B /* ExportPage.swift */,
 				A3A82A05C148FF21A2AF7375 /* ExportRecipe.swift */,

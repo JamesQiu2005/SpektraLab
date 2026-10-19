@@ -214,10 +214,25 @@ struct ProgressResponse: Decodable, Sendable {
     let autoExposureEV: Double?
     let done: Bool?
     let cancelled: Bool?
+    /// Whether the system asked for memory back as the render started.
+    let memoryPressureCritical: Bool?
+    /// The render's time with the Mac awake; the result's `elapsed_ms`
+    /// counts sleep too. Then what the GPU did for it: its time on the GPU,
+    /// the command buffers waited on, the longest wait for one and the
+    /// longest delay before the GPU started one. A 1.3.3 batch had a 7 s
+    /// render take 1,010 s and its log could say nothing else about it.
+    let awakeMs: Double?
+    let gpuMs: Double?
+    let gpuCommandBuffers: Int?
+    let gpuWaitMsMax: Double?
+    let gpuQueueMsMax: Double?
     enum CodingKeys: String, CodingKey {
         case stage, pct, done, cancelled
         case progressID = "progress_id", nodeTimes = "node_times"
         case autoExposureEV = "auto_exposure_ev"
+        case memoryPressureCritical = "memory_pressure_critical"
+        case awakeMs = "awake_ms", gpuMs = "gpu_ms", gpuCommandBuffers = "gpu_command_buffers"
+        case gpuWaitMsMax = "gpu_wait_ms_max", gpuQueueMsMax = "gpu_queue_ms_max"
     }
 }
 

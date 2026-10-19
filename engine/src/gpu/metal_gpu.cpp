@@ -19,6 +19,7 @@
 // are the C function-pointer API, which is what keeps this a `.cpp` rather
 // than a `.mm` (see the file header).
 #include <dispatch/dispatch.h>
+#include <mach/mach_time.h>
 
 #include <sys/mman.h>
 #include <unistd.h>
@@ -227,6 +228,7 @@ public:
         // timer reads this and never trims a pool a render is using.
         frames_in_flight_.fetch_add(1, std::memory_order_relaxed);
         last_activity_ns_.store(steady_ns(), std::memory_order_relaxed);
+        frame_stats_ = FrameStats{};
         // Before the reset, and outside the lock (the handler takes it): a
         // `warn` arriving here trims to the *previous* frame's peak, which is
         // the right reading for an event that lands between frames -- the next
@@ -655,8 +657,12 @@ public:
         } inflight{&inflight_};
         if (!command_buffer_) { inflight.now(); reclaim(); return true; }
         if (encoder_) { encoder_->endEncoding(); encoder_ = nullptr; }
+        const double committed = host_seconds();
+        const auto wait_started = std::chrono::steady_clock::now();
         command_buffer_->commit();
         command_buffer_->waitUntilCompleted();
+        note_timing(committed, std::chrono::duration<double, std::milli>(
+                                   std::chrono::steady_clock::now() - wait_started).count());
         const MTL::CommandBufferStatus status = command_buffer_->status();
         if (status == MTL::CommandBufferStatusError) {
             NS::Error* err = command_buffer_->error();
@@ -790,6 +796,8 @@ public:
         return freed;
     }
 
+    FrameStats frame_stats() const override { return frame_stats_; }
+
     bool take_critical_pressure() override {
         // One atomic exchange, not a load and then a store: two renders on two
         // threads must not both report the same event as their own.
@@ -797,6 +805,35 @@ public:
     }
 
 private:
+    // --- per-frame GPU timing (`frame_stats`) ------------------------------
+
+    // The calling thread's, as `Gpu::FrameStats` says: a member would add two
+    // threads' renders into one figure.
+    static inline thread_local FrameStats frame_stats_{};
+
+    // The host clock Metal's `GPUStartTime` / `GPUEndTime` are stamped in
+    // (`CACurrentMediaTime`'s), in seconds.
+    static double host_seconds() {
+        static const double tick = [] {
+            mach_timebase_info_data_t tb{};
+            mach_timebase_info(&tb);
+            return double(tb.numer) / double(tb.denom) / 1e9;
+        }();
+        return double(mach_absolute_time()) * tick;
+    }
+
+    // After `waitUntilCompleted`, on success or failure: a command buffer that
+    // failed after running a long time is the one a stalled log needs most.
+    void note_timing(double committed, double waited_ms) {
+        FrameStats& s = frame_stats_;
+        ++s.command_buffers;
+        s.wait_ms_max = std::max(s.wait_ms_max, waited_ms);
+        const double start = command_buffer_->GPUStartTime();
+        const double end = command_buffer_->GPUEndTime();
+        if (start > 0 && end > start) s.gpu_ms += (end - start) * 1000.0;
+        if (start > committed) s.queue_ms_max = std::max(s.queue_ms_max, (start - committed) * 1000.0);
+    }
+
     // --- RFC-020 §3.1, the idle form: nobody is editing any more ----------
 
     // The other half of "not at `end_frame`". The pool is kept between renders

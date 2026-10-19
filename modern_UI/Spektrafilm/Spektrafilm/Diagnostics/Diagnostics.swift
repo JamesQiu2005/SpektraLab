@@ -39,6 +39,8 @@ final class Diagnostics {
     /// session reads it through `records()`.
     let log: Log
     let sampler: MemorySampler
+    /// Sleep, wake, display, thermal and Low Power Mode, in the log (`StallWatch`).
+    let systemEvents = SystemEvents()
     /// The accounting arena beside the sampler; neither performs kernel reads.
     var arena: MemoryArena { sampler.arena }
 
@@ -434,10 +436,12 @@ final class Diagnostics {
         })
         log.info(.app, "launch", launchFields())
         sampler.sample("launch")
+        systemEvents.start(log: log)
     }
 
     /// Clean exit: the record whose *absence* is the finding (§1.7).
     func finish() {
+        systemEvents.stop()
         sampler.sample("exit")
         log.info(.app, "exit", [
             .init("marker", "session_end"),

@@ -603,7 +603,37 @@ final class Session: CanvasHost {
     /// `open(urls:)`, the arrow keys through `click` — is a no-op, so a click
     /// mid-batch cannot put a different frame under the file being written.
     /// `select` itself is not gated: it is the run's own door.
-    var batchExporting = false
+    ///
+    /// It also holds a user-initiated activity for the whole run, so macOS
+    /// neither naps the app nor idle-sleeps the Mac under a batch nobody is
+    /// watching. Without one, a 1.3.3 user's eight-hour export of 1,209
+    /// 102 MP frames rendered in a steady 7 s each — and eight of them, in
+    /// one two-hour stretch of the evening, took 200 to 1,010 s, a 1 s
+    /// reprint among them. Memory was no tighter then than in the hours
+    /// either side.
+    var batchExporting = false {
+        didSet {
+            guard batchExporting != oldValue else { return }
+            if batchExporting {
+                exportActivity = ProcessInfo.processInfo.beginActivity(
+                    options: .userInitiated, reason: "Exporting frames")
+            } else {
+                if let activity = exportActivity {
+                    ProcessInfo.processInfo.endActivity(activity)
+                    exportActivity = nil
+                }
+                // What the run held back for the canvas, for the frame it
+                // leaves open (`scheduleFullRender`, `requestNativeOriginal`).
+                // Each asks for nothing that is already there. A frame still
+                // decoding asks for its original itself when the decode lands.
+                scheduleFullRender()
+                if decoded != nil { requestNativeOriginal(trigger: "idle_delay") }
+            }
+        }
+    }
+
+    /// The activity `batchExporting` holds. Not private, for its test.
+    @ObservationIgnored private(set) var exportActivity: NSObjectProtocol?
 
     /// Every library frame's geometry as last saved, for the thumbnails that
     /// mask each frame's crop (`CropMaskedThumbnail`). Read from the sidecars
@@ -1774,6 +1804,11 @@ final class Session: CanvasHost {
     }
 
     private func requestNativeOriginal(trigger: String) {
+        // A batch opens every frame for the exporter, not for a person: a
+        // full-size Core Image render of each (814 MB at 102 MP) would be
+        // work nobody looks at. Comparing is a person asking, and is served.
+        // The run's end asks again for the frame it leaves open.
+        guard !batchExporting || trigger == "comparing" else { return }
         guard let url = selection else { return }
         guard let d = decoded else {
             Task {
@@ -3724,7 +3759,11 @@ final class Session: CanvasHost {
         fullTask?.cancel()
         fullTask = nil
         fullPending = false
-        guard wantsFullRender, let url = selection, let sid = serviceSessionID else { return }
+        // Not during a batch: the exporter renders the frame at full size
+        // itself, and the canvas's render of it was a second full-size render
+        // per frame that the run threw away (a 1,209-frame log, 2026-10-19).
+        // The run's end asks again for the frame it leaves open.
+        guard wantsFullRender, !batchExporting, let url = selection, let sid = serviceSessionID else { return }
         fullGeneration += 1
         let gen = fullGeneration
         fullTask = Task { [weak self] in
@@ -3787,6 +3826,9 @@ final class Session: CanvasHost {
         // next slider release. The rule is the one the ladder used: never
         // start one while an edit is owed a render — wait for the scheduler to
         // go idle and ask again, rather than dropping it.
+        // One already waiting out its debounce when a batch starts is dropped
+        // here, not rescheduled: the batch's end asks again.
+        guard !batchExporting else { return }
         guard !busy, !scheduler.pending, selection == url, serviceSessionID == sid,
               gen == fullGeneration, wantsFullRender else {
             if selection == url, serviceSessionID == sid { scheduleFullRender() }

@@ -259,6 +259,27 @@ final class EngineClientTests: XCTestCase {
         await client.stop()
     }
 
+    /// A render reports how its time was spent: awake, and on the GPU — the
+    /// two things a 1.3.3 batch log could not say about a 7 s render that
+    /// took 1,010 s. Measured, not merely present: a render that ran on the
+    /// GPU has command buffers, GPU time, and an awake time no longer than
+    /// its wall time (with a margin for the two clocks' granularity).
+    func testARenderReportsItsAwakeAndGPUTime() async throws {
+        let gpu = try device()
+        let client = EngineClient(device: gpu)
+        let open = try await client.open(try makeFrame(96, device: gpu), paramsDelta: nil)
+        let outcome = try await client.render(.previewRender, RenderRequest(sessionID: open.sessionID))
+        let progress = try XCTUnwrap(outcome.progress, "no progress for a finished render")
+        let awake = try XCTUnwrap(progress.awakeMs)
+        XCTAssertGreaterThan(awake, 0)
+        XCTAssertLessThanOrEqual(awake, outcome.response.elapsedMs + 1)
+        XCTAssertGreaterThanOrEqual(progress.gpuCommandBuffers ?? 0, 1, "no command buffer was counted")
+        XCTAssertGreaterThan(progress.gpuMs ?? 0, 0, "no GPU time was measured")
+        XCTAssertGreaterThan(progress.gpuWaitMsMax ?? 0, 0)
+        XCTAssertNotNil(progress.gpuQueueMsMax)
+        await client.stop()
+    }
+
     /// Every name and value `FilmParams` puts on the wire is one the engine
     /// accepts. The Swift list and the C++ schema are separate tables; this is
     /// where they meet.
