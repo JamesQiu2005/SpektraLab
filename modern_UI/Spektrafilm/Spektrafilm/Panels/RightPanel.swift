@@ -103,7 +103,8 @@ struct RightPanel: View {
                             selection: Binding(get: { tab }, set: { tabRaw = $0.rawValue }),
                             title: { $0.title },
                             marked: { $0 == .postDev && postDevEdited },
-                            markHelp: L("The grade is not neutral.", zh: "调色不是中性的。"))
+                            markHelp: L("The grade is not neutral.", zh: "调色不是中性的。"),
+                            accessibilityName: L(.railParameters))
                 .padding(.bottom, 8)
         }
         .padding(.leading, Theme.Metric.rowInset)

@@ -100,6 +100,16 @@ Re-run `engine/build.sh bundle` whenever `engine/resources/` changes. If Xcode
 suddenly cannot find `metal`, clean the build folder (⇧⌘K): the Metal
 toolchain's mount path changed under a cached build.
 
+> **Building everything from source? Clone
+> [SpektraLab_library](https://github.com/JamesQiu2005/SpektraLab_library) as
+> well.** The Library (catalogs, sessions, Capture One catalogs) runs a helper,
+> `spklib-host`, that this repository carries as a prebuilt, checksummed binary
+> in `vendor/spklib/macos/`. The steps above use that binary as it is. To
+> compile the helper too, build it in that repository with
+> `./build.sh release` and copy `build/release/spklib-host` and
+> `spklib-host.sha256` into `vendor/spklib/macos/`
+> ([`API-SPEC-library-helper.md`](API-SPEC-library-helper.md) §7).
+
 ## Test
 
 ```bash
@@ -118,6 +128,7 @@ and the run still reports 0 failures in ~20 s — trust the duration.
 | `modern_UI/Spektrafilm/` | the app: SwiftUI, AppKit, Metal |
 | `engine/` | the C++20 render engine, its MSL kernels and C ABI |
 | `engine/resources/` | baked constants, 28 film and paper profiles, print LUTs |
+| `vendor/spklib/` | the Library's helper, prebuilt from [SpektraLab_library](https://github.com/JamesQiu2005/SpektraLab_library) |
 | `ARCHITECTURE.md` | how it fits together — start here |
 | `AGENTS.md` | conventions and the traps that cost real time |
 

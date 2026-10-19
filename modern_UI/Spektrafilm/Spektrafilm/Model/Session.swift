@@ -82,7 +82,7 @@ final class Session: CanvasHost {
     /// Where every frame's settings are read from and written to
     /// (`FrameSettingsStore`). The sidecar files for a folder — the 1.x
     /// store, through the very calls this file used to make itself — and a
-    /// library's edits for frames the Library window handed over. Replaced
+    /// library's edits for frames the Library handed over. Replaced
     /// only where `frames` is: `open(urls:)` and `open(library:selecting:)`.
     @ObservationIgnored private(set) var settingsStore: FrameSettingsStore = SidecarFileStore.shared
     /// What the frames came from. A library's result keeps the library's
@@ -674,9 +674,15 @@ final class Session: CanvasHost {
     private var statusBase: String?
     var stockWarning: String?
     var showExport = false
-    /// The Library window was asked for from outside a view (a catalog
-    /// double-clicked in Finder); `EditorWindow` opens it, as with `showExport`.
-    var showLibrary = false
+    /// Which of the window's surfaces is on screen: the Library, or this
+    /// frame's editor (`Workspace`). Not kept across launches: the app opens
+    /// on the editor, as 1.x did.
+    var workspace: Workspace = .edit
+    /// The editor is the surface on screen, so its single-key shortcuts —
+    /// the arrows, V H C, `,` `.` and Y — are its own. In the Library they
+    /// would step and zoom a frame no one can see, and AppKit offers a key to
+    /// an enabled menu item before the grid that has focus.
+    var editing: Bool { workspace == .edit }
 
     // MARK: - colour
 
@@ -1488,7 +1494,7 @@ final class Session: CanvasHost {
 
     // MARK: - a library's frames (2.0)
 
-    /// Frames handed over by the Library window: a library's current result,
+    /// Frames handed over by the Library: a library's current result,
     /// in the library's order, whose settings are that library's edits
     /// (`LibrarySettingsStore`) rather than sidecar files.
     ///

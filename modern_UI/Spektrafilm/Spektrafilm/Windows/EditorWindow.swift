@@ -52,17 +52,27 @@ import UniformTypeIdentifiers
 
 struct EditorWindow: View {
     @Bindable var session: Session
+    /// The Library the switch goes to (`Workspace`). The app always has one;
+    /// a test's window may not, and its switch then greys the side.
+    var library: LibraryModel? = nil
     /// Opening the export page's scene. A `Window` scene is addressed by its
     /// id from anywhere with the environment, which is how this window hands
     /// the request on without either of them owning the other.
     @Environment(\.openWindow) private var openWindow
 
     var body: some View {
-        // One layout. The window used to switch to a `BrowseView` worklist
-        // whenever a folder was open and no frame chosen; that page is gone
-        // and the filmstrip is the only list. Opening a folder still develops
+        // The editor, or the Library in its place (`Workspace`, 2.0). The
+        // window used to switch to a `BrowseView` worklist whenever a folder
+        // was open and no frame chosen; that page is gone and, in the editor,
+        // the filmstrip is the only list. Opening a folder still develops
         // nothing until a frame is picked — see `Session.unloadSelection()`.
-        printLayout
+        Group {
+            if session.workspace == .library, let library {
+                libraryLayout(library)
+            } else {
+                printLayout
+            }
+        }
         // A batch export writes whatever frame is open, with whatever it is
         // set to (`Session.batchExporting`): the editor is look-only until the
         // run finishes, so a slider or a click cannot land mid-file.
@@ -103,11 +113,6 @@ struct EditorWindow: View {
             session.showExport = false
             openWindow(id: ExportWindowID.scene)
         }
-        .onChange(of: session.showLibrary) { _, wanted in
-            guard wanted else { return }
-            session.showLibrary = false
-            openWindow(id: LibraryWindowID.scene)
-        }
         // A library frame's edit was saved elsewhere (another SpektraLab on
         // the same catalog) while it was open here. The library refused to
         // overwrite it; the person decides which one stays.
@@ -144,35 +149,12 @@ struct EditorWindow: View {
     private var printLayout: some View {
         HStack(spacing: 0) {
             if !session.leftCollapsed {
-                LeftPanel(session: session)
-                    .frame(width: session.snapshotPanelWidths ? leftWidth.range.standard
-                                                              : leftWidth.width)
-                    // The grip is an **overlay**, not a sibling: a 6 pt view
-                    // in the HStack would push the canvas 6 pt right on a
-                    // fresh install and move every snapshot. It sits on the
-                    // rail's own trailing edge, where the drawing has nothing
-                    // but the colour change.
-                    // v3's full-height divider, on the rail's own trailing
-                    // edge. Above the grip in the overlay order so the line is
-                    // never drawn over by it; the grip still takes the mouse,
-                    // because a 1 pt rectangle is not a hit target.
-                    .overlay(alignment: .trailing) {
-                        PanelResizeHandle(side: .trailingEdge, range: leftWidth.range,
-                                          width: $leftWidth.width)
-                    }
-                    .overlay(alignment: .trailing) { VerticalHairline().allowsHitTesting(false) }
+                leftRail { LeftPanel(session: session, hasLibrary: library != nil) }
                     .transition(Theme.Motion.slide(from: .leading))
             }
             centreColumn
             if !session.rightCollapsed {
-                RightPanel(session: session)
-                    .frame(width: session.snapshotPanelWidths ? rightWidth.range.standard
-                                                              : rightWidth.width)
-                    .overlay(alignment: .leading) {
-                        PanelResizeHandle(side: .leadingEdge, range: rightWidth.range,
-                                          width: $rightWidth.width)
-                    }
-                    .overlay(alignment: .leading) { VerticalHairline().allowsHitTesting(false) }
+                rightRail { RightPanel(session: session) }
                     // The colour balance triangle sizes its wheels from the
                     // rail, and the rail is the user's.
                     .environment(\.colorBalanceWidth,
@@ -181,6 +163,70 @@ struct EditorWindow: View {
             }
         }
         .transition(.opacity)
+    }
+
+    /// The Library in the editor's place: its rail where Film and Print is,
+    /// the grid where the canvas is, the Info rail where Parameters is. The
+    /// rails keep the editor's widths, so the switch at the head of the left
+    /// one does not move under the pointer that used it. Neither folds: the
+    /// fold buttons live on the editor's bar, and the Library rail is where
+    /// the way back is.
+    private func libraryLayout(_ library: LibraryModel) -> some View {
+        HStack(spacing: 0) {
+            leftRail {
+                VStack(spacing: 0) {
+                    WorkspaceRailHeader(title: Workspace.library.title, session: session)
+                    Hairline()
+                    LibraryRail(library: library)
+                }
+                .railCard()
+            }
+            LibraryCentre(library: library)
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+            rightRail { LibraryInfoRail(library: library, develop: library.developInEditor).railCard() }
+        }
+        // Photos dropped on the Library join it; the editor's own drop (below)
+        // would open them on a canvas no one is looking at.
+        .onDrop(of: [.fileURL], isTargeted: nil) { providers in
+            Task { @MainActor in
+                var urls: [URL] = []
+                for p in providers {
+                    if let d = try? await p.loadItem(forTypeIdentifier: UTType.fileURL.identifier) as? Data,
+                       let u = URL(dataRepresentation: d, relativeTo: nil) { urls.append(u) }
+                }
+                await library.add(urls, copy: false)
+            }
+            return library.isOpen && !library.readOnly
+        }
+        .transition(.opacity)
+    }
+
+    /// A left rail at the user's width, with its grip and v3's full-height
+    /// divider on its trailing edge.
+    ///
+    /// The grip is an **overlay**, not a sibling: a 6 pt view in the HStack
+    /// would push the canvas 6 pt right on a fresh install and move every
+    /// snapshot. It sits on the rail's own trailing edge, where the drawing
+    /// has nothing but the colour change. The divider is above the grip in
+    /// the overlay order so the line is never drawn over by it; the grip still
+    /// takes the mouse, because a 1 pt rectangle is not a hit target.
+    private func leftRail<Content: View>(@ViewBuilder _ content: () -> Content) -> some View {
+        content()
+            .frame(width: session.snapshotPanelWidths ? leftWidth.range.standard : leftWidth.width)
+            .overlay(alignment: .trailing) {
+                PanelResizeHandle(side: .trailingEdge, range: leftWidth.range, width: $leftWidth.width)
+            }
+            .overlay(alignment: .trailing) { VerticalHairline().allowsHitTesting(false) }
+    }
+
+    /// The right rail's twin of `leftRail`, on its leading edge.
+    private func rightRail<Content: View>(@ViewBuilder _ content: () -> Content) -> some View {
+        content()
+            .frame(width: session.snapshotPanelWidths ? rightWidth.range.standard : rightWidth.width)
+            .overlay(alignment: .leading) {
+                PanelResizeHandle(side: .leadingEdge, range: rightWidth.range, width: $rightWidth.width)
+            }
+            .overlay(alignment: .leading) { VerticalHairline().allowsHitTesting(false) }
     }
 
     /// Bar strip, canvas, filmstrip — the column between the two rails.

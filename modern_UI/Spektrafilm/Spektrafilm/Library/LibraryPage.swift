@@ -1,15 +1,14 @@
-//  LibraryWindow.swift — the Library, as a window of its own beside the
-//  editor.
+//  LibraryPage.swift — the Library's centre: its tool bar and the grid, or
+//  the page that stands in for the grid.
 //
-//  **A window, not a mode.** The design (`modern_UI/design/v2-capture-one`)
-//  drew the Library behind a Library | Develop | Edit switch; the owner
-//  rejected a surface switch on the desktop the same day (decision 12: both
-//  rails always on screen, no shell that hides one view behind another). A
-//  separate window is the arrangement that keeps that decision: the editor is
-//  untouched, the Library can sit on a second display, and Develop brings the
-//  editor forward with the frame on it. PRD-v2.0.0 §16 Q2 is still the
-//  owner's; this view does not depend on its host, so it can move into the
-//  main window if the answer is a mode.
+//  **A mode of the main window, not a window** (2026-10-19). The Library was
+//  a window of its own beside the editor, reached only from the menus, and
+//  the owner could find no way between the two. It now takes the editor's
+//  place behind the Library | Edit switch at the head of the left rail
+//  (`Workspace`), as the 2.0 design drew it: the Library rail where Film and
+//  Print is, this where the canvas is, the Info rail where Parameters is
+//  (`EditorWindow.libraryLayout`). Develop — a double-click, ⏎, or the Info
+//  rail's button — goes back to Edit on that frame.
 //
 //  Its parts are the design's: the Library rail (the source, Catalog,
 //  Collections, Folders, Filters), the grid, and the Info rail.
@@ -18,42 +17,18 @@ import AppKit
 import SwiftUI
 import UniformTypeIdentifiers
 
-struct LibraryWindow: View {
+struct LibraryCentre: View {
     @Bindable var library: LibraryModel
-    @Environment(\.openWindow) private var openWindow
     @AppStorage(Session.uiKey + "library.thumb") private var thumb: Double = 150
 
     var body: some View {
-        HStack(spacing: 0) {
-            LibraryRail(library: library)
-                .frame(width: 268)
-                .background(Theme.card)
-            VerticalHairline()
-            VStack(spacing: 0) {
-                LibraryToolbar(library: library, thumb: $thumb)
-                Hairline(tier: .region)
-                centre
-            }
-            .frame(minWidth: 420)
-            VerticalHairline()
-            LibraryInfoRail(library: library, develop: develop)
-                .frame(width: 292)
-                .background(Theme.card)
+        VStack(spacing: 0) {
+            LibraryToolbar(library: library, thumb: $thumb)
+            Hairline(tier: .region)
+            centre
         }
+        .frame(minWidth: 420)
         .background(Theme.ground)
-        .preferredColorScheme(.dark)
-        .frame(minWidth: 1040, minHeight: 620)
-        .onDrop(of: [.fileURL], isTargeted: nil) { providers in
-            Task { @MainActor in
-                var urls: [URL] = []
-                for p in providers {
-                    if let d = try? await p.loadItem(forTypeIdentifier: UTType.fileURL.identifier) as? Data,
-                       let u = URL(dataRepresentation: d, relativeTo: nil) { urls.append(u) }
-                }
-                await library.add(urls, copy: false)
-            }
-            return library.isOpen && !library.readOnly
-        }
     }
 
     @ViewBuilder private var centre: some View {
@@ -64,13 +39,18 @@ struct LibraryWindow: View {
         } else if library.rows.isEmpty && !library.loading {
             LibraryEmpty(library: library)
         } else {
-            LibraryGrid(library: library, thumb: thumb, develop: develop)
+            LibraryGrid(library: library, thumb: thumb, develop: library.developInEditor)
         }
     }
+}
 
-    private func develop(_ id: String?) {
+extension LibraryModel {
+    /// Develop a photo (the selection when `id` is nil) and go to Edit on it.
+    /// A photo that cannot be developed — offline, refused — leaves the
+    /// Library on screen, where its reason is.
+    func developInEditor(_ id: String?) {
         Task {
-            if await library.develop(id) { openWindow(id: "editor") }
+            if await develop(id) { session.workspace = .edit }
         }
     }
 }
@@ -177,6 +157,10 @@ struct LibraryGrid: View {
             .focusable()
             .focused($focused)
             .focusEffectDisabled()
+            // The grid takes the keys as soon as the Library is on screen:
+            // the switch is a click away from it, and ← → ⏎ should not wait
+            // for a second click on a photo.
+            .onAppear { focused = true }
             .onKeyPress(.return) { develop(nil); return .handled }
             .onKeyPress(.leftArrow) { step(-1, proxy); return .handled }
             .onKeyPress(.rightArrow) { step(1, proxy); return .handled }
@@ -324,7 +308,6 @@ struct LibraryCellMenu: View {
 
 struct LibraryWelcome: View {
     let library: LibraryModel
-    @Environment(\.openWindow) private var openWindow
 
     var body: some View {
         VStack(spacing: 18) {
@@ -428,7 +411,6 @@ struct LibraryEmpty: View {
 struct LibraryCaptureOneSessionPage: View {
     let library: LibraryModel
     let session: LibraryModel.CaptureOneSession
-    @Environment(\.openWindow) private var openWindow
 
     var body: some View {
         VStack(spacing: 12) {
@@ -449,7 +431,7 @@ struct LibraryCaptureOneSessionPage: View {
                 .foregroundStyle(Theme.accent)
             Button(L("Open Capture Folder", zh: "打开采集文件夹")) {
                 library.openCaptureOneSessionFolder()
-                openWindow(id: "editor")
+                library.session.workspace = .edit
             }
             .buttonStyle(.plain)
             .font(Theme.Font.body)

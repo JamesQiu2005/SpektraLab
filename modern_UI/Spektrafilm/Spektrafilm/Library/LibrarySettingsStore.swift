@@ -1,5 +1,5 @@
 //  LibrarySettingsStore.swift — a library's edits as the editor's settings
-//  store (`FrameSettingsStore`), for frames handed over by the Library window.
+//  store (`FrameSettingsStore`), for frames handed over by the Library.
 //
 //  `API-SPEC-library-helper.md` §5 is the procedure this implements:
 //

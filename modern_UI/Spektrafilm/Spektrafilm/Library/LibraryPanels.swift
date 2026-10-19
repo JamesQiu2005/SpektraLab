@@ -5,12 +5,6 @@ import AppKit
 import SwiftUI
 import UniformTypeIdentifiers
 
-/// The scene's id, in one place: the menus open the window by it and the app
-/// declares it.
-enum LibraryWindowID {
-    static let scene = "library"
-}
-
 @MainActor
 enum LibraryPanels {
     /// Where a new catalog goes: `<Name>.spkcatalog`, a package.
@@ -85,7 +79,7 @@ enum LibraryPanels {
     }
 
     /// What a dropped or double-clicked file is, for the app delegate:
-    /// a library to open in the Library window, or anything else (a photo, a
+    /// a library to open in the Library, or anything else (a photo, a
     /// folder of photos) for the editor, as ever.
     enum Opened { case library(URL), captureOne(URL), editor }
 
@@ -104,33 +98,39 @@ enum LibraryPanels {
     }
 }
 
-/// File ▸ the four ways into a library, and Window ▸ Library. A panel first,
-/// then the window, so a cancelled panel opens nothing.
+/// File ▸ the four ways into a library, and Window ▸ Library and Edit. A
+/// panel first, then the Library, so a cancelled panel changes nothing.
 struct LibraryCommands: Commands {
     let library: LibraryModel
     @Environment(\.openWindow) private var openWindow
+
+    /// The window, forward (or back, if it was closed), on `workspace`.
+    private func show(_ workspace: Workspace) {
+        library.session.workspace = workspace
+        openWindow(id: "editor")
+    }
 
     var body: some Commands {
         CommandGroup(after: .newItem) {
             Divider()
             Button(L("New Catalog…", zh: "新建目录…")) {
                 guard let url = LibraryPanels.newCatalog() else { return }
-                openWindow(id: LibraryWindowID.scene)
+                show(.library)
                 Task { await library.create(.catalog, at: url) }
             }
             Button(L("New Session…", zh: "新建会话…")) {
                 guard let url = LibraryPanels.newSession() else { return }
-                openWindow(id: LibraryWindowID.scene)
+                show(.library)
                 Task { await library.create(.session, at: url) }
             }
             Button(L("Open Library…", zh: "打开图库…")) {
                 guard let url = LibraryPanels.openLibrary() else { return }
-                openWindow(id: LibraryWindowID.scene)
+                show(.library)
                 Task { await library.open(at: url) }
             }
             Button(L("Open Capture One Catalog…", zh: "打开 Capture One 目录…")) {
                 guard let url = LibraryPanels.openCaptureOne() else { return }
-                openWindow(id: LibraryWindowID.scene)
+                show(.library)
                 Task { await library.openCaptureOne(at: url) }
             }
             .keyboardShortcut("o", modifiers: [.command, .shift])
@@ -138,7 +138,7 @@ struct LibraryCommands: Commands {
                 Menu(L("Open Recent Library", zh: "打开最近的图库")) {
                     ForEach(library.recents) { r in
                         Button(r.name) {
-                            openWindow(id: LibraryWindowID.scene)
+                            show(.library)
                             Task { await library.open(r) }
                         }
                     }
@@ -146,8 +146,12 @@ struct LibraryCommands: Commands {
             }
         }
         CommandGroup(before: .windowList) {
-            Button(L("Library", zh: "图库")) { openWindow(id: LibraryWindowID.scene) }
-                .keyboardShortcut("l", modifiers: .command)
+            // The switch's two sides, numbered in its order, so a third
+            // surface is ⌘3 rather than a letter to find.
+            Button(Workspace.library.title) { show(.library) }
+                .keyboardShortcut("1", modifiers: .command)
+            Button(Workspace.edit.title) { show(.edit) }
+                .keyboardShortcut("2", modifiers: .command)
             Divider()
         }
     }

@@ -9,7 +9,7 @@
 //    which *is* the 1.x calls, unchanged: the same files in Application
 //    Support, the same migration, the same timing. `Session.open(urls:)` puts
 //    it back every time, so nothing a folder does can reach a library.
-//  * **Frames handed over by the Library window** use `LibrarySettingsStore`
+//  * **Frames handed over by the Library** use `LibrarySettingsStore`
 //    (`Library/`), which answers from the library for the files it maps and
 //    falls back to the sidecar files for anything else — a half-frame pair,
 //    or a file dropped on the strip.
@@ -70,7 +70,7 @@ final class SidecarFileStore: FrameSettingsStore {
 enum FrameSource: Equatable, Sendable {
     /// A folder or files: 1.x's "the folder is the session".
     case folder
-    /// A library's current result, from the Library window.
+    /// A library's current result, from the Library.
     case library(LibrarySourceSummary)
 
     var isLibrary: Bool { if case .library = self { true } else { false } }

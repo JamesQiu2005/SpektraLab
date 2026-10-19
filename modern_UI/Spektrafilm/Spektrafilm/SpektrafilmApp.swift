@@ -47,7 +47,7 @@ struct SpektrafilmApp: App {
 
     var body: some Scene {
         Window("SpektraLab", id: "editor") {
-            EditorWindow(session: session)
+            EditorWindow(session: session, library: library)
                 .id(InterfaceScaleStore.shared.scale)
                 .environment(\.snapshotMode, snapshot != nil)
                 // The capture is of its own window (`runSnapshot`), not this one.
@@ -106,15 +106,9 @@ struct SpektrafilmApp: App {
         .defaultSize(width: Theme.Metric.Export.width, height: Theme.Metric.Export.height)
         .defaultPosition(.center)
 
-        // The 2.0 Library: catalogs, sessions, and a Capture One catalog read
-        // one way. A window beside the editor, never a mode of it (see
-        // `LibraryWindow`); Develop brings the editor forward.
-        Window(L("Library", zh: "图库"), id: LibraryWindowID.scene) {
-            LibraryWindow(library: library)
-                .id(InterfaceScaleStore.shared.scale)
-        }
-        .defaultSize(width: 1440, height: 900)
-        .defaultPosition(.center)
+        // The 2.0 Library (catalogs, sessions, and a Capture One catalog read
+        // one way) is not a scene: it takes the editor's place in the window
+        // above, behind the Library | Edit switch (`Workspace`, 2026-10-19).
     }
 }
 
@@ -171,14 +165,18 @@ struct EditorCommands: Commands {
             // a shortcut that does nothing and says nothing reads as a bug.
             // These follow Capture One's Viewer shortcuts: ⌘+ / ⌘− step the
             // magnification, while comma and period are fit and 100%.
+            //
+            // All of the canvas's keys are off in the Library (`Session.editing`):
+            // there is no canvas on screen, and a key an enabled menu item takes
+            // never reaches the grid.
             Button("Zoom In") { session.zoomStep(1) }
-                .keyboardShortcut("+", modifiers: .command).disabled(session.zoomLocked)
+                .keyboardShortcut("+", modifiers: .command).disabled(session.zoomLocked || !session.editing)
             Button("Zoom Out") { session.zoomStep(-1) }
-                .keyboardShortcut("-", modifiers: .command).disabled(session.zoomLocked)
+                .keyboardShortcut("-", modifiers: .command).disabled(session.zoomLocked || !session.editing)
             Button("Zoom to Fit") { session.zoomToFit() }
-                .keyboardShortcut(",", modifiers: []).disabled(session.zoomLocked)
+                .keyboardShortcut(",", modifiers: []).disabled(session.zoomLocked || !session.editing)
             Button("Zoom to 100 %") { session.zoomTo(fraction: 1) }
-                .keyboardShortcut(".", modifiers: []).disabled(session.zoomLocked)
+                .keyboardShortcut(".", modifiers: []).disabled(session.zoomLocked || !session.editing)
             Divider()
             Button("Toggle Side Panels") {
                 withAnimation(Theme.Motion.panel) {
@@ -200,7 +198,7 @@ struct EditorCommands: Commands {
             // SpektraLab exposes one comparison state, so Y owns that toggle.
             Button(session.comparing ? "Hide Before / After" : "Before / After") { session.comparing.toggle() }
                 .keyboardShortcut("y", modifiers: [])
-                .disabled(!session.canCompare)
+                .disabled(!session.canCompare || !session.editing)
             Divider()
             Button("Restart Render Service") { session.restartService() }
                 .keyboardShortcut("r", modifiers: [.command, .option])
@@ -210,10 +208,11 @@ struct EditorCommands: Commands {
             // Capture One uses the unmodified arrow keys for adjacent images.
             // The canvas responder already routes the same keys to
             // `stepFrame`, so this remains usable when the viewer has focus.
+            // Off in the Library, whose grid steps its own selection with them.
             Button("Previous") { session.selectRelative(-1) }
-                .keyboardShortcut(.leftArrow, modifiers: [])
+                .keyboardShortcut(.leftArrow, modifiers: []).disabled(!session.editing)
             Button("Next") { session.selectRelative(1) }
-                .keyboardShortcut(.rightArrow, modifiers: [])
+                .keyboardShortcut(.rightArrow, modifiers: []).disabled(!session.editing)
             Divider()
             // Two neighbouring half frames on one piece of film: the picked
             // frames fill its holes (design-proposals/half-frame-pair-2026-10-02).
@@ -273,9 +272,9 @@ struct EditorCommands: Commands {
             Button("Reset Crop") { session.geometry = .default }
         }
         CommandMenu("Tool") {
-            Button("Select") { session.tool = .select }.keyboardShortcut("v", modifiers: [])
-            Button("Hand") { session.tool = .hand }.keyboardShortcut("h", modifiers: [])
-            Button("Crop") { session.tool = .crop }.keyboardShortcut("c", modifiers: [])
+            Button("Select") { session.tool = .select }.keyboardShortcut("v", modifiers: []).disabled(!session.editing)
+            Button("Hand") { session.tool = .hand }.keyboardShortcut("h", modifiers: []).disabled(!session.editing)
+            Button("Crop") { session.tool = .crop }.keyboardShortcut("c", modifiers: []).disabled(!session.editing)
         }
     }
 }
@@ -319,7 +318,7 @@ struct SnapshotRequest {
     /// transition have one.
     var export = false
     var exportGrid = false
-    /// `--library <path>` — capture the Library window with this catalog,
+    /// `--library <path>` — capture the Library with this catalog,
     /// session or Capture One catalog open and its first photo selected.
     var library: URL?
     /// `--settings general|rendering|memory|diagnostics|agents` — capture
@@ -444,17 +443,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         Task { await runSnapshot(snapshot) }
     }
 
-    /// A library opens in the Library window; anything else in the editor,
-    /// as it always has.
+    /// A library opens in the Library; anything else in the editor, as it
+    /// always has.
     func application(_ application: NSApplication, open urls: [URL]) {
         var photos: [URL] = []
         for url in urls {
             switch LibraryPanels.classify(url) {
             case .library(let u):
-                session?.showLibrary = true
+                session?.workspace = .library
                 Task { await SpektrafilmApp.library.open(at: u) }
             case .captureOne(let u):
-                session?.showLibrary = true
+                session?.workspace = .library
                 Task { await SpektrafilmApp.library.openCaptureOne(at: u) }
             case .editor:
                 photos.append(url)
@@ -733,15 +732,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         snapshotExit(0)
     }
 
-    /// `--library`: the Library window on its own, with a model of its own
-    /// whose recents live in a throwaway defaults suite. None of the editor's
+    /// `--library`: the window on the Library, with a model of its own whose
+    /// recents live in a throwaway defaults suite. None of the editor's
     /// resets above run: they write the shared preferences the person's own
     /// copy of the app reads, and a Library capture has no reason to.
     private func runLibrarySnapshot(_ req: SnapshotRequest, path: URL, session: Session) async -> Never {
         let suite = "com.hanze.filmify.library-snapshot"
         let defaults = UserDefaults(suiteName: suite) ?? .standard
         let library = LibraryModel(session: session, defaults: defaults)
-        let host = NSHostingView(rootView: LibraryWindow(library: library))
+        session.workspace = .library
+        let host = NSHostingView(rootView: EditorWindow(session: session, library: library)
+            .environment(\.snapshotMode, true))
         let window = NSWindow(contentRect: CGRect(origin: .zero, size: req.size),
                               styleMask: [.borderless], backing: .buffered, defer: false)
         window.appearance = NSAppearance(named: .darkAqua)

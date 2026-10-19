@@ -1,4 +1,4 @@
-//  LibraryModel.swift — the Library window's state: one open library, its
+//  LibraryModel.swift — the Library's state: one open library, its
 //  tree, the current result, and the handoff to the editor.
 //
 //  **Beside `Session`, not inside it.** `Session` is the editor's document —

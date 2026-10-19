@@ -5,7 +5,8 @@
 //  Everything that is a *parameter* of those choices — Camera, Film Format,
 //  Scene Placement, the Tone Mask — moved to the Parameters rail.
 //
-//  The header is the rail's name after the window buttons' clearance. Import,
+//  The header is the rail's name after the window buttons' clearance, and
+//  under it the Library | Edit switch (2.0, `Workspace.swift`). Import,
 //  export and `sidebar.left` moved to the top bar, which is on screen whether
 //  or not this rail is, so the PRD's "on screen at any given time" holds
 //  without the bar having to take them over when the rail folds.
@@ -18,6 +19,8 @@ import SwiftUI
 
 struct LeftPanel: View {
     @Bindable var session: Session
+    /// Whether the window has a Library for the switch to go to.
+    var hasLibrary = true
 
     /// The rail's sections, in order. A statement at a time, so the type
     /// checker has no long expression to solve.
@@ -42,7 +45,9 @@ struct LeftPanel: View {
 
     var body: some View {
         VStack(spacing: 0) {
-            header
+            // The rail's name, then Library | Edit (`Workspace`): the switch
+            // sits above the Navigator, where the Library rail has it too.
+            WorkspaceRailHeader(title: L(.railFilmAndPrint), session: session, hasLibrary: hasLibrary)
             Hairline()
             ScrollView(.vertical, showsIndicators: false) {
                 VStack(spacing: 0) {
@@ -58,24 +63,6 @@ struct LeftPanel: View {
             }
         }
         .railCard()
-    }
-
-    private var header: some View {
-        HStack(spacing: 0) {
-            // The three window buttons live here (Windows/TrafficLights.swift).
-            // They are *placed* in window coordinates, so this is a reservation
-            // and not a container.
-            Spacer().frame(width: Theme.Metric.trafficLightClearance)
-            Text(L(.railFilmAndPrint))
-                .font(Theme.Font.railTitle)
-                .foregroundStyle(Theme.text)
-                .lineLimit(1)
-            Spacer(minLength: 0)
-        }
-        .frame(height: Theme.Metric.panelHeaderHeight)
-        // The header row is the window's drag surface, as a sidebar header is
-        // in Xcode.
-        .background(WindowDragHandle())
     }
 }
 

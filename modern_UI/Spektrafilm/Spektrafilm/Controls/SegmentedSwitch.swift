@@ -15,6 +15,32 @@
 
 import SwiftUI
 
+/// Where each named switch is laid out, in its window's coordinates, while it
+/// is on screen. A SwiftUI view has no frame anyone outside it can ask for,
+/// and the window's switches promise places (`Workspace`: under the left
+/// rail's name, on the right rail's row, unmoved by being used) — this is what
+/// a test reads to hold them to it.
+///
+/// Keyed by the switch's name and owned by the instance that wrote it: when
+/// one surface replaces another, the incoming switch can lay out before the
+/// outgoing one with the same name disappears, and the outgoing one must not
+/// take the incoming one's place with it.
+@MainActor
+enum SwitchPlacement {
+    private static var placed: [String: (owner: UUID, frame: CGRect)] = [:]
+
+    static var frames: [String: CGRect] {
+        get { placed.mapValues(\.frame) }
+        set { placed = newValue.mapValues { (UUID(), $0) } }
+    }
+
+    static func place(_ name: String, owner: UUID, at frame: CGRect) { placed[name] = (owner, frame) }
+
+    static func remove(_ name: String, owner: UUID) {
+        if placed[name]?.owner == owner { placed[name] = nil }
+    }
+}
+
 struct SegmentedSwitch<Option: Hashable & Identifiable>: View {
     let options: [Option]
     @Binding var selection: Option
@@ -31,6 +57,8 @@ struct SegmentedSwitch<Option: Hashable & Identifiable>: View {
     var accessibilityName: String = ""
 
     @Namespace private var thumb
+    /// This switch, to `SwitchPlacement`.
+    @State private var placement = UUID()
 
     /// The thumb holds a line of the switch's type with room around it, so
     /// the text never touches the capsule at any interface scale.
@@ -79,6 +107,12 @@ struct SegmentedSwitch<Option: Hashable & Identifiable>: View {
             let j = direction == .increment ? i + 1 : i - 1
             guard options.indices.contains(j) else { return }
             choose(options[j])
+        }
+        .onGeometryChange(for: CGRect.self) { $0.frame(in: .global) } action: { frame in
+            if !accessibilityName.isEmpty { SwitchPlacement.place(accessibilityName, owner: placement, at: frame) }
+        }
+        .onDisappear {
+            if !accessibilityName.isEmpty { SwitchPlacement.remove(accessibilityName, owner: placement) }
         }
     }
 
