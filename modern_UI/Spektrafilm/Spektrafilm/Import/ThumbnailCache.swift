@@ -143,6 +143,13 @@ final class ThumbnailCache: @unchecked Sendable {
 
     static let shared = ThumbnailCache(arena: .shared)
 
+    /// The camera's own embedded previews and nothing else. The Library's
+    /// rule is that whose picture is shown is said: its grid and Info rail
+    /// call theirs "Embedded preview", so a frame developed in the editor —
+    /// whose picture `shared` would show — must not appear there as one.
+    static let cameraPreviews = ThumbnailCache(arena: .shared, byteLimit: 128_000_000,
+                                               decoder: { await ThumbnailCache.decodeEmbedded($0, $1) })
+
     private let storage: ThumbnailStorage
     private let decode: Decoder
     private let lock = NSLock()

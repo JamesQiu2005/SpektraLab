@@ -32,7 +32,9 @@ import SwiftUI
 final class Session: CanvasHost {
     // MARK: library
     private(set) var frames: [Frame] = []
-    private(set) var frameStates: [URL: FrameState] = [:]
+    private(set) var frameStates: [URL: FrameState] = [:] {
+        didSet { if frameStates != oldValue { schedulePicturePublish() } }
+    }
     var selection: URL?
 
     /// The picked frames, as a set. `selectedFrames` is the read side.
@@ -76,6 +78,22 @@ final class Session: CanvasHost {
     }
 
     var libraryTitle: String = ""
+
+    /// Where every frame's settings are read from and written to
+    /// (`FrameSettingsStore`). The sidecar files for a folder — the 1.x
+    /// store, through the very calls this file used to make itself — and a
+    /// library's edits for frames the Library window handed over. Replaced
+    /// only where `frames` is: `open(urls:)` and `open(library:selecting:)`.
+    @ObservationIgnored private(set) var settingsStore: FrameSettingsStore = SidecarFileStore.shared
+    /// What the frames came from. A library's result keeps the library's
+    /// order (no reordering) and makes no half-frame pairs (see `canMakePair`).
+    private(set) var frameSource: FrameSource = .folder
+    /// A library frame asked for before its edit has arrived; `select` runs
+    /// when it does, unless another frame was asked for in the meantime.
+    @ObservationIgnored private var awaitingSettings: URL?
+    /// A library frame whose edit was saved elsewhere while it was open here
+    /// (`LibrarySettingsStore.onConflict`). The editor asks which to keep.
+    var settingsConflict: URL?
 
     // MARK: the current frame
     var sidecar = Sidecar()
@@ -656,6 +674,9 @@ final class Session: CanvasHost {
     private var statusBase: String?
     var stockWarning: String?
     var showExport = false
+    /// The Library window was asked for from outside a view (a catalog
+    /// double-clicked in Finder); `EditorWindow` opens it, as with `showExport`.
+    var showLibrary = false
 
     // MARK: - colour
 
@@ -937,6 +958,8 @@ final class Session: CanvasHost {
     @ObservationIgnored var replayingLayer2 = false
     /// One clock for both histories.
     @ObservationIgnored var historyClock = 0
+    /// A `DevelopedThumbnails.show` is queued (`schedulePicturePublish`).
+    @ObservationIgnored private var picturePublishPending = false
     private(set) var workSeconds: Double = 0
     private var workStarted: Date?
     private var workClock: Task<Void, Never>?
@@ -1380,6 +1403,10 @@ final class Session: CanvasHost {
         }
         let files = Library.frames(from: urls)
         guard !files.isEmpty else { status = "Nothing openable in the selection."; return }
+        // Leaving a library: its open frame is saved to *it*, then the folder
+        // gets the sidecar files back. From a folder this is nothing at all,
+        // so the 1.x path below runs exactly as it did.
+        if frameSource.isLibrary { switchSettingsStore(to: SidecarFileStore.shared, source: .folder) }
         let new = FrameOrder.applied(to: Self.withPairs(files))
         if let selection, !new.contains(where: { $0.id == selection }) {
             enqueuePrintWriteback(for: selection)
@@ -1389,7 +1416,7 @@ final class Session: CanvasHost {
         let listed = Set(new.map(\.id))
         undoHistory = undoHistory.filter { listed.contains($0.key) }
         // One read per frame, for both things the library shows of it.
-        let saved = new.map { ($0.id, Sidecar.load(for: $0.id)) }
+        let saved = new.map { ($0.id, settingsStore.load(for: $0.id)) }
         frameStates = Dictionary(uniqueKeysWithValues: saved.map { ($0.0, $0.1?.state ?? .unprocessed) })
         savedGeometry = Dictionary(uniqueKeysWithValues: saved.map { ($0.0, $0.1?.geometry ?? .default) })
         filmEdgeThumbnails = Set(saved.filter { $0.1?.params.cutsFrame == true }.map(\.0))
@@ -1459,12 +1486,177 @@ final class Session: CanvasHost {
 
     func openPanel() { let urls = Library.chooseFilesOrFolder(); if !urls.isEmpty { open(urls: urls) } }
 
-    /// Re-read a frame's sidecar state — used after a reset from the grid.
-    func refreshState(for url: URL) {
-        let saved = Sidecar.load(for: url)
-        frameStates[url] = saved?.state ?? .unprocessed
-        savedGeometry[url] = saved?.geometry ?? .default
-        if url == selection { sidecar = Sidecar.load(for: url) ?? Sidecar() }
+    // MARK: - a library's frames (2.0)
+
+    /// Frames handed over by the Library window: a library's current result,
+    /// in the library's order, whose settings are that library's edits
+    /// (`LibrarySettingsStore`) rather than sidecar files.
+    ///
+    /// The same replacement as `open(urls:)` — a new set, nothing picked, the
+    /// frame that is going away written back — with three differences: no
+    /// folder order is laid over the list (the order is the library's sort),
+    /// no half-frame pairs are listed (they belong to a folder), and no edit
+    /// is read here. A 10,000-photo catalog would be 10,000 reads over a pipe
+    /// before the window could answer; the strip's states and crops arrive as
+    /// the store reads them (`noteLibrarySummary`), the way thumbnails do.
+    func open(library frames: [URL], store: LibrarySettingsStore, source: LibrarySourceSummary,
+              selecting url: URL?) {
+        guard !batchExporting else { status = "An export is running."; return }
+        guard !frames.isEmpty else { status = "Nothing openable in the selection."; return }
+        let sameSet = self.frames.map(\.id) == frames
+        // The frame going away is written back by `unloadSelection`, inside.
+        switchSettingsStore(to: store, source: .library(source))
+        // The same library again can hand the same file over as another
+        // variant (the Info rail's choice), and its history is another's.
+        dropEditHistories()
+        store.onSummary = { [weak self] url, s in self?.noteLibrarySummary(url, s) }
+        store.onConflict = { [weak self] url in self?.settingsConflict = url }
+        store.onFailure = { [weak self] url, message in
+            self?.status = "\(url.lastPathComponent): the library did not take the change — \(message)"
+        }
+        if !sameSet {
+            self.frames = frames.map { Frame(id: $0) }
+            frameStates = [:]
+            savedGeometry = [:]
+            filmEdgeThumbnails = []
+            renderer.store.removeAll()
+        }
+        libraryTitle = "\(source.name) › \(source.collection)"
+        picked = []
+        store.warm(frames)
+        if let url, frames.contains(url) {
+            click(url)
+        } else {
+            unloadSelection()
+        }
+    }
+
+    /// The one place the settings store changes. The open frame is written to
+    /// the store it came from and put down *before* the switch: otherwise the
+    /// next `select` would flush it into the new store, and a library's edit
+    /// would land in a sidecar file (or a folder frame's in a library).
+    private func switchSettingsStore(to store: FrameSettingsStore, source: FrameSource) {
+        flushSave()
+        if selection != nil { unloadSelection() }
+        awaitingSettings = nil
+        settingsConflict = nil
+        if let old = settingsStore as? LibrarySettingsStore, old !== store { old.cancelWarming(); old.pin(nil) }
+        // A file's history is a history of one set of its settings. In another
+        // store the same file has others — its sidecar, a library variant's
+        // edit — and ⌘Z must never put the one on the other.
+        if settingsStore !== store { dropEditHistories() }
+        settingsStore = store
+        frameSource = source
+        schedulePicturePublish()
+    }
+
+    /// Every frame's undo history, the settings' and the grade's.
+    private func dropEditHistories() {
+        undoHistory = [:]
+        layer2Histories = [:]
+        layer2GestureStart = nil
+    }
+
+    /// Tell `DevelopedThumbnails` which frames are developed, and in which
+    /// store, once this turn of the main actor has made its changes: a
+    /// library's warm-up sets a thousand states in a row, and one snapshot
+    /// after them is what the strip needs.
+    private func schedulePicturePublish() {
+        guard !picturePublishPending else { return }
+        picturePublishPending = true
+        Task { @MainActor [weak self] in
+            guard let self else { return }
+            self.picturePublishPending = false
+            let store = self.settingsStore
+            DevelopedThumbnails.show(self.frameStates.reduce(into: [:]) { out, entry in
+                out[entry.key] = .init(developed: entry.value != .unprocessed,
+                                       scope: store.pictureScope(for: entry.key))
+            })
+        }
+    }
+
+    /// A library frame's state and crop, as its store reads it.
+    private func noteLibrarySummary(_ url: URL, _ s: LibrarySettingsStore.Summary) {
+        guard url != selection else { return }
+        frameStates[url] = s.state
+        savedGeometry[url] = s.geometry
+        if s.cutsFrame { filmEdgeThumbnails.insert(url) } else { filmEdgeThumbnails.remove(url) }
+    }
+
+    /// `select`, once the frame's settings can be read. For a folder that is
+    /// at once; for a library frame it is when its edit has arrived, and only
+    /// if nothing else was asked for meanwhile — so a run of arrow keys over
+    /// frames still in flight settles on the last.
+    private func selectWhenReady(_ url: URL) {
+        awaitingSettings = url
+        let store = settingsStore
+        Task { [weak self] in
+            await store.fetch([url])
+            guard let self, self.awaitingSettings == url, self.settingsStore === store else { return }
+            self.awaitingSettings = nil
+            guard store.isReady(url) else {
+                self.status = "\(url.lastPathComponent): its settings could not be read from the library."
+                return
+            }
+            self.select(url)
+        }
+    }
+
+    /// Make these frames' settings readable before something that reads them
+    /// without opening each (the export run, a paste onto picked frames).
+    func prepareSettings(for urls: [URL]) async {
+        await settingsStore.fetch(urls)
+    }
+
+    /// Run `body` once every frame's settings are readable: at once for a
+    /// folder, so the 1.x commands behave exactly as they did.
+    private func whenSettingsReady(_ urls: [URL], _ body: @escaping @MainActor () -> Void) {
+        let store = settingsStore
+        guard !urls.allSatisfy(store.isReady) else { return body() }
+        Task { [weak self] in
+            await store.fetch(urls)
+            guard let self, self.settingsStore === store else { return }
+            body()
+        }
+    }
+
+    /// The person chose which version of a library frame to keep after it
+    /// was saved elsewhere while open here.
+    func resolveSettingsConflict(keepMine: Bool) {
+        guard let url = settingsConflict, let store = settingsStore as? LibrarySettingsStore else {
+            settingsConflict = nil
+            return
+        }
+        settingsConflict = nil
+        // Taking theirs: the debounced save of what is on screen must not
+        // fire while theirs is being read, or it would be written over them.
+        if !keepMine { saveTask?.cancel() }
+        Task { [weak self] in
+            if keepMine {
+                await store.resolveKeepingMine(url)
+            } else {
+                await store.resolveTakingTheirs(url)
+                guard let self, self.selection == url else { return }
+                self.reloadOpenFrame()
+            }
+        }
+    }
+
+    /// Open the frame on the canvas again from its store, saving nothing:
+    /// what is on screen has been replaced by what the store holds.
+    func reloadOpenFrame() {
+        guard let url = selection else { return }
+        saveTask?.cancel()
+        unloadSelection()
+        select(url)
+    }
+
+    /// Flush the open frame and wait until its store has it. Quit waits on
+    /// this: a library's write goes over a pipe, which `applicationWillTerminate`
+    /// cannot wait for.
+    func flushSettings() async {
+        flushSave()
+        await settingsStore.flush()
     }
 
     // MARK: - back to the decode
@@ -1517,8 +1709,13 @@ final class Session: CanvasHost {
     /// showed a reset frame still developed.
     private func forgetSettings(of url: URL) {
         if url == selection { saveTask?.cancel() }
-        Sidecar.remove(for: url)
-        DevelopedThumbnailWriter.shared.remove(url)
+        // Through the frame's own store: a library frame's edit is cleared in
+        // its library, and at once (`FrameSettingsStore.remove`), so the
+        // reopen that follows a Film-menu reset reads nothing.
+        settingsStore.remove(for: url)
+        let scope = settingsStore.pictureScope(for: url)
+        DevelopedThumbnails.note(url, .init(developed: false, scope: scope))
+        DevelopedThumbnailWriter.shared.remove(url, scope: scope)
         ThumbnailCache.shared.forget(url)
         renderer.store.invalidatePrint(for: url)
         frameStates[url] = .unprocessed
@@ -1621,6 +1818,12 @@ final class Session: CanvasHost {
 
     func select(_ url: URL) {
         guard url != selection || decoded == nil else { return }
+        // A library frame's edit comes over a pipe. Until it has, there is
+        // nothing true to show, and nothing that may be saved over it
+        // (`FrameSettingsStore`): wait, then come back. Always ready for a
+        // folder, so a folder never takes this branch.
+        guard settingsStore.isReady(url) else { selectWhenReady(url); return }
+        awaitingSettings = nil
         flushSave()
         renderer.store.dropIdleScratch()
         if let leaving = selection, leaving != url {
@@ -1646,7 +1849,9 @@ final class Session: CanvasHost {
         wantsDevelop = false
         developTask?.cancel(); developTask = nil
         renderer.dropFullRender()
-        sidecar = Sidecar.load(for: url) ?? Sidecar()
+        sidecar = settingsStore.load(for: url) ?? Sidecar()
+        settingsStore.pin(url)
+        prefetchNeighbourSettings(of: url)
         // Except a frame with an edit the engine has not rendered — a paste
         // made while another frame was on the canvas (RFC-027 §4). That edit
         // asked for a develop as surely as a slider does, and without one the
@@ -2748,7 +2953,8 @@ final class Session: CanvasHost {
                 ThumbnailCache.shared.store(picture.image, for: url)
                 // And on disk, so the strip still shows the frame developed
                 // after the RAM cache lets it go (`DevelopedThumbnails`).
-                DevelopedThumbnailWriter.shared.submit(picture.image, for: url)
+                DevelopedThumbnailWriter.shared.submit(picture.image, for: url,
+                                                       scope: self.settingsStore.pictureScope(for: url))
                 NotificationCenter.default.post(name: .thumbnailUpdated, object: url)
             }
         }
@@ -2839,7 +3045,9 @@ final class Session: CanvasHost {
     /// left, after it when moving right — the dragged cell takes the place of
     /// the cell it is over, as the strip shows it while the drag is in flight.
     func moveFrame(_ id: URL, onto target: URL) {
-        guard id != target, !batchExporting,
+        // A library's result is in the library's sort, not an arrangement of
+        // the person's (the design's rule: reorder is off for a library).
+        guard id != target, !batchExporting, !frameSource.isLibrary,
               let from = frames.firstIndex(where: { $0.id == id }),
               let to = frames.firstIndex(where: { $0.id == target }) else { return }
         let frame = frames.remove(at: from)
@@ -2849,7 +3057,20 @@ final class Session: CanvasHost {
     /// The drag ended on the strip: its order is the folder's from now on.
     func frameOrderChanged() {
         draggedFrame = nil
+        guard !frameSource.isLibrary else { return }
         FrameOrder.save(frames.map(\.id))
+    }
+
+    /// The frames either side of the one just opened, read ahead so an arrow
+    /// key does not wait on the pipe. Nothing for a folder: its store is the
+    /// sidecar files, always ready.
+    private func prefetchNeighbourSettings(of url: URL) {
+        guard frameSource.isLibrary, let i = frames.firstIndex(where: { $0.id == url }) else { return }
+        let around = frames[max(0, i - 4)...min(frames.count - 1, i + 4)].map(\.id)
+            .filter { $0 != url && !settingsStore.isReady($0) }
+        guard !around.isEmpty else { return }
+        let store = settingsStore
+        Task { await store.fetch(around) }
     }
 
     /// Files let go over the window. Dropped from outside they are opened, as
@@ -2951,7 +3172,7 @@ final class Session: CanvasHost {
     func flushSave() {
         saveTask?.cancel()
         guard let url = selection else { return }
-        try? sidecar.save(for: url)
+        try? settingsStore.save(sidecar, for: url)
         savedGeometry[url] = sidecar.geometry
         if sidecar.params.cutsFrame { filmEdgeThumbnails.insert(url) } else { filmEdgeThumbnails.remove(url) }
     }
@@ -3980,8 +4201,13 @@ final class Session: CanvasHost {
         guard canSyncSettings, let source = selection else { return }
         let clip = SettingsClip(groups: clipboardGroups, settings: sidecar,
                                 sourceName: source.lastPathComponent)
+        let targets = syncTargets
+        whenSettingsReady(targets) { [weak self] in self?.sync(clip, onto: targets) }
+    }
+
+    private func sync(_ clip: SettingsClip, onto targets: [URL]) {
         var written = 0, failed = 0
-        for url in syncTargets {
+        for url in targets {
             switch pasteOffline(clip, to: url) {
             case .written: written += 1
             case .failed: failed += 1
@@ -4013,8 +4239,13 @@ final class Session: CanvasHost {
     /// The frame on the canvas takes it live and undoably; the others take it
     /// on disk and develop with it when they are opened.
     func pasteSettings() {
-        guard let clip = clipboard, let open = selection, !batchExporting else { return }
+        guard let clip = clipboard, selection != nil, !batchExporting else { return }
         let targets = pasteTargets
+        whenSettingsReady(targets) { [weak self] in self?.paste(clip, onto: targets) }
+    }
+
+    private func paste(_ clip: SettingsClip, onto targets: [URL]) {
+        guard let open = selection, !batchExporting else { return }
         var written = 0
         for url in targets where url != open {
             if pasteOffline(clip, to: url) == .written { written += 1 }
@@ -4076,12 +4307,12 @@ final class Session: CanvasHost {
     private enum SettingsWriteResult { case unchanged, written, failed }
 
     private func pasteOffline(_ clip: SettingsClip, to url: URL) -> SettingsWriteResult {
-        let current = Sidecar.load(for: url) ?? Sidecar()
+        let current = settingsStore.load(for: url) ?? Sidecar()
         var next = clip.applied(to: current)
         guard next != current else { return .unchanged }
         next.state = .stale
         do {
-            try next.save(for: url)
+            try settingsStore.save(next, for: url)
         } catch {
             noteFailure(error, operation: "paste", frame: url.lastPathComponent)
             return .failed
@@ -4495,7 +4726,13 @@ extension Session {
         }
     }
 
-    var canMakePair: Bool { !batchExporting && frames.contains { !HalfFramePair.isPair($0.id) } }
+    /// Not from a library's frames: a pair is a file in the sidecar store that
+    /// names its frames by path and reads their settings from sidecar files
+    /// (`hole(for:)`), so it would not see a library's edits. Pairs stay a
+    /// folder's until they learn to read through `settingsStore`.
+    var canMakePair: Bool {
+        !batchExporting && !frameSource.isLibrary && frames.contains { !HalfFramePair.isPair($0.id) }
+    }
 
     /// New Half-Frame Pair (⌘J): the picked frames fill the holes in the
     /// filmstrip's order — two fill both, one fills Left, none leaves both
@@ -4526,7 +4763,7 @@ extension Session {
         if pair != nil, selection == nil { pair = nil }
         try? FileManager.default.removeItem(at: url)
         Sidecar.remove(for: url)
-        DevelopedThumbnailWriter.shared.remove(url)
+        DevelopedThumbnailWriter.shared.remove(url, scope: settingsStore.pictureScope(for: url))
     }
 
     /// The filmstrip's picture of the pair, from its frames' own previews,

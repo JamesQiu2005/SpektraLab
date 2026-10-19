@@ -11,7 +11,7 @@
 //
 //  So the picture is kept here as well: 320 px JPEGs of tens of KB, in the
 //  caches folder, bounded at launch. It is never the record of an edit, only
-//  a faster way to show one — it is shown for a frame whose sidecar says it
+//  a faster way to show one — it is shown for a frame whose settings say it
 //  was developed, and only while the file is the one it was made from. When
 //  it is missing the strip shows the camera's preview, and the canvas, which
 //  develops such a frame again from its sidecar (`Session.load`), writes it
@@ -40,41 +40,94 @@ enum DevelopedThumbnails {
     /// Point the store somewhere else. For tests.
     static func useDirectory(_ url: URL?) { override.value = url }
 
-    /// The frame's name in the sidecar store, then a digest of the file's
-    /// identity (volume, file id, size, modification date). The first makes
-    /// one frame one name in both stores; the second makes a different file
-    /// at the same path a miss rather than another photograph's picture.
-    static func url(for image: URL) -> URL {
+    // MARK: - which settings a picture is of
+
+    /// What the session says about a frame it shows: whether its settings
+    /// say developed, and which settings those are (`FrameSettingsStore
+    /// .pictureScope`). Nil scope is the 1.x sidecar file.
+    struct Shown: Equatable, Sendable {
+        var developed: Bool
+        var scope: String?
+    }
+
+    /// The open session's frames, as its settings store answers for them.
+    ///
+    /// One file can have several sets of settings in 2.0 — its sidecar as a
+    /// folder frame, and an edit per variant in each library that holds it —
+    /// and each has its own developed picture. Which one the strip is
+    /// showing, and whether it is developed, is the session's to say: a
+    /// library frame may also have a 1.x sidecar file that says "developed"
+    /// about a different edit. A frame not listed here is answered from its
+    /// sidecar file, as in 1.x. The app has one session, so the last
+    /// `show` is the whole truth.
+    private static let shown = Guarded<[String: Shown]>([:])
+
+    static func show(_ frames: [URL: Shown]) {
+        shown.value = Dictionary(frames.map { ($0.key.standardizedFileURL.path, $0.value) },
+                                 uniquingKeysWith: { a, _ in a })
+    }
+
+    /// One frame's entry, at once, for a change the strip must not see late.
+    /// `show` follows a turn later (`Session.schedulePicturePublish`); a reset
+    /// read in between would still show the frame developed.
+    static func note(_ image: URL, _ value: Shown) {
+        shown.withLock { $0[image.standardizedFileURL.path] = value }
+    }
+
+    private static func shown(_ image: URL) -> Shown? { shown.value[image.standardizedFileURL.path] }
+
+    /// The scope the session last said `image` is shown in.
+    static func scope(of image: URL) -> String? { shown(image)?.scope }
+
+    // MARK: - names
+
+    /// The frame's name in the sidecar store, its scope, then a digest of
+    /// the file's identity (volume, file id, size, modification date). The
+    /// first makes one frame one name in both stores; the second keeps a
+    /// library variant's picture apart from the folder's; the third makes a
+    /// different file at the same path a miss rather than another
+    /// photograph's picture.
+    static func url(for image: URL, scope: String? = nil) -> URL {
         // A fresh URL, because a `URL` caches the resource values it has read:
         // asked through the frame's own long-lived URL, a file replaced at
         // that path kept the old file's size and date, and matched.
         let fresh = URL(fileURLWithPath: image.path)
-        let identity = SHA256.hash(data: Data(CacheKey.sourceIdentity(for: fresh).utf8))
-            .prefix(6).map { String(format: "%02x", $0) }.joined()
-        return directory.appending(path: "\(stem(for: image))-\(identity).jpg")
+        let identity = hex(Data(CacheKey.sourceIdentity(for: fresh).utf8), bytes: 6)
+        return directory.appending(path: "\(stem(for: image, scope: scope))-\(identity).jpg")
     }
 
-    private static func stem(for image: URL) -> String {
-        String(Sidecar.key(for: image).dropLast(".spektra.json".count))
+    private static func stem(for image: URL, scope: String?) -> String {
+        let base = String(Sidecar.key(for: image).dropLast(".spektra.json".count))
+        guard let scope else { return base }
+        return base + "@" + hex(Data(scope.utf8), bytes: 6)
     }
 
-    /// Whether the frame's sidecar says it has been developed.
+    private static func hex(_ data: Data, bytes: Int) -> String {
+        SHA256.hash(data: data).prefix(bytes).map { String(format: "%02x", $0) }.joined()
+    }
+
+    /// Whether the frame's settings say it has been developed: the session's
+    /// word for a frame it shows, else the sidecar file's.
     ///
-    /// Read, not `Sidecar.load`: that one may re-key or migrate a sidecar,
-    /// which is a write, and this runs off the main actor for every
+    /// The file is read, not `Sidecar.load`: that one may re-key or migrate a
+    /// sidecar, which is a write, and this runs off the main actor for every
     /// thumbnail the strip asks for. `Session.open(urls:)` has already done
     /// any migrating for the frames on screen.
     static func isDeveloped(_ image: URL) -> Bool {
+        if let known = shown(image) { return known.developed }
         guard let data = try? Data(contentsOf: Sidecar.url(for: image)),
               let sidecar = try? JSONDecoder().decode(Sidecar.self, from: data) else { return false }
         return sidecar.state != .unprocessed
     }
 
-    /// The developed picture of `image`, or nil if it was never developed,
-    /// was reset since, or is not the file the picture was made from.
+    // MARK: - the pictures
+
+    /// The developed picture of `image` in the scope it is shown in, or nil
+    /// if it was never developed, was reset since, or is not the file the
+    /// picture was made from.
     static func image(for image: URL) -> CGImage? {
         guard isDeveloped(image) else { return nil }
-        let file = url(for: image)
+        let file = url(for: image, scope: scope(of: image))
         // Asked first, because ImageIO logs an error for every missing file
         // and a miss here is ordinary: a frame developed before this store
         // existed, or one whose picture the launch trim let go.
@@ -89,7 +142,7 @@ enum DevelopedThumbnails {
 
     /// Write the picture. Quiet on failure: the strip falls back to the
     /// camera's preview, and the frame's settings are untouched either way.
-    static func store(_ picture: CGImage, for image: URL) {
+    static func store(_ picture: CGImage, for image: URL, scope: String? = nil) {
         let data = NSMutableData()
         guard let destination = CGImageDestinationCreateWithData(data, UTType.jpeg.identifier as CFString, 1, nil)
         else { return }
@@ -97,13 +150,14 @@ enum DevelopedThumbnails {
                                    [kCGImageDestinationLossyCompressionQuality: 0.9] as CFDictionary)
         guard CGImageDestinationFinalize(destination) else { return }
         try? FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
-        try? (data as Data).write(to: url(for: image), options: .atomic)
+        try? (data as Data).write(to: url(for: image, scope: scope), options: .atomic)
     }
 
-    /// Remove every picture of the frame, whichever file it was made from. A
-    /// reset frame is the camera's picture again.
-    static func remove(for image: URL) {
-        let prefix = stem(for: image) + "-"
+    /// Remove every picture of the frame in `scope`, whichever file it was
+    /// made from. A reset frame is the camera's picture again; its pictures
+    /// in other scopes are other settings, and stay.
+    static func remove(for image: URL, scope: String? = nil) {
+        let prefix = stem(for: image, scope: scope) + "-"
         let names = (try? FileManager.default.contentsOfDirectory(atPath: directory.path)) ?? []
         for name in names where name.hasPrefix(prefix) {
             try? FileManager.default.removeItem(at: directory.appending(path: name))
@@ -147,20 +201,23 @@ struct DevelopedPicture: @unchecked Sendable {
 actor DevelopedThumbnailWriter {
     static let shared = DevelopedThumbnailWriter()
 
-    private var pending: [URL: DevelopedPicture] = [:]
+    private struct Key: Hashable { let image: URL; let scope: String? }
+    private var pending: [Key: DevelopedPicture] = [:]
     private var task: Task<Void, Never>?
     let delay: Duration
 
     init(delay: Duration = .milliseconds(750)) { self.delay = delay }
 
-    nonisolated func submit(_ picture: CGImage, for image: URL) {
+    /// The scope is the one the picture was made in, taken when it was made:
+    /// a store switch before the write cannot file it under another's.
+    nonisolated func submit(_ picture: CGImage, for image: URL, scope: String? = nil) {
         let box = DevelopedPicture(image: picture)
-        Task { await self.enqueue(box, for: image) }
+        Task { await self.enqueue(box, for: Key(image: image, scope: scope)) }
     }
 
-    /// Drop anything pending for the frame and delete its pictures on disk.
-    nonisolated func remove(_ image: URL) {
-        Task { await self.forget(image) }
+    /// Drop anything pending for the frame in `scope` and delete its pictures.
+    nonisolated func remove(_ image: URL, scope: String? = nil) {
+        Task { await self.forget(Key(image: image, scope: scope)) }
     }
 
     /// Write everything pending now. For tests, and for anything that must
@@ -170,8 +227,8 @@ actor DevelopedThumbnailWriter {
         writeAll()
     }
 
-    private func enqueue(_ box: DevelopedPicture, for image: URL) {
-        pending[image] = box
+    private func enqueue(_ box: DevelopedPicture, for key: Key) {
+        pending[key] = box
         task?.cancel()
         task = Task { [delay] in
             try? await Task.sleep(for: delay)
@@ -180,14 +237,14 @@ actor DevelopedThumbnailWriter {
         }
     }
 
-    private func forget(_ image: URL) {
-        pending[image] = nil
-        DevelopedThumbnails.remove(for: image)
+    private func forget(_ key: Key) {
+        pending[key] = nil
+        DevelopedThumbnails.remove(for: key.image, scope: key.scope)
     }
 
     private func writeAll() {
         let batch = pending
         pending.removeAll()
-        for (image, box) in batch { DevelopedThumbnails.store(box.image, for: image) }
+        for (key, box) in batch { DevelopedThumbnails.store(box.image, for: key.image, scope: key.scope) }
     }
 }

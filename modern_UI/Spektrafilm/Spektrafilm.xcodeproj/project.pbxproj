@@ -148,6 +148,29 @@
 			path = "Import";
 			sourceTree = "<group>";
 		};
+		C20B49700CE9A9821A31224E /* LibraryAPI.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "LibraryAPI.swift"; sourceTree = "<group>"; };
+		3B0A1C3F925F5BDC6B90EBF3 /* LibraryHost.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "LibraryHost.swift"; sourceTree = "<group>"; };
+		2D97F3C21533590841841CCC /* LibraryInfoRail.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "LibraryInfoRail.swift"; sourceTree = "<group>"; };
+		E7C76D53CE953BB0C9CE98FF /* LibraryModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "LibraryModel.swift"; sourceTree = "<group>"; };
+		C30D6F8FA348D75312293B80 /* LibraryPanels.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "LibraryPanels.swift"; sourceTree = "<group>"; };
+		1CE3A709A62EE4BFBB313ACC /* LibraryRail.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "LibraryRail.swift"; sourceTree = "<group>"; };
+		7991267CDBA5F8BA76944E3E /* LibrarySettingsStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "LibrarySettingsStore.swift"; sourceTree = "<group>"; };
+		C72178EDA90E729C205FBCF5 /* LibraryWindow.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "LibraryWindow.swift"; sourceTree = "<group>"; };
+		38AC9D23AD222E3B5A669D1E /* Library */ = {
+			isa = PBXGroup;
+			children = (
+				C20B49700CE9A9821A31224E /* LibraryAPI.swift */,
+				3B0A1C3F925F5BDC6B90EBF3 /* LibraryHost.swift */,
+				2D97F3C21533590841841CCC /* LibraryInfoRail.swift */,
+				E7C76D53CE953BB0C9CE98FF /* LibraryModel.swift */,
+				C30D6F8FA348D75312293B80 /* LibraryPanels.swift */,
+				1CE3A709A62EE4BFBB313ACC /* LibraryRail.swift */,
+				7991267CDBA5F8BA76944E3E /* LibrarySettingsStore.swift */,
+				C72178EDA90E729C205FBCF5 /* LibraryWindow.swift */
+			);
+			path = "Library";
+			sourceTree = "<group>";
+		};
 		1CC1E55A9F47D4518AE30974 /* Localization.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Localization.swift"; sourceTree = "<group>"; };
 		A649699A5D48C90003A81CF9 /* Strings.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Strings.swift"; sourceTree = "<group>"; };
 		C17D99B3AA92877702AECF99 /* Localization */ = {
@@ -169,6 +192,7 @@
 		1FD42235BD294C6BC7257371 /* Frame.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Frame.swift"; sourceTree = "<group>"; };
 		57946CF0E400CB6362643819 /* FrameFraming.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "FrameFraming.swift"; sourceTree = "<group>"; };
 		5AE825B791EC7C8A097CABB6 /* FrameOrder.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "FrameOrder.swift"; sourceTree = "<group>"; };
+		213EFF3F97BF094DA59444B3 /* FrameSettingsStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "FrameSettingsStore.swift"; sourceTree = "<group>"; };
 		B74BF4FE2C8992579B3BCA1E /* Geometry.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Geometry.swift"; sourceTree = "<group>"; };
 		283E17892DB9D0520A803A34 /* HalfFramePair.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "HalfFramePair.swift"; sourceTree = "<group>"; };
 		D9A5D4FB130D7DA5C1364A10 /* Latitude.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Latitude.swift"; sourceTree = "<group>"; };
@@ -195,6 +219,7 @@
 				1FD42235BD294C6BC7257371 /* Frame.swift */,
 				57946CF0E400CB6362643819 /* FrameFraming.swift */,
 				5AE825B791EC7C8A097CABB6 /* FrameOrder.swift */,
+				213EFF3F97BF094DA59444B3 /* FrameSettingsStore.swift */,
 				B74BF4FE2C8992579B3BCA1E /* Geometry.swift */,
 				283E17892DB9D0520A803A34 /* HalfFramePair.swift */,
 				D9A5D4FB130D7DA5C1364A10 /* Latitude.swift */,
@@ -356,6 +381,7 @@
 				9833FF0C88B97DC106143F45 /* Diagnostics */,
 				88C26DDE74126AA3DF583028 /* Export */,
 				B52F2FA09681D031C6260163 /* Import */,
+				38AC9D23AD222E3B5A669D1E /* Library */,
 				C17D99B3AA92877702AECF99 /* Localization */,
 				94978EB2EBC9377196266595 /* Model */,
 				43C8D0438EAE575CD4C06CEB /* Panels */,
@@ -410,6 +436,7 @@
 		250924B2CD408CCB39ED0A18 /* HalfFramePairTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "HalfFramePairTests.swift"; sourceTree = "<group>"; };
 		74F60A5A7C600AB13DBC223B /* Layer2ModelTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Layer2ModelTests.swift"; sourceTree = "<group>"; };
 		D21FA14465ADF0C32032374E /* LayoutTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "LayoutTests.swift"; sourceTree = "<group>"; };
+		E19BC5F223B530CB58C48A6C /* LibraryTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "LibraryTests.swift"; sourceTree = "<group>"; };
 		CE8421F06D7963E4B9992184 /* LicensingTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "LicensingTests.swift"; sourceTree = "<group>"; };
 		CF61BA9413EC99F2810BB4DE /* MaskTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "MaskTests.swift"; sourceTree = "<group>"; };
 		FEC7699D811DD42DBF704EEE /* OpenPathTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "OpenPathTests.swift"; sourceTree = "<group>"; };
@@ -478,6 +505,7 @@
 				250924B2CD408CCB39ED0A18 /* HalfFramePairTests.swift */,
 				74F60A5A7C600AB13DBC223B /* Layer2ModelTests.swift */,
 				D21FA14465ADF0C32032374E /* LayoutTests.swift */,
+				E19BC5F223B530CB58C48A6C /* LibraryTests.swift */,
 				CE8421F06D7963E4B9992184 /* LicensingTests.swift */,
 				CF61BA9413EC99F2810BB4DE /* MaskTests.swift */,
 				FEC7699D811DD42DBF704EEE /* OpenPathTests.swift */,
@@ -521,6 +549,7 @@
 		5FD5A6F01E9E37CE817FE7D2 /* measure-layout.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "measure-layout.swift"; sourceTree = "<group>"; };
 		CAC54B5D1A76CDDB8C5B1FC4 /* package.sh */ = {isa = PBXFileReference; lastKnownFileType = text.script.sh; path = "package.sh"; sourceTree = "<group>"; };
 		8F4A80183C0335C6FCC96A68 /* render-icon.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "render-icon.swift"; sourceTree = "<group>"; };
+		FD43376E3BF106220968C744 /* sign-library-helper.sh */ = {isa = PBXFileReference; lastKnownFileType = text.script.sh; path = "sign-library-helper.sh"; sourceTree = "<group>"; };
 		1CF4EBBC105C01A3E15AAE22 /* snapshot.sh */ = {isa = PBXFileReference; lastKnownFileType = text.script.sh; path = "snapshot.sh"; sourceTree = "<group>"; };
 		B023CA8F0F68491740229B47 /* Tools */ = {
 			isa = PBXGroup;
@@ -537,6 +566,7 @@
 				5FD5A6F01E9E37CE817FE7D2 /* measure-layout.swift */,
 				CAC54B5D1A76CDDB8C5B1FC4 /* package.sh */,
 				8F4A80183C0335C6FCC96A68 /* render-icon.swift */,
+				FD43376E3BF106220968C744 /* sign-library-helper.sh */,
 				1CF4EBBC105C01A3E15AAE22 /* snapshot.sh */
 			);
 			path = "Tools";
@@ -595,6 +625,15 @@
 			name = Engine;
 			sourceTree = "<group>";
 		};
+		C81FCD52F7E2B22CB947292B /* spklib-host */ = {isa = PBXFileReference; lastKnownFileType = "compiled.mach-o.executable"; name = "spklib-host"; path = "../../vendor/spklib/macos/spklib-host"; sourceTree = SOURCE_ROOT; };
+		1A911DB0AE1A08181A27D02E /* Vendor */ = {
+			isa = PBXGroup;
+			children = (
+				C81FCD52F7E2B22CB947292B /* spklib-host */
+			);
+			name = Vendor;
+			sourceTree = "<group>";
+		};
 		B6CDB6E5D160E013280D3C68 /* SpektraLab.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = SpektraLab.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		E02A90D9643568EA39115CFB /* SpektrafilmTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = SpektrafilmTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 		00C45FD35CB0F9C5F764F070 /* Products */ = {
@@ -611,6 +650,7 @@
 			children = (
 				3C3DC463728E9522781A7805,
 				6E206BF4A16CC067140F0164,
+				1A911DB0AE1A08181A27D02E,
 				6C750F429B304AF107F89FFD,
 				B023CA8F0F68491740229B47,
 				00C45FD35CB0F9C5F764F070
@@ -667,6 +707,14 @@
 		1297465B9809E3E4D0ABEC0E /* Library.swift */ = {isa = PBXBuildFile; fileRef = 0213404ECEEF9008E1F1D085; };
 		D0CC2825C04D7FECC550EFCD /* PairComposer.swift */ = {isa = PBXBuildFile; fileRef = B580055306499DDD14A30404; };
 		9F7921DB7FEFD012C022E503 /* ThumbnailCache.swift */ = {isa = PBXBuildFile; fileRef = ED424614D98D9C201DAC2E61; };
+		63E508D63A0CACDD9AB5F946 /* LibraryAPI.swift */ = {isa = PBXBuildFile; fileRef = C20B49700CE9A9821A31224E; };
+		431DFC47021865455D8A4F92 /* LibraryHost.swift */ = {isa = PBXBuildFile; fileRef = 3B0A1C3F925F5BDC6B90EBF3; };
+		32CB86B7D634121CC36E6DE8 /* LibraryInfoRail.swift */ = {isa = PBXBuildFile; fileRef = 2D97F3C21533590841841CCC; };
+		75FF7BBF5BABF217F94EFE2E /* LibraryModel.swift */ = {isa = PBXBuildFile; fileRef = E7C76D53CE953BB0C9CE98FF; };
+		5EE82E1DB9D83290DADCDD68 /* LibraryPanels.swift */ = {isa = PBXBuildFile; fileRef = C30D6F8FA348D75312293B80; };
+		A6C0F1EB945FB26BE343AAE2 /* LibraryRail.swift */ = {isa = PBXBuildFile; fileRef = 1CE3A709A62EE4BFBB313ACC; };
+		AB3605BF5FE781016CF0EE61 /* LibrarySettingsStore.swift */ = {isa = PBXBuildFile; fileRef = 7991267CDBA5F8BA76944E3E; };
+		7C3FE62948DB118E1C6A5736 /* LibraryWindow.swift */ = {isa = PBXBuildFile; fileRef = C72178EDA90E729C205FBCF5; };
 		3F943E2C3A3ABE740621CF6A /* Localization.swift */ = {isa = PBXBuildFile; fileRef = 1CC1E55A9F47D4518AE30974; };
 		C132072E827EC648F0EF3A98 /* Strings.swift */ = {isa = PBXBuildFile; fileRef = A649699A5D48C90003A81CF9; };
 		BEA2D1F2705731339EA674B1 /* Adjustments.swift */ = {isa = PBXBuildFile; fileRef = 757296FA0954F05C85A8DF36; };
@@ -679,6 +727,7 @@
 		4B575E99E7B877393ED8E8AF /* Frame.swift */ = {isa = PBXBuildFile; fileRef = 1FD42235BD294C6BC7257371; };
 		4929D57DD6BEC9A3CC4127A5 /* FrameFraming.swift */ = {isa = PBXBuildFile; fileRef = 57946CF0E400CB6362643819; };
 		AD52351C229FC3F17AF394E5 /* FrameOrder.swift */ = {isa = PBXBuildFile; fileRef = 5AE825B791EC7C8A097CABB6; };
+		A5653F40E9F75DFBB3A9D7F5 /* FrameSettingsStore.swift */ = {isa = PBXBuildFile; fileRef = 213EFF3F97BF094DA59444B3; };
 		CFAECA6E80EF89F7EF82465B /* Geometry.swift */ = {isa = PBXBuildFile; fileRef = B74BF4FE2C8992579B3BCA1E; };
 		D6601F758BA4C4FA9AA33532 /* HalfFramePair.swift */ = {isa = PBXBuildFile; fileRef = 283E17892DB9D0520A803A34; };
 		BAAAC48691BBE6D8BA752FD5 /* Latitude.swift */ = {isa = PBXBuildFile; fileRef = D9A5D4FB130D7DA5C1364A10; };
@@ -808,6 +857,14 @@
 				1297465B9809E3E4D0ABEC0E /* Library.swift */,
 				D0CC2825C04D7FECC550EFCD /* PairComposer.swift */,
 				9F7921DB7FEFD012C022E503 /* ThumbnailCache.swift */,
+				63E508D63A0CACDD9AB5F946 /* LibraryAPI.swift */,
+				431DFC47021865455D8A4F92 /* LibraryHost.swift */,
+				32CB86B7D634121CC36E6DE8 /* LibraryInfoRail.swift */,
+				75FF7BBF5BABF217F94EFE2E /* LibraryModel.swift */,
+				5EE82E1DB9D83290DADCDD68 /* LibraryPanels.swift */,
+				A6C0F1EB945FB26BE343AAE2 /* LibraryRail.swift */,
+				AB3605BF5FE781016CF0EE61 /* LibrarySettingsStore.swift */,
+				7C3FE62948DB118E1C6A5736 /* LibraryWindow.swift */,
 				3F943E2C3A3ABE740621CF6A /* Localization.swift */,
 				C132072E827EC648F0EF3A98 /* Strings.swift */,
 				BEA2D1F2705731339EA674B1 /* Adjustments.swift */,
@@ -820,6 +877,7 @@
 				4B575E99E7B877393ED8E8AF /* Frame.swift */,
 				4929D57DD6BEC9A3CC4127A5 /* FrameFraming.swift */,
 				AD52351C229FC3F17AF394E5 /* FrameOrder.swift */,
+				A5653F40E9F75DFBB3A9D7F5 /* FrameSettingsStore.swift */,
 				CFAECA6E80EF89F7EF82465B /* Geometry.swift */,
 				D6601F758BA4C4FA9AA33532 /* HalfFramePair.swift */,
 				BAAAC48691BBE6D8BA752FD5 /* Latitude.swift */,
@@ -919,6 +977,18 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
+		2CE368C957D7E452D3771C33 /* spklib-host */ = {isa = PBXBuildFile; fileRef = C81FCD52F7E2B22CB947292B; settings = {ATTRIBUTES = (CodeSignOnCopy, ); }; };
+		F59ABD8F28203DA26304CB03 /* Embed library helper */ = {
+			isa = PBXCopyFilesBuildPhase;
+			buildActionMask = 2147483647;
+			dstPath = Contents/Helpers;
+			dstSubfolderSpec = 1;
+			files = (
+				2CE368C957D7E452D3771C33 /* spklib-host */
+			);
+			name = "Embed library helper";
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 		D9C3C8DCFE21EC997B8F9448 /* AgentTests.swift */ = {isa = PBXBuildFile; fileRef = 701C800DBBB33B39A15D78A5; };
 		0475C190194643CFAEE4F9BD /* CachePolicyTests.swift */ = {isa = PBXBuildFile; fileRef = 52AA7B49AA76968939624751; };
 		5E11C56528BFC0565D351F2E /* CanvasViewTests.swift */ = {isa = PBXBuildFile; fileRef = 5F3A463963EF5A09D20AC677; };
@@ -957,6 +1027,7 @@
 		CDF7D03174AE7319814EB8D7 /* HalfFramePairTests.swift */ = {isa = PBXBuildFile; fileRef = 250924B2CD408CCB39ED0A18; };
 		A9C4A5D56A7AE16951736512 /* Layer2ModelTests.swift */ = {isa = PBXBuildFile; fileRef = 74F60A5A7C600AB13DBC223B; };
 		79A4427684DDABB45B19288D /* LayoutTests.swift */ = {isa = PBXBuildFile; fileRef = D21FA14465ADF0C32032374E; };
+		F3BB190318C286342AF17AA7 /* LibraryTests.swift */ = {isa = PBXBuildFile; fileRef = E19BC5F223B530CB58C48A6C; };
 		302F9DB7C81BCB801B293621 /* LicensingTests.swift */ = {isa = PBXBuildFile; fileRef = CE8421F06D7963E4B9992184; };
 		6FA174F7F62365ED82151A39 /* MaskTests.swift */ = {isa = PBXBuildFile; fileRef = CF61BA9413EC99F2810BB4DE; };
 		DB25777DBD5A1C4613A4AB95 /* OpenPathTests.swift */ = {isa = PBXBuildFile; fileRef = FEC7699D811DD42DBF704EEE; };
@@ -1034,6 +1105,14 @@
 		3FB16CB7FDC19A13FFA1FF8F /* Library.swift */ = {isa = PBXBuildFile; fileRef = 0213404ECEEF9008E1F1D085; };
 		970661502612597BEC51DEB0 /* PairComposer.swift */ = {isa = PBXBuildFile; fileRef = B580055306499DDD14A30404; };
 		96078643C4B893F824429248 /* ThumbnailCache.swift */ = {isa = PBXBuildFile; fileRef = ED424614D98D9C201DAC2E61; };
+		7FF6EF633C483C6BAB6726D5 /* LibraryAPI.swift */ = {isa = PBXBuildFile; fileRef = C20B49700CE9A9821A31224E; };
+		5AA69C2048812B227AF65DDE /* LibraryHost.swift */ = {isa = PBXBuildFile; fileRef = 3B0A1C3F925F5BDC6B90EBF3; };
+		47D692CFD96A5BEC4D7A3EAF /* LibraryInfoRail.swift */ = {isa = PBXBuildFile; fileRef = 2D97F3C21533590841841CCC; };
+		1579B6A504DAE146E37A0254 /* LibraryModel.swift */ = {isa = PBXBuildFile; fileRef = E7C76D53CE953BB0C9CE98FF; };
+		13D7AC3359C7D89B1DC634D7 /* LibraryPanels.swift */ = {isa = PBXBuildFile; fileRef = C30D6F8FA348D75312293B80; };
+		282E52B528B5748466C26FD7 /* LibraryRail.swift */ = {isa = PBXBuildFile; fileRef = 1CE3A709A62EE4BFBB313ACC; };
+		B2D505700FC6B85C1E56B24C /* LibrarySettingsStore.swift */ = {isa = PBXBuildFile; fileRef = 7991267CDBA5F8BA76944E3E; };
+		B2CBCAD3E2E4F3017236B686 /* LibraryWindow.swift */ = {isa = PBXBuildFile; fileRef = C72178EDA90E729C205FBCF5; };
 		C32D9E7188674C824BB718C1 /* Localization.swift */ = {isa = PBXBuildFile; fileRef = 1CC1E55A9F47D4518AE30974; };
 		07099AF767156E71C3EAA913 /* Strings.swift */ = {isa = PBXBuildFile; fileRef = A649699A5D48C90003A81CF9; };
 		DCA8A4CFBBF2CE80CD44E521 /* Adjustments.swift */ = {isa = PBXBuildFile; fileRef = 757296FA0954F05C85A8DF36; };
@@ -1046,6 +1125,7 @@
 		9819A2D3AAA591B64BF92E5A /* Frame.swift */ = {isa = PBXBuildFile; fileRef = 1FD42235BD294C6BC7257371; };
 		CA58A7F1CAC91F0BF0FB3355 /* FrameFraming.swift */ = {isa = PBXBuildFile; fileRef = 57946CF0E400CB6362643819; };
 		5FA44BAB99C2AAA7CE5366CA /* FrameOrder.swift */ = {isa = PBXBuildFile; fileRef = 5AE825B791EC7C8A097CABB6; };
+		BD39D65037824A742CFBF1B7 /* FrameSettingsStore.swift */ = {isa = PBXBuildFile; fileRef = 213EFF3F97BF094DA59444B3; };
 		82850D4001E4C1B1D9E56E9C /* Geometry.swift */ = {isa = PBXBuildFile; fileRef = B74BF4FE2C8992579B3BCA1E; };
 		716C5FBA2FB4669533310CF0 /* HalfFramePair.swift */ = {isa = PBXBuildFile; fileRef = 283E17892DB9D0520A803A34; };
 		0A290D67F9F65D4D1C54E33A /* Latitude.swift */ = {isa = PBXBuildFile; fileRef = D9A5D4FB130D7DA5C1364A10; };
@@ -1162,6 +1242,7 @@
 				CDF7D03174AE7319814EB8D7 /* HalfFramePairTests.swift */,
 				A9C4A5D56A7AE16951736512 /* Layer2ModelTests.swift */,
 				79A4427684DDABB45B19288D /* LayoutTests.swift */,
+				F3BB190318C286342AF17AA7 /* LibraryTests.swift */,
 				302F9DB7C81BCB801B293621 /* LicensingTests.swift */,
 				6FA174F7F62365ED82151A39 /* MaskTests.swift */,
 				DB25777DBD5A1C4613A4AB95 /* OpenPathTests.swift */,
@@ -1239,6 +1320,14 @@
 				3FB16CB7FDC19A13FFA1FF8F /* Library.swift */,
 				970661502612597BEC51DEB0 /* PairComposer.swift */,
 				96078643C4B893F824429248 /* ThumbnailCache.swift */,
+				7FF6EF633C483C6BAB6726D5 /* LibraryAPI.swift */,
+				5AA69C2048812B227AF65DDE /* LibraryHost.swift */,
+				47D692CFD96A5BEC4D7A3EAF /* LibraryInfoRail.swift */,
+				1579B6A504DAE146E37A0254 /* LibraryModel.swift */,
+				13D7AC3359C7D89B1DC634D7 /* LibraryPanels.swift */,
+				282E52B528B5748466C26FD7 /* LibraryRail.swift */,
+				B2D505700FC6B85C1E56B24C /* LibrarySettingsStore.swift */,
+				B2CBCAD3E2E4F3017236B686 /* LibraryWindow.swift */,
 				C32D9E7188674C824BB718C1 /* Localization.swift */,
 				07099AF767156E71C3EAA913 /* Strings.swift */,
 				DCA8A4CFBBF2CE80CD44E521 /* Adjustments.swift */,
@@ -1251,6 +1340,7 @@
 				9819A2D3AAA591B64BF92E5A /* Frame.swift */,
 				CA58A7F1CAC91F0BF0FB3355 /* FrameFraming.swift */,
 				5FA44BAB99C2AAA7CE5366CA /* FrameOrder.swift */,
+				BD39D65037824A742CFBF1B7 /* FrameSettingsStore.swift */,
 				82850D4001E4C1B1D9E56E9C /* Geometry.swift */,
 				716C5FBA2FB4669533310CF0 /* HalfFramePair.swift */,
 				0A290D67F9F65D4D1C54E33A /* Latitude.swift */,
@@ -1362,6 +1452,20 @@
 			runOnlyForDeploymentPostprocessing = 0;
 			shellPath = /bin/sh;
 			shellScript = "\"$SRCROOT/Tools/check-bundle-resources.sh\"\n";
+		};
+		B74918AB592B13985A13807B /* Sign library helper */ = {
+			isa = PBXShellScriptBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			inputPaths = (
+			);
+			name = "Sign library helper";
+			outputPaths = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+			shellPath = /bin/sh;
+			shellScript = "\"$SRCROOT/Tools/sign-library-helper.sh\"\n";
 		};
 		11809352A555BC659DD7F622 = {
 			isa = PBXContainerItemProxy;
@@ -1487,7 +1591,9 @@
 				20A1F637DF0C8F92FA52C1DD,
 				AB6F1305312B9996E2538FF8,
 				AA9A663971E63899B42E7E70,
-				C831EECBAB01524E02C71B42
+				C831EECBAB01524E02C71B42,
+				F59ABD8F28203DA26304CB03,
+				B74918AB592B13985A13807B
 			);
 			buildRules = (
 			);

@@ -1677,6 +1677,10 @@ struct ExportPage: View {
                 // canvas — the exporter reads the open frame — and a click
                 // would collapse the picked set to that one frame on the first
                 // pass and empty the batch it is walking.
+                // A library frame's edit is read before it is opened, or
+                // `select` would wait for it and the run would export the
+                // frame still on the canvas (`FrameSettingsStore`).
+                await session.prepareSettings(for: [url])
                 if session.selection != url { session.select(url) }
                 session.lastError = nil
                 guard let sid = await session.ensureDeveloped() else {

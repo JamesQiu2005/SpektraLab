@@ -103,6 +103,22 @@ struct EditorWindow: View {
             session.showExport = false
             openWindow(id: ExportWindowID.scene)
         }
+        .onChange(of: session.showLibrary) { _, wanted in
+            guard wanted else { return }
+            session.showLibrary = false
+            openWindow(id: LibraryWindowID.scene)
+        }
+        // A library frame's edit was saved elsewhere (another SpektraLab on
+        // the same catalog) while it was open here. The library refused to
+        // overwrite it; the person decides which one stays.
+        .alert(L("These settings were changed elsewhere", zh: "这些设置已在别处更改"),
+               isPresented: Binding(get: { session.settingsConflict != nil },
+                                    set: { if !$0 { session.settingsConflict = nil } })) {
+            Button(L("Keep This Version", zh: "保留此版本")) { session.resolveSettingsConflict(keepMine: true) }
+            Button(L("Use the Library's", zh: "使用图库中的版本")) { session.resolveSettingsConflict(keepMine: false) }
+        } message: {
+            Text(session.settingsConflict?.lastPathComponent ?? "")
+        }
     }
 
     /// The Print state: the four cards, exactly as drawn.

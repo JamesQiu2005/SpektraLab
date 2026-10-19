@@ -52,3 +52,22 @@ if [ -n "$licences" ]; then
   echo "error:  LUTs derived from them, Apache-2.0 for the vendored metal-cpp)" >&2
   exit 1
 fi
+
+# The 2.0 library helper, a prebuilt binary the Copy Files phase embeds in
+# Contents/Helpers (API-SPEC-library-helper.md §2, §7). It must be the binary
+# its recorded hash names: a stale or edited helper fails here rather than
+# shipping. Updating it is a copy of both files from the SDK's release build.
+helper="$root/../../vendor/spklib/macos/spklib-host"
+if [ ! -x "$helper" ] || [ ! -f "$helper.sha256" ]; then
+  echo "error: the library helper is missing: $helper (and its .sha256)" >&2
+  echo "error: copy build/release/spklib-host and spklib-host.sha256 from SpektraLab_library" >&2
+  exit 1
+fi
+want=$(awk '{print $1}' "$helper.sha256")
+have=$(shasum -a 256 "$helper" | awk '{print $1}')
+if [ "$want" != "$have" ]; then
+  echo "error: the library helper does not match spklib-host.sha256" >&2
+  echo "error:   recorded $want" >&2
+  echo "error:   on disk  $have" >&2
+  exit 1
+fi

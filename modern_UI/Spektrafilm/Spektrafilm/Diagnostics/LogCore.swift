@@ -117,6 +117,9 @@ enum LogCategory: String, CaseIterable, Sendable {
     case canvas
     /// the raw engine text beside the user-facing message.
     case error
+    /// the library helper (`spklib-host`): its stderr, starts and exits, and
+    /// an edit the library refused (`API-SPEC-library-helper.md` §2).
+    case library
 }
 
 // MARK: - values and fields

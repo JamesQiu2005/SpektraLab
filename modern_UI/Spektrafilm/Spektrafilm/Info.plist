@@ -34,6 +34,44 @@
 				<string>public.folder</string>
 			</array>
 		</dict>
+		<!-- The 2.0 library's own files (API-SPEC-library-helper.md): a
+		     catalog is a package, so Finder shows it as one item and a
+		     double-click opens it in the Library window; a session's
+		     database opens its session. -->
+		<dict>
+			<key>CFBundleTypeName</key><string>SpektraLab Catalog</string>
+			<key>CFBundleTypeRole</key><string>Editor</string>
+			<key>LSHandlerRank</key><string>Owner</string>
+			<key>LSTypeIsPackage</key><true/>
+			<key>LSItemContentTypes</key>
+			<array><string>com.hanze.filmify.catalog</string></array>
+		</dict>
+		<dict>
+			<key>CFBundleTypeName</key><string>SpektraLab Session</string>
+			<key>CFBundleTypeRole</key><string>Editor</string>
+			<key>LSHandlerRank</key><string>Owner</string>
+			<key>LSItemContentTypes</key>
+			<array><string>com.hanze.filmify.session</string></array>
+		</dict>
+	</array>
+	<key>UTExportedTypeDeclarations</key>
+	<array>
+		<dict>
+			<key>UTTypeIdentifier</key><string>com.hanze.filmify.catalog</string>
+			<key>UTTypeDescription</key><string>SpektraLab Catalog</string>
+			<key>UTTypeConformsTo</key>
+			<array><string>com.apple.package</string><string>public.composite-content</string></array>
+			<key>UTTypeTagSpecification</key>
+			<dict><key>public.filename-extension</key><array><string>spkcatalog</string></array></dict>
+		</dict>
+		<dict>
+			<key>UTTypeIdentifier</key><string>com.hanze.filmify.session</string>
+			<key>UTTypeDescription</key><string>SpektraLab Session</string>
+			<key>UTTypeConformsTo</key>
+			<array><string>public.data</string></array>
+			<key>UTTypeTagSpecification</key>
+			<dict><key>public.filename-extension</key><array><string>spksession</string></array></dict>
+		</dict>
 	</array>
 </dict>
 </plist>

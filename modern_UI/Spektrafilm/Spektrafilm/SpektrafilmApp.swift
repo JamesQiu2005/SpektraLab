@@ -37,7 +37,11 @@ enum SpektraLabEntry {
 struct SpektrafilmApp: App {
     /// One session for the app's lifetime; the delegate reaches it here.
     @MainActor static let session = Session()
+    /// The 2.0 Library's model. Made on first touch, and making it starts
+    /// nothing: no helper process runs until a library is opened or created.
+    @MainActor static let library = LibraryModel(session: session)
     private var session: Session { Self.session }
+    private var library: LibraryModel { Self.library }
     @NSApplicationDelegateAdaptor private var delegate: AppDelegate
     private let snapshot = SnapshotRequest.parse(CommandLine.arguments)
 
@@ -53,7 +57,10 @@ struct SpektrafilmApp: App {
         .windowStyle(.hiddenTitleBar)
         .windowToolbarStyle(.unifiedCompact)
         .defaultSize(width: 1920, height: 1080)
-        .commands { EditorCommands(session: session) }
+        .commands {
+            EditorCommands(session: session)
+            LibraryCommands(library: library)
+        }
 
         // Not decoration: two of the three licences the bundle carries
         // require something visible, and CC BY-SA 4.0 names an About screen
@@ -97,6 +104,16 @@ struct SpektrafilmApp: App {
         .windowToolbarStyle(.unifiedCompact)
         // The drawing's own window size, so what opens is what was drawn.
         .defaultSize(width: Theme.Metric.Export.width, height: Theme.Metric.Export.height)
+        .defaultPosition(.center)
+
+        // The 2.0 Library: catalogs, sessions, and a Capture One catalog read
+        // one way. A window beside the editor, never a mode of it (see
+        // `LibraryWindow`); Develop brings the editor forward.
+        Window(L("Library", zh: "图库"), id: LibraryWindowID.scene) {
+            LibraryWindow(library: library)
+                .id(InterfaceScaleStore.shared.scale)
+        }
+        .defaultSize(width: 1440, height: 900)
         .defaultPosition(.center)
     }
 }
@@ -302,6 +319,9 @@ struct SnapshotRequest {
     /// transition have one.
     var export = false
     var exportGrid = false
+    /// `--library <path>` — capture the Library window with this catalog,
+    /// session or Capture One catalog open and its first photo selected.
+    var library: URL?
     /// `--settings general|rendering|memory|diagnostics|agents` — capture
     /// that page of Settings (RFC-026's paged window).
     var settings: SettingsPage?
@@ -362,6 +382,7 @@ struct SnapshotRequest {
         if let j = args.firstIndex(of: "--pair-layer"), args.count > j + 1 { r.pairLayer = PairLayer(rawValue: args[j + 1]) }
         if let j = args.firstIndex(of: "--pair-zoom"), args.count > j + 2,
            let f = Double(args[j + 1]), let w = Double(args[j + 2]) { r.pairZoom = (f, w) }
+        if let j = args.firstIndex(of: "--library"), args.count > j + 1 { r.library = URL(fileURLWithPath: args[j + 1]) }
         r.exportGrid = args.contains("--export-grid")
         r.export = r.exportGrid || args.contains("--export")
         if let j = args.firstIndex(of: "--settings"), args.count > j + 1 {
@@ -423,8 +444,43 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         Task { await runSnapshot(snapshot) }
     }
 
+    /// A library opens in the Library window; anything else in the editor,
+    /// as it always has.
     func application(_ application: NSApplication, open urls: [URL]) {
-        session?.open(urls: urls)
+        var photos: [URL] = []
+        for url in urls {
+            switch LibraryPanels.classify(url) {
+            case .library(let u):
+                session?.showLibrary = true
+                Task { await SpektrafilmApp.library.open(at: u) }
+            case .captureOne(let u):
+                session?.showLibrary = true
+                Task { await SpektrafilmApp.library.openCaptureOne(at: u) }
+            case .editor:
+                photos.append(url)
+            }
+        }
+        if !photos.isEmpty { session?.open(urls: photos) }
+    }
+
+    /// A library's edits go over a pipe, which `applicationWillTerminate`
+    /// cannot wait for: quitting waits here, three seconds at most, for the
+    /// open frame and every edit handed to the store, then shuts the helper
+    /// down. With no library touched this is `.terminateNow`, as before.
+    func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
+        guard snapshot == nil, SpektrafilmApp.library.needsQuitHandshake else { return .terminateNow }
+        Task { @MainActor in
+            let done = Task { await SpektrafilmApp.library.prepareToQuit() }
+            let deadline = Task { try? await Task.sleep(for: .seconds(3)) }
+            await withTaskGroup(of: Void.self) { group in
+                group.addTask { await done.value }
+                group.addTask { await deadline.value }
+                await group.next()
+                group.cancelAll()
+            }
+            NSApp.reply(toApplicationShouldTerminate: true)
+        }
+        return .terminateLater
     }
 
     /// A path passed on the command line opens too, so a capture or a script
@@ -513,6 +569,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             UserDefaults.standard.set(page.rawValue, forKey: Session.uiKey + "settingsPage")
         }
         if let capture = req.postDev { Self.postDevDefaults(capture) }
+        if let path = req.library { await runLibrarySnapshot(req, path: path, session: session) }
         let host = NSHostingView(rootView: req.settings != nil
             ? AnyView(SettingsWindow(session: session))
             : req.export
@@ -670,6 +727,41 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         view.cacheDisplay(in: view.bounds, to: rep)
         // Not a `defer`: `snapshotExit` never returns, so one would not run.
         postDevRestore?()
+        guard let png = rep.representation(using: .png, properties: [:]) else { snapshotExit(4) }
+        try? png.write(to: req.output)
+        print("snapshot \(Int(req.size.width))x\(Int(req.size.height)) → \(req.output.path)")
+        snapshotExit(0)
+    }
+
+    /// `--library`: the Library window on its own, with a model of its own
+    /// whose recents live in a throwaway defaults suite. None of the editor's
+    /// resets above run: they write the shared preferences the person's own
+    /// copy of the app reads, and a Library capture has no reason to.
+    private func runLibrarySnapshot(_ req: SnapshotRequest, path: URL, session: Session) async -> Never {
+        let suite = "com.hanze.filmify.library-snapshot"
+        let defaults = UserDefaults(suiteName: suite) ?? .standard
+        let library = LibraryModel(session: session, defaults: defaults)
+        let host = NSHostingView(rootView: LibraryWindow(library: library))
+        let window = NSWindow(contentRect: CGRect(origin: .zero, size: req.size),
+                              styleMask: [.borderless], backing: .buffered, defer: false)
+        window.appearance = NSAppearance(named: .darkAqua)
+        window.contentView = host
+        window.setFrame(CGRect(origin: .zero, size: req.size), display: true)
+        host.frame = CGRect(origin: .zero, size: req.size)
+        window.makeKeyAndOrderFront(nil)
+        snapshotWindow = window
+        switch LibraryPanels.classify(path) {
+        case .captureOne(let u): await library.openCaptureOne(at: u)
+        default: await library.open(at: path)
+        }
+        for _ in 0..<400 where library.loading { try? await Task.sleep(for: .milliseconds(25)) }
+        library.selection = library.rows.first?.uuid
+        try? await Task.sleep(for: .seconds(req.wait > 0 ? req.wait : 2))
+        let view = window.contentView!
+        guard let rep = view.bitmapImageRepForCachingDisplay(in: view.bounds) else { snapshotExit(3) }
+        view.cacheDisplay(in: view.bounds, to: rep)
+        await library.prepareToQuit()
+        defaults.removePersistentDomain(forName: suite)
         guard let png = rep.representation(using: .png, properties: [:]) else { snapshotExit(4) }
         try? png.write(to: req.output)
         print("snapshot \(Int(req.size.width))x\(Int(req.size.height)) → \(req.output.path)")

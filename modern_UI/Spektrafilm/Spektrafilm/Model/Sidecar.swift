@@ -427,7 +427,13 @@ struct Sidecar: Codable, Equatable, Sendable {
         image.deletingPathExtension().appendingPathExtension("spektra.json")
     }
 
-    static func load(for image: URL) -> Sidecar? {
+    /// `writes: false` is the same search with nothing written anywhere: no
+    /// re-key in the store, no migration into it, and — the one that matters —
+    /// no *move* of `<image>.spektra.json` from beside the photograph. A
+    /// library adopts a 1.x sidecar this way (`LibrarySettingsStore`), because
+    /// under a Capture One catalog's folders that move would be a write beside
+    /// an original, which read-only forbids (API-SPEC-library-helper.md §6).
+    static func load(for image: URL, writes: Bool = true) -> Sidecar? {
         // 1. Where this frame's settings are if it has not moved.
         if let data = try? Data(contentsOf: url(for: image)),
            let sidecar = try? JSONDecoder().decode(Sidecar.self, from: data) {
@@ -456,6 +462,7 @@ struct Sidecar: Codable, Equatable, Sendable {
            let data = try? Data(contentsOf: hit.url),
            var sidecar = try? JSONDecoder().decode(Sidecar.self, from: data) {
             sidecar.source = wanted
+            guard writes else { return sidecar }
             if (try? sidecar.save(for: image)) != nil, hit.url != url(for: image) {
                 try? FileManager.default.removeItem(at: hit.url)
                 noteRemoval(of: hit.url)
@@ -467,6 +474,7 @@ struct Sidecar: Codable, Equatable, Sendable {
         let neighbour = neighbourURL(for: image)
         if let data = try? Data(contentsOf: neighbour),
            let sidecar = try? JSONDecoder().decode(Sidecar.self, from: data) {
+            guard writes else { return sidecar }
             // Move, not copy — but only once the new copy is on disk and
             // readable. A failed write must leave the user's only copy of
             // their edits exactly where it was.
@@ -478,7 +486,7 @@ struct Sidecar: Codable, Equatable, Sendable {
         }
         guard let data = try? Data(contentsOf: legacyURL(for: image)),
               let sidecar = try? JSONDecoder().decode(Sidecar.self, from: data) else { return nil }
-        try? sidecar.save(for: image)
+        if writes { try? sidecar.save(for: image) }
         return sidecar
     }
 

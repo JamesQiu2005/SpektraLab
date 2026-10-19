@@ -133,6 +133,20 @@ if ! $dry; then
   if codesign -dv "$app" 2>&1 | grep -q "Signature=adhoc"; then
     echo "  ad-hoc, as expected without a Developer ID."
   fi
+  # The 2.0 library helper is a second executable in the bundle, and
+  # notarisation inspects it on its own: hardened runtime, and the same
+  # identity as the app (Tools/sign-library-helper.sh signs it).
+  helper="$app/Contents/Helpers/spklib-host"
+  if [ ! -x "$helper" ]; then
+    echo "error: the library helper is not in the bundle ($helper)." >&2
+    exit 1
+  fi
+  codesign -dv --verbose=2 "$helper" 2>&1 | sed 's/^/  helper: /'
+  if ! codesign -dv "$helper" 2>&1 | grep -q "flags=.*runtime"; then
+    echo "error: the library helper is not signed with the hardened runtime;" >&2
+    echo "error: notarisation would refuse it." >&2
+    exit 1
+  fi
 fi
 
 # --- 4b. the floor every Mac has to meet -----------------------------------

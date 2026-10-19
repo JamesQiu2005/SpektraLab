@@ -359,6 +359,8 @@ final class RetainedEditsTests: XCTestCase {
 
         s.resetSettings(of: url)
         XCTAssertEqual(s.frameStates[url], .unprocessed)
+        // At once, not a turn later: the strip asks the moment it is told.
+        XCTAssertFalse(DevelopedThumbnails.isDeveloped(url), "the strip can still read the reset frame as developed")
         let shown = await ThumbnailCache.shared.thumbnail(for: url)
         let camera = try XCTUnwrap(CGImageSourceCreateWithURL(url as CFURL, nil).flatMap {
             CGImageSourceCreateThumbnailAtIndex($0, 0, [

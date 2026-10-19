@@ -2,7 +2,7 @@
 
 | | |
 |---|---|
-| **Status** | The binary is in the repository. The app does not launch it yet: this document is the contract the 2.0 library work builds against. |
+| **Status** | The binary is in the repository, and the 2.0 app embeds and launches it (§9). This document is the contract the 2.0 library work builds against. |
 | **Binary** | `vendor/spklib/macos/spklib-host`, `spklib 0.1.0+f4de46cf119a (abi 1, schema 1)`. Its SHA-256 is in `spklib-host.sha256` beside it. |
 | **Platform** | Universal (arm64 + x86_64), macOS 13.0 or later (the app needs 15.0). Stripped, ad-hoc signed. |
 | **Source** | [JamesQiu2005/SpektraLab_library](https://github.com/JamesQiu2005/SpektraLab_library). Built there by `./build.sh release`, at the commit named in its version. |
@@ -160,8 +160,9 @@ images.
 **The browser.**
 
 - `images.list` for the selected collection, paged, sorted by `captured`.
-- Thumbnails come from the app's own `ThumbnailCache`, keyed by `path`. Capture One's `Cache/` is
-  never read.
+- Thumbnails are the camera's embedded previews, from the app's own `ThumbnailCache.cameraPreviews`,
+  keyed by `path`, and never a SpektraLab develop (the grid and the Info rail say "Embedded preview").
+  Capture One's `Cache/` is never read.
 - `exists: false` (from `check_files`) and `locations.list` drive the offline badge and **Locate
   Folder…**, which calls `location.relink`.
 - Ratings and colour tags are `meta.set`. Delete is `images.trash`.
@@ -242,10 +243,66 @@ forward on open; an older helper refuses a newer library rather than misreading 
 - `tests/host_smoke.swift` drives this binary from Swift exactly as §2 describes: link, page, edit,
   conflict, ping and shutdown.
 
+**Verified 2026-10-18, in the app (§9):**
+
+- The Copy Files phase embeds the helper at `Contents/Helpers/spklib-host`; the bundle passes
+  `codesign --verify --deep --strict`, and the embedded helper answers `sdk.version`.
+- `LibraryTests` drive the vendored binary from the app's own client: create a catalog and a session,
+  add and scan, an edit's round trip (identical `Sidecar`), `conflict`, and `Session` handed a
+  library's frames.
+
 **Not verified:**
 
 - The x86_64 half of the binary has not been run, because this Mac has no Rosetta.
-- The Copy Files phase, Code Sign On Copy and a notarised build carrying the helper have not been done
-  yet.
+- A notarised Developer ID build carrying the helper. `Tools/package.sh` now refuses a helper without
+  the hardened runtime, but no release has been made with it.
 - Capture One sessions are probe-only until their `.cosessiondb` and `.cos` formats have been checked
   against a real session.
+
+## 9. How the app runs it (2.0)
+
+| Part | Where |
+|---|---|
+| The process: start on first use, the ready line, `abi`, routing replies by `id`, restart | `Library/LibraryHost.swift` |
+| The methods, typed | `Library/LibraryAPI.swift` |
+| A library's edits as the editor's settings | `Library/LibrarySettingsStore.swift`, behind `Model/FrameSettingsStore.swift` |
+| The Library window's state, and the handoff to the editor | `Library/LibraryModel.swift` |
+| The window: rail, grid, Info rail; File menu items | `Library/LibraryWindow.swift`, `LibraryRail.swift`, `LibraryInfoRail.swift`, `LibraryPanels.swift` |
+| Embedding and signing | `Tools/gen-project.py` (Copy Files), `Tools/sign-library-helper.sh`, `Tools/check-bundle-resources.sh` (the SHA-256) |
+
+Decisions the app took that this document did not spell out:
+
+- **One seam in `Session`.** Every read and write of a frame's settings goes through a
+  `FrameSettingsStore`. A folder's is `SidecarFileStore`, which is the 1.x calls unchanged;
+  `Session.open(urls:)` restores it every time. Frames handed over by the Library use
+  `LibrarySettingsStore`, which falls back to the sidecar files for anything it does not map (a
+  half-frame pair, a file dropped on the strip).
+- **`load` returns the truth or nothing.** A library frame is not put on the canvas until its edit has
+  arrived, and the store refuses to save over an edit it has not read. Otherwise the frame switch's save
+  would write defaults over a real edit.
+- **No edit for a photo only looked at.** Opening a RAW fills in its as-shot white balance. A frame whose
+  settings differ from a new `Sidecar` only by that is not stored, so `has_edit` and the grid's Print mark
+  mean "changed or developed", not "opened".
+- **The 1.x sidecar is adopted by reading, never by moving.** `Sidecar.load(for:writes: false)` finds
+  it, `edit.put {base_revision: 0}` stores it, and the file beside the photograph stays where it was.
+- **The cache is bounded.** At most 256 edits are kept, as encoded bytes; the strip's states and crops
+  go to `Session` as they are read.
+- **A reset is an edit of no settings.** Film ⋯ → Reset All Settings to the RAW Decode, and the strip's
+  reset of a frame off the canvas, `edit.put` an empty `Sidecar`, not "no edit": the revision moves, so
+  a 1.x sidecar beside the photograph is not adopted again. The cache holds the empty edit before the
+  call returns, because the Film-menu reset reopens the frame at once.
+- **Each variant has its own developed picture.** The strip's developed thumbnails
+  (`Import/DevelopedThumbnails.swift`, on disk so they outlive the RAM cache) are scoped by
+  `FrameSettingsStore.pictureScope`: a folder frame's under its sidecar, a library frame's under its
+  variant. The session says which frames are developed, so a library frame never shows the picture of
+  a 1.x sidecar that says "developed" about another edit.
+- **Undo does not cross stores.** Both histories, the settings' and the grade's, are per frame and are
+  dropped when the editor changes store or a library hands frames over, since the same file is other
+  settings in each.
+- **Capture One's ratings and tags are not edited from the app** (the design's rule 3), though
+  `meta.set` would keep a SpektraLab override. A rating key says so.
+- **No half-frame pairs and no reordering** from a library's result.
+- **Capture One sessions** are probed and stop there. The Library offers the session's Capture folder
+  as a plain folder.
+- **The Library is its own window.** PRD-v2.0.0 §16 Q2 is still open, and the window's view does not
+  depend on its host.

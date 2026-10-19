@@ -204,6 +204,19 @@ def build() -> str:
     p.add(engine_group, f"{{\n\t\t\tisa = PBXGroup;\n\t\t\tchildren = (\n{kids}\n\t\t\t);"
                         f"\n\t\t\tname = Engine;\n\t\t\tsourceTree = \"<group>\";\n\t\t}}", "Engine")
 
+    # The 2.0 library helper (API-SPEC-library-helper.md §2): a prebuilt
+    # binary outside the project tree, copied into `Contents/Helpers` and
+    # signed with the app's identity on the way (Code Sign On Copy), so the
+    # hardened runtime and notarisation cover it like the app itself.
+    helper = ROOT.parents[1] / "vendor" / "spklib" / "macos" / "spklib-host"
+    helper_ref = uid("file:vendor:" + relative_to_project(helper))
+    p.add(helper_ref, f"{{isa = PBXFileReference; lastKnownFileType = \"compiled.mach-o.executable\"; "
+                      f"name = \"{helper.name}\"; path = \"{relative_to_project(helper)}\"; "
+                      f"sourceTree = SOURCE_ROOT; }}", helper.name)
+    vendor_group = uid("group:vendor")
+    p.add(vendor_group, f"{{\n\t\t\tisa = PBXGroup;\n\t\t\tchildren = (\n\t\t\t\t{helper_ref} /* {helper.name} */\n\t\t\t);"
+                        f"\n\t\t\tname = Vendor;\n\t\t\tsourceTree = \"<group>\";\n\t\t}}", "Vendor")
+
     app_product = uid("product:app")
     test_product = uid("product:tests")
     p.add(app_product, f"{{isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = {PRODUCT_NAME}.app; sourceTree = BUILT_PRODUCTS_DIR; }}", f"{PRODUCT_NAME}.app")
@@ -211,7 +224,7 @@ def build() -> str:
     products = uid("group:products")
     p.add(products, f"{{\n\t\t\tisa = PBXGroup;\n\t\t\tchildren = (\n\t\t\t\t{app_product},\n\t\t\t\t{test_product}\n\t\t\t);\n\t\t\tname = Products;\n\t\t\tsourceTree = \"<group>\";\n\t\t}}", "Products")
     main_group = uid("group:main")
-    p.add(main_group, f"{{\n\t\t\tisa = PBXGroup;\n\t\t\tchildren = (\n\t\t\t\t{app_group},\n\t\t\t\t{engine_group},\n\t\t\t\t{test_group},\n\t\t\t\t{tools_group},\n\t\t\t\t{products}\n\t\t\t);\n\t\t\tsourceTree = \"<group>\";\n\t\t}}")
+    p.add(main_group, f"{{\n\t\t\tisa = PBXGroup;\n\t\t\tchildren = (\n\t\t\t\t{app_group},\n\t\t\t\t{engine_group},\n\t\t\t\t{vendor_group},\n\t\t\t\t{test_group},\n\t\t\t\t{tools_group},\n\t\t\t\t{products}\n\t\t\t);\n\t\t\tsourceTree = \"<group>\";\n\t\t}}")
 
     def phase(kind: str, files: list[tuple[str, Path]], pred, tag: str) -> str:
         ids = []
@@ -229,6 +242,15 @@ def build() -> str:
     app_sources = phase("PBXSourcesBuildPhase", app_files + engine_files, is_src, "app-sources")
     app_resources = phase("PBXResourcesBuildPhase", app_files, is_res, "app-resources")
     app_frameworks = phase("PBXFrameworksBuildPhase", [], lambda q: False, "app-frameworks")
+    helper_build = uid("build:app-helpers:" + relative_to_project(helper))
+    p.add(helper_build, f"{{isa = PBXBuildFile; fileRef = {helper_ref}; settings = {{ATTRIBUTES = (CodeSignOnCopy, ); }}; }}",
+          helper.name)
+    app_helpers = uid("phase:app-helpers:PBXCopyFilesBuildPhase")
+    p.add(app_helpers, f"{{\n\t\t\tisa = PBXCopyFilesBuildPhase;\n\t\t\tbuildActionMask = 2147483647;"
+                       f"\n\t\t\tdstPath = Contents/Helpers;\n\t\t\tdstSubfolderSpec = 1;"
+                       f"\n\t\t\tfiles = (\n\t\t\t\t{helper_build} /* {helper.name} */\n\t\t\t);"
+                       f"\n\t\t\tname = \"Embed library helper\";\n\t\t\trunOnlyForDeploymentPostprocessing = 0;\n\t\t}}",
+          "Embed library helper")
     # The test bundle is standalone (no TEST_HOST): it compiles every app
     # source except the @main file, so the tests run without launching the
     # app and without the test-host injection that crashed SwiftUI's
@@ -349,6 +371,19 @@ def build() -> str:
           "\n\t\t\tshellScript = \"\\\"$SRCROOT/Tools/check-bundle-resources.sh\\\"\\n\";"
           "\n\t\t}", "Check bundled resources")
 
+    # The helper, signed with the app's identity and the hardened runtime
+    # once it is in the bundle -- see Tools/sign-library-helper.sh for why
+    # Code Sign On Copy alone would have shipped it unhardened.
+    sign_helper = uid("phase:app:sign-library-helper")
+    p.add(sign_helper,
+          "{\n\t\t\tisa = PBXShellScriptBuildPhase;\n\t\t\tbuildActionMask = 2147483647;"
+          "\n\t\t\tfiles = (\n\t\t\t);\n\t\t\tinputPaths = (\n\t\t\t);"
+          "\n\t\t\tname = \"Sign library helper\";\n\t\t\toutputPaths = (\n\t\t\t);"
+          "\n\t\t\trunOnlyForDeploymentPostprocessing = 0;"
+          "\n\t\t\tshellPath = /bin/sh;"
+          "\n\t\t\tshellScript = \"\\\"$SRCROOT/Tools/sign-library-helper.sh\\\"\\n\";"
+          "\n\t\t}", "Sign library helper")
+
     app_target = uid("target:app")
     test_target = uid("target:tests")
     dep = uid("dep:tests->app")
@@ -357,7 +392,7 @@ def build() -> str:
     p.add(proxy, f"{{\n\t\t\tisa = PBXContainerItemProxy;\n\t\t\tcontainerPortal = {project};\n\t\t\tproxyType = 1;\n\t\t\tremoteGlobalIDString = {app_target};\n\t\t\tremoteInfo = {APP};\n\t\t}}")
     p.add(dep, f"{{\n\t\t\tisa = PBXTargetDependency;\n\t\t\ttarget = {app_target};\n\t\t\ttargetProxy = {proxy};\n\t\t}}")
 
-    p.add(app_target, f"{{\n\t\t\tisa = PBXNativeTarget;\n\t\t\tbuildConfigurationList = {cfg_list('app', app_cfg)};\n\t\t\tbuildPhases = (\n\t\t\t\t{check_script},\n\t\t\t\t{app_sources},\n\t\t\t\t{app_frameworks},\n\t\t\t\t{app_resources}\n\t\t\t);\n\t\t\tbuildRules = (\n\t\t\t);\n\t\t\tdependencies = (\n\t\t\t);\n\t\t\tname = {APP};\n\t\t\tproductName = {APP};\n\t\t\tproductReference = {app_product};\n\t\t\tproductType = \"com.apple.product-type.application\";\n\t\t}}", APP)
+    p.add(app_target, f"{{\n\t\t\tisa = PBXNativeTarget;\n\t\t\tbuildConfigurationList = {cfg_list('app', app_cfg)};\n\t\t\tbuildPhases = (\n\t\t\t\t{check_script},\n\t\t\t\t{app_sources},\n\t\t\t\t{app_frameworks},\n\t\t\t\t{app_resources},\n\t\t\t\t{app_helpers},\n\t\t\t\t{sign_helper}\n\t\t\t);\n\t\t\tbuildRules = (\n\t\t\t);\n\t\t\tdependencies = (\n\t\t\t);\n\t\t\tname = {APP};\n\t\t\tproductName = {APP};\n\t\t\tproductReference = {app_product};\n\t\t\tproductType = \"com.apple.product-type.application\";\n\t\t}}", APP)
     p.add(test_target, f"{{\n\t\t\tisa = PBXNativeTarget;\n\t\t\tbuildConfigurationList = {cfg_list('tests', test_cfg)};\n\t\t\tbuildPhases = (\n\t\t\t\t{test_sources},\n\t\t\t\t{test_frameworks},\n\t\t\t\t{test_resources}\n\t\t\t);\n\t\t\tbuildRules = (\n\t\t\t);\n\t\t\tdependencies = (\n\t\t\t);\n\t\t\tname = {TESTS};\n\t\t\tproductName = {TESTS};\n\t\t\tproductReference = {test_product};\n\t\t\tproductType = \"com.apple.product-type.bundle.unit-test\";\n\t\t}}", TESTS)
 
     proj_cfg = cfg_list("project", {"SWIFT_VERSION": "6.0", "MACOSX_DEPLOYMENT_TARGET": MACOS,
