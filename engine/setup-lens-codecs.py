@@ -66,10 +66,14 @@ def main():
     lens,glib=[sources(pin,root) for pin in pins['sources']]
     cache=glib/'subprojects/packagecache';cache.mkdir(parents=True,exist_ok=True)
     for pin in pins['wraps']:download(pin,cache/pin['name'])
+    git_network=['git']
+    # This workaround belongs to Git for Windows on the build host. Linux
+    # cross-builds must keep their installed Git TLS backend (often GnuTLS).
+    if sys.platform=='win32':git_network+=['-c','http.sslBackend=openssl']
     for pin in pins['git']:
         dest=glib/'subprojects'/pin['name']
         if not dest.exists():
-            run(['git','-c','http.sslBackend=openssl','clone','--no-checkout',pin['url'],dest])
+            run(git_network+['clone','--no-checkout',pin['url'],dest])
             run(['git','-C',dest,'checkout','--detach',pin['revision']])
         actual=subprocess.check_output(['git','-C',str(dest),'rev-parse','HEAD'],text=True).strip()
         dirty=subprocess.check_output(['git','-C',str(dest),'status','--porcelain','--untracked-files=no'],text=True).strip()

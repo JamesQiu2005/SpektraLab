@@ -131,3 +131,6 @@ RTX 5070 Ti / Windows WebView2，4688×7028 Sony ARW 的三份独立路径副本
 发布验证和打包脚本位于工作区 `validation/portable-preview-20261022/`；发布脚本要求工作区干净，并校验源码、应用和许可清单的完整哈希，避免使用旧 HEAD 或混入个人测试照片。
 便携包继续定位为 Windows 测试版，保留上述硬件及跨平台验证边界。最终提交、应用哈希、测试证据和依赖许可随包附带；ZIP 完整性及中文路径运行复核记录在外部 `portable-extraction.json` 中。
 Mac 项目生成器排除仅供 Windows/Vulkan 使用的 `pipeline/imprint_raster.cpp`；已重新生成并执行一致性检查，此项不等同于 Mac 构建验证。
+
+2026-10-23 发布复核：本地完整 CTest 40/40、Python 工具 47/47、Rust 23 项及实际 CLI/MCP 测试通过。中文及空格路径的最终便携程序成功加载随包引擎，打开完整 Sony ARW、完成渲染并切换照片。
+本次提交已推送至 [PR #14](https://github.com/JamesQiu2005/SpektraLab/pull/14)。`a826f4f` 的远端 Mac Build #77 与 Frontend checks 成功；Linux 构建机上的 Windows 交叉构建发现依赖脚本无条件指定 OpenSSL，而其 Git 仅支持 GnuTLS。修正为仅在 Windows 宿主选择 OpenSSL，Linux/macOS 沿用各自 Git 默认 SSL 后端。此修正仅涉及依赖获取，不改变随包应用二进制；完整 Linux/交叉构建结果仍以新一轮 CI 为准。
