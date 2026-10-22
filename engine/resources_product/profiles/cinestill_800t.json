@@ -1,0 +1,13 @@
+{
+  "derived_from": "kodak_vision3_500t",
+  "metadata": {
+    "what": "CineStill 800T: Kodak Vision3 500T (5219/7219) with its rem-jet anti-halation backing removed, sold for still cameras in 135 and 120 and rated at ISO 800.",
+    "data": "None of its own. The engine loads kodak_vision3_500t whole and overrides only the info keys below (load_profile, derived_from), so no array of the CC BY-SA profile is copied or derived here.",
+    "physics": "The one physical difference is the missing rem-jet: light the emulsion scatters into the base is reflected at the base's back face (Fresnel, and total internal reflection past the critical angle) and re-exposes the emulsion from behind. antihalation 'no' selects that halation model."
+  },
+  "info": {
+    "name": "CineStill 800T",
+    "use": "still",
+    "antihalation": "no"
+  }
+}

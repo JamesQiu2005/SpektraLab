@@ -582,9 +582,12 @@ bool digest(Params& p, const Json& neutral_filters, std::string& error) {
     // film stock -> (c, m, y). A missing entry leaves the defaults, which is
     // what the reference does after printing a warning.
     if (p.settings.neutral_print_filters_from_database) {
-        const Json& row = neutral_filters.at(p.print.info.stock)
-                                          .at(p.enlarger.illuminant)
-                                          .at(p.film.info.stock);
+        const Json& by_film = neutral_filters.at(p.print.info.stock).at(p.enlarger.illuminant);
+        // An alias film (`load_profile`) prints with its base's pack: it is the
+        // base's emulsion, and the pack belongs to the dyes.
+        const Json& own = by_film.at(p.film.info.stock);
+        const Json& row = own.is_array() || p.film.info.base_stock.empty()
+                              ? own : by_film.at(p.film.info.base_stock);
         if (row.is_array() && row.items().size() == 3) {
             p.enlarger.c_filter_neutral = row.items()[0].as_double();
             p.enlarger.m_filter_neutral = row.items()[1].as_double();

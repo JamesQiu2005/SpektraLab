@@ -184,19 +184,94 @@ bool Profile::load(const std::string& path, std::string& error) {
     return from_json(root, error);
 }
 
-bool load_profile(const std::string& resources_dir, const std::string& stock,
-                  Profile& out, std::string& error) {
-    // A stock name reaches here straight off the wire. Restricting it to the
-    // characters a stock id actually uses is what stops `film_stock:
-    // "../../etc/passwd"` from being a file read.
+namespace {
+
+// A stock name reaches here straight off the wire (and a base name out of a
+// file). Restricting it to the characters a stock id actually uses is what
+// stops `film_stock: "../../etc/passwd"` from being a file read.
+bool valid_stock_name(const std::string& stock, std::string& error) {
     if (stock.empty() || stock.size() > 96) { error = "bad stock name"; return false; }
     for (char c : stock) {
         const bool ok = (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') ||
                         (c >= '0' && c <= '9') || c == '_' || c == '-';
         if (!ok) { error = "bad stock name '" + stock + "'"; return false; }
     }
-    if (!out.load(resources_dir + "/profiles/" + stock + ".json", error)) {
+    return true;
+}
+
+bool read_json(const std::string& path, Json& root, std::string& error) {
+    std::string text;
+    if (!read_file(path, text, error)) return false;
+    std::string parse_error;
+    if (!Json::parse(text, root, parse_error)) { error = path + ": " + parse_error; return false; }
+    return true;
+}
+
+// The alias's own `info` keys, laid over the base's: the strings and the one
+// number `from_json` reads. Anything else in the alias is documentation.
+void override_info(const Json& in, ProfileInfo& info) {
+    const auto take = [&](const char* key, std::string& slot) {
+        const Json& v = in.at(key);
+        if (v.is_string()) slot = v.as_string();
+    };
+    take("name", info.name);
+    take("type", info.type);
+    take("support", info.support);
+    take("stage", info.stage);
+    take("use", info.use);
+    take("antihalation", info.antihalation);
+    take("target_print", info.target_print);
+    take("channel_model", info.channel_model);
+    take("densitometer", info.densitometer);
+    take("reference_illuminant", info.reference_illuminant);
+    take("viewing_illuminant", info.viewing_illuminant);
+    if (in.has("log_sensitivity_density_over_min"))
+        info.log_sensitivity_density_over_min =
+            in.at("log_sensitivity_density_over_min").as_double(info.log_sensitivity_density_over_min);
+}
+
+}  // namespace
+
+bool load_profile(const std::string& resources_dir, const std::string& stock,
+                  Profile& out, std::string& error) {
+    if (!valid_stock_name(stock, error)) return false;
+    Json root;
+    if (!read_json(resources_dir + "/profiles/" + stock + ".json", root, error)) {
         error = "no profile '" + stock + "' (" + error + ")";
+        return false;
+    }
+    if (!root.at("derived_from").is_string()) {
+        if (!out.from_json(root, error)) {
+            error = "no profile '" + stock + "' (" + error + ")";
+            return false;
+        }
+        return true;
+    }
+
+    // An alias: the base's data whole, then the alias's `info` over it.
+    const std::string base_stock = root.at("derived_from").as_string();
+    if (!valid_stock_name(base_stock, error)) {
+        error = "profile '" + stock + "': derived_from: " + error;
+        return false;
+    }
+    Json base_root;
+    if (!read_json(resources_dir + "/profiles/" + base_stock + ".json", base_root, error)) {
+        error = "profile '" + stock + "' is derived from '" + base_stock + "', which does not load (" + error + ")";
+        return false;
+    }
+    if (base_root.at("derived_from").is_string()) {
+        error = "profile '" + stock + "' is derived from '" + base_stock + "', itself an alias";
+        return false;
+    }
+    if (!out.from_json(base_root, error)) {
+        error = "profile '" + stock + "' (base '" + base_stock + "'): " + error;
+        return false;
+    }
+    override_info(root.at("info"), out.info);
+    out.info.stock = stock;   // addressed by its own name, whatever its info says
+    out.info.base_stock = base_stock;
+    if (out.info.type != "negative" && out.info.type != "positive") {
+        error = "profile '" + stock + "': type is '" + out.info.type + "', expected negative or positive";
         return false;
     }
     return true;
