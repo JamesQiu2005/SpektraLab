@@ -42,8 +42,8 @@ kernel void spk_boost(device const float* x [[buffer(0)]],
     out[i] = xv + boost_scale * (exp(a * dx) - a * dx - 1.0f);
 }
 
-// The back-reflection halo's light: the frame with its clipped highlights
-// given back the headroom a digital frame cut off. Per pixel, from its
+// `node_headroom`: the exposure with its clipped highlights given back the
+// headroom a digital frame cut off. Per pixel, from its
 // brightest channel m (so a red tube clipped in red alone counts), the product
 // of two smoothsteps in stops -- near the frame's maximum (the clip), and over
 // a floor above mid-grey (a highlight at all) -- and the pixel scaled by
@@ -55,7 +55,7 @@ static inline float spk_smoothstep01(float t) {
     return t * t * (3.0f - 2.0f * t);
 }
 
-kernel void spk_halation_driver(device const float* x [[buffer(0)]],
+kernel void spk_highlight_headroom(device const float* x [[buffer(0)]],
                                 device const float* p [[buffer(1)]],
                                 device const uint* n [[buffer(2)]],
                                 device float* out [[buffer(3)]],

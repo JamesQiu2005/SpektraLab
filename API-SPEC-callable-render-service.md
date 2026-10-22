@@ -1031,10 +1031,11 @@ parity case for it.**
 
 | field | path | type | default | range | meaning |
 |---|---|---|---|---|---|
-| `halation_headroom_ev` | `film_render.halation.headroom_ev` | float | `4.0` | 0–8 | **back-reflection only.** The stops a *clipped* highlight is taken to have been above what the frame recorded. The halo's light — never the image — is the frame with each pixel scaled by 2^(headroom · s), s the product of two smoothsteps of the pixel's brightest channel: within a stop of the frame's own maximum (full from a quarter stop under it), and +1.5 … +2.5 EV over mid-grey. A lamp clipped at +3.5 EV throws the halo of a +7.5 EV lamp; a face auto-exposure lifted to +2.5 EV on a night frame, three stops under the lamps, is left alone. `0` is the recorded frame. Native-only, SHOOT, not live, after `camera_filter` |
+| `halation_headroom_ev` | `film_render.halation.headroom_ev` | float | `4.0` | 0–8 | **back-reflection only.** The stops a *clipped* highlight is taken to have been above what the frame recorded. The negative's exposure has each pixel scaled by 2^(headroom · s), s the product of two smoothsteps of the pixel's brightest channel: within a stop of the frame's own maximum (full from a quarter stop under it), and +1.5 … +2.5 EV over mid-grey. A lamp clipped at +3.5 EV exposes the film as a +7.5 EV lamp would — its halo, and its core on the film's shoulder (a clipped red tube's core prints pink-white inside a red halo); a face auto-exposure lifted to +2.5 EV on a night frame, three stops under the lamps, is left alone. `0` is the recorded frame. Native-only, SHOOT, not live, after `camera_filter` |
 
-The frame's maximum is reduced by the whole-frame `film_boost` stage and handed to the banded
-`film_blurs` stage. Measured canvas against export (live 1200 px vs full downscaled): the halo's
-energy is 0.90–1.02 of the export's, and the frame's mean difference is no larger than plain
-500T's. The kernel `spk_halation_driver` is Metal only: the Vulkan backend refuses a
-back-reflection film at dispatch.
+`node_headroom` runs in the whole-frame `film_boost` stage, after `boost` (the frame's maximum is
+its statistic) and **before `film_overscan`**: the edge print, fog and date are exposures the engine
+knows exactly, and halate at what they are. Measured canvas against export (live 1200 px vs full
+downscaled): the halo's energy is 0.83–1.01 of the export's (the low end a frame of tiny lights), and the frame's mean difference is no
+larger than plain 500T's. The kernel `spk_highlight_headroom` is Metal only: the Vulkan backend
+refuses a back-reflection film at dispatch.

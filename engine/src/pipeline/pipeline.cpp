@@ -944,6 +944,47 @@ bool Pipeline::node_boost(const Image& in, Image& out, std::string& error) {
                           in.elements(), error);
 }
 
+// **The headroom a digital frame clipped off, given back to the negative.** A
+// film with no anti-halation layer halates in proportion to the *scene's*
+// light, and a lamp a camera clipped at +3.5 EV was +8 or more: its halo is
+// that energy times a few tenths of a percent, so a clipped lamp throws almost
+// none. Each pixel is scaled by 2^(headroom * s), s the product of two
+// smoothsteps of its brightest channel -- within a stop of the frame's own
+// maximum (a digital frame's clip is its brightest exposure; Core Image's RAW
+// decode rounds a clipped lamp into a dome, so the clip is a band, not a
+// value), and over a floor above mid-grey (a dim frame's brightest pixel is not
+// a lamp). A face auto-exposure lifted to +2.5 EV on a night frame is three
+// stops under the lamps and is left alone.
+//
+// Here, in the whole-frame stage, because the maximum is a statistic of the
+// frame; and before `film_overscan`, because the edge print, fog and date are
+// exposures the engine knows exactly and must halate at what they are. Only
+// for a film with no layer: every other film is what it always was.
+bool Pipeline::node_headroom(const Image& in, Image& out, std::string& error) {
+    const HalationParams& hal = params_.film_render.halation;
+    if (!(hal.active && hal.back_reflection && hal.headroom_ev > 0.0 && hal.halation_amount > 0.0 &&
+          hal.headroom_to_ev > hal.headroom_from_ev)) {
+        out = in;
+        return true;
+    }
+    Timer t(this, "filming.expose.headroom");
+    double clip = 0.0;
+    if (!device_max(in, clip, error)) return false;
+    if (!(clip > 0.0)) { out = in; return true; }
+    const float p[7] = {float(1.0 / clip), float(kHeadroomClipFromEv),
+                        float(1.0 / (kHeadroomClipToEv - kHeadroomClipFromEv)),
+                        float(hal.headroom_ev), float(1.0 / kMidgray), float(hal.headroom_from_ev),
+                        float(1.0 / (hal.headroom_to_ev - hal.headroom_from_ev))};
+    gpu::BufferRef p_buf = gpu_->upload(p, sizeof p, error);
+    if (!p_buf) return false;
+    if (!alloc_like(in, out, error)) return false;
+    const uint32_t n[1] = {uint32_t(in.pixels())};
+    return gpu_->dispatch("spk_highlight_headroom",
+                          {gpu::Arg::buf(in.buf), gpu::Arg::buf(p_buf), gpu::Arg::inline_bytes(n, 1),
+                           gpu::Arg::buf(out.buf)},
+                          in.pixels(), error);
+}
+
 // --- the sigmas, in one place, because a demand must agree with its node ----
 //
 // Each of these was the first line of the node below it. They are members now
@@ -1191,34 +1232,8 @@ bool Pipeline::node_halation(const Image& in, Image& out, std::string& error) {
             fill3(a, 1.0);
             for (int c = 0; c < 3; ++c) b[c] = a_tot[c];
         }
-        // The light the base throws back is the *scene's*, and a clipped lamp
-        // recorded at +3.5 EV was +8 or more: the back-reflection halo is
-        // driven by the frame with its clipped highlights given that headroom
-        // back (`HalationParams::headroom_ev`). "Clipped" is read as "near the
-        // frame's own maximum" (`halation_clip_`, the whole-frame stage's) --
-        // a face that auto-exposure lifted to +2.5 EV on a night frame is three
-        // stops under the lamps and is left alone -- and "a highlight at all"
-        // as the floor over mid-grey, so a dim frame's brightest pixel is not
-        // a lamp. Pointwise, so a band computes it exactly; the image itself
-        // keeps what was recorded.
-        Image driver = raw;
-        if (hal.back_reflection && hal.headroom_ev > 0.0 && halation_clip_ > 0.0 &&
-            hal.headroom_to_ev > hal.headroom_from_ev) {
-            const float p[7] = {float(1.0 / halation_clip_), float(kHeadroomClipFromEv),
-                                float(1.0 / (kHeadroomClipToEv - kHeadroomClipFromEv)),
-                                float(hal.headroom_ev), float(1.0 / kMidgray), float(hal.headroom_from_ev),
-                                float(1.0 / (hal.headroom_to_ev - hal.headroom_from_ev))};
-            gpu::BufferRef p_buf = gpu_->upload(p, sizeof p, error);
-            if (!p_buf) return false;
-            if (!alloc_like(raw, driver, error)) return false;
-            const uint32_t n[1] = {uint32_t(raw.pixels())};
-            if (!gpu_->dispatch("spk_halation_driver",
-                                {gpu::Arg::buf(raw.buf), gpu::Arg::buf(p_buf), gpu::Arg::inline_bytes(n, 1),
-                                 gpu::Arg::buf(driver.buf)},
-                                raw.pixels(), error)) return false;
-        }
         Image hb;
-        if (!blur_.mixture(driver, blurs.bounces, hb, error)) return false;
+        if (!blur_.mixture(raw, blurs.bounces, hb, error)) return false;
         Image mixed;
         if (!blur_.lincomb(raw, hb, a, b, mixed, error)) return false;
         raw = mixed;
@@ -1916,14 +1931,7 @@ bool Pipeline::film_boost(const Chain& in, Chain& out, std::string& error) {
     // side stay contiguous.
     Image cur = in.cur, next;
     SPK_NODE(node_boost(cur, next, error)); cur = next;
-    // The back-reflection halo's headroom is for what the frame *clipped*, and
-    // a digital frame's clip is its own brightest exposure: a statistic of the
-    // frame, so it is taken here, whole, for the banded halation stage.
-    halation_clip_ = 0.0;
-    const HalationParams& hal = params_.film_render.halation;
-    if (hal.active && hal.back_reflection && hal.headroom_ev > 0.0 && hal.halation_amount > 0.0) {
-        if (!device_max(cur, halation_clip_, error)) return false;
-    }
+    SPK_NODE(node_headroom(cur, next, error)); cur = next;
     out = in;
     out.cur = cur;
     return true;

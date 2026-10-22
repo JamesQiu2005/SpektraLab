@@ -72,6 +72,8 @@ FORMATS = {
     "kodak_vision3_250d": ["16mm", "35mm_motion"],
     "kodak_vision3_500t": ["16mm", "super8", "35mm_motion"],
     "kodak_vision3_50d": ["16mm", "super8", "35mm_motion"],
+    # CineStill 800T: Vision3 500T without its rem-jet, sold for still cameras
+    "cinestill_800t": ["135", "120"],
     # the black-and-white films: each maker's own sheet lists 135 and 120
     "kodak_tri_x_400": ["135", "120"],
     "kodak_tmax_100": ["135", "120"],
@@ -85,7 +87,12 @@ def main() -> None:
     luts = json.loads(PRINT_LUTS.read_text())
     stocks = []
     for path in sorted([*PROFILES.glob("*.json"), *PRODUCT_PROFILES.glob("*.json")], key=lambda f: f.stem):
-        info = json.loads(path.read_text())["info"]
+        doc = json.loads(path.read_text())
+        info = doc["info"]
+        if "derived_from" in doc:
+            # An alias (CineStill 800T): the base's info with the alias's own
+            # keys over it, as the engine's `load_profile` reads it.
+            info = {**json.loads((PROFILES / f"{doc['derived_from']}.json").read_text())["info"], **info}
         sid = path.stem
         cover = None
         if sid in COVERS:

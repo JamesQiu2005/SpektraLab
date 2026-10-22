@@ -96,11 +96,12 @@ struct HalationParams {
     /// recorded a highlight is taken to have been, in stops. A digital frame
     /// clips a lamp at +3..+4 EV over mid-grey where the scene had +8..+12, and
     /// the halo is the source's *energy* times a few tenths of a percent, so a
-    /// clipped lamp throws almost none. The halo's light (never the image's)
-    /// is lifted by 2^(headroom * s), s the product of two smoothsteps of the
-    /// pixel's brightest channel: within a stop of the frame's own maximum
-    /// (`kHeadroomClipFromEv`), and at least `headroom_from_ev` ..
-    /// `headroom_to_ev` over mid-grey. 0 is the recorded frame as it is.
+    /// clipped lamp throws almost none. The negative's exposure is lifted by
+    /// 2^(headroom * s) before the film edge is laid out (`node_headroom`), s
+    /// the product of two smoothsteps of the pixel's brightest channel: within
+    /// a stop of the frame's own maximum (`kHeadroomClipFromEv`), and at least
+    /// `headroom_from_ev` .. `headroom_to_ev` over mid-grey. The halo and the
+    /// film's shoulder both see it. 0 is the recorded frame as it is.
     double headroom_ev = 4.0;
     double headroom_from_ev = 1.5;
     double headroom_to_ev = 2.5;
