@@ -93,6 +93,12 @@ if(NOT APPLE)
 
     # Headers: the pinned Khronos tree when setup-deps.sh fetched it, else an
     # installed SDK or the system's. Only headers -- volk loads the loader.
+    # build-windows.ps1 and windows_UI/build.ps1 pass the older
+    # SPEKTRALAB_VULKAN_INCLUDE_DIR spelling; accept it as an alias.
+    if(SPEKTRALAB_VULKAN_INCLUDE_DIR AND NOT SPEKTRALAB_VULKAN_HEADERS)
+        set(SPEKTRALAB_VULKAN_HEADERS "${SPEKTRALAB_VULKAN_INCLUDE_DIR}" CACHE PATH
+            "Vulkan headers directory" FORCE)
+    endif()
     find_path(SPEKTRALAB_VULKAN_HEADERS vulkan/vulkan_core.h
         HINTS "${SPEKTRALAB_DEPS_DIR}/Vulkan-Headers/include" "$ENV{VULKAN_SDK}/Include"
               "$ENV{VULKAN_SDK}/include"
@@ -187,6 +193,11 @@ if(NOT APPLE)
                 target_link_libraries(spk_desktop_host PUBLIC spk_image_io spektralab_engine)
                 add_executable(SpektraLab WIN32 tools/windows_preview.cpp)
                 target_link_libraries(SpektraLab PRIVATE spk_desktop_host comctl32 comdlg32 shell32 gdi32 user32)
+                if(MINGW)
+                    # MinGW defaults to WINVER 0x0601, which hides the DPI APIs this
+                    # host calls (GetDpiForWindow, SetProcessDpiAwarenessContext).
+                    target_compile_definitions(SpektraLab PRIVATE WINVER=0x0A00 _WIN32_WINNT=0x0A00)
+                endif()
                 file(MAKE_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}/licenses")
                 foreach(notice LICENSE SPEKTRAFILM_LICENSE.txt)
                     configure_file("${CMAKE_CURRENT_SOURCE_DIR}/../license/${notice}" "licenses/${notice}" COPYONLY)
