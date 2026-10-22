@@ -827,6 +827,11 @@ private:
     bool bw_active_ = false;
     double y_black_ = 0.0, y_white_ = 1.0;
     double black_level_ = 0.0, white_level_ = 1.0;
+    /// The frame's brightest exposure, taken by the whole-frame `film_boost`
+    /// stage for the back-reflection halo's headroom gate (`node_halation`),
+    /// which runs later on bands and cannot reduce over the frame itself.
+    /// 0 when the gate is not wanted this frame.
+    double halation_clip_ = 0.0;
     Vec log_raw_print_black_, log_raw_print_white_;
     bool have_print_references_ = false;
 

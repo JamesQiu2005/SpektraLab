@@ -998,3 +998,33 @@ any other value is refused with the list.
   whose sensitivity has the same table baked in to 2/255; a live session re-develops and returns;
   the 135 and 645 rebates change by at most 1/255 under `w25`.
 - Not verified: colour stocks beyond one render; the app has no control for it.
+
+## 16. CineStill 800T — the back-reflection halo and `halation_headroom_ev` (2026-10-23, branch `cinestill-800t`)
+
+**`film_stock: "cinestill_800t"`** is a product profile (`engine/resources_product/profiles/`) and
+an **alias**: `"derived_from": "kodak_vision3_500t"` with only `info` keys of its own (`name`,
+`use: still`, `antihalation: no`). The engine loads the base's data whole and lays the alias's
+`info` over it (`load_profile`); the neutral print pack falls back to the base's row. The film's
+stock in replies and in the setup cache is `cinestill_800t`.
+
+**A film with no anti-halation layer** — the `no` tag, or any film under `antihalation_removed` —
+now takes the **back-reflection** halo instead of the reference's three Gaussian bounces. The base's
+rear face reflects the light the emulsion scatters into it (Fresnel inside the critical angle, all
+of it past 42.5°), so a point light exposes a faint disc, a dark gap and a ring at
+r_c = 2 d tan θc = 1.83 d, then a cos⁴ tail; the emulsion's re-scatter (35 %) sums further bounces.
+`engine/tests/halation_psf_fit.py` integrates it and fits the four-Gaussian kernel in
+`engine/src/core/halation_psf.hpp`; d = 120 µm, which is what a CineStill scan measures (the flat
+orange band beside a tube light ends at 0.21 mm). Strengths R/G/B 0.30 / 0.03 / 0.003.
+`halation_amount` stays an area multiplier (d scales with its square root). Films with a layer are
+unchanged byte for byte. **The Python reference's `no` preset is the Gaussian one; there is no
+parity case for it.**
+
+| field | path | type | default | range | meaning |
+|---|---|---|---|---|---|
+| `halation_headroom_ev` | `film_render.halation.headroom_ev` | float | `4.0` | 0–8 | **back-reflection only.** The stops a *clipped* highlight is taken to have been above what the frame recorded. The halo's light — never the image — is the frame with each pixel scaled by 2^(headroom · s), s the product of two smoothsteps of the pixel's brightest channel: within a stop of the frame's own maximum (full from a quarter stop under it), and +1.5 … +2.5 EV over mid-grey. A lamp clipped at +3.5 EV throws the halo of a +7.5 EV lamp; a face auto-exposure lifted to +2.5 EV on a night frame, three stops under the lamps, is left alone. `0` is the recorded frame. Native-only, SHOOT, not live, after `camera_filter` |
+
+The frame's maximum is reduced by the whole-frame `film_boost` stage and handed to the banded
+`film_blurs` stage. Measured canvas against export (live 1200 px vs full downscaled): the halo's
+energy is 0.90–1.02 of the export's, and the frame's mean difference is no larger than plain
+500T's. The kernel `spk_halation_driver` is Metal only: the Vulkan backend refuses a
+back-reflection film at dispatch.

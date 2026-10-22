@@ -324,6 +324,13 @@ NATIVE_ONLY = {
         "path": "camera.filter", "type": "str", "layer": "shoot",
         "default": "", "live": False, "range": None,
     },
+    # The stops a clipped highlight is given back for the back-reflection halo
+    # (a film with no anti-halation layer). The reference's "no" preset is
+    # Gaussian bounces and has no such model.
+    "halation_headroom_ev": {
+        "path": "film_render.halation.headroom_ev", "type": "float", "layer": "shoot",
+        "default": 4.0, "live": False, "range": [0.0, 8.0],
+    },
 }
 
 

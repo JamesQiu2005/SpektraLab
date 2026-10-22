@@ -1,6 +1,7 @@
 #include "params.hpp"
 
 #include "camera_filters.hpp"
+#include "halation_psf.hpp"
 
 #include <cmath>
 #include <cstring>
@@ -204,6 +205,10 @@ const SchemaField kFields[] = {
     // The lens's colour filter (B&W research, 2026-10-07). Native only. SHOOT:
     // it changes the light the negative is made of.
     {"camera_filter",            "camera.filter",                         S, SHOOT, false, 0, 0, false},
+    // The stops a recorded highlight is taken to have been clipped by, for the
+    // back-reflection halo only (a film with no anti-halation layer). Native
+    // only, SHOOT, after `camera_filter`. Every film with a layer ignores it.
+    {"halation_headroom_ev",     "film_render.halation.headroom_ev",      F, SHOOT, true, 0.0, 8.0, false},
     // The app's *preview resolution*: the `live` tier's long edge, and so the
     // size every interactive edit renders at. PRINT layer, because it is a
     // decision about the canvas rather than about the film -- but it is one of
@@ -229,6 +234,7 @@ double* float_slot(Params& p, const std::string& path) {
     if (path == "camera.lens_blur_um") return &p.camera.lens_blur_um;
     if (path == "film_render.halation.halation_amount") return &p.film_render.halation.halation_amount;
     if (path == "film_render.halation.boost_ev") return &p.film_render.halation.boost_ev;
+    if (path == "film_render.halation.headroom_ev") return &p.film_render.halation.headroom_ev;
     if (path == "film_render.dir_couplers.amount") return &p.film_render.dir_couplers.amount;
     if (path == "film_render.density_curve_gamma") return &p.film_render.density_curve_gamma;
     if (path == "io.geometry.crop_x") return &p.io.geometry.crop_x;
@@ -531,6 +537,7 @@ void apply_halation_preset(Params& p) {
         p.film_render.halation.halation_strength[c] = defaults.halation_strength[c];
         p.film_render.halation.halation_first_sigma_um[c] = defaults.halation_first_sigma_um[c];
     }
+    p.film_render.halation.back_reflection = false;
     const std::string& use = p.film.info.use;
     const std::string ah = p.film_render.halation.antihalation_removed ? std::string("no")
                                                                        : p.film.info.antihalation;
@@ -538,11 +545,14 @@ void apply_halation_preset(Params& p) {
     double s0, s1, s2;
     if (ah == "strong") { s0 = 0.015; s1 = 0.005; s2 = 0.0; }
     else if (ah == "weak") { s0 = 0.08; s1 = 0.02; s2 = 0.0; }
-    else if (ah == "no") { s0 = 0.30; s1 = 0.10; s2 = 0.015; }
+    else if (ah == "no") { s0 = kBackReflectionStrength[0]; s1 = kBackReflectionStrength[1]; s2 = kBackReflectionStrength[2]; }
     else return;   // an unknown tag leaves the defaults, as the dict lookup does
     if (use != "still" && use != "cine") return;
     set3(p.film_render.halation.halation_first_sigma_um, sigma, sigma, sigma);
     set3(p.film_render.halation.halation_strength, s0, s1, s2);
+    // No layer at all: the rear face of the base is a mirror, and the halo is
+    // its geometry (`HalationParams::back_reflection`), not a Gaussian guess.
+    p.film_render.halation.back_reflection = ah == "no";
 }
 
 namespace {
