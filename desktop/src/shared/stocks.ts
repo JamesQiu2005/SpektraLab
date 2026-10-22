@@ -12,6 +12,8 @@ export interface Stock {
   pairedFilm?: string | null;
   cover?: string | null;
   formats?: string[] | null;
+  /** A silver-emulsion film or paper; absent on colour profiles. */
+  monochrome?: boolean;
 }
 
 export class StockCatalog {
@@ -31,13 +33,24 @@ export class StockCatalog {
   isPositive(id: string) {
     return this.stock(id)?.type === 'positive';
   }
+  isMonochrome(id: string) {
+    return this.stock(id)?.monochrome === true;
+  }
+  canPrint(film: string, paper: string) {
+    const f = this.stock(film), p = this.stock(paper);
+    // Unknown or not-yet-loaded IDs must still reach the engine's own validation.
+    return !f || !p || !!f.monochrome === !!p.monochrome;
+  }
   /** Still first, then cine, as the Mac picker orders them; then by polarity. */
-  filmGroups(): { title: 'Positive' | 'Negative'; films: Stock[] }[] {
+  filmGroups(): { title: 'Positive' | 'Negative' | 'Black & White'; films: Stock[] }[] {
     const ordered = [...this.films.filter((s) => s.use !== 'cine'), ...this.films.filter((s) => s.use === 'cine')];
-    return [
+    const groups: ReturnType<StockCatalog['filmGroups']> = [
       { title: 'Positive', films: ordered.filter((s) => s.type === 'positive') },
-      { title: 'Negative', films: ordered.filter((s) => s.type !== 'positive') },
+      { title: 'Negative', films: ordered.filter((s) => s.type !== 'positive' && !s.monochrome) },
     ];
+    const mono = ordered.filter((s) => s.type !== 'positive' && s.monochrome);
+    if (mono.length) groups.push({ title: 'Black & White', films: mono });
+    return groups;
   }
   paperGroups(): { title: 'Still' | 'Cine'; papers: Stock[] }[] {
     return [

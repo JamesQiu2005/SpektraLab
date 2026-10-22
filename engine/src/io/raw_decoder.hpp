@@ -71,9 +71,13 @@ struct RawMetadata {
     std::uint32_t process_warnings = 0;
     // Row-major 3 x 4 camera-to-linear-sRGB matrix used by LibRaw.
     std::array<float, 12> rgb_cam{};
-    // Opt-in headroom policy only. The matrix is LibRaw's actual camera-to-
+    int colour_channels = 0;
+    // XYZ -> camera, the same D65 calibration used for host Kelvin/tint.
+    std::array<float, 9> camera_from_xyz{};
+    // The matrix is LibRaw's actual camera-to-
     // ProPhoto matrix, captured at its float conversion boundary. The scale
-    // restores the min-WB exposure convention after max-WB normalisation.
+    // restores the min-WB exposure convention after max-WB normalisation
+    // only in headroom mode. Captured in both modes for source-neutral picking.
     bool headroom_enabled = false;
     double white_balance_exposure_restore = 1.0;
     std::array<float, 12> camera_to_output{};
@@ -116,6 +120,12 @@ bool decode_raw_compatible(const std::filesystem::path& source, const std::array
 // Unsupported sensor/layout/WB cases fail explicitly; compatible16 is never
 // substituted. On failure, out is unchanged.
 bool decode_raw_headroom(const std::filesystem::path& source,
+                         DecodedRaw& out, std::string& error);
+
+// The same expanded-output policy with caller-selected RAW white balance.
+// The applied multipliers are still max-normalised before AHD and exposure
+// restoration uses that actual selected WB, not the camera's as-shot value.
+bool decode_raw_headroom(const std::filesystem::path& source, const std::array<float, 4>* user_mul,
                          DecodedRaw& out, std::string& error);
 
 }  // namespace spk::io

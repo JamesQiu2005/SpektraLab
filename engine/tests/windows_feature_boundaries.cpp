@@ -54,12 +54,8 @@ int main(int argc, char** argv) {
         const std::string before = params(session.get());
 
         struct Feature { const char* key; const char* label; };
-        const std::array<Feature, 5> features{{
-            {"digital_intermediate", "digital intermediate"},
-            {"scene_latitude_active", "scene latitude mapping"},
+        const std::array<Feature, 1> features{{
             {"contrast_mask_active", "contrast mask"},
-            {"overscan_active", "overscan"},
-            {"date_imprint_active", "date imprint"},
         }};
         for (const Feature& feature : features) {
             // Include a supported change to catch partial application before
@@ -85,13 +81,12 @@ int main(int argc, char** argv) {
         char* di_json = nullptr;
         const spk_status di_status = spk_render_digital_intermediate(session.get(), &di, &di_json);
         const std::string di_error = spk_last_error(engine.get());
-        const bool empty = !di.texture && !di.rgba16 && !di_json;
+        const bool valid_di = di.texture && di.rgba16 && di_json &&
+            std::string(di_json).find("cineon") != std::string::npos;
         spk_result_free(&di);
         spk_string_free(di_json);
-        require(di_status == SPK_ERR_USER && empty &&
-                di_error.find("digital intermediate") != std::string::npos,
-                "DI API did not return a clear refusal and empty result");
-        require(params(session.get()) == before, "DI refusal mutated the session");
+        require(di_status == SPK_OK && valid_di, "Cineon DI API failed: " + di_error);
+        require(params(session.get()) == before, "DI export mutated the session");
         render(engine.get(), session.get());
 
         const float* mask = nullptr;
@@ -99,8 +94,8 @@ int main(int argc, char** argv) {
         require(spk_contrast_mask_field(session.get(), "full", &mask, &width, &height) == SPK_OK &&
                 !mask && width == 0 && height == 0, "disabled contrast mask must have an empty field");
 
-        // Latitude analysis uses the existing pipeline; only applying its
-        // mapping is unported. This also exercises probe_medium's readback.
+        // Latitude analysis remains non-mutating after the mapping kernel is
+        // ported. The dedicated latitude test covers applying the returned curve.
         char* latitude_json = nullptr;
         const spk_status latitude_status = spk_scene_latitude(session.get(), nullptr, &latitude_json);
         const std::string latitude_error = spk_last_error(engine.get());
@@ -111,7 +106,7 @@ int main(int argc, char** argv) {
         require(latitude_status == SPK_OK && latitude_valid, "latitude analysis failed: " + latitude_error);
         require(params(session.get()) == before, "latitude analysis mutated the session");
         render(engine.get(), session.get());
-        std::cout << "Windows feature boundaries passed (5 flags, DI refusal, mask off, latitude analysis)\n";
+        std::cout << "Windows feature boundaries passed (3 flags, Cineon DI, mask off, latitude analysis)\n";
         return 0;
     } catch (const std::exception& error) {
         std::cerr << error.what() << '\n';

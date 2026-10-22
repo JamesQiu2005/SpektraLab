@@ -1,0 +1,54 @@
+#version 450
+
+// RFC-023, arithmetic and parameters from scene_latitude.metal. Negative
+// signal components survive: only the scalar norm uses the positive triple.
+layout(local_size_x = 256) in;
+layout(set = 0, binding = 0, std430) readonly buffer Input { float v[]; } rgb;
+layout(set = 0, binding = 1, std430) readonly buffer Parameters { float v[]; } p;
+layout(set = 0, binding = 2, std430) readonly buffer Count { uint v[]; } n;
+layout(set = 0, binding = 3, std430) writeonly buffer Output { float v[]; } dst;
+
+float departure(float D, float H, float m) {
+    if (!(D > 0.0)) return 0.0;
+    if (m == 2.0) {
+        precise float r = sqrt(H * H + D * D);
+        return -(D * D * D) / (r * (H + r));
+    }
+    if (m == 1.0) return -(D * D) / (H + D);
+    return D * (H / pow(pow(H, m) + pow(D, m), 1.0 / m) - 1.0);
+}
+
+void main() {
+    uint i = gl_GlobalInvocationID.y * (gl_NumWorkGroups.x * gl_WorkGroupSize.x) + gl_GlobalInvocationID.x;
+    if (i >= n.v[0]) return;
+    float r = rgb.v[3u * i], g = rgb.v[3u * i + 1u], b = rgb.v[3u * i + 2u];
+    float cr = max(r, 0.0), cg = max(g, 0.0), cb = max(b, 0.0);
+    precise float value;
+    uint norm = uint(p.v[6]);
+    if (norm == 1u) value = p.v[7] * cr + p.v[8] * cg + p.v[9] * cb;
+    else if (norm == 2u) value = max(cr, max(cg, cb));
+    else {
+        precise float s2 = cr * cr + cg * cg + cb * cb;
+        value = s2 > 0.0 ? (cr * cr * cr + cg * cg * cg + cb * cb * cb) / s2 : 0.0;
+    }
+    precise float k = 1.0;
+    if (value > 0.0 && !isnan(value) && !isinf(value)) {
+        float ref = p.v[10];
+        float E = clamp(log2(max(value, ref * exp2(-24.0)) / ref), -24.0, 24.0);
+        precise float d = 0.0;
+        float Kh = p.v[0], Hh = p.v[1], Ks = p.v[2], Hs = p.v[3];
+        if (p.v[13] > 0.0) {
+            uint w = uint(p.v[11]), h = uint(p.v[12]);
+            float along = w >= h ? (float(i % w) + 0.5) / float(w)
+                : (float(i / w) + p.v[18] + 0.5) / float(h);
+            if (along >= p.v[13]) { Kh = p.v[14]; Hh = p.v[15]; Ks = p.v[16]; Hs = p.v[17]; }
+        }
+        if (Hh > 0.0 && E > Kh) d = departure(E - Kh, Hh, p.v[4]);
+        else if (Hs > 0.0 && E < Ks) d = -departure(Ks - E, Hs, p.v[4]);
+        if (d > 0.0) { float L = p.v[5]; d = d * L / sqrt(L * L + d * d); }
+        k = clamp(exp2(d), exp2(-30.0), exp2(30.0));
+    }
+    dst.v[3u * i] = r * k;
+    dst.v[3u * i + 1u] = g * k;
+    dst.v[3u * i + 2u] = b * k;
+}

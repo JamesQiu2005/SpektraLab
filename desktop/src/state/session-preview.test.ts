@@ -177,10 +177,12 @@ describe('processed preview scheduling', () => {
     await vi.advanceTimersByTimeAsync(0);
     const open = fake.logs.find((message) => message.startsWith('session: open '));
     expect(open).toContain('"raw":{"open":1,"unpack":2,"process":3,"convert":4,"total":10,"openmp_enabled":true,"workers":8}');
-    expect(fake.logs.filter((message) => message.includes('"event":"committed"'))).toHaveLength(1);
+    const engineEvents = () => fake.logs.filter((message) => message.startsWith('session: first_view '));
+    expect(engineEvents().filter((message) => message.includes('"event":"committed"'))).toHaveLength(1);
     expect(fake.logs.some((message) => message.includes('"event":"draw_submitted"'))).toBe(false);
     session.notePreviewDrawn();
     session.notePreviewDrawn();
-    expect(fake.logs.filter((message) => message.includes('"event":"draw_submitted"'))).toHaveLength(1);
+    expect(engineEvents().filter((message) => message.includes('"event":"draw_submitted"'))).toHaveLength(1);
+    expect(fake.logs.filter((message) => message.startsWith('session: preview_visible ') && message.includes('"event":"draw_submitted"'))).toHaveLength(1);
   });
 });

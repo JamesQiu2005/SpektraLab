@@ -13,7 +13,7 @@ export interface StockRow {
 
 export function StockList({ rows, selected, onSelect, testId }: { rows: StockRow[]; selected: string; onSelect: (id: string) => void; testId?: string }) {
   return (
-    <div role="listbox" data-testid={testId}>
+    <div role="listbox" className="stock-list" data-testid={testId}>
       {rows.map((r) =>
         r.header ? (
           <div key={r.id} className="stock-group">

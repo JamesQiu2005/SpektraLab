@@ -1,0 +1,4 @@
+#version 450
+#extension GL_GOOGLE_include_directive : require
+#define SPK_DI_VIEW
+#include "spk_view_grade_body.glsl"

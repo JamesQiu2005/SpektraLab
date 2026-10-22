@@ -19,6 +19,7 @@
 #include <string>
 
 class LibRaw;
+namespace spk::io { struct RawMetadata; }
 
 namespace spkhost {
 
@@ -29,5 +30,12 @@ void xy_to_temperature_tint(double x, double y, double& temperature_k, double& t
 bool as_shot_temperature_tint(const LibRaw& raw, double& temperature_k, double& tint);
 bool multipliers_for(const LibRaw& raw, double temperature_k, double tint, std::array<float, 4>& mul,
                      std::string& error);
+
+// Undo only the source decoder's matrix and chosen WB on an unclipped neutral
+// patch. No film/print/postprocess pixels are used. Same single-D65-camera-matrix
+// approximation as multipliers_for(), without reopening or retaining LibRaw.
+bool neutral_temperature_tint(const spk::io::RawMetadata& metadata,
+                              const std::array<double, 3>& linear_prophoto,
+                              double& temperature_k, double& tint, std::string& error);
 
 }  // namespace spkhost

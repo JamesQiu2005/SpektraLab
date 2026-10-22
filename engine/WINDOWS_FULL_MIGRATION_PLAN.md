@@ -1,6 +1,6 @@
 # Windows 完整功能迁移评估与路线图
 
-评估日期：2026-10-18。状态：**源码审计与实施建议，尚未执行本计划的功能迁移**。
+评估日期：2026-10-18。状态：**实施中；下表保留最初审计差距，阶段验证进展见末尾。未完成全部功能与发布验收。**
 
 ## 1. 对齐目标与证据边界
 
@@ -117,4 +117,20 @@
 - Mac 对照：`../modern_UI/Spektrafilm/Spektrafilm/Export/{SoftProof,Exporter,ExportRecipe}.swift`，`Canvas/{ColourManagement,Renderer,MetalCanvasView,CineonLUT}.swift`，`Import/ImageDecoder.swift`，`Model/{HalfFramePair,Sidecar}.swift`，`Diagnostics/DiskCacheStore.swift` 和 `Agent/`。上述 Import/Canvas/Export 相关文件与本次远端固定基线内容核对一致。
 - 最新 `Model/Params.swift`、`StockCatalog.swift`、`Latitude.swift`、`Session.swift`、黑白资源声明及相关共享 C++ 的固定版本位于本轮 validation 快照；不能用较早的本地 Swift 副本推断其新功能。
 
-本次只新增评估文档和 validation 证据，未修改功能源码、提交 Git 或制作便携包。后续实施以本路线图为验收清单，阶段结束更新状态，不把建议提前标记为完成。
+## 8. 实施进展
+
+- M0：内存优化基线已保存并推送 `codex/windows-memory-baseline-20261018`，提交 `bbbc9dc8687209eadeb439d1c6efad82fe99ad50`；受保护的 `Windows_Linux` 通过 [PR #9](https://github.com/JamesQiu2005/SpektraLab/pull/9) 审查，尚未合并。迁移在独立分支 `codex/windows-full-migration-20261018` 中进行。
+- F01–05：黑白材料及配对、场景置位、五空间软打样与导出、Cineon 已通过针对性的数值或宿主回归；实际 Windows 窗口已验证 Provia 正片、Tri-X 400 与 Ilford 相纸切换，以及含 Display P3 ICC/EXIF 的完整 JPEG 导出。其余组合以对应宿主/数值测试为依据，不宣称已逐项在 Mac 对照。
+- F09：高光模式自定义白平衡、中性点取样、当前解码原图已接通。完整 Sony ARW 的旧三种解码与基线逐字节一致；新高光自定义白平衡的 1/2/4/8 线程输出一致。
+- F11：静态 HEIC/EXR/LittleCMS 依赖及主机输入已接通，浮点范围、中文路径、RGB LUT ICC 和自有 HEIC 测试通过。HDR PQ/HLG HEIC 和 deep EXR 仍明确拒绝；外部 Mac 解码对照未完成。
+- F06–08：片边、日期曝光及半格拼片已接通 Vulkan、宿主、侧车、编辑器和导出。原上游片边检查语料及新增黑白片边通过；双片独立后期、缓存颗粒、实际测光、缺片/取消、固定快照导出与 proof 一致性通过。完整 ARW 双孔中性点校准、缓存命中后保留校准、曝光不变性及间隙拒绝通过。实际窗口已验证片边、日期和双孔文件选择器；原生内部拖放受 Tauri 阻挡的问题已用指针手势修复；最终 EXE 的拖入空孔、双孔渲染及排序保持编辑实测通过。
+- F10：固定 Lensfun/GLib 静态依赖、相机/镜头唯一匹配及畸变/TCA/暗角处理通过 CPU 合成八方向测试与完整 Sony ARW 两种解码模式测试。校正关闭后原图逐字节恢复。缺失或含糊标定明确拒绝；这不是 Apple 镜头处理的像素一致性证明。
+- F12：RGBA16 预览传输、整数纹理与手动插值、可用时 RGBA16F drawing buffer 已接通。真实 Chromium/SwiftShader 的 129 级梯度及隐藏扩展后的 8 位回退测试通过；显示器最终输出位深仍需实机验证。
+- F13–14：Windows 文件身份恢复和拖拽排序、面板尺寸、画线拉直已有针对性测试。半格拖入、顺序保存、取景拖动及撤销的浏览器回归通过；原生窗口与浏览器均使用指针手势，保留外部文件拖入；阻断 HTML5 拖放的浏览器回归和真实 Windows 窗口回归均通过。
+- F15：跨启动有界显示缓存、版本键、源文件变化、损坏恢复、清理和设置已实现；Rust 与前端缓存回归通过。Windows 存储最终显示帧，原生引擎仍后台解码，不能将显示缓存命中算作 RAW 解码已完成。
+- F17–18：内存账本、缓存设置、Windows 更新检查、诊断包/日志保留和用户级 CLI/MCP 已接通。实际界面导出的诊断 ZIP 通过独立 CRC 检查。CLI 十二工具已在真实打包运行时通过显式启用、动态关闭、侧车/预览/导出、跨进程互斥及终止恢复测试；Rust 超时仍持有操作锁、部分写入超时、旧进程回收后重启均有回归。
+- 本轮原生 CTest 40/40、Python 工具测试 47/47、完整 ARW 宿主流程通过。最终前端单元 277 项通过，Rust 23 项通过、1 项子进程夹具按设计忽略。20 次连续私有导出没有持续会话/GPU 驻留增长，错误和取消后随机缓存画面逐字节恢复。真实窗口已完成中文路径完整 RAW、材料切换、片边/日期/P3、JPEG 导出、诊断及重开恢复；启动日志确认随包宿主和资源路径。原生拖拽修复及新 EXE 回归通过。便携包按最终源码、应用和许可清单制作；最终 ZIP 校验与中文路径解压启动记录见包外 portable-extraction.json。完整验收见 WINDOWS_MIGRATION_VALIDATION_20261018.md。
+- 源码与许可审查已覆盖精确工作树、固定 native 源码、当前 Windows Cargo/npm 声明、MPL 源码和 WebView2 SDK 许可。打包前重新生成源码、应用与许可树哈希，不复用后续修改之前的 inventory。
+- PR #9 的旧 smoke 将会话身份与显存驻留账本一起比较，导致三处假失败。修复将身份/数量与像素恢复分别验证；本地旧版本 smoke 已通过。[PR #11](https://github.com/JamesQiu2005/SpektraLab/pull/11) 已于 2026-10-18 11:38:56（北京时间）合并，提交 `b302e067fa30c3074e3cf9e73e080b5d85fd43fe`。[PR #9](https://github.com/JamesQiu2005/SpektraLab/pull/9) 当前仍打开且可合并，新一轮 Mac Build #73（run `39094365275`）和 Desktop #30（run `39094365309`）均成功。当前未提交的完整迁移尚未运行远端 CI，不能用基线 PR 的结果替代。
+
+实施证据位于 `D:/SpektraLab-win/validation/full-migration-20261018/`。阶段测试通过不替代 Mac/Metal、其他 GPU、真实广色域显示器及最终便携包的验收。

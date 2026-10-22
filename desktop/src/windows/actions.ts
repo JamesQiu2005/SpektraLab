@@ -3,7 +3,7 @@
 import { tz } from '../i18n';
 import { platform } from '../platform';
 import { host } from '../host/client';
-import { flushSave, openFolder, openPaths, sessionStore, setPages } from '../state/session';
+import { flushSave, openFolder, openPaths, pairComplete, sessionStore, setPages } from '../state/session';
 
 export async function openDialog() {
   if (sessionStore.getState().batchExporting) return;
@@ -34,5 +34,5 @@ export async function restartHost() {
 }
 
 export function openExport() {
-  if (sessionStore.getState().selection) setPages({ exportOpen: true });
+  if (sessionStore.getState().selection && pairComplete()) setPages({ exportOpen: true });
 }

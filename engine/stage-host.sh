@@ -34,12 +34,17 @@ cp "$repo/license/LICENSE" "$lic/SpektraLab-GPL-3.0.txt"
 cp "$repo/license/SPEKTRAFILM_LICENSE.txt" "$lic/spektrafilm-LICENSE.txt"
 cp "$repo/modern_UI/Spektrafilm/Spektrafilm/Resources/Licenses/Profiles-and-LUTs-CC-BY-SA-4.0.txt" "$lic/"
 cp "$repo/modern_UI/Spektrafilm/Spektrafilm/Resources/Licenses/Profiles-and-LUTs-CHANGELOG.txt" "$lic/"
+cp "$here/resources_product/NOTICE.md" "$lic/Product-profiles-NOTICE.md"
+cp "$here/resources_product/fonts/LICENSE" "$lic/Imprint-fonts-LICENSE.txt"
+cp "$here/third_party/stb/LICENSE" "$lic/stb-LICENSE.txt"
 cp "$deps/LibRaw-0.22.2/LICENSE.LGPL" "$lic/LibRaw-LGPL-2.1.txt"
 cp "$deps/LibRaw-0.22.2/COPYRIGHT" "$lic/LibRaw-COPYRIGHT.txt"
 cp "$here/third_party/stb/LICENSE" "$lic/stb-LICENSE.txt"
 cp "$here/third_party/volk/LICENSE.md" "$lic/volk-LICENSE.txt"
 cp "$deps/Vulkan-Headers/LICENSE.md" "$lic/Vulkan-Headers-LICENSE.txt"
 cp "$build/engine/host/third-party/codecs/"* "$lic/"
+cp "$build/engine/host/third-party/input-codecs/"* "$lic/"
+cp "$build/engine/host/third-party/lens/"* "$lic/"
 cat > "$lic/README.txt" <<'EOF'
 spektralab-host is free software under the GNU General Public License,
 version 3 or (at your option) any later version (SpektraLab-GPL-3.0.txt).
@@ -55,10 +60,24 @@ Bundled third-party components:
   libjpeg-turbo 3.2.0   IJG and BSD-3-Clause, statically linked
   libpng 1.6.59        PNG Reference Library License v2, statically linked
   zlib-ng 2.3.3        zlib license, statically linked
+  libheif 1.23.6      LGPL-3.0, statically linked, HEVC input only
+  libde265 1.1.3      LGPL-3.0, statically linked
+  OpenEXR 3.5.2      BSD-3-Clause, statically linked (plus embedded
+                      libdeflate MIT, OpenJPH BSD-2-Clause, zstd BSD-3-Clause)
+  Imath 3.2.3        BSD-3-Clause, statically linked
+  LittleCMS 2.19.1   MIT, statically linked
+  Lensfun 0.3.99    LGPL-3.0, static; bundled calibration database CC BY-SA 3.0
+  GLib 2.86.5      LGPL-2.1-or-later, static; libffi, PCRE2, proxy-libintl
+                    notices and source pins included in licenses/.
 Exact codec sources and checksums: engine/setup-codecs.sh / setup-codecs.ps1.
+Input codec sources/checksums: engine/cmake/input-codecs-pins.json;
+engine/setup-input-codecs.py builds them without fetching unpinned subprojects.
 This software is based in part on the work of the Independent JPEG Group.
-Film and paper profiles and print LUTs under engine/: CC BY-SA 4.0
+The original spektrafilm profiles and print LUTs under engine/: CC BY-SA 4.0
 (Profiles-and-LUTs-CC-BY-SA-4.0.txt, with attribution in the CHANGELOG).
+SpektraLab's black-and-white product profiles: Product-profiles-NOTICE.md.
+Embedded Liberation Sans imprint fonts: Imprint-fonts-LICENSE.txt (SIL OFL 1.1).
+stb_truetype: stb-LICENSE.txt (MIT option).
 EOF
 rm -rf "$stage"
 mv "$stage.partial" "$stage"

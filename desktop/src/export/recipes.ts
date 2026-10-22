@@ -3,7 +3,12 @@
 // Pure; `recipes.test.ts` pins the naming.
 
 export type ExportFormat = 'jpeg' | 'png' | 'tiff' | 'di';
-export type ExportSpace = 'sRGB' | 'display-p3' | 'prophoto';
+export type ExportSpace = 'sRGB' | 'display-p3' | 'prophoto' | 'adobe-rgb' | 'rec2020';
+export const EXPORT_SPACES: { value: ExportSpace; label: string }[] = [
+  { value: 'sRGB', label: 'sRGB' }, { value: 'display-p3', label: 'Display P3' },
+  { value: 'adobe-rgb', label: 'Adobe RGB (1998)' }, { value: 'prophoto', label: 'ProPhoto RGB' },
+  { value: 'rec2020', label: 'Rec.2020' },
+];
 export type NameToken = 'originalName' | 'filmStock' | 'printStock' | 'date';
 export const NAME_TOKENS: NameToken[] = ['originalName', 'filmStock', 'printStock', 'date'];
 export type ExistingPolicy = 'addSuffix' | 'overwrite' | 'skip';
@@ -15,6 +20,9 @@ export interface ExportRecipe {
   bitDepth: 8 | 16;
   colorSpace: ExportSpace;
   quality: number;
+  /** Absent in older recipes: uncompressed and no extra preview page. */
+  tiffCompression?: 'none' | 'lzw';
+  embedsPreview?: boolean;
   /** 0 = the frame's own size. */
   longEdge: number;
   folder: { kind: 'besideOriginal' } | { kind: 'fixed'; path: string };
@@ -106,6 +114,8 @@ export function decodeRecipes(raw: unknown): ExportRecipe[] {
       ...base,
       ...o,
       id: typeof o.id === 'string' ? o.id : `r${out.length}`,
+      ...(o.tiffCompression !== undefined ? { tiffCompression: o.tiffCompression === 'lzw' ? 'lzw' : 'none' } : {}),
+      ...(o.embedsPreview !== undefined ? { embedsPreview: o.embedsPreview === true } : {}),
       naming: {
         order: Array.isArray(n?.order) ? [...n.order.filter((t) => NAME_TOKENS.includes(t)), ...NAME_TOKENS.filter((t) => !n.order.includes(t))] : [...NAME_TOKENS],
         tokens: (() => {
@@ -144,6 +154,6 @@ export function editRecipe(recipes: ExportRecipe[], current: number, patch: Part
 
 export function recipeSummary(r: ExportRecipe): string {
   if (r.format === 'di') return 'Digital Intermediate';
-  const space = r.colorSpace === 'display-p3' ? 'Display P3' : r.colorSpace === 'prophoto' ? 'ProPhoto RGB' : 'sRGB';
+  const space = EXPORT_SPACES.find((space) => space.value === r.colorSpace)?.label ?? r.colorSpace;
   return `${r.format.toUpperCase()} · ${r.bitDepth} bit · ${space}`;
 }

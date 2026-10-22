@@ -11,6 +11,9 @@ import { platform, type AppPaths } from '../platform';
 import { recomputeFilmFormat, requestPrint, setPages, useSession, sessionStore } from '../state/session';
 import { INTERFACE_SCALES, PREVIEW_EDGES, settingsStore, useSettings, SETTINGS_DEFAULT } from '../state/settings';
 import { featureGate } from '@shared/params';
+import { AgentsSettings, MemorySettings, UpdateSettings } from './SettingsPages';
+import { diagnosticReport } from './diagnosticReport';
+import { DiagnosticSettings } from './DiagnosticSettings';
 
 function Frame({ open, onClose, title, children, actions, testId }: { open: boolean; onClose: () => void; title: string; children: React.ReactNode; actions?: React.ReactNode; testId?: string }) {
   return (
@@ -43,6 +46,8 @@ export function SettingsDialog() {
   const gate = useSessionGate();
   const [paths, setPaths] = useState<AppPaths | null>(null);
   const [diag, setDiag] = useState<string>('');
+  const [diagnosticPaths, setDiagnosticPaths] = useState(false);
+  const [diagnosticNotice, setDiagnosticNotice] = useState('');
   useEffect(() => {
     if (open) {
       void platform().appPaths().then(setPaths);
@@ -56,9 +61,9 @@ export function SettingsDialog() {
   return (
     <Frame open={open} onClose={() => setPages({ settingsOpen: false })} title={tz('Settings', '设置')} testId="settings">
       <div className="tabs">
-        {(['general', 'rendering', 'diagnostics'] as const).map((p) => (
+        {(['general', 'rendering', 'memory', 'diagnostics', 'agents'] as const).map((p) => (
           <button key={p} className={page === p ? 'on' : ''} onClick={() => set('settingsPage', p)}>
-            {p === 'general' ? t('setTabGeneral') : p === 'rendering' ? t('setTabRendering') : t('setTabDiagnostics')}
+            {p === 'general' ? t('setTabGeneral') : p === 'rendering' ? t('setTabRendering') : p === 'memory' ? tz('Memory', '内存') : p === 'agents' ? tz('Agents', '智能体') : t('setTabDiagnostics')}
           </button>
         ))}
       </div>
@@ -94,6 +99,7 @@ export function SettingsDialog() {
                 </button>
               </div>
             </div>
+            <UpdateSettings version={paths?.version} os={paths?.os} />
           </>
         )}
         {page === 'rendering' && (
@@ -150,6 +156,7 @@ export function SettingsDialog() {
         )}
         {page === 'diagnostics' && (
           <>
+            {open && <DiagnosticSettings paths={paths} hello={hello} includePaths={diagnosticPaths} />}
             <div className="settings-group">
               <h3>{tz('This session', '本次会话')}</h3>
               <div className="caption">
@@ -182,6 +189,23 @@ export function SettingsDialog() {
               </div>
             </div>
             <div className="settings-group">
+              <h3>{tz('Share diagnostics', '分享诊断')}</h3>
+              <ToggleRow label={tz('Include local paths and engine logs', '包含本地路径和引擎日志')} on={diagnosticPaths} onChange={setDiagnosticPaths} />
+              <p className="caption">{tz('Off by default. The basic report contains versions, GPU and capability information. Paths and logs may contain file names; nothing is uploaded automatically.', '默认关闭。基本报告包含版本、显卡及能力信息；路径和日志可能包含文件名，不会自动上传任何内容。')}</p>
+              <div className="row" style={{ gap: 8 }}>
+                <button className="btn" onClick={() => {
+                  void host().diagnostics().then((d) => { setDiag(JSON.stringify(d, null, 1)); setDiagnosticNotice(''); }).catch((e) => setDiagnosticNotice(String(e)));
+                }}>{tz('Refresh', '刷新')}</button>
+                <button className="btn" onClick={() => {
+                  void Promise.all([host().diagnostics(), host().memoryReport().catch(() => null)]).then(async ([d, memory]) => {
+                    await navigator.clipboard.writeText(JSON.stringify(diagnosticReport(paths, hello, d, diagnosticPaths, memory), null, 2));
+                    setDiagnosticNotice(tz('Diagnostics copied.', '诊断信息已复制。'));
+                  }).catch((e) => setDiagnosticNotice(String(e)));
+                }}>{tz('Copy diagnostics', '复制诊断信息')}</button>
+              </div>
+              {diagnosticNotice && <p className="caption" role="status">{diagnosticNotice}</p>}
+            </div>
+            <div className="settings-group">
               <h3>{tz('Engine host', '引擎进程')}</h3>
               <div className="mono" style={{ maxHeight: 180, overflow: 'auto' }}>
                 {diag}
@@ -189,6 +213,8 @@ export function SettingsDialog() {
             </div>
           </>
         )}
+        {open && page === 'memory' && <MemorySettings />}
+        {open && page === 'agents' && <AgentsSettings />}
       </div>
     </Frame>
   );

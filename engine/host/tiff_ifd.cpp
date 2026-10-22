@@ -1,6 +1,8 @@
 #include "tiff_ifd.hpp"
 
 #include <cstring>
+#include <algorithm>
+#include <cmath>
 
 #include "image_io.hpp"
 
@@ -127,6 +129,34 @@ bool TiffBytes::bytes(const Ifd& ifd, uint16_t tag, std::vector<uint8_t>& out) c
     return true;
 }
 
+void capture_exif_value(Metadata& meta, uint16_t tag, uint16_t type, uint32_t count,
+                        bool little, const uint8_t* data, size_t bytes) {
+    const size_t unit = TiffBytes::type_size(type);
+    if (!portable_exif_tag(tag) || !unit || type == 13 || !count || uint64_t(unit) * count != bytes || bytes > 16384 || !data) return;
+    size_t retained = 0; for (const auto& item : meta.extra_exif) retained += item.second.bytes.size();
+    // Reserve room for IFD entries and canonical fields inside JPEG's APP1.
+    // A duplicate callback replaces its old value without consuming budget twice.
+    if (const auto old = meta.extra_exif.find(tag); old != meta.extra_exif.end()) retained -= old->second.bytes.size();
+    if (retained > 32768 - bytes) return;
+    ExifValue value{type, count, std::vector<uint8_t>(data, data + bytes)};
+    const size_t endian_unit = (type == 5 || type == 10) ? 4 : unit;
+    if (!little && endian_unit > 1)
+        for (size_t at = 0; at < bytes; at += endian_unit)
+            std::reverse(value.bytes.begin() + at, value.bytes.begin() + at + endian_unit);
+    auto u16 = [&](size_t at) { return uint16_t(value.bytes[at]) | (uint16_t(value.bytes[at + 1]) << 8); };
+    auto u32 = [&](size_t at) { return uint32_t(u16(at)) | (uint32_t(u16(at + 2)) << 16); };
+    if (count == 1 && type == 3) {
+        const double number = u16(0);
+        if (tag == 0x8822 && number > 0) meta.exposure_program = number;
+        if (tag == 0xA405 && number > 0) meta.focal_35mm = number;
+    }
+    if (tag == 0x9204 && count == 1 && type == 10) {
+        const int32_t numerator = int32_t(u32(0)), denominator = int32_t(u32(4));
+        if (denominator) meta.exposure_bias_ev = double(numerator) / denominator;
+    }
+    meta.extra_exif[tag] = std::move(value);
+}
+
 void read_exif_metadata(TiffBytes& tiff, uint32_t ifd0, Metadata& meta) {
     TiffBytes::Ifd root;
     if (!tiff.read_ifd(ifd0, root)) return;
@@ -140,6 +170,11 @@ void read_exif_metadata(TiffBytes& tiff, uint32_t ifd0, Metadata& meta) {
     if (!tiff.number(root, 0x8769, exif_at)) return;
     TiffBytes::Ifd exif;
     if (!tiff.read_ifd(uint32_t(exif_at), exif)) return;
+    for (const auto& [tag, entry] : exif) {
+        const uint64_t bytes = uint64_t(TiffBytes::type_size(entry.type)) * entry.count;
+        if (bytes <= 65536 && tiff.in_range(entry.value_at, size_t(bytes)))
+            capture_exif_value(meta, tag, entry.type, entry.count, tiff.little(), tiff.data() + entry.value_at, size_t(bytes));
+    }
     if (tiff.number(exif, 0x829A, v) && v > 0) meta.shutter_s = v;
     if (tiff.number(exif, 0x829D, v) && v > 0) meta.aperture = v;
     if (tiff.number(exif, 0x8827, v) && v > 0) meta.iso = v;

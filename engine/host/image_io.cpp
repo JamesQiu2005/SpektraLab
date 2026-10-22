@@ -1,4 +1,6 @@
 #include "image_io.hpp"
+#include "input_formats.hpp"
+#include "lens_correction.hpp"
 
 #include <algorithm>
 #include <bit>
@@ -45,6 +47,8 @@ const char* kind_name(FileKind kind) {
         case FileKind::Tiff: return "tiff";
         case FileKind::Jpeg: return "jpeg";
         case FileKind::Png: return "png";
+        case FileKind::Heic: return "heic";
+        case FileKind::Exr: return "exr";
         default: return "unknown";
     }
 }
@@ -59,8 +63,10 @@ FileKind sniff_kind(const fs::path& path) {
     static const char* raw_exts[] = {".arw", ".nef", ".nrw", ".cr2", ".cr3", ".crw", ".raf", ".dng",
                                      ".orf", ".rw2", ".pef", ".srw", ".3fr", ".iiq", ".erf", ".mos",
                                      ".mrw", ".x3f", ".raw", ".rwl", ".srf", ".sr2", ".kdc", ".dcr",
-                                     ".mef", ".fff", ".gpr"};
+                                     ".mef", ".fff", ".gpr", ".ari", ".bay", ".k25"};
     const std::string ext = lower_ext(path);
+    if (ext == ".heic" || ext == ".heif" || ext == ".hif") return FileKind::Heic;
+    if (ext == ".exr") return FileKind::Exr;
     for (const char* r : raw_exts) if (ext == r) return FileKind::Raw;
     std::FILE* f = open_file(path, "rb");
     if (!f) return FileKind::Unknown;
@@ -714,6 +720,10 @@ static void raw_metadata(LibRaw& raw, Metadata& meta) {
     if (other.shutter > 0) meta.shutter_s = other.shutter;
     if (other.aperture > 0) meta.aperture = other.aperture;
     if (other.focal_len > 0) meta.focal_mm = other.focal_len;
+    if (!meta.exposure_program && raw.imgdata.shootinginfo.ExposureProgram > 0)
+        meta.exposure_program = raw.imgdata.shootinginfo.ExposureProgram;
+    if (!meta.focal_35mm && raw.imgdata.lens.FocalLengthIn35mmFormat > 0)
+        meta.focal_35mm = raw.imgdata.lens.FocalLengthIn35mmFormat;
     if (other.timestamp > 0) {
         // LibRaw parsed the EXIF local time with mktime; localtime undoes it.
         std::time_t ts = other.timestamp;
@@ -735,7 +745,22 @@ static void raw_metadata(LibRaw& raw, Metadata& meta) {
     }
 }
 
-static bool raw_open(LibRaw& raw, const fs::path& path, std::string& error) {
+static void raw_exif(void* context, int tag, int type, int count, unsigned order, void* stream, INT64) {
+    // Only the standard EXIF IFD, never a maker-note/GPS namespace. LibRaw
+    // restores its stream position after this callback. No RAW pixels load.
+    if (!context || !stream || tag < 0 || tag > 65535 || count <= 0 || !portable_exif_tag(uint16_t(tag))) return;
+    const uint64_t bytes = uint64_t(TiffBytes::type_size(uint16_t(type))) * unsigned(count);
+    if (!bytes || bytes > 16384) return;
+    try {
+        std::vector<uint8_t> value(size_t(bytes), 0);
+        if (static_cast<LibRaw_abstract_datastream*>(stream)->read(value.data(), 1, value.size()) != int(value.size())) return;
+        capture_exif_value(*static_cast<Metadata*>(context), uint16_t(tag), uint16_t(type), uint32_t(count),
+                           order == 0x4949, value.data(), value.size());
+    } catch (...) { /* Optional metadata never aborts a valid image decode. */ }
+}
+
+static bool raw_open(LibRaw& raw, const fs::path& path, std::string& error, Metadata* metadata = nullptr) {
+    if (metadata) raw.set_exifparser_handler(raw_exif, metadata);
     const int status = raw.open_file(path.c_str());
     if (status != LIBRAW_SUCCESS) {
         error = std::string("RAW open: ") + LibRaw::strerror(status);
@@ -757,13 +782,15 @@ bool probe_file(const fs::path& path, Probe& out, std::string& error) {
     if (!fs::is_regular_file(path, ec)) { error = "not found: " + path_utf8(path); return false; }
     out.kind = sniff_kind(path);
     if (out.kind == FileKind::Unknown) { error = "unrecognised file type: " + path_utf8(path); return false; }
+    if (out.kind == FileKind::Heic || out.kind == FileKind::Exr) return probe_extra(path, out.kind, out, error);
     if (out.kind == FileKind::Raw) {
         auto raw = std::make_unique<LibRaw>(LIBRAW_OPTIONS_NO_DATAERR_CALLBACK);
-        if (!raw_open(*raw, path, error)) return false;
+        if (!raw_open(*raw, path, error, &out.metadata)) return false;
         raw_metadata(*raw, out.metadata);
         out.width = raw->imgdata.sizes.width;
         out.height = raw->imgdata.sizes.height;
         oriented_size(out.width, out.height, out.metadata.orientation);
+        out.metadata.lens_correction=inspect_lens(out);
         return true;
     }
     Raster r;
@@ -783,14 +810,15 @@ bool decode_linear_prophoto(const fs::path& path, const DecodeOptions& options, 
         error = std::string(kUnsupportedPrefix) + "white balance at decode applies to RAW files only";
         return false;
     }
+    if (options.lens_correction && probe.kind != FileKind::Raw) {
+        error=std::string(kUnsupportedPrefix)+"lens correction applies to RAW sources only";
+        return false;
+    }
+    if (probe.kind == FileKind::Heic || probe.kind == FileKind::Exr) return decode_extra(path, probe.kind, out, probe, error);
     if (probe.kind == FileKind::Raw) {
         spk::io::DecodedRaw decoded;
         std::array<float, 4> mul{};
         if (custom_wb) {
-            if (options.raw_mode == "headroom") {
-                error = std::string(kUnsupportedPrefix) + "a custom white balance is not available in headroom mode";
-                return false;
-            }
             auto raw = std::make_unique<LibRaw>(LIBRAW_OPTIONS_NO_DATAERR_CALLBACK);
             if (!raw_open(*raw, path, error)) return false;
             if (!multipliers_for(*raw, *options.temperature_k, options.tint.value_or(0.0), mul, error)) {
@@ -799,26 +827,31 @@ bool decode_linear_prophoto(const fs::path& path, const DecodeOptions& options, 
             }
         }
         const bool ok = options.raw_mode == "headroom"
-                            ? spk::io::decode_raw_headroom(path, decoded, error)
+                            ? spk::io::decode_raw_headroom(path, custom_wb ? &mul : nullptr, decoded, error)
                             : spk::io::decode_raw_compatible(path, custom_wb ? &mul : nullptr, decoded, error);
         if (!ok) return false;
         out.width = decoded.width;
         out.height = decoded.height;
         out.rgb = std::move(decoded.rgb);   // LibRaw already applied the flip
         out.raw_timings = decoded.timings;
+        out.raw_metadata = std::move(decoded.metadata);
+        if(options.lens_correction && !correct_lens(out,probe,error))return false;
         return true;
     }
     Raster r;
     if (!read_raster(path, probe.kind, r, false, error)) return false;
     std::string note;
     const RgbSpace space = raster_space(r, &note);
-    encoded_to_linear_prophoto(space, r.rgb, r.codes);
+    if (!note.empty()) {
+        if (!icc_to_linear_prophoto(r.icc, r.rgb, r.codes, error)) return false;
+    } else encoded_to_linear_prophoto(space, r.rgb, r.codes);
     uint32_t w = r.width, h = r.height;
     apply_orientation(r.rgb, w, h, 3, r.meta.orientation);
     out.width = w;
     out.height = h;
     out.rgb = std::move(r.rgb);
     out.raw_timings.reset();
+    out.raw_metadata.reset();
     return true;
 }
 
@@ -863,9 +896,20 @@ static void shrink_rgb(std::vector<float>& rgb, uint32_t& w, uint32_t& h, uint32
     w = dw; h = dh;
 }
 
-bool thumbnail(const fs::path& path, uint32_t long_edge, Rgba8& out, std::string& source, std::string& error) {
+bool thumbnail(const fs::path& path, uint32_t long_edge, Rgba8& out, std::string& source, std::string& error, bool embedded_only) {
+    if (embedded_only && sniff_kind(path) != FileKind::Raw) {
+        error = std::string(kUnsupportedPrefix) + "embedded_only thumbnails require a RAW file";
+        return false;
+    }
     Probe probe;
     if (!probe_file(path, probe, error)) return false;
+    if (probe.kind == FileKind::Heic || probe.kind == FileKind::Exr) {
+        FloatImage image;
+        if (!decode_extra(path, probe.kind, image, probe, error)) return false;
+        shrink_rgb(image.rgb, image.width, image.height, long_edge);
+        to_rgba8_srgb(linear_prophoto_space(), image.rgb, 0, out.rgba);
+        out.width = image.width; out.height = image.height; source = "decode"; return true;
+    }
     if (probe.kind == FileKind::Raw) {
         auto raw = std::make_unique<LibRaw>(LIBRAW_OPTIONS_NO_DATAERR_CALLBACK);
         if (!raw_open(*raw, path, error)) return false;
@@ -901,6 +945,12 @@ bool thumbnail(const fs::path& path, uint32_t long_edge, Rgba8& out, std::string
             apply_orientation(rgba, w, h, 4, orientation);
             out.width = w; out.height = h; out.rgba = std::move(rgba);
             return true;
+        }
+        // Idle prefetch must never turn into an unexpected RAW decode. The
+        // legacy thumbnail path retains its half-size fallback when requested.
+        if (embedded_only) {
+            error = "RAW thumbnail: no usable embedded preview";
+            return false;
         }
         // No usable embedded preview: a half-size sRGB decode.
         spk::io::RawDecodeThreadScope thread_scope;
@@ -939,7 +989,12 @@ bool thumbnail(const fs::path& path, uint32_t long_edge, Rgba8& out, std::string
     }
     Raster r;
     if (!read_raster(path, probe.kind, r, false, error)) return false;
-    const RgbSpace space = raster_space(r, nullptr);
+    std::string note;
+    RgbSpace space = raster_space(r, &note);
+    if (!note.empty()) {
+        if (!icc_to_linear_prophoto(r.icc, r.rgb, r.codes, error)) return false;
+        space = linear_prophoto_space(); r.codes = 0;
+    }
     uint32_t w = r.width, h = r.height;
     shrink_rgb(r.rgb, w, h, long_edge);
     std::vector<uint8_t> rgba;

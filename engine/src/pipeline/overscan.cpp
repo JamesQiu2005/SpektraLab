@@ -18,10 +18,15 @@
 //                 error, weave, scan rotation/offset, fog and leak realisation,
 //                 and (on 120, which is not sprocket-locked) where the edge
 //                 numbers land.
-// Text is rasterised with CoreText/CoreGraphics.
+// Apple keeps its native rasterizer; the portable adapter embeds pinned open
+// font outlines and rasterizes the same film-space drawing operations.
+#ifdef __APPLE__
 #include <Accelerate/Accelerate.h>
 #include <CoreGraphics/CoreGraphics.h>
 #include <CoreText/CoreText.h>
+#else
+#include "imprint_raster.hpp"
+#endif
 
 #include <algorithm>
 #include <cmath>
@@ -35,6 +40,8 @@
 namespace spk {
 
 namespace {
+
+constexpr double kPi = 3.141592653589793238462643383279502884;
 
 // Indices into the kernel parameter block; `overscan.metal` mirrors them.
 enum OsP : int {
@@ -65,6 +72,8 @@ constexpr double kCarrierMM = 0.40;
 // A half-frame camera advances 4 perforations between exposures.
 constexpr double kPairAdvanceMM = 19.0;
 constexpr int kMaxQuads = 8;
+// Ilford's 135 print: where its DX code starts, mm past `perf_phase` (see the layout).
+constexpr double kIlfordCode = 2.85;
 constexpr double kMidGrey = 0.184;
 
 // splitmix64 streams, one per (level, purpose), so adding a draw to one level
@@ -83,7 +92,7 @@ struct Rng {
     double uni(double a, double b) { return a + (b - a) * uni(); }
     double normal() {
         const double u1 = std::max(uni(), 1e-12), u2 = uni();
-        return std::sqrt(-2.0 * std::log(u1)) * std::cos(2.0 * M_PI * u2);
+        return std::sqrt(-2.0 * std::log(u1)) * std::cos(2.0 * kPi * u2);
     }
 };
 uint64_t stream(uint64_t seed, uint64_t level, uint64_t purpose) {
@@ -139,6 +148,7 @@ enum class Edge135 {
     FujiSlide,  // no bars; Fujifilm's dot faces, bold numbers on both edges, "36 => 12A": RVP50, RDPIII
     FujiNeg,    // 14.1 mm DX bars, condensed numbers on both edges: X-Tra 400
     Cine,       // "EASTMAN 5207 ..." beside one row of perforations, dashes, no bars: Vision3 250D
+    Ilford,     // Kodak's two bands turned half a turn: DX bars, the name in a square 5x7 face: HP5 Plus
 };
 enum class Edge120 {
     Kodak,      // numbers and the name on one edge, triangles and digits on the other
@@ -195,6 +205,23 @@ constexpr EdgeLook kEdgeLooks[] = {
     // Vision3 250D: the 135 reference (5207). The other Vision3 stocks borrow
     // its layout (the same Eastman edge print, their own product number in
     // the host's text), unverified.
+    // Tri-X 400 (400TX): the 135 and 120 (645) references. Kodak's layout on
+    // both, no DX bars on 135 (none on the strip; `dx_extract_for` has no
+    // row), and one emulsion, so the printer's light is the same in all three.
+    {"kodak_tri_x_400",       Edge135::Kodak, Edge120::Kodak, {1.0, 1.0, 1.0}, 5.3, true, ""},
+    // T-Max 100 (100TMX): the 135 and 120 (6x6) strips in research/B&W_Research/film.
+    // Kodak's layout on both, in its bold weight ("7", "KODAK 100TMX"), and no
+    // DX bars on the 135 strip, as on Tri-X.
+    {"kodak_tmax_100",        Edge135::Kodak, Edge120::Kodak, {1.0, 1.0, 1.0}, 5.3, false, ""},
+    // Neopan 100 Acros II: one 135 strip. Fujifilm's dots and no bars, the
+    // number and "=> 1A" on the far band as its slides have them, so it takes
+    // the slides' layout. Not matched to the strip: the name there is larger
+    // (about 1.5 mm caps against the slides' 1.04) and the name's band shows
+    // no number. **No 120 reference**: Fujifilm's 120 layout, unverified.
+    {"fujifilm_neopan_acros_100_ii", Edge135::FujiSlide, Edge120::Fuji, {1.0, 1.0, 1.0}, 5.8, false, ""},
+    // HP5 Plus: one 135 strip. **No 120 reference** (the sheet says only that
+    // 120 is "edge numbered 1 to 19"): Kodak's 120 layout, unverified.
+    {"ilford_hp5_plus_400",   Edge135::Ilford, Edge120::Kodak, {1.0, 1.0, 1.0}, 5.3, false, ""},
     {"kodak_vision3_250d",    Edge135::Cine, Edge120::Kodak, {0.58, 0.60, 1.0}, 4.5, false, ""},
     {"kodak_vision3_50d",     Edge135::Cine, Edge120::Kodak, {0.58, 0.60, 1.0}, 4.5, false, ""},
     {"kodak_vision3_200t",    Edge135::Cine, Edge120::Kodak, {0.58, 0.60, 1.0}, 4.5, false, ""},
@@ -468,6 +495,28 @@ void Pipeline::overscan_frame(uint32_t& frame_w, uint32_t& frame_h) const {
     frame_h = laid ? overscan_.frame_h : 0;
 }
 
+bool Pipeline::full_output_size(uint32_t w, uint32_t h, uint32_t& out_w, uint32_t& out_h,
+                                std::string& error) {
+    const auto& g = params_.io.geometry;
+    out_w = std::max(1u, uint32_t(std::lround(g.crop_w * w)));
+    out_h = std::max(1u, uint32_t(std::lround(g.crop_h * h)));
+    if (g.quarter_turns % 2) std::swap(out_w, out_h);
+    if (!overscan_wanted()) return true;
+    // Deterministic CPU layout only. Restore the current tier on every exit.
+    auto saved = std::move(overscan_);
+    const auto source = source_long_edge_, full = frame_long_edge_;
+    const auto pitch = pixel_size_um_;
+    struct Restore {
+        Pipeline* p; OverscanLayout& layout; uint32_t source, full; double pitch;
+        ~Restore() { p->overscan_ = std::move(layout); p->source_long_edge_ = source;
+            p->frame_long_edge_ = full; p->pixel_size_um_ = pitch; }
+    } restore{this, saved, source, full, pitch};
+    set_source_shape(w, h, w, h);
+    if (!overscan_layout(out_w, out_h, error)) return false;
+    out_w = overscan_.canvas_w; out_h = overscan_.canvas_h;
+    return true;
+}
+
 bool Pipeline::set_overscan_frame(uint32_t frame_w, uint32_t frame_h, std::string& error) {
     if (!overscan_wanted() || frame_w == 0 || frame_h == 0) return true;
     if (overscan_.valid && overscan_.frame_w == frame_w && overscan_.frame_h == frame_h &&
@@ -548,7 +597,7 @@ bool Pipeline::overscan_layout(uint32_t frame_w, uint32_t frame_h, std::string& 
     for (int side = 0; side < 4; ++side)
         for (int k = 0; k < 3; ++k) {
             L.wob_a[side][k] = rc.normal() * 0.012 / double(k + 1);
-            L.wob_ph[side][k] = rc.uni(0.0, 2.0 * M_PI);
+            L.wob_ph[side][k] = rc.uni(0.0, 2.0 * kPi);
         }
     // The gate sits a fraction of a millimetre in front of the emulsion; its
     // shadow's radius is gap / (2 N). EXIF gives N; f/5.6 when unknown.
@@ -626,8 +675,8 @@ bool Pipeline::overscan_layout(uint32_t frame_w, uint32_t frame_h, std::string& 
     // 0.35; 6x12 is held to 0.27 and 6x17 to 0.18 -- a long strip in a holder
     // does not sit like a wedge.
     const double half_along = 0.5 * along_px * L.px;
-    const double tilt_lim = std::min(0.35, std::asin(std::min(1.0, 0.27 / half_along)) * 180.0 / M_PI);
-    L.scan_rot = std::clamp(rf.normal() * 0.14, -tilt_lim, tilt_lim) * M_PI / 180.0;
+    const double tilt_lim = std::min(0.35, std::asin(std::min(1.0, 0.27 / half_along)) * 180.0 / kPi);
+    L.scan_rot = std::clamp(rf.normal() * 0.14, -tilt_lim, tilt_lim) * kPi / 180.0;
     const double ds = rf.normal() * 0.08, dt = rf.normal() * 0.06;
     const double cu = 0.5 * L.canvas_w * L.px, cv = 0.5 * L.canvas_h * L.px;
     const double c = std::cos(L.scan_rot), sn = std::sin(L.scan_rot);
@@ -676,9 +725,9 @@ bool Pipeline::overscan_layout(uint32_t frame_w, uint32_t frame_h, std::string& 
     const std::string& ref = params_.film.info.reference_illuminant;
     const double rear[3] = {1.0, 1.0, 0.0}, front[3] = {1.0, 1.0, 1.0};
     const double* edge_t = edge_look_for(params_.film.info.stock).layer;   // the maker's edge printer
-    light_weights(*colour_, *blob_, film_sensitivity_, ref, 2800.0, false, front, L.fog_rgb);
-    light_weights(*colour_, *blob_, film_sensitivity_, ref, 2700.0, true, rear, L.date_rgb);
-    light_weights(*colour_, *blob_, film_sensitivity_, ref, 4500.0, false, edge_t, L.edge_rgb);
+    light_weights(*colour_, *blob_, film_sensitivity_edge_, ref, 2800.0, false, front, L.fog_rgb);
+    light_weights(*colour_, *blob_, film_sensitivity_edge_, ref, 2700.0, true, rear, L.date_rgb);
+    light_weights(*colour_, *blob_, film_sensitivity_edge_, ref, 4500.0, false, edge_t, L.edge_rgb);
 
     // --- the hole: the cmy that cancels this film's base (least squares) ----
     {
@@ -727,7 +776,7 @@ bool Pipeline::overscan_layout(uint32_t frame_w, uint32_t frame_h, std::string& 
         // the black lifts at the edge (2-6 % linear for white holes, less for
         // black ones), and over what distance (0.02-0.035 mm).
         L.wall_t = 0.125;
-        const double ang = rl.uni(0.0, 2.0 * M_PI);
+        const double ang = rl.uni(0.0, 2.0 * kPi);
         L.wall_tilt[0] = std::cos(ang);
         L.wall_tilt[1] = std::sin(ang);
         L.wall_parallax = 0.0;
@@ -827,6 +876,7 @@ void film_to_canvas_px(const OverscanLayout& L, double s, double t, double& x, d
     y = v / L.px;
 }
 
+#ifdef __APPLE__
 CFAttributedStringRef make_text(const Op& op, CTFontRef font, double gain) {
     CFStringRef str = CFStringCreateWithCString(nullptr, op.text.c_str(), kCFStringEncodingUTF8);
     CGFloat white[] = {CGFloat(std::clamp(gain, 0.0, 1.0)), 1.0};
@@ -841,6 +891,8 @@ CFAttributedStringRef make_text(const Op& op, CTFontRef font, double gain) {
     CFRelease(attrs); CFRelease(kern); CFRelease(col); CFRelease(gray); CFRelease(str);
     return as;
 }
+
+#endif
 
 // Rasterise one group into a canvas-aligned coverage bitmap (its bounding box).
 bool rasterise(const OverscanLayout& L, const Group& g, std::vector<float>& cov, int& x0, int& y0,
@@ -861,7 +913,7 @@ bool rasterise(const OverscanLayout& L, const Group& g, std::vector<float>& cov,
         } else {
             const double len = (0.75 * op.size_mm * op.hscale + op.tracking_mm * (op.scale_advances ? op.hscale : 1.0)) *
                                double(op.text.size()) + op.size_mm;
-            const double r = op.rot_deg * M_PI / 180.0;
+            const double r = op.rot_deg * kPi / 180.0;
             const double ex = std::cos(r), ey = std::sin(r);
             for (double a : {-0.3 * op.size_mm, len})
                 for (double b : {-1.1 * op.size_mm, 0.4 * op.size_mm})
@@ -877,6 +929,7 @@ bool rasterise(const OverscanLayout& L, const Group& g, std::vector<float>& cov,
     if (w <= 0 || h <= 0) return false;
 
     std::vector<uint8_t> px(size_t(w) * size_t(h), 0);
+#ifdef __APPLE__
     CGColorSpaceRef gray = CGColorSpaceCreateDeviceGray();
     CGContextRef ctx = CGBitmapContextCreate(px.data(), size_t(w), size_t(h), 8, size_t(w), gray,
                                              kCGImageAlphaNone);
@@ -921,7 +974,7 @@ bool rasterise(const OverscanLayout& L, const Group& g, std::vector<float>& cov,
         CTLineRef line = CTLineCreateWithAttributedString(as);
         CGContextSaveGState(ctx);
         CGContextTranslateCTM(ctx, op.s, op.t);
-        CGContextRotateCTM(ctx, op.rot_deg * M_PI / 180.0);
+        CGContextRotateCTM(ctx, op.rot_deg * kPi / 180.0);
         if (op.scale_advances) CGContextScaleCTM(ctx, op.hscale, 1.0);
         CGContextSetTextMatrix(ctx, CGAffineTransformMakeScale(op.scale_advances ? 1.0 : op.hscale, -1.0));   // t is down; glyphs are up
         CGContextSetTextPosition(ctx, 0, 0);
@@ -930,6 +983,36 @@ bool rasterise(const OverscanLayout& L, const Group& g, std::vector<float>& cov,
         CFRelease(line); CFRelease(as); CFRelease(font);
     }
     CGContextRelease(ctx);
+#else
+    for (const Op& op : g.ops) {
+        imprint::Contours paths;
+        if (op.kind == Op::Poly) {
+            paths.emplace_back();
+            for (size_t k=0;k+1<op.pts.size();k+=2) paths.back().push_back({op.pts[k],op.pts[k+1]});
+        } else if (op.kind == Op::Circle) {
+            paths.emplace_back();
+            // Sagitta < .05 canvas pixel; enough for the eight-row coverage
+            // raster while keeping full-width dot-print groups inexpensive.
+            const int segments=std::clamp(int(std::ceil(kPi*std::sqrt(std::max(0.0,op.size_mm/L.px)/.1))),12,512);
+            for (int k=0;k<segments;++k) {
+                const double a=2*kPi*k/segments;
+                paths.back().push_back({op.pts[0]+op.size_mm*std::cos(a),op.pts[1]+op.size_mm*std::sin(a)});
+            }
+        } else {
+            paths=imprint::text_outlines(op.font,op.size_mm,op.text,op.tracking_mm,
+                                         op.hscale,op.scale_advances,L.px*.05);
+            const double r=op.rot_deg*kPi/180.0,cs=std::cos(r),sn=std::sin(r);
+            for (auto& path:paths) for (auto& pt:path) {
+                const double x=pt.x,y=pt.y;
+                pt={op.s+x*cs-y*sn,op.t+x*sn+y*cs};
+            }
+        }
+        for (auto& path:paths) for (auto& pt:path) {
+            double x,y;film_to_canvas_px(L,pt.x,pt.y,x,y);pt={x-x0,y-y0};
+        }
+        imprint::fill(px,w,h,paths,op.gain);
+    }
+#endif
 
     cov.resize(px.size());
     for (size_t i = 0; i < px.size(); ++i) cov[i] = float(px[i]) * (1.0f / 255.0f);
@@ -946,6 +1029,7 @@ bool rasterise(const OverscanLayout& L, const Group& g, std::vector<float>& cov,
         double sum = 0.0;
         for (int i = -r; i <= r; ++i) { k[size_t(i + r)] = float(std::exp(-0.5 * i * i / (sigma * sigma))); sum += k[size_t(i + r)]; }
         for (float& v : k) v = float(v / sum);
+#ifdef __APPLE__
         std::vector<float> tmp(cov.size(), 0.0f);
         vImage_Buffer src{cov.data(), vImagePixelCount(h), vImagePixelCount(w), size_t(w) * sizeof(float)};
         vImage_Buffer dst{tmp.data(), vImagePixelCount(h), vImagePixelCount(w), size_t(w) * sizeof(float)};
@@ -955,6 +1039,9 @@ bool rasterise(const OverscanLayout& L, const Group& g, std::vector<float>& cov,
             vImageConvolve_PlanarF(&dst, &src, nullptr, 0, 0, k.data(), taps, 1, 0.0f, kvImageEdgeExtend)
                 != kvImageNoError)
             return false;
+#else
+        imprint::gaussian(cov,w,h,k);
+#endif
     }
     return true;
 }
@@ -1050,6 +1137,10 @@ int dx_extract_for(const std::string& stock) {
         {"kodak_ektar_100", 1307}, {"kodak_ultramax_400", 1313}, {"kodak_ektachrome_100", 382},
         {"fujifilm_c200", 1550}, {"fujifilm_xtra_400", 628}, {"fujifilm_pro_400h", 584},
         {"fujifilm_provia_100f", 557}, {"fujifilm_velvia_100", 523},
+        // HP5 Plus: 109/9, from its cartridge code 017534 (the middle four
+        // digits are the DX number). The strip shows the code's clock track;
+        // its data track is cropped off, so this was not read back.
+        {"ilford_hp5_plus_400", 1753},
     };
     for (const auto& e : kDx) if (stock == e.id) return e.dx;
     return -1;
@@ -1167,6 +1258,12 @@ const char* const* names_glyph(const std::string& text, size_t& i) {
         text[i - 1] != ' ' && text[i - 1] != 'I') {
         i += 3;
         return kRoman3;
+    }
+    // "II" standing as a word is one cell too ("FUJI 100 ACROS II", the Acros II strip)
+    static const char* const kRoman2[9] = {"#######", ".#...#.", ".#...#.", ".#...#.", ".#...#.", ".#...#.", ".#...#.", ".#...#.", "#######"};
+    if (text.compare(i, 2, "II") == 0 && (i + 2 == text.size() || text[i + 2] == ' ') && i > 0 && text[i - 1] == ' ') {
+        i += 2;
+        return kRoman2;
     }
     const char ch = text[i++];
     const char up = (ch >= 'a' && ch <= 'z') ? char(ch - 'a' + 'A') : ch;
@@ -1334,6 +1431,7 @@ double dot_text(const std::string& text, const DotFace& f, double ps, double pt,
 
 // A Helvetica-family string's advance in film mm, as CoreText lays it out.
 double text_width(const char* font, double size_mm, const std::string& text, double tracking_mm, double hscale) {
+#ifdef __APPLE__
     Op op;
     op.font = font; op.size_mm = size_mm; op.text = text; op.tracking_mm = tracking_mm;
     CFStringRef fname = CFStringCreateWithCString(nullptr, font, kCFStringEncodingUTF8);
@@ -1344,6 +1442,9 @@ double text_width(const char* font, double size_mm, const std::string& text, dou
     const double w = CTLineGetTypographicBounds(line, nullptr, nullptr, nullptr);
     CFRelease(line); CFRelease(as); CFRelease(f);
     return w * hscale;
+#else
+    return imprint::text_width(font,size_mm,text,tracking_mm,hscale);
+#endif
 }
 
 // The film edge -- the stock's own (`edge_look_for`), measured on the owner's
@@ -1429,14 +1530,16 @@ void imprint_groups(const OverscanLayout& L, const Params& params, double frame_
         // strokes stay beaded at their edges instead of fusing into bars.
         const double kDot = 0.114;
         const bool fuji_neg = look.k135 == Edge135::FujiNeg;
-        const int dx = (look.k135 == Edge135::Kodak || fuji_neg) ? dx_extract_for(params.film.info.stock) : -1;
+        const bool ilford = look.k135 == Edge135::Ilford;
+        const int dx = (look.k135 == Edge135::Kodak || fuji_neg || ilford) ? dx_extract_for(params.film.info.stock) : -1;
         // The DX code (ISO 1007): 31 modules. Read back off the references it
         // is 12.64-12.78 mm long on Kodak-made film (Gold 200, Portra 160,
-        // C200) and 14.1 mm on Fujifilm's X-Tra 400 -- not the 13.0 assumed.
-        const double mod = (fuji_neg ? 14.1 : 12.7) / 31.0;
+        // C200) and 14.1 mm on Fujifilm's X-Tra 400 -- not the 13.0 assumed --
+        // and 13.06 mm on Ilford's HP5 Plus.
+        const double mod = (fuji_neg ? 14.1 : ilford ? 13.06 : 12.7) / 31.0;
         const double clock_t0 = W - 2.17, data_t0 = W - 0.87, data_t1 = W + 0.10;
         const int m_lo = int(std::floor((s_min - grid0) / 19.0)) - 1, m_hi = int(std::ceil((s_max - grid0) / 19.0)) + 1;
-        auto dx_code = [&](double s, int num, bool a_half) {
+        auto dx_code = [&](double s, int num, bool a_half, std::vector<Op>& dst) {
             if (dx < 0) return;
             // as runs of black modules so neighbours do not seam
             int bits[23];
@@ -1453,7 +1556,7 @@ void imprint_groups(const OverscanLayout& L, const Params& params, double frame_
                     if (!row[i]) { ++i; continue; }
                     int j = i;
                     while (j < 31 && row[j]) ++j;
-                    bot.ops.push_back(rect(s + i * mod, ta, s + j * mod, tb + (track == 0 ? 0.01 : 0.0)));
+                    dst.push_back(rect(s + i * mod, ta, s + j * mod, tb + (track == 0 ? 0.01 : 0.0)));
                     i = j;
                 }
             }
@@ -1513,7 +1616,7 @@ void imprint_groups(const OverscanLayout& L, const Params& params, double frame_
                 // at caps 0.90 mm 0.84 mm from it over an arrow 3.6 mm long
                 // centred 0.28 mm from it (Gold 200, Portra 160); the number
                 // 3.3 mm past the code's end, "12A" 2.6 mm, the arrow 1.8 mm.
-                dx_code(s, num, a_half);
+                dx_code(s, num, a_half, bot.ops);
                 Op nb = helv(light ? "HelveticaNeue" : "HelveticaNeue-Bold", 1.40, kCap, light ? 1.0 : 1.25, light ? 0.03 : 0.25);
                 if (a_half) {
                     nb.text = std::to_string(num) + "A";
@@ -1547,7 +1650,7 @@ void imprint_groups(const OverscanLayout& L, const Params& params, double frame_
                 if (a_half && !o.edge_text.empty())
                     dot_text(fit_dots(o.edge_text, 9.8, kFaceNames, kDotS, kDot, 4.0), kFaceNames, kDotS, kDotT, kDot, 4.0,
                              s + 5.5, 1.50, &top.ops);
-                dx_code(s, num, a_half);
+                dx_code(s, num, a_half, bot.ops);
                 dot_text(n, kFaceSmall, ps, kDotT, kDot, 4.0, s + (a_half ? 16.1 : 15.25), a_half ? W - 0.41 : W - 0.31,
                          &bot.ops);
                 if (a_half) wind_arrow(s + 14.6, s + 15.85, W - 1.0, 0.55, 0.3);
@@ -1592,6 +1695,43 @@ void imprint_groups(const OverscanLayout& L, const Params& params, double frame_
                     dot_rows(kArrow, 12, 22, sa + 16.05 + 0.5 * kDot, foot - 0.5 * kDot - 11 * kDotT, kDotS, kDotT, kDot, &bot.ops);
                     dot_text(std::to_string(num) + "A", kFaceSmall, kDotS, kDotT, kDot, 4.0, sa + 18.88, foot, &bot.ops);
                 }
+            } else if (ilford) {
+                // HP5 Plus (one 135 strip, 29.7 px/mm): what Kodak prints,
+                // turned half a turn -- with the picture upright the bars run
+                // along the top band and the name reads upside down along the
+                // bottom one. So it is laid out here as it reads (`u` from the
+                // code's start, `v` from the name's edge) and turned at the end.
+                // Measured: the code 13.06 mm long, a 5-module bar first as
+                // read, starting 1.89 mm past a perforation's centre, one every
+                // 19 mm; the name in a square 5x7 face, caps 1.50 mm on a
+                // baseline 1.85 mm from its edge, a character every 1.26 mm,
+                // starting 8.7 mm after the start of the code beyond the
+                // frame's end; and beside it a batch number ("5847-1...") that
+                // is not drawn, since one strip gives no rule for it.
+                // ASSUMED: the frame numbers. The strip is cropped through
+                // them: what shows is that they stand in the gaps between the
+                // codes with their tops 1.95 mm from the edge. Their face (the
+                // name's, bold), "N" and "NA" and which gap holds which
+                // (Kodak's order, turned) are not measured.
+                const double c = L.perf_phase + kIlfordCode + 19.0 * (m + 1);   // where the code starts, in s
+                const size_t t0 = top.ops.size(), b0 = bot.ops.size();
+                dx_code(0.0, num, a_half, top.ops);
+                if (a_half) {
+                    matrix_text(std::to_string(num) + "A", 1.20, 1.0, false, 14.9, W - 0.35, &top.ops);
+                    if (!o.edge_text.empty())
+                        matrix_text(fit_matrix_text(o.edge_text, 26.0, 1.50, 1.0, false), 1.50, 1.0, false, 8.7, 1.85, &bot.ops);
+                } else {
+                    matrix_text(std::to_string(num), 1.60, 1.0, true, 14.6, W - 0.35, &top.ops);
+                }
+                auto turn = [&](std::vector<Op>& ops, size_t from) {
+                    for (size_t i = from; i < ops.size(); ++i)
+                        for (size_t k = 0; k + 1 < ops[i].pts.size(); k += 2) {
+                            ops[i].pts[k] = c - ops[i].pts[k];
+                            ops[i].pts[k + 1] = W - ops[i].pts[k + 1];
+                        }
+                };
+                turn(top.ops, t0);
+                turn(bot.ops, b0);
             } else {
                 // Cine (Eastman 5207, 22.8 px/mm): one line beside the bottom
                 // perforations -- the host's text in a square 5x7 face, caps
@@ -1847,7 +1987,7 @@ void imprint_groups(const OverscanLayout& L, const Params& params, double frame_
     auto draw = [&](const std::string& text, const std::string& style, double h, auto place) {
         if (style == "lcd") {
             Op proto;
-            proto.skew = std::tan(8.0 * M_PI / 180.0);
+            proto.skew = std::tan(8.0 * kPi / 180.0);
             std::vector<Op> segs;
             seven_seg_polys(text, h, 0.0, 0.0, proto, segs);
             for (Op& op : segs) {
@@ -1948,7 +2088,7 @@ void imprint_groups(const OverscanLayout& L, const Params& params, double frame_
         // Kept inside the frame: a large face or an inset past the frame's
         // middle would otherwise carry the text off its edge. Text wider than
         // the frame starts at its left and is clipped by the gate.
-        const double over = (d.style == "lcd" ? h * std::tan(8.0 * M_PI / 180.0) : 0.0) + 0.1;   // the slant, and the blur
+        const double over = (d.style == "lcd" ? h * std::tan(8.0 * kPi / 180.0) : 0.0) + 0.1;   // the slant, and the blur
         const double s0 = std::clamp(right ? fs + fw - d.inset_x - w : fs + d.inset_x, fs + 0.1, std::max(fs + 0.1, fs + fw - w - over));
         const double base = std::clamp(bottom ? ft + fh - d.inset_y : ft + d.inset_y + h, std::min(ft + h + 0.1, ft + fh - 0.1), ft + fh - 0.1);
         draw(date_text, d.style, h, [&](double x, double y, double& ss, double& tt) {
@@ -2045,7 +2185,7 @@ bool Pipeline::node_overscan(const Image& in, Image& out, std::string& error) {
         L.cu = 0; L.cv = 0; L.cs = 0; L.ct = 0;
         {
             const double rear[3] = {1.0, 1.0, 0.0};
-            light_weights(*colour_, *blob_, film_sensitivity_, params_.film.info.reference_illuminant,
+            light_weights(*colour_, *blob_, film_sensitivity_edge_, params_.film.info.reference_illuminant,
                           2700.0, true, rear, L.date_rgb);
         }
         canvas.h = in.h; canvas.w = in.w; canvas.c = 3;

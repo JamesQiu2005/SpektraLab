@@ -17,6 +17,8 @@ import { mockView } from './view.ts';
 import type { Adjustments } from '../src/shared/adjustments.ts';
 import type { Geometry } from '../src/shared/geometry.ts';
 import { GEOMETRY_DEFAULT, outputSize } from '../src/shared/geometry.ts';
+import { decodePair, sourcePairLayout, type HalfFramePair } from '../src/shared/pair.ts';
+import type { PairInfo } from '../src/shared/protocol.ts';
 
 export interface MockRequest {
   id: number;
@@ -111,8 +113,6 @@ function defaultFor(f: SchemaField): Value {
 }
 
 export const UNSUPPORTED_ON_PORT = [
-  'digital_intermediate',
-  'scene_latitude_mapping',
   'contrast_mask',
   'overscan',
   'date_imprint',
@@ -142,13 +142,16 @@ interface Session {
   seed: number;
   decodeKey: string;
   viewPrints: Map<string, { width: number; height: number; data: Uint8Array }>;
+  sourceGeometry?: Geometry;
+  pair?: HalfFramePair;
+  pairInfo?: PairInfo;
 }
 
 /** What `hello.methods` lists: every method `dispatch` answers. */
 const METHODS = [
   'hello', 'ping', 'shutdown', 'cancel', 'params_schema', 'print_lut_catalog', 'memory_report', 'probe', 'thumbnail',
-  'open', 'redecode', 'close', 'set_params', 'get_params', 'solve', 'render', 'render_view', 'scene_latitude', 'overscan_geometry',
-  'preview_stock_lut', 'progress', 'export_image', 'export_frame', 'export_cube', 'export_di',
+  'open', 'open_pair', 'update_pair', 'redecode', 'close', 'set_params', 'get_params', 'solve', 'render', 'render_view', 'scene_latitude', 'overscan_geometry',
+  'preview_stock_lut', 'progress', 'export_image', 'export_frame', 'export_cineon', 'render_proof', 'export_cube', 'export_di',
 ];
 
 class HostError extends Error {
@@ -267,6 +270,38 @@ export class MockHost {
     };
   }
 
+  private pairDescription(pair: HalfFramePair) {
+    const info: PairInfo = {};
+    for (const side of ['left', 'right'] as const) {
+      const hole = pair[side];
+      if (hole && !this.opts.missing?.(hole.path)) info[side] = { ...this.dims(hole.path), kind: this.kind(hole.path) as 'raw',
+        available: true, metadata: this.metadata(hole.path), ...(hole.autoExposure ? { metered_ev: 0 } : {}) };
+      else info[side] = { width: 0, height: 0, available: false, error: hole ? 'Synthetic missing photograph' : 'Empty hole' };
+    }
+    const layout = sourcePairLayout(pair, { left: info.left?.available ? info.left : undefined, right: info.right?.available ? info.right : undefined });
+    info.gates = ['left', 'right'].map(side => { const r = layout.rects[side as 'left' | 'right'];
+      return { x: r.x / layout.size.width, y: r.y / layout.size.height, width: r.width / layout.size.width, height: r.height / layout.size.height }; });
+    return { info, layout };
+  }
+
+  /** Synthetic control fixture only: actual pair pixel parity is tested against the native host. */
+  private pairPixels(s: Session, width: number, height: number) {
+    if (!s.pair) return paint(width, height, s.seed, s.params);
+    const out = new Uint8Array(width * height * 4); for (let i = 3; i < out.length; i += 4) out[i] = 255;
+    const gates = this.pairDescription(s.pair).info.gates!;
+    for (const [i, side] of (['left', 'right'] as const).entries()) {
+      const hole = s.pair[side]; if (!hole || this.opts.missing?.(hole.path)) continue;
+      const g = gates[i]!, x = Math.round(g.x * width), y = Math.round(g.y * height);
+      const w = Math.max(1, Math.min(width - x, Math.round(g.width * width))), h = Math.max(1, Math.min(height - y, Math.round(g.height * height)));
+      const params = { ...s.params, exposure_compensation_ev: Number(s.params.exposure_compensation_ev ?? 0) + hole.exposureEV,
+        print_exposure: hole.print ? 2 ** hole.print.brightnessStops : s.params.print_exposure! };
+      const seed = hash(hole.path + JSON.stringify([hole.placement, hole.geometry, hole.decode]));
+      const pixels = mockView(paint(w, h, seed, params), w, h, hole.adjustments ?? undefined, GEOMETRY_DEFAULT, 'srgb', 0).data;
+      for (let row = 0; row < h; ++row) out.set(pixels.subarray(row * w * 4, (row + 1) * w * 4), ((y + row) * width + x) * 4);
+    }
+    return out;
+  }
+
   private async dispatch(method: string, p: Record<string, unknown>): Promise<{ result: unknown; payload?: Uint8Array }> {
     switch (method) {
       case 'hello':
@@ -279,6 +314,9 @@ export class MockHost {
             capabilities: this.capabilities(),
             resources_dir: '(mock)',
             methods: METHODS,
+            export_spaces: ['sRGB', 'display-p3', 'prophoto', 'adobe-rgb', 'rec2020'],
+            tiff_options: ['lzw', 'preview-page'],
+            thumbnail_options: ['embedded-only'],
           },
         };
       case 'ping':
@@ -304,14 +342,18 @@ export class MockHost {
       }
       case 'thumbnail': {
         const path = String(p.path ?? '');
+        if ('embedded_only' in p && typeof p.embedded_only !== 'boolean')
+          throw new HostError('bad_request', 'embedded_only must be boolean');
         if (this.opts.missing?.(path)) throw new HostError('not_found', `${path}: no such file`);
+        if (p.embedded_only && (this.kind(path) !== 'raw' || /\.(?:heic|heif|hif|exr|spektrapair)$/i.test(path)))
+          throw new HostError('unsupported', 'embedded_only thumbnails require a RAW file');
         const edge = Math.max(16, Math.min(1024, Number(p.long_edge ?? 256)));
         const { width, height } = this.dims(path);
         const s = edge / Math.max(width, height);
         const w = Math.max(1, Math.round(width * s));
         const h = Math.max(1, Math.round(height * s));
         const pixels = paint(w, h, hash(path), null);
-        return { result: { image: imageInfo(w, h) }, payload: pixels };
+        return { result: { image: imageInfo(w, h), source: this.kind(path) === 'raw' ? 'embedded' : 'decode', orientation_applied: true }, payload: pixels };
       }
       case 'open': {
         const path = String(p.path ?? '');
@@ -336,6 +378,20 @@ export class MockHost {
             timings_ms: { decode: 12, open: 3 },
           },
         };
+      }
+      case 'open_pair':
+      case 'update_pair': {
+        const pair = decodePair(p.pair); if (!pair) throw new HostError('bad_request', 'invalid pair recipe');
+        const old = method === 'update_pair' ? this.session(p) : null;
+        if (old && !old.pair) throw new HostError('bad_request', 'update_pair needs a pair session');
+        const path = old?.path ?? String(p.path ?? '');
+        const incoming = (p.params ?? {}) as Record<string, Value>; this.validate(incoming);
+        const params: Record<string, Value> = old ? { ...old.params } : Object.fromEntries(FIELDS.map(f => [f.name, defaultFor(f)]));
+        Object.assign(params, incoming, { auto_exposure: false });
+        const { info, layout } = this.pairDescription(pair), id = old?.id ?? 's' + this.next++;
+        const s: Session = { id, path, ...layout.size, params, seed: hash(path), decodeKey: '', viewPrints: new Map(), pair, pairInfo: info };
+        this.sessions.set(id, s);
+        return { result: { session: id, ...layout.size, kind: 'pair', metadata: info.left?.metadata ?? info.right?.metadata ?? {}, pair_info: info, params, timings_ms: { decode: 0, open: 0 } } };
       }
       case 'redecode': {
         const s = this.session(p);
@@ -363,7 +419,7 @@ export class MockHost {
         const s = this.session(p);
         return {
           result: {
-            solved_params: { c_filter_neutral: 0, m_filter_neutral: 55, y_filter_neutral: 65, exposure_compensation_ev: 0 },
+            solved_params: { c_filter_neutral: 0, m_filter_neutral: 55, y_filter_neutral: 65, ...(!s.pair ? { exposure_compensation_ev: 0 } : {}) },
             exposure_ev_by_method: { balanced: 0.3, center: 0.1, protect_highlights: -0.4, protect_shadows: 0.6 },
             session: s.id,
           },
@@ -405,6 +461,9 @@ export class MockHost {
       case 'render_view': {
         const s = this.session(p);
         if (p.params) this.snapshot(s, p.params as Record<string, Value>);
+        if (p.source_geometry && JSON.stringify(p.source_geometry) !== JSON.stringify(s.sourceGeometry ?? GEOMETRY_DEFAULT)) {
+          s.sourceGeometry = structuredClone(p.source_geometry as Geometry); s.viewPrints.clear();
+        }
         const tier = String(p.tier ?? 'live');
         const display = String(p.display ?? 'srgb');
         if (display !== 'srgb' && display !== 'display-p3') throw new HostError('bad_request', 'preview display must be srgb or display-p3');
@@ -414,17 +473,42 @@ export class MockHost {
           const edge = Number(s.params.preview_long_edge ?? 2560) || 2560;
           const scale = tier === 'full' ? 1 : Math.min(1, edge / Math.max(s.width, s.height));
           const width = Math.max(1, Math.round(s.width * scale)), height = Math.max(1, Math.round(s.height * scale));
-          print = { width, height, data: paint(width, height, s.seed, s.params) };
+          print = mockView(this.pairPixels(s, width, height), width, height, undefined,
+            s.sourceGeometry ?? GEOMETRY_DEFAULT, 'srgb', 0);
           s.viewPrints.set(tier, print);
         }
         if (this.opts.renderDelayMs) await sleep(tier === 'full' ? this.opts.renderDelayMs * 3 : this.opts.renderDelayMs);
         const view = mockView(print.data, print.width, print.height, p.adjustments as Adjustments | undefined,
           p.geometry as Geometry | undefined, display, Number(p.long_edge ?? 0));
         return {
-          result: { image: { ...imageInfo(view.width, view.height), color_space: display === 'display-p3' ? 'Display P3' : 'sRGB', processed: true },
-            tier, print_cached: cached, generation: p.generation, timings_ms: { mock_view: 5 } },
+          result: { image: { ...imageInfo(view.width, view.height), color_space: display === 'display-p3' ? 'Display P3' : 'sRGB', processed: true,
+            source_width: outputSize(s.sourceGeometry ?? GEOMETRY_DEFAULT, s).width,
+            source_height: outputSize(s.sourceGeometry ?? GEOMETRY_DEFAULT, s).height },
+            tier, print_cached: cached, generation: p.generation, pair_info: s.pairInfo, timings_ms: { mock_view: 5 } },
           payload: view.data,
         };
+      }
+      case 'render_proof': {
+        // Synthetic protocol fixture only; not a colour or gamut-stat oracle.
+        const s = this.session(p);
+        if (p.params) this.snapshot(s, p.params as Record<string, Value>);
+        const edge = Number(p.proof_long_edge);
+        if (!Number.isInteger(edge) || edge < 1 || edge > 4096) throw new HostError('bad_request', 'invalid proof size');
+        const display = String(p.display ?? 'srgb');
+        if (!['srgb', 'display-p3'].includes(display)) throw new HostError('bad_request', 'invalid proof display');
+        const cineon = p.format === 'di';
+        const source = mockView(paint(s.width, s.height, s.seed, s.params), s.width, s.height,
+          undefined, p.source_geometry as Geometry | undefined, 'srgb', 0);
+        const file = mockView(source.data, source.width, source.height,
+          cineon ? undefined : p.adjustments as Adjustments | undefined, p.geometry as Geometry | undefined, 'srgb', cineon ? 0 : Number(p.long_edge ?? 0));
+        const view = mockView(file.data, file.width, file.height, undefined, GEOMETRY_DEFAULT, display, edge);
+        return { result: { image: { ...imageInfo(view.width, view.height), color_space: display },
+          generation: p.generation, file_width: file.width, file_height: file.height,
+          color_space: cineon ? 'ProPhoto RGB' : p.color_space, bit_depth: cineon || p.format === 'tiff16' ? 16 : 8,
+          ...(cineon ? { encoding: 'cineon' } : {}),
+          compression_simulated: false, print_cached: false,
+          stats: { pixels: file.width * file.height, moved_fraction: 0, clipped_fraction: 0, outside_fraction: 0 },
+          timings_ms: { print: 0, post: 0, readback: 0, total: 0 }, mock: true }, payload: view.data };
       }
       case 'scene_latitude':
         return { result: latitude(this.session(p), (p.request ?? {}) as Record<string, unknown>) };
@@ -450,6 +534,7 @@ export class MockHost {
           },
         };
       }
+      case 'export_cineon':
       case 'export_frame': {
         const s = p.session ? this.session(p) : null;
         const sourcePath = s?.path ?? String(p.source_path ?? '');
@@ -463,12 +548,14 @@ export class MockHost {
           if (editor) this.snapshot(editor, p.params as Record<string, Value>);
         }
         const native = s ? { width: s.width, height: s.height } : this.dims(sourcePath);
-        const out = outputSize((p.geometry as Geometry | undefined) ?? GEOMETRY_DEFAULT, native);
-        const edge = Number(p.long_edge ?? 0);
+        const cut = outputSize((p.source_geometry as Geometry | undefined) ?? GEOMETRY_DEFAULT, native);
+        const out = outputSize((p.geometry as Geometry | undefined) ?? GEOMETRY_DEFAULT, cut);
+        const edge = method === 'export_cineon' ? 0 : Number(p.long_edge ?? 0);
         const scale = edge > 0 ? Math.min(1, edge / Math.max(out.width, out.height)) : 1;
         return { result: { path: String(p.path), width: Math.max(1, Math.round(out.width * scale)),
           height: Math.max(1, Math.round(out.height * scale)), bytes: 0, color_space: p.color_space ?? 'srgb',
           generation: p.generation, print_cached: editor?.viewPrints.has('full') ?? false, exif_copied: true,
+          ...(method === 'export_cineon' ? { encoding: 'cineon', primaries: 'ProPhoto RGB', view_luts: [] } : {}),
           timings_ms: { print: 0, post: 0, readback: 0, encode_write: 0, total: 0 }, mock: true } };
       }
       case 'export_cube':
