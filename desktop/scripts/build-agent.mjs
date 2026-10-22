@@ -16,7 +16,9 @@ await build({entryPoints:[join(desktop,'agent/main.ts')],outfile:join(out,'agent
       return{path:join(desktop,'agent',args.path.endsWith('client')?'host.ts':'platform.ts')};
     });
   }}]});
-cpSync(join(desktop,'public/assets/StockCatalog.json'),join(out,'StockCatalog.json'));
+// Packaging stages the CLI before Tauri's web build generates public/assets.
+// Read the tracked source so clean builds work and stale web assets cannot ship.
+cpSync(resolve(desktop,'../modern_UI/Spektrafilm/Spektrafilm/Resources/StockCatalog.json'),join(out,'StockCatalog.json'));
 if(process.argv.includes('--runtime')){
   const executable=process.env.SPEKTRALAB_NODE_RUNTIME??process.execPath;
   const version=execFileSync(executable,['-p','process.version'],{encoding:'utf8',windowsHide:true}).trim();
