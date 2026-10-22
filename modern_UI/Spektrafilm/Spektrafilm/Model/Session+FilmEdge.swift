@@ -230,6 +230,8 @@ extension Session {
             "kodak_vision3_250d": ("EASTMAN 5207", "EASTMAN 5207"),
             "kodak_vision3_200t": ("EASTMAN 5213", "EASTMAN 5213"),
             "kodak_vision3_500t": ("EASTMAN 5219", "EASTMAN 5219"),
+            // CineStill prints its own name on both gauges (the owner's 135 and 120 screenshots, 2026-10-23)
+            "cinestill_800t": ("CINESTILL 800T", "CINESTILL 800T"),
             // black and white, off the strips in research/B&W_Research/film (2026-10-09)
             "kodak_tri_x_400": ("KODAK 400TX", "KODAK 400TX"),
             "kodak_tmax_100": ("KODAK 100TMX", "KODAK 100TMX"),
