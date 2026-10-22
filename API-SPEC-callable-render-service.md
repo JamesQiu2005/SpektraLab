@@ -877,6 +877,16 @@ reasoning: RFC-032 §25, §27.
   upside down along the bottom one, in a square 5 × 7 face with 1.50 mm caps ("ILFORD HP5 PLUS").
   Its frame numbers' face and order are assumed (the one strip is cropped through them), and its
   120 edge borrows Kodak's.
+  **CineStill 800T** (2026-10-23, from the owner's screenshots: three 135 frames on two rolls,
+  four 120 6×7 frames on two rolls): yellow-orange ink, no DX bars. On 135 the host's text alone
+  runs along one band in the square 5 × 7 face (caps 1.47 mm, a character every 1.38 mm, once a
+  frame, starting 6.4 mm before the frame's number); the other band carries "N" in a heavy
+  monospaced face standing on the film's edge (caps 1.78 mm, 0.79 mm past a perforation's centre)
+  and 18.4 mm on a stepped arrow and "NA" (caps 1.09 mm). On 120 the count runs above the frame
+  ("18" and a 3.4 mm wedge pointing back at it, every 39.5 mm) and below it a batch number and
+  the host's name (caps 1.23 mm, 25.0 mm apart, 66.6 mm a period); the batch is 4789 or 4727, the
+  only two the frames show. No wire change: the stock id selects it and `edge_text` carries the
+  name ("CINESTILL 800T").
   **The lettering, re-measured 2026-10-04** (the owner's real-against-rendered
   pairs; 1.3.1). Fujifilm's print is a dot matrix and is drawn as one: every
   mark is a pattern of dots 0.1155 mm apart along the film and 0.0984 mm
