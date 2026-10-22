@@ -1,12 +1,15 @@
 // Desktop postprocess: exhaustive UNORM16 identity, independent numeric
 // oracles, geometry orientation, and the actual session cache contract.
 #include "pipeline/view_process.hpp"
+#include "core/colour.hpp"
 #include <algorithm>
 #include <cmath>
 #include <cstdio>
 #include <cstring>
 #include <cstdlib>
 #include <filesystem>
+#include <fstream>
+#include <sstream>
 #include <memory>
 #include <optional>
 #include <stdexcept>
@@ -32,6 +35,68 @@ void check_rgb(gpu::Gpu* gpu,const Image& packed,view::Request q,const Json& tra
    else check(rgb.pixels[p*3+c]==uint8_t((uint32_t(expected)*255u+32767u)/65535u),"RGB8 differs from exact RGBA16-to-8 rounding");
   }
  }
+}
+void cineon_tests(const std::string& resources){
+ std::string e;std::unique_ptr<gpu::Gpu> gpu(gpu::Gpu::create_vulkan(resources+"/vulkan",e));check(bool(gpu),e);
+ constexpr uint32_t n=1024;std::vector<float> input(n*3),actual(n*3);std::array<float,42> p{};
+ for(unsigned c=0;c<3;++c){p[3*c+c]=1;p[12+3*c+c]=1;p[21+3*c+c]=1;}
+ p[9]=.1f;p[10]=-.05f;p[11]=.03f;p[31]=-17;p[32]=.78f;p[33]=280;p[34]=55;p[35]=.02f;p[36]=.08f;
+ p[37]=685;p[38]=300;p[39]=1023;p[40]=.002f;p[41]=float(std::pow(10.,(95.-685)/300));
+ for(unsigned i=0;i<n;++i)for(unsigned c=0;c<3;++c)input[3*i+c]=-4.f+float((i*(37+19*c))%1024)*7.f/1023;
+ auto source=gpu->upload(input.data(),input.size()*4,e),out=gpu->alloc(input.size()*4,e);check(source&&out,e);
+ size_t changed=0;
+ for(bool compensate:{false,true}){
+  p[30]=compensate?1.f:0.f;auto uniforms=gpu->upload(p.data(),sizeof(p),e);check(bool(uniforms),e);
+  check(gpu->dispatch("spk_di_encode",{gpu::Arg::buf(source),gpu::Arg::buf(uniforms),gpu::Arg::inline_bytes(&n,1),gpu::Arg::buf(out)},n,e)&&gpu->flush(e)&&gpu->read(out.get(),0,actual.data(),actual.size()*4,e),e);
+  for(unsigned i=0;i<n;++i){
+   std::array<double,3> linear{},lms{};
+   for(unsigned c=0;c<3;++c)linear[c]=(std::pow(10.,double(input[3*i+c]))-p[40])*std::pow(10.,p[9+c]);
+   if(compensate){
+    for(unsigned c=0;c<3;++c)lms[c]=std::cbrt(std::max(0.,linear[c]));
+    double L=.2104542553*lms[0]+.793617785*lms[1]-.0040720468*lms[2];
+    double a=1.9779984951*lms[0]-2.428592205*lms[1]+.4505937099*lms[2];
+    double b=.0259040371*lms[0]+.7827717662*lms[1]-.808675766*lms[2];
+    double C=std::hypot(a,b),h=std::atan2(b,a)*180/3.141592653589793,d=std::fmod(h-p[33]+540,360)-180;
+    double w=std::abs(d)<p[34]?(1+std::cos(3.141592653589793*d/p[34]))*.5:0;
+    double g=std::clamp((C-p[35])/(p[36]-p[35]),0.,1.);w*=g*g*(3-2*g);
+    if(w>0){++changed;double h2=(h+w*p[31])*3.141592653589793/180,C2=C*(1+w*(p[32]-1));a=C2*std::cos(h2);b=C2*std::sin(h2);
+     linear={L+.3963377774*a+.2158037573*b,L-.1055613458*a-.0638541728*b,L-.0894841775*a-1.291485548*b};
+     for(auto& v:linear)v=v*v*v;
+    }
+   }
+   for(unsigned c=0;c<3;++c){double expected=std::clamp((685+300*std::log10(std::max(0.,linear[c])*(1-p[41])+p[41]))/1023,0.,1.);
+    check(std::abs(actual[3*i+c]-expected)<2e-5,"Cineon shader differs from double precision scalar reference");}
+  }
+ }
+ check(changed>20,"Cineon test failed to exercise blue-sector compensation");source.reset();out.reset();gpu.reset();
+ using Engine=std::unique_ptr<spk_engine,decltype(&spk_engine_destroy)>;using Session=std::unique_ptr<spk_session,decltype(&spk_session_release)>;
+ Engine engine(spk_engine_create(resources.c_str(),nullptr),spk_engine_destroy);check(bool(engine),spk_last_error(nullptr));
+ std::vector<float> pixels(17*11*3);for(size_t i=0;i<pixels.size();++i)pixels[i]=.015f+float(i%73)/97;
+ spk_image image{pixels.data(),17,11,3};Session s(spk_open(engine.get(),&image,"{\"grain_active\":false,\"halation_active\":false,\"glare_active\":false,\"auto_exposure\":false}",nullptr),spk_session_release);check(bool(s),spk_last_error(engine.get()));
+ view::Request q;q.target_space="ProPhoto RGB";q.rgba16=true;q.output_channels=3;view::Result before,after,raw;
+ check(view::render(s.get(),q,before,e),e);q.cineon=true;q.adjustments=json("{\"exposure\":4,\"saturation\":80}");check(view::render(s.get(),q,raw,e),e);
+ spk_result c{};char* meta=nullptr;check(spk_render_digital_intermediate(s.get(),&c,&meta)==SPK_OK,spk_last_error(engine.get()));
+ check(c.width==raw.width&&c.height==raw.height&&raw.preview_width&&raw.preview_height,"DI dimensions/preview missing");
+ for(unsigned y=0;y<c.height;++y)for(unsigned x=0;x<c.width;++x)for(unsigned k=0;k<3;++k)
+  check(c.rgba16[(size_t(y)*c.row_stride_px+x)*4+k]==value(raw,(size_t(y)*c.width+x)*3+k),"direct Cineon export differs from C API or included Post-Dev");
+ spk_result_free(&c);spk_string_free(meta);
+ q.cineon=false;q.adjustments=Json::object();check(view::render(s.get(),q,after,e)&&after.print_cached&&after.pixels==before.pixels,"DI export changed editor print");
+ check(spk_set_params(s.get(),"{\"digital_intermediate\":true}",nullptr)==SPK_OK,spk_last_error(engine.get()));
+ check(view::render(s.get(),q,after,e),e);check(after.pixels!=raw.pixels,"DI canvas displayed raw log without shipped view LUT");
+ std::ifstream cube(std::filesystem::path(resources)/"DI"/"SpektraLab DI view, Cineon to ProPhoto RGB.cube");std::string line;std::vector<std::array<double,3>> lut;
+ while(std::getline(cube,line)){std::istringstream row(line);std::array<double,3> v;if(!(row>>v[0]>>v[1]>>v[2]))continue;
+  for(auto& x:v){int exp;std::frexp(x,&exp);double step=std::ldexp(1.,std::max(-24,exp-11));x=std::nearbyint(x/step)*step;}lut.push_back(v);}
+ check(lut.size()==65*65*65,"test could not load shipped DI cube");
+ for(unsigned i=0;i<raw.width*raw.height;++i){unsigned lower[3];double fraction[3];
+  for(unsigned c=0;c<3;++c){double coordinate=double(value(raw,3*i+c))/65535*64;lower[c]=unsigned(std::floor(coordinate));fraction[c]=coordinate-lower[c];}
+  for(unsigned c=0;c<3;++c){double expected=0;
+   for(unsigned corner=0;corner<8;++corner){unsigned ix[3];double weight=1;
+    for(unsigned axis=0;axis<3;++axis){bool high=(corner>>axis)&1;ix[axis]=std::min(64u,lower[axis]+unsigned(high));weight*=high?fraction[axis]:1-fraction[axis];}
+    expected+=lut[(ix[2]*65+ix[1])*65+ix[0]][c]*weight;}
+   check(std::abs(int(value(after,3*i+c))-int(quant(expected)))<=2,"DI view differs from independently interpolated shipped half-float cube");
+  }
+ }
+ std::puts("Cineon shader: 2048 reference pixels, blue compensation, dedicated raw codes, unmodified editor cache and DI view passed");
 }
 void process_tests(const std::string& resources){
  std::string e;std::unique_ptr<gpu::Gpu> gpu(gpu::Gpu::create_vulkan(resources+"/vulkan",e));check(bool(gpu),e);
@@ -124,6 +189,51 @@ void cache_tests(const std::string& resources){
  check(view::render(s.get(),q,second,e),e);check(!second.print_cached,"engine parameter change retained stale print");
  s.reset();engine.reset();check(!first.pixels.empty(),"CPU result lifetime lost");
  std::puts("view cache: reuse, display without CAM16 setup, exact public-transform parity, grade, legacy invalidation, byte parity, parameter invalidation and ownership passed");
+}
+
+void proof_tests(const std::string& resources){
+ using Engine=std::unique_ptr<spk_engine,decltype(&spk_engine_destroy)>;Engine engine(spk_engine_create(resources.c_str(),nullptr),spk_engine_destroy);check(bool(engine),spk_last_error(nullptr));
+ std::vector<float> px(37*29*3);for(size_t i=0;i<px.size();++i)px[i]=float(.001+.9*double((i*71)%251)/251);
+ spk_image image{px.data(),37,29,3};using Session=std::unique_ptr<spk_session,decltype(&spk_session_release)>;
+ Session s(spk_open(engine.get(),&image,"{\"grain_active\":false,\"halation_active\":false,\"glare_active\":false,\"auto_exposure\":false}",nullptr),spk_session_release);check(bool(s),spk_last_error(engine.get()));
+ std::string e;Blob blob;Colour colour;check(blob.open(resources+"/spektrafilm_constants.bin",e)&&colour.init(blob,e),e);
+ for(const char* space:{"sRGB","Display P3","ProPhoto RGB","Adobe RGB (1998)","ITU-R BT.2020"})for(bool sixteen:{false,true}){
+  view::Request q;q.export_intent=true;q.output_channels=3;q.rgba16=sixteen;q.target_space=space;q.long_edge=23;
+  q.adjustments=json("{\"exposure\":0.7,\"saturation\":35}");q.geometry=json("{\"quarterTurns\":1,\"crop\":{\"x\":0.1,\"y\":0.1,\"width\":0.8,\"height\":0.8}}");
+  view::Result file,proof,repeat;check(view::render(s.get(),q,file,e),e);
+  q.proof_long_edge=11;q.proof_display="sRGB";check(view::render(s.get(),q,proof,e),e);
+  check(proof.print_cached&&proof.file_width==file.width&&proof.file_height==file.height,"proof changed full-tier film or recipe dimensions");
+  check(std::max(proof.width,proof.height)==11&&proof.pixels.size()==size_t(proof.width)*proof.height*4,"proof exposed full-file pixel payload");
+  check(proof.moved_pixels>=proof.outside_pixels&&proof.moved_pixels<=file.width*file.height&&proof.clipped_pixels<=file.width*file.height,"invalid full-file gamut statistics");
+  Mat3 matrix;check(colour.matrix_RGB_to_RGB(space,"sRGB","CAT02",matrix,e),e);double m[9];matrix.to_row_major(m);
+  auto sample=[&](uint32_t x,uint32_t y,int c){size_t i=(size_t(y)*file.width+x)*3+c;return sixteen?double(value(file,i))/65535:double(file.pixels[i])/255;};
+  int worst=0;
+  for(uint32_t y=0;y<proof.height;++y)for(uint32_t x=0;x<proof.width;++x){
+   double fx=std::clamp((x+.5)*file.width/proof.width-.5,0.,double(file.width-1)),fy=std::clamp((y+.5)*file.height/proof.height-.5,0.,double(file.height-1));
+   uint32_t x0=uint32_t(fx),y0=uint32_t(fy),x1=std::min(x0+1,file.width-1),y1=std::min(y0+1,file.height-1);double tx=fx-x0,ty=fy-y0,enc[3],linear[3];
+   for(int c=0;c<3;++c){enc[c]=double(quant((sample(x0,y0,c)*(1-tx)+sample(x1,y0,c)*tx)*(1-ty)+(sample(x0,y1,c)*(1-tx)+sample(x1,y1,c)*tx)*ty))/65535;linear[c]=colour.cctf_decode(enc[c],space);}
+   for(int c=0;c<3;++c){double out=std::string(space)=="sRGB"?enc[c]:colour.cctf_encode(m[c*3]*linear[0]+m[c*3+1]*linear[1]+m[c*3+2]*linear[2],"sRGB");
+    auto expected=uint8_t((uint32_t(quant(out))*255+32767)/65535);worst=std::max(worst,std::abs(int(expected)-int(proof.pixels[(y*proof.width+x)*4+c])));}
+  }
+  check(worst<=2,std::string("proof differs from actual file pixel CPU oracle in ")+space+": "+std::to_string(worst));
+  check(view::render(s.get(),q,repeat,e)&&repeat.pixels==proof.pixels&&repeat.moved_pixels==proof.moved_pixels&&repeat.outside_pixels==proof.outside_pixels,"repeat proof changed cached file or stats");
+  q.proof_long_edge=7;check(view::render(s.get(),q,repeat,e),e);
+  check(repeat.moved_pixels==proof.moved_pixels&&repeat.outside_pixels==proof.outside_pixels&&repeat.clipped_pixels==proof.clipped_pixels,"stats measured proof pixels instead of file pixels");
+ }
+ // A direct process oracle locks down export's lightness-disabled contract,
+ // including same-space ProPhoto's chroma knee, separately from host proofing.
+ view::Request neutral;neutral.rgba16=true;neutral.target_space="ProPhoto RGB";view::Result original;
+ check(view::render(s.get(),neutral,original,e),e);
+ std::unique_ptr<gpu::Gpu> gpu(gpu::Gpu::create_vulkan(resources+"/vulkan",e));check(bool(gpu),e);
+ Image packed;packed.w=original.width;packed.h=original.height;packed.c=2;packed.buf=gpu->upload_persistent(original.pixels.data(),original.pixels.size(),e);check(bool(packed.buf),e);
+ for(const char* space:{"sRGB","ProPhoto RGB"}){
+  char* text=nullptr;const float* cmax=nullptr;uint32_t n=0;
+  check(spk_output_transform(engine.get(),"ProPhoto RGB",space,"{\"lightness_compression_active\":false}",&text,&cmax,&n)==SPK_OK,spk_last_error(engine.get()));Json transform=json(text);spk_string_free(text);
+  view::Request q;q.rgba16=true;q.export_intent=true;q.target_space=space;view::Result reference,actual;
+  check(view::process(gpu.get(),packed,q,transform,cmax,n,reference,e),e);check(view::render(s.get(),q,actual,e),e);
+  check(actual.pixels==reference.pixels,"export applied a second lightness shoulder or skipped same-space chroma mapping");
+ }
+ std::puts("proof: five spaces, 8/16-bit actual-file CPU oracle, crop/resize order, tiny payload, cache, full-file stats and Mac export transform passed");
 }
 
 struct ScopedEnvironment {
@@ -236,4 +346,4 @@ void residency_tests(const std::string& resources){
  std::puts("view residency: exact random pixels, aliases, rollback, automatic restore, RNG continuation and suspended-close cleanup passed");
 }
 }
-int main(int argc,char** argv){try{check(argc==2,"resource directory required");process_tests(argv[1]);cache_tests(argv[1]);residency_tests(argv[1]);return 0;}catch(const std::exception& e){std::fprintf(stderr,"%s\n",e.what());return 1;}}
+int main(int argc,char** argv){try{check(argc==2,"resource directory required");process_tests(argv[1]);cache_tests(argv[1]);proof_tests(argv[1]);cineon_tests(argv[1]);residency_tests(argv[1]);return 0;}catch(const std::exception& e){std::fprintf(stderr,"%s\n",e.what());return 1;}}

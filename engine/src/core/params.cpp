@@ -1,5 +1,7 @@
 #include "params.hpp"
 
+#include "camera_filters.hpp"
+
 #include <cmath>
 #include <cstring>
 #include <fstream>
@@ -199,6 +201,9 @@ const SchemaField kFields[] = {
     // request that does not name it renders exactly as the reference does.
     // Live, as the shifts are: it changes the print's light and nothing else.
     {"filter_shift_scale",     "enlarger.filter_shift_scale",          F, PRINT, true, 1.0, 60.0, true},
+    // The lens's colour filter (B&W research, 2026-10-07). Native only. SHOOT:
+    // it changes the light the negative is made of.
+    {"camera_filter",            "camera.filter",                         S, SHOOT, false, 0, 0, false},
     // The app's *preview resolution*: the `live` tier's long edge, and so the
     // size every interactive edit renders at. PRINT layer, because it is a
     // decision about the canvas rather than about the film -- but it is one of
@@ -305,6 +310,7 @@ std::string* str_slot(Params& p, const std::string& path) {
     if (path == "enlarger.illuminant") return &p.enlarger.illuminant;
     if (path == "io.output_color_space") return &p.io.output_color_space;
     if (path == "camera.auto_exposure_method") return &p.camera.auto_exposure_method;
+    if (path == "camera.filter") return &p.camera.filter;
     if (path == "camera.scene_latitude.norm") return &p.camera.scene_latitude.norm;
     if (path == "print_render.contrast_mask.scheme") return &p.print_render.contrast_mask.scheme;
     if (path == "film_render.overscan.format") return &p.film_render.overscan.format;
@@ -357,6 +363,12 @@ bool is_known_contrast_mask_scheme(const std::string& scheme) { return scheme ==
 
 bool is_known_scene_latitude_norm(const std::string& norm) {
     return norm == "power" || norm == "y" || norm == "max";
+}
+
+bool is_known_camera_filter(const std::string& name) {
+    if (name.empty()) return true;
+    for (const CameraFilter& f : kCameraFilters) if (name == f.name) return true;
+    return false;
 }
 
 const std::vector<SchemaField>& schema_fields() {
@@ -416,6 +428,12 @@ bool validate_delta(const Json& delta, std::string& error, std::string& param) {
         }
         // A closed set of names is not a range, so `has_range` cannot express
         // it; this, `contrast_mask_scheme` and `scene_latitude_norm` are the enumerated strings.
+        if (kv.first == "camera_filter" && !is_known_camera_filter(v.as_string())) {
+            error = "'camera_filter' = '" + v.as_string() +
+                    "' is not a camera filter ('' for none, w8, w11, w12, w15, w21, w25, w47, w58)";
+            param = kv.first;
+            return false;
+        }
         if (kv.first == "auto_exposure_method" && !is_known_exposure_method(v.as_string())) {
             error = "'auto_exposure_method' = '" + v.as_string() +
                     "' is not an exposure method (balanced, center, protect_highlights, "

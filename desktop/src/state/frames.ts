@@ -2,12 +2,12 @@
 // frame is 180 MB; the store carries a version number instead).
 
 import type { RenderReply, RgbaImage } from '../host/client';
-import { imageData } from '../canvas/colorSpace';
+import { imageData, preview8 } from '../canvas/colorSpace';
 
 export const frameImages: {
-  /** Display-tagged rgba8; render_view already applied the grade and geometry. */
+  /** Display-tagged rgba8/rgba16; render_view already applied the grade and geometry. */
   print: RenderReply | null;
-  /** The decode as the camera's embedded preview shows it (Original, Before). */
+  /** Current decoded source, display-tagged; embedded preview only while loading. */
   original: RgbaImage | null;
 } = { print: null, original: null };
 
@@ -19,7 +19,7 @@ export async function rgbaToURL(img: RgbaImage, longEdge = THUMB_EDGE): Promise<
     const s = Math.min(1, longEdge / Math.max(img.width, img.height));
     const w = Math.max(1, Math.round(img.width * s));
     const h = Math.max(1, Math.round(img.height * s));
-    const src = imageData(img);
+    const src = imageData(img.format === 'rgba16' ? preview8(img, w, h) : img);
     const bmp = await createImageBitmap(src, { resizeWidth: w, resizeHeight: h, resizeQuality: 'medium' });
     const canvas = new OffscreenCanvas(w, h);
     // Persist thumbnails as managed sRGB JPEGs so old runtimes and the OS

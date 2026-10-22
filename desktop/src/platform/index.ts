@@ -30,6 +30,14 @@ export interface Platform {
   sidecarLoad(image: string): Promise<unknown | null>;
   sidecarSave(image: string, sidecar: unknown): Promise<string>;
   sidecarPath(image: string): Promise<string>;
+  workspaceBegin(): Promise<number>;
+  workspaceEnd(token: number): Promise<void>;
+  agentChanges(): Promise<{ revision: string; paths: string[]; all?: boolean } | null>;
+  pairCreate(folder: string, value: unknown): Promise<FileEntry>;
+  pairLoad(path: string): Promise<unknown | null>;
+  pairSave(path: string, value: unknown): Promise<void>;
+  pairList(folder: string): Promise<FileEntry[]>;
+  pairDelete(path: string): Promise<void>;
   storeRead(area: string, name: string): Promise<unknown | null>;
   storeWrite(area: string, name: string, value: unknown): Promise<void>;
   takeLaunchPaths(): Promise<string[]>;

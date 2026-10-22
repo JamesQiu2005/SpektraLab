@@ -47,5 +47,8 @@ struct Metadata;
 // Fills make/model/lens/iso/shutter/aperture/focal/datetime/orientation from
 // IFD0 and its EXIF sub-IFD. Absent fields are left as they were.
 void read_exif_metadata(TiffBytes& tiff, uint32_t ifd0, Metadata& meta);
+// One bounded scalar/string value from LibRaw's EXIF callback or a parsed IFD.
+void capture_exif_value(Metadata& metadata, uint16_t tag, uint16_t type, uint32_t count,
+                        bool little_endian, const uint8_t* data, size_t bytes);
 
 }  // namespace spkhost

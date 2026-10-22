@@ -1,0 +1,22 @@
+.preview-build-status {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex: 0 0 auto;
+  flex-wrap: wrap;
+  gap: calc(6px * var(--ui-scale));
+  padding: calc(4px * var(--ui-scale)) calc(12px * var(--ui-scale));
+  color: var(--secondary-text);
+  font-size: calc(11px * var(--ui-scale));
+}
+
+.preview-build-summary { min-width: 0; overflow-wrap: anywhere; }
+.preview-build-actions { display: flex; flex: 0 0 auto; gap: calc(8px * var(--ui-scale)); }
+.preview-build-actions button {
+  flex: 0 0 auto;
+  width: auto;
+  height: auto;
+  min-height: calc(24px * var(--ui-scale));
+  padding: calc(3px * var(--ui-scale)) calc(10px * var(--ui-scale));
+  white-space: nowrap;
+}

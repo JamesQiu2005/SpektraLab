@@ -6,6 +6,7 @@ import { ask, message, open, save } from '@tauri-apps/plugin-dialog';
 import { error as logError, info as logInfo, warn as logWarn } from '@tauri-apps/plugin-log';
 import { openUrl, revealItemInDir } from '@tauri-apps/plugin-opener';
 import type { AppPaths, FileEntry, Platform } from './index';
+import { PHOTO_PICKER_EXTENSIONS } from '@shared/fileTypes';
 
 export function tauriPlatform(): Platform {
   return {
@@ -15,6 +16,14 @@ export function tauriPlatform(): Platform {
     sidecarLoad: (image) => invoke<unknown | null>('sidecar_load', { image }),
     sidecarSave: (image, sidecar) => invoke<string>('sidecar_save', { image, sidecar }),
     sidecarPath: (image) => invoke<string>('sidecar_path', { image }),
+    workspaceBegin: () => invoke<number>('workspace_begin'),
+    workspaceEnd: (token) => invoke<void>('workspace_end', { token }),
+    agentChanges: () => invoke<{ revision: string; paths: string[]; all?: boolean } | null>('agent_changes'),
+    pairCreate: (folder, value) => invoke<FileEntry>('pair_create', { folder, value }),
+    pairLoad: (path) => invoke<unknown | null>('pair_load', { path }),
+    pairSave: (path, value) => invoke<void>('pair_save', { path, value }),
+    pairList: (folder) => invoke<FileEntry[]>('pair_list', { folder }),
+    pairDelete: (path) => invoke<void>('pair_delete', { path }),
     storeRead: (area, name) => invoke<unknown | null>('store_read', { area, name }),
     storeWrite: (area, name, value) => invoke<void>('store_write', { area, name, value }),
     takeLaunchPaths: () => invoke<string[]>('take_launch_paths'),
@@ -32,7 +41,7 @@ export function tauriPlatform(): Platform {
         filters: [
           {
             name: 'Photographs',
-            extensions: ['nef', 'NEF', 'arw', 'ARW', 'cr2', 'CR2', 'cr3', 'CR3', 'raf', 'RAF', 'dng', 'DNG', 'orf', 'ORF', 'rw2', 'RW2', 'pef', 'PEF', 'srw', 'SRW', 'tif', 'tiff', 'TIF', 'TIFF', 'jpg', 'jpeg', 'JPG', 'JPEG', 'png', 'PNG'],
+            extensions: PHOTO_PICKER_EXTENSIONS,
           },
           { name: 'All files', extensions: ['*'] },
         ],

@@ -337,6 +337,10 @@ public:
     // the frame* (see `node_unsharp`). Both are set at every render, so a
     // rebuilt pipeline cannot miss either.
     void set_source_long_edge(uint32_t long_edge, uint32_t frame_long_edge);
+    // Film Edge/date frame a physically cropped source, like Mac cutSource.
+    void set_source_shape(uint32_t w, uint32_t h, uint32_t full_w, uint32_t full_h);
+    bool full_output_size(uint32_t w, uint32_t h, uint32_t& out_w, uint32_t& out_h,
+                          std::string& error);
 
     // `Tap.RGB_IN` -> `Tap.CMY_FILM`. `out` is the developed negative.
     bool run_film(const Image& in, Image& out, Progress* progress, std::string& error);
@@ -787,6 +791,7 @@ private:
 
     // --- derived on the host, refreshed per run --------------------------
     Vec film_sensitivity_;
+    Vec film_sensitivity_edge_;   // without the lens's colour filter (overscan.cpp)
     // The tc_lut and its matrix are kept on the host as well as on device:
     // the print exposure's midgray probe runs one pixel of grey through the
     // film model, and rebuilding a 192x192x81 contraction to do that on every

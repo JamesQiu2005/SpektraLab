@@ -73,6 +73,26 @@ failure; without it, CMake can build only the portable core. The wrapper
 always requires Vulkan. Generated SPIR-V and binaries stay in the build
 directory; tracked baked resources do not need regeneration.
 
+### TypeScript desktop shell
+
+The current Windows/Linux editor is the Tauri application under `desktop/`;
+follow [its build instructions](../desktop/README.md) and build its web assets
+before compiling with `tauri/custom-protocol`. Its Rust library is an `rlib`
+used by the desktop executable and unit tests. It has no public Rust C ABI or
+mobile library target, so the template's unused `staticlib`/`cdylib` outputs
+are omitted. In particular, this prevents older MinGW linkers from attempting
+to auto-export more than 65,535 symbols from an unused DLL when linking newer
+Rust dependencies. No environment-specific export suppression flag is needed.
+
+Host requests retain their workspace lease until the native response or a
+confirmed child-process exit, even after the interface times out. Cancel and
+ping remain available. Restart terminates and reaps the previous process
+before launching its replacement; a late reply from an old host generation
+cannot complete a new request or release that request's lease.
+Pipe writes share the request's timeout budget and are bounded to 30 seconds;
+a stalled or partial write terminates and reaps the matching host, so it
+cannot indefinitely block the restart command or release a still-running job.
+
 ## Runtime and result ownership
 
 Build outputs are in `build/windows/engine`. The native CLI is

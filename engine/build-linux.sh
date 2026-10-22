@@ -31,12 +31,23 @@ for arg in "$@"; do
   esac
 done
 
-if [[ $fetch == 1 ]]; then "$here/setup-deps.sh" >/dev/null; fi
+deps="${SPEKTRALAB_DEPS_DIR:-$repo/build/deps}"
+input_prefix="${SPEKTRALAB_INPUT_CODEC_PREFIX:-$deps/input-codecs/install-linux}"
+lens_prefix="${SPEKTRALAB_LENS_PREFIX:-$deps/lens-codecs/install-linux}"
+if [[ $fetch == 1 ]]; then
+  "$here/setup-deps.sh" "$deps" >/dev/null
+  python3 "$here/setup-input-codecs.py" --sources "$deps/input-codecs" \
+    --build "$build/input-codecs" --install "$input_prefix" --generator Ninja
+  python3 "$here/setup-lens-codecs.py" --sources "$deps/lens-codecs" \
+    --build "$build/lens-codecs" --install "$lens_prefix" --generator Ninja
+fi
 
 version="$(git -C "$repo" describe --always --dirty 2>/dev/null || echo unknown)"
 cmake -S "$repo" -B "$build" -G Ninja -DCMAKE_BUILD_TYPE=Release \
   -DSPEKTRALAB_BUILD_NATIVE_RAW=ON -DSPEKTRALAB_BUILD_HOST=ON \
   -DSPEKTRALAB_REQUIRE_VULKAN=ON -DSPEKTRALAB_STATIC_RUNTIME=ON \
+  -DSPEKTRALAB_INPUT_CODEC_PREFIX="$input_prefix" \
+  -DSPEKTRALAB_LENS_PREFIX="$lens_prefix" \
   -DSPEKTRALAB_HOST_VERSION="0.1.0+$version"
 ninja -C "$build"
 

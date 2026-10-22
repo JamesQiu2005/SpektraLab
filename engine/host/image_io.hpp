@@ -25,18 +25,31 @@
 #include <vector>
 
 #include "io/raw_decoder.hpp"
+#include "exif_fields.hpp"
 
 namespace spkhost {
+
+struct LensCorrectionInfo {
+    bool available = false, applied = false;
+    std::string profile, reason;
+    bool distortion = false, tca = false, vignetting = false;
+    double scale = 1;
+    double focus_distance_m = 1000;
+    bool focus_distance_assumed = true;
+};
 
 struct Metadata {
     std::string make, model, lens, datetime_original;
     std::optional<double> iso, shutter_s, aperture, focal_mm;
+    std::optional<double> exposure_program, exposure_bias_ev, focal_35mm;
+    ExifValues extra_exif;
+    std::optional<LensCorrectionInfo> lens_correction;
     int orientation = 1;   // EXIF 1..8, of the file as stored
     // RAW only: the as-shot illuminant as Temperature/Tint (white_balance.hpp).
     std::optional<double> as_shot_temperature_k, as_shot_tint;
 };
 
-enum class FileKind { Raw, Tiff, Jpeg, Png, Unknown };
+enum class FileKind { Raw, Tiff, Jpeg, Png, Heic, Exr, Unknown };
 const char* kind_name(FileKind kind);
 FileKind sniff_kind(const std::filesystem::path& path);
 
@@ -52,6 +65,7 @@ struct FloatImage {
     uint32_t width = 0, height = 0;
     std::vector<float> rgb;
     std::optional<spk::io::RawDecodeTimings> raw_timings;
+    std::optional<spk::io::RawMetadata> raw_metadata;
 };
 
 struct Rgba8 {
@@ -62,8 +76,9 @@ struct Rgba8 {
 // The frame the engine develops: linear ProPhoto, orientation applied.
 struct DecodeOptions {
     std::string raw_mode = "compatible16";   // or "headroom"
-    // R2: a custom white balance at decode (RAW, compatible16 only).
+    // R2: a custom white balance at decode (RAW, both decode modes).
     std::optional<double> temperature_k, tint;
+    bool lens_correction = false;
 };
 // Thrown as a plain error string prefixed "unsupported:" when a decode option
 // cannot be honoured for this file.
@@ -73,8 +88,9 @@ bool decode_linear_prophoto(const std::filesystem::path& path, const DecodeOptio
 
 // A display thumbnail, sRGB 8-bit, orientation applied, long edge <= long_edge.
 // RAW: the embedded preview when there is one, else a half-size decode.
+// embedded_only forbids that fallback and all non-RAW decoding.
 bool thumbnail(const std::filesystem::path& path, uint32_t long_edge, Rgba8& out,
-               std::string& source, std::string& error);
+               std::string& source, std::string& error, bool embedded_only = false);
 
 // --- helpers shared with the writers ---------------------------------------
 

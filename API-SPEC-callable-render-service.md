@@ -867,6 +867,16 @@ reasoning: RFC-032 §25, §27.
   regular weight (it is Kodak-made: DX part 1 = Gold's). Vision3: one
   "EASTMAN 52xx" keycode line and dashes, no numbers or bars. E100: white
   marks. On Kodak 120 the name is centred between consecutive numbers.
+  **The black-and-white stocks** (2026-10-09; the profiles are the product's and not installed,
+  §15): one emulsion, so the printer's light is the same in all three layers and the marks are
+  grey. Tri-X 400 and T-Max 100: Kodak's layout with no DX bars (none on the strips), Tri-X in the
+  regular weight. Neopan 100 Acros II: the Fujifilm slides' layout (dots, no bars); a text's "II"
+  standing as a word is one cell, so the host sends "FUJI 100 ACROS II". HP5 Plus 400: Ilford's
+  135 print is Kodak's two bands turned half a turn -- with the picture upright the DX code
+  (13.06 mm, reading 1753 = 109/9) and the frame numbers run along the top band and the name reads
+  upside down along the bottom one, in a square 5 × 7 face with 1.50 mm caps ("ILFORD HP5 PLUS").
+  Its frame numbers' face and order are assumed (the one strip is cropped through them), and its
+  120 edge borrows Kodak's.
   **The lettering, re-measured 2026-10-04** (the owner's real-against-rendered
   pairs; 1.3.1). Fujifilm's print is a dot matrix and is drawn as one: every
   mark is a pattern of dots 0.1155 mm apart along the film and 0.0984 mm
@@ -944,13 +954,20 @@ crop overlay, a meter or a per-gate print cut on the picture and off the
 rebate. The quad is the gate's nominal rectangle; the gate's own corners, ears
 and penumbra are inside a few tenths of a millimetre of it.
 
+**Windows backend validation (2026-10-18):** Scene Placement's first/second
+curve, both frame orientations, global strip offsets, and SHOOT cache
+invalidation are covered by `gpu_vulkan_scene_latitude.cpp` (72 numerical
+cases against the CPU fit evaluator, plus C API tests). This is implemented
+engine behavior; a pair editor must still submit the correct split/region and
+map the selected gate's fit to its corresponding parameter set. Actual Metal
+and Intel GPU comparisons remain separate validation gates.
+
 **Proposed, not implemented** (for the frontend contract):
 
-1. A per-gate Scene Placement for a pair (the half-frame pair's E3).
-2. A per-render diagnostic when a date is asked for but not drawn (wrong
+1. A per-render diagnostic when a date is asked for but not drawn (wrong
    format or style), so the UI can grey the control instead of failing
    silently.
-3. `overscan_holes` acts only in the print stages and could become
+2. `overscan_holes` acts only in the print stages and could become
    `print`-layer (a reprint, not a re-develop). It stays `shoot` until a
    reprint is shown to keep the overscan layout across a pipeline rebuild.
 
@@ -967,3 +984,107 @@ The pack is `neutral + shift × filter_shift_scale` for M and Y (C has no shift)
 The macOS app sends **40** always (`FilmParams.filterShiftCC`), so its sliders' ends are ±40 CC: blue against red ±0.3 stop of the print's encoded values on the fixture, pinned by `EnlargerFilterTests` (red at a scale of 1). More filtration prints the *other* way on a negative — Yellow up is a bluer print, Magenta up a greener one — and the app's slider tracks are coloured as the print goes.
 
 It is live for the same reason the shifts are: it changes the light on the paper and nothing upstream.
+
+## 15. `camera_filter` — a colour filter on the lens (2026-10-07, branch `bw-tri-x`)
+
+Native only; the Python reference has no such stage. String, SHOOT layer (an edit re-develops),
+default `""` (none). Names: `w8` `w11` `w12` `w15` `w21` `w25` `w47` `w58` (Kodak Wratten numbers);
+any other value is refused with the list.
+
+- The filter's transmittance (`engine/src/core/camera_filters.hpp`, 380-780 nm at 5 nm) multiplies
+  the film's spectral sensitivity before the upsampling table is built (`film_sensitivity`,
+  `hanatos.cpp`). The setup cache keys on the resulting sensitivity, so nothing else changes.
+- **The filter factor is given.** One scalar, the green-sensitive layer's ratio under the film's
+  reference illuminant, divides the result: on a one-emulsion film 18 % grey keeps its exposure, and
+  a colour film keeps the filter's cast. Auto exposure meters the input and never sees the filter.
+- **Only the picture passes the lens.** Overscan's edge print, fog and date back read
+  `film_sensitivity_edge_`, the sensitivity without the filter.
+- Data: Kodak B-3 tables as transcribed (third-hand). Against Tri-X 400's published factors the
+  computed ones are within 0.21 stop for six of seven filters in daylight; No. 58 is 0.67 stop high.
+- Measured (`research/bw-tri-x/engine-test/test_filter.py`): the wire field agrees with a profile
+  whose sensitivity has the same table baked in to 2/255; a live session re-develops and returns;
+  the 135 and 645 rebates change by at most 1/255 under `w25`.
+- Not verified: colour stocks beyond one render; the app has no control for it.
+
+## 16. Windows half frame document storage
+
+The desktop's Tauri storage commands manage `.spektrapair` JSON documents,
+separately from the rendering host. The schema mirrors `HalfFramePair.swift`:
+`schemaVersion:1`, absolute `folder`, optional `left` and `right` holes,
+`spacingMM` (0.5–2, default 1), `onStrip` and `turned`. A hole references an
+absolute photograph path and carries its own placement, decode, geometry,
+meter, exposure, optional print/grade and frame/film scope. Nested pairs are
+refused; source photographs are never consumed or modified.
+
+| Tauri command | Parameters | Result |
+|---|---|---|
+| `pair_create` | `{folder,value}` | file entry `{path,name,size,mtime_ms}` in the app's `Sidecars/Pairs` store; folder must match the document |
+| `pair_load` | `{path}` | validated document, or null when absent; external documents may be read |
+| `pair_save` | `{path,value}` | atomic replacement, confined to the app's pair store |
+| `pair_list` | `{folder}` | documents belonging to exactly this standardized folder |
+| `pair_delete` | `{path}` | removes only the pair document in the app's store |
+
+Documents are limited to 1 MiB. Version/type/range failures are explicit;
+invalid stored files are omitted from listing. Writes use a flushed temporary
+file and atomic rename; a failed write preserves the previous document.
+Folder image scanning does not discover unrelated historical pairs. Explicit
+pair paths are accepted by `expand_paths`, while folder association requires
+an explicit `pair_list`. Pair rendering has its own host contract and must
+not be inferred from storage availability.
+
+### Windows Film Edge/date validation (2026-10-18)
+
+The four physical overscan stages now run in Vulkan, in the same positions
+as Metal. CPU vector masks retain physical dimensions, exposure weights,
+seeded placement and Gaussian kernel order. Apple keeps CoreText/CoreGraphics;
+Windows embeds pinned Liberation Sans 2.1.5 regular/bold and stb_truetype
+(licenses/checksums in `engine/resources_product/fonts/README.md` and
+`engine/third_party/stb/README.md`). Font outlines differ from Helvetica Neue;
+this is a declared typography difference, not a material-profile modification.
+
+The unmodified overscan regression corpus and product BW/filter/DX corpus
+pass on the RTX 5070 Ti. `host_film_edge.py` separately proves held crop/turn/
+flip parity against independently cropped input, full canvas dimensions at
+preview tiers, original isolation, cached reprint and atomic invalid-input
+handling. Mac/Metal and Intel runtime parity still require their own runs.
+
+## 17. Windows lens correction and persistent display cache
+
+RAW `decode` accepts `lens_correction: boolean` (default false) for open,
+redecode and immutable export snapshots. `metadata.lens_correction` reports
+`available`, `applied`, matched `profile`, refusal `reason`, actual `distortion`,
+`tca`, `vignetting`, automatic crop `scale`, and `focus_distance_m` plus
+`focus_distance_assumed`. Standard EXIF SubjectDistance is used when valid;
+otherwise 1000 m is the explicit far-focus assumption. A missing/ambiguous
+profile or non-RAW input cannot silently claim correction. Lensfun operates on
+unoriented sensor coordinates while returning the original displayed direction;
+TCA reconstructs camera channels from the recorded camera-to-working matrix.
+Float negatives and highlight headroom are preserved. The source file is unchanged.
+
+Tauri display-cache commands are separate from the render protocol:
+
+| Command | Contract |
+|---|---|
+| `frame_cache_key` | `{descriptor:{kind:"print"|"original",sources:[absolute paths],configuration}}` -> SHA-256 key; includes current file identity/size/nanosecond mtime and actual engine/resource fingerprint |
+| `frame_cache_read` | `{key}` -> framed `{hit,metadata?}` plus display pixels; corrupt entries become misses and are removed |
+| `frame_cache_write` | binary framed `{key,metadata:{image}}` plus tight RGBA8/RGBA16 display bytes -> stored boolean |
+| `frame_cache_status` | capacity, current bytes/entries, per-entry bound and cache path |
+| `frame_cache_configure` | `{capBytes}` from 0 to 64 GiB; default 16 GiB; zero disables and evicts |
+| `frame_cache_clear` | removes recognized cache entries only; leaves source photos, sidecars and unrelated files intact |
+
+Writes are atomic and checksummed; LRU eviction enforces disk capacity, one
+frontend write at a time bounds transient copies, and pictures above 64 MiB
+are skipped. Keys are captured before rendering and reused for the write.
+The Windows cache stores the final bounded display view (post/geometry/space
+are therefore in the key); Mac stores an intermediate print and applies those
+steps at draw time. Cached pixels never satisfy decoded engine input, neutral
+sampling or export. Reopening may display a saved picture while the real
+session opens in the background, with the same generation guards as rendering.
+
+Source-neutral picking also covers half-frame pairs: `pick_neutral` accepts
+`{session,x,y,side:"left"|"right"}` with coordinates relative to the entire
+decoded composite. The complete 5×5 patch must fit in the selected hole. Its
+exposure gain is removed before clipping checks and RAW calibration; cached
+half-float pictures retain their own decode calibration. Non-RAW, missing holes,
+gap/edge samples and a mismatched side fail explicitly. Single-source calls
+retain their original `{session,x,y}` contract.

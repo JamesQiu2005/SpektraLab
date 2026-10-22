@@ -100,6 +100,17 @@ void Pipeline::set_source_long_edge(uint32_t long_edge, uint32_t frame_long_edge
     pixel_size_um_ = long_mm * 1000.0 / double(long_edge);
 }
 
+void Pipeline::set_source_shape(uint32_t w, uint32_t h, uint32_t full_w, uint32_t full_h) {
+    const auto& g = params_.io.geometry;
+    auto edge = [&](uint32_t width, uint32_t height) {
+        if (overscan_wanted() || params_.film_render.date_imprint.active)
+            return std::max(std::max(1u, uint32_t(std::lround(g.crop_w * width))),
+                            std::max(1u, uint32_t(std::lround(g.crop_h * height))));
+        return std::max(width, height);
+    };
+    set_source_long_edge(edge(w, h), edge(full_w, full_h));
+}
+
 bool Pipeline::alloc_like(const Image& img, Image& out, std::string& error) {
     out.h = img.h; out.w = img.w; out.c = img.c;
     out.buf = gpu_->alloc(img.bytes(), error);
@@ -184,6 +195,13 @@ bool Pipeline::build(const Params& params, std::string& error) {
 
     // --- the spectral upsampling LUT -------------------------------------
     if (!film_sensitivity(*colour_, *blob_, film, params_.camera, film_sensitivity_, error)) return false;
+    {
+        // What the film's edge sees: the edge printer, the fog and the date
+        // back never pass the lens, so not its colour filter either.
+        CameraParams bare = params_.camera;
+        bare.filter.clear();
+        if (!film_sensitivity(*colour_, *blob_, film, bare, film_sensitivity_edge_, error)) return false;
+    }
     {
         const Vec* lut = nullptr;
         size_t side = 0;
@@ -603,6 +621,8 @@ bool Pipeline::node_geometry(const Image& in, Image& out, std::string& error) {
     if (turns % 2 == 1) std::swap(oh, ow);
     oh = std::max(oh, 1u);
     ow = std::max(ow, 1u);
+    if (overscan_wanted() || params_.film_render.date_imprint.active)
+        source_long_edge_ = std::max(ow, oh);
     const uint32_t cw = turns % 2 == 0 ? ow : oh;   // the crop's own frame
     const uint32_t ch = turns % 2 == 0 ? oh : ow;
 

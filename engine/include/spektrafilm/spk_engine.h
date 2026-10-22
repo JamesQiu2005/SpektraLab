@@ -229,8 +229,7 @@ spk_status spk_contrast_mask_field(spk_session* session, const char* tier, const
  * statistic, the suggested pull-backs and the solved fit, whose
  * `params_delta` -- present only when the fit is valid -- is what a client
  * sends to `spk_set_params` to commit it (API-SPEC §12).
- * Windows supports this analysis, but currently refuses enabling the mapping;
- * see `backend.unsupported_features` in capabilities. */
+ * The Windows Vulkan backend supports both this analysis and the mapping. */
 spk_status spk_scene_latitude(spk_session* session, const char* request_json, char** out_json);
 
 /* RFC-032: where the gates are on the film canvas the session's last render

@@ -1,4 +1,5 @@
 #include "white_balance.hpp"
+#include "io/raw_decoder.hpp"
 
 #include <algorithm>
 #include <cmath>
@@ -105,6 +106,42 @@ void xy_to_temperature_tint(double x, double y, double& temperature, double& tin
         }
         last_dt = dt; last_du = du; last_dv = dv;
     }
+}
+
+bool neutral_temperature_tint(const spk::io::RawMetadata& metadata,
+                              const std::array<double, 3>& rgb,
+                              double& temperature, double& tint, std::string& error) {
+    double output[9], camera[9], inv_output[9], inv_camera[9];
+    for (int r = 0; r < 3; ++r) for (int c = 0; c < 3; ++c) {
+        output[r * 3 + c] = metadata.camera_to_output[r * 4 + c];
+        camera[r * 3 + c] = metadata.camera_from_xyz[r * 3 + c];
+    }
+    if (metadata.colour_channels != 3 || !invert3(output, inv_output) || !invert3(camera, inv_camera)) {
+        error = "neutral pick: this RAW has no invertible three-colour camera calibration"; return false;
+    }
+    const double scale = metadata.white_balance_exposure_restore;
+    if (!(scale > 0) || !std::isfinite(scale)) { error = "neutral pick: invalid RAW scale"; return false; }
+    double neutral[3];
+    for (int r = 0; r < 3; ++r) {
+        double v = 0;
+        for (int c = 0; c < 3; ++c) v += inv_output[r * 3 + c] * rgb[c] / scale;
+        const double wb = metadata.post_scale_pre_mul[r];
+        if (!std::isfinite(v) || v <= .0001 || v >= .995 || !std::isfinite(wb) || !(wb > 0)) {
+            error = "neutral pick: choose a neutral patch away from clipped highlights and deep shadows"; return false;
+        }
+        neutral[r] = v / wb;
+    }
+    double xyz[3];
+    for (int r = 0; r < 3; ++r)
+        xyz[r] = inv_camera[r * 3] * neutral[0] + inv_camera[r * 3 + 1] * neutral[1] + inv_camera[r * 3 + 2] * neutral[2];
+    const double total = xyz[0] + xyz[1] + xyz[2];
+    if (!(total > 0) || xyz[1] <= 0) { error = "neutral pick: invalid neutral chromaticity"; return false; }
+    double t, g;
+    xy_to_temperature_tint(xyz[0] / total, xyz[1] / total, t, g);
+    if (!std::isfinite(t) || !std::isfinite(g) || t < 2000 || t > 50000 || g < -150 || g > 150) {
+        error = "neutral pick: selected colour is outside the supported RAW white-balance range"; return false;
+    }
+    temperature = t; tint = g; return true;
 }
 
 bool as_shot_temperature_tint(const LibRaw& raw, double& temperature, double& tint) {

@@ -107,7 +107,7 @@ void same_metadata(const spk::io::RawMetadata& a, const spk::io::RawMetadata& b)
 }
 
 void real_raw(const std::filesystem::path& path, const std::filesystem::path& dumps) {
-    for (const std::string mode : {"compatible16", "headroom", "custom_wb"}) {
+    for (const std::string mode : {"compatible16", "headroom", "custom_wb", "headroom_custom_wb"}) {
         spk::io::DecodedRaw baseline;
         std::set<unsigned> tested;
         for (unsigned requested : {1u, 2u, 4u, 8u}) {
@@ -116,7 +116,8 @@ void real_raw(const std::filesystem::path& path, const std::filesystem::path& du
             spk::io::DecodedRaw frame;
             std::string error;
             const std::array<float, 4> wb{2.0f, 1.0f, 1.5f, 1.0f};
-            const bool ok = mode == "headroom" ? spk::io::decode_raw_headroom(path, frame, error)
+            const bool ok = mode.starts_with("headroom")
+                ? spk::io::decode_raw_headroom(path, mode == "headroom_custom_wb" ? &wb : nullptr, frame, error)
                 : spk::io::decode_raw_compatible(path, mode == "custom_wb" ? &wb : nullptr, frame, error);
             if (!ok) throw std::runtime_error(error);
             const auto& t = frame.timings;

@@ -7,6 +7,7 @@ export interface PreviewPixels {
   width: number;
   height: number;
   data: Uint8Array;
+  format?: 'rgba8' | 'rgba16';
   /** Untagged legacy previews are sRGB. */
   colorSpace?: string;
 }
@@ -42,7 +43,28 @@ export function p3ToSrgb(data: Uint8Array): Uint8ClampedArray<ArrayBuffer> {
   return out;
 }
 
+/** Only small 2D surfaces need 8-bit pixels; the main canvas keeps UNORM16. */
+export function preview8(img: PreviewPixels, width = img.width, height = img.height): PreviewPixels {
+  if (img.format !== 'rgba16' && width === img.width && height === img.height) return img;
+  const wide = img.format === 'rgba16', stride = wide ? 8 : 4;
+  if (img.data.byteLength !== img.width * img.height * stride) throw new Error('Invalid preview pixel payload');
+  const view = new DataView(img.data.buffer, img.data.byteOffset, img.data.byteLength);
+  const read = (x: number, y: number, c: number) => {
+    const i = (Math.min(img.height-1, Math.max(0,y)) * img.width + Math.min(img.width-1,Math.max(0,x))) * stride;
+    return wide ? view.getUint16(i+c*2, true) / 257 : img.data[i+c]!;
+  };
+  const data = new Uint8Array(width * height * 4);
+  for (let y=0; y<height; ++y) for (let x=0; x<width; ++x) {
+    const sx=(x+.5)*img.width/width-.5, sy=(y+.5)*img.height/height-.5;
+    const ix=Math.floor(sx), iy=Math.floor(sy), fx=sx-ix, fy=sy-iy;
+    for(let c=0;c<4;++c) data[(y*width+x)*4+c]=Math.round(
+      (read(ix,iy,c)*(1-fx)+read(ix+1,iy,c)*fx)*(1-fy)+(read(ix,iy+1,c)*(1-fx)+read(ix+1,iy+1,c)*fx)*fy);
+  }
+  return { width, height, data, format: 'rgba8', colorSpace: img.colorSpace };
+}
+
 export function imageData(img: PreviewPixels): ImageData {
+  img = preview8(img);
   const space = previewSpace(img.colorSpace);
   if (space === 'display-p3') {
     try {

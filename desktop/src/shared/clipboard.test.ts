@@ -17,4 +17,14 @@ describe('settings clipboard', () => {
     expect(clipChanges({ groups: ['printEffects'], settings: src, sourceName: 'a' }, newSidecar())).toBe(false);
     expect(clipChanges({ groups: ['exposure'], settings: src, sourceName: 'a' }, newSidecar())).toBe(true);
   });
+  it('copies Scene Placement intent and leaves a fresh identity until the target is fitted', () => {
+    const source = structuredClone(src);
+    source.params.sceneLatitude = { ...source.params.sceneLatitude, active: true, highlightPullBack: 4, shadowPullBack: 1,
+      highlightKnee: -3, highlightRoom: 7, shadowKnee: -1, shadowRoom: 4 };
+    const out = applyClip({ groups: ['scenePlacement'], settings: source, sourceName: 'a' }, newSidecar());
+    expect(out.placementNeedsFit).toBe(true);
+    expect(out.params.sceneLatitude).toMatchObject({ active: false, highlightPullBack: 4, shadowPullBack: 1,
+      highlightRoom: 0, shadowRoom: 0, highlightKnee: 2, shadowKnee: -2 });
+    expect(source.params.sceneLatitude.highlightRoom).toBe(7);
+  });
 });

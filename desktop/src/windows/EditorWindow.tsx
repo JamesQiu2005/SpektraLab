@@ -5,11 +5,13 @@ import { Canvas } from '../canvas/Canvas';
 import { LeftRail } from '../panels/LeftRail';
 import { RightRail } from '../panels/RightRail';
 import { useSettings } from '../state/settings';
-import { useSession } from '../state/session';
+import { importPreviews, useSession } from '../state/session';
+import { PreviewBuildStatus } from './PreviewBuildStatus';
 import { Filmstrip } from './Filmstrip';
 import { TopBar } from './TopBar';
 import { AboutDialog, HostFailure, SettingsDialog } from './Dialogs';
 import { ExportPage } from '../export/ExportPage';
+import { PanelResize } from '../controls/PanelResize';
 
 export function EditorWindow() {
   const left = useSettings((s) => s.leftCollapsed);
@@ -25,8 +27,11 @@ export function EditorWindow() {
       >
         {left ? <div /> : <LeftRail />}
         <main className="centre" style={{ position: 'relative' }}>
+          {!left && <PanelResize side="left" />}
+          {!right && <PanelResize side="right" />}
           <TopBar />
           <Canvas />
+          <PreviewBuildStatus queue={importPreviews} />
           {!strip && <Filmstrip />}
           <HostFailure />
         </main>

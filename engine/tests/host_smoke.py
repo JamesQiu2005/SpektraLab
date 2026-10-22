@@ -131,6 +131,42 @@ def tiff_info(path):
     return tags
 
 
+def write_dng_without_preview(path, w=128, h=96):
+    """Small valid uncompressed Bayer DNG; only the raw IFD, no preview IFD."""
+    tags = {}
+    def tag(number, kind, count, value):
+        tags[number] = (kind, count, value)
+    def short(number, *values):
+        tag(number, 3, len(values), struct.pack("<" + "H" * len(values), *values))
+    def long(number, *values):
+        tag(number, 4, len(values), struct.pack("<" + "I" * len(values), *values))
+    long(254, 0); long(256, w); long(257, h)
+    short(258, 16); short(259, 1); short(262, 32803)
+    long(273, 0); short(277, 1); long(278, h); long(279, w * h * 2)
+    short(33421, 2, 2); tag(33422, 1, 4, bytes([0, 1, 1, 2]))
+    tag(50706, 1, 4, bytes([1, 4, 0, 0])); tag(50707, 1, 4, bytes([1, 1, 0, 0]))
+    model = b"SpektraLab test Bayer\0"; tag(50708, 2, len(model), model)
+    short(50711, 1); long(50714, 0); long(50717, 65535)
+    long(50719, 0, 0); long(50720, w, h)
+    tag(50721, 10, 9, b"".join(struct.pack("<ii", 1 if i % 4 == 0 else 0, 1) for i in range(9)))
+    tag(50728, 5, 3, struct.pack("<IIIIII", 1, 1, 1, 1, 1, 1))
+    short(50778, 21)
+    extra_at = 8 + 2 + 12 * len(tags) + 4
+    extra = b""; entries = []
+    for number, (kind, count, value) in sorted(tags.items()):
+        if len(value) <= 4:
+            field = value.ljust(4, b"\0")
+        else:
+            field = struct.pack("<I", extra_at + len(extra))
+            extra += value + (b"\0" if len(value) % 2 else b"")
+        entries.append((number, struct.pack("<HHI", number, kind, count) + field))
+    pixels_at = extra_at + len(extra)
+    entries = [struct.pack("<HHII", 273, 4, 1, pixels_at) if number == 273 else entry for number, entry in entries]
+    pixels = b"".join(struct.pack("<H", 8000 + 32 * x + 16 * y) for y in range(h) for x in range(w))
+    with open(path, "wb") as f:
+        f.write(b"II*\0" + struct.pack("<IH", 8, len(tags)) + b"".join(entries) + struct.pack("<I", 0) + extra + pixels)
+
+
 def exercise(host, path, tmp, label, raw):
     _, _ = None, None
     h, _ = host.call("probe", {"path": path})
@@ -295,15 +331,30 @@ def extras(host, sid, path, tmp, label, raw, probe):
     h, _ = host.call("scene_latitude", {"session": sid})
     check(h["ok"], f"{label}: scene_latitude (analysis)", h.get("error"))
     h, _ = host.call("overscan_geometry", {"session": sid})
-    check(h["ok"] and h["result"].get("valid") is False, f"{label}: overscan_geometry (refused feature -> invalid)")
+    check(h["ok"] and h["result"].get("valid") is False, f"{label}: overscan_geometry (disabled -> invalid)")
     h, _ = host.call("progress", {"session": sid})
     check(h["ok"] and "pct" in h["result"], f"{label}: progress", h.get("error"))
-    # The five refused features are refused by name, and leave the session usable.
-    for field in ("contrast_mask_active", "scene_latitude_active", "overscan_active", "date_imprint_active",
-                  "digital_intermediate"):
+    # Mac's still-hidden contrast-mask experiment stays gated. Public migrated
+    # features must be accepted and return a usable preview before reset.
+    for field in ("contrast_mask_active",):
         h, _ = host.call("set_params", {"session": sid, "delta": {field: True}})
         check(not h["ok"] and h["error"]["code"] == "bad_request" and "not implemented" in h["error"]["message"],
               f"{label}: {field} refused", h.get("error", {}).get("message", "accepted?!"))
+    for field in ("scene_latitude_active", "overscan_active", "date_imprint_active", "digital_intermediate"):
+        h, _ = host.call("set_params", {"session": sid, "delta": {field: True}})
+        if check(h["ok"], f"{label}: {field} enabled", h.get("error")):
+            geometry = {}
+            if field == "overscan_active":
+                # The native gate expects an already fitted source; match the
+                # editor's prefilm crop for the 4:3 Unicode fixture as well.
+                w, height = probe["width"], probe["height"]
+                aspect = (36.25 / 24.3) if w >= height else (24.3 / 36.25)
+                cw, ch = min(1., height*aspect/w), min(1., w/aspect/height)
+                geometry = {"crop": {"x":(1-cw)/2,"y":(1-ch)/2,"width":cw,"height":ch}}
+            h, pixels = host.call("render_view", {"session": sid, "tier": "preview", "format": "rgba8", "source_geometry": geometry})
+            check(h["ok"] and bool(pixels), f"{label}: {field} renders", h.get("error"))
+        h, _ = host.call("set_params", {"session": sid, "delta": {field: False}})
+        check(h["ok"], f"{label}: {field} reset", h.get("error"))
     h, _ = host.call("print_lut_catalog")
     stock = sorted(h["result"].keys())[0]
     h, px = host.call("preview_stock_lut", {"session": sid, "print_stock": stock, "tier": "live",
@@ -349,7 +400,10 @@ def extras(host, sid, path, tmp, label, raw, probe):
                 check(w[0] - w[2] > b[0] - b[2], f"{label}: a higher Kelvin renders warmer",
                       f"R-B {b[0] - b[2]:.1f} -> {w[0] - w[2]:.1f}")
         h, _ = host.call("redecode", {"session": sid, "decode": {"lens_correction": True}})
-        check(not h["ok"] and h["error"]["code"] == "unsupported", f"{label}: lens correction unsupported")
+        available = probe["metadata"].get("lens_correction", {}).get("available", False)
+        check((h["ok"] and h["result"]["metadata"]["lens_correction"]["applied"]) if available else
+              (not h["ok"] and h["error"]["code"] == "unsupported"),
+              f"{label}: lens correction matches advertised profile availability", h.get("error"))
     else:
         h, _ = host.call("redecode", {"session": sid, "decode": {"white_balance": {"mode": "custom",
                                                                                   "temperature_k": 5000}}})
@@ -412,6 +466,29 @@ def main():
 
     png = os.path.join(tmp, "ramp.png")
     write_png(png, 96, 64)
+    h, _ = host.call("hello")
+    check("embedded-only" in h["result"].get("thumbnail_options", []), "thumbnail advertises embedded-only")
+    for invalid in ("true", 1, None, {}):
+        h, _ = host.call("thumbnail", {"path": png, "long_edge": 320, "embedded_only": invalid})
+        check(not h["ok"] and h["error"]["code"] == "bad_request", "thumbnail rejects non-boolean embedded_only", repr(invalid))
+    h, px = host.call("thumbnail", {"path": png, "long_edge": 320, "embedded_only": True})
+    check(not h["ok"] and h["error"]["code"] == "unsupported" and not px,
+          "embedded-only does not decode raster files")
+    pair = os.path.join(tmp, "embedded-only.spektrapair")
+    with open(pair, "w", encoding="utf-8") as f:
+        f.write("{}")
+    h, px = host.call("thumbnail", {"path": pair, "long_edge": 320, "embedded_only": True})
+    check(not h["ok"] and h["error"]["code"] == "unsupported" and not px,
+          "embedded-only does not compose pairs")
+    dng = os.path.join(tmp, "no-preview.dng")
+    write_dng_without_preview(dng)
+    h, px = host.call("thumbnail", {"path": dng, "long_edge": 64})
+    check(h["ok"] and h["result"].get("source") == "half-size decode" and bool(px),
+          "RAW without preview remains decodable by legacy thumbnail", h.get("error"))
+    h, px = host.call("thumbnail", {"path": dng, "long_edge": 64, "embedded_only": True})
+    check(not h["ok"] and h["error"]["code"] == "decode_failed"
+          and "no usable embedded preview" in h["error"]["message"] and not px,
+          "embedded-only RAW without preview does not fall back to decoding", h.get("error"))
     exercise(host, png, tmp, "png", False)
     # A folder and file named outside ASCII: the wire is UTF-8, Windows needs
     # wide APIs underneath (platform.cpp), and a regression there is silent.
@@ -429,6 +506,10 @@ def main():
         check(h["ok"] and h["result"]["kind"] == "raw", "unicode RAW: probe", h.get("error"))
         h, _ = host.call("thumbnail", {"path": uraw, "long_edge": 160})
         check(h["ok"], "unicode RAW: thumbnail", h.get("error"))
+        if h["ok"] and h["result"].get("source") == "embedded":
+            h, px = host.call("thumbnail", {"path": uraw, "long_edge": 160, "embedded_only": True})
+            check(h["ok"] and h["result"].get("source") == "embedded" and bool(px),
+                  "unicode RAW: embedded-only thumbnail", h.get("error"))
         h, _ = host.call("open", {"path": uraw})
         if check(h["ok"], "unicode RAW: open (full decode)", h.get("error")):
             host.call("close", {"session": h["result"]["session"]})

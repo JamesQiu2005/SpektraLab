@@ -40,11 +40,16 @@ void main() {
 
 const FRAG = `#version 300 es
 precision highp float;
+precision highp usampler2D;
 in vec2 vUv;
 out vec4 outColor;
 
 uniform sampler2D uImage;
 uniform sampler2D uOriginal;
+uniform usampler2D uImage16;
+uniform usampler2D uOriginal16;
+uniform bool uImageWide;
+uniform bool uOriginalWide;
 uniform sampler2D uCurves;
 uniform bool uHasImage;
 uniform bool uHasOriginal;
@@ -99,6 +104,19 @@ uniform float lVignetteAmount;
 uniform float lVignetteMid;
 uniform float lMidGrey;
 uniform bool lCurves;
+
+// RGBA16UI is core WebGL2. Four exact integer fetches retain all 16 source
+// bits, then interpolate in float; no full-image Uint16-to-Float32 CPU copy.
+vec3 sample16(usampler2D image, vec2 uv) {
+  ivec2 size = textureSize(image, 0);
+  vec2 p = uv * vec2(size) - 0.5;
+  ivec2 lo = ivec2(floor(p)); vec2 f = fract(p);
+  vec3 a = vec3(texelFetch(image, clamp(lo, ivec2(0), size-1), 0).rgb);
+  vec3 b = vec3(texelFetch(image, clamp(lo+ivec2(1,0), ivec2(0), size-1), 0).rgb);
+  vec3 c = vec3(texelFetch(image, clamp(lo+ivec2(0,1), ivec2(0), size-1), 0).rgb);
+  vec3 d = vec3(texelFetch(image, clamp(lo+ivec2(1,1), ivec2(0), size-1), 0).rgb);
+  return mix(mix(a,b,f.x), mix(c,d,f.x), f.y) / 65535.0;
+}
 
 vec2 geometryMap(vec2 uv) {
   if (!gActive) return uv;
@@ -205,14 +223,14 @@ void main() {
   bool before = uCompare == 2 || (uCompare == 1 && ouv.x < uSplit);
   vec3 c;
   if (before && uHasOriginal) {
-    c = displayConvert(texture(uOriginal, suv).rgb, uOriginalSpace);
+    c = displayConvert(uOriginalWide ? sample16(uOriginal16, suv) : texture(uOriginal, suv).rgb, uOriginalSpace);
   } else if (uHasImage) {
     vec2 imageUv = (uImageMap * vec3(suv, 1.0)).xy;
     if (any(lessThan(imageUv, vec2(0.0))) || any(greaterThan(imageUv, vec2(1.0)))) {
       outColor = vec4(vec3(uSurround), 1.0);
       return;
     }
-    c = texture(uImage, imageUv).rgb;
+    c = uImageWide ? sample16(uImage16, imageUv) : texture(uImage, imageUv).rgb;
     if (!uImageProcessed) c = layer2(c, suv);
     c = displayConvert(c, uImageSpace);
   } else {
@@ -246,6 +264,13 @@ export class GLRenderer {
   private loc = new Map<string, WebGLUniformLocation | null>();
   private image: WebGLTexture;
   private original: WebGLTexture;
+  private image16: WebGLTexture;
+  private original16: WebGLTexture;
+  private imageWide = false;
+  private originalWide = false;
+  private floatCanvas: boolean;
+  private bufferSize = { width: 0, height: 0 };
+  displayPrecision: 'float16' | 'unorm8' = 'unorm8';
   private curves: WebGLTexture;
   private hasImage = false;
   private hasOriginal = false;
@@ -262,6 +287,8 @@ export class GLRenderer {
     const gl = canvas.getContext('webgl2', { antialias: false, premultipliedAlpha: false, preserveDrawingBuffer: true }) as WebGL2RenderingContext | null;
     if (!gl) throw new Error('WebGL2 is not available in this webview');
     this.gl = gl;
+    this.floatCanvas = typeof (gl as WebGL2RenderingContext & { drawingBufferStorage?: unknown }).drawingBufferStorage === 'function'
+      && !!gl.getExtension('EXT_color_buffer_float');
     this.maxTexture = gl.getParameter(gl.MAX_TEXTURE_SIZE) as number;
     this.program = this.link();
     const buf = gl.createBuffer();
@@ -274,6 +301,10 @@ export class GLRenderer {
     gl.vertexAttribPointer(a, 2, gl.FLOAT, false, 0, 0);
     this.image = this.texture(gl.LINEAR);
     this.original = this.texture(gl.LINEAR);
+    this.image16 = this.texture(gl.NEAREST);
+    this.original16 = this.texture(gl.NEAREST);
+    this.clearTexture(this.image, false); this.clearTexture(this.original, false);
+    this.clearTexture(this.image16, true); this.clearTexture(this.original16, true);
     this.curves = this.texture(gl.LINEAR);
   }
 
@@ -310,24 +341,56 @@ export class GLRenderer {
     return this.loc.get(name)!;
   }
 
-  /** Upload rgba8 (top row first). A frame larger than the GPU allows is refused. */
-  private upload(tex: WebGLTexture, img: { width: number; height: number; data: Uint8Array } | null): boolean {
-    if (!img) return false;
-    if (img.width > this.maxTexture || img.height > this.maxTexture) return false;
+  private clearTexture(tex: WebGLTexture, wide: boolean) {
     const gl = this.gl;
     gl.bindTexture(gl.TEXTURE_2D, tex);
+    gl.texImage2D(gl.TEXTURE_2D, 0, wide ? gl.RGBA16UI : gl.RGBA8, 1, 1, 0,
+      wide ? gl.RGBA_INTEGER : gl.RGBA, wide ? gl.UNSIGNED_SHORT : gl.UNSIGNED_BYTE, null);
+  }
+
+  /** Top-first display pixels; integer textures preserve exact UNORM16 codes. */
+  private upload(tex: WebGLTexture, integer: WebGLTexture, img: RgbaImage | null): boolean {
+    const wide = img?.format === 'rgba16';
+    this.clearTexture(wide ? tex : integer, !wide);
+    if (!img) { this.clearTexture(tex, false); return false; }
+    if (img.width > this.maxTexture || img.height > this.maxTexture) return false;
+    if (img.data.byteLength !== img.width * img.height * (wide ? 8 : 4)) return false;
+    const gl = this.gl;
+    gl.bindTexture(gl.TEXTURE_2D, wide ? integer : tex);
     gl.pixelStorei(gl.UNPACK_ALIGNMENT, 1);
-    gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA8, img.width, img.height, 0, gl.RGBA, gl.UNSIGNED_BYTE, img.data);
+    const bytes = wide && img.data.byteOffset % 2 ? img.data.slice() : img.data;
+    gl.texImage2D(gl.TEXTURE_2D, 0, wide ? gl.RGBA16UI : gl.RGBA8, img.width, img.height, 0,
+      wide ? gl.RGBA_INTEGER : gl.RGBA, wide ? gl.UNSIGNED_SHORT : gl.UNSIGNED_BYTE,
+      wide ? new Uint16Array(bytes.buffer, bytes.byteOffset, bytes.byteLength / 2) : bytes);
     return true;
   }
 
   setImage(img: RgbaImage | null) {
-    this.hasImage = this.upload(this.image, img);
+    this.hasImage = this.upload(this.image, this.image16, img);
+    this.imageWide = img?.format === 'rgba16';
     this.imageInfo = img;
   }
   setOriginal(img: RgbaImage | null) {
-    this.hasOriginal = this.upload(this.original, img);
+    this.hasOriginal = this.upload(this.original, this.original16, img);
+    this.originalWide = img?.format === 'rgba16';
     this.originalSpace = previewSpace(img?.colorSpace);
+  }
+
+  private drawingBuffer(width: number, height: number) {
+    if (!this.floatCanvas) return;
+    const gl = this.gl as WebGL2RenderingContext & {
+      drawingBufferStorage(format: number, width: number, height: number): void;
+      drawingBufferFormat?: number;
+    };
+    if (this.bufferSize.width === width && this.bufferSize.height === height && gl.drawingBufferFormat === gl.RGBA16F) return;
+    try {
+      gl.drawingBufferStorage(gl.RGBA16F, width, height);
+      if (gl.getError() !== gl.NO_ERROR || gl.drawingBufferFormat !== gl.RGBA16F) throw new Error('float drawing buffer rejected');
+      this.displayPrecision = 'float16'; this.bufferSize = { width, height };
+    } catch {
+      this.floatCanvas = false; this.displayPrecision = 'unorm8';
+      try { gl.drawingBufferStorage(gl.RGBA8, width, height); } catch { /* Keep the browser's default buffer. */ }
+    }
   }
 
   /** A property can exist yet silently reject P3; probe by writing and reading. */
@@ -389,6 +452,10 @@ export class GLRenderer {
     gl.activeTexture(gl.TEXTURE2);
     gl.bindTexture(gl.TEXTURE_2D, this.curves);
     gl.uniform1i(this.u('uCurves'), 2);
+    gl.activeTexture(gl.TEXTURE3); gl.bindTexture(gl.TEXTURE_2D, this.image16); gl.uniform1i(this.u('uImage16'), 3);
+    gl.activeTexture(gl.TEXTURE4); gl.bindTexture(gl.TEXTURE_2D, this.original16); gl.uniform1i(this.u('uOriginal16'), 4);
+    gl.uniform1i(this.u('uImageWide'), this.imageWide ? 1 : 0);
+    gl.uniform1i(this.u('uOriginalWide'), this.originalWide ? 1 : 0);
     gl.uniform1i(this.u('uHasImage'), this.hasImage ? 1 : 0);
     gl.uniform1i(this.u('uHasOriginal'), this.hasOriginal ? 1 : 0);
     gl.uniform1i(this.u('uImageProcessed'), this.imageInfo?.processedGeometry ? 1 : 0);
@@ -407,7 +474,7 @@ export class GLRenderer {
     gl.uniform2f(this.u('cCentre'), crop.centre[0], crop.centre[1]);
     gl.uniform2f(this.u('cHalf'), crop.halfExtent[0], crop.halfExtent[1]);
     gl.uniform2f(this.u('cCosSin'), crop.cosSin[0], crop.cosSin[1]);
-    gl.uniform1i(this.u('uCompare'), offscreen ? 0 : s.compare);
+    gl.uniform1i(this.u('uCompare'), offscreen && s.compare !== 2 ? 0 : s.compare);
     gl.uniform1f(this.u('uSplit'), s.split);
     const l = layer2Uniforms(s.adjustments, SRGB_MID_GREY);
     gl.uniform1i(this.u('lEnabled'), l.enabled ? 1 : 0);
@@ -433,6 +500,7 @@ export class GLRenderer {
 
   draw(s: DrawState) {
     const gl = this.gl;
+    this.drawingBuffer(s.viewport.width, s.viewport.height);
     gl.bindFramebuffer(gl.FRAMEBUFFER, null);
     gl.viewport(0, 0, s.viewport.width, s.viewport.height);
     this.bind(s, false);
@@ -445,7 +513,7 @@ export class GLRenderer {
    * histogram's picture.
    */
   renderOutput(s: DrawState, width: number, height: number): Uint8Array | null {
-    if (!this.hasImage) return null;
+    if (!this.hasImage && !(s.compare === 2 && this.hasOriginal)) return null;
     const gl = this.gl;
     if (!this.fbo || this.fboSize.width !== width || this.fboSize.height !== height) {
       if (this.fbo) gl.deleteFramebuffer(this.fbo);

@@ -27,13 +27,26 @@ for arg in "$@"; do
     *) echo "usage: $0 [--test] [--no-deps]" >&2; exit 2 ;;
   esac
 done
-if [[ $fetch == 1 ]]; then "$here/setup-deps.sh" >/dev/null; fi
+deps="${SPEKTRALAB_DEPS_DIR:-$repo/build/deps}"
+input_prefix="${SPEKTRALAB_INPUT_CODEC_PREFIX:-$deps/input-codecs/install-win-cross}"
+lens_prefix="${SPEKTRALAB_LENS_PREFIX:-$deps/lens-codecs/install-win-cross}"
+if [[ $fetch == 1 ]]; then
+  "$here/setup-deps.sh" "$deps" >/dev/null
+  python3 "$here/setup-input-codecs.py" --sources "$deps/input-codecs" \
+    --build "$build/input-codecs" --install "$input_prefix" --generator Ninja \
+    --toolchain "$here/cmake/toolchain-mingw-w64.cmake"
+  python3 "$here/setup-lens-codecs.py" --sources "$deps/lens-codecs" \
+    --build "$build/lens-codecs" --install "$lens_prefix" --generator Ninja \
+    --toolchain "$here/cmake/toolchain-mingw-w64.cmake" --meson-cross-file "$here/cmake/meson-mingw-w64.ini"
+fi
 
 version="$(git -C "$repo" describe --always --dirty 2>/dev/null || echo unknown)"
 glslang="$(command -v glslangValidator || true)"
 cmake -S "$repo" -B "$build" -G Ninja -DCMAKE_BUILD_TYPE=Release \
   -DCMAKE_TOOLCHAIN_FILE="$here/cmake/toolchain-mingw-w64.cmake" \
   -DSPEKTRALAB_GLSLANG="$glslang" \
+  -DSPEKTRALAB_INPUT_CODEC_PREFIX="$input_prefix" \
+  -DSPEKTRALAB_LENS_PREFIX="$lens_prefix" \
   -DSPEKTRALAB_VULKAN_HEADERS="$repo/build/deps/Vulkan-Headers/include" \
   -DSPEKTRALAB_BUILD_NATIVE_RAW=ON -DSPEKTRALAB_BUILD_HOST=ON -DSPEKTRALAB_BUILD_DESKTOP=OFF \
   -DSPEKTRALAB_REQUIRE_VULKAN=ON -DSPEKTRALAB_STATIC_RUNTIME=ON -DBUILD_TESTING=OFF \

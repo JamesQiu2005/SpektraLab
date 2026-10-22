@@ -33,6 +33,14 @@ const mac = {
 };
 
 describe('sidecar', () => {
+  it('carries the revision of each editing snapshot independently through edits', () => {
+    const oldToken = { key: 'D:/owned/a.json', base: 'a'.repeat(64) };
+    const old = decodeSidecar({ ...mac, _spkRevision: oldToken });
+    const fresh = decodeSidecar({ ...mac, _spkRevision: { ...oldToken, base: 'b'.repeat(64) } });
+    const edited = { ...old, adjustments: { ...old.adjustments, exposure: 2 } };
+    expect(encodeSidecar(edited)._spkRevision).toEqual(oldToken);
+    expect(encodeSidecar(fresh)._spkRevision).not.toEqual(oldToken);
+  });
   it('reads the Mac shape and keeps what it does not model', () => {
     const s = decodeSidecar(mac);
     expect(s.params.filmStock).toBe('kodak_portra_160');
@@ -41,7 +49,8 @@ describe('sidecar', () => {
     expect(s.state).toBe('processed');
     const out = encodeSidecar(s);
     expect(out.masks).toEqual(mac.masks);
-    expect(out.heldCrop).toEqual(mac.heldCrop);
+    expect(out.heldCrop).toMatchObject(mac.heldCrop);
+    expect(decodeSidecar(out).heldCrop).toEqual(s.heldCrop);
     expect(out.state).toEqual({ processed: {} });
     expect((out.params as Record<string, unknown>).exposureCompensationEV).toBe(0.6);
   });

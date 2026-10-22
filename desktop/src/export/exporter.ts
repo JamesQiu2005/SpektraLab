@@ -2,11 +2,15 @@
 // and writes atomically; full-resolution pixels never enter the webview.
 
 import { type Adjustments, curveTables, isNeutral, layer2Pixel, layer2Uniforms } from '@shared/adjustments';
-import { type Geometry, isIdentity, outputSize, sourcePoint } from '@shared/geometry';
-import { type FilmParams, type FeatureGate, filmFormatMM, fullDelta } from '@shared/params';
+import { type Geometry, GEOMETRY_DEFAULT, isIdentity, outputSize, sourcePoint } from '@shared/geometry';
+import { canvasGeometryFor, resolveFilmEdgeParams, sourceGeometryFor } from '@shared/filmEdge';
+import type { FileMetadata, PairInfo } from '@shared/protocol';
+import { decodePair, isPairPath, pairFitRegion, pairSnapshotFor, resolvePairParams, sourcePairLayout, type HalfFramePair } from '@shared/pair';
+import { type FilmParams, type FeatureGate, filmFormatMM, fullDelta, normalizeStockPair } from '@shared/params';
 import { type DecodeSettings, type Sidecar, decodeSidecar, newSidecar } from '@shared/sidecar';
 import { decodeWire, isRawPath } from '@shared/whiteBalance';
 import type { StockCatalog } from '@shared/stocks';
+import { latitudeRequest } from '@shared/latitude';
 import { host } from '../host/client';
 import { baseName, dirName, joinPath, platform } from '../platform';
 import { type ExportRecipe, extensionOf, hostFormat, resolveTarget, stem, stockToken } from './recipes';
@@ -21,6 +25,10 @@ export interface FrameToExport {
   gate: FeatureGate;
   native?: { width: number; height: number };
   dateTaken?: string;
+  scenePlacement?: Record<string, unknown>;
+  scenePlacementSide?: 'right';
+  sourceGeometry?: Geometry;
+  pair?: HalfFramePair & { printEffects?: boolean };
 }
 
 export type ExportOutcome =
@@ -53,6 +61,9 @@ export interface SelectedExportFrame {
   session?: string;
   native?: { width: number; height: number };
   dateTaken?: string;
+  metadata?: FileMetadata | null;
+  pair?: HalfFramePair | null;
+  pairInfo?: PairInfo | null;
 }
 
 export type PreparedExportFrame = { path: string; frame: FrameToExport } | { path: string; error: string };
@@ -73,20 +84,47 @@ export async function captureExportFrames(
       const active = path === current?.path ? current : null;
       const saved = active ? null : await platform().sidecarLoad(path);
       const sidecar = active?.sidecar ?? structuredClone(saved == null ? newSidecar() : decodeSidecar(saved));
-      const info = active?.native ? null : await host().probe(path);
+      if (isPairPath(path)) {
+        const pair = active?.pair ?? decodePair(await platform().pairLoad(path));
+        if (!pair) throw new Error('The half-frame pair recipe cannot be read.');
+        const shots: PairInfo = {};
+        for (const side of ['left', 'right'] as const) {
+          const hole = pair[side];
+          if (!hole) throw new Error('Fill both half-frame holes before exporting.');
+          const known = active?.pairInfo?.[side];
+          shots[side] = known ?? { ...(await host().probe(hole.path)), available: true };
+          if (!shots[side]?.available) throw new Error(shots[side]?.error ?? 'A half-frame photograph cannot be read.');
+        }
+        const native = sourcePairLayout(pair, { left: shots.left, right: shots.right }).size;
+        const params = resolvePairParams(normalizeStockPair(sidecar.params, catalog), pair,
+          shots.left?.metadata ?? null, shots.right?.metadata ?? null, catalog);
+        result.push({ path, frame: structuredClone({ path, session: active?.session, params,
+          adjustments: sidecar.adjustments, geometry: canvasGeometryFor(params, sidecar.geometry, frozenGate),
+          sourceGeometry: sourceGeometryFor(params, sidecar.geometry, frozenGate) ?? GEOMETRY_DEFAULT,
+          decode: sidecar.decode, gate: frozenGate, native, pair: pairSnapshotFor(pair, params),
+          dateTaken: shots.left?.metadata?.datetime_original ?? shots.right?.metadata?.datetime_original,
+          scenePlacement: sidecar.placementNeedsFit ? { ...latitudeRequest(params.sceneLatitude), region: pairFitRegion(pair, params.placementIsRight) } : undefined,
+          scenePlacementSide: sidecar.placementNeedsFit && params.placementIsRight ? 'right' : undefined,
+        }) });
+        continue;
+      }
+      const info = active?.native && active.metadata !== undefined ? null : await host().probe(path);
       const native = active?.native ?? (info ? { width: info.width, height: info.height } : undefined);
       if (!native || native.width <= 0 || native.height <= 0) throw new Error('The photograph has no usable dimensions.');
-      // Opening a positive film in the editor applies this same repair.
-      const params = { ...sidecar.params, scanFilm: sidecar.params.scanFilm || catalog.isPositive(sidecar.params.filmStock) };
+      let params = { ...normalizeStockPair(sidecar.params, catalog) };
       const size = recalculateEffectsAfterCrop ? outputSize(sidecar.geometry, native) : native;
       const aspect = Math.max(size.width, size.height) / Math.max(1, Math.min(size.width, size.height));
       const crop = sidecar.geometry.crop;
       const cropScale = recalculateEffectsAfterCrop ? 1 / Math.max(crop.width, crop.height, 1e-3) : 1;
       params.filmFormatMM = filmFormatMM(params.filmSide, params.sideLengthMM, aspect, cropScale);
+      params = resolveFilmEdgeParams(params, sidecar.geometry, active?.metadata ?? info?.metadata ?? null, catalog, native);
       result.push({ path, frame: structuredClone({
         path, session: active?.session, params, adjustments: sidecar.adjustments,
-        geometry: sidecar.geometry, decode: sidecar.decode, gate: frozenGate, native,
+        geometry: canvasGeometryFor(params, sidecar.geometry, frozenGate),
+        sourceGeometry: sourceGeometryFor(params, sidecar.geometry, frozenGate) ?? GEOMETRY_DEFAULT,
+        decode: sidecar.decode, gate: frozenGate, native,
         dateTaken: active?.dateTaken ?? info?.metadata.datetime_original,
+        scenePlacement: sidecar.placementNeedsFit ? latitudeRequest(params.placementIsRight ? params.sceneLatitudeOther : params.sceneLatitude) : undefined,
       }) });
     } catch (e) {
       // An unreadable sidecar must never silently turn into a default export.
@@ -160,6 +198,7 @@ export interface ExportJob {
   progressId: string;
 }
 export interface ExportControl {
+  tiffOptions?: readonly string[];
   cancelled?: () => boolean;
   active?: (job: ExportJob | null) => void;
 }
@@ -176,9 +215,14 @@ export async function exportFrame(
   const cancelled = () => control.cancelled?.() ?? false;
   try {
     if (cancelled()) return { kind: 'cancelled' };
+    if (f.pair && !methods?.includes('open_pair')) throw new Error('This engine cannot export half-frame pairs. Update the engine.');
+    if ((r.format === 'tiff' || r.format === 'di') &&
+        ((r.tiffCompression === 'lzw' && !control.tiffOptions?.includes('lzw')) ||
+         (r.format === 'tiff' && r.embedsPreview && !control.tiffOptions?.includes('preview-page'))))
+      throw new Error('This engine does not support the selected TIFF compression or preview page. Update the engine.');
     if (r.format === 'di') {
-      if (!methods?.includes('export_di') || !f.gate.digitalIntermediate)
-        throw new Error('This engine cannot export Digital Intermediate files.');
+      if (!methods?.includes('export_cineon') || !f.gate.digitalIntermediate)
+        throw new Error('This engine cannot export Cineon Digital Intermediate files.');
     } else if (!hostWrites(methods)) {
       throw new Error('This engine does not support complete frame export (export_frame). Update the engine before exporting.');
     }
@@ -187,43 +231,62 @@ export async function exportFrame(
     const target = await resolveTarget(dir, base, extensionOf(r), r.existing, (p) => platform().pathExists(p), joinPath);
     if (cancelled()) return { kind: 'cancelled' };
     if (!target) return { kind: 'skipped', path: joinPath(dir, `${base}.${extensionOf(r)}`) };
-    const params = fullDelta(f.params, f.gate);
+    const params = fullDelta(f.params, f.gate, catalog);
     const decode = decodeWire(f.decode, isRawPath(f.path));
-    if (r.format === 'di') {
-      // DI is a density intermediate, intentionally without display grading
-      // or crop. Its independent session keeps editor settings/cache intact.
-      const opened = await host().open(f.path, params, decode);
-      try {
-        if (cancelled()) return { kind: 'cancelled' };
-        const res = await host().transport.request('export_di', {
-          session: opened.session, print_stock: f.params.printStock,
-          path: target.path, overwrite: target.overwrite,
-        }, { timeoutMs: 1_800_000 });
-        return { kind: 'written', path: String(res.result.path), width: opened.width, height: opened.height, carriesEdits: false };
-      } finally {
-        await host().close(opened.session);
-      }
-    }
     const job = { session: f.session ?? '', progressId: `export-${Date.now()}-${++exportSerial}` };
     control.active?.(job);
-    const res = await host().transport.request('export_frame', {
+    const res = await host().transport.request(r.format === 'di' ? 'export_cineon' : 'export_frame', {
       session: f.session, source_path: f.path, params, decode: decode ?? undefined,
       adjustments: f.adjustments, geometry: f.geometry,
+      source_geometry: f.sourceGeometry ?? GEOMETRY_DEFAULT,
+      pair: f.pair,
+      scene_placement: f.scenePlacement,
+      scene_placement_side: f.scenePlacementSide,
       path: target.path, format: hostFormat(r), quality: r.format === 'jpeg' ? r.quality : undefined,
-      color_space: r.colorSpace, long_edge: r.longEdge, overwrite: target.overwrite, progress_id: job.progressId,
+      tiff_compression: r.format === 'tiff' || r.format === 'di' ? r.tiffCompression ?? 'none' : undefined,
+      embed_preview: r.format === 'tiff' ? r.embedsPreview ?? false : undefined,
+      color_space: r.colorSpace, long_edge: r.format === 'di' ? 0 : r.longEdge, overwrite: target.overwrite, progress_id: job.progressId,
     }, { timeoutMs: 1_800_000 });
     if (res.payload.byteLength) throw new Error('export_frame unexpectedly returned image data.');
     const { path, width, height, timings_ms } = res.result;
     if (typeof path !== 'string' || typeof width !== 'number' || typeof height !== 'number' || width <= 0 || height <= 0)
       throw new Error('The engine returned invalid export dimensions.');
     platform().log('info', `export (${hostFormat(r)}, ${width}x${height}) host ms: ${JSON.stringify(timings_ms ?? {})} · TOTAL ${Math.round(performance.now() - started)}`);
-    return { kind: 'written', path, width, height, carriesEdits: true };
+    return { kind: 'written', path, width, height, carriesEdits: r.format !== 'di' };
   } catch (e) {
     if (cancelled() && (e as { code?: string }).code === 'cancelled') return { kind: 'cancelled' };
     return { kind: 'failed', message: e instanceof Error ? e.message : String(e) };
   } finally {
     control.active?.(null);
   }
+}
+/** No file I/O or full-frame pixel IPC: prove the same frozen export snapshot.
+ * JPEG proof is before lossy compression, as on Mac. */
+export async function renderProof(
+  recipe: ExportRecipe, frame: FrameToExport, catalog: StockCatalog, methods: readonly string[] | undefined,
+  display: 'srgb' | 'display-p3', edge: number, generation: number, control: ExportControl = {},
+) {
+  if (!methods?.includes('render_proof')) throw new Error('This engine does not support export soft proofing. Update the engine.');
+  if (recipe.format === 'di' && !methods.includes('export_cineon')) throw new Error('Cineon Digital Intermediate proofing is not available on this engine.');
+  const r = structuredClone(recipe), f = structuredClone(frame);
+  if (f.pair && !methods.includes('open_pair')) throw new Error('This engine cannot soft-proof half-frame pairs. Update the engine.');
+  const job = { session: f.session ?? '', progressId: `proof-${Date.now()}-${++exportSerial}` };
+  if (control.cancelled?.()) return null;
+  control.active?.(job);
+  try {
+    const proof = await host().renderProof({
+      session: f.session, source_path: f.path, params: fullDelta(f.params, f.gate, catalog),
+      decode: decodeWire(f.decode, isRawPath(f.path)) ?? undefined,
+      adjustments: f.adjustments, geometry: f.geometry, format: r.format === 'di' ? 'di' : hostFormat(r),
+      source_geometry: f.sourceGeometry ?? GEOMETRY_DEFAULT,
+      pair: f.pair,
+      scene_placement: f.scenePlacement,
+      scene_placement_side: f.scenePlacementSide,
+      color_space: r.colorSpace, long_edge: r.longEdge,
+      display, proof_long_edge: Math.max(1, Math.min(4096, Math.ceil(edge))), generation, progress_id: job.progressId,
+    });
+    return control.cancelled?.() ? null : proof;
+  } finally { control.active?.(null); }
 }
 export async function exportCube(printStock: string, suggested: string): Promise<string | null> {
   const p = await platform().pickSave('Export .cube', suggested, 'cube');

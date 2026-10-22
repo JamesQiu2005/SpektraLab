@@ -45,10 +45,12 @@ test('sRGB before image and a pending sRGB print are converted when drawing in P
       adjustments: ADJUSTMENTS_DEFAULT, compare: 0, split: 0.5, surround: 0 };
     const pixels = renderer.renderOutput(draw, 1, 1);
     renderer.draw({ ...draw, compare: 2 });
-    const before = new Uint8Array(4);
     const gl = renderer.gl;
-    gl.readPixels(0, 0, 1, 1, gl.RGBA, gl.UNSIGNED_BYTE, before);
-    return { pixels: Array.from(pixels), before: Array.from(before), space, error: gl.getError() };
+    // The visible buffer can be RGBA16F; UNSIGNED_BYTE is only legal for the
+    // fallback UNORM buffer. Compare both at the exported byte precision.
+    const before = renderer.displayPrecision === 'float16' ? new Float32Array(4) : new Uint8Array(4);
+    gl.readPixels(0, 0, 1, 1, gl.RGBA, before instanceof Float32Array ? gl.FLOAT : gl.UNSIGNED_BYTE, before);
+    return { pixels: Array.from(pixels), before: Array.from(before, (v) => before instanceof Float32Array ? Math.round(v * 255) : v), space, error: gl.getError() };
   });
   expect(result.error).toBe(0);
   expect(result.before).toEqual(result.pixels);

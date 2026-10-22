@@ -17,18 +17,21 @@ function chromium(): string | undefined {
   return undefined;
 }
 
+const baseURL = process.env.PW_BASE_URL ?? 'http://127.0.0.1:5173';
 export default defineConfig({
   testDir: 'tests/e2e',
   timeout: 60_000,
   workers: 1,
   use: {
-    baseURL: 'http://127.0.0.1:5173',
+    baseURL,
     viewport: { width: 1600, height: 960 },
-    launchOptions: { executablePath: chromium(), args: ['--use-gl=swiftshader', '--enable-unsafe-swiftshader'] },
+    // Current Chromium selects the software backend through ANGLE. The legacy
+    // --use-gl=swiftshader flag can lose a visible canvas context on first resize.
+    launchOptions: { executablePath: chromium(), args: ['--use-angle=swiftshader', '--enable-unsafe-swiftshader'] },
   },
   webServer: {
-    command: 'npm run dev:web',
-    url: 'http://127.0.0.1:5173',
+    command: process.env.PW_DEV_SERVER ?? 'npm run dev:web',
+    url: baseURL,
     reuseExistingServer: true,
     timeout: 60_000,
   },

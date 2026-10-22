@@ -6,6 +6,7 @@
 #include <filesystem>
 #include <fstream>
 #include <iostream>
+#include <limits>
 #include <stdexcept>
 #include <string>
 #include <system_error>
@@ -36,7 +37,9 @@ struct ScratchDirectory {
 };
 
 void check_rejected(const std::filesystem::path& path, const char* label) {
-    for(auto decode : {&spk::io::decode_raw_compatible, &spk::io::decode_raw_headroom}) {
+    using Decode = bool (*)(const std::filesystem::path&, spk::io::DecodedRaw&, std::string&);
+    for(Decode decode : {static_cast<Decode>(&spk::io::decode_raw_compatible),
+                        static_cast<Decode>(&spk::io::decode_raw_headroom)}) {
     spk::io::DecodedRaw prior;
     prior.width = 7;
     prior.height = 11;
@@ -81,6 +84,16 @@ int main() {
         check_rejected(scratch.path, "directory");
         check_rejected(junk, "invalid RAW with Unicode filename");
         check_rejected(truncated, "truncated TIFF directory");
+        for (float invalid : {0.0f, -1.0f, std::numeric_limits<float>::infinity(),
+                              std::numeric_limits<float>::quiet_NaN()}) {
+            std::array<float, 4> wb{2.0f, 1.0f, invalid, 1.0f};
+            spk::io::DecodedRaw preserved;
+            preserved.width = 9;
+            std::string error;
+            if (spk::io::decode_raw_headroom(junk, &wb, preserved, error) ||
+                error != "RAW process: invalid user white-balance multiplier" || preserved.width != 9)
+                throw std::runtime_error("headroom user white balance validation/lifetime failed");
+        }
         std::cout << "RAW decoder error contract: 10 cases passed (5 per mode)\n";
         return 0;
     } catch (const std::exception& exception) {
