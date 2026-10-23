@@ -1017,8 +1017,12 @@ an **alias**: `"derived_from": "kodak_vision3_500t"` with only `info` keys of it
 `info` over it (`load_profile`); the neutral print pack falls back to the base's row. The film's
 stock in replies and in the setup cache is `cinestill_800t`.
 
-**A film with no anti-halation layer** — the `no` tag, or any film under `antihalation_removed` —
-now takes the **back-reflection** halo instead of the reference's three Gaussian bounces. The base's
+**A film made with no anti-halation layer** — a profile whose own `antihalation` tag is `no`, today
+only `cinestill_800t` — takes the **back-reflection** halo instead of the reference's three Gaussian
+bounces. **`antihalation_removed` does not select it** (the owner's decision for 1.3.4, carried into
+the 2.0 engine): a film with its layer switched off keeps the reference's Gaussian `no` preset
+(0.30 / 0.10 / 0.015), byte for byte as in 1.3.3, and ignores `halation_headroom_ev`. Extending the
+model to the switch is planned after the owner's test. The base's
 rear face reflects the light the emulsion scatters into it (Fresnel inside the critical angle, all
 of it past 42.5°), and inside it the camera's pressure plate returns 10 % of what leaves the base,
 so a point light exposes a disc with a brighter rim at r_c = 2 d tan θc = 1.83 d, then a cos⁴
