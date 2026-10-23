@@ -1020,11 +1020,18 @@ stock in replies and in the setup cache is `cinestill_800t`.
 **A film with no anti-halation layer** — the `no` tag, or any film under `antihalation_removed` —
 now takes the **back-reflection** halo instead of the reference's three Gaussian bounces. The base's
 rear face reflects the light the emulsion scatters into it (Fresnel inside the critical angle, all
-of it past 42.5°), so a point light exposes a faint disc, a dark gap and a ring at
-r_c = 2 d tan θc = 1.83 d, then a cos⁴ tail; the emulsion's re-scatter (35 %) sums further bounces.
-`engine/tests/halation_psf_fit.py` integrates it and fits the four-Gaussian kernel in
-`engine/src/core/halation_psf.hpp`; d = 120 µm, which is what a CineStill scan measures (the flat
-orange band beside a tube light ends at 0.21 mm). Strengths R/G/B 0.30 / 0.03 / 0.003.
+of it past 42.5°), and inside it the camera's pressure plate returns 10 % of what leaves the base,
+so a point light exposes a disc with a brighter rim at r_c = 2 d tan θc = 1.83 d, then a cos⁴
+tail; the emulsion's re-scatter (35 %) sums further bounces. **Per layer**, the light returning to
+green and blue crosses the layers below them at the slant θ and loses exp(−τ(1/cos θ − 1)),
+τ = 0 / 1.2 / 3.0, so red's halo reaches furthest (90 % of its energy within 8.2 d, green's 3.8 d,
+blue's 2.7 d). `engine/tests/halation_psf_fit.py` integrates it and fits a four-Gaussian kernel
+per layer in `engine/src/core/halation_psf.hpp`; d = 120 µm, which is what a CineStill scan
+measures (the flat orange band beside a tube light ends at 0.21 mm). Strengths R/G/B
+0.30 / 0.03 / 0.003. Checked against the scans' red/green half-height reach, 1.49–2.65 on five
+lights (measured by a GPT Astra study, 2026-10-23): a +9 / +12 EV disc renders 1.92 / 2.12;
+a kernel shared by the three layers swings out of that range with brightness
+(`cinestill_checks.py`).
 `halation_amount` stays an area multiplier (d scales with its square root). Films with a layer are
 unchanged byte for byte. **The Python reference's `no` preset is the Gaussian one; there is no
 parity case for it.**

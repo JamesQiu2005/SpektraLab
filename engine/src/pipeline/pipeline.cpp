@@ -1083,8 +1083,8 @@ Pipeline::HalationBlurs Pipeline::halation_blurs() const {
             for (int k = 0; k < kBackReflectionComponents; ++k) {
                 Blur::Component comp{};
                 for (int c = 0; c < 3; ++c) {
-                    comp.weight[c] = kBackReflectionWeight[k];
-                    comp.sigma[c] = std::max(kBackReflectionSigmaOverBase[k] * d_px, 1e-6);
+                    comp.weight[c] = kBackReflectionWeight[k][c];
+                    comp.sigma[c] = std::max(kBackReflectionSigmaOverBase[k][c] * d_px, 1e-6);
                 }
                 out.bounces.push_back(comp);
             }

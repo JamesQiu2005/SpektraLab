@@ -88,15 +88,44 @@ def main():
         v3_8 = render(e, lamp, {"film_stock": "kodak_vision3_500t", "halation_headroom_ev": 8.0})
         check(np.array_equal(v3, v3_8), "a film with an anti-halation layer ignores halation_headroom_ev")
 
-        # 3. the ring: a point light on a film with no layer shows a gap, then a ring at ~2 d
-        off = render(e, lamp, {"film_stock": "cinestill_800t", "halation_active": False})
-        r, prof = radial(cs[..., 0] - off[..., 0], W // 2, H // 2, int(8 * D_PX))
+        # 3. the rim: a point light on a film with no layer shows a disc whose rim, at the
+        #    critical angle's ~2 d, is brighter than its inside (a Gaussian halo falls
+        #    monotonically). The halo alone is the render less the same render with a
+        #    vanishing halo (amount 1e-6: the headroom still applies, and the scan's
+        #    sharpening and the couplers' adjacency dip -- both darken the film beside
+        #    a bright source -- cancel). Read raw, either would hand this check a
+        #    negative "inside" it passes against for nothing; `halation_active: false`
+        #    would also drop the headroom and change the source.
+        bare = render(e, lamp, {"film_stock": "cinestill_800t", "halation_amount": 1e-6})
+        r, prof = radial(cs[..., 0] - bare[..., 0], W // 2, H // 2, int(8 * D_PX))
         gap = (r > 0.7 * D_PX) & (r < 1.3 * D_PX)
         ring = (r > 1.6 * D_PX) & (r < 2.8 * D_PX)
         g, k = prof[gap].min(), prof[ring].max()
         r_peak = r[ring][np.argmax(prof[ring])] / D_PX
-        check(k > 1.3 * g and k > 1 / 255, "a point light's halo is a ring past a gap, not a blob",
-              f"gap {g * 255:.2f}, ring {k * 255:.2f} /255 at r = {r_peak:.2f} d")
+        check(g > -0.25 / 255 and k > 2 * g + 1 / 255, "a point light's halo has a brighter rim at ~2 d, not a monotonic blob",
+              f"inside {g * 255:.2f}, rim {k * 255:.2f} /255 at r = {r_peak:.2f} d")
+
+        # 3b. the red reaches further than the green at any brightness (GPT Astra's
+        #     measurement of five lights in the CineStill scans: half-height radius
+        #     red/green 1.49-2.65). A disc at +9 and +12 EV, headroom off so the
+        #     exposure is what is given.
+        hW, hH = 1100, 420
+        yy, xx = np.mgrid[:hH, :hW]
+        rr = np.hypot(xx - hW // 2, yy - hH // 2)
+        for ev in (9, 12):
+            dot = np.full((hH, hW, 3), 0.0005, np.float32)
+            dot[rr < 5] = 0.18 * 2 ** ev
+            o = render(e, dot, {"film_stock": "cinestill_800t", "halation_headroom_ev": 0.0})
+            pr = np.array([np.median(o[(rr >= a) & (rr < a + 1)], axis=0) for a in range(60)])
+            ex = pr - np.median(pr[-5:], axis=0)
+            half = []
+            for c in range(2):
+                lvl = ex[:2, c].max() / 2
+                i = next((i for i in range(1, 60) if ex[i, c] <= lvl < ex[i - 1, c]), None)
+                half.append(np.interp(lvl, [ex[i, c], ex[i - 1, c]], [i + .5, i - .5]) if i else np.nan)
+            ratio = half[0] / half[1]
+            check(1.49 <= ratio <= 2.65, f"at +{ev} EV the red halo reaches 1.49-2.65x as far as the green, as the scans do",
+                  f"{half[0]:.1f} / {half[1]:.1f} px = {ratio:.2f}")
         same_on_500t = render(e, lamp, {"film_stock": "kodak_vision3_500t", "antihalation_removed": True})
         check(np.abs(same_on_500t - cs).max() < 1e-9,
               "antihalation_removed on Vision3 500T is CineStill 800T")
