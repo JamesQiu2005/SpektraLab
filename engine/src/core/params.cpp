@@ -541,18 +541,24 @@ void apply_halation_preset(Params& p) {
     const std::string& use = p.film.info.use;
     const std::string ah = p.film_render.halation.antihalation_removed ? std::string("no")
                                                                        : p.film.info.antihalation;
+    // 1.3.4, the owner's decision: the back-reflection model is the film's own
+    // -- a profile tagged `no` (CineStill 800T) -- and not the switch. A film
+    // with its layer switched off (`antihalation_removed`) keeps the 1.3.3
+    // Gaussian `no` preset, so every saved edit renders as it did.
+    const bool own_no = p.film.info.antihalation == "no";
     const double sigma = use == "cine" ? 50.0 : 65.0;
     double s0, s1, s2;
     if (ah == "strong") { s0 = 0.015; s1 = 0.005; s2 = 0.0; }
     else if (ah == "weak") { s0 = 0.08; s1 = 0.02; s2 = 0.0; }
-    else if (ah == "no") { s0 = kBackReflectionStrength[0]; s1 = kBackReflectionStrength[1]; s2 = kBackReflectionStrength[2]; }
+    else if (ah == "no" && own_no) { s0 = kBackReflectionStrength[0]; s1 = kBackReflectionStrength[1]; s2 = kBackReflectionStrength[2]; }
+    else if (ah == "no") { s0 = 0.30; s1 = 0.10; s2 = 0.015; }
     else return;   // an unknown tag leaves the defaults, as the dict lookup does
     if (use != "still" && use != "cine") return;
     set3(p.film_render.halation.halation_first_sigma_um, sigma, sigma, sigma);
     set3(p.film_render.halation.halation_strength, s0, s1, s2);
     // No layer at all: the rear face of the base is a mirror, and the halo is
     // its geometry (`HalationParams::back_reflection`), not a Gaussian guess.
-    p.film_render.halation.back_reflection = ah == "no";
+    p.film_render.halation.back_reflection = own_no;
 }
 
 namespace {

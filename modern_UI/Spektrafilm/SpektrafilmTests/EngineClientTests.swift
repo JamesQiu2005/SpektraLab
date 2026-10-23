@@ -522,6 +522,60 @@ final class EngineClientTests: XCTestCase {
         XCTAssertEqual(back, own)
     }
 
+    /// 1.3.4: CineStill 800T through the app's own client and bundle. Its alias
+    /// profile has to load from the app's resources (a missing product profile
+    /// is `no profile 'cinestill_800t'`), its halo has to be its own and not
+    /// 500T-with-the-layer-off's -- the owner's decision is that the switch
+    /// keeps 1.3.3's halo -- and its headroom, the one control it adds, has to
+    /// move the picture at the top of its range against its default, while
+    /// 500T with the layer off ignores it byte for byte.
+    func testCineStillHasItsOwnHaloAndItsHeadroomIsVisible() async throws {
+        let gpu = try device()
+        let client = EngineClient(device: gpu)
+
+        func pixels(_ outcome: RenderOutcome) throws -> [UInt16] {
+            let texture = try XCTUnwrap(outcome.texture)
+            var rgba = [UInt16](repeating: 0, count: texture.width * texture.height * 4)
+            rgba.withUnsafeMutableBytes {
+                texture.getBytes($0.baseAddress!, bytesPerRow: texture.width * 8,
+                                 from: MTLRegionMake2D(0, 0, texture.width, texture.height),
+                                 mipmapLevel: 0)
+            }
+            return rgba
+        }
+        func footprint(_ a: [UInt16], _ b: [UInt16]) -> Int {
+            zip(a, b).reduce(0) { $0 + (abs(Int($1.0) - Int($1.1)) > 3 * 257 ? 1 : 0) }
+        }
+
+        var base = FilmParams.default
+        base.grainActive = false
+        base.glareActive = false
+        base.autoExposure = false
+        var open = base.fullDelta
+        open["film_format_mm"] = .double(36)
+        let frame = try makeHighlightFrame(288, device: gpu)
+
+        func shot(_ stock: String, _ delta: [String: ParamValue]) async throws -> [UInt16] {
+            var d = open
+            d["film_stock"] = .string(stock)
+            for (k, v) in delta { d[k] = v }
+            let session = try await client.open(frame, paramsDelta: d)
+            return try pixels(try await client.render(.previewRender, RenderRequest(sessionID: session.sessionID)))
+        }
+
+        let cineStill = try await shot("cinestill_800t", [:])
+        let removed = try await shot("kodak_vision3_500t", ["antihalation_removed": .bool(true)])
+        let removed8 = try await shot("kodak_vision3_500t", ["antihalation_removed": .bool(true),
+                                                             "halation_headroom_ev": .double(8)])
+        let top = try await shot("cinestill_800t", ["halation_headroom_ev": .double(
+            EffectStrengths.highlightHeadroomRange.upperBound)])
+        let own = footprint(cineStill, removed), headroom = footprint(top, cineStill)
+        print("cinestill: against 500T without its layer \(own), headroom top vs default \(headroom)")
+        XCTAssertGreaterThan(own, 1000, "CineStill renders as 500T with the layer off: its own halo is not reaching it")
+        XCTAssertGreaterThan(headroom, 1000, "the top of the headroom's range is not visible against its default")
+        XCTAssertEqual(removed, removed8, "a film with its layer switched off must ignore the headroom (1.3.3's halo)")
+    }
+
     func testHalationStrengthIsAnAreaMultiplier() async throws {
         let gpu = try device()
         let client = EngineClient(device: gpu)

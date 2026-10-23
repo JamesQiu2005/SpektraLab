@@ -23,8 +23,14 @@ struct Stock: Codable, Identifiable, Hashable, Sendable {
     /// A black-and-white stock: a film with one silver emulsion, or a silver
     /// paper (the profile's `channel_model` is `bw`). Absent on colour stocks.
     let monochrome: Bool?
+    /// A film made with **no** anti-halation layer at all (its profile's
+    /// `antihalation` is `no`: CineStill 800T). Absent on every other stock.
+    /// The engine gives it the back-reflection halo; the Film section shows its
+    /// layer switch off and fixed, and offers its highlight headroom.
+    let noAntihalationLayer: Bool?
 
     var isMonochrome: Bool { monochrome ?? false }
+    var hasNoAntihalationLayer: Bool { noAntihalationLayer ?? false }
     var isFilm: Bool { stage == "filming" }
 
     /// Whether this stock was ever made on the film a Film Edge format runs

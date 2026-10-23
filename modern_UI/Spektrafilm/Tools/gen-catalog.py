@@ -116,6 +116,8 @@ def main() -> None:
         }
         if info.get("channel_model") == "bw":
             entry["monochrome"] = True         # one silver emulsion (a film) or a silver paper
+        if info.get("antihalation") == "no":
+            entry["noAntihalationLayer"] = True    # made without one: CineStill 800T
         if sid in FORMATS:
             entry["formats"] = FORMATS[sid]
         stocks.append(entry)

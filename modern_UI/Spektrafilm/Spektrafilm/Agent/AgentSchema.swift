@@ -127,6 +127,7 @@ enum AgentSchema {
             .init("params.effects.halation", .number(EffectStrengths.halationRange), "Halation strength, × the film's own."),
             .init("params.effects.antihalationRemoved", .bool, "The film without its anti-halation layer (a cine negative with the remjet removed)."),
             .init("params.effects.highlightBoost", .number(EffectStrengths.highlightBoostRange), "Stops added to the highlights before the halo is drawn; 0 is off."),
+            .init("params.effects.highlightHeadroom", .number(EffectStrengths.highlightHeadroomRange), "On a film with no anti-halation layer (CineStill 800T): stops a clipped highlight is taken to have been above what the camera recorded; 0 is the recorded frame. Other films ignore it."),
             .init("params.effects.scatter", .number(EffectStrengths.scatterRange), "In-emulsion scatter weight."),
             .init("params.effects.couplersActive", .bool, "DIR couplers."),
             .init("params.effects.couplers", .number(EffectStrengths.couplersRange), "DIR coupler strength."),

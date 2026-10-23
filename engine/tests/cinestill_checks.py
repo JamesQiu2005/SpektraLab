@@ -126,9 +126,16 @@ def main():
             ratio = half[0] / half[1]
             check(1.49 <= ratio <= 2.65, f"at +{ev} EV the red halo reaches 1.49-2.65x as far as the green, as the scans do",
                   f"{half[0]:.1f} / {half[1]:.1f} px = {ratio:.2f}")
-        same_on_500t = render(e, lamp, {"film_stock": "kodak_vision3_500t", "antihalation_removed": True})
-        check(np.abs(same_on_500t - cs).max() < 1e-9,
-              "antihalation_removed on Vision3 500T is CineStill 800T")
+        # 1.3.4 (the owner's decision): the model is CineStill's own. A film whose layer
+        # is switched off keeps 1.3.3's Gaussian halo -- it is not CineStill, and the
+        # headroom (back-reflection only) leaves it alone.
+        off_0 = render(e, lamp, {"film_stock": "kodak_vision3_500t", "antihalation_removed": True,
+                                 "halation_headroom_ev": 0.0})
+        off_8 = render(e, lamp, {"film_stock": "kodak_vision3_500t", "antihalation_removed": True,
+                                 "halation_headroom_ev": 8.0})
+        check(np.array_equal(off_0, off_8) and np.abs(off_0 - cs).max() > 10 / 255,
+              "a film with its layer switched off keeps 1.3.3's halo, not CineStill's",
+              f"headroom 0 vs 8 identical: {np.array_equal(off_0, off_8)}, against CineStill {np.abs(off_0 - cs).max() * 255:.1f}/255")
 
         # 4. the gate: a lamp at the frame's maximum, and a bright patch three stops under it
         #    that a night's auto-exposure could have put at +2.5 EV

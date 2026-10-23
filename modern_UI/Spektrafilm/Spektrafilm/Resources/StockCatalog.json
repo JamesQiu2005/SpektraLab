@@ -10,6 +10,7 @@
    "hasPreviewLUT": false,
    "pairedFilm": null,
    "cover": null,
+   "noAntihalationLayer": true,
    "formats": [
     "135",
     "120"

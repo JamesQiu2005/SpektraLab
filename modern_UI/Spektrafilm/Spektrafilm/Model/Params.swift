@@ -402,6 +402,14 @@ struct EffectStrengths: Codable, Equatable, Sendable {
     /// normalised by the frame's brightest pixel, so one hot pixel can leave
     /// it with nothing to do. 0 is off, exactly.
     var highlightBoost = 0.0       // 0…8 EV
+    /// `halation_headroom_ev` (1.3.4): on a film with **no** anti-halation
+    /// layer (CineStill 800T), how many stops above what the camera recorded a
+    /// *clipped* highlight is taken to have been. The negative sees the lamp
+    /// it would have -- a +3.5 EV clip exposes as +7.5 EV at 4 -- so the
+    /// halo has the lamp's energy. Only pixels near the frame's own maximum and
+    /// well over mid-grey are lifted; a face is not. Every other film ignores
+    /// it. 4 is the engine's default; 0 is the recorded frame.
+    var highlightHeadroom = 4.0    // 0…8 EV
     /// `halation_scatter_amount`: the in-emulsion scatter, a mix weight.
     var scatter = 1.0              // 0…1
     /// `dir_couplers_active` / `dir_couplers_amount`: the inter-layer
@@ -417,6 +425,8 @@ struct EffectStrengths: Codable, Equatable, Sendable {
     static let scatterRange = 0.0...1.0
     /// The wire's own range, in stops.
     static let highlightBoostRange = 0.0...8.0
+    /// The wire's own range, in stops.
+    static let highlightHeadroomRange = 0.0...8.0
     /// Not the wire's 0…4. Above ≈1.736 the coupler inverse's exposure axis
     /// stops being monotonic (AGENTS.md trap 22) and the output is no longer
     /// the model's, so the slider stops short of it.
@@ -447,6 +457,7 @@ struct EffectStrengths: Codable, Equatable, Sendable {
         antihalationRemoved = try c.decodeIfPresent(Bool.self, forKey: .antihalationRemoved)
             ?? d.antihalationRemoved
         highlightBoost = try c.decodeIfPresent(Double.self, forKey: .highlightBoost) ?? d.highlightBoost
+        highlightHeadroom = try c.decodeIfPresent(Double.self, forKey: .highlightHeadroom) ?? d.highlightHeadroom
         couplersActive = try c.decodeIfPresent(Bool.self, forKey: .couplersActive) ?? d.couplersActive
         couplers = try c.decodeIfPresent(Double.self, forKey: .couplers) ?? d.couplers
         glare = try c.decodeIfPresent(Double.self, forKey: .glare) ?? d.glare
@@ -798,6 +809,11 @@ struct FilmParams: Codable, Equatable, Sendable {
             ("antihalation_removed", .bool(effects.antihalationRemoved), .shoot),
             ("halation_boost_ev",
              .double(effects.highlightBoost.clamped(to: EffectStrengths.highlightBoostRange)), .shoot),
+            // 1.3.4: the headroom a clipped highlight is given back on a film
+            // with no anti-halation layer (CineStill 800T). Sent always, on the
+            // same rule; every other film's engine ignores it, byte for byte.
+            ("halation_headroom_ev",
+             .double(effects.highlightHeadroom.clamped(to: EffectStrengths.highlightHeadroomRange)), .shoot),
             // RFC-028. The DI is sent always, like the rest (off is the
             // paper, exactly). The blue compensation only while the DI is on,
             // so the Settings switch cannot move any other frame's stamp.

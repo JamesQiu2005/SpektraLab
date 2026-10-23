@@ -2888,6 +2888,8 @@ final class Session: CanvasHost {
     /// than printed. The catalogue has carried `type` since it was generated
     /// and nothing read it until now.
     var filmIsPositive: Bool { catalog.stock(params.filmStock)?.isPositive ?? false }
+    /// The film has no anti-halation layer to switch (CineStill 800T).
+    var filmHasNoAntihalationLayer: Bool { catalog.stock(params.filmStock)?.hasNoAntihalationLayer ?? false }
 
     /// RFC-028: whether this frame renders as a Digital Intermediate.
     var digitalIntermediateActive: Bool {

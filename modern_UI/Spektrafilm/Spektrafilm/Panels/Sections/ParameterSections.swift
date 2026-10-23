@@ -98,6 +98,7 @@ struct FilmFormatSection: View {
         ToggleRow(label: L(.filmGrain), isOn: param(\.grainActive))
         ToggleRow(label: L(.filmHalation), isOn: param(\.halationActive))
         antihalationRow
+        headroomRow
         ToggleRow(label: L(.filmGlare), isOn: param(\.glareActive),
                   enabled: session.params.printEffects, reason: L(.reasonPrintEffectsOff))
     }
@@ -105,14 +106,33 @@ struct FilmFormatSection: View {
     /// The film's anti-halation layer, as a property of the film rather than
     /// a strength, so it is shown whether or not the strengths are. On is the
     /// film as its profile tags it; off is the same film with the layer
-    /// removed.
-    private var antihalationRow: some View {
-        ToggleRow(label: L(.filmAntihalationLayer),
-                  isOn: Binding(get: { !session.params.effects.antihalationRemoved },
-                                set: { var p = session.params
-                                       p.effects.antihalationRemoved = !$0
-                                       session.params = p }),
-                  enabled: session.params.halationActive)
+    /// removed. **A film made without one (CineStill 800T) reads off and
+    /// fixed**: there is no layer to put back, and the engine reads its own
+    /// tag whatever the switch says.
+    @ViewBuilder private var antihalationRow: some View {
+        if session.filmHasNoAntihalationLayer {
+            ToggleRow(label: L(.filmAntihalationLayer), isOn: .constant(false),
+                      enabled: false, reason: L(.reasonNoAntihalationLayer))
+        } else {
+            ToggleRow(label: L(.filmAntihalationLayer),
+                      isOn: Binding(get: { !session.params.effects.antihalationRemoved },
+                                    set: { var p = session.params
+                                           p.effects.antihalationRemoved = !$0
+                                           session.params = p }),
+                      enabled: session.params.halationActive)
+        }
+    }
+
+    /// 1.3.4: the stops a clipped highlight is given back, on a film with no
+    /// anti-halation layer only -- the one film whose halo the engine draws
+    /// from them. Shown in both layouts, under the layer it belongs to; every
+    /// other film ignores the value, so it is not offered there.
+    @ViewBuilder private var headroomRow: some View {
+        if session.filmHasNoAntihalationLayer {
+            ScrubSlider(label: L(.filmHighlightHeadroom), value: effect(\.highlightHeadroom),
+                        range: EffectStrengths.highlightHeadroomRange, zero: 4, snap: 0.5,
+                        format: { String(format: "%.1f", $0) }, disabled: !session.params.halationActive)
+        }
     }
 
     /// RFC-025's rows, named as v4 draws them. A strength greys, rather than
@@ -123,6 +143,7 @@ struct FilmFormatSection: View {
         strength(L(.filmGrainStrength), \.grain, EffectStrengths.grainRange, enabled: p.grainActive)
         ToggleRow(label: L(.filmHalation), isOn: param(\.halationActive))
         antihalationRow
+        headroomRow
         strength(L(.filmHalationStrength), \.halation, EffectStrengths.halationRange, enabled: p.halationActive)
         strength(L(.filmScatterStrength), \.scatter, EffectStrengths.scatterRange, enabled: p.halationActive)
         // Stops, not a multiple: its neutral is 0 and it is off there.
