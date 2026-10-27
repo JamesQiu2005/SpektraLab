@@ -101,6 +101,7 @@ export function ScrubSlider(p: ScrubSliderProps) {
   const { label, sublabel, value, range, zero = 0, snap, format = (v) => v.toFixed(2), onChange, onCommit, disabled, reason, blocked, gradient } = p;
   const track = useRef<HTMLDivElement>(null);
   const [text, setText] = useState<string | null>(null);
+  const cancelText = useRef(false);
   const drag = useRef<{ x: number; v: number; w: number } | null>(null);
   const [lo, hi] = range;
   const frac = (v: number) => (clamp(v, lo, hi) - lo) / (hi - lo || 1);
@@ -135,6 +136,8 @@ export function ScrubSlider(p: ScrubSliderProps) {
   };
 
   const commitText = () => {
+    // Escape blurs synchronously, before React applies the draft reset.
+    if (cancelText.current) { cancelText.current = false; return; }
     if (text == null) return;
     const n = p.parse ? p.parse(text) : Number.parseFloat(text.replace(',', '.').replace(/[^0-9.+-eE]/g, ''));
     setText(null);
@@ -180,6 +183,7 @@ export function ScrubSlider(p: ScrubSliderProps) {
         value={text ?? format(value)}
         disabled={disabled}
         onFocus={(e) => {
+          cancelText.current = false;
           setText(format(value));
           e.currentTarget.select();
         }}
@@ -188,6 +192,7 @@ export function ScrubSlider(p: ScrubSliderProps) {
         onKeyDown={(e) => {
           if (e.key === 'Enter') (e.target as HTMLInputElement).blur();
           if (e.key === 'Escape') {
+            cancelText.current = true;
             setText(null);
             (e.target as HTMLInputElement).blur();
           }
@@ -310,6 +315,7 @@ export function PillMenu<T extends string | number>(p: {
 
 export function NumberField(p: { value: number; decimals: number; onCommit: (v: number) => void; disabled?: boolean; width?: number; label?: string }) {
   const [text, setText] = useState<string | null>(null);
+  const cancelText = useRef(false);
   useEffect(() => setText(null), [p.value]);
   return (
     <input
@@ -318,8 +324,10 @@ export function NumberField(p: { value: number; decimals: number; onCommit: (v: 
       value={text ?? p.value.toFixed(p.decimals)}
       disabled={p.disabled}
       aria-label={p.label}
+      onFocus={() => { cancelText.current = false; }}
       onChange={(e) => setText(e.target.value)}
       onBlur={() => {
+        if (cancelText.current) { cancelText.current = false; return; }
         if (text != null) {
           const n = Number.parseFloat(text.replace(',', '.'));
           if (Number.isFinite(n)) p.onCommit(n);
@@ -329,6 +337,7 @@ export function NumberField(p: { value: number; decimals: number; onCommit: (v: 
       onKeyDown={(e) => {
         if (e.key === 'Enter') (e.target as HTMLInputElement).blur();
         if (e.key === 'Escape') {
+          cancelText.current = true;
           setText(null);
           (e.target as HTMLInputElement).blur();
         }

@@ -93,6 +93,45 @@ test('trap 32: an arrow typed in a field does not change the frame', async ({ pa
   await expect.poll(() => state(page, 's.selection')).not.toBe(first);
 });
 
+test('Escape cancels a slider draft without adding history; Enter and blur commit', async ({ page }) => {
+  await openRoll(page);
+  const field = page.getByRole('textbox', { name: 'Film Exposure value', exact: true });
+  const before = await state(page, 's.sidecar.params.exposureCompensationEV');
+  const history = await state(page, 's.undo.length');
+  await field.fill('2');
+  await field.press('Escape');
+  expect(await state(page, 's.sidecar.params.exposureCompensationEV')).toBe(before);
+  expect(await state(page, 's.undo.length')).toBe(history);
+  await expect(field).not.toBeFocused();
+  await field.fill('1');
+  await field.press('Enter');
+  await expect.poll(() => state(page, 's.sidecar.params.exposureCompensationEV')).toBe(1);
+  await field.fill('3');
+  await field.press('Tab');
+  await expect.poll(() => state(page, 's.sidecar.params.exposureCompensationEV')).toBe(3);
+});
+
+test('Escape cancels a unit draft without adding history; Enter and blur commit', async ({ page }) => {
+  await openRoll(page);
+  const section = page.locator('[data-section="filmFormat"]');
+  await section.getByRole('button', { name: '135', exact: true }).click();
+  await page.getByRole('menuitem', { name: 'Custom', exact: true }).click();
+  const field = section.locator('.unit-field');
+  const before = await state(page, 's.sidecar.params.sideLengthMM');
+  const history = await state(page, 's.undo.length');
+  await field.fill('50');
+  await field.press('Escape');
+  expect(await state(page, 's.sidecar.params.sideLengthMM')).toBe(before);
+  expect(await state(page, 's.undo.length')).toBe(history);
+  await expect(field).not.toBeFocused();
+  await field.fill('36');
+  await field.press('Enter');
+  await expect.poll(() => state(page, 's.sidecar.params.sideLengthMM')).toBe(36);
+  await field.fill('40');
+  await field.press('Tab');
+  await expect.poll(() => state(page, 's.sidecar.params.sideLengthMM')).toBe(40);
+});
+
 test('a quarter turn swaps the output size readout', async ({ page }) => {
   await openRoll(page);
   const before = await page.getByTestId('crop-size').textContent();
