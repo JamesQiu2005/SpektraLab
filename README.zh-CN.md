@@ -1,11 +1,6 @@
 # SpektraLab
 
-[English](README.md) · **简体中文**
-
-**Windows 开发版：**本分支增加了 C++/Vulkan 后端、原生 LibRaw 解码、RGB16 TIFF 导出和 Windows 桌面界面。
-构建方法见 [Windows 说明](engine/WINDOWS.md)，已验证功能及限制见 [功能覆盖表](engine/WINDOWS_FEATURE_COVERAGE.md)。
-[Qt Quick 前端](windows_UI/README.md) 已开始复刻胶片与相纸编辑布局，同时保留[最小 Win32 窗口](engine/WINDOWS_DESKTOP.md)。
-下文介绍的 macOS 产品还包含尚未完成 Windows 迁移的界面与显示功能。
+[English](README.md) · **简体中文** · [spektralab.app](https://spektralab.app)
 
 macOS 上的胶片与放大相纸模拟器。打开一张 RAW，选好胶片和相纸，约一秒内得到一张按物理过程建模的照片——颗粒、光晕、成色剂耦合、放大机滤色，一样不少。
 
@@ -25,13 +20,15 @@ macOS 上的胶片与放大相纸模拟器。打开一张 RAW，选好胶片和�
 
 ## 安装
 
-从 [Releases](https://github.com/JamesQiu2005/SpektraLab/releases) 下载最新版本。应用为 ad-hoc 签名，首次运行前需解除隔离：
+从 [spektralab.app](https://spektralab.app) 或 [Releases](https://github.com/JamesQiu2005/SpektraLab/releases) 下载 DMG，打开后把 SpektraLab 拖进“应用程序”文件夹。应用已用 Developer ID 签名，并通过 Apple 公证，可以像其他应用一样直接打开。
+
+需要 Apple 芯片、macOS 15 或更高版本。
+
+1.3.3 之前的版本为 ad-hoc 签名。使用这些版本时，首次运行前需解除隔离：
 
 ```bash
 xattr -d -r com.apple.quarantine /Applications/SpektraLab.app
 ```
-
-需要 Apple 芯片、macOS 15 或更高版本。
 
 ## 多选与同步照片
 
@@ -86,9 +83,16 @@ xcodebuild -project Spektrafilm.xcodeproj -scheme SpektrafilmTests \
 | `ARCHITECTURE.md` | 整体结构——从这里开始读 |
 | `AGENTS.md` | 约定，以及真正耗过时间的坑 |
 
+## Windows 开发版
+
+本分支增加了 C++/Vulkan 后端、原生 LibRaw 解码、RGB16 TIFF 导出和 Windows 桌面界面。
+构建方法见 [Windows 说明](engine/WINDOWS.md)，已验证功能及限制见 [功能覆盖表](engine/WINDOWS_FEATURE_COVERAGE.md)。
+[Qt Quick 前端](windows_UI/README.md) 已开始复刻胶片与相纸编辑布局，同时保留[最小 Win32 窗口](engine/WINDOWS_DESKTOP.md)。
+上文介绍的 macOS 产品还包含尚未完成 Windows 迁移的界面与显示功能。
+
 ## 致谢与许可
 
-胶片过程模型、28 款实测配置与放大 LUT 来自 Andrea Volpato 的 [spektrafilm](https://github.com/andreavolpato/spektrafilm)；SpektraLab 是该引擎的原生 C++/Metal 移植，以及围绕它构建的应用。
+胶片过程模型、28 款实测配置与放大 LUT 来自 Andrea Volpato 的 [spektrafilm](https://github.com/andreavolpato/spektrafilm)；4 款黑白胶片配置来自开发者本人 Hanze Qiu; SpektraLab 是该引擎的原生 C++/Metal 移植，以及围绕它构建的应用。
 
 | | |
 |---|---|
