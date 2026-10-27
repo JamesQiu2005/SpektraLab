@@ -3,6 +3,8 @@
 // Everything above this file speaks in these types; nothing above it knows
 // whether the host is the C++ engine, the stdio mock or the in-page shim.
 
+import type { FrameProjection } from '@shared/filmFrame';
+import type {Rect} from '@shared/pairPresentation';
 import type {
   FileMetadata,
   HelloResult,
@@ -29,6 +31,9 @@ export interface RgbaImage {
 }
 
 export interface RenderReply extends RgbaImage {
+  frame?: FrameProjection;
+  pregraded?:boolean;
+  pairRects?:Rect[];
   tier: Tier;
   reprinted: boolean;
   ms: number;
@@ -91,7 +96,12 @@ export class Host {
     return rgba8(r.result.image, r.payload);
   }
   async open(path: string, params: WireParams, decode?: object | null): Promise<OpenResult> {
-    return (await this.call<OpenResult>('open', decode ? { path, params, decode } : { path, params }, 300_000)).result;
+    const pair=path.toLowerCase().endsWith('.spektrapair');
+    return (await this.call<OpenResult>('open', {path,params,...(decode?{decode}:{}),...(pair?{pair_presentation:'client'}:{})}, 300_000)).result;
+  }
+  async renderLayer(session:string,tier:Tier,delta:WireParams):Promise<RgbaImage> {
+    const r=await this.call<{image:ImageInfo}>('render_layer',{session,tier,delta,format:'rgba8',display:'srgb'},900_000);
+    return rgba8(r.result.image,r.payload);
   }
   /** Decode the session's file again with other decode settings; params are kept (R2). */
   async redecode(session: string, decode: object): Promise<OpenResult> {
@@ -138,6 +148,10 @@ export class Host {
   }
   async exportDi(session: string, printStock: string, path: string): Promise<{ path: string }> {
     return (await this.call<{ path: string }>('export_di', { session, print_stock: printStock, path }, 1_800_000)).result;
+  }
+  async exportCineon(session: string, path: string, geometry: object, overwrite: boolean): Promise<{ path: string; width: number; height: number; view_luts: string[] }> {
+    return (await this.call<{ path: string; width: number; height: number; view_luts: string[] }>(
+      'export_cineon', { session, path, geometry, overwrite }, 1_800_000)).result;
   }
 }
 

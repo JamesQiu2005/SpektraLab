@@ -1,5 +1,6 @@
 // stocks.ts — the film and paper catalogue (`Model/StockCatalog.swift`),
 // read from the Mac app's `StockCatalog.json` (copied to public/assets).
+import {type FilmParams,FILM_PARAMS_DEFAULT} from './params';
 
 export interface Stock {
   id: string;
@@ -12,6 +13,7 @@ export interface Stock {
   pairedFilm?: string | null;
   cover?: string | null;
   formats?: string[] | null;
+  monochrome?:boolean;
 }
 
 export class StockCatalog {
@@ -31,13 +33,17 @@ export class StockCatalog {
   isPositive(id: string) {
     return this.stock(id)?.type === 'positive';
   }
+  isMonochrome(id:string){return this.stock(id)?.monochrome===true;}
+  canPrint(film:string,paper:string){const f=this.stock(film),p=this.stock(paper);return !f||!p||!!f.monochrome===!!p.monochrome;}
   /** Still first, then cine, as the Mac picker orders them; then by polarity. */
-  filmGroups(): { title: 'Positive' | 'Negative'; films: Stock[] }[] {
+  filmGroups(): { title: 'Positive' | 'Negative'|'Black & White'; films: Stock[] }[] {
     const ordered = [...this.films.filter((s) => s.use !== 'cine'), ...this.films.filter((s) => s.use === 'cine')];
-    return [
+    const groups:{title:'Positive'|'Negative'|'Black & White';films:Stock[]}[] = [
       { title: 'Positive', films: ordered.filter((s) => s.type === 'positive') },
-      { title: 'Negative', films: ordered.filter((s) => s.type !== 'positive') },
+      { title: 'Negative', films: ordered.filter((s) => s.type !== 'positive'&&!s.monochrome) },
     ];
+    const mono=ordered.filter(s=>s.type!=='positive'&&s.monochrome);
+    if(mono.length)groups.push({title:'Black & White',films:mono});return groups;
   }
   paperGroups(): { title: 'Still' | 'Cine'; papers: Stock[] }[] {
     return [
@@ -49,6 +55,16 @@ export class StockCatalog {
     const c = this.stock(id)?.cover;
     return c ? `assets/FilmCovers/${c}` : null;
   }
+}
+
+/** Original Session.selectFilmStock/selectPrintStock rules, shared by callers. */
+export function selectedFilm(p:FilmParams,id:string,catalog:StockCatalog):FilmParams {
+  const target=catalog.stock(id)?.targetPrint;
+  const printStock=target&&catalog.stock(target)?target:!catalog.canPrint(id,p.printStock)?FILM_PARAMS_DEFAULT.printStock:p.printStock;
+  return {...p,filmStock:id,printStock,scanFilm:catalog.isPositive(id)?true:p.scanFilm};
+}
+export function selectedPaper(p:FilmParams,id:string,catalog:StockCatalog):FilmParams {
+  return catalog.isPositive(p.filmStock)||!catalog.canPrint(p.filmStock,id)?p:{...p,printStock:id,scanFilm:false,digitalIntermediate:false};
 }
 
 export const EMPTY_CATALOG = new StockCatalog([]);

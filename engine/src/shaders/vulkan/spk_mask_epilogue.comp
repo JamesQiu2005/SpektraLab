@@ -1,0 +1,42 @@
+#version 450
+#extension GL_GOOGLE_include_directive : require
+// RFC-024 contrast_mask.metal, original parameter order and band coordinates.
+layout(local_size_x = 256) in;
+layout(set=0,binding=0,std430) readonly buffer Cmy { float value[]; } cmy_data;
+layout(set=0,binding=1,std430) readonly buffer Dyes { float value[]; } chd_data;
+layout(set=0,binding=2,std430) readonly buffer Base { float value[]; } base_data;
+layout(set=0,binding=3,std430) readonly buffer Ixs { float value[]; } ixs_data;
+layout(set=0,binding=4,std430) readonly buffer Params { float value[]; } param_data;
+uint spk_global_index() {
+    return gl_GlobalInvocationID.y * (gl_NumWorkGroups.x * gl_WorkGroupSize.x) + gl_GlobalInvocationID.x;
+}
+layout(set=0,binding=5,std430) readonly buffer Coef { float value[]; } coef_data;
+layout(set=0,binding=6,std430) readonly buffer Meta { uint value[]; } meta_data;
+layout(set=0,binding=7,std430) writeonly buffer Output { float value[]; } output_data;
+#include "spk_mask_common.glsl"
+void main() {
+    uint n = meta_data.value[0], nl = meta_data.value[1], W = meta_data.value[2], H = meta_data.value[3], row0 = meta_data.value[4];
+    uint gw = meta_data.value[5], gh = meta_data.value[6];
+    uint i = spk_global_index();
+    if (i >= n) return;
+    vec3 a = mask_image_exposure(i, nl);
+
+    uint px = i % W, py = row0 + i / W;
+    float u = clamp((float(px) + 0.5f) * float(gw) / float(W) - 0.5f, 0.0f, float(gw - 1u));
+    float v = clamp((float(py) + 0.5f) * float(gh) / float(H) - 0.5f, 0.0f, float(gh - 1u));
+    uint u0 = uint(floor(u)), v0 = uint(floor(v));
+    uint u1 = min(u0 + 1u, gw - 1u), v1 = min(v0 + 1u, gh - 1u);
+    float tu = u - float(u0), tv = v - float(v0);
+    vec2 c00 = vec2(coef_data.value[2u * (v0 * gw + u0)], coef_data.value[2u * (v0 * gw + u0) + 1u]);
+    vec2 c01 = vec2(coef_data.value[2u * (v0 * gw + u1)], coef_data.value[2u * (v0 * gw + u1) + 1u]);
+    vec2 c10 = vec2(coef_data.value[2u * (v1 * gw + u0)], coef_data.value[2u * (v1 * gw + u0) + 1u]);
+    vec2 c11 = vec2(coef_data.value[2u * (v1 * gw + u1)], coef_data.value[2u * (v1 * gw + u1) + 1u]);
+    vec2 ab = mix(mix(c00, c01, tu), mix(c10, c11, tu), tv);
+
+    float b = ab.x * mask_x(a) + ab.y;
+    float k = exp2(mask_delta(b));
+    float v0e = max(k * a.x + param_data.value[6], 0.0f) + 1e-10f;
+    float v1e = max(k * a.y + param_data.value[7], 0.0f) + 1e-10f;
+    float v2e = max(k * a.z + param_data.value[8], 0.0f) + 1e-10f;
+    output_data.value[3u * i] = spk_mask_log10(v0e); output_data.value[3u * i + 1u] = spk_mask_log10(v1e); output_data.value[3u * i + 2u] = spk_mask_log10(v2e);
+}

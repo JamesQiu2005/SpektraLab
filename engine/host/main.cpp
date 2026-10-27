@@ -30,6 +30,9 @@
 #include <vector>
 
 #include "image_io.hpp"
+#include "cineon_view.hpp"
+#include "pair_composer.hpp"
+#include "pair_cache.hpp"
 #include "json.hpp"
 #include "output.hpp"
 #include "platform.hpp"
@@ -137,6 +140,10 @@ struct Session {
     uint32_t width = 0, height = 0;
     Metadata metadata;
     std::string output_space = "ProPhoto RGB";
+    Json params;
+    bool cineon = false;
+    Json pair_info;
+    bool pair_client_presentation=false;
 };
 
 struct State {
@@ -147,6 +154,9 @@ struct State {
     std::mutex sessions_mutex;   // the reader thread reads `sessions` for cancel
     uint64_t next_session = 1;
     std::map<std::string, OutputTransform> transforms;
+    CineonView cineon_view;
+    std::string cineon_error;
+    std::map<std::string, bool> positive_films;
 
     // cancellation
     std::mutex cancel_mutex;
@@ -221,6 +231,9 @@ Json metadata_json(const Metadata& m) {
     if (m.shutter_s) j.set("shutter_s", number(*m.shutter_s));
     if (m.aperture) j.set("aperture", number(*m.aperture));
     if (m.focal_mm) j.set("focal_mm", number(*m.focal_mm));
+    if (m.focal_35mm) j.set("focal_35mm", number(*m.focal_35mm));
+    if (m.exposure_program) j.set("exposure_program", number(*m.exposure_program));
+    if (m.exposure_bias_ev) j.set("exposure_bias_ev", number(*m.exposure_bias_ev));
     if (!m.datetime_original.empty()) j.set("datetime_original", str(iso_datetime(m.datetime_original)));
     j.set("orientation", number(m.orientation));
     if (m.as_shot_temperature_k && m.as_shot_tint) {
@@ -242,6 +255,9 @@ Exif exif_of(const Metadata& m) {
     e.shutter_s = m.shutter_s.value_or(0);
     e.aperture = m.aperture.value_or(0);
     e.focal_mm = m.focal_mm.value_or(0);
+    e.focal_35mm = m.focal_35mm;
+    e.exposure_program = m.exposure_program;
+    e.exposure_bias_ev = m.exposure_bias_ev;
     return e;
 }
 
@@ -251,6 +267,38 @@ std::string output_space_of(const Json& params) {
     const Json& flat = params.at("output_color_space");
     if (flat.is_string()) return flat.as_string();
     return "ProPhoto RGB";
+}
+
+bool positive_film(const std::string& stock) {
+    auto it = g.positive_films.find(stock);
+    if (it == g.positive_films.end()) {
+        // Read only the original profile's polarity metadata. No material
+        // values or rendering arithmetic live in this presentation decision.
+        std::vector<uint8_t> bytes;
+        std::string error;
+        if (!read_file(g.resources / "profiles" / utf8_path(stock + ".json"), bytes, error))
+            throw HostError{"io_error", error};
+        const Json profile = parse_json(std::string(bytes.begin(), bytes.end()).c_str());
+        it = g.positive_films.emplace(stock, profile.at("info").at("type").as_string() == "positive").first;
+    }
+    return it->second;
+}
+
+void check_cineon_request(const Json& params) {
+    if (!params.at("digital_intermediate").as_bool() || params.at("scan_film").as_bool()) return;
+    if (!g.cineon_view.ready()) throw HostError{"unsupported", "Cineon DI view resources: " + g.cineon_error};
+    if (output_space_of(params) != "ProPhoto RGB")
+        throw HostError{"bad_request", "the shipped Cineon DI view requires ProPhoto RGB output primaries"};
+    const auto& stock = params.at("film_stock").as_string();
+    if (!stock.empty()) positive_film(stock); // preflight metadata before set_params commits
+}
+
+void remember_params(Session& session, const Json& params) {
+    const bool cineon = params.at("digital_intermediate").as_bool() && !params.at("scan_film").as_bool() &&
+                        !positive_film(params.at("film_stock").as_string());
+    session.params = params;
+    session.output_space = output_space_of(params);
+    session.cineon = cineon;
 }
 
 const OutputTransform& transform(const std::string& src, const std::string& dst) {
@@ -271,7 +319,16 @@ struct Result {
 
 // Engine pixels -> the requested wire format. Fills `image` and `payload`.
 void package_pixels(const spk_result& r, const std::string& source_space, const Json& params, Json& image,
-                    std::vector<uint8_t>& payload) {
+                    std::vector<uint8_t>& payload, bool cineon = false) {
+    if (cineon) {
+        std::vector<uint16_t> viewed;
+        g.cineon_view.apply(r.rgba16, r.width, r.height, r.row_stride_px ? r.row_stride_px : r.width, viewed);
+        spk_result view = r;
+        view.rgba16 = viewed.data();
+        view.row_stride_px = view.width;
+        package_pixels(view, "ProPhoto RGB", params, image, payload);
+        return;
+    }
     const std::string format = optional_string(params, "format", "rgba8");
     std::string display = optional_string(params, "display");
     if (format != "rgba8" && format != "rgba16") throw HostError{"bad_request", "format must be rgba8 or rgba16"};
@@ -361,13 +418,21 @@ Json m_hello(const Request&) {
     backend.set("device_name", str(b.at("gpu").as_string()));
     backend.set("math_mode", str(b.at("math_mode").as_string()));
     backend.set("render_core", str(b.at("render_core").as_string()));
+    Json host_caps = b;
+    Json unsupported = b.at("unsupported_features");
+    if (!unsupported.is_array()) unsupported = Json::array();
+    if (!g.cineon_view.ready()) unsupported.push(str("digital_intermediate"));
+    host_caps.set("unsupported_features", std::move(unsupported));
+    host_caps.set("pair_decode",Json(true));
+    host_caps.set("pair_presentation",str("client-layers-v1"));
+    caps.set("backend", std::move(host_caps));
     r.set("backend", std::move(backend));
     r.set("capabilities", std::move(caps));
     Json methods = Json::array();
     for (const char* m : {"hello", "ping", "shutdown", "params_schema", "print_lut_catalog", "memory_report",
                           "probe", "thumbnail", "open", "redecode", "close", "set_params", "get_params", "solve", "render",
-                          "scene_latitude", "overscan_geometry", "preview_stock_lut", "cancel", "progress",
-                          "export_image", "export_cube", "export_di", "write_image"})
+                          "scene_latitude", "overscan_geometry", "pair_info", "render_layer", "preview_stock_lut", "cancel", "progress",
+                          "export_image", "export_cube", "export_di", "export_cineon", "write_image"})
         methods.push(str(m));
     r.set("methods", std::move(methods));
     return r;
@@ -375,12 +440,22 @@ Json m_hello(const Request&) {
 
 Json m_params_schema(const Request&) { need_engine(); return parse_json(spk_params_schema(g.engine)); }
 Json m_print_lut_catalog(const Request&) { need_engine(); return parse_json(spk_print_lut_catalog(g.engine)); }
-Json m_memory_report(const Request&) { need_engine(); return parse_json(spk_memory_report(g.engine)); }
+spkhost::pair::HoleCache pair_bitmaps; // used only by the host worker
+Json m_memory_report(const Request&) {
+    need_engine();auto report=parse_json(spk_memory_report(g.engine));
+    Json cache=Json::object();cache.set("entries",number(pair_bitmaps.size()));cache.set("bytes",number(pair_bitmaps.memory()));
+    cache.set("limit_bytes",number(spkhost::pair::HoleCache::limit));report.set("pair_bitmap_cache",std::move(cache));return report;
+}
+
+bool is_pair_path(const fs::path& path);
+Json probe_pair(const fs::path& path);
+Json thumbnail_pair(const fs::path& path,uint32_t edge,std::vector<uint8_t>& payload);
 
 Json m_probe(const Request& q) {
     Probe p;
     std::string error;
     const fs::path path = utf8_path(require_string(q.params, "path"));
+    if(is_pair_path(path)) return probe_pair(path);
     if (!probe_file(path, p, error)) {
         std::error_code ec;
         throw HostError{fs::exists(path, ec) ? "decode_failed" : "not_found", error};
@@ -396,6 +471,7 @@ Json m_probe(const Request& q) {
 Json m_thumbnail(const Request& q, std::vector<uint8_t>& payload) {
     const fs::path path = utf8_path(require_string(q.params, "path"));
     const uint32_t long_edge = uint32_t(std::max(1, q.params.at("long_edge").as_int(256)));
+    if(is_pair_path(path)) return thumbnail_pair(path,long_edge,payload);
     Rgba8 t;
     std::string source, error;
     std::error_code ec;
@@ -447,13 +523,21 @@ DecodeOptions decode_options(const Json& decode) {
     return options;
 }
 
+struct PairDecoded {
+    Json document;
+    std::array<spkhost::pair::Source,2> sources;
+    spkhost::pair::Layout layout;
+    bool strip = false;
+};
+
 struct Decoded {
     FloatImage frame;
     Probe probe;
     double decode_ms = 0;
+    std::shared_ptr<PairDecoded> pair;
 };
 
-Decoded decode_frame(const fs::path& path, const DecodeOptions& options) {
+Decoded decode_single_frame(const fs::path& path, const DecodeOptions& options) {
     std::error_code ec;
     if (!fs::exists(path, ec)) throw HostError{"not_found", "not found: " + path_utf8(path)};
     const auto t0 = Clock::now();
@@ -466,6 +550,141 @@ Decoded decode_frame(const fs::path& path, const DecodeOptions& options) {
     }
     d.decode_ms = ms_since(t0);
     return d;
+}
+
+bool is_pair_path(const fs::path& path) { return path.extension() == ".spektrapair"; }
+
+// Cache identity is deliberately about input pixels, never a film/paper look.
+std::string pair_source_key(const fs::path& source,const Json& decode) {
+    std::error_code ec;const auto path=fs::weakly_canonical(source,ec);if(ec)return {};
+    const auto size=fs::file_size(path,ec);if(ec)return {};
+    const auto stamp=fs::last_write_time(path,ec);if(ec)return {};
+    Json key=Json::object();key.set("path",str(path_utf8(path)));key.set("size",str(std::to_string(size)));
+    key.set("stamp",str(std::to_string(stamp.time_since_epoch().count())));key.set("decode",decode);return key.dump();
+}
+
+std::string pair_bitmap_key(const spkhost::pair::Source& source,const spkhost::pair::Layout& layout) {
+    if(source.cache_source.empty())return {};
+    Json key=Json::object();key.set("source",str(source.cache_source));
+    key.set("geometry",source.settings.at("geometry"));key.set("placement",source.settings.at("placement"));
+    key.set("width",number(layout.hole.w));key.set("height",number(layout.hole.h));key.set("turned",Json(layout.turned));return key.dump();
+}
+
+Decoded decode_frame(const fs::path& path, const DecodeOptions& options, const Json& params = Json(),bool probe_only=false,uint32_t thumbnail_edge=0,bool client_presentation=false) {
+    if (!is_pair_path(path)) return decode_single_frame(path, options);
+    if(options.temperature_k || options.tint || options.raw_mode!="compatible16")
+        throw HostError{"unsupported","pair white balance/raw-mode belongs to each source hole"};
+    const auto started=Clock::now();
+    std::vector<uint8_t> bytes; std::string error; Json doc;
+    std::error_code file_error;
+    if(fs::file_size(path,file_error)>1024*1024 && !file_error) throw HostError{"bad_request","half-frame pair JSON exceeds 1 MiB"};
+    if (!read_file(path,bytes,error)) throw HostError{"not_found",error};
+    if (bytes.size()>1024*1024 || !Json::parse(std::string(bytes.begin(),bytes.end()),doc,error) || !doc.is_object())
+        throw HostError{"bad_request","invalid half-frame pair JSON: "+error};
+    if(!doc.at("folder").is_string()) throw HostError{"bad_request","half-frame pair needs its folder"};
+    if (!doc.at("schemaVersion").is_null() && doc.at("schemaVersion").as_double()!=1)
+        throw HostError{"unsupported","unsupported half-frame pair schema"};
+    for(const char* k:{"onStrip","turned"}) if(!doc.at(k).is_null() && !doc.at(k).is_bool())
+        throw HostError{"bad_request",std::string("invalid pair boolean: ")+k};
+    if(params.has("overscan_active") && !params.at("overscan_active").is_bool()) throw HostError{"bad_request","overscan_active must be boolean"};
+    Decoded out;
+    out.pair=std::make_shared<PairDecoded>();
+    auto& p=*out.pair; p.document=doc;
+    p.strip=params.has("overscan_active")?params.at("overscan_active").as_bool():doc.at("onStrip").as_bool();
+    for (size_t i=0;i<2;++i) {
+        auto& s=p.sources[i]; s.settings=doc.at(i==0?"left":"right");
+        if(s.settings.is_null()) continue;
+        if(!s.settings.is_object() || !s.settings.at("path").is_string() || s.settings.at("path").as_string().empty()) throw HostError{"bad_request","a pair hole needs a source path"};
+        if(!s.settings.at("autoExposure").is_null() && !s.settings.at("autoExposure").is_bool()) throw HostError{"bad_request","pair autoExposure must be boolean"};
+        // Do not silently discard edits whose presentation stage is not ported.
+        if(!client_presentation && !probe_only && !thumbnail_edge && (!s.settings.at("print").is_null() || !s.settings.at("adjustments").is_null()))
+            throw HostError{"unsupported","per-hole print/Post-Dev edits are not available in the pair host yet"};
+        try {
+            s.geometry=spkhost::pair::geometry(s.settings.at("geometry"));
+            s.placement=spkhost::pair::placement(s.settings.at("placement"));
+            s.exposure=spkhost::pair::numeric(s.settings,"exposureEV",0);
+            if(std::abs(s.exposure)>32) throw std::runtime_error("pair exposure outside -32..32 stops");
+        } catch(const std::exception& e) { throw HostError{"bad_request",e.what()}; }
+        fs::path source=utf8_path(s.settings.at("path").as_string());
+        if(source.is_relative()) source=path.parent_path()/source;
+        s.path=source;
+        if(is_pair_path(source)) throw HostError{"bad_request","a pair hole must reference a photograph, not another pair"};
+        const auto& decode=s.settings.at("decode");
+        if(!decode.is_null() && !decode.is_object()) throw HostError{"bad_request","invalid pair source decode"};
+        if(decode.at("lensCorrection").as_bool()) throw HostError{"unsupported","pair source lens correction is unavailable in this host"};
+        DecodeOptions own;
+        const std::string wb=optional_string(decode,"whiteBalance","As Shot");
+        if(wb!="As Shot") {
+            const std::map<std::string,double> presets{{"Daylight",5500},{"Cloudy",6500},{"Shade",7500},{"Tungsten",3200},{"Fluorescent",4000},{"Custom",5500}};
+            const auto preset=presets.find(wb);
+            if(preset==presets.end()) throw HostError{"bad_request","unknown pair source white balance"};
+            double temperature=0,tint=0;
+            try { temperature=spkhost::pair::numeric(decode,"temperature",preset->second); tint=spkhost::pair::numeric(decode,"tint",0); }
+            catch(const std::exception& e) { throw HostError{"bad_request",e.what()}; }
+            if(temperature<2000 || temperature>50000 || tint<-150 || tint>150) throw HostError{"bad_request","pair source white balance out of range"};
+            own.temperature_k=temperature; own.tint=tint;
+        }
+        try {
+            if(probe_only) {
+                Probe probe; std::string why;
+                if(!probe_file(source,probe,why)) throw HostError{"decode_failed",why};
+                s.pixels.width=probe.width; s.pixels.height=probe.height; s.metadata=std::move(probe.metadata);
+            } else if(thumbnail_edge) {
+                Rgba8 image; std::string origin,why;
+                if(!thumbnail(source,std::min(8192u,thumbnail_edge*2),image,origin,why)) throw HostError{"decode_failed",why};
+                s.pixels.width=image.width; s.pixels.height=image.height; s.pixels.rgb.resize(size_t(image.width)*image.height*3);
+                for(size_t j=0;j<size_t(image.width)*image.height;++j) for(size_t c=0;c<3;++c) s.pixels.rgb[j*3+c]=image.rgba[j*4+c]/255.f;
+            } else {
+                s.decode_options=own;s.cache_source=pair_source_key(source,decode);
+                // A cached hole also knows the exact decoder-native size. It
+                // supplies layout without retaining a full demosaiced RAW.
+                if(!pair_bitmaps.source(s.cache_source,s)) {
+                    auto d=decode_single_frame(source,own);
+                    s.pixels=std::move(d.frame); s.metadata=std::move(d.probe.metadata);
+                }
+            }
+        } catch(const HostError& e) {
+            if(e.code=="unsupported") throw;
+            s.error=e.message; // missing/corrupt photograph is unexposed film
+        }
+    }
+    try {
+        const double spacing=p.strip?1.:std::clamp(spkhost::pair::numeric(doc,"spacingMM",1),.5,2.);
+        p.layout=spkhost::pair::layout(p.sources,spacing,doc.at("turned").as_bool());
+        if(thumbnail_edge && std::max(p.layout.size.w,p.layout.size.h)>thumbnail_edge) {
+            const double k=double(thumbnail_edge)/std::max(p.layout.size.w,p.layout.size.h);
+            const uint32_t across=uint32_t(std::floor((p.layout.turned?p.layout.hole.w:p.layout.hole.h)*k));
+            p.layout=spkhost::pair::make_layout(across,spacing,p.layout.turned);
+        }
+        // Pin both available hits before a miss is inserted: a large hole
+        // must not evict the other hole just before we ask for that picture.
+        if(!probe_only&&!thumbnail_edge) for(auto& s:p.sources) if(s.pixels.width) {
+            if(pair_bitmaps.get(pair_bitmap_key(s,p.layout),s.hole)){s.bitmap_reused=true;s.pixels={};}
+        }
+        if(!probe_only) for(auto& s:p.sources) {
+            if(!s.pixels.width)continue;
+            if(thumbnail_edge){spkhost::pair::sample_hole(s,p.layout);continue;}
+            const auto key=pair_bitmap_key(s,p.layout);
+            if(s.pixels.rgb.empty()) {
+                try {
+                    auto d=decode_single_frame(s.path,s.decode_options);
+                    s.pixels=std::move(d.frame);s.metadata=std::move(d.probe.metadata);
+                } catch(const HostError& e) {
+                    if(e.code=="unsupported")throw;
+                    s.error=e.message;s.pixels={};continue;
+                }
+            }
+            const spkhost::pair::Size native{s.pixels.width,s.pixels.height};
+            spkhost::pair::sample_hole(s,p.layout);
+            try {pair_bitmaps.keep(s.cache_source,key,native,s.metadata,s.hole);}
+            catch(const std::bad_alloc&) {/* Cache allocation is optional; the sampled hole is valid. */}
+        }
+    } catch(const std::exception& e) { throw HostError{"bad_request",e.what()}; }
+    for(const auto& s:p.sources) if(s.present()) { out.probe.metadata=s.metadata; break; }
+    out.probe.metadata.orientation=1;
+    out.probe.width=p.layout.size.w; out.probe.height=p.layout.size.h;
+    out.decode_ms=ms_since(started);
+    return out;
 }
 
 spk_session* engine_open(const FloatImage& frame, const std::string& delta, Json& opened, double& open_ms) {
@@ -482,12 +701,126 @@ spk_session* engine_open(const FloatImage& frame, const std::string& delta, Json
     return handle;
 }
 
+Json pair_info(const PairDecoded& p) {
+    Json info=Json::object(), sources=Json::array(), rects=Json::array();
+    bool complete=true;
+    for(size_t i=0;i<2;++i) {
+        const auto& s=p.sources[i]; Json shot=Json::object();
+        shot.set("path",s.settings.at("path")); shot.set("present",Json(s.present()));
+        shot.set("metadata",metadata_json(s.metadata)); shot.set("decode_error",str(s.error));
+        shot.set("exposure_ev",number(s.exposure)); shot.set("metered_ev",number(s.metered));
+        if(!s.metered_for.empty()) shot.set("metered_for",str(s.metered_for));
+        shot.set("meter_reused",Json(s.meter_reused));
+        shot.set("bitmap_reused",Json(s.bitmap_reused));
+        sources.push(std::move(shot)); complete=complete&&s.present();
+        const auto r=p.layout.rect(i); Json rect=Json::array();
+        for(double v:{r.x/p.layout.size.w,r.y/p.layout.size.h,r.w/p.layout.size.w,r.h/p.layout.size.h}) rect.push(number(v));
+        rects.push(std::move(rect));
+    }
+    info.set("complete",Json(complete)); info.set("can_export",Json(complete));
+    info.set("turned",Json(p.layout.turned)); info.set("on_strip",Json(p.strip));
+    info.set("sources",std::move(sources)); info.set("rects",std::move(rects));
+    return info;
+}
+
+Json probe_pair(const fs::path& path) {
+    auto d=decode_frame(path,DecodeOptions{},Json(),true);
+    Json r=Json::object(); r.set("kind",str("pair"));
+    r.set("width",number(d.probe.width)); r.set("height",number(d.probe.height));
+    r.set("metadata",metadata_json(d.probe.metadata)); r.set("pair",pair_info(*d.pair));
+    return r;
+}
+
+Json thumbnail_pair(const fs::path& path,uint32_t edge,std::vector<uint8_t>& payload) {
+    // Camera/embedded previews, framed like the linear decode. Never a film
+    // simulation or a predeveloped image standing in for the engine input.
+    edge=std::min(edge,4096u);
+    auto d=decode_frame(path,DecodeOptions{},Json(),false,edge);
+    auto image=spkhost::pair::compose(d.pair->sources,d.pair->layout,false);
+    uint32_t w=image.width,h=image.height;
+    if(std::max(w,h)>edge) {
+        const double k=double(edge)/std::max(w,h);
+        const uint32_t nw=std::max(1u,uint32_t(std::lround(w*k))),nh=std::max(1u,uint32_t(std::lround(h*k)));
+        std::vector<float> small; resize_area(image.rgb.data(),w,h,3,nw,nh,small);
+        image.rgb=std::move(small); w=nw; h=nh;
+    }
+    payload.resize(size_t(w)*h*4);
+    for(size_t i=0;i<size_t(w)*h;++i) {
+        for(size_t c=0;c<3;++c) payload[i*4+c]=uint8_t(std::lround(std::clamp(image.rgb[i*3+c],0.f,1.f)*255));
+        payload[i*4+3]=255;
+    }
+    Json info=Json::object(); info.set("width",number(w)); info.set("height",number(h));
+    info.set("row_bytes",number(double(w)*4)); info.set("format",str("rgba8")); info.set("color_space",str("sRGB"));
+    Json r=Json::object(); r.set("image",std::move(info)); r.set("source",str("pair-source-preview"));
+    r.set("orientation_applied",Json(true)); return r;
+}
+
+// As on the Mac: intent, owner crop and decode identify a reading. Moving,
+// zooming, turning the piece, exposure trims and print edits must not pump it.
+// Add a version/file fingerprint so stale files or foreign decoder readings
+// are never silently reused. The frontend persists these opaque keys in the
+// recipe; the host remains a read-only consumer of user files.
+std::string pair_meter_key(const spkhost::pair::Source& s,const Json& params) {
+    std::error_code ec;
+    const auto path=fs::weakly_canonical(s.path,ec); if(ec)return {};
+    const auto size=fs::file_size(path,ec); if(ec)return {};
+    const auto stamp=fs::last_write_time(path,ec); if(ec)return {};
+    Json key=Json::object();
+    key.set("source",str(path_utf8(path)));key.set("size",str(std::to_string(size)));
+    key.set("stamp",str(std::to_string(stamp.time_since_epoch().count())));
+    key.set("decode",s.settings.at("decode"));
+    key.set("method",str(optional_string(s.settings,"meterMethod",optional_string(params,"auto_exposure_method","center_weighted"))));
+    Json crop=Json::array();for(double v:{s.geometry.crop.x,s.geometry.crop.y,s.geometry.crop.w,s.geometry.crop.h})crop.push(number(v));
+    key.set("crop",std::move(crop));key.set("turns",number(s.geometry.turns));
+    return "windows-pair-meter-v1:"+key.dump();
+}
+
+void prepare_pair(Decoded& d,Json& params) {
+    if(!d.pair) return;
+    auto& p=*d.pair;
+    params.set("auto_exposure",Json(false));
+    params.set("overscan_pair",Json(true)); params.set("overscan_format",str("135_half"));
+    params.set("overscan_active",Json(p.strip));
+    if(!params.has("film_format_mm")) params.set("film_format_mm",number(36+(p.strip?1.:std::clamp(spkhost::pair::numeric(p.document,"spacingMM",1),.5,2.))));
+    params.set("scene_latitude_split",number(.5));
+    for(auto& s:p.sources) if(s.present() && s.settings.at("autoExposure").as_bool(true)) {
+        s.metered_for=pair_meter_key(s,params);
+        const auto& kept=s.settings.at("meteredEV");
+        if(!s.metered_for.empty() && s.settings.at("meteredFor").is_string() && s.settings.at("meteredFor").as_string()==s.metered_for &&
+           kept.is_number() && std::isfinite(kept.as_double()) && std::abs(kept.as_double())<=64) {
+            s.metered=kept.as_double();s.meter_reused=true;continue;
+        }
+        Json meter=params;
+        meter.set("auto_exposure",Json(true)); meter.set("exposure_compensation_ev",number(0));
+        meter.set("overscan_active",Json(false)); meter.set("overscan_pair",Json(false));
+        meter.set("date_imprint_active",Json(false)); meter.set("scene_latitude_split",number(0));
+        meter.set("film_format_mm",number(24));
+        if(s.settings.at("meterMethod").is_string()) meter.set("auto_exposure_method",s.settings.at("meterMethod"));
+        for(const char* k:{"geometry_crop_x","geometry_crop_y","geometry_rotation_deg","geometry_quarter_turns"}) meter.set(k,number(0));
+        for(const char* k:{"geometry_crop_w","geometry_crop_h"}) meter.set(k,number(1));
+        meter.set("geometry_flip_h",Json(false)); meter.set("geometry_flip_v",Json(false));
+        Json opened; double ms=0;
+        spk_session* alone=engine_open(s.hole,meter.dump(),opened,ms);
+        char* solved=nullptr;
+        const auto st=spk_solve(alone,"exposure",&solved);
+        spk_session_release(alone);
+        if(st!=SPK_OK) { if(solved) spk_string_free(solved); engine_fail(st,"pair source meter"); }
+        const auto result=take_json(solved);
+        const auto& ev=result.at("solved_params").at("exposure_compensation_ev");
+        if(!ev.is_number() || !std::isfinite(ev.as_double())) throw HostError{"engine_error","pair source meter returned no finite exposure"};
+        s.metered=ev.as_double();
+    }
+    try { d.frame=spkhost::pair::compose(p.sources,p.layout); }
+    catch(const std::exception& e) { throw HostError{"bad_request",e.what()}; }
+}
+
 Json open_reply(const Session& s, const Decoded& d, const Json& opened, double open_ms) {
     Json r = Json::object();
     r.set("session", str(s.id));
     r.set("width", number(d.frame.width));
     r.set("height", number(d.frame.height));
-    r.set("kind", str(kind_name(d.probe.kind)));
+    r.set("kind", str(d.pair?"pair":kind_name(d.probe.kind)));
+    if(d.pair) r.set("pair",pair_info(*d.pair));
     r.set("metadata", metadata_json(d.probe.metadata));
     r.set("params", opened.at("params"));
     r.set("detected_input", opened.at("detected_input"));
@@ -503,9 +836,15 @@ Json m_open(const Request& q) {
     need_engine();
     const fs::path path = utf8_path(require_string(q.params, "path"));
     const DecodeOptions options = decode_options(q.params.at("decode"));
-    Decoded d = decode_frame(path, options);
+    Json params=q.params.at("params");
+    if(params.is_null()) params=Json::object();
+    if(!params.is_object()) throw HostError{"bad_request","open.params must be an object"};
+    const bool presentation=q.params.at("pair_presentation").as_string()=="client";
+    if(!q.params.at("pair_presentation").is_null()&&!presentation) throw HostError{"bad_request","pair_presentation must be client"};
+    Decoded d = decode_frame(path, options,params,false,0,presentation);
+    prepare_pair(d,params);
     std::string delta;
-    const Json& params = q.params.at("params");
+    check_cineon_request(params);
     if (params.is_object()) delta = params.dump();
     Json opened;
     double open_ms = 0;
@@ -517,7 +856,10 @@ Json m_open(const Request& q) {
     s->width = d.frame.width;
     s->height = d.frame.height;
     s->metadata = d.probe.metadata;
-    s->output_space = output_space_of(opened.at("params"));
+    s->pair_client_presentation=d.pair&&presentation;
+    if(d.pair) s->pair_info=pair_info(*d.pair);
+    try { remember_params(*s, opened.at("params")); }
+    catch (...) { spk_session_release(handle); s->handle = nullptr; throw; }
     {
         std::lock_guard<std::mutex> lock(g.sessions_mutex);
         s->id = "s" + std::to_string(g.next_session++);
@@ -526,6 +868,11 @@ Json m_open(const Request& q) {
     log_line(1, "open " + s->id + " " + s->path + " " + std::to_string(d.frame.width) + "x" +
                     std::to_string(d.frame.height) + " decode " + std::to_string(int(d.decode_ms)) + " ms, open " +
                     std::to_string(int(open_ms)) + " ms");
+    if(d.pair) {
+        unsigned bitmaps=0,meters=0,present=0;
+        for(const auto& hole:d.pair->sources){present+=hole.present();bitmaps+=hole.bitmap_reused;meters+=hole.meter_reused;}
+        log_line(1,"pair sources: present="+std::to_string(present)+", bitmap_hits="+std::to_string(bitmaps)+", saved_meter_hits="+std::to_string(meters));
+    }
     return open_reply(*s, d, opened, open_ms);
 }
 
@@ -535,14 +882,17 @@ Json m_open(const Request& q) {
 Json m_redecode(const Request& q) {
     auto s = find_session(q.params);
     const DecodeOptions options = decode_options(q.params.at("decode"));
-    Decoded d = decode_frame(utf8_path(s->path), options);
     char* current = nullptr;
     const spk_status st = spk_get_params(s->handle, &current);
     if (st != SPK_OK) engine_fail(st, "get_params");
     Json params = take_json(current);
+    Decoded d = decode_frame(utf8_path(s->path), options,params,false,0,s->pair_client_presentation);
+    prepare_pair(d,params);
     Json opened;
     double open_ms = 0;
     spk_session* handle = engine_open(d.frame, params.dump(), opened, open_ms);
+    try { remember_params(*s, opened.at("params")); }
+    catch (...) { spk_session_release(handle); throw; }
     spk_session* old = nullptr;
     {
         std::lock_guard<std::mutex> lock(g.sessions_mutex);
@@ -553,7 +903,7 @@ Json m_redecode(const Request& q) {
     s->width = d.frame.width;
     s->height = d.frame.height;
     s->metadata = d.probe.metadata;
-    s->output_space = output_space_of(opened.at("params"));
+    s->pair_info=d.pair?pair_info(*d.pair):Json();
     return open_reply(*s, d, opened, open_ms);
 }
 
@@ -576,11 +926,34 @@ Json m_set_params(const Request& q) {
     auto s = find_session(q.params);
     const Json& delta = q.params.at("delta");
     if (!delta.is_object()) throw HostError{"bad_request", "delta must be an object"};
+    Json candidate = s->params;
+    for (const auto& field : delta.fields()) candidate.set(field.first, field.second);
+    check_cineon_request(candidate);
+    if(!s->pair_info.is_null()) {
+        if(candidate.at("auto_exposure").as_bool() || !candidate.at("overscan_pair").as_bool() || candidate.at("overscan_format").as_string()!="135_half")
+            throw HostError{"bad_request","a half-frame pair keeps two holes and meters each hole independently"};
+        // Changing the strip/gap or meter changes the scene-linear decode;
+        // commit the replacement only after both decode and engine open succeed.
+        bool rebuild=false;
+        for(const char* k:{"overscan_active","auto_exposure_method","film_stock"})
+            if(candidate.at(k).dump()!=s->params.at(k).dump()) rebuild=true;
+        if(rebuild) {
+            auto d=decode_frame(utf8_path(s->path),DecodeOptions{},candidate,false,0,s->pair_client_presentation);
+            prepare_pair(d,candidate);
+            Json opened; double ms=0;
+            spk_session* next=engine_open(d.frame,candidate.dump(),opened,ms);
+            try { remember_params(*s,opened.at("params")); }
+            catch(...) {spk_session_release(next); throw;}
+            auto old=s->handle; s->handle=next; spk_session_release(old);
+            s->width=d.frame.width; s->height=d.frame.height; s->metadata=d.probe.metadata; s->pair_info=pair_info(*d.pair);
+            Json r=Json::object(); r.set("params",opened.at("params")); r.set("pair",s->pair_info); return r;
+        }
+    }
     char* reply = nullptr;
     const spk_status st = spk_set_params(s->handle, delta.dump().c_str(), &reply);
     if (st != SPK_OK) { if (reply) spk_string_free(reply); engine_fail(st, "set_params"); }
     Json out = take_json(reply);
-    s->output_space = output_space_of(out.at("params"));
+    remember_params(*s, out.at("params"));
     Json r = Json::object();
     r.set("params", out.at("params"));
     if (out.has("invalidated")) r.set("invalidated", out.at("invalidated"));
@@ -600,10 +973,16 @@ Json m_get_params(const Request& q) {
 Json m_solve(const Request& q) {
     auto s = find_session(q.params);
     const std::string target = optional_string(q.params, "target", "both");
+    if(!s->pair_info.is_null() && target!="filter_pack") throw HostError{"bad_request","pair exposure is metered per hole; solve only filter_pack on the assembled strip"};
     char* reply = nullptr;
     const spk_status st = spk_solve(s->handle, target.c_str(), &reply);
     if (st != SPK_OK) engine_fail(st, "solve");
-    return take_json(reply);
+    Json solved=take_json(reply);
+    char* current=nullptr;
+    const auto read=spk_get_params(s->handle,&current);
+    if(read!=SPK_OK) { if(current) spk_string_free(current); engine_fail(read,"get solved params"); }
+    remember_params(*s,take_json(current));
+    return solved;
 }
 
 std::string tier_of(const Json& params, const char* fallback) {
@@ -637,7 +1016,7 @@ Json m_render(const Request& q, std::vector<uint8_t>& payload) {
     progress_event(*s, progress_id, 0.9, "transform");
     const auto t1 = Clock::now();
     Json image;
-    package_pixels(result.r, s->output_space, q.params, image, payload);
+    package_pixels(result.r, s->output_space, q.params, image, payload, s->cineon);
     Json r = Json::object();
     r.set("image", std::move(image));
     r.set("tier", str(tier));
@@ -651,6 +1030,34 @@ Json m_render(const Request& q, std::vector<uint8_t>& payload) {
     r.set("timings_ms", std::move(timings));
     progress_event(*s, progress_id, 1.0, "done");
     return r;
+}
+
+// One worker owns the complete override/reprint/restore transaction. A layer
+// never leaves the session (or the next queued request) with its print selected.
+Json m_render_layer(const Request& q,std::vector<uint8_t>& payload) {
+    auto s=find_session(q.params);
+    if(s->pair_info.is_null()||!s->pair_client_presentation) throw HostError{"bad_request","render_layer needs a client-presented pair session"};
+    const Json& delta=q.params.at("delta");
+    if(!delta.is_object()||delta.fields().empty()) throw HostError{"bad_request","a print layer needs its delta"};
+    const std::set<std::string> fields{"print_exposure","y_filter_shift","m_filter_shift","preflash_exposure"};
+    Json restore=Json::object();
+    for(const auto& f:delta.fields()) {
+        if(!fields.count(f.first)||!f.second.is_number()||!std::isfinite(f.second.as_double())) throw HostError{"bad_request","render_layer accepts only finite enlarger print fields"};
+        restore.set(f.first,s->params.at(f.first));
+    }
+    Request change;change.params=Json::object();change.params.set("session",str(s->id));change.params.set("delta",delta);
+    Request reset=change;reset.params.set("delta",restore);
+    try {
+        m_set_params(change);
+        Request render=q;render.params.set("reprint",Json(true));
+        Json result=m_render(render,payload);
+        m_set_params(reset);
+        return result;
+    } catch(...) {
+        // Restore even if the pixel format/transform/render itself failed.
+        m_set_params(reset);
+        throw;
+    }
 }
 
 Json m_scene_latitude(const Request& q) {
@@ -669,6 +1076,10 @@ Json m_overscan_geometry(const Request& q) {
     const spk_status st = spk_overscan_geometry(s->handle, &reply);
     if (st != SPK_OK) engine_fail(st, "overscan_geometry");
     return take_json(reply);
+}
+
+Json m_pair_info(const Request& q) {
+    return find_session(q.params)->pair_info;
 }
 
 std::string lut_output_space(const std::string& stock) {
@@ -766,6 +1177,8 @@ Json written(const fs::path& path, uint32_t w, uint32_t h, size_t bytes, const s
 
 Json m_export_image(const Request& q) {
     auto s = find_session(q.params);
+    if(s->pair_client_presentation) throw HostError{"unsupported","this pair requires client print/grade composition; export through write_image"};
+    if(!s->pair_info.is_null() && !s->pair_info.at("can_export").as_bool()) throw HostError{"bad_request","a pair with an empty or missing hole cannot be exported"};
     const fs::path path = utf8_path(require_string(q.params, "path"));
     const std::string format = optional_string(q.params, "format", "tiff16");
     check_format(format);
@@ -786,7 +1199,14 @@ Json m_export_image(const Request& q) {
     const OutputTransform& t = transform(s->output_space, space);
     std::vector<float> lin;
     uint32_t w = result.r.width, h = result.r.height;
-    t.to_linear(result.r.rgba16, w, h, result.r.row_stride_px ? result.r.row_stride_px : w, lin);
+    std::vector<uint16_t> viewed;
+    const uint16_t* pixels = result.r.rgba16;
+    uint32_t stride = result.r.row_stride_px ? result.r.row_stride_px : w;
+    if (s->cineon) {
+        g.cineon_view.apply(pixels, w, h, stride, viewed);
+        pixels = viewed.data(); stride = w;
+    }
+    t.to_linear(pixels, w, h, stride, lin);
     shrink_to(lin, w, h, long_edge);
     std::vector<uint8_t> icc, bytes;
     std::string error;
@@ -819,10 +1239,17 @@ Json m_write_image(const Request& q) {
     std::optional<Exif> exif;
     const std::string source = optional_string(q.params, "source_path");
     if (!source.empty()) {
-        Probe probe;
-        std::string why;
-        if (probe_file(utf8_path(source), probe, why)) exif = exif_of(probe.metadata);
-        else log_line(1, "write_image: no EXIF from " + source + ": " + why);
+        if(is_pair_path(utf8_path(source))) {
+            auto s=find_session(q.params);
+            if(s->path!=source || s->pair_info.is_null() || !s->pair_info.at("can_export").as_bool())
+                throw HostError{"bad_request","pair write_image requires its complete open session"};
+            exif=exif_of(s->metadata);
+        } else {
+            Probe probe;
+            std::string why;
+            if (probe_file(utf8_path(source), probe, why)) exif = exif_of(probe.metadata);
+            else log_line(1, "write_image: no EXIF from " + source + ": " + why);
+        }
     }
     const Exif* ex = exif ? &*exif : nullptr;
     const size_t pixels = size_t(w) * h;
@@ -867,6 +1294,7 @@ Json m_export_cube(const Request& q) {
 
 Json m_export_di(const Request& q) {
     auto s = find_session(q.params);
+    if(!s->pair_info.is_null() && !s->pair_info.at("can_export").as_bool()) throw HostError{"bad_request","a pair with an empty or missing hole cannot be exported"};
     const fs::path path = utf8_path(require_string(q.params, "path"));
     const std::string stock = optional_string(q.params, "print_stock");
     Result result;
@@ -889,6 +1317,119 @@ Json m_export_di(const Request& q) {
     return r;
 }
 
+// A raw Cineon file is different from legacy export_di's normalised density.
+// The editor may supply its crop here because ordinary unframed geometry is
+// a presentation edit there. Restore the live session on every exit path.
+struct CineonParams {
+    spk_session* session;
+    Json restore = Json::object();
+    bool changed = false;
+    explicit CineonParams(spk_session* s) : session(s) {}
+    void apply(const Json& geometry) {
+        char* text = nullptr;
+        auto st = spk_get_params(session, &text);
+        if (st != SPK_OK) engine_fail(st, "Cineon get_params");
+        const Json current = take_json(text);
+        Json delta = Json::object();
+        if (!geometry.is_null() && !geometry.is_object()) throw HostError{"bad_request", "geometry must be an object"};
+        const std::set<std::string> allowed = {"geometry_crop_x", "geometry_crop_y", "geometry_crop_w", "geometry_crop_h",
+            "geometry_rotation_deg", "geometry_quarter_turns", "geometry_flip_h", "geometry_flip_v"};
+        for (const auto& field : geometry.fields()) {
+            if (!allowed.count(field.first)) throw HostError{"bad_request", "not a Cineon geometry field: " + field.first};
+            if (field.second.dump() == current.at(field.first).dump()) continue;
+            delta.set(field.first, field.second);
+            restore.set(field.first, current.at(field.first));
+        }
+        if (output_space_of(current) != "ProPhoto RGB") {
+            delta.set("output_color_space", str("ProPhoto RGB"));
+            restore.set("output_color_space", current.at("output_color_space"));
+        }
+        if (delta.fields().empty()) return;
+        st = spk_set_params(session, delta.dump().c_str(), nullptr);
+        if (st != SPK_OK) engine_fail(st, "Cineon geometry");
+        changed = true;
+    }
+    void finish() {
+        if (!changed) return;
+        const auto st = spk_set_params(session, restore.dump().c_str(), nullptr);
+        if (st != SPK_OK) engine_fail(st, "restore after Cineon export");
+        changed = false;
+    }
+    ~CineonParams() {
+        if (changed && spk_set_params(session, restore.dump().c_str(), nullptr) != SPK_OK)
+            log_line(0, "could not restore session after failed Cineon export");
+    }
+};
+
+Json m_export_cineon(const Request& q) {
+    auto s = find_session(q.params);
+    if(!s->pair_info.is_null() && !s->pair_info.at("can_export").as_bool()) throw HostError{"bad_request","a pair with an empty or missing hole cannot be exported"};
+    if (!g.cineon_view.ready()) throw HostError{"unsupported", "Cineon DI view resources: " + g.cineon_error};
+    const fs::path path = utf8_path(require_string(q.params, "path"));
+    const bool overwrite = q.params.at("overwrite").as_bool(false);
+    std::error_code ec;
+    if (!overwrite && fs::exists(path, ec)) throw HostError{"io_error", "destination exists: " + path_utf8(path)};
+    const std::string progress_id = optional_string(q.params, "progress_id");
+    Running running(s->id, progress_id);
+    progress_event(*s, progress_id, 0, "render Cineon");
+    CineonParams temporary(s->handle);
+    temporary.apply(q.params.at("geometry"));
+    Result result;
+    char* reply = nullptr;
+    const auto st = spk_render_digital_intermediate(s->handle, &result.r, &reply);
+    if (st != SPK_OK) { if (reply) spk_string_free(reply); engine_fail(st, "render Cineon"); }
+    Json info = take_json(reply);
+    temporary.finish();
+    const uint32_t w = result.r.width, h = result.r.height;
+    const uint32_t stride = result.r.row_stride_px ? result.r.row_stride_px : w;
+    std::vector<uint16_t> rgb(size_t(w) * h * 3);
+    for (uint32_t y = 0; y < h; ++y)
+        for (uint32_t x = 0; x < w; ++x)
+            for (int c = 0; c < 3; ++c) rgb[(size_t(y) * w + x) * 3 + c] = result.r.rgba16[(size_t(y) * stride + x) * 4 + c];
+    std::string error;
+    Json luts = Json::array();
+    for (const char* name : CineonView::names) {
+        std::vector<uint8_t> bytes, existing;
+        if (!read_file(g.resources / "di" / name, bytes, error)) throw HostError{"io_error", error};
+        const auto target = path.parent_path() / name;
+        if (fs::exists(target, ec)) {
+            if (!read_file(target, existing, error)) throw HostError{"io_error", error};
+            if (existing != bytes) throw HostError{"io_error", "an existing DI view LUT differs from the bundled original: " + path_utf8(target)};
+        } else if (!write_file_atomic(target, bytes, false, error)) throw HostError{"io_error", error};
+        luts.push(str(path_utf8(target)));
+    }
+    std::vector<uint8_t> bytes;
+    Exif exif = exif_of(s->metadata);
+    exif.uncalibrated = true;
+    TiffPreview preview;
+    preview.width = w; preview.height = h;
+    {
+        // Mac always supplies a second, viewed 8-bit page for log files.
+        // This is the same LUT as render, with no finished Post-Dev grade.
+        std::vector<uint16_t> viewed;
+        g.cineon_view.apply(result.r.rgba16, w, h, stride, viewed);
+        const auto& t = transform("ProPhoto RGB", "ProPhoto RGB");
+        std::vector<float> lin;
+        t.to_linear(viewed.data(), w, h, w, lin);
+        viewed.clear(); viewed.shrink_to_fit();
+        shrink_to(lin, preview.width, preview.height, 2048);
+        std::vector<uint8_t> rgba;
+        t.encode_rgba8(lin, rgba);
+        preview.rgb.resize(size_t(preview.width) * preview.height * 3);
+        for (size_t i = 0; i < preview.rgb.size() / 3; ++i)
+            for (int c = 0; c < 3; ++c) preview.rgb[i * 3 + c] = rgba[i * 4 + c];
+        if (!icc_for("ProPhoto RGB", g.resources, preview.icc, error)) throw HostError{"io_error", error};
+    }
+    // Codes, not ordinary encoded RGB: only the viewed preview has an ICC.
+    if (!encode_tiff(rgb.data(), w, h, 16, {}, bytes, error, &exif, &preview)) throw HostError{"io_error", error};
+    if (!write_file_atomic(path, bytes, overwrite, error)) throw HostError{"io_error", error};
+    Json r = written(path, w, h, bytes.size(), "");
+    r.set("di", std::move(info));
+    r.set("view_luts", std::move(luts));
+    progress_event(*s, progress_id, 1, "done");
+    return r;
+}
+
 void dispatch(const Request& q) {
     std::vector<uint8_t> payload;
     Json result;
@@ -908,12 +1449,15 @@ void dispatch(const Request& q) {
     else if (m == "render") result = m_render(q, payload);
     else if (m == "scene_latitude") result = m_scene_latitude(q);
     else if (m == "overscan_geometry") result = m_overscan_geometry(q);
+    else if (m == "render_layer") result = m_render_layer(q,payload);
+    else if (m == "pair_info") result = m_pair_info(q);
     else if (m == "preview_stock_lut") result = m_preview_stock_lut(q, payload);
     else if (m == "progress") result = m_progress(q);
     else if (m == "export_image") result = m_export_image(q);
     else if (m == "write_image") result = m_write_image(q);
     else if (m == "export_cube") result = m_export_cube(q);
     else if (m == "export_di") result = m_export_di(q);
+    else if (m == "export_cineon") result = m_export_cineon(q);
     else throw HostError{"unsupported", "unknown method '" + m + "'"};
     respond_ok(q.id, std::move(result), payload.data(), payload.size());
 }
@@ -1053,6 +1597,8 @@ int main(int argc, char** argv) {
     // Default: beside the executable, as build/host-<os>-x64/ stages it.
     if (resources.empty()) resources = path_utf8(executable_dir(argv[0]) / "engine");
     g.resources = utf8_path(resources);
+    if (!g.cineon_view.load(g.resources, g.cineon_error))
+        log_line(0, "Cineon DI view unavailable: " + g.cineon_error);
     const auto t0 = Clock::now();
     g.engine = spk_engine_create(resources.c_str(), nullptr);
     if (!g.engine) {

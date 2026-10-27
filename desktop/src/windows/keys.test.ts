@@ -1,6 +1,6 @@
 // Trap 32: a single-key shortcut must not fire from inside a text field.
 import { describe, expect, it } from 'vitest';
-import { chord, isTypingKey } from './keys';
+import { chord, isTypingKey,nativeMenuOwnsKey } from './keys';
 
 const field = { tagName: 'INPUT', type: 'text', isContentEditable: false } as unknown as EventTarget;
 const checkbox = { tagName: 'INPUT', type: 'checkbox', isContentEditable: false } as unknown as EventTarget;
@@ -30,5 +30,17 @@ describe('typing-key guard', () => {
     expect(chord(k('ArrowLeft', div))).toBe('arrowleft');
     expect(chord(k('C', div, { ctrlKey: true, shiftKey: true }))).toBe('ctrl+shift+c');
     expect(chord(k('[', div, { ctrlKey: true, altKey: true }))).toBe('ctrl+alt+[');
+  });
+  it('uses the physical letter when an IME owns a non-editable canvas key',()=>{
+    expect(chord({...k('Process',div),code:'KeyC'})).toBe('c');
+    expect(chord({...k('Unidentified',div),code:'KeyV'})).toBe('v');
+    expect(isTypingKey({...k('Process',field),code:'KeyC'})).toBe(true);
+    expect(chord({...k('Process',field),code:'KeyC'})).toBe('process');
+  });
+  it('handles Windows WebView keydowns even when the native menu advertises that chord',()=>{
+    const owns=new Set(['ctrl+e','ctrl+z']);
+    expect(nativeMenuOwnsKey(k('e',div,{ctrlKey:true}),owns,'Windows NT 10.0')).toBe(false);
+    expect(nativeMenuOwnsKey(k('z',div,{ctrlKey:true}),owns,'Windows NT 10.0')).toBe(false);
+    expect(nativeMenuOwnsKey(k('e',div,{ctrlKey:true}),owns,'X11; Linux x86_64')).toBe(true);
   });
 });

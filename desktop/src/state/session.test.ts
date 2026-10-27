@@ -30,7 +30,7 @@ vi.mock('../platform', () => ({
   dirName: (p: string) => p,
 }));
 
-import { recomputeFilmFormat, sessionStore, setDecode, setGeometry, setParams, undo } from './session';
+import { recomputeFilmFormat, sessionStore, setDecode, setGeometry, setParams, setAdjustments, beginGesture, undo } from './session';
 import type { HelloResult } from '@shared/protocol';
 import { settingsStore } from './settings';
 import { newSidecar } from '@shared/sidecar';
@@ -103,4 +103,17 @@ describe('white balance at decode (R2)', () => {
     await vi.waitFor(() => expect(calls).toContain('render:live'));
     expect(calls.some((c) => c.startsWith('redecode'))).toBe(false);
   });
+});
+
+it('holds the exported frame against adjustment, geometry and gesture entry points during a batch', () => {
+  sessionStore.setState({ batchExporting: true });
+  const original = sessionStore.getState().sidecar;
+  setAdjustments((a) => ({ ...a, exposure: 2 }));
+  setGeometry((g) => ({ ...g, quarterTurns: 1 }));
+  setDecode((d) => ({ ...d, temperature: 3200 }));
+  setParams((p) => ({ ...p, exposureCompensationEV: 2 }));
+  beginGesture();
+  expect(sessionStore.getState().sidecar).toBe(original);
+  expect(sessionStore.getState().undo).toHaveLength(0);
+  expect(calls).toHaveLength(0);
 });

@@ -124,6 +124,10 @@ export interface FileMetadata {
   shutter_s?: number;
   aperture?: number;
   focal_mm?: number;
+  /** Actual EXIF values; never inferred from the development sliders. */
+  focal_35mm?: number;
+  exposure_program?: number;
+  exposure_bias_ev?: number;
   datetime_original?: string;
   orientation?: number;
   /** The camera's white balance (R2): RAW only. */
@@ -131,11 +135,15 @@ export interface FileMetadata {
 }
 
 export interface ProbeResult {
-  kind: 'raw' | 'tiff' | 'jpeg' | 'png';
+  kind: 'raw' | 'tiff' | 'jpeg' | 'png' | 'pair';
   width: number;
   height: number;
   metadata: FileMetadata;
+  pair?: PairInfo;
 }
+
+export interface PairInfo {complete:boolean;can_export:boolean;turned:boolean;on_strip:boolean;
+  rects:number[][]; sources:{path:string;present:boolean;metadata:FileMetadata;decode_error:string;exposure_ev:number;metered_ev:number;metered_for?:string;meter_reused?:boolean;bitmap_reused?:boolean}[]}
 
 export type WireValue = number | boolean | string;
 export type WireParams = Record<string, WireValue>;
@@ -148,6 +156,7 @@ export interface OpenResult {
   kind?: string;
   metadata: FileMetadata;
   params: WireParams;
+  pair?: PairInfo;
   timings_ms?: { decode?: number; open?: number };
 }
 

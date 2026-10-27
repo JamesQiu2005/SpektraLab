@@ -85,10 +85,10 @@ working space the pixels pass through (the engine already compressed into it).
 ### Files
 | method | params | result |
 |---|---|---|
-| `probe` | `{path}` | `{kind: "raw"\|"tiff"\|"jpeg"\|"png", width, height, metadata}` (no full decode) |
-| `thumbnail` | `{path, long_edge}` | `{image, source: "embedded"\|"half-size decode"\|"decode", orientation_applied: true}` + rgba8 sRGB payload, **already turned to the camera's orientation** (embedded RAW preview when present, else a fast decode) |
+| `probe` | `{path}` | `{kind: "raw"\|"tiff"\|"jpeg"\|"png"\|"pair", width, height, metadata, pair?}` (no full decode) |
+| `thumbnail` | `{path, long_edge}` | `{image, source: "embedded"\|"half-size decode"\|"decode"\|"pair-source-preview", orientation_applied: true}` + rgba8 sRGB payload, **already turned to the camera's orientation** (embedded RAW preview when present, else a fast decode) |
 
-`metadata`: `{make?, model?, lens?, iso?, shutter_s?, aperture?, focal_mm?, datetime_original?, orientation, as_shot?: {temperature_k, tint}}` — feeds the date back and the info readouts. `datetime_original` is ISO-8601 local time without a zone (`2026-09-14T17:03:22`), from EXIF `DateTimeOriginal`. `orientation` is the EXIF value (1–8) of the file as stored; `probe`'s `width`/`height` are **as displayed** (orientation applied), and so is every frame the host hands the engine.
+`metadata`: `{make?, model?, lens?, iso?, shutter_s?, aperture?, focal_mm?, focal_35mm?, exposure_program?, exposure_bias_ev?, datetime_original?, orientation, as_shot?: {temperature_k, tint}}` — feeds the date back and the info readouts. `datetime_original` is ISO-8601 local time without a zone (`2026-09-14T17:03:22`), from EXIF `DateTimeOriginal`. `orientation` is the EXIF value (1–8) of the file as stored; `probe`'s `width`/`height` are **as displayed** (orientation applied), and so is every frame the host hands the engine.
 
 White balance at decode (R2): `temperature_k` 2000–50000 and `tint` −150…150
 in the Adobe DNG SDK's definition (Robertson isotherms; tint = −3000 × the
@@ -117,6 +117,100 @@ What a file is decoded *to* (the engine develops linear ProPhoto RGB, top row fi
 | `cancel` | `{session, progress_id}` | `{was_running}` — handled on the reader thread: the request carrying that `progress_id` is cancelled if running (`spk_cancel`) or refused with `cancelled` when it reaches the worker |
 | `progress` | `{session, engine_progress_id?}` | `<spk_progress JSON>` of the session's last render (queued behind the worker, so it reports a finished render, not one in flight; live progress is the `progress` event) |
 
+#### Half-frame pair decoder and desktop recipes (native click acceptance pending)
+
+`capabilities.backend.pair_decode: true` identifies the host extension. The
+existing `open`/`probe`/`thumbnail` accept schema1 `.spektrapair` files from the
+Mac `HalfFramePair` model. A pair references two photographs; it never rewrites
+them. Each hole's decode, geometry, placement and exposure are applied to
+scene-linear pixels before the ordinary spectral engine. The gap and a missing
+hole are zero radiance (unexposed film), not painted black after development.
+Strip spacing is1mm; bare spacing is clamped to0.5–2mm. Geometry/layout follow
+`PairComposer.swift` including the source-resolution cap; composition is bounded
+to1GiB of float RGB. Pair JSON is bounded to1MiB; nested pairs are refused.
+The default piece has a37mm long edge (two18mm holes plus1mm gap), while
+Film Format in the desktop describes one24×18mm hole, as on the Mac. The
+desktop derives the whole-piece `film_format_mm` from that hole's chosen side
+and length and the effective gap. The host also defaults a bare recipe to
+`36 + gap` rather than24mm. Active Film Edge already fixes its physical gate
+size in the original engine; that path's existing sizing is unchanged.
+
+`open` and `redecode` return `kind: "pair"` and an additional `pair` object:
+`{complete, can_export, turned, on_strip, rects: [[x,y,w,h],...], sources:
+[{path,present,metadata,decode_error,exposure_ev,metered_ev,metered_for?,meter_reused,bitmap_reused},...]}`. Rectangles
+are normalised, top-left, in the decoded piece before its film edge. `probe`
+returns the layout from source metadata without full decodes or metering;
+its `metered_ev` values are therefore zero. `thumbnail` frames the actual
+camera/source previews with the same geometry; it is not a developed print.
+
+`pair_info {session}` returns that session's latest pair object (or null for a
+single photograph), including changes caused by stock/strip/meter rebuilds.
+The desktop saves recipes atomically under its isolated `Pairs` store and
+lists them with their recorded source folder. Ctrl+J / the filmstrip Pair
+button creates a recipe from up to two picked photographs. Source sidecars
+are read for initial crop/RAW white balance and are not rewritten by pair edits.
+Left/right selection, replacement/clear/swap, framing, exposure/metering,
+gap/turn and RAW white balance are wired; per-hole Scene Placement uses the
+existing `scene_latitude.request.region` measurement. Dual-gate original
+comparison samples the corresponding composed-preview rectangle per gate.
+
+Each enabled hole is metered on its own placed picture through `spk_solve`,
+then its meter+trim gain is applied before composing. The frontend saves the
+returned `metered_ev`/opaque `metered_for` into the hole's original schema1
+`meteredEV`/`meteredFor` fields as metadata (no undo or extra render). A key
+matches source path/size/mtime, decode, owner crop/turn and meter intent;
+placement, exposure/print trims and strip spacing do not re-meter, following
+the Mac's stable-placement rule. Keys have a Windows decoder version prefix,
+so foreign/Mac keys are remeasured. Nonfinite/out-of-range readings are not
+reused. Source replacement, owner crop, decode or intent invalidates them.
+Late replies merge only into still-matching holes and preserve newer edits;
+the host never writes the source or pair files. `meter_reused` reports whether
+the supplied reading was accepted. The strip's
+`auto_exposure` is false, `overscan_pair` true and format `135_half`. Its
+exposure cannot be solved as a single scene: `solve` accepts only
+`filter_pack` on pair sessions. Changing strip mode, meter method or stock
+recomposes transactionally. The two date strings and both Scene Latitude
+parameter blocks remain ordinary engine wire fields.
+
+All image/DI exports refuse incomplete pairs. For the edited-pixel R1 path,
+`write_image` with a `.spektrapair` `source_path` also requires its live
+`session`, validates completeness and copies the first present source's EXIF.
+Per-hole `print`/`adjustments` requires `open.pair_presentation: "client"`.
+Without that negotiation the host refuses those objects; unsupported lens
+correction is always refused. `capabilities.backend.pair_presentation` is
+`"client-layers-v1"`. Such sessions export ordinary images via `write_image`;
+their direct `export_image` is refused so a consumer cannot silently drop grades.
+Raw Cineon remains the ungraded negative, as for a single photograph.
+
+`render_layer {session, tier, format, display, delta}` prints the same negative
+with a temporary override and restores all overridden values before replying,
+including on failure. Only finite `print_exposure`, `y_filter_shift`,
+`m_filter_shift`, `preflash_exposure` are allowed. The host worker executes the
+entire override/reprint/restore in one transaction; no queued call can observe
+the temporary print. The negative cache is reused via `spk_reprint`.
+
+The desktop follows the original Mac order: film print plus up to two own
+prints, their own or inherited Layer 2 grades, then rectangle composition using
+the original 1.5px `pairCoverage`. Original exposure/film simulation stays in
+Vulkan. The canvas uses the existing WebGL Layer 2; exported 16-bit pixels use
+its existing CPU twin before composition and final resizing. Canvas, navigator,
+histogram and strip consume the composed picture, without applying the grade
+again. Film/Left/Right selection, enlarger Frame/+Film scope, exposure scope,
+per-hole grades/curves/wheels, undo and recipe persistence are wired. Presentation
+edits do not re-decode source photos. Hole decode/geometry edits still re-open
+the pair. The host keeps an LRU of up to three unexposed, ungraded float-RGB
+hole bitmaps with a192MiB byte limit. Keys include source size/mtime, decode,
+owner geometry, placement, target dimensions and aspect. Spacing/trim/stock
+edits reuse unchanged holes; changed inputs invalidate only their hole. A hit
+also supplies decoder-native size/metadata without keeping a full RAW decode.
+Probe/thumbnail previews never enter this linear cache. `memory_report` adds
+`pair_bitmap_cache:{entries,bytes,limit_bytes}`; `bitmap_reused` reports actual
+hits. Oversized holes remain functional but can be uncached due to the limit.
+Unknown recipe fields are preserved when the desktop saves known edits.
+Recipe writes are drained before selection changes, native close and export;
+failed saves remain retryable and prevent exporting stale pixels. No capability
+here implies completed native GUI acceptance.
+
 `reprint: true` uses `spk_reprint` (print-side edits only; API-SPEC §2); the host
 falls back to `spk_render` and reports `reprinted: false` when the engine refuses.
 
@@ -127,6 +221,18 @@ falls back to `spk_render` and reports `reprinted: false` when the engine refuse
 | `write_image` | `{path, format, quality?, color_space, width, height, source_path?, overwrite?: false}` + rgba16 LE payload (top row first, encoded in `color_space`) | `{path, width, height, bytes, color_space, exif_copied}` (R1) |
 | `export_cube` | `{print_stock, path, overwrite?}` | `{path, size}` — the baked print LUT (`spk_print_lut_table`), domain 0..1 of normalised negative density |
 | `export_di` | `{session, print_stock?, path, overwrite?}` | `{path, width, height, bytes, di: <spk_export_di JSON>}` — 16-bit TIFF of normalised negative density, no ICC (it is not a colour space) |
+| `export_cineon` | `{session, path, geometry?, overwrite?, progress_id?}` | `{path, width, height, bytes, di, view_luts}` — original `spk_render_digital_intermediate` Cineon codes in ProPhoto primaries, 16-bit untagged TIFF and both shipped DI-view LUTs beside it; geometry contains only the eight `geometry_*` fields, restored after the export; Post-Dev excluded |
+
+Cineon mode: `digital_intermediate` replaces the paper for negative film
+(direct scan wins; slide film bypasses it). `render` and ordinary
+`export_image` read it through the **same shipped 65³ ProPhoto DI-view LUT**
+as the Mac app, including its half-float texels; the host samples it on CPU
+before its existing output transform. The spectral render and Cineon encoding
+remain GPU work. The view requires ProPhoto output primaries; another
+`output_color_space` is explicitly rejected before a DI delta mutates the
+session. An incomplete bundle discloses `digital_intermediate` as unsupported.
+The raw `export_cineon` file skips this view and RGB ICC tagging. Legacy
+`export_di` remains normalised density and must not back a Cineon recipe.
 
 Files carry EXIF (TIFF Exif IFD, JPEG APP1, PNG eXIf): Make, Model,
 LensModel, DateTimeOriginal, ExposureTime, FNumber, ISO, FocalLength, the
@@ -180,3 +286,29 @@ build/host-linux-x64/            build/host-win-x64/
 packaging). The Tauri core (Rust) launches
 `resources/host/spektralab-host[.exe] --resources resources/host/engine`.
 In development, `SPEKTRALAB_HOST_DIR` overrides the directory.
+
+### Tauri WebView bridge
+
+The C++ stdio framing above is unchanged. Across the WebView bridge only,
+binary replies/uploads larger than 8 MiB use bounded 8 MiB chunks, rather
+than a single several-hundred-MB WebResource body. The Rust core owns opaque
+in-process transfer IDs, validates byte counts, ordering and direction, and
+releases completed, cancelled or expired transfers (1 GiB aggregate payload
+quota, at most four live transfers). Pixel bytes never become JSON arrays.
+An aligned received payload is shared with the uint16 export reader instead
+of making an additional whole-frame copy. No colour or geometry arithmetic
+lives in this transport layer. `binary_transfer.rs` and
+`tauriTransport.test.ts` pin the boundaries and cleanup behavior.
+
+### Product black-and-white profiles on Windows
+
+The generated Vulkan resource tree also carries the original four product B&W
+films and Multigrade IV RC paper plus PRODUCT_PROFILES_NOTICE.md, matching the
+Mac bundle. The original28 profiles and neutral-filter database are unchanged.
+The desktop sends the original silver-paper Filter2 C0/M0/Y68, disables colour
+grain sublayers for monochrome stocks, multiplies the slider by the original
+ownGrain values, and gates silver-paper EDR. These are caller rules from
+Params.swift, not changes to the spectral/material model. The stock catalogue
+separates Black & White and guards silver/colour paper compatibility. The native
+BW regression covers all four films, three file formats, neutrality and the
+return to the measured colour filter pack.

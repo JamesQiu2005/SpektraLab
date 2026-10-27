@@ -228,15 +228,41 @@ def extras(host, sid, path, tmp, label, raw, probe):
     h, _ = host.call("scene_latitude", {"session": sid})
     check(h["ok"], f"{label}: scene_latitude (analysis)", h.get("error"))
     h, _ = host.call("overscan_geometry", {"session": sid})
-    check(h["ok"] and h["result"].get("valid") is False, f"{label}: overscan_geometry (refused feature -> invalid)")
+    check(h["ok"] and h["result"].get("valid") is False, f"{label}: overscan_geometry (effect off -> invalid)")
     h, _ = host.call("progress", {"session": sid})
     check(h["ok"] and "pct" in h["result"], f"{label}: progress", h.get("error"))
-    # The five refused features are refused by name, and leave the session usable.
-    for field in ("contrast_mask_active", "scene_latitude_active", "overscan_active", "date_imprint_active",
-                  "digital_intermediate"):
-        h, _ = host.call("set_params", {"session": sid, "delta": {field: True}})
-        check(not h["ok"] and h["error"]["code"] == "bad_request" and "not implemented" in h["error"]["message"],
-              f"{label}: {field} refused", h.get("error", {}).get("message", "accepted?!"))
+    # A DI opened directly must use the same view as a mode switch.
+    h, _ = host.call("open", {"path": path, "params": {"digital_intermediate": True}})
+    if check(h["ok"], f"{label}: open Cineon view", h.get("error")):
+        di_session = h["result"]["session"]
+        view, _ = host.call("render", {"session": di_session, "tier": "live", "format": "rgba8"})
+        check(view["ok"], f"{label}: direct Cineon view render", view.get("error"))
+        host.call("close", {"session": di_session})
+    # Positive feature boundary through the actual framed host protocol.
+    aspect = probe["width"] / probe["height"]
+    gate_aspect = 36.25 / 24.3 if aspect >= 1 else 24.3 / 36.25
+    cw, ch = min(1, gate_aspect / aspect), min(1, aspect / gate_aspect)
+    for feature, delta in (
+        ("Cineon DI view", {"digital_intermediate": True}),
+        ("tone mask", {"contrast_mask_active": True, "contrast_mask_highlights": 1.5,
+                       "contrast_mask_shadows": 1.5}),
+        ("scene latitude mapping", {"scene_latitude_active": True, "scene_latitude_highlight_room": 1.5,
+                                     "scene_latitude_shadow_room": 1.5}),
+        ("film edge", {"overscan_active": True, "overscan_format": "135", "overscan_edge_text": "KODAK PORTRA 400",
+                        "geometry_crop_x": (1-cw)/2, "geometry_crop_y": (1-ch)/2,
+                        "geometry_crop_w": cw, "geometry_crop_h": ch}),
+        ("date back", {"date_imprint_active": True, "date_imprint_text": "26 10 26"}),
+    ):
+        h, _ = host.call("set_params", {"session": sid, "delta": delta})
+        if check(h["ok"], f"{label}: enable {feature}", h.get("error")):
+            h, px = host.call("render", {"session": sid, "tier": "live", "format": "rgba8", "display": "srgb"})
+            if check(h["ok"], f"{label}: render {feature}", h.get("error")):
+                image = h["result"]["image"]
+                check(len(px) == image["width"] * image["height"] * 4, f"{label}: {feature} payload")
+        host.call("set_params", {"session": sid, "delta": {"scene_latitude_active": False,
+            "contrast_mask_active": False, "digital_intermediate": False,
+            "overscan_active": False, "date_imprint_active": False,
+            "geometry_crop_x": 0, "geometry_crop_y": 0, "geometry_crop_w": 1, "geometry_crop_h": 1}})
     h, _ = host.call("print_lut_catalog")
     stock = sorted(h["result"].keys())[0]
     h, px = host.call("preview_stock_lut", {"session": sid, "print_stock": stock, "tier": "live",

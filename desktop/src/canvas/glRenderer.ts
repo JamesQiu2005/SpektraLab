@@ -12,6 +12,7 @@
 // an offscreen target for the navigator and the histogram, so those surfaces
 // show exactly the canvas's frame.
 
+import type { FrameProjection } from '@shared/filmFrame';
 import { type Adjustments, CURVE_TABLE_SIZE, SRGB_MID_GREY, curveTables, layer2Uniforms } from '@shared/adjustments';
 import { type Geometry, type GeometryUniform, GEOMETRY_DEFAULT, uniform } from '@shared/geometry';
 
@@ -30,6 +31,16 @@ out vec4 outColor;
 
 uniform sampler2D uImage;
 uniform sampler2D uOriginal;
+uniform bool uFramed;
+uniform vec3 uOriginalX;
+uniform vec3 uOriginalY;
+uniform vec3 uGateX;
+uniform vec3 uGateY;
+uniform bool uPair;
+uniform vec3 uOriginalBX;
+uniform vec3 uOriginalBY;
+uniform vec3 uGateBX;
+uniform vec3 uGateBY;
 uniform sampler2D uCurves;
 uniform bool uHasImage;
 uniform bool uHasOriginal;
@@ -172,8 +183,16 @@ void main() {
   }
   bool before = uCompare == 2 || (uCompare == 1 && ouv.x < uSplit);
   vec3 c;
-  if (before && uHasOriginal) {
-    c = texture(uOriginal, suv).rgb;
+  vec2 originalUV = uFramed ? vec2(dot(uOriginalX, vec3(suv, 1.0)), dot(uOriginalY, vec3(suv, 1.0))) : suv;
+  vec2 gateUV = uFramed ? vec2(dot(uGateX, vec3(suv, 1.0)), dot(uGateY, vec3(suv, 1.0))) : suv;
+  bool onPicture = !uFramed || (all(greaterThanEqual(gateUV, vec2(0.0))) && all(lessThanEqual(gateUV, vec2(1.0))));
+  if(uPair&&!onPicture) {
+    vec2 b=vec2(dot(uGateBX,vec3(suv,1.0)),dot(uGateBY,vec3(suv,1.0)));
+    onPicture=all(greaterThanEqual(b,vec2(0.0)))&&all(lessThanEqual(b,vec2(1.0)));
+    if(onPicture) originalUV=vec2(dot(uOriginalBX,vec3(suv,1.0)),dot(uOriginalBY,vec3(suv,1.0)));
+  }
+  if (before && uHasOriginal && onPicture) {
+    c = texture(uOriginal, originalUV).rgb;
   } else if (uHasImage) {
     c = layer2(texture(uImage, suv).rgb, suv);
   } else {
@@ -197,6 +216,7 @@ export interface DrawState {
   sourceSize: { width: number; height: number };
   adjustments: Adjustments;
   compare: 0 | 1 | 2;
+  frame?: FrameProjection;
   split: number;
   surround: number;
 }
@@ -322,6 +342,13 @@ export class GLRenderer {
     gl.uniform1i(this.u('uCurves'), 2);
     gl.uniform1i(this.u('uHasImage'), this.hasImage ? 1 : 0);
     gl.uniform1i(this.u('uHasOriginal'), this.hasOriginal ? 1 : 0);
+    gl.uniform1i(this.u('uFramed'), s.frame ? 1 : 0);
+    gl.uniform1i(this.u('uPair'),s.frame?.second?1:0);
+    for (const [prefix, m] of [['uOriginal', s.frame?.original], ['uGate', s.frame?.gate],['uOriginalB',s.frame?.second?.original],['uGateB',s.frame?.second?.gate]] as const) {
+      const a = m ?? [1, 0, 0, 1, 0, 0];
+      gl.uniform3f(this.u(prefix + 'X'), a[0]!, a[2]!, a[4]!);
+      gl.uniform3f(this.u(prefix + 'Y'), a[1]!, a[3]!, a[5]!);
+    }
     gl.uniform2f(this.u('uViewport'), s.viewport.width, s.viewport.height);
     gl.uniform2f(this.u('uOffset'), s.offset.x, s.offset.y);
     gl.uniform2f(this.u('uOutSize'), s.outSize.width, s.outSize.height);

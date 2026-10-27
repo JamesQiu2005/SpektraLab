@@ -12,12 +12,14 @@ import { useEffect, useRef, useState } from 'react';
 import { Checkbox, NumberField, PillMenu, ScrubSlider, Section } from '../controls/controls';
 import { t, tz } from '../i18n';
 import { platform, baseName } from '../platform';
-import { select, sessionStore, setPages, useSession } from '../state/session';
+import { select, sessionStore, setPages, useSession, resolvedParams, flushPairChanges,flushPendingEdits } from '../state/session';
 import { Thumb } from '../windows/Filmstrip';
 import { GEOMETRY_DEFAULT } from '@shared/geometry';
 import { useOutput } from '../canvas/output';
 import { type ExportRecipe, DEFAULT_RECIPES, NAME_TOKENS, type NameToken, decodeRecipes, extensionOf } from './recipes';
 import { exportCube, exportFrame, hostWrites, outputFor, targetFor, type ExportOutcome } from './exporter';
+import { frameImages } from '../state/frames';
+import { printGeometry } from '@shared/filmFrame';
 
 const TOKEN_LABEL: Record<NameToken, () => string> = {
   originalName: () => tz('Org. Name', '原文件名'),
@@ -38,18 +40,19 @@ function waitForDeveloped(path: string, timeoutMs = 600_000): Promise<boolean> {
   return new Promise((resolve) => {
     const ok = () => {
       const s = sessionStore.getState();
-      return s.selection === path && !!s.engineSession && !s.developing && !!s.nativeSize;
+      return s.selection === path && !!s.engineSession && !s.developing && !!s.nativeSize && !s.pairUpdating && !s.pairSaveError && !s.lastError;
     };
     if (ok()) return resolve(true);
+    if(sessionStore.getState().lastError&&!sessionStore.getState().developing) return resolve(false);
     const t0 = setTimeout(() => {
       un();
       resolve(false);
     }, timeoutMs);
     const un = sessionStore.subscribe(() => {
-      if (ok()) {
+      if (ok()||(sessionStore.getState().lastError&&!sessionStore.getState().developing)) {
         clearTimeout(t0);
         un();
-        resolve(true);
+        resolve(ok());
       }
     });
   });
@@ -103,7 +106,8 @@ export function ExportPage() {
   if (!open) return null;
   const frames = picked.length ? picked : selection ? [selection] : [];
   const writesEdits = hostWrites(hello?.methods as string[] | undefined);
-  const size = native ? outputFor(r, geometry, native) : null;
+  const renderedNative = frameImages.print?.frame?.native ?? native;
+  const size = renderedNative ? outputFor(r, printGeometry(resolvedParams(), geometry), renderedNative) : null;
 
   const run = async () => {
     stop.current = false;
@@ -111,11 +115,13 @@ export function ExportPage() {
     sessionStore.setState({ batchExporting: true });
     const back = sessionStore.getState().selection;
     try {
+      await flushPairChanges();
       for (let i = 0; i < frames.length; i++) {
         if (stop.current) break;
         const path = frames[i]!;
         setProgress({ done: i, total: frames.length });
         await select(path);
+        await flushPendingEdits();
         const ready = await waitForDeveloped(path);
         const s = sessionStore.getState();
         if (!ready || !s.engineSession || !s.nativeSize) {
@@ -127,11 +133,13 @@ export function ExportPage() {
           {
             path,
             session: s.engineSession,
-            params: s.sidecar.params,
+            params: resolvedParams(),
             adjustments: s.sidecar.adjustments,
             geometry: s.sidecar.geometry,
             native: s.nativeSize,
             dateTaken: s.metadata?.datetime_original,
+            pairComplete:s.pairDocument?s.pairInfo?.can_export===true:undefined,
+            pairDocument:s.pairDocument,pairInfo:s.pairInfo,
           },
           s.catalog,
           s.hello?.methods as string[] | undefined,
@@ -140,6 +148,8 @@ export function ExportPage() {
         setLog((l) => [...l, { name: baseName(path), outcome }]);
       }
       setProgress({ done: frames.length, total: frames.length });
+    } catch(e) {
+      setLog(l=>[...l,{name:baseName(back??''),outcome:{kind:'failed',message:String(e instanceof Error?e.message:e)}}]);
     } finally {
       sessionStore.setState({ batchExporting: false });
       if (back && sessionStore.getState().selection !== back) void select(back);
@@ -281,12 +291,12 @@ export function ExportPage() {
                     { value: 'tiff', label: 'TIFF' },
                     { value: 'di', label: 'Digital Intermediate', disabled: !sessionStore.getState().gate.digitalIntermediate },
                   ]}
-                  onChange={(v) => edit({ format: v, bitDepth: v === 'jpeg' || v === 'png' ? 8 : r.bitDepth })}
+                  onChange={(v) => edit({ format: v, bitDepth: v === 'di' ? 16 : v === 'jpeg' || v === 'png' ? 8 : r.bitDepth })}
                 />
                 <PillMenu
-                  value={r.bitDepth}
+                  value={r.format === 'di' ? 16 : r.bitDepth}
                   disabled={r.format !== 'tiff'}
-                  reason={tz('JPEG and PNG are 8-bit on this host.', '此处 JPEG 与 PNG 为 8 位。')}
+                  reason={r.format === 'di' ? tz('Cineon codes are always 16-bit.', 'Cineon 对数固定为 16 位。') : tz('JPEG and PNG are 8-bit on this host.', '此处 JPEG 与 PNG 为 8 位。')}
                   options={[
                     { value: 8, label: '8 bit' },
                     { value: 16, label: '16 bit' },
@@ -309,15 +319,17 @@ export function ExportPage() {
               <ScrubSlider label={tz('Quality', '质量')} value={r.quality} range={[10, 100]} zero={92} snap={5} format={(v) => v.toFixed(0)} disabled={r.format !== 'jpeg'} onChange={(v) => edit({ quality: Math.round(v) })} />
               <div className="row">
                 <span className="row-label">{tz('Long Edge', '长边')}</span>
-                <Checkbox on={r.longEdge === 0} label={tz('Original size', '原始尺寸')} onChange={(v) => edit({ longEdge: v ? 0 : 3000 })} />
+                <Checkbox on={r.format === 'di' || r.longEdge === 0} disabled={r.format === 'di'} label={tz('Original size', '原始尺寸')} onChange={(v) => edit({ longEdge: v ? 0 : 3000 })} />
                 <span className="caption">{tz('Original', '原始')}</span>
-                {r.longEdge > 0 && <NumberField value={r.longEdge} decimals={0} onCommit={(v) => edit({ longEdge: Math.max(16, Math.round(v)) })} />}
+                {r.format !== 'di' && r.longEdge > 0 && <NumberField value={r.longEdge} decimals={0} onCommit={(v) => edit({ longEdge: Math.max(16, Math.round(v)) })} />}
                 <span className="caption num">{size ? `${size.width} × ${size.height}` : ''}</span>
               </div>
             </Section>
             <Section id="exp-summary" title={tz('Summary', '摘要')}>
               <div className="caption">
-                {writesEdits
+                {r.format === 'di'
+                  ? tz('Cineon log, ProPhoto primaries: 16-bit TIFF without an ICC profile, with both original view LUTs beside it. Includes framing; Post-Dev is excluded.', 'ProPhoto 原色的 Cineon 对数：16 位 TIFF，不嵌入 ICC，旁附两个原版视图 LUT。包含取景；不包含显影后调色。')
+                  : writesEdits
                   ? tz('The file is the canvas’s frame: crop, rotation and Post-Dev included.', '文件即画布上的画面：包含裁剪、旋转与显影后调整。')
                   : tz('This engine writes the print only: the crop, rotation and Post-Dev grade are not in the file.', '此引擎只写入相纸画面：裁剪、旋转与显影后调整不会写入文件。')}
               </div>

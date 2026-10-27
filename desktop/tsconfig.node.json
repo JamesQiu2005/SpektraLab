@@ -17,6 +17,7 @@
     "playwright.config.ts",
     "tests/**/*.ts",
     "src/export/realhost.test.ts",
+    "src/export/pairRealHost.test.ts",
     "src/export/exporter.ts"
   ],
   "exclude": [

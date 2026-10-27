@@ -29,6 +29,8 @@ namespace spkhost {
 struct Metadata {
     std::string make, model, lens, datetime_original;
     std::optional<double> iso, shutter_s, aperture, focal_mm;
+    std::optional<double> focal_35mm, exposure_bias_ev;
+    std::optional<int> exposure_program;
     int orientation = 1;   // EXIF 1..8, of the file as stored
     // RAW only: the as-shot illuminant as Temperature/Tint (white_balance.hpp).
     std::optional<double> as_shot_temperature_k, as_shot_tint;

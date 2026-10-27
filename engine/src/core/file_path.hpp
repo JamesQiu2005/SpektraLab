@@ -15,7 +15,12 @@ namespace spk {
 
 #ifdef _WIN32
 inline std::filesystem::path file_path(const std::string& utf8) {
-    return std::filesystem::path(std::u8string(utf8.begin(), utf8.end()));
+    auto path = std::filesystem::path(std::u8string(utf8.begin(), utf8.end()));
+    // A Tauri resource directory may carry the verbatim \\?\ prefix.
+    // Win32 does not translate '/' in that namespace; normalise separators
+    // after callers append resource filenames, preserving long paths/UNC.
+    path.make_preferred();
+    return path;
 }
 #else
 inline const std::string& file_path(const std::string& utf8) { return utf8; }

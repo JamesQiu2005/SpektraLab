@@ -5,8 +5,9 @@
 import { useEffect, useRef, useState } from 'react';
 import { Checkbox, NumberField, PillMenu, ScrubSlider, Section, SegmentedSwitch, ToggleRow, signed } from '../controls/controls';
 import { t, tz } from '../i18n';
-import { hostRedecodes, setAdjustments, setDecode, setFilmFrame, setFilmSide, setParams, setSideLengthMM, useSession } from '../state/session';
+import { hostRedecodes, setAdjustments, setDecode, setFilmFrame, setFilmSide, setParams, setSideLengthMM, useSession,editingAdjustments } from '../state/session';
 import { settingsStore, useSettings } from '../state/settings';
+import {isMonochromeStock} from '@shared/stockRules';
 import {
   type AEMethod,
   EFFECTS_DEFAULT,
@@ -18,6 +19,7 @@ import {
   type SideUnit,
   aeMethodOf,
   applyAEMethod,
+  SCENE_LATITUDE_DEFAULT,
 } from '@shared/params';
 import { type ColorZone, type CurveChannel, CURVE_CHANNELS, isNeutral } from '@shared/adjustments';
 import {
@@ -37,10 +39,12 @@ import {
 import { CurveEditor } from './CurveEditor';
 import { unsupportedReason } from './gate';
 import { host, HostCallError } from '../host/client';
+import { fitPlacement,placementWindow,type FitMeasure,type PlacementSide } from '@shared/placement';
 
 export function RightRail() {
   const tab = useSettings((s) => s.parametersTab);
-  const edited = useSession((s) => s.sidecar.adjustments.enabled && !isNeutral(s.sidecar.adjustments));
+  const edited = useSession((s) => editingAdjustments(s).enabled && !isNeutral(editingAdjustments(s)));
+  const measurement=useLatitudeMeasurement();
   return (
     <aside className="rail right" data-testid="right-rail">
       <div className="rail-header">{t('railParameters')}</div>
@@ -56,10 +60,10 @@ export function RightRail() {
       <div className="rail-scroll">
         {tab === 'preDev' ? (
           <>
-            <LatitudeSection />
+            <LatitudeSection measurement={measurement} />
             <CameraSection />
             <FilmFormatSection />
-            <ScenePlacementSection />
+            <ScenePlacementSection measurement={measurement} />
           </>
         ) : (
           <>
@@ -79,25 +83,31 @@ export function RightRail() {
 interface LatitudeReply {
   medium: { shadow_ev: number; highlight_ev: number; latitude_stops: number };
   scene: { histogram: { lo_ev: number; hi_ev: number; fractions: number[]; placed_fractions?: number[] } };
+  fit:FitMeasure;
 }
 
-function LatitudeSection() {
+function useLatitudeMeasurement() {
   const sid = useSession((s) => s.engineSession);
   const badge = useSession((s) => s.badge);
   const film = useSession((s) => s.sidecar.params.filmStock);
   const paper = useSession((s) => s.sidecar.params.printStock);
-  const catalog = useSession((s) => s.catalog);
+  const image=useSession(s=>s.imageVersion),side=useSession(s=>s.pairSide),pair=useSession(s=>s.pairInfo);
+  const sl=useSession(s=>s.sidecar.params.sceneLatitude);
   const [reply, setReply] = useState<LatitudeReply | null>(null);
+  const [measuredSession,setMeasuredSession]=useState<string|null>(null);
   const [why, setWhy] = useState<string | null>(null);
   useEffect(() => {
     if (!sid || badge !== 'full') return;
     let live = true;
     const t0 = setTimeout(() => {
       host()
-        .sceneLatitude(sid, {})
+        .sceneLatitude(sid, {highlight_pull_back:sl.highlightPullBack,shadow_pull_back:sl.shadowPullBack,
+          rolloff:sl.rolloff,max_lift:sl.maxLift,norm:sl.norm,shadow_percentile:sl.shadowPercentile,highlight_percentile:sl.highlightPercentile,
+          ...(pair?{region:(()=>{const r=pair.rects[side==='left'?0:1]!;return [r[0],r[1],r[0]!+r[2]!,r[1]!+r[3]!];})()}:{} )})
         .then((r) => {
           if (live) {
             setReply(r as unknown as LatitudeReply);
+            setMeasuredSession(sid+side);
             setWhy(null);
           }
         })
@@ -111,7 +121,11 @@ function LatitudeSection() {
       live = false;
       clearTimeout(t0);
     };
-  }, [sid, badge, film, paper]);
+  }, [sid,badge,film,paper,image,side,pair,sl]);
+  return {reply:measuredSession===sid+side?reply:null,why};
+}
+function LatitudeSection({measurement:{reply,why}}:{measurement:ReturnType<typeof useLatitudeMeasurement>}) {
+  const film=useSession(s=>s.sidecar.params.filmStock),paper=useSession(s=>s.sidecar.params.printStock),catalog=useSession(s=>s.catalog);
   const name = (id: string) => catalog.stock(id)?.name.replace(/^(Kodak|Fujifilm) (Professional )?/, '') ?? id;
   return (
     <Section id="latitude" title={t('sectionLatitude')} trailing={`${name(film)} · ${name(paper)}`} unsupported={why}>
@@ -158,7 +172,8 @@ function LatitudePlot({ reply }: { reply: LatitudeReply | null }) {
 
 function CameraSection() {
   const p = useSession((s) => s.sidecar.params);
-  const vignette = useSession((s) => s.sidecar.adjustments.vignette.amount);
+  const paired=useSession(s=>!!s.pairDocument);
+  const vignette = useSession((s) => editingAdjustments(s).vignette.amount);
   const ae = aeMethodOf(p);
   const lensReason = tz(
     'Lens correction is not available on Linux and Windows: the RAW decoder carries no lens profiles.',
@@ -191,13 +206,14 @@ function CameraSection() {
         })),
       ]}
     >
-      <PillMenu label={t('cameraMetering')} value={ae} options={options} fill onChange={(v) => setParams((q) => applyAEMethod(q, v))} testId="metering" />
+      {paired&&<div className="caption">{tz('Set RAW white balance and exposure separately in Half-frame Pair.','请在左侧「半格配对」中分别设置各孔 RAW 白平衡和曝光。')}</div>}
+      <PillMenu label={t('cameraMetering')} value={ae} options={options} fill disabled={paired} onChange={(v) => setParams((q) => applyAEMethod(q, v))} testId="metering" />
       <ScrubSlider
         label={t('cameraFilmExposure')}
         sublabel={
           <span style={{ display: 'inline-flex', gap: 4, alignItems: 'center' }}>
             {t('cameraFilmExposureAsShot')}
-            <Checkbox on={asShot} label={t('cameraFilmExposureAsShot')} onChange={() => setParams((q) => ({ ...applyAEMethod(q, 'custom'), exposureCompensationEV: 0 }))} />
+            <Checkbox on={asShot} disabled={paired} label={t('cameraFilmExposureAsShot')} onChange={() => setParams((q) => ({ ...applyAEMethod(q, 'custom'), exposureCompensationEV: 0 }))} />
           </span>
         }
         value={p.exposureCompensationEV}
@@ -296,7 +312,7 @@ function FilmFormatSection() {
         { label: t('helpAllEffectsOn'), onSelect: () => setParams((q) => ({ ...q, grainActive: true, halationActive: true, glareActive: true })) },
         { label: t('helpAllEffectsOff'), onSelect: () => setParams((q) => ({ ...q, grainActive: false, halationActive: false, glareActive: false })) },
         { label: t('helpResetEffectStrengths'), onSelect: () => setParams((q) => ({ ...q, effects: EFFECTS_DEFAULT })) },
-        { label: t('helpSubLayerGrain'), checked: e.grainLayered, disabled: !p.grainActive, onSelect: () => setE({ grainLayered: !e.grainLayered }) },
+        { label: t('helpSubLayerGrain'), checked: e.grainLayered&&!isMonochromeStock(p.filmStock), disabled: !p.grainActive||isMonochromeStock(p.filmStock), onSelect: () => setE({ grainLayered: !e.grainLayered }) },
       ]}
     >
       <PillMenu
@@ -354,14 +370,26 @@ function FilmFormatSection() {
 
 // ----------------------------------------------------------- Scene Placement
 
-function ScenePlacementSection() {
+function ScenePlacementSection({measurement}:{measurement:ReturnType<typeof useLatitudeMeasurement>}) {
   const gate = useSession((s) => s.gate);
   const sl = useSession((s) => s.sidecar.params.sceneLatitude);
-  const reason = unsupportedReason('scene_latitude_mapping', gate.sceneLatitude);
+  const [refusal,setRefusal]=useState<string|null>(null);
+  const reason = unsupportedReason('scene_latitude_mapping', gate.sceneLatitude)??measurement.why;
+  const measured=measurement.reply?.fit;
+  const place=(side:PlacementSide,v:number)=>{
+    if(!measured)return;
+    const other=side==='highlight'?sl.shadowPullBack:sl.highlightPullBack;
+    const window=placementWindow(measured,side,other,sl);
+    const landed=v>0?(window?Math.min(window[1],Math.max(window[0],v)):0):0;
+    const fit=fitPlacement(measured,side==='highlight'?landed:other,side==='shadow'?landed:other,sl);
+    setRefusal(fit.issue?fit.issue.code:landed!==v?tz('The slider stopped at the range this frame can fit.','滑块停在这张照片可用的回拉范围。'):null);
+    if(fit.value)setParams(p=>({...p,sceneLatitude:fit.value!}));
+  };
   return (
-    <Section id="scenePlacement" title={t('sectionScenePlacement')} unsupported={reason} onReset={() => {}} resetHelp={t('helpResetPlacement')} resetEnabled={sl.active}>
-      <ScrubSlider label={t('placementHighlight')} value={sl.highlightPullBack} range={[0, 8]} snap={0.25} onChange={() => {}} disabled={!!reason} reason={reason ?? undefined} />
-      <ScrubSlider label={t('placementShadow')} value={sl.shadowPullBack} range={[0, 8]} snap={0.25} onChange={() => {}} disabled={!!reason} reason={reason ?? undefined} />
+    <Section id="scenePlacement" title={t('sectionScenePlacement')} unsupported={reason} onReset={() => {setParams(p=>({...p,sceneLatitude:{...SCENE_LATITUDE_DEFAULT}}));setRefusal(null);}} resetHelp={t('helpResetPlacement')} resetEnabled={sl.active}>
+      <ScrubSlider label={t('placementHighlight')} value={sl.highlightPullBack} range={[0, 8]} snap={0.25} onChange={v=>place('highlight',v)} disabled={!!reason||!measured} reason={reason ?? tz('Waiting for measurement.','等待测量。')} testId="placement-highlight"/>
+      <ScrubSlider label={t('placementShadow')} value={sl.shadowPullBack} range={[0, 8]} snap={0.25} onChange={v=>place('shadow',v)} disabled={!!reason||!measured} reason={reason ?? tz('Waiting for measurement.','等待测量。')} testId="placement-shadow"/>
+      {refusal&&<div className="caption">{refusal}</div>}
     </Section>
   );
 }
@@ -369,7 +397,7 @@ function ScenePlacementSection() {
 // ---------------------------------------------------------------- Post-Dev
 
 function WhiteBalanceSection() {
-  const a = useSession((s) => s.sidecar.adjustments);
+  const a = useSession(editingAdjustments);
   return (
     <Section id="wb2" title={t('sectionWhiteBalance')} trailing={t('statusRightRailWBScope')} onReset={() => setAdjustments((q) => ({ ...q, temperature: 0, tint: 0 }))} resetHelp={t('helpReset')}>
       <ScrubSlider label={t('cameraTemperature')} value={a.temperature} range={[-100, 100]} snap={5} format={signed(0)} gradient="linear-gradient(90deg,#5d7de8,#bbb,#e8c04e)" onChange={(v) => setAdjustments((q) => ({ ...q, temperature: v }))} />
@@ -379,7 +407,7 @@ function WhiteBalanceSection() {
 }
 
 function ExposureSection() {
-  const a = useSession((s) => s.sidecar.adjustments);
+  const a = useSession(editingAdjustments);
   const row = (label: string, key: 'exposure' | 'contrast' | 'brightness' | 'saturation' | 'highlights' | 'shadows' | 'blackPoint' | 'whitePoint', range: [number, number], digits: number, snap: number) => (
     <ScrubSlider key={key} label={label} value={a[key]} range={range} snap={snap} format={signed(digits)} onChange={(v) => setAdjustments((q) => ({ ...q, [key]: v }))} testId={'adj-' + key} />
   );
@@ -440,7 +468,7 @@ const ZONES: { key: 'master' | 'shadows' | 'midtones' | 'highlights'; label: () 
 ];
 
 function ColorBalanceSection() {
-  const cb = useSession((s) => s.sidecar.adjustments.colorBalance);
+  const cb = useSession((s) => editingAdjustments(s).colorBalance);
   const [zone, setZone] = useState<(typeof ZONES)[number]['key']>('master');
   const z = cb[zone];
   const setZ = (patch: Partial<ColorZone>) => setAdjustments((q) => ({ ...q, colorBalance: { ...q.colorBalance, [zone]: { ...q.colorBalance[zone], ...patch } } }));

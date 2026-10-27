@@ -1,5 +1,30 @@
 # Engine coverage on Linux / Windows (Vulkan) vs macOS (Metal)
 
+Windows product B&W integration,2026-10-27: generated resources include the
+original five resources_product profiles and notice; base28 material files and
+LUTs remain unchanged. The original bw_checks suite passed36 checks on Vulkan,
+including grayscale/grade/filter/edge/DX behavior; host tests independently read
+12 JPEG/PNG/TIFF16 files. Caller-side Mac stock/paper/grain/filter rules are
+ported in desktop; native B&W clicks remain pending.
+
+Windows host addition, 2026-10-26: schema1 half-frame pair decoding now runs
+before the unchanged spectral engine. `engine/host/pair_composer.hpp` has
+28 independent affine/layout/linear-gain oracle cases (max abs1.49e-8);
+`pair_host_checks.py` tests per-hole meter against independently sampled
+images, two physical gates/dates, re-decode, source preview/probe, incomplete
+export refusal, invalid input and real JPEG/PNG/TIFF files. The authorised
+Sony ARW was explicitly referenced twice with independent crops/WB; actual
+4078×3769 files with ICC and TIFF16 passed. This is native host/file evidence,
+not desktop pair UI acceptance. Per-hole print/Post-Dev now negotiates client
+presentation, using atomic same-negative `render_layer` and restoring params
+on success/failure. Actual frontend 16-bit composition plus native JPEG/PNG/TIFF
+encoders passed on the authorised RAW at4078×3769; no pixel tolerance was widened.
+Unnegotiated clients still refuse those objects and direct ordinary exports from
+client-presented sessions are blocked to prevent dropping edits. Desktop recipe
+controls, per-hole grades/scopes and dual-gate comparison have browser
+state/GL tests; native pair clicks remain pending. No core/material/LUT
+arithmetic was changed for this host feature.
+
 The owner's question: *does the engine cover everything in the API spec over
 C++ and Vulkan on the Windows branch?* This table answers it entry point by
 entry point, field group by field group, kernel by kernel. It is kept current
@@ -15,7 +40,7 @@ Status words:
 
 | word | means |
 |---|---|
-| **tested** | implemented, and a test on this branch exercises it on lavapipe (named) |
+| **tested** | implemented, and a named test exercises it; Windows additions below ran on NVIDIA RTX 3070 Ti Laptop, not lavapipe |
 | **untested** | implemented, compiles and links, no test exercises it here |
 | **refused** | the engine rejects the request by name (`SPK_ERR_USER`, message names the feature); capabilities list it under `backend.unsupported_features` |
 | **missing** | absent; a call would fail or the feature is silently not there |
@@ -44,13 +69,13 @@ commits.
 | `spk_solve` | untested | tested (host smoke `solve`) | portable (setup only) |
 | `spk_render` (live/preview/full) | tested (Windows) | tested (`spk_windows_c_abi`) | |
 | `spk_reprint` | tested (Windows) | tested (host smoke: `reprinted: true` after a print-side delta) | |
-| `spk_contrast_mask_field` | refused | refused | RFC-024, see §2 |
-| `spk_scene_latitude` (analysis) | tested (Windows) | tested (host smoke) | the *analysis* runs; *applying* the mapping is refused |
-| `spk_overscan_geometry` | missing (link error) | tested: returns `{"valid":false}` | the merge left the symbol undefined; stubbed so the engine links |
+| `spk_contrast_mask_field` | refused | Windows tested | public field, Gaussian boundary oracle, finite gain, negative/cache invariants and stripe equality; see contrast_mask_checks.py |
+| `spk_scene_latitude` (analysis) | tested (Windows) | tested (host smoke, feature boundary) | analysis and mapping implemented on Windows; no Mac whole-image oracle yet |
+| `spk_overscan_geometry` | missing (link error) | tested: real layout when enabled, invalid when off | original portable layout; Windows DLL export added; feature boundary and real host export |
 | `spk_print_lut_catalog` / `spk_print_lut_table` | tested (Windows) | tested (host smoke `export_cube`) | portable core |
 | `spk_preview_stock_lut` | tested (Windows) | tested (host smoke) | `spk_lut3d_trilinear` |
 | `spk_export_di` | tested (Windows) | tested (host smoke `export_di`) | normalised-density tap |
-| `spk_render_digital_intermediate` | refused | refused | Cineon DI (`spk_di_encode`) unported |
+| `spk_render_digital_intermediate` | refused | Windows tested (C ABI, original overscan suite) | Cineon encoded pixels/metadata; preserves canvas params; slide film still refused; host view/raw export tested by cineon_host_checks.py |
 | `spk_output_transform` | untested | tested (every host `rgba8`/display render and export; a P3 export converted by lcms lands within MAE 0.6 % of the host's sRGB export) | portable core |
 | `spk_memory_report` | untested | tested (host smoke) | |
 | `spk_cancel` / `spk_progress` | untested | tested (host smoke: a full render cancelled mid-flight returns `SPK_ERR_CANCELLED` and the session renders again) | |
@@ -61,13 +86,13 @@ commits.
 | section | fields | Windows_Port | Now |
 |---|---|---|---|
 | §1–§10 core render, tiers, reprint, live-mutable set | every field in `params_schema` predating RFC-024 | implemented; whole-image Metal parity unverified | same |
-| §11 contrast mask (RFC-024) | `contrast_mask_{active,highlights,shadows,core,scale,scheme}` | **refused** when `active` | refused |
-| §12 Scene Latitude (RFC-023) | `scene_latitude_{active,norm,shadow_knee,highlight_knee,shadow_room,highlight_room,max_lift,rolloff}` | **refused** when `active` (analysis call works) | refused |
-| §13 overscan / film edge (RFC-031/032) | `overscan_{active,mode,format,gate,holes,carrier,edge_text,frame_number,frame_seed,camera_seed,f_number,fog,leaks,pair}` | **refused** when `active` | refused |
-| §13 date back | `date_imprint_{active,text,text_b,data_text,style,corner,placement,size,ev,inset_x,inset_y}` | **refused** when `active` | refused |
+| §11 contrast mask (RFC-024) | `contrast_mask_{active,highlights,shadows,core,scale,scheme}` | **refused** when `active` | Windows tested: both kernels, original host Gaussian with non-Apple static jthreads, exact zero/off and band identity |
+| §12 Scene Latitude (RFC-023) | `scene_latitude_{active,norm,shadow_knee,highlight_knee,shadow_room,highlight_room,max_lift,rolloff}` | **refused** when `active` (analysis call works) | Windows tested: 24 float64 oracle cases, all norms, rolloff 1/2/1.5/3, split/band offsets, pathological values; C ABI render |
+| §13 overscan / film edge (RFC-031/032) | `overscan_{active,mode,format,gate,holes,carrier,edge_text,frame_number,frame_seed,camera_seed,f_number,fog,leaks,pair}` | **refused** when `active` | Windows tested: original layout/exposure/DX, analytic kernels, real RAW full JPEG/PNG/TIFF; original full overscan suite (0 failures after Cineon port) |
+| §13 date back | `date_imprint_{active,text,text_b,data_text,style,corner,placement,size,ev,inset_x,inset_y}` | **refused** when `active` | Windows tested: portable coverage rasterisation, C ABI and real RAW full export |
 | §14 `filter_shift_scale` | `filter_shift_scale` | implemented (portable `printing.cpp`) | implemented, untested here |
 | §15 `camera_filter` (2026-10-07) | `camera_filter` | — | implemented (portable `hanatos.cpp`, `params.cpp`; table in `camera_filters.hpp`), untested here; `desktop/mock-host/schema-fields.json` does not list it yet |
-| `io.digital_intermediate` (Cineon DI file) | | refused | refused |
+| `io.digital_intermediate` (Cineon DI file) | | refused | Engine and image host tested; shared original DI-view table, dedicated raw export with no main-page ICC |
 | anti-halation switch, highlight boost (9fa3b0d) | `halation`/`boost` fields | implemented via `spk_boost` | implemented, untested here |
 
 ## 3. Kernels: Metal vs Vulkan
@@ -85,14 +110,16 @@ commits.
 | `spk_geometry_resample_df` | same | tested | tested on lavapipe at the original bound (§5) |
 | `spk_cam16ucs_compress` | same | tested | tested |
 | `spk_grain_layers`, `spk_grain_simple`, `spk_lognormal_field`, `spk_grain_layer_one` | same (+ `spk_rng_probe`) | tested | tested (`spk_vulkan_grain`) |
-| `spk_di_encode` (Cineon DI) | **missing** | refused | refused |
-| `spk_mask_reduce`, `spk_mask_epilogue` (contrast mask) | **missing** | refused | refused |
-| `spk_scene_latitude` | **missing** | refused | refused |
-| `spk_overscan_canvas`, `spk_overscan_add_mask`, `spk_overscan_film_present`, `spk_overscan_light` | **missing** | refused | refused |
+| `spk_di_encode` (Cineon DI) | same name | missing | Windows tested: independent double oracle (144 new cases; compensation off/on and fitted parameter limits), abs 1e-6, guards; original equations evaluated with compensated float pairs |
+| `spk_mask_reduce`, `spk_mask_epilogue` (contrast mask) | same names | refused | Windows tested: double exposure/grid/preflash/branch oracles and full-vs-band coordinates, guards; same tolerance as original pointwise tests |
+| `spk_scene_latitude` | same | missing | tested (`spk_vulkan_pointwise`, Windows NVIDIA): original equations, compensated float-pair arithmetic to preserve log-axis precision; no shaderFloat64 required |
+| `spk_overscan_canvas`, `spk_overscan_add_mask`, `spk_overscan_film_present`, `spk_overscan_light` | same names | missing | Windows tested (`spk_vulkan_pointwise`, positive feature boundary, real host); FMix endpoints explicitly preserve opaque film identity |
 
-Host-side (C++) dependencies of the unported features: `contrast_mask.cpp`
-uses GCD (`dispatch_apply`); `overscan.cpp` uses CoreText/CoreGraphics for the
-edge print and date back, and vImage for a convolution.
+Host-side adapters: `contrast_mask.cpp` keeps GCD on Apple and uses bounded
+C++20 static line workers elsewhere, with bit-identical per-line accumulation.
+`overscan.cpp` keeps CoreText/CoreGraphics/vImage on Apple; the non-Apple
+adapter uses embedded TeX Gyre Heros, stb_truetype and portable convolution.
+Font substitution remains a documented visual difference.
 
 ## 4. What main added after 61bfc49 that Vulkan lacks
 
@@ -109,11 +136,24 @@ edge print and date back, and vImage for a convolution.
 The merge is textual; semantic reconciliation of `pipeline.cpp`/`engine.cpp`
 between the two lines is verified only by the CTests named above.
 
-## 5. Current state (2026-10-06)
+## 5. Earlier acceptance (2026-10-06; superseded for Windows below)
 
 **The five refused features stay refused, by the owner's decision**
 (2026-10-06); `engine/PORT_PLAN.md` is the handoff for porting them.
 Everything else in the API spec runs on Vulkan.
+
+The Windows restoration authorised on 2026-10-25 supersedes that earlier
+scope. All five pipeline feature groups are now implemented on Vulkan.
+Windows NVIDIA CTest covers 242 pointwise cases, 240 LUT/DI cases, host
+filter/cache/stripe checks and the original full overscan suite. The image
+host samples the Mac's unchanged half-float 65-cube DI view for ordinary
+images; `export_cineon` writes raw 16-bit codes, a viewed preview page and
+both original LUTs. No whole-image comparison against Metal has run here.
+The Mac's withdrawn tone-mask UI stays withdrawn. Half-frame readings now persist
+with decoder-specific invalidation keys and do not pump on placement edits. A
+3-entry/192MiB native float bitmap LRU reuses unchanged source holes without
+retaining full RAW decodes; oversized entries can be uncached. Native Windows
+visual/click acceptance and direct placement gestures remain incomplete.
 
 Verified on lavapipe (Mesa 25.2, llvmpipe LLVM 20, a CPU device):
 

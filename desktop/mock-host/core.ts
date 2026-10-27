@@ -35,6 +35,8 @@ export interface MockOptions {
   renderDelayMs?: number;
   /** Paths `probe`/`open` treat as missing (tests). */
   missing?: (path: string) => boolean;
+  /** Explicit recipe fixture for UI-state tests; pixels remain synthetic. */
+  pairDocument?: (path:string)=>Record<string,unknown>|null;
 }
 
 type Value = number | boolean | string;
@@ -141,7 +143,7 @@ interface Session {
 const METHODS = [
   'hello', 'ping', 'shutdown', 'cancel', 'params_schema', 'print_lut_catalog', 'memory_report', 'probe', 'thumbnail',
   'open', 'redecode', 'close', 'set_params', 'get_params', 'solve', 'render', 'scene_latitude', 'overscan_geometry',
-  'preview_stock_lut', 'progress', 'export_image', 'export_cube', 'export_di',
+  'preview_stock_lut', 'progress', 'export_image', 'export_cube', 'export_di', 'pair_info','render_layer',
 ];
 
 class HostError extends Error {
@@ -155,7 +157,7 @@ class HostError extends Error {
 export class MockHost {
   private sessions = new Map<string, Session>();
   private next = 1;
-  private opts: Required<Omit<MockOptions, 'missing'>> & { missing?: (p: string) => boolean };
+  private opts: Required<Omit<MockOptions, 'missing'|'pairDocument'>> & Pick<MockOptions,'missing'|'pairDocument'>;
 
   constructor(opts: MockOptions = {}) {
     this.opts = {
@@ -164,6 +166,7 @@ export class MockHost {
       nativeHeight: opts.nativeHeight ?? 2000,
       renderDelayMs: opts.renderDelayMs ?? 0,
       missing: opts.missing,
+      pairDocument:opts.pairDocument,
     };
   }
 
@@ -198,6 +201,8 @@ export class MockHost {
         gpu: 'Mock GPU (no engine)',
         gpu_available: true,
         render_core: 'mock',
+        pair_decode:!!this.opts.pairDocument,
+        pair_presentation:this.opts.pairDocument?'client-layers-v1':undefined,
         unsupported_features: this.opts.realisticUnsupported ? UNSUPPORTED_ON_PORT : [],
       },
     };
@@ -212,10 +217,23 @@ export class MockHost {
 
   private kind(path: string): string {
     const ext = path.split('.').pop()?.toLowerCase() ?? '';
+    if(ext==='spektrapair')return 'pair';
     if (ext === 'tif' || ext === 'tiff') return 'tiff';
     if (ext === 'jpg' || ext === 'jpeg') return 'jpeg';
     if (ext === 'png') return 'png';
     return 'raw';
+  }
+
+  private pairInfo(path:string) {
+    if(!path.toLowerCase().endsWith('.spektrapair'))return null;
+    const doc=this.opts.pairDocument?.(path);
+    if(!doc)throw new HostError('not_found','No synthetic pair recipe fixture');
+    const sources=['left','right'].map(side=>{
+      const hole=doc[side] as Record<string,unknown>|null;
+      return {path:hole?.path??'',present:!!hole?.path,metadata:this.metadata(String(hole?.path??'')),decode_error:'',exposure_ev:Number(hole?.exposureEV??0),metered_ev:0};
+    });
+    return {complete:sources.every(s=>s.present),can_export:sources.every(s=>s.present),turned:!!doc.turned,on_strip:!!doc.onStrip,
+      rects:doc.turned?[[0,0,1,18/37],[0,19/37,1,18/37]]:[[0,0,18/37,1],[19/37,0,18/37,1]],sources};
   }
 
   /** The real host's rule: white balance at decode is RAW-only, and lens correction is refused. */
@@ -307,6 +325,7 @@ export class MockHost {
             width,
             height,
             kind: this.kind(path),
+            pair:this.pairInfo(path),
             metadata: this.metadata(path),
             params,
             timings_ms: { decode: 12, open: 3 },
@@ -332,6 +351,7 @@ export class MockHost {
       }
       case 'get_params':
         return { result: { params: this.session(p).params } };
+      case 'pair_info':return {result:this.pairInfo(this.session(p).path)};
       case 'solve': {
         const s = this.session(p);
         return {
@@ -341,6 +361,11 @@ export class MockHost {
             session: s.id,
           },
         };
+      }
+      case 'render_layer': {
+        const s=this.session(p),saved={...s.params};
+        try{Object.assign(s.params,p.delta);return await this.dispatch('render',{...p,reprint:true});}
+        finally{s.params=saved;}
       }
       case 'render': {
         const s = this.session(p);

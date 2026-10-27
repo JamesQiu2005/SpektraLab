@@ -12,6 +12,7 @@
 #include <array>
 #include <cstdint>
 #include <filesystem>
+#include <optional>
 #include <string>
 #include <vector>
 
@@ -62,12 +63,20 @@ bool icc_for(const std::string& engine_space, const std::filesystem::path& resou
 struct Exif {
     std::string make, model, lens, datetime_original;   // EXIF "YYYY:MM:DD HH:MM:SS"
     double iso = 0, shutter_s = 0, aperture = 0, focal_mm = 0;   // 0 = absent
+    bool uncalibrated = false;   // Cineon code values, EXIF ColorSpace 0xFFFF
+    std::optional<double> focal_35mm, exposure_bias_ev;
+    std::optional<int> exposure_program;
+};
+
+struct TiffPreview {
+    uint32_t width = 0, height = 0;
+    std::vector<uint8_t> rgb, icc;
 };
 
 // Interleaved 3-channel encoded samples. `exif` may be null.
 bool encode_tiff(const void* rgb, uint32_t width, uint32_t height, uint32_t bits,
                  const std::vector<uint8_t>& icc, std::vector<uint8_t>& out, std::string& error,
-                 const Exif* exif = nullptr);
+                 const Exif* exif = nullptr, const TiffPreview* preview = nullptr);
 bool encode_png8(const uint8_t* rgb, uint32_t width, uint32_t height, const std::vector<uint8_t>& icc,
                  std::vector<uint8_t>& out, std::string& error, const Exif* exif = nullptr);
 bool encode_jpeg(const uint8_t* rgb, uint32_t width, uint32_t height, int quality,

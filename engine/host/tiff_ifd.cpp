@@ -1,6 +1,7 @@
 #include "tiff_ifd.hpp"
 
 #include <cstring>
+#include <cmath>
 
 #include "image_io.hpp"
 
@@ -144,6 +145,9 @@ void read_exif_metadata(TiffBytes& tiff, uint32_t ifd0, Metadata& meta) {
     if (tiff.number(exif, 0x829D, v) && v > 0) meta.aperture = v;
     if (tiff.number(exif, 0x8827, v) && v > 0) meta.iso = v;
     if (tiff.number(exif, 0x920A, v) && v > 0) meta.focal_mm = v;
+    if (tiff.number(exif, 0xA405, v) && std::isfinite(v) && v > 0) meta.focal_35mm = v;
+    if (tiff.number(exif, 0x8822, v) && std::isfinite(v) && v >= 1 && v <= 8) meta.exposure_program = int(v);
+    if (tiff.number(exif, 0x9204, v) && std::isfinite(v)) meta.exposure_bias_ev = v;
     if (tiff.text(exif, 0x9003, s)) meta.datetime_original = s;
     if (tiff.text(exif, 0xA434, s)) meta.lens = s;
 }

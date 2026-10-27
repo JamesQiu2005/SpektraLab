@@ -32,7 +32,8 @@ float decode(float value, uint mode) {
             // this breakpoint by several float ULPs and selects the wrong
             // side of BT.709's small discontinuity next to the join.
             float alpha = 1.099, beta = 0.018;
-            float breakpoint = alpha * pow(beta, 0.45) - (alpha - 1.0);
+            // Prevent driver contraction from moving the branch across the discontinuity.
+            precise float breakpoint = alpha * pow(beta, 0.45) - (alpha - 1.0);
             return breakpoint > value ? value / 4.5
                       : signed_power((value + (alpha - 1.0)) / alpha, 1.0 / 0.45);
         }

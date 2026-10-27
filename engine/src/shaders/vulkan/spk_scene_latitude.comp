@@ -1,0 +1,83 @@
+#version 450
+#extension GL_GOOGLE_include_directive : require
+// Original RFC-023 scene_latitude.metal equations, float32 Vulkan translation.
+layout(local_size_x = 256) in;
+layout(set=0,binding=0,std430) readonly buffer Input { float value[]; } input_data;
+layout(set=0,binding=1,std430) readonly buffer Params { float value[]; } param_data;
+layout(set=0,binding=2,std430) readonly buffer Meta { uint value[]; } meta_data;
+layout(set=0,binding=3,std430) writeonly buffer Output { float value[]; } output_data;
+uint spk_global_index() {
+    return gl_GlobalInvocationID.y * (gl_NumWorkGroups.x * gl_WorkGroupSize.x) + gl_GlobalInvocationID.x;
+}
+// Error-free float pairs keep the rational roll-off's intermediate products
+// from amplifying division rounding through exp2. These evaluate the same
+// equations using float32/FMA only; no shaderFloat64 device feature is needed.
+#include "spk_float_pair.glsl"
+vec2 slm_log_ratio(float v, float reference) {
+    int ve, re;
+    float vm = frexp(v, ve), rm = frexp(reference, re);
+    vec2 q = spk_df_div(vec2(vm, 0), vec2(rm, 0));
+    // Keep the integer exponent separate: rounding a stop value near 24
+    // before the roll-off would become a relative RGB error after exp2.
+    return spk_df_add(vec2(float(ve-re), 0), spk_df_sum(log2(q.x), q.y / (q.x * 0.6931471805599453)));
+}
+vec2 slm_departure(vec2 dd, float H, float m) {
+    float D = dd.x;
+    if (!(D > 0.0f)) return vec2(0);
+    if (m == 2.0f) {
+        vec2 hh = vec2(H, 0);
+        vec2 r = spk_df_sqrt(spk_df_add(spk_df_mul(hh, hh), spk_df_mul(dd, dd)));
+        vec2 q = spk_df_div(spk_df_mul(spk_df_mul(dd, dd), dd), spk_df_mul(r, spk_df_add(hh, r)));
+        return -q;
+    }
+    if (m == 1.0f) {
+        return -spk_df_div(spk_df_mul(dd, dd), spk_df_add(vec2(H, 0), dd));
+    }
+    float root = pow(pow(H, m) + pow(D, m), 1.0f / m);
+    return spk_df_mul(dd, spk_df_add(spk_df_div(vec2(H, 0), vec2(root, 0)), vec2(-1, 0)));
+}
+
+void main() {
+    uint i = spk_global_index();
+    if (i >= meta_data.value[0]) return;
+    float r = input_data.value[3u * i], g = input_data.value[3u * i + 1u], b = input_data.value[3u * i + 2u];
+    float cr = max(r, 0.0f), cg = max(g, 0.0f), cb = max(b, 0.0f);
+
+    precise float v;
+    uint norm = uint(param_data.value[6]);
+    if (norm == 1u) {
+        v = param_data.value[7] * cr + param_data.value[8] * cg + param_data.value[9] * cb;
+    } else if (norm == 2u) {
+        v = max(cr, max(cg, cb));
+    } else {
+        float s2 = cr * cr + cg * cg + cb * cb;
+        v = s2 > 0.0f ? (cr * cr * cr + cg * cg * cg + cb * cb * cb) / s2 : 0.0f;
+    }
+
+    precise float k = 1.0f;
+    if (v > 0.0f && (!isnan(v) && !isinf(v))) {
+        float n_ref = param_data.value[10];
+        vec2 E = slm_log_ratio(max(v, n_ref * exp2(-24.0f)), n_ref);
+        if (E.x + E.y >= 24.0f) E = vec2(24, 0);
+        if (E.x + E.y <= -24.0f) E = vec2(-24, 0);
+        vec2 d = vec2(0);
+        // A half-frame pair: from `split` along the long edge, the second
+        // frame's own knees and rooms (param_data.value[14..17]).
+        float Kh = param_data.value[0], Hh = param_data.value[1], Ks = param_data.value[2], Hs = param_data.value[3];
+        if (param_data.value[13] > 0.0f) {
+            uint w = uint(param_data.value[11]), h = uint(param_data.value[12]);
+            float along = w >= h ? (float(i % w) + 0.5f) / float(w) : (float(i / w) + param_data.value[18] + 0.5f) / float(h);
+            if (along >= param_data.value[13]) { Kh = param_data.value[14]; Hh = param_data.value[15]; Ks = param_data.value[16]; Hs = param_data.value[17]; }
+        }
+        if (Hh > 0.0f && E.x + E.y > Kh) d = slm_departure(spk_df_add(E, vec2(-Kh, 0)), Hh, param_data.value[4]);
+        else if (Hs > 0.0f && E.x + E.y < Ks) d = -slm_departure(spk_df_add(vec2(Ks, 0), -E), Hs, param_data.value[4]);
+        if (d.x > 0.0f) {
+            vec2 L = vec2(param_data.value[5], 0);
+            d = spk_df_div(spk_df_mul(d, L), spk_df_sqrt(spk_df_add(spk_df_mul(L, L), spk_df_mul(d, d))));
+        }
+        k = clamp(exp2(d.x) * exp2(d.y), exp2(-30.0f), exp2(30.0f));
+    }
+    output_data.value[3u * i] = r * k;
+    output_data.value[3u * i + 1u] = g * k;
+    output_data.value[3u * i + 2u] = b * k;
+}

@@ -8,9 +8,15 @@
 // the file whole. Without it, `export_image` writes the engine's print and the
 // page says that the crop and the grade are not in the file.
 
-import { type Adjustments, PROPHOTO_MID_GREY, SRGB_MID_GREY, curveTables, isNeutral, layer2Pixel, layer2Uniforms } from '@shared/adjustments';
-import { type Geometry, isIdentity, outputSize, sourcePoint } from '@shared/geometry';
+import { type Adjustments,ADJUSTMENTS_DEFAULT,PROPHOTO_MID_GREY, SRGB_MID_GREY, curveTables, isNeutral, layer2Pixel, layer2Uniforms } from '@shared/adjustments';
+import { type Geometry,GEOMETRY_DEFAULT,isIdentity, outputSize, sourcePoint } from '@shared/geometry';
 import type { FilmParams } from '@shared/params';
+import { engineGeometry, hasFilmFrame, printGeometry, wireGeometry } from '@shared/filmFrame';
+import type {FrameLayout} from '@shared/filmFrame';
+import type {PairInfo} from '@shared/protocol';
+import type {PairDocument} from '@shared/pairs';
+import {composePairPixels,pairHasPresentation,presentationRects,printDelta,filmPrint} from '@shared/pairPresentation';
+import {jsonEqual} from '@shared/params';
 import type { StockCatalog } from '@shared/stocks';
 import { host } from '../host/client';
 import { baseName, dirName, joinPath, platform } from '../platform';
@@ -24,6 +30,9 @@ export interface FrameToExport {
   geometry: Geometry;
   native: { width: number; height: number };
   dateTaken?: string;
+  pairComplete?: boolean;
+  pairDocument?:PairDocument|null;
+  pairInfo?:PairInfo|null;
 }
 
 export type ExportOutcome =
@@ -46,7 +55,7 @@ export async function targetFor(r: ExportRecipe, f: FrameToExport, catalog: Stoc
     printStock: f.params.scanFilm ? 'Scan' : stockToken(catalog.stock(f.params.printStock)?.name ?? f.params.printStock),
     date: Number.isFinite(date.getTime()) ? date : new Date(),
   });
-  return { dir, base };
+  return { dir, base: r.format === 'di' ? `${base}_DI` : base };
 }
 
 /** The file's pixels: the print (rgba16) → geometry → Layer 2, at `out` size. */
@@ -95,22 +104,26 @@ export function filePixels(
 
 export function outputFor(r: ExportRecipe, g: Geometry, native: { width: number; height: number }) {
   const o = outputSize(g, native);
-  if (!r.longEdge || r.longEdge >= Math.max(o.width, o.height)) return o;
+  if (r.format === 'di' || !r.longEdge || r.longEdge >= Math.max(o.width, o.height)) return o;
   const k = r.longEdge / Math.max(o.width, o.height);
   return { width: Math.max(1, Math.round(o.width * k)), height: Math.max(1, Math.round(o.height * k)) };
 }
 
 export async function exportFrame(r: ExportRecipe, f: FrameToExport, catalog: StockCatalog, methods: readonly string[] | undefined): Promise<ExportOutcome> {
   try {
+    if(f.pairComplete===false) throw new Error('Both half-frame holes need available photographs before export.');
+    const geometry = printGeometry(f.params, f.geometry);
     const { dir, base } = await targetFor(r, f, catalog);
     await platform().ensureDir(dir);
     const target = await resolveTarget(dir, base, extensionOf(r), r.existing, (p) => platform().pathExists(p), joinPath);
     if (!target) return { kind: 'skipped', path: joinPath(dir, `${base}.${extensionOf(r)}`) };
     if (r.format === 'di') {
-      const res = await host().exportDi(f.session, f.params.printStock, target.path);
-      return { kind: 'written', path: res.path, width: 0, height: 0, carriesEdits: false };
+      if (!methods?.includes('export_cineon')) throw new Error('This host cannot export a raw Cineon Digital Intermediate.');
+      const negativeGeometry = hasFilmFrame(f.params) ? engineGeometry(f.params, f.geometry, f.native) : wireGeometry(f.geometry);
+      const res = await host().exportCineon(f.session, target.path, negativeGeometry, target.overwrite);
+      return { kind: 'written', path: res.path, width: res.width, height: res.height, carriesEdits: false };
     }
-    const edited = !isIdentity(f.geometry) || (f.adjustments.enabled && !isNeutral(f.adjustments));
+    const edited = !isIdentity(geometry) || (f.adjustments.enabled && !isNeutral(f.adjustments));
     if (hostWrites(methods)) {
       const display = r.colorSpace === 'sRGB' ? 'srgb' : r.colorSpace;
       const rr = await host().transport.request(
@@ -119,10 +132,37 @@ export async function exportFrame(r: ExportRecipe, f: FrameToExport, catalog: St
         { timeoutMs: 1_800_000 },
       );
       const info = rr.result.image as { width: number; height: number; row_bytes: number };
-      const src = new Uint16Array(rr.payload.buffer.slice(rr.payload.byteOffset, rr.payload.byteOffset + info.width * info.height * 8));
-      const out = outputFor(r, f.geometry, { width: info.width, height: info.height });
+      if (rr.payload.byteLength !== info.width * info.height * 8) throw new Error('The full-resolution export payload is incomplete.');
+      platform().log('info', `export: received ${info.width}x${info.height} rgba16; applying framing and Post-Dev`);
+      const src = rr.payload.byteOffset % 2 === 0
+        ? new Uint16Array(rr.payload.buffer, rr.payload.byteOffset, info.width * info.height * 4)
+        : new Uint16Array(rr.payload.slice().buffer);
+      const out = outputFor(r, geometry, { width: info.width, height: info.height });
       const midGrey = r.colorSpace === 'prophoto' ? PROPHOTO_MID_GREY : SRGB_MID_GREY;
-      const px = filePixels(src, { width: info.width, height: info.height }, f.geometry, f.adjustments, out, midGrey);
+      let presented=src,pregraded=false;
+      if(f.pairDocument&&pairHasPresentation(f.pairDocument,f.params,f.adjustments)) {
+        if(!methods?.includes('render_layer')||!f.pairInfo)throw new Error('This host cannot export per-hole print/grade layers');
+        const size={width:info.width,height:info.height};
+        const grade=(data:Uint16Array,a:Adjustments)=>!a.enabled||isNeutral(a)?data:filePixels(data,size,GEOMETRY_DEFAULT,a,size,midGrey);
+        const rects=presentationRects(hasFilmFrame(f.params)?(await host().transport.request('overscan_geometry',{session:f.session})).result as unknown as FrameLayout:null,f.pairInfo.rects);
+        const film=filmPrint(f.params),layers:(Uint16Array|null)[]=[];
+        for(const h of [f.pairDocument.left,f.pairDocument.right]) {
+          if(!h){layers.push(null);continue;}
+          const ownPrint=h.print&&!jsonEqual(h.print,film),ownGrade=h.adjustments&&!jsonEqual(h.adjustments,f.adjustments);
+          if(!ownPrint&&!ownGrade){layers.push(null);continue;}
+          let pixels=src;
+          if(ownPrint){
+            const layer=await host().transport.request('render_layer',{session:f.session,tier:'full',format:'rgba16',display,delta:printDelta(f.params,h.print!)},{timeoutMs:1_800_000});
+            const li=layer.result.image as {width:number;height:number};
+            if(li.width!==info.width||li.height!==info.height||layer.payload.byteLength!==src.byteLength)throw new Error('Export pair layer size mismatch');
+            pixels=new Uint16Array(layer.payload.slice().buffer);
+          }
+          layers.push(grade(pixels,h.adjustments??f.adjustments));
+        }
+        presented=composePairPixels(grade(src,f.adjustments),size,layers,rects);pregraded=true;
+      }
+      const px = filePixels(presented, { width: info.width, height: info.height }, geometry, pregraded?ADJUSTMENTS_DEFAULT:f.adjustments, out, midGrey);
+      platform().log('info', `export: writing ${out.width}x${out.height} ${hostFormat(r)}`);
       const w = await host().transport.request(
         'write_image',
         {
@@ -134,6 +174,7 @@ export async function exportFrame(r: ExportRecipe, f: FrameToExport, catalog: St
           height: out.height,
           overwrite: target.overwrite,
           source_path: f.path,
+          session:f.session,
         },
         { payload: new Uint8Array(px.buffer), timeoutMs: 600_000 },
       );

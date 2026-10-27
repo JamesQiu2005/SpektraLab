@@ -17,6 +17,21 @@ import {
 const fields = new Map((schema as { name: string; layer: string; type: string; range?: number[] }[]).map((f) => [f.name, f]));
 
 describe('the wire', () => {
+  it('resolves the stock edge print with the Mac gauge-specific names', () => {
+    const edge = { ...FILM_PARAMS_DEFAULT.filmEdge, active: true };
+    expect(fullDelta({ ...FILM_PARAMS_DEFAULT, filmEdge: edge }).overscan_edge_text).toBe('KODAK PORTRA 400');
+    expect(fullDelta({ ...FILM_PARAMS_DEFAULT, filmStock: 'kodak_gold_200', filmEdge: edge }).overscan_edge_text).toBe('KODAK GB 200-7');
+    expect(fullDelta({ ...FILM_PARAMS_DEFAULT, filmStock: 'kodak_gold_200', filmEdge: { ...edge, format: '120_6x6' } }).overscan_edge_text).toBe('KODAK 200');
+    expect(fullDelta({ ...FILM_PARAMS_DEFAULT, filmStock: 'fujifilm_pro_400h', filmEdge: { ...edge, format: '120_6x7' } }).overscan_edge_text).toBe('FUJI PRO400H');
+    expect(fullDelta({ ...FILM_PARAMS_DEFAULT, filmEdge: { ...edge, edgeText: 'CUSTOM' } }).overscan_edge_text).toBe('CUSTOM');
+  });
+  it('round-trips film carrier settings and sends them on the shoot layer', () => {
+    const p = decodeFilmParams({ ...FILM_PARAMS_DEFAULT, filmEdge: { active: true, carrier: 'open' } });
+    expect(fullDelta(p).overscan_carrier).toBe('open');
+    expect(fullDelta(decodeFilmParams({ filmEdge: { active: true } })).overscan_carrier).toBe('none');
+    expect(wire(p).find((f) => f.name === 'overscan_carrier')?.layer).toBe('shoot');
+    expect(fullDelta(p, featureGate(['overscan'])).overscan_carrier).toBeUndefined();
+  });
   it('names only fields the engine schema declares, on the engine layer, with the right types', () => {
     // Every feature on, every optional row present.
     const p = {

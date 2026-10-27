@@ -23,7 +23,14 @@ export function browserPlatform(): Platform {
   (window as unknown as Record<string, unknown>).__spkOpenPaths = (paths: string[]) => openListeners.forEach((l) => l(paths));
   return {
     kind: 'browser',
-    listImages: async (dir) => entries(dir),
+    listImages: async (dir) => {
+      const pairs:FileEntry[]=[]; const storage=ls();
+      for(let i=0;i<(storage?.length??0);i++) {
+        const key=storage!.key(i)!;
+        if(key.startsWith('pair:')) {const p=JSON.parse(storage!.getItem(key)!);if(p.folder===dir) pairs.push({path:key.slice(5),name:key.split('/').pop()!,size:1,mtime_ms:0});}
+      }
+      return [...entries(dir),...pairs];
+    },
     expandPaths: async (paths) =>
       paths.flatMap((p) => (/\.[a-z0-9]+$/i.test(p) ? [{ path: p, name: p.split('/').pop()!, size: 1, mtime_ms: 0 }] : entries(p))),
     async sidecarLoad(image) {
@@ -35,6 +42,14 @@ export function browserPlatform(): Platform {
       return 'localStorage:sidecar:' + image;
     },
     sidecarPath: async (image) => 'localStorage:sidecar:' + image,
+    pairLoad:async(path)=>JSON.parse(ls()?.getItem('pair:'+path)??'null'),
+    pairSave:async(path,value)=>{ls()?.setItem('pair:'+path,JSON.stringify(value));},
+    pairCreate:async(folder,value)=>{
+      let n=1; while(ls()?.getItem(`pair:/mock/AppData/Pairs/Half-Frame Pair ${n}.spektrapair`)) n++;
+      const name=`Half-Frame Pair ${n}.spektrapair`,path='/mock/AppData/Pairs/'+name;
+      ls()?.setItem('pair:'+path,JSON.stringify({...value as object,folder}));
+      return {path,name,size:1,mtime_ms:Date.now()};
+    },
     async storeRead(area, name) {
       const v = ls()?.getItem(`store:${area}/${name}`);
       return v ? JSON.parse(v) : null;

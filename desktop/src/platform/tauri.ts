@@ -15,6 +15,9 @@ export function tauriPlatform(): Platform {
     sidecarLoad: (image) => invoke<unknown | null>('sidecar_load', { image }),
     sidecarSave: (image, sidecar) => invoke<string>('sidecar_save', { image, sidecar }),
     sidecarPath: (image) => invoke<string>('sidecar_path', { image }),
+    pairLoad:(path)=>invoke('pair_load',{path}),
+    pairSave:(path,value)=>invoke('pair_save',{path,value}),
+    pairCreate:(folder,value)=>invoke<FileEntry>('pair_create',{folder,value}),
     storeRead: (area, name) => invoke<unknown | null>('store_read', { area, name }),
     storeWrite: (area, name, value) => invoke<void>('store_write', { area, name, value }),
     takeLaunchPaths: () => invoke<string[]>('take_launch_paths'),
@@ -32,7 +35,7 @@ export function tauriPlatform(): Platform {
         filters: [
           {
             name: 'Photographs',
-            extensions: ['nef', 'NEF', 'arw', 'ARW', 'cr2', 'CR2', 'cr3', 'CR3', 'raf', 'RAF', 'dng', 'DNG', 'orf', 'ORF', 'rw2', 'RW2', 'pef', 'PEF', 'srw', 'SRW', 'tif', 'tiff', 'TIF', 'TIFF', 'jpg', 'jpeg', 'JPG', 'JPEG', 'png', 'PNG'],
+            extensions: ['spektrapair','nef', 'NEF', 'arw', 'ARW', 'cr2', 'CR2', 'cr3', 'CR3', 'raf', 'RAF', 'dng', 'DNG', 'orf', 'ORF', 'rw2', 'RW2', 'pef', 'PEF', 'srw', 'SRW', 'tif', 'tiff', 'TIF', 'TIFF', 'jpg', 'jpeg', 'JPG', 'JPEG', 'png', 'PNG'],
           },
           { name: 'All files', extensions: ['*'] },
         ],

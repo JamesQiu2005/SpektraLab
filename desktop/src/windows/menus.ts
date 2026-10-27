@@ -9,6 +9,7 @@ import { t, tz } from '../i18n';
 import { openDialog, openExport, openFilesDialog, restartHost, revealSettings } from './actions';
 import {
   copySettings,
+  createPair,
   currentFitZoom,
   pasteSettings,
   redo,
@@ -37,6 +38,7 @@ export const MENU_CHORDS = new Set([
   'ctrl+o',
   'ctrl+shift+o',
   'ctrl+e',
+  'ctrl+j',
   'ctrl+z',
   'ctrl+shift+z',
   'ctrl+shift+c',
@@ -65,6 +67,7 @@ export async function installMenu(): Promise<void> {
       await item(tz('Open Folder…', '打开文件夹…'), () => void openDialog(), 'CmdOrCtrl+O'),
       await item(tz('Open Photographs…', '打开照片…'), () => void openFilesDialog(), 'CmdOrCtrl+Shift+O'),
       await item(tz('Export…', '导出…'), openExport, 'CmdOrCtrl+E'),
+      await item(tz('Create Half-frame Pair', '创建半格配对'),()=>void createPair(),'CmdOrCtrl+J'),
       await sep(),
       await item(tz('Settings…', '设置…'), () => setPages({ settingsOpen: true }), 'CmdOrCtrl+,'),
       await sep(),

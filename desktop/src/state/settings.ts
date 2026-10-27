@@ -13,6 +13,12 @@ import type { SideUnit } from '@shared/params';
 export type InterfaceScale = 100 | 115 | 130;
 export const INTERFACE_SCALES: InterfaceScale[] = [100, 115, 130];
 export const PREVIEW_EDGES = [3840, 2560, 1920, 1080] as const;
+// Original Theme.Metric panel ranges: the grip overlays the rail edge.
+export const PANEL_WIDTHS = { left: { min: 232, standard: 254, max: 380 }, right: { min: 280, standard: 288, max: 364 } } as const;
+export function panelWidth(side: 'left' | 'right', value: number): number {
+  const r = PANEL_WIDTHS[side];
+  return Number.isFinite(value) ? Math.min(r.max, Math.max(r.min, Math.round(value))) : r.standard;
+}
 
 export interface Settings {
   language: LanguageSetting;
@@ -28,6 +34,7 @@ export interface Settings {
   filmstripCollapsed: boolean;
   leftWidth: number;
   rightWidth: number;
+  filmEdgeBodySeed: number;
   collapsedSections: Record<string, boolean>;
   lastFolder: string | null;
   settingsPage: 'general' | 'rendering' | 'diagnostics';
@@ -47,6 +54,7 @@ export const SETTINGS_DEFAULT: Settings = {
   filmstripCollapsed: false,
   leftWidth: 254,
   rightWidth: 288,
+  filmEdgeBodySeed: 0,
   collapsedSections: {},
   lastFolder: null,
   settingsPage: 'general',
@@ -66,6 +74,8 @@ export function loadSettings(storage: Pick<Storage, 'getItem'> | null): Settings
       if (v !== undefined && (typeof v === typeof d || d === null)) out[k] = v;
     }
     const s = out as unknown as Settings;
+    s.leftWidth = panelWidth('left', s.leftWidth);
+    s.rightWidth = panelWidth('right', s.rightWidth);
     if (!INTERFACE_SCALES.includes(s.interfaceScale)) s.interfaceScale = SETTINGS_DEFAULT.interfaceScale;
     if (!(PREVIEW_EDGES as readonly number[]).includes(s.previewLongEdge)) s.previewLongEdge = SETTINGS_DEFAULT.previewLongEdge;
     return s;
@@ -115,6 +125,17 @@ function defaultStorage(): Storage | null {
 }
 
 export const settingsStore = createSettingsStore(defaultStorage());
+
+/** One body per isolated app profile, inherited by newly opened frames. */
+export function filmEdgeBodySeed(store: StoreApi<SettingsStore> = settingsStore): number {
+  const saved = store.getState().filmEdgeBodySeed;
+  if (Number.isInteger(saved) && saved > 0 && saved <= 2147483647) return saved;
+  const random = new Uint32Array(1);
+  crypto.getRandomValues(random);
+  const seed = random[0]! % 999 + 1;
+  store.getState().set('filmEdgeBodySeed', seed);
+  return seed;
+}
 export function useSettings<T>(sel: (s: SettingsStore) => T): T {
   return useStore(settingsStore, sel);
 }

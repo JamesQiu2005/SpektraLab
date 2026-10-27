@@ -30,6 +30,19 @@ settingsStore.subscribe((s) => {
 
 installKeys(inTauri() ? MENU_CHORDS : new Set());
 if (inTauri()) void installMenu().catch((e) => console.error('menu', e));
+// A native close must await recipe writes; beforeunload cannot keep IPC alive.
+if(inTauri()) void import('@tauri-apps/api/window').then(async({getCurrentWindow})=>{
+  const win=getCurrentWindow();let savedClose=false,closing=false;
+  await win.onCloseRequested(e=>{
+    if(savedClose)return;
+    e.preventDefault();
+    if(closing||sessionStore.getState().batchExporting)return;
+    closing=true;
+    void import('./state/session').then(async({flushPairChanges,flushSave})=>{
+      await flushPairChanges(false);await flushSave(true);savedClose=true;await win.close();
+    }).catch(e=>console.error('Cannot close before saving the recipe',e)).finally(()=>{closing=false;});
+  });
+});
 
 // The webview's own context menu (Reload / Inspect) is not the app's.
 if (import.meta.env.PROD) window.addEventListener('contextmenu', (e) => e.preventDefault());

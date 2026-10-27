@@ -45,13 +45,24 @@ add_library(spektralab_pipeline OBJECT
     src/pipeline/engine.cpp
     src/pipeline/pipeline.cpp
     src/pipeline/scene_latitude.cpp
+    src/pipeline/contrast_mask.cpp
+    src/pipeline/overscan.cpp
 )
 set_target_properties(spektralab_pipeline PROPERTIES POSITION_INDEPENDENT_CODE ON)
-if(APPLE)
-    target_sources(spektralab_pipeline PRIVATE
-        src/pipeline/contrast_mask.cpp src/pipeline/overscan.cpp)
-else()
-    target_sources(spektralab_pipeline PRIVATE src/pipeline/windows_unported.cpp)
+if(NOT APPLE)
+    # Embed the unmodified, openly licensed Helvetica substitute. No runtime
+    # font installation or dependency on the user's system fonts is required.
+    set(overscan_fonts "${CMAKE_CURRENT_BINARY_DIR}/generated/overscan_fonts.hpp")
+    file(MAKE_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}/generated")
+    file(WRITE "${overscan_fonts}" "// Generated from third_party/tex-gyre-heros (GUST Font License).\n#pragma once\n")
+    foreach(face regular bold)
+        set(font "${CMAKE_CURRENT_SOURCE_DIR}/third_party/tex-gyre-heros/texgyreheros-${face}.otf")
+        set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS "${font}")
+        file(READ "${font}" font_hex HEX)
+        string(REGEX REPLACE "(..)" "0x\\1," font_bytes "${font_hex}")
+        file(APPEND "${overscan_fonts}" "static const unsigned char overscan_font_${face}[] = {${font_bytes}};\n")
+    endforeach()
+    target_include_directories(spektralab_pipeline PRIVATE "${CMAKE_CURRENT_BINARY_DIR}/generated")
 endif()
 target_link_libraries(spektralab_pipeline PRIVATE spektralab_core)
 target_include_directories(spektralab_pipeline PRIVATE
@@ -115,9 +126,14 @@ if(NOT APPLE)
             spk_reduce_max spk_boost spk_bw_correct spk_edr spk_cctf_decode
             spk_zoom_bilinear_mirror spk_geometry_resample_df
             spk_lut3d_trilinear spk_di_normalise
+            spk_overscan_canvas spk_overscan_add_mask
+            spk_overscan_film_present spk_overscan_light
+            spk_scene_latitude
+            spk_di_encode
+            spk_mask_reduce spk_mask_epilogue
             CACHE INTERNAL "")
         set(vulkan_spirv)
-        file(GLOB vulkan_includes "${CMAKE_CURRENT_SOURCE_DIR}/src/shaders/vulkan/*.glsl")
+        file(GLOB vulkan_includes CONFIGURE_DEPENDS "${CMAKE_CURRENT_SOURCE_DIR}/src/shaders/vulkan/*.glsl")
         foreach(kernel ${SPEKTRALAB_VULKAN_KERNELS})
             set(shader "${CMAKE_CURRENT_SOURCE_DIR}/src/shaders/vulkan/${kernel}.comp")
             set(spirv "${vulkan_shader_dir}/${kernel}.spv")
@@ -134,6 +150,10 @@ if(NOT APPLE)
         add_custom_target(spektralab_vulkan_resources
             COMMAND "${CMAKE_COMMAND}" -E copy_directory
                     "${CMAKE_CURRENT_SOURCE_DIR}/resources" "${vulkan_resource_dir}"
+            COMMAND "${CMAKE_COMMAND}" -E copy_directory
+                    "${CMAKE_CURRENT_SOURCE_DIR}/resources_product/profiles" "${vulkan_resource_dir}/profiles"
+            COMMAND "${CMAKE_COMMAND}" -E copy_if_different
+                    "${CMAKE_CURRENT_SOURCE_DIR}/resources_product/NOTICE.md" "${vulkan_resource_dir}/PRODUCT_PROFILES_NOTICE.md"
             DEPENDS ${vulkan_spirv}
             VERBATIM)
 
@@ -176,6 +196,8 @@ if(NOT APPLE)
                     "${CMAKE_CURRENT_SOURCE_DIR}/src" "${CMAKE_CURRENT_SOURCE_DIR}/include")
                 target_link_libraries(spk_desktop_host PUBLIC spk_image_io spektralab_engine)
                 add_executable(SpektraLab WIN32 tools/windows_preview.cpp)
+                # The viewer uses Windows 10 per-monitor DPI APIs; MinGW defaults to Windows 7.
+                target_compile_definitions(SpektraLab PRIVATE WINVER=0x0A00 _WIN32_WINNT=0x0A00)
                 target_link_libraries(SpektraLab PRIVATE spk_desktop_host comctl32 comdlg32 shell32 gdi32 user32)
                 file(MAKE_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}/licenses")
                 foreach(notice LICENSE SPEKTRAFILM_LICENSE.txt)
@@ -258,7 +280,8 @@ if(NOT APPLE)
             if(SPEKTRALAB_BUILD_TEST_DLL)
                 add_executable(spk_windows_feature_boundaries tests/windows_feature_boundaries.cpp)
                 target_compile_features(spk_windows_feature_boundaries PRIVATE cxx_std_20)
-                target_include_directories(spk_windows_feature_boundaries PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/include")
+                target_include_directories(spk_windows_feature_boundaries PRIVATE
+                    "${CMAKE_CURRENT_SOURCE_DIR}/include" "${CMAKE_CURRENT_SOURCE_DIR}/src")
                 target_link_libraries(spk_windows_feature_boundaries PRIVATE spektralab_engine_shared)
                 add_test(NAME spk_windows_feature_boundaries
                     COMMAND spk_windows_feature_boundaries "${vulkan_resource_dir}")

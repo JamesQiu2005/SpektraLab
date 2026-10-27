@@ -1,5 +1,6 @@
 LIBRARY spektrafilm_engine
 EXPORTS
+    spk_overscan_geometry
     spk_engine_create
     spk_engine_destroy
     spk_capabilities

@@ -1,0 +1,70 @@
+#version 450
+#extension GL_GOOGLE_include_directive : require
+// Vulkan translation of the corresponding overscan.metal kernel (RFC-031/032).
+layout(local_size_x = 256) in;
+layout(set=0,binding=0,std430) readonly buffer Input { float value[]; } input_data;
+layout(set=0,binding=1,std430) readonly buffer Params { float value[]; } param_data;
+layout(set=0,binding=2,std430) readonly buffer Meta { uint value[]; } meta_data;
+layout(set=0,binding=3,std430) buffer Output { float value[]; } output_data;
+uint spk_global_index() {
+    return gl_GlobalInvocationID.y * (gl_NumWorkGroups.x * gl_WorkGroupSize.x) + gl_GlobalInvocationID.x;
+}
+#include "spk_overscan_common.glsl"
+
+void main() {
+    const uint i = spk_global_index();
+    if (i >= meta_data.value[0]) return;
+    const uint cw = uint(param_data.value[P_CW]);
+    const vec2 st = canvas_to_film(float(i % cw), float(i / cw));
+    const float W = param_data.value[P_FILM_W];
+    vec3 e = vec3(0.0f);
+    if (param_data.value[P_CARRIER] > 1.5f || (st.y >= 0.0f && st.y <= W)) {
+        // A pair: past the middle of the gap, the second exposure of the same gate.
+        vec2 sg = st;
+        float shift = 0.0f;
+        if (param_data.value[P_PAIR_ADV] > 0.0f && st.x > param_data.value[P_GS0] + 0.5f * (param_data.value[P_GW] + param_data.value[P_PAIR_ADV])) { shift = param_data.value[P_PAIR_ADV]; sg.x -= shift; }
+        const float cov = penumbra(gate_sdf(sg), param_data.value[P_PENUMBRA]);
+        if (cov > 0.0f) {
+            const float px = param_data.value[P_PX];
+            float fx, fy;
+            if (param_data.value[P_VERTICAL] < 0.5f) { fx = (st.x - param_data.value[P_GS0]) / px - 0.5f; fy = (st.y - param_data.value[P_GT0]) / px - 0.5f; }
+            else                      { fx = (param_data.value[P_GT0] + param_data.value[P_GH] - st.y) / px - 0.5f; fy = (st.x - param_data.value[P_GS0]) / px - 0.5f; }
+            e += cov * sample_frame(fx, fy, uint(param_data.value[P_FW]), uint(param_data.value[P_FH]));
+        }
+        // Gate flare: the gate's bevelled edge reflects scene light onto the
+        // film just outside the frame -- a thin line that follows the scene's
+        // brightness along the edge (bright sky, bright line).
+        const float d_gate = gate_sdf(sg);
+        if (param_data.value[P_FLARE_AMP] > 0.0f && d_gate > -0.02f && d_gate < 6.0f * param_data.value[P_FLARE_WIDTH]) {
+            const float px = param_data.value[P_PX];
+            const float in_s = clamp(sg.x, param_data.value[P_GS0] + 0.12f, param_data.value[P_GS0] + param_data.value[P_GW] - 0.12f) + shift;
+            const float in_t = clamp(st.y, param_data.value[P_GT0] + 0.12f, param_data.value[P_GT0] + param_data.value[P_GH] - 0.12f);
+            float fx, fy;
+            if (param_data.value[P_VERTICAL] < 0.5f) { fx = (in_s - param_data.value[P_GS0]) / px - 0.5f; fy = (in_t - param_data.value[P_GT0]) / px - 0.5f; }
+            else                      { fx = (param_data.value[P_GT0] + param_data.value[P_GH] - in_t) / px - 0.5f; fy = (in_s - param_data.value[P_GS0]) / px - 0.5f; }
+            const vec3 edge_light = sample_frame(fx, fy, uint(param_data.value[P_FW]), uint(param_data.value[P_FH]));
+            const float prof = exp(-max(d_gate, 0.0f) / param_data.value[P_FLARE_WIDTH]);
+            e += param_data.value[P_FLARE_AMP] * prof * edge_light;
+        }
+        // Edge fog: warm exposure decaying inward from each long edge, slowly
+        // varying along the length; and the spool leaks, seeded blobs on an edge.
+        // (clamped: the canvas reaches past the film, where there is none to fog)
+        const float d_top = max(st.y, 0.0f), d_bot = max(W - st.y, 0.0f);
+        const uint seed = uint(param_data.value[P_FOG_SEED]);
+        const float period = max(param_data.value[P_FOG_PERIOD], 0.1f);
+        const float nz = 0.6f * value_noise(st.x / period, seed) +
+                         0.4f * value_noise(st.x / (0.37f * period), seed ^ 0xA5A5A5A5u);
+        float fog = param_data.value[P_FOG_AMP] * exp(-min(d_top, d_bot) / max(param_data.value[P_FOG_WIDTH], 1e-3f)) * (0.3f + 0.7f * nz);
+        const uint nl = uint(param_data.value[P_N_LEAKS]);
+        for (uint k = 0; k < nl; ++k) {
+            const uint b = P_LEAKS + 5u * k;
+            const float dd = param_data.value[b + 1u] < 0.5f ? d_top : d_bot;
+            const float ds = st.x - param_data.value[b];
+            fog += param_data.value[b + 2u] * exp(-ds * ds / (2.0f * param_data.value[b + 3u] * param_data.value[b + 3u])) * exp(-dd / param_data.value[b + 4u]);
+        }
+        e += fog * vec3(param_data.value[P_FOG_R], param_data.value[P_FOG_G], param_data.value[P_FOG_B]);
+    }
+    output_data.value[3u * i] = e.x;
+    output_data.value[3u * i + 1u] = e.y;
+    output_data.value[3u * i + 2u] = e.z;
+}

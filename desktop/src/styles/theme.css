@@ -123,6 +123,35 @@ input {
   min-height: 0;
   overflow: hidden;
 }
+.rail-shell {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  min-height: 0;
+}
+.rail-shell > .rail { flex: 1; }
+.rail-resize {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  width: 6px;
+  z-index: 20;
+  cursor: col-resize;
+  touch-action: none;
+  outline: none;
+}
+.rail-resize.left { right: -3px; }
+.rail-resize.right { left: -3px; }
+.rail-resize:hover::after, .rail-resize:focus-visible::after {
+  content: '';
+  position: absolute;
+  left: 3px;
+  width: 1px;
+  height: 100%;
+  background: var(--accent);
+  opacity: 0.8;
+}
 .rail.left {
   border-right: 1px solid var(--rule-region);
 }
@@ -228,6 +257,20 @@ input {
 }
 
 /* ------------------------------------------------------------------ canvas */
+
+/* A wide rail must not push the bar's controls out of the centre. The zoom
+ * menu retains every scale when its duplicate +/- buttons no longer fit. */
+.centre { container-type: inline-size; }
+@container (max-width: 620px) {
+  .topbar { padding: 0 6px; gap: 0; }
+  .topbar .bar-gap { display: none; }
+  .topbar > .icon-btn { flex: 0 0 24px; width: 24px !important; }
+  .topbar > .action-pill { flex: 0 0 60px; min-width: 60px; padding: 0 5px; font-size: 12px; }
+  .topbar > .bar-status { padding-left: 0; }
+}
+@container (max-width: 420px) {
+  .topbar > .zoom-step-btn { display: none; }
+}
 
 .canvas-wrap {
   position: relative;
@@ -792,6 +835,12 @@ input {
   color: var(--on-selection);
   font-weight: 600;
 }
+.pair-layer-buttons .btn {
+  min-width: 0;
+  flex: 1 1 0;
+  white-space: nowrap;
+  padding-inline: 6px;
+}
 .btn:hover:not(:disabled) {
   filter: brightness(1.1);
 }
@@ -925,3 +974,37 @@ input {
   background: var(--export-chip);
   color: var(--text);
 }
+.crop-reference {
+  position: absolute;
+  top: 8px;
+  left: 8px;
+  padding: 4px 8px;
+  border-radius: 4px;
+  background: #252525dc;
+  color: var(--text);
+  font-size: var(--fs-small);
+  pointer-events: none;
+}
+.pair-placement-gate {
+  position: absolute;
+  overflow: hidden;
+  pointer-events: none;
+  outline: 1px solid var(--selection-frame);
+}
+.pair-placement-gate.placing { outline-width: 2px; }
+.pair-placement-bar {
+  position: absolute;
+  bottom: 12px;
+  left: 50%;
+  transform: translateX(-50%);
+  max-width: calc(100% - 24px);
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 5px 8px;
+  background: #252525ed;
+  border-radius: 5px;
+  font-size: var(--fs-small);
+}
+.pair-placement-bar span { min-width: 0; }
+.pair-placement-bar .btn { flex-shrink: 0; }

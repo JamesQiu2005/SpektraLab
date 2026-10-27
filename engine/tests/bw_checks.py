@@ -11,7 +11,7 @@ directory and points the engine there. Grain, glare and halation are off:
 what is compared is the tone path. Against an engine from before
 `camera_filter` the filter checks fail (`unknown parameter`).
 """
-import argparse, json, os, sys, tempfile
+import argparse, json, os, sys, tempfile, shutil
 from pathlib import Path
 import numpy as np
 
@@ -32,16 +32,21 @@ PATCHES = {"grey": (.184, .184, .184), "red": (.45, .04, .03), "green": (.08, .2
 P = 64
 
 
-def overlay(tmp):
+def overlay(tmp, base=None):
     """engine/resources with the product's profiles laid over it, by symlink."""
     res = Path(tmp) / "resources"
     (res / "profiles").mkdir(parents=True)
-    for f in (ENGINE / "resources").iterdir():
+    base=base or ENGINE/'resources'
+    def stage(f,target):
+        if os.name=='nt':
+            if f.is_dir():shutil.copytree(f,target)
+            else:shutil.copy2(f,target)
+        else:os.symlink(f,target)
+    for f in base.iterdir():
         if f.name != "profiles":
-            os.symlink(f, res / f.name)
-    for d in (ENGINE / "resources" / "profiles", ENGINE / "resources_product" / "profiles"):
-        for f in d.glob("*.json"):
-            os.symlink(f, res / "profiles" / f.name)
+            stage(f, res / f.name)
+    profiles={f.name:f for d in (base/'profiles',ENGINE/'resources_product/profiles') for f in d.glob('*.json')}
+    for name,f in profiles.items():stage(f,res/'profiles'/name)
     return res
 
 
@@ -79,6 +84,7 @@ def density(enc):
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--dylib", type=Path, default=None)
+    ap.add_argument("--resources", type=Path, default=None,help='Built resources, including Vulkan SPIR-V on Windows')
     a = ap.parse_args()
     grades = json.loads((ENGINE / "resources_product" / "paper_grades.json").read_text())["grades"]
     pack = lambda g, film: {"film_stock": film, "c_filter_neutral": 0.0, **grades[g]}
@@ -89,7 +95,7 @@ def main():
         print(("PASS " if ok else "FAIL ") + what + (" -- " + detail if detail else ""))
         fails += 0 if ok else 1
 
-    with tempfile.TemporaryDirectory() as tmp, spk.Engine(dylib=a.dylib, resources=overlay(tmp)) as e:
+    with tempfile.TemporaryDirectory() as tmp, spk.Engine(dylib=a.dylib, resources=overlay(tmp,a.resources)) as e:
         for film in FILMS:
             names = list(PATCHES)
             base = cells(render(e, chart(), pack("2", film)), len(names))

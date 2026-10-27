@@ -1,0 +1,154 @@
+#version 450
+#extension GL_GOOGLE_include_directive : require
+// nodes.metal::spk_di_encode, original Cineon/Oklab equations and parameter order.
+layout(local_size_x = 256) in;
+layout(set=0,binding=0,std430) readonly buffer Input { float value[]; } input_data;
+layout(set=0,binding=1,std430) readonly buffer Params { float value[]; } param_data;
+layout(set=0,binding=2,std430) readonly buffer Meta { uint value[]; } meta_data;
+layout(set=0,binding=3,std430) writeonly buffer Output { float value[]; } output_data;
+uint spk_global_index() {
+    return gl_GlobalInvocationID.y * (gl_NumWorkGroups.x * gl_WorkGroupSize.x) + gl_GlobalInvocationID.x;
+}
+#include "spk_float_pair.glsl"
+vec3 spk_log10(vec3 v) { return log(v) * 0.4342944819032518; }
+const vec2 SPK_PI_PAIR=vec2(3.1415927410125732422,-8.742278000372484e-8);
+vec2 spk_atan2_pair(vec2 y,vec2 x) {
+    bool negative_y=y.x<0.0, negative_x=x.x<0.0;
+    vec2 ay=negative_y ? -y:y, ax=negative_x ? -x:x;
+    if (ax.x==0.0 && ay.x==0.0) return vec2(0);
+    bool swap_axes=ay.x>ax.x;
+    vec2 t=swap_axes ? spk_df_div(ax,ay):spk_df_div(ay,ax), base=vec2(0);
+    if (t.x>0.4142135623730951) {
+        t=spk_df_div(spk_df_add(t,vec2(-1,0)),spk_df_add(t,vec2(1,0)));
+        base=spk_df_mul_f(SPK_PI_PAIR,0.25);
+    }
+    vec2 square=spk_df_mul(t,t),term=t,sum=t;
+    for (int k=1;k<=12;++k) {
+        term=-spk_df_mul(term,square);
+        sum=spk_df_add(sum,spk_df_div(term,vec2(float(2*k+1),0)));
+    }
+    vec2 angle=spk_df_add(base,sum);
+    if (swap_axes) angle=spk_df_sub(spk_df_mul_f(SPK_PI_PAIR,0.5),angle);
+    if (negative_x) angle=spk_df_sub(SPK_PI_PAIR,angle);
+    return negative_y ? -angle:angle;
+}
+vec2 spk_cos_pair(vec2 angle) {
+    vec2 square=spk_df_mul(angle,angle),term=vec2(1,0),sum=term;
+    for (int k=1;k<=12;++k) {
+        term=-spk_df_div(spk_df_mul(term,square),vec2(float((2*k-1)*(2*k)),0));
+        sum=spk_df_add(sum,term);
+    }
+    return sum;
+}
+vec2 spk_sin_pair(vec2 angle) {
+    vec2 square=spk_df_mul(angle,angle),term=angle,sum=term;
+    for (int k=1;k<=12;++k) {
+        term=-spk_df_div(spk_df_mul(term,square),vec2(float((2*k)*(2*k+1)),0));
+        sum=spk_df_add(sum,term);
+    }
+    return sum;
+}
+vec2 spk_log2_pair(float value) {
+    int exponent;
+    float mantissa=2.0*frexp(value,exponent); exponent-=1;
+    if (mantissa>1.4142135623730951) { mantissa*=0.5; exponent+=1; }
+    vec2 z=spk_df_div(spk_df_sum(mantissa,-1.0),spk_df_sum(mantissa,1.0));
+    vec2 z2=spk_df_mul(z,z), term=z, sum=z;
+    // |z| <= .172: the omitted atanh tail is below 2e-11 in log2.
+    for (int k=1;k<=6;++k) {
+        term=spk_df_mul(term,z2);
+        sum=spk_df_add(sum,spk_df_div(term,vec2(float(2*k+1),0)));
+    }
+    return spk_df_add(vec2(float(exponent),0),spk_df_mul(spk_df_mul_f(sum,2.0),vec2(1.4426950216293334961,1.9259629911266175e-8)));
+}
+vec2 spk_pow10_pair(vec2 exponent) {
+    vec2 e = spk_df_mul(exponent, vec2(3.3219280242919921875, 7.059536975883716e-8));
+    precise float value = exp2(e.x);
+    if (!(value>0.0) || isinf(value)) return vec2(value,0);
+    // Correct the hardware exp2 estimate before colour-channel cancellation
+    // can amplify its last ulps. Preserve the low word of the same 10^x.
+    vec2 residual=spk_df_sub(e,spk_log2_pair(value));
+    return spk_df_sum(value,value*(residual.x+residual.y)*0.6931471805599453);
+}
+vec2 spk_cbrt_pair(vec2 v) {
+    if (!(v.x > 0.0)) return vec2(0);
+    precise float root = pow(v.x,1.0/3.0);
+    vec2 square = spk_df_prod(root,root);
+    vec2 remainder = spk_df_sub(v,spk_df_mul_f(square,root));
+    return spk_df_add(vec2(root,0),spk_df_div(remainder,spk_df_mul_f(square,3.0)));
+}
+void main() {
+    uint i = spk_global_index();
+    if (i >= meta_data.value[0]) return;
+    vec2 positive[3];
+    for (int c = 0; c < 3; ++c) {
+        if (isinf(input_data.value[3u*i+uint(c)]) && input_data.value[3u*i+uint(c)] < 0.0)
+            positive[c] = vec2(0);
+        else positive[c] = spk_pow10_pair(spk_df_sum(input_data.value[3u*i+uint(c)], param_data.value[9+c]));
+        positive[c] = spk_df_sub(positive[c], spk_df_mul_f(spk_pow10_pair(vec2(param_data.value[9+c], 0)), param_data.value[40]));
+    }
+    // The base is black: the same floor on every channel, scaled with the
+    // live gain so brightness and the filters never lift it.
+    precise vec3 lin;
+    vec2 linear_pair[3];
+    for (int c = 0; c < 3; ++c) {
+        vec2 v = vec2(0);
+        for (int j = 0; j < 3; ++j) v = spk_df_add(v, spk_df_mul_f(positive[j], param_data.value[3*j+c]));
+        lin[c] = v.x + v.y;
+        linear_pair[c] = v;
+    }
+    if (param_data.value[30] != 0.0f) {
+        // Oklab (Ottosson 2020); the window sits on the output hue and fades
+        // out below a chroma floor, so greys and every other hue are exact.
+        vec2 lms[3];
+        for (int c=0;c<3;++c) {
+            vec2 value=vec2(0);
+            for (int j=0;j<3;++j) value=spk_df_add(value,spk_df_mul_f(linear_pair[j],param_data.value[12+3*c+j]));
+            lms[c]=spk_cbrt_pair(value);
+        }
+        const vec3 oklab[3]=vec3[3](vec3(0.2104542553,0.7936177850,-0.0040720468),vec3(1.9779984951,-2.4285922050,0.4505937099),vec3(0.0259040371,0.7827717662,-0.8086757660));
+        vec2 lab[3];
+        for (int c=0;c<3;++c) {
+            lab[c]=vec2(0);
+            for (int j=0;j<3;++j) lab[c]=spk_df_add(lab[c],spk_df_mul_f(lms[j],oklab[c][j]));
+        }
+        vec2 chroma=spk_df_sqrt(spk_df_add(spk_df_mul(lab[1],lab[1]),spk_df_mul(lab[2],lab[2])));
+        vec2 hue = spk_df_mul(spk_atan2_pair(lab[2],lab[1]),vec2(57.295780181884765625,-6.688024455803441e-7));
+        vec2 distance = spk_df_add(hue,vec2(-param_data.value[33],0));
+        if (distance.x+distance.y < -180.0) distance=spk_df_add(distance,vec2(360,0));
+        if (distance.x+distance.y > 180.0) distance=spk_df_add(distance,vec2(-360,0));
+        precise float d = distance.x+distance.y;
+        vec2 weight=vec2(0);
+        if (abs(d)<param_data.value[34]) {
+            vec2 phase=spk_df_div(spk_df_mul(SPK_PI_PAIR,distance),vec2(param_data.value[34],0));
+            weight=spk_df_mul_f(spk_df_add(vec2(1,0),spk_cos_pair(phase)),0.5);
+        }
+        vec2 g=spk_df_div(spk_df_add(chroma,vec2(-param_data.value[35],0)),spk_df_sum(param_data.value[36],-param_data.value[35]));
+        if (g.x+g.y<=0.0) g=vec2(0); else if (g.x+g.y>=1.0) g=vec2(1,0);
+        weight=spk_df_mul(weight,spk_df_mul(spk_df_mul(g,g),spk_df_add(vec2(3,0),spk_df_mul_f(g,-2.0))));
+        if (weight.x > 0.0f) {
+            // Rotate the existing a/b vector by the same hue increment.
+            // Avoid quantising its absolute angle and then reconstructing it:
+            // that round trip loses precision in bright, saturated blues.
+            vec2 angle=spk_df_div(spk_df_mul_f(spk_df_mul(weight,SPK_PI_PAIR),param_data.value[31]),vec2(180,0));
+            vec2 cosine=spk_cos_pair(angle),sine=spk_sin_pair(angle);
+            vec2 scale = spk_df_add(vec2(1,0),spk_df_mul(weight,spk_df_sum(param_data.value[32],-1.0)));
+            vec2 aa=spk_df_mul(scale,spk_df_sub(spk_df_mul(lab[1],cosine),spk_df_mul(lab[2],sine)));
+            vec2 bb=spk_df_mul(scale,spk_df_add(spk_df_mul(lab[1],sine),spk_df_mul(lab[2],cosine)));
+            vec2 roots[3];
+            const vec2 inverse[3]=vec2[3](vec2(0.3963377774,0.2158037573),vec2(-0.1055613458,-0.0638541728),vec2(-0.0894841775,-1.2914855480));
+            for (int c=0;c<3;++c) roots[c]=spk_df_add(lab[0],spk_df_add(spk_df_mul_f(aa,inverse[c].x),spk_df_mul_f(bb,inverse[c].y)));
+            vec2 cubes[3];
+            for (int c = 0; c < 3; ++c) cubes[c] = spk_df_mul(spk_df_mul(roots[c],roots[c]),roots[c]);
+            for (int c = 0; c < 3; ++c) {
+                vec2 value = vec2(0);
+                for (int j = 0; j < 3; ++j) value = spk_df_add(value,spk_df_mul_f(cubes[j],param_data.value[21+3*c+j]));
+                lin[c] = value.x + value.y;
+            }
+        }
+    }
+    // Kodak's Cineon encode with the black offset (`log_encoding_Cineon`).
+    precise vec3 code = (param_data.value[37] + param_data.value[38] * spk_log10(max(lin, 0.0f) * (1.0f - param_data.value[41]) + param_data.value[41])) / param_data.value[39];
+    code = clamp(code, 0.0f, 1.0f);
+    output_data.value[3u * i] = code.x; output_data.value[3u * i + 1u] = code.y; output_data.value[3u * i + 2u] = code.z;
+}

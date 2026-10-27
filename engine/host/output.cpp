@@ -435,6 +435,11 @@ public:
         for (uint32_t x : {num, den}) for (int i = 0; i < 4; ++i) v.push_back(uint8_t(x >> (8 * i)));
         add(tag, 5, 1, v);
     }
+    void signed_rational(uint16_t tag, int32_t num, int32_t den) {
+        std::vector<uint8_t> v;
+        for (int32_t x : {num, den}) for (int i = 0; i < 4; ++i) v.push_back(uint8_t(uint32_t(x) >> (8 * i)));
+        add(tag, 10, 1, v);
+    }
     void undefined(uint16_t tag, const std::vector<uint8_t>& bytes) { add(tag, 7, uint32_t(bytes.size()), bytes); }
     // A LONG whose value is filled in by `serialize`'s caller (sub-IFD and
     // strip offsets); returns a handle to `patch`.
@@ -449,7 +454,7 @@ public:
         for (const auto& e : entries_) if (e.data.size() > 4) n += e.data.size() + (e.data.size() & 1);
         return n;
     }
-    std::vector<uint8_t> serialize(size_t at) {
+    std::vector<uint8_t> serialize(size_t at, uint32_t next_ifd = 0) {
         std::sort(entries_.begin(), entries_.end(), [](const E& a, const E& b) { return a.tag < b.tag; });
         std::vector<uint8_t> out;
         auto u16 = [&](uint16_t v) { out.push_back(uint8_t(v)); out.push_back(uint8_t(v >> 8)); };
@@ -469,7 +474,7 @@ public:
                 if (tail.size() & 1) tail.push_back(0);
             }
         }
-        u32(0);
+        u32(next_ifd);
         out.insert(out.end(), tail.begin(), tail.end());
         return out;
     }
@@ -496,9 +501,16 @@ static void exif_fields(IfdBuilder& exif, const Exif& e, uint32_t w, uint32_t h)
     if (e.iso > 0) exif.shorts(0x8827, {uint16_t(std::min(e.iso, 65535.0))});
     exif.ascii(0x9003, e.datetime_original);
     rational_value(exif, 0x920A, e.focal_mm, false);
+    if (e.focal_35mm && *e.focal_35mm > 0 && *e.focal_35mm <= 65535)
+        exif.shorts(0xA405, {uint16_t(std::lround(*e.focal_35mm))});
+    if (e.exposure_program && *e.exposure_program >= 1 && *e.exposure_program <= 8)
+        exif.shorts(0x8822, {uint16_t(*e.exposure_program)});
+    if (e.exposure_bias_ev && std::isfinite(*e.exposure_bias_ev) && std::abs(*e.exposure_bias_ev) < 1000)
+        exif.signed_rational(0x9204, int32_t(std::lround(*e.exposure_bias_ev * 10000)), 10000);
     exif.ascii(0xA434, e.lens);
     exif.longs(0xA002, {w});
     exif.longs(0xA003, {h});
+    if (e.uncalibrated) exif.shorts(0xA001, {0xFFFF});
 }
 
 static void ifd0_fields(IfdBuilder& ifd, const Exif* e) {
@@ -526,7 +538,8 @@ std::vector<uint8_t> exif_block(const Exif& e, uint32_t w, uint32_t h) {
 }
 
 bool encode_tiff(const void* rgb, uint32_t w, uint32_t h, uint32_t bits, const std::vector<uint8_t>& icc,
-                 std::vector<uint8_t>& out, std::string& error, const Exif* exif_fields_in) {
+                 std::vector<uint8_t>& out, std::string& error, const Exif* exif_fields_in,
+                 const TiffPreview* preview) {
     if (bits != 8 && bits != 16) { error = "TIFF bits must be 8 or 16"; return false; }
     const uint64_t row_bytes = uint64_t(w) * 3 * (bits / 8);
     const uint64_t image_bytes = row_bytes * h;
@@ -562,13 +575,35 @@ bool encode_tiff(const void* rgb, uint32_t w, uint32_t h, uint32_t bits, const s
     }
     const size_t ifd_at = 8, exif_at = ifd_at + ifd.size();
     const size_t pixel_at = (exif_at + (exif_fields_in ? exif.size() : 0) + 15) & ~size_t(15);
+    const size_t preview_at = preview ? (pixel_at + size_t(image_bytes) + 1) & ~size_t(1) : 0;
+    IfdBuilder reduced;
+    size_t preview_pixels = 0;
+    if (preview) {
+        const uint64_t count = uint64_t(preview->width) * preview->height * 3;
+        if (!preview->width || !preview->height || count != preview->rgb.size()) {
+            error = "invalid TIFF preview dimensions or RGB payload"; return false;
+        }
+        reduced.longs(254, {1});  // reduced-resolution image, TIFF 6.0
+        reduced.longs(256, {preview->width}); reduced.longs(257, {preview->height});
+        reduced.shorts(258, {8, 8, 8}); reduced.shorts(259, {1}); reduced.shorts(262, {2});
+        const auto strip = reduced.placeholder(273, 1);
+        reduced.shorts(274, {1}); reduced.shorts(277, {3});
+        reduced.longs(278, {preview->height}); reduced.longs(279, {uint32_t(count)});
+        reduced.shorts(284, {1});
+        reduced.ascii(270, "SpektraLab Cineon DI view preview");
+        ifd0_fields(reduced, nullptr);
+        if (!preview->icc.empty()) reduced.undefined(34675, preview->icc);
+        preview_pixels = (preview_at + reduced.size() + 15) & ~size_t(15);
+        if (preview_pixels + count > 0xF0000000ull) { error = "TIFF and preview exceed classic TIFF size"; return false; }
+        reduced.patch(strip, {uint32_t(preview_pixels)});
+    }
     std::vector<uint32_t> offs(strips);
     for (uint32_t s = 0; s < strips; ++s) offs[s] = uint32_t(pixel_at + uint64_t(s) * rows_per_strip * row_bytes);
     ifd.patch(offsets, offs);
     if (exif_fields_in) ifd.patch(exif_pointer, {uint32_t(exif_at)});
 
     out.assign({'I', 'I', 42, 0, 8, 0, 0, 0});
-    const auto a = ifd.serialize(ifd_at);
+    const auto a = ifd.serialize(ifd_at, uint32_t(preview_at));
     out.insert(out.end(), a.begin(), a.end());
     if (exif_fields_in) {
         const auto b = exif.serialize(exif_at);
@@ -585,6 +620,13 @@ bool encode_tiff(const void* rgb, uint32_t w, uint32_t h, uint32_t bits, const s
             out[start + 2 * i] = uint8_t(src[i]);
             out[start + 2 * i + 1] = uint8_t(src[i] >> 8);
         }
+    }
+    if (preview) {
+        out.resize(preview_at, 0);
+        const auto reduced_ifd = reduced.serialize(preview_at);
+        out.insert(out.end(), reduced_ifd.begin(), reduced_ifd.end());
+        out.resize(preview_pixels, 0);
+        out.insert(out.end(), preview->rgb.begin(), preview->rgb.end());
     }
     return true;
 }

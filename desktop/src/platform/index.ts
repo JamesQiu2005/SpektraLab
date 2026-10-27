@@ -30,6 +30,9 @@ export interface Platform {
   sidecarLoad(image: string): Promise<unknown | null>;
   sidecarSave(image: string, sidecar: unknown): Promise<string>;
   sidecarPath(image: string): Promise<string>;
+  pairLoad(path: string): Promise<unknown>;
+  pairSave(path: string, value: unknown): Promise<void>;
+  pairCreate(folder: string, value: unknown): Promise<FileEntry>;
   storeRead(area: string, name: string): Promise<unknown | null>;
   storeWrite(area: string, name: string, value: unknown): Promise<void>;
   takeLaunchPaths(): Promise<string[]>;

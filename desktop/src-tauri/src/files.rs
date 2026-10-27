@@ -21,7 +21,7 @@ pub const IMAGE_EXTENSIONS: &[&str] = &[
     "3fr", "ari", "arw", "bay", "cr2", "cr3", "crw", "dcr", "dng", "erf", "fff", "iiq", "k25", "kdc", "mef",
     "mos", "mrw", "nef", "nrw", "orf", "pef", "raf", "raw", "rw2", "rwl", "sr2", "srf", "srw", "x3f",
     // rasters
-    "tif", "tiff", "jpg", "jpeg", "png",
+    "tif", "tiff", "jpg", "jpeg", "png", "spektrapair",
 ];
 
 pub fn is_image(p: &Path) -> bool {
@@ -39,7 +39,7 @@ pub struct Entry {
     pub mtime_ms: f64,
 }
 
-fn entry(p: &Path) -> Option<Entry> {
+pub fn entry(p: &Path) -> Option<Entry> {
     let md = fs::metadata(p).ok()?;
     let mtime_ms = md
         .modified()
@@ -53,6 +53,53 @@ fn entry(p: &Path) -> Option<Entry> {
         size: md.len(),
         mtime_ms,
     })
+}
+
+pub fn pair_load(path: &Path) -> Result<Value,String> {
+    if path.extension().and_then(|s|s.to_str())!=Some("spektrapair") {return Err("not a half-frame pair file".into());}
+    if fs::metadata(path).map_err(|e|e.to_string())?.len()>1024*1024 {return Err("pair JSON exceeds 1 MiB".into());}
+    let value:Value=serde_json::from_slice(&fs::read(path).map_err(|e|e.to_string())?).map_err(|e|e.to_string())?;
+    validate_pair(&value)?; Ok(value)
+}
+fn validate_pair(value:&Value)->Result<(),String> {
+    if !value.is_object() || value.get("schemaVersion").and_then(Value::as_u64).unwrap_or(1)!=1 || !value.get("folder").map(Value::is_string).unwrap_or(false) {
+        return Err("invalid half-frame pair document".into());
+    }
+    for side in ["left","right"] {
+        if let Some(h)=value.get(side).filter(|v|!v.is_null()) {
+            let p=h.get("path").and_then(Value::as_str).ok_or("a pair hole needs a path")?;
+            if !Path::new(p).is_absolute() || p.to_ascii_lowercase().ends_with(".spektrapair") {return Err("a pair hole needs an absolute photograph path".into());}
+        }
+    } Ok(())
+}
+pub fn pair_save(path:&Path,value:&Value)->Result<(),String> {
+    if !path.is_absolute() || path.extension().and_then(|s|s.to_str())!=Some("spektrapair") {return Err("only absolute .spektrapair recipes can be saved".into());}
+    validate_pair(value)?;
+    let bytes=serde_json::to_vec_pretty(value).map_err(|e|e.to_string())?;
+    if bytes.len()>1024*1024 {return Err("pair JSON exceeds 1 MiB".into());}
+    write_atomic(path,&bytes)
+}
+pub fn stored_pairs(store:&Path,folder:&Path)->Vec<Entry> {
+    let wanted=standardized(folder);
+    let Ok(entries)=fs::read_dir(store) else{return Vec::new()};
+    entries.filter_map(Result::ok).filter_map(|e| {
+        let path=e.path(); let value=pair_load(&path).ok()?;
+        let f=PathBuf::from(value.get("folder")?.as_str()?);
+        if standardized(&f)!=wanted {return None;} entry(&path)
+    }).collect()
+}
+pub fn pair_create(store:&Path,folder:&Path,value:&Value)->Result<Entry,String> {
+    static CREATE: std::sync::Mutex<()> = std::sync::Mutex::new(());
+    let _guard=CREATE.lock().map_err(|_|"pair creation lock failed")?;
+    let mut value=value.clone(); value["folder"]=json!(standardized(folder).display().to_string());
+    validate_pair(&value)?;
+    let digest=Sha256::digest(standardized(folder).to_string_lossy().as_bytes());
+    let tag:String=digest.iter().take(3).map(|b|format!("{b:02x}")).collect();
+    for n in 1..100000 {
+        let p=store.join(format!("Half-Frame Pair {n} {tag}.spektrapair"));
+        if p.exists() {continue;}
+        pair_save(&p,&value)?; return entry(&p).ok_or("saved pair is unreadable".into());
+    } Err("too many pairs in this folder".into())
 }
 
 /// The photographs directly in `dir`, by name (case-insensitive, natural
@@ -235,15 +282,19 @@ mod tests {
 
     #[test]
     fn key_is_name_and_sixteen_hex() {
-        let k = sidecar_key(Path::new("/photos/a/../b/DSC_0001.NEF"));
+        #[cfg(windows)]
+        let (input, canonical) = (r"C:\photos\a\..\b\DSC_0001.NEF", r"C:\photos\b\DSC_0001.NEF");
+        #[cfg(not(windows))]
+        let (input, canonical) = ("/photos/a/../b/DSC_0001.NEF", "/photos/b/DSC_0001.NEF");
+        let k = sidecar_key(Path::new(input));
         assert!(k.starts_with("DSC_0001.NEF-"));
         assert!(k.ends_with(".spektra.json"));
         let hex = &k["DSC_0001.NEF-".len()..k.len() - ".spektra.json".len()];
         assert_eq!(hex.len(), 16);
         // `..` resolved: the same key as the standardized path.
-        assert_eq!(k, sidecar_key(Path::new("/photos/b/DSC_0001.NEF")));
-        // sha256("/photos/b/DSC_0001.NEF")[:16], computed independently.
-        let d = Sha256::digest(b"/photos/b/DSC_0001.NEF");
+        assert_eq!(k, sidecar_key(Path::new(canonical)));
+        // Hash an independent literal, with the native platform's separators.
+        let d = Sha256::digest(canonical.as_bytes());
         let want: String = d.iter().take(8).map(|b| format!("{b:02x}")).collect();
         assert_eq!(hex, want);
     }
@@ -281,5 +332,25 @@ mod tests {
         assert!(is_image(Path::new("a/b.tiff")));
         assert!(!is_image(Path::new("a/b.xmp")));
         assert!(!is_image(Path::new("a/b.spektra.json")));
+        assert!(is_image(Path::new("a/b.spektrapair")));
+    }
+
+    #[test]
+    fn pairs_are_atomic_isolated_recipes_and_never_overwrite_photographs() {
+        let stamp=std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos();
+        let root=std::env::temp_dir().join(format!("spk-pair-store-{}-{stamp}",std::process::id()));
+        fs::create_dir(&root).unwrap(); let photos=root.join("photos"); fs::create_dir(&photos).unwrap();
+        let photo=photos.join("a.ARW"); fs::write(&photo,b"original input").unwrap();
+        let value=json!({"schemaVersion":1,"folder":photos.display().to_string(),"left":{"path":photo.display().to_string()},"right":null,"future":"preserve"});
+        let store=root.join("Pairs"); let first=pair_create(&store,&photos,&value).unwrap();
+        let second=pair_create(&store,&photos,&value).unwrap(); assert_ne!(first.path,second.path);
+        let mut loaded=pair_load(Path::new(&first.path)).unwrap(); assert_eq!(loaded["future"],"preserve");
+        loaded["left"]["exposureEV"]=json!(1.25); pair_save(Path::new(&first.path),&loaded).unwrap();
+        assert_eq!(pair_load(Path::new(&first.path)).unwrap()["left"]["exposureEV"],1.25);
+        assert_eq!(stored_pairs(&store,&photos).len(),2); assert!(stored_pairs(&store,&root.join("other")).is_empty());
+        assert!(pair_save(&photo,&loaded).is_err()); assert_eq!(fs::read(&photo).unwrap(),b"original input");
+        loaded["left"]["path"]=json!(first.path); assert!(pair_save(Path::new(&second.path),&loaded).is_err());
+        let canonical=root.canonicalize().unwrap(); assert!(canonical.starts_with(std::env::temp_dir().canonicalize().unwrap()));
+        fs::remove_dir_all(canonical).unwrap();
     }
 }

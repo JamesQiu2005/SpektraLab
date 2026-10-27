@@ -1,0 +1,29 @@
+#version 450
+#extension GL_GOOGLE_include_directive : require
+// RFC-024 contrast_mask.metal, original parameter order and band coordinates.
+layout(local_size_x = 256) in;
+layout(set=0,binding=0,std430) readonly buffer Cmy { float value[]; } cmy_data;
+layout(set=0,binding=1,std430) readonly buffer Dyes { float value[]; } chd_data;
+layout(set=0,binding=2,std430) readonly buffer Base { float value[]; } base_data;
+layout(set=0,binding=3,std430) readonly buffer Ixs { float value[]; } ixs_data;
+layout(set=0,binding=4,std430) readonly buffer Params { float value[]; } param_data;
+uint spk_global_index() {
+    return gl_GlobalInvocationID.y * (gl_NumWorkGroups.x * gl_WorkGroupSize.x) + gl_GlobalInvocationID.x;
+}
+layout(set=0,binding=5,std430) readonly buffer Meta { uint value[]; } meta_data;
+layout(set=0,binding=6,std430) writeonly buffer Output { float value[]; } output_data;
+#include "spk_mask_common.glsl"
+void main() {
+    uint W = meta_data.value[0], H = meta_data.value[1], gw = meta_data.value[2], gh = meta_data.value[3], nl = meta_data.value[4];
+    uint cell = spk_global_index();
+    if (cell >= gw * gh) return;
+    uint cy = cell / gw, cx = cell % gw;
+    uint x0 = (cx * W) / gw, x1 = max(((cx + 1u) * W) / gw, x0 + 1u);
+    uint y0 = (cy * H) / gh, y1 = max(((cy + 1u) * H) / gh, y0 + 1u);
+    x1 = min(x1, W); y1 = min(y1, H);
+    float acc = 0.0f;
+    for (uint y = y0; y < y1; ++y)
+        for (uint x = x0; x < x1; ++x)
+            acc += mask_x(mask_image_exposure(y * W + x, nl));
+    output_data.value[cell] = acc / float((x1 - x0) * (y1 - y0));
+}

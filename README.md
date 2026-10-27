@@ -2,6 +2,9 @@
 
 **English** · [简体中文](README.zh-CN.md) · [spektralab.app](https://spektralab.app)
 
+**Community Windows build:** [installer and portable downloads](https://github.com/LUOJW5566/SpektraLab/releases/latest) · [Windows guide](README.windows.md) · [中文安装](README.windows.zh-CN.md).
+Maintained in the LUOJW5566 fork; not an official upstream Windows release.
+
 A film and print simulator for macOS. Open a RAW, pick a film and a paper,
 and get a physically modelled print — grain, halation, couplers, the enlarger's
 filter pack — in about a second.
@@ -124,12 +127,15 @@ and the run still reports 0 failures in ~20 s — trust the duration.
 ## Windows development
 
 This branch also contains a C++/Vulkan backend, native LibRaw decoding,
-RGB16 TIFF export and Windows desktop viewers.
+JPEG/PNG/TIFF export and a working Tauri editor with Film Edge, date back and
+half-frame framing/print/Post-Dev. The community Windows installer, corresponding
+source and tested limitations are linked in the [Windows guide](README.windows.md).
 See the [Windows build guide](engine/WINDOWS.md) and
 [feature coverage](engine/WINDOWS_FEATURE_COVERAGE.md) for the tested scope.
 The [Qt Quick frontend](windows_UI/README.md) brings the film/print editor layout
 to Windows; the [minimal Win32 viewer](engine/WINDOWS_DESKTOP.md) is also retained.
-The macOS product described above has additional interface and display features.
+The macOS product described above has additional interface and display features;
+the [parity table](desktop/PARITY.md) records the differences explicitly.
 
 ## Credits and licence
 

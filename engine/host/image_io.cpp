@@ -714,6 +714,10 @@ static void raw_metadata(LibRaw& raw, Metadata& meta) {
     if (other.shutter > 0) meta.shutter_s = other.shutter;
     if (other.aperture > 0) meta.aperture = other.aperture;
     if (other.focal_len > 0) meta.focal_mm = other.focal_len;
+    const double focal35 = raw.imgdata.lens.FocalLengthIn35mmFormat;
+    if (focal35 > 0) meta.focal_35mm = focal35;
+    const int program = raw.imgdata.shootinginfo.ExposureProgram;
+    if (program >= 1 && program <= 8) meta.exposure_program = program;
     if (other.timestamp > 0) {
         // LibRaw parsed the EXIF local time with mktime; localtime undoes it.
         std::time_t ts = other.timestamp;
@@ -761,6 +765,22 @@ bool probe_file(const fs::path& path, Probe& out, std::string& error) {
         auto raw = std::make_unique<LibRaw>(LIBRAW_OPTIONS_NO_DATAERR_CALLBACK);
         if (!raw_open(*raw, path, error)) return false;
         raw_metadata(*raw, out.metadata);
+        // LibRaw's generic structure omits ExposureBiasValue. TIFF-family
+        // RAWs expose the original EXIF IFD directly; read only these three
+        // optional shooting fields, without changing decode or orientation.
+        std::vector<uint8_t> raw_bytes;
+        std::string metadata_error;
+        if (read_file(path, raw_bytes, metadata_error)) {
+            TiffBytes tiff(raw_bytes.data(), raw_bytes.size());
+            uint32_t ifd0 = 0;
+            if (tiff.header(ifd0)) {
+                Metadata extra;
+                read_exif_metadata(tiff, ifd0, extra);
+                if (extra.focal_35mm) out.metadata.focal_35mm = extra.focal_35mm;
+                if (extra.exposure_program) out.metadata.exposure_program = extra.exposure_program;
+                if (extra.exposure_bias_ev) out.metadata.exposure_bias_ev = extra.exposure_bias_ev;
+            }
+        }
         out.width = raw->imgdata.sizes.width;
         out.height = raw->imgdata.sizes.height;
         oriented_size(out.width, out.height, out.metadata.orientation);

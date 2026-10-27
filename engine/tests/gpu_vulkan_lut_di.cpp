@@ -156,6 +156,74 @@ bool check_lut(Gpu* gpu, std::string& error) {
     return true;
 }
 
+std::array<double, 3> cineon_reference(const float* density, const std::vector<float>& p) {
+    std::array<double, 3> positive{}, linear{};
+    for (int c = 0; c < 3; ++c)
+        positive[c] = std::pow(10.0, double(density[c]) + p[9+c]) - double(p[40]) * std::pow(10.0, p[9+c]);
+    for (int c = 0; c < 3; ++c) for (int j = 0; j < 3; ++j) linear[c] += positive[j] * p[3*j+c];
+    if (p[30] != 0) {
+        std::array<double, 3> lms{};
+        for (int c = 0; c < 3; ++c) {
+            for (int j = 0; j < 3; ++j) lms[c] += p[12+3*c+j] * linear[j];
+            lms[c] = std::cbrt(std::fmax(lms[c], 0.0));
+        }
+        const double L = 0.2104542553*lms[0] + 0.7936177850*lms[1] - 0.0040720468*lms[2];
+        double a = 1.9779984951*lms[0] - 2.4285922050*lms[1] + 0.4505937099*lms[2];
+        double b = 0.0259040371*lms[0] + 0.7827717662*lms[1] - 0.8086757660*lms[2];
+        const double C = std::hypot(a,b), pi = std::acos(-1.0), h = std::atan2(b,a)*180/pi;
+        const double distance = std::fmod(h-p[33]+540,360)-180;
+        double weight = std::abs(distance) < p[34] ? 0.5*(1+std::cos(pi*distance/p[34])) : 0;
+        const double chroma = std::clamp((C-p[35])/(p[36]-p[35]),0.0,1.0);
+        weight *= chroma*chroma*(3-2*chroma);
+        if (weight > 0) {
+            const double hue = (h+weight*p[31])*pi/180, saturation = C*(1+weight*(p[32]-1));
+            a = saturation*std::cos(hue); b = saturation*std::sin(hue);
+            lms = {L+0.3963377774*a+0.2158037573*b,
+                   L-0.1055613458*a-0.0638541728*b,
+                   L-0.0894841775*a-1.2914855480*b};
+            for (double& v : lms) v = v*v*v;
+            linear = {};
+            for (int c = 0; c < 3; ++c) for (int j = 0; j < 3; ++j) linear[c] += p[21+3*c+j]*lms[j];
+        }
+    }
+    for (double& v : linear) v = std::clamp((p[37]+p[38]*std::log10(std::fmax(v,0.0)*(1-p[41])+p[41]))/p[39],0.0,1.0);
+    return linear;
+}
+
+bool check_cineon(Gpu* gpu, std::string& error) {
+    const float to_lms[9] = {0.4122214708f,0.5363325363f,0.0514459929f,0.2119034982f,0.6806995451f,0.1073969566f,0.0883024619f,0.2817188376f,0.6299787005f};
+    const float from_lms[9] = {4.0767416621f,-3.3077115913f,0.2309699292f,-1.2684380046f,2.6097574011f,-0.3413193965f,-0.0041960863f,-0.7034186147f,1.7076147010f};
+    for (int variant=0;variant<3;++variant) for (bool blue : {false,true}) for (bool asymmetric : {false,true}) for (float floor : {0.0f,0.001f})
+        for (uint32_t count : {0u,1u,255u,256u,257u,1025u}) {
+            std::vector<float> p(42,0);
+            const float matrix[9] = {0.93f,0.04f,0.03f,-0.07f,1.11f,-0.04f,0.02f,-0.03f,1.01f};
+            if (asymmetric) std::copy_n(matrix,9,p.begin()); else p[0]=p[4]=p[8]=1;
+            p[9]=0.12f; p[10]=-0.07f; p[11]=0.03f;
+            std::copy_n(to_lms,9,p.begin()+12); std::copy_n(from_lms,9,p.begin()+21);
+            p[30]=blue ? 1.0f : 0; p[31]=-8; p[32]=0.9f; p[33]=280; p[34]=55; p[35]=0.02f; p[36]=0.08f;
+            if (variant==1) { p[31]=-30; p[32]=0.5f; }
+            if (variant==2) { p[31]=30; p[32]=1.5f; }
+            p[37]=685; p[38]=300; p[39]=1023; p[40]=floor; p[41]=float(std::pow(10.0,(95.0-685)/300));
+            std::vector<float> input(size_t(std::max(count,1u))*3);
+            std::vector<double> expected(size_t(count)*3);
+            for (uint32_t i = 0; i < std::max(count,1u); ++i) {
+                for (int c = 0; c < 3; ++c) input[3*i+c] = -5.0f+float((i*(17+7*c)+11*c)%107)*0.07f;
+                if (i==0) input[0]=input[1]=input[2]=-std::numeric_limits<float>::infinity();
+                if (i==1) input[3]=input[4]=input[5]=2;
+                if (i<count) { const auto ref=cineon_reference(input.data()+3*i,p); std::copy(ref.begin(),ref.end(),expected.begin()+3*i); }
+            }
+            auto data=gpu->upload(input.data(),input.size()*sizeof(float),error);
+            auto params=gpu->upload(p.data(),p.size()*sizeof(float),error);
+            const std::vector<float> guarded(expected.size()+kGuards,kGuard);
+            auto output=gpu->upload(guarded.data(),guarded.size()*sizeof(float),error);
+            const uint32_t n[] = {count};
+            if (!data || !params || !output ||
+                !gpu->dispatch("spk_di_encode", {Arg::buf(data),Arg::buf(params),Arg::inline_bytes(n,1),Arg::buf(output)},std::max(count,1u),error) ||
+                !check_result(gpu,output,expected,1e-6,"Cineon count="+std::to_string(count)+" blue="+std::to_string(blue),error)) return false;
+        }
+    return true;
+}
+
 bool check_di(Gpu* gpu, std::string& error) {
     const std::array<float, 3> lowers[] = {{{-0.75f, 0.125f, 3}}, {{-0.1337f, 0.01234f, 1.11f}}, {{0, 0, 0}}};
     const std::array<float, 3> inverses[] = {{{0.5f, 2, 0.25f}}, {{0.17f, 1.3333f, 16.123f}}, {{0, 1, 2}}};
@@ -200,7 +268,7 @@ int main(int argc, char** argv) {
     std::unique_ptr<Gpu> gpu(Gpu::create_vulkan(std::string(argv[1]) + "/vulkan", error));
     if (!gpu) { std::fprintf(stderr, "Vulkan device: %s\n", error.c_str()); return 1; }
     std::printf("Vulkan device: %s\n", gpu->device_name().c_str());
-    if (!check_lut(gpu.get(), error) || !check_di(gpu.get(), error)) {
+    if (!check_lut(gpu.get(), error) || !check_di(gpu.get(), error) || !check_cineon(gpu.get(), error)) {
         std::fprintf(stderr, "LUT/DI: %s\n", error.c_str()); return 1;
     }
     std::printf("LUT/DI: %zu analytic/float64 cases, max abs error %.9g; NaN/Inf and guards passed\n",

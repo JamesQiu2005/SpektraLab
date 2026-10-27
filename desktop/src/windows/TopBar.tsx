@@ -16,6 +16,9 @@ export function TopBar() {
   const rightCollapsed = useSettings((s) => s.rightCollapsed);
   const tool = useSession((s) => s.tool);
   const selection = useSession((s) => s.selection);
+  const paired=useSession(s=>!!s.pairDocument);
+  const pairPlacing=useSession(s=>s.pairPlacing);
+  const filledPair=useSession(s=>!!(s.pairDocument?.left||s.pairDocument?.right));
   const engine = useSession((s) => s.engineSession);
   const developing = useSession((s) => s.developing);
   const original = useSession((s) => s.showingOriginal);
@@ -35,21 +38,21 @@ export function TopBar() {
       <button className="icon-btn" title={leftCollapsed ? t('helpDevelopRailShow') : t('helpDevelopRailHide')} onClick={() => settingsStore.getState().set('leftCollapsed', !leftCollapsed)}>
         <SidebarLeft />
       </button>
-      <span style={{ width: 14 }} />
+      <span className="bar-gap" style={{ width: 14 }} />
       <button className="icon-btn" title={t('helpOpen') + ' (Ctrl+O)'} onClick={() => void openDialog()} data-testid="open-button">
         <Import />
       </button>
       <button className="icon-btn" title={t('helpExport') + ' (Ctrl+E)'} disabled={!selection} onClick={() => setPages({ exportOpen: true })} data-testid="export-button">
         <Export />
       </button>
-      <span style={{ width: 14 }} />
+      <span className="bar-gap" style={{ width: 14 }} />
       <button className={'icon-btn ' + (tool === 'select' ? 'active' : 'dim')} title={t('helpSelect') + ' (V)'} onClick={() => setTool('select')}>
         <Cursor />
       </button>
-      <button className={'icon-btn ' + (tool === 'crop' ? 'active' : 'dim')} title={tz('Crop (C)', '裁剪（C）')} onClick={() => setTool(tool === 'crop' ? 'select' : 'crop')} data-testid="crop-tool">
+      <button className={'icon-btn ' + (tool === 'crop'||pairPlacing ? 'active' : 'dim')} disabled={paired&&!filledPair} title={paired?tz('Crop this frame (C)','裁剪这一格（C）'):tz('Crop (C)', '裁剪（C）')} onClick={() => setTool(tool === 'crop' ? 'select' : 'crop')} data-testid="crop-tool">
         <Crop />
       </button>
-      <span style={{ width: 40 }} />
+      <span className="bar-gap" style={{ width: 40 }} />
       <button
         className={'action-pill' + (engine && !developing ? ' active' : '')}
         disabled={!engine || developing}
@@ -59,7 +62,7 @@ export function TopBar() {
       >
         {t('actionSolve')}
       </button>
-      <span style={{ width: 12 }} />
+      <span className="bar-gap" style={{ width: 12 }} />
       <button className={'action-pill' + (original ? ' active' : '')} disabled={!selection} onClick={() => setOriginal(!original)} title={tz('Show the camera’s own rendering, before any film simulation (Space, while held).', '显示相机自身的渲染，未经胶片模拟（按住空格键）。')}>
         {t('actionOriginal')}
       </button>
@@ -70,7 +73,7 @@ export function TopBar() {
       <button className={'icon-btn' + (comparing ? ' active' : '')} style={{ width: 34 }} disabled={!selection} onClick={toggleCompare} title={t('helpBeforeAfter') + ' (Y)'}>
         <BeforeAfter />
       </button>
-      <span style={{ width: 24 }} />
+      <span className="bar-gap" style={{ width: 24 }} />
       <DropdownMenu.Root>
         <DropdownMenu.Trigger asChild disabled={zoomLocked}>
           <button className="zoom-pill" title={view.fit ? tz('Fitted to the window (,)', '适合窗口（,）') : tz('Zoom', '缩放')} data-testid="zoom-pill">
@@ -92,14 +95,14 @@ export function TopBar() {
           </DropdownMenu.Content>
         </DropdownMenu.Portal>
       </DropdownMenu.Root>
-      <span style={{ width: 16 }} />
-      <button className="icon-btn" disabled={zoomLocked || !selection} title={t('helpZoomOut') + ' (Ctrl+−)'} onClick={() => zoomStep(-1, currentFitZoom)}>
+      <span className="bar-gap" style={{ width: 16 }} />
+      <button className="icon-btn zoom-step-btn" disabled={zoomLocked || !selection} title={t('helpZoomOut') + ' (Ctrl+−)'} onClick={() => zoomStep(-1, currentFitZoom)}>
         <ZoomOut />
       </button>
-      <button className="icon-btn" disabled={zoomLocked || !selection} title={t('helpZoomIn') + ' (Ctrl++)'} onClick={() => zoomStep(1, currentFitZoom)}>
+      <button className="icon-btn zoom-step-btn" disabled={zoomLocked || !selection} title={t('helpZoomIn') + ' (Ctrl++)'} onClick={() => zoomStep(1, currentFitZoom)}>
         <ZoomIn />
       </button>
-      <span style={{ width: 14 }} />
+      <span className="bar-gap" style={{ width: 14 }} />
       <button className="icon-btn" title={rightCollapsed ? t('helpEditRailShow') : t('helpEditRailHide')} onClick={() => settingsStore.getState().set('rightCollapsed', !rightCollapsed)}>
         <SidebarRight />
       </button>

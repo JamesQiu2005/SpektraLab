@@ -90,7 +90,7 @@ try {
         '-G', 'MinGW Makefiles', '-DCMAKE_BUILD_TYPE=Release',
         "-DCMAKE_CXX_COMPILER=$($Compiler.Replace('\', '/'))", "-DCMAKE_MAKE_PROGRAM=$($MakeExecutable.Replace('\', '/'))",
         '-DBUILD_TESTING=ON', '-DSPEKTRALAB_REQUIRE_VULKAN=ON', '-DSPEKTRALAB_BUILD_TEST_DLL=ON',
-        "-DSPEKTRALAB_VULKAN_INCLUDE_DIR=$($VulkanIncludeDirectory.Replace('\', '/'))",
+        "-DSPEKTRALAB_VULKAN_HEADERS=$($VulkanIncludeDirectory.Replace('\', '/'))",
         "-DSPEKTRALAB_VULKAN_LIBRARY=$($VulkanLibrary.Replace('\', '/'))", "-DSPEKTRALAB_GLSLANG=$($GlslangExecutable.Replace('\', '/'))")
     if ($Fresh) { $configureArguments = @('--fresh') + $configureArguments }
     $configureArguments += "-DSPEKTRALAB_BUILD_DESKTOP=$(if ($Desktop -and $NativeRaw) { 'ON' } else { 'OFF' })"

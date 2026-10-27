@@ -1,0 +1,25 @@
+#version 450
+#extension GL_GOOGLE_include_directive : require
+// Vulkan translation of the corresponding overscan.metal kernel (RFC-031/032).
+layout(local_size_x = 256) in;
+layout(set=0,binding=0,std430) readonly buffer Input { float value[]; } input_data;
+layout(set=0,binding=1,std430) readonly buffer Params { float value[]; } param_data;
+layout(set=0,binding=2,std430) readonly buffer Meta { uint value[]; } meta_data;
+layout(set=0,binding=3,std430) buffer Output { float value[]; } output_data;
+uint spk_global_index() {
+    return gl_GlobalInvocationID.y * (gl_NumWorkGroups.x * gl_WorkGroupSize.x) + gl_GlobalInvocationID.x;
+}
+#include "spk_overscan_common.glsl"
+
+void main() {
+    const uint i = spk_global_index();
+    if (i >= meta_data.value[0]) return;
+    const uint cw = uint(param_data.value[P_CW]);
+    const float a = film_alpha(canvas_to_film(float(i % cw), float(i / cw)));
+    const vec3 c = vec3(input_data.value[3u * i], input_data.value[3u * i + 1u], input_data.value[3u * i + 2u]);
+    const vec3 hole = vec3(param_data.value[P_HOLE_C], param_data.value[P_HOLE_M], param_data.value[P_HOLE_Y]);
+    const vec3 r3 = a * c + (1.0f - a) * hole;
+    output_data.value[3u * i] = r3.x;
+    output_data.value[3u * i + 1u] = r3.y;
+    output_data.value[3u * i + 2u] = r3.z;
+}

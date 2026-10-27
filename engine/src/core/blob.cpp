@@ -70,6 +70,9 @@ bool Blob::open(const std::string& path, std::string& error) {
         error = "invalid UTF-8 path: " + path;
         return false;
     }
+    // Verbatim Win32 paths (Tauri resource_dir) require native separators;
+    // unlike ordinary DOS paths, CreateFileW does not translate '/' here.
+    for (wchar_t& ch : wide) if (ch == L'/') ch = L'\\';
     file_handle_ = ::CreateFileW(wide.c_str(), GENERIC_READ, FILE_SHARE_READ, nullptr,
                                  OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, nullptr);
     if (file_handle_ == INVALID_HANDLE_VALUE) {

@@ -8,11 +8,11 @@
 
 import { useEffect, useRef, useState, useSyncExternalStore } from 'react';
 import { ChevronLeft, ChevronRight } from '../controls/icons';
-import { click, selectRelative, useSession } from '../state/session';
+import { click, selectRelative, useSession, createPair } from '../state/session';
 import { thumbs } from '../state/thumbs';
 import { type Geometry, GEOMETRY_DEFAULT } from '@shared/geometry';
 import { thumbnailGeometryPlan } from '@shared/surfaces';
-import { t } from '../i18n';
+import { t, tz } from '../i18n';
 
 export function Filmstrip() {
   const frames = useSession((s) => s.frames);
@@ -21,6 +21,7 @@ export function Filmstrip() {
   const live = useSession((s) => s.sidecar.geometry);
   const saved = useSession((s) => s.savedGeometry);
   const batch = useSession((s) => s.batchExporting);
+  const pairAllowed=useSession(s=>!!s.folder&&s.hello?.capabilities?.backend?.pair_decode===true);
   useSyncExternalStore(
     (cb) => thumbs.onChange(cb),
     () => thumbVersion(),
@@ -53,6 +54,7 @@ export function Filmstrip() {
       <button className="strip-chevron" onClick={() => selectRelative(1)} disabled={batch} aria-label="Next">
         <ChevronRight />
       </button>
+      {pairAllowed&&<button className="btn" style={{margin:6,flexShrink:0}} disabled={batch} title={tz('Create a pair from up to two selected photographs.','将选中的最多两张照片组合为半格配对。')} data-testid="create-pair" onClick={()=>void createPair()}>{tz('Pair','半格配对')}</button>}
     </div>
   );
 }
@@ -64,6 +66,7 @@ const thumbVersion = () => version;
 const CELL_H = 104;
 
 export function Thumb({ path, geometry, height = CELL_H }: { path: string; geometry: Geometry; height?: number }) {
+  const framed = thumbs.isFramed(path);
   const url = thumbs.get(path);
   const ref = useRef<HTMLCanvasElement>(null);
   const [img, setImg] = useState<HTMLImageElement | null>(null);
@@ -76,7 +79,7 @@ export function Thumb({ path, geometry, height = CELL_H }: { path: string; geome
   useEffect(() => {
     const c = ref.current;
     if (!c || !img) return;
-    const plan = thumbnailGeometryPlan(geometry, { width: img.naturalWidth, height: img.naturalHeight }, height);
+    const plan = thumbnailGeometryPlan(framed ? GEOMETRY_DEFAULT : geometry, { width: img.naturalWidth, height: img.naturalHeight }, height);
     c.width = plan.width;
     c.height = plan.height;
     const ctx = c.getContext('2d')!;
@@ -94,7 +97,7 @@ export function Thumb({ path, geometry, height = CELL_H }: { path: string; geome
       ctx.closePath();
       ctx.fill('evenodd');
     }
-  }, [img, geometry, height]);
+  }, [img, geometry, height, framed]);
   if (!url) return <div className="placeholder" />;
   return <canvas ref={ref} />;
 }

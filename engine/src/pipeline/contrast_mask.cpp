@@ -34,7 +34,11 @@
 #include <cstdlib>
 #include <cstring>
 
+#ifdef __APPLE__
 #include <dispatch/dispatch.h>
+#else
+#include "parallel_lines.hpp"
+#endif
 
 #include "pipeline.hpp"
 
@@ -100,9 +104,13 @@ void box(const std::vector<double>& in, std::vector<double>& out, uint32_t w, ui
 // 0.03 and ~600 of 631 at 0.093.
 template <class F>
 void for_each_line(uint32_t lines, F&& fn) {
+#ifdef __APPLE__
     struct Ctx { F* fn; } ctx{&fn};
     dispatch_apply_f(lines, dispatch_get_global_queue(QOS_CLASS_USER_INITIATED, 0), &ctx,
                      [](void* c, size_t line) { (*static_cast<Ctx*>(c)->fn)(uint32_t(line)); });
+#else
+    portable_for_each_line(lines, std::forward<F>(fn));
+#endif
 }
 
 void gaussian(const std::vector<double>& in, std::vector<double>& out, uint32_t w, uint32_t h,

@@ -2,6 +2,9 @@
 
 [English](README.md) · **简体中文** · [spektralab.app](https://spektralab.app)
 
+**Windows 社区移植版：**[安装包与便携版下载](https://github.com/LUOJW5566/SpektraLab/releases/latest) · [中文安装说明](README.windows.zh-CN.md)。
+由 LUOJW5566 的 fork 维护，并非原作者发布或认可的官方 Windows 版。
+
 macOS 上的胶片与放大相纸模拟器。打开一张 RAW，选好胶片和相纸，约一秒内得到一张按物理过程建模的照片——颗粒、光晕、成色剂耦合、放大机滤色，一样不少。
 
 ![SpektraLab：曼哈顿下城，Kodak Portra 160 胶片，Kodak Vision 2383 放映拷贝片](screenshots/Screenshot_ZH_HANS.png)
@@ -85,10 +88,11 @@ xcodebuild -project Spektrafilm.xcodeproj -scheme SpektrafilmTests \
 
 ## Windows 开发版
 
-本分支增加了 C++/Vulkan 后端、原生 LibRaw 解码、RGB16 TIFF 导出和 Windows 桌面界面。
+本分支增加了 C++/Vulkan 后端、原生 LibRaw 解码、JPG/PNG/TIFF 导出及可运行的 Tauri 编辑器，
+包括片边、日期后背、半格取景/印放/显影后调色。社区安装版、对应源码与验证范围见[中文安装说明](README.windows.zh-CN.md)。
 构建方法见 [Windows 说明](engine/WINDOWS.md)，已验证功能及限制见 [功能覆盖表](engine/WINDOWS_FEATURE_COVERAGE.md)。
 [Qt Quick 前端](windows_UI/README.md) 已开始复刻胶片与相纸编辑布局，同时保留[最小 Win32 窗口](engine/WINDOWS_DESKTOP.md)。
-上文介绍的 macOS 产品还包含尚未完成 Windows 迁移的界面与显示功能。
+上文介绍的 macOS 产品仍有部分界面与显示功能差异，详见[逐项对照](desktop/PARITY.md)。
 
 ## 致谢与许可
 

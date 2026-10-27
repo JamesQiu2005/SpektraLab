@@ -8,7 +8,7 @@
 // characters, arrows and delete to a focused editable element. Ctrl/Alt
 // combinations and Return/Enter/Esc/Tab are not typing keys.
 
-import { setGeometry, selectRelative, setOriginal, setTool, toggleCompare, undo, redo, zoomStep, zoomTo, zoomToFit, currentFitZoom, copySettings, pasteSettings, selectAllFrames, sessionStore, setPages } from '../state/session';
+import { setGeometry, selectRelative, setOriginal, setTool, toggleCompare, undo, redo, zoomStep, zoomTo, zoomToFit, currentFitZoom, copySettings, pasteSettings, selectAllFrames, sessionStore, setPages, createPair,setAdjustments,endPairPlacing } from '../state/session';
 import { turned } from '@shared/geometry';
 import { openDialog, openExport, restartHost } from './actions';
 import { settingsStore } from '../state/settings';
@@ -16,6 +16,7 @@ import { platform } from '../platform';
 
 export interface KeyLike {
   key: string;
+  code?: string;
   ctrlKey: boolean;
   metaKey: boolean;
   altKey: boolean;
@@ -52,6 +53,7 @@ export function shortcutTable(): Record<string, Action> {
     // Ctrl (Cmd on a Mac keyboard) — also menu accelerators in the app.
     'ctrl+o': () => void openDialog(),
     'ctrl+e': openExport,
+    'ctrl+j':()=>void createPair(),
     'ctrl+z': undo,
     'ctrl+shift+z': redo,
     'ctrl+y': redo,
@@ -70,8 +72,7 @@ export function shortcutTable(): Record<string, Action> {
     },
     'ctrl+shift+f': () => settingsStore.getState().set('filmstripCollapsed', !settingsStore.getState().filmstripCollapsed),
     'ctrl+shift+b': () => {
-      const s = sessionStore.getState();
-      sessionStore.setState({ sidecar: { ...s.sidecar, adjustments: { ...s.sidecar.adjustments, enabled: !s.sidecar.adjustments.enabled } } });
+      setAdjustments(a=>({...a,enabled:!a.enabled}));
     },
     'ctrl+alt+[': geo((g) => turned(g, -1)),
     'ctrl+alt+]': geo((g) => turned(g, 1)),
@@ -87,11 +88,13 @@ export function shortcutTable(): Record<string, Action> {
     '.': () => zoomTo(1),
     arrowleft: () => selectRelative(-1),
     arrowright: () => selectRelative(1),
+    enter:()=>{if(sessionStore.getState().pairPlacing)endPairPlacing();},
     escape: () => {
       const s = sessionStore.getState();
       if (s.exportOpen && !s.batchExporting) setPages({ exportOpen: false });
       else if (s.settingsOpen) setPages({ settingsOpen: false });
       else if (s.aboutOpen) setPages({ aboutOpen: false });
+      else if(s.pairPlacing)endPairPlacing();
       else if (s.tool === 'crop') setTool('select');
       else setOriginal(false);
     },
@@ -99,8 +102,20 @@ export function shortcutTable(): Record<string, Action> {
 }
 
 export function chord(e: KeyLike): string {
-  const k = e.key.length === 1 ? e.key.toLowerCase() : e.key.toLowerCase();
+  // Windows IMEs report Process/229 for physical letters even when a canvas
+  // (not a text editor) owns focus. Keep photo shortcuts usable in that mode;
+  // composition in an editable field still belongs entirely to the field.
+  const physical=!isEditable(e.target)&&['Process','Unidentified'].includes(e.key)&&/^Key[A-Z]$/.test(e.code??'');
+  const k = physical ? e.code!.slice(3).toLowerCase() : e.key.toLowerCase();
   return (e.ctrlKey || e.metaKey ? 'ctrl+' : '') + (e.altKey ? 'alt+' : '') + (e.shiftKey && k.length > 1 ? 'shift+' : e.shiftKey && /[a-z]/.test(k) ? 'shift+' : '') + k;
+}
+
+/** Whether this event can be left to the platform's native menu. */
+export function nativeMenuOwnsKey(e:KeyLike,menuOwns:Set<string>,userAgent:string):boolean {
+  // WebView2 can deliver Ctrl keydowns without forwarding them to the Win32
+  // menu. An accelerator consumed before the webview never reaches this
+  // handler, so handle delivered Windows events here instead of dropping them.
+  return !/Windows/i.test(userAgent)&&menuOwns.has(chord(e));
 }
 
 export function installKeys(menuOwns: Set<string> = new Set()): () => void {
@@ -108,7 +123,7 @@ export function installKeys(menuOwns: Set<string> = new Set()): () => void {
   const onKey = (e: KeyboardEvent) => {
     if (isTypingKey(e)) return;
     // The native menu's accelerators: the menu runs them, not this handler.
-    if (menuOwns.has(chord(e))) return;
+    if (nativeMenuOwnsKey(e,menuOwns,navigator.userAgent)) return;
     // Pages over the editor take only their own keys (and Escape).
     const s = sessionStore.getState();
     const c = chord(e);

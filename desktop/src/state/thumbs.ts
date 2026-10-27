@@ -8,6 +8,7 @@ import { rgbaToURL } from './frames';
 interface Entry {
   url: string;
   print: boolean;
+  framed?: boolean;
 }
 
 const MAX_CONCURRENT = 2;
@@ -31,10 +32,12 @@ class ThumbCache {
     return null;
   }
 
-  setPrint(path: string, url: string) {
+  isFramed(path: string): boolean { return !!this.map.get(path)?.framed; }
+
+  setPrint(path: string, url: string, framed = false) {
     const old = this.map.get(path);
     if (old) URL.revokeObjectURL(old.url);
-    this.map.set(path, { url, print: true });
+    this.map.set(path, { url, print: true, framed });
     this.emit();
   }
 

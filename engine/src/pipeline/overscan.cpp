@@ -19,14 +19,22 @@
 //                 and (on 120, which is not sprocket-locked) where the edge
 //                 numbers land.
 // Text is rasterised with CoreText/CoreGraphics.
+#ifdef __APPLE__
 #include <Accelerate/Accelerate.h>
 #include <CoreGraphics/CoreGraphics.h>
 #include <CoreText/CoreText.h>
+#endif
 
 #include <algorithm>
 #include <cmath>
 #include <cstdio>
 #include <cstring>
+#ifndef __APPLE__
+#define STB_TRUETYPE_IMPLEMENTATION
+#include "../../third_party/stb/stb_truetype.h"
+#include "overscan_fonts.hpp"
+#include <stdexcept>
+#endif
 
 #include "pipeline.hpp"
 #include "spectral.hpp"
@@ -253,6 +261,10 @@ struct Group {
     double exposure[3] = {0, 0, 0};   // raw exposure at full coverage, per layer
     double blur_mm = 0.0;
 };
+
+#ifndef __APPLE__
+#include "overscan_portable.hpp"
+#endif
 
 // Seven segments, a b c d e f g, as the data back's LCD: glyph units, digit
 // height 1, baseline at 0 (y up), no slant (the op carries the shear).
@@ -847,6 +859,7 @@ void film_to_canvas_px(const OverscanLayout& L, double s, double t, double& x, d
     y = v / L.px;
 }
 
+#ifdef __APPLE__
 CFAttributedStringRef make_text(const Op& op, CTFontRef font, double gain) {
     CFStringRef str = CFStringCreateWithCString(nullptr, op.text.c_str(), kCFStringEncodingUTF8);
     CGFloat white[] = {CGFloat(std::clamp(gain, 0.0, 1.0)), 1.0};
@@ -861,6 +874,7 @@ CFAttributedStringRef make_text(const Op& op, CTFontRef font, double gain) {
     CFRelease(attrs); CFRelease(kern); CFRelease(col); CFRelease(gray); CFRelease(str);
     return as;
 }
+#endif
 
 // Rasterise one group into a canvas-aligned coverage bitmap (its bounding box).
 bool rasterise(const OverscanLayout& L, const Group& g, std::vector<float>& cov, int& x0, int& y0,
@@ -896,6 +910,7 @@ bool rasterise(const OverscanLayout& L, const Group& g, std::vector<float>& cov,
     w = x1 - x0; h = y1 - y0;
     if (w <= 0 || h <= 0) return false;
 
+#ifdef __APPLE__
     std::vector<uint8_t> px(size_t(w) * size_t(h), 0);
     CGColorSpaceRef gray = CGColorSpaceCreateDeviceGray();
     CGContextRef ctx = CGBitmapContextCreate(px.data(), size_t(w), size_t(h), 8, size_t(w), gray,
@@ -953,6 +968,9 @@ bool rasterise(const OverscanLayout& L, const Group& g, std::vector<float>& cov,
 
     cov.resize(px.size());
     for (size_t i = 0; i < px.size(); ++i) cov[i] = float(px[i]) * (1.0f / 255.0f);
+#else
+    portable_rasterise(L, g, x0, y0, w, h, cov);
+#endif
     // The projection's softness (RFC-031 §3.4): a small Gaussian on the mask.
     // Separable, edges extended, through vImage rather than two scalar loops:
     // the edge-print bands are full-width boxes (8,189 x 512 px at the full
@@ -967,6 +985,7 @@ bool rasterise(const OverscanLayout& L, const Group& g, std::vector<float>& cov,
         for (int i = -r; i <= r; ++i) { k[size_t(i + r)] = float(std::exp(-0.5 * i * i / (sigma * sigma))); sum += k[size_t(i + r)]; }
         for (float& v : k) v = float(v / sum);
         std::vector<float> tmp(cov.size(), 0.0f);
+#ifdef __APPLE__
         vImage_Buffer src{cov.data(), vImagePixelCount(h), vImagePixelCount(w), size_t(w) * sizeof(float)};
         vImage_Buffer dst{tmp.data(), vImagePixelCount(h), vImagePixelCount(w), size_t(w) * sizeof(float)};
         const uint32_t taps = uint32_t(2 * r + 1);
@@ -975,6 +994,9 @@ bool rasterise(const OverscanLayout& L, const Group& g, std::vector<float>& cov,
             vImageConvolve_PlanarF(&dst, &src, nullptr, 0, 0, k.data(), taps, 1, 0.0f, kvImageEdgeExtend)
                 != kvImageNoError)
             return false;
+#else
+        portable_blur(cov, tmp, w, h, k, r);
+#endif
     }
     return true;
 }
@@ -1364,6 +1386,7 @@ double dot_text(const std::string& text, const DotFace& f, double ps, double pt,
 
 // A Helvetica-family string's advance in film mm, as CoreText lays it out.
 double text_width(const char* font, double size_mm, const std::string& text, double tracking_mm, double hscale) {
+#ifdef __APPLE__
     Op op;
     op.font = font; op.size_mm = size_mm; op.text = text; op.tracking_mm = tracking_mm;
     CFStringRef fname = CFStringCreateWithCString(nullptr, font, kCFStringEncodingUTF8);
@@ -1374,6 +1397,9 @@ double text_width(const char* font, double size_mm, const std::string& text, dou
     const double w = CTLineGetTypographicBounds(line, nullptr, nullptr, nullptr);
     CFRelease(line); CFRelease(as); CFRelease(f);
     return w * hscale;
+#else
+    return portable_text_width(font, size_mm, text, tracking_mm) * hscale;
+#endif
 }
 
 // The film edge -- the stock's own (`edge_look_for`), measured on the owner's

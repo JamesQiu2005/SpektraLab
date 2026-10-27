@@ -1,0 +1,1377 @@
+[
+  {
+    "rolloff": 1,
+    "highlight": 0,
+    "shadow": 0,
+    "fit": {
+      "core_stops": null,
+      "highlight": {
+        "landing_ev": 7.986243396260519,
+        "medium_boundary_ev": 2.3975988765231726,
+        "minimum_pull_back": 5.588644519737346,
+        "on": false,
+        "pull_back": 0,
+        "scene_extreme_ev": 7.986243396260519,
+        "slope_at_extreme": 0.9999999999976694
+      },
+      "issues": [],
+      "params_delta": {
+        "scene_latitude_active": false,
+        "scene_latitude_highlight_knee": 2,
+        "scene_latitude_highlight_room": 0,
+        "scene_latitude_max_lift": 4,
+        "scene_latitude_norm": "power",
+        "scene_latitude_rolloff": 1,
+        "scene_latitude_shadow_knee": -2,
+        "scene_latitude_shadow_room": 0
+      },
+      "shadow": {
+        "landing_ev": -10.162155934985261,
+        "medium_boundary_ev": -4.627671538444747,
+        "minimum_pull_back": 5.534484396540514,
+        "on": false,
+        "pull_back": 0,
+        "scene_extreme_ev": -10.162155934985261,
+        "slope_at_extreme": 0.9999999999976694
+      },
+      "valid": true,
+      "warnings": []
+    }
+  },
+  {
+    "rolloff": 1,
+    "highlight": 0.5,
+    "shadow": 0,
+    "fit": {
+      "core_stops": null,
+      "highlight": {
+        "landing_ev": 7.986243396260519,
+        "medium_boundary_ev": 2.3975988765231726,
+        "minimum_pull_back": 5.588644519737346,
+        "on": false,
+        "pull_back": 0.5,
+        "scene_extreme_ev": 7.986243396260519,
+        "slope_at_extreme": 0.9999999999976694
+      },
+      "issues": [
+        {
+          "code": "pull_back_below_minimum",
+          "message": "the highlight pull-back lands the scene's top at or past the medium's boundary; it must exceed the minimum",
+          "side": "highlight"
+        }
+      ],
+      "shadow": {
+        "landing_ev": -10.162155934985261,
+        "medium_boundary_ev": -4.627671538444747,
+        "minimum_pull_back": 5.534484396540514,
+        "on": false,
+        "pull_back": 0,
+        "scene_extreme_ev": -10.162155934985261,
+        "slope_at_extreme": 0.9999999999976694
+      },
+      "valid": false,
+      "warnings": []
+    }
+  },
+  {
+    "rolloff": 1,
+    "highlight": 3,
+    "shadow": 0,
+    "fit": {
+      "core_stops": null,
+      "highlight": {
+        "landing_ev": 7.986243396260519,
+        "medium_boundary_ev": 2.3975988765231726,
+        "minimum_pull_back": 5.588644519737346,
+        "on": false,
+        "pull_back": 3,
+        "scene_extreme_ev": 7.986243396260519,
+        "slope_at_extreme": 0.9999999999976694
+      },
+      "issues": [
+        {
+          "code": "pull_back_below_minimum",
+          "message": "the highlight pull-back lands the scene's top at or past the medium's boundary; it must exceed the minimum",
+          "side": "highlight"
+        }
+      ],
+      "shadow": {
+        "landing_ev": -10.162155934985261,
+        "medium_boundary_ev": -4.627671538444747,
+        "minimum_pull_back": 5.534484396540514,
+        "on": false,
+        "pull_back": 0,
+        "scene_extreme_ev": -10.162155934985261,
+        "slope_at_extreme": 0.9999999999976694
+      },
+      "valid": false,
+      "warnings": []
+    }
+  },
+  {
+    "rolloff": 1,
+    "highlight": 6,
+    "shadow": 0,
+    "fit": {
+      "core_stops": null,
+      "highlight": {
+        "knee": 0.41521415351046426,
+        "landing_ev": 1.986243396260532,
+        "medium_boundary_ev": 2.3975988765231726,
+        "minimum_pull_back": 5.588644519737346,
+        "on": true,
+        "pull_back": 6,
+        "room": 1.9823847230127083,
+        "scene_extreme_ev": 7.986243396260519,
+        "slope_at_extreme": 0.04305847959518161
+      },
+      "issues": [],
+      "params_delta": {
+        "scene_latitude_active": true,
+        "scene_latitude_highlight_knee": 0.41521415351046426,
+        "scene_latitude_highlight_room": 1.9823847230127083,
+        "scene_latitude_max_lift": 4,
+        "scene_latitude_norm": "power",
+        "scene_latitude_rolloff": 1,
+        "scene_latitude_shadow_knee": -2,
+        "scene_latitude_shadow_room": 0
+      },
+      "shadow": {
+        "landing_ev": -10.162155934985261,
+        "medium_boundary_ev": -4.627671538444747,
+        "minimum_pull_back": 5.534484396540514,
+        "on": false,
+        "pull_back": 0,
+        "scene_extreme_ev": -10.162155934985261,
+        "slope_at_extreme": 0.9999999999976694
+      },
+      "valid": true,
+      "warnings": []
+    }
+  },
+  {
+    "rolloff": 1,
+    "highlight": 0,
+    "shadow": 1,
+    "fit": {
+      "core_stops": null,
+      "highlight": {
+        "landing_ev": 7.986243396260519,
+        "medium_boundary_ev": 2.3975988765231726,
+        "minimum_pull_back": 5.588644519737346,
+        "on": false,
+        "pull_back": 0,
+        "scene_extreme_ev": 7.986243396260519,
+        "slope_at_extreme": 0.9999999999976694
+      },
+      "issues": [
+        {
+          "code": "pull_back_below_minimum",
+          "message": "the shadow pull-back lands the scene's bottom at or past the medium's boundary; it must exceed the minimum",
+          "side": "shadow"
+        }
+      ],
+      "shadow": {
+        "landing_ev": -10.162155934985261,
+        "medium_boundary_ev": -4.627671538444747,
+        "minimum_pull_back": 5.534484396540514,
+        "on": false,
+        "pull_back": 1,
+        "scene_extreme_ev": -10.162155934985261,
+        "slope_at_extreme": 0.9999999999976694
+      },
+      "valid": false,
+      "warnings": []
+    }
+  },
+  {
+    "rolloff": 1,
+    "highlight": 0,
+    "shadow": 3.9,
+    "fit": {
+      "core_stops": null,
+      "highlight": {
+        "landing_ev": 7.986243396260519,
+        "medium_boundary_ev": 2.3975988765231726,
+        "minimum_pull_back": 5.588644519737346,
+        "on": false,
+        "pull_back": 0,
+        "scene_extreme_ev": 7.986243396260519,
+        "slope_at_extreme": 0.9999999999976694
+      },
+      "issues": [
+        {
+          "code": "pull_back_below_minimum",
+          "message": "the shadow pull-back lands the scene's bottom at or past the medium's boundary; it must exceed the minimum",
+          "side": "shadow"
+        }
+      ],
+      "shadow": {
+        "landing_ev": -10.162155934985261,
+        "medium_boundary_ev": -4.627671538444747,
+        "minimum_pull_back": 5.534484396540514,
+        "on": false,
+        "pull_back": 3.9,
+        "scene_extreme_ev": -10.162155934985261,
+        "slope_at_extreme": 0.9999999999976694
+      },
+      "valid": false,
+      "warnings": []
+    }
+  },
+  {
+    "rolloff": 1,
+    "highlight": 0,
+    "shadow": 4,
+    "fit": {
+      "core_stops": null,
+      "highlight": {
+        "landing_ev": 7.986243396260519,
+        "medium_boundary_ev": 2.3975988765231726,
+        "minimum_pull_back": 5.588644519737346,
+        "on": false,
+        "pull_back": 0,
+        "scene_extreme_ev": 7.986243396260519,
+        "slope_at_extreme": 0.9999999999976694
+      },
+      "issues": [
+        {
+          "code": "pull_back_below_minimum",
+          "message": "the shadow pull-back lands the scene's bottom at or past the medium's boundary; it must exceed the minimum",
+          "side": "shadow"
+        }
+      ],
+      "shadow": {
+        "landing_ev": -10.162155934985261,
+        "medium_boundary_ev": -4.627671538444747,
+        "minimum_pull_back": 5.534484396540514,
+        "on": false,
+        "pull_back": 4,
+        "scene_extreme_ev": -10.162155934985261,
+        "slope_at_extreme": 0.9999999999976694
+      },
+      "valid": false,
+      "warnings": []
+    }
+  },
+  {
+    "rolloff": 1,
+    "highlight": 5,
+    "shadow": 3.9,
+    "fit": {
+      "core_stops": null,
+      "highlight": {
+        "landing_ev": 7.986243396260519,
+        "medium_boundary_ev": 2.3975988765231726,
+        "minimum_pull_back": 5.588644519737346,
+        "on": false,
+        "pull_back": 5,
+        "scene_extreme_ev": 7.986243396260519,
+        "slope_at_extreme": 0.9999999999976694
+      },
+      "issues": [
+        {
+          "code": "pull_back_below_minimum",
+          "message": "the highlight pull-back lands the scene's top at or past the medium's boundary; it must exceed the minimum",
+          "side": "highlight"
+        },
+        {
+          "code": "pull_back_below_minimum",
+          "message": "the shadow pull-back lands the scene's bottom at or past the medium's boundary; it must exceed the minimum",
+          "side": "shadow"
+        }
+      ],
+      "shadow": {
+        "landing_ev": -10.162155934985261,
+        "medium_boundary_ev": -4.627671538444747,
+        "minimum_pull_back": 5.534484396540514,
+        "on": false,
+        "pull_back": 3.9,
+        "scene_extreme_ev": -10.162155934985261,
+        "slope_at_extreme": 0.9999999999976694
+      },
+      "valid": false,
+      "warnings": []
+    }
+  },
+  {
+    "rolloff": 1,
+    "highlight": 8,
+    "shadow": 7,
+    "fit": {
+      "core_stops": null,
+      "highlight": {
+        "knee": -4.405890918864515,
+        "landing_ev": -0.01375660373935883,
+        "medium_boundary_ev": 2.3975988765231726,
+        "minimum_pull_back": 5.588644519737346,
+        "on": true,
+        "pull_back": 8,
+        "room": 6.803489795387687,
+        "scene_extreme_ev": 7.986243396260519,
+        "slope_at_extreme": 0.12562006145078186
+      },
+      "issues": [
+        {
+          "code": "pull_back_exceeds_max_lift",
+          "message": "the shadow pull-back is at or beyond the lift bound; raise max_lift or pull back less",
+          "side": "shadow"
+        }
+      ],
+      "shadow": {
+        "landing_ev": -10.162155934985261,
+        "medium_boundary_ev": -4.627671538444747,
+        "minimum_pull_back": 5.534484396540514,
+        "on": false,
+        "pull_back": 7,
+        "scene_extreme_ev": -10.162155934985261,
+        "slope_at_extreme": 0.9999999999976694
+      },
+      "valid": false,
+      "warnings": [
+        {
+          "code": "knee_past_midgrey",
+          "message": "the highlight knee is below the metered mid-grey: the subject is no longer in the untouched core",
+          "side": "highlight"
+        }
+      ]
+    }
+  },
+  {
+    "rolloff": 2,
+    "highlight": 0,
+    "shadow": 0,
+    "fit": {
+      "core_stops": null,
+      "highlight": {
+        "landing_ev": 7.986243396260519,
+        "medium_boundary_ev": 2.3975988765231726,
+        "minimum_pull_back": 5.588644519737346,
+        "on": false,
+        "pull_back": 0,
+        "scene_extreme_ev": 7.986243396260519,
+        "slope_at_extreme": 0.9999999999976694
+      },
+      "issues": [],
+      "params_delta": {
+        "scene_latitude_active": false,
+        "scene_latitude_highlight_knee": 2,
+        "scene_latitude_highlight_room": 0,
+        "scene_latitude_max_lift": 4,
+        "scene_latitude_norm": "power",
+        "scene_latitude_rolloff": 2,
+        "scene_latitude_shadow_knee": -2,
+        "scene_latitude_shadow_room": 0
+      },
+      "shadow": {
+        "landing_ev": -10.162155934985261,
+        "medium_boundary_ev": -4.627671538444747,
+        "minimum_pull_back": 5.534484396540514,
+        "on": false,
+        "pull_back": 0,
+        "scene_extreme_ev": -10.162155934985261,
+        "slope_at_extreme": 0.9999999999976694
+      },
+      "valid": true,
+      "warnings": []
+    }
+  },
+  {
+    "rolloff": 2,
+    "highlight": 0.5,
+    "shadow": 0,
+    "fit": {
+      "core_stops": null,
+      "highlight": {
+        "landing_ev": 7.986243396260519,
+        "medium_boundary_ev": 2.3975988765231726,
+        "minimum_pull_back": 5.588644519737346,
+        "on": false,
+        "pull_back": 0.5,
+        "scene_extreme_ev": 7.986243396260519,
+        "slope_at_extreme": 0.9999999999976694
+      },
+      "issues": [
+        {
+          "code": "pull_back_below_minimum",
+          "message": "the highlight pull-back lands the scene's top at or past the medium's boundary; it must exceed the minimum",
+          "side": "highlight"
+        }
+      ],
+      "shadow": {
+        "landing_ev": -10.162155934985261,
+        "medium_boundary_ev": -4.627671538444747,
+        "minimum_pull_back": 5.534484396540514,
+        "on": false,
+        "pull_back": 0,
+        "scene_extreme_ev": -10.162155934985261,
+        "slope_at_extreme": 0.9999999999976694
+      },
+      "valid": false,
+      "warnings": []
+    }
+  },
+  {
+    "rolloff": 2,
+    "highlight": 3,
+    "shadow": 0,
+    "fit": {
+      "core_stops": null,
+      "highlight": {
+        "landing_ev": 7.986243396260519,
+        "medium_boundary_ev": 2.3975988765231726,
+        "minimum_pull_back": 5.588644519737346,
+        "on": false,
+        "pull_back": 3,
+        "scene_extreme_ev": 7.986243396260519,
+        "slope_at_extreme": 0.9999999999976694
+      },
+      "issues": [
+        {
+          "code": "pull_back_below_minimum",
+          "message": "the highlight pull-back lands the scene's top at or past the medium's boundary; it must exceed the minimum",
+          "side": "highlight"
+        }
+      ],
+      "shadow": {
+        "landing_ev": -10.162155934985261,
+        "medium_boundary_ev": -4.627671538444747,
+        "minimum_pull_back": 5.534484396540514,
+        "on": false,
+        "pull_back": 0,
+        "scene_extreme_ev": -10.162155934985261,
+        "slope_at_extreme": 0.9999999999976694
+      },
+      "valid": false,
+      "warnings": []
+    }
+  },
+  {
+    "rolloff": 2,
+    "highlight": 6,
+    "shadow": 0,
+    "fit": {
+      "core_stops": null,
+      "highlight": {
+        "knee": -2.2246730202403495,
+        "landing_ev": 1.986243396260491,
+        "medium_boundary_ev": 2.3975988765231726,
+        "minimum_pull_back": 5.588644519737346,
+        "on": true,
+        "pull_back": 6,
+        "room": 4.622271896763522,
+        "scene_extreme_ev": 7.986243396260519,
+        "slope_at_extreme": 0.07013514507825391
+      },
+      "issues": [],
+      "params_delta": {
+        "scene_latitude_active": true,
+        "scene_latitude_highlight_knee": -2.2246730202403495,
+        "scene_latitude_highlight_room": 4.622271896763522,
+        "scene_latitude_max_lift": 4,
+        "scene_latitude_norm": "power",
+        "scene_latitude_rolloff": 2,
+        "scene_latitude_shadow_knee": -2,
+        "scene_latitude_shadow_room": 0
+      },
+      "shadow": {
+        "landing_ev": -10.162155934985261,
+        "medium_boundary_ev": -4.627671538444747,
+        "minimum_pull_back": 5.534484396540514,
+        "on": false,
+        "pull_back": 0,
+        "scene_extreme_ev": -10.162155934985261,
+        "slope_at_extreme": 0.9999999999976694
+      },
+      "valid": true,
+      "warnings": [
+        {
+          "code": "knee_past_midgrey",
+          "message": "the highlight knee is below the metered mid-grey: the subject is no longer in the untouched core",
+          "side": "highlight"
+        }
+      ]
+    }
+  },
+  {
+    "rolloff": 2,
+    "highlight": 0,
+    "shadow": 1,
+    "fit": {
+      "core_stops": null,
+      "highlight": {
+        "landing_ev": 7.986243396260519,
+        "medium_boundary_ev": 2.3975988765231726,
+        "minimum_pull_back": 5.588644519737346,
+        "on": false,
+        "pull_back": 0,
+        "scene_extreme_ev": 7.986243396260519,
+        "slope_at_extreme": 0.9999999999976694
+      },
+      "issues": [
+        {
+          "code": "pull_back_below_minimum",
+          "message": "the shadow pull-back lands the scene's bottom at or past the medium's boundary; it must exceed the minimum",
+          "side": "shadow"
+        }
+      ],
+      "shadow": {
+        "landing_ev": -10.162155934985261,
+        "medium_boundary_ev": -4.627671538444747,
+        "minimum_pull_back": 5.534484396540514,
+        "on": false,
+        "pull_back": 1,
+        "scene_extreme_ev": -10.162155934985261,
+        "slope_at_extreme": 0.9999999999976694
+      },
+      "valid": false,
+      "warnings": []
+    }
+  },
+  {
+    "rolloff": 2,
+    "highlight": 0,
+    "shadow": 3.9,
+    "fit": {
+      "core_stops": null,
+      "highlight": {
+        "landing_ev": 7.986243396260519,
+        "medium_boundary_ev": 2.3975988765231726,
+        "minimum_pull_back": 5.588644519737346,
+        "on": false,
+        "pull_back": 0,
+        "scene_extreme_ev": 7.986243396260519,
+        "slope_at_extreme": 0.9999999999976694
+      },
+      "issues": [
+        {
+          "code": "pull_back_below_minimum",
+          "message": "the shadow pull-back lands the scene's bottom at or past the medium's boundary; it must exceed the minimum",
+          "side": "shadow"
+        }
+      ],
+      "shadow": {
+        "landing_ev": -10.162155934985261,
+        "medium_boundary_ev": -4.627671538444747,
+        "minimum_pull_back": 5.534484396540514,
+        "on": false,
+        "pull_back": 3.9,
+        "scene_extreme_ev": -10.162155934985261,
+        "slope_at_extreme": 0.9999999999976694
+      },
+      "valid": false,
+      "warnings": []
+    }
+  },
+  {
+    "rolloff": 2,
+    "highlight": 0,
+    "shadow": 4,
+    "fit": {
+      "core_stops": null,
+      "highlight": {
+        "landing_ev": 7.986243396260519,
+        "medium_boundary_ev": 2.3975988765231726,
+        "minimum_pull_back": 5.588644519737346,
+        "on": false,
+        "pull_back": 0,
+        "scene_extreme_ev": 7.986243396260519,
+        "slope_at_extreme": 0.9999999999976694
+      },
+      "issues": [
+        {
+          "code": "pull_back_below_minimum",
+          "message": "the shadow pull-back lands the scene's bottom at or past the medium's boundary; it must exceed the minimum",
+          "side": "shadow"
+        }
+      ],
+      "shadow": {
+        "landing_ev": -10.162155934985261,
+        "medium_boundary_ev": -4.627671538444747,
+        "minimum_pull_back": 5.534484396540514,
+        "on": false,
+        "pull_back": 4,
+        "scene_extreme_ev": -10.162155934985261,
+        "slope_at_extreme": 0.9999999999976694
+      },
+      "valid": false,
+      "warnings": []
+    }
+  },
+  {
+    "rolloff": 2,
+    "highlight": 5,
+    "shadow": 3.9,
+    "fit": {
+      "core_stops": null,
+      "highlight": {
+        "landing_ev": 7.986243396260519,
+        "medium_boundary_ev": 2.3975988765231726,
+        "minimum_pull_back": 5.588644519737346,
+        "on": false,
+        "pull_back": 5,
+        "scene_extreme_ev": 7.986243396260519,
+        "slope_at_extreme": 0.9999999999976694
+      },
+      "issues": [
+        {
+          "code": "pull_back_below_minimum",
+          "message": "the highlight pull-back lands the scene's top at or past the medium's boundary; it must exceed the minimum",
+          "side": "highlight"
+        },
+        {
+          "code": "pull_back_below_minimum",
+          "message": "the shadow pull-back lands the scene's bottom at or past the medium's boundary; it must exceed the minimum",
+          "side": "shadow"
+        }
+      ],
+      "shadow": {
+        "landing_ev": -10.162155934985261,
+        "medium_boundary_ev": -4.627671538444747,
+        "minimum_pull_back": 5.534484396540514,
+        "on": false,
+        "pull_back": 3.9,
+        "scene_extreme_ev": -10.162155934985261,
+        "slope_at_extreme": 0.9999999999976694
+      },
+      "valid": false,
+      "warnings": []
+    }
+  },
+  {
+    "rolloff": 2,
+    "highlight": 8,
+    "shadow": 7,
+    "fit": {
+      "core_stops": null,
+      "highlight": {
+        "knee": -10.849114954727721,
+        "landing_ev": -0.01375660373960752,
+        "medium_boundary_ev": 2.3975988765231726,
+        "minimum_pull_back": 5.588644519737346,
+        "on": true,
+        "pull_back": 8,
+        "room": 13.246713831250894,
+        "scene_extreme_ev": 7.986243396260519,
+        "slope_at_extreme": 0.19037423682810584
+      },
+      "issues": [
+        {
+          "code": "pull_back_exceeds_max_lift",
+          "message": "the shadow pull-back is at or beyond the lift bound; raise max_lift or pull back less",
+          "side": "shadow"
+        }
+      ],
+      "shadow": {
+        "landing_ev": -10.163077808399551,
+        "medium_boundary_ev": -4.627671538444747,
+        "minimum_pull_back": 5.534484396540514,
+        "on": false,
+        "pull_back": 7,
+        "scene_extreme_ev": -10.162155934985261,
+        "slope_at_extreme": 0.9959795119041104
+      },
+      "valid": false,
+      "warnings": [
+        {
+          "code": "knee_past_midgrey",
+          "message": "the highlight knee is below the metered mid-grey: the subject is no longer in the untouched core",
+          "side": "highlight"
+        }
+      ]
+    }
+  },
+  {
+    "rolloff": 3,
+    "highlight": 0,
+    "shadow": 0,
+    "fit": {
+      "core_stops": null,
+      "highlight": {
+        "landing_ev": 7.986243396260519,
+        "medium_boundary_ev": 2.3975988765231726,
+        "minimum_pull_back": 5.588644519737346,
+        "on": false,
+        "pull_back": 0,
+        "scene_extreme_ev": 7.986243396260519,
+        "slope_at_extreme": 0.9999999999976694
+      },
+      "issues": [],
+      "params_delta": {
+        "scene_latitude_active": false,
+        "scene_latitude_highlight_knee": 2,
+        "scene_latitude_highlight_room": 0,
+        "scene_latitude_max_lift": 4,
+        "scene_latitude_norm": "power",
+        "scene_latitude_rolloff": 3,
+        "scene_latitude_shadow_knee": -2,
+        "scene_latitude_shadow_room": 0
+      },
+      "shadow": {
+        "landing_ev": -10.162155934985261,
+        "medium_boundary_ev": -4.627671538444747,
+        "minimum_pull_back": 5.534484396540514,
+        "on": false,
+        "pull_back": 0,
+        "scene_extreme_ev": -10.162155934985261,
+        "slope_at_extreme": 0.9999999999976694
+      },
+      "valid": true,
+      "warnings": []
+    }
+  },
+  {
+    "rolloff": 3,
+    "highlight": 0.5,
+    "shadow": 0,
+    "fit": {
+      "core_stops": null,
+      "highlight": {
+        "landing_ev": 7.986243396260519,
+        "medium_boundary_ev": 2.3975988765231726,
+        "minimum_pull_back": 5.588644519737346,
+        "on": false,
+        "pull_back": 0.5,
+        "scene_extreme_ev": 7.986243396260519,
+        "slope_at_extreme": 0.9999999999976694
+      },
+      "issues": [
+        {
+          "code": "pull_back_below_minimum",
+          "message": "the highlight pull-back lands the scene's top at or past the medium's boundary; it must exceed the minimum",
+          "side": "highlight"
+        }
+      ],
+      "shadow": {
+        "landing_ev": -10.162155934985261,
+        "medium_boundary_ev": -4.627671538444747,
+        "minimum_pull_back": 5.534484396540514,
+        "on": false,
+        "pull_back": 0,
+        "scene_extreme_ev": -10.162155934985261,
+        "slope_at_extreme": 0.9999999999976694
+      },
+      "valid": false,
+      "warnings": []
+    }
+  },
+  {
+    "rolloff": 3,
+    "highlight": 3,
+    "shadow": 0,
+    "fit": {
+      "core_stops": null,
+      "highlight": {
+        "landing_ev": 7.986243396260519,
+        "medium_boundary_ev": 2.3975988765231726,
+        "minimum_pull_back": 5.588644519737346,
+        "on": false,
+        "pull_back": 3,
+        "scene_extreme_ev": 7.986243396260519,
+        "slope_at_extreme": 0.9999999999976694
+      },
+      "issues": [
+        {
+          "code": "pull_back_below_minimum",
+          "message": "the highlight pull-back lands the scene's top at or past the medium's boundary; it must exceed the minimum",
+          "side": "highlight"
+        }
+      ],
+      "shadow": {
+        "landing_ev": -10.162155934985261,
+        "medium_boundary_ev": -4.627671538444747,
+        "minimum_pull_back": 5.534484396540514,
+        "on": false,
+        "pull_back": 0,
+        "scene_extreme_ev": -10.162155934985261,
+        "slope_at_extreme": 0.9999999999976694
+      },
+      "valid": false,
+      "warnings": []
+    }
+  },
+  {
+    "rolloff": 3,
+    "highlight": 6,
+    "shadow": 0,
+    "fit": {
+      "core_stops": null,
+      "highlight": {
+        "knee": -5.039663539626977,
+        "landing_ev": 1.9862433962605053,
+        "medium_boundary_ev": 2.3975988765231726,
+        "minimum_pull_back": 5.588644519737346,
+        "on": true,
+        "pull_back": 6,
+        "room": 7.4372624161501495,
+        "scene_extreme_ev": 7.986243396260519,
+        "slope_at_extreme": 0.08464039619848762
+      },
+      "issues": [],
+      "params_delta": {
+        "scene_latitude_active": true,
+        "scene_latitude_highlight_knee": -5.039663539626977,
+        "scene_latitude_highlight_room": 7.4372624161501495,
+        "scene_latitude_max_lift": 4,
+        "scene_latitude_norm": "power",
+        "scene_latitude_rolloff": 3,
+        "scene_latitude_shadow_knee": -2,
+        "scene_latitude_shadow_room": 0
+      },
+      "shadow": {
+        "landing_ev": -10.162155934985261,
+        "medium_boundary_ev": -4.627671538444747,
+        "minimum_pull_back": 5.534484396540514,
+        "on": false,
+        "pull_back": 0,
+        "scene_extreme_ev": -10.162155934985261,
+        "slope_at_extreme": 0.9999999999976694
+      },
+      "valid": true,
+      "warnings": [
+        {
+          "code": "knee_past_midgrey",
+          "message": "the highlight knee is below the metered mid-grey: the subject is no longer in the untouched core",
+          "side": "highlight"
+        }
+      ]
+    }
+  },
+  {
+    "rolloff": 3,
+    "highlight": 0,
+    "shadow": 1,
+    "fit": {
+      "core_stops": null,
+      "highlight": {
+        "landing_ev": 7.986243396260519,
+        "medium_boundary_ev": 2.3975988765231726,
+        "minimum_pull_back": 5.588644519737346,
+        "on": false,
+        "pull_back": 0,
+        "scene_extreme_ev": 7.986243396260519,
+        "slope_at_extreme": 0.9999999999976694
+      },
+      "issues": [
+        {
+          "code": "pull_back_below_minimum",
+          "message": "the shadow pull-back lands the scene's bottom at or past the medium's boundary; it must exceed the minimum",
+          "side": "shadow"
+        }
+      ],
+      "shadow": {
+        "landing_ev": -10.162155934985261,
+        "medium_boundary_ev": -4.627671538444747,
+        "minimum_pull_back": 5.534484396540514,
+        "on": false,
+        "pull_back": 1,
+        "scene_extreme_ev": -10.162155934985261,
+        "slope_at_extreme": 0.9999999999976694
+      },
+      "valid": false,
+      "warnings": []
+    }
+  },
+  {
+    "rolloff": 3,
+    "highlight": 0,
+    "shadow": 3.9,
+    "fit": {
+      "core_stops": null,
+      "highlight": {
+        "landing_ev": 7.986243396260519,
+        "medium_boundary_ev": 2.3975988765231726,
+        "minimum_pull_back": 5.588644519737346,
+        "on": false,
+        "pull_back": 0,
+        "scene_extreme_ev": 7.986243396260519,
+        "slope_at_extreme": 0.9999999999976694
+      },
+      "issues": [
+        {
+          "code": "pull_back_below_minimum",
+          "message": "the shadow pull-back lands the scene's bottom at or past the medium's boundary; it must exceed the minimum",
+          "side": "shadow"
+        }
+      ],
+      "shadow": {
+        "landing_ev": -10.162155934985261,
+        "medium_boundary_ev": -4.627671538444747,
+        "minimum_pull_back": 5.534484396540514,
+        "on": false,
+        "pull_back": 3.9,
+        "scene_extreme_ev": -10.162155934985261,
+        "slope_at_extreme": 0.9999999999976694
+      },
+      "valid": false,
+      "warnings": []
+    }
+  },
+  {
+    "rolloff": 3,
+    "highlight": 0,
+    "shadow": 4,
+    "fit": {
+      "core_stops": null,
+      "highlight": {
+        "landing_ev": 7.986243396260519,
+        "medium_boundary_ev": 2.3975988765231726,
+        "minimum_pull_back": 5.588644519737346,
+        "on": false,
+        "pull_back": 0,
+        "scene_extreme_ev": 7.986243396260519,
+        "slope_at_extreme": 0.9999999999976694
+      },
+      "issues": [
+        {
+          "code": "pull_back_below_minimum",
+          "message": "the shadow pull-back lands the scene's bottom at or past the medium's boundary; it must exceed the minimum",
+          "side": "shadow"
+        }
+      ],
+      "shadow": {
+        "landing_ev": -10.162155934985261,
+        "medium_boundary_ev": -4.627671538444747,
+        "minimum_pull_back": 5.534484396540514,
+        "on": false,
+        "pull_back": 4,
+        "scene_extreme_ev": -10.162155934985261,
+        "slope_at_extreme": 0.9999999999976694
+      },
+      "valid": false,
+      "warnings": []
+    }
+  },
+  {
+    "rolloff": 3,
+    "highlight": 5,
+    "shadow": 3.9,
+    "fit": {
+      "core_stops": null,
+      "highlight": {
+        "landing_ev": 7.986243396260519,
+        "medium_boundary_ev": 2.3975988765231726,
+        "minimum_pull_back": 5.588644519737346,
+        "on": false,
+        "pull_back": 5,
+        "scene_extreme_ev": 7.986243396260519,
+        "slope_at_extreme": 0.9999999999976694
+      },
+      "issues": [
+        {
+          "code": "pull_back_below_minimum",
+          "message": "the highlight pull-back lands the scene's top at or past the medium's boundary; it must exceed the minimum",
+          "side": "highlight"
+        },
+        {
+          "code": "pull_back_below_minimum",
+          "message": "the shadow pull-back lands the scene's bottom at or past the medium's boundary; it must exceed the minimum",
+          "side": "shadow"
+        }
+      ],
+      "shadow": {
+        "landing_ev": -10.162155934985261,
+        "medium_boundary_ev": -4.627671538444747,
+        "minimum_pull_back": 5.534484396540514,
+        "on": false,
+        "pull_back": 3.9,
+        "scene_extreme_ev": -10.162155934985261,
+        "slope_at_extreme": 0.9999999999976694
+      },
+      "valid": false,
+      "warnings": []
+    }
+  },
+  {
+    "rolloff": 3,
+    "highlight": 8,
+    "shadow": 7,
+    "fit": {
+      "core_stops": null,
+      "highlight": {
+        "knee": -17.446367461875003,
+        "landing_ev": -0.01375660373956844,
+        "medium_boundary_ev": 2.3975988765231726,
+        "minimum_pull_back": 5.588644519737346,
+        "on": true,
+        "pull_back": 8,
+        "room": 19.843966338398175,
+        "scene_extreme_ev": 7.986243396260519,
+        "slope_at_extreme": 0.22074250050074795
+      },
+      "issues": [
+        {
+          "code": "pull_back_exceeds_max_lift",
+          "message": "the shadow pull-back is at or beyond the lift bound; raise max_lift or pull back less",
+          "side": "shadow"
+        }
+      ],
+      "shadow": {
+        "landing_ev": -10.278436864285517,
+        "medium_boundary_ev": -4.627671538444747,
+        "minimum_pull_back": 5.534484396540514,
+        "on": false,
+        "pull_back": 7,
+        "scene_extreme_ev": -10.162155934985261,
+        "slope_at_extreme": 0.9376590970244791
+      },
+      "valid": false,
+      "warnings": [
+        {
+          "code": "knee_past_midgrey",
+          "message": "the highlight knee is below the metered mid-grey: the subject is no longer in the untouched core",
+          "side": "highlight"
+        }
+      ]
+    }
+  },
+  {
+    "rolloff": 4,
+    "highlight": 0,
+    "shadow": 0,
+    "fit": {
+      "core_stops": null,
+      "highlight": {
+        "landing_ev": 7.986243396260519,
+        "medium_boundary_ev": 2.3975988765231726,
+        "minimum_pull_back": 5.588644519737346,
+        "on": false,
+        "pull_back": 0,
+        "scene_extreme_ev": 7.986243396260519,
+        "slope_at_extreme": 0.9999999999976694
+      },
+      "issues": [],
+      "params_delta": {
+        "scene_latitude_active": false,
+        "scene_latitude_highlight_knee": 2,
+        "scene_latitude_highlight_room": 0,
+        "scene_latitude_max_lift": 4,
+        "scene_latitude_norm": "power",
+        "scene_latitude_rolloff": 4,
+        "scene_latitude_shadow_knee": -2,
+        "scene_latitude_shadow_room": 0
+      },
+      "shadow": {
+        "landing_ev": -10.162155934985261,
+        "medium_boundary_ev": -4.627671538444747,
+        "minimum_pull_back": 5.534484396540514,
+        "on": false,
+        "pull_back": 0,
+        "scene_extreme_ev": -10.162155934985261,
+        "slope_at_extreme": 0.9999999999976694
+      },
+      "valid": true,
+      "warnings": []
+    }
+  },
+  {
+    "rolloff": 4,
+    "highlight": 0.5,
+    "shadow": 0,
+    "fit": {
+      "core_stops": null,
+      "highlight": {
+        "landing_ev": 7.986243396260519,
+        "medium_boundary_ev": 2.3975988765231726,
+        "minimum_pull_back": 5.588644519737346,
+        "on": false,
+        "pull_back": 0.5,
+        "scene_extreme_ev": 7.986243396260519,
+        "slope_at_extreme": 0.9999999999976694
+      },
+      "issues": [
+        {
+          "code": "pull_back_below_minimum",
+          "message": "the highlight pull-back lands the scene's top at or past the medium's boundary; it must exceed the minimum",
+          "side": "highlight"
+        }
+      ],
+      "shadow": {
+        "landing_ev": -10.162155934985261,
+        "medium_boundary_ev": -4.627671538444747,
+        "minimum_pull_back": 5.534484396540514,
+        "on": false,
+        "pull_back": 0,
+        "scene_extreme_ev": -10.162155934985261,
+        "slope_at_extreme": 0.9999999999976694
+      },
+      "valid": false,
+      "warnings": []
+    }
+  },
+  {
+    "rolloff": 4,
+    "highlight": 3,
+    "shadow": 0,
+    "fit": {
+      "core_stops": null,
+      "highlight": {
+        "landing_ev": 7.986243396260519,
+        "medium_boundary_ev": 2.3975988765231726,
+        "minimum_pull_back": 5.588644519737346,
+        "on": false,
+        "pull_back": 3,
+        "scene_extreme_ev": 7.986243396260519,
+        "slope_at_extreme": 0.9999999999976694
+      },
+      "issues": [
+        {
+          "code": "pull_back_below_minimum",
+          "message": "the highlight pull-back lands the scene's top at or past the medium's boundary; it must exceed the minimum",
+          "side": "highlight"
+        }
+      ],
+      "shadow": {
+        "landing_ev": -10.162155934985261,
+        "medium_boundary_ev": -4.627671538444747,
+        "minimum_pull_back": 5.534484396540514,
+        "on": false,
+        "pull_back": 0,
+        "scene_extreme_ev": -10.162155934985261,
+        "slope_at_extreme": 0.9999999999976694
+      },
+      "valid": false,
+      "warnings": []
+    }
+  },
+  {
+    "rolloff": 4,
+    "highlight": 6,
+    "shadow": 0,
+    "fit": {
+      "core_stops": null,
+      "highlight": {
+        "knee": -7.913172087974882,
+        "landing_ev": 1.9862433962605,
+        "medium_boundary_ev": 2.3975988765231726,
+        "minimum_pull_back": 5.588644519737346,
+        "on": true,
+        "pull_back": 6,
+        "room": 10.310770964498055,
+        "scene_extreme_ev": 7.986243396260519,
+        "slope_at_extreme": 0.093571150361349
+      },
+      "issues": [],
+      "params_delta": {
+        "scene_latitude_active": true,
+        "scene_latitude_highlight_knee": -7.913172087974882,
+        "scene_latitude_highlight_room": 10.310770964498055,
+        "scene_latitude_max_lift": 4,
+        "scene_latitude_norm": "power",
+        "scene_latitude_rolloff": 4,
+        "scene_latitude_shadow_knee": -2,
+        "scene_latitude_shadow_room": 0
+      },
+      "shadow": {
+        "landing_ev": -10.162155934985261,
+        "medium_boundary_ev": -4.627671538444747,
+        "minimum_pull_back": 5.534484396540514,
+        "on": false,
+        "pull_back": 0,
+        "scene_extreme_ev": -10.162155934985261,
+        "slope_at_extreme": 0.9999999999976694
+      },
+      "valid": true,
+      "warnings": [
+        {
+          "code": "knee_past_midgrey",
+          "message": "the highlight knee is below the metered mid-grey: the subject is no longer in the untouched core",
+          "side": "highlight"
+        }
+      ]
+    }
+  },
+  {
+    "rolloff": 4,
+    "highlight": 0,
+    "shadow": 1,
+    "fit": {
+      "core_stops": null,
+      "highlight": {
+        "landing_ev": 7.986243396260519,
+        "medium_boundary_ev": 2.3975988765231726,
+        "minimum_pull_back": 5.588644519737346,
+        "on": false,
+        "pull_back": 0,
+        "scene_extreme_ev": 7.986243396260519,
+        "slope_at_extreme": 0.9999999999976694
+      },
+      "issues": [
+        {
+          "code": "pull_back_below_minimum",
+          "message": "the shadow pull-back lands the scene's bottom at or past the medium's boundary; it must exceed the minimum",
+          "side": "shadow"
+        }
+      ],
+      "shadow": {
+        "landing_ev": -10.162155934985261,
+        "medium_boundary_ev": -4.627671538444747,
+        "minimum_pull_back": 5.534484396540514,
+        "on": false,
+        "pull_back": 1,
+        "scene_extreme_ev": -10.162155934985261,
+        "slope_at_extreme": 0.9999999999976694
+      },
+      "valid": false,
+      "warnings": []
+    }
+  },
+  {
+    "rolloff": 4,
+    "highlight": 0,
+    "shadow": 3.9,
+    "fit": {
+      "core_stops": null,
+      "highlight": {
+        "landing_ev": 7.986243396260519,
+        "medium_boundary_ev": 2.3975988765231726,
+        "minimum_pull_back": 5.588644519737346,
+        "on": false,
+        "pull_back": 0,
+        "scene_extreme_ev": 7.986243396260519,
+        "slope_at_extreme": 0.9999999999976694
+      },
+      "issues": [
+        {
+          "code": "pull_back_below_minimum",
+          "message": "the shadow pull-back lands the scene's bottom at or past the medium's boundary; it must exceed the minimum",
+          "side": "shadow"
+        }
+      ],
+      "shadow": {
+        "landing_ev": -10.162155934985261,
+        "medium_boundary_ev": -4.627671538444747,
+        "minimum_pull_back": 5.534484396540514,
+        "on": false,
+        "pull_back": 3.9,
+        "scene_extreme_ev": -10.162155934985261,
+        "slope_at_extreme": 0.9999999999976694
+      },
+      "valid": false,
+      "warnings": []
+    }
+  },
+  {
+    "rolloff": 4,
+    "highlight": 0,
+    "shadow": 4,
+    "fit": {
+      "core_stops": null,
+      "highlight": {
+        "landing_ev": 7.986243396260519,
+        "medium_boundary_ev": 2.3975988765231726,
+        "minimum_pull_back": 5.588644519737346,
+        "on": false,
+        "pull_back": 0,
+        "scene_extreme_ev": 7.986243396260519,
+        "slope_at_extreme": 0.9999999999976694
+      },
+      "issues": [
+        {
+          "code": "pull_back_below_minimum",
+          "message": "the shadow pull-back lands the scene's bottom at or past the medium's boundary; it must exceed the minimum",
+          "side": "shadow"
+        }
+      ],
+      "shadow": {
+        "landing_ev": -10.162155934985261,
+        "medium_boundary_ev": -4.627671538444747,
+        "minimum_pull_back": 5.534484396540514,
+        "on": false,
+        "pull_back": 4,
+        "scene_extreme_ev": -10.162155934985261,
+        "slope_at_extreme": 0.9999999999976694
+      },
+      "valid": false,
+      "warnings": []
+    }
+  },
+  {
+    "rolloff": 4,
+    "highlight": 5,
+    "shadow": 3.9,
+    "fit": {
+      "core_stops": null,
+      "highlight": {
+        "landing_ev": 7.986243396260519,
+        "medium_boundary_ev": 2.3975988765231726,
+        "minimum_pull_back": 5.588644519737346,
+        "on": false,
+        "pull_back": 5,
+        "scene_extreme_ev": 7.986243396260519,
+        "slope_at_extreme": 0.9999999999976694
+      },
+      "issues": [
+        {
+          "code": "pull_back_below_minimum",
+          "message": "the highlight pull-back lands the scene's top at or past the medium's boundary; it must exceed the minimum",
+          "side": "highlight"
+        },
+        {
+          "code": "pull_back_below_minimum",
+          "message": "the shadow pull-back lands the scene's bottom at or past the medium's boundary; it must exceed the minimum",
+          "side": "shadow"
+        }
+      ],
+      "shadow": {
+        "landing_ev": -10.162155934985261,
+        "medium_boundary_ev": -4.627671538444747,
+        "minimum_pull_back": 5.534484396540514,
+        "on": false,
+        "pull_back": 3.9,
+        "scene_extreme_ev": -10.162155934985261,
+        "slope_at_extreme": 0.9999999999976694
+      },
+      "valid": false,
+      "warnings": []
+    }
+  },
+  {
+    "rolloff": 4,
+    "highlight": 8,
+    "shadow": 7,
+    "fit": {
+      "core_stops": null,
+      "highlight": {
+        "knee": -24.088342911645423,
+        "landing_ev": -0.013756603739444984,
+        "medium_boundary_ev": 2.3975988765231726,
+        "minimum_pull_back": 5.588644519737346,
+        "on": true,
+        "pull_back": 8,
+        "room": 26.485941788168596,
+        "scene_extreme_ev": 7.986243396260519,
+        "slope_at_extreme": 0.23822582906785073
+      },
+      "issues": [
+        {
+          "code": "pull_back_exceeds_max_lift",
+          "message": "the shadow pull-back is at or beyond the lift bound; raise max_lift or pull back less",
+          "side": "shadow"
+        },
+        {
+          "code": "out_of_range",
+          "message": "the solved knee or room is outside the wire's range",
+          "side": "highlight"
+        }
+      ],
+      "shadow": {
+        "landing_ev": -10.416227550617364,
+        "medium_boundary_ev": -4.627671538444747,
+        "minimum_pull_back": 5.534484396540514,
+        "on": false,
+        "pull_back": 7,
+        "scene_extreme_ev": -10.162155934985261,
+        "slope_at_extreme": 0.9120475093293834
+      },
+      "valid": false,
+      "warnings": [
+        {
+          "code": "knee_past_midgrey",
+          "message": "the highlight knee is below the metered mid-grey: the subject is no longer in the untouched core",
+          "side": "highlight"
+        }
+      ]
+    }
+  }
+]
