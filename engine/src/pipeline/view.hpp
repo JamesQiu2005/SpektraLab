@@ -27,6 +27,12 @@ struct Request {
     uint32_t proof_long_edge = 0;
     std::string proof_display = "sRGB";
     bool cineon = false; // dedicated untagged DI: no Post-Dev or RGB output transform
+    // 1.3.4's "Don't Apply Film Simulation" (Mac Exporter.filePixels, Sidecar.noFilm):
+    // the decoded source at its own pixels, in the working space (encoded
+    // ProPhoto, clipped to [0, 1] as the Mac's rgba16Unorm texture is), takes
+    // the print's place in the same Post-Dev / geometry / output chain. No
+    // film, no print, no DI view, no pair layers. Refused with `cineon`.
+    bool no_film = false;
 };
 struct Result {
     uint32_t width = 0, height = 0, source_width = 0, source_height = 0;

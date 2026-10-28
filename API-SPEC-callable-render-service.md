@@ -1152,3 +1152,34 @@ the same formula). A back-reflection film is no longer refused on Windows/Linux.
 the 1.3.4 Metal engine on a Mac (MoltenVK, `engine/tests/parity_metal_vulkan.py`): CineStill 800T at
 headroom 0, 4 and 8, amount 4, its scan and its density tap agree to <= 0.01 of an 8-bit code;
 the wire is unchanged.
+
+## 19. `no_film` — "Don't Apply Film Simulation" on the desktop host (2026-10-29, R4)
+
+The 1.3.4 Mac app's per-frame *Don't Apply Film Simulation* (`Sidecar.noFilm`,
+`Exporter.filePixels`, fd891c6b) writes the **decode** at its own pixels, in the
+working space, through the same Layer 2 grade, geometry and output conversion a
+print takes. The Windows/Linux host's file and proof methods carry it as one
+additive field (desktop/PROTOCOL-REQUESTS.md R4):
+
+| method | field | type | default | meaning |
+|---|---|---|---|---|
+| `export_frame`, `render_proof` | `no_film` | bool | `false` | `true`: the session's decoded source (native size, linear ProPhoto encoded with ProPhoto's transfer function and clipped to [0, 1], as the Mac's `rgba16Unorm` decode texture is) replaces the print; then `adjustments` (Layer 2), `geometry`, `long_edge`, the output transform for `color_space` (the same file-boundary chroma knee a print passes), encode and EXIF, unchanged. `params`, `source_geometry` and `scene_placement` are **not applied** (the editor's session is not modified); no DI view, no pair layers, never cached as the print. |
+
+- `no_film: true` with `export_cineon`, or with `render_proof` `format: "di"`: `bad_request` (the Digital Intermediate is the film's negative).
+- On a half-frame pair session: `bad_request` (the Mac disables the switch for a pair).
+- A non-boolean `no_film`: `bad_request`.
+- `hello.frame_options` lists `"no-film"`.
+- Engine side: `spk::view::Request::no_film` (internal desktop boundary, `view.hpp`), not a C ABI field and not a `params_schema` field.
+
+**Against the Mac.** For a flat file (PNG, JPEG, TIFF) the Mac's decode is the
+file's own rendering in the working space, so the pixels are the same chain:
+`engine/tests/host_no_film.py` writes a low-chroma PNG and gets it back from a
+no-film sRGB 16-bit file within 1 code (mean 0.001), while the film print of the
+same frame differs by 11 codes on average. For a **RAW** the Mac draws Apple's
+default Core Image rendering (`decoded.display`, its tone curve on) and the host
+the LibRaw linear decode -- the same pixels its `render_source` shows; that is
+the RAW-decoder difference already declared, not something this field can close.
+
+Test: `engine/tests/host_no_film.py` (a host CTest, `spk_host_no_film_workflow`).
+Red on the host before this change (it wrote the print: max 38, mean 11.0 codes
+from the decode).

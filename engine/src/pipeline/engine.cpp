@@ -1712,9 +1712,18 @@ bool spk::view::render(spk_session* session, const Request& request, Result& res
         request.target_space != "Adobe RGB (1998)" && request.target_space != "ITU-R BT.2020") {
         error = "view: unknown target space"; return false;
     }
+    if (request.no_film && request.cineon) {
+        error = "view: no_film cannot write a Digital Intermediate (the DI is the film's negative)"; return false;
+    }
+    if (request.no_film && !request.pair.is_null()) {
+        error = "view: no_film is not available for a half-frame pair"; return false;
+    }
     std::lock_guard<std::mutex> guard(session->lock);
     if (session->params.io.output_color_space != "ProPhoto RGB" || !session->params.io.output_cctf_encoding) {
         error = "view: the desktop postprocess requires encoded ProPhoto RGB"; return false;
+    }
+    if (request.no_film && (session->params.io.input_color_space != "ProPhoto RGB" || session->params.io.input_cctf_decoding)) {
+        error = "view: no_film expects the desktop linear ProPhoto input"; return false;
     }
     auto* gpu = session->engine->gpu;
     gpu->begin_frame();
@@ -1732,9 +1741,31 @@ bool spk::view::render(spk_session* session, const Request& request, Result& res
     auto& state = session->tiers[tier->name];
     uint32_t full_w = 0, full_h = 0;
     if (!session->pipeline->full_output_size(session->source.w, session->source.h, full_w, full_h, error)) return false;
-    result.print_cached = !request.cineon && state.view_print.valid();
+    result.print_cached = !request.cineon && !request.no_film && state.view_print.valid();
     Image packed_print = state.view_print;
-    if (!result.print_cached) {
+    if (request.no_film) {
+        // The decode, not the print: native size, encoded into the working
+        // space by the same kernel and transfer function the print's output
+        // stage uses, then packed to RGBA16 (which clips to [0, 1], as the
+        // Mac's rgba16Unorm decode texture does). Never cached as the print.
+        const Image& decoded = session->source;
+        if (!decoded.valid() || decoded.c != 3) { error = "view: no decoded source"; return false; }
+        auto encoded = gpu->alloc(decoded.bytes(), error);
+        if (!encoded) return false;
+        const float identity[9] = {1, 0, 0, 0, 1, 0, 0, 0, 1};
+        const uint32_t mode[] = {uint32_t(decoded.pixels()), cctf_mode_for("ProPhoto RGB")};
+        if (!gpu->dispatch("spk_cctf_encode_matrix", {gpu::Arg::buf(decoded.buf), gpu::Arg::inline_bytes(identity, 9),
+                gpu::Arg::inline_bytes(mode, 2), gpu::Arg::buf(encoded)}, decoded.pixels(), error) || !gpu->flush(error))
+            return false;
+        Image packed; packed.w = decoded.w; packed.h = decoded.h; packed.c = 2;
+        packed.buf = gpu->alloc(packed.bytes(), error);
+        if (!packed.buf) return false;
+        uint32_t meta[] = {uint32_t(decoded.pixels()), decoded.w, decoded.w};
+        if (!gpu->dispatch("spk_to_rgba16", {gpu::Arg::buf(encoded), gpu::Arg::inline_bytes(meta, 3), gpu::Arg::buf(packed.buf)},
+                           decoded.pixels(), error) || !gpu->flush(error)) return false;
+        packed_print = std::move(packed);
+        full_w = decoded.w; full_h = decoded.h;
+    } else if (!result.print_cached) {
         session->pipeline->set_source_shape(source.w, source.h, session->source.w, session->source.h);
         Image negative, rgb;
         if (!negative_for(session, *tier, &session->progress, negative, error)) return false;
@@ -1790,7 +1821,7 @@ bool spk::view::render(spk_session* session, const Request& request, Result& res
         return true;
     };
     gpu::BufferRef di_lut;
-    const bool di_view = session->params.io.digital_intermediate && !session->params.io.scan_film &&
+    const bool di_view = !request.no_film && session->params.io.digital_intermediate && !session->params.io.scan_film &&
                          !session->params.film.info.is_positive();
     if ((request.cineon || di_view) && !di_view_table(session->engine, di_lut, error)) return false;
     if (request.cineon) {
