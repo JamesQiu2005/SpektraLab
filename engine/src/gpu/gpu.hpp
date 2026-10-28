@@ -41,6 +41,7 @@
 #include <cstddef>
 #include <cstdint>
 #include <cstring>
+#include <limits>
 #include <string>
 #include <vector>
 
@@ -92,9 +93,9 @@ private:
 struct PoolAudit {
     // Traffic. `reuses` are hand-outs served from the free set, `allocations`
     // are buffers made fresh; the two together are every buffer a node ever
-    // got. `persistent_allocations` are the planes and tables that are never
-    // pooled and must never be a reuse: the session's source and its cached
-    // negatives.
+    // got. `persistent_allocations` counts fresh allocations created as
+    // persistent, not temporary planes later promoted without allocating.
+    // A promotion changes ownership, not any allocation/reuse traffic count.
     uint64_t allocations = 0;
     uint64_t reuses = 0;
     uint64_t persistent_allocations = 0;
@@ -269,6 +270,16 @@ public:
     virtual BufferRef upload_persistent_f32(const double* data, size_t count, std::string& error) = 0;
     virtual BufferRef upload_persistent_u32(const uint32_t* data, size_t count, std::string& error) = 0;
 
+    // Optional ownership transfer for a finished temporary plane. The caller
+    // has flushed and still holds its BufferRef. Success changes only the
+    // reclamation policy: the same handle can be moved into a cache, and the
+    // last release destroys the allocation instead of returning it to the pool.
+    // Require exclusive ownership and an exact logical/capacity size so a cache
+    // cannot retain writable aliases or an oversized scratch allocation.
+    // False leaves the buffer unchanged; callers keep their existing copy path.
+    // Metal deliberately uses that default to preserve its file-backed caches.
+    virtual bool try_promote_persistent(Buffer*, size_t) { return false; }
+
     // A persistent allocation whose pages live in a **file** rather than in
     // the process's ledger (RFC-020 §4.7). Same lifetime as the pair below --
     // it is one of them, with different memory behind it -- and never pooled,
@@ -411,6 +422,16 @@ public:
     // fixed when each buffer was made. No Metal object is walked, retained or
     // asked anything, and nothing here can fail.
     virtual PoolStats pool_stats() const = 0;
+    // Independent diagnostic windows; zero token means unsupported. Does not
+    // reset the frame counter or alter pool eviction. Peaks exclude staging.
+    struct MemoryObservation {
+        size_t live_peak = 0;
+        size_t resident_peak = 0;
+        size_t requested_live_peak = 0;
+        size_t requested_at_live_peak = 0;
+    };
+    virtual uint64_t begin_memory_observation() { return 0; }
+    virtual MemoryObservation end_memory_observation(uint64_t) { return {}; }
 
     // Give memory back. Frees every pooled buffer with `refs == 0` -- in
     // descending size order, until the pool's total is at or below
@@ -418,19 +439,42 @@ public:
     // releasing the Metal buffer with it.
     //
     // **Never** a buffer with `refs > 0`: a live handle is a node mid-render
-    // or a buffer `dispatch` is holding for a just-encoded kernel. The two
-    // callers are a frame switch (RFC-020 §3.1, `keep_bytes == 0`) and the
-    // memory-pressure handler (§3.2: the frame's live high-water for `warn`,
-    // everything for `critical`).
+    // or a buffer `dispatch` is holding for a just-encoded kernel. Callers
+    // include frame switches (RFC-020 §3.1, `keep_bytes == 0`), the pressure
+    // handler (§3.2), and render phase boundaries after their final flush.
     //
-    // Unlike `alloc`, this is not on any render path and takes no encoder:
-    // `pool_lock_` is taken here, so a caller holding it must not call this.
+    // This takes no encoder and locks the pool, so a caller holding the pool
+    // lock must not call it. Render callers flush before trimming, so pending
+    // GPU work completes before its idle storage is returned to the system.
     //
     // Returns the bytes actually freed, so a caller can tell a trim that gave
     // something back from one that found an empty pool -- which is what the
     // idle timer's counter means, and what stops a tick that does nothing
     // from reading as an event.
     virtual size_t trim_pool(size_t keep_bytes) = 0;
+
+    // Drop idle pooled blocks of at least `min_bytes` (64 MiB by default) that
+    // are too small for the next phase's `bytes`-sized planes. Keep smaller
+    // constants, compatible or larger blocks, live handles and persistent
+    // caches. The caller must flush first; backends without this selective
+    // trim retain their existing behaviour.
+    virtual size_t trim_pool_incompatible(size_t, size_t = size_t(64) << 20) { return 0; }
+
+    // At a large-image phase boundary, retain only a bounded amount of idle
+    // pool capacity. `trim_pool` takes a total, so add the live capacity while
+    // saturating rather than letting a large caller budget wrap around.
+    bool trim_idle_for_phase(size_t image_bytes, size_t keep_free_bytes, std::string& error) {
+        constexpr size_t floor = size_t(64) << 20;
+        if (image_bytes < floor) return true;
+        if (!flush(error)) return false;
+        const PoolStats stats = pool_stats();
+        const size_t idle_budget = keep_free_bytes < floor ? floor : keep_free_bytes;
+        const size_t limit = (std::numeric_limits<size_t>::max)();
+        const size_t keep = stats.live_bytes > limit - idle_budget
+                          ? limit : stats.live_bytes + idle_budget;
+        trim_pool(keep);
+        return true;
+    }
 
     // Whether a **critical** memory-pressure event has arrived since the last
     // call, clearing the flag. One-shot on purpose (RFC-020 §3.2): the next

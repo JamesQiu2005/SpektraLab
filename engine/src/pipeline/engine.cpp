@@ -1115,26 +1115,119 @@ bool ensure_meter(spk_session* session, std::string& error) {
 // rather than a flag inside the single-pass one (P3) -- the un-striped path
 // stays exactly what ships, which is what makes §6's hash comparison mean
 // anything -- and one call site each, so the graph cannot drift between them.
+// Opt-in observation only: these plane multipliers are hypotheses calibrated
+// on the Windows 102 MP fixture, not admission limits or memory guarantees.
+// Frame high-water is cumulative; never label it a stage-local peak.
+struct MemoryEstimateTrace {
+    static constexpr unsigned kObserveOnly = 99;
+    spk_session* session;
+    const char* stage;
+    const char* cache;
+    const Image& image;
+    unsigned planes;
+    bool enabled = false;
+    bool success = false;
+    uint64_t observation = 0;
+    size_t output_payload_bytes = 0;
+    gpu::PoolStats before{};
+    MemoryEstimateTrace(spk_session* s, const char* label, const char* hit,
+                        const Image& input, unsigned count) noexcept
+        : session(s), stage(label), cache(hit), image(input), planes(count) {
+        const char* flag = std::getenv("SPEKTRAFILM_MEMORY_ESTIMATE");
+        enabled = flag && std::strcmp(flag, "1") == 0;
+        if (!enabled) return;
+        try { before = session->engine->gpu->pool_stats(); emit("begin");
+              observation = session->engine->gpu->begin_memory_observation(); }
+        catch (...) { enabled = false; }
+    }
+    ~MemoryEstimateTrace() noexcept {
+        if (enabled) { try {
+            if (observation) measured = session->engine->gpu->end_memory_observation(observation);
+            emit("end");
+        } catch (...) {} }
+    }
+    gpu::Gpu::MemoryObservation measured{};
+    void emit(const char* event) {
+        const auto now = session->engine->gpu->pool_stats();
+        const auto& p = session->params;
+        Json j = Json::object();
+        j.set("event", Json(std::string(event)));
+        j.set("stage", Json(std::string(stage)));
+        j.set("cache", Json(std::string(cache)));
+        j.set("model", Json(std::string("empirical-planes-v2-observe-only")));
+        j.set("width", Json(double(image.w))); j.set("height", Json(double(image.h)));
+        const double plane = double(image.w) * double(image.h) * 3.0 * sizeof(float);
+        const bool supported = planes == 0 ||
+            (planes != kObserveOnly && std::strcmp(kRenderCore, "native-vulkan") == 0 &&
+             !p.settings.striped && !p.film_render.overscan.active);
+        j.set("estimate_available", Json(supported));
+        if (supported) {
+            const double scratch = plane * planes;
+            j.set("estimated_additional_live_bytes", Json(scratch));
+            j.set("estimated_pool_live_peak_bytes", Json(double(before.live_bytes) + scratch));
+            j.set("estimated_new_allocation_bytes", Json(std::max(0.0, scratch - double(before.free_bytes))));
+        }
+        j.set("grain", Json(p.film_render.grain.active));
+        j.set("halation", Json(p.film_render.halation.active));
+        j.set("glare", Json(p.print_render.glare.active));
+        j.set("striped", Json(p.settings.striped));
+        j.set("overscan", Json(p.film_render.overscan.active));
+        j.set("pool_live_bytes", Json(double(now.live_bytes)));
+        j.set("pool_free_bytes", Json(double(now.free_bytes)));
+        j.set("persistent_bytes", Json(double(now.persistent_bytes)));
+        j.set("observed_frame_high_water_bytes", Json(double(now.frame_high_water_bytes)));
+        j.set("frame_high_water_before_bytes", Json(double(before.frame_high_water_bytes)));
+        if (std::strcmp(event, "end") == 0) {
+            j.set("success", Json(success));
+            if (planes == kObserveOnly) j.set("output_payload_bytes", Json(double(output_payload_bytes)));
+            j.set("stage_peak_available", Json(observation != 0));
+            if (observation) {
+                j.set("observed_stage_live_peak_bytes", Json(double(measured.live_peak)));
+                j.set("observed_stage_requested_live_peak_bytes", Json(double(measured.requested_live_peak)));
+                j.set("requested_bytes_at_capacity_peak", Json(double(measured.requested_at_live_peak)));
+                j.set("observed_stage_resident_peak_bytes", Json(double(measured.resident_peak)));
+            }
+        }
+#ifdef _WIN32
+        MEMORYSTATUSEX status{}; status.dwLength = sizeof(status);
+        if (GlobalMemoryStatusEx(&status)) {
+            j.set("system_commit_available_bytes", Json(double(status.ullAvailPageFile)));
+            j.set("system_physical_available_bytes", Json(double(status.ullAvailPhys)));
+        }
+#endif
+        // Staging, driver memory, readback and file encoding are not covered.
+        std::fprintf(stderr, "memory_estimate %s\n", j.dump().c_str());
+    }
+};
+
 bool run_film_for(spk_session* session, const Image& source, Image& negative,
                   Progress* progress, std::string& error) {
+    MemoryEstimateTrace trace(session, "film", "miss", source, 5);
     if (session->params.settings.striped) {
-        return session->pipeline->run_film_striped(source, negative, progress, error);
+        return trace.success = session->pipeline->run_film_striped(source, negative, progress, error);
     }
-    return session->pipeline->run_film(source, negative, progress, error);
+    return trace.success = session->pipeline->run_film(source, negative, progress, error);
 }
 
 bool run_print_for(spk_session* session, const Image& negative, Image& rgb,
                    Progress* progress, std::string& error) {
+    // Conservative cross-size model: IIR glare can still need four RGB planes;
+    // consuming the default FIR field lowers that path to three. Pool
+    // oversizing and small-frame fixed costs remain outside this model.
+    MemoryEstimateTrace trace(session, "print", "miss", negative,
+                              session->params.print_render.glare.active ? 4 : 3);
     if (session->params.settings.striped) {
-        return session->pipeline->run_print_striped(negative, rgb, progress, error);
+        return trace.success = session->pipeline->run_print_striped(negative, rgb, progress, error);
     }
-    return session->pipeline->run_print(negative, rgb, progress, error);
+    return trace.success = session->pipeline->run_print(negative, rgb, progress, error);
 }
 
 bool negative_for(spk_session* session, const Tier& tier, Progress* progress, Image& out,
                   std::string& error) {
     spk_session::TierState& state = session->tiers[tier.name];
     if (state.has_negative) {
+        MemoryEstimateTrace trace(session, "film", "hit", state.negative, 0);
+        trace.success = true;
         if (progress) progress->auto_exposure_ev = state.applied_ev;
         out = state.negative;
         return true;
@@ -1153,8 +1246,8 @@ bool negative_for(spk_session* session, const Tier& tier, Progress* progress, Im
     session->pipeline->overscan_frame(state.overscan_frame_w, state.overscan_frame_h);
     if (progress) progress->auto_exposure_ev = state.applied_ev;
     // The negative is what every subsequent slider drag reprints from, so it
-    // has to outlive the frame arena. Copying it here is also what makes a
-    // reprint grain-consistent for free: the realisation is baked in and is
+    // has to outlive the frame arena. Keeping it also makes a reprint
+    // grain-consistent for free: the realisation is baked in and is
     // never redrawn.
     gpu::Gpu* gpu = session->engine->gpu;
     if (!gpu->flush(error)) return false;
@@ -1163,12 +1256,18 @@ bool negative_for(spk_session* session, const Tier& tier, Progress* progress, Im
     // The cached negative is the other holding RFC-020 §4.7 names: every
     // reprint reads it, it lives as long as the session, and at the full
     // tier it is the second 1.22 GB plane.
-    kept.buf = gpu->alloc_file_backed(negative.bytes(), error);
-    if (!kept.buf || !gpu->copy(kept.buf.get(), 0, negative.buf.get(), 0,
-                                negative.bytes(), error)) return false;
-    state.negative = kept;
+    if (gpu->try_promote_persistent(negative.buf.get(), negative.bytes())) {
+        // Vulkan can keep this exclusive, exact-size result without a second
+        // plane. Other backends retain their file-backed copy semantics.
+        kept = std::move(negative);
+    } else {
+        kept.buf = gpu->alloc_file_backed(negative.bytes(), error);
+        if (!kept.buf || !gpu->copy(kept.buf.get(), 0, negative.buf.get(), 0,
+                                    negative.bytes(), error)) return false;
+    }
+    state.negative = std::move(kept);
     state.has_negative = true;
-    out = kept;
+    out = state.negative;
     return true;
 }
 
@@ -1186,6 +1285,9 @@ bool negative_for(spk_session* session, const Tier& tier, Progress* progress, Im
 // as the caller is looking at them.
 bool materialise(spk_session* session, const Image& rgb, spk_result* out, std::string& error) {
     gpu::Gpu* gpu = session->engine->gpu;
+    // LUT previews and normalized DI also arrive here without run_print.
+    // Bound their idle scratch before allocating the persistent packed result.
+    if (!gpu->trim_idle_for_phase(rgb.bytes(), rgb.bytes(), error)) return false;
     const uint32_t align = gpu->texture_row_alignment_px();
     const uint32_t stride = ((rgb.w + align - 1) / align) * align;
     const size_t bytes = size_t(stride) * rgb.h * 4 * sizeof(uint16_t);
@@ -1789,6 +1891,8 @@ bool spk::view::render(spk_session* session, const Request& request, Result& res
         packed_print = std::move(packed);
         if (!request.cineon) state.view_print = packed_print;
     } else {
+        MemoryEstimateTrace trace(session, "print", "hit", packed_print, 0);
+        trace.success = true;
         session->progress.auto_exposure_ev = state.applied_ev;
     }
     result.print_ms = std::chrono::duration<double,std::milli>(std::chrono::steady_clock::now()-started).count();
@@ -1884,7 +1988,15 @@ bool spk::view::render(spk_session* session, const Request& request, Result& res
     Request final_request = request;
     if (pair_layered) final_request.adjustments.set("enabled", Json(false));
     const gpu::BufferRef final_lut = pair_layered ? gpu::BufferRef{} : di_lut;
-    if (!process(gpu, packed_print, final_request, transform, cmax, count, result, error, final_lut, final_lut ? 65 : 0)) return false;
+    {
+        // Output shape/packing differ from the input: observe first, do not
+        // apply the RGB scratch model to output conversion or CPU readback.
+        MemoryEstimateTrace trace(session, request.export_intent ? "output-export" : "output-view",
+                                  "miss", packed_print, MemoryEstimateTrace::kObserveOnly);
+        trace.success = process(gpu, packed_print, final_request, transform, cmax, count, result, error, final_lut, final_lut ? 65 : 0);
+        trace.output_payload_bytes = result.pixels.size();
+        if (!trace.success) return false;
+    }
     result.print_ms += pair_print_ms; result.post_ms += pair_post_ms;
     result.source_width = full_w; result.source_height = full_h;
     session->progress.done = true;

@@ -31,6 +31,13 @@ public:
     bool gaussian(const Image& img, const double sigma[3], Image& out, std::string& error,
                   double truncate = 3.0, const Image* acc = nullptr, const double* weight = nullptr);
 
+    // Same arithmetic as gaussian, but the caller may transfer its input with
+    // std::move. FIR can release that input between its two passes, allowing
+    // the pool to reuse it for the result without overwriting any live alias.
+    bool gaussian_consume(Image img, const double sigma[3], Image& out, std::string& error,
+                          double truncate = 3.0, const Image* acc = nullptr,
+                          const double* weight = nullptr);
+
     // --- class R, and what it turned out to be -----------------------------
     //
     // The IIR used to transpose the plane so that both passes could be one
@@ -125,8 +132,9 @@ public:
     bool affine(const Image& x, const double s[3], const double t[3], Image& out, std::string& error);
 
 private:
-    bool fir(const Image& img, const double sigmas[3], double truncate, const bool active[3],
-             Image& out, std::string& error, const Image* acc, const double* weight);
+    bool fir(Image img, const double sigmas[3], double truncate, const bool active[3],
+             Image& out, std::string& error, const Image* acc, const double* weight,
+             bool consume_input = false);
     bool iir(const Image& img, const double sigmas[3], const bool active[3],
              Image& out, std::string& error, const Image* acc, const double* weight);
     bool alloc_like(const Image& img, Image& out, std::string& error);

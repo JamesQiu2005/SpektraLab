@@ -97,11 +97,15 @@ bool process(gpu::Gpu* gpu,const Image& print,const Request& req,const Json& tra
         if(turns%2)std::swap(w,h);
         // All request validation precedes any GPU operation.
         Image current=allocate(gpu,print.w,print.h,error);if(!current.valid())return false;
-        auto curves=gpu->upload(table.data(),sizeof(table),error);if(!curves)return false;
-        uint32_t gm[]={uint32_t(print.pixels()),print.w,print.h,di_lut_size};
-        std::vector<Arg> grade_args={Arg::buf(print.buf),Arg::inline_bytes(u.data(),u.size()),Arg::buf(curves),Arg::inline_bytes(gm,di_lut?4:3),Arg::buf(current.buf)};
-        if(di_lut)grade_args.push_back(Arg::buf(di_lut));
-        if(!gpu->dispatch(di_lut?"spk_view_grade_di":"spk_view_grade",grade_args,print.pixels(),error)||!gpu->flush(error))return false;
+        {
+            auto curves=gpu->upload(table.data(),sizeof(table),error);if(!curves)return false;
+            uint32_t gm[]={uint32_t(print.pixels()),print.w,print.h,di_lut_size};
+            std::vector<Arg> grade_args={Arg::buf(print.buf),Arg::inline_bytes(u.data(),u.size()),Arg::buf(curves),Arg::inline_bytes(gm,di_lut?4:3),Arg::buf(current.buf)};
+            if(di_lut)grade_args.push_back(Arg::buf(di_lut));
+            if(!gpu->dispatch(di_lut?"spk_view_grade_di":"spk_view_grade",grade_args,print.pixels(),error)||!gpu->flush(error))return false;
+            // Args borrow raw pointers; end their scope and release the curve
+            // table only after the dispatch that uses them has completed.
+        }
         bool geometry=x!=0||y!=0||cw!=1||ch!=1||angle!=0||turns!=0||flips!=0;
         if(geometry){float p[]={float(x+cw/2),float(y+ch/2),float(cw),float(ch),float(std::cos(angle)),float(std::sin(angle)),float(print.h)/print.w};
             if(!resample(gpu,current,w,h,p,turns,flips,error))return false;}
@@ -169,9 +173,19 @@ bool process(gpu::Gpu* gpu,const Image& print,const Request& req,const Json& tra
         uint32_t pm[]={w*h,encode_mode,bits,output_channels,0};
         const size_t jobs=output_channels==3?padded_bytes/4:size_t(w)*h;
         if(!gpu->dispatch("spk_view_pack",{Arg::buf(current.buf),Arg::inline_bytes(pm,5),Arg::buf(packed),Arg::buf(stats)},jobs,error)||!gpu->flush(error))return false;
+        // Only the packed result is needed from here. Drop the final float
+        // plane before allocating its CPU output; the pool may reuse it, while
+        // device_output keeps ownership of packed without a readback.
+        const size_t finished_float_bytes=current.bytes();
+        current={};stats.reset();
         result.post_ms=ms(started);
         result.width=w;result.height=h;result.source_width=print.w;result.source_height=print.h;
         if(device_output){device_output->w=w;device_output->h=h;device_output->c=2;device_output->buf=std::move(packed);return true;}
+        // A large CPU readback should not overlap the now-idle float planes.
+        // Keep packed (and every other live/cache handle) while returning the
+        // unused scratch. Small previews retain their normal warm pool.
+        if(!gpu->trim_idle_for_phase(finished_float_bytes,0,error))return false;
+        result.post_ms=ms(started);
         auto read=Clock::now();result.pixels.resize(padded_bytes);
         if(!gpu->read(packed.get(),0,result.pixels.data(),padded_bytes,error))return false;
         result.pixels.resize(bytes);
