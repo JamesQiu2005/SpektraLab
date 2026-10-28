@@ -84,7 +84,7 @@ std::string stamp(const std::string& path) {
     const auto time = std::filesystem::last_write_time(file, ec);
     if (ec) return path + "|missing";
     const auto size = std::filesystem::file_size(file, ec);
-    return path + "|" + std::to_string(time.time_since_epoch().count()) + "|" + std::to_string(size);
+    return path + "|" + std::to_string(static_cast<long long>(time.time_since_epoch().count())) + "|" + std::to_string(size);
 }
 std::string method(const Json& hole, const Json& params) {
     auto m = hole.at("meterMethod").as_string();

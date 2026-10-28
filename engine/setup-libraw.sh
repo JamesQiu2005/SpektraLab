@@ -19,6 +19,8 @@
 #
 # The last line of stdout is the source directory, for SPEKTRALAB_LIBRAW_SOURCE.
 set -euo pipefail
+# GNU coreutils on Linux; macOS before 14 has only shasum.
+command -v sha256sum >/dev/null || sha256sum() { shasum -a 256 "$@"; }
 
 here="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 deps="${1:-$here/../build/deps}"
