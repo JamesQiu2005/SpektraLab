@@ -106,7 +106,7 @@ jobs:
           key: engine-deps-${{ runner.os }}-cross-${{ hashFiles('engine/setup-*.sh', 'engine/setup-*.py', 'engine/cmake/*pins.json', 'engine/cmake/input-dependencies/**') }}
 
       - name: Dependency setup regression tests
-        run: python3 -m unittest discover -s engine/tests -p test_setup_lens_codecs.py -v
+        run: python3 -m unittest discover -s engine/tests -p 'test_*codec*.py' -v
 
       # Also fails if the exe imports anything but system DLLs.
       - name: Cross-build spektralab-host.exe

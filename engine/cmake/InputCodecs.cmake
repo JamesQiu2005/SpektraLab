@@ -3,6 +3,12 @@ if(NOT EXISTS "${SPEKTRALAB_INPUT_CODEC_PREFIX}/include/lcms2.h")
     message(FATAL_ERROR "Extra input codecs missing. Run engine/setup-input-codecs.py and set SPEKTRALAB_INPUT_CODEC_PREFIX.")
 endif()
 list(PREPEND CMAKE_PREFIX_PATH "${SPEKTRALAB_INPUT_CODEC_PREFIX}")
+if(CMAKE_CROSSCOMPILING)
+    # Root-only package searches otherwise re-root this staged installation
+    # under the compiler sysroot, hiding OpenEXR and its Imath dependency.
+    list(PREPEND CMAKE_FIND_ROOT_PATH "${SPEKTRALAB_INPUT_CODEC_PREFIX}")
+    list(REMOVE_DUPLICATES CMAKE_FIND_ROOT_PATH)
+endif()
 find_package(OpenEXR 3.5.2 EXACT CONFIG REQUIRED)
 find_package(libheif 1.23.6 EXACT CONFIG REQUIRED)
 add_library(spk_input_lcms STATIC IMPORTED)
