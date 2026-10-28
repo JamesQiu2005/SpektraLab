@@ -131,6 +131,20 @@ The [Qt Quick frontend](windows_UI/README.md) brings the film/print editor layou
 to Windows; the [minimal Win32 viewer](engine/WINDOWS_DESKTOP.md) is also retained.
 The macOS product described above has additional interface and display features.
 
+## Contributing
+
+Pull requests are welcome. Three rules:
+
+- **Windows and Linux work goes to the `Windows_Linux` branch, never to `main`.**
+  `main` is the macOS product; a Windows- or Linux-related pull request against
+  it will be closed and asked to retarget.
+- **Split your work into reviewable commits.** One commit per change, each with
+  a message that says what it does and why. A single commit that dumps a whole
+  feature, a rename and a reformat together cannot be reviewed and will not be
+  merged.
+- **Respect the open-source community.** Keep the licences and credits intact
+  (see below), credit the work you build on, and be civil in issues and reviews.
+
 ## Credits and licence
 
 The film process model, its 28 measured color profiles and the print LUTs are

@@ -90,6 +90,16 @@ xcodebuild -project Spektrafilm.xcodeproj -scheme SpektrafilmTests \
 [Qt Quick 前端](windows_UI/README.md) 已开始复刻胶片与相纸编辑布局，同时保留[最小 Win32 窗口](engine/WINDOWS_DESKTOP.md)。
 上文介绍的 macOS 产品还包含尚未完成 Windows 迁移的界面与显示功能。
 
+## 参与贡献
+
+欢迎提交 Pull Request，请遵守以下三条规则：
+
+- **Windows 与 Linux 相关的工作只提交到 `Windows_Linux` 分支，不要提交到 `main`。**
+  `main` 是 macOS 产品；针对它的 Windows 或 Linux 相关 PR 会被关闭，并请你改投目标分支。
+- **把工作拆成可审阅的多个提交。** 每个提交只做一件事，提交信息写清做了什么、为什么。
+  把整个功能、重命名和格式调整塞进一个大提交的 PR 无法审阅，不会被合并。
+- **尊重开源社区。** 保留许可与致谢（见下文），注明你所依赖的他人工作，在 issue 与评审中保持礼貌。
+
 ## 致谢与许可
 
 胶片过程模型、28 款实测配置与放大 LUT 来自 Andrea Volpato 的 [spektrafilm](https://github.com/andreavolpato/spektrafilm)；4 款黑白胶片配置来自开发者本人 Hanze Qiu; SpektraLab 是该引擎的原生 C++/Metal 移植，以及围绕它构建的应用。
