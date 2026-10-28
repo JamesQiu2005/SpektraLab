@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { ALL_FEATURES, FILM_PARAMS_DEFAULT, fullDelta } from './params';
 import { GEOMETRY_DEFAULT, outputSize } from './geometry';
 import { StockCatalog } from './stocks';
-import { captureDate, shootingText, edgeText, resolveFilmEdgeParams, canvasGeometryFor, sourceGeometryFor, gateFramed, datePrints, dateEffective } from './filmEdge';
+import { captureDate, shootingText, edgeText, resolveFilmEdgeParams, canvasGeometryFor, sourceGeometryFor, gateFramed, datePrints, dateEffective, geometryInNegative } from './filmEdge';
 import { decodeSidecar, encodeSidecar, newSidecar } from './sidecar';
 import stockData from '../../../modern_UI/Spektrafilm/Spektrafilm/Resources/StockCatalog.json';
 const catalog = new StockCatalog(stockData.stocks);
@@ -59,4 +59,20 @@ describe('the camera gate and date back contract', () => {
     expect(outputSize(cut, native)).toEqual({ width: 3000, height: 2000 });
     expect(fullDelta(resolveFilmEdgeParams(resolved, cut, null, catalog, native))).toHaveProperty('date_imprint_text', '');
   });
+});
+
+// 1.3.4's 0f71c4c9: the date alone cuts the frame only once the crop is not the whole frame, so
+// the first ratio chosen in the crop tool turned framing on mid-session and the Mac's canvas
+// jumped under the crop. Here the canvas frames on `geometryInNegative`, which does not depend
+// on the crop: it shows the decode for the whole tool session, before and after that first ratio,
+// while the engine's cut (`sourceGeometryFor`) follows the crop.
+it('frames the decode for the whole crop session under the date alone, so the first ratio cannot jolt the canvas', () => {
+  const p = { ...FILM_PARAMS_DEFAULT, dateBack: { ...FILM_PARAMS_DEFAULT.dateBack, active: true, face: 'lcd', placement: 'frame' } };
+  expect(dateEffective(p.dateBack, p.filmEdge, ALL_FEATURES)).toBe(true);
+  const whole = GEOMETRY_DEFAULT;
+  const firstRatio = { ...GEOMETRY_DEFAULT, crop: { x: 0, y: 0.0833, width: 1, height: 0.8333 }, lockedRatio: 16 / 9 };
+  expect(sourceGeometryFor(p, whole, ALL_FEATURES)).toBeNull();
+  expect(sourceGeometryFor(p, firstRatio, ALL_FEATURES)).toEqual(firstRatio);
+  // The canvas's framing switch (Canvas.tsx: cropping && geometryInNegative) is the same on both sides.
+  expect(geometryInNegative(p, ALL_FEATURES)).toBe(true);
 });
