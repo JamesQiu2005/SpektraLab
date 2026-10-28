@@ -106,6 +106,9 @@ final class ParamsTests: XCTestCase {
                                   // The anti-halation layer (native-only) and
                                   // the highlight boost (declared all along).
                                   "antihalation_removed", "halation_boost_ev",
+                                  // 1.3.4, native-only: the headroom of a film
+                                  // with no anti-halation layer (CineStill).
+                                  "halation_headroom_ev",
                                   // RFC-028, native-only: the Digital
                                   // Intermediate and its blue compensation.
                                   "digital_intermediate", "digital_intermediate_blue_compensation",

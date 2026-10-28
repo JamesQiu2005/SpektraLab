@@ -290,15 +290,23 @@ enum Theme {
             PanelWidthRange(narrowest: 232, standard: leftPanelWidth, widest: 380)
         }
 
-        /// **Right, 268 … 364**, unchanged from the previous drawing and for
-        /// the reasons recorded then: the widest end is where the colour
-        /// balance triangle reaches its own ceilings (`ColorBalanceLayout`
-        /// clamps the midtone wheel to 64…120 pt and each side wheel to
-        /// 44…96), and the narrow end is the five-tab row above it, measured
-        /// to ellipsize at 276 and fit at 286. The new drawing's 288 sits two
-        /// points above that floor, as the old one's 286 did.
+        /// **Right, 280 … 364.** The widest end is where the colour balance
+        /// triangle reaches its own ceilings (`ColorBalanceLayout` clamps the
+        /// midtone wheel to 64…120 pt and each side wheel to 44…96).
+        ///
+        /// The narrow end was 268 until 2026-10-09, measured when the rail
+        /// held the grade alone and the type did not scale. It holds Film
+        /// Format now, whose pill rows cannot shrink: `2 × rowInset +
+        /// parameterLabelWidth + pickerWidth`, which is 249.4 pt at the
+        /// default interface scale and **263.8 at 130 %** — four points under
+        /// the old floor, and nothing a rail shows may be wider than the rail
+        /// (a frame centres what will not fit it, and the rules leave the
+        /// divider). 280 is that with sixteen points of air, and it keeps the
+        /// colour balance tabs' `Highlight` above 0.9 of its size at the
+        /// default scale where 268 had it at 0.875, against a floor of 0.85.
+        /// `PanelWidthStore` clamps a narrower width stored by an older build.
         static var rightPanelRange: PanelWidthRange {
-            PanelWidthRange(narrowest: 268, standard: rightPanelWidth, widest: 364)
+            PanelWidthRange(narrowest: 280, standard: rightPanelWidth, widest: 364)
         }
 
         /// The header row at the top of each rail: import / export / the

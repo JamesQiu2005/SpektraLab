@@ -140,10 +140,14 @@ struct Sidecar: Codable, Equatable, Sendable {
     /// this comes back, exactly, when the film edge is switched off
     /// (RFC-032 §17.5). Nil whenever nothing is held.
     var heldCrop: Geometry?
+    /// "Don't apply film simulation": the frame is the decode, with the
+    /// post-develop edits on it, on the canvas, the thumbnail and the export.
+    /// The film settings are kept, so switching it off gives them back.
+    var noFilm = false
 
     private enum CodingKeys: String, CodingKey {
         case schemaVersion, decoder, decode, params, adjustments, geometry, masks, solvedEV, placementNeedsFit, state
-        case heldCrop
+        case heldCrop, noFilm
         /// Which file these settings belong to (`Source`). Written from the
         /// store's first version; absent in every sidecar that predates it.
         case source
@@ -170,6 +174,7 @@ struct Sidecar: Codable, Equatable, Sendable {
         masks = try c.decodeIfPresent([EditMask].self, forKey: .masks) ?? []
         source = try c.decodeIfPresent(Source.self, forKey: .source)
         heldCrop = try c.decodeIfPresent(Geometry.self, forKey: .heldCrop)
+        noFilm = try c.decodeIfPresent(Bool.self, forKey: .noFilm) ?? false
         if let g = try c.decodeIfPresent(Geometry.self, forKey: .geometry) {
             geometry = g
         } else if let legacy = try c.decodeIfPresent(CropRect.self, forKey: .crop) {
@@ -195,6 +200,7 @@ struct Sidecar: Codable, Equatable, Sendable {
         try c.encodeIfPresent(solvedEV, forKey: .solvedEV)
         try c.encodeIfPresent(heldCrop, forKey: .heldCrop)
         if placementNeedsFit { try c.encode(placementNeedsFit, forKey: .placementNeedsFit) }
+        if noFilm { try c.encode(noFilm, forKey: .noFilm) }
         try c.encode(state, forKey: .state)
     }
 

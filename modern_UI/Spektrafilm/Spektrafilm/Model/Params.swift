@@ -402,6 +402,14 @@ struct EffectStrengths: Codable, Equatable, Sendable {
     /// normalised by the frame's brightest pixel, so one hot pixel can leave
     /// it with nothing to do. 0 is off, exactly.
     var highlightBoost = 0.0       // 0…8 EV
+    /// `halation_headroom_ev` (1.3.4): on a film with **no** anti-halation
+    /// layer (CineStill 800T), how many stops above what the camera recorded a
+    /// *clipped* highlight is taken to have been. The negative sees the lamp
+    /// it would have -- a +3.5 EV clip exposes as +7.5 EV at 4 -- so the
+    /// halo has the lamp's energy. Only pixels near the frame's own maximum and
+    /// well over mid-grey are lifted; a face is not. Every other film ignores
+    /// it. 4 is the engine's default; 0 is the recorded frame.
+    var highlightHeadroom = 4.0    // 0…8 EV
     /// `halation_scatter_amount`: the in-emulsion scatter, a mix weight.
     var scatter = 1.0              // 0…1
     /// `dir_couplers_active` / `dir_couplers_amount`: the inter-layer
@@ -417,6 +425,8 @@ struct EffectStrengths: Codable, Equatable, Sendable {
     static let scatterRange = 0.0...1.0
     /// The wire's own range, in stops.
     static let highlightBoostRange = 0.0...8.0
+    /// The wire's own range, in stops.
+    static let highlightHeadroomRange = 0.0...8.0
     /// Not the wire's 0…4. Above ≈1.736 the coupler inverse's exposure axis
     /// stops being monotonic (AGENTS.md trap 22) and the output is no longer
     /// the model's, so the slider stops short of it.
@@ -447,6 +457,7 @@ struct EffectStrengths: Codable, Equatable, Sendable {
         antihalationRemoved = try c.decodeIfPresent(Bool.self, forKey: .antihalationRemoved)
             ?? d.antihalationRemoved
         highlightBoost = try c.decodeIfPresent(Double.self, forKey: .highlightBoost) ?? d.highlightBoost
+        highlightHeadroom = try c.decodeIfPresent(Double.self, forKey: .highlightHeadroom) ?? d.highlightHeadroom
         couplersActive = try c.decodeIfPresent(Bool.self, forKey: .couplersActive) ?? d.couplersActive
         couplers = try c.decodeIfPresent(Double.self, forKey: .couplers) ?? d.couplers
         glare = try c.decodeIfPresent(Double.self, forKey: .glare) ?? d.glare
@@ -560,7 +571,45 @@ struct FilmParams: Codable, Equatable, Sendable {
     /// user's preference in the sidecar while making the wire value false for
     /// the Positive / No Print Profile path, so a persisted preference cannot
     /// change direct film scanning.
-    var effectiveExtendedDynamicRange: Bool { extendedDynamicRange && !scanFilm && !digitalIntermediate }
+    var effectiveExtendedDynamicRange: Bool {
+        // The silver paper has no EDR calibration; the engine refuses it by name.
+        extendedDynamicRange && !scanFilm && !digitalIntermediate && !printIsMonochrome
+    }
+
+    /// A black-and-white film (`Stock.isMonochrome`): one emulsion in the
+    /// profile's three channels.
+    var filmIsMonochrome: Bool { StockCatalog.shared.stock(filmStock)?.isMonochrome ?? false }
+    /// A silver paper.
+    var printIsMonochrome: Bool { StockCatalog.shared.stock(printStock)?.isMonochrome ?? false }
+    /// Multigrade filter 2 on the enlarger, as the wire's neutral pack (C, M,
+    /// Y): `engine/resources_product/paper_grades.json`, grade "2", whose
+    /// `print_exposure` is 1 -- so Print Exposure needs no correction. The
+    /// engine's own table has no row for a silver paper, and without one the
+    /// print is about grade 3½ and 0.36 D light. The other grades are in that
+    /// file for the Grade control this does not have yet.
+    nonisolated static let multigradeFilter2: (c: Double, m: Double, y: Double) = (0, 0, 68)
+
+    /// What the Grain strength's 1 is on a black-and-white film: the
+    /// `grain_amount` at which the engine renders the diffuse RMS granularity
+    /// its maker publishes (owner's decision of 2026-10-07 that a film's grain
+    /// is a per-film amount and not an engine change; these four approved
+    /// 2026-10-09). Measured on engine renders at 6 µm pixels with the grain
+    /// as one layer, net density 1.0, 48 µm aperture
+    /// (`research/bw-films/grain/`): Tri-X 400 17, T-Max 100 8, Acros II 7
+    /// (in Microfine: a floor), HP5 Plus 16 (from Ilford's motion-picture
+    /// sheet; the still film's sheet gives none). At the engine's own 1 the
+    /// four render alike, 10–11. A colour film's is 1: nothing is measured
+    /// into those here. The slider multiplies this, and the wire stops at 2,
+    /// so Tri-X's slider is at its end from 1.18 and HP5's from 1.34.
+    nonisolated static func ownGrain(of stock: String) -> Double {
+        switch stock {
+        case "kodak_tri_x_400": 1.70
+        case "ilford_hp5_plus_400": 1.49
+        case "kodak_tmax_100": 0.74
+        case "fujifilm_neopan_acros_100_ii": 0.64
+        default: 1
+        }
+    }
 
     /// The enlarger's pre-flash: a uniform paper exposure of this many times
     /// the light through the film's clear base, added before development
@@ -705,7 +754,11 @@ struct FilmParams: Codable, Equatable, Sendable {
             ("grain_active", .bool(grainActive), .shoot),
             // `&&`, not the setting alone: with grain off this is what it has
             // always been, so a legacy frame's stamp does not move.
-            ("grain_sublayers_active", .bool(grainActive && effects.grainLayered), .shoot),
+            // Never on a black-and-white film (owner, 2026-10-09): the three
+            // sub-layers are the colour films' model, nothing on a B&W sheet
+            // supports the split, and with it on the grain's strength follows
+            // an assumed fit of the curve instead of the film.
+            ("grain_sublayers_active", .bool(grainActive && effects.grainLayered && !filmIsMonochrome), .shoot),
             ("halation_active", .bool(halationActive), .shoot),
             ("print_exposure", .double(FilmParams.printExposure(stops: printBrightnessStops)), .print),
             ("y_filter_shift", .double(yFilterShift), .print),
@@ -744,7 +797,8 @@ struct FilmParams: Codable, Equatable, Sendable {
             // miss the cache once).
             ("halation_amount", .double(effects.halation.clamped(to: EffectStrengths.halationRange)), .shoot),
             ("halation_scatter_amount", .double(effects.scatter.clamped(to: EffectStrengths.scatterRange)), .shoot),
-            ("grain_amount", .double(effects.grain.clamped(to: EffectStrengths.grainRange)), .shoot),
+            ("grain_amount", .double((effects.grain * FilmParams.ownGrain(of: filmStock))
+                .clamped(to: EffectStrengths.grainRange)), .shoot),
             ("dir_couplers_active", .bool(effects.couplersActive), .shoot),
             ("dir_couplers_amount", .double(effects.couplers.clamped(to: EffectStrengths.couplersRange)), .shoot),
             ("glare_amount", .double(effects.glare.clamped(to: EffectStrengths.glareRange)), .print),
@@ -755,6 +809,11 @@ struct FilmParams: Codable, Equatable, Sendable {
             ("antihalation_removed", .bool(effects.antihalationRemoved), .shoot),
             ("halation_boost_ev",
              .double(effects.highlightBoost.clamped(to: EffectStrengths.highlightBoostRange)), .shoot),
+            // 1.3.4: the headroom a clipped highlight is given back on a film
+            // with no anti-halation layer (CineStill 800T). Sent always, on the
+            // same rule; every other film's engine ignores it, byte for byte.
+            ("halation_headroom_ev",
+             .double(effects.highlightHeadroom.clamped(to: EffectStrengths.highlightHeadroomRange)), .shoot),
             // RFC-028. The DI is sent always, like the rest (off is the
             // paper, exactly). The blue compensation only while the DI is on,
             // so the Settings switch cannot move any other frame's stamp.
@@ -764,6 +823,17 @@ struct FilmParams: Codable, Equatable, Sendable {
         ]
         // RFC-032/031 (API-SPEC §13). The two switches always, the rest only
         // while each is on (`FilmEdgeSettings.wire`).
+        // Black and white on its paper: the enlarger's pack is sent, because the
+        // engine's table has no row for a silver paper and a session coming
+        // from a colour pair would keep that pair's (measured: M 51.6 / Y 52.5
+        // stays). Only then, so no colour frame's stamp moves; going back, the
+        // engine takes the colour pair's row again by itself (measured).
+        if filmIsMonochrome && printIsMonochrome {
+            let f = FilmParams.multigradeFilter2
+            fields += [("c_filter_neutral", .double(f.c), .print),
+                       ("m_filter_neutral", .double(f.m), .print),
+                       ("y_filter_neutral", .double(f.y), .print)]
+        }
         fields += pairPlacementWire
         fields += filmEdge.wire
         fields += dateBack.wire(filmEdge: filmEdge, scale: dateScale)

@@ -55,7 +55,12 @@ final class PanelResizeWiringTests: XCTestCase {
         let aeFloor = 2 * Theme.Metric.rowInset + Theme.Metric.sliderLabelWidth + 110
         XCTAssertGreaterThanOrEqual(Theme.Metric.leftPanelRange.narrowest, aeFloor,
                                     "the AE Method pill truncates below \(aeFloor)")
-        XCTAssertGreaterThanOrEqual(Theme.Metric.rightPanelRange.narrowest, 268,
+        // The right rail's floor is Film Format's pill rows at the largest
+        // interface scale, which nothing in them can give back.
+        let pillFloor = 2 * Theme.Metric.rowInset + 96 * InterfaceScale.large.factor + Theme.Metric.pickerWidth
+        XCTAssertGreaterThanOrEqual(Theme.Metric.rightPanelRange.narrowest, pillFloor,
+                                    "Film Format's pill rows are wider than the rail below \(pillFloor)")
+        XCTAssertGreaterThanOrEqual(Theme.Metric.rightPanelRange.narrowest, 280,
                                     "the colour balance tab row is past what 0.85 scale covers")
         // And the widest ends stay where the controls stop growing, rather than
         // drifting into "as wide as the window".
@@ -94,6 +99,64 @@ final class PanelResizeWiringTests: XCTestCase {
                       "the triangle does not fit at the panel's narrowest")
     }
 
+    /// Nothing the Parameters rail shows is wider than the rail's narrowest.
+    ///
+    /// Reported 2026-10-09: dragged narrow, the rail's hairlines and its
+    /// divider stopped agreeing with its edge. A rail is a `.frame(width:)`
+    /// around its content, and a frame **centres** a child that will not
+    /// shrink to it: Film Format's "Set by Film Edge" row was three
+    /// `.fixedSize()` texts, 286 pt of them at the default scale and 317 at
+    /// 130 %, so below that the card and every rule in it were wider than the
+    /// frame the divider is drawn on, by half the excess on each side.
+    ///
+    /// Every section open, the strengths shown, each film edge format, both
+    /// languages, the three interface scales: the rail's **least** width,
+    /// which is what a fixed-size row raises.
+    func testNothingOnTheParametersRailIsWiderThanItsNarrowest() {
+        let s = Session()
+        let d = UserDefaults.standard
+        let tabKey = Session.uiKey + "parametersTab"
+        let open = ["latitude", "camera", "filmFormat", "scenePlacement", "wb2", "exposure2", "curve", "colorbalance"]
+            .map { Session.uiKey + "section." + $0 } + [Session.decoupleEffectsKey]
+        let keys = [tabKey] + open
+        let saved = keys.map { d.object(forKey: $0) }
+        let language = Localization.shared.language
+        let scale = InterfaceScaleStore.shared.scale
+        defer {
+            for (key, value) in zip(keys, saved) {
+                if let value { d.set(value, forKey: key) } else { d.removeObject(forKey: key) }
+            }
+            Localization.shared.language = language
+            InterfaceScaleStore.shared.scale = scale
+        }
+        for key in open { d.set(true, forKey: key) }
+
+        let narrowest = Theme.Metric.rightPanelRange.narrowest
+        for scale in InterfaceScale.allCases {
+            InterfaceScaleStore.shared.scale = scale
+            for setting in [LanguageSetting.english, .simplifiedChinese] {
+                Localization.shared.language = setting
+                for tab in ParametersTab.allCases {
+                    d.set(tab.rawValue, forKey: tabKey)
+                    // Off, then on in each format: the row names the format.
+                    let edges: [FilmEdgeFormat?] = tab == .preDev ? [nil] + FilmEdgeFormat.allCases.map { $0 } : [nil]
+                    for format in edges {
+                        var p = s.params
+                        p.filmEdge.active = format != nil
+                        p.filmEdge.format = format ?? .f135
+                        s.params = p
+                        let least = NSHostingController(rootView: RightPanel(session: s))
+                            .sizeThatFits(in: CGSize(width: 1, height: 4000)).width
+                        XCTAssertLessThanOrEqual(
+                            least, narrowest + 0.5,
+                            "\(scale.label) \(setting) \(tab) film edge \(format?.rawValue ?? "off"): "
+                                + "the rail needs \(least) pt and may be \(narrowest)")
+                    }
+                }
+            }
+        }
+    }
+
     /// Everything about the store, on a **throwaway suite**.
     ///
     /// Its `defaults:` parameter is a real injection — it reads *and* writes
@@ -127,6 +190,12 @@ final class PanelResizeWiringTests: XCTestCase {
         defaults.set(Double(range.narrowest - 500), forKey: "ui.panelWidth.t.under")
         XCTAssertEqual(PanelWidthStore(name: "t.under", range: range, defaults: defaults).width,
                        range.narrowest)
+
+        // The right rail's floor rose from 268 to 280 (2026-10-09): a width
+        // an older build stored comes back as the new floor, not as itself.
+        let right = Theme.Metric.rightPanelRange
+        defaults.set(268.0, forKey: "ui.panelWidth.t.right")
+        XCTAssertEqual(PanelWidthStore(name: "t.right", range: right, defaults: defaults).width, right.narrowest)
 
         // And the write goes through the *injected* suite, which is what makes
         // the test above safe to run at all.

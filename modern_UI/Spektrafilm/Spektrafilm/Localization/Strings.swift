@@ -106,7 +106,7 @@ enum S: String, CaseIterable, Sendable {
     case setLanguage, setLanguageCaption, languageFollowSystem
 
     // MARK: frontend v4 (2026-09-26 drawing)
-    case latitudeUnmeasurable, latitudeNoLight, filmFormatSize, railFilmAndPrint, railParameters, tabPreDev, tabPostDev, sectionNavigator, sectionEnlarger, sectionLatitude, sectionScenePlacement, sectionToneMask, printEffects, filmGrainStrength, filmHalationStrength, filmScatterStrength, filmAntihalationLayer, filmHighlightBoost, filmCouplersStrength, filmGlareStrength, latitudeBelow, latitudeWithin, latitudeAbove, latitudeHeld, latitudeFullSeparation, latitudeEmpty, placementHighlight, placementShadow, maskEnable, maskHighlights, maskShadows, maskCore, maskRadius, maskCurveCaption, enlargerPreflash, helpResetFilmFormat, helpResetPlacement, helpResetToneMask, helpResetEnlarger, helpSubLayerGrain, reasonPrintEffectsOff, reasonNotDeveloped, setResetLayout, setResetLayoutCaption
+    case latitudeUnmeasurable, latitudeNoLight, filmFormatSize, railFilmAndPrint, railParameters, tabPreDev, tabPostDev, sectionNavigator, sectionEnlarger, sectionLatitude, sectionScenePlacement, sectionToneMask, printEffects, filmGrainStrength, filmHalationStrength, filmScatterStrength, filmAntihalationLayer, filmHighlightBoost, filmHighlightHeadroom, reasonNoAntihalationLayer, filmCouplersStrength, filmGlareStrength, latitudeBelow, latitudeWithin, latitudeAbove, latitudeHeld, latitudeFullSeparation, latitudeEmpty, placementHighlight, placementShadow, maskEnable, maskHighlights, maskShadows, maskCore, maskRadius, maskCurveCaption, enlargerPreflash, helpResetFilmFormat, helpResetPlacement, helpResetToneMask, helpResetEnlarger, helpSubLayerGrain, reasonPrintEffectsOff, reasonNotDeveloped, setResetLayout, setResetLayoutCaption
 
     // MARK: the settings clipboard (RFC-027)
     case sectionClipboard, clipCopy, clipPaste, clipPasteTo, clipHolds, clipEmpty
@@ -155,6 +155,8 @@ extension S {
         case .filmScatterStrength: "Scatter Strength"
         case .filmAntihalationLayer: "Anti-Halation Layer"
         case .filmHighlightBoost: "Highlight Boost"
+        case .filmHighlightHeadroom: "Highlight Headroom"
+        case .reasonNoAntihalationLayer: "This film has no anti-halation layer"
         case .filmCouplersStrength: "Couplers Strength"
         case .filmGlareStrength: "Glare Strength"
         case .latitudeBelow: "Below"
@@ -476,6 +478,8 @@ extension S {
         case .filmScatterStrength: "散射强度"
         case .filmAntihalationLayer: "防光晕层"
         case .filmHighlightBoost: "高光增强"
+        case .filmHighlightHeadroom: "高光余量"
+        case .reasonNoAntihalationLayer: "此胶片没有防光晕层"
         case .filmCouplersStrength: "成色剂强度"
         case .filmGlareStrength: "耀光强度"
         case .latitudeBelow: "低于"
@@ -933,6 +937,7 @@ extension DateBackOrder {
     switch title {
     case "Positive": return L(.filmGroupPositive)
     case "Negative": return L(.filmGroupNegative)
+    case "Black & White": return L("Black & White", zh: "黑白")
     default: return title
     }
 }

@@ -42,6 +42,40 @@ kernel void spk_boost(device const float* x [[buffer(0)]],
     out[i] = xv + boost_scale * (exp(a * dx) - a * dx - 1.0f);
 }
 
+// `node_headroom`: the exposure with its clipped highlights given back the
+// headroom a digital frame cut off. Per pixel, from its
+// brightest channel m (so a red tube clipped in red alone counts), the product
+// of two smoothsteps in stops -- near the frame's maximum (the clip), and over
+// a floor above mid-grey (a highlight at all) -- and the pixel scaled by
+// 2^(headroom * s), all three channels alike so the light keeps its colour.
+// Monotonic in m. p = {1/clip, clip_from, clip_inv_span, headroom,
+//                      1/mid-grey, floor_from, floor_inv_span}.
+static inline float spk_smoothstep01(float t) {
+    t = clamp(t, 0.0f, 1.0f);
+    return t * t * (3.0f - 2.0f * t);
+}
+
+kernel void spk_highlight_headroom(device const float* x [[buffer(0)]],
+                                device const float* p [[buffer(1)]],
+                                device const uint* n [[buffer(2)]],
+                                device float* out [[buffer(3)]],
+                                uint3 thread_position_in_grid [[thread_position_in_grid]]) {
+    uint i = thread_position_in_grid.x;
+    if (i >= n[0]) return;
+    float3 v = float3(x[3 * i], x[3 * i + 1], x[3 * i + 2]);
+    float m = max(v.x, max(v.y, v.z));
+    float g = 1.0f;
+    if (m > 0.0f) {
+        float lm = log2(m);
+        float near_clip = spk_smoothstep01((lm + log2(p[0]) - p[1]) * p[2]);
+        float over_floor = spk_smoothstep01((lm + log2(p[4]) - p[5]) * p[6]);
+        g = exp2(p[3] * near_clip * over_floor);
+    }
+    out[3 * i] = v.x * g;
+    out[3 * i + 1] = v.y * g;
+    out[3 * i + 2] = v.z * g;
+}
+
 // Per-channel 1-D linear LUT with ``fast_interp`` semantics.
 kernel void spk_curves(device const float* x [[buffer(0)]],
                        device const float* xa [[buffer(1)]],

@@ -154,6 +154,11 @@ final class Renderer: NSObject {
     /// What the canvas draws: the detail print when one is shown, else the
     /// live print or decode preview.
     var base: MTLTexture? { showsFullRender ? (fullRender ?? live) : live }
+    /// "Don't apply film simulation" (`Sidecar.noFilm`): Layer 2 runs on the
+    /// decode instead of the print.
+    var noFilm = false { didSet { if oldValue != noFilm { layer2Dirty = true; needsDraw?() } } }
+    /// What Layer 2 grades: the print, or the decode when the film is off.
+    var graded: MTLTexture? { noFilm ? (original ?? base) : base }
     /// The display decode at the frame's **own** resolution — Apple's
     /// rendering of the RAW, never the engine's input. Shown instead of the
     /// adjusted image while Space is held, and left of the split.
@@ -473,7 +478,7 @@ final class Renderer: NSObject {
     private func conformSourceSize(to texture: MTLTexture, previous: MTLTexture) {
         // Framing a film edge shows the decode over the film print; the frame
         // is the decode's then, whatever print lands under it.
-        guard !(editingCrop && showOriginal) else { return }
+        guard !(editingCrop && showOriginal), !noFilm else { return }
         guard let size = sourceSize, previous.width > 0, texture.height > 0 else { return }
         guard !Renderer.sameShape(size, CGSize(width: texture.width, height: texture.height)) else { return }
         let k = size.width / CGFloat(previous.width)
@@ -508,7 +513,7 @@ final class Renderer: NSObject {
         showsFullRender = texture != nil
         // The native render is the frame's own pixels, so when its shape is
         // not the frame's the frame is it (see `conformSourceSize`).
-        if let texture, let size = sourceSize, !editingCrop || !showOriginal,
+        if let texture, let size = sourceSize, !editingCrop || !showOriginal, !noFilm,
            !Renderer.sameShape(size, CGSize(width: texture.width, height: texture.height)) {
             sourceSize = CGSize(width: texture.width, height: texture.height)
             refreshLogicalSize()
@@ -812,7 +817,7 @@ final class Renderer: NSObject {
             return
         }
         var shown: MTLTexture? = nil
-        if let base {
+        if let base = graded {
             if showOriginal, let original {
                 shown = original
             } else if let dst = ensureAdjusted(for: base) {
@@ -992,7 +997,7 @@ final class Renderer: NSObject {
         // "show original" shows the original rather than the print.
         if base != nil, showOriginal, let original {
             shown = original
-        } else if let base, let dst = ensureAdjusted(for: base) {
+        } else if let base = graded, let dst = ensureAdjusted(for: base) {
             encodeLayer2(cb, src: base, dst: dst)
             layer2Dirty = false
             shown = dst

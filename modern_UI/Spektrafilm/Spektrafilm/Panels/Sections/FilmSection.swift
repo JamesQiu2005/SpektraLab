@@ -56,14 +56,26 @@ struct FilmSection: View {
     }
 
     /// The rule is `Session.selectFilmStock`, which the agent layer shares.
-    private func select(_ id: String) { session.selectFilmStock(id) }
+    private func select(_ id: String) {
+        // Choosing a film is asking for it: the simulation comes back on.
+        session.noFilm = false
+        session.selectFilmStock(id)
+    }
 
-    private var menu: some View {
+    @ViewBuilder private var menu: some View {
+        Toggle(L("Don't Apply Film Simulation", zh: "不应用胶片模拟"), isOn: $session.noFilm)
+            .disabled(session.pair != nil)
+        Divider()
         // The header's arrow is this item; both say the same thing in words,
         // which is the point of §8.3 — a reset affordance whose scope is not
         // named is the ellipsis problem again.
         Button(L("Reset the film stock to Portra 400", zh: "将胶片重置为 Portra 400")) {
-            var p = session.params; p.filmStock = "kodak_portra_400"; session.params = p
+            var p = session.params; p.filmStock = "kodak_portra_400"
+            // Coming back from a black-and-white film, its paper cannot stay.
+            if !session.catalog.canPrint(film: p.filmStock, on: p.printStock) {
+                p.printStock = FilmParams.default.printStock
+            }
+            session.params = p
             session.applyFilmStageRule()
         }
     }
