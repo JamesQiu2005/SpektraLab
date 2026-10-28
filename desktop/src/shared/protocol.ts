@@ -107,6 +107,8 @@ export interface HelloResult {
   /** Optional RAW preview modes; embedded-only never falls back to RAW decode. */
   thumbnail_options?: string[];
   tiff_options?: string[];
+  /** "no-film": export_frame and render_proof take `no_film` -- the decode instead of the print (R4). */
+  frame_options?: string[];
   /** Frontend-side: true when the mock host answered. */
   mock?: boolean;
 }

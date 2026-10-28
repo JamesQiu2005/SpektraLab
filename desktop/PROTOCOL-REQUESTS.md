@@ -70,3 +70,33 @@ with the reason "this host cannot change white balance at decode".
 The filmstrip draws what `thumbnail` returns. Please return it already rotated
 to the camera's orientation (as `open` does for the decode), or report
 `orientation` in the result so the app can turn it.
+
+---
+
+## R4 [open] — "Don't Apply Film Simulation" in `export_frame` / `render_proof` (1.3.4)
+
+**Why.** 1.3.4's Film section menu has *Don't Apply Film Simulation*
+(`Sidecar.noFilm`, `Exporter.filePixels` on the Mac): the frame is the
+**decode** at its own pixels, in the working space, with the Post-Dev grade
+(Layer 2) and the frame's geometry on it -- on the canvas, the thumbnail and
+the exported file. The film settings stay in the sidecar. The canvas and the
+filmstrip are frontend-only here (`render_source` + the GLSL Layer 2 pass), but
+a file at full resolution needs the host.
+
+**Shape (additive).**
+
+1. `export_frame` and `render_proof` accept `no_film: boolean` (absent =
+   false). When true the host skips the film/print render and feeds the
+   session's decoded source (the pixels `render_source` reads, at native size,
+   in the working ProPhoto space) into the same post path it already runs:
+   Layer 2 `adjustments`, `geometry` (with `source_geometry` ignored -- no film
+   canvas exists), the output transform for `color_space`, encode, EXIF.
+   `params` may still be sent and are ignored for the pixels.
+2. `no_film: true` with `export_cineon` / `format: "di"` is `bad_request`
+   (the Digital Intermediate *is* the film's negative).
+3. `hello.frame_options: ["no-film"]` advertises it.
+
+**Until it lands** the frontend refuses to write or proof a frame with the flag
+on and says why (`exporter.ts` `noFilmSupported`): a host that ignored the
+unknown field would write the film print, which is not the canvas's frame
+(trap 33). The mock host implements the shape (`mock-host/core.ts`).

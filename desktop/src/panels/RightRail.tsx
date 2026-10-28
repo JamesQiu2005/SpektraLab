@@ -254,6 +254,8 @@ function useWhiteBalance() {
 function FilmFormatSection() {
   const p = useSession((s) => s.sidecar.params);
   const monochrome = useSession((s) => s.catalog.isMonochrome(s.sidecar.params.filmStock));
+  // CineStill 800T: no layer to put back, and the engine reads its own tag whatever the switch says.
+  const noLayer = useSession((s) => s.catalog.hasNoAntihalationLayer(s.sidecar.params.filmStock));
   const unit = useSettings((s) => s.sideUnit);
   const decouple = useSettings((s) => s.decoupleEffects);
   const isCustom = p.filmFrame === FILM_FRAME_CUSTOM.id;
@@ -317,7 +319,16 @@ function FilmFormatSection() {
       <ToggleRow label={t('filmGrain')} on={p.grainActive} onChange={(v) => setParams((q) => ({ ...q, grainActive: v }))} testId="grain-toggle" />
       {decouple && strength(t('filmGrainStrength'), 'grain', p.grainActive)}
       <ToggleRow label={t('filmHalation')} on={p.halationActive} onChange={(v) => setParams((q) => ({ ...q, halationActive: v }))} />
-      <ToggleRow label={t('filmAntihalationLayer')} on={!e.antihalationRemoved} disabled={!p.halationActive} reason={t('reasonEffectOff')} onChange={(v) => setE({ antihalationRemoved: !v })} />
+      {noLayer ? (
+        <ToggleRow label={t('filmAntihalationLayer')} on={false} disabled reason={t('reasonNoAntihalationLayer')} onChange={() => {}} testId="antihalation-toggle" />
+      ) : (
+        <ToggleRow label={t('filmAntihalationLayer')} on={!e.antihalationRemoved} disabled={!p.halationActive} reason={t('reasonEffectOff')} onChange={(v) => setE({ antihalationRemoved: !v })} testId="antihalation-toggle" />
+      )}
+      {/* 1.3.4: offered on a film with no anti-halation layer only (the one film whose halo the
+          engine draws from it), in both layouts, under the layer it belongs to. */}
+      {noLayer && (
+        <ScrubSlider label={t('filmHighlightHeadroom')} value={e.highlightHeadroom} range={[...EFFECT_RANGES.highlightHeadroom] as [number, number]} zero={4} snap={0.5} format={(v) => v.toFixed(1)} disabled={!p.halationActive} reason={t('reasonEffectOff')} onChange={(v) => setE({ highlightHeadroom: v })} testId="headroom-slider" />
+      )}
       {decouple && (
         <>
           {strength(t('filmHalationStrength'), 'halation', p.halationActive)}

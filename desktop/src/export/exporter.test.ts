@@ -288,3 +288,40 @@ it('carries offline persisted hole meter readings into private export and proof 
   await renderProof(recipe(), item.frame, catalog, ['render_proof', 'open_pair'], 'srgb', 128, 1);
   expect(fake.renderProof.mock.calls[0]?.[0]).toMatchObject({ pair: { left: { meteredEV: -.6, meteredFor: 'source-decode-geometry-method' } } });
 });
+
+it("freezes Don't Apply Film Simulation and sends no_film only to a host that advertises it", async () => {
+  const sidecar = structuredClone(newSidecar());
+  sidecar.noFilm = true;
+  const [item] = await captureExportFrames(['D:/photos/a.NEF'], { path: 'D:/photos/a.NEF', sidecar,
+    session: 'editor', native: { width: 6000, height: 4000 } }, catalog, ALL_FEATURES, false);
+  if (!item || !('frame' in item)) throw new Error('missing snapshot');
+  expect(item.frame.noFilm).toBe(true);
+  // A host that would ignore the unknown field writes the film print: refused, nothing sent.
+  const refused = await exportFrame(recipe(), item.frame, catalog, ['export_frame']);
+  expect(refused).toMatchObject({ kind: 'failed', message: expect.stringContaining("Don't Apply Film Simulation") });
+  expect(fake.request).not.toHaveBeenCalled();
+  await expect(renderProof(recipe(), item.frame, catalog, ['render_proof'], 'srgb', 512, 3)).rejects.toThrow('Film Simulation');
+  // The Digital Intermediate is the film's negative: refused even where no_film is supported.
+  const di = DEFAULT_RECIPES.find((r) => r.format === 'di')!;
+  expect(await exportFrame(di, item.frame, catalog, ['export_frame', 'export_cineon'], { frameOptions: ['no-film'] }))
+    .toMatchObject({ kind: 'failed', message: expect.stringContaining('Digital Intermediate') });
+  await exportFrame(recipe(), item.frame, catalog, ['export_frame'], { frameOptions: ['no-film'] });
+  expect(fake.request.mock.calls[0]![1].no_film).toBe(true);
+  fake.renderProof.mockResolvedValue({ proof: { generation: 3 } });
+  await renderProof(recipe(), item.frame, catalog, ['render_proof'], 'srgb', 512, 3, { frameOptions: ['no-film'] });
+  expect(fake.renderProof.mock.calls[0]![0].no_film).toBe(true);
+  // Off, the field is not sent at all, so an older host sees the request it always did.
+  await exportFrame(recipe(), frame(), catalog, ['export_frame']);
+  expect(JSON.parse(JSON.stringify(fake.request.mock.calls[1]![1]))).not.toHaveProperty('no_film');
+});
+
+it('reports export failures in Simplified Chinese when the interface is (1.3.4 Exporter.chineseDescription)', async () => {
+  vi.stubGlobal('document', { documentElement: {} });
+  const { setLanguage } = await import('../i18n');
+  setLanguage('simplifiedChinese');
+  try {
+    expect(await exportFrame(recipe(), frame(), catalog, ['write_image']))
+      .toMatchObject({ kind: 'failed', message: '此引擎不支持完整画面导出（export_frame），请更新引擎后再导出。' });
+    await expect(renderProof(recipe(), frame(), catalog, ['export_frame'], 'srgb', 512, 1)).rejects.toThrow('此引擎不支持导出软打样');
+  } finally { setLanguage('english'); vi.unstubAllGlobals(); }
+});

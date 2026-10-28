@@ -532,19 +532,24 @@ input {
   opacity: var(--disabled-opacity);
   pointer-events: none;
 }
+/* A label column is a minimum, never a clip (no "…"; `.fixedSize().frame(minWidth:)` on the Mac):
+   a longer label such as 1.3.4's "Highlight Headroom" takes its room from the track. */
 .row-label {
-  width: var(--label-width);
+  min-width: var(--label-width);
   flex: none;
   font-weight: 600;
   white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
 }
 .rail.right .row-label {
-  width: var(--param-label-width);
+  min-width: var(--param-label-width);
 }
+/* A sub-label is a message: it wraps inside the label's column and never widens the row
+   (width 0 + min-width 100 % keeps it out of the label's intrinsic width). */
 .row-label .sub {
   display: block;
+  white-space: normal;
+  width: 0;
+  min-width: 100%;
   font-weight: 400;
   font-size: var(--fs-small);
   color: var(--dim);
@@ -561,7 +566,8 @@ input {
   height: 18px;
   position: relative;
   cursor: ew-resize;
-  min-width: 40px;
+  /* 24, not 40: at 130 % on the narrowest left rail (232) the track gave way 13 px too late. */
+  min-width: 24px;
 }
 .scrub .track {
   position: absolute;
@@ -657,6 +663,9 @@ input {
 .toggle-row .row-label {
   width: auto;
   flex: 1;
+  /* The switch is the whole row: a long label wraps rather than pushing the box out. */
+  min-width: 0;
+  white-space: normal;
 }
 .unit-field {
   width: 50px;

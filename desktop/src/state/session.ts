@@ -19,6 +19,7 @@ import {
   type FilmSide,
   ALL_FEATURES,
   FILM_FRAME_CUSTOM,
+  FILM_PARAMS_DEFAULT,
   delta as paramsDelta,
   featureGate,
   filmFormatMM,
@@ -70,6 +71,7 @@ export interface UndoEntry {
   pair?: HalfFramePair | null;
   decode: DecodeSettings;
   placementNeedsFit?: boolean;
+  noFilm?: boolean;
 }
 
 export interface LatitudeState {
@@ -587,7 +589,19 @@ async function renderFull(gen: number) {
 
 async function refreshThumb() {
   const s = get();
-  if (!s.selection || !frameImages.print) return;
+  if (!s.selection) return;
+  if (noFilmShown(s)) {
+    // The decode is the picture (the Mac's `updateThumbnail(url, from: renderer.original)`).
+    const original = frameImages.original;
+    if (!original) return;
+    const url = await makeThumbFromPrint(original);
+    if (url && get().selection === s.selection && noFilmShown(get())) {
+      thumbs.setPrint(s.selection, url, false);
+      set({ thumbVersion: get().thumbVersion + 1 });
+    } else if (url) URL.revokeObjectURL(url);
+    return;
+  }
+  if (!frameImages.print) return;
   const gen = wantedGen;
   // The filmstrip expects the WHOLE photograph so it can apply orientation
   // and the crop mask once. A displayed render_view has already baked them.
@@ -737,7 +751,7 @@ function pushUndo() {
   if (now - lastUndoAt < 500) return;
   lastUndoAt = now;
   const sc = get().sidecar;
-  const undo = [...get().undo, { params: sc.params, adjustments: sc.adjustments, geometry: sc.geometry, heldCrop: sc.heldCrop, pair: get().pair, decode: sc.decode, placementNeedsFit: sc.placementNeedsFit }].slice(-60);
+  const undo = [...get().undo, { params: sc.params, adjustments: sc.adjustments, geometry: sc.geometry, heldCrop: sc.heldCrop, pair: get().pair, decode: sc.decode, placementNeedsFit: sc.placementNeedsFit, noFilm: sc.noFilm ?? false }].slice(-60);
   set({ undo, redo: [] });
 }
 
@@ -841,6 +855,59 @@ export function selectFilmStock(filmStock: string) {
     // repairs incompatible pairs and preserves a user's valid custom paper.
     printStock: target && catalog.stock(target) ? target : p.printStock,
   }));
+}
+
+/** The Film section's reset arrow (FilmSection.swift): Portra 400. A paper that
+ * cannot print it (coming back from black and white) is repaired by the stage
+ * rule; the "Don't Apply Film Simulation" flag is left as it is. */
+export function resetFilmStock() {
+  lastUndoAt = 0;
+  setParams((p) => ({ ...p, filmStock: FILM_PARAMS_DEFAULT.filmStock }));
+}
+
+/** A film row clicked in the Film section (`FilmSection.select` on the Mac):
+ * choosing a film is asking for it, so the simulation comes back on -- in the
+ * same undo step as the stock. The agent layer calls `selectFilmStock`. */
+export function pickFilmStock(filmStock: string) {
+  const wasOff = noFilmShown(get()), undo = get().undo;
+  selectFilmStock(filmStock);
+  if (wasOff) {
+    // The stock change pushed an undo step holding the flag on: clear it inside that step.
+    if (get().undo !== undo) {
+      set({ sidecar: { ...get().sidecar, noFilm: false } });
+      scheduleSave();
+      noFilmChanged();
+    } else setNoFilm(false);
+  }
+}
+
+/** Whether the canvas, thumbnail and export show the decode instead of the
+ * print ("Don't Apply Film Simulation"). A pair has no such state. */
+export function noFilmShown(s: Pick<SessionState, 'sidecar' | 'pair'>): boolean {
+  return s.sidecar.noFilm === true && !s.pair;
+}
+
+/** "Don't Apply Film Simulation" (1.3.4, `Session.noFilm`): the frame is the
+ * decode with the Post-Dev edits on it, under the frame's geometry. One undo
+ * step; the film settings are untouched, so switching it off gives them back.
+ * Disabled for a pair, as on the Mac. */
+export function setNoFilm(on: boolean) {
+  const s = get();
+  if (s.batchExporting || !s.selection || s.pair || (s.sidecar.noFilm ?? false) === on) return;
+  lastUndoAt = 0;
+  pushUndo();
+  lastUndoAt = 0;
+  set({ sidecar: { ...get().sidecar, noFilm: on } });
+  scheduleSave();
+  noFilmChanged();
+}
+
+/** The canvas and the thumbnail follow the flag. The print keeps developing
+ * underneath (switching back is then immediate); the decode is fetched now. */
+function noFilmChanged() {
+  if (get().sidecar.noFilm) void refreshOriginal();
+  set({ imageVersion: get().imageVersion + 1 });
+  void refreshThumb();
 }
 
 /** Guard the action as well as the paper row: shortcuts and future callers
@@ -966,7 +1033,9 @@ export function beginGesture() {
 function restore(e: UndoEntry) {
   const s = get();
   const decodeMoved = !jsonEqual(e.decode, s.sidecar.decode);
-  set({ pair: e.pair ?? null, sidecar: filmStageSidecar({ ...s.sidecar, params: e.params, adjustments: e.adjustments, geometry: e.geometry, heldCrop: e.heldCrop ?? null, decode: e.decode, placementNeedsFit: e.placementNeedsFit ?? false }) });
+  const noFilmMoved = (e.noFilm ?? false) !== (s.sidecar.noFilm ?? false);
+  set({ pair: e.pair ?? null, sidecar: filmStageSidecar({ ...s.sidecar, params: e.params, adjustments: e.adjustments, geometry: e.geometry, heldCrop: e.heldCrop ?? null, decode: e.decode, placementNeedsFit: e.placementNeedsFit ?? false, noFilm: e.noFilm ?? false }) });
+  if (noFilmMoved) noFilmChanged();
   for (const side of PAIR_SIDES) {
     const hole = e.pair?.[side];
     if (hole && !jsonEqual(hole.decode, s.pair?.[side]?.decode))
@@ -982,7 +1051,7 @@ export function undo() {
   if (s.batchExporting || !s.selection) return;
   const prev = s.undo[s.undo.length - 1];
   if (!prev) return;
-  const cur = { params: s.sidecar.params, adjustments: s.sidecar.adjustments, geometry: s.sidecar.geometry, heldCrop: s.sidecar.heldCrop, pair: s.pair, decode: s.sidecar.decode, placementNeedsFit: s.sidecar.placementNeedsFit };
+  const cur = { params: s.sidecar.params, adjustments: s.sidecar.adjustments, geometry: s.sidecar.geometry, heldCrop: s.sidecar.heldCrop, pair: s.pair, decode: s.sidecar.decode, placementNeedsFit: s.sidecar.placementNeedsFit, noFilm: s.sidecar.noFilm ?? false };
   set({ undo: s.undo.slice(0, -1), redo: [...s.redo, cur] });
   lastUndoAt = 0;
   restore(prev);
@@ -994,7 +1063,7 @@ export function redo() {
   if (s.batchExporting || !s.selection) return;
   const next = s.redo[s.redo.length - 1];
   if (!next) return;
-  const cur = { params: s.sidecar.params, adjustments: s.sidecar.adjustments, geometry: s.sidecar.geometry, heldCrop: s.sidecar.heldCrop, pair: s.pair, decode: s.sidecar.decode, placementNeedsFit: s.sidecar.placementNeedsFit };
+  const cur = { params: s.sidecar.params, adjustments: s.sidecar.adjustments, geometry: s.sidecar.geometry, heldCrop: s.sidecar.heldCrop, pair: s.pair, decode: s.sidecar.decode, placementNeedsFit: s.sidecar.placementNeedsFit, noFilm: s.sidecar.noFilm ?? false };
   set({ redo: s.redo.slice(0, -1), undo: [...s.undo, cur] });
   lastUndoAt = 0;
   restore(next);
@@ -1757,6 +1826,7 @@ export async function refreshOriginal(): Promise<void> {
           frameImages.original = image;
           lastOriginalKey = key;
           set({ imageVersion: get().imageVersion + 1 });
+          if (noFilmShown(get())) void refreshThumb();
           cacheDisplay(cacheKey, image, s.nativeSize, false);
         }
       } catch (e) {
@@ -2040,12 +2110,12 @@ export function setTool(tool: Tool) {
   if (previous !== tool && (previous === 'crop' || tool === 'crop') && hostViews() && !get().batchExporting) void requestPrint();
 }
 export function setOriginal(on: boolean) {
-  if (on && sourceGeometryFor(get().sidecar.params, get().sidecar.geometry, get().gate)) return;
+  if (on && sourceGeometryFor(get().sidecar.params, get().sidecar.geometry, get().gate) && !noFilmShown(get())) return;
   set({ showingOriginal: on });
   if (on) void refreshOriginal();
 }
 export function toggleCompare() {
-  if (sourceGeometryFor(get().sidecar.params, get().sidecar.geometry, get().gate)) return;
+  if (sourceGeometryFor(get().sidecar.params, get().sidecar.geometry, get().gate) && !noFilmShown(get())) return;
   set({ comparing: !get().comparing });
   if (get().comparing) void refreshOriginal();
 }

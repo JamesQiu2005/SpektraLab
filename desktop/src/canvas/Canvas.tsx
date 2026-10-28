@@ -48,6 +48,7 @@ import {
   noteDisplaySpace,
   noteTextureLimit,
   notePreviewDrawn,
+  noFilmShown,
   pickNeutralAt,
   sessionStore,
   setComparePosition,
@@ -135,12 +136,15 @@ export function Canvas() {
   const displaySpace = useSession((s) => s.displaySpace);
   const maxTextureSize = useSession((s) => s.maxTextureSize);
   const previewGamut = useSettings((s) => s.previewGamut);
-  const originalFallback = !frameImages.print && !!frameImages.original;
+  // "Don't Apply Film Simulation" (1.3.4): the decode is the picture, graded, under the frame's own
+  // geometry -- never the film canvas (`Session.filmEdgeShowsFilm` && !noFilm on the Mac).
+  const noFilm = useSession(noFilmShown) && !!frameImages.original;
+  const originalFallback = !noFilm && !frameImages.print && !!frameImages.original;
   const cropping = tool === 'crop' && !originalFallback;
   const pair = useSession((s) => s.pair), pairLayer = useSession((s) => s.pairLayer), pairPlacing = useSession((s) => s.pairPlacing), pairInfo = useSession((s) => s.pairInfo);
   const pairGates = showingOriginal && pair ? pairRects(pair) : pairCanvasRects();
   const framing = cropping && geometryInNegative(params, gate);
-  const filmCanvas = !originalFallback && !cropping && !showingOriginal && !!sourceGeometryFor(params, geometry, gate);
+  const filmCanvas = !noFilm && !originalFallback && !cropping && !showingOriginal && !!sourceGeometryFor(params, geometry, gate);
   const canvasGeometry = originalFallback ? GEOMETRY_DEFAULT : filmCanvas ? canvasGeometryFor(params, geometry, gate) : geometry;
 
   useEffect(() => {
@@ -204,7 +208,8 @@ export function Canvas() {
     return () => ro.disconnect();
   }, []);
 
-  const native = originalFallback ? (frameImages.original!.nativeSize ?? { width: frameImages.original!.width, height: frameImages.original!.height })
+  const originalSize = frameImages.original ? frameImages.original.nativeSize ?? { width: frameImages.original.width, height: frameImages.original.height } : null;
+  const native = noFilm ? nativeSize ?? originalSize : originalFallback ? originalSize
     : (filmCanvas ? frameImages.print?.nativeSize : nativeSize) ?? (frameImages.print ? { width: frameImages.print.width, height: frameImages.print.height } : null);
   const layout =
     native && size.width > 0
@@ -269,15 +274,16 @@ export function Canvas() {
       compare: originalFallback || framing || showingOriginal ? 2 : comparing ? 1 : 0,
       split: comparePosition,
       surround: SURROUND,
+      noFilm,
     };
     r.draw(state);
     notePreviewDrawn();
-  }, [imageVersion, displaySpace, layout?.zoom, layout?.offset.x, layout?.offset.y, size, geometry, adjustments, cropping, framing, comparing, comparePosition, showingOriginal, originalFallback, layout]);
+  }, [imageVersion, displaySpace, layout?.zoom, layout?.offset.x, layout?.offset.y, size, geometry, adjustments, cropping, framing, comparing, comparePosition, showingOriginal, originalFallback, noFilm, layout]);
 
   // The output, small: navigator and histogram (the canvas's frame, trap 33).
   useEffect(() => {
     const r = gl.current;
-    if (!r || !native || (!frameImages.print && !originalFallback)) {
+    if (!r || !native || (!frameImages.print && !originalFallback && !noFilm)) {
       publishOutput(null);
       setHistogram(null);
       return;
@@ -301,6 +307,7 @@ export function Canvas() {
         compare: originalFallback || framing ? 2 : 0,
         split: 0.5,
         surround: SURROUND,
+        noFilm,
       };
       ensureUploaded(r);
       const px = r.renderOutput(state, w, h);
@@ -321,11 +328,12 @@ export function Canvas() {
           compare: originalFallback || framing || showingOriginal ? 2 : comparing ? 1 : 0,
           split: comparePosition,
           surround: SURROUND,
+          noFilm,
         });
     }, 60);
     return () => clearTimeout(t);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [imageVersion, displaySpace, geometry, adjustments, native?.width, native?.height, exportOpen, framing, filmCanvas]);
+  }, [imageVersion, displaySpace, geometry, adjustments, native?.width, native?.height, exportOpen, framing, filmCanvas, noFilm]);
 
   // ---- pointer
   const drag = useRef<
