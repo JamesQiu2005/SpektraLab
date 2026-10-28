@@ -199,7 +199,7 @@ export class MockHost {
 
   private capabilities() {
     return {
-      version: 'mock-1.3.1',
+      version: 'mock-1.3.4',
       engine: 'spektrafilm.mock',
       max_mp: 200,
       max_pixels: 200e6,
@@ -309,7 +309,7 @@ export class MockHost {
         return {
           result: {
             protocol: 1,
-            host_version: '1.3.1-mock',
+            host_version: '1.3.4-mock',
             build_info: 'mock host (desktop/mock-host) — synthetic pictures, no engine',
             backend: { api: 'mock', device_name: 'Mock GPU', driver: 'none' },
             capabilities: this.capabilities(),
