@@ -5,11 +5,12 @@
 // pooled or staging buffer can be reused while the device still reads it.
 // Command batching and native texture export are subsequent steps.
 //
-// Built everywhere but Apple (Windows and Linux). The Vulkan loader is not
+// Built everywhere but Apple (Windows and Linux), and on macOS only for parity
+// tests (SPEKTRALAB_VULKAN_ON_APPLE, MoltenVK). The Vulkan loader is not
 // linked: volk (engine/third_party/volk) opens libvulkan.so.1 / vulkan-1.dll
 // at run time, so the binary needs no SDK import library and a machine with
 // no Vulkan driver gets an error message rather than a loader failure.
-#ifndef __APPLE__
+#if !defined(__APPLE__) || defined(SPK_VULKAN_BACKEND)
 #include "gpu.hpp"
 #include "file_path.hpp"
 
@@ -90,6 +91,7 @@ constexpr KernelSpec kKernels[] = {
     {"spk_glare_add", 5, kWorkgroup},
     {"spk_reduce_max", 3, kWorkgroup},
     {"spk_boost", 4, kWorkgroup},
+    {"spk_highlight_headroom", 4, kWorkgroup},
     {"spk_bw_correct", 4, kWorkgroup},
     {"spk_edr", 5, kWorkgroup},
     {"spk_cctf_decode", 3, kWorkgroup},
@@ -163,6 +165,13 @@ public:
                     "with Vulkan support, or Mesa's lavapipe for a CPU fallback";
             return false;
         }
+#if defined(__APPLE__)
+        // MoltenVK (macOS parity builds only, SPEKTRALAB_VULKAN_ON_APPLE):
+        // it compiles MSL with fast math unless told otherwise, and fast math
+        // is what RFC-014 trap 1 forbids -- the Metal engine refuses it too.
+        // Set before the instance exists; a caller's explicit value wins.
+        setenv("MVK_CONFIG_FAST_MATH_ENABLED", "0", 0);
+#endif
         VkApplicationInfo app{};
         app.sType = VK_STRUCTURE_TYPE_APPLICATION_INFO;
         app.pApplicationName = "SpektraLab headless";
@@ -170,6 +179,24 @@ public:
         VkInstanceCreateInfo create{};
         create.sType = VK_STRUCTURE_TYPE_INSTANCE_CREATE_INFO;
         create.pApplicationInfo = &app;
+        // A portability driver (MoltenVK) is enumerated only when the instance
+        // asks for it. Requested only when the loader offers the extension,
+        // so Windows and Linux drivers see the same instance as before.
+        std::vector<const char*> instance_extensions;
+        {
+            uint32_t n_ext = 0;
+            if (vkEnumerateInstanceExtensionProperties(nullptr, &n_ext, nullptr) == VK_SUCCESS && n_ext) {
+                std::vector<VkExtensionProperties> ext(n_ext);
+                if (vkEnumerateInstanceExtensionProperties(nullptr, &n_ext, ext.data()) == VK_SUCCESS)
+                    for (const auto& e : ext)
+                        if (std::strcmp(e.extensionName, "VK_KHR_portability_enumeration") == 0) {
+                            instance_extensions.push_back("VK_KHR_portability_enumeration");
+                            create.flags |= 0x00000001;   // VK_INSTANCE_CREATE_ENUMERATE_PORTABILITY_BIT_KHR
+                        }
+            }
+        }
+        create.enabledExtensionCount = uint32_t(instance_extensions.size());
+        create.ppEnabledExtensionNames = instance_extensions.empty() ? nullptr : instance_extensions.data();
         VkResult result = vkCreateInstance(&create, nullptr, &instance_);
         if (result != VK_SUCCESS) { error = vk_error("vkCreateInstance", result); return false; }
         // Instance-level loading only: every device function then goes through
@@ -245,6 +272,21 @@ public:
         device_create.sType = VK_STRUCTURE_TYPE_DEVICE_CREATE_INFO;
         device_create.queueCreateInfoCount = 1;
         device_create.pQueueCreateInfos = &queue_create;
+        // The Vulkan spec requires a device that exposes
+        // VK_KHR_portability_subset (MoltenVK) to have it enabled.
+        const char* portability_subset = "VK_KHR_portability_subset";
+        {
+            uint32_t n_ext = 0;
+            if (vkEnumerateDeviceExtensionProperties(physical_, nullptr, &n_ext, nullptr) == VK_SUCCESS && n_ext) {
+                std::vector<VkExtensionProperties> ext(n_ext);
+                if (vkEnumerateDeviceExtensionProperties(physical_, nullptr, &n_ext, ext.data()) == VK_SUCCESS)
+                    for (const auto& e : ext)
+                        if (std::strcmp(e.extensionName, portability_subset) == 0) {
+                            device_create.enabledExtensionCount = 1;
+                            device_create.ppEnabledExtensionNames = &portability_subset;
+                        }
+            }
+        }
         result = vkCreateDevice(physical_, &device_create, nullptr, &device_);
         if (result != VK_SUCCESS) { error = vk_error("vkCreateDevice", result); return false; }
         vkGetDeviceQueue(device_, queue_family_, 0, &queue_);

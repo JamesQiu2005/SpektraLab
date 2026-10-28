@@ -20,7 +20,7 @@
 //                 numbers land.
 // Apple keeps its native rasterizer; the portable adapter embeds pinned open
 // font outlines and rasterizes the same film-space drawing operations.
-#ifdef __APPLE__
+#if defined(__APPLE__) && !defined(SPK_VULKAN_BACKEND)
 #include <Accelerate/Accelerate.h>
 #include <CoreGraphics/CoreGraphics.h>
 #include <CoreText/CoreText.h>
@@ -885,7 +885,7 @@ void film_to_canvas_px(const OverscanLayout& L, double s, double t, double& x, d
     y = v / L.px;
 }
 
-#ifdef __APPLE__
+#if defined(__APPLE__) && !defined(SPK_VULKAN_BACKEND)
 CFAttributedStringRef make_text(const Op& op, CTFontRef font, double gain) {
     CFStringRef str = CFStringCreateWithCString(nullptr, op.text.c_str(), kCFStringEncodingUTF8);
     CGFloat white[] = {CGFloat(std::clamp(gain, 0.0, 1.0)), 1.0};
@@ -938,7 +938,7 @@ bool rasterise(const OverscanLayout& L, const Group& g, std::vector<float>& cov,
     if (w <= 0 || h <= 0) return false;
 
     std::vector<uint8_t> px(size_t(w) * size_t(h), 0);
-#ifdef __APPLE__
+#if defined(__APPLE__) && !defined(SPK_VULKAN_BACKEND)
     CGColorSpaceRef gray = CGColorSpaceCreateDeviceGray();
     CGContextRef ctx = CGBitmapContextCreate(px.data(), size_t(w), size_t(h), 8, size_t(w), gray,
                                              kCGImageAlphaNone);
@@ -1038,7 +1038,7 @@ bool rasterise(const OverscanLayout& L, const Group& g, std::vector<float>& cov,
         double sum = 0.0;
         for (int i = -r; i <= r; ++i) { k[size_t(i + r)] = float(std::exp(-0.5 * i * i / (sigma * sigma))); sum += k[size_t(i + r)]; }
         for (float& v : k) v = float(v / sum);
-#ifdef __APPLE__
+#if defined(__APPLE__) && !defined(SPK_VULKAN_BACKEND)
         std::vector<float> tmp(cov.size(), 0.0f);
         vImage_Buffer src{cov.data(), vImagePixelCount(h), vImagePixelCount(w), size_t(w) * sizeof(float)};
         vImage_Buffer dst{tmp.data(), vImagePixelCount(h), vImagePixelCount(w), size_t(w) * sizeof(float)};
@@ -1440,7 +1440,7 @@ double dot_text(const std::string& text, const DotFace& f, double ps, double pt,
 
 // A Helvetica-family string's advance in film mm, as CoreText lays it out.
 double text_width(const char* font, double size_mm, const std::string& text, double tracking_mm, double hscale) {
-#ifdef __APPLE__
+#if defined(__APPLE__) && !defined(SPK_VULKAN_BACKEND)
     Op op;
     op.font = font; op.size_mm = size_mm; op.text = text; op.tracking_mm = tracking_mm;
     CFStringRef fname = CFStringCreateWithCString(nullptr, font, kCFStringEncodingUTF8);

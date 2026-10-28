@@ -59,7 +59,7 @@
 #include "pipeline.hpp"
 #include "print_lut.hpp"
 #include "setup_cache.hpp"
-#ifndef __APPLE__
+#if !defined(__APPLE__) || defined(SPK_VULKAN_BACKEND)
 #include "windows_unported.hpp"
 #include "view_process.hpp"
 #endif
@@ -68,7 +68,7 @@ using namespace spk;
 
 namespace {
 
-#ifndef __APPLE__
+#if !defined(__APPLE__) || defined(SPK_VULKAN_BACKEND)
 constexpr const char* kRenderCore = "native-vulkan";
 #else
 constexpr const char* kRenderCore = "native-metal";
@@ -199,7 +199,7 @@ struct spk_session {
     // one copy is unavoidable; this makes that copy the upload.
     Image source;
 
-#ifndef __APPLE__
+#if !defined(__APPLE__) || defined(SPK_VULKAN_BACKEND)
     // No image buffer is retained here. The file owns the exact byte copy,
     // and the indices preserve source/full-tier aliases on restoration.
     struct ResidencySnapshot {
@@ -245,7 +245,7 @@ struct spk_session {
         uint32_t image_long_edge = 0;
         Image negative;   // Tap.CMY_FILM
         bool has_negative = false;
-#ifndef __APPLE__
+#if !defined(__APPLE__) || defined(SPK_VULKAN_BACKEND)
         // Encoded RGBA16 on device (c=2 uint32 words/pixel). Kept until a
         // material parameter changes; view edits never redraw film grain.
         Image view_print;
@@ -351,7 +351,7 @@ struct spk_engine {
         backend.set("render_core", Json(std::string(kRenderCore)));
         backend.set("host", Json(std::string("native")));
         backend.set("math_mode", Json(math_mode));
-#ifndef __APPLE__
+#if !defined(__APPLE__) || defined(SPK_VULKAN_BACKEND)
         // These upstream effects still require kernels or Apple services that
         // have not been ported. Defaults stay usable; explicit requests fail.
         Json unported = Json::array();
@@ -455,7 +455,7 @@ struct spk_engine {
             size_t views = 0;
             int count = 0;
             for (const auto& kv : s->tiers) {
-#ifndef __APPLE__
+#if !defined(__APPLE__) || defined(SPK_VULKAN_BACKEND)
                 if (gpu && kv.second.view_print.buf) views += gpu->size_bytes(kv.second.view_print.buf.get());
 #endif
                 if (!kv.second.has_negative || !kv.second.negative.buf || !gpu) continue;
@@ -471,7 +471,7 @@ struct spk_engine {
             row.set("source_bytes", Json(double(source)));
             row.set("cached_negative_bytes", Json(double(negatives)));
             row.set("cached_view_bytes", Json(double(views)));
-#ifndef __APPLE__
+#if !defined(__APPLE__) || defined(SPK_VULKAN_BACKEND)
             size_t on_disk = 0;
             if (s->residency) for (const auto& plane : s->residency->planes) on_disk += plane.bytes;
             row.set("residency_suspended", Json(bool(s->residency)));
@@ -588,7 +588,7 @@ const char* spk_build_info(void) {
     // The build stamp is what a bug report quotes, so it names the three
     // things that decide whether two builds render the same picture: the
     // engine's own version, the compiler date, and the backend math probe.
-#ifndef __APPLE__
+#if !defined(__APPLE__) || defined(SPK_VULKAN_BACKEND)
     static const std::string info =
         std::string("spektrafilm-native 0.1.0 (") + __DATE__ " " __TIME__ ", math=probed)";
 #else
@@ -629,7 +629,7 @@ spk_engine* spk_engine_create(const char* resources_dir, void* device) {
 
     if (!engine->print_luts.init(engine->resources_dir, error)) { g_error = error; return nullptr; }
 
-#ifndef __APPLE__
+#if !defined(__APPLE__) || defined(SPK_VULKAN_BACKEND)
     if (device) { g_error = "Windows device-buffer input is not implemented yet; pass null"; return nullptr; }
     engine->gpu = gpu::Gpu::create_vulkan(engine->resources_dir + "/vulkan", error);
 #else
@@ -1203,7 +1203,7 @@ bool materialise(spk_session* session, const Image& rgb, spk_result* out, std::s
         out->row_stride_px = stride;
         out->texture = gpu->texture(buffer.get(), rgb.w, rgb.h, stride, error);
         ok = out->texture != nullptr;
-#ifndef __APPLE__
+#if !defined(__APPLE__) || defined(SPK_VULKAN_BACKEND)
         // The headless Vulkan result owns a separate CPU copy. The dispatch
         // buffer is released when this function returns.
         if (ok) out->rgba16 = static_cast<const uint16_t*>(out->texture);
@@ -1238,7 +1238,7 @@ spk_status render_tier(spk_session* session, const char* tier_name, bool use_rep
     // Opt-in, because turning it on serialises every node. See Progress.
     session->progress.detailed = std::getenv("SPEKTRAFILM_NODE_TIMINGS") != nullptr;
 
-#ifndef __APPLE__
+#if !defined(__APPLE__) || defined(SPK_VULKAN_BACKEND)
     // A legacy explicit render requests a new print, so no later desktop
     // view may reuse the result from before that request.
     session->tiers[tier->name].view_print = Image{};
@@ -1306,7 +1306,7 @@ spk_status spk_render(spk_session* session, const char* tier, spk_result* out) {
 
 }  // extern "C"
 
-#ifndef __APPLE__
+#if !defined(__APPLE__) || defined(SPK_VULKAN_BACKEND)
 namespace {
 constexpr size_t kResidencyChunkBytes = 8u * 1024u * 1024u;
 
@@ -2308,7 +2308,7 @@ spk_status spk_set_params(spk_session* session, const char* params_delta_json, c
     std::lock_guard<std::mutex> guard(session->lock);
     spk_engine* engine = session->engine;
     const bool shoot = delta_touches_shoot(delta);
-#ifndef __APPLE__
+#if !defined(__APPLE__) || defined(SPK_VULKAN_BACKEND)
     // Reject before applying the delta, so a failed request cannot leave the
     // session's params ahead of its still-valid, previously built pipeline.
     if (const char* unported = windows_unported_delta_error(delta)) {
@@ -2397,7 +2397,7 @@ spk_status spk_set_params(spk_session* session, const char* params_delta_json, c
 
     Json out = Json::object();
     out.set("invalidated", Json(std::string(shoot ? "shoot" : "print")));
-#ifndef __APPLE__
+#if !defined(__APPLE__) || defined(SPK_VULKAN_BACKEND)
     if (!delta.fields().empty())
         for (auto& kv : session->tiers) kv.second.view_print = Image{};
 #endif
@@ -2939,7 +2939,7 @@ void spk_session_release(spk_session* session) {
     // Every buffer the session held is a counted handle, so destroying it is
     // all the releasing there is.
     delete session;
-#ifndef __APPLE__
+#if !defined(__APPLE__) || defined(SPK_VULKAN_BACKEND)
     // The discrete backend must not retain a multi-GB scratch arena after the
     // last photograph closes. Keep the check and trim under the same engine
     // lock as registration; retained C results own independent CPU memory.
@@ -2953,7 +2953,7 @@ void spk_session_release(spk_session* session) {
 
 }  // extern "C"
 
-#ifndef __APPLE__
+#if !defined(__APPLE__) || defined(SPK_VULKAN_BACKEND)
 size_t spk::view::trim_idle_memory(spk_engine* engine) {
     if (!engine || !engine->gpu) return 0;
     return engine->gpu->trim_pool(0);

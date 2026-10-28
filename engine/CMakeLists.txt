@@ -11,6 +11,19 @@
 #   SPEKTRALAB_LIBRAW_SOURCE    LibRaw 0.22.2 source tree (RAW decode)
 # The Vulkan loader is never linked: engine/third_party/volk opens it at run
 # time. glslangValidator compiles the kernels to SPIR-V at build time.
+# macOS normally builds the engine with build.sh/Xcode (Metal). For parity
+# work only, SPEKTRALAB_VULKAN_ON_APPLE=ON builds the Vulkan backend on macOS
+# through MoltenVK: every source then takes the portable (non-Apple) path,
+# selected by SPK_VULKAN_BACKEND, so the Mac can grade Vulkan against Metal on
+# identical input. Off Apple nothing changes.
+option(SPEKTRALAB_VULKAN_ON_APPLE "Build the Vulkan backend on macOS (MoltenVK), for parity tests" OFF)
+if(NOT APPLE OR SPEKTRALAB_VULKAN_ON_APPLE)
+    set(SPEKTRALAB_PORTABLE_BACKEND ON)
+    add_compile_definitions(SPK_VULKAN_BACKEND=1)
+else()
+    set(SPEKTRALAB_PORTABLE_BACKEND OFF)
+endif()
+
 add_library(spektralab_core STATIC
     src/core/blob.cpp
     src/core/cam16.cpp
@@ -47,7 +60,7 @@ add_library(spektralab_pipeline OBJECT
     src/pipeline/scene_latitude.cpp
 )
 set_target_properties(spektralab_pipeline PROPERTIES POSITION_INDEPENDENT_CODE ON)
-if(APPLE)
+if(NOT SPEKTRALAB_PORTABLE_BACKEND)
     target_sources(spektralab_pipeline PRIVATE
         src/pipeline/contrast_mask.cpp src/pipeline/overscan.cpp)
 else()
@@ -85,7 +98,7 @@ if(BUILD_TESTING)
                 "${CMAKE_CURRENT_BINARY_DIR}/setup.idx")
 endif()
 
-if(NOT APPLE)
+if(SPEKTRALAB_PORTABLE_BACKEND)
     option(SPEKTRALAB_BUILD_NATIVE_RAW "Build LibRaw decode, the image writer and the RAW tools" OFF)
     option(SPEKTRALAB_BUILD_HOST "Build engine/host: spektralab-host (needs SPEKTRALAB_BUILD_NATIVE_RAW)" OFF)
     option(SPEKTRALAB_BUILD_DESKTOP "Build the minimal native Windows RAW viewer (Windows only)" ON)

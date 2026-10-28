@@ -1,7 +1,7 @@
 #include "pipeline.hpp"
 #include "timer.hpp"
 #include "halation_psf.hpp"
-#ifndef __APPLE__
+#if !defined(__APPLE__) || defined(SPK_VULKAN_BACKEND)
 #include "windows_unported.hpp"
 #endif
 
@@ -127,7 +127,7 @@ bool Pipeline::build(const Params& params, std::string& error) {
     const Profile& film = params_.film;
     const Profile& print = params_.print;
 
-#ifndef __APPLE__
+#if !defined(__APPLE__) || defined(SPK_VULKAN_BACKEND)
     // Keep upstream's default path intact while its new effects await a
     // Windows implementation. Refuse before allocating buffers or rendering
     // a partial result; never silently drop a requested effect.
