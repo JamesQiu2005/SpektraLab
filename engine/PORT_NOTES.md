@@ -63,6 +63,22 @@ Spec: https://docs.vulkan.org/spec/latest/appendices/spirvenv.html
 The ordinary Fma instruction inherits precision from OpFMul plus OpFAdd;
 NoContraction is not a general guarantee of correctly rounded fused FMA.
 
+## 2026-10-29: 1.3.4 on Vulkan, graded against Metal on a Mac
+
+- `spk_highlight_headroom.comp`: CineStill 800T no longer refused.
+- `SPEKTRALAB_VULKAN_ON_APPLE`: the Vulkan backend builds on macOS through
+  MoltenVK so `parity_metal_vulkan.py` can grade it against the 1.3.4 Metal
+  engine. All deterministic cases within 0.38 code (most 0.00).
+- Fixed from that: BT.709 decode breakpoint pinned to Metal's; portable mark
+  raster is exact-area. Fonts: Menlo-Bold -> DejaVu Sans Mono Bold,
+  ArialNarrow -> Liberation Sans x0.82.
+- `build-windows-cross.sh` works from macOS (Homebrew mingw-w64): LibRaw
+  without OpenMP there, UCRT, import allowlist. Host smoke (384 checks, ARW +
+  NEF) and 38 host CTests pass on a native MoltenVK host.
+- GitHub #12 (dark red to purple) is a Mac screenshot; the dark-red patches
+  in the parity input agree Metal/Vulkan to 0.00 code, so it is the shared
+  film model's (the owner's comment: spectral upsampling), not a Vulkan bug.
+
 ## Done
 
 - 2026-10-06: deps fetch verified; engine + tests build on Linux; CTest 12/14
