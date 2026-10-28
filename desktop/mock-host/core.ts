@@ -70,6 +70,7 @@ const DEFAULTS: Record<string, Value> = {
   grain_sublayers_active: true,
   halation_active: true,
   halation_amount: 1,
+  halation_headroom_ev: 4,
   dir_couplers_active: true,
   dir_couplers_amount: 1,
   glare_active: true,

@@ -141,6 +141,9 @@ export interface EffectStrengths {
   halation: number;
   antihalationRemoved: boolean;
   highlightBoost: number;
+  /** `halation_headroom_ev` (1.3.4): the stops a clipped highlight is given back, on a film with no
+   * anti-halation layer (CineStill 800T) only; every other film ignores it. 0…8 EV, 4 the engine default. */
+  highlightHeadroom: number;
   scatter: number;
   couplersActive: boolean;
   couplers: number;
@@ -152,6 +155,7 @@ export const EFFECTS_DEFAULT: EffectStrengths = {
   halation: 1,
   antihalationRemoved: false,
   highlightBoost: 0,
+  highlightHeadroom: 4,
   scatter: 1,
   couplersActive: true,
   couplers: 1,
@@ -162,6 +166,7 @@ export const EFFECT_RANGES = {
   halation: [0, 4],
   scatter: [0, 1],
   highlightBoost: [0, 8],
+  highlightHeadroom: [0, 8],
   // Not the wire's 0…4: above ≈1.736 the coupler inverse is not monotonic
   // (AGENTS.md trap 22), so the slider stops short of it.
   couplers: [0, 1.5],
@@ -530,6 +535,8 @@ export function wire(p: FilmParams, gate: FeatureGate = ALL_FEATURES, catalog?: 
     { name: 'glare_amount', value: clamp(e.glare, r.glare[0], r.glare[1]), layer: 'print' },
     { name: 'antihalation_removed', value: e.antihalationRemoved, layer: 'shoot' },
     { name: 'halation_boost_ev', value: clamp(e.highlightBoost, r.highlightBoost[0], r.highlightBoost[1]), layer: 'shoot' },
+    // 1.3.4 (API-SPEC §18): sent always; every film with an anti-halation layer ignores it.
+    { name: 'halation_headroom_ev', value: clamp(e.highlightHeadroom, r.highlightHeadroom[0], r.highlightHeadroom[1]), layer: 'shoot' },
   );
   if (catalog?.isMonochrome(p.filmStock) && catalog.isMonochrome(p.printStock)) {
     // Multigrade IV RC filter 2. There is no silver-paper row in the colour

@@ -88,6 +88,7 @@ const EDGE_WORDS: Record<string, [string, string?]> = {
   fujifilm_c200: ['FUJI 200'], fujifilm_xtra_400: ['S-400', 'FUJI S-400'],
   fujifilm_pro_400h: ['PRO400H', 'FUJI PRO400H'], fujifilm_provia_100f: ['FUJI RDPIII'], fujifilm_velvia_100: ['RVP100', 'FUJI RVP100'],
   kodak_vision3_50d: ['EASTMAN 5203'], kodak_vision3_250d: ['EASTMAN 5207'], kodak_vision3_200t: ['EASTMAN 5213'], kodak_vision3_500t: ['EASTMAN 5219'],
+  cinestill_800t: ['CINESTILL 800T'], // CineStill prints its own name on both gauges (1.3.4)
   kodak_tri_x_400: ['KODAK 400TX'], kodak_tmax_100: ['KODAK 100TMX'], fujifilm_neopan_acros_100_ii: ['FUJI 100 ACROS II'], ilford_hp5_plus_400: ['ILFORD HP5 PLUS'],
 };
 export function edgeText(stock: Stock | undefined, format: string): string {

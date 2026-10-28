@@ -14,6 +14,8 @@ export interface Stock {
   formats?: string[] | null;
   /** A silver-emulsion film or paper; absent on colour profiles. */
   monochrome?: boolean;
+  /** A film made with no anti-halation layer (its profile tags `antihalation: no`: CineStill 800T). */
+  noAntihalationLayer?: boolean;
 }
 
 export class StockCatalog {
@@ -35,6 +37,10 @@ export class StockCatalog {
   }
   isMonochrome(id: string) {
     return this.stock(id)?.monochrome === true;
+  }
+  /** The film has no anti-halation layer to switch (`Session.filmHasNoAntihalationLayer`). */
+  hasNoAntihalationLayer(id: string) {
+    return this.stock(id)?.noAntihalationLayer === true;
   }
   canPrint(film: string, paper: string) {
     const f = this.stock(film), p = this.stock(paper);

@@ -880,6 +880,24 @@
   ]
  },
  {
+  "name": "camera_filter",
+  "path": "camera.filter",
+  "type": "str",
+  "layer": "shoot",
+  "live": false
+ },
+ {
+  "name": "halation_headroom_ev",
+  "path": "film_render.halation.headroom_ev",
+  "type": "float",
+  "layer": "shoot",
+  "live": false,
+  "range": [
+   0.0,
+   8.0
+  ]
+ },
+ {
   "name": "preview_long_edge",
   "path": "io.preview_long_edge",
   "type": "int",
