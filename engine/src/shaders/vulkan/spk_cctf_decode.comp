@@ -27,12 +27,16 @@ float decode(float value, uint mode) {
         case 2u: return value < 0.0 ? uintBitsToFloat(0x7fc00000u)
                                   : pow(value, 563.0 / 256.0);
         case 3u: {
-            // Keep alpha/beta as float operations. glslang otherwise folds
-            // const expressions in its wider parser precision, which shifts
-            // this breakpoint by several float ULPs and selects the wrong
-            // side of BT.709's small discontinuity next to the join.
-            float alpha = 1.099, beta = 0.018;
-            float breakpoint = alpha * pow(beta, 0.45) - (alpha - 1.0);
+            // BT.709's join has a small discontinuity, so the breakpoint's
+            // last bits pick a side. nodes.metal computes it as
+            // 1.099 * pow(0.018, 0.45) - 0.099 and Metal evaluates that to
+            // 0x3da66557 (0.081247978): measured 2026-10-29 by running the
+            // 1.3.4 metallib's spk_cctf_decode across the ulps around it.
+            // A GPU pow here lands elsewhere by driver (MoltenVK on Apple M6
+            // and a correctly rounded CPU float both give 0x3da66555), so the
+            // Metal engine's value is pinned rather than recomputed.
+            float alpha = 1.099;
+            float breakpoint = uintBitsToFloat(0x3da66557u);
             return breakpoint > value ? value / 4.5
                       : signed_power((value + (alpha - 1.0)) / alpha, 1.0 / 0.45);
         }

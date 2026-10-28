@@ -6,6 +6,7 @@
 #include <algorithm>
 #include <cmath>
 #include <cstdio>
+#include <cstring>
 #include <limits>
 #include <memory>
 #include <string>
@@ -253,7 +254,10 @@ double reference_decode(float value, uint32_t mode, float bt_breakpoint) {
 }
 
 bool check_decode(Gpu* gpu, std::string& error) {
-    const float bt_breakpoint = 1.099f * std::pow(0.018f, 0.45f) - (1.099f - 1.0f);
+    // The Metal engine's breakpoint (spk_cctf_decode.comp says why): two
+    // ulps above 1.099f * std::pow(0.018f, 0.45f) - 0.099f.
+    float bt_breakpoint;
+    { const uint32_t bits = 0x3da66557u; std::memcpy(&bt_breakpoint, &bits, 4); }
     const float srgb_breakpoint = 0.040449936f;
     const std::vector<float> samples = {-0.25f, -0.0f, 0, 1e-10f, 1.0f / 512,
         std::nextafter(0.03125f, 0.0f), 0.03125f, std::nextafter(0.03125f, 1.0f),
