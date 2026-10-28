@@ -65,18 +65,19 @@ test('a slide selection enables direct scanning, retains the paper and undoes as
   expect(await state(page, 's.sidecar.params.printStock')).toBe(paper);
 });
 
-test('returning from a slide to a negative restores the print stage', async ({ page }) => {
+test('returning from a slide selects the negative target paper and restores the print stage', async ({ page }) => {
   await openRoll(page);
   const paper = await state(page, 's.sidecar.params.printStock');
   await page.locator('[data-stock="fujifilm_provia_100f"]').click();
   expect(await state(page, 's.sidecar.params.scanFilm')).toBe(true);
   await page.locator('[data-stock="kodak_ektar_100"]').click();
   expect(await state(page, 's.sidecar.params.scanFilm')).toBe(false);
-  expect(await state(page, 's.sidecar.params.printStock')).toBe(paper);
+  expect(await state(page, 's.sidecar.params.printStock')).toBe('kodak_portra_endura');
   await expect(page.getByTestId('tier-badge')).toHaveText('full');
   await page.keyboard.press('Control+z');
   expect(await state(page, 's.sidecar.params.filmStock')).toBe('fujifilm_provia_100f');
   expect(await state(page, 's.sidecar.params.scanFilm')).toBe(true);
+  expect(await state(page, 's.sidecar.params.printStock')).toBe(paper);
 });
 
 test('trap 32: an arrow typed in a field does not change the frame', async ({ page }) => {

@@ -9,6 +9,7 @@
 #include <thread>
 
 #include "image_io.hpp"
+#include "colour.hpp"
 #include "json.hpp"
 #include "platform.hpp"
 
@@ -21,6 +22,8 @@ std::string engine_space_name(const std::string& wire) {
     if (w == "srgb") return "sRGB";
     if (w == "display-p3" || w == "display p3" || w == "p3") return "Display P3";
     if (w == "prophoto" || w == "prophoto rgb" || w == "romm") return "ProPhoto RGB";
+    if (w == "adobe-rgb" || w == "adobe rgb (1998)") return "Adobe RGB (1998)";
+    if (w == "rec2020" || w == "bt2020" || w == "itu-r bt.2020") return "ITU-R BT.2020";
     return {};
 }
 
@@ -403,6 +406,18 @@ bool icc_for(const std::string& space, const std::filesystem::path& resources, s
     if (space == "sRGB") return read_file(resources / "io" / "sRGB.icc", icc, error);
     if (space == "Display P3") { icc = make_icc("Display P3", display_p3_space().to_xyz_d50, 0); return true; }
     if (space == "ProPhoto RGB") { icc = make_icc("ProPhoto RGB (ROMM)", linear_prophoto_space().to_xyz_d50, 1); return true; }
+    if (space == "Adobe RGB (1998)" || space == "ITU-R BT.2020") {
+        // Profile colorants come from the same baked primaries as the pixels.
+        // ICC uses Bradford D50 PCS; the engine's RGB-to-RGB CAT02 conversion
+        // remains separate and must not be replaced by these profile values.
+        spk::Blob blob; spk::Colour colour; spk::Mat3 matrix;
+        const double d50[] = {0.3457, 0.3585};
+        if (!blob.open(path_utf8(resources / "spektrafilm_constants.bin"), error) ||
+            !colour.init(blob, error) || !colour.matrix_RGB_to_XYZ(space, d50, "Bradford", matrix, error)) return false;
+        std::array<double, 9> values{}; matrix.to_row_major(values.data());
+        icc = make_icc(space, values, space == "Adobe RGB (1998)" ? 2 : 3);
+        return true;
+    }
     error = "no ICC profile for '" + space + "'";
     return false;
 }
@@ -435,6 +450,13 @@ public:
         add(tag, 5, 1, v);
     }
     void undefined(uint16_t tag, const std::vector<uint8_t>& bytes) { add(tag, 7, uint32_t(bytes.size()), bytes); }
+    void preserved(uint16_t tag, const ExifValue& value) { add(tag, value.type, value.count, value.bytes); }
+    void signed_rational(uint16_t tag, int32_t numerator, int32_t denominator) {
+        std::vector<uint8_t> value;
+        for (uint32_t x : {uint32_t(numerator), uint32_t(denominator)})
+            for (int i = 0; i < 4; ++i) value.push_back(uint8_t(x >> (8 * i)));
+        add(tag, 10, 1, value);
+    }
     // A LONG whose value is filled in by `serialize`'s caller (sub-IFD and
     // strip offsets); returns a handle to `patch`.
     size_t placeholder(uint16_t tag, uint32_t count) { longs(tag, std::vector<uint32_t>(count, 0)); return entries_.size() - 1; }
@@ -490,14 +512,22 @@ static void rational_value(IfdBuilder& ifd, uint16_t tag, double v, bool recipro
 
 static void exif_fields(IfdBuilder& exif, const Exif& e, uint32_t w, uint32_t h) {
     exif.undefined(0x9000, {'0', '2', '3', '2'});
-    rational_value(exif, 0x829A, e.shutter_s, true);
-    rational_value(exif, 0x829D, e.aperture, false);
-    if (e.iso > 0) exif.shorts(0x8827, {uint16_t(std::min(e.iso, 65535.0))});
-    exif.ascii(0x9003, e.datetime_original);
-    rational_value(exif, 0x920A, e.focal_mm, false);
-    exif.ascii(0xA434, e.lens);
+    if (!e.extra.contains(0x829A)) rational_value(exif, 0x829A, e.shutter_s, true);
+    if (!e.extra.contains(0x829D)) rational_value(exif, 0x829D, e.aperture, false);
+    if (!e.extra.contains(0x8827) && e.iso > 0) exif.shorts(0x8827, {uint16_t(std::min(e.iso, 65535.0))});
+    if (!e.extra.contains(0x9003)) exif.ascii(0x9003, e.datetime_original);
+    if (!e.extra.contains(0x920A)) rational_value(exif, 0x920A, e.focal_mm, false);
+    if (!e.extra.contains(0xA434)) exif.ascii(0xA434, e.lens);
     exif.longs(0xA002, {w});
     exif.longs(0xA003, {h});
+    for (const auto& [tag, value] : e.extra)
+        if (portable_exif_tag(tag)) exif.preserved(tag, value);
+    if (!e.extra.contains(0x8822) && e.exposure_program && *e.exposure_program > 0 && *e.exposure_program <= 65535)
+        exif.shorts(0x8822, {uint16_t(*e.exposure_program)});
+    if (!e.extra.contains(0xA405) && e.focal_35mm && *e.focal_35mm > 0 && *e.focal_35mm <= 65535)
+        exif.shorts(0xA405, {uint16_t(std::lround(*e.focal_35mm))});
+    if (!e.extra.contains(0x9204) && e.exposure_bias_ev && std::isfinite(*e.exposure_bias_ev) && std::abs(*e.exposure_bias_ev) <= 100)
+        exif.signed_rational(0x9204, int32_t(std::lround(*e.exposure_bias_ev * 10000)), 10000);
 }
 
 static void ifd0_fields(IfdBuilder& ifd, const Exif* e) {
@@ -526,7 +556,8 @@ std::vector<uint8_t> exif_block(const Exif& e, uint32_t w, uint32_t h) {
 
 static bool tiff_prefix(uint32_t w, uint32_t h, uint32_t bits, const std::vector<uint8_t>& icc,
                         std::vector<uint8_t>& out, size_t& image_bytes, std::string& error,
-                        const Exif* exif_fields_in) {
+                        const Exif* exif_fields_in, bool cineon = false, bool reduced = false,
+                        size_t origin = 0) {
     if (bits != 8 && bits != 16) { error = "TIFF bits must be 8 or 16"; return false; }
     if (!w || !h) { error = "TIFF dimensions must be non-zero"; return false; }
     const uint64_t row_bytes = uint64_t(w) * 3 * (bits / 8);
@@ -544,6 +575,8 @@ static bool tiff_prefix(uint32_t w, uint32_t h, uint32_t bits, const std::vector
         counts[s] = uint32_t(row_bytes * std::min(rows_per_strip, h - s * rows_per_strip));
 
     IfdBuilder ifd, exif;
+    if (reduced) ifd.longs(254, {1});
+    if (cineon) ifd.ascii(270, "SpektraLab Digital Intermediate; Cineon log; ProPhoto RGB primaries; apply the supplied DI view LUT for display");
     ifd.longs(256, {w});
     ifd.longs(257, {h});
     ifd.shorts(258, {uint16_t(bits), uint16_t(bits), uint16_t(bits)});
@@ -564,8 +597,9 @@ static bool tiff_prefix(uint32_t w, uint32_t h, uint32_t bits, const std::vector
     if (exif_fields_in) {
         exif_pointer = ifd.placeholder(34665, 1);
         exif_fields(exif, *exif_fields_in, w, h);
+        if (cineon) exif.shorts(0xA001, {0xffff});
     }
-    const size_t ifd_at = 8, exif_at = ifd_at + ifd.size();
+    const size_t ifd_at = origin + 8, exif_at = ifd_at + ifd.size();
     const size_t pixel_at = (exif_at + (exif_fields_in ? exif.size() : 0) + 15) & ~size_t(15);
     if (pixel_at > UINT32_MAX - image_bytes) { error = "image too large for a classic TIFF"; return false; }
     std::vector<uint32_t> offs(strips);
@@ -580,8 +614,8 @@ static bool tiff_prefix(uint32_t w, uint32_t h, uint32_t bits, const std::vector
         const auto b = exif.serialize(exif_at);
         out.insert(out.end(), b.begin(), b.end());
     }
-    if (out.size() > pixel_at) { error = "internal TIFF layout error"; return false; }
-    out.resize(pixel_at, 0);
+    if (out.size() > pixel_at - origin) { error = "internal TIFF layout error"; return false; }
+    out.resize(pixel_at - origin, 0);
     return true;
 }
 
@@ -644,6 +678,147 @@ bool encode_tiff_file(std::FILE* file, const void* rgb, uint32_t w, uint32_t h, 
         offset += count;
     }
     return true;
+}
+
+// TIFF LZW, MSB-first, 9..12 bits with early change. A strip owns a bounded
+// 8192-slot prefix/byte dictionary and a 64 KiB output slab. No compressed
+// whole-image copy is retained. Dictionary resets before exhausting 12 bits.
+static bool lzw_strip(std::FILE* file, const uint8_t* input, size_t bytes, std::string& error) {
+    std::array<uint32_t,8192> keys; keys.fill(UINT32_MAX);
+    std::array<uint16_t,8192> codes{};
+    std::array<uint8_t,65536> slab{}; size_t used=0;
+    unsigned width=9,next=258,bit_count=0;uint32_t bit_buffer=0;
+    auto flush=[&](){if(std::fwrite(slab.data(),1,used,file)!=used){error="TIFF LZW write failed";return false;}used=0;return true;};
+    auto put=[&](unsigned code){
+        bit_buffer=(bit_buffer<<width)|code;bit_count+=width;
+        while(bit_count>=8){bit_count-=8;slab[used++]=uint8_t(bit_buffer>>bit_count);if(used==slab.size()&&!flush())return false;}
+        return true;
+    };
+    if(!bytes||!put(256))return false;
+    unsigned prefix=input[0];
+    for(size_t i=1;i<bytes;++i){
+        const unsigned byte=input[i];const uint32_t key=(prefix<<8)|byte;
+        size_t slot=(key*2654435761u)>>19;
+        while(keys[slot]!=UINT32_MAX&&keys[slot]!=key)slot=(slot+1)&8191;
+        if(keys[slot]==key){prefix=codes[slot];continue;}
+        if(!put(prefix))return false;
+        keys[slot]=key;codes[slot]=uint16_t(next++);prefix=byte;
+        if(next>=4094){if(!put(256))return false;keys.fill(UINT32_MAX);next=258;width=9;}
+        else if(next>(1u<<width)-1&&width<12)++width;
+    }
+    if(!put(prefix))return false;
+    // The decoder inserts one last dictionary entry while reading prefix.
+    if(next+1>(1u<<width)-1&&width<12)++width;
+    if(!put(257))return false;
+    if(bit_count){slab[used++]=uint8_t(bit_buffer<<(8-bit_count));}
+    return flush();
+}
+
+static int64_t tiff_position(std::FILE* file) {
+#ifdef _WIN32
+    return _ftelli64(file);
+#else
+    return ftello(file);
+#endif
+}
+static bool tiff_seek(std::FILE* file, uint64_t at) {
+#ifdef _WIN32
+    return _fseeki64(file, int64_t(at), SEEK_SET)==0;
+#else
+    return fseeko(file, off_t(at), SEEK_SET)==0;
+#endif
+}
+static void patch_tiff(std::vector<uint8_t>& prefix,size_t origin,uint16_t tag,const std::vector<uint32_t>& values) {
+    const size_t n=size_t(prefix[8])|(size_t(prefix[9])<<8);
+    for(size_t i=0;i<n;++i){const size_t entry=10+12*i;
+        if((uint16_t(prefix[entry])|(uint16_t(prefix[entry+1])<<8))!=tag)continue;
+        const uint16_t type=uint16_t(prefix[entry+2])|(uint16_t(prefix[entry+3])<<8);
+        size_t at=entry+8;
+        if(values.size()*(type==3?2:4)>4){uint32_t absolute=0;for(unsigned b=0;b<4;++b)absolute|=uint32_t(prefix[at+b])<<(8*b);at=absolute-origin;}
+        for(uint32_t value:values)for(unsigned b=0;b<(type==3?2u:4u);++b)prefix[at++]=uint8_t(value>>(8*b));
+        return;
+    }
+}
+static bool write_tiff_page(std::FILE* file,const void* rgb,uint32_t w,uint32_t h,uint32_t bits,
+                            const std::vector<uint8_t>& icc,const Exif* exif,bool cineon,bool reduced,bool lzw,
+                            uint64_t& next_pointer,std::string& error) {
+    const int64_t position=tiff_position(file);
+    if(position<0||uint64_t(position)>UINT32_MAX){error="TIFF file position is invalid";return false;}
+    const size_t origin=size_t(position);std::vector<uint8_t> prefix;size_t image_bytes=0;
+    if(!tiff_prefix(w,h,bits,icc,prefix,image_bytes,error,exif,cineon,reduced,origin))return false;
+    const size_t entries=size_t(prefix[8])|(size_t(prefix[9])<<8);next_pointer=origin+10+12*entries;
+    if(lzw)patch_tiff(prefix,origin,259,{5});
+    if(std::fwrite(prefix.data(),1,prefix.size(),file)!=prefix.size()){error="TIFF prefix write failed";return false;}
+    const size_t row_bytes=size_t(w)*3*(bits/8);
+    const size_t rows=std::max<size_t>(1,std::min<size_t>(h,(1u<<20)/row_bytes));
+    const auto* input=static_cast<const uint8_t*>(rgb);
+    std::vector<uint32_t> offsets,counts;std::vector<uint8_t> converted;
+    if constexpr(std::endian::native!=std::endian::little)if(bits==16)converted.resize(row_bytes*rows);
+    for(size_t y=0;y<h;y+=rows){const size_t bytes=row_bytes*std::min(rows,h-y);
+        const auto start=tiff_position(file);if(start<0||uint64_t(start)>UINT32_MAX){error="compressed image exceeds classic TIFF limits";return false;}
+        const uint8_t* data=input+y*row_bytes;
+        if(!converted.empty()){for(size_t i=0;i<bytes;i+=2){uint16_t v;std::memcpy(&v,data+i,2);converted[i]=uint8_t(v);converted[i+1]=uint8_t(v>>8);}data=converted.data();}
+        if(lzw){if(!lzw_strip(file,data,bytes,error))return false;}
+        else if(std::fwrite(data,1,bytes,file)!=bytes){error="TIFF strip write failed";return false;}
+        const auto end=tiff_position(file);if(end<start||uint64_t(end)>UINT32_MAX){error="compressed image exceeds classic TIFF limits";return false;}
+        offsets.push_back(uint32_t(start));counts.push_back(uint32_t(end-start));
+    }
+    const auto end=tiff_position(file);patch_tiff(prefix,origin,273,offsets);patch_tiff(prefix,origin,279,counts);
+    if(!tiff_seek(file,origin)||std::fwrite(prefix.data(),1,prefix.size(),file)!=prefix.size()||!tiff_seek(file,uint64_t(end))){error="TIFF directory update failed";return false;}
+    return true;
+}
+static bool link_tiff_page(std::FILE* file,uint64_t pointer,uint64_t page,std::string& error){
+    const auto end=tiff_position(file);uint8_t bytes[4];for(unsigned i=0;i<4;++i)bytes[i]=uint8_t(page>>(8*i));
+    if(page>UINT32_MAX||end<0||!tiff_seek(file,pointer)||std::fwrite(bytes,1,4,file)!=4||!tiff_seek(file,uint64_t(end))){error="TIFF page link failed";return false;}return true;
+}
+
+// TIFF directories must start on a word boundary, including after an odd
+// compressed strip. Padding is outside either page's pixel data.
+static int64_t next_tiff_page(std::FILE* file, std::string& error) {
+    auto at = tiff_position(file);
+    if (at >= 0 && (at & 1)) {
+        if (std::fputc(0, file) == EOF) { error = "TIFF page alignment write failed"; return -1; }
+        ++at;
+    }
+    if (at < 0) error = "TIFF page position failed";
+    return at;
+}
+
+bool encode_tiff_file(std::FILE* file,const void* rgb,uint32_t w,uint32_t h,uint32_t bits,
+                      const std::vector<uint8_t>& icc,const TiffOptions& options,std::string& error,const Exif* exif){
+    if(!options.lzw&&!options.embed_preview)return encode_tiff_file(file,rgb,w,h,bits,icc,error,exif);
+    if(!file||!rgb){error="TIFF file or pixels are null";return false;}
+    uint64_t pointer=0;if(!write_tiff_page(file,rgb,w,h,bits,icc,exif,false,false,options.lzw,pointer,error))return false;
+    if(!options.embed_preview)return true;
+    const double scale=std::min(1.,2048./std::max(w,h));
+    const uint32_t pw=std::max(1u,uint32_t(std::lround(w*scale))),ph=std::max(1u,uint32_t(std::lround(h*scale)));
+    std::vector<uint8_t> preview(size_t(pw)*ph*3);
+    auto sample=[&](uint32_t x,uint32_t y,unsigned c){const size_t at=(size_t(y)*w+x)*3+c;
+        if(bits==8)return double(static_cast<const uint8_t*>(rgb)[at])/255;
+        uint16_t v;std::memcpy(&v,static_cast<const uint8_t*>(rgb)+at*2,2);return double(v)/65535;};
+    for(uint32_t y=0;y<ph;++y)for(uint32_t x=0;x<pw;++x){
+        const double sx=std::clamp((x+.5)*w/pw-.5,0.,double(w-1)),sy=std::clamp((y+.5)*h/ph-.5,0.,double(h-1));
+        const uint32_t x0=uint32_t(sx),y0=uint32_t(sy),x1=std::min(w-1,x0+1),y1=std::min(h-1,y0+1);const double fx=sx-x0,fy=sy-y0;
+        for(unsigned c=0;c<3;++c)preview[(size_t(y)*pw+x)*3+c]=uint8_t(std::lround(255*((sample(x0,y0,c)*(1-fx)+sample(x1,y0,c)*fx)*(1-fy)+(sample(x0,y1,c)*(1-fx)+sample(x1,y1,c)*fx)*fy)));
+    }
+    const auto page=next_tiff_page(file,error);uint64_t unused=0;
+    if(page<0||!write_tiff_page(file,preview.data(),pw,ph,8,icc,nullptr,false,true,options.lzw,unused,error))return false;
+    return link_tiff_page(file,pointer,uint64_t(page)+8,error);
+}
+
+bool encode_cineon_file(std::FILE* file, const void* rgb16, uint32_t w, uint32_t h,
+                        const uint8_t* preview, uint32_t pw, uint32_t ph,
+                        const std::vector<uint8_t>& preview_icc, std::string& error, const Exif* exif, bool lzw) {
+    error.clear();
+    if (!file || !rgb16 || !preview) { error = "Cineon TIFF file or pixels are null"; return false; }
+    const Exif empty{};
+    uint64_t pointer = 0, unused = 0;
+    if (!write_tiff_page(file, rgb16, w, h, 16, {}, exif ? exif : &empty,
+                         true, false, lzw, pointer, error)) return false;
+    const auto page = next_tiff_page(file, error);
+    if (page < 0 || !write_tiff_page(file, preview, pw, ph, 8, preview_icc, nullptr,
+                                    false, true, lzw, unused, error)) return false;
+    return link_tiff_page(file, pointer, uint64_t(page) + 8, error);
 }
 
 std::string cube_text(const float* table, uint32_t size, const std::string& title) {

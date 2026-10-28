@@ -55,7 +55,10 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends \
             build-essential cmake ninja-build nasm glslang-tools \
-            libvulkan1 mesa-vulkan-drivers vulkan-tools python3
+            libvulkan1 mesa-vulkan-drivers vulkan-tools python3 python3-venv pkg-config
+          python3 -m venv "$RUNNER_TEMP/spk-build-python"
+          "$RUNNER_TEMP/spk-build-python/bin/pip" install meson==1.9.2
+          echo "$RUNNER_TEMP/spk-build-python/bin" >> "$GITHUB_PATH"
 
       - name: Vulkan device
         run: vulkaninfo --summary
@@ -64,7 +67,7 @@ jobs:
       - uses: actions/cache@v4
         with:
           path: build/deps
-          key: engine-deps-${{ runner.os }}-${{ hashFiles('engine/setup-deps.sh', 'engine/setup-libraw.sh', 'engine/setup-codecs.sh') }}
+          key: engine-deps-${{ runner.os }}-native-${{ hashFiles('engine/setup-*.sh', 'engine/setup-*.py', 'engine/cmake/*pins.json', 'engine/cmake/input-dependencies/**') }}
 
       - name: Build, CTest, host smoke
         run: engine/build-linux.sh --test
@@ -90,14 +93,20 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends \
-            cmake ninja-build nasm glslang-tools python3 \
+            cmake ninja-build nasm glslang-tools python3 python3-venv pkg-config \
             g++-mingw-w64-x86-64-posix gcc-mingw-w64-x86-64-posix binutils-mingw-w64-x86-64 \
             wine wine64 xvfb xauth libvulkan1 mesa-vulkan-drivers   # `wine` is the command; wine64 alone does not provide it
+          python3 -m venv "$RUNNER_TEMP/spk-build-python"
+          "$RUNNER_TEMP/spk-build-python/bin/pip" install meson==1.9.2
+          echo "$RUNNER_TEMP/spk-build-python/bin" >> "$GITHUB_PATH"
 
       - uses: actions/cache@v4
         with:
           path: build/deps
-          key: engine-deps-${{ runner.os }}-${{ hashFiles('engine/setup-deps.sh', 'engine/setup-libraw.sh', 'engine/setup-codecs.sh') }}
+          key: engine-deps-${{ runner.os }}-cross-${{ hashFiles('engine/setup-*.sh', 'engine/setup-*.py', 'engine/cmake/*pins.json', 'engine/cmake/input-dependencies/**') }}
+
+      - name: Dependency setup regression tests
+        run: python3 -m unittest discover -s engine/tests -p 'test_*codec*.py' -v
 
       # Also fails if the exe imports anything but system DLLs.
       - name: Cross-build spektralab-host.exe
@@ -159,6 +168,9 @@ jobs:
       - name: Web build
         run: npm run build:web
 
+      - name: Build the bundled CLI
+        run: npm run build:agent
+
       - name: Rust tests
         working-directory: desktop/src-tauri
         run: cargo test --locked
@@ -184,7 +196,7 @@ jobs:
 
       - uses: actions/setup-node@v4
         with:
-          node-version: 22
+          node-version: 24.19.0
           cache: npm
           cache-dependency-path: desktop/package-lock.json
 
@@ -231,7 +243,7 @@ jobs:
 
       - uses: actions/setup-node@v4
         with:
-          node-version: 22
+          node-version: 24.19.0
           cache: npm
           cache-dependency-path: desktop/package-lock.json
 

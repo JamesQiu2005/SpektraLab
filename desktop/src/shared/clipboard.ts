@@ -7,6 +7,7 @@
 
 import type { Sidecar } from './sidecar';
 import { jsonEqual } from './params';
+import { placementIntent } from './latitude';
 
 export const CLIPBOARD_GROUPS = [
   'filmAndPaper',
@@ -65,8 +66,9 @@ export function applyClip(clip: SettingsClip, target: Sidecar): Sidecar {
     if (g === 'scenePlacement') {
       // The pull-backs travel; the fitted curve is the source photograph's own
       // and is re-fitted on the target.
-      const sl = (src.params as Obj).sceneLatitude as Obj;
-      const active = (sl.highlightPullBack as number) > 0 || (sl.shadowPullBack as number) > 0;
+      const sl = placementIntent(clip.settings.params.sceneLatitude);
+      out = setPath(out, 'params.sceneLatitude', sl);
+      const active = sl.highlightPullBack > 0 || sl.shadowPullBack > 0;
       out = setPath(out, 'placementNeedsFit', active);
     }
   }

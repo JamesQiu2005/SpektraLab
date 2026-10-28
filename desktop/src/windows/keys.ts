@@ -8,7 +8,7 @@
 // characters, arrows and delete to a focused editable element. Ctrl/Alt
 // combinations and Return/Enter/Esc/Tab are not typing keys.
 
-import { setAdjustments, setGeometry, selectRelative, setOriginal, setTool, toggleCompare, undo, redo, zoomStep, zoomTo, zoomToFit, currentFitZoom, copySettings, pasteSettings, selectAllFrames, sessionStore, setPages } from '../state/session';
+import { makePair, setAdjustments, setGeometry, selectRelative, setOriginal, setTool, toggleCompare, undo, redo, zoomStep, zoomTo, zoomToFit, currentFitZoom, copySettings, pasteSettings, selectAllFrames, sessionStore, setPages } from '../state/session';
 import { turned } from '@shared/geometry';
 import { openDialog, openFilesDialog, openExport, restartHost } from './actions';
 import { settingsStore } from '../state/settings';
@@ -54,6 +54,7 @@ export function shortcutTable(): Record<string, Action> {
     'ctrl+shift+o': () => void openFilesDialog(),
     'ctrl+q': () => void import('@tauri-apps/api/window').then((w) => w.getCurrentWindow().close()),
     'ctrl+e': openExport,
+    'ctrl+j': () => void makePair(),
     'ctrl+z': undo,
     'ctrl+shift+z': redo,
     'ctrl+y': redo,
@@ -91,7 +92,7 @@ export function shortcutTable(): Record<string, Action> {
       if (s.exportOpen && !s.batchExporting) setPages({ exportOpen: false });
       else if (s.settingsOpen) setPages({ settingsOpen: false });
       else if (s.aboutOpen) setPages({ aboutOpen: false });
-      else if (s.tool === 'crop') setTool('select');
+      else if (s.tool === 'crop' || s.tool === 'neutral' || s.pairPlacing) setTool('select');
       else setOriginal(false);
     },
   };

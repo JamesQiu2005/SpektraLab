@@ -51,6 +51,18 @@ describe('processed-view mock protocol', () => {
     expect(fit.payload?.byteLength).toBe(12 * 10 * 4);
     expect((await request(host, 'render_view', { ...p, display: 'prophoto' })).header).toMatchObject({ ok: false, error: { code: 'bad_request' } });
   });
+  it('keeps source geometry before grading, invalidates cache and supports explicit identity reset', async () => {
+    const { host, p } = await opened();
+    const original = await request(host, 'render_view', p);
+    const cut = { ...p.geometry, crop: { x: 0.25, y: 0, width: 0.5, height: 1 }, quarterTurns: 1 };
+    const requestCut = { ...p, source_geometry: cut };
+    const changed = await request(host, 'render_view', requestCut);
+    expect(result(changed)).toMatchObject({ print_cached: false, image: { width: 24, height: 20, source_width: 24, source_height: 20 } });
+    expect(result(await request(host, 'render_view', requestCut)).print_cached).toBe(true);
+    const restored = await request(host, 'render_view', { ...p, source_geometry: GEOMETRY_DEFAULT });
+    expect(restored.payload).toEqual(original.payload);
+    expect(result(restored).print_cached).toBe(false);
+  });
 
   it('exports an immutable snapshot as metadata only, with no image payload', async () => {
     const { host, open, p } = await opened();

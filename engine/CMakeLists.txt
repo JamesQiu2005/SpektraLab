@@ -51,7 +51,9 @@ if(APPLE)
     target_sources(spektralab_pipeline PRIVATE
         src/pipeline/contrast_mask.cpp src/pipeline/overscan.cpp)
 else()
-    target_sources(spektralab_pipeline PRIVATE src/pipeline/windows_unported.cpp src/pipeline/view_process.cpp)
+    target_sources(spektralab_pipeline PRIVATE src/pipeline/windows_unported.cpp src/pipeline/view_process.cpp
+        src/pipeline/overscan.cpp src/pipeline/imprint_raster.cpp)
+    include(cmake/ImprintFonts.cmake)
 endif()
 target_link_libraries(spektralab_pipeline PRIVATE spektralab_core)
 target_include_directories(spektralab_pipeline PRIVATE
@@ -125,12 +127,13 @@ if(NOT APPLE)
             spk_couplers_correction spk_spectral_epilogue
             spk_print_exposure spk_cam16ucs_compress
             spk_cctf_encode_matrix spk_to_rgba16
-            spk_view_grade spk_view_geometry spk_view_pack
+            spk_view_grade spk_view_grade_di spk_view_geometry spk_view_pack spk_view_cam16 spk_view_pair
             spk_grain_layers spk_grain_layer_one spk_grain_simple
             spk_lognormal_field spk_rng_probe spk_mul spk_glare_add
             spk_reduce_max spk_boost spk_bw_correct spk_edr spk_cctf_decode
             spk_zoom_bilinear_mirror spk_geometry_resample_df
-            spk_lut3d_trilinear spk_di_normalise
+            spk_lut3d_trilinear spk_di_normalise spk_di_encode spk_scene_latitude
+            spk_overscan_canvas spk_overscan_add_mask spk_overscan_film_present spk_overscan_light
             CACHE INTERNAL "")
         set(vulkan_spirv)
         file(GLOB vulkan_includes "${CMAKE_CURRENT_SOURCE_DIR}/src/shaders/vulkan/*.glsl")
@@ -150,6 +153,22 @@ if(NOT APPLE)
         add_custom_target(spektralab_vulkan_resources
             COMMAND "${CMAKE_COMMAND}" -E copy_directory
                     "${CMAKE_CURRENT_SOURCE_DIR}/resources" "${vulkan_resource_dir}"
+            # Product profiles overlay only the staged directory. The original
+            # spektrafilm resources stay byte-identical and separately attributed.
+            COMMAND "${CMAKE_COMMAND}" -E copy_directory
+                    "${CMAKE_CURRENT_SOURCE_DIR}/resources_product/profiles" "${vulkan_resource_dir}/profiles"
+            COMMAND "${CMAKE_COMMAND}" -E copy_if_different
+                    "${CMAKE_CURRENT_SOURCE_DIR}/resources_product/NOTICE.md" "${vulkan_resource_dir}/Product-profiles-NOTICE.md"
+            COMMAND "${CMAKE_COMMAND}" -E copy_if_different
+                    "${CMAKE_CURRENT_SOURCE_DIR}/resources_product/fonts/LICENSE" "${vulkan_resource_dir}/Imprint-fonts-LICENSE.txt"
+            COMMAND "${CMAKE_COMMAND}" -E copy_if_different
+                    "${CMAKE_CURRENT_SOURCE_DIR}/third_party/stb/LICENSE" "${vulkan_resource_dir}/stb-LICENSE.txt"
+            COMMAND "${CMAKE_COMMAND}" -E copy_if_different
+                    "${CMAKE_CURRENT_SOURCE_DIR}/resources_product/paper_grades.json" "${vulkan_resource_dir}/paper_grades.json"
+            COMMAND "${CMAKE_COMMAND}" -E copy_if_different
+                    "${CMAKE_CURRENT_SOURCE_DIR}/resources_product/neutral_print_filters.json" "${vulkan_resource_dir}/product-neutral-print-filters.json"
+            COMMAND "${CMAKE_COMMAND}" -E copy_directory
+                    "${CMAKE_CURRENT_SOURCE_DIR}/../modern_UI/Spektrafilm/Spektrafilm/Resources/DI" "${vulkan_resource_dir}/DI"
             DEPENDS ${vulkan_spirv}
             VERBATIM)
 
@@ -268,7 +287,7 @@ if(NOT APPLE)
             add_test(NAME spk_vulkan_smoke
                 COMMAND spk_vulkan_smoke "${vulkan_resource_dir}")
 
-            foreach(probe grain pointwise resample transfer geometry lut_di view)
+            foreach(probe grain pointwise resample transfer geometry lut_di view bw scene_latitude overscan pair)
                 add_executable(spk_vulkan_${probe} tests/gpu_vulkan_${probe}.cpp)
                 target_include_directories(spk_vulkan_${probe} PRIVATE
                     "${CMAKE_CURRENT_SOURCE_DIR}/include"
@@ -278,6 +297,14 @@ if(NOT APPLE)
                 add_test(NAME spk_vulkan_${probe}
                     COMMAND spk_vulkan_${probe} "${vulkan_resource_dir}")
             endforeach()
+
+            add_executable(spk_imprint_raster tests/imprint_raster.cpp)
+            target_include_directories(spk_imprint_raster PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/src")
+            target_link_libraries(spk_imprint_raster PRIVATE spektralab_engine)
+            add_test(NAME spk_imprint_raster COMMAND spk_imprint_raster)
+
+            add_test(NAME spk_vulkan_scene_latitude_api
+                COMMAND spk_vulkan_scene_latitude "${vulkan_resource_dir}" --api)
 
             add_executable(spk_vulkan_math_gate tests/gpu_vulkan_math_gate.cpp)
             target_include_directories(spk_vulkan_math_gate PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/src")

@@ -7,5 +7,7 @@ namespace spk::view {
 // image: only uniforms, the curve LUT and small colour-management tables.
 bool process(gpu::Gpu* gpu, const Image& print, const Request& request,
              const Json& transform, const float* cmax, uint32_t cmax_count,
-             Result& result, std::string& error);
+             Result& result, std::string& error,
+             const gpu::BufferRef& di_lut = {}, uint32_t di_lut_size = 0,
+             Image* device_output = nullptr);
 }

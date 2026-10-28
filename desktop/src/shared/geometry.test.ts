@@ -13,6 +13,7 @@ import {
   shaderMap,
   sourcePoint,
   straightened,
+  straightenAngle,
   turned,
   uniform,
 } from './geometry';
@@ -88,6 +89,22 @@ describe('geometry', () => {
     const g = straightened(GEOMETRY_DEFAULT, 10, image);
     expect(fits(g, image)).toBe(true);
     expect(g.crop.width).toBeLessThan(1);
+  });
+  it('a source-space straighten line levels horizons and verticals without compounding the prior angle', () => {
+    for (const quarterTurns of [0, 1, 2, 3]) for (const flipH of [false, true]) for (const flipV of [false, true])
+    for (const prior of [-12, 0, 17]) for (const b of [{ x: .8, y: .6 }, { x: .52, y: .8 }]) {
+      const a = { x: .3, y: .3 }, g = straightened({ ...GEOMETRY_DEFAULT, quarterTurns, flipH, flipV }, prior, image);
+      // The crop view displays the whole source at angle zero, including turns/flips.
+      const display = { ...GEOMETRY_DEFAULT, quarterTurns, flipH, flipV };
+      const from = sourcePoint(display, outputPoint(display, a, image), image);
+      const to = sourcePoint(display, outputPoint(display, b, image), image);
+      const angle = straightenAngle(from, to, image)!;
+      const result = straightened(g, angle, image), size = outputSize(result, image);
+      const p = outputPoint(result, a, image), q = outputPoint(result, b, image);
+      expect(Math.min(Math.abs((p.x - q.x) * size.width), Math.abs((p.y - q.y) * size.height))).toBeLessThan(1e-8);
+      expect(fits(result, image)).toBe(true);
+    }
+    expect(straightenAngle({ x: 0, y: 0 }, { x: .001, y: .001 }, image)).toBeNull();
   });
 
   it('resizing with a lock keeps the ratio and the frame', () => {

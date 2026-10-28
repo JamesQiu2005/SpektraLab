@@ -7,6 +7,7 @@ import type * as SessionModule from './session';
 import { StockCatalog } from '@shared/stocks';
 import { decodeSidecar, encodeSidecar, newSidecar } from '@shared/sidecar';
 import type { FileEntry } from '../platform';
+import stockData from '../../../modern_UI/Spektrafilm/Spektrafilm/Resources/StockCatalog.json';
 
 const fake = vi.hoisted(() => ({
   onState: null as ((state: HostState) => void) | null,
@@ -67,7 +68,81 @@ beforeEach(async () => {
 });
 afterEach(() => { vi.clearAllTimers(); vi.useRealTimers(); vi.restoreAllMocks(); vi.unstubAllGlobals(); });
 
+describe('black-and-white settings through the editor and persistence doors', () => {
+  const released = new StockCatalog(stockData.stocks);
+  const silverPaper = 'ilford_multigrade_iv_rc';
+  const stocks = ['kodak_tri_x_400', 'ilford_hp5_plus_400', 'kodak_tmax_100', 'fujifilm_neopan_acros_100_ii'];
+  const invalidSilver = () => ({ ...newSidecar(), params: { ...newSidecar().params, filmStock: stocks[0]!, extendedDynamicRange: true } });
+  beforeEach(() => { session.sessionStore.setState({ catalog: released }); });
+
+  it.each(stocks)('choosing %s selects silver paper and preserves saved model preferences', async (filmStock) => {
+    const initial = structuredClone(newSidecar());
+    initial.params.extendedDynamicRange = true;
+    initial.params.exposureCompensationEV = 1.25;
+    session.sessionStore.setState({ sidecar: initial });
+    session.selectFilmStock(filmStock);
+    expect(session.sessionStore.getState().sidecar.params).toMatchObject({ filmStock, printStock: silverPaper,
+      scanFilm: false, extendedDynamicRange: true, effects: { grainLayered: true }, exposureCompensationEV: 1.25 });
+    expect(fake.setParams).toHaveBeenCalledWith('s1', expect.objectContaining({ film_stock: filmStock,
+      print_stock: silverPaper, grain_sublayers_active: false, extended_dynamic_range: false, y_filter_neutral: 68 }));
+    await session.flushSave();
+    expect(decodeSidecar(fake.save.mock.calls.at(-1)?.[1]).params).toMatchObject({ printStock: silverPaper, extendedDynamicRange: true });
+  });
+
+  it('blocks incompatible paper actions and returns to a declared colour paper in one undo step', async () => {
+    session.selectFilmStock('kodak_tri_x_400');
+    await vi.advanceTimersByTimeAsync(1000);
+    const silver = session.sessionStore.getState().sidecar;
+    const undoCount = session.sessionStore.getState().undo.length;
+    fake.setParams.mockClear();
+    session.selectPrintStock('kodak_supra_endura');
+    expect(session.sessionStore.getState().sidecar).toBe(silver);
+    expect(session.sessionStore.getState().undo).toHaveLength(undoCount);
+    expect(fake.setParams).not.toHaveBeenCalled();
+    session.selectFilmStock('kodak_portra_400');
+    expect(session.sessionStore.getState().sidecar.params).toMatchObject({ printStock: 'kodak_portra_endura', scanFilm: false });
+    await vi.advanceTimersByTimeAsync(1000);
+    expect(fake.setParams).toHaveBeenCalledWith('s1', expect.objectContaining({ grain_sublayers_active: true, grain_amount: 1 }));
+    session.undo();
+    expect(session.sessionStore.getState().sidecar.params).toEqual(silver.params);
+    session.redo();
+    expect(session.sessionStore.getState().sidecar.params.printStock).toBe('kodak_portra_endura');
+  });
+
+  it('repairs a restored silver-film/colour-paper pair before opening the engine', async () => {
+    fake.load.mockResolvedValue(encodeSidecar(invalidSilver()));
+    await session.select('/owned/silver.ARW');
+    expect(fake.open).toHaveBeenCalledWith('/owned/silver.ARW', expect.objectContaining({ film_stock: 'kodak_tri_x_400',
+      print_stock: silverPaper, y_filter_neutral: 68, extended_dynamic_range: false }), expect.anything());
+    expect(session.sessionStore.getState().undo).toHaveLength(0);
+    await session.flushSave();
+    expect(decodeSidecar(fake.save.mock.calls.at(-1)?.[1]).params).toMatchObject({ printStock: silverPaper, extendedDynamicRange: true });
+  });
+
+  it('normalizes both active and offline clipboard targets without copying solved colour values', async () => {
+    session.sessionStore.setState({ clipboard: { groups: ['filmAndPaper'], settings: invalidSilver(), sourceName: 'silver' },
+      picked: ['/owned/a.ARW', '/owned/b.ARW'] });
+    await session.pasteSettings();
+    expect(session.sessionStore.getState().sidecar.params.printStock).toBe(silverPaper);
+    const saved = fake.save.mock.calls.find(([path]) => path === '/owned/b.ARW');
+    expect(decodeSidecar(saved?.[1]).params).toMatchObject({ printStock: silverPaper, extendedDynamicRange: true });
+  });
+});
+
 describe('positive film uses direct scanning at every session door', () => {
+  it('reorders filmstrip entries without moving the open frame or editing its parameters', () => {
+    const names = ['/owned/a.ARW', '/owned/b.ARW', '/owned/c.ARW'];
+    const frames = names.map((path) => ({ path, name: path, size: 1, mtime_ms: 1 }));
+    session.sessionStore.setState({ frames, picked: names.slice(0, 2) });
+    const before = session.sessionStore.getState();
+    session.moveFrame(names[0]!, names[2]!);
+    expect(session.sessionStore.getState().frames.map((f) => f.path)).toEqual([names[1], names[2], names[0]]);
+    expect(session.sessionStore.getState()).toMatchObject({ selection: before.selection, picked: before.picked, engineSession: 's1' });
+    expect(session.sessionStore.getState().sidecar).toBe(before.sidecar);
+    session.sessionStore.setState({ batchExporting: true });
+    session.moveFrame(names[0]!, names[1]!);
+    expect(session.sessionStore.getState().frames.at(-1)?.path).toBe(names[0]);
+  });
   it.each(SLIDES)('selecting %s retains the paper and sends scan_film=true', async (filmStock) => {
     const printStock = session.sessionStore.getState().sidecar.params.printStock;
     // The film picker's real callback enters here.
@@ -104,9 +179,14 @@ describe('positive film uses direct scanning at every session door', () => {
     expect(session.sessionStore.getState().sidecar.params.scanFilm).toBe(false);
   });
 
-  it.each(SLIDES)('returning from %s to Ektar restores printing in one undo step', async (filmStock) => {
-    const printStock = session.sessionStore.getState().sidecar.params.printStock;
+  it.each(SLIDES)('returning from %s to Ektar follows its declared paper, with the earlier pairing restored by undo', async (filmStock) => {
+    const released = new StockCatalog(stockData.stocks);
+    const before = session.sessionStore.getState().sidecar;
+    session.sessionStore.setState({ catalog: released, sidecar: { ...before, params: { ...before.params, printStock: 'kodak_supra_endura' } } });
+    const printStock = released.stock('kodak_ektar_100')!.targetPrint;
+    expect(printStock).toBe('kodak_portra_endura');
     session.selectFilmStock(filmStock);
+    expect(session.sessionStore.getState().sidecar.params.printStock).toBe('kodak_supra_endura');
     await vi.advanceTimersByTimeAsync(1000);
     fake.setParams.mockClear();
     session.selectFilmStock('kodak_ektar_100');
@@ -116,9 +196,9 @@ describe('positive film uses direct scanning at every session door', () => {
     await session.flushSave();
     expect(decodeSidecar(fake.save.mock.calls.at(-1)?.[1]).params.scanFilm).toBe(false);
     session.undo();
-    expect(session.sessionStore.getState().sidecar.params).toMatchObject({ filmStock, scanFilm: true });
+    expect(session.sessionStore.getState().sidecar.params).toMatchObject({ filmStock, scanFilm: true, printStock: 'kodak_supra_endura' });
     session.redo();
-    expect(session.sessionStore.getState().sidecar.params.scanFilm).toBe(false);
+    expect(session.sessionStore.getState().sidecar.params).toMatchObject({ scanFilm: false, printStock });
   });
 
   it('reselecting a saved negative restores printing without resetting other edits', () => {

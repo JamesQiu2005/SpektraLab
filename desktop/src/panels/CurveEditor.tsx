@@ -4,7 +4,7 @@
 
 import { useRef, useState } from 'react';
 import { type CurveChannel, evaluateCurve, insertPoint, movePoint, removePoint } from '@shared/adjustments';
-import { beginGesture, setAdjustments, useSession } from '../state/session';
+import { beginGesture, setAdjustments, shownAdjustments, useSession } from '../state/session';
 import { useOutput } from '../canvas/output';
 import { computeHistogram } from '../canvas/histogram';
 import { t } from '../i18n';
@@ -19,7 +19,7 @@ const STROKE: Record<CurveChannel, string> = {
 };
 
 export function CurveEditor({ channel }: { channel: CurveChannel }) {
-  const curve = useSession((s) => s.sidecar.adjustments.curves[channel]);
+  const curve = useSession((s) => shownAdjustments(s).curves[channel]);
   const out = useOutput();
   const ref = useRef<SVGSVGElement>(null);
   const drag = useRef<number | null>(null);

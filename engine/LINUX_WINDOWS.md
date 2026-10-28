@@ -30,13 +30,55 @@ All pinned and verified, fetched into the gitignored `build/deps` by
 | Vulkan-Headers | vulkan-sdk-1.4.341.0 | Apache-2.0 OR MIT | compile time only |
 | volk | vendored, `third_party/volk` | MIT | loads `libvulkan.so.1` / `vulkan-1.dll` at run time -- no SDK import library, and a machine without a driver gets an error message, not a loader failure |
 | stb_image / stb_image_write / stb_truetype | vendored, `third_party/stb` | public domain / MIT | JPEG/PNG decode, PNG/JPEG encode, deflate |
+| libheif / libde265 | 1.23.6 / 1.1.3 | LGPL-3.0 | static SDR HEVC photograph decoder |
+| OpenEXR / Imath | 3.5.2 / 3.2.3 | BSD-3-Clause | static flat RGB/Y floating-point input |
+| LittleCMS | 2.19.1 | MIT | RGB LUT ICC input conversion |
+| Lensfun / GLib | pinned `43f9e001` / 2.86.5 | LGPL-3.0 / LGPL-2.1-or-later | optional per-photo RAW lens correction; bundled calibration database CC BY-SA 3.0 |
 
 Tools: CMake >= 3.20, Ninja, a C++20 compiler (gcc 13 tested),
-`glslangValidator`, Python 3 (setup scripts and tests only, standard library).
+`glslangValidator`, Python 3.12+ (setup scripts and tests only, standard library).
+Lens dependencies additionally require Meson 1.9.2 and Ninja 1.13 (build tools,
+not runtime dependencies). Their archive and git pins live in
+`engine/cmake/lens-codecs-pins.json`; mutable Meson wraps cannot fetch during build.
 Ubuntu 24.04: `apt install build-essential cmake ninja-build glslang-tools
 libvulkan1 mesa-vulkan-drivers` (the last two give the lavapipe CPU device).
 Cross-compiling adds `g++-mingw-w64-x86-64-posix` and, to test, `wine` and
 `xvfb`.
+
+Input codecs use `engine/setup-input-codecs.py`; exact source URLs and SHA-256
+values are in `engine/cmake/input-codecs-pins.json`. The script verifies both
+archives and reused source files, then builds static libraries in an isolated
+directory. `build-linux.sh` and `build-windows-cross.sh` invoke it with separate
+installation prefixes. A native MinGW build can prepare them as follows (put
+the matching compiler tools on `PATH`):
+
+```powershell
+python engine/setup-input-codecs.py --sources build/deps/input-codecs `
+  --build build/input-codecs --install build/deps/input-codecs/install `
+  --generator "MinGW Makefiles" --jobs 8
+```
+
+Pass `-DSPEKTRALAB_INPUT_CODEC_PREFIX=<absolute installation path>` when
+configuring the host. The installation carries dependency notices and the
+owned HEIC regression fixture; `stage-host.sh` includes all notices. MinGW
+validation still checks the final executable imports only system DLLs.
+OpenEXR includes pinned libdeflate, OpenJPH and zstd from its source archive;
+no unpinned subproject download runs during its build. Source distributions
+must include the pinned archives and build instructions for the static LGPL
+libraries as well as the application's corresponding source.
+
+Prepare lens dependencies with the same compiler on PATH:
+
+```powershell
+python engine/setup-lens-codecs.py --sources build/deps/lens-codecs `
+  --build build/lens-codecs --install build/deps/lens-codecs/install `
+  --generator "MinGW Makefiles" --jobs 8
+```
+
+Set `SPEKTRALAB_LENS_PREFIX` to that installation. Calibration data is staged
+beside engine resources and never taken from an uncontrolled system/user
+database. Linux and MinGW cross scripts prepare separate installations;
+these new cross paths are source-reviewed but still require Linux CI execution.
 
 ## 2. Linux
 
@@ -49,7 +91,13 @@ By hand:
 
 ```bash
 engine/setup-deps.sh
+python3 engine/setup-input-codecs.py --sources build/deps/input-codecs \
+      --build build/linux/input-codecs --install build/deps/input-codecs/install-linux --generator Ninja
+python3 engine/setup-lens-codecs.py --sources build/deps/lens-codecs \
+      --build build/linux/lens-codecs --install build/deps/lens-codecs/install-linux --generator Ninja
 cmake -S . -B build/linux -G Ninja -DCMAKE_BUILD_TYPE=Release \
+      -DSPEKTRALAB_INPUT_CODEC_PREFIX="$PWD/build/deps/input-codecs/install-linux" \
+      -DSPEKTRALAB_LENS_PREFIX="$PWD/build/deps/lens-codecs/install-linux" \
       -DSPEKTRALAB_BUILD_NATIVE_RAW=ON -DSPEKTRALAB_BUILD_HOST=ON \
       -DSPEKTRALAB_REQUIRE_VULKAN=ON -DSPEKTRALAB_STATIC_RUNTIME=ON
 ninja -C build/linux
@@ -129,11 +177,13 @@ spektralab-host [--resources <engine-dir>] [--device <index>] [--log-level error
 A minimal client is `engine/tests/host_smoke.py` (`class Host`): write
 `u32 header_len, u32 payload_len, JSON, payload`, read the same back.
 
-## 6. What is not there
+## 6. Current migration boundary (2026-10-18)
 
-- The five refused features (contrast mask, scene latitude mapping, Cineon
-  DI, overscan/film edge, date back): `PORT_PLAN.md`.
-- Lens correction at decode (LibRaw has no lens profiles).
-- Verified real-GPU runs on Linux, and runs on real Windows: only lavapipe
-  and wine here. The original Windows port's RTX acceptance predates main's
-  later commits and this branch's backend changes (`PORT_COVERAGE.md` §5).
+Scene latitude, Cineon DI, film edge/date back, BW product stocks and per-photo
+Lensfun correction are implemented and have targeted RTX 5070 Ti tests.
+`WINDOWS_FULL_MIGRATION_PLAN.md` tracks broader migration and release validation.
+Contrast/tone masks and HDR output remain disabled upstream as well. HEIC is
+SDR HEVC input, EXR is flat RGB/Y input; unsupported variants fail explicitly.
+Windows Lensfun calibration is an equivalent feature, not a claim of numerical
+identity with Apple's camera-specific correction. Actual Mac/Metal, Intel/AMD,
+Linux hardware and wide-gamut monitor validation remain separate gates.

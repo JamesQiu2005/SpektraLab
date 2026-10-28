@@ -2,10 +2,10 @@
 //   Pre-Dev:  Latitude · Input / Camera · Film Format · Scene Placement
 //   Post-Dev: White Balance · Exposure · Curve · Color Balance (Layer 2)
 
-import { useEffect, useRef, useState } from 'react';
+import { useRef, useState } from 'react';
 import { Checkbox, NumberField, PillMenu, ScrubSlider, Section, SegmentedSwitch, ToggleRow, signed } from '../controls/controls';
-import { t, tz } from '../i18n';
-import { hostRedecodes, setAdjustments, setDecode, setFilmFrame, setFilmSide, setParams, setSideLengthMM, useSession } from '../state/session';
+import { isChinese, t, tz } from '../i18n';
+import { cameraParams, pairFocus, setCamera, shownAdjustments, shownDecode as selectedDecode, updatePair, canPickNeutral, currentPlacementWindow, hostRedecodes, placeScene, placementReady, resetScenePlacement, setAdjustments, setDecode, setFilmFrame, setFilmSide, setParams, setSideLengthMM, startNeutralPick, useSession } from '../state/session';
 import { settingsStore, useSettings } from '../state/settings';
 import {
   type AEMethod,
@@ -36,11 +36,11 @@ import {
 } from '@shared/whiteBalance';
 import { CurveEditor } from './CurveEditor';
 import { unsupportedReason } from './gate';
-import { host, HostCallError } from '../host/client';
+import { type LatitudeReply, type PlacementSide, placementMessage } from '@shared/latitude';
 
 export function RightRail() {
   const tab = useSettings((s) => s.parametersTab);
-  const edited = useSession((s) => s.sidecar.adjustments.enabled && !isNeutral(s.sidecar.adjustments));
+  const edited = useSession((s) => shownAdjustments(s).enabled && !isNeutral(shownAdjustments(s)));
   return (
     <aside className="rail right" data-testid="right-rail">
       <div className="rail-header">{t('railParameters')}</div>
@@ -76,45 +76,14 @@ export function RightRail() {
 
 // ------------------------------------------------------------------ Latitude
 
-interface LatitudeReply {
-  medium: { shadow_ev: number; highlight_ev: number; latitude_stops: number };
-  scene: { histogram: { lo_ev: number; hi_ev: number; fractions: number[]; placed_fractions?: number[] } };
-}
-
 function LatitudeSection() {
-  const sid = useSession((s) => s.engineSession);
-  const badge = useSession((s) => s.badge);
   const film = useSession((s) => s.sidecar.params.filmStock);
   const paper = useSession((s) => s.sidecar.params.printStock);
   const catalog = useSession((s) => s.catalog);
-  const [reply, setReply] = useState<LatitudeReply | null>(null);
-  const [why, setWhy] = useState<string | null>(null);
-  useEffect(() => {
-    if (!sid || badge !== 'full') return;
-    let live = true;
-    const t0 = setTimeout(() => {
-      host()
-        .sceneLatitude(sid, {})
-        .then((r) => {
-          if (live) {
-            setReply(r as unknown as LatitudeReply);
-            setWhy(null);
-          }
-        })
-        .catch((e) => {
-          if (!live) return;
-          setReply(null);
-          setWhy(e instanceof HostCallError && (e.code === 'unsupported' || e.code === 'bad_request') ? unsupportedReason('scene_latitude_mapping', false) : String((e as Error).message));
-        });
-    }, 250);
-    return () => {
-      live = false;
-      clearTimeout(t0);
-    };
-  }, [sid, badge, film, paper]);
+  const { reply, failure } = useSession((s) => s.latitude);
   const name = (id: string) => catalog.stock(id)?.name.replace(/^(Kodak|Fujifilm) (Professional )?/, '') ?? id;
   return (
-    <Section id="latitude" title={t('sectionLatitude')} trailing={`${name(film)} · ${name(paper)}`} unsupported={why}>
+    <Section id="latitude" title={t('sectionLatitude')} trailing={`${name(film)} · ${name(paper)}`} unsupported={failure}>
       <LatitudePlot reply={reply} />
     </Section>
   );
@@ -157,13 +126,16 @@ function LatitudePlot({ reply }: { reply: LatitudeReply | null }) {
 // -------------------------------------------------------------------- Camera
 
 function CameraSection() {
-  const p = useSession((s) => s.sidecar.params);
-  const vignette = useSession((s) => s.sidecar.adjustments.vignette.amount);
+  const tool = useSession((s) => s.tool);
+  const pickerReady = useSession(() => canPickNeutral());
+  const state = useSession((s) => s);
+  const p = cameraParams(state), focus = pairFocus(state), hole = focus ? state.pair?.[focus] : null;
+  const vignette = useSession((s) => shownAdjustments(s).vignette.amount);
   const ae = aeMethodOf(p);
-  const lensReason = tz(
-    'Lens correction is not available on Linux and Windows: the RAW decoder carries no lens profiles.',
-    'Linux 与 Windows 版不提供镜头校正：RAW 解码器不含镜头配置文件。',
-  );
+  const lens = (focus ? state.pairInfo?.[focus]?.metadata : state.metadata)?.lens_correction;
+  const lensReady = lens?.available === true && !!state.hello?.methods?.includes(state.pair ? 'update_pair' : 'redecode') && !state.batchExporting;
+  const lensReason = lens?.reason || tz('No matching lens profile is available for this photograph.', '此照片没有匹配的镜头配置文件。');
+  const lensParts = lens ? [lens.distortion && tz('distortion', '畸变'), lens.tca && tz('colour fringing', '横向色差'), lens.vignetting && tz('vignetting', '暗角')].filter(Boolean).join(' · ') : '';
   const wb = useWhiteBalance();
   const options: { value: AEMethod; label: string }[] = [
     { value: 'custom', label: t('meteringCustom') },
@@ -178,10 +150,10 @@ function CameraSection() {
     <Section
       id="camera"
       title={t('sectionCamera')}
-      onReset={() => setParams((q) => ({ ...q, exposureCompensationEV: 0 }))}
+      onReset={() => setCamera((q) => ({ ...q, exposureCompensationEV: 0 }))}
       resetHelp={t('helpResetFilmExposure')}
       menu={[
-        { label: t('helpResetFilmExposure'), onSelect: () => setParams((q) => ({ ...q, exposureCompensationEV: 0 })) },
+        { label: t('helpResetFilmExposure'), onSelect: () => setCamera((q) => ({ ...q, exposureCompensationEV: 0 })) },
         // The presets keep their English names, as on the Mac.
         ...WB_MODES.filter((m) => m !== 'Custom').map((m) => ({
           label: `${t('helpWhiteBalancePreset')}: ${m}`,
@@ -191,20 +163,23 @@ function CameraSection() {
         })),
       ]}
     >
-      <PillMenu label={t('cameraMetering')} value={ae} options={options} fill onChange={(v) => setParams((q) => applyAEMethod(q, v))} testId="metering" />
+      <PillMenu label={t('cameraMetering')} value={ae} options={options} fill onChange={(v) => setCamera((q) => applyAEMethod(q, v))} testId="metering" />
+      {hole && focus && <PillMenu label={tz('Exposure scope', '曝光范围')} value={hole.exposureScope}
+        options={[{ value: 'frame', label: tz('Frame', '这一格') }, { value: 'film', label: tz('+ Film', '+ 胶片') }]}
+        onChange={(v) => updatePair((p) => ({ ...p, [focus]: { ...p[focus]!, exposureScope: v } }))} />}
       <ScrubSlider
         label={t('cameraFilmExposure')}
         sublabel={
           <span style={{ display: 'inline-flex', gap: 4, alignItems: 'center' }}>
             {t('cameraFilmExposureAsShot')}
-            <Checkbox on={asShot} label={t('cameraFilmExposureAsShot')} onChange={() => setParams((q) => ({ ...applyAEMethod(q, 'custom'), exposureCompensationEV: 0 }))} />
+            <Checkbox on={asShot} label={t('cameraFilmExposureAsShot')} onChange={() => setCamera((q) => ({ ...applyAEMethod(q, 'custom'), exposureCompensationEV: 0 }))} />
           </span>
         }
         value={p.exposureCompensationEV}
-        range={[-3, 3]}
+        range={hole ? [-5, 5] : [-3, 3]}
         snap={1 / 3}
         format={signed(1)}
-        onChange={(v) => setParams((q) => ({ ...q, exposureCompensationEV: v }))}
+        onChange={(v) => setCamera((q) => ({ ...q, exposureCompensationEV: v }))}
         testId="film-exposure"
       />
       <ScrubSlider
@@ -235,8 +210,12 @@ function CameraSection() {
         gradient="linear-gradient(90deg,#00A93A,#8AA45E,#E4007F)"
         testId="wb-tint"
       />
+      <button className="pill" disabled={!pickerReady} onClick={startNeutralPick} aria-pressed={tool === 'neutral'} data-testid="pick-neutral">
+        {tool === 'neutral' ? tz('Cancel neutral picker', '取消中性灰取样') : tz('Pick neutral white balance', '吸取中性灰白平衡')}
+      </button>
       <ScrubSlider label={t('cameraVignetting')} value={vignette} range={[-100, 100]} snap={5} format={signed(0)} onChange={(v) => setAdjustments((a) => ({ ...a, vignette: { ...a.vignette, amount: v } }))} />
-      <ToggleRow label={t('cameraLensCorrection')} on={false} onChange={() => {}} disabled reason={lensReason} />
+      <ToggleRow label={t('cameraLensCorrection')} on={selectedDecode(state).lensCorrection} onChange={(v) => setDecode((d) => ({ ...d, lensCorrection: v }))} disabled={!lensReady} reason={!lensReady ? lensReason : undefined} testId="lens-correction" />
+      <p className="caption" data-testid="lens-profile">{lensReady ? `${lens?.profile ?? ''}${lensParts ? ` · ${lensParts}` : ''}` : lensReason}</p>
     </Section>
   );
 }
@@ -256,10 +235,10 @@ function AsShotLine({ on, enabled, onChange }: { on: boolean; enabled: boolean; 
  * RAW only, and only on a host that can re-decode (R2's `redecode`).
  */
 function useWhiteBalance() {
-  const decode = useSession((s) => s.sidecar.decode);
-  const shot = useSession((s) => s.metadata?.as_shot);
+  const decode = useSession(selectedDecode);
+  const shot = useSession((s) => { const side = pairFocus(s); return side ? s.pairInfo?.[side]?.metadata?.as_shot : s.metadata?.as_shot; });
   const selection = useSession((s) => s.selection);
-  const kind = useSession((s) => s.frameKind);
+  const kind = useSession((s) => { const side = pairFocus(s); return side ? s.pairInfo?.[side]?.kind : s.frameKind; });
   const methods = useSession((s) => s.hello?.methods);
   const asShot: AsShot | null = shot ? { temperature: shot.temperature_k, tint: shot.tint } : null;
   const isRaw = kind ? kind === 'raw' : !!selection && isRawPath(selection);
@@ -274,6 +253,7 @@ function useWhiteBalance() {
 
 function FilmFormatSection() {
   const p = useSession((s) => s.sidecar.params);
+  const monochrome = useSession((s) => s.catalog.isMonochrome(s.sidecar.params.filmStock));
   const unit = useSettings((s) => s.sideUnit);
   const decouple = useSettings((s) => s.decoupleEffects);
   const isCustom = p.filmFrame === FILM_FRAME_CUSTOM.id;
@@ -296,7 +276,8 @@ function FilmFormatSection() {
         { label: t('helpAllEffectsOn'), onSelect: () => setParams((q) => ({ ...q, grainActive: true, halationActive: true, glareActive: true })) },
         { label: t('helpAllEffectsOff'), onSelect: () => setParams((q) => ({ ...q, grainActive: false, halationActive: false, glareActive: false })) },
         { label: t('helpResetEffectStrengths'), onSelect: () => setParams((q) => ({ ...q, effects: EFFECTS_DEFAULT })) },
-        { label: t('helpSubLayerGrain'), checked: e.grainLayered, disabled: !p.grainActive, onSelect: () => setE({ grainLayered: !e.grainLayered }) },
+        { label: monochrome ? tz('Single-layer grain (black-and-white film)', '单层颗粒（黑白胶片）') : t('helpSubLayerGrain'),
+          checked: monochrome || e.grainLayered, disabled: !p.grainActive || monochrome, onSelect: () => setE({ grainLayered: !e.grainLayered }) },
       ]}
     >
       <PillMenu
@@ -355,13 +336,28 @@ function FilmFormatSection() {
 // ----------------------------------------------------------- Scene Placement
 
 function ScenePlacementSection() {
-  const gate = useSession((s) => s.gate);
-  const sl = useSession((s) => s.sidecar.params.sceneLatitude);
-  const reason = unsupportedReason('scene_latitude_mapping', gate.sceneLatitude);
+  const s = useSession((s) => s);
+  const sl = s.sidecar.params.sceneLatitude, l = s.latitude;
+  const unsupported = unsupportedReason('scene_latitude_mapping', s.gate.sceneLatitude);
+  const ready = placementReady();
+  const reason = unsupported ?? (s.sidecar.params.digitalIntermediate && !s.sidecar.params.scanFilm
+    ? tz('Scene placement is unavailable in Digital Intermediate mode.', '数字中间片模式不使用场景置位。')
+    : ready ? null : l.failure ?? tz('Waiting for the scene latitude measurement…', '正在等待场景宽容度测量…'));
+  const row = (side: PlacementSide) => {
+    const window = currentPlacementWindow(side);
+    const why = placementMessage(l.refusal ?? (window?.span === null ? window.below : null), side, l.reply, isChinese());
+    return <div key={side}>
+      <ScrubSlider label={side === 'highlight' ? t('placementHighlight') : t('placementShadow')}
+        value={side === 'highlight' ? sl.highlightPullBack : sl.shadowPullBack} range={[0, 8]} snap={0.25}
+        format={(v) => v.toFixed(2)} onChange={(v) => placeScene(side, v)} disabled={!ready}
+        reason={reason ?? undefined} usable={window?.span ? [window.span] : []} testId={`placement-${side}`} />
+      {why && <div className="caption" data-testid={`placement-${side}-reason`}>{why}</div>}
+    </div>;
+  };
   return (
-    <Section id="scenePlacement" title={t('sectionScenePlacement')} unsupported={reason} onReset={() => {}} resetHelp={t('helpResetPlacement')} resetEnabled={sl.active}>
-      <ScrubSlider label={t('placementHighlight')} value={sl.highlightPullBack} range={[0, 8]} snap={0.25} onChange={() => {}} disabled={!!reason} reason={reason ?? undefined} />
-      <ScrubSlider label={t('placementShadow')} value={sl.shadowPullBack} range={[0, 8]} snap={0.25} onChange={() => {}} disabled={!!reason} reason={reason ?? undefined} />
+    <Section id="scenePlacement" title={t('sectionScenePlacement')} unsupported={unsupported} onReset={resetScenePlacement} resetHelp={t('helpResetPlacement')} resetEnabled={s.gate.sceneLatitude && (sl.active || sl.highlightPullBack > 0 || sl.shadowPullBack > 0)}>
+      {reason && !unsupported && <p className="caption">{reason}</p>}
+      {row('highlight')}{row('shadow')}
     </Section>
   );
 }
@@ -369,7 +365,7 @@ function ScenePlacementSection() {
 // ---------------------------------------------------------------- Post-Dev
 
 function WhiteBalanceSection() {
-  const a = useSession((s) => s.sidecar.adjustments);
+  const a = useSession(shownAdjustments);
   return (
     <Section id="wb2" title={t('sectionWhiteBalance')} trailing={t('statusRightRailWBScope')} onReset={() => setAdjustments((q) => ({ ...q, temperature: 0, tint: 0 }))} resetHelp={t('helpReset')}>
       <ScrubSlider label={t('cameraTemperature')} value={a.temperature} range={[-100, 100]} snap={5} format={signed(0)} gradient="linear-gradient(90deg,#5d7de8,#bbb,#e8c04e)" onChange={(v) => setAdjustments((q) => ({ ...q, temperature: v }))} />
@@ -379,7 +375,7 @@ function WhiteBalanceSection() {
 }
 
 function ExposureSection() {
-  const a = useSession((s) => s.sidecar.adjustments);
+  const a = useSession(shownAdjustments);
   const row = (label: string, key: 'exposure' | 'contrast' | 'brightness' | 'saturation' | 'highlights' | 'shadows' | 'blackPoint' | 'whitePoint', range: [number, number], digits: number, snap: number) => (
     <ScrubSlider key={key} label={label} value={a[key]} range={range} snap={snap} format={signed(digits)} onChange={(v) => setAdjustments((q) => ({ ...q, [key]: v }))} testId={'adj-' + key} />
   );
@@ -440,7 +436,7 @@ const ZONES: { key: 'master' | 'shadows' | 'midtones' | 'highlights'; label: () 
 ];
 
 function ColorBalanceSection() {
-  const cb = useSession((s) => s.sidecar.adjustments.colorBalance);
+  const cb = useSession((s) => shownAdjustments(s).colorBalance);
   const [zone, setZone] = useState<(typeof ZONES)[number]['key']>('master');
   const z = cb[zone];
   const setZ = (patch: Partial<ColorZone>) => setAdjustments((q) => ({ ...q, colorBalance: { ...q.colorBalance, [zone]: { ...q.colorBalance[zone], ...patch } } }));

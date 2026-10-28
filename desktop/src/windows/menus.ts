@@ -10,6 +10,7 @@ import { t, tz } from '../i18n';
 import { openDialog, openExport, openFilesDialog, restartHost, revealSettings } from './actions';
 import {
   setAdjustments,
+  makePair,
   copySettings,
   currentFitZoom,
   pasteSettings,
@@ -39,6 +40,7 @@ export const MENU_CHORDS = new Set([
   'ctrl+o',
   'ctrl+shift+o',
   'ctrl+e',
+  'ctrl+j',
   'ctrl+z',
   'ctrl+shift+z',
   'ctrl+shift+c',
@@ -132,6 +134,7 @@ export async function installMenu(): Promise<void> {
     items: [
       await item(tz('Previous  (←)', '上一张  (←)'), () => selectRelative(-1)),
       await item(tz('Next  (→)', '下一张  (→)'), () => selectRelative(1)),
+      await item(tz('New Photo Pair (Half Frame)', '新建双图拼接（半格）'), () => void makePair(), 'CmdOrCtrl+J'),
       await sep(),
       await item(tz('Reset Film, Paper, Camera and Enlarger', '重置胶片、相纸、相机与放大机'), resetParams),
       await item(tz('Reset Adjustments', '重置调整'), resetAdjustments),

@@ -59,11 +59,13 @@ std::vector<float> floats(const Json& j,size_t n) {
 }
 
 bool process(gpu::Gpu* gpu,const Image& print,const Request& req,const Json& transform,
-             const float* cmax,uint32_t cmax_count,Result& result,std::string& error) {
+             const float* cmax,uint32_t cmax_count,Result& result,std::string& error,
+             const gpu::BufferRef& di_lut,uint32_t di_lut_size,Image* device_output) {
     const auto started=Clock::now();
     try {
         if(!print.valid()||print.c!=2){error="view: expected device RGBA16 print";return false;}
         if(req.output_channels!=3&&req.output_channels!=4){error="view: output_channels must be 3 or 4";return false;}
+        if(device_output&&(!req.rgba16||req.output_channels!=4||req.proof_long_edge)){error="view: device output requires RGBA16";return false;}
         if(!req.adjustments.is_object()||!req.geometry.is_object()){error="view: adjustments and geometry must be objects";return false;}
         const Json& a=req.adjustments;std::array<float,32> u{};
         u[0]=a.at("enabled").as_bool(true)?1.f:0.f;
@@ -96,8 +98,10 @@ bool process(gpu::Gpu* gpu,const Image& print,const Request& req,const Json& tra
         // All request validation precedes any GPU operation.
         Image current=allocate(gpu,print.w,print.h,error);if(!current.valid())return false;
         auto curves=gpu->upload(table.data(),sizeof(table),error);if(!curves)return false;
-        uint32_t gm[]={uint32_t(print.pixels()),print.w,print.h};
-        if(!gpu->dispatch("spk_view_grade",{Arg::buf(print.buf),Arg::inline_bytes(u.data(),u.size()),Arg::buf(curves),Arg::inline_bytes(gm,3),Arg::buf(current.buf)},print.pixels(),error)||!gpu->flush(error))return false;
+        uint32_t gm[]={uint32_t(print.pixels()),print.w,print.h,di_lut_size};
+        std::vector<Arg> grade_args={Arg::buf(print.buf),Arg::inline_bytes(u.data(),u.size()),Arg::buf(curves),Arg::inline_bytes(gm,di_lut?4:3),Arg::buf(current.buf)};
+        if(di_lut)grade_args.push_back(Arg::buf(di_lut));
+        if(!gpu->dispatch(di_lut?"spk_view_grade_di":"spk_view_grade",grade_args,print.pixels(),error)||!gpu->flush(error))return false;
         bool geometry=x!=0||y!=0||cw!=1||ch!=1||angle!=0||turns!=0||flips!=0;
         if(geometry){float p[]={float(x+cw/2),float(y+ch/2),float(cw),float(ch),float(std::cos(angle)),float(std::sin(angle)),float(print.h)/print.w};
             if(!resample(gpu,current,w,h,p,turns,flips,error))return false;}
@@ -105,9 +109,12 @@ bool process(gpu::Gpu* gpu,const Image& print,const Request& req,const Json& tra
         if(req.long_edge&&req.long_edge<edge){double s=double(req.long_edge)/edge;w=std::max(1u,uint32_t(std::lround(w*s)));h=std::max(1u,uint32_t(std::lround(h*s)));
             const float p[]={.5f,.5f,1,1,1,0,float(current.h)/current.w};
             if(!resample(gpu,current,w,h,p,0,0,error))return false;}
-        const bool identity=transform.at("source_color_space").as_string()==transform.at("target_color_space").as_string();
+        auto stats=gpu->alloc_zeroed(12,error);if(!stats)return false;
         uint32_t encode_mode=4;
-        if(!identity){
+        auto convert=[&](const Json& transform,bool compress)->bool {
+        const bool identity=transform.at("source_color_space").as_string()==transform.at("target_color_space").as_string();
+        encode_mode=4;
+        if(!identity||(compress&&transform.at("gamut_compress").at("algorithm").as_string()=="cam16ucs")){
             Image next=allocate(gpu,w,h,error);if(!next.valid())return false;
             uint32_t dm[]={uint32_t(current.elements()),uint32_t(transform.at("source_cctf_mode").as_int())};
             if(!gpu->dispatch("spk_cctf_decode",{Arg::buf(current.buf),Arg::inline_bytes(dm,2),Arg::buf(next.buf)},current.elements(),error)||!gpu->flush(error))return false;
@@ -118,28 +125,54 @@ bool process(gpu::Gpu* gpu,const Image& print,const Request& req,const Json& tra
             if(!gpu->dispatch("spk_matmul3",{Arg::buf(current.buf),Arg::inline_bytes(transpose.data(),9),Arg::inline_bytes(&count,1),Arg::buf(next.buf)},count,error)||!gpu->flush(error))return false;
             current=std::move(next);
             const Json& gc=transform.at("gamut_compress");
-            if(req.export_intent&&gc.at("algorithm").as_string()=="cam16ucs"){
+            if(compress&&gc.at("algorithm").as_string()=="cam16ucs"){
                 uint32_t rows=uint32_t(gc.at("cmax_rows").as_int()),cols=uint32_t(gc.at("cmax_cols").as_int());
                 if(!cmax||uint64_t(rows)*cols!=cmax_count||rows<2||cols<2){error="view: invalid C_max table";return false;}
                 auto mx=floats(gc.at("m_to_xyz"),9),mr=floats(gc.at("m_to_rgb"),9),k=floats(gc.at("k"),22);
                 auto cb=gpu->upload(cmax,size_t(cmax_count)*4,error);if(!cb)return false;
                 uint32_t meta[]={count,rows,cols,gc.at("lightness_compression_active").as_bool()?1u:0u};
                 next=allocate(gpu,w,h,error);if(!next.valid())return false;
-                if(!gpu->dispatch("spk_cam16ucs_compress",{Arg::buf(current.buf),Arg::inline_bytes(mx.data(),9),Arg::inline_bytes(mr.data(),9),Arg::buf(cb),Arg::inline_bytes(k.data(),22),Arg::inline_bytes(meta,4),Arg::buf(next.buf)},count,error)||!gpu->flush(error))return false;
+                std::vector<Arg> args={Arg::buf(current.buf),Arg::inline_bytes(mx.data(),9),Arg::inline_bytes(mr.data(),9),Arg::buf(cb),Arg::inline_bytes(k.data(),22),Arg::inline_bytes(meta,4),Arg::buf(next.buf)};
+                if(req.proof_long_edge)args.push_back(Arg::buf(stats));
+                if(!gpu->dispatch(req.proof_long_edge?"spk_view_cam16":"spk_cam16ucs_compress",args,count,error)||!gpu->flush(error))return false;
                 current=std::move(next);
             }
             encode_mode=uint32_t(transform.at("target_cctf_mode").as_int());
-            if(encode_mode>1){error="view: target must be sRGB, Display P3 or ProPhoto RGB";return false;}
+            if(encode_mode>3){error="view: unsupported target transfer function";return false;}
         }
-        const size_t bytes=size_t(w)*h*req.output_channels*(req.rgba16?2:1);
+        return true;
+        };
+        if(!convert(transform,req.export_intent))return false;
+        result.file_width=w;result.file_height=h;
+        uint32_t output_channels=req.output_channels,bits=req.rgba16?16u:8u;
+        if(req.proof_long_edge){
+            if(!req.export_intent||!transform.at("proof").is_object()){error="view: missing proof display transform";return false;}
+            uint32_t qm[]={w*h,encode_mode,bits,0,1};
+            if(!gpu->dispatch("spk_view_pack",{Arg::buf(current.buf),Arg::inline_bytes(qm,5),Arg::buf(current.buf),Arg::buf(stats)},current.pixels(),error)||!gpu->flush(error))return false;
+            if(req.proof_long_edge<std::max(w,h)){
+                double scale=double(req.proof_long_edge)/std::max(w,h);
+                w=std::max(1u,uint32_t(std::lround(w*scale)));h=std::max(1u,uint32_t(std::lround(h*scale)));
+                const float p[]={.5f,.5f,1,1,1,0,float(current.h)/current.w};
+                if(!resample(gpu,current,w,h,p,0,0,error))return false;
+            }
+            if(!convert(transform.at("proof"),false))return false;
+            uint32_t counts[3]{};
+            if(!gpu->read(stats.get(),0,counts,sizeof(counts),error))return false;
+            result.moved_pixels=counts[0];result.clipped_pixels=counts[1];result.outside_pixels=counts[2];
+            output_channels=4;bits=8;
+        }
+        const size_t bytes=size_t(w)*h*output_channels*(bits/8);
         // Vulkan storage writes and buffer copies operate on complete words.
         // RGB8/RGB16 can have a partial final word; only its live bytes escape.
         const size_t padded_bytes=(bytes+3)&~size_t(3);
         auto packed=gpu->alloc(padded_bytes,error);if(!packed)return false;
-        uint32_t pm[]={w*h,encode_mode,req.rgba16?16u:8u,req.output_channels};
-        const size_t jobs=req.output_channels==3?padded_bytes/4:size_t(w)*h;
-        if(!gpu->dispatch("spk_view_pack",{Arg::buf(current.buf),Arg::inline_bytes(pm,4),Arg::buf(packed)},jobs,error)||!gpu->flush(error))return false;
-        result.post_ms=ms(started);auto read=Clock::now();result.pixels.resize(padded_bytes);
+        uint32_t pm[]={w*h,encode_mode,bits,output_channels,0};
+        const size_t jobs=output_channels==3?padded_bytes/4:size_t(w)*h;
+        if(!gpu->dispatch("spk_view_pack",{Arg::buf(current.buf),Arg::inline_bytes(pm,5),Arg::buf(packed),Arg::buf(stats)},jobs,error)||!gpu->flush(error))return false;
+        result.post_ms=ms(started);
+        result.width=w;result.height=h;result.source_width=print.w;result.source_height=print.h;
+        if(device_output){device_output->w=w;device_output->h=h;device_output->c=2;device_output->buf=std::move(packed);return true;}
+        auto read=Clock::now();result.pixels.resize(padded_bytes);
         if(!gpu->read(packed.get(),0,result.pixels.data(),padded_bytes,error))return false;
         result.pixels.resize(bytes);
         result.readback_ms=ms(read);result.width=w;result.height=h;result.source_width=print.w;result.source_height=print.h;

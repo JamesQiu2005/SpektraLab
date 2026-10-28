@@ -111,7 +111,8 @@ def engine_sources() -> list[Path]:
     # controller. They must not add those dependencies to the Core Image app.
     # Keep every upstream Mac source; exclude only the Windows additions.
     windows_dirs = {"io", "desktop"}
-    windows_files = {"gpu/vulkan_gpu.cpp", "pipeline/windows_unported.cpp"}
+    windows_files = {"gpu/vulkan_gpu.cpp", "pipeline/windows_unported.cpp",
+                     "pipeline/imprint_raster.cpp"}
     root = ENGINE / "src"
     return sorted(p for p in root.rglob("*.cpp")
                   if p.relative_to(root).parts[0] not in windows_dirs

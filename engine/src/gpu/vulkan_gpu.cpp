@@ -77,8 +77,10 @@ constexpr KernelSpec kKernels[] = {
     {"spk_cctf_encode_matrix", 4, kWorkgroup},
     {"spk_to_rgba16", 3, kWorkgroup},
     {"spk_view_grade", 5, kWorkgroup},
+    {"spk_view_grade_di", 6, kWorkgroup},
     {"spk_view_geometry", 4, kWorkgroup},
-    {"spk_view_pack", 3, kWorkgroup},
+    {"spk_view_pack", 4, kWorkgroup},
+    {"spk_view_cam16", 8, kWorkgroup},
     {"spk_grain_layers", 8, kWorkgroup},
     {"spk_grain_layer_one", 8, kWorkgroup},
     {"spk_grain_simple", 5, kWorkgroup},
@@ -95,6 +97,13 @@ constexpr KernelSpec kKernels[] = {
     {"spk_geometry_resample_df", 4, kWorkgroup},
     {"spk_lut3d_trilinear", 6, kWorkgroup},
     {"spk_di_normalise", 5, kWorkgroup},
+    {"spk_di_encode", 4, kWorkgroup},
+    {"spk_scene_latitude", 4, kWorkgroup},
+    {"spk_overscan_canvas", 4, kWorkgroup},
+    {"spk_overscan_add_mask", 4, kWorkgroup},
+    {"spk_overscan_film_present", 4, kWorkgroup},
+    {"spk_overscan_light", 4, kWorkgroup},
+    {"spk_view_pair", 6, kWorkgroup},
 };
 
 const KernelSpec* find_kernel(const char* name) {

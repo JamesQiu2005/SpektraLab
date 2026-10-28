@@ -10,6 +10,9 @@ param(
     [string]$VulkanLibrary,
     [string]$GlslangExecutable,
     [string]$LibRawSourceDirectory,
+    [string]$InputCodecPrefix,
+    [string]$LensPrefix,
+    [switch]$HostBuild,
     [switch]$NativeRaw = $true,
     [switch]$Desktop = $true,
     [switch]$Fresh,
@@ -94,6 +97,20 @@ try {
         "-DSPEKTRALAB_VULKAN_LIBRARY=$($VulkanLibrary.Replace('\', '/'))", "-DSPEKTRALAB_GLSLANG=$($GlslangExecutable.Replace('\', '/'))")
     if ($Fresh) { $configureArguments = @('--fresh') + $configureArguments }
     $configureArguments += "-DSPEKTRALAB_BUILD_DESKTOP=$(if ($Desktop -and $NativeRaw) { 'ON' } else { 'OFF' })"
+    $configureArguments += "-DSPEKTRALAB_BUILD_HOST=$(if ($HostBuild) { 'ON' } else { 'OFF' })"
+    if ($HostBuild) {
+        if (-not $NativeRaw) { throw 'The host requires -NativeRaw.' }
+        if (-not $InputCodecPrefix) { $InputCodecPrefix = Join-Path $dependencyDirectory 'input-codecs/install' }
+        if (-not (Test-Path -LiteralPath (Join-Path $InputCodecPrefix 'include/lcms2.h'))) {
+            throw 'Input codecs are missing; run engine/setup-input-codecs.py first, then pass -InputCodecPrefix.'
+        }
+        $configureArguments += "-DSPEKTRALAB_INPUT_CODEC_PREFIX=$($InputCodecPrefix.Replace('\', '/'))"
+        if (-not $LensPrefix) { $LensPrefix = Join-Path $dependencyDirectory 'lens-codecs/install' }
+        if (-not (Test-Path -LiteralPath (Join-Path $LensPrefix 'include/lensfun/lensfun.h'))) {
+            throw 'Lens dependencies are missing; run engine/setup-lens-codecs.py first, then pass -LensPrefix.'
+        }
+        $configureArguments += "-DSPEKTRALAB_LENS_PREFIX=$($LensPrefix.Replace('\', '/'))"
+    }
     if ($NativeRaw) {
         if (-not $LibRawSourceDirectory) { $LibRawSourceDirectory = Join-Path $dependencyDirectory 'LibRaw-0.22.2' }
         if (-not (Test-Path -LiteralPath (Join-Path $LibRawSourceDirectory 'libraw\libraw.h'))) {
@@ -130,7 +147,7 @@ try {
 
     $sourceFiles = @('CMakeLists.txt', 'engine\CMakeLists.txt', 'engine\windows_exports.def', 'engine\build-windows.ps1', 'engine\setup-libraw.ps1') |
         ForEach-Object { Get-Item -LiteralPath (Join-Path $sourceDirectory $_) }
-    foreach ($subdirectory in @('engine\src', 'engine\include', 'engine\resources', 'engine\tests', 'engine\tools', 'engine\cmake')) {
+    foreach ($subdirectory in @('engine\src', 'engine\include', 'engine\resources', 'engine\resources_product', 'engine\third_party', 'engine\tests', 'engine\tools', 'engine\cmake')) {
         $sourceFiles += Get-ChildItem -LiteralPath (Join-Path $sourceDirectory $subdirectory) -File -Recurse |
             Where-Object { $_.FullName -notmatch '[\\/]__pycache__[\\/]' -and $_.Extension -ne '.pyc' }
     }
@@ -161,6 +178,8 @@ try {
         dll_sha256 = (Get-FileHash -LiteralPath (Join-Path $BuildDirectory 'engine\spektrafilm_engine.dll') -Algorithm SHA256).Hash.ToLowerInvariant()
         ctest_passed = $true
         native_raw = [bool]$NativeRaw
+        host = [bool]$HostBuild
+        input_codec_prefix = $InputCodecPrefix
         desktop = [bool]($Desktop -and $NativeRaw)
         desktop_executable_sha256 = $(if ($Desktop -and $NativeRaw) { (Get-FileHash -LiteralPath (Join-Path $BuildDirectory 'engine\SpektraLab.exe') -Algorithm SHA256).Hash.ToLowerInvariant() } else { $null })
         native_raw_executable_sha256 = $(if ($NativeRaw) { (Get-FileHash -LiteralPath (Join-Path $BuildDirectory 'engine\spk_raw_render.exe') -Algorithm SHA256).Hash.ToLowerInvariant() } else { $null })

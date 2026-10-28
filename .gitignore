@@ -350,6 +350,7 @@ desktop/out/
 desktop/release/
 desktop/.cache/
 desktop/dist/
+desktop/agent-dist/
 desktop/public/assets/
 desktop/src-tauri/target/
 desktop/src-tauri/gen/

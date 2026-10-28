@@ -92,6 +92,8 @@ export interface ScrubSliderProps {
   disabled?: boolean;
   reason?: string;
   blocked?: [number, number] | null;
+  /** The fit's admissible windows. Rendering only; the owner commits/clamps. */
+  usable?: [number, number][];
   /** A coloured track (temperature, tint, the filter axes). */
   gradient?: string;
   testId?: string;
@@ -172,9 +174,11 @@ export function ScrubSlider(p: ScrubSliderProps) {
         aria-valuemin={lo}
         aria-valuemax={hi}
         aria-valuenow={value}
+        aria-disabled={disabled || undefined}
       >
         <div className="track" style={gradient ? { background: gradient, height: 2 } : undefined} />
         {blocked && <div className="blocked" style={{ left: `${frac(blocked[0]) * 100}%`, width: `${(frac(blocked[1]) - frac(blocked[0])) * 100}%` }} />}
+        {p.usable?.map(([from, to], i) => <div key={i} className="usable" style={{ left: `${frac(from) * 100}%`, width: `${(frac(to) - frac(from)) * 100}%` }} />)}
         {zero > lo && zero < hi && <div className="zero" style={{ left: `${frac(zero) * 100}%` }} />}
         <div className="knob" style={{ left: `${frac(value) * 100}%` }} />
       </div>
@@ -202,7 +206,7 @@ export function ScrubSlider(p: ScrubSliderProps) {
             beginGesture();
             const v = clamp(value + (e.key === 'ArrowUp' ? step : -step), lo, hi);
             onChange(v);
-            setText(format(v));
+            setText(null); // the owner may clamp to a solved admissible window
           }
         }}
         aria-label={label + ' value'}
@@ -227,6 +231,7 @@ export function ToggleRow(p: { label: string; sublabel?: string; on: boolean; on
       onClick={() => !p.disabled && p.onChange(!p.on)}
       role="switch"
       aria-checked={p.on}
+      aria-disabled={p.disabled || undefined}
       aria-label={p.label}
       data-testid={p.testId}
     >

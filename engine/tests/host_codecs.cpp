@@ -2,6 +2,7 @@
 // JPEG header checks. A different file hash is not a quality regression.
 #include "output.hpp"
 #include "platform.hpp"
+#include "image_io.hpp"
 #include "tiff_ifd.hpp"
 #include "stb_image.h"
 #include "stb_image_write.h"
@@ -181,6 +182,127 @@ static void tiff_streaming(const std::filesystem::path& dir, const std::vector<u
                 "failed TIFF temporary file leaked");
 }
 
+
+// Independent string-table TIFF LZW reader, deliberately unlike the encoder's
+// prefix/byte hash. Reads through EOI, including width changes at the last code.
+static std::vector<uint8_t> unlzw(const uint8_t* data, size_t bytes) {
+    std::vector<std::vector<uint8_t>> table(4096);
+    size_t bit = 0; unsigned width = 9, next = 258; int previous = -1;
+    std::vector<uint8_t> result;
+    auto clear = [&] { for (unsigned i = 0; i < 256; ++i) table[i] = {uint8_t(i)}; width = 9; next = 258; previous = -1; };
+    clear(); bool ended = false;
+    while (bit + width <= bytes * 8) {
+        unsigned code = 0;
+        for (unsigned i = 0; i < width; ++i, ++bit) code = (code << 1) | ((data[bit / 8] >> (7 - bit % 8)) & 1);
+        if (code == 256) { clear(); continue; }
+        if (code == 257) { ended = true; break; }
+        std::vector<uint8_t> word;
+        if (code < next) word = table[code];
+        else if (code == next && previous >= 0) { word = table[previous]; word.push_back(word.front()); }
+        else throw std::runtime_error("invalid TIFF LZW code");
+        require(!word.empty(), "empty LZW word");
+        result.insert(result.end(), word.begin(), word.end());
+        if (previous >= 0 && next < 4096) { table[next] = table[previous]; table[next++].push_back(word.front()); }
+        previous = int(code);
+        if (next == (1u << width) - 1 && width < 12) ++width;
+    }
+    require(ended, "TIFF LZW EOI missing"); return result;
+}
+static std::vector<uint8_t> page_pixels(spkhost::TiffBytes& t, const spkhost::TiffBytes::Ifd& page,
+                                         const std::vector<uint8_t>& bytes) {
+    double compression = 0; std::vector<double> offsets, counts;
+    require(t.number(page, 259, compression) && t.numbers(page, 273, offsets) && t.numbers(page, 279, counts) && offsets.size() == counts.size(), "TIFF strip layout");
+    std::vector<uint8_t> out;
+    for (size_t i = 0; i < offsets.size(); ++i) {
+        const size_t at = size_t(offsets[i]), n = size_t(counts[i]);
+        require(at <= bytes.size() && n <= bytes.size() - at, "TIFF strip bounds");
+        auto strip = compression == 5 ? unlzw(bytes.data() + at, n) : std::vector<uint8_t>(bytes.begin() + at, bytes.begin() + at + n);
+        out.insert(out.end(), strip.begin(), strip.end());
+    }
+    return out;
+}
+static void tiff_options(const std::filesystem::path& dir, const std::vector<uint8_t>& icc, const spkhost::Exif& exif) {
+    std::vector<std::array<uint32_t,2>> sizes;
+    for (uint32_t w = 1; w < 180; ++w) sizes.push_back({w,1});
+    sizes.push_back({1025,513}); sizes.push_back({2051,17});
+    uint32_t state = 0x52a8e921;
+    for (const auto size : sizes) for (uint32_t bits : {8,16}) {
+        const auto w = size[0], h = size[1];
+        std::vector<uint16_t> rgb16(size_t(w)*h*3); std::vector<uint8_t> rgb8(rgb16.size()), expected(rgb16.size()*(bits/8));
+        for (size_t i = 0; i < rgb16.size(); ++i) {
+            state ^= state << 13; state ^= state >> 17; state ^= state << 5;
+            rgb16[i] = uint16_t(state); rgb8[i] = uint8_t(state);
+            if (bits == 8) expected[i] = rgb8[i];
+            else { expected[2*i] = uint8_t(rgb16[i]); expected[2*i+1] = uint8_t(rgb16[i] >> 8); }
+        }
+        const bool preview = w == 1 || h > 1;
+        auto* file = spkhost::open_file(dir/"options.tif", "wb"); require(file, "TIFF option fixture open"); std::string error;
+        require(spkhost::encode_tiff_file(file,bits == 8 ? static_cast<const void*>(rgb8.data()) : rgb16.data(),w,h,bits,icc,{true,preview},error,&exif),error.c_str());
+        require(!fclose(file), "TIFF option close");
+        std::vector<uint8_t> bytes; require(spkhost::read_file(dir/"options.tif",bytes,error),error.c_str());
+        spkhost::TiffBytes t(bytes.data(),bytes.size()); uint32_t first=0,next=0; spkhost::TiffBytes::Ifd page;
+        require(t.header(first)&&t.read_ifd(first,page,&next),"LZW TIFF IFD");
+        require(page_pixels(t,page,bytes)==expected,"LZW decoded pixels changed");
+        require(bool(next)==preview,"TIFF preview policy");
+        if (preview) {
+            require(!(next&1)&&t.read_ifd(next,page),"TIFF preview IFD alignment"); double pw=0,ph=0,reduced=0;
+            require(t.number(page,256,pw)&&t.number(page,257,ph)&&t.number(page,254,reduced)&&reduced==1,"TIFF preview tags");
+            require(std::max(pw,ph)==std::min(2048u,std::max(w,h)),"TIFF preview dimensions");
+            const auto small=page_pixels(t,page,bytes); require(small.size()==size_t(pw*ph)*3,"TIFF preview byte count");
+            if(w<=2048) for(size_t i=0;i<small.size();++i) require(small[i] == (bits==8 ? rgb8[i] : uint8_t(std::lround(rgb16[i]/257.))),"TIFF same-size preview quantization");
+            std::vector<uint8_t> profile;require(t.bytes(page,34675,profile)&&profile==icc,"TIFF preview ICC differs from file");
+        }
+    }
+    auto* readonly=spkhost::open_file(dir/"options.tif","rb");require(readonly,"LZW readonly fixture");
+    const uint8_t pixel[]={0,128,255};std::string error;
+    require(!spkhost::encode_tiff_file(readonly,pixel,1,1,8,icc,{true,true},error),"LZW write failure hidden");fclose(readonly);
+    std::puts("TIFF LZW: code-width boundaries, resets, odd widths, multiple strips, exact 8/16-bit pixels and preview pages passed");
+}
+static void extra_exif(spkhost::Exif& output) {
+    spkhost::Metadata meta;
+    const uint8_t program[]={0,3}, focal[]={0,85}, bias[]={255,255,255,253,0,0,0,2}, zero[]={0,0,0,0,0,0,0,1};
+    spkhost::capture_exif_value(meta,0x8822,3,1,false,program,sizeof(program));
+    spkhost::capture_exif_value(meta,0xA405,3,1,false,focal,sizeof(focal));
+    spkhost::capture_exif_value(meta,0x9204,10,1,false,zero,sizeof(zero));
+    require(meta.exposure_bias_ev && *meta.exposure_bias_ev==0,"zero exposure compensation lost");
+    spkhost::capture_exif_value(meta,0x9204,10,1,false,bias,sizeof(bias));
+    const uint8_t shutter[]={0,0,0,1,0,0,0,125};
+    spkhost::capture_exif_value(meta,0x829A,5,1,false,shutter,sizeof(shutter));
+    const uint8_t date[]="2026:10:18 12:34:56";
+    spkhost::capture_exif_value(meta,0x9004,2,sizeof(date),true,date,sizeof(date));
+    require(meta.exposure_program==3&&meta.focal_35mm==85&&meta.exposure_bias_ev==-1.5,"extra EXIF values/endian");
+    const auto count=meta.extra_exif.size();
+    spkhost::capture_exif_value(meta,0x927C,7,sizeof(date),true,date,sizeof(date));
+    spkhost::capture_exif_value(meta,0x9204,10,UINT32_MAX,true,bias,sizeof(bias));
+    require(meta.extra_exif.size()==count,"unsafe/malformed EXIF retained");
+    output.extra=meta.extra_exif;output.exposure_program=meta.exposure_program;output.focal_35mm=meta.focal_35mm;output.exposure_bias_ev=meta.exposure_bias_ev;
+    const auto block=spkhost::exif_block(output,17,9);spkhost::TiffBytes t(block.data(),block.size());uint32_t first=0;
+    spkhost::Metadata restored;require(t.header(first),"EXIF block header");spkhost::read_exif_metadata(t,first,restored);
+    require(restored.extra_exif.size()>=meta.extra_exif.size(),"EXIF fields missing after serialization");
+    for(const auto& [tag,value]:meta.extra_exif) {const auto& actual=restored.extra_exif.at(tag);require(actual.type==value.type&&actual.count==value.count&&actual.bytes==value.bytes,"EXIF exact type/count/bytes changed");}
+    require(restored.exposure_bias_ev==-1.5&&restored.focal_35mm==85&&restored.exposure_program==3,"EXIF public fields changed");
+}
+static void cineon_tiff(const std::filesystem::path& dir) {
+    std::string error;const spkhost::Exif exif{};
+    const uint16_t raw[]={0,95,65535,1234,4567,8910,32768,51700,32000,64,128,256,32,16,8,65000,0,42};
+    const uint8_t preview[]={12,34,56,78,90,123};const std::vector<uint8_t> icc={1,2,3,4,5};
+    auto* file=spkhost::open_file(dir/"cineon.tif","wb");require(file,"Cineon fixture open");
+    require(spkhost::encode_cineon_file(file,raw,3,2,preview,2,1,icc,error,&exif),error.c_str());require(!fclose(file),"Cineon fixture close");
+    std::vector<uint8_t> bytes;require(spkhost::read_file(dir/"cineon.tif",bytes,error),error.c_str());
+    spkhost::TiffBytes tiff(bytes.data(),bytes.size());uint32_t first=0,next=0;spkhost::TiffBytes::Ifd a,b,metadata;
+    require(tiff.header(first)&&tiff.read_ifd(first,a,&next)&&next&&tiff.read_ifd(next,b),"Cineon second IFD missing");
+    require(!a.contains(34675)&&b.contains(34675),"Cineon primary must be untagged; preview must carry its own ICC");
+    double pos=0,count=0,tag=0;tiff.number(a,273,pos);tiff.number(a,279,count);
+    require(count==sizeof(raw)&&std::memcmp(bytes.data()+size_t(pos),raw,sizeof(raw))==0,"Cineon codes changed");
+    require(tiff.number(a,34665,pos)&&tiff.read_ifd(uint32_t(pos),metadata)&&tiff.number(metadata,0xA001,tag)&&tag==65535,"Cineon EXIF is not uncalibrated");
+    require(tiff.number(b,254,tag)&&tag==1,"Cineon second page is not reduced image");
+    tiff.number(b,273,pos);tiff.number(b,279,count);require(count==sizeof(preview)&&std::memcmp(bytes.data()+size_t(pos),preview,sizeof(preview))==0,"Cineon preview pixels changed");
+    std::vector<uint8_t> profile;require(tiff.bytes(b,34675,profile)&&profile==icc,"Cineon preview ICC changed");
+    file=spkhost::open_file(dir/"cineon.tif","rb");require(file,"Cineon read-only fixture");
+    require(!spkhost::encode_cineon_file(file,raw,3,2,preview,2,1,icc,error,&exif),"Cineon write failure hidden");fclose(file);
+    require(!spkhost::encode_cineon_file(nullptr,raw,3,2,preview,2,1,icc,error),"Cineon null file accepted");
+}
+
 int main(int argc, char** argv) {
     try {
         require(argc >= 3 && argc <= 5, "usage: spk_host_codecs resources output-directory [benchmark PNG [quality|0=PNG]]");
@@ -216,6 +338,7 @@ int main(int argc, char** argv) {
             }
             return 0;
         }
+        cineon_tiff(dir);
         constexpr int w = 513, h = 259;
         std::vector<uint8_t> rgb(size_t(w) * h * 3);
         uint32_t rng = 71;
@@ -227,17 +350,33 @@ int main(int argc, char** argv) {
         }
         spkhost::Exif exif; exif.make = "Codec regression"; exif.model = "Owned fixture"; exif.iso = 100; exif.shutter_s = 0.01;
         exif.datetime_original = "2026:10:12 12:00:00";
+        extra_exif(exif);
         const auto expected_exif = spkhost::exif_block(exif, w, h);
         std::string error;
-        for (const std::string space : {"sRGB", "Display P3", "ProPhoto RGB"}) {
+        for (const std::string space : {"sRGB", "Display P3", "ProPhoto RGB", "Adobe RGB (1998)", "ITU-R BT.2020"}) {
             std::vector<uint8_t> icc, png;
             require(spkhost::icc_for(space, spkhost::utf8_path(argv[1]), icc, error), error.c_str());
+            if (space == "Adobe RGB (1998)" || space == "ITU-R BT.2020") {
+                spkhost::RgbSpace decoded;
+                require(spkhost::parse_icc(icc, decoded, error), error.c_str());
+                const double white[] = {0.3457 / 0.3585, 1, (1 - 0.3457 - 0.3585) / 0.3585};
+                for (int c = 0; c < 3; ++c) {
+                    require(std::fabs(decoded.to_xyz_d50[c*3] + decoded.to_xyz_d50[c*3+1] + decoded.to_xyz_d50[c*3+2] - white[c]) < 5e-5, "ICC D50 whitepoint mismatch");
+                    for (int k = 0; k <= 512; ++k) {
+                        const double code = double(k) / 512;
+                        const double expected = space == "Adobe RGB (1998)" ? std::pow(code, 563.0/256)
+                            : code < 1.099*std::pow(.018,.45)-.099 ? code/4.5 : std::pow((code+.099)/1.099,1/.45);
+                        require(std::fabs(decoded.trc[c].decode(code)-expected) < 3e-5, "ICC curve differs from file encoding");
+                    }
+                }
+            }
             require(spkhost::encode_png8(rgb.data(), w, h, icc, png, error, &exif), error.c_str());
             require(decode(png, w, h) == rgb, "PNG decoded pixels differ"); png_metadata(png, icc, expected_exif);
             auto* f = spkhost::open_file(dir / "stream.png", "wb"); require(f, "open PNG fixture");
             require(spkhost::encode_png8_file(f, rgb.data(), w, h, icc, error, &exif), error.c_str()); require(!fclose(f), "PNG close");
             std::vector<uint8_t> streamed; require(spkhost::read_file(dir / "stream.png", streamed, error) && streamed == png, "PNG streaming differs");
             tiff_streaming(dir, icc, exif);
+            tiff_options(dir, icc, exif);
             for (int q : {50, 80, 90, 91, 95, 96, 97, 98, 99, 100}) {
                 std::vector<uint8_t> old, now;
                 require(stbi_write_jpg_to_func(stb_sink, &old, w, h, 3, rgb.data(), q), "baseline JPEG");

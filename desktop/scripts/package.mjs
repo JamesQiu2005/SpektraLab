@@ -93,10 +93,13 @@ function stage(t) {
   cpSync(exe, join(bin, `spektralab-host-${t.triple}${ext}`));
   cpSync(join(t.hostDir, 'engine'), join(staging, 'engine'), { recursive: true });
   if (existsSync(join(t.hostDir, 'licenses'))) cpSync(join(t.hostDir, 'licenses'), join(staging, 'licenses'), { recursive: true });
+  // The user command needs no separately installed Node/npm. The same native
+  // app provides the locked sidecar service used by the GUI and by the CLI.
+  execFileSync(process.execPath, [join(here, 'build-agent.mjs'), staging, '--runtime'], { stdio: 'inherit', windowsHide: true });
   const conf = {
     bundle: {
       externalBin: ['binaries/spektralab-host'],
-      resources: { 'host-staging/engine': 'host/engine', 'host-staging/licenses': 'host/licenses' },
+      resources: { 'host-staging/engine': 'host/engine', 'host-staging/licenses': 'host/licenses', 'host-staging/agents': 'agents' },
     },
   };
   const confPath = join(tauriDir, 'tauri.bundle.json');

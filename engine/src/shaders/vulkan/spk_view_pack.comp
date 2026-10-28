@@ -3,19 +3,32 @@ layout(local_size_x=256) in;
 layout(binding=0,std430) readonly buffer Input { float v[]; } src;
 layout(binding=1,std430) readonly buffer Meta { uint v[]; } m;
 layout(binding=2,std430) writeonly buffer Output { uint v[]; } dst;
+layout(binding=3,std430) buffer Stats { uint v[]; } stats;
 uint index1D(){return gl_GlobalInvocationID.y*(gl_NumWorkGroups.x*gl_WorkGroupSize.x)+gl_GlobalInvocationID.x;}
 float encode(float x,uint mode){
  if(mode==0u)return x<=0.0031308?12.92*x:1.055*pow(max(x,0.0),1.0/2.4)-0.055;
  if(mode==1u)return x<1.0/512.0?16.0*x:pow(max(x,0.0),1.0/1.8);
+ if(mode==2u)return x<0.0?uintBitsToFloat(0x7fc00000u):pow(x,256.0/563.0);
+ if(mode==3u){float alpha=1.099,beta=0.018;return x<beta?4.5*x:alpha*pow(max(x,0.0),0.45)-(alpha-1.0);}
  return x;
 }
 uint encoded16(uint sampleIndex){
  // outputTransform's rgba16Unorm texture exists before ImageIO quantises 8-bit.
- return uint(floor(clamp(encode(src.v[sampleIndex],m.v[1]),0.0,1.0)*65535.0+0.5));
+ float value=encode(src.v[sampleIndex],m.v[1]);
+ return isnan(value)?0u:uint(floor(clamp(value,0.0,1.0)*65535.0+0.5));
 }
 uint to8(uint value){return (value*255u+32767u)/65535u;}
 void main(){
  uint i=index1D();
+ if(m.v[3]==0u){
+   // In-place RGB float codes for proofing: every thread owns its pixel.
+   // Quantise at the file's size before any proof downsample or conversion.
+   if(i>=m.v[0])return;
+   vec3 enc=vec3(encode(src.v[3u*i],m.v[1]),encode(src.v[3u*i+1u],m.v[1]),encode(src.v[3u*i+2u],m.v[1]));
+   if(m.v[4]!=0u && (any(lessThanEqual(enc,vec3(0)))||any(greaterThanEqual(enc,vec3(1)))))atomicAdd(stats.v[1],1u);
+   for(uint c=0u;c<3u;++c){uint v=encoded16(3u*i+c);float f=float(v)/65535.0;if(m.v[2]==8u)f=float(to8(v))/255.0;dst.v[3u*i+c]=floatBitsToUint(f);}
+   return;
+ }
  if(m.v[3]==3u){
    // A thread owns one uint, including RGB pixels straddling word boundaries.
    // Byte/halfword stores from per-pixel threads would race the shared word.

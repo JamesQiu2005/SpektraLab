@@ -9,8 +9,9 @@ import { newSidecar } from '@shared/sidecar';
 import { EMPTY_CATALOG } from '@shared/stocks';
 
 const fake = vi.hoisted(() => ({
-  select: vi.fn(), request: vi.fn(), cancel: vi.fn(), probe: vi.fn(), sidecarLoad: vi.fn(),
+  select: vi.fn(), request: vi.fn(), renderProof: vi.fn(), cancel: vi.fn(), probe: vi.fn(), sidecarLoad: vi.fn(),
   ensureDir: vi.fn(), pathExists: vi.fn(), log: vi.fn(), storeRead: vi.fn(), paint: vi.fn(),
+  workspaceBegin: vi.fn(), workspaceEnd: vi.fn(),
   output: { width: 1, height: 1, colorSpace: 'display-p3', data: new Uint8Array([180, 120, 80, 255]) },
 }));
 vi.mock('../state/session', async () => {
@@ -21,7 +22,7 @@ vi.mock('../state/session', async () => {
     useSession: <T,>(selector: (s: SessionState) => T) => useStore(sessionStore, selector) };
 });
 vi.mock('../state/settings', () => ({ settingsStore: { getState: () => ({ recalculateEffectsAfterCrop: false }) } }));
-vi.mock('../host/client', () => ({ host: () => ({ transport: { request: fake.request }, cancel: fake.cancel, probe: fake.probe }) }));
+vi.mock('../host/client', () => ({ host: () => ({ transport: { request: fake.request }, renderProof: fake.renderProof, cancel: fake.cancel, probe: fake.probe }) }));
 vi.mock('../platform', async (original) => ({ ...await original<typeof PlatformModule>(), platform: () => fake }));
 vi.mock('../canvas/output', () => ({ useOutput: () => fake.output }));
 vi.mock('../canvas/colorSpace', () => ({ paintOutput: fake.paint }));
@@ -63,6 +64,8 @@ beforeEach(() => {
   fake.probe.mockResolvedValue({ width: 6000, height: 4000, metadata: {} });
   fake.request.mockResolvedValue(reply());
   fake.cancel.mockResolvedValue(true);
+  fake.workspaceBegin.mockResolvedValue(71);
+  fake.workspaceEnd.mockResolvedValue(undefined);
   sessionStore.setState({ exportOpen: true, picked: ['D:/photos/b.NEF', 'D:/photos/a.NEF'],
     selection: 'D:/photos/a.NEF', engineSession: 'editor', batchExporting: false, developing: false, redecoding: false,
     nativeSize: { width: 6000, height: 4000 }, metadata: {}, gate: structuredClone(ALL_FEATURES),
@@ -73,6 +76,7 @@ beforeEach(() => {
 afterEach(async () => {
   if (root) await act(async () => root.unmount());
   div?.remove();
+  vi.useRealTimers();
   vi.unstubAllGlobals();
 });
 
@@ -83,9 +87,12 @@ describe('export page batch integration', () => {
     const pending = deferred<ReturnType<typeof reply>>();
     fake.request.mockReturnValueOnce(pending.promise).mockResolvedValueOnce(reply());
     await mount();
-    expect(fake.paint).toHaveBeenCalledWith(div.querySelector('canvas'), fake.output);
+    expect(fake.paint).not.toHaveBeenCalled();
+    expect(div.textContent).toContain('Update the engine to use export soft proofing');
     await click(div.querySelector('[data-testid=export-run]')!);
     expect(fake.request).toHaveBeenCalledOnce();
+    expect(fake.workspaceBegin).toHaveBeenCalledOnce();
+    expect(fake.workspaceEnd).not.toHaveBeenCalled();
     expect(fake.request.mock.calls[0]![0]).toBe('export_frame');
     expect(fake.request.mock.calls[0]![1]).toMatchObject({ source_path: 'D:/photos/b.NEF', session: undefined });
     expect(sessionStore.getState().selection).toBe(before.selection);
@@ -100,6 +107,7 @@ describe('export page batch integration', () => {
     expect(fake.select).not.toHaveBeenCalled();
     expect(sessionStore.getState().engineSession).toBe('editor');
     expect(sessionStore.getState().batchExporting).toBe(false);
+    expect(fake.workspaceEnd).toHaveBeenCalledExactlyOnceWith(71);
     expect(div.textContent).toContain('2 of 2 processed');
   });
   it('cancels a private job by progress id, skips later frames and keeps truthful progress', async () => {
@@ -118,6 +126,22 @@ describe('export page batch integration', () => {
     expect(sessionStore.getState().batchExporting).toBe(false);
     expect(div.textContent).toContain('0 of 2 processed');
     expect(div.textContent).toContain('cancelled');
+    expect(fake.workspaceEnd).toHaveBeenCalledExactlyOnceWith(71);
+  });
+  it('does not start any export or release an unowned lease when another process owns the workspace', async () => {
+    fake.workspaceBegin.mockRejectedValue(new Error('Workspace busy'));
+    await mount(); await click(div.querySelector('[data-testid=export-run]')!);
+    expect(fake.request).not.toHaveBeenCalled();
+    expect(fake.workspaceEnd).not.toHaveBeenCalled();
+    expect(sessionStore.getState().batchExporting).toBe(false);
+    expect(div.textContent).toContain('Workspace busy');
+  });
+  it('clears the batch UI even if releasing the lease reports an error', async () => {
+    fake.workspaceEnd.mockRejectedValue(new Error('Lease release failed'));
+    await mount(); await click(div.querySelector('[data-testid=export-run]')!);
+    expect(fake.workspaceEnd).toHaveBeenCalledExactlyOnceWith(71);
+    expect(sessionStore.getState().batchExporting).toBe(false);
+    expect(fake.log).toHaveBeenCalledWith('error', expect.stringContaining('Lease release failed'));
   });
   it('blocks export with a clear message when the host only supports the older methods', async () => {
     sessionStore.setState({ hello: { methods: ['render', 'write_image', 'export_image'] } as SessionState['hello'] });
@@ -125,5 +149,50 @@ describe('export page batch integration', () => {
     expect((div.querySelector('[data-testid=export-run]') as HTMLButtonElement).disabled).toBe(true);
     expect(div.textContent).toContain('Update the engine to export');
     expect(fake.request).not.toHaveBeenCalled();
+  });
+});
+
+describe('export recipe proof', () => {
+  const proofReply = (generation: number, colorSpace = 'Display P3') => ({
+    ...fake.output, proof: { generation, file_width: 6000, file_height: 4000, color_space: colorSpace,
+      bit_depth: 8 as const, stats: { pixels: 24_000_000, outside_fraction: .02, moved_fraction: .1, clipped_fraction: .003 },
+      compression_simulated: false as const, print_cached: true },
+  });
+  it('uses a frozen export snapshot and ignores a superseded recipe response', async () => {
+    vi.useFakeTimers();
+    sessionStore.setState({ displaySpace: 'display-p3', hello: { methods: ['export_frame', 'render_proof'],
+      export_spaces: ['sRGB', 'display-p3', 'prophoto', 'adobe-rgb', 'rec2020'] } as SessionState['hello'] });
+    const first = deferred<ReturnType<typeof proofReply>>(), second = deferred<ReturnType<typeof proofReply>>();
+    fake.renderProof.mockReturnValueOnce(first.promise).mockReturnValueOnce(second.promise);
+    await mount();
+    await act(async () => { await vi.advanceTimersByTimeAsync(210); });
+    expect(fake.renderProof).toHaveBeenCalledOnce();
+    const before = fake.renderProof.mock.calls[0]![0];
+    expect(before).toMatchObject({ session: 'editor', format: 'jpeg', color_space: 'display-p3', display: 'display-p3', long_edge: 0 });
+    expect(before).not.toHaveProperty('path');
+    await act(async () => { div.querySelectorAll('.recipe-list .stock-row')[1]!.dispatchEvent(new MouseEvent('click', { bubbles: true })); });
+    expect(fake.cancel).toHaveBeenCalledWith('editor', before.progress_id);
+    await act(async () => { await vi.advanceTimersByTimeAsync(210); });
+    const latest = fake.renderProof.mock.calls[1]![0];
+    expect(latest).toMatchObject({ format: 'tiff16', color_space: 'prophoto' });
+    const current = proofReply(latest.generation, 'ProPhoto RGB');
+    await act(async () => { second.resolve(current); });
+    expect(fake.paint).toHaveBeenLastCalledWith(div.querySelector('canvas'), current);
+    expect(div.querySelector('[data-testid=proof-stats]')?.textContent).toContain('6000 × 4000');
+    expect(div.querySelector('[data-testid=proof-stats]')?.textContent).toContain('2.00%');
+    await act(async () => { first.resolve(proofReply(before.generation)); });
+    expect(fake.paint).toHaveBeenCalledOnce();
+    expect(fake.request).not.toHaveBeenCalled();
+  });
+  it('cancels a proof when the page closes and never paints its late result', async () => {
+    vi.useFakeTimers();
+    sessionStore.setState({ hello: { methods: ['render_proof', 'export_frame'] } as SessionState['hello'] });
+    const pending = deferred<ReturnType<typeof proofReply>>(); fake.renderProof.mockReturnValue(pending.promise);
+    await mount(); await act(async () => { await vi.advanceTimersByTimeAsync(210); });
+    const request = fake.renderProof.mock.calls[0]![0];
+    await act(async () => { sessionStore.setState({ exportOpen: false }); });
+    expect(fake.cancel).toHaveBeenCalledWith('editor', request.progress_id);
+    await act(async () => { pending.resolve(proofReply(request.generation)); });
+    expect(fake.paint).not.toHaveBeenCalled();
   });
 });

@@ -26,6 +26,22 @@
    "cover": null
   },
   {
+   "id": "fujifilm_neopan_acros_100_ii",
+   "name": "Fujifilm Neopan 100 Acros II",
+   "stage": "filming",
+   "use": "still",
+   "type": "negative",
+   "targetPrint": "ilford_multigrade_iv_rc",
+   "hasPreviewLUT": false,
+   "pairedFilm": null,
+   "cover": null,
+   "monochrome": true,
+   "formats": [
+    "135",
+    "120"
+   ]
+  },
+  {
    "id": "fujifilm_pro_400h",
    "name": "Fujifilm Pro 400H",
    "stage": "filming",
@@ -84,6 +100,34 @@
     "135",
     "120"
    ]
+  },
+  {
+   "id": "ilford_hp5_plus_400",
+   "name": "Ilford HP5 Plus 400",
+   "stage": "filming",
+   "use": "still",
+   "type": "negative",
+   "targetPrint": "ilford_multigrade_iv_rc",
+   "hasPreviewLUT": false,
+   "pairedFilm": null,
+   "cover": null,
+   "monochrome": true,
+   "formats": [
+    "135",
+    "120"
+   ]
+  },
+  {
+   "id": "ilford_multigrade_iv_rc",
+   "name": "Ilford Multigrade IV RC",
+   "stage": "printing",
+   "use": "still",
+   "type": "negative",
+   "targetPrint": null,
+   "hasPreviewLUT": false,
+   "pairedFilm": null,
+   "cover": null,
+   "monochrome": true
   },
   {
    "id": "kodak_2383",
@@ -287,6 +331,38 @@
    "hasPreviewLUT": true,
    "pairedFilm": "kodak_portra_400",
    "cover": null
+  },
+  {
+   "id": "kodak_tmax_100",
+   "name": "Kodak T-Max 100",
+   "stage": "filming",
+   "use": "still",
+   "type": "negative",
+   "targetPrint": "ilford_multigrade_iv_rc",
+   "hasPreviewLUT": false,
+   "pairedFilm": null,
+   "cover": null,
+   "monochrome": true,
+   "formats": [
+    "135",
+    "120"
+   ]
+  },
+  {
+   "id": "kodak_tri_x_400",
+   "name": "Kodak Tri-X 400",
+   "stage": "filming",
+   "use": "still",
+   "type": "negative",
+   "targetPrint": "ilford_multigrade_iv_rc",
+   "hasPreviewLUT": false,
+   "pairedFilm": null,
+   "cover": null,
+   "monochrome": true,
+   "formats": [
+    "135",
+    "120"
+   ]
   },
   {
    "id": "kodak_ultra_endura",

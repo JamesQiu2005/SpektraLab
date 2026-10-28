@@ -3,7 +3,7 @@
 //
 // Where it lives is the core's business (`src-tauri/src/files.rs`:
 // `<app data>/Sidecars/<file>-<sha256(path)[:16]>.spektra.json`). What is in
-// it is this file's. Keys the port does not model (masks, `heldCrop`, the
+// it is this file's. Keys the port does not model (masks, the
 // pair's fields) are carried through untouched, so opening a Mac sidecar here
 // and saving it does not lose anything the Mac wrote.
 
@@ -33,6 +33,8 @@ export interface Sidecar {
   params: FilmParams;
   adjustments: Adjustments;
   geometry: Geometry;
+  /** The user's crop, restored when a film gate is switched off. */
+  heldCrop?: Geometry | null;
   solvedEV?: number | null;
   placementNeedsFit: boolean;
   state: FrameState;
@@ -83,6 +85,7 @@ export function decodeSidecar(raw: unknown): Sidecar {
     params: o.params ? decodeFilmParams(o.params) : FILM_PARAMS_DEFAULT,
     adjustments: o.adjustments ? decodeAdjustments(o.adjustments) : ADJUSTMENTS_DEFAULT,
     geometry,
+    heldCrop: o.heldCrop ? decodeGeometry(o.heldCrop) : null,
     solvedEV: typeof o.solvedEV === 'number' ? o.solvedEV : null,
     placementNeedsFit: o.placementNeedsFit === true,
     state: decodeState(o.state),
@@ -99,6 +102,8 @@ export function encodeSidecar(s: Sidecar): Record<string, unknown> {
   out.params = s.params;
   out.adjustments = s.adjustments;
   out.geometry = encodeGeometry(s.geometry);
+  if (s.heldCrop) out.heldCrop = encodeGeometry(s.heldCrop);
+  else delete out.heldCrop;
   if (s.solvedEV != null) out.solvedEV = s.solvedEV;
   else delete out.solvedEV;
   if (s.placementNeedsFit) out.placementNeedsFit = true;

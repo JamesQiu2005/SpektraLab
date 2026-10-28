@@ -9,30 +9,41 @@ const options = () => ({ adjustments: structuredClone(ADJUSTMENTS_DEFAULT), geom
 const response = (generation: number) => ({ result: { generation, tier: 'live', print_cached: true,
   image: { width: 1, height: 1, format: 'rgba8', color_space: 'Display P3', row_bytes: 4 } },
   payload: new Uint8Array([180, 120, 80, 255]) });
+const state = async () => ({ phase: 'ready', hello: { view_formats: ['rgba8'] } });
 
 describe('Host.renderView', () => {
   it('sends display, generation, grade and geometry and preserves display metadata', async () => {
     const request = vi.fn().mockResolvedValue(response(12));
-    const host = new Host({ request } as unknown as Transport);
+    const host = new Host({ request, state } as unknown as Transport);
     const opts = options();
     const view = await host.renderView('s1', 'live', opts);
-    expect(request).toHaveBeenCalledWith('render_view', { session: 's1', tier: 'live', ...opts }, expect.anything());
+    expect(request).toHaveBeenCalledWith('render_view', { session: 's1', tier: 'live', ...opts, format: 'rgba8' }, expect.anything());
     expect(view).toMatchObject({ colorSpace: 'Display P3', tier: 'live', reprinted: true, processedGeometry: opts.geometry });
     expect(Array.from(view.data)).toEqual([180, 120, 80, 255]);
   });
 
   it('rejects a response belonging to another requested generation', async () => {
-    const host = new Host({ request: async () => response(11) } as unknown as Transport);
+    const host = new Host({ request: async () => response(11), state } as unknown as Transport);
     await expect(host.renderView('s1', 'live', options())).rejects.toThrow('generation mismatch');
   });
 
   it('keeps the geometry snapshot from request time even if the caller later edits it', async () => {
     let resolve!: (r: ReturnType<typeof response>) => void;
-    const host = new Host({ request: () => new Promise((r) => { resolve = r; }) } as unknown as Transport);
+    const host = new Host({ request: () => new Promise((r) => { resolve = r; }), state } as unknown as Transport);
     const opts = options();
     const pending = host.renderView('s1', 'live', opts);
     opts.geometry.crop.width = 0.5;
+    await Promise.resolve();
     resolve(response(12));
     expect((await pending).processedGeometry?.crop.width).toBe(1);
+  });
+
+  it('negotiates 16-bit display only when the host advertises it', async () => {
+    const r = response(12);
+    const request = vi.fn().mockResolvedValue({ result: { ...r.result,
+      image: { ...r.result.image, format: 'rgba16', row_bytes: 8 } }, payload: new Uint8Array(8) });
+    const host = new Host({ request, state: async () => ({ phase: 'ready', hello: { view_formats: ['rgba8', 'rgba16'] } }) } as unknown as Transport);
+    expect((await host.renderView('s1', 'live', options())).format).toBe('rgba16');
+    expect(request.mock.calls[0]![1].format).toBe('rgba16');
   });
 });

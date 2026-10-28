@@ -1,0 +1,20 @@
+#version 450
+layout(local_size_x=256) in;
+layout(binding=0,std430) readonly buffer Base { uint v[]; } base;
+layout(binding=1,std430) readonly buffer First { uint v[]; } first;
+layout(binding=2,std430) readonly buffer Second { uint v[]; } second;
+layout(binding=3,std430) readonly buffer Meta { uint v[]; } m;
+layout(binding=4,std430) readonly buffer Rects { float v[]; } r;
+layout(binding=5,std430) writeonly buffer Output { uint v[]; } dst;
+vec3 rgb(uint a,uint b){return vec3(a&65535u,a>>16,b&65535u)/65535.0;}
+float coverage(vec2 p,uint k){float d=min(min(p.x-r.v[k],r.v[k+2u]-p.x),min(p.y-r.v[k+1u],r.v[k+3u]-p.y));return clamp(d/1.5+0.5,0.0,1.0);}
+void main(){
+ uint i=gl_GlobalInvocationID.y*(gl_NumWorkGroups.x*gl_WorkGroupSize.x)+gl_GlobalInvocationID.x;
+ if(i>=m.v[0])return;
+ vec2 p=vec2(float(i%m.v[1]),float(i/m.v[1]))+0.5;
+ vec3 c=rgb(base.v[2u*i],base.v[2u*i+1u]);
+ c=mix(c,rgb(first.v[2u*i],first.v[2u*i+1u]),float(m.v[2])*coverage(p,0u));
+ c=mix(c,rgb(second.v[2u*i],second.v[2u*i+1u]),float(m.v[3])*coverage(p,4u));
+ uvec3 q=uvec3(floor(clamp(c,0.0,1.0)*65535.0+0.5));
+ dst.v[2u*i]=q.r|(q.g<<16);dst.v[2u*i+1u]=q.b|0xffff0000u;
+}

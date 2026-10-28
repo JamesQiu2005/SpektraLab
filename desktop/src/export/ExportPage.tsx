@@ -11,13 +11,12 @@ import { t, tz } from '../i18n';
 import { platform, baseName } from '../platform';
 import { sessionStore, setPages, useSession } from '../state/session';
 import { settingsStore } from '../state/settings';
-import { host } from '../host/client';
+import { host, type ProofReply } from '../host/client';
 import { Thumb } from '../windows/Filmstrip';
 import { GEOMETRY_DEFAULT } from '@shared/geometry';
-import { useOutput } from '../canvas/output';
 import { paintOutput } from '../canvas/colorSpace';
-import { type ExportRecipe, editRecipe, recipeSummary, DEFAULT_RECIPES, NAME_TOKENS, type NameToken, decodeRecipes, extensionOf } from './recipes';
-import { captureExportFrames, exportCube, exportFrame, hostWrites, outputFor, targetFor, type ExportJob, type ExportOutcome } from './exporter';
+import { type ExportRecipe, editRecipe, recipeSummary, DEFAULT_RECIPES, NAME_TOKENS, EXPORT_SPACES, type NameToken, decodeRecipes, extensionOf } from './recipes';
+import { captureExportFrames, exportCube, exportFrame, renderProof, hostWrites, outputFor, targetFor, type ExportJob, type ExportOutcome } from './exporter';
 
 const TOKEN_LABEL: Record<NameToken, () => string> = {
   originalName: () => tz('Org. Name', '原文件名'),
@@ -41,12 +40,21 @@ export function ExportPage() {
   const batch = useSession((s) => s.batchExporting);
   const catalog = useSession((s) => s.catalog);
   const hello = useSession((s) => s.hello);
-  const params = useSession((s) => s.sidecar.params);
-  const geometry = useSession((s) => s.sidecar.geometry);
+  const sidecar = useSession((s) => s.sidecar);
+  const { params, geometry } = sidecar;
+  const engineSession = useSession((s) => s.engineSession);
+  const developing = useSession((s) => s.developing || s.redecoding);
+  const display = useSession((s) => s.displaySpace);
+  const metadata = useSession((s) => s.metadata);
+  const pair = useSession((s) => s.pair);
+  const pairInfo = useSession((s) => s.pairInfo);
   const gate = useSession((s) => s.gate);
   const native = useSession((s) => s.nativeSize);
   const saved = useSession((s) => s.savedGeometry);
-  const output = useOutput();
+  const [proofImage, setProofImage] = useState<ProofReply | null>(null);
+  const [proofStatus, setProofStatus] = useState('');
+  const [proofEdge, setProofEdge] = useState(2048);
+  const proofGeneration = useRef(0);
   const [recipes, setRecipes] = useState<ExportRecipe[]>(DEFAULT_RECIPES);
   const [current, setCurrent] = useState(0);
   const [log, setLog] = useState<{ name: string; outcome: ExportOutcome }[]>([]);
@@ -78,14 +86,67 @@ export function ExportPage() {
 
   useEffect(() => {
     const c = proof.current;
-    if (!c || !output) return;
-    paintOutput(c, output);
-  }, [output, open]);
+    if (c && proofImage) paintOutput(c, proofImage);
+  }, [proofImage, open]);
+
+  useEffect(() => {
+    const pane = proof.current?.parentElement;
+    if (!open || !pane || typeof ResizeObserver === 'undefined') return;
+    const observer = new ResizeObserver(([entry]) => {
+      if (!entry) return;
+      const edge = Math.max(entry.contentRect.width, entry.contentRect.height) * (window.devicePixelRatio || 1);
+      if (edge > 0) setProofEdge(Math.max(1, Math.min(4096, Math.ceil(edge))));
+    });
+    observer.observe(pane);
+    return () => observer.disconnect();
+  }, [open]);
+
+  useEffect(() => {
+    const generation = ++proofGeneration.current;
+    setProofImage(null);
+    if (!open || !selection || batch || developing || !engineSession) {
+      setProofStatus(open && selection ? tz('Waiting for the image…', '正在等待照片…') : '');
+      return;
+    }
+    if (!hello?.methods?.includes('render_proof') || (r.format === 'di' && !hello.methods.includes('export_cineon'))) {
+      setProofStatus(r.format === 'di'
+        ? tz('Digital Intermediate proofing is unavailable.', '数字中间片软打样尚不可用。')
+        : tz('Update the engine to use export soft proofing.', '请更新引擎以使用导出软打样。'));
+      return;
+    }
+    let obsolete = false;
+    let job: ExportJob | null = null;
+    const selected = { path: selection, session: engineSession, sidecar: structuredClone(sidecar), native: native ?? undefined, metadata, pair, pairInfo };
+    const recipe = structuredClone(r);
+    setProofStatus(tz('Preparing export proof…', '正在生成导出软打样…'));
+    const timer = setTimeout(() => {
+      void (async () => {
+        try {
+          const [item] = await captureExportFrames([selection], selected, catalog, gate,
+            settingsStore.getState().recalculateEffectsAfterCrop, () => obsolete);
+          if (obsolete || !item) return;
+          if ('error' in item) throw new Error(item.error);
+          const result = await renderProof(recipe, item.frame, catalog, hello.methods, display ?? 'srgb', proofEdge, generation,
+            { cancelled: () => obsolete, active: (value) => { job = value; } });
+          if (!obsolete && generation === proofGeneration.current && result) {
+            setProofImage(result); setProofStatus('');
+          }
+        } catch (e) {
+          if (!obsolete) setProofStatus(e instanceof Error ? e.message : String(e));
+        }
+      })();
+    }, 200);
+    return () => {
+      obsolete = true; clearTimeout(timer);
+      if (job) void host().cancel(job.session, job.progressId).catch(() => {});
+    };
+  }, [open, selection, batch, developing, engineSession, sidecar, native, metadata, pair, pairInfo, r, hello, catalog, gate, display, proofEdge]);
 
   if (!open) return null;
   const frames = picked.length ? picked : selection ? [selection] : [];
   const writesEdits = hostWrites(hello?.methods as string[] | undefined);
-  const supported = r.format === 'di' ? gate.digitalIntermediate && !!hello?.methods?.includes('export_di') : writesEdits;
+  const spaceSupported = ['sRGB', 'display-p3', 'prophoto'].includes(r.colorSpace) || !!hello?.export_spaces?.includes(r.colorSpace);
+  const supported = r.format === 'di' ? gate.digitalIntermediate && !!hello?.methods?.includes('export_cineon') : writesEdits && spaceSupported;
   const size = native ? outputFor(r, geometry, native) : null;
 
   const run = async () => {
@@ -99,20 +160,26 @@ export function ExportPage() {
     const selected = state.selection ? {
       path: state.selection, sidecar: structuredClone(state.sidecar),
       session: !state.developing && !state.redecoding ? state.engineSession ?? undefined : undefined,
-      native: state.nativeSize ?? undefined, dateTaken: state.metadata?.datetime_original,
+      native: state.nativeSize ?? undefined, dateTaken: state.metadata?.datetime_original, metadata: state.metadata,
+      pair: state.pair, pairInfo: state.pairInfo,
     } : null;
     stop.current = false;
     setLog([]);
     setProgress({ done: 0, total: paths.length });
     sessionStore.setState({ batchExporting: true });
     let done = 0;
+    let lease: number | null = null;
     try {
+      // Keep the native workspace lease between frames as well as during
+      // each host call, so an external editor cannot change this batch's inputs.
+      lease = await platform().workspaceBegin();
       const prepared = await captureExportFrames(paths, selected, state.catalog, state.gate,
         settingsStore.getState().recalculateEffectsAfterCrop, () => stop.current);
       for (const item of prepared) {
         if (stop.current) break;
         const outcome: ExportOutcome = 'error' in item ? { kind: 'failed', message: item.error }
           : await exportFrame(recipe, item.frame, state.catalog, methods, {
+            tiffOptions: state.hello?.tiff_options,
             cancelled: () => stop.current, active: (job) => { active.current = job; },
           });
         platform().log(outcome.kind === 'failed' ? 'error' : 'info', `export ${baseName(item.path)}: ${JSON.stringify(outcome)}`);
@@ -120,8 +187,13 @@ export function ExportPage() {
         if (outcome.kind === 'cancelled') break;
         setProgress({ done: ++done, total: paths.length });
       }
+    } catch (e) {
+      const message = e instanceof Error ? e.message : String(e);
+      platform().log('error', `export batch: ${message}`);
+      setLog((l) => [...l, { name: tz('Batch', '批量导出'), outcome: { kind: 'failed', message } }]);
     } finally {
       active.current = null;
+      if (lease !== null) await platform().workspaceEnd(lease).catch((e) => platform().log('error', `export lease: ${String(e)}`));
       sessionStore.setState({ batchExporting: false });
     }
   };
@@ -286,14 +358,18 @@ export function ExportPage() {
                 value={r.colorSpace}
                 fill
                 disabled={r.format === 'di'}
-                options={[
-                  { value: 'sRGB', label: 'sRGB' },
-                  { value: 'display-p3', label: 'Display P3' },
-                  { value: 'prophoto', label: 'ProPhoto RGB' },
-                ]}
+                options={EXPORT_SPACES}
                 onChange={(v) => edit({ colorSpace: v })}
               />
               <ScrubSlider label={tz('Quality', '质量')} value={r.quality} range={[10, 100]} zero={92} snap={5} format={(v) => v.toFixed(0)} disabled={r.format !== 'jpeg'} onChange={(v) => edit({ quality: Math.round(v) })} />
+              {(r.format === 'tiff' || r.format === 'di') && <>
+                <PillMenu label={tz('Compression', '压缩')} value={r.tiffCompression ?? 'none'}
+                  options={[{ value: 'none', label: tz('None', '无压缩') }, { value: 'lzw', label: tz('LZW (lossless)', 'LZW（无损）'), disabled: !hello?.tiff_options?.includes('lzw') }]}
+                  onChange={(v) => edit({ tiffCompression: v })} />
+                <Checkbox label={tz('Embed preview page', '嵌入预览页')} on={r.format === 'di' || !!r.embedsPreview}
+                  disabled={r.format === 'di' || !hello?.tiff_options?.includes('preview-page')}
+                  onChange={(v) => edit({ embedsPreview: v })} />
+              </>}
               <div className="row">
                 <span className="row-label">{tz('Long Edge', '长边')}</span>
                 <Checkbox on={r.longEdge === 0} label={tz('Original size', '原始尺寸')} onChange={(v) => edit({ longEdge: v ? 0 : 3000 })} />
@@ -303,9 +379,10 @@ export function ExportPage() {
               </div>
             </Section>
             <Section id="exp-summary" title={tz('Summary', '摘要')}>
+              {!spaceSupported && <div className="caption">{tz('Update the engine to export this colour space.', '请更新引擎以导出此色彩空间。')}</div>}
               <div className="caption">
                 {r.format === 'di'
-                  ? tz('Density intermediate: no crop or Post-Dev grade. Stop takes effect between files.', '密度中间片：不包含裁剪或显影后调整；停止在两张之间生效。')
+                  ? tz('Cineon log, 16-bit, untagged. Includes crop and rotation; Post-Dev is excluded. A view preview and both view LUTs accompany the file.', 'Cineon 对数、16 位、不嵌入 ICC。保留裁剪和旋转，不包含显影后调整；文件附带视图预览和两个显示 LUT。')
                   : writesEdits
                   ? tz('The file is the canvas’s frame: crop, rotation and Post-Dev included.', '文件即画布上的画面：包含裁剪、旋转与显影后调整。')
                   : tz('This engine cannot export the complete frame. Update the engine to export.', '此引擎不支持完整画面导出，请更新引擎后再导出。')}
@@ -329,8 +406,16 @@ export function ExportPage() {
             </Section>
           </div>
         </aside>
-        <main className="export-proof">
-          <canvas ref={proof} data-testid="export-proof" />
+        <main className="export-proof" style={{ flexDirection: 'column' }}>
+          <canvas ref={proof} data-testid="export-proof" style={{ display: proofImage ? undefined : 'none' }} />
+          {proofStatus && <div className="caption" role="status">{proofStatus}</div>}
+          {proofImage && <div className="caption" data-testid="proof-stats">
+            {tz('Export proof', '导出软打样')} · {proofImage.proof.file_width} × {proofImage.proof.file_height} · {proofImage.proof.color_space} · {proofImage.proof.bit_depth} bit<br />
+            {proofImage.proof.encoding === 'cineon'
+              ? tz('Cineon shown through the supplied DI view LUT; the file retains its untagged log codes.', '使用配套 DI 视图 LUT 显示；文件保留未标记色彩空间的对数码值。')
+              : <>{tz('Outside target gamut', '超出目标色域')} {(100 * proofImage.proof.stats.outside_fraction).toFixed(2)}% · {tz('Gamut mapping applied', '色域映射作用')} {(100 * proofImage.proof.stats.moved_fraction).toFixed(2)}% · {tz('Clipped', '夹限')} {(100 * proofImage.proof.stats.clipped_fraction).toFixed(2)}%</>}
+            {r.format === 'jpeg' && <><br />{tz('Before JPEG compression; compression artifacts are not simulated.', '显示 JPEG 压缩前的结果，不模拟压缩伪影。')}</>}
+          </div>}
         </main>
         <aside className="export-strip">
           {frames.map((p) => (

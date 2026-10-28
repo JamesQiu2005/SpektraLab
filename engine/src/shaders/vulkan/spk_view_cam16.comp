@@ -1,0 +1,4 @@
+#version 450
+#extension GL_GOOGLE_include_directive : require
+#define SPK_VIEW_STATS
+#include "spk_cam16ucs_body.glsl"

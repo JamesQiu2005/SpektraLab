@@ -10,7 +10,10 @@ default-run = "spektralab"
 
 [lib]
 name = "spektralab_lib"
-crate-type = ["staticlib", "cdylib", "rlib"]
+# This package is a desktop executable, with a Rust library shared by main
+# and tests. It exposes no C ABI/mobile library. Building an unused cdylib
+# also triggers MinGW's PE export-ordinal limit with newer Rust compilers.
+crate-type = ["rlib"]
 
 [build-dependencies]
 tauri-build = { version = "2", features = [] }

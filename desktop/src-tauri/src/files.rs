@@ -18,10 +18,10 @@ use sha2::{Digest, Sha256};
 
 pub const IMAGE_EXTENSIONS: &[&str] = &[
     // RAW (LibRaw)
-    "3fr", "ari", "arw", "bay", "cr2", "cr3", "crw", "dcr", "dng", "erf", "fff", "iiq", "k25", "kdc", "mef",
+    "3fr", "ari", "arw", "bay", "cr2", "cr3", "crw", "dcr", "dng", "erf", "fff", "gpr", "iiq", "k25", "kdc", "mef",
     "mos", "mrw", "nef", "nrw", "orf", "pef", "raf", "raw", "rw2", "rwl", "sr2", "srf", "srw", "x3f",
     // rasters
-    "tif", "tiff", "jpg", "jpeg", "png",
+    "tif", "tiff", "jpg", "jpeg", "png", "heic", "heif", "hif", "exr",
 ];
 
 pub fn is_image(p: &Path) -> bool {
@@ -39,7 +39,7 @@ pub struct Entry {
     pub mtime_ms: f64,
 }
 
-fn entry(p: &Path) -> Option<Entry> {
+pub(crate) fn entry(p: &Path) -> Option<Entry> {
     let md = fs::metadata(p).ok()?;
     let mtime_ms = md
         .modified()
@@ -93,7 +93,7 @@ pub fn expand(paths: &[String]) -> Vec<Entry> {
             if let Ok(mut v) = list_images(&path) {
                 out.append(&mut v);
             }
-        } else if path.is_file() && is_image(&path) {
+        } else if path.is_file() && (is_image(&path) || crate::pairs::is_pair(&path)) {
             if let Some(e) = entry(&path) {
                 out.push(e);
             }
@@ -142,13 +142,60 @@ pub fn identity(image: &Path) -> Value {
             v["inode"] = json!(md.ino());
             v["volumeID"] = json!(md.dev());
         }
+        #[cfg(windows)]
+        if let Some((volume, file)) = windows_file_identity(image) {
+            // Keep Windows IDs separate from the Mac/Unix integer fields.
+            // Strings preserve all 128 bits through the JavaScript sidecar.
+            v["windowsVolumeID"] = json!(volume);
+            v["windowsFileID"] = json!(file);
+        }
     }
     v
 }
 
+#[cfg(windows)]
+fn windows_file_identity(image: &Path) -> Option<(String, String)> {
+    use std::os::windows::fs::OpenOptionsExt;
+    use std::os::windows::io::AsRawHandle;
+
+    // FILE_ID_INFO, available since Windows 8; unlike a path or content hash,
+    // the volume + ID follows a rename but distinguishes an identical copy.
+    #[repr(C)]
+    struct FileIdInfo {
+        volume_serial_number: u64,
+        file_id: [u8; 16],
+    }
+    #[link(name = "kernel32")]
+    extern "system" {
+        fn GetFileInformationByHandleEx(
+            handle: *mut std::ffi::c_void,
+            class: i32,
+            information: *mut std::ffi::c_void,
+            size: u32,
+        ) -> i32;
+    }
+    // Only attributes are requested, with read/write/delete sharing. Saving
+    // an edit must not keep the photograph locked against a later rename.
+    let file = fs::OpenOptions::new().access_mode(0x80).share_mode(7).open(image).ok()?;
+    let mut info = FileIdInfo { volume_serial_number: 0, file_id: [0; 16] };
+    // SAFETY: file owns the live handle; the pointer refers to the correctly
+    // sized repr(C) buffer for FileIdInfo (FILE_INFO_BY_HANDLE_CLASS = 18).
+    let ok = unsafe {
+        GetFileInformationByHandleEx(file.as_raw_handle(), 18,
+            (&mut info as *mut FileIdInfo).cast(), std::mem::size_of::<FileIdInfo>() as u32)
+    };
+    if ok == 0 || info.file_id == [0; 16] { return None; }
+    let id = info.file_id.iter().map(|b| format!("{b:02x}")).collect();
+    Some((format!("{:016x}", info.volume_serial_number), id))
+}
+
 fn source_matches(a: &Value, b: &Value) -> bool {
-    let keys = ["inode", "volumeID", "size"];
-    keys.iter().all(|k| a.get(*k).is_some() && a.get(*k) == b.get(*k))
+    let keys = if b.get("windowsFileID").is_some() {
+        ["windowsFileID", "windowsVolumeID", "size"]
+    } else {
+        ["inode", "volumeID", "size"]
+    };
+    keys.iter().all(|k| a.get(*k).is_some_and(|v| !v.is_null()) && a.get(*k) == b.get(*k))
 }
 
 fn read_json(p: &Path) -> Option<Value> {
@@ -184,7 +231,7 @@ impl SidecarStore {
         // Moved or renamed: a sidecar whose remembered file is gone and whose
         // fingerprint is this file's.
         let wanted = identity(image);
-        if wanted.get("inode").is_some() {
+        if wanted.get("inode").is_some() || wanted.get("windowsFileID").is_some() {
             if let Ok(rd) = fs::read_dir(&self.dir) {
                 for d in rd.filter_map(Result::ok) {
                     let p = d.path();
@@ -285,13 +332,53 @@ mod tests {
         // Moved: same inode, old path gone.
         let moved = photos.join("y.tif");
         fs::rename(&img, &moved).unwrap();
-        #[cfg(unix)]
+        #[cfg(any(unix, windows))]
         {
             let v = store.load(&moved).unwrap();
             assert_eq!(v["schemaVersion"], 3);
             assert!(store.path_for(&moved).exists());
+            assert!(!store.path_for(&img).exists());
+            assert_eq!(v["source"]["path"], standardized(&moved).display().to_string());
         }
         let _ = fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn identical_copy_does_not_inherit_moved_edits() {
+        let root = std::env::temp_dir().join(format!("spk-file-id-test-{}", std::process::id()));
+        fs::create_dir_all(&root).unwrap();
+        let original = root.join("原片.tif");
+        let copy = root.join("副本.tif");
+        fs::write(&original, b"same image bytes").unwrap();
+        let store = SidecarStore { dir: root.join("Sidecars") };
+        store.save(&original, &json!({"schemaVersion":3,"params":{"exposure":2}})).unwrap();
+        fs::copy(&original, &copy).unwrap();
+        let first = identity(&original);
+        let second = identity(&copy);
+        assert!(!source_matches(&first, &second));
+        fs::remove_file(&original).unwrap();
+        assert!(store.load(&copy).is_none());
+        assert!(store.path_for(&original).exists());
+        let moved = root.join("移动后.tif");
+        store.save(&copy, &json!({"schemaVersion":3,"params":{"exposure":-1}})).unwrap();
+        fs::rename(&copy, &moved).unwrap();
+        assert_eq!(store.load(&moved).unwrap()["params"]["exposure"], -1);
+        let _ = fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn identity_requires_volume_file_and_size() {
+        let original = json!({"windowsFileID":"001122", "windowsVolumeID":"aabb", "size":42});
+        assert!(source_matches(&original, &original));
+        for changed in [
+            json!({"windowsFileID":"001122", "windowsVolumeID":"ccdd", "size":42}),
+            json!({"windowsFileID":"001122", "windowsVolumeID":"aabb", "size":43}),
+            json!({"windowsFileID":"different", "windowsVolumeID":"aabb", "size":42}),
+            json!({"size":42}),
+            json!({"inode":null,"volumeID":null,"size":42}),
+        ] {
+            assert!(!source_matches(&original, &changed));
+        }
     }
 
     #[test]
