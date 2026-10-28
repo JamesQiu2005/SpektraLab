@@ -1051,6 +1051,15 @@ Windows embeds pinned Liberation Sans 2.1.5 regular/bold and stb_truetype
 (licenses/checksums in `engine/resources_product/fonts/README.md` and
 `engine/third_party/stb/README.md`). Font outlines differ from Helvetica Neue;
 this is a declared typography difference, not a material-profile modification.
+1.3.4's CineStill 800T edge asks for two more faces: **Menlo-Bold** (its 135
+numbers) is drawn with the embedded DejaVu Sans Mono Bold 2.37 (Menlo's own
+ancestor, same advance and cap height), and **ArialNarrow** (its 120 name and
+batch number) with Liberation Sans Regular condensed to 0.82 across (Arial
+Narrow's measured ratio to Arial). Measured against the Metal engine
+(2026-10-29), these cut the CineStill edge canvases' difference 4-5x (135: mean
+0.070 -> 0.015 code; 120: 0.247 -> 0.062); what remains is glyph shape. Marks
+the engine draws as vectors (date back, dot faces, DX code, arrows) are filled
+with exact-area coverage since 2026-10-29, as CoreGraphics fills them.
 
 The unmodified overscan regression corpus and product BW/filter/DX corpus
 pass on the RTX 5070 Ti. `host_film_edge.py` separately proves held crop/turn/

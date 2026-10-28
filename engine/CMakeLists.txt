@@ -175,6 +175,8 @@ if(SPEKTRALAB_PORTABLE_BACKEND)
             COMMAND "${CMAKE_COMMAND}" -E copy_if_different
                     "${CMAKE_CURRENT_SOURCE_DIR}/resources_product/fonts/LICENSE" "${vulkan_resource_dir}/Imprint-fonts-LICENSE.txt"
             COMMAND "${CMAKE_COMMAND}" -E copy_if_different
+                    "${CMAKE_CURRENT_SOURCE_DIR}/resources_product/fonts/DejaVu-LICENSE" "${vulkan_resource_dir}/Imprint-mono-font-DejaVu-LICENSE.txt"
+            COMMAND "${CMAKE_COMMAND}" -E copy_if_different
                     "${CMAKE_CURRENT_SOURCE_DIR}/third_party/stb/LICENSE" "${vulkan_resource_dir}/stb-LICENSE.txt"
             COMMAND "${CMAKE_COMMAND}" -E copy_if_different
                     "${CMAKE_CURRENT_SOURCE_DIR}/resources_product/paper_grades.json" "${vulkan_resource_dir}/paper_grades.json"

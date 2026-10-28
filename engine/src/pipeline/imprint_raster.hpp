@@ -11,7 +11,8 @@ struct Point { double x, y; };
 using Contour = std::vector<Point>;
 using Contours = std::vector<Contour>;
 
-// Bundled, immutable Liberation Sans outlines; no system/user font loading.
+// Bundled, immutable Liberation Sans and DejaVu Sans Mono Bold outlines; no
+// system/user font loading.
 // The local baseline is y down, matching the physical film coordinate system.
 double text_width(const char* face, double em, const std::string& text,
                   double tracking, double horizontal_scale);
@@ -19,7 +20,7 @@ Contours text_outlines(const char* face, double em, const std::string& text,
                        double tracking, double horizontal_scale,
                        bool scale_advances, double flatness);
 
-// Nonzero-winding fill, exact horizontal coverage and eight subpixel rows.
+// Nonzero-winding fill with exact-area coverage (signed-area accumulation).
 // Each drawing operation uses source-over gray, as CoreGraphics does.
 void fill(std::vector<uint8_t>& pixels, int width, int height,
           const Contours& contours, double gray);
