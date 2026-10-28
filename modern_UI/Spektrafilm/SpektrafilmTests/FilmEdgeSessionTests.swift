@@ -192,6 +192,32 @@ final class FilmEdgeSessionTests: XCTestCase {
         }
     }
 
+    /// The date alone cuts the frame only once the crop is not the whole
+    /// frame, so the first ratio chosen in the crop tool turns framing on
+    /// while the tool is up. The canvas has to go to the decode then, at the
+    /// photograph's own size: left on the print, the whole frame jumped
+    /// under the crop (1.3.3).
+    func testTheFirstRatioUnderTheDateAloneFramesTheDecode() async throws {
+        let url = try copied("tests/Test_image/A7m3/DSC03710.ARW")
+        let session = try await developedSession(url)
+        edit(session) { $0.dateBack.active = true; $0.dateBack.customText = "'88 8 8" }
+        if session.geometry != .default { session.geometry = .default }
+        try await Task.sleep(for: .seconds(3))
+        try await waitUntil("idle with the date", timeout: 120) { !session.busy }
+
+        session.tool = .crop
+        XCTAssertFalse(session.filmEdgeFraming, "a whole-frame crop: the date does not cut the frame yet")
+        var g = session.geometry
+        g.aspect = .square
+        session.geometry = g.constrained(in: session.sourceImageSize)
+
+        XCTAssertTrue(session.filmEdgeFraming, "a 1:1 crop: the date cuts the frame now")
+        XCTAssertTrue(session.renderer.showOriginal, "framing shows the decode")
+        XCTAssertEqual(session.renderer.sourceSize, session.nativeSourceSize,
+                       "the canvas is expressed against the photograph while framing")
+        session.tool = .select
+    }
+
     /// The date back alone prints in the picture's own corner, upright,
     /// whatever the crop, the turn or the flip. The engine exposes the date on
     /// the frame it is handed, so the frame has to be the picture: handed the
