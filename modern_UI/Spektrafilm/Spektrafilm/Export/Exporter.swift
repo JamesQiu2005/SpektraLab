@@ -660,5 +660,17 @@ enum Exporter {
                 "Could not create \(u.path): \(why). Choose another folder in the export recipe."
             }
         }
+        /// The same, for the export page in Chinese.
+        var chineseDescription: String {
+            switch self {
+            case .nothingOpen: "没有打开的图像。"
+            case .noPixels: "渲染结果为空。"
+            case .incompletePair: "导出半格拼接前，请先填满两格。"
+            case .colourSpace(let why): "无法转换到配方的色彩空间：\(why)。"
+            case .write(let u): "无法写入 \(u.lastPathComponent)。"
+            case .directory(let u, let why):
+                "无法创建 \(u.path)：\(why)。请在导出配方中选择其他文件夹。"
+            }
+        }
     }
 }
