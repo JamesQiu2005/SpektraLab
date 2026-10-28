@@ -100,7 +100,13 @@ def main():
         '-DBUILD_DOC=OFF','-DINSTALL_PYTHON_MODULE=OFF','-DINSTALL_HELPER_SCRIPTS=OFF',
         '-DCMAKE_CXX_FLAGS=-DGLIB_STATIC_COMPILATION']
     if a.generator:configure+=['-G',a.generator]
-    if a.toolchain:configure+=['-DCMAKE_TOOLCHAIN_FILE='+a.toolchain.resolve().as_posix()]
+    if a.toolchain:
+        configure+=['-DCMAKE_TOOLCHAIN_FILE='+a.toolchain.resolve().as_posix(),
+                    '-DCMAKE_FIND_ROOT_PATH='+prefix.as_posix()]
+        # Lensfun must discover the GLib just built for the target, never the
+        # build host's .pc files (including a developer's PKG_CONFIG_PATH).
+        env['PKG_CONFIG_LIBDIR']=(prefix/'lib/pkgconfig').as_posix()
+        env['PKG_CONFIG_PATH']=''
     for key,value in (('CMAKE_C_COMPILER',a.cc),('CMAKE_CXX_COMPILER',a.cxx),('CMAKE_MAKE_PROGRAM',a.make)):
         if value:configure.append('-D'+key+'='+value.replace('\\','/'))
     run(configure,env=env)
