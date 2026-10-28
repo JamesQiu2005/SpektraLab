@@ -1,9 +1,9 @@
 // FilmEdge.swift and Session+FilmEdge.swift, pinned upstream f1440bd1.
 // These are host/UI rules; all fog, edge and date exposure math stays in the engine.
-import type { DateBackSettings, FeatureGate, FilmEdgeSettings, FilmParams } from './params';
-import type { FileMetadata } from './protocol';
-import type { Stock, StockCatalog } from './stocks';
-import { GEOMETRY_DEFAULT, constrained, isIdentity, outputSize, type Geometry, type Size } from './geometry';
+import type { DateBackSettings, FeatureGate, FilmEdgeSettings, FilmParams } from './params.ts';
+import type { FileMetadata } from './protocol.ts';
+import type { Stock, StockCatalog } from './stocks.ts';
+import { GEOMETRY_DEFAULT, constrained, isIdentity, outputSize, type Geometry, type Size } from './geometry.ts';
 
 export const EDGE_FORMATS = [
   { id: '135', label: '135', long: 36, short: 24, gauge: '135' },

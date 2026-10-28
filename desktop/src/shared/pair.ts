@@ -1,12 +1,12 @@
 // HalfFramePair.swift / PairComposer.swift, pinned upstream f1440bd1.
 // A pair is a source recipe, not two already-developed pictures joined together.
-import { decodeAdjustments, type Adjustments } from './adjustments';
-import { clamp, FILM_PARAMS_DEFAULT, FILM_FRAME_CUSTOM, filmFormatMM, type FilmParams } from './params';
-import { decodeGeometry, encodeGeometry, GEOMETRY_DEFAULT, outputSize, type Geometry, type Point, type Size } from './geometry';
-import { DECODE_DEFAULT, decodeSidecar, type DecodeSettings } from './sidecar';
-import type { FileMetadata, PairInfo } from './protocol';
-import type { StockCatalog } from './stocks';
-import { captureDate, resolveFilmEdgeParams, shootingText } from './filmEdge';
+import { decodeAdjustments, type Adjustments } from './adjustments.ts';
+import { clamp, FILM_PARAMS_DEFAULT, FILM_FRAME_CUSTOM, filmFormatMM, type FilmParams } from './params.ts';
+import { decodeGeometry, encodeGeometry, GEOMETRY_DEFAULT, outputSize, type Geometry, type Point, type Size } from './geometry.ts';
+import { DECODE_DEFAULT, decodeSidecar, type DecodeSettings } from './sidecar.ts';
+import type { FileMetadata, PairInfo } from './protocol.ts';
+import type { StockCatalog } from './stocks.ts';
+import { captureDate, resolveFilmEdgeParams, shootingText } from './filmEdge.ts';
 
 export type PairSide = 'left' | 'right';
 export type PairLayer = 'film' | PairSide;

@@ -14,8 +14,8 @@
 // With no As Shot pair known yet (no decode has landed) the boxes read
 // unticked and do nothing.
 
-import type { DecodeSettings } from './sidecar';
-import { RAW_EXTENSIONS } from './fileTypes';
+import type { DecodeSettings } from './sidecar.ts';
+import { RAW_EXTENSIONS } from './fileTypes.ts';
 
 export type WhiteBalanceMode = 'As Shot' | 'Daylight' | 'Cloudy' | 'Shade' | 'Tungsten' | 'Fluorescent' | 'Custom';
 export const WB_MODES: WhiteBalanceMode[] = ['As Shot', 'Daylight', 'Cloudy', 'Shade', 'Tungsten', 'Fluorescent', 'Custom'];

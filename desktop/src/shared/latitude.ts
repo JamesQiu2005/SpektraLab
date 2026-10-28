@@ -1,7 +1,7 @@
 // Scene Placement's local fit and admissible range, ported from upstream
 // f1440bd1 Model/Latitude.swift. The engine's latitude_fit.cpp is the oracle.
 // A measurement is immutable; dragging a slider never waits for another RPC.
-import { SCENE_LATITUDE_DEFAULT, type SceneLatitudeSettings } from './params';
+import { SCENE_LATITUDE_DEFAULT, type SceneLatitudeSettings } from './params.ts';
 
 export type PlacementSide = 'highlight' | 'shadow';
 export interface PlacementIssue { code: string; side: string; message: string }

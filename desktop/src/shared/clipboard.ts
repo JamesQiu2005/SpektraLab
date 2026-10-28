@@ -5,9 +5,9 @@
 // A paste writes *settings, not solved numbers*: the target meters its own
 // exposure and fits its own Scene Placement (`placementNeedsFit`).
 
-import type { Sidecar } from './sidecar';
-import { jsonEqual } from './params';
-import { placementIntent } from './latitude';
+import type { Sidecar } from './sidecar.ts';
+import { jsonEqual } from './params.ts';
+import { placementIntent } from './latitude.ts';
 
 export const CLIPBOARD_GROUPS = [
   'filmAndPaper',

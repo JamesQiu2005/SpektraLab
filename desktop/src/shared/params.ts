@@ -11,8 +11,8 @@
 // The JSON keys of `FilmParams` are the Swift `Codable` keys, so a sidecar
 // written by the macOS app opens here and the other way round.
 
-import type { StockCatalog } from './stocks';
-import { dateCamera, dateEffective, datePrints, dateScale, edgeEffective, filmFormatForWire } from './filmEdge';
+import type { StockCatalog } from './stocks.ts';
+import { dateCamera, dateEffective, datePrints, dateScale, edgeEffective, filmFormatForWire } from './filmEdge.ts';
 
 export type ParamLayer = 'shoot' | 'print';
 export type WireValue = number | boolean | string;

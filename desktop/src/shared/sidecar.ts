@@ -7,9 +7,9 @@
 // pair's fields) are carried through untouched, so opening a Mac sidecar here
 // and saving it does not lose anything the Mac wrote.
 
-import { type Adjustments, ADJUSTMENTS_DEFAULT, decodeAdjustments } from './adjustments';
-import { type Geometry, GEOMETRY_DEFAULT, decodeGeometry, encodeGeometry } from './geometry';
-import { type FilmParams, FILM_PARAMS_DEFAULT, decodeFilmParams } from './params';
+import { type Adjustments, ADJUSTMENTS_DEFAULT, decodeAdjustments } from './adjustments.ts';
+import { type Geometry, GEOMETRY_DEFAULT, decodeGeometry, encodeGeometry } from './geometry.ts';
+import { type FilmParams, FILM_PARAMS_DEFAULT, decodeFilmParams } from './params.ts';
 
 export type FrameState = 'unprocessed' | 'processed' | 'stale';
 
