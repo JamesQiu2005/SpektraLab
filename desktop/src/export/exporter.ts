@@ -12,6 +12,7 @@ import { decodeWire, isRawPath } from '@shared/whiteBalance';
 import type { StockCatalog } from '@shared/stocks';
 import { latitudeRequest } from '@shared/latitude';
 import { host } from '../host/client';
+import { tz } from '../i18n';
 import { baseName, dirName, joinPath, platform } from '../platform';
 import { type ExportRecipe, extensionOf, hostFormat, resolveTarget, stem, stockToken } from './recipes';
 
@@ -29,6 +30,8 @@ export interface FrameToExport {
   scenePlacementSide?: 'right';
   sourceGeometry?: Geometry;
   pair?: HalfFramePair & { printEffects?: boolean };
+  /** "Don't Apply Film Simulation" (1.3.4): the file is the decode with the Post-Dev edits, under the geometry. */
+  noFilm?: boolean;
 }
 
 export type ExportOutcome =
@@ -86,14 +89,14 @@ export async function captureExportFrames(
       const sidecar = active?.sidecar ?? structuredClone(saved == null ? newSidecar() : decodeSidecar(saved));
       if (isPairPath(path)) {
         const pair = active?.pair ?? decodePair(await platform().pairLoad(path));
-        if (!pair) throw new Error('The half-frame pair recipe cannot be read.');
+        if (!pair) throw new Error(tz('The half-frame pair recipe cannot be read.', '无法读取半格拼接配方。'));
         const shots: PairInfo = {};
         for (const side of ['left', 'right'] as const) {
           const hole = pair[side];
-          if (!hole) throw new Error('Fill both half-frame holes before exporting.');
+          if (!hole) throw new Error(tz('Fill both half-frame holes before exporting.', '导出半格拼接前，请先填满两格。'));
           const known = active?.pairInfo?.[side];
           shots[side] = known ?? { ...(await host().probe(hole.path)), available: true };
-          if (!shots[side]?.available) throw new Error(shots[side]?.error ?? 'A half-frame photograph cannot be read.');
+          if (!shots[side]?.available) throw new Error(shots[side]?.error ?? tz('A half-frame photograph cannot be read.', '无法读取半格中的照片。'));
         }
         const native = sourcePairLayout(pair, { left: shots.left, right: shots.right }).size;
         const params = resolvePairParams(normalizeStockPair(sidecar.params, catalog), pair,
@@ -110,7 +113,7 @@ export async function captureExportFrames(
       }
       const info = active?.native && active.metadata !== undefined ? null : await host().probe(path);
       const native = active?.native ?? (info ? { width: info.width, height: info.height } : undefined);
-      if (!native || native.width <= 0 || native.height <= 0) throw new Error('The photograph has no usable dimensions.');
+      if (!native || native.width <= 0 || native.height <= 0) throw new Error(tz('The photograph has no usable dimensions.', '这张照片没有可用的尺寸。'));
       let params = { ...normalizeStockPair(sidecar.params, catalog) };
       const size = recalculateEffectsAfterCrop ? outputSize(sidecar.geometry, native) : native;
       const aspect = Math.max(size.width, size.height) / Math.max(1, Math.min(size.width, size.height));
@@ -124,6 +127,7 @@ export async function captureExportFrames(
         sourceGeometry: sourceGeometryFor(params, sidecar.geometry, frozenGate) ?? GEOMETRY_DEFAULT,
         decode: sidecar.decode, gate: frozenGate, native,
         dateTaken: active?.dateTaken ?? info?.metadata.datetime_original,
+        noFilm: sidecar.noFilm === true ? true : undefined,
         scenePlacement: sidecar.placementNeedsFit ? latitudeRequest(params.placementIsRight ? params.sceneLatitudeOther : params.sceneLatitude) : undefined,
       }) });
     } catch (e) {
@@ -199,10 +203,22 @@ export interface ExportJob {
 }
 export interface ExportControl {
   tiffOptions?: readonly string[];
+  /** `hello.frame_options` (PROTOCOL-REQUESTS R4): "no-film" lets export_frame / render_proof take `no_film`. */
+  frameOptions?: readonly string[];
   cancelled?: () => boolean;
   active?: (job: ExportJob | null) => void;
 }
 let exportSerial = 0;
+
+/** A frame with the film simulation off is written only by a host that can: one that ignored the
+ * unknown `no_film` would write the film print, a file that is not the canvas's frame (trap 33). */
+export function noFilmSupported(f: Pick<FrameToExport, 'noFilm'>, format: ExportRecipe['format'], frameOptions: readonly string[] | undefined) {
+  if (!f.noFilm) return;
+  if (format === 'di')
+    throw new Error(tz("A Digital Intermediate is the film's negative; this frame has Don't Apply Film Simulation on.", '数字中间片就是胶片的负片；此图像已开启“不应用胶片模拟”。'));
+  if (!frameOptions?.includes('no-film'))
+    throw new Error(tz("This engine cannot export a frame with Don't Apply Film Simulation on. Update the engine.", '此引擎无法导出开启“不应用胶片模拟”的图像，请更新引擎。'));
+}
 
 export async function exportFrame(
   recipe: ExportRecipe, frame: FrameToExport, catalog: StockCatalog,
@@ -215,17 +231,18 @@ export async function exportFrame(
   const cancelled = () => control.cancelled?.() ?? false;
   try {
     if (cancelled()) return { kind: 'cancelled' };
-    if (f.pair && !methods?.includes('open_pair')) throw new Error('This engine cannot export half-frame pairs. Update the engine.');
+    if (f.pair && !methods?.includes('open_pair')) throw new Error(tz('This engine cannot export half-frame pairs. Update the engine.', '此引擎无法导出半格拼接，请更新引擎。'));
     if ((r.format === 'tiff' || r.format === 'di') &&
         ((r.tiffCompression === 'lzw' && !control.tiffOptions?.includes('lzw')) ||
          (r.format === 'tiff' && r.embedsPreview && !control.tiffOptions?.includes('preview-page'))))
-      throw new Error('This engine does not support the selected TIFF compression or preview page. Update the engine.');
+      throw new Error(tz('This engine does not support the selected TIFF compression or preview page. Update the engine.', '此引擎不支持所选的 TIFF 压缩或预览页，请更新引擎。'));
     if (r.format === 'di') {
       if (!methods?.includes('export_cineon') || !f.gate.digitalIntermediate)
-        throw new Error('This engine cannot export Cineon Digital Intermediate files.');
+        throw new Error(tz('This engine cannot export Cineon Digital Intermediate files.', '此引擎无法导出 Cineon 数字中间片文件。'));
     } else if (!hostWrites(methods)) {
-      throw new Error('This engine does not support complete frame export (export_frame). Update the engine before exporting.');
+      throw new Error(tz('This engine does not support complete frame export (export_frame). Update the engine before exporting.', '此引擎不支持完整画面导出（export_frame），请更新引擎后再导出。'));
     }
+    noFilmSupported(f, r.format, control.frameOptions);
     const { dir, base } = await targetFor(r, f, catalog);
     await platform().ensureDir(dir);
     const target = await resolveTarget(dir, base, extensionOf(r), r.existing, (p) => platform().pathExists(p), joinPath);
@@ -238,6 +255,7 @@ export async function exportFrame(
     const res = await host().transport.request(r.format === 'di' ? 'export_cineon' : 'export_frame', {
       session: f.session, source_path: f.path, params, decode: decode ?? undefined,
       adjustments: f.adjustments, geometry: f.geometry,
+      no_film: f.noFilm || undefined,
       source_geometry: f.sourceGeometry ?? GEOMETRY_DEFAULT,
       pair: f.pair,
       scene_placement: f.scenePlacement,
@@ -247,10 +265,10 @@ export async function exportFrame(
       embed_preview: r.format === 'tiff' ? r.embedsPreview ?? false : undefined,
       color_space: r.colorSpace, long_edge: r.format === 'di' ? 0 : r.longEdge, overwrite: target.overwrite, progress_id: job.progressId,
     }, { timeoutMs: 1_800_000 });
-    if (res.payload.byteLength) throw new Error('export_frame unexpectedly returned image data.');
+    if (res.payload.byteLength) throw new Error(tz('export_frame unexpectedly returned image data.', 'export_frame 意外返回了图像数据。'));
     const { path, width, height, timings_ms } = res.result;
     if (typeof path !== 'string' || typeof width !== 'number' || typeof height !== 'number' || width <= 0 || height <= 0)
-      throw new Error('The engine returned invalid export dimensions.');
+      throw new Error(tz('The engine returned invalid export dimensions.', '引擎返回的导出尺寸无效。'));
     platform().log('info', `export (${hostFormat(r)}, ${width}x${height}) host ms: ${JSON.stringify(timings_ms ?? {})} · TOTAL ${Math.round(performance.now() - started)}`);
     return { kind: 'written', path, width, height, carriesEdits: r.format !== 'di' };
   } catch (e) {
@@ -266,17 +284,18 @@ export async function renderProof(
   recipe: ExportRecipe, frame: FrameToExport, catalog: StockCatalog, methods: readonly string[] | undefined,
   display: 'srgb' | 'display-p3', edge: number, generation: number, control: ExportControl = {},
 ) {
-  if (!methods?.includes('render_proof')) throw new Error('This engine does not support export soft proofing. Update the engine.');
-  if (recipe.format === 'di' && !methods.includes('export_cineon')) throw new Error('Cineon Digital Intermediate proofing is not available on this engine.');
+  if (!methods?.includes('render_proof')) throw new Error(tz('This engine does not support export soft proofing. Update the engine.', '此引擎不支持导出软打样，请更新引擎。'));
+  if (recipe.format === 'di' && !methods.includes('export_cineon')) throw new Error(tz('Cineon Digital Intermediate proofing is not available on this engine.', '此引擎不支持 Cineon 数字中间片软打样。'));
   const r = structuredClone(recipe), f = structuredClone(frame);
-  if (f.pair && !methods.includes('open_pair')) throw new Error('This engine cannot soft-proof half-frame pairs. Update the engine.');
+  if (f.pair && !methods.includes('open_pair')) throw new Error(tz('This engine cannot soft-proof half-frame pairs. Update the engine.', '此引擎无法对半格拼接进行软打样，请更新引擎。'));
+  noFilmSupported(f, r.format, control.frameOptions);
   const job = { session: f.session ?? '', progressId: `proof-${Date.now()}-${++exportSerial}` };
   if (control.cancelled?.()) return null;
   control.active?.(job);
   try {
     const proof = await host().renderProof({
       session: f.session, source_path: f.path, params: fullDelta(f.params, f.gate, catalog),
-      decode: decodeWire(f.decode, isRawPath(f.path)) ?? undefined,
+      decode: decodeWire(f.decode, isRawPath(f.path)) ?? undefined, no_film: f.noFilm || undefined,
       adjustments: f.adjustments, geometry: f.geometry, format: r.format === 'di' ? 'di' : hostFormat(r),
       source_geometry: f.sourceGeometry ?? GEOMETRY_DEFAULT,
       pair: f.pair,

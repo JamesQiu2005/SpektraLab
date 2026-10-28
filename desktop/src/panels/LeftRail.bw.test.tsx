@@ -16,7 +16,8 @@ vi.mock('../state/session', async () => {
   const { useStore } = await import('zustand');
   const sessionStore = createStore<SessionState>(() => ({} as SessionState));
   return { sessionStore, useSession: <T,>(selector: (s: SessionState) => T) => useStore(sessionStore, selector),
-    selectFilmStock: fake.selectFilm, selectPrintStock: fake.selectPaper, setParams: fake.setParams,
+    selectFilmStock: fake.selectFilm, pickFilmStock: fake.selectFilm, resetFilmStock: vi.fn(), setNoFilm: vi.fn(),
+    selectPrintStock: fake.selectPaper, setParams: fake.setParams,
     setEnlarger: fake.setParams, resetEnlarger: vi.fn(), enlargerParams: (s: SessionState) => s.sidecar.params,
     canMakePair: () => false, makePair: vi.fn(),
     copySettings: vi.fn(), pasteSettings: vi.fn(), setGeometry: vi.fn(), setPages: vi.fn(), syncSettings: vi.fn(),

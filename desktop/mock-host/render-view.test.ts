@@ -107,3 +107,23 @@ describe('processed-view mock protocol', () => {
     expect(result(await request(host, 'render_view', p)).print_cached).toBe(true);
   });
 });
+
+describe("Don't Apply Film Simulation in the mock protocol (PROTOCOL-REQUESTS R4)", () => {
+  it('answers render_source with the decode, and proofs the decode instead of the print under no_film', async () => {
+    const { host, p } = await opened();
+    const hello = result(await request(host, 'hello', {}));
+    expect(hello.methods).toContain('render_source');
+    expect(hello.frame_options).toEqual(['no-film']);
+    const source = await request(host, 'render_source', { session: p.session, display: 'srgb', long_edge: 20, generation: 3 });
+    expect(result(source)).toMatchObject({ generation: 3, source: 'decoded', image: { width: 20, height: 12 } });
+    await request(host, 'set_params', { session: p.session, delta: { exposure_compensation_ev: 2 } });
+    const proof = (noFilm?: boolean) => request(host, 'render_proof', { session: p.session, generation: 1, proof_long_edge: 40,
+      display: 'srgb', format: 'jpeg', adjustments: p.adjustments, geometry: p.geometry, no_film: noFilm });
+    const print = await proof(), decode = await proof(true);
+    expect(decode.payload).not.toEqual(print.payload);
+    expect((await request(host, 'render_proof', { session: p.session, generation: 1, proof_long_edge: 40, display: 'srgb',
+      format: 'di', no_film: true })).header.ok).toBe(false);
+    expect((await request(host, 'render_proof', { session: p.session, generation: 1, proof_long_edge: 40, display: 'srgb',
+      format: 'jpeg', no_film: 'yes' })).header.ok).toBe(false);
+  });
+});
