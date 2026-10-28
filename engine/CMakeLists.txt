@@ -143,7 +143,7 @@ if(SPEKTRALAB_PORTABLE_BACKEND)
             spk_view_grade spk_view_grade_di spk_view_geometry spk_view_pack spk_view_cam16 spk_view_pair
             spk_grain_layers spk_grain_layer_one spk_grain_simple
             spk_lognormal_field spk_rng_probe spk_mul spk_glare_add
-            spk_reduce_max spk_boost spk_bw_correct spk_edr spk_cctf_decode
+            spk_reduce_max spk_boost spk_highlight_headroom spk_bw_correct spk_edr spk_cctf_decode
             spk_zoom_bilinear_mirror spk_geometry_resample_df
             spk_lut3d_trilinear spk_di_normalise spk_di_encode spk_scene_latitude
             spk_overscan_canvas spk_overscan_add_mask spk_overscan_film_present spk_overscan_light

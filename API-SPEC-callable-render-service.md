@@ -1137,5 +1137,9 @@ parity case for it.**
 its statistic) and **before `film_overscan`**: the edge print, fog and date are exposures the engine
 knows exactly, and halate at what they are. Measured canvas against export (live 1200 px vs full
 downscaled): the halo's energy is 0.83–1.01 of the export's (the low end a frame of tiny lights), and the frame's mean difference is no
-larger than plain 500T's. The kernel `spk_highlight_headroom` is Metal only: the Vulkan backend
-refuses a back-reflection film at dispatch.
+larger than plain 500T's. The kernel `spk_highlight_headroom` runs on both backends: Metal
+(`nodes.metal`) and, since 2026-10-29, Vulkan (`shaders/vulkan/spk_highlight_headroom.comp`,
+the same formula). A back-reflection film is no longer refused on Windows/Linux. Graded against
+the 1.3.4 Metal engine on a Mac (MoltenVK, `engine/tests/parity_metal_vulkan.py`): CineStill 800T at
+headroom 0, 4 and 8, amount 4, its scan and its density tap agree to <= 0.01 of an 8-bit code;
+the wire is unchanged.
