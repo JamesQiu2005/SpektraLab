@@ -56,9 +56,16 @@ struct FilmSection: View {
     }
 
     /// The rule is `Session.selectFilmStock`, which the agent layer shares.
-    private func select(_ id: String) { session.selectFilmStock(id) }
+    private func select(_ id: String) {
+        // Choosing a film is asking for it: the simulation comes back on.
+        session.noFilm = false
+        session.selectFilmStock(id)
+    }
 
-    private var menu: some View {
+    @ViewBuilder private var menu: some View {
+        Toggle(L("Don't Apply Film Simulation", zh: "不应用胶片模拟"), isOn: $session.noFilm)
+            .disabled(session.pair != nil)
+        Divider()
         // The header's arrow is this item; both say the same thing in words,
         // which is the point of §8.3 — a reset affordance whose scope is not
         // named is the ellipsis problem again.

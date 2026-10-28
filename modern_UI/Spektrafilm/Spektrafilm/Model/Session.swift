@@ -78,7 +78,28 @@ final class Session: CanvasHost {
     var libraryTitle: String = ""
 
     // MARK: the current frame
-    var sidecar = Sidecar()
+    var sidecar = Sidecar() {
+        didSet { if oldValue.noFilm != sidecar.noFilm { applyNoFilm() } }
+    }
+    /// "Don't apply film simulation" (`Sidecar.noFilm`), for the menu.
+    var noFilm: Bool {
+        get { sidecar.noFilm }
+        set { guard newValue != sidecar.noFilm else { return }
+              pushUndo()
+              sidecar.noFilm = newValue
+              if let url = selection, let tex = newValue ? renderer.original : renderer.live {
+                  updateThumbnail(url, from: tex)
+              }
+              scheduleSave() }
+    }
+    /// The canvas and the thumbnail follow the flag: the decode is the
+    /// picture, at the photograph's own size, under the frame's geometry.
+    private func applyNoFilm() {
+        renderer.noFilm = sidecar.noFilm
+        // Without a film edge or the date the print is the decode's shape,
+        // so only the source of Layer 2 changes.
+        if geometryIsInTheNegative { syncFilmEdgeFraming() }
+    }
     /// The half-frame pair on the canvas, when the open item is one (its file
     /// is `selection`), and the layer its section is showing.
     private(set) var pair: HalfFramePair?
@@ -428,7 +449,7 @@ final class Session: CanvasHost {
         renderer.showOriginal = showingOriginal || filmEdgeFraming
         renderer.geometry = canvasGeometry
         if let live = renderer.live {
-            renderer.setLive(live, logical: filmEdgeFraming ? nativeSourceSize
+            renderer.setLive(live, logical: filmEdgeFraming || sidecar.noFilm ? nativeSourceSize
                              : filmCanvasLogicalSize(for: live, frame: nativeSourceSize))
         }
         // The frame the view is expressed against may have just changed
@@ -2448,7 +2469,7 @@ final class Session: CanvasHost {
         )
         // The frame's own size, and only when it is known: passing nil leaves
         // whatever the decode established (D4).
-        renderer.setLive(tex, logical: scheduler.sent.cutsFrame
+        renderer.setLive(tex, logical: scheduler.sent.cutsFrame && !sidecar.noFilm
                          ? filmCanvasLogicalSize(for: tex, frame: nativeSourceSize) : nativeSourceSize)
         filmCanvasOn = scheduler.sent.cutsFrame ? url : nil
         // This print is at the **preview resolution**. For a frame bigger than
@@ -2463,7 +2484,7 @@ final class Session: CanvasHost {
         frameStates[url] = .processed
         sidecar.state = .processed
         scheduleSave()
-        updateThumbnail(url, from: tex)
+        updateThumbnail(url, from: sidecar.noFilm ? (renderer.original ?? tex) : tex)
         scheduleLatitudeRefresh()
         resolvePendingPlacement()
         if firstPrint { sampleMemory("first_print") }

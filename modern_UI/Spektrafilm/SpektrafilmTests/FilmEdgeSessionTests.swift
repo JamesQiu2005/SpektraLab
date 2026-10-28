@@ -192,6 +192,27 @@ final class FilmEdgeSessionTests: XCTestCase {
         }
     }
 
+    /// "Don't apply film simulation": the sidecar keeps it, Layer 2 grades
+    /// the decode, and the export writes the decode at the frame's own size.
+    func testNoFilmGradesAndExportsTheDecode() async throws {
+        var sc = Sidecar(); sc.noFilm = true
+        let back = try JSONDecoder().decode(Sidecar.self, from: JSONEncoder().encode(sc))
+        XCTAssertTrue(back.noFilm)
+        XCTAssertFalse(try JSONDecoder().decode(Sidecar.self, from: JSONEncoder().encode(Sidecar())).noFilm)
+
+        let url = try copied("tests/Test_image/A7m3/DSC03710.ARW")
+        let session = try await developedSession(url)
+        XCTAssertTrue(session.renderer.graded === session.renderer.base)
+        session.noFilm = true
+        XCTAssertTrue(session.renderer.graded === session.renderer.original, "Layer 2 grades the decode")
+        let sid = try XCTUnwrap(session.serviceSessionIDForExport)
+        let r = try await Exporter.filePixels(session: session, recipe: ExportRecipe(), sessionID: sid)
+        let native = try XCTUnwrap(session.nativeSourceSize)
+        XCTAssertEqual(r.pixels.w, Int(native.width)); XCTAssertEqual(r.pixels.h, Int(native.height))
+        session.noFilm = false
+        XCTAssertTrue(session.renderer.graded === session.renderer.base)
+    }
+
     /// The date alone cuts the frame only once the crop is not the whole
     /// frame, so the first ratio chosen in the crop tool turns framing on
     /// while the tool is up. The canvas has to go to the decode then, at the
