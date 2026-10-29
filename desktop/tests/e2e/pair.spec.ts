@@ -49,6 +49,12 @@ for (const renderDelay of [0, 600]) {
     const source = page.locator('.thumb[data-path="/mock/Roll 01/DSC_0002.NEF"]');
     await expect(source).toHaveAttribute('draggable', 'false');
     await expect(source.locator('canvas')).toBeVisible();
+    // Earlier thumbnails determine this cell's position. A visible canvas
+    // can still have its default 300x150 size while its image is decoding.
+    await expect.poll(() => page.getByTestId('filmstrip').locator('.thumb').evaluateAll((cells) => cells.every((cell) => {
+      const canvas = cell.querySelector('canvas');
+      return canvas?.height === 104;
+    }))).toBe(true);
     await source.hover(); await page.mouse.down();
     const empty = (await gate.boundingBox())!;
     await page.mouse.move(empty.x + empty.width / 2, empty.y + empty.height / 2, { steps: 8 });
@@ -63,7 +69,11 @@ for (const renderDelay of [0, 600]) {
     await page.getByRole('button', { name: 'Crop on the canvas', exact: true }).click();
     const rect = (await gate.boundingBox())!, x = rect.x + rect.width / 2, y = rect.y + rect.height / 2;
     const before = await state(page, '({...s.pair.right.placement})');
-    await page.mouse.move(x, y); await page.mouse.down(); await page.mouse.move(x + 35, y + 20, { steps: 4 }); await page.mouse.up();
+    await page.mouse.move(x, y); await page.mouse.down();
+    await page.mouse.move(x + 15, y + 10);
+    // A single slow gesture must remain one undo step.
+    await page.waitForTimeout(650);
+    await page.mouse.move(x + 35, y + 20, { steps: 4 }); await page.mouse.up();
     const after = await state(page, 's.pair.right.placement');
     expect(after.x).not.toBe(before.x); expect(after.y).not.toBe(before.y);
     await page.keyboard.press('Control+z');

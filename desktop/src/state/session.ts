@@ -1254,12 +1254,14 @@ function adoptPairMeterReadings(requested: HalfFramePair, info: PairInfo | undef
   if (pair !== s.pair) { set({ pair }); scheduleSave(); }
 }
 
-export function updatePair(fn: (pair: HalfFramePair) => HalfFramePair, opts: { step?: boolean; defer?: boolean; params?: FilmParams } = {}) {
+export function updatePair(fn: (pair: HalfFramePair) => HalfFramePair, opts: { step?: boolean; defer?: boolean; params?: FilmParams; coalesce?: boolean } = {}) {
   const s = get(); if (!s.pair || s.batchExporting) return;
   const next = decodePair(encodePair(fn(s.pair)));
   if (!next || (jsonEqual(next, s.pair) && (!opts.params || jsonEqual(opts.params, s.sidecar.params)))) return;
   if (opts.step) lastUndoAt = 0;
-  pushUndo();
+  // Canvas pointer-down owns the undo boundary for the whole gesture, even
+  // when its moves span more than the ordinary 500 ms edit debounce.
+  if (!opts.coalesce) pushUndo();
   set({ pair: next, sidecar: { ...s.sidecar, params: opts.params ?? s.sidecar.params, state: 'stale' } });
   resolveCurrentFilmEdge(); scheduleSave();
   wantedGen++; // any older render is obsolete, including during the debounce
@@ -1377,8 +1379,8 @@ async function setPairDecode(fn: (d: DecodeSettings) => DecodeSettings) {
   try { await savePairDecode(hole.path, next); }
   catch (e) { if (get().selection === s.selection) noteError(tz('Pair white balance', '半格白平衡'), e); }
 }
-export function setPairPlacement(side: PairSide, fn: (p: PairPlacement) => PairPlacement, defer = true) {
-  updatePair((p) => p[side] ? { ...p, [side]: { ...p[side], placement: fn(p[side]!.placement) } } : p, { defer });
+export function setPairPlacement(side: PairSide, fn: (p: PairPlacement) => PairPlacement, defer = true, coalesce = false) {
+  updatePair((p) => p[side] ? { ...p, [side]: { ...p[side], placement: fn(p[side]!.placement) } } : p, { defer, coalesce });
 }
 export function commitPairPlacement() {
   if (pairTimer) { clearTimeout(pairTimer); pairTimer = null; void requestPrint(); }

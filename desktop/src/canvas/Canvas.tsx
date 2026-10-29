@@ -417,7 +417,7 @@ export function Canvas() {
     if (d.kind === 'pair') {
       const point = toSource(e.clientX, e.clientY);
       if (point && pair) setPairPlacement(d.side, () => draggedPlacement(d.placement,
-        { x: (point.x - d.start.x) / d.rect.width, y: (point.y - d.start.y) / d.rect.height }, d.source, pairAspect(pair)));
+        { x: (point.x - d.start.x) / d.rect.width, y: (point.y - d.start.y) / d.rect.height }, d.source, pairAspect(pair)), true, true);
     } else if (d.kind === 'pan') {
       const dx = ((e.clientX - d.x) * size.dpr) / layout.outSize.width;
       const dy = ((e.clientY - d.y) * size.dpr) / layout.outSize.height;
