@@ -16,7 +16,7 @@ export interface PairPlacement { scale: number; x: number; y: number; quarterTur
 export const PLACEMENT_DEFAULT: PairPlacement = { scale: 1, x: 0, y: 0, quarterTurns: 0 };
 export interface PairPrint { brightnessStops: number; yFilterShift: number; mFilterShift: number; preflashExposure: number }
 export interface PairHole {
-  path: string; placement: PairPlacement; exposureEV: number; meteredEV?: number; meteredFor?: string;
+  path: string; placement: PairPlacement; exposureEV: number; exposureBaselineEV?: number; meteredEV?: number; meteredFor?: string;
   decode: DecodeSettings; geometry: Geometry; autoExposure: boolean; meterMethod?: string | null;
   print?: PairPrint | null; adjustments?: Adjustments | null; printScope: PairScope; exposureScope: PairScope;
 }
@@ -39,6 +39,7 @@ export function decodePair(raw: unknown): HalfFramePair | null {
     const out: PairHole = { ...newHole(h.path),
       placement: { scale: num(pl.scale, 1, 1, 4), x: num(pl.x, 0, -1, 1), y: num(pl.y, 0, -1, 1), quarterTurns: ((Math.round(num(pl.quarterTurns, 0)) % 4) + 4) % 4 },
       exposureEV: num(h.exposureEV, 0, -5, 5), decode: decodeSidecar({ decode: h.decode }).decode,
+      exposureBaselineEV: num(h.exposureBaselineEV, 0, -64, 64),
       geometry: decodeGeometry(h.geometry), autoExposure: h.autoExposure !== false,
       printScope: h.printScope === 'frame' ? 'frame' : 'film', exposureScope: h.exposureScope === 'film' ? 'film' : 'frame',
     };
@@ -145,7 +146,7 @@ export function resolvePairParams(p: FilmParams, pair: HalfFramePair, first: Fil
   if (p.filmFrame === FILM_PARAMS_DEFAULT.filmFrame && p.filmSide === FILM_PARAMS_DEFAULT.filmSide && p.sideLengthMM === FILM_PARAMS_DEFAULT.sideLengthMM)
     p = { ...p, filmFrame: FILM_FRAME_CUSTOM.id, filmSide: 'long', sideLengthMM: 24 };
   const base = resolveFilmEdgeParams(p, GEOMETRY_DEFAULT, first, catalog);
-  return { ...base, autoExposure: false, filmFormatMM: pairFilmFormat(p, pair), pairSplit: .5,
+  return { ...base, autoExposure: false, exposureBaselineEV: 0, filmFormatMM: pairFilmFormat(p, pair), pairSplit: .5,
     filmEdge: { ...base.filmEdge, format: '135_half', pair: true },
     dateBack: { ...base.dateBack, camera: '135_half', frameScale: 1, framing: '',
       textB: p.dateBack.face === 'data' ? shootingText(second) : captureDate(second?.datetime_original, p.dateBack.order) } };

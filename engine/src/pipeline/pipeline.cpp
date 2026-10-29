@@ -456,7 +456,7 @@ bool Pipeline::build(const Params& params, std::string& error) {
     node_count_ += 1;                                                    // input_cast
     node_count_ += params_.io.input_cctf_decoding ? 1 : 0;               // decode_input
     node_count_ += params_.io.geometry.is_identity() ? 0 : 1;            // geometry
-    node_count_ += params_.camera.auto_exposure ? 1 : 0;                 // auto_exposure
+    node_count_ += (params_.camera.auto_exposure || params_.camera.exposure_baseline_ev != 0) ? 1 : 0;
     node_count_ += 1;                                                    // crop_rescale
     node_count_ += scene_latitude_wanted() ? 1 : 0;                      // RFC-023
     node_count_ += 1;                                                    // upsample
@@ -861,12 +861,13 @@ bool Pipeline::measure_meter_evs(const Image& in, ExposureEvs& out, std::string&
 }
 
 bool Pipeline::node_auto_exposure(const Image& in, Image& out, std::string& error) {
-    if (!params_.camera.auto_exposure) { out = in; return true; }
+    if (!params_.camera.auto_exposure && params_.camera.exposure_baseline_ev == 0) { out = in; return true; }
     Timer t(this, "preprocess.auto_exposure");
     // The session's one EV for the frame when it gave one (RFC-015 P.1);
     // otherwise the reference's own stride meter of this input.
     double ev = 0.0;
-    if (injected_ev_) ev = *injected_ev_;
+    if (!params_.camera.auto_exposure) ev = params_.camera.exposure_baseline_ev;
+    else if (injected_ev_) ev = *injected_ev_;
     else if (!measure_exposure_ev(in, ev, error)) return false;
     last_ae_ev_ = ev;
     // `matching_scalar`: the gain is narrowed to float32 before it multiplies

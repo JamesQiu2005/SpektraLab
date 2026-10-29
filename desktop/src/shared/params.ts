@@ -267,6 +267,7 @@ export interface FilmParams {
   filmStock: string;
   printStock: string;
   exposureCompensationEV: number;
+  exposureBaselineEV: number;
   /** `null` = a legacy sidecar: send no method, the engine keeps its own. */
   autoExposureMethod: string | null;
   autoExposure: boolean;
@@ -299,6 +300,7 @@ export const FILM_PARAMS_DEFAULT: FilmParams = {
   filmStock: 'kodak_portra_400',
   printStock: 'kodak_supra_endura',
   exposureCompensationEV: 0,
+  exposureBaselineEV: 0,
   autoExposureMethod: 'balanced',
   autoExposure: true,
   filmFormatMM: 36,
@@ -470,6 +472,7 @@ export function wire(p: FilmParams, gate: FeatureGate = ALL_FEATURES, catalog?: 
     { name: 'film_stock', value: p.filmStock, layer: 'shoot' },
     { name: 'print_stock', value: p.printStock, layer: 'print' },
     { name: 'exposure_compensation_ev', value: p.exposureCompensationEV, layer: 'shoot' },
+    { name: 'exposure_baseline_ev', value: p.exposureBaselineEV, layer: 'shoot' },
   ];
   if (p.autoExposureMethod != null) f.push({ name: 'auto_exposure_method', value: p.autoExposureMethod, layer: 'shoot' });
   f.push(

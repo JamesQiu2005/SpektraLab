@@ -2570,6 +2570,7 @@ constexpr double kRampLo = -12.0, kRampHi = 12.0;
 Params medium_probe_params(const Params& session) {
     Params p = session;
     p.camera.auto_exposure = false;
+    p.camera.exposure_baseline_ev = 0.0;
     p.camera.scene_latitude.active = false;
     p.film_render.grain.active = false;
     p.film_render.grain.sublayers_active = false;
@@ -2761,7 +2762,7 @@ spk_status spk_scene_latitude(spk_session* session, const char* request_json, ch
     if (ok) ok = ensure_meter(session, error);
     if (ok) {
         const CameraParams& cam = session->params.camera;
-        const double ev = cam.auto_exposure ? session->meter.evs.of(cam.auto_exposure_method) : 0.0;
+        const double ev = cam.auto_exposure ? session->meter.evs.of(cam.auto_exposure_method) : cam.exposure_baseline_ev;
         char ev_text[64];
         std::snprintf(ev_text, sizeof ev_text, "%.17g", ev);
         // One frame of a pair: the scene is measured inside `region` only

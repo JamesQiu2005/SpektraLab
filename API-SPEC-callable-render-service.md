@@ -18,6 +18,30 @@ moves.
 
 ## 1. The three calls that matter, mapped to engine code
 
+### Native exposure handoff (2026-10-30)
+
+`exposure_baseline_ev` is a native shoot-layer float (default `0`, range
+`[-64, 64]`, path `camera.exposure_baseline_ev`). With `auto_exposure=false`,
+it replaces the meter gain at the same pre-scene-placement node. With automatic
+exposure enabled it is ignored. `exposure_compensation_ev` retains its existing
+meaning and range. This is additive; absent fields retain previous behavior.
+
+The Windows camera slider displays the selected meter (or frozen baseline)
+plus compensation. Switching to Custom freezes the current native `solve`
+exposure reading without moving it past nonlinear scene placement. Editing
+the slider changes the pre-scene baseline, keeping legacy post-scene
+compensation unchanged. This also holds after As Shot: manually entering a
+meter reading follows the same exposure node as automatic metering, rather
+than triggering print compensation through the legacy manual field.
+As Shot clears both terms and disables automatic exposure. Selecting an
+automatic method clears the frozen baseline and manual compensation.
+
+Half-frame recipes carry optional `exposureBaselineEV` per hole, default `0`,
+range `[-64,64]`; it replaces that hole's meter contribution when `autoExposure`
+is false. It participates in source cache identity. Global pair baseline is
+always zero to avoid applying the gain twice. New recipes with nonzero frozen
+baselines require a client/engine that understands this extension.
+
 Do not build a new abstraction layer. `SimulationPipeline` already has the
 three primitives a render service needs:
 

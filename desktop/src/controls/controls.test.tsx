@@ -23,13 +23,14 @@ async function enter(field: HTMLInputElement) {
   await act(async () => field.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true })));
 }
 
-it('keeps a formatted negative slider value negative when focused and committed unchanged', async () => {
+it('keeps a formatted negative slider value without committing unchanged focus', async () => {
   const change = vi.fn();
   await act(async () => root.render(<ScrubSlider label="Exposure" value={-2} range={[-5, 5]} format={signed(1)} onChange={change} />));
   const field = div.querySelector('input')!;
   await act(async () => field.focus());
   await enter(field);
-  expect(change).toHaveBeenLastCalledWith(-2);
+  expect(change).not.toHaveBeenCalled();
+  expect(field.value).toBe('−2.0');
 });
 
 it.each(['-2.5', '−2,5'])('commits signed slider input %s on Enter and ordinary blur', async (draft) => {

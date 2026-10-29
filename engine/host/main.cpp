@@ -719,6 +719,7 @@ Json m_pair(const Request& q, bool updating, bool parent_running = false) {
     // Exposure is measured/applied per hole. Film compensation still applies
     // to the entire piece in the normal pipeline, including its unexposed gap.
     params.set("auto_exposure", Json(false));
+    params.set("exposure_baseline_ev", number(0));
     recipe=PairSource::carry_meter_readings(recipe,params,s->pair);
     const auto signature = PairSource::signature(recipe, params);
     if (updating && signature == s->pair_signature) {

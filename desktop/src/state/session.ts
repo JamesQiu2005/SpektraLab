@@ -16,6 +16,8 @@ import type { HelloResult, HostState, FileMetadata, PairInfo, Tier } from '@shar
 import {
   type FeatureGate,
   type FilmParams,
+  type AEMethod,
+  applyAEMethod,
   type FilmSide,
   ALL_FEATURES,
   FILM_FRAME_CUSTOM,
@@ -118,6 +120,7 @@ export interface SessionState {
   /** Disk edits never silently replace unsaved edits in the current editor. */
   externalEditConflict: boolean;
   latitude: LatitudeState;
+  exposureReadings: { key: string; ev: number }[];
   // view
   tool: Tool;
   view: ViewState;
@@ -171,6 +174,7 @@ const INITIAL: SessionState = {
   lastError: null,
   externalEditConflict: false,
   latitude: EMPTY_LATITUDE,
+  exposureReadings: [],
   tool: 'select',
   fitZoom: 1,
   canvasPx: { width: 1, height: 1 },
@@ -532,6 +536,8 @@ export async function requestPrint(): Promise<void> {
         frameImages.print = r;
         set({ imageVersion: get().imageVersion + 1, badge: 'preview', status: '' });
         noteFirstViewCommitted(sid, r.width, r.height, r.ms);
+        if (s.pair) notePairExposure(get());
+        else await refreshExposureReading(gen);
       }
       if (gen === wantedGen) break;
     }
@@ -1293,21 +1299,85 @@ export function shownDecode(s: SessionState): DecodeSettings {
 }
 export function cameraParams(s: SessionState): FilmParams {
   const side = pairFocus(s), hole = side ? s.pair![side] : null;
-  return hole ? { ...s.sidecar.params, exposureCompensationEV: hole.exposureEV, autoExposure: hole.autoExposure,
+  return hole ? { ...s.sidecar.params, exposureCompensationEV: hole.exposureEV, exposureBaselineEV: hole.exposureBaselineEV ?? 0, autoExposure: hole.autoExposure,
     autoExposureMethod: hole.meterMethod ?? s.sidecar.params.autoExposureMethod } : s.sidecar.params;
 }
-export function setCamera(fn: (p: FilmParams) => FilmParams) {
+export function setCamera(fn: (p: FilmParams) => FilmParams, exposureOnly = false) {
   const s = get(), side = pairFocus(s);
   if (!s.pair || !side) { setParams(fn); return; }
   const before = cameraParams(s), next = fn(before), hole = s.pair[side]!;
   let params = s.sidecar.params; let pair = s.pair;
-  if (next.exposureCompensationEV !== hole.exposureEV && hole.exposureScope === 'film') {
+  if (!exposureOnly && next.exposureCompensationEV !== hole.exposureEV && hole.exposureScope === 'film') {
     const print = printTrim(params);
     for (const other of PAIR_SIDES) if (pair[other] && !pair[other]!.print) pair = { ...pair, [other]: { ...pair[other]!, print } };
     params = { ...params, printBrightnessStops: clamp(params.printBrightnessStops + next.exposureCompensationEV - hole.exposureEV, -3, 3) };
   }
-  pair = { ...pair, [side]: { ...pair[side]!, exposureEV: clamp(next.exposureCompensationEV, -5, 5), autoExposure: next.autoExposure, meterMethod: next.autoExposureMethod } };
+  pair = { ...pair, [side]: { ...pair[side]!, exposureEV: clamp(next.exposureCompensationEV, -5, 5), exposureBaselineEV: next.exposureBaselineEV, autoExposure: next.autoExposure, meterMethod: next.autoExposureMethod } };
   updatePair(() => pair, { params, defer: true });
+}
+// Meter readings are tied to source/decode/geometry/method snapshots. Read
+// the native cached meter after the matching render, never after a newer edit.
+function exposureKey(s: SessionState, side: PairSide | null = pairFocus(s)): string {
+  const h = side ? s.pair?.[side] : null;
+  return JSON.stringify([s.engineSession, s.selection, side, h?.path, h?.decode ?? s.sidecar.decode,
+    h?.geometry ?? sourceGeometryFor(s.sidecar.params, s.sidecar.geometry, s.gate, s.sidecar.noFilm),
+    h?.meterMethod ?? s.sidecar.params.autoExposureMethod]);
+}
+function rememberExposure(key: string, ev: unknown) {
+  if (typeof ev !== 'number' || !Number.isFinite(ev) || Math.abs(ev) > 64) return;
+  set({ exposureReadings: [...get().exposureReadings.filter((r) => r.key !== key).slice(-7), { key, ev }] });
+}
+function notePairExposure(s: SessionState) {
+  for (const side of PAIR_SIDES) {
+    if (s.pair?.[side]?.autoExposure && s.pairInfo?.[side]?.available)
+      rememberExposure(exposureKey(s, side), s.pairInfo[side]!.metered_ev);
+  }
+}
+async function refreshExposureReading(gen: number) {
+  const s = get(), key = exposureKey(s);
+  if (!s.engineSession || !s.sidecar.params.autoExposure || s.sidecar.noFilm || s.pair
+    || !s.hello?.methods?.includes('solve') || s.exposureReadings.some((r) => r.key === key)) return;
+  try {
+    const result = await host().solve(s.engineSession, 'exposure');
+    if (gen !== wantedGen || exposureKey(get()) !== key || get().redecoding) return;
+    const solved = result.solved_params as Record<string, unknown> | undefined;
+    rememberExposure(key, solved?.exposure_compensation_ev);
+  } catch (e) {
+    if (gen === wantedGen && exposureKey(get()) === key) noteError(tz('Exposure meter', '曝光测光'), e);
+  }
+}
+export function cameraExposureBaseline(s = get()): number | null {
+  const p = cameraParams(s);
+  if (!p.autoExposure) return p.exposureBaselineEV;
+  if (!s.engineSession || s.redecoding || decodeTimer) return null;
+  return s.exposureReadings.find((r) => r.key === exposureKey(s))?.ev ?? null;
+}
+export function cameraExposureTotal(s = get()): number | null {
+  const baseline = cameraExposureBaseline(s);
+  return baseline === null ? null : baseline + cameraParams(s).exposureCompensationEV;
+}
+export function setCameraMetering(method: AEMethod) {
+  const p = cameraParams(get());
+  if (method === 'custom') {
+    const baseline = cameraExposureBaseline();
+    if (baseline === null) return;
+    setCamera((q) => ({ ...q, autoExposure: false, exposureBaselineEV: baseline }), true);
+  } else {
+    if (p.autoExposure && (p.autoExposureMethod ?? 'legacy') === method) return;
+    setCamera((q) => ({ ...applyAEMethod(q, method), exposureBaselineEV: 0, exposureCompensationEV: 0 }), true);
+  }
+}
+export function setCameraExposureTotal(total: number) {
+  const baseline = cameraExposureBaseline();
+  if (baseline === null || !Number.isFinite(total)) return;
+  // The slider owns pre-scene exposure, just like the automatic meter.
+  // Moving the legacy post-scene compensation instead would also change
+  // print normalization. Preserve that legacy term when opening old recipes.
+  setCamera((q) => ({ ...q, autoExposure: false,
+    exposureBaselineEV: clamp(total - q.exposureCompensationEV, -64, 64) }), true);
+}
+export function resetCameraExposure() {
+  setCamera((q) => ({ ...q, autoExposure: false, exposureBaselineEV: 0, exposureCompensationEV: 0 }), true);
 }
 export function enlargerParams(s: SessionState): FilmParams {
   const own = s.pair && s.pairLayer !== 'film' ? s.pair[s.pairLayer]?.print : null;
@@ -1907,6 +1977,7 @@ async function develop(path: string, gen: number) {
     if (openingPair) adoptPairMeterReadings(openingPair, r.pair_info, params.autoExposureMethod);
     sentDecode = JSON.stringify(decode);
     set({ engineSession: r.session, nativeSize: { width: r.width, height: r.height }, metadata: r.metadata, pairInfo: r.pair_info ?? null, frameKind: r.kind ?? (isRawPath(path) ? 'raw' : null) });
+    if (openingPair) notePairExposure(get());
     if (openTrace?.generation === gen) {
       openTrace.session = r.session;
       openTrace.openCallMs = elapsed(openStarted);

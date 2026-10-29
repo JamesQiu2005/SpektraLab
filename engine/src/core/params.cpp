@@ -46,6 +46,7 @@ const SchemaField kFields[] = {
     // schema declares it too — `parity_schema.py` compares the two tables in
     // order, not as sets.
     {"auto_exposure_method",     "camera.auto_exposure_method",           S, SHOOT, false, 0, 0, false},
+    {"exposure_baseline_ev",     "camera.exposure_baseline_ev",           F, SHOOT, true, -64.0, 64.0, false},
     {"film_format_mm",           "camera.film_format_mm",                 F, SHOOT, true, 4.0, 200.0, false},
     {"lens_blur_um",             "camera.lens_blur_um",                   F, SHOOT, true, 0.0, 200.0, false},
     {"halation_active",          "film_render.halation.active",           B, SHOOT, false, 0, 0, false},
@@ -230,6 +231,7 @@ const SchemaField* find_field(const std::string& name) {
 
 double* float_slot(Params& p, const std::string& path) {
     if (path == "camera.exposure_compensation_ev") return &p.camera.exposure_compensation_ev;
+    if (path == "camera.exposure_baseline_ev") return &p.camera.exposure_baseline_ev;
     if (path == "camera.film_format_mm") return &p.camera.film_format_mm;
     if (path == "camera.lens_blur_um") return &p.camera.lens_blur_um;
     if (path == "film_render.halation.halation_amount") return &p.film_render.halation.halation_amount;
@@ -629,6 +631,7 @@ bool digest(Params& p, const Json& neutral_filters, std::string& error) {
         p.debug.deactivate_spatial_effects = true;
         p.debug.deactivate_stochastic_effects = true;
         p.camera.auto_exposure = false;
+        p.camera.exposure_baseline_ev = 0.0;
         p.camera.exposure_compensation_ev = 0.0;
         p.enlarger.print_exposure_compensation = false;
         p.enlarger.print_exposure = 1.0;

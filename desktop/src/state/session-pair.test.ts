@@ -55,6 +55,22 @@ beforeEach(async () => {
 afterEach(() => { vi.clearAllTimers(); vi.useRealTimers(); vi.restoreAllMocks(); });
 
 describe('half-frame pair editing lifecycle', () => {
+  it('freezes only the selected hole and edits total exposure without changing print settings', async () => {
+    fake.open.mockResolvedValue({ ...opened(), pair_info: { ...info, left: { ...info.left!, metered_ev: 1.25, metered_for: 'owned' } } });
+    await session.select(path); session.setPairLayer('left');
+    session.updatePair((p) => ({ ...p, left: { ...p.left!, exposureScope: 'film' } }), { defer: true });
+    const before = structuredClone(state());
+    expect(session.cameraExposureTotal()).toBe(1.25);
+    session.setCameraMetering('custom');
+    expect(state().pair!.left).toEqual({ ...before.pair!.left, autoExposure: false, exposureBaselineEV: 1.25, meterMethod: 'balanced' });
+    session.setCameraExposureTotal(2);
+    expect(session.cameraExposureTotal()).toBe(2);
+    expect(state().pair!.right).toEqual(before.pair!.right);
+    expect(state().sidecar.params).toEqual(before.sidecar.params);
+    session.resetCameraExposure();
+    expect(session.cameraExposureTotal()).toBe(0);
+    expect(state().pair!.left!.exposureBaselineEV).toBe(0);
+  });
   it('undoes a slow canvas placement gesture in one step and keeps the next gesture separate', async () => {
     await session.select(path); await settle();
     const before = state().pair!.right!.placement;

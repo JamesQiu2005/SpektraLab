@@ -24,6 +24,22 @@ export function Filmstrip() {
   const batch = useSession((s) => s.batchExporting);
   const strip = useRef<HTMLDivElement>(null);
   const [, visibleChanged] = useState(0);
+  useEffect(() => {
+    const root = strip.current;
+    if (!root) return;
+    const wheel = (event: WheelEvent) => {
+      if (event.ctrlKey) return; // Leave touchpad pinch gestures alone.
+      const delta = Math.abs(event.deltaX) > Math.abs(event.deltaY) ? event.deltaX : event.deltaY;
+      if (!delta) return;
+      const unit = event.deltaMode === 1 ? 16 : event.deltaMode === 2 ? root.clientWidth : 1;
+      // Browse the roll without opening a frame or letting the page scroll.
+      event.preventDefault();
+      event.stopPropagation();
+      root.scrollLeft += delta * unit;
+    };
+    root.addEventListener('wheel', wheel, { passive: false });
+    return () => root.removeEventListener('wheel', wheel);
+  }, []);
   useEffect(() => strip.current ? installFrameDrag(strip.current, {
     enabled: () => !sessionStore.getState().batchExporting,
     reorder: moveFrame,

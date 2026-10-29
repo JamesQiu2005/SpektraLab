@@ -63,6 +63,10 @@ KNOWN = {
 # exception exact: the test still fails on a rename, reordered row, changed
 # path/type/layer/default/live/range, or if the Python oracle later gains it.
 NATIVE_ONLY = {
+    "exposure_baseline_ev": {
+        "path": "camera.exposure_baseline_ev", "type": "float", "layer": "shoot",
+        "default": 0.0, "live": False, "range": [-64.0, 64.0],
+    },
     "extended_dynamic_range": {
         "path": "print_render.edr_enabled", "type": "bool", "layer": "print",
         "default": False, "live": False, "range": None,
