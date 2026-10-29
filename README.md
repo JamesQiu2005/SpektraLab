@@ -1,14 +1,6 @@
 # SpektraLab
 
-**English** · [简体中文](README.zh-CN.md)
-
-**Windows development:** this branch also contains a C++/Vulkan backend,
-native LibRaw decoding, RGB16 TIFF export and Windows desktop viewers.
-See the [Windows build guide](engine/WINDOWS.md) and
-[feature coverage](engine/WINDOWS_FEATURE_COVERAGE.md) for the tested scope.
-The [Qt Quick frontend](windows_UI/README.md) brings the film/print editor layout
-to Windows; the [minimal Win32 viewer](engine/WINDOWS_DESKTOP.md) is also retained.
-The macOS product described below has additional interface and display features.
+**English** · [简体中文](README.zh-CN.md) · [spektralab.app](https://spektralab.app)
 
 A film and print simulator for macOS. Open a RAW, pick a film and a paper,
 and get a physically modelled print — grain, halation, couplers, the enlarger's
@@ -39,15 +31,19 @@ filter pack — in about a second.
 
 ## Install
 
-Download the latest build from
-[Releases](https://github.com/JamesQiu2005/SpektraLab/releases). It is
-ad-hoc signed, so clear the quarantine once:
+Download the DMG from [spektralab.app](https://spektralab.app) or
+[Releases](https://github.com/JamesQiu2005/SpektraLab/releases), open it and
+drag SpektraLab to Applications. It is signed with a Developer ID and
+notarised by Apple, so it opens like any other app.
+
+Apple silicon, macOS 15 or later.
+
+Releases before 1.3.3 are ad-hoc signed. For one of those, clear the
+quarantine once:
 
 ```bash
 xattr -d -r com.apple.quarantine /Applications/SpektraLab.app
 ```
-
-Apple silicon, macOS 15 or later.
 
 ## Select and sync photos
 
@@ -125,10 +121,35 @@ and the run still reports 0 failures in ~20 s — trust the duration.
 | `ARCHITECTURE.md` | how it fits together — start here |
 | `AGENTS.md` | conventions and the traps that cost real time |
 
+## Windows development
+
+This branch also contains a C++/Vulkan backend, native LibRaw decoding,
+RGB16 TIFF export and Windows desktop viewers.
+See the [Windows build guide](engine/WINDOWS.md) and
+[feature coverage](engine/WINDOWS_FEATURE_COVERAGE.md) for the tested scope.
+The [Qt Quick frontend](windows_UI/README.md) brings the film/print editor layout
+to Windows; the [minimal Win32 viewer](engine/WINDOWS_DESKTOP.md) is also retained.
+The macOS product described above has additional interface and display features.
+
+## Contributing
+
+Pull requests are welcome. Three rules:
+
+- **Windows and Linux work goes to the `Windows_Linux` branch, never to `main`.**
+  `main` is the macOS product; a Windows- or Linux-related pull request against
+  it will be closed and asked to retarget.
+- **Split your work into reviewable commits.** One commit per change, each with
+  a message that says what it does and why. A single commit that dumps a whole
+  feature, a rename and a reformat together cannot be reviewed and will not be
+  merged.
+- **Respect the open-source community.** Keep the licences and credits intact
+  (see below), credit the work you build on, and be civil in issues and reviews.
+
 ## Credits and licence
 
-The film process model, its 28 measured profiles and the print LUTs are
+The film process model, its 28 measured color profiles and the print LUTs are
 [spektrafilm](https://github.com/andreavolpato/spektrafilm) by Andrea Volpato;
+4 new measured B&W profiles are by Hanze Qiu;
 SpektraLab is a native C++/Metal port of that engine and the application built
 around it.
 

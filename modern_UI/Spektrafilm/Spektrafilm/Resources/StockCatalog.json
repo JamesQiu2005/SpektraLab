@@ -1,6 +1,22 @@
 {
  "stocks": [
   {
+   "id": "cinestill_800t",
+   "name": "CineStill 800T",
+   "stage": "filming",
+   "use": "still",
+   "type": "negative",
+   "targetPrint": "kodak_2383",
+   "hasPreviewLUT": false,
+   "pairedFilm": null,
+   "cover": null,
+   "noAntihalationLayer": true,
+   "formats": [
+    "135",
+    "120"
+   ]
+  },
+  {
    "id": "fujifilm_c200",
    "name": "Fujifilm C200",
    "stage": "filming",

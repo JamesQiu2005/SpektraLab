@@ -11,8 +11,20 @@
 //  **Scene Placement goes through the Fit, always.** A pull-back is UI state;
 //  the curve the engine renders is what the Fit solved from it, and a pull-back
 //  the Fit refuses (the extreme would still land past the print, the knees
-//  would cross) is not committed. The refusal is kept and shown on the row,
-//  in the engine's words, instead of the slider silently snapping.
+//  would cross) is not committed.
+//
+//  **The sliders never ask for one, and do not ask the engine at all**
+//  (1.3.2). The Fit accepts a window of pull-backs on each side, not
+//  everything above zero, and a slider that offered the whole track and went
+//  back on a refusal looked broken. Asking the engine per step was the other
+//  half: the call queues behind the develop the previous step started, so the
+//  knob's value arrived a render late. The solve is a few lines of arithmetic
+//  on four numbers the last measurement already carries (`PlacementFit`,
+//  pinned to the engine's own answers by `ScenePlacementTests`), so a slider
+//  step is solved here, at once: its value is brought to the nearest
+//  pull-back the Fit takes (`PlacementWindow`), the curve is committed in the
+//  same call, and the row says why it stopped. The agent's `place` and a
+//  pasted placement still go through the engine and get its refusal.
 
 import Foundation
 
@@ -31,8 +43,6 @@ final class LatitudeModel {
     private(set) var failure: String?
 
     fileprivate var refreshTask: Task<Void, Never>?
-    fileprivate var placementTask: Task<Void, Never>?
-    fileprivate var pendingPlacement: (highlight: Double, shadow: Double)?
     /// The Fit completing a pasted placement (RFC-027 §4.1), apart from the
     /// sliders' loop so a drag during it is not swallowed.
     fileprivate var pastedFitTask: Task<Void, Never>?
@@ -63,6 +73,11 @@ final class LatitudeModel {
     /// not know falls back to the engine's words rather than to nothing.
     func refusalMessage(for side: String) -> String? {
         guard let refusal, refusal.side == side || refusal.side == "both" else { return nil }
+        return message(for: refusal, side: side)
+    }
+
+    /// One refusal in the interface's words, for the row it is about.
+    func message(for refusal: SceneLatitudeResponse.Fit.Issue, side: String) -> String? {
         let top = side != "shadow"
         switch refusal.code {
         case "pull_back_below_minimum":
@@ -80,6 +95,21 @@ final class LatitudeModel {
                     zh: "回拉不足，场景最亮处仍在宽容度边界之外。")
                 : L("Pull back further: the scene's darkest part is still past the latitude's edge.",
                     zh: "回拉不足，场景最暗处仍在宽容度边界之外。")
+        case "room_below_minimum":
+            return top
+                ? L("Pull back a little more: this close to the latitude's edge the highlights would turn too sharply.",
+                    zh: "回拉再多一些：离宽容度边界太近，高光的过渡会过于生硬。")
+                : L("Pull back a little more: this close to the latitude's edge the shadows would turn too sharply.",
+                    zh: "回拉再多一些：离宽容度边界太近，阴影的过渡会过于生硬。")
+        case PlacementWindow.noWindowCode:
+            return top
+                ? L("This frame's highlights cannot be pulled inside the latitude: no pull-back works here.",
+                    zh: "这张照片的高光无法拉回宽容度之内，没有可用的回拉量。")
+                : L("This frame's shadows are too far under the latitude's edge to be lifted inside it.",
+                    zh: "这张照片的阴影低于宽容度边界太多，无法提升到宽容度之内。")
+        case "out_of_range":
+            return L("Pull back less: this is further than the curve can reach.",
+                     zh: "回拉过多，已超出曲线可达的范围。")
         case "pull_back_exceeds_max_lift":
             return L("Pull back less: this is past the most the shadows can be lifted.",
                      zh: "回拉过多，已超出阴影可提升的上限。")
@@ -89,6 +119,215 @@ final class LatitudeModel {
         default:
             return refusal.message
         }
+    }
+}
+
+enum PlacementSide: String, Sendable { case highlight, shadow }
+
+/// The pull-backs the Fit accepts on one side, with the other side held:
+/// `least...most`, or nothing. Zero — the side off — is always accepted and
+/// is not part of it.
+///
+/// Found by asking the Fit, not derived: the lower edge is the minimum plus
+/// whatever the knee needs to turn (`room_below_minimum`), the upper one is
+/// the lift bound or the other side's knee, and only the engine knows where
+/// those fall on a given frame.
+struct PlacementWindow: Equatable, Sendable {
+    typealias Issue = SceneLatitudeResponse.Fit.Issue
+    static let noWindowCode = "no_window"
+    /// The sliders show two decimals, so the edges are whole hundredths: a
+    /// value the row can show is a value the Fit takes.
+    static let grain = 0.01
+
+    /// Nil when no pull-back on this side is accepted.
+    var span: ClosedRange<Double>?
+    /// Why a value under `span` is refused, and one over it.
+    var below: Issue
+    var above: Issue?
+
+    /// What the Fit said about one pull-back.
+    enum Verdict: Equatable, Sendable { case valid, refused(Issue) }
+
+    /// Where a slider's value lands: itself inside the window, the nearer edge
+    /// outside it, and off when there is no window — with the reason it moved.
+    func landing(_ asked: Double) -> (value: Double, why: Issue?) {
+        guard asked > 0 else { return (0, nil) }
+        guard let span else { return (0, below) }
+        if asked < span.lowerBound { return (span.lowerBound, below) }
+        if asked > span.upperBound { return (span.upperBound, above) }
+        return (asked, nil)
+    }
+
+    /// `v` on the sliders' grid, as the nearest double to that hundredth.
+    private static func hundredth(_ v: Double, _ rule: FloatingPointRoundingRule) -> Double {
+        (v / grain).rounded(rule) / (1 / grain).rounded()
+    }
+
+    /// Search `range` for the window. The accepted pull-backs are one
+    /// interval (room grows with the pull-back; the lift bound and the
+    /// crossing knees only stop it from above), so: walk up from the minimum
+    /// to the first accepted value, then bisect each edge. About twenty
+    /// solves.
+    static func search(side: PlacementSide, minimum: Double, in range: ClosedRange<Double>,
+                       step: Double = 0.125,
+                       verdict: (Double) -> Verdict) -> PlacementWindow {
+        func own(_ i: Issue) -> Issue { Issue(code: i.code, side: side.rawValue, message: i.message) }
+        var below = Issue(code: "pull_back_below_minimum", side: side.rawValue, message: "")
+        var refusedAt = max(minimum, range.lowerBound, 0)
+        var found: Double?
+        var x = (refusedAt / step).rounded(.down) * step + step
+        while x <= range.upperBound + 1e-9 {
+            let v = verdict(x)
+            if case .refused(let why) = v { below = own(why); refusedAt = x } else { found = x; break }
+            x += step
+        }
+        guard let first = found else {
+            return PlacementWindow(span: nil, below: Issue(code: noWindowCode, side: side.rawValue,
+                                                           message: below.message))
+        }
+
+        // The lower edge, between the last refusal and the first acceptance.
+        var bad = refusedAt, good = first
+        while good - bad > grain / 2 {
+            let mid = (bad + good) / 2
+            let v = verdict(mid)
+            if case .refused(let why) = v { below = own(why); bad = mid } else { good = mid }
+        }
+        let least = min(hundredth(good, .up), first)
+
+        // The upper edge: the top of the track if the Fit takes it.
+        var above: Issue?
+        var most = range.upperBound
+        let top = verdict(range.upperBound)
+        if case .refused(let why) = top {
+            above = own(why)
+            good = first; bad = range.upperBound
+            while bad - good > grain / 2 {
+                let mid = (bad + good) / 2
+                let v = verdict(mid)
+                if case .refused(let why) = v { above = own(why); bad = mid } else { good = mid }
+            }
+            most = max(hundredth(good, .down), least)
+        }
+        return PlacementWindow(span: least...most, below: below, above: above)
+    }
+}
+
+/// The Fit's solve (RFC-023 §9.2, §9.3, §15.5), here: `latitude_fit.cpp`'s
+/// `fit()` on the four numbers a measurement carries, so a slider step does
+/// not wait for the engine. **The engine's is the reference** — this is the
+/// same arithmetic in the same order, and `ScenePlacementTests` holds it to
+/// the engine's knees, rooms and refusals on a real frame. Change one, change
+/// both.
+enum PlacementFit {
+    typealias Issue = SceneLatitudeResponse.Fit.Issue
+    /// `kMinRoom` and `kDomainStops`.
+    static let minRoom = 0.5, domainStops = 24.0
+
+    /// What the solve reads off a measurement: each side's robust extreme and
+    /// the medium's boundary, in stops from the metered mid-grey.
+    struct Measured: Equatable, Sendable {
+        var highlightExtreme: Double, highlightBoundary: Double
+        var shadowExtreme: Double, shadowBoundary: Double
+
+        init(_ fit: SceneLatitudeResponse.Fit) {
+            highlightExtreme = fit.highlight.sceneExtremeEV; highlightBoundary = fit.highlight.mediumBoundaryEV
+            shadowExtreme = fit.shadow.sceneExtremeEV; shadowBoundary = fit.shadow.mediumBoundaryEV
+        }
+
+        func minimum(_ side: PlacementSide) -> Double {
+            side == .highlight ? highlightExtreme - highlightBoundary : shadowBoundary - shadowExtreme
+        }
+    }
+
+    enum Outcome: Equatable, Sendable {
+        case solved(SceneLatitudeSettings)
+        case refused(Issue)
+    }
+
+    /// `g_m(D) - D`, in the forms that do not cancel near the knee.
+    static func departure(_ D: Double, _ H: Double, _ m: Double) -> Double {
+        guard D > 0 else { return 0 }
+        if m == 2 {
+            let r = (H * H + D * D).squareRoot()
+            return -(D * D * D) / (r * (H + r))
+        }
+        if m == 1 { return -(D * D) / (H + D) }
+        return D * (H / pow(pow(H, m) + pow(D, m), 1 / m) - 1)
+    }
+
+    /// The knee that lands the extreme `a` at `a - N` under the boundary `C`.
+    static func solveKnee(_ a: Double, _ C: Double, _ N: Double, _ m: Double) -> Double? {
+        let t = a - N
+        guard N > 0, t < C else { return nil }
+        func landing(_ K: Double) -> Double { K + ((a - K) + departure(a - K, C - K, m)) }
+        let seed = t - max(0, (a - t) * (C - t)).squareRoot()
+        var lo = seed - 64, hi = t
+        guard landing(lo) < t else { return nil }
+        var i = 0
+        while i < 200, hi - lo > 1e-12 {
+            let mid = 0.5 * (lo + hi)
+            if landing(mid) > t { hi = mid } else { lo = mid }
+            i += 1
+        }
+        return 0.5 * (lo + hi)
+    }
+
+    /// The pull-backs solved into `base`'s curve, or the first thing the
+    /// engine would refuse them for, in its order.
+    static func fit(_ at: Measured, highlight: Double, shadow: Double,
+                    base: SceneLatitudeSettings) -> Outcome {
+        func issue(_ code: String, _ side: String) -> Issue { Issue(code: code, side: side, message: "") }
+        let m = base.rolloff
+        var issues: [Issue] = []
+        var out = base
+        out.active = true
+        out.highlightPullBack = highlight
+        out.shadowPullBack = shadow
+        out.highlightRoom = 0
+        out.shadowRoom = 0
+
+        var top: (knee: Double, room: Double)?
+        if highlight > 0 {
+            if let K = solveKnee(at.highlightExtreme, at.highlightBoundary, highlight, m) {
+                top = (K, at.highlightBoundary - K)
+            } else {
+                issues.append(issue("pull_back_below_minimum", "highlight"))
+            }
+        }
+
+        // The shadow pull-back is the bounded landing: invert the lift bound,
+        // then solve for the lift the bound brings back to it.
+        var bottom: (knee: Double, room: Double)?
+        var lift: Double?
+        if shadow > 0, !(shadow > at.minimum(.shadow)) {
+            issues.append(issue("pull_back_below_minimum", "shadow"))
+        } else if shadow > 0 {
+            let L = base.maxLift
+            if shadow < L { lift = shadow * L / (L * L - shadow * shadow).squareRoot() }
+            else { issues.append(issue("pull_back_exceeds_max_lift", "shadow")) }
+        }
+        if let lift {
+            if let K = solveKnee(-at.shadowExtreme, -at.shadowBoundary, lift, m) {
+                bottom = (-K, -K - at.shadowBoundary)
+            } else {
+                issues.append(issue("pull_back_below_minimum", "shadow"))
+            }
+        }
+
+        for (side, name) in [(top, "highlight"), (bottom, "shadow")] {
+            guard let side else { continue }
+            if side.room < minRoom { issues.append(issue("room_below_minimum", name)) }
+            if side.room > domainStops || abs(side.knee) > domainStops { issues.append(issue("out_of_range", name)) }
+        }
+        if let top, let bottom, !(bottom.knee < top.knee) { issues.append(issue("knees_cross", "both")) }
+        if let first = issues.first { return .refused(first) }
+
+        // Both sides off is the identity, and the engine's delta says so.
+        out.active = top != nil || bottom != nil
+        if let top { out.highlightKnee = top.knee; out.highlightRoom = top.room }
+        if let bottom { out.shadowKnee = bottom.knee; out.shadowRoom = bottom.room }
+        return .solved(out)
     }
 }
 
@@ -160,20 +399,64 @@ extension Session {
         }
     }
 
-    /// Scene Placement's two sliders. Latest wins: a drag queues its newest
-    /// value while the previous Fit is still out, and the loop commits
-    /// whatever is newest when it gets back.
-    func placeScene(highlight: Double, shadow: Double) {
-        latitude.pendingPlacement = (max(0, highlight), max(0, shadow))
-        guard latitude.placementTask == nil else { return }
-        latitude.placementTask = Task { [weak self] in
-            while let self, let want = self.latitude.pendingPlacement {
-                self.latitude.pendingPlacement = nil
-                guard let reply = await self.probeLatitude(highlight: want.highlight, shadow: want.shadow)
-                else { break }
-                self.commitPlacement(reply)
+    /// The sliders' track, in stops of pull-back.
+    nonisolated static let placementRange: ClosedRange<Double> = 0...8
+
+    /// What a slider step is solved against: the last measurement of the
+    /// frame on screen. Nil until it has been measured.
+    var placementMeasure: PlacementFit.Measured? {
+        guard let url = selection, latitude.frame == url, let fit = latitude.reply?.fit else { return nil }
+        return PlacementFit.Measured(fit)
+    }
+
+    /// The pull-backs the Fit takes on one side with the other held at
+    /// `other` — the band on that slider's track. Solved here each time it is
+    /// asked (tens of microseconds), so it is never out of date.
+    func placementWindow(for side: PlacementSide, other: Double) -> PlacementWindow? {
+        guard let at = placementMeasure else { return nil }
+        let base = params.sceneLatitude
+        return PlacementWindow.search(side: side, minimum: at.minimum(side), in: Self.placementRange) { x in
+            switch PlacementFit.fit(at, highlight: side == .highlight ? x : other,
+                                    shadow: side == .shadow ? x : other, base: base) {
+            case .solved: return .valid
+            case .refused(let why): return .refused(why)
             }
-            self?.latitude.placementTask = nil
+        }
+    }
+
+    /// Scene Placement's two sliders: one step, solved and committed before
+    /// this returns, like any other slider.
+    ///
+    /// `moving` is the slider under the hand. Its value is brought inside the
+    /// window the Fit accepts, so a drag across a refused stretch rides its
+    /// edge instead of committing nothing and springing back on release; the
+    /// row keeps the reason it stopped there.
+    func placeScene(highlight: Double, shadow: Double, moving: PlacementSide) {
+        var h = max(0, highlight), s = max(0, shadow)
+        guard let at = placementMeasure else { return }
+        var why: SceneLatitudeResponse.Fit.Issue?
+        if let window = placementWindow(for: moving, other: moving == .shadow ? h : s) {
+            let landed = window.landing(moving == .shadow ? s : h)
+            why = landed.why
+            if moving == .shadow { s = landed.value } else { h = landed.value }
+        }
+        // Both sides off is the reset, which is not a Fit.
+        if h == 0, s == 0 {
+            if params.sceneLatitude.active { resetScenePlacement() }
+            latitude.refuse(why)
+            return
+        }
+        switch PlacementFit.fit(at, highlight: h, shadow: s, base: params.sceneLatitude) {
+        case .solved(let placed):
+            sidecar.placementNeedsFit = false
+            var p = params
+            p.sceneLatitude = placed
+            params = p
+            latitude.refuse(why)
+        case .refused(let issue):
+            // The side that is not moving no longer fits (the film changed
+            // under it): nothing is committed, and the row says so.
+            latitude.refuse(issue)
         }
     }
 
@@ -254,13 +537,20 @@ extension Session {
         }
     }
 
-    @discardableResult
-    private func probeLatitude(highlight: Double, shadow: Double) async -> SceneLatitudeResponse? {
-        guard serviceReady, let url = selection, serviceSessionIDForExport != nil else { return nil }
+    /// The Fit's request for these pull-backs on the frame the section is
+    /// about.
+    private func latitudeRequest(highlight: Double, shadow: Double) -> SceneLatitudeRequest {
         var request = params.sceneLatitude.request
         request.region = pairFitRegion
         request.highlightPullBack = highlight
         request.shadowPullBack = shadow
+        return request
+    }
+
+    @discardableResult
+    private func probeLatitude(highlight: Double, shadow: Double) async -> SceneLatitudeResponse? {
+        guard serviceReady, let url = selection, serviceSessionIDForExport != nil else { return nil }
+        let request = latitudeRequest(highlight: highlight, shadow: shadow)
         do {
             let reply = try await client.sceneLatitude(request)
             guard selection == url else { return nil }

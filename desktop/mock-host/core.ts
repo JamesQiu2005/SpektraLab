@@ -70,6 +70,7 @@ const DEFAULTS: Record<string, Value> = {
   grain_sublayers_active: true,
   halation_active: true,
   halation_amount: 1,
+  halation_headroom_ev: 4,
   dir_couplers_active: true,
   dir_couplers_amount: 1,
   glare_active: true,
@@ -151,7 +152,7 @@ interface Session {
 const METHODS = [
   'hello', 'ping', 'shutdown', 'cancel', 'params_schema', 'print_lut_catalog', 'memory_report', 'probe', 'thumbnail',
   'open', 'open_pair', 'update_pair', 'redecode', 'close', 'set_params', 'get_params', 'solve', 'render', 'render_view', 'scene_latitude', 'overscan_geometry',
-  'preview_stock_lut', 'progress', 'export_image', 'export_frame', 'export_cineon', 'render_proof', 'export_cube', 'export_di',
+  'preview_stock_lut', 'progress', 'export_image', 'export_frame', 'export_cineon', 'render_proof', 'export_cube', 'export_di', 'render_source',
 ];
 
 class HostError extends Error {
@@ -198,7 +199,7 @@ export class MockHost {
 
   private capabilities() {
     return {
-      version: 'mock-1.3.1',
+      version: 'mock-1.3.4',
       engine: 'spektrafilm.mock',
       max_mp: 200,
       max_pixels: 200e6,
@@ -308,7 +309,7 @@ export class MockHost {
         return {
           result: {
             protocol: 1,
-            host_version: '1.3.1-mock',
+            host_version: '1.3.4-mock',
             build_info: 'mock host (desktop/mock-host) — synthetic pictures, no engine',
             backend: { api: 'mock', device_name: 'Mock GPU', driver: 'none' },
             capabilities: this.capabilities(),
@@ -317,6 +318,8 @@ export class MockHost {
             export_spaces: ['sRGB', 'display-p3', 'prophoto', 'adobe-rgb', 'rec2020'],
             tiff_options: ['lzw', 'preview-page'],
             thumbnail_options: ['embedded-only'],
+            // PROTOCOL-REQUESTS R4: export_frame / render_proof accept `no_film` (the decode, not the print).
+            frame_options: ['no-film'],
           },
         };
       case 'ping':
@@ -497,7 +500,8 @@ export class MockHost {
         const display = String(p.display ?? 'srgb');
         if (!['srgb', 'display-p3'].includes(display)) throw new HostError('bad_request', 'invalid proof display');
         const cineon = p.format === 'di';
-        const source = mockView(paint(s.width, s.height, s.seed, s.params), s.width, s.height,
+        const noFilm = noFilmOf(p, cineon);
+        const source = mockView(paint(s.width, s.height, s.seed, noFilm ? null : s.params), s.width, s.height,
           undefined, p.source_geometry as Geometry | undefined, 'srgb', 0);
         const file = mockView(source.data, source.width, source.height,
           cineon ? undefined : p.adjustments as Adjustments | undefined, p.geometry as Geometry | undefined, 'srgb', cineon ? 0 : Number(p.long_edge ?? 0));
@@ -509,6 +513,17 @@ export class MockHost {
           compression_simulated: false, print_cached: false,
           stats: { pixels: file.width * file.height, moved_fraction: 0, clipped_fraction: 0, outside_fraction: 0 },
           timings_ms: { print: 0, post: 0, readback: 0, total: 0 }, mock: true }, payload: view.data };
+      }
+      case 'render_source': {
+        // The decoded source, before film, grade and crop: the synthetic picture without a print.
+        const s = this.session(p);
+        const display = String(p.display ?? 'srgb');
+        if (display !== 'srgb' && display !== 'display-p3') throw new HostError('bad_request', 'display must be srgb or display-p3');
+        const le = Number(p.long_edge ?? 0);
+        const k = le > 0 ? Math.min(1, le / Math.max(s.width, s.height)) : 1;
+        const w = Math.max(1, Math.round(s.width * k)), h = Math.max(1, Math.round(s.height * k));
+        return { result: { image: { ...imageInfo(w, h), color_space: display === 'display-p3' ? 'Display P3' : 'sRGB' },
+          generation: p.generation, source: 'decoded' }, payload: paint(w, h, s.seed, null) };
       }
       case 'scene_latitude':
         return { result: latitude(this.session(p), (p.request ?? {}) as Record<string, unknown>) };
@@ -542,6 +557,7 @@ export class MockHost {
         if (this.opts.missing?.(sourcePath)) throw new HostError('not_found', `${sourcePath}: no such file`);
         if (!['jpeg', 'png', 'tiff8', 'tiff16'].includes(String(p.format ?? 'tiff16'))) throw new HostError('bad_request', 'unsupported export format');
         this.checkDecode(sourcePath, p.decode);
+        noFilmOf(p, method === 'export_cineon');
         const editor = s && (p.decode === undefined || this.decodeKey(p.decode) === s.decodeKey) ? s : null;
         if (p.params) {
           this.validate(p.params as Record<string, unknown>);
@@ -595,6 +611,13 @@ export class MockHost {
 
 function sleep(ms: number) {
   return new Promise((r) => setTimeout(r, ms));
+}
+
+/** R4's `no_film`: a boolean, and meaningless for the Digital Intermediate (the film's negative). */
+function noFilmOf(p: Record<string, unknown>, cineon: boolean): boolean {
+  if (p.no_film !== undefined && typeof p.no_film !== 'boolean') throw new HostError('bad_request', 'no_film must be boolean');
+  if (p.no_film && cineon) throw new HostError('bad_request', 'no_film has no Digital Intermediate');
+  return p.no_film === true;
 }
 
 function imageInfo(w: number, h: number) {

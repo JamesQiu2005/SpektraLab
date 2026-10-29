@@ -7,9 +7,9 @@
 // pair's fields) are carried through untouched, so opening a Mac sidecar here
 // and saving it does not lose anything the Mac wrote.
 
-import { type Adjustments, ADJUSTMENTS_DEFAULT, decodeAdjustments } from './adjustments';
-import { type Geometry, GEOMETRY_DEFAULT, decodeGeometry, encodeGeometry } from './geometry';
-import { type FilmParams, FILM_PARAMS_DEFAULT, decodeFilmParams } from './params';
+import { type Adjustments, ADJUSTMENTS_DEFAULT, decodeAdjustments } from './adjustments.ts';
+import { type Geometry, GEOMETRY_DEFAULT, decodeGeometry, encodeGeometry } from './geometry.ts';
+import { type FilmParams, FILM_PARAMS_DEFAULT, decodeFilmParams } from './params.ts';
 
 export type FrameState = 'unprocessed' | 'processed' | 'stale';
 
@@ -35,6 +35,9 @@ export interface Sidecar {
   geometry: Geometry;
   /** The user's crop, restored when a film gate is switched off. */
   heldCrop?: Geometry | null;
+  /** "Don't Apply Film Simulation" (1.3.4 `Sidecar.noFilm`): the frame is the decode with the
+   * Post-Dev edits on it -- canvas, thumbnail and export. The film settings are kept. */
+  noFilm?: boolean;
   solvedEV?: number | null;
   placementNeedsFit: boolean;
   state: FrameState;
@@ -86,6 +89,7 @@ export function decodeSidecar(raw: unknown): Sidecar {
     adjustments: o.adjustments ? decodeAdjustments(o.adjustments) : ADJUSTMENTS_DEFAULT,
     geometry,
     heldCrop: o.heldCrop ? decodeGeometry(o.heldCrop) : null,
+    noFilm: o.noFilm === true,
     solvedEV: typeof o.solvedEV === 'number' ? o.solvedEV : null,
     placementNeedsFit: o.placementNeedsFit === true,
     state: decodeState(o.state),
@@ -104,6 +108,9 @@ export function encodeSidecar(s: Sidecar): Record<string, unknown> {
   out.geometry = encodeGeometry(s.geometry);
   if (s.heldCrop) out.heldCrop = encodeGeometry(s.heldCrop);
   else delete out.heldCrop;
+  // Written only when on, as the Mac does.
+  if (s.noFilm) out.noFilm = true;
+  else delete out.noFilm;
   if (s.solvedEV != null) out.solvedEV = s.solvedEV;
   else delete out.solvedEV;
   if (s.placementNeedsFit) out.placementNeedsFit = true;

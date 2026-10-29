@@ -230,6 +230,13 @@ extension Session {
             "kodak_vision3_250d": ("EASTMAN 5207", "EASTMAN 5207"),
             "kodak_vision3_200t": ("EASTMAN 5213", "EASTMAN 5213"),
             "kodak_vision3_500t": ("EASTMAN 5219", "EASTMAN 5219"),
+            // CineStill prints its own name on both gauges (the owner's 135 and 120 screenshots, 2026-10-23)
+            "cinestill_800t": ("CINESTILL 800T", "CINESTILL 800T"),
+            // black and white, off the strips in research/B&W_Research/film (2026-10-09)
+            "kodak_tri_x_400": ("KODAK 400TX", "KODAK 400TX"),
+            "kodak_tmax_100": ("KODAK 100TMX", "KODAK 100TMX"),
+            "fujifilm_neopan_acros_100_ii": ("FUJI 100 ACROS II", "FUJI 100 ACROS II"),
+            "ilford_hp5_plus_400": ("ILFORD HP5 PLUS", "ILFORD HP5 PLUS"),
         ]
         if let t = own[stock.id] { return gauge == "120" ? t.1 : t.0 }
         var name = stock.name
@@ -434,7 +441,7 @@ extension Session {
     /// than the photograph with the crop applied on top: a film edge, or the
     /// date alone under a crop, a turn or a flip (`FilmParams.cutsFrame`),
     /// while the crop tool is not framing it.
-    var filmEdgeShowsFilm: Bool { params.cutsFrame && tool != .crop }
+    var filmEdgeShowsFilm: Bool { params.cutsFrame && tool != .crop && !sidecar.noFilm }
 
     /// True while the crop tool frames a picture the engine is handed cut.
     var filmEdgeFraming: Bool { params.cutsFrame && tool == .crop }
@@ -451,7 +458,7 @@ extension Session {
     var canvasGeometry: Geometry { filmEdgeShowsFilm ? .default : geometry }
 
     /// The geometry an exported print takes: the film canvas is already cut.
-    var printGeometry: Geometry { params.cutsFrame ? .default : geometry }
+    var printGeometry: Geometry { params.cutsFrame && !sidecar.noFilm ? .default : geometry }
 
     /// The crop the engine's frame is cut with, or nil for the whole decode.
     var filmEdgeCut: Geometry? { params.cutsFrame ? geometry : nil }
@@ -508,7 +515,7 @@ extension Session {
     /// The size the viewport is expressed against for a print made from `p`:
     /// the frame's own pixels, or the film canvas.
     func printLogicalSize(for print: MTLTexture, params p: FilmParams, frame: CGSize?) -> CGSize? {
-        p.cutsFrame ? filmCanvasLogicalSize(for: print, frame: frame) : frame
+        p.cutsFrame && !sidecar.noFilm ? filmCanvasLogicalSize(for: print, frame: frame) : frame
     }
 
     /// The print's own pixels, as a file of it would be: the crop at the

@@ -648,6 +648,7 @@ private:
     bool node_upsample(const Image& in, Image& out, std::string& error);
     bool node_exposure(const Image& in, Image& out, std::string& error);
     bool node_boost(const Image& in, Image& out, std::string& error);
+    bool node_headroom(const Image& in, Image& out, std::string& error);
     // RFC-032 §27 / RFC-031 (`overscan.cpp`): the film canvas, its imprints,
     // and the no-film mask at the start of the print side. Not in the graph
     // while off.

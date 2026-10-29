@@ -69,6 +69,7 @@ enum ClipboardGroup: String, CaseIterable, Codable, Sendable, Identifiable {
         "adjustments": "the Post-Dev grade, outside the 2026-09-23 positioning",
         "geometry": "crop and framing belong to the photograph (PRD §7)",
         "heldCrop": "the photograph's own crop, kept while Film Edge frames it",
+        "noFilm": "Don't Apply Film Simulation is the frame's own choice, like its crop",
         // Undecided (answer sheet F10 is open): whether Film Edge and Date Back
         // become a group of their own. Until then neither is copied, and the
         // seeds and the resolved text would be the source photograph's anyway.

@@ -1,7 +1,7 @@
 {
   "name": "spektralab",
   "productName": "SpektraLab",
-  "version": "1.3.1",
+  "version": "1.3.4",
   "description": "SpektraLab — film and print emulation for Linux and Windows",
   "license": "GPL-3.0-or-later",
   "author": {
@@ -27,7 +27,8 @@
     "gen:icons": "node scripts/gen-icons.mjs",
     "gen:assets": "node scripts/copy-assets.mjs",
     "package:linux": "node scripts/package.mjs linux",
-    "package:win": "node scripts/package.mjs win"
+    "package:win": "node scripts/package.mjs windows",
+    "package:windows": "node scripts/package.mjs windows"
   },
   "dependencies": {
     "@radix-ui/react-context-menu": "^2.3.7",

@@ -1,6 +1,6 @@
 // Off-path adapters for upstream effects that still depend on Apple services.
 // Mac build.sh globs pipeline/*.cpp, so the whole translation unit is guarded.
-#ifndef __APPLE__
+#if !defined(__APPLE__) || defined(SPK_VULKAN_BACKEND)
 #include "pipeline.hpp"
 #include "windows_unported.hpp"
 

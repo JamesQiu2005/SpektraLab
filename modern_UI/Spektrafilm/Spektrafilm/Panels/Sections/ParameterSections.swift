@@ -62,6 +62,13 @@ struct FilmFormatSection: View {
     /// film from the gate's long edge, so this rail's frame is overridden and
     /// says by what, rather than offering a choice the render ignores. Off, it
     /// is live again with the user's own frame, untouched.
+    ///
+    /// **The caption gives way, the row does not grow** (2026-10-09). It was
+    /// a third `.fixedSize()` text, which made this row 286 pt at the default
+    /// interface scale and 317 at 130 % — wider than the rail may be, so a
+    /// rail dragged narrower than that drew its card and its rules past both
+    /// edges of its own frame, off the divider. A `FittingLine` shows the
+    /// caption whole or not at all; the tooltip says it either way.
     private var setByFilmEdge: some View {
         HStack(spacing: 0) {
             Text(L(.filmFormatSize)).font(Theme.Font.label).foregroundStyle(Theme.Ink.secondary)
@@ -75,10 +82,8 @@ struct FilmFormatSection: View {
                 .frame(height: Theme.Metric.controlHeight)
                 .background(Theme.pill, in: Capsule())
                 .opacity(Theme.disabledOpacity)
-            Spacer(minLength: 6)
-            Text(L(.edgeSetByFilmEdge))
-                .font(Theme.Font.caption).foregroundStyle(Theme.Ink.secondary)
-                .lineLimit(1).fixedSize()
+            FittingLine(text: L(.edgeSetByFilmEdge), color: Theme.Ink.secondary, alignment: .trailing)
+                .padding(.leading, 6)
         }
         .frame(height: Theme.Metric.rowHeight)
         .help(setByFilmEdgeReason)
@@ -93,6 +98,7 @@ struct FilmFormatSection: View {
         ToggleRow(label: L(.filmGrain), isOn: param(\.grainActive))
         ToggleRow(label: L(.filmHalation), isOn: param(\.halationActive))
         antihalationRow
+        headroomRow
         ToggleRow(label: L(.filmGlare), isOn: param(\.glareActive),
                   enabled: session.params.printEffects, reason: L(.reasonPrintEffectsOff))
     }
@@ -100,14 +106,33 @@ struct FilmFormatSection: View {
     /// The film's anti-halation layer, as a property of the film rather than
     /// a strength, so it is shown whether or not the strengths are. On is the
     /// film as its profile tags it; off is the same film with the layer
-    /// removed.
-    private var antihalationRow: some View {
-        ToggleRow(label: L(.filmAntihalationLayer),
-                  isOn: Binding(get: { !session.params.effects.antihalationRemoved },
-                                set: { var p = session.params
-                                       p.effects.antihalationRemoved = !$0
-                                       session.params = p }),
-                  enabled: session.params.halationActive)
+    /// removed. **A film made without one (CineStill 800T) reads off and
+    /// fixed**: there is no layer to put back, and the engine reads its own
+    /// tag whatever the switch says.
+    @ViewBuilder private var antihalationRow: some View {
+        if session.filmHasNoAntihalationLayer {
+            ToggleRow(label: L(.filmAntihalationLayer), isOn: .constant(false),
+                      enabled: false, reason: L(.reasonNoAntihalationLayer))
+        } else {
+            ToggleRow(label: L(.filmAntihalationLayer),
+                      isOn: Binding(get: { !session.params.effects.antihalationRemoved },
+                                    set: { var p = session.params
+                                           p.effects.antihalationRemoved = !$0
+                                           session.params = p }),
+                      enabled: session.params.halationActive)
+        }
+    }
+
+    /// 1.3.4: the stops a clipped highlight is given back, on a film with no
+    /// anti-halation layer only -- the one film whose halo the engine draws
+    /// from them. Shown in both layouts, under the layer it belongs to; every
+    /// other film ignores the value, so it is not offered there.
+    @ViewBuilder private var headroomRow: some View {
+        if session.filmHasNoAntihalationLayer {
+            ScrubSlider(label: L(.filmHighlightHeadroom), value: effect(\.highlightHeadroom),
+                        range: EffectStrengths.highlightHeadroomRange, zero: 4, snap: 0.5,
+                        format: { String(format: "%.1f", $0) }, disabled: !session.params.halationActive)
+        }
     }
 
     /// RFC-025's rows, named as v4 draws them. A strength greys, rather than
@@ -118,6 +143,7 @@ struct FilmFormatSection: View {
         strength(L(.filmGrainStrength), \.grain, EffectStrengths.grainRange, enabled: p.grainActive)
         ToggleRow(label: L(.filmHalation), isOn: param(\.halationActive))
         antihalationRow
+        headroomRow
         strength(L(.filmHalationStrength), \.halation, EffectStrengths.halationRange, enabled: p.halationActive)
         strength(L(.filmScatterStrength), \.scatter, EffectStrengths.scatterRange, enabled: p.halationActive)
         // Stops, not a multiple: its neutral is 0 and it is off there.
@@ -198,42 +224,35 @@ struct FilmFormatSection: View {
 /// in toward the medium before the film sees them. The Latitude graph above
 /// shows where they land.
 ///
-/// **Every value goes through the Fit.** Below the Fit's minimum the extreme
-/// would still land past the print, and the engine refuses it; that span is
-/// drawn dimmed on the track, and a value dragged into it is not committed —
-/// the row says why, in the engine's words, and the slider returns to the last
-/// accepted value on release.
+/// **Every value goes through the Fit**, and the Fit takes a window of
+/// pull-backs on each side rather than everything above zero. The window is
+/// drawn as a band around the track and a slider cannot rest outside it: a
+/// value dragged or typed there lands on the band's nearer edge, and the row
+/// says why (1.3.2 — it used to commit nothing and return to the last
+/// accepted value on release, which read as a slider that would not move).
 struct ScenePlacementSection: View {
     @Bindable var session: Session
-    /// The value under the pointer while a drag is in progress. Nil at rest,
-    /// when the slider shows what is committed.
-    @State private var dragging: (highlight: Double?, shadow: Double?) = (nil, nil)
 
-    static let range: ClosedRange<Double> = 0...8
+    static let range = Session.placementRange
 
     private var developed: Bool { session.latitude.reply != nil && session.latitude.frame == session.selection }
+    private var committed: SceneLatitudeSettings { session.params.sceneLatitude }
 
     var body: some View {
         PanelSection(L(.sectionScenePlacement), key: "scenePlacement",
                      action: SectionAction(help: L(.helpResetPlacement),
                                            enabled: session.params.sceneLatitude.active) {
-                         dragging = (nil, nil); session.resetScenePlacement()
+                         session.resetScenePlacement()
                      }) {
             RailRows {
-                row(L(.placementHighlight), side: "highlight",
-                    committed: session.params.sceneLatitude.highlightPullBack,
-                    minimum: session.latitude.reply?.fit.highlight.minimumPullBack,
-                    shown: dragging.highlight) { v in
-                    dragging.highlight = v
-                    session.placeScene(highlight: v, shadow: dragging.shadow ?? session.params.sceneLatitude.shadowPullBack)
-                } end: { dragging.highlight = nil }
-                row(L(.placementShadow), side: "shadow",
-                    committed: session.params.sceneLatitude.shadowPullBack,
-                    minimum: session.latitude.reply?.fit.shadow.minimumPullBack,
-                    shown: dragging.shadow) { v in
-                    dragging.shadow = v
-                    session.placeScene(highlight: dragging.highlight ?? session.params.sceneLatitude.highlightPullBack, shadow: v)
-                } end: { dragging.shadow = nil }
+                row(L(.placementHighlight), side: .highlight, committed: committed.highlightPullBack,
+                    other: committed.shadowPullBack) {
+                    session.placeScene(highlight: $0, shadow: committed.shadowPullBack, moving: .highlight)
+                }
+                row(L(.placementShadow), side: .shadow, committed: committed.shadowPullBack,
+                    other: committed.highlightPullBack) {
+                    session.placeScene(highlight: committed.highlightPullBack, shadow: $0, moving: .shadow)
+                }
             }
             .rowEnabled(developed && !session.digitalIntermediateActive,
                         because: session.digitalIntermediateActive ? L(.reasonPlacementInDigitalIntermediate)
@@ -241,15 +260,21 @@ struct ScenePlacementSection: View {
         }
     }
 
-    private func row(_ label: String, side: String, committed: Double, minimum: Double?, shown: Double?,
-                     set: @escaping (Double) -> Void, end: @escaping () -> Void) -> some View {
-        let blocked: ClosedRange<Double>? = (minimum ?? 0) > 0 ? 0...(minimum ?? 0) : nil
-        return ScrubSlider(label: label,
-                           sublabel: session.latitude.refusalMessage(for: side),
-                           value: Binding(get: { shown ?? committed }, set: set),
+    /// A slider step is solved and committed in the call that makes it
+    /// (`Session.placeScene`), so the row shows what is committed and nothing
+    /// else: there is no value in flight to keep.
+    private func row(_ label: String, side: PlacementSide, committed: Double, other: Double,
+                     set: @escaping (Double) -> Void) -> some View {
+        let window = session.placementWindow(for: side, other: other)
+        // A side with nothing the Fit takes has no band, and says why without
+        // being touched: a slider that will not move owes the reason up front.
+        let message = session.latitude.refusalMessage(for: side.rawValue)
+            ?? (window.flatMap { $0.span == nil ? session.latitude.message(for: $0.below, side: side.rawValue) : nil })
+        return ScrubSlider(label: label, sublabel: message,
+                           value: Binding(get: { committed }, set: set),
                            range: Self.range, zero: 0, snap: 0.25,
                            format: { String(format: "%.2f", $0) },
-                           blocked: blocked, onCommit: end)
+                           usable: window?.span.map { [$0] } ?? [])
     }
 }
 

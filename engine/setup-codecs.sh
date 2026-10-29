@@ -1,6 +1,8 @@
 #!/usr/bin/env bash
 # Pinned source dependencies. The system supplies CMake, a compiler and NASM.
 set -euo pipefail
+# GNU coreutils on Linux; macOS before 14 has only shasum.
+command -v sha256sum >/dev/null || sha256sum() { shasum -a 256 "$@"; }
 here="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 deps="${1:-$here/../build/deps/export-codecs}"
 mkdir -p "$deps"

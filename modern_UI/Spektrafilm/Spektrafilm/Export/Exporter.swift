@@ -347,13 +347,27 @@ enum Exporter {
         // (`Renderer.layer2DecodesCineon`), so from there on it is ProPhoto
         // like any print.
         let (target, _, _, _) = resolveTarget(recipe)
-        let outcome = try await session.client.render(
-            .export, RenderRequest(sessionID: sessionID, tier: "full"))
+        var full: MTLTexture
+        var appliedEV: Double?
+        if session.noFilm {
+            // "Don't apply film simulation": the decode at the frame's own
+            // pixels, in the working space, as the canvas shows it.
+            guard let decoded = session.decoded,
+                  let tex = ImageDecoder.makePreviewTexture(decoded, device: session.renderer.device,
+                                                            maxEdge: Int.max)
+            else { throw ExportError.noPixels }
+            full = tex
+        } else {
+            let outcome = try await session.client.render(
+                .export, RenderRequest(sessionID: sessionID, tier: "full"))
+            guard let tex = outcome.texture else { throw ExportError.noPixels }
+            full = tex
+            appliedEV = outcome.progress?.autoExposureEV
+        }
         try Task.checkCancellation()
-        guard var full = outcome.texture else { throw ExportError.noPixels }
         // A pair: each frame printed and graded as its own, cut together, as
         // the canvas shows it. The grade below is then none.
-        if session.pair != nil, let layered = await session.pairLayered(base: full, tier: "full") {
+        if session.pair != nil, !session.noFilm, let layered = await session.pairLayered(base: full, tier: "full") {
             full = layered
         }
         try Task.checkCancellation()
@@ -432,7 +446,7 @@ enum Exporter {
         currentScratch?.giveBack()
         return Rendered(texture: converted.texture, stats: converted.stats, target: target,
                         pixels: (converted.texture.width, converted.texture.height),
-                        appliedEV: outcome.progress?.autoExposureEV,
+                        appliedEV: appliedEV,
                         scratch: convertedScratch)
     }
 
@@ -658,6 +672,18 @@ enum Exporter {
             case .write(let u): "Could not write \(u.lastPathComponent)."
             case .directory(let u, let why):
                 "Could not create \(u.path): \(why). Choose another folder in the export recipe."
+            }
+        }
+        /// The same, for the export page in Chinese.
+        var chineseDescription: String {
+            switch self {
+            case .nothingOpen: "没有打开的图像。"
+            case .noPixels: "渲染结果为空。"
+            case .incompletePair: "导出半格拼接前，请先填满两格。"
+            case .colourSpace(let why): "无法转换到配方的色彩空间：\(why)。"
+            case .write(let u): "无法写入 \(u.lastPathComponent)。"
+            case .directory(let u, let why):
+                "无法创建 \(u.path)：\(why)。请在导出配方中选择其他文件夹。"
             }
         }
     }

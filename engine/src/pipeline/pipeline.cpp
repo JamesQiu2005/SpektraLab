@@ -1,6 +1,7 @@
 #include "pipeline.hpp"
 #include "timer.hpp"
-#ifndef __APPLE__
+#include "halation_psf.hpp"
+#if !defined(__APPLE__) || defined(SPK_VULKAN_BACKEND)
 #include "windows_unported.hpp"
 #endif
 
@@ -126,7 +127,7 @@ bool Pipeline::build(const Params& params, std::string& error) {
     const Profile& film = params_.film;
     const Profile& print = params_.print;
 
-#ifndef __APPLE__
+#if !defined(__APPLE__) || defined(SPK_VULKAN_BACKEND)
     // Keep upstream's default path intact while its new effects await a
     // Windows implementation. Refuse before allocating buffers or rendering
     // a partial result; never silently drop a requested effect.
@@ -956,6 +957,47 @@ bool Pipeline::node_boost(const Image& in, Image& out, std::string& error) {
                           in.elements(), error);
 }
 
+// **The headroom a digital frame clipped off, given back to the negative.** A
+// film with no anti-halation layer halates in proportion to the *scene's*
+// light, and a lamp a camera clipped at +3.5 EV was +8 or more: its halo is
+// that energy times a few tenths of a percent, so a clipped lamp throws almost
+// none. Each pixel is scaled by 2^(headroom * s), s the product of two
+// smoothsteps of its brightest channel -- within a stop of the frame's own
+// maximum (a digital frame's clip is its brightest exposure; Core Image's RAW
+// decode rounds a clipped lamp into a dome, so the clip is a band, not a
+// value), and over a floor above mid-grey (a dim frame's brightest pixel is not
+// a lamp). A face auto-exposure lifted to +2.5 EV on a night frame is three
+// stops under the lamps and is left alone.
+//
+// Here, in the whole-frame stage, because the maximum is a statistic of the
+// frame; and before `film_overscan`, because the edge print, fog and date are
+// exposures the engine knows exactly and must halate at what they are. Only
+// for a film with no layer: every other film is what it always was.
+bool Pipeline::node_headroom(const Image& in, Image& out, std::string& error) {
+    const HalationParams& hal = params_.film_render.halation;
+    if (!(hal.active && hal.back_reflection && hal.headroom_ev > 0.0 && hal.halation_amount > 0.0 &&
+          hal.headroom_to_ev > hal.headroom_from_ev)) {
+        out = in;
+        return true;
+    }
+    Timer t(this, "filming.expose.headroom");
+    double clip = 0.0;
+    if (!device_max(in, clip, error)) return false;
+    if (!(clip > 0.0)) { out = in; return true; }
+    const float p[7] = {float(1.0 / clip), float(kHeadroomClipFromEv),
+                        float(1.0 / (kHeadroomClipToEv - kHeadroomClipFromEv)),
+                        float(hal.headroom_ev), float(1.0 / kMidgray), float(hal.headroom_from_ev),
+                        float(1.0 / (hal.headroom_to_ev - hal.headroom_from_ev))};
+    gpu::BufferRef p_buf = gpu_->upload(p, sizeof p, error);
+    if (!p_buf) return false;
+    if (!alloc_like(in, out, error)) return false;
+    const uint32_t n[1] = {uint32_t(in.pixels())};
+    return gpu_->dispatch("spk_highlight_headroom",
+                          {gpu::Arg::buf(in.buf), gpu::Arg::buf(p_buf), gpu::Arg::inline_bytes(n, 1),
+                           gpu::Arg::buf(out.buf)},
+                          in.pixels(), error);
+}
+
 // --- the sigmas, in one place, because a demand must agree with its node ----
 //
 // Each of these was the first line of the node below it. They are members now
@@ -1045,7 +1087,22 @@ Pipeline::HalationBlurs Pipeline::halation_blurs() const {
         any_sigma |= sigma_h[c] > 0.0;
     }
     const int N = hal.halation_n_bounces;
-    if (N >= 1 && any_strength && any_sigma) {
+    if (hal.back_reflection) {
+        // No anti-halation layer: the base's rear face is a mirror and the halo
+        // is its geometry -- `halation_psf.hpp`, in units of the base's
+        // thickness, which the area multiplier scales as it scales any radius.
+        const double d_px = hal.base_thickness_um * h_scale * h_radius / px;
+        if (any_strength && d_px > 0.0) {
+            for (int k = 0; k < kBackReflectionComponents; ++k) {
+                Blur::Component comp{};
+                for (int c = 0; c < 3; ++c) {
+                    comp.weight[c] = kBackReflectionWeight[k][c];
+                    comp.sigma[c] = std::max(kBackReflectionSigmaOverBase[k][c] * d_px, 1e-6);
+                }
+                out.bounces.push_back(comp);
+            }
+        }
+    } else if (N >= 1 && any_strength && any_sigma) {
         // Braced, not parenthesised: `std::vector<double> decay(size_t(N))`
         // is a function declaration, not a vector (most vexing parse).
         std::vector<double> decay(static_cast<size_t>(N), 0.0);
@@ -1887,6 +1944,7 @@ bool Pipeline::film_boost(const Chain& in, Chain& out, std::string& error) {
     // side stay contiguous.
     Image cur = in.cur, next;
     SPK_NODE(node_boost(cur, next, error)); cur = next;
+    SPK_NODE(node_headroom(cur, next, error)); cur = next;
     out = in;
     out.cur = cur;
     return true;

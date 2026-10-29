@@ -877,6 +877,16 @@ reasoning: RFC-032 §25, §27.
   upside down along the bottom one, in a square 5 × 7 face with 1.50 mm caps ("ILFORD HP5 PLUS").
   Its frame numbers' face and order are assumed (the one strip is cropped through them), and its
   120 edge borrows Kodak's.
+  **CineStill 800T** (2026-10-23, from the owner's screenshots: three 135 frames on two rolls,
+  four 120 6×7 frames on two rolls): yellow-orange ink, no DX bars. On 135 the host's text alone
+  runs along one band in the square 5 × 7 face (caps 1.47 mm, a character every 1.38 mm, once a
+  frame, starting 6.4 mm before the frame's number); the other band carries "N" in a heavy
+  monospaced face standing on the film's edge (caps 1.78 mm, 0.79 mm past a perforation's centre)
+  and 18.4 mm on a stepped arrow and "NA" (caps 1.09 mm). On 120 the count runs above the frame
+  ("18" and a 3.4 mm wedge pointing back at it, every 39.5 mm) and below it a batch number and
+  the host's name (caps 1.23 mm, 25.0 mm apart, 66.6 mm a period); the batch is 4789 or 4727, the
+  only two the frames show. No wire change: the stock id selects it and `edge_text` carries the
+  name ("CINESTILL 800T").
   **The lettering, re-measured 2026-10-04** (the owner's real-against-rendered
   pairs; 1.3.1). Fujifilm's print is a dot matrix and is drawn as one: every
   mark is a pattern of dots 0.1155 mm apart along the film and 0.0984 mm
@@ -1041,6 +1051,15 @@ Windows embeds pinned Liberation Sans 2.1.5 regular/bold and stb_truetype
 (licenses/checksums in `engine/resources_product/fonts/README.md` and
 `engine/third_party/stb/README.md`). Font outlines differ from Helvetica Neue;
 this is a declared typography difference, not a material-profile modification.
+1.3.4's CineStill 800T edge asks for two more faces: **Menlo-Bold** (its 135
+numbers) is drawn with the embedded DejaVu Sans Mono Bold 2.37 (Menlo's own
+ancestor, same advance and cap height), and **ArialNarrow** (its 120 name and
+batch number) with Liberation Sans Regular condensed to 0.82 across (Arial
+Narrow's measured ratio to Arial). Measured against the Metal engine
+(2026-10-29), these cut the CineStill edge canvases' difference 4-5x (135: mean
+0.070 -> 0.015 code; 120: 0.247 -> 0.062); what remains is glyph shape. Marks
+the engine draws as vectors (date back, dot faces, DX code, arrows) are filled
+with exact-area coverage since 2026-10-29, as CoreGraphics fills them.
 
 The unmodified overscan regression corpus and product BW/filter/DX corpus
 pass on the RTX 5070 Ti. `host_film_edge.py` separately proves held crop/turn/
@@ -1088,3 +1107,79 @@ exposure gain is removed before clipping checks and RAW calibration; cached
 half-float pictures retain their own decode calibration. Non-RAW, missing holes,
 gap/edge samples and a mismatched side fail explicitly. Single-source calls
 retain their original `{session,x,y}` contract.
+## 18. CineStill 800T — the back-reflection halo and `halation_headroom_ev` (2026-10-23, branch `cinestill-800t`)
+
+**`film_stock: "cinestill_800t"`** is a product profile (`engine/resources_product/profiles/`) and
+an **alias**: `"derived_from": "kodak_vision3_500t"` with only `info` keys of its own (`name`,
+`use: still`, `antihalation: no`). The engine loads the base's data whole and lays the alias's
+`info` over it (`load_profile`); the neutral print pack falls back to the base's row. The film's
+stock in replies and in the setup cache is `cinestill_800t`.
+
+**A film made with no anti-halation layer** — a profile whose own `antihalation` tag is `no`, today
+only `cinestill_800t` — takes the **back-reflection** halo instead of the reference's three Gaussian
+bounces. **`antihalation_removed` does not select it** (the owner's decision for 1.3.4, carried into
+the 2.0 engine): a film with its layer switched off keeps the reference's Gaussian `no` preset
+(0.30 / 0.10 / 0.015), byte for byte as in 1.3.3, and ignores `halation_headroom_ev`. Extending the
+model to the switch is planned after the owner's test. The base's
+rear face reflects the light the emulsion scatters into it (Fresnel inside the critical angle, all
+of it past 42.5°), and inside it the camera's pressure plate returns 10 % of what leaves the base,
+so a point light exposes a disc with a brighter rim at r_c = 2 d tan θc = 1.83 d, then a cos⁴
+tail; the emulsion's re-scatter (35 %) sums further bounces. **Per layer**, the light returning to
+green and blue crosses the layers below them at the slant θ and loses exp(−τ(1/cos θ − 1)),
+τ = 0 / 1.2 / 3.0, so red's halo reaches furthest (90 % of its energy within 8.2 d, green's 3.8 d,
+blue's 2.7 d). `engine/tests/halation_psf_fit.py` integrates it and fits a four-Gaussian kernel
+per layer in `engine/src/core/halation_psf.hpp`; d = 120 µm, which is what a CineStill scan
+measures (the flat orange band beside a tube light ends at 0.21 mm). Strengths R/G/B
+0.30 / 0.03 / 0.003. Checked against the scans' red/green half-height reach, 1.49–2.65 on five
+lights (measured by a GPT Astra study, 2026-10-23): a +9 / +12 EV disc renders 1.92 / 2.12;
+a kernel shared by the three layers swings out of that range with brightness
+(`cinestill_checks.py`).
+`halation_amount` stays an area multiplier (d scales with its square root). Films with a layer are
+unchanged byte for byte. **The Python reference's `no` preset is the Gaussian one; there is no
+parity case for it.**
+
+| field | path | type | default | range | meaning |
+|---|---|---|---|---|---|
+| `halation_headroom_ev` | `film_render.halation.headroom_ev` | float | `4.0` | 0–8 | **back-reflection only.** The stops a *clipped* highlight is taken to have been above what the frame recorded. The negative's exposure has each pixel scaled by 2^(headroom · s), s the product of two smoothsteps of the pixel's brightest channel: within a stop of the frame's own maximum (full from a quarter stop under it), and +1.5 … +2.5 EV over mid-grey. A lamp clipped at +3.5 EV exposes the film as a +7.5 EV lamp would — its halo, and its core on the film's shoulder (a clipped red tube's core prints pink-white inside a red halo); a face auto-exposure lifted to +2.5 EV on a night frame, three stops under the lamps, is left alone. `0` is the recorded frame. Native-only, SHOOT, not live, after `camera_filter` |
+
+`node_headroom` runs in the whole-frame `film_boost` stage, after `boost` (the frame's maximum is
+its statistic) and **before `film_overscan`**: the edge print, fog and date are exposures the engine
+knows exactly, and halate at what they are. Measured canvas against export (live 1200 px vs full
+downscaled): the halo's energy is 0.83–1.01 of the export's (the low end a frame of tiny lights), and the frame's mean difference is no
+larger than plain 500T's. The kernel `spk_highlight_headroom` runs on both backends: Metal
+(`nodes.metal`) and, since 2026-10-29, Vulkan (`shaders/vulkan/spk_highlight_headroom.comp`,
+the same formula). A back-reflection film is no longer refused on Windows/Linux. Graded against
+the 1.3.4 Metal engine on a Mac (MoltenVK, `engine/tests/parity_metal_vulkan.py`): CineStill 800T at
+headroom 0, 4 and 8, amount 4, its scan and its density tap agree to <= 0.01 of an 8-bit code;
+the wire is unchanged.
+
+## 19. `no_film` — "Don't Apply Film Simulation" on the desktop host (2026-10-29, R4)
+
+The 1.3.4 Mac app's per-frame *Don't Apply Film Simulation* (`Sidecar.noFilm`,
+`Exporter.filePixels`, fd891c6b) writes the **decode** at its own pixels, in the
+working space, through the same Layer 2 grade, geometry and output conversion a
+print takes. The Windows/Linux host's file and proof methods carry it as one
+additive field (desktop/PROTOCOL-REQUESTS.md R4):
+
+| method | field | type | default | meaning |
+|---|---|---|---|---|
+| `export_frame`, `render_proof` | `no_film` | bool | `false` | `true`: the session's decoded source (native size, linear ProPhoto encoded with ProPhoto's transfer function and clipped to [0, 1], as the Mac's `rgba16Unorm` decode texture is) replaces the print; then `adjustments` (Layer 2), `geometry`, `long_edge`, the output transform for `color_space` (the same file-boundary chroma knee a print passes), encode and EXIF, unchanged. `params`, `source_geometry` and `scene_placement` are **not applied** (the editor's session is not modified); no DI view, no pair layers, never cached as the print. |
+
+- `no_film: true` with `export_cineon`, or with `render_proof` `format: "di"`: `bad_request` (the Digital Intermediate is the film's negative).
+- On a half-frame pair session: `bad_request` (the Mac disables the switch for a pair).
+- A non-boolean `no_film`: `bad_request`.
+- `hello.frame_options` lists `"no-film"`.
+- Engine side: `spk::view::Request::no_film` (internal desktop boundary, `view.hpp`), not a C ABI field and not a `params_schema` field.
+
+**Against the Mac.** For a flat file (PNG, JPEG, TIFF) the Mac's decode is the
+file's own rendering in the working space, so the pixels are the same chain:
+`engine/tests/host_no_film.py` writes a low-chroma PNG and gets it back from a
+no-film sRGB 16-bit file within 1 code (mean 0.001), while the film print of the
+same frame differs by 11 codes on average. For a **RAW** the Mac draws Apple's
+default Core Image rendering (`decoded.display`, its tone curve on) and the host
+the LibRaw linear decode -- the same pixels its `render_source` shows; that is
+the RAW-decoder difference already declared, not something this field can close.
+
+Test: `engine/tests/host_no_film.py` (a host CTest, `spk_host_no_film_workflow`).
+Red on the host before this change (it wrote the print: max 38, mean 11.0 codes
+from the decode).

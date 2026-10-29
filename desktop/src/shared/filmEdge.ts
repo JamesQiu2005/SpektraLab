@@ -1,9 +1,9 @@
 // FilmEdge.swift and Session+FilmEdge.swift, pinned upstream f1440bd1.
 // These are host/UI rules; all fog, edge and date exposure math stays in the engine.
-import type { DateBackSettings, FeatureGate, FilmEdgeSettings, FilmParams } from './params';
-import type { FileMetadata } from './protocol';
-import type { Stock, StockCatalog } from './stocks';
-import { GEOMETRY_DEFAULT, constrained, isIdentity, outputSize, type Geometry, type Size } from './geometry';
+import type { DateBackSettings, FeatureGate, FilmEdgeSettings, FilmParams } from './params.ts';
+import type { FileMetadata } from './protocol.ts';
+import type { Stock, StockCatalog } from './stocks.ts';
+import { GEOMETRY_DEFAULT, constrained, isIdentity, outputSize, type Geometry, type Size } from './geometry.ts';
 
 export const EDGE_FORMATS = [
   { id: '135', label: '135', long: 36, short: 24, gauge: '135' },
@@ -88,6 +88,7 @@ const EDGE_WORDS: Record<string, [string, string?]> = {
   fujifilm_c200: ['FUJI 200'], fujifilm_xtra_400: ['S-400', 'FUJI S-400'],
   fujifilm_pro_400h: ['PRO400H', 'FUJI PRO400H'], fujifilm_provia_100f: ['FUJI RDPIII'], fujifilm_velvia_100: ['RVP100', 'FUJI RVP100'],
   kodak_vision3_50d: ['EASTMAN 5203'], kodak_vision3_250d: ['EASTMAN 5207'], kodak_vision3_200t: ['EASTMAN 5213'], kodak_vision3_500t: ['EASTMAN 5219'],
+  cinestill_800t: ['CINESTILL 800T'], // CineStill prints its own name on both gauges (1.3.4)
   kodak_tri_x_400: ['KODAK 400TX'], kodak_tmax_100: ['KODAK 100TMX'], fujifilm_neopan_acros_100_ii: ['FUJI 100 ACROS II'], ilford_hp5_plus_400: ['ILFORD HP5 PLUS'],
 };
 export function edgeText(stock: Stock | undefined, format: string): string {

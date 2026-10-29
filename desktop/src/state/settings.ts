@@ -15,7 +15,7 @@ import { RENDER_PREFERENCES_DEFAULT, renderPreferences } from '@shared/renderPre
 export type InterfaceScale = 100 | 115 | 130;
 export const INTERFACE_SCALES: InterfaceScale[] = [100, 115, 130];
 export const PREVIEW_EDGES = [3840, 2560, 1920, 1080] as const;
-export const PANEL_WIDTHS = { leftWidth: [232, 254, 380], rightWidth: [268, 288, 364] } as const;
+export const PANEL_WIDTHS = { leftWidth: [232, 254, 380], rightWidth: [280, 288, 364] } as const;
 export function boundedPanelWidth(key: keyof typeof PANEL_WIDTHS, width: number): number {
   const [lo, normal, hi] = PANEL_WIDTHS[key];
   return Number.isFinite(width) ? Math.max(lo, Math.min(hi, width)) : normal;

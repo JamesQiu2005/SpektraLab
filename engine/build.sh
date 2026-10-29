@@ -155,6 +155,14 @@ bundle_resources() {
   fi
   mkdir -p "$app"
   rsync -a --delete "$here/resources/" "$app/"
+  # The product's own profiles (black and white; `resources_product/NOTICE.md`)
+  # go in beside spektrafilm's, because the engine opens a stock from one
+  # `profiles/` directory. They are not spektrafilm's and the notice travels
+  # with them. The app lists them only where `FeatureFlags.blackAndWhite` is on.
+  if [[ -d "$here/resources_product/profiles" ]]; then
+    cp "$here/resources_product/profiles/"*.json "$app/profiles/"
+    cp "$here/resources_product/NOTICE.md" "$app/PRODUCT_PROFILES_NOTICE.md"
+  fi
   local size
   size=$(du -sh "$app" | cut -f1)
   echo "bundle     -> $app ($size)"

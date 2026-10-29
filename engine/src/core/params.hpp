@@ -77,6 +77,34 @@ struct HalationParams {
     int halation_n_bounces = 3;
     double halation_bounce_decay = 0.5;
     bool halation_renormalize = true;
+
+    /// **The film with no anti-halation layer at all** (`apply_halation_preset`,
+    /// tag `no`) takes the back-reflection model instead of the reference's
+    /// Gaussian bounces: light the emulsion scatters into the base comes back
+    /// off the base's rear face -- Fresnel inside the critical angle, all of it
+    /// past it -- and re-exposes the emulsion in a ring at 2 d tan(theta_c)
+    /// with a cos^4 tail, summed over the emulsion's re-scatter. The kernel is
+    /// a fixed four-Gaussian fit of that integral in units of the base
+    /// thickness (`halation_psf.hpp`). False for every film that has a layer,
+    /// whose renders are what they always were.
+    bool back_reflection = false;
+    /// The base's thickness, the one length the back-reflection kernel has.
+    /// 120 um is a 35 mm acetate base, and what a CineStill 800T scan measures:
+    /// the flat orange band beside a tube light ends at r_c = 1.83 d = 0.21 mm.
+    double base_thickness_um = 120.0;
+    /// Native-only, **back-reflection only**: how far above what the frame
+    /// recorded a highlight is taken to have been, in stops. A digital frame
+    /// clips a lamp at +3..+4 EV over mid-grey where the scene had +8..+12, and
+    /// the halo is the source's *energy* times a few tenths of a percent, so a
+    /// clipped lamp throws almost none. The negative's exposure is lifted by
+    /// 2^(headroom * s) before the film edge is laid out (`node_headroom`), s
+    /// the product of two smoothsteps of the pixel's brightest channel: within
+    /// a stop of the frame's own maximum (`kHeadroomClipFromEv`), and at least
+    /// `headroom_from_ev` .. `headroom_to_ev` over mid-grey. The halo and the
+    /// film's shoulder both see it. 0 is the recorded frame as it is.
+    double headroom_ev = 4.0;
+    double headroom_from_ev = 1.5;
+    double headroom_to_ev = 2.5;
 };
 
 struct DirCouplersParams {

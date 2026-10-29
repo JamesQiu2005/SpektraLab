@@ -38,6 +38,9 @@ struct ProfileInfo {
     std::string channel_model = "color", densitometer = "status_M";
     double log_sensitivity_density_over_min = 0.2;
     std::string reference_illuminant = "D55", viewing_illuminant = "D50";
+    /// The stock whose data this profile reads when it is a `derived_from`
+    /// alias (`load_profile`); empty for a profile that carries its own data.
+    std::string base_stock;
 
     bool is_positive() const { return type == "positive"; }
 };

@@ -317,10 +317,22 @@ modern_UI/Spektrafilm/Spektrafilm/Resources/engine/
 # `handoff/` is the session-to-session record (HANDOFF-*.md and the design
 # references), and `CLAUDE.md` is the agent's entry point. Both stay on the
 # machine that works on the product and are not part of the public repository;
-# code comments that cite "HANDOFF-… §n" refer to them. `AGENTS.md`, the RFCs
-# and ARCHITECTURE.md stay tracked.
+# code comments that cite "HANDOFF-… §n" refer to them. `AGENTS.md` and
+# ARCHITECTURE.md stay tracked.
 /handoff/
 /CLAUDE.md
+
+# The same goes for the design records, the product notes, the research
+# notebooks and the drawings (2026-10-13). The repository carries what the
+# README, a build on another machine and the tests need; comments that cite
+# "RFC-nnn §n", `PRD/…` or a drawing refer to these local files.
+/rfc/
+/PRD/
+/research/
+/reference_film/
+/usage-guide/
+/modern_UI/*
+!/modern_UI/Spektrafilm/
 
 # The Illustrator drawing the icon came out of. The icon itself is **tracked**
 # and is not here: it is `modern_UI/Spektrafilm/Spektrafilm/SpektraLab.icon`,

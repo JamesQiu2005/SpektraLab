@@ -59,7 +59,7 @@
 #include "pipeline.hpp"
 #include "print_lut.hpp"
 #include "setup_cache.hpp"
-#ifndef __APPLE__
+#if !defined(__APPLE__) || defined(SPK_VULKAN_BACKEND)
 #include "windows_unported.hpp"
 #include "view_process.hpp"
 #endif
@@ -68,7 +68,7 @@ using namespace spk;
 
 namespace {
 
-#ifndef __APPLE__
+#if !defined(__APPLE__) || defined(SPK_VULKAN_BACKEND)
 constexpr const char* kRenderCore = "native-vulkan";
 #else
 constexpr const char* kRenderCore = "native-metal";
@@ -199,7 +199,7 @@ struct spk_session {
     // one copy is unavoidable; this makes that copy the upload.
     Image source;
 
-#ifndef __APPLE__
+#if !defined(__APPLE__) || defined(SPK_VULKAN_BACKEND)
     // No image buffer is retained here. The file owns the exact byte copy,
     // and the indices preserve source/full-tier aliases on restoration.
     struct ResidencySnapshot {
@@ -245,7 +245,7 @@ struct spk_session {
         uint32_t image_long_edge = 0;
         Image negative;   // Tap.CMY_FILM
         bool has_negative = false;
-#ifndef __APPLE__
+#if !defined(__APPLE__) || defined(SPK_VULKAN_BACKEND)
         // Encoded RGBA16 on device (c=2 uint32 words/pixel). Kept until a
         // material parameter changes; view edits never redraw film grain.
         Image view_print;
@@ -351,7 +351,7 @@ struct spk_engine {
         backend.set("render_core", Json(std::string(kRenderCore)));
         backend.set("host", Json(std::string("native")));
         backend.set("math_mode", Json(math_mode));
-#ifndef __APPLE__
+#if !defined(__APPLE__) || defined(SPK_VULKAN_BACKEND)
         // These upstream effects still require kernels or Apple services that
         // have not been ported. Defaults stay usable; explicit requests fail.
         Json unported = Json::array();
@@ -455,7 +455,7 @@ struct spk_engine {
             size_t views = 0;
             int count = 0;
             for (const auto& kv : s->tiers) {
-#ifndef __APPLE__
+#if !defined(__APPLE__) || defined(SPK_VULKAN_BACKEND)
                 if (gpu && kv.second.view_print.buf) views += gpu->size_bytes(kv.second.view_print.buf.get());
 #endif
                 if (!kv.second.has_negative || !kv.second.negative.buf || !gpu) continue;
@@ -471,7 +471,7 @@ struct spk_engine {
             row.set("source_bytes", Json(double(source)));
             row.set("cached_negative_bytes", Json(double(negatives)));
             row.set("cached_view_bytes", Json(double(views)));
-#ifndef __APPLE__
+#if !defined(__APPLE__) || defined(SPK_VULKAN_BACKEND)
             size_t on_disk = 0;
             if (s->residency) for (const auto& plane : s->residency->planes) on_disk += plane.bytes;
             row.set("residency_suspended", Json(bool(s->residency)));
@@ -588,7 +588,7 @@ const char* spk_build_info(void) {
     // The build stamp is what a bug report quotes, so it names the three
     // things that decide whether two builds render the same picture: the
     // engine's own version, the compiler date, and the backend math probe.
-#ifndef __APPLE__
+#if !defined(__APPLE__) || defined(SPK_VULKAN_BACKEND)
     static const std::string info =
         std::string("spektrafilm-native 0.1.0 (") + __DATE__ " " __TIME__ ", math=probed)";
 #else
@@ -629,7 +629,7 @@ spk_engine* spk_engine_create(const char* resources_dir, void* device) {
 
     if (!engine->print_luts.init(engine->resources_dir, error)) { g_error = error; return nullptr; }
 
-#ifndef __APPLE__
+#if !defined(__APPLE__) || defined(SPK_VULKAN_BACKEND)
     if (device) { g_error = "Windows device-buffer input is not implemented yet; pass null"; return nullptr; }
     engine->gpu = gpu::Gpu::create_vulkan(engine->resources_dir + "/vulkan", error);
 #else
@@ -1203,7 +1203,7 @@ bool materialise(spk_session* session, const Image& rgb, spk_result* out, std::s
         out->row_stride_px = stride;
         out->texture = gpu->texture(buffer.get(), rgb.w, rgb.h, stride, error);
         ok = out->texture != nullptr;
-#ifndef __APPLE__
+#if !defined(__APPLE__) || defined(SPK_VULKAN_BACKEND)
         // The headless Vulkan result owns a separate CPU copy. The dispatch
         // buffer is released when this function returns.
         if (ok) out->rgba16 = static_cast<const uint16_t*>(out->texture);
@@ -1238,7 +1238,7 @@ spk_status render_tier(spk_session* session, const char* tier_name, bool use_rep
     // Opt-in, because turning it on serialises every node. See Progress.
     session->progress.detailed = std::getenv("SPEKTRAFILM_NODE_TIMINGS") != nullptr;
 
-#ifndef __APPLE__
+#if !defined(__APPLE__) || defined(SPK_VULKAN_BACKEND)
     // A legacy explicit render requests a new print, so no later desktop
     // view may reuse the result from before that request.
     session->tiers[tier->name].view_print = Image{};
@@ -1306,7 +1306,7 @@ spk_status spk_render(spk_session* session, const char* tier, spk_result* out) {
 
 }  // extern "C"
 
-#ifndef __APPLE__
+#if !defined(__APPLE__) || defined(SPK_VULKAN_BACKEND)
 namespace {
 constexpr size_t kResidencyChunkBytes = 8u * 1024u * 1024u;
 
@@ -1712,9 +1712,18 @@ bool spk::view::render(spk_session* session, const Request& request, Result& res
         request.target_space != "Adobe RGB (1998)" && request.target_space != "ITU-R BT.2020") {
         error = "view: unknown target space"; return false;
     }
+    if (request.no_film && request.cineon) {
+        error = "view: no_film cannot write a Digital Intermediate (the DI is the film's negative)"; return false;
+    }
+    if (request.no_film && !request.pair.is_null()) {
+        error = "view: no_film is not available for a half-frame pair"; return false;
+    }
     std::lock_guard<std::mutex> guard(session->lock);
     if (session->params.io.output_color_space != "ProPhoto RGB" || !session->params.io.output_cctf_encoding) {
         error = "view: the desktop postprocess requires encoded ProPhoto RGB"; return false;
+    }
+    if (request.no_film && (session->params.io.input_color_space != "ProPhoto RGB" || session->params.io.input_cctf_decoding)) {
+        error = "view: no_film expects the desktop linear ProPhoto input"; return false;
     }
     auto* gpu = session->engine->gpu;
     gpu->begin_frame();
@@ -1732,9 +1741,31 @@ bool spk::view::render(spk_session* session, const Request& request, Result& res
     auto& state = session->tiers[tier->name];
     uint32_t full_w = 0, full_h = 0;
     if (!session->pipeline->full_output_size(session->source.w, session->source.h, full_w, full_h, error)) return false;
-    result.print_cached = !request.cineon && state.view_print.valid();
+    result.print_cached = !request.cineon && !request.no_film && state.view_print.valid();
     Image packed_print = state.view_print;
-    if (!result.print_cached) {
+    if (request.no_film) {
+        // The decode, not the print: native size, encoded into the working
+        // space by the same kernel and transfer function the print's output
+        // stage uses, then packed to RGBA16 (which clips to [0, 1], as the
+        // Mac's rgba16Unorm decode texture does). Never cached as the print.
+        const Image& decoded = session->source;
+        if (!decoded.valid() || decoded.c != 3) { error = "view: no decoded source"; return false; }
+        auto encoded = gpu->alloc(decoded.bytes(), error);
+        if (!encoded) return false;
+        const float identity[9] = {1, 0, 0, 0, 1, 0, 0, 0, 1};
+        const uint32_t mode[] = {uint32_t(decoded.pixels()), cctf_mode_for("ProPhoto RGB")};
+        if (!gpu->dispatch("spk_cctf_encode_matrix", {gpu::Arg::buf(decoded.buf), gpu::Arg::inline_bytes(identity, 9),
+                gpu::Arg::inline_bytes(mode, 2), gpu::Arg::buf(encoded)}, decoded.pixels(), error) || !gpu->flush(error))
+            return false;
+        Image packed; packed.w = decoded.w; packed.h = decoded.h; packed.c = 2;
+        packed.buf = gpu->alloc(packed.bytes(), error);
+        if (!packed.buf) return false;
+        uint32_t meta[] = {uint32_t(decoded.pixels()), decoded.w, decoded.w};
+        if (!gpu->dispatch("spk_to_rgba16", {gpu::Arg::buf(encoded), gpu::Arg::inline_bytes(meta, 3), gpu::Arg::buf(packed.buf)},
+                           decoded.pixels(), error) || !gpu->flush(error)) return false;
+        packed_print = std::move(packed);
+        full_w = decoded.w; full_h = decoded.h;
+    } else if (!result.print_cached) {
         session->pipeline->set_source_shape(source.w, source.h, session->source.w, session->source.h);
         Image negative, rgb;
         if (!negative_for(session, *tier, &session->progress, negative, error)) return false;
@@ -1790,7 +1821,7 @@ bool spk::view::render(spk_session* session, const Request& request, Result& res
         return true;
     };
     gpu::BufferRef di_lut;
-    const bool di_view = session->params.io.digital_intermediate && !session->params.io.scan_film &&
+    const bool di_view = !request.no_film && session->params.io.digital_intermediate && !session->params.io.scan_film &&
                          !session->params.film.info.is_positive();
     if ((request.cineon || di_view) && !di_view_table(session->engine, di_lut, error)) return false;
     if (request.cineon) {
@@ -2308,7 +2339,7 @@ spk_status spk_set_params(spk_session* session, const char* params_delta_json, c
     std::lock_guard<std::mutex> guard(session->lock);
     spk_engine* engine = session->engine;
     const bool shoot = delta_touches_shoot(delta);
-#ifndef __APPLE__
+#if !defined(__APPLE__) || defined(SPK_VULKAN_BACKEND)
     // Reject before applying the delta, so a failed request cannot leave the
     // session's params ahead of its still-valid, previously built pipeline.
     if (const char* unported = windows_unported_delta_error(delta)) {
@@ -2397,7 +2428,7 @@ spk_status spk_set_params(spk_session* session, const char* params_delta_json, c
 
     Json out = Json::object();
     out.set("invalidated", Json(std::string(shoot ? "shoot" : "print")));
-#ifndef __APPLE__
+#if !defined(__APPLE__) || defined(SPK_VULKAN_BACKEND)
     if (!delta.fields().empty())
         for (auto& kv : session->tiers) kv.second.view_print = Image{};
 #endif
@@ -2939,7 +2970,7 @@ void spk_session_release(spk_session* session) {
     // Every buffer the session held is a counted handle, so destroying it is
     // all the releasing there is.
     delete session;
-#ifndef __APPLE__
+#if !defined(__APPLE__) || defined(SPK_VULKAN_BACKEND)
     // The discrete backend must not retain a multi-GB scratch arena after the
     // last photograph closes. Keep the check and trim under the same engine
     // lock as registration; retained C results own independent CPU memory.
@@ -2953,7 +2984,7 @@ void spk_session_release(spk_session* session) {
 
 }  // extern "C"
 
-#ifndef __APPLE__
+#if !defined(__APPLE__) || defined(SPK_VULKAN_BACKEND)
 size_t spk::view::trim_idle_memory(spk_engine* engine) {
     if (!engine || !engine->gpu) return 0;
     return engine->gpu->trim_pool(0);

@@ -13,7 +13,9 @@ import {
   setGeometry,
   setPages,
   setParams,
-  selectFilmStock,
+  pickFilmStock,
+  resetFilmStock,
+  setNoFilm,
   selectPrintStock,
   syncSettings,
   useSession,
@@ -197,15 +199,31 @@ function ClipboardSection() {
 function FilmSection() {
   const catalog = useSession((s) => s.catalog);
   const film = useSession((s) => s.sidecar.params.filmStock);
+  const noFilm = useSession((s) => s.sidecar.noFilm === true);
+  const pair = useSession((s) => !!s.pair);
+  const selection = useSession((s) => s.selection);
   const rows = catalog.filmGroups().flatMap((g) => [
     { id: '__g' + g.title, name: g.title === 'Positive' ? t('filmGroupPositive') : g.title === 'Black & White' ? tz('Black & White', '黑白') : t('filmGroupNegative'), header: true },
     ...g.films.map((f) => ({ id: f.id, name: f.name, cine: f.use === 'cine', cover: catalog.coverURL(f.id) })),
   ]);
+  // The header's arrow and the menu item say the same thing in words (FilmSection.swift, §8.3).
+  const resetHelp = tz('Reset the film stock to Portra 400', '将胶片重置为 Portra 400');
   return (
     <Section
       id="film"
       title={t('sectionFilm')}
+      onReset={resetFilmStock}
+      resetHelp={resetHelp}
       menu={[
+        {
+          // 1.3.4: the frame as decoded, with its Post-Dev edits; the film settings are kept.
+          label: tz("Don't Apply Film Simulation", '不应用胶片模拟'),
+          checked: noFilm && !pair,
+          disabled: pair || !selection,
+          onSelect: () => setNoFilm(!noFilm),
+          testId: 'no-film-toggle',
+        },
+        { label: resetHelp, onSelect: resetFilmStock, divider: true },
         {
           label: t('helpUseFilmPaper'),
           disabled: !catalog.stock(film)?.targetPrint,
@@ -216,7 +234,7 @@ function FilmSection() {
         },
       ]}
     >
-      <StockList rows={rows} selected={film} onSelect={selectFilmStock} testId="film-list" />
+      <StockList rows={rows} selected={film} onSelect={pickFilmStock} testId="film-list" />
     </Section>
   );
 }

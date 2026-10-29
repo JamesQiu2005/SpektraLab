@@ -8,7 +8,7 @@ turns them off; what is compared is the overscan's own randomness, which is
 seeded. Against an engine from before RFC-032 the first check fails
 (`unknown parameter 'overscan_active'`) -- that is the red this was shown.
 """
-import argparse, json, sys
+import argparse, json, os, sys, tempfile
 from pathlib import Path
 import numpy as np
 
@@ -751,8 +751,101 @@ def main():
             check(f"{fmt} prints the data beside it without moving the date",
                   both.sum() > dd.sum() + 60 and (both & dd).sum() == dd.sum(), f"{both.sum()} px against {dd.sum()}")
 
+    # --- CineStill 800T's own edge (the owner's screenshots, 2026-10-23) ---
+    # A product profile, so the engine gets the product's profiles laid over its resources.
+    # Each bar below is red on the engine before the stock had a layout of its own, which drew
+    # Kodak's (name caps 1.22 mm, "13" 1.40 mm tall 0.14 mm in, "12A" 17.5 mm after "12", the
+    # name on 120's top band, tan ink).
+    with tempfile.TemporaryDirectory() as tmp, spk.Engine(dylib=a.dylib, resources=product_overlay(tmp)) as e:
+        CS = dict(BASE, film_stock="cinestill_800t", overscan_active=True, overscan_edge_text="CINESTILL 800T",
+                  overscan_frame_number=12, overscan_camera_seed=7, overscan_frame_seed=3)
+
+        def cs_render(img_, fmt):
+            s = e.open(img_, dict(CS, overscan_format=fmt))
+            try:
+                r, _ = s.render("full")
+                g = s.overscan_geometry()
+            finally:
+                s.close()
+            return r[..., :3].astype(float) / 257.0, g
+
+        def lit_runs(b, mm, join):
+            col = b.max(0)
+            xs = np.flatnonzero(col > 0.5 * col.max())
+            return [(a_[0] * mm, (a_[-1] + 1) * mm) for a_ in np.split(xs, np.flatnonzero(np.diff(xs) > join / mm) + 1)]
+
+        c, g = cs_render(frame(2400, 1610), "135")
+        mm = g["mm_per_px"]
+        red = c[..., 0]
+        H = red.shape[0]
+        # the name band, the film's edge to the perforations
+        nb = red[int(0.05 / mm):int(1.85 / mm)]
+        rows = np.flatnonzero(nb.max(1) > 0.5 * nb.max())
+        cap = (rows[-1] - rows[0] + 1) * mm
+        check("CineStill 135: the name's caps stand 1.40-1.62 mm (the strips' 1.47, 1.51 developed)", 1.40 <= cap <= 1.62,
+              f"{cap:.2f} mm")
+        chars = [r_ for r_ in lit_runs(nb, mm, 0.03) if 1.0 <= r_[1] - r_[0] <= 1.45]
+        pitch = float(np.median(np.diff([r_[0] for r_ in chars]))) if len(chars) > 3 else 0.0
+        check("CineStill 135: a character every 1.33-1.42 mm (the strips' 1.38)", 1.33 <= pitch <= 1.42, f"{pitch:.3f} mm")
+        ink = c[int(0.05 / mm):int(1.85 / mm)][nb > 0.5 * nb.max()]
+        hue = ink[ink.sum(1) >= np.percentile(ink.sum(1), 66)].mean(0)
+        gr, br = hue[1] / hue[0], hue[2] / hue[0]
+        check("CineStill: the print is yellow to orange, G/R 0.65-0.90 and B/R under 0.30 (scans: .59-.97, .16-.35)",
+              0.65 <= gr <= 0.90 and br < 0.30, f"({gr:.2f}, {br:.2f})")
+        # the number band: "12" standing on the film's edge, then the arrow and "12A" a half frame on
+        bb = red[H - int(1.95 / mm):]
+        groups = lit_runs(bb, mm, 0.45)
+        big = [gr_ for gr_ in groups if 2.6 <= gr_[1] - gr_[0] <= 3.6]
+        tall, foot = 0.0, 9.0
+        if big:
+            nb_ = bb[:, int(big[0][0] / mm):int(big[0][1] / mm)]
+            brows = np.flatnonzero(nb_.max(1) > 0.5 * bb.max())
+            tall, foot = (bb.shape[0] - brows[0]) * mm, (bb.shape[0] - 1 - brows[-1]) * mm
+        check("CineStill 135: the frame number stands 1.65-1.90 mm tall on the film's edge (the strips' 1.78)",
+              1.65 <= tall <= 1.90 and foot < 0.10, f"{tall:.2f} mm, {foot:.2f} mm from the edge")
+        nxt = [gr_ for gr_ in groups if big and gr_[0] > big[0][1] + 5.0]
+        gap = nxt[0][0] - big[0][0] if big and nxt else 0.0
+        check("CineStill 135: the arrow and 12A start 18.2-18.6 mm after 12 (18.3 and 18.5 on two rolls)",
+              18.2 <= gap <= 18.6, f"{gap:.2f} mm")
+
+        c, g = cs_render(frame(2400, 1934), "120_6x7")
+        mm = g["mm_per_px"]
+        red = c[..., 0]
+        q = g["gates"][0]
+        gt, gb = min(q[1::2]) * red.shape[0], max(q[1::2]) * red.shape[0]
+        below = red[int(gb) + 2:]
+        name = [r_ for r_ in lit_runs(below, mm, 0.6) if 10.0 <= r_[1] - r_[0] <= 12.5]
+        check("CineStill 120: the name runs 10.5-12.2 mm along the edge under the frame (the frames' 11.4)",
+              len(name) >= 1 and all(10.5 <= r_[1] - r_[0] <= 12.2 for r_ in name),
+              str([round(float(r_[1] - r_[0]), 2) for r_ in name]))
+        above = red[:int(gt) - 1]
+        wedges = [r_ for r_ in lit_runs(above, mm, 0.05) if 3.0 <= r_[1] - r_[0] <= 3.8]
+        check("CineStill 120: a wedge 3.2-3.6 mm long by each count above the frame (the frames' 3.4)",
+              len(wedges) >= 1 and all(3.2 <= r_[1] - r_[0] <= 3.6 for r_ in wedges),
+              str([round(float(r_[1] - r_[0]), 2) for r_ in wedges]))
+        if len(wedges) >= 2:
+            check("CineStill 120: the counts are 39.0-40.0 mm apart (38.8-39.9 on three frames)",
+                  39.0 <= wedges[1][0] - wedges[0][0] <= 40.0, f"{wedges[1][0] - wedges[0][0]:.2f} mm")
+
     print(f"{failures} failure(s)")
     return 1 if failures else 0
+
+
+def product_overlay(tmp):
+    """engine/resources with the product's profiles laid over it, by symlink (as bw_checks.py does)."""
+    engine = Path(__file__).resolve().parents[1]
+    res = Path(tmp) / "resources"
+    (res / "profiles").mkdir(parents=True)
+    for f in (engine / "resources").iterdir():
+        if f.name != "profiles":
+            os.symlink(f, res / f.name)
+    for d in (engine / "resources" / "profiles", engine / "resources_product" / "profiles"):
+        for f in d.glob("*.json"):
+            dst = res / "profiles" / f.name
+            if dst.exists() or dst.is_symlink():
+                dst.unlink()
+            os.symlink(f, dst)
+    return res
 
 
 if __name__ == "__main__":

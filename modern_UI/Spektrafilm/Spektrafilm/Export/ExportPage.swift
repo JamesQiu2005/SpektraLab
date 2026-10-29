@@ -96,8 +96,8 @@ struct ExportPage: View {
     /// Every label in the page's label column, so the column can be measured
     /// off them (`Theme.Metric.Export.labelWidth(fitting:)`). A label added to
     /// a row goes here too; `LayoutTests` checks the column holds them all.
-    static let columnLabels = ["Folder", "Subfolder", "Existing File", "Format", "File name",
-                               "Color Space", "Quality", "Size", "Open With", "Preview"]
+    @MainActor static var columnLabels: [String] { [L("Folder", zh: "文件夹"), L("Subfolder", zh: "子文件夹"), L("Existing File", zh: "已有文件"), L("Format", zh: "格式"), L("File name", zh: "文件名"),
+                               L("Color Space", zh: "色彩空间"), L("Quality", zh: "质量"), L("Size", zh: "尺寸"), L("Open With", zh: "打开方式"), L("Preview", zh: "预览")] }
 
     /// The label column: wide enough for the widest label at the scale in use.
     @MainActor static var labelColumn: CGFloat { M.labelWidth(fitting: columnLabels) }
@@ -111,7 +111,7 @@ struct ExportPage: View {
         var id: String { rawValue }
         /// `notes.md` names both glyphs.
         var glyph: String { self == .grid ? "square.grid.2x2" : "rectangle.grid.3x1" }
-        var help: String { self == .grid ? "Grid" : "Viewer" }
+        @MainActor var help: String { self == .grid ? L("Grid", zh: "网格") : L("Viewer", zh: "查看器") }
     }
 
     private struct ResultNote: Identifiable {
@@ -397,16 +397,16 @@ struct ExportPage: View {
             // pill dissolved. One container is one transition, in both
             // directions.
             HStack(spacing: 0) {
-                zoomButton("plus.magnifyingglass", "Zoom in", 1.5)
+                zoomButton("plus.magnifyingglass", L("Zoom in", zh: "放大"), 1.5)
                 zoomPill.padding(.horizontal, M.zoomClusterGap)
-                zoomButton("minus.magnifyingglass", "Zoom out", 1 / 1.5)
+                zoomButton("minus.magnifyingglass", L("Zoom out", zh: "缩小"), 1 / 1.5)
             }
             .frame(width: M.zoomClusterWidth)
             .transition(.opacity)
         } else {
             DetentSlider(value: $gridColumns, range: M.gridColumns,
                          width: M.zoomClusterWidth,
-                         help: "Thumbnail size — \(gridColumns) columns")
+                         help: L("Thumbnail size — \(gridColumns) columns", zh: "缩略图大小——\(gridColumns) 列"))
                 .transition(.opacity)
         }
     }
@@ -447,7 +447,7 @@ struct ExportPage: View {
     /// neither this pill nor the count beside it.
     private var zoomPill: some View {
         Menu {
-            Button("Fit") { zoom = 1 }
+            Button(L("Fit", zh: "适合")) { zoom = 1 }
             Divider()
             ForEach([0.5, 1.0, 2.0, 4.0], id: \.self) { f in
                 Button("\(Int(f * 100)) %") { zoom = CGFloat(f) }
@@ -466,14 +466,14 @@ struct ExportPage: View {
     }
 
     private var countPill: some View {
-        Text(batch.count == 1 ? "1 image" : "\(batch.count) images")
+        Text(batch.count == 1 ? L("1 image", zh: "1 张图像") : "\(batch.count) images")
             .font(F.label)
             .foregroundStyle(Theme.text)
             .frame(width: M.pillWidth + 22, height: M.pillHeight)
             .background(Theme.well, in: Capsule())
             .help(batch.count == session.frames.count
-                  ? "Every image in the session"
-                  : "\(batch.count) of \(session.frames.count) selected for this export")
+                  ? L("Every image in the session", zh: "本次会话中的全部图像")
+                  : L("\(batch.count) of \(session.frames.count) selected for this export", zh: "已为本次导出选择 \(batch.count) / \(session.frames.count) 张"))
     }
 
     // MARK: - the left card
@@ -516,19 +516,19 @@ struct ExportPage: View {
         // The system's own alert with a text field in it — the same rule the
         // section menus follow, applied to the one thing on this page that
         // needs typing.
-        .alert("Rename Recipe", isPresented: Binding(
+        .alert(L("Rename Recipe", zh: "重命名配方"), isPresented: Binding(
             get: { renameDraft != nil },
             set: { if !$0 { renameDraft = nil } })) {
-            TextField("Name", text: Binding(get: { renameDraft ?? "" },
+            TextField(L("Name", zh: "名称"), text: Binding(get: { renameDraft ?? "" },
                                             set: { renameDraft = $0 }))
-            Button("Cancel", role: .cancel) { renameDraft = nil }
-            Button("Rename") {
+            Button(L("Cancel", zh: "取消"), role: .cancel) { renameDraft = nil }
+            Button(L("Rename", zh: "重命名")) {
                 let trimmed = (renameDraft ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
                 if !trimmed.isEmpty { recipe.wrappedValue.name = trimmed }
                 renameDraft = nil
             }
         } message: {
-            Text("The name in the recipe list.")
+            Text(L("The name in the recipe list.", zh: "配方列表中显示的名称。"))
         }
     }
 
@@ -547,17 +547,17 @@ struct ExportPage: View {
     /// only" — which is the `Menu` `SectionHeader` already draws, so nothing
     /// here opens a popover of its own.
     private var formulaSection: some View {
-        PanelSection("Export Formula", key: "exportFormula", menu: sectionMenu {
-            Button("New Recipe") { store.add() }
-            Button("Duplicate") { if let s = store.selected { store.duplicate(s) } }
+        PanelSection(L("Export Formula", zh: "导出配方"), key: "exportFormula", menu: sectionMenu {
+            Button(L("New Recipe", zh: "新建配方")) { store.add() }
+            Button(L("Duplicate", zh: "复制")) { if let s = store.selected { store.duplicate(s) } }
                 .disabled(store.selected == nil)
-            Button("Rename…") { renameDraft = store.selected?.name ?? "" }
+            Button(L("Rename…", zh: "重命名…")) { renameDraft = store.selected?.name ?? "" }
                 .disabled(store.selected == nil)
             Divider()
-            Button("Delete") { if let s = store.selected { store.remove(s) } }
+            Button(L("Delete", zh: "删除")) { if let s = store.selected { store.remove(s) } }
                 .disabled(store.recipes.count < 2)
             Divider()
-            Button("Reveal Recipes File in Finder") {
+            Button(L("Reveal Recipes File in Finder", zh: "在访达中显示配方文件")) {
                 NSWorkspace.shared.activateFileViewerSelecting([store.url])
             }
         }, metrics: Self.sectionMetrics) {
@@ -582,8 +582,8 @@ struct ExportPage: View {
                     .padding(.top, 9)
                     HStack(spacing: 14) {
                         Spacer()
-                        railButton("plus", "New recipe", dimmed: false) { store.add() }
-                        railButton("minus", "Delete this recipe", dimmed: store.recipes.count < 2) {
+                        railButton("plus", L("New recipe", zh: "新建配方"), dimmed: false) { store.add() }
+                        railButton("minus", L("Delete this recipe", zh: "删除此配方"), dimmed: store.recipes.count < 2) {
                             if let s = store.selected { store.remove(s) }
                         }
                     }
@@ -659,22 +659,22 @@ struct ExportPage: View {
     /// as if it were the answer. It now counts them, and the button beside it
     /// opens the one it can show.
     private var locationSection: some View {
-        PanelSection("Location", key: "exportLocation", menu: sectionMenu {
-            Button("Choose Folder…") { chooseFolder() }
-            Button("Use the Frame's Own Folder") { recipe.wrappedValue.folder = .besideOriginal }
+        PanelSection(L("Location", zh: "位置"), key: "exportLocation", menu: sectionMenu {
+            Button(L("Choose Folder…", zh: "选择文件夹…")) { chooseFolder() }
+            Button(L("Use the Frame's Own Folder", zh: "使用原图所在文件夹")) { recipe.wrappedValue.folder = .besideOriginal }
             Divider()
-            Button("Clear Subfolder") { recipe.wrappedValue.subfolder = "" }
-            Button("Reveal in Finder") { reveal(destinationFolders.first) }
+            Button(L("Clear Subfolder", zh: "清除子文件夹")) { recipe.wrappedValue.subfolder = "" }
+            Button(L("Reveal in Finder", zh: "在访达中显示")) { reveal(destinationFolders.first) }
                 .disabled(destinationFolders.isEmpty)
         }, metrics: Self.sectionMetrics) {
             Well(padding: M.wellPadding, vertical: M.wellVertical, inset: M.wellInset, fill: false) {
                 VStack(spacing: M.rowSpacing) {
                     HStack(spacing: 0) {  // the label column carries the gap
-                        Text("Folder").font(F.label).foregroundStyle(Theme.Ink.secondary)
+                        Text(L("Folder", zh: "文件夹")).font(F.label).foregroundStyle(Theme.Ink.secondary)
                             .fixedSize().frame(minWidth: ExportPage.labelColumn, alignment: .leading)
                         PillField(title: folderLabel(recipe.wrappedValue.folder), font: F.label,
                                   help: folderHelp) {
-                            Button("Beside the original") {
+                            Button(L("Beside the original", zh: "原图旁")) {
                                 recipe.wrappedValue.folder = .besideOriginal
                             }
                             if case .fixed(let p) = recipe.wrappedValue.folder {
@@ -682,11 +682,11 @@ struct ExportPage: View {
                                     .disabled(true)
                             }
                             Divider()
-                            Button("Choose Folder…") { chooseFolder() }
+                            Button(L("Choose Folder…", zh: "选择文件夹…")) { chooseFolder() }
                         }
                     }
                     .frame(height: M.rowHeight)
-                    row("Subfolder") {
+                    row(L("Subfolder", zh: "子文件夹")) {
                         TextField("none", text: recipe.subfolder)
                             .textFieldStyle(.plain)
                             .font(F.label).foregroundStyle(Theme.text)
@@ -695,8 +695,8 @@ struct ExportPage: View {
                             .background(Theme.pill, in: Capsule())
                             .onSubmit { store.save() }
                     }
-                    PillMenu(label: "Existing File", options: ExistingFilePolicy.allCases,
-                             title: { $0.label }, selection: recipe.existing,
+                    PillMenu(label: L("Existing File", zh: "已有文件"), options: ExistingFilePolicy.allCases,
+                             title: { [names = existingNames] in names[$0] ?? $0.label }, selection: recipe.existing,
                              labelWidth: ExportPage.labelColumn, font: F.label)
                     destinationLine
                 }
@@ -713,13 +713,14 @@ struct ExportPage: View {
                 .fixedSize(horizontal: false, vertical: true)
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .help(destinationHelp)
-            Button("Reveal") { reveal(destinationFolders.first) }
+            Button(L("Reveal", zh: "显示")) { reveal(destinationFolders.first) }
                 .buttonStyle(.plain)
                 .font(F.value).foregroundStyle(Theme.exportAccent)
                 .help(destinationFolders.count > 1
-                      ? "Open the first of these folders. The rest are beside their own frames."
-                      : "Open this folder in the Finder. A folder that does not exist yet opens "
-                        + "its nearest parent — the export creates the rest.")
+                      ? L("Open the first of these folders. The rest are beside their own frames.", zh: "打开其中第一个文件夹。其余文件夹位于各自原图旁。")
+                      : L("Open this folder in the Finder. A folder that does not exist yet opens "
+                        + "its nearest parent — the export creates the rest.",
+                        zh: "在访达中打开此文件夹。尚不存在的文件夹会打开其最近的上级文件夹——其余部分由导出创建。"))
                 .rowEnabled(!destinationFolders.isEmpty)
         }
     }
@@ -751,17 +752,18 @@ struct ExportPage: View {
         guard folders.count > 1 else { return folders.first?.path ?? writePath }
         let shown = folders.prefix(8).map(\.path)
         let rest = folders.count - shown.count
-        return (["Beside the original writes into each frame's own folder:"] + shown
-                + (rest > 0 ? ["…and \(rest) more"] : [])).joined(separator: "\n")
+        return ([L("Beside the original writes into each frame's own folder:", zh: "“原图旁”会写入每张图像各自的文件夹：")] + shown
+                + (rest > 0 ? [L("…and \(rest) more", zh: "……以及另外 \(rest) 个")] : [])).joined(separator: "\n")
     }
 
     private var folderHelp: String {
         switch recipe.wrappedValue.folder {
         case .besideOriginal:
-            "Each frame's own folder. A batch drawn from several folders therefore writes "
-            + "into several — the line below counts them."
+            L("Each frame's own folder. A batch drawn from several folders therefore writes "
+            + "into several — the line below counts them.",
+              zh: "每张图像各自的文件夹。因此来自多个文件夹的一批图像会写入多个文件夹——下方一行列出了数量。")
         case .fixed:
-            "One folder for every frame in the batch."
+            L("One folder for every frame in the batch.", zh: "本批所有图像写入同一个文件夹。")
         }
     }
 
@@ -788,20 +790,20 @@ struct ExportPage: View {
     /// the grey plate the drawing gives every chip, and dragging one onto
     /// another reorders the row.
     private var namingSection: some View {
-        PanelSection("Naming", key: "exportNaming", menu: sectionMenu {
-            Button("Original Name Only") {
+        PanelSection(L("Naming", zh: "命名"), key: "exportNaming", menu: sectionMenu {
+            Button(L("Original Name Only", zh: "仅原文件名")) {
                 var n = recipe.wrappedValue.naming
                 for t in n.chips where n.isOn(t) && t != .originalName { n.toggle(t) }
                 if !n.isOn(.originalName) { n.toggle(.originalName) }
                 recipe.wrappedValue.naming = n
             }
-            Button("Select All") {
+            Button(L("Select All", zh: "全选")) {
                 var n = recipe.wrappedValue.naming
                 for t in n.chips where !n.isOn(t) { n.toggle(t) }
                 recipe.wrappedValue.naming = n
             }
             Divider()
-            Button("Reset the Order") {
+            Button(L("Reset the Order", zh: "恢复默认顺序")) {
                 var n = recipe.wrappedValue.naming
                 n.resetOrder()
                 recipe.wrappedValue.naming = n
@@ -809,7 +811,7 @@ struct ExportPage: View {
         }, metrics: Self.sectionMetrics) {
             Well(padding: M.wellPadding, vertical: M.wellVertical, inset: M.wellInset, fill: false) {
                 VStack(alignment: .leading, spacing: M.rowSpacing) {
-                    row("Format") { tokenRow }
+                    row(L("Format", zh: "格式")) { tokenRow }
                     resolvedNameRow
                 }
             }
@@ -833,7 +835,7 @@ struct ExportPage: View {
     /// differs only where the original-name token is.
     private var resolvedNameRow: some View {
         HStack(alignment: .firstTextBaseline, spacing: 0) {
-            Text("File name").font(F.label).foregroundStyle(Theme.Ink.secondary)
+            Text(L("File name", zh: "文件名")).font(F.label).foregroundStyle(Theme.Ink.secondary)
                 .fixedSize().frame(minWidth: ExportPage.labelColumn, alignment: .leading)
             Text(sampleName)
                 .font(F.value).foregroundStyle(Theme.text)
@@ -843,9 +845,10 @@ struct ExportPage: View {
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .help(session.selection == nil
-              ? "An example — no frame is open, so this is the model frame from the recipe file."
-              : "The name this recipe gives the open frame. Every other frame in the batch "
-                + "differs only where the original name is.")
+              ? L("An example — no frame is open, so this is the model frame from the recipe file.", zh: "示例——当前没有打开图像，因此显示的是配方文件中的示例图像。")
+              : L("The name this recipe gives the open frame. Every other frame in the batch "
+                + "differs only where the original name is.",
+                  zh: "此配方为当前图像生成的文件名。本批其他图像只有原文件名部分不同。"))
     }
 
     private var tokenRow: some View {
@@ -859,7 +862,7 @@ struct ExportPage: View {
     private func tokenChip(_ t: NameToken) -> some View {
         let on = recipe.wrappedValue.naming.isOn(t)
         let last = recipe.wrappedValue.naming.tokens.count == 1
-        return Text(t.label)
+        return Text(tokenName(t))
             .font(F.chip)
             .foregroundStyle(on ? Theme.card : Theme.text)
             .lineLimit(1)
@@ -875,8 +878,9 @@ struct ExportPage: View {
             }
             // Only the last one on refuses to go off (`NamingRule.toggle`), so
             // the chip says so rather than looking broken.
-            .help(on && last ? "A filename needs at least one part"
-                  : (on ? "Remove \(t.helpName) from the filename" : "Add \(t.helpName) to the filename"))
+            .help(on && last ? L("A filename needs at least one part", zh: "文件名至少需要一个部分")
+                  : (on ? L("Remove \(t.helpName) from the filename", zh: "从文件名中移除\(tokenName(t))")
+                      : L("Add \(t.helpName) to the filename", zh: "将\(tokenName(t))加入文件名")))
             .draggable(t.rawValue)
             .dropDestination(for: String.self) { items, _ in
                 guard let raw = items.first, let moving = NameToken(rawValue: raw) else { return false }
@@ -895,15 +899,15 @@ struct ExportPage: View {
     /// as the particular fix: a "..." that only repeats the panel under it
     /// teaches people to open it looking for something that is not there.
     private var formatSection: some View {
-        PanelSection("Format and Size", key: "exportFormat", metrics: Self.sectionMetrics) {
+        PanelSection(L("Format and Size", zh: "格式与尺寸"), key: "exportFormat", metrics: Self.sectionMetrics) {
             Well(padding: M.wellPadding, vertical: M.wellVertical, inset: M.wellInset, fill: false) {
                 VStack(spacing: M.rowSpacing) {
                     HStack(spacing: 0) {  // the label column carries the gap
-                        Text("Format").font(F.label).foregroundStyle(Theme.Ink.secondary)
+                        Text(L("Format", zh: "格式")).font(F.label).foregroundStyle(Theme.Ink.secondary)
                             .fixedSize().frame(minWidth: ExportPage.labelColumn, alignment: .leading)
-                        PillField(title: recipe.wrappedValue.format.shortLabel, font: F.label) {
+                        PillField(title: formatName(recipe.wrappedValue.format), font: F.label) {
                             ForEach(ExportFormat.allCases) { f in
-                                Button(f.shortLabel) { recipe.wrappedValue.format = f }
+                                Button(formatName(f)) { recipe.wrappedValue.format = f }
                             }
                         }
                         // Its natural width, so the format name beside it keeps the
@@ -920,15 +924,15 @@ struct ExportPage: View {
                         // card truncates the long ones. The tooltip carries
                         // the whole of it, so a truncated name costs a hover
                         // rather than the information.
-                        PillMenu(label: "Color Space", options: ColorSpaceCatalog.all.map(\.space),
-                                 title: { ColorSpaceCatalog.name(for: $0) ?? "Unknown profile" },
+                        PillMenu(label: L("Color Space", zh: "色彩空间"), options: ColorSpaceCatalog.all.map(\.space),
+                                 title: { [unknown = L("Unknown profile", zh: "未知描述文件")] in ColorSpaceCatalog.name(for: $0) ?? unknown },
                                  selection: recipe.colorSpace,
                                  labelWidth: ExportPage.labelColumn, font: F.label)
                             .help(ColorSpaceCatalog.name(for: recipe.wrappedValue.colorSpace)
-                                  ?? "This profile is not on this machine")
+                                  ?? L("This profile is not on this machine", zh: "本机没有此描述文件"))
                     }
                     if recipe.wrappedValue.format.takesQuality {
-                        ScrubSlider(label: "Quality", sublabel: nil,
+                        ScrubSlider(label: L("Quality", zh: "质量"), sublabel: nil,
                                     value: recipe.quality, range: 0.3...1, snap: 0.01,
                                     format: { String(format: "%.0f", $0 * 100) },
                                     metrics: Self.sliderMetrics,
@@ -965,14 +969,14 @@ struct ExportPage: View {
     /// the DI package rather than pretending to move.
     private var depthPill: some View {
         let format = recipe.wrappedValue.format
-        return PillField(title: "\(format.bitDepth) bit",
+        return PillField(title: L("\(format.bitDepth) bit", zh: "\(format.bitDepth) 位"),
                          dimmed: !format.depthIsChoosable,
                          font: F.label,
                          help: format.depthIsChoosable
-                         ? "Bit depth. 16-bit switches to TIFF, 8-bit to PNG."
-                         : "\(format.shortLabel) has one depth — it is part of the format.") {
+                         ? L("Bit depth. 16-bit switches to TIFF, 8-bit to PNG.", zh: "位深。16 位切换为 TIFF，8 位切换为 PNG。")
+                         : L("\(format.shortLabel) has one depth — it is part of the format.", zh: "\(formatName(format)) 只有一种位深——它是格式的一部分。")) {
             ForEach([8, 16], id: \.self) { depth in
-                Button("\(depth) bit") {
+                Button(L("\(depth) bit", zh: "\(depth) 位")) {
                     if let f = ExportFormat.withDepth(depth, like: format) { recipe.wrappedValue.format = f }
                 }
             }
@@ -989,10 +993,11 @@ struct ExportPage: View {
     /// page: it is a tenth of the file, which is worth knowing before ticking
     /// it and not worth a sentence in front of someone who has not.
     private var previewRow: some View {
-        row("Preview") {
+        row(L("Preview", zh: "预览")) {
             CheckBox(isOn: recipe.embedsPreview)
-                .help("Writes a preview image into the TIFF, about a tenth larger. "
-                      + "Off unless a recipe asks for it.")
+                .help(L("Writes a preview image into the TIFF, about a tenth larger. "
+                      + "Off unless a recipe asks for it.",
+                      zh: "在 TIFF 中写入一张预览图，文件约增大十分之一。除非配方要求，否则关闭。"))
         }
     }
 
@@ -1014,14 +1019,15 @@ struct ExportPage: View {
     private var sizeRows: some View {
         VStack(alignment: .leading, spacing: 3) {
             HStack(spacing: 0) {  // the label column carries the gap
-                Text("Size").font(F.label).foregroundStyle(Theme.Ink.secondary)
+                Text(L("Size", zh: "尺寸")).font(F.label).foregroundStyle(Theme.Ink.secondary)
                     .fixedSize().frame(minWidth: ExportPage.labelColumn, alignment: .leading)
                 PillField(title: sizeModeLabel, font: F.label,
-                          help: "Original keeps each frame's own pixels. "
+                          help: L("Original keeps each frame's own pixels. "
                           + "Long edge resamples every frame so its longer side is the "
-                          + "number you set, whichever way round the frame is.") {
-                    Button("Original Size") { recipe.wrappedValue.outputSize = .original }
-                    Button("Resize: Long Edge") {
+                          + "number you set, whichever way round the frame is.",
+                          zh: "“原始”保留每张图像自身的像素。“长边”会重新采样每张图像，使其较长的一边等于设定值，无论横竖。")) {
+                    Button(L("Original Size", zh: "原始尺寸")) { recipe.wrappedValue.outputSize = .original }
+                    Button(L("Resize: Long Edge", zh: "调整尺寸：长边")) {
                         recipe.wrappedValue.outputSize = OutputSize.clamped(currentLongEdge)
                     }
                 }
@@ -1046,7 +1052,7 @@ struct ExportPage: View {
     }
 
     private var sizeModeLabel: String {
-        recipe.wrappedValue.outputSize.isOriginal ? "Original" : "Long Edge"
+        recipe.wrappedValue.outputSize.isOriginal ? L("Original", zh: "原始") : L("Long Edge", zh: "长边")
     }
 
     /// The largest number the field takes. For one frame that is the frame's
@@ -1073,8 +1079,9 @@ struct ExportPage: View {
             .frame(width: 62, height: M.rowHeight)
             .background(Theme.pill, in: Capsule())
             .onSubmit { store.save() }
-            .help("Pixels on the longer side, \(OutputSize.bounds.lowerBound)–"
-                  + "\(longEdgeCeiling). Frames are never enlarged.")
+            .help(L("Pixels on the longer side, \(OutputSize.bounds.lowerBound)–"
+                  + "\(longEdgeCeiling). Frames are never enlarged.",
+                  zh: "较长一边的像素数，\(OutputSize.bounds.lowerBound)–\(longEdgeCeiling)。图像永远不会被放大。"))
     }
 
     /// The pixels this recipe writes **for the frame on the canvas** — and, in
@@ -1097,12 +1104,14 @@ struct ExportPage: View {
 
     private var resultingSizeHelp: String {
         recipe.wrappedValue.outputSize.isOriginal
-            ? "Every frame is written at its own pixels, after the crop and the straighten."
-            : "Every frame is resampled so its longer side is "
+            ? L("Every frame is written at its own pixels, after the crop and the straighten.", zh: "每张图像按裁剪和拉直后的原始像素写出。")
+            : L("Every frame is resampled so its longer side is "
               + "\(recipe.wrappedValue.outputSize.edge ?? currentLongEdge) px. "
               + "A portrait and a landscape in the same batch therefore come out the same "
               + "size on their long side and keep their own shape. A frame already smaller "
-              + "than that is written at its own pixels — nothing is ever enlarged."
+              + "than that is written at its own pixels — nothing is ever enlarged.",
+                zh: "每张图像都会重新采样，使较长一边为 \(recipe.wrappedValue.outputSize.edge ?? currentLongEdge) px。"
+                  + "因此同一批中的竖幅和横幅长边尺寸相同，并保持各自的比例。本已小于此尺寸的图像按原始像素写出——永远不会放大。")
     }
 
     /// `notes.md`: "Open with allows the user to select the default open_app."
@@ -1113,10 +1122,10 @@ struct ExportPage: View {
     /// are gone.
     private var openWithRow: some View {
         HStack(spacing: 0) {  // the label column carries the gap
-            Text("Open With").font(F.label).foregroundStyle(Theme.Ink.secondary)
+            Text(L("Open With", zh: "打开方式")).font(F.label).foregroundStyle(Theme.Ink.secondary)
                 .fixedSize().frame(minWidth: ExportPage.labelColumn, alignment: .leading)
-            PillField(title: recipe.wrappedValue.openWith?.name ?? "None", font: F.label,
-                      help: "Hand the finished files to this application when the export ends.") {
+            PillField(title: recipe.wrappedValue.openWith?.name ?? L("None", zh: "无"), font: F.label,
+                      help: L("Hand the finished files to this application when the export ends.", zh: "导出结束后，用此应用打开生成的文件。")) {
                 openWithItems
             }
         }
@@ -1124,7 +1133,7 @@ struct ExportPage: View {
     }
 
     @ViewBuilder private var openWithItems: some View {
-        Button("None") { recipe.wrappedValue.openWith = nil }
+        Button(L("None", zh: "无")) { recipe.wrappedValue.openWith = nil }
         if !OpenWithCatalog.apps.isEmpty { Divider() }
         ForEach(OpenWithCatalog.apps, id: \.path) { app in
             Button(app.name) { recipe.wrappedValue.openWith = app }
@@ -1137,8 +1146,8 @@ struct ExportPage: View {
         // rail's bottom third empty to do it. Everything else on this page
         // is a control; this is the read-back, and a read-back nobody opens
         // is a read-back that is not checked.
-        PanelSection("Summary", key: "exportSummary", menu: sectionMenu {
-            Button("Copy Summary") {
+        PanelSection(L("Summary", zh: "摘要"), key: "exportSummary", menu: sectionMenu {
+            Button(L("Copy Summary", zh: "拷贝摘要")) {
                 let pb = NSPasteboard.general
                 pb.clearContents()
                 pb.setString(summaryLines.joined(separator: "\n"), forType: .string)
@@ -1171,16 +1180,16 @@ struct ExportPage: View {
                 if running, let p = session.exportProgress {
                     ProgressView(value: p).controlSize(.small).frame(width: 70)
                 }
-                Text(running ? "Exporting…" : exportButtonTitle)
+                Text(running ? L("Exporting…", zh: "正在导出…") : exportButtonTitle)
                     .font(Theme.Font.caption).foregroundStyle(Theme.dim)
                 Spacer()
                 if running {
                     // Cancels between frames: the frame being written is
                     // finished (or dropped whole), never cut off mid-file.
-                    Button("Stop") { runTask?.cancel() }
+                    Button(L("Stop", zh: "停止")) { runTask?.cancel() }
                         .keyboardShortcut(.cancelAction)
                 }
-                Button(running ? "Exporting…" : "Export") { run() }
+                Button(running ? L("Exporting…", zh: "正在导出…") : L("Export", zh: "导出")) { run() }
                     .keyboardShortcut(.defaultAction)
                     .disabled(running || batch.isEmpty || store.selected == nil)
             }
@@ -1192,9 +1201,9 @@ struct ExportPage: View {
 
     private var exportButtonTitle: String {
         switch batch.count {
-        case 0: "No images selected"
-        case 1: "1 image"
-        default: "\(batch.count) images"
+        case 0: L("No images selected", zh: "未选择图像")
+        case 1: L("1 image", zh: "1 张图像")
+        default: L("\(batch.count) images", zh: "\(batch.count) 张图像")
         }
     }
 
@@ -1302,15 +1311,15 @@ struct ExportPage: View {
                     } else if proving {
                         VStack(spacing: 8) {
                             ProgressView().controlSize(.small)
-                            Text("Rendering the preview…")
+                            Text(L("Rendering the preview…", zh: "正在渲染预览…"))
                                 .font(Theme.Font.label).foregroundStyle(Theme.Ink.tertiary)
                         }
                     } else {
                         Text(worklist.isEmpty
-                             ? "Nothing is selected. ⌘-click images in the filmstrip to add them."
+                             ? L("Nothing is selected. ⌘-click images in the filmstrip to add them.", zh: "未选择任何图像。在胶片条中按住 ⌘ 点按图像以添加。")
                              : session.selection == nil
-                               ? "No frame is open. Choose one from the strip."
-                               : "Nothing to prove for this recipe.")
+                               ? L("No frame is open. Choose one from the strip.", zh: "没有打开的图像。请从胶片条中选择一张。")
+                               : L("Nothing to prove for this recipe.", zh: "此配方没有可预览的内容。"))
                             .font(Theme.Font.label).foregroundStyle(Theme.dim)
                     }
                 }
@@ -1362,14 +1371,14 @@ struct ExportPage: View {
                 if proving {
                     HStack(spacing: 5) {
                         ProgressView().controlSize(.mini).scaleEffect(0.55)
-                        Text("Updating preview…").foregroundStyle(Theme.dim)
+                        Text(L("Updating preview…", zh: "正在更新预览…")).foregroundStyle(Theme.dim)
                     }
                 }
                 if proof.isPlaceholder {
-                    Text("Placeholder — these pixels are not the ones the file will carry.")
+                    Text(L("Placeholder — these pixels are not the ones the file will carry.", zh: "占位图——这些像素不是文件最终写入的像素。"))
                         .foregroundStyle(Theme.exportAccent)
                 }
-                let caveats = ProofCaveat.lines(for: proof)
+                let caveats = ProofCaveat.lines(for: proof, chinese: chinese)
                 ForEach(caveats, id: \.text) { caveat in
                     Text(caveat.text)
                         .foregroundStyle(caveat.isWarning ? Theme.exportAccent : Theme.dim)
@@ -1399,12 +1408,13 @@ struct ExportPage: View {
         let pixels = "\(Int(proof.filePixelSize.width)) × \(Int(proof.filePixelSize.height))"
         let canvas = session.workingSpaceName
         var lines = [
-            "The picture above is a proof of the file: the same render and conversion "
-            + "as the export, shown downsampled for the pane.",
-            "The file is \(pixels) px, in \(proof.targetName).",
+            L("The picture above is a proof of the file: the same render and conversion "
+              + "as the export, shown downsampled for the pane.",
+              zh: "上方画面是文件的校样：与导出相同的渲染和转换，按窗格大小缩小显示。"),
+            L("The file is \(pixels) px, in \(proof.targetName).", zh: "文件为 \(pixels) px，色彩空间为 \(proof.targetName)。"),
         ]
-        if proof.targetName != canvas { lines.append("The canvas is in \(canvas).") }
-        if let detail = ProofCaveat.explain(proof) { lines.append(detail) }
+        if proof.targetName != canvas { lines.append(L("The canvas is in \(canvas).", zh: "画布的色彩空间为 \(canvas)。")) }
+        if let detail = ProofCaveat.explain(proof, chinese: chinese) { lines.append(detail) }
         return lines.joined(separator: "\n")
     }
 
@@ -1418,7 +1428,7 @@ struct ExportPage: View {
     /// `captionHelp`, where a second space is a detail rather than a
     /// comparison the caption makes on the reader's behalf.
     private func spaceLine(_ proof: SoftProof) -> String {
-        "Output preview · \(proof.targetName)"
+        L("Output preview · \(proof.targetName)", zh: "输出预览 · \(proof.targetName)")
     }
 
     /// Grid mode's card: the centre pane and the filmstrip as one, from just
@@ -1455,7 +1465,7 @@ struct ExportPage: View {
                                            geometry: session.thumbnailGeometry(for: frame.id))
                                 .onTapGesture { tap(frame) }
                                 .contextMenu {
-                                    Button("Reveal in Finder") {
+                                    Button(L("Reveal in Finder", zh: "在访达中显示")) {
                                         NSWorkspace.shared.activateFileViewerSelecting([frame.id])
                                     }
                                 }
@@ -1500,7 +1510,7 @@ struct ExportPage: View {
     }
 
     private var emptyWorklist: some View {
-        Text("Nothing is selected. ⌘-click images in the filmstrip to add them.")
+        Text(L("Nothing is selected. ⌘-click images in the filmstrip to add them.", zh: "未选择任何图像。在胶片条中按住 ⌘ 点按图像以添加。"))
             .font(Theme.Font.label)
             .foregroundStyle(Theme.dim)
             .multilineTextAlignment(.center)
@@ -1514,9 +1524,33 @@ struct ExportPage: View {
         return [.besideOriginal]
     }
 
+    /// The display names of what the recipe stores in English: the chips,
+    /// the format and the existing-file policy keep their English values,
+    /// which the recipe file and the tests read.
+    private var chinese: Bool { Localization.shared.resolved == .simplifiedChinese }
+
+    private func tokenName(_ t: NameToken) -> String {
+        guard chinese else { return t.label }
+        switch t {
+        case .originalName: return "原文件名"
+        case .filmStock: return "胶片"
+        case .printStock: return "印相"
+        case .date: return "日期"
+        }
+    }
+
+    private func formatName(_ f: ExportFormat) -> String {
+        f == .di ? L(f.shortLabel, zh: "数字中间片") : f.shortLabel
+    }
+
+    private var existingNames: [ExistingFilePolicy: String] {
+        guard chinese else { return [:] }
+        return [.addSuffix: "添加后缀", .overwrite: "覆盖", .skip: "跳过"]
+    }
+
     private func folderLabel(_ f: ExportFolder) -> String {
         switch f {
-        case .besideOriginal: "Beside the original"
+        case .besideOriginal: L("Beside the original", zh: "原图旁")
         // The folder's own name (2026-09-28). The whole path did not fit the
         // pill and truncated to "~/Documents/Summer 2026/SpektraL…"; it is
         // stated in full, wrapped, on the line under the rows and in this
@@ -1549,19 +1583,20 @@ struct ExportPage: View {
     private var summaryLines: [String] {
         let r = recipe.wrappedValue
         var lines = [
-            "Recipe  \(r.name)",
-            "Images  \(batch.count) of \(session.frames.count)",
-            "File name  \(sampleName)",
-            "Format  \(r.format.shortLabel) · \(r.format.bitDepth) bit",
-            "Size  \(resultingSizeLine)",
+            L("Recipe  \(r.name)", zh: "配方  \(r.name)"),
+            L("Images  \(batch.count) of \(session.frames.count)", zh: "图像  \(batch.count) / \(session.frames.count)"),
+            L("File name  \(sampleName)", zh: "文件名  \(sampleName)"),
+            L("Format  \(r.format.shortLabel) · \(r.format.bitDepth) bit", zh: "格式  \(formatName(r.format)) · \(r.format.bitDepth) 位"),
+            L("Size  \(resultingSizeLine)", zh: "尺寸  \(resultingSizeLine)"),
         ]
         if r.format.takesColorSpace {
-            lines.append("Color Space  \(ColorSpaceCatalog.name(for: r.colorSpace) ?? "Unknown profile")")
+            let name = ColorSpaceCatalog.name(for: r.colorSpace) ?? L("Unknown profile", zh: "未知描述文件")
+            lines.append(L("Color Space  \(name)", zh: "色彩空间  \(name)"))
         } else {
-            lines.append("Color Space  untagged (density)")
+            lines.append(L("Color Space  untagged (density)", zh: "色彩空间  未标记（密度）"))
         }
-        if let proof, session.selection != nil { lines.append("Proof  \(proof.targetName)") }
-        lines.append("Folder  \(destinationSummary)")
+        if let proof, session.selection != nil { lines.append(L("Proof  \(proof.targetName)", zh: "校样  \(proof.targetName)")) }
+        lines.append(L("Folder  \(destinationSummary)", zh: "文件夹  \(destinationSummary)"))
         return lines
     }
 
@@ -1606,8 +1641,8 @@ struct ExportPage: View {
         panel.canChooseDirectories = true
         panel.canChooseFiles = false
         panel.allowsMultipleSelection = false
-        panel.prompt = "Choose"
-        panel.message = "Where should this recipe write its files?"
+        panel.prompt = L("Choose", zh: "选择")
+        panel.message = L("Where should this recipe write its files?", zh: "此配方应将文件写入何处？")
         guard panel.runModal() == .OK, let url = panel.url else { return }
         recipe.wrappedValue.folder = .fixed(path: url.path)
     }
@@ -1663,15 +1698,17 @@ struct ExportPage: View {
                     // it, so a nil here is a develop that failed — say why
                     // rather than suggesting a wait that will not help.
                     let why = session.refusal?.message ?? session.lastError
-                    problems.append("\(url.lastPathComponent) could not be developed"
-                                    + (why.map { ": \($0)" } ?? "."))
+                    problems.append(L("\(url.lastPathComponent) could not be developed",
+                                      zh: "\(url.lastPathComponent) 无法显影")
+                                    + (why.map { L(": \($0)", zh: "：\($0)") } ?? L(".", zh: "。")))
                     continue
                 }
                 if Task.isCancelled { stoppedAt = i; break }
                 // Belt and braces for the lock above: the exporter writes the
                 // open frame, so it must be this one.
                 guard session.selection == url else {
-                    problems.append("\(url.lastPathComponent) was skipped: another frame was opened.")
+                    problems.append(L("\(url.lastPathComponent) was skipped: another frame was opened.",
+                                      zh: "已跳过 \(url.lastPathComponent)：打开了另一张图像。"))
                     continue
                 }
                 do {
@@ -1683,23 +1720,28 @@ struct ExportPage: View {
                         if url == home, let first = files.first { shown = first }
                         fellBack = fellBack || fb
                     case .skipped(let existing):
-                        problems.append("\(existing.lastPathComponent) already exists — skipped.")
+                        problems.append(L("\(existing.lastPathComponent) already exists — skipped.",
+                                          zh: "\(existing.lastPathComponent) 已存在——已跳过。"))
                     }
                 } catch is CancellationError {
                     stoppedAt = i; break
                 } catch {
-                    problems.append("\(url.lastPathComponent): \(EngineMessage.userFacing(error))")
+                    let why = (error as? Exporter.ExportError).flatMap { chinese ? $0.chineseDescription : nil }
+                        ?? EngineMessage.userFacing(error)
+                    problems.append(L("\(url.lastPathComponent): \(why)", zh: "\(url.lastPathComponent)：\(why)"))
                 }
             }
             if let stoppedAt {
-                problems.append("Stopped — \(urls.count - stoppedAt) of \(urls.count) not exported.")
+                problems.append(L("Stopped — \(urls.count - stoppedAt) of \(urls.count) not exported.",
+                                  zh: "已停止——\(urls.count) 张中有 \(urls.count - stoppedAt) 张未导出。"))
             }
             session.exportProgress = nil
             if let home, session.selection != home { session.select(home) }
             if let target = shown ?? written.first { filePreview = Self.embeddedPreview(of: target) }
             if fellBack {
-                problems.append("That profile is not on this machine — the files were tagged "
-                                + "Display P3 instead.")
+                problems.append(L("That profile is not on this machine — the files were tagged "
+                                  + "Display P3 instead.",
+                                  zh: "本机没有该描述文件——文件已改为标记 Display P3。"))
             }
             if !written.isEmpty, let app = r.openWith {
                 NSWorkspace.shared.open(written,
@@ -1707,14 +1749,14 @@ struct ExportPage: View {
                                         configuration: NSWorkspace.OpenConfiguration()) { _, error in
                     guard let error else { return }
                     Task { @MainActor in
-                        note = ResultNote(text: "\(app.name) would not open them: "
+                        note = ResultNote(text: L("\(app.name) would not open them: ", zh: "\(app.name) 无法打开这些文件：")
                                           + error.localizedDescription, warning: true)
                     }
                 }
             }
             var parts: [String] = written.isEmpty
-                ? ["Nothing was written."]
-                : ["Wrote " + written.map(\.lastPathComponent).joined(separator: ", ")]
+                ? [L("Nothing was written.", zh: "没有写入任何文件。")]
+                : [L("Wrote ", zh: "已写入 ") + written.map(\.lastPathComponent).joined(separator: ", ")]
             parts += problems
             note = ResultNote(text: parts.joined(separator: "\n"), warning: !problems.isEmpty)
         }
@@ -1966,37 +2008,43 @@ enum ProofCaveat {
     /// lost it — and the sentences that used to spell that out are what the
     /// user asked to stop reading. `explain(_:)` is the same two statements
     /// for a tooltip, where they cost nothing.
-    static func lines(for proof: SoftProof) -> [Line] {
+    static func lines(for proof: SoftProof, chinese: Bool = false) -> [Line] {
         var out: [Line] = []
         if proof.compressedFraction >= silence {
-            out.append(Line(text: "\(share(proof.compressedFraction)) rolled into \(proof.targetName)",
+            out.append(Line(text: chinese ? "\(share(proof.compressedFraction, chinese: true)) 压入 \(proof.targetName)"
+                                    : "\(share(proof.compressedFraction)) rolled into \(proof.targetName)",
                             isWarning: false))
         }
         if proof.clippedFraction >= silence {
-            out.append(Line(text: "\(share(proof.clippedFraction)) clipped in \(proof.targetName)",
+            out.append(Line(text: chinese ? "\(share(proof.clippedFraction, chinese: true)) 在 \(proof.targetName) 中被裁切"
+                                    : "\(share(proof.clippedFraction)) clipped in \(proof.targetName)",
                             isWarning: true))
         }
         return out
     }
 
     /// The long form, for wherever there is room to hover.
-    static func explain(_ proof: SoftProof) -> String? {
+    static func explain(_ proof: SoftProof, chinese: Bool = false) -> String? {
         guard !lines(for: proof).isEmpty else { return nil }
         var out: [String] = []
         if proof.compressedFraction >= silence {
-            out.append("\(share(proof.compressedFraction)) of the frame is outside "
+            out.append(chinese
+                       ? "画面中有 \(share(proof.compressedFraction, chinese: true)) 超出 \(proof.targetName)，已被压入其中而非直接裁掉。"
+                       : "\(share(proof.compressedFraction)) of the frame is outside "
                        + "\(proof.targetName) and was rolled into it rather than cut off.")
         }
         if proof.clippedFraction >= silence {
-            out.append("\(share(proof.clippedFraction)) of the frame sits on the edge of "
+            out.append(chinese
+                       ? "画面中有 \(share(proof.clippedFraction, chinese: true)) 落在 \(proof.targetName) 的边缘，已丢失细节。"
+                       : "\(share(proof.clippedFraction)) of the frame sits on the edge of "
                        + "\(proof.targetName) and has lost detail.")
         }
         return out.joined(separator: "\n")
     }
 
-    static func share(_ fraction: Double) -> String {
+    static func share(_ fraction: Double, chinese: Bool = false) -> String {
         if fraction >= emphatic { return "\(Int((fraction * 100).rounded())) %" }
-        if fraction * 1000 < 1 { return "Under 0.1 %" }
+        if fraction * 1000 < 1 { return chinese ? "不足 0.1 %" : "Under 0.1 %" }
         return String(format: "%.1f %%", fraction * 100)
     }
 }

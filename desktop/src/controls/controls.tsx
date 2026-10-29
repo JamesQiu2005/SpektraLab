@@ -8,7 +8,7 @@
 // while dragging; `onCommit` on release.
 
 import * as DropdownMenu from '@radix-ui/react-dropdown-menu';
-import { type ReactNode, useEffect, useRef, useState } from 'react';
+import { Fragment, type ReactNode, useEffect, useRef, useState } from 'react';
 import { clamp } from '@shared/params';
 import { settingsStore, useSettings } from '../state/settings';
 import { beginGesture } from '../state/session';
@@ -24,7 +24,7 @@ export interface SectionProps {
   onReset?: () => void;
   resetHelp?: string;
   resetEnabled?: boolean;
-  menu?: { label: string; onSelect: () => void; disabled?: boolean; checked?: boolean }[];
+  menu?: { label: string; onSelect: () => void; disabled?: boolean; checked?: boolean; /** A rule above the item. */ divider?: boolean; testId?: string }[];
   /** A feature the host cannot do: shown, greyed, with the reason. */
   unsupported?: string | null;
 }
@@ -56,10 +56,13 @@ export function Section({ id, title, children, trailing, onReset, resetHelp, res
             <DropdownMenu.Portal>
               <DropdownMenu.Content className="menu" align="end" sideOffset={4}>
                 {menu.map((m) => (
-                  <DropdownMenu.Item key={m.label} className="menu-item" disabled={m.disabled} onSelect={m.onSelect}>
-                    {m.checked !== undefined && <span className="check">{m.checked ? '✓' : ''}</span>}
-                    {m.label}
-                  </DropdownMenu.Item>
+                  <Fragment key={m.label}>
+                    {m.divider && <DropdownMenu.Separator className="menu-sep" />}
+                    <DropdownMenu.Item className="menu-item" disabled={m.disabled} onSelect={m.onSelect} data-testid={m.testId}>
+                      {m.checked !== undefined && <span className="check">{m.checked ? '✓' : ''}</span>}
+                      {m.label}
+                    </DropdownMenu.Item>
+                  </Fragment>
                 ))}
               </DropdownMenu.Content>
             </DropdownMenu.Portal>

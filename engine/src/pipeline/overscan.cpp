@@ -20,7 +20,7 @@
 //                 numbers land.
 // Apple keeps its native rasterizer; the portable adapter embeds pinned open
 // font outlines and rasterizes the same film-space drawing operations.
-#ifdef __APPLE__
+#if defined(__APPLE__) && !defined(SPK_VULKAN_BACKEND)
 #include <Accelerate/Accelerate.h>
 #include <CoreGraphics/CoreGraphics.h>
 #include <CoreText/CoreText.h>
@@ -149,10 +149,12 @@ enum class Edge135 {
     FujiNeg,    // 14.1 mm DX bars, condensed numbers on both edges: X-Tra 400
     Cine,       // "EASTMAN 5207 ..." beside one row of perforations, dashes, no bars: Vision3 250D
     Ilford,     // Kodak's two bands turned half a turn: DX bars, the name in a square 5x7 face: HP5 Plus
+    CineStill,  // the name alone on one band in a square 5x7 face, "N" and a stepped arrow "NA" on the other, no bars
 };
 enum class Edge120 {
     Kodak,      // numbers and the name on one edge, triangles and digits on the other
     Fuji,       // one edge only, 5x7 dots: the maker's mark (the host's), "13 <", the stock, a roll number
+    CineStill,  // "13" and a long wedge pointing back at it on one edge; a batch number and the name on the other
 };
 struct EdgeLook {
     const char* stock;
@@ -226,6 +228,13 @@ constexpr EdgeLook kEdgeLooks[] = {
     {"kodak_vision3_50d",     Edge135::Cine, Edge120::Kodak, {0.58, 0.60, 1.0}, 4.5, false, ""},
     {"kodak_vision3_200t",    Edge135::Cine, Edge120::Kodak, {0.58, 0.60, 1.0}, 4.5, false, ""},
     {"kodak_vision3_500t",    Edge135::Cine, Edge120::Kodak, {0.58, 0.60, 1.0}, 4.5, false, ""},
+    // CineStill 800T (Vision3 500T's emulsion, its own edge print): three 135
+    // frames on two rolls and four 120 6x7 frames on two rolls, the owner's
+    // screenshots (800t_sample_image/cinestill_800t_xiaohongshu/). Its print
+    // reads yellow to orange: (1, .97, .35) clipped on one 135 scan, (1, .75,
+    // .16) on the other, (1, .59-.83, .16-.22) on the 120 frames -- the
+    // scanners' balance, not the film's; the middle of that is taken.
+    {"cinestill_800t",        Edge135::CineStill, Edge120::CineStill, {1.0, 0.45, 0.0}, 6.0, false, ""},
 };
 // Anything else -- Kodachrome, Verita, a stock added later -- has no
 // reference: Kodak's layout and its negative colour.
@@ -876,7 +885,7 @@ void film_to_canvas_px(const OverscanLayout& L, double s, double t, double& x, d
     y = v / L.px;
 }
 
-#ifdef __APPLE__
+#if defined(__APPLE__) && !defined(SPK_VULKAN_BACKEND)
 CFAttributedStringRef make_text(const Op& op, CTFontRef font, double gain) {
     CFStringRef str = CFStringCreateWithCString(nullptr, op.text.c_str(), kCFStringEncodingUTF8);
     CGFloat white[] = {CGFloat(std::clamp(gain, 0.0, 1.0)), 1.0};
@@ -929,7 +938,7 @@ bool rasterise(const OverscanLayout& L, const Group& g, std::vector<float>& cov,
     if (w <= 0 || h <= 0) return false;
 
     std::vector<uint8_t> px(size_t(w) * size_t(h), 0);
-#ifdef __APPLE__
+#if defined(__APPLE__) && !defined(SPK_VULKAN_BACKEND)
     CGColorSpaceRef gray = CGColorSpaceCreateDeviceGray();
     CGContextRef ctx = CGBitmapContextCreate(px.data(), size_t(w), size_t(h), 8, size_t(w), gray,
                                              kCGImageAlphaNone);
@@ -1029,7 +1038,7 @@ bool rasterise(const OverscanLayout& L, const Group& g, std::vector<float>& cov,
         double sum = 0.0;
         for (int i = -r; i <= r; ++i) { k[size_t(i + r)] = float(std::exp(-0.5 * i * i / (sigma * sigma))); sum += k[size_t(i + r)]; }
         for (float& v : k) v = float(v / sum);
-#ifdef __APPLE__
+#if defined(__APPLE__) && !defined(SPK_VULKAN_BACKEND)
         std::vector<float> tmp(cov.size(), 0.0f);
         vImage_Buffer src{cov.data(), vImagePixelCount(h), vImagePixelCount(w), size_t(w) * sizeof(float)};
         vImage_Buffer dst{tmp.data(), vImagePixelCount(h), vImagePixelCount(w), size_t(w) * sizeof(float)};
@@ -1431,7 +1440,7 @@ double dot_text(const std::string& text, const DotFace& f, double ps, double pt,
 
 // A Helvetica-family string's advance in film mm, as CoreText lays it out.
 double text_width(const char* font, double size_mm, const std::string& text, double tracking_mm, double hscale) {
-#ifdef __APPLE__
+#if defined(__APPLE__) && !defined(SPK_VULKAN_BACKEND)
     Op op;
     op.font = font; op.size_mm = size_mm; op.text = text; op.tracking_mm = tracking_mm;
     CFStringRef fname = CFStringCreateWithCString(nullptr, font, kCFStringEncodingUTF8);
@@ -1732,6 +1741,57 @@ void imprint_groups(const OverscanLayout& L, const Params& params, double frame_
                 };
                 turn(top.ops, t0);
                 turn(bot.ops, b0);
+            } else if (look.k135 == Edge135::CineStill) {
+                // CineStill 800T (three frames, two rolls and two cameras;
+                // 25.8 and 11.9 px/mm from the 4.75 mm perforation pitch):
+                // printed against the perforations, not the camera, so every
+                // offset below holds on both rolls to 0.2 mm.
+                //   The name band (above the frame): the host's text alone, in
+                // a square 5x7 face -- caps 1.47 mm with their tops 0.19 mm
+                // from the edge (baseline 1.67), a character every 1.38 mm
+                // (cells 0.23 along by 0.21 across), once a frame, starting
+                // 6.4 mm before the frame's number. On the strips it runs on
+                // across the frame's end ("ESTILL 800T" at one end, "CIN" at
+                // the other).
+                //   The number band: "N" in a heavy monospaced face, caps 1.78 mm
+                // standing on the film's edge, digits 1.63 mm apart, 0.79 mm
+                // past a perforation's centre; 18.4 mm on, a stepped arrow
+                // (1.59 x 0.97 mm in four tiers to a needle, its foot 0.43 mm
+                // from the edge) and "NA" in the same face, caps 1.09 mm,
+                // 1.06 mm a character, 0.21 mm after the arrow. No DX bars.
+                // The face is Menlo Bold, widened: its footed "1" with the
+                // solid wedge flag and its straight-backed "2" are the strip's.
+                // Those are the strips' inked sizes; each mark is drawn smaller
+                // by what the develop spreads it (~0.05 mm a side at this
+                // exposure), so the render measures what the strips do: name
+                // caps 1.51, "12" 1.78 tall and 3.17 long (3.22), the arrow
+                // 1.63 x 1.03, "12A" 1.12 tall, all within 0.1 mm of them.
+                const int f = (m >= 0) ? m / 2 : -((1 - m) / 2);   // floor(m / 2)
+                const bool numbered = (m - 2 * f) == 0;
+                const double sN = L.perf_phase + 6.34 + 19.0 * (2 * f);
+                const int num = n0 + f;
+                auto mono = [&](const std::string& tx, double cap, double hs, double s0, double base) {
+                    Op op;
+                    op.font = "Menlo-Bold"; op.size_mm = cap / 0.729; op.hscale = hs; op.scale_advances = true;
+                    op.text = tx; op.s = s0; op.t = base;
+                    bot.ops.push_back(op);
+                };
+                if (numbered) {
+                    mono(std::to_string(num), 1.68, 1.28, sN, W - 0.02);
+                    if (!o.edge_text.empty())
+                        matrix_text(fit_matrix_text(o.edge_text, 36.0, 1.38, 1.16, false), 1.38, 1.16, false, sN - 6.21, 1.64,
+                                    &top.ops);
+                } else {
+                    const double sa = sN + 18.59, tc = W - 0.915;
+                    // the arrow's tiers, foot to needle: (end along, half height)
+                    static const double kTier[4][2] = {{0.37, 0.455}, {0.80, 0.365}, {1.08, 0.235}, {1.50, 0.094}};
+                    double a0 = 0.0;
+                    for (const auto& tr : kTier) {
+                        bot.ops.push_back(rect(sa + a0, tc - tr[1], sa + tr[0] + 0.01, tc + tr[1]));
+                        a0 = tr[0];
+                    }
+                    mono(std::to_string(num) + "A", 1.00, 1.25, sa + 1.50 + 0.25, W - 0.50);
+                }
             } else {
                 // Cine (Eastman 5207, 22.8 px/mm): one line beside the bottom
                 // perforations -- the host's text in a square 5x7 face, caps
@@ -1830,6 +1890,65 @@ void imprint_groups(const OverscanLayout& L, const Params& params, double frame_
                     while (!tx.empty() && big(tx, 0, 0, nullptr) > slot) tx.pop_back();
                     big(tx, s0, tb, &top.ops);
                     if (has_code) dot_text(look.code, kFace57, kDotS, kDotT, dcode, 4.0, s0 + 13.2, tb, &top.ops);
+                }
+            }
+        } else if (look.k120 == Edge120::CineStill) {
+            // CineStill 800T (four 6x7 frames, two rolls; ~17.9 px/mm taking
+            // the gate as 56 mm across -- the black rebate shows no film edge,
+            // so distances from the edges assume the gate is centred). Both
+            // bands upright with the picture; the name in a narrow sans (Arial
+            // Narrow, x1.13), the numbers in an ordinary one's proportions
+            // ("18" 1.55 mm long at caps 1.0: Helvetica Neue's). Caps are drawn
+            // ~0.08 mm under the figures below, which the develop puts back:
+            //   above the frame, the roll's count: "18" (caps 1.0 mm on a
+            // baseline 1.66 mm from the edge) and 0.17 mm after it a solid
+            // wedge 3.4 mm long and 1.23 mm tall pointing back at it, centred
+            // on the digits, every 39.5 mm (38.8-39.9 on three frames; a
+            // fourth, another roll, reads ~41 with its scale less certain);
+            //   below it, a four-digit number and the host's name, caps 1.23 mm
+            // on a baseline 0.43 mm from the edge: the number, 25.0 mm of bare
+            // film (24.4-25.6), the name (11.4 mm), 26.6 mm (26.3-26.9), the
+            // number again -- 66.6 mm a period.
+            // The number is the roll's batch: 4789 on one roll, 4727 on the
+            // other, and those two are all there is, so a frame takes one of
+            // them. Not drawn: a dot after one single digit ("9.", once in
+            // four frames) and a small "A" seen on one frame.
+            auto narrow = [&](const std::string& tx, double cap, double hs, double s0, double base, std::vector<Op>& dst) {
+                Op op;
+                const bool digits = tx.find_first_not_of("0123456789") == std::string::npos;
+                op.font = digits ? "HelveticaNeue" : "ArialNarrow";
+                op.size_mm = cap / (digits ? 0.714 : 0.716); op.hscale = hs; op.scale_advances = true;
+                op.text = tx; op.s = s0; op.t = base;
+                dst.push_back(op);
+                return text_width(op.font, op.size_mm, tx, 0.0, hs);
+            };
+            const double P = 39.5, roll = rf.uni(0.0, P);
+            int n0 = 1 + int(rf.uni(0.0, 14.0));
+            if (o.frame_number > 0) n0 = o.frame_number - int(std::ceil(roll / P));
+            const double tb = L.top_recess > 0 ? std::max(1.2, L.gate_t0 + L.top_recess - 0.85) : 1.66;
+            const int j_lo = int(std::floor((s_min + roll) / P)) - 1, j_hi = int(std::ceil((s_max + roll) / P)) + 1;
+            for (int j = j_lo; j <= j_hi; ++j) {
+                const int n = n0 + j;
+                if (n < 1) continue;
+                const double sn = -roll + j * P;
+                const double wn = narrow(std::to_string(n), 0.92, 1.12, sn, tb, top.ops);
+                Op w;
+                w.kind = Op::Poly;
+                const double a = sn + wn + 0.17, tc = tb - 0.5;
+                w.pts = {a, tc, a + 3.35, tc - 0.58, a + 3.35, tc + 0.58};
+                top.ops.push_back(w);
+            }
+            const double Q = 66.6, roll2 = rf.uni(0.0, Q);
+            const std::string batch = rf.uni() < 0.5 ? "4789" : "4727";
+            const double base = L.film_w - 0.43;
+            const int k_lo = int(std::floor((s_min + roll2) / Q)) - 1, k_hi = int(std::ceil((s_max + roll2) / Q)) + 1;
+            for (int k = k_lo; k <= k_hi; ++k) {
+                const double sb = -roll2 + k * Q;
+                const double wb = narrow(batch, 1.15, 1.0, sb, base, bot.ops);
+                if (!o.edge_text.empty()) {
+                    std::string tx = o.edge_text;
+                    while (!tx.empty() && text_width("ArialNarrow", 1.15 / 0.716, tx, 0.0, 1.13) > 20.0) tx.pop_back();
+                    narrow(tx, 1.15, 1.13, sb + wb + 25.0, base, bot.ops);
                 }
             }
         } else {

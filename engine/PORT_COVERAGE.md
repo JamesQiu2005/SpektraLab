@@ -66,6 +66,7 @@ commits.
 | §13 overscan / film edge (RFC-031/032) | `overscan_{active,mode,format,gate,holes,carrier,edge_text,frame_number,frame_seed,camera_seed,f_number,fog,leaks,pair}` | **refused** when `active` | refused |
 | §13 date back | `date_imprint_{active,text,text_b,data_text,style,corner,placement,size,ev,inset_x,inset_y}` | **refused** when `active` | refused |
 | §14 `filter_shift_scale` | `filter_shift_scale` | implemented (portable `printing.cpp`) | implemented, untested here |
+| §15 `camera_filter` (2026-10-07) | `camera_filter` | — | implemented (portable `hanatos.cpp`, `params.cpp`; table in `camera_filters.hpp`), untested here; `desktop/mock-host/schema-fields.json` does not list it yet |
 | `io.digital_intermediate` (Cineon DI file) | | refused | refused |
 | anti-halation switch, highlight boost (9fa3b0d) | `halation`/`boost` fields | implemented via `spk_boost` | implemented, untested here |
 
@@ -87,6 +88,7 @@ commits.
 | `spk_di_encode` (Cineon DI) | **missing** | refused | refused |
 | `spk_mask_reduce`, `spk_mask_epilogue` (contrast mask) | **missing** | refused | refused |
 | `spk_scene_latitude` | **missing** | refused | refused |
+| `spk_highlight_headroom` (1.3.4, CineStill 800T) | `spk_highlight_headroom.comp` (2026-10-29) | — | tested (`spk_vulkan_pointwise`, float64 oracle; Metal parity on a Mac) |
 | `spk_overscan_canvas`, `spk_overscan_add_mask`, `spk_overscan_film_present`, `spk_overscan_light` | **missing** | refused | refused |
 
 Host-side (C++) dependencies of the unported features: `contrast_mask.cpp`
@@ -140,3 +142,33 @@ Not verified: any real GPU on Linux, real Windows (only wine), Intel/AMD
 drivers, whole-image parity against Metal (needs a Mac; see PORT_PLAN §0),
 cameras beyond one NEF and one CR2 (raw.pixls.us is blocked by this
 environment's proxy).
+
+## 6. The 1.3.4 merge, and Metal parity on a Mac (2026-10-29)
+
+Branch `assist/vulkan-engine-1.3.4`: `origin/Windows_Linux` with the tag
+`spektralab-v1.3.4` merged in. Every Metal-side engine change between the
+port's fork (`afd2bae6`) and 1.3.4, checked against the Vulkan side:
+
+| 1.3.4 change | where | off Apple |
+|---|---|---|
+| `camera_filter` (Wratten filters on the lens) | `hanatos.cpp`, `camera_filters.hpp`, `params.cpp` | portable; Metal parity tested (w25, w47, w8) |
+| B&W product profiles (Tri-X, T-Max 100, Acros II, HP5 Plus, Multigrade IV RC) | `resources_product/profiles` (staged by CMake) | portable; Metal parity tested |
+| their film edges, HP5's DX code, the "II" glyph | `overscan.cpp` | portable; frame parity tested, edge print by typeface |
+| `film_sensitivity_edge_` (the edge never sees the lens filter) | `pipeline.cpp`, `overscan.cpp` | portable |
+| alias profiles (`derived_from`), CineStill 800T | `profile.cpp`, `params.cpp` | portable; Metal parity tested |
+| the back-reflection halo (per-layer four-Gaussian kernel) | `halation_psf.hpp`, `pipeline.cpp` `halation_blurs` | portable (shared Blur components); Metal parity tested |
+| `halation_headroom_ev`, `node_headroom` | `pipeline.cpp`, kernel `spk_highlight_headroom` | **was refused at dispatch**; now `spk_highlight_headroom.comp` |
+| CineStill's 135 and 120 edge (Menlo-Bold, ArialNarrow) | `overscan.cpp` | portable layout; faces mapped to DejaVu Sans Mono Bold / Liberation Sans x0.82 (`resources_product/fonts/README.md`) |
+
+Found and fixed by grading against Metal: the BT.709 decode breakpoint
+(Metal breaks at `0x3da66557`, two ulps above a CPU float; pinned), and the
+portable mark rasterizer (eight sample rows -> exact-area coverage, as
+CoreGraphics). Results and the reproduction recipe: `LINUX_WINDOWS.md` §7,
+`engine/tests/parity_metal_vulkan.py`.
+
+Still refused off Apple: the contrast mask (hidden upstream too). Not
+verified: any GPU but an Apple M6 through MoltenVK in this round (no NVIDIA,
+AMD, Intel or lavapipe run of these commits), the cross-built `.exe` on real
+Windows (no wine on the Mac; it was checked statically -- PE32+ x86-64
+console, system-DLL imports only -- and its SPIR-V is byte-identical to the
+MoltenVK build's).

@@ -440,6 +440,8 @@ Json m_hello(const Request&) {
     Json tiff_options = Json::array();
     tiff_options.push(str("lzw")); tiff_options.push(str("preview-page"));
     r.set("tiff_options", std::move(tiff_options));
+    Json frame_options = Json::array(); frame_options.push(str("no-film"));
+    r.set("frame_options", std::move(frame_options));
     return r;
 }
 
@@ -1220,6 +1222,12 @@ Json m_export_frame(const Request& q, std::vector<uint8_t>* proof_payload = null
     const auto path = proof_payload ? fs::path{} : utf8_path(require_string(q.params, "path"));
     const auto format = optional_string(q.params, "format", "tiff16");
     cineon = cineon || (proof_payload && format == "di");
+    // R4 (1.3.4 "Don't Apply Film Simulation"): the decode through the post path.
+    if (!q.params.at("no_film").is_null() && !q.params.at("no_film").is_bool())
+        throw HostError{"bad_request", "no_film must be a boolean"};
+    const bool no_film = q.params.at("no_film").as_bool(false);
+    if (no_film && cineon)
+        throw HostError{"bad_request", "no_film cannot write a Digital Intermediate: the DI is the film's negative"};
     if (!cineon) check_format(format);
     const auto compression = optional_string(q.params, "tiff_compression", "none");
     if (compression != "none" && compression != "lzw")
@@ -1233,6 +1241,7 @@ Json m_export_frame(const Request& q, std::vector<uint8_t>* proof_payload = null
     if (cineon) { view_params.set("color_space", str("prophoto")); view_params.set("long_edge", number(0)); }
     auto req = view_request(view_params, true);
     req.cineon = cineon;
+    req.no_film = no_film;
     req.output_channels = 3;
     req.rgba16 = cineon || format == "tiff16";
     if (proof_payload) {
@@ -1314,14 +1323,18 @@ Json m_export_frame(const Request& q, std::vector<uint8_t>* proof_payload = null
     if (!spk::view::resume(s->handle, error))
         throw HostError{"io_error", "cannot restore editor cache: " + error};
     check_cancelled();
-    apply_snapshot(s, q.params);
+    // No film: `params` and `source_geometry` describe the film that is not
+    // applied, so they never touch the session; `geometry` frames the decode.
+    if (no_film && s->pair_source)
+        throw HostError{"bad_request", "no_film is not available for a half-frame pair"};
+    if (!no_film) apply_snapshot(s, q.params);
     if (s->pair_source) {
         if (!s->pair_info.at("left").at("available").as_bool() || !s->pair_info.at("right").at("available").as_bool())
             throw HostError{"bad_request", "fill both half-frame holes with readable photographs before exporting"};
         req.pair = pair_view_recipe(*s, &q.params.at("pair"));
     }
     progress_event(*s, progress, 0, "render");
-    if (q.params.has("scene_placement")) {
+    if (q.params.has("scene_placement") && !no_film) {
         const auto& intent = q.params.at("scene_placement");
         if (!intent.is_object()) throw HostError{"bad_request", "scene_placement must be an object"};
         char* text = nullptr;

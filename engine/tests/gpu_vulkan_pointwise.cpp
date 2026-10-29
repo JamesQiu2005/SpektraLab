@@ -6,6 +6,7 @@
 #include <algorithm>
 #include <cmath>
 #include <cstdio>
+#include <cstring>
 #include <limits>
 #include <memory>
 #include <string>
@@ -253,7 +254,10 @@ double reference_decode(float value, uint32_t mode, float bt_breakpoint) {
 }
 
 bool check_decode(Gpu* gpu, std::string& error) {
-    const float bt_breakpoint = 1.099f * std::pow(0.018f, 0.45f) - (1.099f - 1.0f);
+    // The Metal engine's breakpoint (spk_cctf_decode.comp says why): two
+    // ulps above 1.099f * std::pow(0.018f, 0.45f) - 0.099f.
+    float bt_breakpoint;
+    { const uint32_t bits = 0x3da66557u; std::memcpy(&bt_breakpoint, &bits, 4); }
     const float srgb_breakpoint = 0.040449936f;
     const std::vector<float> samples = {-0.25f, -0.0f, 0, 1e-10f, 1.0f / 512,
         std::nextafter(0.03125f, 0.0f), 0.03125f, std::nextafter(0.03125f, 1.0f),
@@ -278,6 +282,55 @@ bool check_decode(Gpu* gpu, std::string& error) {
         }
     return true;
 }
+// 1.3.4's node_headroom (CineStill 800T): a float64 oracle of the Metal
+// kernel's formula on RGB triples spanning both smoothstep ramps, zero and
+// negative maxima, and a clipped single channel.
+bool check_headroom_at(Gpu* gpu, double clip, std::string& error);
+bool check_headroom(Gpu* gpu, std::string& error) {
+    // 3.7: a lit frame, the clip ramp entirely above the mid-grey floor.
+    // 0.75: a dim frame, where both ramps overlap and the floor gates the
+    // clip -- without it, dropping the floor term passed (shown 2026-10-29).
+    return check_headroom_at(gpu, 3.7, error) && check_headroom_at(gpu, 0.75, error);
+}
+bool check_headroom_at(Gpu* gpu, double clip, std::string& error) {
+    const double from = -1.0, to = -0.25, headroom = 4.0, mid = 0.184, f0 = 1.5, f1 = 2.5;
+    const float p[7] = {float(1.0 / clip), float(from), float(1.0 / (to - from)), float(headroom),
+                        float(1.0 / mid), float(f0), float(1.0 / (f1 - f0))};
+    auto p_buf = gpu->upload(p, sizeof p, error);
+    if (!p_buf) return false;
+    const uint32_t pixels = 1031;
+    std::vector<float> x(3 * pixels);
+    for (uint32_t i = 0; i < pixels; ++i) {
+        // brightest channel from 2^-6 to past the clip, in fine steps of log2
+        const double m = std::exp2(-6.0 + 8.0 * double(i) / double(pixels - 1));
+        const int lead = int(i % 3);
+        for (int c = 0; c < 3; ++c) x[3 * i + c] = float(c == lead ? m : m * (0.2 + 0.3 * c));
+    }
+    x[0] = x[1] = x[2] = 0.0f;
+    x[3] = -1.0f; x[4] = -2.0f; x[5] = -0.5f;
+    x[6] = float(clip); x[7] = 0.01f; x[8] = 0.02f;   // a red-only clip
+    auto in = gpu->upload(x.data(), x.size() * sizeof(float), error);
+    auto out = output_buffer(gpu, x.size(), error);
+    if (!in || !out) return false;
+    std::vector<double> expected(x.size());
+    auto ss = [](double t) { t = std::clamp(t, 0.0, 1.0); return t * t * (3.0 - 2.0 * t); };
+    for (uint32_t i = 0; i < pixels; ++i) {
+        const double r = x[3 * i], g = x[3 * i + 1], b = x[3 * i + 2];
+        const double m = std::max(r, std::max(g, b));
+        double gain = 1.0;
+        if (m > 0.0) {
+            const double lm = std::log2(m);
+            gain = std::exp2(double(p[3]) * ss((lm + std::log2(double(p[0])) - p[1]) * p[2]) *
+                             ss((lm + std::log2(double(p[4])) - p[5]) * p[6]));
+        }
+        expected[3 * i] = r * gain; expected[3 * i + 1] = g * gain; expected[3 * i + 2] = b * gain;
+    }
+    const uint32_t n[] = {pixels};
+    return gpu->dispatch("spk_highlight_headroom", {Arg::buf(in), Arg::buf(p_buf), Arg::inline_bytes(n, 1),
+                         Arg::buf(out)}, pixels, error) &&
+           check_values(gpu, out, expected, "highlight_headroom", 1e-6, 2e-5, error);
+}
+
 }  // namespace
 
 int main(int argc, char** argv) {
@@ -287,7 +340,8 @@ int main(int argc, char** argv) {
     if (!gpu) { std::fprintf(stderr, "Vulkan device: %s\n", error.c_str()); return 1; }
     std::printf("Vulkan device: %s\n", gpu->device_name().c_str());
     if (!check_mul_glare_boost(gpu.get(), error) || !check_reduce(gpu.get(), error) ||
-        !check_bw(gpu.get(), error) || !check_edr(gpu.get(), error) || !check_decode(gpu.get(), error)) {
+        !check_bw(gpu.get(), error) || !check_edr(gpu.get(), error) || !check_decode(gpu.get(), error) ||
+        !check_headroom(gpu.get(), error)) {
         std::fprintf(stderr, "pointwise: %s\n", error.c_str()); return 1;
     }
     std::printf("pointwise: %zu analytic/float64 cases, max abs error %.9g, "

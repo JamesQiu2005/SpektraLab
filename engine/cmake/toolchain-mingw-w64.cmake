@@ -1,5 +1,6 @@
 # Cross-compiling the engine and spektralab-host for Windows x64 from Linux
-# with MinGW-w64 (Debian/Ubuntu: g++-mingw-w64-x86-64-posix). The *posix*
+# with MinGW-w64 (Debian/Ubuntu: g++-mingw-w64-x86-64-posix), or from macOS
+# (Homebrew: mingw-w64). The *posix*
 # thread model is required: the host and the engine use std::thread and
 # std::mutex, which the win32 model's libstdc++ does not provide.
 #
@@ -13,6 +14,13 @@ find_program(CMAKE_RC_COMPILER NAMES ${SPEKTRALAB_MINGW_PREFIX}-windres)
 # Keep caller-provided target dependency prefixes as well as the compiler sysroot.
 # Overwriting them hides separately staged libraries during cross-compilation.
 list(APPEND CMAKE_FIND_ROOT_PATH /usr/${SPEKTRALAB_MINGW_PREFIX})
+# macOS (Homebrew `mingw-w64`): the target sysroot lives inside the keg. The
+# Homebrew compilers use the posix thread model, as the Ubuntu -posix ones do.
+foreach(brew_root /opt/homebrew/opt/mingw-w64 /usr/local/opt/mingw-w64)
+    if(EXISTS "${brew_root}/toolchain-x86_64/${SPEKTRALAB_MINGW_PREFIX}")
+        list(APPEND CMAKE_FIND_ROOT_PATH "${brew_root}/toolchain-x86_64/${SPEKTRALAB_MINGW_PREFIX}")
+    endif()
+endforeach()
 list(REMOVE_DUPLICATES CMAKE_FIND_ROOT_PATH)
 set(CMAKE_FIND_ROOT_PATH_MODE_PROGRAM NEVER)
 set(CMAKE_FIND_ROOT_PATH_MODE_LIBRARY ONLY)

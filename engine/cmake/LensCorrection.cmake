@@ -20,7 +20,11 @@ endforeach()
 if(WIN32)
     target_link_libraries(spk_lens INTERFACE ws2_32 winmm ole32 shlwapi uuid)
 endif()
-if(NOT MSVC)
+if(APPLE)
+    # macOS parity builds only (SPEKTRALAB_VULKAN_ON_APPLE): libc++ has its
+    # atomics built in, and a static GLib wants iconv and CoreFoundation.
+    target_link_libraries(spk_lens INTERFACE m iconv "-framework CoreFoundation" "-framework Foundation")
+elseif(NOT MSVC)
     target_link_libraries(spk_lens INTERFACE atomic m)
 endif()
 # Keep lens calibration data beside the same resources as the material model.

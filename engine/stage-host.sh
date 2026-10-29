@@ -36,6 +36,7 @@ cp "$repo/modern_UI/Spektrafilm/Spektrafilm/Resources/Licenses/Profiles-and-LUTs
 cp "$repo/modern_UI/Spektrafilm/Spektrafilm/Resources/Licenses/Profiles-and-LUTs-CHANGELOG.txt" "$lic/"
 cp "$here/resources_product/NOTICE.md" "$lic/Product-profiles-NOTICE.md"
 cp "$here/resources_product/fonts/LICENSE" "$lic/Imprint-fonts-LICENSE.txt"
+cp "$here/resources_product/fonts/DejaVu-LICENSE" "$lic/Imprint-mono-font-DejaVu-LICENSE.txt"
 cp "$here/third_party/stb/LICENSE" "$lic/stb-LICENSE.txt"
 cp "$deps/LibRaw-0.22.2/LICENSE.LGPL" "$lic/LibRaw-LGPL-2.1.txt"
 cp "$deps/LibRaw-0.22.2/COPYRIGHT" "$lic/LibRaw-COPYRIGHT.txt"
@@ -77,6 +78,8 @@ The original spektrafilm profiles and print LUTs under engine/: CC BY-SA 4.0
 (Profiles-and-LUTs-CC-BY-SA-4.0.txt, with attribution in the CHANGELOG).
 SpektraLab's black-and-white product profiles: Product-profiles-NOTICE.md.
 Embedded Liberation Sans imprint fonts: Imprint-fonts-LICENSE.txt (SIL OFL 1.1).
+Embedded DejaVu Sans Mono Bold imprint font: Imprint-mono-font-DejaVu-LICENSE.txt
+(Bitstream Vera / DejaVu licence).
 stb_truetype: stb-LICENSE.txt (MIT option).
 EOF
 rm -rf "$stage"

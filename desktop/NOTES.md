@@ -140,7 +140,7 @@ SPEKTRALAB_HOST_DIR=../build/host-linux-x64 npm run dev    # Tauri + real host
 npm run check                  # tsc + eslint + vitest
 (cd src-tauri && cargo test)
 node scripts/package.mjs linux # needs build/host-linux-x64
-node scripts/package.mjs win   # needs build/host-win-x64 + cargo-xwin
+node scripts/package.mjs windows [--host-dir D]  # NSIS; cross-builds on macOS (docs/WINDOWS-INSTALLER.md)
 ```
 
 Linux runtime notes: under Xvfb the app needs `WEBKIT_DISABLE_DMABUF_RENDERER=1`
