@@ -1,0 +1,98 @@
+# The process gate (RFC-W001): PRD / RFC / ADR documents, the reference audit,
+# spec sync over the pushed or proposed range, and the Python unit tests that
+# need no GPU, no camera files and no Python oracle.
+#
+#   process-gate   ubuntu: the checker's own tests (git required, never
+#                  skipped), `docs audit`, then `sync` against
+#                    - a pull request: its base commit
+#                    - a push to Windows_Linux: the commit before the push
+#                    - any other branch: the merge base with origin/Windows_Linux
+#   python-unit    ubuntu and Windows: engine/tests/test_*.py (the Windows
+#                  fixture and render-matrix tools among them) and the
+#                  checker's tests, so path handling is exercised on Windows.
+#
+# What this cannot tell: whether a document is right, only whether it is
+# complete and consistent; whether a waiver's reason is true -- reviewers read
+# those, and the run prints every waiver it applied.
+
+name: Process (docs, audit, spec sync, Python unit tests)
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group: process-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  process-gate:
+    name: Process gate
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0          # sync needs the merge base and the commit messages
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Checker unit tests
+        env:
+          SPK_REQUIRE_GIT: '1'
+        run: python -m unittest discover -s tools/process/tests -v
+
+      - name: Documents and reference audit
+        run: python tools/process/check_process.py docs audit
+
+      - name: Spec sync over the range
+        env:
+          EVENT: ${{ github.event_name }}
+          PR_BASE: ${{ github.event.pull_request.base.sha }}
+          BEFORE: ${{ github.event.before }}
+          REF: ${{ github.ref }}
+        run: |
+          if [ "$EVENT" = "pull_request" ]; then
+            base="$PR_BASE"
+          elif [ "$REF" = "refs/heads/Windows_Linux" ] && [ -n "$BEFORE" ] && [ "$BEFORE" != "0000000000000000000000000000000000000000" ]; then
+            base="$BEFORE"
+          else
+            git fetch --no-tags origin Windows_Linux
+            base="origin/Windows_Linux"
+          fi
+          echo "sync base: $base"
+          python tools/process/check_process.py sync --base "$base" --head HEAD
+
+  python-unit:
+    name: Python unit tests (${{ matrix.os }})
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-24.04, windows-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      # numpy is the only third-party import of the tested tools; pinned so a
+      # new release cannot change a result between two runs of one commit.
+      - name: Test dependencies
+        run: python -m pip install numpy==2.3.4
+
+      - name: engine/tests unit tests
+        run: python -m unittest discover -s engine/tests -p "test_*.py" -v
+
+      - name: Checker unit tests
+        env:
+          SPK_REQUIRE_GIT: '1'
+        run: python -m unittest discover -s tools/process/tests -v

@@ -546,5 +546,15 @@ class CommandLineTests(Base):
         self.assertEqual(self.run_cli("docs", "--strict"), 1)
 
 
+class RepositoryTests(unittest.TestCase):
+    """The repository's own documents pass the checks they are held to."""
+
+    def test_this_repository_passes_docs_and_audit(self):
+        report = cp.Report()
+        cp.check_docs(REPO, report)
+        cp.check_audit(REPO, report)
+        self.assertEqual(report.errors, [], "\n".join(f.render() for f in report.errors))
+
+
 if __name__ == "__main__":
     unittest.main()

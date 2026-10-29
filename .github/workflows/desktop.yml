@@ -8,6 +8,10 @@
 #                         the same smoke test under wine (winevulkan -> lavapipe).
 #   desktop-checks        typecheck, eslint, vitest, cargo test, Playwright
 #                         (Chromium against the in-page mock host).
+#   desktop-checks-windows the same typecheck, eslint, vitest and cargo test
+#                         on a real Windows: paths, line endings, file IDs and
+#                         the Rust `cfg(windows)` code run where they ship.
+#                         Not a prerequisite of packaging (RFC-W001 §9).
 #   package-linux         .deb + AppImage with the Linux host inside.
 #   package-windows       the NSIS installer, built natively on Windows around
 #                         the cross-built host; then installed silently and
@@ -24,7 +28,10 @@ name: Desktop (Linux, Windows)
 
 on:
   push:
-    branches: [main, Windows_Linux, 'claude/**']
+    # windows_linux2: the integration staging branch, whose full run is the
+    # evidence a merge into Windows_Linux is approved on
+    # (docs/process/DEVELOPMENT-PROCESS.md §8).
+    branches: [main, Windows_Linux, windows_linux2, 'claude/**']
   pull_request:
   workflow_dispatch:
 
@@ -179,6 +186,43 @@ jobs:
         run: |
           npx playwright install --with-deps chromium
           npm run test:e2e
+
+  # Playwright stays on Linux: it drives the page and the in-page mock host,
+  # which do not depend on the operating system.
+  desktop-checks-windows:
+    name: Frontend checks (Windows)
+    runs-on: windows-latest
+    timeout-minutes: 60
+    defaults:
+      run:
+        working-directory: desktop
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22          # as desktop-checks
+          cache: npm
+          cache-dependency-path: desktop/package-lock.json
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: desktop/src-tauri
+
+      - run: npm ci
+
+      - name: Typecheck, lint, unit tests
+        run: npm run check
+
+      # tauri::generate_context! embeds ../dist, so it must exist for cargo.
+      - name: Web build
+        run: npm run build:web
+
+      - name: Rust tests
+        working-directory: desktop/src-tauri
+        run: cargo test --locked
 
   package-linux:
     name: Package (Linux .deb + AppImage)
