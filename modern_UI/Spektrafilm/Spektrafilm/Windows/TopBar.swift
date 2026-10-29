@@ -81,10 +81,13 @@ struct TopBar: View {
                    active: session.canSolve, enabled: session.canSolve) { session.solveNow() }
                 .padding(.leading, Theme.Metric.barActionLeading)
             action(L(.actionOriginal),
-                   help: session.showingOriginal
-                       ? "Showing the original — press to go back to the developed print."
-                       : "Show the RAW as Apple's decoder renders it, before any film simulation (⎵ does the same, while held).",
-                   active: session.showingOriginal, enabled: session.selection != nil) {
+                   help: session.filmEdgeShowsFilm
+                       ? "The film edge is on — turn it off to switch back to the original."
+                       : session.showingOriginal
+                           ? "Showing the original — press to go back to the developed print."
+                           : "Show the RAW as Apple's decoder renders it, before any film simulation (⎵ does the same, while held).",
+                   active: session.showingOriginal,
+                   enabled: session.selection != nil && !session.filmEdgeShowsFilm) {
                 session.toggledOriginal(!session.showingOriginal)
             }
             .padding(.leading, Theme.Metric.actionGap)

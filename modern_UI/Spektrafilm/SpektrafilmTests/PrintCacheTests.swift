@@ -91,6 +91,64 @@ final class PrintCacheTests: XCTestCase {
                        "restoring a print decoded the RAW again")
     }
 
+    /// A print restored from disk comes with an original.
+    ///
+    /// The regression: on a relaunch the print cache ends the open before any
+    /// decode, so `renderer.original` was nil and Original kept drawing the
+    /// print. The display cache's decode preview fills it in without decoding.
+    ///
+    /// The frame is an empty `.tif`: this path never reads it (both caches
+    /// answer first), and the camera fixtures are not in this checkout.
+    func testARestoredPrintAlsoRestoresTheOriginal() async throws {
+        let dir = FileManager.default.temporaryDirectory
+            .appending(path: "spk-print-original-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        addTeardownBlock { try? FileManager.default.removeItem(at: dir) }
+        let url = dir.appending(path: "frame.tif")
+        try Data().write(to: url)
+        let diagnostics = try diagnostics()
+        let store = try DiskCacheStore(
+            root: FileManager.default.temporaryDirectory
+                .appending(path: "spk-print-original-store-\(UUID().uuidString)")
+        )
+        let session = Session(diagnostics: diagnostics, diskCache: store)
+        try await waitUntil("warm-up to publish the engine version") {
+            diagnostics.engineVersion != nil
+        }
+        let engineVersion = try XCTUnwrap(diagnostics.engineVersion)
+        let printPixels = Data(repeating: 0x22, count: 16)
+        try await store.store(
+            key: Session.printCacheKey(
+                url: url, params: FilmParams.default, tier: .live,
+                previewLongEdge: session.previewLongEdge, engineVersion: engineVersion
+            ),
+            data: printPixels, width: 2, height: 1,
+            sourceWidth: 5_504, sourceHeight: 8_256, format: "rgba16Unorm", costMs: 1
+        )
+        let originalPixels = Data(repeating: 0x11, count: 16)
+        try await store.store(
+            key: Session.displayCacheKey(
+                url: url, settings: DecodeSettings(),
+                previewLongEdge: session.previewLongEdge, engineVersion: engineVersion
+            ),
+            data: originalPixels, width: 2, height: 1,
+            sourceWidth: 5_504, sourceHeight: 8_256, format: "rgba16Unorm", costMs: 1
+        )
+
+        session.open(urls: [url])
+        try await waitUntil("the print cache to land") {
+            session.renderer.store.print(for: url) != nil
+        }
+        try await waitUntil("the original to land") {
+            session.renderer.original != nil
+        }
+
+        XCTAssertEqual(try XCTUnwrap(session.renderer.original).rgba16Bytes(), originalPixels,
+                       "the restored original is not the display cache's decode")
+        XCTAssertEqual(session.decodeCount, 0,
+                       "restoring the original decoded the RAW again")
+    }
+
     func testEngineVersionPerturbationMissesThePrint() async throws {
         let url = try smokeFrame()
         let diagnostics = try diagnostics()
