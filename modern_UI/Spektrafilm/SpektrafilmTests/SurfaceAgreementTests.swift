@@ -66,6 +66,39 @@ final class SurfaceAgreementTests: XCTestCase {
         }
     }
 
+    /// The histogram follows the picture on screen: pressing Original (or
+    /// holding Space) swaps the canvas to the decode, and the plot has to
+    /// describe the decode rather than the print it replaced.
+    ///
+    /// The regression this pins: `draw` published the histogram only while
+    /// `!showOriginal`, so the plot froze on the print's bins for the whole
+    /// time the decode was on the canvas.
+    func testTheHistogramFollowsTheOriginal() throws {
+        let renderer = try XCTUnwrap(Renderer())
+        let print = try solid(renderer, red: 0, green: 0, blue: 65535, width: 32, height: 16)
+        let decode = try solid(renderer, red: 65535, green: 0, blue: 0, width: 32, height: 16)
+        var bins: [Float] = []
+        renderer.onHistogram = { bins = $0 }
+        renderer.setLive(print)
+        renderer.original = decode
+        renderer.viewport.backingScale = 1
+        renderer.viewport.resize(viewport: CGSize(width: 32, height: 16),
+                                 image: CGSize(width: 32, height: 16))
+
+        _ = try XCTUnwrap(renderer.renderOffscreen(size: CGSize(width: 32, height: 16), backingScale: 1))
+        XCTAssertEqual(bins.count, 1024, "the print's histogram did not publish")
+        guard bins.count == 1024 else { return }
+        XCTAssertGreaterThan(bins[512 + 255], 0.5, "the print's histogram has no blue")
+
+        renderer.showOriginal = true
+        bins = []
+        _ = try XCTUnwrap(renderer.renderOffscreen(size: CGSize(width: 32, height: 16), backingScale: 1))
+        XCTAssertEqual(bins.count, 1024, "the original's histogram did not publish")
+        guard bins.count == 1024 else { return }
+        XCTAssertGreaterThan(bins[255], 0.5, "the histogram does not describe the original")
+        XCTAssertEqual(bins[512 + 255], 0, "the histogram still counts the print")
+    }
+
     // MARK: - the exported file (camera fixture: it has EXIF to carry)
 
     /// The written file is the frame the canvas shows: a cropped, quarter-
@@ -189,6 +222,21 @@ final class SurfaceAgreementTests: XCTestCase {
         px.reserveCapacity(w * h * 4)
         for _ in 0..<h {
             for x in 0..<w { px += x < w / 2 ? [M, 0, 0, M] : [0, 0, M, M] }
+        }
+        px.withUnsafeBytes {
+            tex.replace(region: MTLRegionMake2D(0, 0, w, h), mipmapLevel: 0,
+                        withBytes: $0.baseAddress!, bytesPerRow: w * 8)
+        }
+        return tex
+    }
+
+    /// A frame of one encoded colour, 16-bit, as the working-space textures are.
+    private func solid(_ renderer: Renderer, red: UInt16, green: UInt16, blue: UInt16,
+                       width w: Int, height h: Int) throws -> MTLTexture {
+        let tex = try XCTUnwrap(renderer.store.makeWritable(width: w, height: h))
+        var px = [UInt16](repeating: 0, count: w * h * 4)
+        for i in stride(from: 0, to: px.count, by: 4) {
+            px[i] = red; px[i + 1] = green; px[i + 2] = blue; px[i + 3] = 65535
         }
         px.withUnsafeBytes {
             tex.replace(region: MTLRegionMake2D(0, 0, w, h), mipmapLevel: 0,

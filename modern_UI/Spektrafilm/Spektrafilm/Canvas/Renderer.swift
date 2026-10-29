@@ -125,6 +125,11 @@ final class Renderer: NSObject {
     /// `waitUntilCompleted` with no blit.
     private let transformStats: MTLBuffer
     private var histogramInFlight = false
+    /// The texture the bins in `histogramBuffer` describe (or are on their way
+    /// to). `showOriginal` swaps the canvas to the decode, so "what the plot
+    /// describes" is not a property of the print alone: a draw encodes again
+    /// whenever the texture it is about to show is not this one.
+    private var histogramSource: ObjectIdentifier?
 
     /// The interactive, live-tier image: the print if there is one, else the
     /// decode preview. This is what the canvas shows at fit and while zoomed
@@ -721,6 +726,30 @@ final class Renderer: NSObject {
         enc.endEncoding()
     }
 
+    /// Encode the `histogram` kernel over `src` unless the bins on screen
+    /// already describe it.
+    ///
+    /// One pass at a time: the buffer is shared, so a second encode while the
+    /// first is still in flight would overwrite bins whose publish is pending.
+    /// The completion asks for one more draw, because the frame (or the
+    /// Original toggle) can move while the pass is running; that draw re-encodes
+    /// for whatever is on screen then, and is a no-op when nothing moved.
+    private func encodeHistogramIfNeeded(_ cb: MTLCommandBuffer, src: MTLTexture) {
+        let id = ObjectIdentifier(src)
+        guard !histogramInFlight, histogramSource != id else { return }
+        histogramInFlight = true
+        histogramSource = id
+        encodeHistogram(cb, src: src)
+        cb.addCompletedHandler { [weak self] _ in
+            Task { @MainActor in
+                guard let self else { return }
+                self.histogramInFlight = false
+                self.publishHistogram()
+                self.needsDraw?()
+            }
+        }
+    }
+
     /// Publish the bins the `histogram` kernel just filled.
     ///
     /// **The axis is the working space's**, and that is a decision rather than
@@ -820,25 +849,20 @@ final class Renderer: NSObject {
         if let base = graded {
             if showOriginal, let original {
                 shown = original
+                // The plot follows the picture: Space and the split's left
+                // half show the decode, so the histogram has to describe the
+                // decode too. Same working space, same axis (`publishHistogram`).
+                encodeHistogramIfNeeded(cb, src: original)
             } else if let dst = ensureAdjusted(for: base) {
                 if layer2Dirty {
                     encodeLayer2(cb, src: base, dst: dst)
                     layer2Dirty = false
-                    // The histogram is taken of **what the canvas draws** —
-                    // the working-space texture — now that there is no
-                    // converted one to take it of. What that means for its
-                    // axis is recorded on `publishHistogram`.
-                    if !histogramInFlight {
-                        histogramInFlight = true
-                        encodeHistogram(cb, src: dst)
-                        cb.addCompletedHandler { [weak self] _ in
-                            Task { @MainActor in
-                                self?.histogramInFlight = false
-                                self?.publishHistogram()
-                            }
-                        }
-                    }
                 }
+                // The histogram is taken of **what the canvas draws** —
+                // the working-space texture — now that there is no
+                // converted one to take it of. What that means for its
+                // axis is recorded on `publishHistogram`.
+                encodeHistogramIfNeeded(cb, src: dst)
                 shown = dst
             }
         }
@@ -997,6 +1021,9 @@ final class Renderer: NSObject {
         // "show original" shows the original rather than the print.
         if base != nil, showOriginal, let original {
             shown = original
+            // The capture is of the original, so the plot it carries must be
+            // the original's too (the same swap `draw` makes).
+            encodeHistogram(cb, src: original)
         } else if let base = graded, let dst = ensureAdjusted(for: base) {
             encodeLayer2(cb, src: base, dst: dst)
             layer2Dirty = false
@@ -1021,7 +1048,10 @@ final class Renderer: NSObject {
         enc.endEncoding()
         cb.commit()
         cb.waitUntilCompleted()
-        if shown != nil, !showOriginal { publishHistogram() }
+        if let shown {
+            histogramSource = ObjectIdentifier(shown)
+            publishHistogram()
+        }
         return target
     }
 }

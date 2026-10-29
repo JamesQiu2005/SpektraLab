@@ -1674,14 +1674,16 @@ final class Session: CanvasHost {
         // Zoom is already mirrored through viewportChanged; no new canvas
         // plumbing is needed. If that mirror is ever removed, keep this hook
         // as the place to instrument the zoom-past-preview trigger.
-        guard trigger == "comparing" || trigger == "idle_delay" || wantsFullRender else { return }
+        guard trigger == "comparing" || trigger == "idle_delay" || trigger == "original"
+                || wantsFullRender else { return }
         let key = (url, decodedGeneration)
         if let existing = nativeOriginalKey, existing == key {
             // One render per (frame, decode). The idle delay is still
             // interruptible by a person asking for the original now; an
             // in-flight or landed render is not asked for again.
             let preemptsDelay = nativeOriginalPendingDelay
-                && (trigger == "comparing" || trigger == "zoom_past_preview")
+                && (trigger == "comparing" || trigger == "zoom_past_preview"
+                    || trigger == "original")
             guard preemptsDelay else { return }
         }
         log.info(.canvas, "native original trigger", [.init("trigger", trigger),
@@ -1975,6 +1977,17 @@ final class Session: CanvasHost {
                                                                         frame: picture.sourceSize))
             previewSoft = false
             clock.lap("print-cache")
+            // The print cache says nothing about the decode, and a relaunch
+            // starts with an empty texture store — so `original` was nil and
+            // Original had nothing to show. The display cache is a disk read,
+            // not a decode, so the instant frame switch is untouched.
+            if let display = await displayPicture(for: url, settings: settings) {
+                guard !Task.isCancelled, selection == url else { return }
+                displaySourceSize = display.sourceSize
+                renderer.store.setSource(display.texture, for: url, costMs: display.costMs)
+                renderer.original = display.texture
+                clock.lap("original")
+            }
             noteOpen(clock, url: url, mode: "print-cache", pixels: picture.sourceSize)
             status = "\(url.lastPathComponent)  ·  restored print"
             return
@@ -3379,6 +3392,10 @@ final class Session: CanvasHost {
         if on { leaveCropTool() }
         renderer.showOriginal = on || filmEdgeFraming
         showingOriginal = on
+        // Asking for the original is evidence that it is wanted: a frame
+        // opened from the print cache only has the display cache's preview,
+        // or nothing at all.
+        if on { requestNativeOriginal(trigger: "original") }
     }
 
     /// Showing the original and cropping are two different questions about
