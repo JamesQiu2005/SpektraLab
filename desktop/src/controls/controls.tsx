@@ -193,7 +193,9 @@ export function ScrubSlider(p: ScrubSliderProps) {
         disabled={disabled}
         onFocus={(e) => {
           cancelText.current = false;
-          setText(format(value));
+          // Focus alone must not commit a rounded display value or turn an
+          // automatically metered exposure into a manual edit.
+          setText(null);
           e.currentTarget.select();
         }}
         onChange={(e) => setText(e.target.value)}

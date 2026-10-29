@@ -4,7 +4,8 @@ import type { settingsStore } from '../../src/state/settings';
 
 type App = { sessionStore: typeof sessionStore; settingsStore: typeof settingsStore };
 const exposure = (page: Page) => page.evaluate(() =>
-  (window as unknown as { __spk: App }).__spk.sessionStore.getState().sidecar.params.exposureCompensationEV);
+  { const p = (window as unknown as { __spk: App }).__spk.sessionStore.getState().sidecar.params;
+    return p.exposureBaselineEV + p.exposureCompensationEV; });
 
 async function openRoll(page: Page, allFeatures = false) {
   await page.goto(allFeatures ? '/?open=&allFeatures=1' : '/?open=');
@@ -15,15 +16,15 @@ test('negative input keeps its sign on Enter, blur, unchanged focus, and undo', 
   await openRoll(page);
   const field = page.getByRole('textbox', { name: 'Film Exposure value', exact: true });
   await field.fill('−2'); await field.press('Enter');
-  await expect.poll(() => exposure(page)).toBe(-2);
+  await expect.poll(() => exposure(page)).toBeCloseTo(-2);
   await field.focus(); await field.press('Tab');
-  expect(await exposure(page)).toBe(-2);
+  expect(await exposure(page)).toBeCloseTo(-2);
   await field.fill('−1,5'); await field.press('Tab');
-  await expect.poll(() => exposure(page)).toBe(-1.5);
+  await expect.poll(() => exposure(page)).toBeCloseTo(-1.5);
   await field.fill('-3'); await field.press('Enter');
-  await expect.poll(() => exposure(page)).toBe(-3);
+  await expect.poll(() => exposure(page)).toBeCloseTo(-3);
   await page.keyboard.press('Control+z');
-  await expect.poll(() => exposure(page)).toBe(-1.5);
+  await expect.poll(() => exposure(page)).toBeCloseTo(-1.5);
 });
 
 test('film edge locks format controls and releases the saved custom dimensions', async ({ page }) => {

@@ -76,6 +76,7 @@ void validate(const Json& pair) {
         Geometry geometry(hole.at("geometry"));
         const auto& p = hole.at("placement"); turn(p); placement(p, 24, 18, .75);
         number(hole, "exposureEV", 0, -5, 5); flag(hole, "autoExposure", true);
+        number(hole, "exposureBaselineEV", 0, -64, 64);
         if (!hole.at("decode").is_null() && !hole.at("decode").is_object()) throw std::invalid_argument("pair: decode must be an object");
     }
 }
@@ -183,7 +184,7 @@ std::string PairSource::signature(const Json& input, const Json& params, const J
     for (const char* side : sides) {
         const auto& hole = pair.at(side); if (hole.is_null()) continue;
         Json h = Json::object(); h.set("file", Json(stamp(hole.at("path").as_string())));
-        for (const char* name : {"decode", "geometry", "placement", "exposureEV", "autoExposure"}) h.set(name,hole.at(name));
+        for (const char* name : {"decode", "geometry", "placement", "exposureEV", "exposureBaselineEV", "autoExposure"}) h.set(name,hole.at(name));
         if (const auto reading=saved_meter(hole,params)) h.set("meteredEV",Json(*reading));
         h.set("method", Json(method(hole, params))); key.set(side, std::move(h));
     }
@@ -250,6 +251,7 @@ bool PairSource::compose(const Json& pair, const Json& params, FloatImage& out, 
         }
         d.probes[side]=picture->probe; d.raw_metadata[side]=picture->raw_metadata;
         double ev=number(hole,"exposureEV",0,-5,5);
+        if(!flag(hole,"autoExposure",true)) ev+=number(hole,"exposureBaselineEV",0,-64,64);
         if(flag(hole,"autoExposure",true)) {
             // Moving/zooming a hole must not make its exposure pump. A new
             // source/decode/geometry/meter intent invalidates the reading.

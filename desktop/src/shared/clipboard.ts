@@ -21,7 +21,7 @@ export type ClipboardGroup = (typeof CLIPBOARD_GROUPS)[number];
 
 export const GROUP_PATHS: Record<ClipboardGroup, string[]> = {
   filmAndPaper: ['params.filmStock', 'params.printStock', 'params.scanFilm', 'params.digitalIntermediate', 'params.extendedDynamicRange'],
-  exposure: ['params.autoExposure', 'params.autoExposureMethod', 'params.exposureCompensationEV', 'params.printBrightnessStops'],
+  exposure: ['params.autoExposure', 'params.autoExposureMethod', 'params.exposureCompensationEV', 'params.exposureBaselineEV', 'params.printBrightnessStops'],
   whiteBalance: ['decode.whiteBalance', 'decode.temperature', 'decode.tint', 'params.yFilterShift', 'params.mFilterShift'],
   filmEffects: [
     'params.filmFormatMM',

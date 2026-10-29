@@ -318,6 +318,7 @@ bool is_known_camera_filter(const std::string& name);
 
 struct CameraParams {
     double exposure_compensation_ev = 0.0;
+    double exposure_baseline_ev = 0.0; // Frozen meter, applied before scene placement when AE is off.
     bool auto_exposure = true;
     /// Which exposure intent the meter follows (RFC-015 §2.3). The default is
     /// the reference's own, and it stays: three of the seven names are the

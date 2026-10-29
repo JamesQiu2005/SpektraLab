@@ -434,7 +434,8 @@ export class MockHost {
         const s = this.session(p);
         return {
           result: {
-            solved_params: { c_filter_neutral: 0, m_filter_neutral: 55, y_filter_neutral: 65, ...(!s.pair ? { exposure_compensation_ev: 0 } : {}) },
+            solved_params: { c_filter_neutral: 0, m_filter_neutral: 55, y_filter_neutral: 65, ...(!s.pair ? { exposure_compensation_ev:
+              ({ balanced: .3, center: .1, protect_highlights: -.4, protect_shadows: .6 } as Record<string, number>)[String(s.params.auto_exposure_method)] ?? 0 } : {}) },
             exposure_ev_by_method: { balanced: 0.3, center: 0.1, protect_highlights: -0.4, protect_shadows: 0.6 },
             session: s.id,
           },

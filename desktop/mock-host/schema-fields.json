@@ -39,6 +39,14 @@
   "live": false
  },
  {
+  "name": "exposure_baseline_ev",
+  "path": "camera.exposure_baseline_ev",
+  "type": "float",
+  "layer": "shoot",
+  "live": false,
+  "range": [-64.0, 64.0]
+ },
+ {
   "name": "film_format_mm",
   "path": "camera.film_format_mm",
   "type": "float",

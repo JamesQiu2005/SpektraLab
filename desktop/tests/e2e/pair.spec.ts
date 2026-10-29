@@ -21,14 +21,14 @@ test('creates a pair in strip order, edits one hole, and reloads the owned recip
   await page.getByTestId('pair-layer-left').click();
   const exposure = page.getByTestId('film-exposure').locator('input');
   await exposure.press('ArrowUp');
-  expect(await state(page, 's.pair.left.exposureEV')).toBeCloseTo(1 / 3);
+  expect(await state(page, 's.pair.left.exposureBaselineEV')).toBeCloseTo(1 / 3);
   expect(await state(page, 's.pair.right.exposureEV')).toBe(0);
   await expect.poll(() => page.evaluate((path) => localStorage.getItem(`pair:${path}`), savedPath)).toContain('0.3333333333333333');
   await page.reload(); await expect(page.getByTestId('tier-badge')).toHaveText('full');
   await expect(page.locator('.thumb')).toHaveCount(9);
   await page.locator('.thumb').filter({ hasText: 'Half-Frame Pair' }).click();
   await expect.poll(() => state(page, 's.selection')).toBe(savedPath);
-  expect(await state(page, 's.pair.left.exposureEV')).toBeCloseTo(1 / 3);
+  expect(await state(page, 's.pair.left.exposureBaselineEV')).toBeCloseTo(1 / 3);
 });
 for (const renderDelay of [0, 600]) {
   test(`fills an empty hole by dragging from the strip and supports reversible placement on the canvas (render delay ${renderDelay} ms)`, async ({ page }) => {

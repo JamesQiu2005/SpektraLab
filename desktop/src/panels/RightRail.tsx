@@ -5,7 +5,7 @@
 import { useRef, useState } from 'react';
 import { Checkbox, NumberField, PillMenu, ScrubSlider, Section, SegmentedSwitch, ToggleRow, signed } from '../controls/controls';
 import { isChinese, t, tz } from '../i18n';
-import { cameraParams, pairFocus, setCamera, shownAdjustments, shownDecode as selectedDecode, updatePair, canPickNeutral, currentPlacementWindow, hostRedecodes, placeScene, placementReady, resetScenePlacement, setAdjustments, setDecode, setFilmFrame, setFilmSide, setParams, setSideLengthMM, startNeutralPick, useSession } from '../state/session';
+import { cameraParams, cameraExposureBaseline, cameraExposureTotal, setCameraMetering, setCameraExposureTotal, resetCameraExposure, pairFocus, shownAdjustments, shownDecode as selectedDecode, updatePair, canPickNeutral, currentPlacementWindow, hostRedecodes, placeScene, placementReady, resetScenePlacement, setAdjustments, setDecode, setFilmFrame, setFilmSide, setParams, setSideLengthMM, startNeutralPick, useSession } from '../state/session';
 import { settingsStore, useSettings } from '../state/settings';
 import {
   type AEMethod,
@@ -17,7 +17,6 @@ import {
   SIDE_UNIT_PER_MM,
   type SideUnit,
   aeMethodOf,
-  applyAEMethod,
 } from '@shared/params';
 import { type ColorZone, type CurveChannel, CURVE_CHANNELS, isNeutral } from '@shared/adjustments';
 import {
@@ -134,28 +133,32 @@ function CameraSection() {
   const p = cameraParams(state), focus = pairFocus(state), hole = focus ? state.pair?.[focus] : null;
   const vignette = useSession((s) => shownAdjustments(s).vignette.amount);
   const ae = aeMethodOf(p);
+  const baseline = cameraExposureBaseline(state), total = cameraExposureTotal(state);
+  // Keep the track fixed while ordinary values move. Expand only for an
+  // existing exposure outside the normal range; the baseline itself moves.
+  const span = Math.max(hole ? 5 : 8, Math.ceil(Math.abs(total ?? 0)));
   const lens = (focus ? state.pairInfo?.[focus]?.metadata : state.metadata)?.lens_correction;
   const lensReady = lens?.available === true && !!state.hello?.methods?.includes(state.pair ? 'update_pair' : 'redecode') && !state.batchExporting;
   const lensReason = lens?.reason || tz('No matching lens profile is available for this photograph.', '此照片没有匹配的镜头配置文件。');
   const lensParts = lens ? [lens.distortion && tz('distortion', '畸变'), lens.tca && tz('colour fringing', '横向色差'), lens.vignetting && tz('vignetting', '暗角')].filter(Boolean).join(' · ') : '';
   const wb = useWhiteBalance();
-  const options: { value: AEMethod; label: string }[] = [
-    { value: 'custom', label: t('meteringCustom') },
+  const options: { value: AEMethod; label: string; disabled?: boolean }[] = [
+    { value: 'custom', label: t('meteringCustom'), disabled: baseline === null },
     { value: 'balanced', label: t('meteringBalanced') },
     { value: 'center', label: t('meteringCenter') },
     { value: 'protect_highlights', label: t('meteringProtectHighlights') },
     { value: 'protect_shadows', label: t('meteringProtectShadows') },
   ];
   if (ae === 'legacy') options.push({ value: 'legacy', label: t('meteringCenterWeightedLegacy') });
-  const asShot = !p.autoExposure && p.exposureCompensationEV === 0;
+  const asShot = !p.autoExposure && p.exposureCompensationEV === 0 && p.exposureBaselineEV === 0;
   return (
     <Section
       id="camera"
       title={t('sectionCamera')}
-      onReset={() => setCamera((q) => ({ ...q, exposureCompensationEV: 0 }))}
+      onReset={resetCameraExposure}
       resetHelp={t('helpResetFilmExposure')}
       menu={[
-        { label: t('helpResetFilmExposure'), onSelect: () => setCamera((q) => ({ ...q, exposureCompensationEV: 0 })) },
+        { label: t('helpResetFilmExposure'), onSelect: resetCameraExposure },
         // The presets keep their English names, as on the Mac.
         ...WB_MODES.filter((m) => m !== 'Custom').map((m) => ({
           label: `${t('helpWhiteBalancePreset')}: ${m}`,
@@ -165,7 +168,7 @@ function CameraSection() {
         })),
       ]}
     >
-      <PillMenu label={t('cameraMetering')} value={ae} options={options} fill onChange={(v) => setCamera((q) => applyAEMethod(q, v))} testId="metering" />
+      <PillMenu label={t('cameraMetering')} value={ae} options={options} fill onChange={setCameraMetering} testId="metering" />
       {hole && focus && <PillMenu label={tz('Exposure scope', '曝光范围')} value={hole.exposureScope}
         options={[{ value: 'frame', label: tz('Frame', '这一格') }, { value: 'film', label: tz('+ Film', '+ 胶片') }]}
         onChange={(v) => updatePair((p) => ({ ...p, [focus]: { ...p[focus]!, exposureScope: v } }))} />}
@@ -174,16 +177,21 @@ function CameraSection() {
         sublabel={
           <span style={{ display: 'inline-flex', gap: 4, alignItems: 'center' }}>
             {t('cameraFilmExposureAsShot')}
-            <Checkbox on={asShot} label={t('cameraFilmExposureAsShot')} onChange={() => setCamera((q) => ({ ...applyAEMethod(q, 'custom'), exposureCompensationEV: 0 }))} />
+            <Checkbox on={asShot} label={t('cameraFilmExposureAsShot')} onChange={resetCameraExposure} />
           </span>
         }
-        value={p.exposureCompensationEV}
-        range={hole ? [-5, 5] : [-3, 3]}
+        value={total ?? p.exposureCompensationEV}
+        range={[Math.max(-span, p.exposureCompensationEV - 64), Math.min(span, p.exposureCompensationEV + 64)]}
+        disabled={total === null}
+        reason={tz('Waiting for this photograph’s exposure reading.', '正在获取此照片的测光结果。')}
         snap={1 / 3}
         format={signed(1)}
-        onChange={(v) => setCamera((q) => ({ ...q, exposureCompensationEV: v }))}
+        onChange={setCameraExposureTotal}
         testId="film-exposure"
       />
+      {p.autoExposure && <div className="caption num" data-testid="automatic-exposure">
+        {baseline === null ? tz('Metering…', '正在测光…') : tz(`Auto ${signed(2)(baseline)} EV · slider shows total`, `自动补偿 ${signed(2)(baseline)} EV · 滑条显示总曝光`)}
+      </div>}
       <ScrubSlider
         label={t('cameraTemperature')}
         sublabel={<AsShotLine on={wb.boxes.temp} enabled={!!wb.asShot && !wb.reason} onChange={(v) => setDecode((d) => applyBoxes(d, wb.asShot, { temp: v }))} />}

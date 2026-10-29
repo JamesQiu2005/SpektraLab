@@ -22,6 +22,27 @@ test('the window: two rails, the bar, the canvas, the filmstrip', async ({ page 
   await expect(page.getByTestId('navigator').locator('canvas')).toBeVisible();
 });
 
+test('filmstrip wheel browses horizontally without selecting; clicking still opens a frame', async ({ page }) => {
+  await openRoll(page);
+  const strip = page.locator('.filmstrip-cells');
+  const selected = await state(page, 's.selection');
+  const picked = await state(page, 's.picked');
+  await strip.hover();
+  await page.mouse.wheel(0, 320);
+  await expect.poll(() => strip.evaluate((el) => el.scrollLeft)).toBeGreaterThan(0);
+  expect(await state(page, 's.selection')).toBe(selected);
+  expect(await state(page, 's.picked')).toEqual(picked);
+  await page.mouse.wheel(0, -1000);
+  await expect.poll(() => strip.evaluate((el) => el.scrollLeft)).toBe(0);
+  await page.mouse.wheel(240, 0);
+  await expect.poll(() => strip.evaluate((el) => el.scrollLeft)).toBeGreaterThan(0);
+  expect(await state(page, 's.selection')).toBe(selected);
+  const target = page.locator('.thumb').nth(2);
+  const path = await target.getAttribute('data-path');
+  await target.click();
+  await expect.poll(() => state(page, 's.selection')).toBe(path);
+});
+
 test('reopening one file after restart does not bring the previous roll back', async ({ page }) => {
   await openRoll(page);
   await expect(page.locator('.thumb')).toHaveCount(8);
@@ -106,10 +127,10 @@ test('Escape cancels a slider draft without adding history; Enter and blur commi
   await expect(field).not.toBeFocused();
   await field.fill('1');
   await field.press('Enter');
-  await expect.poll(() => state(page, 's.sidecar.params.exposureCompensationEV')).toBe(1);
+  await expect.poll(() => state(page, 's.sidecar.params.exposureBaselineEV + s.sidecar.params.exposureCompensationEV')).toBeCloseTo(1);
   await field.fill('3');
   await field.press('Tab');
-  await expect.poll(() => state(page, 's.sidecar.params.exposureCompensationEV')).toBe(3);
+  await expect.poll(() => state(page, 's.sidecar.params.exposureBaselineEV + s.sidecar.params.exposureCompensationEV')).toBeCloseTo(3);
 });
 
 test('Escape cancels a unit draft without adding history; Enter and blur commit', async ({ page }) => {
