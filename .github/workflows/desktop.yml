@@ -22,10 +22,15 @@
 
 name: Desktop (Linux, Windows)
 
+# Windows_Linux only. main is the macOS product and build.yml is its gate; a
+# change there reaches this port when it is merged into Windows_Linux, and that
+# push runs this. A pull_request run reads the workflow from its base branch's
+# merge, so the filter below keeps PRs into main off the Windows runners too.
 on:
   push:
-    branches: [main, Windows_Linux, 'claude/**']
+    branches: [Windows_Linux]
   pull_request:
+    branches: [Windows_Linux]
   workflow_dispatch:
 
 concurrency:
