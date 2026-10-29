@@ -174,6 +174,34 @@ transform's matrix and gamut step, before the curve.
 
 ### Complete frame export and resident views (additive, protocol 1)
 
+#### Per-frame film bypass (`no_film`, 2026-10-28)
+
+`hello.frame_options` includes `"no-film"` for export/proof.
+`hello.view_options` includes `"no_film"` when this host implements the source
+choice. A client must check that capability before promising bypass behavior;
+older hosts do not implement it. `render_view`, `export_frame` and
+`render_proof` accept optional `no_film: boolean`, default `false`. An explicit
+non-boolean value, including null, is a `bad_request`. This is a request option,
+not an engine parameter or a replacement film stock.
+
+For ordinary output, `true` selects the current decoded **linear ProPhoto**
+source instead of the film print. It encodes that source as float working RGB
+and runs the same Post-Dev, output geometry, colour conversion and proof chain.
+Highlights remain unclipped until the normal Layer 2 output boundary, so a
+negative Post-Dev exposure can recover source values above 1. The source's own
+native dimensions are reported as `image.source_width/source_height`; crop and
+rotation in `geometry` still determine the output. `source_geometry` is ignored
+for these requests, leaving the dormant film/date crop untouched. Film edge,
+date exposure, scene-placement fit and the film's DI-view LUT are not applied.
+Other supplied `params` are still validated/applied as the frozen film settings.
+
+Bypass never populates or replaces the film-print cache and reports
+`print_cached: false`. Turning it off can reuse the existing random film result.
+A half-frame pair rejects ordinary bypass at both host and native-view
+boundaries, including private/background exports. `export_cineon` and
+`render_proof` with `format: "di"` **reject** `no_film: true` with `bad_request`: they
+retain the negative, source-geometry and ungraded Cineon behavior below.
+
 `render_view` and `export_frame` are independently advertised by `hello.methods`.
 The new desktop requires `export_frame` to save an edited frame; it must show an
 incompatibility message rather than silently use an incomplete legacy export.

@@ -230,8 +230,11 @@ class CompatibleLibRaw final : public LibRaw {
 public:
     CompatibleLibRaw() : LibRaw(LIBRAW_OPTIONS_NO_DATAERR_CALLBACK) {}
     std::array<float, 12> matrix{};
+    bool calibrated = false;
 protected:
     void convert_to_rgb_loop(float out_cam[3][4]) override {
+        calibrated = !libraw_internal_data.internal_output_params.raw_color && imgdata.idata.colors == 3 && imgdata.image;
+        if (!calibrated) return;
         if (!libraw_internal_data.internal_output_params.raw_color && imgdata.idata.colors == 3)
             for (unsigned row = 0; row < 3; ++row)
                 for (unsigned col = 0; col < 4; ++col)
@@ -340,6 +343,10 @@ bool decode_raw_compatible(const std::filesystem::path& source, const std::array
         const int process_status = raw->dcraw_process();
         decoded.timings.process_ms = elapsed_ms(start);
         if (!libraw_ok(process_status, "RAW process", error)) return false;
+        if (!raw->calibrated) {
+            error = "RAW compatible16: no supported three-channel camera-to-ProPhoto transform";
+            return false;
+        }
         if (raw->error_count() != 0) {
             error = "RAW process: decoder reported corrupt data";
             return false;

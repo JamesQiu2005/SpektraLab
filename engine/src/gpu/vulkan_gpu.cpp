@@ -85,6 +85,7 @@ constexpr KernelSpec kKernels[] = {
     {"spk_cctf_encode_matrix", 4, kWorkgroup},
     {"spk_to_rgba16", 3, kWorkgroup},
     {"spk_view_grade", 5, kWorkgroup},
+    {"spk_view_grade_float", 5, kWorkgroup},
     {"spk_view_grade_di", 6, kWorkgroup},
     {"spk_view_geometry", 4, kWorkgroup},
     {"spk_view_pack", 4, kWorkgroup},

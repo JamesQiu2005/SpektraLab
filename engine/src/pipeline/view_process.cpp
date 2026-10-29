@@ -63,7 +63,8 @@ bool process(gpu::Gpu* gpu,const Image& print,const Request& req,const Json& tra
              const gpu::BufferRef& di_lut,uint32_t di_lut_size,Image* device_output) {
     const auto started=Clock::now();
     try {
-        if(!print.valid()||print.c!=2){error="view: expected device RGBA16 print";return false;}
+        if(!print.valid()||(print.c!=2&&print.c!=3)){error="view: expected device RGBA16 or encoded RGB float input";return false;}
+        if(print.c==3&&di_lut){error="view: DI lookup requires packed negative codes";return false;}
         if(req.output_channels!=3&&req.output_channels!=4){error="view: output_channels must be 3 or 4";return false;}
         if(device_output&&(!req.rgba16||req.output_channels!=4||req.proof_long_edge)){error="view: device output requires RGBA16";return false;}
         if(!req.adjustments.is_object()||!req.geometry.is_object()){error="view: adjustments and geometry must be objects";return false;}
@@ -102,7 +103,8 @@ bool process(gpu::Gpu* gpu,const Image& print,const Request& req,const Json& tra
             uint32_t gm[]={uint32_t(print.pixels()),print.w,print.h,di_lut_size};
             std::vector<Arg> grade_args={Arg::buf(print.buf),Arg::inline_bytes(u.data(),u.size()),Arg::buf(curves),Arg::inline_bytes(gm,di_lut?4:3),Arg::buf(current.buf)};
             if(di_lut)grade_args.push_back(Arg::buf(di_lut));
-            if(!gpu->dispatch(di_lut?"spk_view_grade_di":"spk_view_grade",grade_args,print.pixels(),error)||!gpu->flush(error))return false;
+            const char* grade_kernel=di_lut?"spk_view_grade_di":print.c==3?"spk_view_grade_float":"spk_view_grade";
+            if(!gpu->dispatch(grade_kernel,grade_args,print.pixels(),error)||!gpu->flush(error))return false;
             // Args borrow raw pointers; end their scope and release the curve
             // table only after the dispatch that uses them has completed.
         }
