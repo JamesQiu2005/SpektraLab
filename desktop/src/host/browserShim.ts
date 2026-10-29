@@ -12,6 +12,7 @@ export function browserTransport(): Transport {
   const params = new URLSearchParams(typeof location !== 'undefined' ? location.search : '');
   const mock = new MockHost({
     realisticUnsupported: params.get('allFeatures') !== '1',
+    supportsNoFilm: params.get('noFilm') !== '0',
     nativeWidth: 1800,
     nativeHeight: 1200,
     renderDelayMs: Number(params.get('renderDelay') ?? 0),

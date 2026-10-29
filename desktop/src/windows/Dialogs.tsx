@@ -148,7 +148,7 @@ export function SettingsDialog() {
                 onChange={(v) => {
                   set('diBlueCompensation', v);
                   const s = sessionStore.getState();
-                  sessionStore.setState({ gate: featureGate(s.unsupported, v) });
+                  sessionStore.setState({ gate: featureGate(s.unsupported, v, s.hello?.view_options?.includes('no_film') ?? false) });
                 }}
               />
             </div>

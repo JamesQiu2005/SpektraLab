@@ -9,15 +9,17 @@ import { StockCatalog } from '@shared/stocks';
 import { newSidecar } from '@shared/sidecar';
 import { featureGate } from '@shared/params';
 import { CLIPBOARD_GROUPS } from '@shared/clipboard';
+import { newPair } from '@shared/pair';
 
-const fake = vi.hoisted(() => ({ selectFilm: vi.fn(), selectPaper: vi.fn(), setParams: vi.fn() }));
+const fake = vi.hoisted(() => ({ selectFilm: vi.fn(), selectPaper: vi.fn(), setParams: vi.fn(), toggleNoFilm: vi.fn() }));
 vi.mock('../state/session', async () => {
   const { createStore } = await import('zustand/vanilla');
   const { useStore } = await import('zustand');
   const sessionStore = createStore<SessionState>(() => ({} as SessionState));
   return { sessionStore, useSession: <T,>(selector: (s: SessionState) => T) => useStore(sessionStore, selector),
-    selectFilmStock: fake.selectFilm, pickFilmStock: fake.selectFilm, resetFilmStock: vi.fn(), setNoFilm: vi.fn(),
-    selectPrintStock: fake.selectPaper, setParams: fake.setParams,
+    resetFilmStock: vi.fn(),
+  selectFilmStock: fake.selectFilm, selectPrintStock: fake.selectPaper, setParams: fake.setParams,
+    toggleNoFilm: fake.toggleNoFilm,
     setEnlarger: fake.setParams, resetEnlarger: vi.fn(), enlargerParams: (s: SessionState) => s.sidecar.params,
     canMakePair: () => false, makePair: vi.fn(),
     copySettings: vi.fn(), pasteSettings: vi.fn(), setGeometry: vi.fn(), setPages: vi.fn(), syncSettings: vi.fn(),
@@ -29,6 +31,7 @@ vi.mock('../state/settings', () => {
   return { settingsStore: { getState: () => state }, useSettings: <T,>(selector: (s: SettingsStore) => T) => selector(state) };
 });
 vi.mock('../canvas/output', () => ({ useOutput: () => null }));
+vi.mock('./PairSection', () => ({ PairSection: () => null }));
 import { sessionStore } from '../state/session';
 import { setLanguage } from '../i18n';
 import { LeftRail } from './LeftRail';
@@ -54,7 +57,7 @@ beforeEach(() => {
   sidecar.params.extendedDynamicRange = true;
   sessionStore.setState({ sidecar, catalog: new StockCatalog(stockData.stocks),
     gate: featureGate(['digital_intermediate', 'scene_latitude_mapping', 'contrast_mask', 'overscan', 'date_imprint']),
-    picked: [], selection: null, clipboard: null, clipboardGroups: [...CLIPBOARD_GROUPS], nativeSize: null,
+    picked: [], selection: null, pair: null, batchExporting: false, clipboard: null, clipboardGroups: [...CLIPBOARD_GROUPS], nativeSize: null,
     view: { fit: true, zoom: 1, cx: 0.5, cy: 0.5 }, canvasPx: { width: 1, height: 1 },
   });
 });
@@ -64,6 +67,33 @@ afterEach(async () => {
 });
 
 describe('black-and-white picker behavior', () => {
+  async function filmMenu() {
+    const trigger = div.querySelector('[data-section=film] button[aria-label=More]')!;
+    await act(async () => trigger.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true })));
+    return [...document.querySelectorAll('[role=menuitem]')].find((el) => /Don't Apply Film Simulation|不应用胶片模拟/.test(el.textContent ?? ''));
+  }
+  it('exposes film bypass as a checked film-menu action with an explicit source-view state', async () => {
+    sessionStore.setState({ selection: '/test/a.ARW', gate: featureGate([], false, true),
+      sidecar: { ...sessionStore.getState().sidecar, noFilm: true } });
+    await mount();
+    expect(div.querySelector('[data-testid=no-film-state]')?.textContent).toContain('Post-processing and crop');
+    const item = await filmMenu();
+    expect(item?.textContent).toContain('✓');
+    expect(item?.getAttribute('aria-disabled')).not.toBe('true');
+    await click(item!);
+    expect(fake.toggleNoFilm).toHaveBeenCalledOnce();
+  });
+  it.each(['legacy', 'pair'])('keeps the film bypass menu inert for %s', async (kind) => {
+    setLanguage('simplifiedChinese');
+    sessionStore.setState({ selection: '/test/a.ARW', gate: featureGate([], false, kind !== 'legacy'),
+      pair: kind === 'pair' ? newPair('/test') : null });
+    await mount();
+    const item = await filmMenu();
+    expect(item?.textContent).toContain('不应用胶片模拟');
+    expect(item?.getAttribute('aria-disabled')).toBe('true');
+    await click(item!);
+    expect(fake.toggleNoFilm).not.toHaveBeenCalled();
+  });
   it('keeps unavailable Film Edge and Date Back controls inert, then enables the verified capability', async () => {
     await mount();
     await click(div.querySelector('[data-testid=film-edge-enable]')!);

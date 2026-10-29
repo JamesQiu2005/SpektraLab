@@ -11,17 +11,22 @@ import { type DecodeSettings, type Sidecar, decodeSidecar, newSidecar } from '@s
 import { decodeWire, isRawPath } from '@shared/whiteBalance';
 import type { StockCatalog } from '@shared/stocks';
 import { latitudeRequest } from '@shared/latitude';
-import { host } from '../host/client';
 import { tz } from '../i18n';
+import { host } from '../host/client';
 import { baseName, dirName, joinPath, platform } from '../platform';
 import { type ExportRecipe, extensionOf, hostFormat, resolveTarget, stem, stockToken } from './recipes';
 
 export interface FrameToExport {
   path: string;
   session?: string;
+  noFilm: boolean;
   params: FilmParams;
   adjustments: Adjustments;
   geometry: Geometry;
+  /** Dedicated Cineon exports always use the negative's framing, even when
+   * the ordinary photo preview bypasses film simulation. */
+  filmGeometry: Geometry;
+  filmSourceGeometry: Geometry;
   decode: DecodeSettings;
   gate: FeatureGate;
   native?: { width: number; height: number };
@@ -30,8 +35,6 @@ export interface FrameToExport {
   scenePlacementSide?: 'right';
   sourceGeometry?: Geometry;
   pair?: HalfFramePair & { printEffects?: boolean };
-  /** "Don't Apply Film Simulation" (1.3.4): the file is the decode with the Post-Dev edits, under the geometry. */
-  noFilm?: boolean;
 }
 
 export type ExportOutcome =
@@ -71,6 +74,17 @@ export interface SelectedExportFrame {
 
 export type PreparedExportFrame = { path: string; frame: FrameToExport } | { path: string; error: string };
 
+function snapshotGeometry(sidecar: Sidecar, params: FilmParams, gate: FeatureGate) {
+  const noFilm = sidecar.noFilm === true;
+  return {
+    noFilm,
+    geometry: canvasGeometryFor(params, sidecar.geometry, gate, noFilm),
+    sourceGeometry: sourceGeometryFor(params, sidecar.geometry, gate, noFilm) ?? GEOMETRY_DEFAULT,
+    filmGeometry: canvasGeometryFor(params, sidecar.geometry, gate),
+    filmSourceGeometry: sourceGeometryFor(params, sidecar.geometry, gate) ?? GEOMETRY_DEFAULT,
+  };
+}
+
 /** Freeze every frame before starting the batch, without opening it in the
  * editor or saving derived settings back to its sidecar. Only small metadata
  * is retained; the host opens and releases each private image in sequence. */
@@ -102,8 +116,7 @@ export async function captureExportFrames(
         const params = resolvePairParams(normalizeStockPair(sidecar.params, catalog), pair,
           shots.left?.metadata ?? null, shots.right?.metadata ?? null, catalog);
         result.push({ path, frame: structuredClone({ path, session: active?.session, params,
-          adjustments: sidecar.adjustments, geometry: canvasGeometryFor(params, sidecar.geometry, frozenGate),
-          sourceGeometry: sourceGeometryFor(params, sidecar.geometry, frozenGate) ?? GEOMETRY_DEFAULT,
+          adjustments: sidecar.adjustments, ...snapshotGeometry(sidecar, params, frozenGate),
           decode: sidecar.decode, gate: frozenGate, native, pair: pairSnapshotFor(pair, params),
           dateTaken: shots.left?.metadata?.datetime_original ?? shots.right?.metadata?.datetime_original,
           scenePlacement: sidecar.placementNeedsFit ? { ...latitudeRequest(params.sceneLatitude), region: pairFitRegion(pair, params.placementIsRight) } : undefined,
@@ -123,11 +136,9 @@ export async function captureExportFrames(
       params = resolveFilmEdgeParams(params, sidecar.geometry, active?.metadata ?? info?.metadata ?? null, catalog, native);
       result.push({ path, frame: structuredClone({
         path, session: active?.session, params, adjustments: sidecar.adjustments,
-        geometry: canvasGeometryFor(params, sidecar.geometry, frozenGate),
-        sourceGeometry: sourceGeometryFor(params, sidecar.geometry, frozenGate) ?? GEOMETRY_DEFAULT,
+        ...snapshotGeometry(sidecar, params, frozenGate),
         decode: sidecar.decode, gate: frozenGate, native,
         dateTaken: active?.dateTaken ?? info?.metadata.datetime_original,
-        noFilm: sidecar.noFilm === true ? true : undefined,
         scenePlacement: sidecar.placementNeedsFit ? latitudeRequest(params.placementIsRight ? params.sceneLatitudeOther : params.sceneLatitude) : undefined,
       }) });
     } catch (e) {
@@ -203,21 +214,30 @@ export interface ExportJob {
 }
 export interface ExportControl {
   tiffOptions?: readonly string[];
-  /** `hello.frame_options` (PROTOCOL-REQUESTS R4): "no-film" lets export_frame / render_proof take `no_film`. */
   frameOptions?: readonly string[];
   cancelled?: () => boolean;
   active?: (job: ExportJob | null) => void;
 }
 let exportSerial = 0;
 
-/** A frame with the film simulation off is written only by a host that can: one that ignored the
- * unknown `no_film` would write the film print, a file that is not the canvas's frame (trap 33). */
-export function noFilmSupported(f: Pick<FrameToExport, 'noFilm'>, format: ExportRecipe['format'], frameOptions: readonly string[] | undefined) {
-  if (!f.noFilm) return;
-  if (format === 'di')
-    throw new Error(tz("A Digital Intermediate is the film's negative; this frame has Don't Apply Film Simulation on.", '数字中间片就是胶片的负片；此图像已开启“不应用胶片模拟”。'));
-  if (!frameOptions?.includes('no-film'))
-    throw new Error(tz("This engine cannot export a frame with Don't Apply Film Simulation on. Update the engine.", '此引擎无法导出开启“不应用胶片模拟”的图像，请更新引擎。'));
+/** Ordinary output follows the saved display mode. DI requires film simulation
+ * and uses the negative's film-side geometry and placement. */
+function recipeView(r: ExportRecipe, f: FrameToExport, control: ExportControl) {
+  const di = r.format === 'di', noFilm = !di && f.noFilm;
+  if (di && f.noFilm) throw new Error('Enable film simulation before exporting a Digital Intermediate.');
+  if (noFilm) {
+    if (f.pair || isPairPath(f.path) || f.params.filmEdge.pair)
+      throw new Error('Export without film simulation is unavailable for half-frame pairs. Enable film simulation.');
+    if (!(control.frameOptions ? control.frameOptions.includes('no-film') : f.gate.noFilm))
+      throw new Error('This engine cannot export without film simulation. Update the engine or enable film simulation.');
+  }
+  return {
+    ...(noFilm ? { no_film: true } : {}),
+    geometry: di ? f.filmGeometry : f.geometry,
+    source_geometry: di ? f.filmSourceGeometry : f.sourceGeometry ?? GEOMETRY_DEFAULT,
+    scene_placement: noFilm ? undefined : f.scenePlacement,
+    scene_placement_side: noFilm ? undefined : f.scenePlacementSide,
+  };
 }
 
 export async function exportFrame(
@@ -231,6 +251,7 @@ export async function exportFrame(
   const cancelled = () => control.cancelled?.() ?? false;
   try {
     if (cancelled()) return { kind: 'cancelled' };
+    const view = recipeView(r, f, control);
     if (f.pair && !methods?.includes('open_pair')) throw new Error(tz('This engine cannot export half-frame pairs. Update the engine.', '此引擎无法导出半格拼接，请更新引擎。'));
     if ((r.format === 'tiff' || r.format === 'di') &&
         ((r.tiffCompression === 'lzw' && !control.tiffOptions?.includes('lzw')) ||
@@ -242,7 +263,6 @@ export async function exportFrame(
     } else if (!hostWrites(methods)) {
       throw new Error(tz('This engine does not support complete frame export (export_frame). Update the engine before exporting.', '此引擎不支持完整画面导出（export_frame），请更新引擎后再导出。'));
     }
-    noFilmSupported(f, r.format, control.frameOptions);
     const { dir, base } = await targetFor(r, f, catalog);
     await platform().ensureDir(dir);
     const target = await resolveTarget(dir, base, extensionOf(r), r.existing, (p) => platform().pathExists(p), joinPath);
@@ -254,12 +274,8 @@ export async function exportFrame(
     control.active?.(job);
     const res = await host().transport.request(r.format === 'di' ? 'export_cineon' : 'export_frame', {
       session: f.session, source_path: f.path, params, decode: decode ?? undefined,
-      adjustments: f.adjustments, geometry: f.geometry,
-      no_film: f.noFilm || undefined,
-      source_geometry: f.sourceGeometry ?? GEOMETRY_DEFAULT,
+      adjustments: f.adjustments, ...view,
       pair: f.pair,
-      scene_placement: f.scenePlacement,
-      scene_placement_side: f.scenePlacementSide,
       path: target.path, format: hostFormat(r), quality: r.format === 'jpeg' ? r.quality : undefined,
       tiff_compression: r.format === 'tiff' || r.format === 'di' ? r.tiffCompression ?? 'none' : undefined,
       embed_preview: r.format === 'tiff' ? r.embedsPreview ?? false : undefined,
@@ -287,21 +303,18 @@ export async function renderProof(
   if (!methods?.includes('render_proof')) throw new Error(tz('This engine does not support export soft proofing. Update the engine.', '此引擎不支持导出软打样，请更新引擎。'));
   if (recipe.format === 'di' && !methods.includes('export_cineon')) throw new Error(tz('Cineon Digital Intermediate proofing is not available on this engine.', '此引擎不支持 Cineon 数字中间片软打样。'));
   const r = structuredClone(recipe), f = structuredClone(frame);
+  const view = recipeView(r, f, control);
   if (f.pair && !methods.includes('open_pair')) throw new Error(tz('This engine cannot soft-proof half-frame pairs. Update the engine.', '此引擎无法对半格拼接进行软打样，请更新引擎。'));
-  noFilmSupported(f, r.format, control.frameOptions);
   const job = { session: f.session ?? '', progressId: `proof-${Date.now()}-${++exportSerial}` };
   if (control.cancelled?.()) return null;
   control.active?.(job);
   try {
     const proof = await host().renderProof({
       session: f.session, source_path: f.path, params: fullDelta(f.params, f.gate, catalog),
-      decode: decodeWire(f.decode, isRawPath(f.path)) ?? undefined, no_film: f.noFilm || undefined,
-      adjustments: f.adjustments, geometry: f.geometry, format: r.format === 'di' ? 'di' : hostFormat(r),
-      source_geometry: f.sourceGeometry ?? GEOMETRY_DEFAULT,
+      decode: decodeWire(f.decode, isRawPath(f.path)) ?? undefined,
+      adjustments: f.adjustments, ...view, format: r.format === 'di' ? 'di' : hostFormat(r),
       pair: f.pair,
-      scene_placement: f.scenePlacement,
-      scene_placement_side: f.scenePlacementSide,
-      color_space: r.colorSpace, long_edge: r.longEdge,
+      color_space: r.colorSpace, long_edge: r.format === 'di' ? 0 : r.longEdge,
       display, proof_long_edge: Math.max(1, Math.min(4096, Math.ceil(edge))), generation, progress_id: job.progressId,
     });
     return control.cancelled?.() ? null : proof;

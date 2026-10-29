@@ -384,6 +384,8 @@ export function decodeFilmParams(raw: unknown): FilmParams {
 
 /** Features the host may refuse (`capabilities.backend.unsupported_features`). */
 export interface FeatureGate {
+  /** Decoded source through Layer 2, explicitly advertised by the host. */
+  noFilm: boolean;
   digitalIntermediate: boolean;
   sceneLatitude: boolean;
   contrastMask: boolean;
@@ -395,6 +397,7 @@ export interface FeatureGate {
   toneMask: boolean;
 }
 export const ALL_FEATURES: FeatureGate = {
+  noFilm: true,
   digitalIntermediate: true,
   sceneLatitude: true,
   contrastMask: true,
@@ -404,9 +407,10 @@ export const ALL_FEATURES: FeatureGate = {
   toneMask: false,
 };
 
-export function featureGate(unsupported: readonly string[] | undefined, diBlue = false): FeatureGate {
+export function featureGate(unsupported: readonly string[] | undefined, diBlue = false, noFilm = false): FeatureGate {
   const u = new Set(unsupported ?? []);
   return {
+    noFilm,
     digitalIntermediate: !u.has('digital_intermediate'),
     sceneLatitude: !u.has('scene_latitude_mapping'),
     contrastMask: !u.has('contrast_mask'),

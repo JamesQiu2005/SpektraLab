@@ -82,7 +82,6 @@ uniform vec2 cHalf;
 uniform vec2 cCosSin;
 
 uniform int uCompare;        // 0 off, 1 split, 2 original only
-uniform bool uNoFilm;        // "Don't Apply Film Simulation": Layer 2 grades the decode, not the print
 uniform float uSplit;
 
 // layer 2
@@ -225,8 +224,6 @@ void main() {
   vec3 c;
   if (before && uHasOriginal) {
     c = displayConvert(uOriginalWide ? sample16(uOriginal16, suv) : texture(uOriginal, suv).rgb, uOriginalSpace);
-  } else if (uNoFilm && uHasOriginal) {
-    c = displayConvert(layer2(uOriginalWide ? sample16(uOriginal16, suv) : texture(uOriginal, suv).rgb, suv), uOriginalSpace);
   } else if (uHasImage) {
     vec2 imageUv = (uImageMap * vec3(suv, 1.0)).xy;
     if (any(lessThan(imageUv, vec2(0.0))) || any(greaterThan(imageUv, vec2(1.0)))) {
@@ -259,8 +256,6 @@ export interface DrawState {
   compare: 0 | 1 | 2;
   split: number;
   surround: number;
-  /** "Don't Apply Film Simulation" (1.3.4): the decode, graded, instead of the print. */
-  noFilm?: boolean;
 }
 
 export class GLRenderer {
@@ -481,7 +476,6 @@ export class GLRenderer {
     gl.uniform2f(this.u('cCosSin'), crop.cosSin[0], crop.cosSin[1]);
     gl.uniform1i(this.u('uCompare'), offscreen && s.compare !== 2 ? 0 : s.compare);
     gl.uniform1f(this.u('uSplit'), s.split);
-    gl.uniform1i(this.u('uNoFilm'), s.noFilm ? 1 : 0);
     const l = layer2Uniforms(s.adjustments, SRGB_MID_GREY);
     gl.uniform1i(this.u('lEnabled'), l.enabled ? 1 : 0);
     gl.uniform3f(this.u('lWb'), ...l.wbGain);
@@ -519,7 +513,7 @@ export class GLRenderer {
    * histogram's picture.
    */
   renderOutput(s: DrawState, width: number, height: number): Uint8Array | null {
-    if (!this.hasImage && !((s.compare === 2 || s.noFilm) && this.hasOriginal)) return null;
+    if (!this.hasImage && !(s.compare === 2 && this.hasOriginal)) return null;
     const gl = this.gl;
     if (!this.fbo || this.fboSize.width !== width || this.fboSize.height !== height) {
       if (this.fbo) gl.deleteFramebuffer(this.fbo);

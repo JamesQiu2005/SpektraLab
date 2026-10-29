@@ -104,6 +104,8 @@ export interface HelloResult {
   export_spaces?: string[];
   /** Processed display pixel transports, independent of output/file encodings. */
   view_formats?: PixelFormat[];
+  /** Optional processed-view modes; absent means legacy film-only rendering. */
+  view_options?: string[];
   /** Optional RAW preview modes; embedded-only never falls back to RAW decode. */
   thumbnail_options?: string[];
   tiff_options?: string[];

@@ -37,6 +37,7 @@ import {
 import { CurveEditor } from './CurveEditor';
 import { unsupportedReason } from './gate';
 import { type LatitudeReply, type PlacementSide, placementMessage } from '@shared/latitude';
+import { edgeEffective, edgeFormat } from '@shared/filmEdge';
 
 export function RightRail() {
   const tab = useSettings((s) => s.parametersTab);
@@ -77,13 +78,14 @@ export function RightRail() {
 // ------------------------------------------------------------------ Latitude
 
 function LatitudeSection() {
+  const noFilm = useSession((s) => s.sidecar.noFilm);
   const film = useSession((s) => s.sidecar.params.filmStock);
   const paper = useSession((s) => s.sidecar.params.printStock);
   const catalog = useSession((s) => s.catalog);
   const { reply, failure } = useSession((s) => s.latitude);
   const name = (id: string) => catalog.stock(id)?.name.replace(/^(Kodak|Fujifilm) (Professional )?/, '') ?? id;
   return (
-    <Section id="latitude" title={t('sectionLatitude')} trailing={`${name(film)} · ${name(paper)}`} unsupported={failure}>
+    <Section id="latitude" title={t('sectionLatitude')} trailing={`${name(film)} · ${name(paper)}`} unsupported={noFilm ? tz('Film simulation is bypassed.', '当前不应用胶片模拟。') : failure}>
       <LatitudePlot reply={reply} />
     </Section>
   );
@@ -253,12 +255,19 @@ function useWhiteBalance() {
 
 function FilmFormatSection() {
   const p = useSession((s) => s.sidecar.params);
+  const gate = useSession((s) => s.gate);
   const monochrome = useSession((s) => s.catalog.isMonochrome(s.sidecar.params.filmStock));
   // CineStill 800T: no layer to put back, and the engine reads its own tag whatever the switch says.
   const noLayer = useSession((s) => s.catalog.hasNoAntihalationLayer(s.sidecar.params.filmStock));
   const unit = useSettings((s) => s.sideUnit);
   const decouple = useSettings((s) => s.decoupleEffects);
   const isCustom = p.filmFrame === FILM_FRAME_CUSTOM.id;
+  const heldFrame = edgeEffective(p.filmEdge, gate) ? edgeFormat(p.filmEdge.format) : undefined;
+  const heldReason = heldFrame ? tz(
+    `Set by Film Edge: ${heldFrame.label} (${heldFrame.long} × ${heldFrame.short} mm). Switch Film Edge off to choose a frame here.`,
+    `由片边设定：${heldFrame.label}（${heldFrame.long} × ${heldFrame.short} mm）。关闭片边后可在此选择画幅。`,
+  ) : undefined;
+  const lengthDisabled = !!heldFrame || !isCustom;
   const e = p.effects;
   const setE = (patch: Partial<typeof e>) => setParams((q) => ({ ...q, effects: { ...q.effects, ...patch } }));
   const strength = (label: string, key: 'grain' | 'halation' | 'scatter' | 'couplers' | 'glare', enabled: boolean) => (
@@ -269,8 +278,12 @@ function FilmFormatSection() {
       id="filmFormat"
       title={t('filmFormat')}
       onReset={() => {
-        setFilmFrame('135');
-        setFilmSide('short');
+        // The gate overrides the physical frame without replacing its saved
+        // controls. An effects reset must leave that held choice intact too.
+        if (!heldFrame) {
+          setFilmFrame('135');
+          setFilmSide('short');
+        }
         setParams((q) => ({ ...q, grainActive: true, halationActive: true, glareActive: true, effects: EFFECTS_DEFAULT }));
       }}
       resetHelp={t('helpResetFilmFormat')}
@@ -287,6 +300,9 @@ function FilmFormatSection() {
         value={p.filmFrame}
         options={FILM_FRAMES.map((f) => ({ value: f.id, label: f.id, badge: f.isCine ? 'CINE' : undefined }))}
         onChange={(v) => setFilmFrame(v)}
+        display={heldFrame?.label}
+        disabled={!!heldFrame}
+        reason={heldReason}
         testId="film-format-size"
       />
       <PillMenu
@@ -297,14 +313,18 @@ function FilmFormatSection() {
           { value: 'long', label: t('filmFormatLong') },
         ]}
         onChange={(v) => setFilmSide(v)}
+        disabled={!!heldFrame}
+        reason={heldReason}
+        testId="film-format-side"
       />
-      <div className="row" title={isCustom ? undefined : t('reasonNonCustomSideLength')}>
+      <div className={'row' + (lengthDisabled ? ' disabled' : '')} title={heldReason ?? (isCustom ? undefined : t('reasonNonCustomSideLength'))}>
         <span className="row-label">{t('filmFormatSideLength')}</span>
         <NumberField
           value={p.sideLengthMM / SIDE_UNIT_PER_MM[unit]}
           decimals={SIDE_UNIT_DECIMALS[unit]}
           label={t('filmFormatSideLength')}
           onCommit={(v) => setSideLengthMM(v * SIDE_UNIT_PER_MM[unit])}
+          disabled={lengthDisabled}
         />
         <PillMenu<SideUnit>
           value={unit}
@@ -314,6 +334,9 @@ function FilmFormatSection() {
             { value: 'inch', label: 'inch' },
           ]}
           onChange={(v) => settingsStore.getState().set('sideUnit', v)}
+          disabled={!!heldFrame}
+          reason={heldReason}
+          testId="film-format-unit"
         />
       </div>
       <ToggleRow label={t('filmGrain')} on={p.grainActive} onChange={(v) => setParams((q) => ({ ...q, grainActive: v }))} testId="grain-toggle" />
@@ -351,7 +374,7 @@ function ScenePlacementSection() {
   const sl = s.sidecar.params.sceneLatitude, l = s.latitude;
   const unsupported = unsupportedReason('scene_latitude_mapping', s.gate.sceneLatitude);
   const ready = placementReady();
-  const reason = unsupported ?? (s.sidecar.params.digitalIntermediate && !s.sidecar.params.scanFilm
+  const reason = unsupported ?? (s.sidecar.noFilm ? tz('Scene placement is unavailable while film simulation is bypassed.', '不应用胶片模拟时不使用场景置位。') : s.sidecar.params.digitalIntermediate && !s.sidecar.params.scanFilm
     ? tz('Scene placement is unavailable in Digital Intermediate mode.', '数字中间片模式不使用场景置位。')
     : ready ? null : l.failure ?? tz('Waiting for the scene latitude measurement…', '正在等待场景宽容度测量…'));
   const row = (side: PlacementSide) => {
@@ -379,8 +402,8 @@ function WhiteBalanceSection() {
   const a = useSession(shownAdjustments);
   return (
     <Section id="wb2" title={t('sectionWhiteBalance')} trailing={t('statusRightRailWBScope')} onReset={() => setAdjustments((q) => ({ ...q, temperature: 0, tint: 0 }))} resetHelp={t('helpReset')}>
-      <ScrubSlider label={t('cameraTemperature')} value={a.temperature} range={[-100, 100]} snap={5} format={signed(0)} gradient="linear-gradient(90deg,#5d7de8,#bbb,#e8c04e)" onChange={(v) => setAdjustments((q) => ({ ...q, temperature: v }))} />
-      <ScrubSlider label={t('cameraTint')} value={a.tint} range={[-100, 100]} snap={5} format={signed(0)} gradient="linear-gradient(90deg,#62c462,#bbb,#d05bd0)" onChange={(v) => setAdjustments((q) => ({ ...q, tint: v }))} />
+      <ScrubSlider label={tz('Temp.', '色温偏移')} value={a.temperature} range={[-100, 100]} snap={5} format={signed(0)} gradient="linear-gradient(90deg,#5d7de8,#bbb,#e8c04e)" onChange={(v) => setAdjustments((q) => ({ ...q, temperature: v }))} />
+      <ScrubSlider label={tz('Tint', '色调偏移')} value={a.tint} range={[-100, 100]} snap={5} format={signed(0)} gradient="linear-gradient(90deg,#62c462,#bbb,#d05bd0)" onChange={(v) => setAdjustments((q) => ({ ...q, tint: v }))} />
     </Section>
   );
 }
@@ -397,7 +420,7 @@ function ExposureSection() {
       onReset={() => setAdjustments((q) => ({ ...q, exposure: 0, contrast: 0, brightness: 0, saturation: 0, highlights: 0, shadows: 0, blackPoint: 0, whitePoint: 0 }))}
       resetHelp={t('helpReset')}
     >
-      {row(t('clipExposure'), 'exposure', [-3, 3], 2, 1 / 3)}
+      {row(t('clipExposure'), 'exposure', [-3, 3], 2, 1 / 4)}
       {row(t('exposureContrast'), 'contrast', [-50, 50], 0, 5)}
       {row(t('exposureBrightness'), 'brightness', [-50, 50], 0, 5)}
       {row(t('exposureSaturation'), 'saturation', [-100, 100], 0, 5)}

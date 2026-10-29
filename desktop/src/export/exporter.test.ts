@@ -24,8 +24,8 @@ const catalog = new StockCatalog([
 ]);
 function frame(): FrameToExport {
   const s = structuredClone(newSidecar());
-  return { path: 'D:/photos/a.NEF', session: 'editor', params: s.params,
-    decode: s.decode, geometry: s.geometry, adjustments: s.adjustments,
+  return { path: 'D:/photos/a.NEF', session: 'editor', params: s.params, noFilm: false,
+    decode: s.decode, geometry: s.geometry, filmGeometry: s.geometry, filmSourceGeometry: GEOMETRY_DEFAULT, adjustments: s.adjustments,
     gate: structuredClone(ALL_FEATURES), native: { width: 6000, height: 4000 } };
 }
 function recipe() { return structuredClone(DEFAULT_RECIPES[0]!); }
@@ -44,6 +44,106 @@ beforeEach(() => {
   fake.close.mockResolvedValue(undefined);
   fake.request.mockResolvedValue({ result: { path: 'D:/out/image.jpg', width: 3000, height: 2000,
     bytes: 123, timings_ms: { total: 123 } }, payload: new Uint8Array() });
+});
+
+describe('export without film simulation', () => {
+  it('omits the bypass wire key entirely for ordinary film output and proof', async () => {
+    const f = frame();
+    await exportFrame(recipe(), f, catalog, ['export_frame']);
+    expect(fake.request.mock.calls[0]![1]).not.toHaveProperty('no_film');
+    fake.renderProof.mockResolvedValue({ proof: { generation: 1 } });
+    await renderProof(recipe(), f, catalog, ['render_proof'], 'srgb', 512, 1);
+    expect(fake.renderProof.mock.calls[0]![0]).not.toHaveProperty('no_film');
+  });
+
+  it('freezes selected and background bypass settings with photo geometry and separate film geometry', async () => {
+    const current = structuredClone(newSidecar()), background = structuredClone(newSidecar());
+    for (const sc of [current, background]) {
+      sc.noFilm = true;
+      sc.params.filmEdge.active = true; sc.params.dateBack.active = true;
+      sc.geometry.crop = { x: .1, y: .2, width: .7, height: .6 };
+      sc.geometry.quarterTurns = 1; sc.geometry.flipH = true;
+      sc.adjustments.exposure = 1.25;
+    }
+    const frozen = structuredClone(current), saved = encodeSidecar(background);
+    const pending = deferred<unknown>(); fake.sidecarLoad.mockReturnValueOnce(pending.promise);
+    const capture = captureExportFrames(['background.NEF', 'current.NEF'], {
+      path: 'current.NEF', sidecar: current, session: 'editor', native: { width: 6000, height: 4000 }, metadata: {},
+    }, catalog, ALL_FEATURES, false);
+    current.noFilm = false; current.geometry.crop.width = 1; current.adjustments.exposure = 4;
+    pending.resolve(saved);
+    const frames = await capture;
+    background.noFilm = false; background.geometry.quarterTurns = 2;
+    expect(frames).toHaveLength(2);
+    for (const item of frames) {
+      if ('error' in item) throw new Error(item.error);
+      expect(item.frame).toMatchObject({ noFilm: true, geometry: frozen.geometry, sourceGeometry: GEOMETRY_DEFAULT,
+        filmGeometry: GEOMETRY_DEFAULT, filmSourceGeometry: frozen.geometry, adjustments: { exposure: 1.25 } });
+      await exportFrame(recipe(), item.frame, catalog, ['export_frame']);
+    }
+    expect(fake.request.mock.calls[0]![1]).toMatchObject({ source_path: 'background.NEF', session: undefined,
+      no_film: true, geometry: frozen.geometry, source_geometry: GEOMETRY_DEFAULT, adjustments: { exposure: 1.25 } });
+    expect(fake.request.mock.calls[1]![1]).toMatchObject({ source_path: 'current.NEF', session: 'editor', no_film: true });
+  });
+
+  it('freezes bypass before naming yields and skips film placement fitting for ordinary export and proof', async () => {
+    const sc = structuredClone(newSidecar()); sc.noFilm = true; sc.placementNeedsFit = true;
+    sc.params.sceneLatitude.highlightPullBack = 2;
+    sc.geometry.crop = { x: .2, y: .1, width: .6, height: .7 }; sc.geometry.quarterTurns = 1;
+    sc.adjustments.exposure = .75;
+    const [item] = await captureExportFrames(['a.NEF'], { path: 'a.NEF', sidecar: sc, native: { width: 6000, height: 4000 }, metadata: {} }, catalog, ALL_FEATURES, false);
+    if (!item || 'error' in item) throw new Error('missing snapshot');
+    const pending = deferred<void>(); fake.ensureDir.mockReturnValueOnce(pending.promise);
+    const exported = exportFrame(recipe(), item.frame, catalog, ['export_frame']);
+    item.frame.noFilm = false; item.frame.gate.noFilm = false;
+    pending.resolve();
+    expect(await exported).toMatchObject({ kind: 'written' });
+    expect(fake.request.mock.calls[0]![1]).toMatchObject({ no_film: true, geometry: sc.geometry,
+      source_geometry: GEOMETRY_DEFAULT, adjustments: { exposure: .75 } });
+    expect(fake.request.mock.calls[0]![1].scene_placement).toBeUndefined();
+    item.frame.noFilm = true; item.frame.gate.noFilm = true;
+    fake.renderProof.mockResolvedValue({ proof: { generation: 7 } });
+    await renderProof(recipe(), item.frame, catalog, ['render_proof'], 'display-p3', 512, 7);
+    expect(fake.renderProof.mock.calls[0]![0]).toMatchObject({ no_film: true, geometry: sc.geometry,
+      source_geometry: GEOMETRY_DEFAULT, adjustments: { exposure: .75 }, long_edge: 0 });
+    expect(fake.renderProof.mock.calls[0]![0].scene_placement).toBeUndefined();
+  });
+
+  it('rejects ordinary bypass export and proof on a host without the capability before any file work', async () => {
+    const f = { ...frame(), noFilm: true, gate: { ...ALL_FEATURES, noFilm: false } };
+    expect(await exportFrame(recipe(), f, catalog, ['export_frame'])).toMatchObject({ kind: 'failed', message: expect.stringContaining('without film simulation') });
+    await expect(renderProof(recipe(), f, catalog, ['render_proof'], 'srgb', 512, 1)).rejects.toThrow('without film simulation');
+    expect(fake.ensureDir).not.toHaveBeenCalled(); expect(fake.request).not.toHaveBeenCalled(); expect(fake.renderProof).not.toHaveBeenCalled();
+  });
+
+  it('rejects bypass for pairs even with both host capabilities, and dedicated DI refuses bypass', async () => {
+    const f = { ...frame(), noFilm: true, pair: newPair('D:/photos'), path: 'D:/photos/pair.spektrapair' };
+    expect(await exportFrame(recipe(), f, catalog, ['export_frame', 'open_pair'])).toMatchObject({ kind: 'failed', message: expect.stringContaining('half-frame') });
+    await expect(renderProof(recipe(), f, catalog, ['render_proof', 'open_pair'], 'srgb', 512, 1)).rejects.toThrow('half-frame');
+    expect(fake.request).not.toHaveBeenCalled(); expect(fake.renderProof).not.toHaveBeenCalled();
+    const di = { ...recipe(), format: 'di' as const };
+    expect(await exportFrame(di, f, catalog, ['export_cineon', 'open_pair'])).toMatchObject({ kind: 'failed', message: expect.stringContaining('Digital Intermediate') });
+    expect(fake.request).not.toHaveBeenCalled();
+  });
+
+  it('keeps Cineon film-edge geometry and placement after film simulation is restored', async () => {
+    const sc = structuredClone(newSidecar()); sc.noFilm = false;
+    sc.params.filmEdge.active = true; sc.params.dateBack.active = true; sc.placementNeedsFit = true;
+    sc.geometry.crop = { x: .1, y: .2, width: .6, height: .7 }; sc.geometry.quarterTurns = 1;
+    const [item] = await captureExportFrames(['a.NEF'], { path: 'a.NEF', sidecar: sc, native: { width: 6000, height: 4000 }, metadata: {} }, catalog,
+      { ...ALL_FEATURES, noFilm: false }, false);
+    if (!item || 'error' in item) throw new Error('missing snapshot');
+    const di = { ...recipe(), format: 'di' as const, longEdge: 3000 };
+    expect(await exportFrame(di, item.frame, catalog, ['export_cineon'])).toMatchObject({ kind: 'written', carriesEdits: false });
+    expect(fake.request.mock.calls[0]![1]).toMatchObject({ source_geometry: sc.geometry, geometry: GEOMETRY_DEFAULT,
+      scene_placement: item.frame.scenePlacement, long_edge: 0 });
+    expect(fake.request.mock.calls[0]![1].no_film).not.toBe(true);
+    fake.renderProof.mockResolvedValue({ proof: { generation: 2 } });
+    await renderProof(di, item.frame, catalog, ['render_proof', 'export_cineon'], 'srgb', 512, 2);
+    expect(fake.renderProof.mock.calls[0]![0]).toMatchObject({ format: 'di', source_geometry: sc.geometry,
+      geometry: GEOMETRY_DEFAULT, scene_placement: item.frame.scenePlacement, long_edge: 0 });
+    expect(fake.renderProof.mock.calls[0]![0].no_film).not.toBe(true);
+  });
 });
 
 describe('host frame export', () => {
@@ -297,10 +397,10 @@ it("freezes Don't Apply Film Simulation and sends no_film only to a host that ad
   if (!item || !('frame' in item)) throw new Error('missing snapshot');
   expect(item.frame.noFilm).toBe(true);
   // A host that would ignore the unknown field writes the film print: refused, nothing sent.
-  const refused = await exportFrame(recipe(), item.frame, catalog, ['export_frame']);
-  expect(refused).toMatchObject({ kind: 'failed', message: expect.stringContaining("Don't Apply Film Simulation") });
+  const refused = await exportFrame(recipe(), item.frame, catalog, ['export_frame'], { frameOptions: [] });
+  expect(refused).toMatchObject({ kind: 'failed', message: expect.stringContaining('without film simulation') });
   expect(fake.request).not.toHaveBeenCalled();
-  await expect(renderProof(recipe(), item.frame, catalog, ['render_proof'], 'srgb', 512, 3)).rejects.toThrow('Film Simulation');
+  await expect(renderProof(recipe(), item.frame, catalog, ['render_proof'], 'srgb', 512, 3, { frameOptions: [] })).rejects.toThrow('without film simulation');
   // The Digital Intermediate is the film's negative: refused even where no_film is supported.
   const di = DEFAULT_RECIPES.find((r) => r.format === 'di')!;
   expect(await exportFrame(di, item.frame, catalog, ['export_frame', 'export_cineon'], { frameOptions: ['no-film'] }))
