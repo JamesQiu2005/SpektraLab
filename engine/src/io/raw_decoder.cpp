@@ -1,5 +1,6 @@
 #include "raw_decoder.hpp"
 #include "raw_headroom.hpp"
+#include "raw_camera.hpp"
 
 #include <libraw/libraw.h>
 
@@ -226,9 +227,9 @@ bool supported_headroom_source(LibRaw& raw, std::string& error) {
     return true;
 }
 
-class CompatibleLibRaw final : public LibRaw {
+class CompatibleLibRaw final : public detail::CameraLibRaw {
 public:
-    CompatibleLibRaw() : LibRaw(LIBRAW_OPTIONS_NO_DATAERR_CALLBACK) {}
+    CompatibleLibRaw() = default;
     std::array<float, 12> matrix{};
     bool calibrated = false;
 protected:
@@ -244,9 +245,9 @@ protected:
     }
 };
 
-class HeadroomLibRaw final : public LibRaw {
+class HeadroomLibRaw final : public detail::CameraLibRaw {
 public:
-    HeadroomLibRaw() : LibRaw(LIBRAW_OPTIONS_NO_DATAERR_CALLBACK) {}
+    HeadroomLibRaw() = default;
 
     std::vector<float> converted;
     std::uint32_t converted_width = 0, converted_height = 0;

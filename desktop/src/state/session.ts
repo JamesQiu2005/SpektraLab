@@ -1868,7 +1868,7 @@ async function develop(path: string, gen: number) {
     set({ status: tz('Waiting for the engine…', '正在等待引擎…') });
     return;
   }
-  set({ developing: true });
+  set({ developing: true, lastError: null });
   try {
     const t0 = performance.now();
     if (openTrace?.generation !== gen || openTrace.path !== path)

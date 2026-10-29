@@ -130,6 +130,8 @@ export function Canvas() {
   const comparePosition = useSession((s) => s.comparePosition);
   const showingOriginal = useSession((s) => s.showingOriginal);
   const badge = useSession((s) => s.badge);
+  const developing = useSession((s) => s.developing);
+  const lastError = useSession((s) => s.lastError);
   const selection = useSession((s) => s.selection);
   const batch = useSession((s) => s.batchExporting);
   const exportOpen = useSession((s) => s.exportOpen);
@@ -576,7 +578,9 @@ export function Canvas() {
             `当前显示最多 ${maxTextureSize} 像素；导出仍使用所选分辨率。`)}
         </span>}
         {originalFallback && selection && <span className="tier-badge preview" data-testid="camera-preview-badge">
-          {tz('Camera preview · loading film effect', '原图预览 · 正在加载胶片效果')}
+          {developing ? tz('Camera preview · loading film effect', '原图预览 · 正在加载胶片效果')
+            : lastError ? tz('Camera preview · film effect failed to load', '原图预览 · 胶片效果加载失败')
+              : tz('Camera preview', '原图预览')}
         </span>}
         {!originalFallback && badge && selection && (
           <span className={'tier-badge ' + badge} data-testid="tier-badge" title={badge === 'full' ? tz('Rendered from the full-resolution source; display detail follows zoom', '已完成原尺寸渲染；显示精细度随缩放调整') : tz('Preview resolution — the frame’s own is on its way', '预览分辨率——全尺寸正在渲染')}>
