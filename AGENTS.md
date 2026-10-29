@@ -1070,3 +1070,46 @@ into `Session.savedGeometry` — one read per frame, shared with `frameStates`.
   log-exposure axis — every parity bar assumes them.
 - Do not remove the `XCTExpectFailure(strict: true)` marker on the histogram
   case except in the commit that fixes the histogram (trap 33).
+
+---
+
+## Windows_Linux: process, gates, and where Windows traps go
+
+Added 2026-10-28 on `Windows_Linux`; `main` does not carry this section.
+
+- **The process** is `docs/process/DEVELOPMENT-PROCESS.md`. A new feature gets
+  a PRD (`docs/prd/`), a module an RFC (`docs/rfc/`), a one-off decision an
+  ADR (`docs/adr/`), numbered `-Wnnn` so they never collide with the
+  local-only RFC-001…036 the code comments cite. Root `rfc/` and `PRD/` are
+  ignored (`.gitignore:329-330`) and would never reach a collaborator.
+- **Before a push:** `python tools/process/check_process.py all --base
+  origin/Windows_Linux --worktree`. It fails when an interface changes without
+  its specification in the same range (`tools/process/sync_rules.json`):
+  `kFields` → API-SPEC and `parity_schema.py`, the host's methods or
+  `protocol.ts` → `desktop/HOST-PROTOCOL.md`, a workflow → the process
+  document. A change that is deliberately not an interface change
+  says so with `Spec-Sync-Waiver: <rule>: <reason>` in its commit message.
+- **Integration:** push to `windows_linux2`, let the full CI run there, and
+  merge into `Windows_Linux` only after approval.
+- **Which upstream rules this branch adopts, adjusts or does not apply, and
+  why:** `docs/reference-audit.md`. It also lists drift found while auditing
+  that is not fixed yet.
+- **Windows traps** go here as numbered entries (symptom → cause → fix → the
+  test that holds it), continuing from W1, or in the module's own document
+  (`engine/WINDOWS_*.md`, `desktop/NOTES.md`) with a one-line pointer here.
+
+### W1. A specification that is not edited in the same commit stays missing
+
+The rule "a wire change edits its section in the same commit" (top of this
+file) was kept by convention only. Replayed over the 343 non-merge commits on
+`Windows_Linux` dated 2026-09-11 (+0800) or later, up to `1e727cd`: 9 of 20
+changes to the `kFields` table left API-SPEC untouched in the same commit, and
+five of those field names (`glare_amount`, `grain_amount`,
+`strip_budget_bytes`, `extended_dynamic_range`, `digital_intermediate`) never
+reached it. Of 9 host-protocol changes, 4 left `desktop/HOST-PROTOCOL.md`
+untouched; three were the TypeScript types catching up with fields the
+protocol already documented, and one was real: `no_film` and
+`hello.frame_options` are in API-SPEC §19 and nowhere in the host protocol.
+Nothing failed, because nothing checked. `tools/process/check_process.py sync`
+checks it now, in CI and locally; `tools/process/tests/test_check_process.py`
+holds the rules, and RFC-W001 §6.3 has the replay.
