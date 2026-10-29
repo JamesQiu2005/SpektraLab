@@ -72,11 +72,17 @@ void main() {
     uint t = spk_global_index();
     uint height = meta.value[0], width = meta.value[1];
     uint accumulate = meta.value[2], axis = meta.value[3];
-    uint threads = axis == 0u ? width * 3u : height * 3u;
-    if (t >= threads) return;
-    uint channel = t % 3u, line = t / 3u;
+    // RFC-032: one dispatch per channel and per block of lines. Lines are
+    // independent -- each owns a whole line and never reads another -- so this
+    // is the same arithmetic in the same order, split only to keep a single
+    // dispatch short enough that the GPU watchdog never sees a long one.
+    uint channel = meta.value[6];
+    uint line0 = meta.value[7];
+    uint lines = axis == 0u ? width : height;
     uint length = axis == 0u ? height : width;
     uint stride = axis == 0u ? width * 3u : 3u;
+    uint line = line0 + t;
+    if (line >= lines) return;
     uint base = axis == 0u ? line * 3u + channel : line * width * 3u + channel;
     vec2 B = vec2(coefficients.value[8u * channel], coefficients.value[8u * channel + 1u]);
     vec2 B1 = vec2(coefficients.value[8u * channel + 2u], coefficients.value[8u * channel + 3u]);

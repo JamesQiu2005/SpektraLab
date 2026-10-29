@@ -1,5 +1,6 @@
 #include "blur.hpp"
 
+#include <algorithm>
 #include <cmath>
 #include <cstring>
 
@@ -133,18 +134,38 @@ bool Blur::iir(const Image& img, const double sigmas[3], const bool active[3],
     //
     // The first pass is plain and the second carries the mixture's multiply-add,
     // which is also where the fused multiply-add landed in the transposed path.
-    const uint32_t meta_h[4] = {img.h, img.w, 0u, 1u};
-    const uint32_t meta_v[4] = {img.h, img.w, acc ? 1u : 0u, 0u};
-    if (!gpu_->dispatch("spk_iir_df_acc",
-                        {gpu::Arg::buf(img.buf), gpu::Arg::buf(coef_buf), gpu::Arg::buf(act_buf),
-                         gpu::Arg::buf(dummy->buf), gpu::Arg::buf(wt_buf),
-                         gpu::Arg::inline_bytes(meta_h, 4), gpu::Arg::buf(out.buf)},
-                        size_t(img.h) * 3, error)) return false;
-    if (!gpu_->dispatch("spk_iir_df_acc",
-                        {gpu::Arg::buf(out.buf), gpu::Arg::buf(coef_buf), gpu::Arg::buf(act_buf),
-                         gpu::Arg::buf(dummy->buf), gpu::Arg::buf(wt_buf),
-                         gpu::Arg::inline_bytes(meta_v, 4), gpu::Arg::buf(out.buf)},
-                        size_t(img.w) * 3, error)) return false;
+    // **One launch per channel and per block of lines.** A line owns itself --
+    // the recurrence runs along it and never reads another -- so this changes no
+    // arithmetic, only how long a single dispatch runs. That matters on a phone:
+    // a 20 MP vertical pass in one launch was measured at 10.3 s, long enough
+    // for the Adreno watchdog to kill the context (VK_ERROR_DEVICE_LOST).
+    // Android's Adreno driver kills a submission that runs past its watchdog,
+    // and a thermally throttled device stretches one IIR block by an order of
+    // magnitude. 512 lines keeps the worst case well inside that budget while
+    // staying bit-identical to the unsplit kernel (each line is independent).
+    constexpr uint32_t kIirLinesPerLaunch = 512;
+    auto launch = [&](const gpu::BufferRef& src, const gpu::BufferRef& dst, uint32_t axis,
+                      uint32_t accumulate, uint32_t lines) -> bool {
+        // **Every channel is launched, active or not.** The kernel's inactive
+        // branch is a copy of the input into `out` (with the mixture's
+        // accumulate mix); skipping it would leave that channel's plane holding
+        // whatever the pool last handed out, which shows up as a rectangle of
+        // the wrong picture rather than as a blur.
+        for (uint32_t c = 0; c < 3u; ++c) {
+            for (uint32_t line0 = 0; line0 < lines; line0 += kIirLinesPerLaunch) {
+                const uint32_t n = std::min(kIirLinesPerLaunch, lines - line0);
+                const uint32_t meta[8] = {img.h, img.w, accumulate, axis, 0u, 0u, c, line0};
+                if (!gpu_->dispatch("spk_iir_df_acc",
+                                    {gpu::Arg::buf(src), gpu::Arg::buf(coef_buf), gpu::Arg::buf(act_buf),
+                                     gpu::Arg::buf(dummy->buf), gpu::Arg::buf(wt_buf),
+                                     gpu::Arg::inline_bytes(meta, 8), gpu::Arg::buf(dst)},
+                                    size_t(n), error)) return false;
+            }
+        }
+        return true;
+    };
+    if (!launch(img.buf, out.buf, 1u, 0u, img.h)) return false;
+    if (!launch(out.buf, out.buf, 0u, acc ? 1u : 0u, img.w)) return false;
     // What a `Swept` stage reports: this pass covers the plane once, as one
     // span, whatever the executor's plan says -- the plan is about bands and
     // this never makes one. Filled here rather than by the caller, so the
