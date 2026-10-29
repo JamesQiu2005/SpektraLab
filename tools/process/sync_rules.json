@@ -1,0 +1,87 @@
+{
+  "version": 1,
+  "about": "Spec-sync rules for tools/process/check_process.py (sync). A rule fires when one of its triggers changed in the range; it is satisfied when every path in require_all changed in the same range, or when a commit in the range carries 'Spec-Sync-Waiver: <id>: <reason>'. docs/process/DEVELOPMENT-PROCESS.md lists every rule id as `sync:<id>`; the docs check fails if the two disagree. RFC-W001 records why each rule exists and what it measured on history.",
+  "rules": [
+    {
+      "id": "wire-schema",
+      "description": "A params_delta field was added, removed or redefined (name, path, type, layer, live flag, range) in the engine's kFields table, so its API-SPEC section changes in the same range.",
+      "source": "AGENTS.md:62-68; ARCHITECTURE.md:662-665",
+      "triggers": [
+        {
+          "path": "engine/src/core/params.cpp",
+          "mode": "entries",
+          "regex": "^\\s*\\{\"([a-z0-9_]+)\",\\s*\""
+        }
+      ],
+      "require_all": [
+        "API-SPEC-callable-render-service.md"
+      ]
+    },
+    {
+      "id": "wire-schema-parity",
+      "description": "A params_delta field name was added or removed, so parity_schema.py learns it (its NATIVE_ONLY list and the order check) in the same range.",
+      "source": "ARCHITECTURE.md:662-665; API-SPEC-callable-render-service.md:562",
+      "triggers": [
+        {
+          "path": "engine/src/core/params.cpp",
+          "mode": "keys",
+          "regex": "^\\s*\\{\"([a-z0-9_]+)\",\\s*\""
+        }
+      ],
+      "require_all": [
+        "engine/tests/parity_schema.py"
+      ]
+    },
+    {
+      "id": "host-protocol",
+      "description": "The host's method set changed, or the TypeScript protocol types changed, so desktop/HOST-PROTOCOL.md changes in the same range.",
+      "source": "desktop/HOST-PROTOCOL.md:15-17 (upstream requires a same-commit edit for breaking changes; this project extends it to additive ones, RFC-W001 §3.3)",
+      "triggers": [
+        {
+          "path": "engine/host/main.cpp",
+          "mode": "keys",
+          "regex": "(?:\\bm|q\\.method) == \"([a-z_]+)\""
+        },
+        {
+          "path": "desktop/src/shared/protocol.ts",
+          "mode": "file"
+        }
+      ],
+      "require_all": [
+        "desktop/HOST-PROTOCOL.md"
+      ]
+    },
+    {
+      "id": "ci-gates-doc",
+      "description": "A workflow changed, so the gate table in the development process document (the current fact of what CI runs) changes in the same range.",
+      "source": "AGENTS.md:33-43 (a document that describes a deleted thing is a defect); .github/workflows/desktop.yml:1-21",
+      "triggers": [
+        {
+          "path": ".github/workflows/**",
+          "mode": "file"
+        }
+      ],
+      "require_all": [
+        "docs/process/DEVELOPMENT-PROCESS.md"
+      ]
+    },
+    {
+      "id": "process-rules-doc",
+      "description": "The checker's rules or behaviour changed, so RFC-W001 (the module's design record) changes in the same range.",
+      "source": "docs/rfc/RFC-W001-development-process-and-ci.md",
+      "triggers": [
+        {
+          "path": "tools/process/check_process.py",
+          "mode": "file"
+        },
+        {
+          "path": "tools/process/sync_rules.json",
+          "mode": "file"
+        }
+      ],
+      "require_all": [
+        "docs/rfc/RFC-W001-development-process-and-ci.md"
+      ]
+    }
+  ]
+}
