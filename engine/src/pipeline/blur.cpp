@@ -136,13 +136,11 @@ bool Blur::iir(const Image& img, const double sigmas[3], const bool active[3],
     // which is also where the fused multiply-add landed in the transposed path.
     // **One launch per channel and per block of lines.** A line owns itself --
     // the recurrence runs along it and never reads another -- so this changes no
-    // arithmetic, only how long a single dispatch runs. That matters on a phone:
-    // a 20 MP vertical pass in one launch was measured at 10.3 s, long enough
-    // for the Adreno watchdog to kill the context (VK_ERROR_DEVICE_LOST).
-    // Android's Adreno driver kills a submission that runs past its watchdog,
-    // and a thermally throttled device stretches one IIR block by an order of
-    // magnitude. 512 lines keeps the worst case well inside that budget while
-    // staying bit-identical to the unsplit kernel (each line is independent).
+    // arithmetic, only how long a single dispatch runs. That matters wherever a
+    // submission has a watchdog: a 20 MP vertical pass in one launch was
+    // measured at 10.3 s on an Adreno 825, and the driver answered with
+    // VK_ERROR_DEVICE_LOST. 512 lines keeps the worst case near 34 ms even on a
+    // throttled device, and stays bit-identical to the unsplit kernel.
     constexpr uint32_t kIirLinesPerLaunch = 512;
     auto launch = [&](const gpu::BufferRef& src, const gpu::BufferRef& dst, uint32_t axis,
                       uint32_t accumulate, uint32_t lines) -> bool {
