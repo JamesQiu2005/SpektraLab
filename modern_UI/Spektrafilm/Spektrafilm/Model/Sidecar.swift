@@ -511,3 +511,100 @@ struct Sidecar: Codable, Equatable, Sendable {
         Sidecar.noteWrite(out.source ?? Sidecar.identity(of: image), at: destination)
     }
 }
+
+/// Follows writes to the store made by anything other than this window — the
+/// `spektralab` CLI, the MCP server, a script — so the frame on the canvas can
+/// adopt an edit without a relaunch (issue #29).
+///
+/// Two descriptors, because the two ways a sidecar changes are different
+/// events: a descriptor on the **file** sees an in-place write (a script
+/// rewriting the JSON), and one on the **directory** sees the atomic replace
+/// `save` does — a new file renamed over the old name, which leaves a file
+/// descriptor pointed at an inode nobody will write again.
+@MainActor
+final class SidecarWatch {
+    private var directorySource: DispatchSourceFileSystemObject?
+    private var fileSource: DispatchSourceFileSystemObject?
+    private var watched: URL?
+    private var onChange: (@MainActor () -> Void)?
+    private var pending = false
+
+    /// Start watching the store. `onChange` runs on the main actor, at most
+    /// once per burst: the debounce is what keeps a multi-field write from
+    /// reloading the frame once per field.
+    func start(onChange: @escaping @MainActor () -> Void) {
+        self.onChange = onChange
+        let directory = Sidecar.storeDirectory
+        try? FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        directorySource = Self.source(for: directory.path) { [weak self] in
+            Task { @MainActor in
+                self?.burst()
+                // A sidecar that did not exist when the frame opened, or one
+                // that an atomic save replaced, is armed from here.
+                self?.armIfNeeded()
+            }
+        }
+    }
+
+    /// Point the watch at the open frame's sidecar; nil stops it.
+    func watch(_ url: URL?) {
+        guard url != watched else { return }
+        watched = url
+        cancelFile()
+        armIfNeeded()
+    }
+
+    private func armIfNeeded() {
+        guard fileSource == nil, let url = watched else { return }
+        fileSource = Self.source(for: url.path) { [weak self] in
+            Task { @MainActor in
+                self?.burst()
+                // An atomic save replaced the inode: re-arm on the new file.
+                self?.rearm()
+            }
+        }
+    }
+
+    private func rearm() {
+        Task { @MainActor in
+            try? await Task.sleep(for: .milliseconds(120))
+            self.cancelFile()
+            self.armIfNeeded()
+        }
+    }
+
+    private func cancelFile() {
+        fileSource?.cancel()
+        fileSource = nil
+    }
+
+    private func burst() {
+        guard !pending else { return }
+        pending = true
+        Task { @MainActor in
+            try? await Task.sleep(for: .milliseconds(250))
+            pending = false
+            onChange?()
+        }
+    }
+
+    /// One descriptor on a path, reporting every event that can mean "the
+    /// file changed", with the fd closed by the source's own cancel handler.
+    /// `nonisolated`: libdispatch runs both handlers on its own queue, and a
+    /// closure inherited from a `@MainActor` type would assert the main queue
+    /// there and trap. Everything the handlers touch is hopped back with
+    /// `Task { @MainActor in … }`.
+    nonisolated private static func source(for path: String,
+                               handler: @escaping @Sendable () -> Void) -> DispatchSourceFileSystemObject? {
+        let fd = open(path, O_EVTONLY)
+        guard fd >= 0 else { return nil }
+        let source = DispatchSource.makeFileSystemObjectSource(
+            fileDescriptor: fd,
+            eventMask: [.write, .extend, .attrib, .delete, .rename, .revoke],
+            queue: DispatchQueue.global(qos: .utility))
+        source.setEventHandler(handler: handler)
+        source.setCancelHandler { close(fd) }
+        source.resume()
+        return source
+    }
+}
