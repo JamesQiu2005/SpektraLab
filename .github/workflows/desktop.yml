@@ -12,6 +12,8 @@
 #   package-windows       the NSIS installer, built natively on Windows around
 #                         the cross-built host; then installed silently and
 #                         the installed host asked `hello` on a real Windows.
+#   release-windows       on Windows_Linux only, all of the above green: the
+#                         installer onto the macOS release of the same version.
 #
 # What a hosted runner cannot tell us: anything about a real GPU (no Vulkan
 # driver on the Windows runner, lavapipe on Linux), whole-image parity with
@@ -304,3 +306,73 @@ jobs:
           path: desktop/release/windows/*-setup.exe
           if-no-files-found: error
           retention-days: 14
+
+  # Every job above green on Windows_Linux: the installer goes onto the macOS
+  # release of the same version (tag spektralab-v<desktop/package.json version>),
+  # named as a pre-release so it does not read as the Mac build's equal. The
+  # release itself stays as published -- it is not marked pre-release, which
+  # would take "Latest" away from the DMG. If the tag has no release yet (the
+  # Mac build ships first), this job says so and uploads nothing: it never
+  # creates a tag, since one cut here would point at a Windows_Linux commit.
+  release-windows:
+    name: Attach the Windows pre-release to the macOS release
+    needs: [engine-linux, engine-windows-cross, desktop-checks, package-linux, package-windows]
+    if: github.ref == 'refs/heads/Windows_Linux' && (github.event_name == 'push' || github.event_name == 'workflow_dispatch')
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    permissions:
+      contents: write
+    concurrency:
+      group: release-windows
+      cancel-in-progress: false
+    env:
+      GH_TOKEN: ${{ github.token }}
+      GH_REPO: ${{ github.repository }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/download-artifact@v4
+        with:
+          name: spektralab-windows-x64
+          path: dist
+
+      - name: Upload the installer and its checksum
+        shell: bash
+        run: |
+          set -euo pipefail
+          version=$(node -p "require('./desktop/package.json').version")
+          tag="spektralab-v$version"
+          if ! gh release view "$tag" --json tagName >/dev/null 2>&1; then
+            echo "::notice::No release $tag yet; nothing uploaded. Publish the macOS $version release, then re-run this job."
+            exit 0
+          fi
+
+          shopt -s nullglob
+          setups=(dist/*-setup.exe)
+          [ ${#setups[@]} -eq 1 ] || { echo "expected one installer, found ${#setups[@]}"; exit 1; }
+          asset="SpektraLab-$version-windows-x64-prerelease-setup.exe"
+          cp "${setups[0]}" "dist/$asset"
+          (cd dist && sha256sum "$asset" > "$asset.sha256")
+          gh release upload "$tag" "dist/$asset" "dist/$asset.sha256" --clobber
+
+          # One Windows section in the notes, rewritten on every upload.
+          sha=$(cut -d' ' -f1 "dist/$asset.sha256")
+          gh release view "$tag" --json body -q .body > notes.md
+          awk '/<!-- windows-prerelease:begin -->/{skip=1} !skip{print} /<!-- windows-prerelease:end -->/{skip=0}' notes.md > notes.trimmed.md
+          {
+            sed -e :a -e '/^\n*$/{$d;N;ba' -e '}' notes.trimmed.md
+            echo
+            echo '<!-- windows-prerelease:begin -->'
+            echo '### Windows x64 (pre-release)'
+            echo
+            echo "\`$asset\` is a pre-release built by CI from \`Windows_Linux\` at"
+            echo "[\`${GITHUB_SHA::8}\`]($GITHUB_SERVER_URL/$GITHUB_REPOSITORY/commit/$GITHUB_SHA)"
+            echo "([run]($GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID)). Not code-signed;"
+            echo 'it needs a Vulkan driver and the Microsoft Edge WebView2 Runtime.'
+            echo
+            echo 'SHA-256:'
+            echo "\`$sha\`"
+            echo '<!-- windows-prerelease:end -->'
+          } > notes.new.md
+          gh release edit "$tag" --notes-file notes.new.md
+          echo "Attached $asset to $tag"
