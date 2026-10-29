@@ -3,6 +3,7 @@ import type { HelloResult } from '@shared/protocol';
 import { GEOMETRY_DEFAULT } from '@shared/geometry';
 import { newSidecar, decodeSidecar, encodeSidecar } from '@shared/sidecar';
 import { StockCatalog } from '@shared/stocks';
+import { FILM_FRAME_CUSTOM } from '@shared/params';
 import type * as SessionModule from './session';
 import stockData from '../../../modern_UI/Spektrafilm/Spektrafilm/Resources/StockCatalog.json';
 const fake = vi.hoisted(() => ({ load: vi.fn(), save: vi.fn(async (_path: string, _sidecar: unknown) => ''), params: vi.fn(async () => ({})),
@@ -35,6 +36,47 @@ afterEach(() => { vi.clearAllTimers(); vi.useRealTimers(); vi.restoreAllMocks();
 const settle = () => vi.advanceTimersByTimeAsync(1);
 
 describe('film edge and date back session', () => {
+  it('retains the user film format while the edge owns it, including rejected edits and undo', async () => {
+    session.setFilmFrame(FILM_FRAME_CUSTOM.id);
+    session.setFilmSide('long');
+    session.setSideLengthMM(52);
+    await settle();
+    const original = structuredClone(state().sidecar.params);
+    clock += 1000;
+    session.setParams((p) => ({ ...p, filmEdge: { ...p.filmEdge, active: true, format: '135_half' } }));
+    await settle();
+    const history = state().undo.length;
+    fake.params.mockClear();
+    session.setFilmFrame('135');
+    session.setFilmSide('short');
+    session.setSideLengthMM(90);
+    await settle();
+    for (const key of ['filmFrame', 'filmSide', 'sideLengthMM', 'filmFormatMM'] as const)
+      expect(state().sidecar.params[key]).toEqual(original[key]);
+    expect(state().undo).toHaveLength(history);
+    expect(fake.params).not.toHaveBeenCalled();
+    clock += 1000;
+    session.setParams((p) => ({ ...p, filmEdge: { ...p.filmEdge, active: false } }));
+    await settle();
+    expect(state().sidecar.params).toMatchObject({ filmFrame: FILM_FRAME_CUSTOM.id, filmSide: 'long', sideLengthMM: 52 });
+    session.undo(); await settle();
+    expect(state().sidecar.params.filmEdge.active).toBe(true);
+    session.redo(); await settle();
+    expect(state().sidecar.params).toMatchObject({ filmFrame: FILM_FRAME_CUSTOM.id, filmSide: 'long', sideLengthMM: 52 });
+  });
+  it('only edits a custom side length, and an unsupported edge does not lock the format', async () => {
+    session.setFilmFrame('135'); await settle();
+    const before = structuredClone(state().sidecar.params);
+    const history = state().undo.length;
+    session.setSideLengthMM(90); await settle();
+    expect(state().sidecar.params).toEqual(before);
+    expect(state().undo).toHaveLength(history);
+    session.sessionStore.setState({ gate: { ...state().gate, overscan: false } });
+    session.setParams((p) => ({ ...p, filmEdge: { ...p.filmEdge, active: true } })); await settle();
+    session.setFilmFrame(FILM_FRAME_CUSTOM.id);
+    session.setSideLengthMM(60); await settle();
+    expect(state().sidecar.params).toMatchObject({ filmFrame: FILM_FRAME_CUSTOM.id, sideLengthMM: 60 });
+  });
   it('takes and restores the held crop, with one undo entry and a native source cut', async () => {
     session.setParams((p) => ({ ...p, filmEdge: { ...p.filmEdge, active: true, format: '135_half' } }));
     await settle();

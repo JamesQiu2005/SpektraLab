@@ -140,7 +140,7 @@ if(SPEKTRALAB_PORTABLE_BACKEND)
             spk_couplers_correction spk_spectral_epilogue
             spk_print_exposure spk_cam16ucs_compress
             spk_cctf_encode_matrix spk_to_rgba16
-            spk_view_grade spk_view_grade_di spk_view_geometry spk_view_pack spk_view_cam16 spk_view_pair
+            spk_view_grade spk_view_grade_float spk_view_grade_di spk_view_geometry spk_view_pack spk_view_cam16 spk_view_pair
             spk_grain_layers spk_grain_layer_one spk_grain_simple
             spk_lognormal_field spk_rng_probe spk_mul spk_glare_add
             spk_reduce_max spk_boost spk_highlight_headroom spk_bw_correct spk_edr spk_cctf_decode
@@ -260,6 +260,9 @@ if(SPEKTRALAB_PORTABLE_BACKEND)
                 add_test(NAME spk_raw_decoder_errors COMMAND spk_raw_decoder_errors
                     "${CMAKE_CURRENT_BINARY_DIR}/raw-errors")
                 add_executable(spk_raw_metadata_link tests/raw_metadata_link.cpp)
+                add_executable(spk_raw_camera tests/raw_camera.cpp)
+                target_link_libraries(spk_raw_camera PRIVATE spk_libraw)
+                add_test(NAME spk_raw_camera COMMAND spk_raw_camera)
                 target_link_libraries(spk_raw_metadata_link PRIVATE spk_libraw)
                 add_test(NAME spk_raw_metadata_link COMMAND spk_raw_metadata_link)
                 add_executable(spk_raw_headroom tests/raw_headroom.cpp)
@@ -302,7 +305,7 @@ if(SPEKTRALAB_PORTABLE_BACKEND)
             add_test(NAME spk_vulkan_smoke
                 COMMAND spk_vulkan_smoke "${vulkan_resource_dir}")
 
-            foreach(probe grain pointwise resample transfer geometry lut_di view bw scene_latitude overscan pair)
+            foreach(probe grain pointwise resample transfer geometry lut_di view no_film bw scene_latitude overscan pair)
                 add_executable(spk_vulkan_${probe} tests/gpu_vulkan_${probe}.cpp)
                 target_include_directories(spk_vulkan_${probe} PRIVATE
                     "${CMAKE_CURRENT_SOURCE_DIR}/include"

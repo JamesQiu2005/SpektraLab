@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { ALL_FEATURES, FILM_PARAMS_DEFAULT, fullDelta } from './params';
 import { GEOMETRY_DEFAULT, outputSize } from './geometry';
 import { StockCatalog } from './stocks';
-import { captureDate, shootingText, edgeText, resolveFilmEdgeParams, canvasGeometryFor, sourceGeometryFor, gateFramed, datePrints, dateEffective, geometryInNegative } from './filmEdge';
+import { captureDate, shootingText, edgeText, resolveFilmEdgeParams, canvasGeometryFor, sourceGeometryFor, gateFramed, datePrints, dateEffective, edgeEffective, geometryInNegative } from './filmEdge';
 import { decodeSidecar, encodeSidecar, newSidecar } from './sidecar';
 import stockData from '../../../modern_UI/Spektrafilm/Spektrafilm/Resources/StockCatalog.json';
 const catalog = new StockCatalog(stockData.stocks);
@@ -10,6 +10,19 @@ const native = { width: 6000, height: 4000 };
 const crop = { ...GEOMETRY_DEFAULT, crop: { x: .1, y: .1, width: .6, height: .7 }, angle: 3, quarterTurns: 1, flipH: true };
 
 describe('the camera gate and date back contract', () => {
+  it('bypasses the film edge and date back without losing normal crop, rotation or saved parameters', () => {
+    const p = structuredClone(FILM_PARAMS_DEFAULT);
+    p.filmEdge.active = true; p.dateBack.active = true;
+    const saved = structuredClone(p);
+    expect(edgeEffective(p.filmEdge, ALL_FEATURES, true)).toBe(false);
+    expect(dateEffective(p.dateBack, p.filmEdge, ALL_FEATURES, true)).toBe(false);
+    expect(geometryInNegative(p, ALL_FEATURES, true)).toBe(false);
+    expect(sourceGeometryFor(p, crop, ALL_FEATURES, true)).toBeNull();
+    expect(canvasGeometryFor(p, crop, ALL_FEATURES, true)).toBe(crop);
+    expect(sourceGeometryFor(p, crop, ALL_FEATURES, false)).toBe(crop);
+    expect(canvasGeometryFor(p, crop, ALL_FEATURES, false)).toEqual(GEOMETRY_DEFAULT);
+    expect(p).toEqual(saved);
+  });
   it('accepts host ISO and EXIF dates without inventing unavailable or invalid shooting data', () => {
     expect(captureDate('2026-10-01T12:34:56', 'japan')).toBe("'26 10 1");
     expect(captureDate('2026:10:01 12:34:56', 'us')).toBe("10 1 '26");

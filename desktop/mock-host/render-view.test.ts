@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { MockHost } from './core';
 import { ADJUSTMENTS_DEFAULT } from '../src/shared/adjustments';
 import { GEOMETRY_DEFAULT } from '../src/shared/geometry';
+import { newPair, newHole } from '../src/shared/pair';
 
 const request = (host: MockHost, method: string, params: Record<string, unknown>, payload?: Uint8Array) =>
   host.handle({ id: 1, method, params, payload });
@@ -16,6 +17,58 @@ async function opened() {
 }
 
 describe('processed-view mock protocol', () => {
+  it('advertises decoded-source bypass and keeps it independent of the dormant film crop/cache', async () => {
+    const { host, open, p } = await opened();
+    expect(result(await request(host, 'hello', {})).view_options).toContain('no_film');
+    const crop = { ...p.geometry, crop: { x: 0.25, y: 0, width: 0.5, height: 1 }, quarterTurns: 1 };
+    const film = await request(host, 'render_view', { ...p, source_geometry: crop });
+    const bypass = await request(host, 'render_view', { ...p, no_film: true, geometry: crop });
+    expect(bypass.header.ok).toBe(true);
+    expect(result(bypass)).toMatchObject({ print_cached: false,
+      image: { width: open.height, height: (open.width as number) / 2, source_width: open.width, source_height: open.height } });
+    expect(bypass.payload).not.toEqual(film.payload);
+    const restored = await request(host, 'render_view', p);
+    expect(restored.payload).toEqual(film.payload);
+    expect(result(restored).print_cached).toBe(true);
+    const graded = await request(host, 'render_view', { ...p, no_film: true, geometry: crop,
+      adjustments: { ...p.adjustments, exposure: 1 } });
+    expect(graded.payload).not.toEqual(bypass.payload);
+    await request(host, 'set_params', { session: p.session, delta: { film_stock: 'kodak_gold_200', exposure_compensation_ev: 2 } });
+    expect((await request(host, 'render_view', { ...p, no_film: true, geometry: crop })).payload).toEqual(bypass.payload);
+  });
+
+  it('uses bypass for regular proof/export geometry but keeps DI on the film path', async () => {
+    const { host, open, p } = await opened();
+    const crop = { ...p.geometry, crop: { x: 0.25, y: 0, width: 0.5, height: 1 } };
+    const proof = { ...p, proof_long_edge: 100, format: 'tiff16', source_geometry: crop, color_space: 'sRGB' };
+    const bypass = await request(host, 'render_proof', { ...proof, no_film: true });
+    expect(result(bypass)).toMatchObject({ file_width: open.width, file_height: open.height });
+    expect(bypass.payload).toEqual((await request(host, 'render_view', { ...p, no_film: true })).payload);
+    await request(host, 'render_proof', { ...proof, format: 'di' });
+    expect((await request(host, 'render_proof', { ...proof, format: 'di', no_film: true })).header).toMatchObject({ ok: false, error: { code: 'bad_request' } });
+    const exported = await request(host, 'export_frame', { ...proof, path: '/test/no-film.tif', no_film: true });
+    expect(result(exported)).toMatchObject({ width: open.width, height: open.height, print_cached: false });
+    expect((await request(host, 'export_cineon', { ...proof, path: '/test/film.cin', no_film: true })).header)
+      .toMatchObject({ ok: false, error: { code: 'bad_request' } });
+  });
+
+  it('refuses malformed bypass flags, legacy hosts and pair bypass instead of returning film pixels', async () => {
+    const { host, p } = await opened();
+    for (const no_film of [null, 'true', 1]) {
+      expect((await request(host, 'render_view', { ...p, no_film })).header).toMatchObject({ ok: false, error: { code: 'bad_request' } });
+    }
+    const old = new MockHost({ supportsNoFilm: false });
+    expect(result(await request(old, 'hello', {})).view_options).not.toContain('no_film');
+    const legacy = result(await request(old, 'open', { path: '/test/old.ARW' }));
+    expect((await request(old, 'render_view', { ...p, session: legacy.session, no_film: true })).header)
+      .toMatchObject({ ok: false, error: { code: 'unsupported' } });
+    const pair = { ...newPair('/test'), left: newHole('/test/left.ARW'), right: newHole('/test/right.ARW') };
+    const paired = result(await request(host, 'open_pair', { path: '/test/pair.spektrapair', pair }));
+    for (const method of ['render_view', 'render_proof', 'export_frame']) {
+      expect((await request(host, method, { ...p, session: paired.session, no_film: true, path: '/test/out.tif', format: 'tiff16', proof_long_edge: 100 })).header)
+        .toMatchObject({ ok: false, error: { code: 'unsupported' } });
+    }
+  });
   it('advertises render_view and returns the same neutral sRGB print with an echoed generation', async () => {
     const { host, p } = await opened();
     expect(result(await request(host, 'hello', {})).methods).toContain('render_view');

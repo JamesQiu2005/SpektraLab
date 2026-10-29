@@ -184,7 +184,7 @@ for (const scale of [100, 115, 130]) {
       return a.bottom <= b.top + strip.clientHeight && a.top >= b.top;
     }));
     expect(fits).toBe(true);
-    await page.screenshot({ path: `D:/SpektraLab-win/validation/feedback-20261012/layout-${scale}.png` });
+    await page.screenshot({ path: test.info().outputPath(`layout-${scale}.png`) });
   });
 }
 

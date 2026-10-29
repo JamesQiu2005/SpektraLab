@@ -1209,16 +1209,15 @@ bool Pipeline::node_lens_blur(const Image& in, Image& out, std::string& error) {
     return blur_.gaussian(in, sigma, out, error);
 }
 
-bool Pipeline::node_halation(const Image& in, Image& out, std::string& error) {
+bool Pipeline::node_halation(Image raw, Image& out, std::string& error) {
     const HalationParams& hal = params_.film_render.halation;
-    if (!hal.active) { out = in; return true; }
+    if (!hal.active) { out = std::move(raw); return true; }
     Timer t(this, "filming.expose.halation");
     // The sigma arithmetic moved to `halation_blurs` so this node and
     // `film_blurs_demand` cannot disagree about which branch will run; the two
     // blocks below are the same two mixtures, in the same order, with the
     // guards now expressed as "the list is empty".
     const HalationBlurs blurs = halation_blurs();
-    Image raw = in;
 
     if (!blurs.scatter.empty()) {
         Image scattered;
@@ -1228,7 +1227,11 @@ bool Pipeline::node_halation(const Image& in, Image& out, std::string& error) {
         fill3(b, hal.scatter_amount);
         Image mixed;
         if (!blur_.lincomb(raw, scattered, a, b, mixed, error)) return false;
-        raw = mixed;
+        raw = std::move(mixed);
+        scattered.buf.reset();
+        // Scatter has finished reading the original plane. Retire it before
+        // the bounce mixture starts allocating its own intermediates.
+        if (!gpu_->flush(error)) return false;
     }
 
     if (!blurs.bounces.empty()) {
@@ -1249,9 +1252,9 @@ bool Pipeline::node_halation(const Image& in, Image& out, std::string& error) {
         if (!blur_.mixture(raw, blurs.bounces, hb, error)) return false;
         Image mixed;
         if (!blur_.lincomb(raw, hb, a, b, mixed, error)) return false;
-        raw = mixed;
+        raw = std::move(mixed);
     }
-    out = raw;
+    out = std::move(raw);
     return true;
 }
 
@@ -1288,7 +1291,7 @@ bool Pipeline::node_film_curves(const Image& in, Image& out, std::string& error)
                         baked_.film_curve_k, out, error);
 }
 
-bool Pipeline::node_dir_couplers(const Image& cmy, const Image& log_raw, Image& out,
+bool Pipeline::node_dir_couplers(Image cmy, Image log_raw, Image& out,
                                  std::string& error) {
     const DirCouplersParams& dcp = params_.film_render.dir_couplers;
     if (!dcp.active) { out = cmy; return true; }
@@ -1304,6 +1307,11 @@ bool Pipeline::node_dir_couplers(const Image& cmy, const Image& log_raw, Image& 
                          gpu::Arg::buf(corr.buf)},
                         cmy.pixels(), error)) return false;
 
+    // Correction is CMY's last reader. Metal parks released buffers pending
+    // completion; flush after release makes the plane reusable for diffusion.
+    cmy.buf.reset();
+    if (!gpu_->flush(error)) return false;
+
     const std::vector<Blur::Component> diffusion = dir_coupler_diffusion();
     if (!diffusion.empty()) {
         Image diffused;
@@ -1316,6 +1324,9 @@ bool Pipeline::node_dir_couplers(const Image& cmy, const Image& log_raw, Image& 
     fill3(b, -1.0);
     Image log_raw_0;
     if (!blur_.lincomb(log_raw, corr, a, b, log_raw_0, error)) return false;
+    corr.buf.reset();
+    log_raw.buf.reset();
+    if (!gpu_->flush(error)) return false;
     return curve_interp(log_raw_0, baked_.coupler_curve_x, baked_.coupler_curve_inv,
                         baked_.coupler_curve_y, baked_.film_curve_k, out, error);
 }
@@ -1425,8 +1436,9 @@ bool Pipeline::grain_realise(const Image& in, Image& out, std::string& error) {
                 double one[3];
                 fill3(one, 1.0);
                 Image accumulated;
-                if (!blur_.gaussian(layer, sigma, accumulated, error, 3.0, &grain, one)) return false;
-                grain = accumulated;
+                if (!blur_.gaussian_consume(std::move(layer), sigma, accumulated, error,
+                                            3.0, &grain, one)) return false;
+                grain = std::move(accumulated);
             }
         }
     } else {
@@ -1457,6 +1469,8 @@ bool Pipeline::grain_realise(const Image& in, Image& out, std::string& error) {
         for (int c = 0; c < 3; ++c) t0[c] = -g.density_min[c];
         Image scaled;
         if (!blur_.affine(grain, s, t0, scaled, error)) return false;
+        grain.buf.reset();
+        if (!gpu_->flush(error)) return false;
         if (g.blur > kMinEffectiveBlurSigma) {
             double sigma[3];
             fill3(sigma, g.blur);
@@ -1494,6 +1508,8 @@ bool Pipeline::grain_realise(const Image& in, Image& out, std::string& error) {
     for (int c = 0; c < 3; ++c) t0[c] = -g.density_min[c];
     Image shifted;
     if (!blur_.affine(grain, s, t0, shifted, error)) return false;
+    grain.buf.reset();
+    if (!gpu_->flush(error)) return false;
     if (g.blur > 0.0) {
         double sigma[3];
         fill3(sigma, g.blur);
@@ -1738,8 +1754,8 @@ bool Pipeline::node_glare(const Image& in, Image& out, std::string& error) {
         double sigma[3];
         fill3(sigma, glare.blur * ratio * radius);
         Image blurred;
-        if (!blur_.gaussian(field, sigma, blurred, error)) return false;
-        field = blurred;
+        if (!blur_.gaussian_consume(std::move(field), sigma, blurred, error)) return false;
+        field = std::move(blurred);
     }
     if (!alloc_like(in, out, error)) return false;
     const uint32_t n[1] = {uint32_t(in.elements())};
@@ -1824,6 +1840,20 @@ bool Pipeline::node_cctf(const Image& in, Image& out, std::string& error) {
 // the two runs
 // ---------------------------------------------------------------------------
 
+// Drop a node's old input before SPK_NODE's existing flush. In particular,
+// Metal cannot reuse a released plane until the commands reading it finish.
+static bool advance_if_ok(bool ok, Image& cur, Image& next) {
+    if (ok) cur = std::move(next);
+    return ok;
+}
+
+// Large whole-frame jobs cannot reuse the idle preview planes either. Keep
+// small tables (including the 65^3 RGB LUT) and full-size reusable blocks;
+// ordinary previews keep the existing 64 MiB floor and their warm pool.
+static size_t incompatible_trim_floor(size_t image_bytes) {
+    return image_bytes >= (size_t(256) << 20) ? (size_t(4) << 20) : (size_t(64) << 20);
+}
+
 // Fire one node, then evaluate.
 //
 // The flush is not bookkeeping: a buffer freed by the node that just ran only
@@ -1860,9 +1890,9 @@ bool Pipeline::film_prefix(const Image& in, const FrameShape& frame, Image& cur,
                            std::string& error) {
     Image next;
     SPK_NODE(node_input_cast(in, cur, error));
-    SPK_NODE(node_decode_input(cur, next, error)); cur = next;
-    SPK_NODE(node_geometry(cur, next, error)); cur = next;
-    SPK_NODE(node_auto_exposure(cur, next, error)); cur = next;
+    SPK_NODE(advance_if_ok(node_decode_input(cur, next, error), cur, next));
+    SPK_NODE(advance_if_ok(node_geometry(cur, next, error), cur, next));
+    SPK_NODE(advance_if_ok(node_auto_exposure(cur, next, error), cur, next));
 
     // `preprocess.crop_rescale`: at the shipped defaults its only job is to
     // fix the film's pixel pitch, which every micrometre-specified effect
@@ -1907,20 +1937,27 @@ bool Pipeline::film_prefix(const Image& in, const FrameShape& frame, Image& cur,
 // between a band run and a whole-frame stage has to copy **every live field**,
 // not just `cur`. That is a real finding from writing this out rather than a
 // complication invented here, and step 6 inherits it.
-bool Pipeline::film_scale_and_expose(const Chain& in, Chain& out, std::string& error) {
-    Image cur = in.cur, next;
+bool Pipeline::film_scale_and_expose(Chain in, Chain& out, std::string& error) {
+    Image cur = std::move(in.cur), next;
     // RFC-023 sits here, before `upsample`: a scalar gain commutes with the
     // spectral reconstruction exactly (§12.2), and this is the band-able
     // stage, so the node strips with it.
-    if (scene_latitude_wanted()) { SPK_NODE(node_scene_latitude(cur, next, error)); cur = next; }
-    SPK_NODE(node_upsample(cur, next, error)); cur = next;
-    SPK_NODE(node_exposure(cur, next, error)); cur = next;
-    out = in;
-    out.cur = cur;
+    if (scene_latitude_wanted()) { SPK_NODE(advance_if_ok(node_scene_latitude(cur, next, error), cur, next)); }
+    SPK_NODE(advance_if_ok(node_upsample(cur, next, error), cur, next));
+    SPK_NODE(advance_if_ok(node_exposure(cur, next, error), cur, next));
+    // Spectral reconstruction leaves two- and one-channel scratch planes.
+    // They cannot serve the RGB blurs that follow. The last node has already
+    // flushed, so discard those idle large blocks before the film's peak;
+    // retire preview planes for large jobs too. Bands reuse tc/b on the next
+    // band, so they retain their existing pool regardless of band size.
+    if (strip_plane_h_ == 0)
+        gpu_->trim_pool_incompatible(cur.bytes(), incompatible_trim_floor(cur.bytes()));
+    out = std::move(in);
+    out.cur = std::move(cur);
     return true;
 }
 
-bool Pipeline::film_boost(const Chain& in, Chain& out, std::string& error) {
+bool Pipeline::film_boost(Chain in, Chain& out, std::string& error) {
     // **`node_boost` is a stage of its own, and it is not a detail.** It
     // normalises the highlight lift by `device_max(in)` -- the *frame's* own
     // maximum, a reduction over every pixel -- so it is not a pointwise node
@@ -1942,134 +1979,138 @@ bool Pipeline::film_boost(const Chain& in, Chain& out, std::string& error) {
     // that can never be striped. Cutting the table at the node is how a
     // per-node hatch is spelled in a stage-based executor, and the runs either
     // side stay contiguous.
-    Image cur = in.cur, next;
-    SPK_NODE(node_boost(cur, next, error)); cur = next;
-    SPK_NODE(node_headroom(cur, next, error)); cur = next;
-    out = in;
-    out.cur = cur;
+    Image cur = std::move(in.cur), next;
+    SPK_NODE(advance_if_ok(node_boost(cur, next, error), cur, next));
+    SPK_NODE(advance_if_ok(node_headroom(cur, next, error), cur, next));
+    out = std::move(in);
+    out.cur = std::move(cur);
     return true;
 }
 
-bool Pipeline::film_overscan(const Chain& in, Chain& out, std::string& error) {
+bool Pipeline::film_overscan(Chain in, Chain& out, std::string& error) {
     // RFC-032 §27: whole-frame, and after `boost` for the same reason `boost`
     // is its own stage -- metering and the highlight lift are statistics of
     // the *frame*, so they are taken before the canvas exists.
-    Image cur = in.cur, next;
-    SPK_NODE(node_overscan(cur, next, error)); cur = next;
-    out = in;
-    out.cur = cur;
+    Image cur = std::move(in.cur), next;
+    SPK_NODE(advance_if_ok(node_overscan(cur, next, error), cur, next));
+    out = std::move(in);
+    out.cur = std::move(cur);
     return true;
 }
 
-bool Pipeline::film_blurs(const Chain& in, Chain& out, std::string& error) {
+bool Pipeline::film_blurs(Chain in, Chain& out, std::string& error) {
     // Class F, resolved per run: `lens_blur` is one sigma on three channels,
     // halation's two mixtures are where a channel can straddle the crossover,
     // and a `carried` demand sends the whole stage back to whole-frame.
-    Image cur = in.cur, next;
-    SPK_NODE(node_lens_blur(cur, next, error)); cur = next;
-    SPK_NODE(node_halation(cur, next, error)); cur = next;
-    out = in;
-    out.cur = cur;
+    Image cur = std::move(in.cur), next;
+    SPK_NODE(advance_if_ok(node_lens_blur(cur, next, error), cur, next));
+    SPK_NODE(advance_if_ok(node_halation(std::move(cur), next, error), cur, next));
+    out = std::move(in);
+    out.cur = std::move(cur);
     return true;
 }
 
-bool Pipeline::film_log_and_curves(const Chain& in, Chain& out, std::string& error) {
+bool Pipeline::film_log_and_curves(Chain in, Chain& out, std::string& error) {
     // Produces both of the chain's intermediates: the log-exposed frame and
     // the developed curve output. `log_e_film` is read twice downstream.
     Image next;
-    SPK_NODE(node_expose_log(in.cur, next, error));
-    out = in;
-    out.log_e_film = next;
-    Image cmy;
-    SPK_NODE(node_film_curves(out.log_e_film, cmy, error));
-    out.cur = cmy;
+    SPK_NODE(advance_if_ok(node_expose_log(in.cur, next, error), in.cur, next));
+    out = std::move(in);
+    out.log_e_film = std::move(out.cur);
+    SPK_NODE(node_film_curves(out.log_e_film, out.cur, error));
     return true;
 }
 
-bool Pipeline::film_couplers(const Chain& in, Chain& out, std::string& error) {
+bool Pipeline::film_couplers(Chain in, Chain& out, std::string& error) {
     Image next;
-    SPK_NODE(node_dir_couplers(in.cur, in.log_e_film, next, error));
-    out = in;
-    out.cur = next;
-    return true;
-}
-
-bool Pipeline::film_grain(const Chain& in, Chain& out, std::string& error) {
-    // Step 5: whole-frame. Its body holds its own dye-cloud blurs, so it is
-    // I + F/R and cannot be split by a stage boundary -- grain comes back in
-    // step 6 with F and R. See the §9 note in the commit.
-    SPK_NODE(node_grain(in.cur, out.cur, error));
+    SPK_NODE(node_dir_couplers(std::move(in.cur), std::move(in.log_e_film), next, error));
+    out = std::move(in);
+    out.cur = std::move(next);
+    // Couplers are the last reader; do not retain a full exposure plane through grain.
     out.log_e_film = Image{};
     return true;
 }
 
-bool Pipeline::print_spectral(const Chain& in, Chain& out, std::string& error) {
-    Image cur = in.cur, next;
+bool Pipeline::film_grain(Chain in, Chain& out, std::string& error) {
+    // Step 5: whole-frame. Its body holds its own dye-cloud blurs, so it is
+    // I + F/R and cannot be split by a stage boundary -- grain comes back in
+    // step 6 with F and R. See the §9 note in the commit.
+    Image next;
+    SPK_NODE(advance_if_ok(node_grain(in.cur, next, error), in.cur, next));
+    out = std::move(in);
+    out.log_e_film = Image{};
+    return true;
+}
+
+bool Pipeline::print_spectral(Chain in, Chain& out, std::string& error) {
+    Image cur = std::move(in.cur), next;
     // RFC-032 §27 before RFC-028: where there is no film the DI encodes the
     // hole's density, not the frame's. `node_overscan_light` (the scan's view
     // of the holes, output RGB) has no DI counterpart yet, so a DI of an
     // overscan canvas carries flat holes without the cut wall.
-    if (overscan_wanted()) { SPK_NODE(node_overscan_film_present(cur, next, error)); cur = next; }
+    if (overscan_wanted()) { SPK_NODE(advance_if_ok(node_overscan_film_present(cur, next, error), cur, next)); }
     if (di_active_) {
-        SPK_NODE(node_digital_intermediate(cur, next, error)); cur = next;
-        out = in;
-        out.cur = cur;
+        SPK_NODE(advance_if_ok(node_digital_intermediate(cur, next, error), cur, next));
+        out = std::move(in);
+        out.cur = std::move(cur);
         return true;
     }
     if (!params_.io.scan_film) {
-        if (mask_on_) { SPK_NODE(node_contrast_mask_epilogue(cur, next, error)); cur = next; }
-        else { SPK_NODE(node_enlarger_spectral(cur, next, error)); cur = next; }
-        SPK_NODE(node_print_exposure(cur, next, error)); cur = next;
-        SPK_NODE(node_print_curves(cur, next, error)); cur = next;
+        if (mask_on_) { SPK_NODE(advance_if_ok(node_contrast_mask_epilogue(cur, next, error), cur, next)); }
+        else { SPK_NODE(advance_if_ok(node_enlarger_spectral(cur, next, error), cur, next)); }
+        SPK_NODE(advance_if_ok(node_print_exposure(cur, next, error), cur, next));
+        SPK_NODE(advance_if_ok(node_print_curves(cur, next, error), cur, next));
     }
-    SPK_NODE(node_scan_spectral(cur, next, error)); cur = next;
-    SPK_NODE(node_bw_correction(cur, next, error)); cur = next;
-    out = in;
-    out.cur = cur;
+    SPK_NODE(advance_if_ok(node_scan_spectral(cur, next, error), cur, next));
+    SPK_NODE(advance_if_ok(node_bw_correction(cur, next, error), cur, next));
+    out = std::move(in);
+    out.cur = std::move(cur);
     return true;
 }
 
-bool Pipeline::print_glare(const Chain& in, Chain& out, std::string& error) {
-    SPK_NODE(node_glare(in.cur, out.cur, error));
+bool Pipeline::print_glare(Chain in, Chain& out, std::string& error) {
+    Image next;
+    SPK_NODE(advance_if_ok(node_glare(in.cur, next, error), in.cur, next));
+    out = std::move(in);
     out.log_e_film = Image{};
     return true;
 }
 
-bool Pipeline::print_linear(const Chain& in, Chain& out, std::string& error) {
-    if (di_active_) { out = in; return true; }   // the DI is already its own encoded output
-    Image cur = in.cur, next;
-    SPK_NODE(node_xyz_to_rgb(cur, next, error)); cur = next;
-    SPK_NODE(node_gamut_compress(cur, next, error)); cur = next;
-    out = in;
-    out.cur = cur;
+bool Pipeline::print_linear(Chain in, Chain& out, std::string& error) {
+    if (di_active_) { out = std::move(in); return true; }   // the DI is already its own encoded output
+    Image cur = std::move(in.cur), next;
+    SPK_NODE(advance_if_ok(node_xyz_to_rgb(cur, next, error), cur, next));
+    SPK_NODE(advance_if_ok(node_gamut_compress(cur, next, error), cur, next));
+    out = std::move(in);
+    out.cur = std::move(cur);
     return true;
 }
 
-bool Pipeline::print_scan_finish(const Chain& in, Chain& out, std::string& error) {
-    if (di_active_) { out = in; return true; }   // the DI is already its own encoded output
-    Image cur = in.cur, next;
-    SPK_NODE(node_scanner_blur(cur, next, error)); cur = next;
-    SPK_NODE(node_unsharp(cur, next, error)); cur = next;
+bool Pipeline::print_scan_finish(Chain in, Chain& out, std::string& error) {
+    if (di_active_) { out = std::move(in); return true; }   // the DI is already its own encoded output
+    Image cur = std::move(in.cur), next;
+    SPK_NODE(advance_if_ok(node_scanner_blur(cur, next, error), cur, next));
+    SPK_NODE(advance_if_ok(node_unsharp(cur, next, error), cur, next));
     // The scan's view of the holes goes on after the scanner's sharpening, not
     // before it (2026-10-04). Before, the unsharp mask met a step from the
     // rebate to the scan's own light and undershot it: two pixels of pure
     // black around every perforation. On the owner's strips the film just
     // outside a hole is 0.5-1.0 of the film a little further off, never 0 --
     // and the edge's softness is `film_alpha`'s, measured on the same strips.
-    if (overscan_wanted()) { SPK_NODE(node_overscan_light(cur, next, error)); cur = next; }
-    out = in;
-    out.cur = cur;
+    if (overscan_wanted()) { SPK_NODE(advance_if_ok(node_overscan_light(cur, next, error), cur, next)); }
+    out = std::move(in);
+    out.cur = std::move(cur);
     return true;
 }
 
-bool Pipeline::print_output(const Chain& in, Chain& out, std::string& error) {
-    if (di_active_) { out = in; return true; }   // the DI is already its own encoded output
+bool Pipeline::print_output(Chain in, Chain& out, std::string& error) {
+    if (di_active_) { out = std::move(in); return true; }   // the DI is already its own encoded output
     // Calibrations observe the completed linear print scan. Apply EDR after
     // spatial scanner corrections so those stages cannot bend its joins or
     // reduce its requested tail separation, and immediately before encoding.
-    Image cur = in.cur, next;
-    SPK_NODE(node_edr(cur, next, error)); cur = next;
-    out = in;
+    Image cur = std::move(in.cur), next;
+    SPK_NODE(advance_if_ok(node_edr(cur, next, error), cur, next));
+    out = std::move(in);
     // `cctf` writes into the destination, exactly as it did when it was the
     // segment's last call -- the destination is the caller's `out.cur`, not a
     // scratch buffer, and `node_cctf` allocates it.
@@ -2109,17 +2150,17 @@ const char* Pipeline::class_name(StageClass klass) {
 }
 const size_t Pipeline::kPrintStageCount = sizeof(kPrintStages) / sizeof(kPrintStages[0]);
 
-bool Pipeline::film_segment(const Image& in, Image& out, std::string& error) {
+bool Pipeline::film_segment(Image in, Image& out, std::string& error) {
     // The straight-line chain, unchanged in every node and in every order; the
     // stages are the same calls grouped at the class boundaries.
     Chain cur;
-    cur.cur = in;
+    cur.cur = std::move(in);
     for (size_t i = 0; i < kFilmStageCount; ++i) {
         Chain next;
-        if (!(this->*kFilmStages[i].run)(cur, next, error)) return false;
-        cur = next;
+        if (!(this->*kFilmStages[i].run)(std::move(cur), next, error)) return false;
+        cur = std::move(next);
     }
-    out = cur.cur;
+    out = std::move(cur.cur);
     return true;
 }
 
@@ -2157,7 +2198,7 @@ bool Pipeline::run_film(const Image& in, Image& out, Progress* progress, std::st
 
     Image cur;
     if (!film_prefix(in, FrameShape{in.h, in.w}, cur, error)) return false;
-    if (!film_segment(cur, out, error)) return false;
+    if (!film_segment(std::move(cur), out, error)) return false;
     progress_ = nullptr;
     return true;
 }
@@ -2230,22 +2271,23 @@ bool Pipeline::run_stages_striped(const Stage* stages, size_t count, Chain& chai
                 if (chain.log_e_film.buf &&
                     !band_from(chain.log_e_film, span, halo, read, band_in.log_e_film, error)) return false;
 
-                Chain cur = band_in;
+                Chain cur = std::move(band_in);
                 band_row0_ = read.y0;
                 strip_plane_h_ = frame_h;
                 for (size_t k = i; k < j; ++k) {
                     Chain next;
-                    if (!(this->*stages[k].run)(cur, next, error)) return false;
+                    const uint32_t input_h = cur.cur.h, input_w = cur.cur.w, input_c = cur.cur.c;
+                    if (!(this->*stages[k].run)(std::move(cur), next, error)) return false;
                     // The halo's precondition, enforced rather than assumed: a
                     // stage that reshaped the band would leave `band_into`
                     // writing rows that no longer mean what `read` says.
-                    if (next.cur.buf && (next.cur.h != cur.cur.h || next.cur.w != cur.cur.w ||
-                                         next.cur.c != cur.cur.c)) {
+                    if (next.cur.buf && (next.cur.h != input_h || next.cur.w != input_w ||
+                                         next.cur.c != input_c)) {
                         error = std::string("a band-able stage changed the band's shape: ") +
                                 stages[k].name;
                         return false;
                     }
-                    cur = next;
+                    cur = std::move(next);
                 }
                 ++report.passes;
 
@@ -2286,7 +2328,7 @@ bool Pipeline::run_stages_striped(const Stage* stages, size_t count, Chain& chai
             const bool report_sweep = report.stages[i].resolution == "swept";
             if (report_sweep) blur_.set_sweep_report(&sweep);
             Chain next;
-            const bool ok = (this->*stages[i].run)(chain, next, error);
+            const bool ok = (this->*stages[i].run)(std::move(chain), next, error);
             if (report_sweep) blur_.set_sweep_report(nullptr);
             if (!ok) return false;
             chain = next;
@@ -2363,7 +2405,7 @@ bool Pipeline::run_film_striped(const Image& in, Image& out, Progress* progress,
     if (!film_prefix(in, FrameShape{in.h, in.w}, cur, error)) return false;
 
     Chain chain;
-    chain.cur = cur;
+    chain.cur = std::move(cur);
     Progress::StripRun report;
     report.stage = "film";
     report.plan = strip_plan(cur.h);
@@ -2376,7 +2418,17 @@ bool Pipeline::run_film_striped(const Image& in, Image& out, Progress* progress,
     return true;
 }
 
-bool Pipeline::print_prefix(std::string& error) {
+bool Pipeline::print_prefix(const Image& negative, bool striped, std::string& error) {
+    // Film upsampling leaves one- and two-channel planes in the pool. Their
+    // combined capacity is another RGB plane, but neither can serve a print
+    // allocation. Keep reusable RGB storage and small tables; large jobs also
+    // retire idle preview planes before print needs another full-size plane.
+    // Striped runs still need smaller band allocations; full-frame size is
+    // not their reuse criterion, so leave their existing pool selection alone.
+    if (!striped && negative.bytes() >= (size_t(64) << 20)) {
+        if (!gpu_->flush(error)) return false;
+        gpu_->trim_pool_incompatible(negative.bytes(), incompatible_trim_floor(negative.bytes()));
+    }
     // The enlarger's cheap constants are re-derived on every print run,
     // because `print_exposure` and the two filter shifts are live-mutable: the
     // service writes them straight onto this pipeline between renders.
@@ -2396,10 +2448,10 @@ bool Pipeline::print_segment(const Image& cmy, Image& out, std::string& error) {
     cur.cur = cmy;
     for (size_t i = 0; i < kPrintStageCount; ++i) {
         Chain next;
-        if (!(this->*kPrintStages[i].run)(cur, next, error)) return false;
-        cur = next;
+        if (!(this->*kPrintStages[i].run)(std::move(cur), next, error)) return false;
+        cur = std::move(next);
     }
-    out = cur.cur;
+    out = std::move(cur.cur);
     return true;
 }
 
@@ -2413,14 +2465,16 @@ bool Pipeline::run_print(const Image& cmy, Image& out, Progress* progress, std::
         error = "run_print was called before any run_film, so the film's pixel pitch is unknown";
         return false;
     }
-    if (!print_prefix(error)) { progress_ = nullptr; return false; }
+    if (!print_prefix(cmy, false, error)) { progress_ = nullptr; return false; }
     if (!prepare_contrast_mask(cmy, error)) { progress_ = nullptr; return false; }
     const bool ok = print_segment(cmy, out, error);
     release_contrast_mask();
     if (!ok) return false;
     if (progress_) progress_->done = true;
     progress_ = nullptr;
-    return true;
+    // Only the RGB result continues into packing. Bound idle print scratch
+    // before the caller allocates its full-resolution persistent RGBA cache.
+    return gpu_->trim_idle_for_phase(out.bytes(), out.bytes(), error);
 }
 
 bool Pipeline::run_print_striped(const Image& cmy, Image& out, Progress* progress,
@@ -2431,7 +2485,7 @@ bool Pipeline::run_print_striped(const Image& cmy, Image& out, Progress* progres
         error = "run_print was called before any run_film, so the film's pixel pitch is unknown";
         return false;
     }
-    if (!print_prefix(error)) { progress_ = nullptr; return false; }
+    if (!print_prefix(cmy, true, error)) { progress_ = nullptr; return false; }
     if (!prepare_contrast_mask(cmy, error)) { progress_ = nullptr; return false; }
 
     Chain chain;
@@ -2446,7 +2500,7 @@ bool Pipeline::run_print_striped(const Image& cmy, Image& out, Progress* progres
     if (progress_) { progress_->strips.push_back(std::move(report)); progress_->done = true; }
     progress_ = nullptr;
     out = chain.cur;
-    return true;
+    return gpu_->trim_idle_for_phase(out.bytes(), out.bytes(), error);
 }
 
 #undef SPK_NODE

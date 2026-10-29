@@ -59,7 +59,7 @@
 #include "pipeline.hpp"
 #include "print_lut.hpp"
 #include "setup_cache.hpp"
-#if !defined(__APPLE__) || defined(SPK_VULKAN_BACKEND)
+#ifndef __APPLE__
 #include "windows_unported.hpp"
 #include "view_process.hpp"
 #endif
@@ -68,7 +68,7 @@ using namespace spk;
 
 namespace {
 
-#if !defined(__APPLE__) || defined(SPK_VULKAN_BACKEND)
+#ifndef __APPLE__
 constexpr const char* kRenderCore = "native-vulkan";
 #else
 constexpr const char* kRenderCore = "native-metal";
@@ -199,7 +199,7 @@ struct spk_session {
     // one copy is unavoidable; this makes that copy the upload.
     Image source;
 
-#if !defined(__APPLE__) || defined(SPK_VULKAN_BACKEND)
+#ifndef __APPLE__
     // No image buffer is retained here. The file owns the exact byte copy,
     // and the indices preserve source/full-tier aliases on restoration.
     struct ResidencySnapshot {
@@ -245,7 +245,7 @@ struct spk_session {
         uint32_t image_long_edge = 0;
         Image negative;   // Tap.CMY_FILM
         bool has_negative = false;
-#if !defined(__APPLE__) || defined(SPK_VULKAN_BACKEND)
+#ifndef __APPLE__
         // Encoded RGBA16 on device (c=2 uint32 words/pixel). Kept until a
         // material parameter changes; view edits never redraw film grain.
         Image view_print;
@@ -351,7 +351,7 @@ struct spk_engine {
         backend.set("render_core", Json(std::string(kRenderCore)));
         backend.set("host", Json(std::string("native")));
         backend.set("math_mode", Json(math_mode));
-#if !defined(__APPLE__) || defined(SPK_VULKAN_BACKEND)
+#ifndef __APPLE__
         // These upstream effects still require kernels or Apple services that
         // have not been ported. Defaults stay usable; explicit requests fail.
         Json unported = Json::array();
@@ -455,7 +455,7 @@ struct spk_engine {
             size_t views = 0;
             int count = 0;
             for (const auto& kv : s->tiers) {
-#if !defined(__APPLE__) || defined(SPK_VULKAN_BACKEND)
+#ifndef __APPLE__
                 if (gpu && kv.second.view_print.buf) views += gpu->size_bytes(kv.second.view_print.buf.get());
 #endif
                 if (!kv.second.has_negative || !kv.second.negative.buf || !gpu) continue;
@@ -471,7 +471,7 @@ struct spk_engine {
             row.set("source_bytes", Json(double(source)));
             row.set("cached_negative_bytes", Json(double(negatives)));
             row.set("cached_view_bytes", Json(double(views)));
-#if !defined(__APPLE__) || defined(SPK_VULKAN_BACKEND)
+#ifndef __APPLE__
             size_t on_disk = 0;
             if (s->residency) for (const auto& plane : s->residency->planes) on_disk += plane.bytes;
             row.set("residency_suspended", Json(bool(s->residency)));
@@ -588,7 +588,7 @@ const char* spk_build_info(void) {
     // The build stamp is what a bug report quotes, so it names the three
     // things that decide whether two builds render the same picture: the
     // engine's own version, the compiler date, and the backend math probe.
-#if !defined(__APPLE__) || defined(SPK_VULKAN_BACKEND)
+#ifndef __APPLE__
     static const std::string info =
         std::string("spektrafilm-native 0.1.0 (") + __DATE__ " " __TIME__ ", math=probed)";
 #else
@@ -629,7 +629,7 @@ spk_engine* spk_engine_create(const char* resources_dir, void* device) {
 
     if (!engine->print_luts.init(engine->resources_dir, error)) { g_error = error; return nullptr; }
 
-#if !defined(__APPLE__) || defined(SPK_VULKAN_BACKEND)
+#ifndef __APPLE__
     if (device) { g_error = "Windows device-buffer input is not implemented yet; pass null"; return nullptr; }
     engine->gpu = gpu::Gpu::create_vulkan(engine->resources_dir + "/vulkan", error);
 #else
@@ -1115,26 +1115,119 @@ bool ensure_meter(spk_session* session, std::string& error) {
 // rather than a flag inside the single-pass one (P3) -- the un-striped path
 // stays exactly what ships, which is what makes §6's hash comparison mean
 // anything -- and one call site each, so the graph cannot drift between them.
+// Opt-in observation only: these plane multipliers are hypotheses calibrated
+// on the Windows 102 MP fixture, not admission limits or memory guarantees.
+// Frame high-water is cumulative; never label it a stage-local peak.
+struct MemoryEstimateTrace {
+    static constexpr unsigned kObserveOnly = 99;
+    spk_session* session;
+    const char* stage;
+    const char* cache;
+    const Image& image;
+    unsigned planes;
+    bool enabled = false;
+    bool success = false;
+    uint64_t observation = 0;
+    size_t output_payload_bytes = 0;
+    gpu::PoolStats before{};
+    MemoryEstimateTrace(spk_session* s, const char* label, const char* hit,
+                        const Image& input, unsigned count) noexcept
+        : session(s), stage(label), cache(hit), image(input), planes(count) {
+        const char* flag = std::getenv("SPEKTRAFILM_MEMORY_ESTIMATE");
+        enabled = flag && std::strcmp(flag, "1") == 0;
+        if (!enabled) return;
+        try { before = session->engine->gpu->pool_stats(); emit("begin");
+              observation = session->engine->gpu->begin_memory_observation(); }
+        catch (...) { enabled = false; }
+    }
+    ~MemoryEstimateTrace() noexcept {
+        if (enabled) { try {
+            if (observation) measured = session->engine->gpu->end_memory_observation(observation);
+            emit("end");
+        } catch (...) {} }
+    }
+    gpu::Gpu::MemoryObservation measured{};
+    void emit(const char* event) {
+        const auto now = session->engine->gpu->pool_stats();
+        const auto& p = session->params;
+        Json j = Json::object();
+        j.set("event", Json(std::string(event)));
+        j.set("stage", Json(std::string(stage)));
+        j.set("cache", Json(std::string(cache)));
+        j.set("model", Json(std::string("empirical-planes-v2-observe-only")));
+        j.set("width", Json(double(image.w))); j.set("height", Json(double(image.h)));
+        const double plane = double(image.w) * double(image.h) * 3.0 * sizeof(float);
+        const bool supported = planes == 0 ||
+            (planes != kObserveOnly && std::strcmp(kRenderCore, "native-vulkan") == 0 &&
+             !p.settings.striped && !p.film_render.overscan.active);
+        j.set("estimate_available", Json(supported));
+        if (supported) {
+            const double scratch = plane * planes;
+            j.set("estimated_additional_live_bytes", Json(scratch));
+            j.set("estimated_pool_live_peak_bytes", Json(double(before.live_bytes) + scratch));
+            j.set("estimated_new_allocation_bytes", Json(std::max(0.0, scratch - double(before.free_bytes))));
+        }
+        j.set("grain", Json(p.film_render.grain.active));
+        j.set("halation", Json(p.film_render.halation.active));
+        j.set("glare", Json(p.print_render.glare.active));
+        j.set("striped", Json(p.settings.striped));
+        j.set("overscan", Json(p.film_render.overscan.active));
+        j.set("pool_live_bytes", Json(double(now.live_bytes)));
+        j.set("pool_free_bytes", Json(double(now.free_bytes)));
+        j.set("persistent_bytes", Json(double(now.persistent_bytes)));
+        j.set("observed_frame_high_water_bytes", Json(double(now.frame_high_water_bytes)));
+        j.set("frame_high_water_before_bytes", Json(double(before.frame_high_water_bytes)));
+        if (std::strcmp(event, "end") == 0) {
+            j.set("success", Json(success));
+            if (planes == kObserveOnly) j.set("output_payload_bytes", Json(double(output_payload_bytes)));
+            j.set("stage_peak_available", Json(observation != 0));
+            if (observation) {
+                j.set("observed_stage_live_peak_bytes", Json(double(measured.live_peak)));
+                j.set("observed_stage_requested_live_peak_bytes", Json(double(measured.requested_live_peak)));
+                j.set("requested_bytes_at_capacity_peak", Json(double(measured.requested_at_live_peak)));
+                j.set("observed_stage_resident_peak_bytes", Json(double(measured.resident_peak)));
+            }
+        }
+#ifdef _WIN32
+        MEMORYSTATUSEX status{}; status.dwLength = sizeof(status);
+        if (GlobalMemoryStatusEx(&status)) {
+            j.set("system_commit_available_bytes", Json(double(status.ullAvailPageFile)));
+            j.set("system_physical_available_bytes", Json(double(status.ullAvailPhys)));
+        }
+#endif
+        // Staging, driver memory, readback and file encoding are not covered.
+        std::fprintf(stderr, "memory_estimate %s\n", j.dump().c_str());
+    }
+};
+
 bool run_film_for(spk_session* session, const Image& source, Image& negative,
                   Progress* progress, std::string& error) {
+    MemoryEstimateTrace trace(session, "film", "miss", source, 5);
     if (session->params.settings.striped) {
-        return session->pipeline->run_film_striped(source, negative, progress, error);
+        return trace.success = session->pipeline->run_film_striped(source, negative, progress, error);
     }
-    return session->pipeline->run_film(source, negative, progress, error);
+    return trace.success = session->pipeline->run_film(source, negative, progress, error);
 }
 
 bool run_print_for(spk_session* session, const Image& negative, Image& rgb,
                    Progress* progress, std::string& error) {
+    // Conservative cross-size model: IIR glare can still need four RGB planes;
+    // consuming the default FIR field lowers that path to three. Pool
+    // oversizing and small-frame fixed costs remain outside this model.
+    MemoryEstimateTrace trace(session, "print", "miss", negative,
+                              session->params.print_render.glare.active ? 4 : 3);
     if (session->params.settings.striped) {
-        return session->pipeline->run_print_striped(negative, rgb, progress, error);
+        return trace.success = session->pipeline->run_print_striped(negative, rgb, progress, error);
     }
-    return session->pipeline->run_print(negative, rgb, progress, error);
+    return trace.success = session->pipeline->run_print(negative, rgb, progress, error);
 }
 
 bool negative_for(spk_session* session, const Tier& tier, Progress* progress, Image& out,
                   std::string& error) {
     spk_session::TierState& state = session->tiers[tier.name];
     if (state.has_negative) {
+        MemoryEstimateTrace trace(session, "film", "hit", state.negative, 0);
+        trace.success = true;
         if (progress) progress->auto_exposure_ev = state.applied_ev;
         out = state.negative;
         return true;
@@ -1153,8 +1246,8 @@ bool negative_for(spk_session* session, const Tier& tier, Progress* progress, Im
     session->pipeline->overscan_frame(state.overscan_frame_w, state.overscan_frame_h);
     if (progress) progress->auto_exposure_ev = state.applied_ev;
     // The negative is what every subsequent slider drag reprints from, so it
-    // has to outlive the frame arena. Copying it here is also what makes a
-    // reprint grain-consistent for free: the realisation is baked in and is
+    // has to outlive the frame arena. Keeping it also makes a reprint
+    // grain-consistent for free: the realisation is baked in and is
     // never redrawn.
     gpu::Gpu* gpu = session->engine->gpu;
     if (!gpu->flush(error)) return false;
@@ -1163,12 +1256,18 @@ bool negative_for(spk_session* session, const Tier& tier, Progress* progress, Im
     // The cached negative is the other holding RFC-020 §4.7 names: every
     // reprint reads it, it lives as long as the session, and at the full
     // tier it is the second 1.22 GB plane.
-    kept.buf = gpu->alloc_file_backed(negative.bytes(), error);
-    if (!kept.buf || !gpu->copy(kept.buf.get(), 0, negative.buf.get(), 0,
-                                negative.bytes(), error)) return false;
-    state.negative = kept;
+    if (gpu->try_promote_persistent(negative.buf.get(), negative.bytes())) {
+        // Vulkan can keep this exclusive, exact-size result without a second
+        // plane. Other backends retain their file-backed copy semantics.
+        kept = std::move(negative);
+    } else {
+        kept.buf = gpu->alloc_file_backed(negative.bytes(), error);
+        if (!kept.buf || !gpu->copy(kept.buf.get(), 0, negative.buf.get(), 0,
+                                    negative.bytes(), error)) return false;
+    }
+    state.negative = std::move(kept);
     state.has_negative = true;
-    out = kept;
+    out = state.negative;
     return true;
 }
 
@@ -1186,6 +1285,9 @@ bool negative_for(spk_session* session, const Tier& tier, Progress* progress, Im
 // as the caller is looking at them.
 bool materialise(spk_session* session, const Image& rgb, spk_result* out, std::string& error) {
     gpu::Gpu* gpu = session->engine->gpu;
+    // LUT previews and normalized DI also arrive here without run_print.
+    // Bound their idle scratch before allocating the persistent packed result.
+    if (!gpu->trim_idle_for_phase(rgb.bytes(), rgb.bytes(), error)) return false;
     const uint32_t align = gpu->texture_row_alignment_px();
     const uint32_t stride = ((rgb.w + align - 1) / align) * align;
     const size_t bytes = size_t(stride) * rgb.h * 4 * sizeof(uint16_t);
@@ -1203,7 +1305,7 @@ bool materialise(spk_session* session, const Image& rgb, spk_result* out, std::s
         out->row_stride_px = stride;
         out->texture = gpu->texture(buffer.get(), rgb.w, rgb.h, stride, error);
         ok = out->texture != nullptr;
-#if !defined(__APPLE__) || defined(SPK_VULKAN_BACKEND)
+#ifndef __APPLE__
         // The headless Vulkan result owns a separate CPU copy. The dispatch
         // buffer is released when this function returns.
         if (ok) out->rgba16 = static_cast<const uint16_t*>(out->texture);
@@ -1238,7 +1340,7 @@ spk_status render_tier(spk_session* session, const char* tier_name, bool use_rep
     // Opt-in, because turning it on serialises every node. See Progress.
     session->progress.detailed = std::getenv("SPEKTRAFILM_NODE_TIMINGS") != nullptr;
 
-#if !defined(__APPLE__) || defined(SPK_VULKAN_BACKEND)
+#ifndef __APPLE__
     // A legacy explicit render requests a new print, so no later desktop
     // view may reuse the result from before that request.
     session->tiers[tier->name].view_print = Image{};
@@ -1306,7 +1408,7 @@ spk_status spk_render(spk_session* session, const char* tier, spk_result* out) {
 
 }  // extern "C"
 
-#if !defined(__APPLE__) || defined(SPK_VULKAN_BACKEND)
+#ifndef __APPLE__
 namespace {
 constexpr size_t kResidencyChunkBytes = 8u * 1024u * 1024u;
 
@@ -1712,18 +1814,17 @@ bool spk::view::render(spk_session* session, const Request& request, Result& res
         request.target_space != "Adobe RGB (1998)" && request.target_space != "ITU-R BT.2020") {
         error = "view: unknown target space"; return false;
     }
-    if (request.no_film && request.cineon) {
-        error = "view: no_film cannot write a Digital Intermediate (the DI is the film's negative)"; return false;
-    }
-    if (request.no_film && !request.pair.is_null()) {
-        error = "view: no_film is not available for a half-frame pair"; return false;
-    }
     std::lock_guard<std::mutex> guard(session->lock);
+    if (request.no_film && request.cineon) { error = "view: no_film cannot write a Digital Intermediate"; return false; }
+    const bool no_film = request.no_film;
+    if (no_film && (!request.pair.is_null() || session->params.film_render.overscan.pair)) {
+        error = "view: no_film is unavailable for a half-frame pair"; return false;
+    }
+    if (no_film && (session->params.io.input_color_space != "ProPhoto RGB" || session->params.io.input_cctf_decoding)) {
+        error = "view: no_film requires the desktop linear ProPhoto source"; return false;
+    }
     if (session->params.io.output_color_space != "ProPhoto RGB" || !session->params.io.output_cctf_encoding) {
         error = "view: the desktop postprocess requires encoded ProPhoto RGB"; return false;
-    }
-    if (request.no_film && (session->params.io.input_color_space != "ProPhoto RGB" || session->params.io.input_cctf_decoding)) {
-        error = "view: no_film expects the desktop linear ProPhoto input"; return false;
     }
     auto* gpu = session->engine->gpu;
     gpu->begin_frame();
@@ -1740,31 +1841,22 @@ bool spk::view::render(spk_session* session, const Request& request, Result& res
     if (!tier_image(session, *tier, source, error)) return false;
     auto& state = session->tiers[tier->name];
     uint32_t full_w = 0, full_h = 0;
-    if (!session->pipeline->full_output_size(session->source.w, session->source.h, full_w, full_h, error)) return false;
-    result.print_cached = !request.cineon && !request.no_film && state.view_print.valid();
-    Image packed_print = state.view_print;
-    if (request.no_film) {
-        // The decode, not the print: native size, encoded into the working
-        // space by the same kernel and transfer function the print's output
-        // stage uses, then packed to RGBA16 (which clips to [0, 1], as the
-        // Mac's rgba16Unorm decode texture does). Never cached as the print.
-        const Image& decoded = session->source;
-        if (!decoded.valid() || decoded.c != 3) { error = "view: no decoded source"; return false; }
-        auto encoded = gpu->alloc(decoded.bytes(), error);
-        if (!encoded) return false;
-        const float identity[9] = {1, 0, 0, 0, 1, 0, 0, 0, 1};
-        const uint32_t mode[] = {uint32_t(decoded.pixels()), cctf_mode_for("ProPhoto RGB")};
-        if (!gpu->dispatch("spk_cctf_encode_matrix", {gpu::Arg::buf(decoded.buf), gpu::Arg::inline_bytes(identity, 9),
-                gpu::Arg::inline_bytes(mode, 2), gpu::Arg::buf(encoded)}, decoded.pixels(), error) || !gpu->flush(error))
-            return false;
-        Image packed; packed.w = decoded.w; packed.h = decoded.h; packed.c = 2;
-        packed.buf = gpu->alloc(packed.bytes(), error);
-        if (!packed.buf) return false;
-        uint32_t meta[] = {uint32_t(decoded.pixels()), decoded.w, decoded.w};
-        if (!gpu->dispatch("spk_to_rgba16", {gpu::Arg::buf(encoded), gpu::Arg::inline_bytes(meta, 3), gpu::Arg::buf(packed.buf)},
-                           decoded.pixels(), error) || !gpu->flush(error)) return false;
-        packed_print = std::move(packed);
-        full_w = decoded.w; full_h = decoded.h;
+    if (no_film) { full_w = session->source.w; full_h = session->source.h; }
+    else if (!session->pipeline->full_output_size(session->source.w, session->source.h, full_w, full_h, error)) return false;
+    result.print_cached = !no_film && !request.cineon && state.view_print.valid();
+    Image packed_print;
+    if (no_film) {
+        // Film geometry, exposure and randomness do not own the decode. Encode
+        // it as float RGB: premature RGBA16 packing would clip RAW highlights
+        // before a negative Post-Dev exposure could recover them. process()
+        // shares the same grade/geometry/output path and its normal boundary.
+        packed_print.w = source.w; packed_print.h = source.h; packed_print.c = 3;
+        packed_print.buf = gpu->alloc(source.bytes(), error);
+        if (!packed_print.buf) return false;
+        const float identity[] = {1,0,0,0,1,0,0,0,1};
+        const uint32_t meta[] = {uint32_t(source.pixels()), 1}; // ProPhoto OETF
+        if (!gpu->dispatch("spk_cctf_encode_matrix", {gpu::Arg::buf(source.buf), gpu::Arg::inline_bytes(identity, 9),
+                gpu::Arg::inline_bytes(meta, 2), gpu::Arg::buf(packed_print.buf)}, source.pixels(), error) || !gpu->flush(error)) return false;
     } else if (!result.print_cached) {
         session->pipeline->set_source_shape(source.w, source.h, session->source.w, session->source.h);
         Image negative, rgb;
@@ -1789,6 +1881,9 @@ bool spk::view::render(spk_session* session, const Request& request, Result& res
         packed_print = std::move(packed);
         if (!request.cineon) state.view_print = packed_print;
     } else {
+        packed_print = state.view_print;
+        MemoryEstimateTrace trace(session, "print", "hit", packed_print, 0);
+        trace.success = true;
         session->progress.auto_exposure_ev = state.applied_ev;
     }
     result.print_ms = std::chrono::duration<double,std::milli>(std::chrono::steady_clock::now()-started).count();
@@ -1821,7 +1916,7 @@ bool spk::view::render(spk_session* session, const Request& request, Result& res
         return true;
     };
     gpu::BufferRef di_lut;
-    const bool di_view = !request.no_film && session->params.io.digital_intermediate && !session->params.io.scan_film &&
+    const bool di_view = !no_film && session->params.io.digital_intermediate && !session->params.io.scan_film &&
                          !session->params.film.info.is_positive();
     if ((request.cineon || di_view) && !di_view_table(session->engine, di_lut, error)) return false;
     if (request.cineon) {
@@ -1860,7 +1955,7 @@ bool spk::view::render(spk_session* session, const Request& request, Result& res
         session->progress.done = true; return true;
     }
     bool pair_layered = false; double pair_print_ms = 0, pair_post_ms = 0;
-    if (!pair_layers(session, *tier, source, request, di_lut, packed_print, pair_layered,
+    if (!no_film && !pair_layers(session, *tier, source, request, di_lut, packed_print, pair_layered,
                      pair_print_ms, pair_post_ms, error)) return false;
     if (request.export_intent) {
         char* text = nullptr;
@@ -1884,7 +1979,15 @@ bool spk::view::render(spk_session* session, const Request& request, Result& res
     Request final_request = request;
     if (pair_layered) final_request.adjustments.set("enabled", Json(false));
     const gpu::BufferRef final_lut = pair_layered ? gpu::BufferRef{} : di_lut;
-    if (!process(gpu, packed_print, final_request, transform, cmax, count, result, error, final_lut, final_lut ? 65 : 0)) return false;
+    {
+        // Output shape/packing differ from the input: observe first, do not
+        // apply the RGB scratch model to output conversion or CPU readback.
+        MemoryEstimateTrace trace(session, request.export_intent ? "output-export" : "output-view",
+                                  "miss", packed_print, MemoryEstimateTrace::kObserveOnly);
+        trace.success = process(gpu, packed_print, final_request, transform, cmax, count, result, error, final_lut, final_lut ? 65 : 0);
+        trace.output_payload_bytes = result.pixels.size();
+        if (!trace.success) return false;
+    }
     result.print_ms += pair_print_ms; result.post_ms += pair_post_ms;
     result.source_width = full_w; result.source_height = full_h;
     session->progress.done = true;
@@ -2339,7 +2442,7 @@ spk_status spk_set_params(spk_session* session, const char* params_delta_json, c
     std::lock_guard<std::mutex> guard(session->lock);
     spk_engine* engine = session->engine;
     const bool shoot = delta_touches_shoot(delta);
-#if !defined(__APPLE__) || defined(SPK_VULKAN_BACKEND)
+#ifndef __APPLE__
     // Reject before applying the delta, so a failed request cannot leave the
     // session's params ahead of its still-valid, previously built pipeline.
     if (const char* unported = windows_unported_delta_error(delta)) {
@@ -2428,7 +2531,7 @@ spk_status spk_set_params(spk_session* session, const char* params_delta_json, c
 
     Json out = Json::object();
     out.set("invalidated", Json(std::string(shoot ? "shoot" : "print")));
-#if !defined(__APPLE__) || defined(SPK_VULKAN_BACKEND)
+#ifndef __APPLE__
     if (!delta.fields().empty())
         for (auto& kv : session->tiers) kv.second.view_print = Image{};
 #endif
@@ -2970,7 +3073,7 @@ void spk_session_release(spk_session* session) {
     // Every buffer the session held is a counted handle, so destroying it is
     // all the releasing there is.
     delete session;
-#if !defined(__APPLE__) || defined(SPK_VULKAN_BACKEND)
+#ifndef __APPLE__
     // The discrete backend must not retain a multi-GB scratch arena after the
     // last photograph closes. Keep the check and trim under the same engine
     // lock as registration; retained C results own independent CPU memory.
@@ -2984,7 +3087,7 @@ void spk_session_release(spk_session* session) {
 
 }  // extern "C"
 
-#if !defined(__APPLE__) || defined(SPK_VULKAN_BACKEND)
+#ifndef __APPLE__
 size_t spk::view::trim_idle_memory(spk_engine* engine) {
     if (!engine || !engine->gpu) return 0;
     return engine->gpu->trim_pool(0);

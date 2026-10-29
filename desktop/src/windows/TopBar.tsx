@@ -24,7 +24,7 @@ export function TopBar() {
   const developing = useSession((s) => s.developing);
   const original = useSession((s) => s.showingOriginal);
   const comparing = useSession((s) => s.comparing);
-  const filmCanvas = useSession((s) => !!sourceGeometryFor(s.sidecar.params, s.sidecar.geometry, s.gate));
+  const filmCanvas = useSession((s) => !!sourceGeometryFor(s.sidecar.params, s.sidecar.geometry, s.gate, s.sidecar.noFilm));
   const pairPlacing = useSession((s) => s.pairPlacing);
   const exportReady = useSession((s) => pairComplete(s));
   const pairReady = useSession(() => canMakePair());

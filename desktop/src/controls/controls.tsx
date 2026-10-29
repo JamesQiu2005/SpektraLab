@@ -108,6 +108,7 @@ export function ScrubSlider(p: ScrubSliderProps) {
   const [text, setText] = useState<string | null>(null);
   const cancelText = useRef(false);
   const drag = useRef<{ x: number; v: number; w: number } | null>(null);
+  useEffect(() => { if (disabled) setText(null); }, [disabled]);
   const [lo, hi] = range;
   const frac = (v: number) => (clamp(v, lo, hi) - lo) / (hi - lo || 1);
 
@@ -143,8 +144,9 @@ export function ScrubSlider(p: ScrubSliderProps) {
   const commitText = () => {
     // Escape blurs synchronously, before React applies the draft reset.
     if (cancelText.current) { cancelText.current = false; return; }
+    if (disabled) { setText(null); return; }
     if (text == null) return;
-    const n = p.parse ? p.parse(text) : Number.parseFloat(text.replace(',', '.').replace(/[^0-9.+-eE]/g, ''));
+    const n = (p.parse ?? parseSigned)(text);
     setText(null);
     if (n != null && Number.isFinite(n)) {
       beginGesture();
@@ -197,6 +199,7 @@ export function ScrubSlider(p: ScrubSliderProps) {
         onChange={(e) => setText(e.target.value)}
         onBlur={commitText}
         onKeyDown={(e) => {
+          if (disabled) return;
           if (e.key === 'Enter') (e.target as HTMLInputElement).blur();
           if (e.key === 'Escape') {
             cancelText.current = true;
@@ -220,7 +223,9 @@ export function ScrubSlider(p: ScrubSliderProps) {
 
 export const signed = (digits: number) => (v: number) => (v > 0 ? '+' : v < 0 ? '−' : '') + Math.abs(v).toFixed(digits);
 export const parseSigned = (s: string) => {
-  const n = Number.parseFloat(s.replace('−', '-').replace(',', '.'));
+  // Match signed()'s typographic minus before parsing; parseFloat accepts the
+  // unit suffix used by angle and percentage controls without losing the sign.
+  const n = Number.parseFloat(s.replaceAll('−', '-').replace(',', '.'));
   return Number.isFinite(n) ? n : null;
 };
 
@@ -324,7 +329,7 @@ export function PillMenu<T extends string | number>(p: {
 export function NumberField(p: { value: number; decimals: number; onCommit: (v: number) => void; disabled?: boolean; width?: number; label?: string }) {
   const [text, setText] = useState<string | null>(null);
   const cancelText = useRef(false);
-  useEffect(() => setText(null), [p.value]);
+  useEffect(() => setText(null), [p.value, p.disabled]);
   return (
     <input
       className="unit-field"
@@ -336,13 +341,15 @@ export function NumberField(p: { value: number; decimals: number; onCommit: (v: 
       onChange={(e) => setText(e.target.value)}
       onBlur={() => {
         if (cancelText.current) { cancelText.current = false; return; }
+        if (p.disabled) { setText(null); return; }
         if (text != null) {
-          const n = Number.parseFloat(text.replace(',', '.'));
-          if (Number.isFinite(n)) p.onCommit(n);
+          const n = parseSigned(text);
+          if (n != null) p.onCommit(n);
           setText(null);
         }
       }}
       onKeyDown={(e) => {
+        if (p.disabled) return;
         if (e.key === 'Enter') (e.target as HTMLInputElement).blur();
         if (e.key === 'Escape') {
           cancelText.current = true;

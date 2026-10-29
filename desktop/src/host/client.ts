@@ -161,9 +161,12 @@ export class Host {
   async renderView(session: string, tier: Tier, opts: {
     adjustments: Adjustments; geometry: Geometry; display: 'srgb' | 'display-p3'; generation: number; long_edge?: number;
     source_geometry?: Geometry;
+    no_film?: boolean;
   }): Promise<RenderReply> {
     const snapshot = structuredClone(opts);
     const state = await this.state();
+    if (snapshot.no_film && !(state.phase === 'ready' && state.hello.view_options?.includes('no_film')))
+      throw new HostCallError('render_view', 'unsupported', 'This engine does not support no_film viewing.');
     const format = state.phase === 'ready' && state.hello.view_formats?.includes('rgba16') ? 'rgba16' : 'rgba8';
     const t0 = performance.now();
     const r = await this.call<{ image: ImageInfo; tier: Tier; print_cached: boolean; generation: number; pair_info?: PairInfo }>(

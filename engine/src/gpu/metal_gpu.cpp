@@ -783,9 +783,28 @@ public:
             pool_.erase(std::find(pool_.begin(), pool_.end(), b));
             auto queued = std::find(pending_.begin(), pending_.end(), b);
             if (queued != pending_.end()) pending_.erase(queued);
+            freed += b->bytes;
             if (b->mtl) b->mtl->release();
             delete b;
-            freed += b->bytes;
+        }
+        return freed;
+    }
+
+    size_t trim_pool_incompatible(size_t bytes, size_t min_bytes) override {
+        if (bytes <= min_bytes) return 0;
+        std::lock_guard<std::mutex> guard(pool_lock_);
+        size_t freed = 0;
+        for (auto it = pool_.begin(); it != pool_.end();) {
+            Buffer* b = *it;
+            // Even if a caller has not flushed, never remove storage still
+            // pending on the current command buffer or leave a queued pointer.
+            if (!b->persistent && b->refs == 0 && b->reusable && !b->in_pending &&
+                b->bytes >= min_bytes && b->bytes < bytes) {
+                freed += b->bytes;
+                if (b->mtl) b->mtl->release();
+                delete b;
+                it = pool_.erase(it);
+            } else ++it;
         }
         return freed;
     }

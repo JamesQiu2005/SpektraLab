@@ -29,7 +29,7 @@ export class Workspace {
   async status(){return this.files.call<Record<string,unknown>>('status')}
   async start(){
     if(!this.catalog){const file=process.env.SPEKTRALAB_AGENT_CATALOG??join(here,'StockCatalog.json');this.catalog=new StockCatalog(JSON.parse(await readFile(file,'utf8')).stocks)}
-    if(!this.engine){this.engine=new NativeHost();setHost(this.engine);this.hello=await this.engine.result<HelloResult>('hello');this.gate=featureGate(this.hello.capabilities?.backend?.unsupported_features)}
+    if(!this.engine){this.engine=new NativeHost();setHost(this.engine);this.hello=await this.engine.result<HelloResult>('hello');this.gate=featureGate(this.hello.capabilities?.backend?.unsupported_features,this.rendering.diBlueCompensation,this.hello.view_options?.includes('no_film'))}
   }
   async load(path:string){
     await this.start();path=absolute(path);
@@ -48,15 +48,20 @@ export class Workspace {
     if(!item||'error'in item)throw new Refused(item&&'error'in item?item.error:'Cannot prepare frame');
     this.frame=item.frame;this.sidecar.params=structuredClone(this.frame.params);
   }
-  async develop(){
+  async develop(filmOnly=false){
+    const noFilm=this.sidecar.noFilm&&!filmOnly;
+    if(noFilm&&(this.pair||isPairPath(this.path)||this.sidecar.params.filmEdge.pair))throw new Refused('Developing without film simulation is unavailable for half-frame pairs. Enable film simulation.');
+    if(noFilm&&!this.gate.noFilm)throw new Refused('This engine cannot develop without film simulation. Update the engine or select a film stock.');
     await this.prepare();const params=fullDelta(this.frame.params,this.gate,this.catalog!);
     const decode=decodeWire(this.sidecar.decode,isRawPath(this.path));const key=JSON.stringify(decode);
     if(!this.sid){this.opened=await this.engine!.result<OpenResult>(this.pair?'open_pair':'open',{path:this.path,params,pair:this.frame.pair,decode:decode??undefined});this.sid=this.opened.session}
     else if(this.pair)this.opened=await this.engine!.result<OpenResult>('update_pair',{session:this.sid,params,pair:this.frame.pair});
     else if(key!==this.decodeKey)this.opened=await this.engine!.result<OpenResult>('redecode',{session:this.sid,decode:decode??undefined});
     this.decodeKey=key;this.frame.session=this.sid;
-    await this.engine!.result('render_view',{session:this.sid,params,adjustments:this.frame.adjustments,geometry:this.frame.geometry,
-      source_geometry:this.frame.sourceGeometry,tier:'preview',display:'srgb',long_edge:64,generation:1});
+    // DI prepares the film negative even when ordinary output bypasses it.
+    await this.engine!.result('render_view',{session:this.sid,params,adjustments:this.frame.adjustments,...(noFilm?{no_film:true}:{}),
+      geometry:filmOnly?this.frame.filmGeometry:this.frame.geometry,
+      source_geometry:filmOnly?this.frame.filmSourceGeometry:this.frame.sourceGeometry,tier:'preview',display:'srgb',long_edge:64,generation:1});
   }
   async save(){await this.files.call('sidecar_save',{path:this.path,value:encodeSidecar(this.sidecar)})}
   async edit(patch:unknown){
@@ -77,14 +82,14 @@ export class Workspace {
     if(has('geometry')){if(has('geometry.crop'))want.geometry.intendedSize={width:want.geometry.crop.width,height:want.geometry.crop.height};want.geometry=fitted(want.geometry,this.info)}
     if(edgeEffective(want.params.filmEdge,this.gate))want.geometry=gateFramed(want.geometry,want.params.filmEdge,this.info);
     // Sidecar is saved only after the real decoder/pipeline accepts the edit.
-    this.sidecar={...this.sidecar,...want,state:'stale'};await this.develop();await this.save();return {written:leaves,edit:document(this.sidecar)};
+    this.sidecar={...this.sidecar,...want,noFilm:has('params.filmStock')?false:this.sidecar.noFilm,state:'stale'};await this.develop();await this.save();return {written:leaves,edit:document(this.sidecar)};
   }
   async preview(output?:string,longEdge=1024):Promise<Result>{
     await this.develop();const temporary=output?undefined:await mkdtemp(join(tmpdir(),'spektralab-agent-'));
     const path=output?absolute(output):join(temporary!,'preview.jpg');
     if(resolve(path).toLowerCase()===resolve(this.path).toLowerCase())throw new Refused('The source photograph cannot be overwritten.');
     await this.engine!.result('export_frame',{session:this.sid,source_path:this.path,pair:this.frame.pair,params:fullDelta(this.frame.params,this.gate,this.catalog!),
-      adjustments:this.frame.adjustments,geometry:this.frame.geometry,source_geometry:this.frame.sourceGeometry,
+      adjustments:this.frame.adjustments,...(this.frame.noFilm?{no_film:true}:{}),geometry:this.frame.geometry,source_geometry:this.frame.sourceGeometry,
       path,format:'jpeg',quality:92,color_space:'srgb',long_edge:longEdge,overwrite:false});
     return {body:{preview:path},preview:path,temporary};
   }
@@ -93,7 +98,7 @@ export class Workspace {
     try{
       this.rendering=renderPreferences(await this.files.call('rendering'));
       await this.start();
-      this.gate=featureGate(this.hello.capabilities?.backend?.unsupported_features,this.rendering.diBlueCompensation);
+      this.gate=featureGate(this.hello.capabilities?.backend?.unsupported_features,this.rendering.diBlueCompensation,this.hello.view_options?.includes('no_film'));
       if(name==='get_schema')return{body:{version:1,sections:['params','adjustments','geometry','decode'],fields:fields(this.catalog!)}};
       if(name==='list_stocks')return{body:{films:this.catalog!.films,papers:this.catalog!.papers}};
       if(name==='list_recipes')return{body:{recipes:decodeRecipes(await this.files.call('recipes'))}};
@@ -115,8 +120,9 @@ export class Workspace {
         this.sidecar.params.sceneLatitude=placed;this.sidecar.placementNeedsFit=false;await this.develop();await this.save();body=result;
       }else if(name==='preview_image')return await this.preview(args.output,args.long_edge??1024);
       else if(name==='export_image'){
-        await this.develop();const recipes=decodeRecipes(await this.files.call('recipes'));
+        const recipes=decodeRecipes(await this.files.call('recipes'));
         const selected=args.recipe?recipes.find(r=>r.name===args.recipe):recipes[0];if(!selected)throw new Refused('No export recipe with that name');
+        await this.develop(selected.format==='di');
         const recipe:ExportRecipe=structuredClone(selected);if(args.folder){recipe.folder={kind:'fixed',path:absolute(args.folder)};recipe.subfolder=''}
         const written=await exportFrame(recipe,this.frame,this.catalog!,this.hello.methods,{tiffOptions:this.hello.tiff_options});
         if(written.kind==='failed')throw new Error(written.message);return{body:{files:written.kind==='written'?[written.path]:[],outcome:written}};

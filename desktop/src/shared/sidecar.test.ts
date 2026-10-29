@@ -33,6 +33,19 @@ const mac = {
 };
 
 describe('sidecar', () => {
+  it('round-trips per-photo film bypass and removes the old true value when switched off', () => {
+    expect(newSidecar().noFilm).toBe(false);
+    expect(decodeSidecar(mac).noFilm).toBe(false);
+    expect(decodeSidecar({ ...mac, noFilm: 'true' }).noFilm).toBe(false);
+    const s = decodeSidecar({ ...mac, noFilm: true });
+    expect(s.noFilm).toBe(true);
+    expect(encodeSidecar(s).noFilm).toBe(true);
+    expect(decodeSidecar(JSON.parse(JSON.stringify(encodeSidecar(s)))).noFilm).toBe(true);
+    const off = encodeSidecar({ ...s, noFilm: false });
+    expect(off).not.toHaveProperty('noFilm');
+    expect(decodeSidecar(off).noFilm).toBe(false);
+    expect(off.params).toEqual(encodeSidecar(decodeSidecar(mac)).params);
+  });
   it('carries the revision of each editing snapshot independently through edits', () => {
     const oldToken = { key: 'D:/owned/a.json', base: 'a'.repeat(64) };
     const old = decodeSidecar({ ...mac, _spkRevision: oldToken });
@@ -67,5 +80,52 @@ describe('sidecar', () => {
     expect(back.params).toEqual(s.params);
     expect(back.adjustments).toEqual(s.adjustments);
     expect(back.geometry).toEqual({ ...s.geometry });
+  });
+
+  it('preserves newer nested parameters through edits, resets and repeated JSON saves', () => {
+    const raw = {
+      ...mac,
+      params: { ...mac.params, futureFilmOption: { mode: 'new', curve: [0, 0.25, 1] },
+        effects: { grain: 1.7, highlightHeadroom: 6, futureHalation: { active: true, weights: [1, 2] } },
+        sceneLatitude: { highlightPullBack: 2, futureFit: { bounds: [-4, 5] } },
+        dateBack: { text: 'old', futureFace: ['a', 'b'] } },
+    };
+    const original = JSON.stringify(raw);
+    let s = decodeSidecar(raw);
+    s = { ...s, params: { ...s.params, exposureCompensationEV: -2,
+      effects: { ...s.params.effects, grain: 0 }, dateBack: { ...s.params.dateBack, text: '' } } };
+    for (let i = 0; i < 3; i++) {
+      const out = JSON.parse(JSON.stringify(encodeSidecar(s)));
+      expect(out.params).toMatchObject({ exposureCompensationEV: -2,
+        futureFilmOption: raw.params.futureFilmOption,
+        effects: { grain: 0, highlightHeadroom: 6, futureHalation: raw.params.effects.futureHalation },
+        sceneLatitude: { futureFit: raw.params.sceneLatitude.futureFit },
+        dateBack: { text: '', futureFace: ['a', 'b'] } });
+      s = decodeSidecar(out);
+    }
+    s = { ...s, params: newSidecar().params };
+    expect(encodeSidecar(s).params).toMatchObject({ effects: { grain: 1, futureHalation: raw.params.effects.futureHalation },
+      futureFilmOption: raw.params.futureFilmOption });
+    expect(JSON.stringify(raw)).toBe(original);
+  });
+
+  it('lets current values replace saved false, null and array values without reviving removed state', () => {
+    const s = decodeSidecar({ ...mac, params: { ...mac.params, autoExposure: true,
+      autoExposureMethod: 'balanced', futureToggle: true, futureCurve: [0, 0.5, 1] },
+      geometry: { ...mac.geometry, intendedSize: [400, 300], lockedRatio: 4 / 3 } });
+    s.params = { ...s.params, autoExposure: false, autoExposureMethod: null,
+      ...{ futureToggle: false, futureCurve: [0, 1] } };
+    s.adjustments = newSidecar().adjustments;
+    s.geometry = newSidecar().geometry;
+    s.heldCrop = null;
+    s.solvedEV = null;
+    const out = encodeSidecar(s);
+    expect(out.params).toMatchObject({ autoExposure: false, autoExposureMethod: null,
+      futureToggle: false, futureCurve: [0, 1] });
+    expect(out.adjustments).toEqual(newSidecar().adjustments);
+    expect(out.geometry).not.toHaveProperty('intendedSize');
+    expect(out.geometry).not.toHaveProperty('lockedRatio');
+    expect(out).not.toHaveProperty('heldCrop');
+    expect(out).not.toHaveProperty('solvedEV');
   });
 });

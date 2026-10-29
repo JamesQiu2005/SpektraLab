@@ -114,6 +114,19 @@ describe('background import preview integration', () => {
     expect(cameras.every(([, options]) => (options as { retain?: boolean } | undefined)?.retain === false)).toBe(true);
   });
 
+  it('ends loading on RAW failure while retaining the camera preview, then clears the error on retry', async () => {
+    fake.read.mockImplementation(async (key: string) => cameraKey(key).embeddedCameraPreview ? image('cached-camera') : null);
+    fake.open.mockRejectedValueOnce(new Error('unsupported camera transform'));
+    await session.select('/owned/next.ARW');
+    expect(session.sessionStore.getState().developing).toBe(false);
+    expect(session.sessionStore.getState().lastError).toContain('unsupported camera transform');
+    expect(fake.frames.print).toBeNull();
+    expect(fake.frames.original).not.toBeNull();
+    await session.select('/owned/selected.jpg');
+    expect(session.sessionStore.getState().lastError).toBeNull();
+    expect(fake.frames.print).not.toBeNull();
+  });
+
   it('warms neighbour full pictures before camera previews and retains only the full picture', async () => {
     const events: { operation: string; key: string; retain?: boolean }[] = [];
     fake.read.mockImplementation(async (key: string, options?: { retain?: boolean }) => {

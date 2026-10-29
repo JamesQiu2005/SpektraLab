@@ -4,6 +4,8 @@
 #pragma once
 #include <chrono>
 #include <string>
+#include <cstdlib>
+#include <cstdio>
 
 #include "pipeline.hpp"
 
@@ -19,6 +21,11 @@ struct Pipeline::Timer {
         }
     }
     ~Timer() {
+        if (std::getenv("SPEKTRAFILM_NODE_MEMORY")) {
+            const auto s = p_->gpu_->pool_stats();
+            std::fprintf(stderr, "node_memory %s live=%zu free=%zu persistent=%zu high_water=%zu\n",
+                         label_, s.live_bytes, s.free_bytes, s.persistent_bytes, s.frame_high_water_bytes);
+        }
         if (!p_->progress_) return;
         if (p_->progress_->detailed) {
             // Wait for the work this node encoded, so the number is GPU time

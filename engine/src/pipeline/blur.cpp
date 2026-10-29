@@ -27,8 +27,9 @@ bool Blur::alloc_like(const Image& img, Image& out, std::string& error) {
     return static_cast<bool>(out.buf);
 }
 
-bool Blur::fir(const Image& img, const double sigmas[3], double truncate, const bool active[3],
-               Image& out, std::string& error, const Image* acc, const double* weight) {
+bool Blur::fir(Image img, const double sigmas[3], double truncate, const bool active[3],
+               Image& out, std::string& error, const Image* acc, const double* weight,
+               bool consume_input) {
     // (3, 2R+1) weights, a delta for every inactive channel, so one kernel
     // handles a mix of blurred and pass-through channels in one pass.
     Vec kernels[3];
@@ -59,17 +60,24 @@ bool Blur::fir(const Image& img, const double sigmas[3], double truncate, const 
     // rides on the second pass.
     Image tmp;
     if (!alloc_like(img, tmp, error)) return false;
-    if (!alloc_like(img, out, error)) return false;
-    const gpu::BufferRef& dummy = acc ? acc->buf : img.buf;
+    if (!consume_input && !alloc_like(img, out, error)) return false;
     const uint32_t meta_v[6] = {img.h, img.w, uint32_t(R), 0, 0, 0};
     const uint32_t meta_h[6] = {img.h, img.w, uint32_t(R), 1, acc ? 1u : 0u, 0};
     const size_t n = img.pixels();
     if (!gpu_->dispatch("spk_sep_fir_acc",
-                        {gpu::Arg::buf(img.buf), gpu::Arg::buf(w), gpu::Arg::buf(dummy),
+                        {gpu::Arg::buf(img.buf), gpu::Arg::buf(w), gpu::Arg::buf(acc ? acc->buf : img.buf),
                          gpu::Arg::buf(wt_buf), gpu::Arg::inline_bytes(meta_v, 6), gpu::Arg::buf(tmp.buf)},
                         n, error)) return false;
+    if (consume_input) {
+        // Vertical is the layer's last reader. Drop our handle before
+        // flushing so Metal can reclaim it, then let the pool choose storage
+        // for horizontal. A retained alias keeps its buffer out of the pool;
+        // consuming a handle never grants permission to overwrite that alias.
+        img.buf.reset();
+        if (!gpu_->flush(error) || !alloc_like(tmp, out, error)) return false;
+    }
     return gpu_->dispatch("spk_sep_fir_acc",
-                          {gpu::Arg::buf(tmp.buf), gpu::Arg::buf(w), gpu::Arg::buf(dummy),
+                          {gpu::Arg::buf(tmp.buf), gpu::Arg::buf(w), gpu::Arg::buf(acc ? acc->buf : tmp.buf),
                            gpu::Arg::buf(wt_buf), gpu::Arg::inline_bytes(meta_h, 6), gpu::Arg::buf(out.buf)},
                           n, error);
 }
@@ -183,6 +191,22 @@ Blur::Demand Blur::merge(const Demand& a, const Demand& b) {
     d.carried = a.carried || b.carried;
     d.halo = std::max(a.halo, b.halo);
     return d;
+}
+
+bool Blur::gaussian_consume(Image img, const double sigma[3], Image& out, std::string& error,
+                            double truncate, const Image* acc, const double* weight) {
+    bool use_fir[3];
+    bool any_fir = false;
+    for (int c = 0; c < 3; ++c) {
+        // IIR and mixed channels retain their existing dispatch/accumulation
+        // sequence. In particular, mixed channels still use a final lincomb.
+        if (sigma[c] >= kSmallSigmaMax)
+            return gaussian(img, sigma, out, error, truncate, acc, weight);
+        use_fir[c] = is_fir(sigma[c]);
+        any_fir |= use_fir[c];
+    }
+    if (!any_fir && !acc) { out = std::move(img); return true; }
+    return fir(std::move(img), sigma, truncate, use_fir, out, error, acc, weight, true);
 }
 
 bool Blur::gaussian(const Image& img, const double sigma[3], Image& out, std::string& error,

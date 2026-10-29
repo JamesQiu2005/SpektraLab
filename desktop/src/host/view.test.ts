@@ -12,6 +12,15 @@ const response = (generation: number) => ({ result: { generation, tier: 'live', 
 const state = async () => ({ phase: 'ready', hello: { view_formats: ['rgba8'] } });
 
 describe('Host.renderView', () => {
+  it('requires an advertised no_film option before sending a bypass request', async () => {
+    const request = vi.fn().mockResolvedValue(response(12));
+    const legacy = new Host({ request, state } as unknown as Transport);
+    await expect(legacy.renderView('s1', 'live', { ...options(), no_film: true })).rejects.toThrow('no_film');
+    expect(request).not.toHaveBeenCalled();
+    const host = new Host({ request, state: async () => ({ phase: 'ready', hello: { view_options: ['no_film'] } }) } as unknown as Transport);
+    await host.renderView('s1', 'live', { ...options(), no_film: true });
+    expect(request).toHaveBeenLastCalledWith('render_view', expect.objectContaining({ no_film: true }), expect.anything());
+  });
   it('sends display, generation, grade and geometry and preserves display metadata', async () => {
     const request = vi.fn().mockResolvedValue(response(12));
     const host = new Host({ request, state } as unknown as Transport);

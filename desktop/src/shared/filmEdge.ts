@@ -18,7 +18,7 @@ export const EDGE_FORMATS = [
   { id: '120_6x17', label: '6×17', long: 168, short: 56, gauge: '120', panoramic: true },
 ] as const;
 export const edgeFormat = (id: string) => EDGE_FORMATS.find((f) => f.id === id);
-export function edgeEffective(edge: FilmEdgeSettings, gate?: FeatureGate) { return gate?.overscan !== false && edge.active && !!edgeFormat(edge.format); }
+export function edgeEffective(edge: FilmEdgeSettings, gate?: FeatureGate, noFilm = false) { return !noFilm && gate?.overscan !== false && edge.active && !!edgeFormat(edge.format); }
 export function stockSupportsEdge(stock: Stock | undefined, format: string): boolean {
   const gauge = edgeFormat(format)?.gauge;
   return !gauge || !stock?.formats || stock.formats.includes(gauge) || (gauge === '135' && stock.formats.includes('35mm_motion'));
@@ -30,18 +30,18 @@ export function datePrints(face: string, d: DateBackSettings, edge: FilmEdgeSett
   const camera = dateCamera(d, edge, gate);
   return !!camera && !('panoramic' in camera) && (face !== 'data' && camera.gauge !== '120' || edgeEffective(edge, gate));
 }
-export function dateEffective(d: DateBackSettings, edge: FilmEdgeSettings, gate?: FeatureGate): boolean {
-  return gate?.dateImprint !== false && d.active && datePrints(d.face, d, edge, gate)
+export function dateEffective(d: DateBackSettings, edge: FilmEdgeSettings, gate?: FeatureGate, noFilm = false): boolean {
+  return !noFilm && gate?.dateImprint !== false && d.active && datePrints(d.face, d, edge, gate)
     && (d.face === 'data' || d.placement === 'frame' || edgeEffective(edge, gate));
 }
-export function sourceGeometryFor(p: FilmParams, g: Geometry, gate?: FeatureGate): Geometry | null {
-  return edgeEffective(p.filmEdge, gate) || (dateEffective(p.dateBack, p.filmEdge, gate) && !isIdentity(g)) ? g : null;
+export function sourceGeometryFor(p: FilmParams, g: Geometry, gate?: FeatureGate, noFilm = false): Geometry | null {
+  return !noFilm && (edgeEffective(p.filmEdge, gate) || (dateEffective(p.dateBack, p.filmEdge, gate) && !isIdentity(g))) ? g : null;
 }
-export function canvasGeometryFor(p: FilmParams, g: Geometry, gate?: FeatureGate): Geometry {
-  return sourceGeometryFor(p, g, gate) ? GEOMETRY_DEFAULT : g;
+export function canvasGeometryFor(p: FilmParams, g: Geometry, gate?: FeatureGate, noFilm = false): Geometry {
+  return sourceGeometryFor(p, g, gate, noFilm) ? GEOMETRY_DEFAULT : g;
 }
-export function geometryInNegative(p: FilmParams, gate?: FeatureGate): boolean {
-  return edgeEffective(p.filmEdge, gate) || dateEffective(p.dateBack, p.filmEdge, gate);
+export function geometryInNegative(p: FilmParams, gate?: FeatureGate, noFilm = false): boolean {
+  return !noFilm && (edgeEffective(p.filmEdge, gate) || dateEffective(p.dateBack, p.filmEdge, gate));
 }
 export function gateFramed(g: Geometry, edge: FilmEdgeSettings, size: Size, landscape?: boolean): Geometry {
   const f = edgeFormat(edge.format);

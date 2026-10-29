@@ -1,7 +1,12 @@
-// Encoded ProPhoto Layer 2, ported from Canvas/Shaders.metal. Input and
-// output have the same UNORM16 boundaries as Mac's offscreen textures.
+// Encoded ProPhoto Layer 2, ported from Canvas/Shaders.metal. Film input and
+// common output use UNORM16 boundaries; decoded-source input preserves float
+// headroom until grading reaches that output boundary.
 layout(local_size_x=256) in;
+#ifdef SPK_FLOAT_SOURCE
+layout(binding=0,std430) readonly buffer Input { float v[]; } src;
+#else
 layout(binding=0,std430) readonly buffer Input { uint v[]; } src;
+#endif
 layout(binding=1,std430) readonly buffer Uniforms { float v[]; } u;
 layout(binding=2,std430) readonly buffer Curves { float v[]; } curves;
 layout(binding=3,std430) readonly buffer Meta { uint v[]; } m;
@@ -34,8 +39,14 @@ float curve(float v,uint row) {
 vec3 triple(uint i) { return vec3(u.v[i],u.v[i+1u],u.v[i+2u]); }
 void main() {
     uint i=index1D(); if(i>=m.v[0]) return;
+#ifdef SPK_FLOAT_SOURCE
+    // Decode headroom must reach exposure/curves before the common UNORM16
+    // output boundary. Packing this source first would destroy recoverable light.
+    vec3 c=vec3(src.v[3u*i],src.v[3u*i+1u],src.v[3u*i+2u]);
+#else
     uint rg=src.v[2u*i],ba=src.v[2u*i+1u];
     vec3 c=vec3(rg&65535u,rg>>16u,ba&65535u)/65535.0;
+#endif
 #ifdef SPK_DI_VIEW
     c=di_view(c);
 #endif

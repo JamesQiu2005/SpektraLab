@@ -1183,3 +1183,7 @@ the RAW-decoder difference already declared, not something this field can close.
 Test: `engine/tests/host_no_film.py` (a host CTest, `spk_host_no_film_workflow`).
 Red on the host before this change (it wrote the print: max 38, mean 11.0 codes
 from the decode).
+
+### Personal Windows fork integration (2026-10-29)
+
+The integrated host also advertises `hello.view_options: ["no_film"]` and accepts bypass on `render_view`. Unlike the upstream RGBA16 intermediate described above, this fork retains encoded floating-point ProPhoto until post-processing and output, so reducing exposure can recover highlights above 1. This is an intentional precision extension, not a claim of identical upstream bypass pixels. Both `frame_options` and `view_options` are advertised for their respective methods. DI plus `no_film: true` is rejected. The paired tests are `host_no_film.py` (native view/RAW/cache) and `host_no_film_upstream.py` (R4 export/proof).

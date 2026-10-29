@@ -5,12 +5,12 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { SessionState } from '../state/session';
 import type * as PlatformModule from '../platform';
 import { ALL_FEATURES } from '@shared/params';
-import { newSidecar } from '@shared/sidecar';
+import { encodeSidecar, newSidecar } from '@shared/sidecar';
 import { EMPTY_CATALOG } from '@shared/stocks';
 
 const fake = vi.hoisted(() => ({
   select: vi.fn(), request: vi.fn(), renderProof: vi.fn(), cancel: vi.fn(), probe: vi.fn(), sidecarLoad: vi.fn(),
-  ensureDir: vi.fn(), pathExists: vi.fn(), log: vi.fn(), storeRead: vi.fn(), paint: vi.fn(),
+  ensureDir: vi.fn(), pathExists: vi.fn(), log: vi.fn(), storeRead: vi.fn(), storeWrite: vi.fn(), pickFolder: vi.fn(), paint: vi.fn(),
   workspaceBegin: vi.fn(), workspaceEnd: vi.fn(),
   output: { width: 1, height: 1, colorSpace: 'display-p3', data: new Uint8Array([180, 120, 80, 255]) },
 }));
@@ -52,12 +52,20 @@ async function mount() {
 async function click(button: HTMLButtonElement) {
   await act(async () => { button.dispatchEvent(new MouseEvent('click', { bubbles: true })); });
 }
+async function type(input: HTMLInputElement, value: string) {
+  await act(async () => {
+    Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')!.set!.call(input, value);
+    input.dispatchEvent(new Event('input', { bubbles: true }));
+  });
+}
 beforeEach(() => {
   vi.resetAllMocks();
   vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
   // The Node Vitest config uses classic JSX; production Vite uses the React plugin.
   vi.stubGlobal('React', React);
   fake.storeRead.mockResolvedValue(null);
+  fake.storeWrite.mockResolvedValue(undefined);
+  fake.pickFolder.mockResolvedValue('D:/proof-output');
   fake.sidecarLoad.mockResolvedValue(null);
   fake.ensureDir.mockResolvedValue(undefined);
   fake.pathExists.mockResolvedValue(false);
@@ -69,6 +77,7 @@ beforeEach(() => {
   sessionStore.setState({ exportOpen: true, picked: ['D:/photos/b.NEF', 'D:/photos/a.NEF'],
     selection: 'D:/photos/a.NEF', engineSession: 'editor', batchExporting: false, developing: false, redecoding: false,
     nativeSize: { width: 6000, height: 4000 }, metadata: {}, gate: structuredClone(ALL_FEATURES),
+    pair: null, pairInfo: null,
     catalog: EMPTY_CATALOG, sidecar: structuredClone(newSidecar()), savedGeometry: {},
     hello: { methods: ['export_frame'] } as SessionState['hello'],
   });
@@ -81,6 +90,26 @@ afterEach(async () => {
 });
 
 describe('export page batch integration', () => {
+  it('freezes bypass for selected unsaved and background photos throughout a batch', async () => {
+    const selected = structuredClone(newSidecar()), background = structuredClone(newSidecar());
+    selected.noFilm = true; background.noFilm = true;
+    selected.params.filmEdge.active = true; selected.geometry.quarterTurns = 1;
+    selected.geometry.crop = { x: .1, y: .2, width: .7, height: .6 };
+    selected.adjustments.exposure = 1.25;
+    background.adjustments.exposure = -.5;
+    sessionStore.setState({ sidecar: selected });
+    fake.sidecarLoad.mockResolvedValue(encodeSidecar(background));
+    const pending = deferred<ReturnType<typeof reply>>();
+    fake.request.mockReturnValueOnce(pending.promise).mockResolvedValueOnce(reply());
+    await mount(); await click(div.querySelector('[data-testid=export-run]')!);
+    expect(fake.request.mock.calls[0]![1]).toMatchObject({ source_path: 'D:/photos/b.NEF', no_film: true, adjustments: { exposure: -.5 } });
+    selected.noFilm = false; selected.adjustments.exposure = 8;
+    await act(async () => { pending.resolve(reply()); });
+    expect(fake.request.mock.calls[1]![1]).toMatchObject({ source_path: 'D:/photos/a.NEF', no_film: true,
+      adjustments: { exposure: 1.25 }, geometry: { quarterTurns: 1, crop: { width: .7 } },
+      source_geometry: { quarterTurns: 0, crop: { width: 1 } } });
+    expect(sessionStore.getState().batchExporting).toBe(false);
+  });
   it('freezes the selected unsaved grade, exports sequentially and never selects another photo', async () => {
     sessionStore.getState().sidecar.adjustments.exposure = 1.5;
     const before = sessionStore.getState();
@@ -157,6 +186,88 @@ describe('export recipe proof', () => {
     ...fake.output, proof: { generation, file_width: 6000, file_height: 4000, color_space: colorSpace,
       bit_depth: 8 as const, stats: { pixels: 24_000_000, outside_fraction: .02, moved_fraction: .1, clipped_fraction: .003 },
       compression_simulated: false as const, print_cached: true },
+  });
+  it('refuses ordinary saved bypass on an old host and also refuses DI until film simulation is restored', async () => {
+    vi.useFakeTimers();
+    const sidecar = structuredClone(newSidecar()); sidecar.noFilm = true; sidecar.params.filmEdge.active = true;
+    sidecar.geometry.crop = { x: .1, y: .2, width: .6, height: .7 };
+    sessionStore.setState({ sidecar, gate: { ...ALL_FEATURES, noFilm: false },
+      hello: { methods: ['export_frame', 'render_proof', 'export_cineon'] } as SessionState['hello'] });
+    fake.renderProof.mockImplementation(async ({ generation }: { generation: number }) => proofReply(generation));
+    await mount(); await act(async () => { await vi.advanceTimersByTimeAsync(210); });
+    expect((div.querySelector('[data-testid=export-run]') as HTMLButtonElement).disabled).toBe(true);
+    expect(div.textContent).toContain('without film simulation');
+    expect(fake.renderProof).not.toHaveBeenCalled();
+    await act(async () => div.querySelectorAll('.recipe-list .stock-row')[3]!
+      .dispatchEvent(new MouseEvent('click', { bubbles: true })));
+    await act(async () => { await vi.advanceTimersByTimeAsync(210); });
+    expect((div.querySelector('[data-testid=export-run]') as HTMLButtonElement).disabled).toBe(true);
+    expect(fake.renderProof).not.toHaveBeenCalled();
+    expect(div.textContent).toContain('Enable film simulation');
+  });
+  it('does not display or accept a proof from the previous film mode while bypass changes', async () => {
+    vi.useFakeTimers();
+    sessionStore.setState({ hello: { methods: ['export_frame', 'render_proof'] } as SessionState['hello'] });
+    const bypass = deferred<ReturnType<typeof proofReply>>(), film = deferred<ReturnType<typeof proofReply>>();
+    fake.renderProof.mockResolvedValueOnce(proofReply(1)).mockReturnValueOnce(bypass.promise).mockReturnValueOnce(film.promise);
+    await mount(); await act(async () => { await vi.advanceTimersByTimeAsync(210); });
+    const canvas = div.querySelector('[data-testid=export-proof]') as HTMLCanvasElement;
+    await act(async () => sessionStore.setState({ sidecar: { ...sessionStore.getState().sidecar, noFilm: true } }));
+    expect(canvas.style.display).toBe('none');
+    await act(async () => { await vi.advanceTimersByTimeAsync(210); });
+    expect(fake.renderProof.mock.calls[1]![0].no_film).toBe(true);
+    await act(async () => sessionStore.setState({ sidecar: { ...sessionStore.getState().sidecar, noFilm: false } }));
+    await act(async () => { await vi.advanceTimersByTimeAsync(210); });
+    const latest = fake.renderProof.mock.calls[2]![0];
+    await act(async () => { film.resolve(proofReply(latest.generation)); });
+    expect(canvas.style.display).not.toBe('none');
+    await act(async () => { bypass.resolve(proofReply(2, 'stale bypass')); });
+    expect(fake.paint).toHaveBeenCalledTimes(2);
+    expect(div.querySelector('[data-testid=proof-stats]')?.textContent).not.toContain('stale bypass');
+  });
+  it('keeps a finished proof when only recipe naming or destination settings change', async () => {
+    vi.useFakeTimers();
+    sessionStore.setState({ hello: { methods: ['export_frame', 'render_proof'] } as SessionState['hello'] });
+    fake.renderProof.mockImplementation(async ({ generation }: { generation: number }) => proofReply(generation));
+    await mount(); await act(async () => { await vi.advanceTimersByTimeAsync(210); });
+    expect(fake.renderProof).toHaveBeenCalledOnce();
+    const fields = div.querySelectorAll<HTMLInputElement>('input.unit-field');
+    await type(fields[0]!, 'My export');
+    await type(fields[1]!, 'Approved');
+    await click([...div.querySelectorAll<HTMLButtonElement>('button')].find((b) => b.textContent?.trim() === 'Beside the original')!);
+    await click([...div.querySelectorAll<HTMLButtonElement>('button')].find((b) => b.textContent === 'Film')!);
+    await act(async () => { await vi.advanceTimersByTimeAsync(250); });
+    expect(fake.storeWrite).toHaveBeenCalled();
+    expect(fake.renderProof).toHaveBeenCalledOnce();
+    expect(fake.cancel).not.toHaveBeenCalled();
+    expect(fake.paint).toHaveBeenCalledOnce();
+    expect((div.querySelector('[data-testid=export-proof]') as HTMLCanvasElement).style.display).not.toBe('none');
+  });
+  it('retains the same photo while updating, but hides it on selection changes and discards late results', async () => {
+    vi.useFakeTimers();
+    sessionStore.setState({ hello: { methods: ['export_frame', 'render_proof'] } as SessionState['hello'] });
+    const update = deferred<ReturnType<typeof proofReply>>(), nextPhoto = deferred<ReturnType<typeof proofReply>>();
+    fake.renderProof.mockResolvedValueOnce(proofReply(1)).mockReturnValueOnce(update.promise).mockReturnValueOnce(nextPhoto.promise);
+    await mount(); await act(async () => { await vi.advanceTimersByTimeAsync(210); });
+    await act(async () => div.querySelectorAll('.recipe-list .stock-row')[1]!
+      .dispatchEvent(new MouseEvent('click', { bubbles: true })));
+    const canvas = div.querySelector('[data-testid=export-proof]') as HTMLCanvasElement;
+    expect(canvas.style.display).not.toBe('none');
+    expect(div.querySelector('[role=status]')?.textContent).toContain('Updating export proof');
+    expect(div.querySelector('[data-testid=proof-stats]')?.textContent).toContain('Before JPEG compression');
+    await act(async () => { await vi.advanceTimersByTimeAsync(210); });
+    await act(async () => sessionStore.setState({ selection: 'D:/photos/b.NEF', engineSession: 'next-editor' }));
+    expect(canvas.style.display).toBe('none');
+    expect(div.querySelector('[data-testid=proof-stats]')).toBeNull();
+    await act(async () => { await vi.advanceTimersByTimeAsync(210); });
+    const latest = fake.renderProof.mock.calls[2]![0];
+    const current = proofReply(latest.generation, 'ProPhoto RGB');
+    await act(async () => { nextPhoto.resolve(current); });
+    expect(canvas.style.display).not.toBe('none');
+    expect(fake.paint).toHaveBeenLastCalledWith(canvas, current);
+    await act(async () => { update.resolve(proofReply(2, 'stale recipe')); });
+    expect(fake.paint).toHaveBeenCalledTimes(2);
+    expect(div.querySelector('[data-testid=proof-stats]')?.textContent).toContain('ProPhoto RGB');
   });
   it('uses a frozen export snapshot and ignores a superseded recipe response', async () => {
     vi.useFakeTimers();

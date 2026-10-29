@@ -17,7 +17,6 @@ it('persists bounded panel widths and repairs old out-of-range preferences', asy
   s.getState().set('leftWidth', 9999); s.getState().set('rightWidth', Number.NaN);
   await Promise.resolve();
   expect(createSettingsStore(storage).getState()).toMatchObject({ leftWidth: 380, rightWidth: 288 });
-  // A width stored by a build whose floor was 268 is clamped to 1.3.4's 280.
   raw = JSON.stringify({ rightWidth: 268 });
   expect(createSettingsStore(storage).getState().rightWidth).toBe(280);
 });
@@ -25,7 +24,6 @@ it('supports keyboard resizing in the correct direction and double-click reset',
   await act(async () => root.render(<><PanelResize side="left" /><PanelResize side="right" /></>));
   const [left, right] = [...div.querySelectorAll('[role=separator]')];
   await act(async () => { for (const el of [left, right]) el!.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowRight', bubbles: true })); });
-  // 1.3.4: the Parameters rail stops at 280 (268 before), so 288 − 10 lands on the floor.
   expect(settingsStore.getState()).toMatchObject({ leftWidth: 264, rightWidth: 280 });
   await act(async () => left!.dispatchEvent(new MouseEvent('dblclick', { bubbles: true })));
   expect(left!.getAttribute('aria-valuenow')).toBe('254');

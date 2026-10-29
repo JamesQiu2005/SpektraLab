@@ -8,12 +8,15 @@
 #include <cstring>
 #include <limits>
 #include <string>
+#include <utility>
 #include <vector>
 
 #include "cam16.hpp"
 #include "gpu/gpu.hpp"
 #include "gpu_vulkan_read.hpp"
 #include "numeric.hpp"
+#include "pipeline/blur.hpp"
+#include "pipeline/pipeline.hpp"
 #include "spektrafilm/spk_engine.h"
 
 namespace {
@@ -295,6 +298,235 @@ bool check_iir(spk::gpu::Gpu* gpu, std::string& error) {
     return true;
 }
 
+spk::Image upload_blur_image(spk::gpu::Gpu* gpu, const std::vector<float>& pixels,
+                             uint32_t height, uint32_t width, std::string& error) {
+    spk::Image image;
+    image.h = height; image.w = width; image.c = 3;
+    image.buf = gpu->upload(pixels.data(), image.bytes(), error);
+    return image;
+}
+
+bool read_blur_image(spk::gpu::Gpu* gpu, const spk::Image& image,
+                     std::vector<float>& pixels, std::string& error) {
+    if (!image.valid() || image.c != 3) { error = "blur returned an invalid RGB image"; return false; }
+    // Read logical pixels, not a reused allocation's possibly larger capacity.
+    pixels.resize(image.elements());
+    return gpu->read(image.buf.get(), 0, pixels.data(), image.bytes(), error);
+}
+
+bool blur_bits_equal(const std::vector<float>& expected, const std::vector<float>& actual,
+                     const std::string& label, std::string& error) {
+    if (expected.size() != actual.size()) { error = label + ": shape changed"; return false; }
+    for (size_t i = 0; i < expected.size(); ++i) if (!std::isfinite(expected[i]) || !std::isfinite(actual[i])) {
+        error = label + ": nonfinite sample at " + std::to_string(i); return false;
+    }
+    if (std::memcmp(expected.data(), actual.data(), expected.size() * sizeof(float)) == 0) return true;
+    for (size_t i = 0; i < expected.size(); ++i) {
+        const auto a = std::bit_cast<uint32_t>(expected[i]), b = std::bit_cast<uint32_t>(actual[i]);
+        if (a != b) {
+            char detail[160];
+            std::snprintf(detail, sizeof detail, ": float32 bits differ at %zu: %08x != %08x", i, a, b);
+            error = label + detail; return false;
+        }
+    }
+    error = label + ": byte comparison failed"; return false;
+}
+
+void blur_fixture(uint32_t height, uint32_t width, std::vector<float>& input,
+                  std::vector<float>& accumulated) {
+    input.resize(size_t(height) * width * 3); accumulated.resize(input.size());
+    for (uint32_t y = 0; y < height; ++y) for (uint32_t x = 0; x < width; ++x)
+        for (uint32_t c = 0; c < 3; ++c) {
+            const size_t at = (size_t(y) * width + x) * 3 + c;
+            // Signed, nonseparable data and impulses at different boundaries
+            // expose pass-order, inactive-channel and reflection mistakes.
+            input[at] = float(int((17 * x + 29 * y + 11 * x * y + 37 * c) % 257) - 128) / 64.0f;
+            if ((c == 0 && x == 0 && y == 0) ||
+                (c == 1 && x == width / 2 && y == height / 2) ||
+                (c == 2 && x == width - 1 && y == height - 1)) input[at] += 3.0f;
+            accumulated[at] = float(int((3 * x + 5 * y + 7 * c) % 31) - 15) / 32.0f;
+        }
+}
+
+bool check_gaussian_consume(spk::gpu::Gpu* gpu, std::string& error) {
+    spk::Blur blur(gpu);
+    const double sigma[][3] = {
+        {0, 0, 0}, {0.01, 0.1, 0}, {0.5, 1.25, 2.999}, {3, 12, 130},
+        {0, 0.7, 2.7}, {0, 3, 12}, {0.7, 3, 0},
+        {std::nextafter(3.0, 0.0), 3.0, std::nextafter(3.0, 4.0)}
+    };
+    const double weights[][3] = {{1, 1, 1}, {-0.5, 0.25, 1.75}};
+    size_t cases = 0;
+    auto compare = [&](uint32_t height, uint32_t width, size_t which, unsigned mode, bool keep_alias) {
+        std::vector<float> input, accumulated, expected, actual, unchanged;
+        blur_fixture(height, width, input, accumulated);
+        auto acc = upload_blur_image(gpu, accumulated, height, width, error);
+        if (!acc.valid()) return false;
+        const spk::Image* accumulation = mode ? &acc : nullptr;
+        const double* weight = mode ? weights[mode - 1] : nullptr;
+        const std::string label = "gaussian consume " + std::to_string(height) + "x" + std::to_string(width) +
+            " sigma=" + std::to_string(which) + " acc=" + std::to_string(mode) + " alias=" + std::to_string(keep_alias);
+        {
+            auto source = upload_blur_image(gpu, input, height, width, error);
+            spk::Image out;
+            if (!source.valid() || !blur.gaussian(source, sigma[which], out, error, 3.0, accumulation, weight) ||
+                !gpu->flush(error) || !read_blur_image(gpu, out, expected, error)) return false;
+            if (out.h != height || out.w != width) { error = label + ": baseline dimensions changed"; return false; }
+            if (!read_blur_image(gpu, acc, unchanged, error) ||
+                !blur_bits_equal(accumulated, unchanged, label + " baseline accumulator", error)) return false;
+        } // The baseline's GPU input and result must not survive into the candidate.
+        {
+            auto source = upload_blur_image(gpu, input, height, width, error);
+            if (!source.valid()) return false;
+            spk::Image alias;
+            if (keep_alias) alias = source;
+            spk::Image out;
+            if (!blur.gaussian_consume(std::move(source), sigma[which], out, error, 3.0, accumulation, weight) ||
+                !gpu->flush(error) || !read_blur_image(gpu, out, actual, error)) return false;
+            if (out.h != height || out.w != width) { error = label + ": candidate dimensions changed"; return false; }
+            if (!blur_bits_equal(expected, actual, label, error)) return false;
+            if (keep_alias && (!read_blur_image(gpu, alias, unchanged, error) ||
+                !blur_bits_equal(input, unchanged, label + " retained input", error))) return false;
+            if (!read_blur_image(gpu, acc, unchanged, error) ||
+                !blur_bits_equal(accumulated, unchanged, label + " accumulator", error)) return false;
+        }
+        ++cases; return true;
+    };
+    for (size_t which = 0; which < std::size(sigma); ++which)
+        for (unsigned mode = 0; mode < 3; ++mode)
+            for (bool alias : {false, true}) if (!compare(19, 13, which, mode, alias)) return false;
+    const uint32_t boundaries[][2] = {{1, 1}, {1, 7}, {7, 1}, {3, 257}, {257, 3}};
+    for (const auto& shape : boundaries) for (size_t which : {size_t(2), size_t(3)})
+        for (unsigned mode = 0; mode < 3; ++mode) if (!compare(shape[0], shape[1], which, mode, false)) return false;
+
+    // Requested-live bytes exclude pool capacity/reuse accidents. The same
+    // accumulator stays alive outside both windows; inputs are uploaded before
+    // observation, and readback begins only after each window has closed.
+    constexpr uint32_t side = 512;
+    constexpr size_t plane_bytes = size_t(side) * side * 3 * sizeof(float);
+    std::vector<float> input, accumulated, baseline, candidate, unchanged;
+    blur_fixture(side, side, input, accumulated);
+    auto acc = upload_blur_image(gpu, accumulated, side, side, error);
+    if (!acc.valid()) return false;
+    auto peak = [&](bool consume, spk::gpu::Gpu::MemoryObservation& observation, std::vector<float>& pixels) {
+        auto source = upload_blur_image(gpu, input, side, side, error);
+        if (!source.valid()) return false;
+        spk::Image out;
+        const uint64_t token = gpu->begin_memory_observation();
+        if (!token) { error = "gaussian consume peak observation unavailable"; return false; }
+        const bool ok = consume
+            ? blur.gaussian_consume(std::move(source), sigma[2], out, error, 3.0, &acc, weights[0])
+            : blur.gaussian(source, sigma[2], out, error, 3.0, &acc, weights[0]);
+        const bool complete = ok && gpu->flush(error);
+        observation = gpu->end_memory_observation(token);
+        if (!complete || !read_blur_image(gpu, out, pixels, error)) return false;
+        if (!read_blur_image(gpu, acc, unchanged, error) ||
+            !blur_bits_equal(accumulated, unchanged, "gaussian peak accumulator", error)) return false;
+        return true;
+    };
+    spk::gpu::Gpu::MemoryObservation old_peak, new_peak;
+    if (!peak(false, old_peak, baseline) || !peak(true, new_peak, candidate) ||
+        !blur_bits_equal(baseline, candidate, "gaussian consume peak pixels", error)) return false;
+    if (old_peak.requested_live_peak < new_peak.requested_live_peak ||
+        old_peak.requested_live_peak - new_peak.requested_live_peak != plane_bytes) {
+        error = "gaussian consume FIR requested-live peak must drop one plane: old=" +
+            std::to_string(old_peak.requested_live_peak) + " new=" + std::to_string(new_peak.requested_live_peak) +
+            " expected saving=" + std::to_string(plane_bytes);
+        return false;
+    }
+    const auto audit = gpu->pool_stats().audit;
+    if (audit.pending_held || audit.over_releases || audit.reclaim_while_encoding || audit.live_underflows) {
+        error = "gaussian consume violated pool ownership audit"; return false;
+    }
+    std::printf("gaussian consume: %zu bit-exact cases, input aliases/accumulators unchanged; FIR requested-live peak %zu -> %zu (one %zu-byte plane)\n",
+                cases, old_peak.requested_live_peak, new_peak.requested_live_peak, plane_bytes);
+    return true;
+}
+
+bool check_stage_handoff(spk::gpu::Gpu* gpu, const std::string& resources, std::string& error) {
+    constexpr uint32_t side = 512;
+    constexpr size_t plane_bytes = size_t(side) * side * 3 * sizeof(float);
+    spk::Blob blob;
+    spk::Colour colour;
+    spk::SetupCache cache;
+    spk::Params params;
+    if (!blob.open(resources + "/spektrafilm_constants.bin", error) || !colour.init(blob, error) ||
+        !spk::init_params(resources, "kodak_portra_400", "kodak_portra_endura", spk::Json::object(), params, error)) return false;
+    params.scanner.lens_blur = 0.8;
+    params.scanner.unsharp_mask[0] = 0.7;
+    params.scanner.unsharp_mask[1] = 0.7;
+    spk::Pipeline pipeline(gpu, &colour, &blob, &cache);
+    if (!pipeline.build(params, error)) return false;
+    pipeline.set_source_shape(side, side, side, side); // unsharp tier ratio is exactly one
+    spk::Blur blur(gpu);
+    std::vector<float> input, expected;
+    {
+        std::vector<float> unused;
+        blur_fixture(side, side, input, unused);
+    }
+    // Keep this independent carried field alive outside both observation
+    // windows. Moving a Chain must preserve more than its current image.
+    const std::vector<float> log_pixels = {-0.0f, 0.125f, -0.25f, 0.5f, 1.0f, 2.0f,
+                                          -4.0f, 8.0f, 0.0625f, 0.375f, -0.75f, 1.5f};
+    auto log_e = upload_blur_image(gpu, log_pixels, 2, 2, error);
+    if (!log_e.valid()) return false;
+    {
+        // Explicit old numerical sequence is the raw-float oracle; do not use
+        // another stage call as the only witness that its output is unchanged.
+        const double scanner_sigma[3] = {0.8, 0.8, 0.8}, unsharp_sigma[3] = {0.7, 0.7, 0.7};
+        const double a[3] = {1.7, 1.7, 1.7}, b[3] = {-0.7, -0.7, -0.7};
+        auto source = upload_blur_image(gpu, input, side, side, error);
+        spk::Image scan, mask, reference;
+        if (!source.valid() || !blur.gaussian(source, scanner_sigma, scan, error) ||
+            !blur.gaussian(scan, unsharp_sigma, mask, error) ||
+            !blur.lincomb(scan, mask, a, b, reference, error) || !gpu->flush(error) ||
+            !read_blur_image(gpu, reference, expected, error)) return false;
+    } // All oracle GPU input/intermediates/results die before either stage run.
+
+    auto run = [&](bool retain_input, spk::gpu::Gpu::MemoryObservation& peak) {
+        spk::Pipeline::Chain in, out;
+        in.cur = upload_blur_image(gpu, input, side, side, error);
+        in.log_e_film = log_e;
+        if (!in.cur.valid()) return false;
+        spk::Image alias;
+        if (retain_input) alias = in.cur;
+        const uint64_t token = gpu->begin_memory_observation();
+        if (!token) { error = "stage handoff peak observation unavailable"; return false; }
+        const bool complete = pipeline.print_scan_finish(std::move(in), out, error) && gpu->flush(error);
+        peak = gpu->end_memory_observation(token);
+        if (!complete) return false;
+        if (in.cur.valid() || in.log_e_film.valid() || out.cur.h != side || out.cur.w != side ||
+            out.log_e_film.buf.get() != log_e.buf.get() || out.log_e_film.h != 2 ||
+            out.log_e_film.w != 2 || out.log_e_film.c != 3) {
+            error = "stage handoff lost a Chain field, its shape, or transferred ownership"; return false;
+        }
+        std::vector<float> actual, unchanged;
+        if (!read_blur_image(gpu, out.cur, actual, error) ||
+            !blur_bits_equal(expected, actual, retain_input ? "stage retained-input pixels" : "stage unique-input pixels", error) ||
+            !read_blur_image(gpu, out.log_e_film, unchanged, error) ||
+            !blur_bits_equal(log_pixels, unchanged, "stage carried log exposure", error)) return false;
+        if (retain_input && (!read_blur_image(gpu, alias, unchanged, error) ||
+                             !blur_bits_equal(input, unchanged, "stage retained input", error))) return false;
+        return true;
+    };
+    spk::gpu::Gpu::MemoryObservation retained, unique;
+    if (!run(true, retained) || !run(false, unique)) return false;
+    if (retained.requested_live_peak < unique.requested_live_peak ||
+        retained.requested_live_peak - unique.requested_live_peak != plane_bytes) {
+        error = "stage unique-input requested-live peak must drop one plane: retained=" +
+            std::to_string(retained.requested_live_peak) + " unique=" + std::to_string(unique.requested_live_peak) +
+            " expected saving=" + std::to_string(plane_bytes);
+        return false;
+    }
+    const auto audit = gpu->pool_stats().audit;
+    if (audit.pending_held || audit.over_releases || audit.reclaim_while_encoding || audit.live_underflows) {
+        error = "stage handoff violated pool ownership audit"; return false;
+    }
+    std::printf("stage handoff: raw-float scanner/unsharp oracle, input alias and carried log exposure unchanged; requested-live peak %zu -> %zu (one %zu-byte plane)\n",
+                retained.requested_live_peak, unique.requested_live_peak, plane_bytes);
+    return true;
+}
+
 }  // namespace
 
 int main(int argc, char** argv) {
@@ -327,6 +559,18 @@ int main(int argc, char** argv) {
 
     if (!check_iir(gpu, error)) {
         std::fprintf(stderr, "iir_df_acc: %s\n", error.c_str());
+        delete gpu;
+        return 1;
+    }
+
+    if (!check_gaussian_consume(gpu, error)) {
+        std::fprintf(stderr, "gaussian consume: %s\n", error.c_str());
+        delete gpu;
+        return 1;
+    }
+
+    if (!check_stage_handoff(gpu, resources, error)) {
+        std::fprintf(stderr, "stage handoff: %s\n", error.c_str());
         delete gpu;
         return 1;
     }

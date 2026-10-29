@@ -48,7 +48,6 @@ import {
   noteDisplaySpace,
   noteTextureLimit,
   notePreviewDrawn,
-  noFilmShown,
   pickNeutralAt,
   sessionStore,
   setComparePosition,
@@ -121,6 +120,7 @@ export function Canvas() {
   const imageVersion = useSession((s) => s.imageVersion);
   const geometry = useSession((s) => s.sidecar.geometry);
   const params = useSession((s) => s.sidecar.params);
+  const noFilm = useSession((s) => s.sidecar.noFilm);
   const gate = useSession((s) => s.gate);
   const adjustments = useSession((s) => s.sidecar.adjustments);
   const nativeSize = useSession((s) => s.nativeSize);
@@ -130,22 +130,21 @@ export function Canvas() {
   const comparePosition = useSession((s) => s.comparePosition);
   const showingOriginal = useSession((s) => s.showingOriginal);
   const badge = useSession((s) => s.badge);
+  const developing = useSession((s) => s.developing);
+  const lastError = useSession((s) => s.lastError);
   const selection = useSession((s) => s.selection);
   const batch = useSession((s) => s.batchExporting);
   const exportOpen = useSession((s) => s.exportOpen);
   const displaySpace = useSession((s) => s.displaySpace);
   const maxTextureSize = useSession((s) => s.maxTextureSize);
   const previewGamut = useSettings((s) => s.previewGamut);
-  // "Don't Apply Film Simulation" (1.3.4): the decode is the picture, graded, under the frame's own
-  // geometry -- never the film canvas (`Session.filmEdgeShowsFilm` && !noFilm on the Mac).
-  const noFilm = useSession(noFilmShown) && !!frameImages.original;
-  const originalFallback = !noFilm && !frameImages.print && !!frameImages.original;
+  const originalFallback = !frameImages.print && !!frameImages.original;
   const cropping = tool === 'crop' && !originalFallback;
   const pair = useSession((s) => s.pair), pairLayer = useSession((s) => s.pairLayer), pairPlacing = useSession((s) => s.pairPlacing), pairInfo = useSession((s) => s.pairInfo);
   const pairGates = showingOriginal && pair ? pairRects(pair) : pairCanvasRects();
-  const framing = cropping && geometryInNegative(params, gate);
-  const filmCanvas = !noFilm && !originalFallback && !cropping && !showingOriginal && !!sourceGeometryFor(params, geometry, gate);
-  const canvasGeometry = originalFallback ? GEOMETRY_DEFAULT : filmCanvas ? canvasGeometryFor(params, geometry, gate) : geometry;
+  const framing = cropping && geometryInNegative(params, gate, noFilm);
+  const filmCanvas = !originalFallback && !cropping && !showingOriginal && !!sourceGeometryFor(params, geometry, gate, noFilm);
+  const canvasGeometry = originalFallback ? GEOMETRY_DEFAULT : filmCanvas ? canvasGeometryFor(params, geometry, gate, noFilm) : geometry;
 
   useEffect(() => {
     if (!canvas.current) return;
@@ -208,8 +207,7 @@ export function Canvas() {
     return () => ro.disconnect();
   }, []);
 
-  const originalSize = frameImages.original ? frameImages.original.nativeSize ?? { width: frameImages.original.width, height: frameImages.original.height } : null;
-  const native = noFilm ? nativeSize ?? originalSize : originalFallback ? originalSize
+  const native = originalFallback ? (frameImages.original!.nativeSize ?? { width: frameImages.original!.width, height: frameImages.original!.height })
     : (filmCanvas ? frameImages.print?.nativeSize : nativeSize) ?? (frameImages.print ? { width: frameImages.print.width, height: frameImages.print.height } : null);
   const layout =
     native && size.width > 0
@@ -274,16 +272,15 @@ export function Canvas() {
       compare: originalFallback || framing || showingOriginal ? 2 : comparing ? 1 : 0,
       split: comparePosition,
       surround: SURROUND,
-      noFilm,
     };
     r.draw(state);
     notePreviewDrawn();
-  }, [imageVersion, displaySpace, layout?.zoom, layout?.offset.x, layout?.offset.y, size, geometry, adjustments, cropping, framing, comparing, comparePosition, showingOriginal, originalFallback, noFilm, layout]);
+  }, [imageVersion, displaySpace, layout?.zoom, layout?.offset.x, layout?.offset.y, size, geometry, adjustments, cropping, framing, comparing, comparePosition, showingOriginal, originalFallback, layout]);
 
   // The output, small: navigator and histogram (the canvas's frame, trap 33).
   useEffect(() => {
     const r = gl.current;
-    if (!r || !native || (!frameImages.print && !originalFallback && !noFilm)) {
+    if (!r || !native || (!frameImages.print && !originalFallback)) {
       publishOutput(null);
       setHistogram(null);
       return;
@@ -307,7 +304,6 @@ export function Canvas() {
         compare: originalFallback || framing ? 2 : 0,
         split: 0.5,
         surround: SURROUND,
-        noFilm,
       };
       ensureUploaded(r);
       const px = r.renderOutput(state, w, h);
@@ -328,12 +324,11 @@ export function Canvas() {
           compare: originalFallback || framing || showingOriginal ? 2 : comparing ? 1 : 0,
           split: comparePosition,
           surround: SURROUND,
-          noFilm,
         });
     }, 60);
     return () => clearTimeout(t);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [imageVersion, displaySpace, geometry, adjustments, native?.width, native?.height, exportOpen, framing, filmCanvas, noFilm]);
+  }, [imageVersion, displaySpace, geometry, adjustments, native?.width, native?.height, exportOpen, framing, filmCanvas]);
 
   // ---- pointer
   const drag = useRef<
@@ -422,7 +417,7 @@ export function Canvas() {
     if (d.kind === 'pair') {
       const point = toSource(e.clientX, e.clientY);
       if (point && pair) setPairPlacement(d.side, () => draggedPlacement(d.placement,
-        { x: (point.x - d.start.x) / d.rect.width, y: (point.y - d.start.y) / d.rect.height }, d.source, pairAspect(pair)));
+        { x: (point.x - d.start.x) / d.rect.width, y: (point.y - d.start.y) / d.rect.height }, d.source, pairAspect(pair)), true, true);
     } else if (d.kind === 'pan') {
       const dx = ((e.clientX - d.x) * size.dpr) / layout.outSize.width;
       const dy = ((e.clientY - d.y) * size.dpr) / layout.outSize.height;
@@ -583,7 +578,9 @@ export function Canvas() {
             `当前显示最多 ${maxTextureSize} 像素；导出仍使用所选分辨率。`)}
         </span>}
         {originalFallback && selection && <span className="tier-badge preview" data-testid="camera-preview-badge">
-          {tz('Camera preview · loading film effect', '原图预览 · 正在加载胶片效果')}
+          {developing ? tz('Camera preview · loading film effect', '原图预览 · 正在加载胶片效果')
+            : lastError ? tz('Camera preview · film effect failed to load', '原图预览 · 胶片效果加载失败')
+              : tz('Camera preview', '原图预览')}
         </span>}
         {!originalFallback && badge && selection && (
           <span className={'tier-badge ' + badge} data-testid="tier-badge" title={badge === 'full' ? tz('Rendered from the full-resolution source; display detail follows zoom', '已完成原尺寸渲染；显示精细度随缩放调整') : tz('Preview resolution — the frame’s own is on its way', '预览分辨率——全尺寸正在渲染')}>

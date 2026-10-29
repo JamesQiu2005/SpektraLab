@@ -29,7 +29,7 @@ endif()
 if(BUILD_TESTING)
     find_package(Python3 QUIET COMPONENTS Interpreter)
     if(Python3_Interpreter_FOUND)
-        foreach(workflow source proof cineon film_edge pair no_film)
+        foreach(workflow source proof cineon film_edge pair no_film no_film_upstream)
             add_test(NAME spk_host_${workflow}_workflow COMMAND "${Python3_EXECUTABLE}"
                 "${CMAKE_CURRENT_SOURCE_DIR}/../tests/host_${workflow}.py"
                 --host "$<TARGET_FILE:spektralab-host>" --resources "${CMAKE_CURRENT_BINARY_DIR}/../resources")

@@ -30,6 +30,12 @@
 #include <string>
 #include <unordered_map>
 #include <vector>
+#ifdef _WIN32
+#ifndef NOMINMAX
+#define NOMINMAX
+#endif
+#include <windows.h>
+#endif
 
 namespace spk::gpu {
 
@@ -38,6 +44,7 @@ struct Buffer {
     VkDeviceMemory memory = VK_NULL_HANDLE;
     void* mapped = nullptr;
     size_t bytes = 0;
+    size_t requested_bytes = 0; // Current borrower size; bytes is pool capacity.
     VkDeviceSize allocation_bytes = 0;
     uint32_t memory_type = UINT32_MAX;
     VkMemoryPropertyFlags memory_flags = 0;
@@ -78,6 +85,7 @@ constexpr KernelSpec kKernels[] = {
     {"spk_cctf_encode_matrix", 4, kWorkgroup},
     {"spk_to_rgba16", 3, kWorkgroup},
     {"spk_view_grade", 5, kWorkgroup},
+    {"spk_view_grade_float", 5, kWorkgroup},
     {"spk_view_grade_di", 6, kWorkgroup},
     {"spk_view_geometry", 4, kWorkgroup},
     {"spk_view_pack", 4, kWorkgroup},
@@ -501,6 +509,21 @@ public:
         }
         return upload_persistent(data, count * sizeof(uint32_t), error);
     }
+    bool try_promote_persistent(Buffer* b, size_t bytes) override {
+        // Same order as trim_pool: finish any synchronous queue submission
+        // before changing how the buffer is reclaimed. Membership is checked
+        // before dereferencing a pointer that might belong to another backend.
+        std::lock_guard<std::mutex> dispatch_lock(dispatch_mutex_);
+        std::lock_guard<std::mutex> lock(buffers_mutex_);
+        if (!b || std::find(buffers_.begin(), buffers_.end(), b) == buffers_.end()) return false;
+        if (b->persistent || b->refs != 1 || b->bytes != bytes || b->requested_bytes != bytes)
+            return false;
+        // Keep the allocation in buffers_ and keep its one reference. Statistics
+        // partition this list by persistent, and release already destroys the
+        // last persistent reference. No allocation/reuse audit event occurred.
+        b->persistent = true;
+        return true;
+    }
     // File-backed host pages are a Metal-specific optimisation. This first
     // Vulkan path preserves ownership with ordinary persistent buffers.
     BufferRef alloc_file_backed(size_t bytes, std::string& error) override {
@@ -704,6 +727,21 @@ public:
         return properties_.limits.maxImageDimension2D;
     }
 
+    uint64_t begin_memory_observation() override {
+        std::lock_guard<std::mutex> lock(buffers_mutex_);
+        const uint64_t token = ++observation_serial_;
+        observations_.emplace(token, MemoryObservation{});
+        update_high_water();
+        return token;
+    }
+    MemoryObservation end_memory_observation(uint64_t token) override {
+        std::lock_guard<std::mutex> lock(buffers_mutex_);
+        const auto it = observations_.find(token);
+        if (it == observations_.end()) return {};
+        const auto result = it->second;
+        observations_.erase(it);
+        return result;
+    }
     PoolStats pool_stats() const override {
         std::lock_guard<std::mutex> lock(buffers_mutex_);
         PoolStats out;
@@ -748,6 +786,24 @@ public:
                 std::fprintf(stderr, "{\"vulkan_staging_trim\":true,\"freed_bytes\":%llu,"
                     "\"upload_staging_bytes\":0,\"read_staging_bytes\":0}\n",
                     static_cast<unsigned long long>(staging_freed));
+        }
+        return freed;
+    }
+    size_t trim_pool_incompatible(size_t bytes, size_t min_bytes) override {
+        if (bytes <= min_bytes) return 0;
+        // Match trim_pool's lock order; every submission completes before the
+        // dispatch lock is released. Staging and persistent storage stay put.
+        std::lock_guard<std::mutex> dispatch_lock(dispatch_mutex_);
+        std::lock_guard<std::mutex> lock(buffers_mutex_);
+        size_t freed = 0;
+        for (auto it = buffers_.begin(); it != buffers_.end();) {
+            Buffer* b = *it;
+            if (!b->persistent && b->refs == 0 && b->bytes >= min_bytes && b->bytes < bytes) {
+                freed += b->bytes;
+                destroy_buffer(b);
+                delete b;
+                it = buffers_.erase(it);
+            } else ++it;
         }
         return freed;
     }
@@ -925,12 +981,23 @@ private:
         }
         std::lock_guard<std::mutex> lock(buffers_mutex_);
         if (!persistent) {
+            // Do not retain a full-resolution plane for a small preview or
+            // constant request. Dispatch completion makes zero-ref blocks idle.
+            for (auto it = buffers_.begin(); it != buffers_.end();) {
+                Buffer* b = *it;
+                if (bytes >= (size_t(1) << 20) && !b->persistent && b->refs == 0 && b->bytes > bytes &&
+                    b->bytes - bytes > std::max(bytes, size_t(64) << 20)) {
+                    destroy_buffer(b); delete b; it = buffers_.erase(it);
+                } else ++it;
+            }
             Buffer* best = nullptr;
             for (Buffer* b : buffers_)
                 if (!b->persistent && b->refs == 0 && b->bytes >= bytes &&
+                    b->bytes - bytes <= std::max(bytes, size_t(64) << 20) &&
                     (!best || b->bytes < best->bytes)) best = b;
             if (best) {
                 best->refs = 1;
+                best->requested_bytes = bytes;
                 ++audit_.reuses;
                 audit_.reuse_bytes_requested += bytes;
                 audit_.reuse_bytes_taken += best->bytes;
@@ -944,8 +1011,31 @@ private:
         }
         auto b = std::make_unique<Buffer>();
         b->bytes = bytes;
+        b->requested_bytes = bytes;
         b->persistent = persistent;
-        if (!create_buffer(*b, error)) return {};
+        bool memory_pressure = false;
+        if (!create_buffer(*b, error, false, false, &memory_pressure)) {
+            if (!memory_pressure) return {};
+            // Already under buffers_mutex_. Synchronous submissions and zero
+            // references make these blocks safe to reclaim. Keep live images,
+            // persistent caches and transfer staging intact for recovery.
+            size_t freed = 0;
+            for (auto it = buffers_.begin(); it != buffers_.end();) {
+                Buffer* idle = *it;
+                if (!idle->persistent && idle->refs == 0) {
+                    freed += idle->allocation_bytes;
+                    destroy_buffer(idle);
+                    delete idle;
+                    it = buffers_.erase(it);
+                } else ++it;
+            }
+            if (!freed) return {};
+            if (std::getenv("SPEKTRAFILM_NODE_MEMORY"))
+                std::fprintf(stderr, "allocation_reclaim requested=%zu freed=%zu\n", bytes, freed);
+            error.clear();
+            // One retry only; a genuine live working-set shortage still fails.
+            if (!create_buffer(*b, error)) return {};
+        }
         Buffer* raw = b.release();
         buffers_.push_back(raw);
         if (persistent) ++audit_.persistent_allocations;
@@ -955,12 +1045,26 @@ private:
     }
 
     void update_high_water() {
-        size_t live = 0;
-        for (const Buffer* b : buffers_) if (!b->persistent && b->refs) live += b->bytes;
+        size_t live = 0, resident = 0, requested = 0;
+        for (const Buffer* b : buffers_) {
+            if (!b->persistent && b->refs) {
+                live += b->bytes;
+                requested += b->requested_bytes;
+            }
+            resident += b->allocation_bytes;
+        }
         frame_high_water_ = std::max(frame_high_water_, live);
+        for (auto& item : observations_) {
+            if (live > item.second.live_peak) item.second.requested_at_live_peak = requested;
+            item.second.requested_live_peak = std::max(item.second.requested_live_peak, requested);
+            item.second.live_peak = std::max(item.second.live_peak, live);
+            item.second.resident_peak = std::max(item.second.resident_peak, resident);
+        }
     }
 
-    bool create_buffer(Buffer& b, std::string& error, bool staging = false, bool readback = false) {
+    bool create_buffer(Buffer& b, std::string& error, bool staging = false, bool readback = false,
+                       bool* memory_pressure = nullptr) {
+        if (memory_pressure) *memory_pressure = false;
         VkBufferCreateInfo create{};
         create.sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO;
         create.size = VkDeviceSize(b.bytes);
@@ -999,6 +1103,29 @@ private:
             return false;
         }
         VkMemoryAllocateInfo allocate_info{};
+#ifdef _WIN32
+        // Device allocations can also consume Windows commit. Leave room for
+        // the editor and for error recovery; physical RAM alone is insufficient.
+        MEMORYSTATUSEX status{}; status.dwLength = sizeof(status);
+        uint64_t reserve = 3ull << 30;
+        // Diagnostic override can only increase protection. Allows recovery
+        // testing without actually exhausting the machine's memory.
+        if (const char* value = std::getenv("SPEKTRAFILM_TEST_COMMIT_RESERVE_GIB")) {
+            if (std::strlen(value) <= 2 && *value >= '0' && *value <= '9') {
+                char* end = nullptr;
+                const unsigned long gib = std::strtoul(value, &end, 10);
+                if (end && !*end && gib >= 3 && gib <= 64) reserve = uint64_t(gib) << 30;
+            }
+        }
+        if (GlobalMemoryStatusEx(&status) &&
+            (status.ullAvailPageFile <= reserve ||
+             requirements.size > status.ullAvailPageFile - reserve)) {
+            error = "Insufficient system commit budget for Vulkan allocation; retain preview and retry after freeing resources";
+            if (memory_pressure) *memory_pressure = true;
+            destroy_buffer(&b);
+            return false;
+        }
+#endif
         allocate_info.sType = VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO;
         allocate_info.allocationSize = requirements.size;
         allocate_info.memoryTypeIndex = memory_index;
@@ -1011,6 +1138,8 @@ private:
             result = vkMapMemory(device_, b.memory, 0, VK_WHOLE_SIZE, 0, &b.mapped);
         if (result != VK_SUCCESS) {
             error = vk_error("Vulkan buffer memory", result);
+            if (memory_pressure) *memory_pressure =
+                result == VK_ERROR_OUT_OF_HOST_MEMORY || result == VK_ERROR_OUT_OF_DEVICE_MEMORY;
             destroy_buffer(&b);
             return false;
         }
@@ -1134,6 +1263,8 @@ private:
     std::vector<Buffer*> buffers_;
     PoolAudit audit_;
     size_t frame_high_water_ = 0;
+    uint64_t observation_serial_ = 0;
+    std::unordered_map<uint64_t, MemoryObservation> observations_;
 };
 
 }  // namespace
