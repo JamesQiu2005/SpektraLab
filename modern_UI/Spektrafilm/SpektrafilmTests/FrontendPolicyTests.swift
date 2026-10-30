@@ -375,6 +375,68 @@ final class FrontendPolicyTests: XCTestCase {
                        "and the original must be untouched by having been copied")
     }
 
+    /// A save this window made must not come back through the watch as an
+    /// "outside edit". The watch cannot tell who wrote a file, and its
+    /// debounce outlives the save's: by the time it fires, the in-memory
+    /// sidecar can already be newer than the bytes on disk. Comparing the
+    /// disk against memory would then adopt this window's own save and roll
+    /// the newer edit back (the review on #29).
+    func testTheWindowsOwnSaveIsNotAdoptedAsAnOutsideEdit() throws {
+        let dir = FileManager.default.temporaryDirectory
+            .appending(path: "spk-sidecar-echo-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        addTeardownBlock { try? FileManager.default.removeItem(at: dir) }
+        let url = dir.appending(path: "frame.tif")
+        try Data().write(to: url)
+        addTeardownBlock { Sidecar.remove(for: url) }
+
+        let session = Session()
+        session.select(url)
+        var s1 = session.params
+        s1.printBrightnessStops = -0.5
+        session.params = s1
+        session.flushSave()
+
+        // The slider moves again before the watch fires: S2 is in memory only.
+        var s2 = s1
+        s2.printBrightnessStops = -1.1
+        session.params = s2
+
+        session.sidecarStoreChanged()
+        XCTAssertEqual(session.params.printBrightnessStops, -1.1,
+                       "the window's own save was adopted as an outside edit")
+        session.flushSave()
+    }
+
+    /// The other half of the rule: a change that is not the last agreement is
+    /// still adopted, so the suppression above cannot swallow the CLI and the
+    /// MCP server.
+    func testAnOutsideWriteIsStillAdopted() throws {
+        let dir = FileManager.default.temporaryDirectory
+            .appending(path: "spk-sidecar-outside-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        addTeardownBlock { try? FileManager.default.removeItem(at: dir) }
+        let url = dir.appending(path: "frame.tif")
+        try Data().write(to: url)
+        addTeardownBlock { Sidecar.remove(for: url) }
+
+        let session = Session()
+        session.select(url)
+        var mine = session.params
+        mine.printBrightnessStops = -0.5
+        session.params = mine
+        session.flushSave()
+
+        var outside = try XCTUnwrap(Sidecar.load(for: url))
+        outside.params.printBrightnessStops = -2.0
+        try outside.save(for: url)
+
+        session.sidecarStoreChanged()
+        XCTAssertEqual(session.params.printBrightnessStops, -2.0,
+                       "an outside write was ignored as if it were our own save")
+        session.flushSave()
+    }
+
     /// Two different photographs that happen to share a file name stay
     /// separate — the case that worried the user. The key carries the whole
     /// path, and the identity fallback must not merge them either: different

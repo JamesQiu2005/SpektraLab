@@ -850,6 +850,9 @@ final class Session: CanvasHost {
     /// copy or sync takes. Persisted, and all seven by default, which is what ⇧⌘V
     /// copied before the groups existed.
     @ObservationIgnored private let clipboardDefaults: UserDefaults
+    /// The store's writes made outside this window (CLI, MCP server, a
+    /// script): the open frame follows them instead of waiting for a relaunch.
+    @ObservationIgnored private let sidecarWatch = SidecarWatch()
     var clipboardGroups: Set<ClipboardGroup> {
         didSet {
             clipboardDefaults.set(clipboardGroups.map(\.rawValue).sorted(),
@@ -1021,6 +1024,15 @@ final class Session: CanvasHost {
     private var saveTask: Task<Void, Never>?
     private var reopenTask: Task<Void, Never>?
     private var printWritebackTask: Task<Void, Never>?
+    /// The sidecar this window and the file last agreed on, per frame.
+    ///
+    /// The watch cannot tell who wrote a file, and its debounce runs *after*
+    /// the save's: by the time it fires, the in-memory sidecar can already be
+    /// newer than the bytes on disk. Comparing the disk against memory would
+    /// then read this window's own save as an outside edit and roll the newer
+    /// one back, so a change that matches what was last agreed on carries no
+    /// news and is ignored.
+    private var lastSynced: [URL: Sidecar] = [:]
     // Renamed with the product. The old `com.hanze.spektrafilm` and
     // `com.hanze.filmify` directories are simply orphaned: this holds
     // decoded-TIFF caches, which rebuild on demand, so nothing needs
@@ -1094,6 +1106,7 @@ final class Session: CanvasHost {
         Task { await client.set(onTermination: { [weak self] reason in
             Task { @MainActor in self?.serviceReady = false; self?.status = reason; self?.lastError = reason }
         }) }
+        sidecarWatch.start { [weak self] in self?.sidecarStoreChanged() }
         bootTask = warmUp()
     }
 
@@ -1357,6 +1370,7 @@ final class Session: CanvasHost {
     private func unloadSelection() {
         if let selection { enqueuePrintWriteback(for: selection) }
         selection = nil
+        sidecarWatch.watch(nil)
         pair = nil
         pairRightExif = nil
         renderer.store.dropIdleScratch()
@@ -1397,6 +1411,67 @@ final class Session: CanvasHost {
         frameStates[url] = saved?.state ?? .unprocessed
         savedGeometry[url] = saved?.geometry ?? .default
         if url == selection { sidecar = Sidecar.load(for: url) ?? Sidecar() }
+    }
+
+    /// The store changed on disk. Adopt the open frame's sidecar when the
+    /// write is not one this session made: the CLI and the MCP server drive
+    /// the same file the window does (§7.9), and until now the canvas only
+    /// read it when the frame was opened.
+    ///
+    /// The comparison is the **edit**, not the file: `save` stamps `source`
+    /// with the frame's identity on the way out, so the copy on disk never
+    /// equals the one in memory. Content that matches `lastSynced` is this
+    /// window's own save coming back — memory may be newer by then, and
+    /// adopting the older copy would undo the newer edit.
+    ///
+    /// Internal rather than private so a test can drive the callback without
+    /// waiting on a file descriptor and a debounce.
+    func sidecarStoreChanged() {
+        guard pair == nil, let url = selection,
+              let fresh = Sidecar.load(for: url) else { return }
+        var comparable = fresh
+        comparable.source = sidecar.source
+        if var agreed = lastSynced[url] {
+            agreed.source = sidecar.source
+            guard comparable != agreed else { return }
+        }
+        guard comparable != sidecar else { return }
+        adopt(fresh, for: url)
+    }
+
+    /// Apply a sidecar written elsewhere to the frame on the canvas.
+    ///
+    /// Nothing is saved back: the file just read is the truth, and writing it
+    /// again would race the process that wrote it. A save this window queued
+    /// but has not written is cancelled for the same reason. The app's next
+    /// own edit saves as usual.
+    private func adopt(_ fresh: Sidecar, for url: URL) {
+        let old = sidecar
+        saveTask?.cancel()
+        saveTask = nil
+        // The film edge takes the crop into its gate and gives it back, so
+        // the geometry moves before the params land — the `params` setter's
+        // order, for the same reason.
+        filmEdgeWillChange(from: old.params, to: fresh.params)
+        sidecar = fresh
+        lastSynced[url] = fresh
+        frameStates[url] = fresh.state
+        savedGeometry[url] = fresh.geometry
+        renderer.geometry = canvasGeometry
+        pushLayer2(fresh.adjustments)
+        syncMasks()
+        // Layer 1 changed: the engine has to print again. Layer 2 alone is a
+        // draw, which is what makes a slider live. A decode change is an open,
+        // not a delta.
+        if fresh.params != old.params || fresh.geometry != old.geometry {
+            requestPrint()
+        } else if fresh.decode != old.decode {
+            scheduleReopen()
+        } else {
+            renderer.needsDraw?()
+        }
+        status = "\(url.lastPathComponent)  ·  reloaded from the sidecar"
+        log.info(.canvas, "sidecar reloaded", [.init("frame", url.lastPathComponent)])
     }
 
     /// Drop a frame from the session. Never touches the file.
@@ -1514,6 +1589,9 @@ final class Session: CanvasHost {
         developTask?.cancel(); developTask = nil
         renderer.dropFullRender()
         sidecar = Sidecar.load(for: url) ?? Sidecar()
+        // The file this frame's edits live in: from here on, a write made
+        // outside this window reaches the canvas (issue #29).
+        sidecarWatch.watch(Sidecar.url(for: url))
         // Except a frame with an edit the engine has not rendered — a paste
         // made while another frame was on the canvas (RFC-027 §4). That edit
         // asked for a develop as surely as a slider does, and without one the
@@ -2787,7 +2865,11 @@ final class Session: CanvasHost {
     func flushSave() {
         saveTask?.cancel()
         guard let url = selection else { return }
-        try? sidecar.save(for: url)
+        if (try? sidecar.save(for: url)) != nil {
+            var written = sidecar
+            written.source = Sidecar.identity(of: url)
+            lastSynced[url] = written
+        }
         savedGeometry[url] = sidecar.geometry
         if sidecar.params.cutsFrame { filmEdgeThumbnails.insert(url) } else { filmEdgeThumbnails.remove(url) }
     }
