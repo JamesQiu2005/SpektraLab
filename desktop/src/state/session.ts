@@ -51,6 +51,7 @@ import { frameOrder } from './frameOrder';
 import { displayCacheKey, forgetDisplayMemoryCache, peekDisplayCache, readDisplayCache, writeDisplayCache, type DisplayCacheDescriptor } from './displayCache';
 import { PreviewQueue } from './previewQueue';
 import { tz } from '../i18n';
+import { hostMessage } from '../host/messages';
 import { clampZoom, steppedZoom } from '../canvas/zoom';
 
 export type Tool = 'select' | 'hand' | 'crop' | 'neutral';
@@ -349,7 +350,7 @@ export function notePreviewDrawn() {
 }
 
 function noteError(op: string, e: unknown) {
-  const msg = e instanceof HostCallError ? `${e.message} (${e.code})` : e instanceof Error ? e.message : String(e);
+  const msg = e instanceof HostCallError ? `${hostMessage(e.message)} (${e.code})` : e instanceof Error ? hostMessage(e.message) : String(e);
   platform().log('error', `${op}: ${msg}`);
   set({ lastError: `${op}: ${msg}`, status: tz(`${op} failed: ${msg}`, `${op} 失败：${msg}`) });
 }
@@ -1099,7 +1100,7 @@ export async function refreshLatitude(): Promise<LatitudeReply | null> {
     const text = e instanceof Error ? e.message : String(e);
     const failure = text.includes('boundaries do not lie inside')
       ? tz('This film/paper pair has no measurable latitude inside the probe range.', '此胶片与相纸组合的宽容度超出测量范围。')
-      : text.includes('no positive pixels') ? tz('This frame contains no positive light to measure.', '此照片没有可测量的正光照像素。') : text;
+      : text.includes('no positive pixels') ? tz('This frame contains no positive light to measure.', '此照片没有可测量的正光照像素。') : hostMessage(text);
     set({ latitude: { ...get().latitude, reply: null, session: sid, frame, stamp, failure } });
     return null;
   }
