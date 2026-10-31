@@ -12,6 +12,7 @@ const fake = vi.hoisted(() => ({
   select: vi.fn(), request: vi.fn(), renderProof: vi.fn(), cancel: vi.fn(), probe: vi.fn(), sidecarLoad: vi.fn(),
   ensureDir: vi.fn(), pathExists: vi.fn(), log: vi.fn(), storeRead: vi.fn(), storeWrite: vi.fn(), pickFolder: vi.fn(), paint: vi.fn(),
   workspaceBegin: vi.fn(), workspaceEnd: vi.fn(),
+  onEvent: vi.fn(),
   output: { width: 1, height: 1, colorSpace: 'display-p3', data: new Uint8Array([180, 120, 80, 255]) },
 }));
 vi.mock('../state/session', async () => {
@@ -22,7 +23,7 @@ vi.mock('../state/session', async () => {
     useSession: <T,>(selector: (s: SessionState) => T) => useStore(sessionStore, selector) };
 });
 vi.mock('../state/settings', () => ({ settingsStore: { getState: () => ({ recalculateEffectsAfterCrop: false }) } }));
-vi.mock('../host/client', () => ({ host: () => ({ transport: { request: fake.request }, renderProof: fake.renderProof, cancel: fake.cancel, probe: fake.probe }) }));
+vi.mock('../host/client', () => ({ host: () => ({ transport: { request: fake.request }, renderProof: fake.renderProof, cancel: fake.cancel, probe: fake.probe, onEvent: fake.onEvent }) }));
 vi.mock('../platform', async (original) => ({ ...await original<typeof PlatformModule>(), platform: () => fake }));
 vi.mock('../canvas/output', () => ({ useOutput: () => fake.output }));
 vi.mock('../canvas/colorSpace', () => ({ paintOutput: fake.paint }));
@@ -49,6 +50,8 @@ async function mount() {
   root = createRoot(div);
   await act(async () => { root.render(<ExportPage />); });
 }
+/** Let the batch's own promise chain, which outlives the click, run to its end. */
+const settle = () => act(async () => { await new Promise((r) => setTimeout(r, 0)); });
 async function click(button: HTMLButtonElement) {
   await act(async () => { button.dispatchEvent(new MouseEvent('click', { bubbles: true })); });
 }
@@ -74,6 +77,7 @@ beforeEach(() => {
   fake.cancel.mockResolvedValue(true);
   fake.workspaceBegin.mockResolvedValue(71);
   fake.workspaceEnd.mockResolvedValue(undefined);
+  fake.onEvent.mockReturnValue(() => {});
   sessionStore.setState({ exportOpen: true, picked: ['D:/photos/b.NEF', 'D:/photos/a.NEF'],
     selection: 'D:/photos/a.NEF', engineSession: 'editor', batchExporting: false, developing: false, redecoding: false,
     nativeSize: { width: 6000, height: 4000 }, metadata: {}, gate: structuredClone(ALL_FEATURES),
@@ -178,6 +182,38 @@ describe('export page batch integration', () => {
     expect((div.querySelector('[data-testid=export-run]') as HTMLButtonElement).disabled).toBe(true);
     expect(div.textContent).toContain('Update the engine to export');
     expect(fake.request).not.toHaveBeenCalled();
+  });
+});
+
+describe('export progress', () => {
+  const run = () => div.querySelector('[data-testid=export-run]') as HTMLButtonElement;
+  const bar = () => div.querySelector('[data-testid=export-progress]')!;
+  const progress = (fields: Record<string, unknown>) => act(async () => {
+    (fake.onEvent.mock.calls[0]![0] as (e: Record<string, unknown>) => void)({ event: 'progress', session: '', ...fields });
+  });
+  it('moves the bar with the active job’s progress events and ignores other jobs', async () => {
+    const unsubscribe = vi.fn();
+    fake.onEvent.mockReturnValue(unsubscribe);
+    const pending = deferred<ReturnType<typeof reply>>();
+    fake.request.mockReturnValueOnce(pending.promise).mockResolvedValueOnce(reply());
+    await mount(); await click(run());
+    const job = fake.request.mock.calls[0]![1] as { progress_id: string };
+    expect(bar().getAttribute('aria-valuenow')).toBe('0');
+    await progress({ progress_id: 'another-job', fraction: 0.9, stage: 'render' });
+    expect(bar().getAttribute('aria-valuenow')).toBe('0');
+    await progress({ progress_id: job.progress_id, fraction: 0.5, stage: 'render' });
+    expect(bar().getAttribute('aria-valuenow')).toBe('25');
+    expect(div.textContent).toContain('0 of 2 processed · rendering 50%');
+    await progress({ progress_id: job.progress_id, fraction: 1, stage: 'done' });
+    expect(bar().getAttribute('aria-valuenow')).toBe('50');
+    expect(unsubscribe).not.toHaveBeenCalled();
+    await act(async () => { pending.resolve(reply()); });
+    await settle();
+    expect(bar().getAttribute('aria-valuenow')).toBe('100');
+    expect(div.textContent).toContain('2 of 2 processed');
+    expect(div.textContent).not.toContain('%');
+    expect(fake.onEvent).toHaveBeenCalledOnce();
+    expect(unsubscribe).toHaveBeenCalledOnce();
   });
 });
 

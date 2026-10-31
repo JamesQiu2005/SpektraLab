@@ -26,6 +26,33 @@ const TOKEN_LABEL: Record<NameToken, () => string> = {
   date: () => tz('Date', '日期'),
 };
 
+export interface ExportProgress {
+  done: number;
+  total: number;
+  /** The active job's fraction and stage, from the host's progress events. */
+  fraction: number;
+  stage: string | null;
+}
+
+const STAGE_LABEL: Record<string, () => string> = {
+  render: () => tz('rendering', '渲染中'),
+  transform: () => tz('encoding', '编码中'),
+  encode: () => tz('encoding', '编码中'),
+  done: () => tz('done', '完成'),
+};
+
+/** Whole-batch completion in percent: finished frames plus the active one. */
+export function progressPercent(p: ExportProgress): number {
+  const frames = Math.min(p.total, p.done + (p.stage === 'done' ? 1 : p.fraction));
+  return Math.round((100 * frames) / Math.max(1, p.total));
+}
+
+export function progressText(p: ExportProgress): string {
+  const base = tz(`${p.done} of ${p.total} processed`, `已处理 ${p.done} / ${p.total}`);
+  if (p.done >= p.total || !p.stage) return base;
+  return `${base} · ${(STAGE_LABEL[p.stage] ?? (() => p.stage!))()} ${Math.round(p.fraction * 100)}%`;
+}
+
 async function loadRecipes(): Promise<ExportRecipe[]> {
   try {
     return decodeRecipes(await platform().storeRead('Export', 'recipes.json'));
@@ -60,7 +87,7 @@ export function ExportPage() {
   const [recipes, setRecipes] = useState<ExportRecipe[]>(DEFAULT_RECIPES);
   const [current, setCurrent] = useState(0);
   const [log, setLog] = useState<{ name: string; outcome: ExportOutcome }[]>([]);
-  const [progress, setProgress] = useState<{ done: number; total: number } | null>(null);
+  const [progress, setProgress] = useState<ExportProgress | null>(null);
   const [sample, setSample] = useState('');
   const stop = useRef(false);
   const active = useRef<ExportJob | null>(null);
@@ -193,10 +220,22 @@ export function ExportPage() {
     } : null;
     stop.current = false;
     setLog([]);
-    setProgress({ done: 0, total: paths.length });
+    setProgress({ done: 0, total: paths.length, fraction: 0, stage: null });
     sessionStore.setState({ batchExporting: true });
     let done = 0;
     let lease: number | null = null;
+    // The host reports a private job's progress under its progress id
+    // (HOST-PROTOCOL.md, Events). Only the active job moves the bar.
+    const unsubscribe = host().onEvent((e) => {
+      const job = active.current;
+      if (!job || e.event !== 'progress' || e.progress_id !== job.progressId) return;
+      const fraction = Number(e.fraction);
+      setProgress((p) => p && {
+        ...p,
+        fraction: Number.isFinite(fraction) ? Math.min(1, Math.max(0, fraction)) : p.fraction,
+        stage: typeof e.stage === 'string' ? e.stage : p.stage,
+      });
+    });
     try {
       // Keep the native workspace lease between frames as well as during
       // each host call, so an external editor cannot change this batch's inputs.
@@ -214,13 +253,14 @@ export function ExportPage() {
         platform().log(outcome.kind === 'failed' ? 'error' : 'info', `export ${baseName(item.path)}: ${JSON.stringify(outcome)}`);
         setLog((l) => [...l, { name: baseName(item.path), outcome }]);
         if (outcome.kind === 'cancelled') break;
-        setProgress({ done: ++done, total: paths.length });
+        setProgress({ done: ++done, total: paths.length, fraction: 0, stage: null });
       }
     } catch (e) {
       const message = e instanceof Error ? e.message : String(e);
       platform().log('error', `export batch: ${message}`);
       setLog((l) => [...l, { name: tz('Batch', '批量导出'), outcome: { kind: 'failed', message } }]);
     } finally {
+      unsubscribe();
       active.current = null;
       if (lease !== null) await platform().workspaceEnd(lease).catch((e) => platform().log('error', `export lease: ${String(e)}`));
       sessionStore.setState({ batchExporting: false });
@@ -237,8 +277,8 @@ export function ExportPage() {
     <div className="export-page" data-testid="export-page">
       <div className="topbar">
         <span style={{ fontWeight: 700, fontSize: 'var(--fs-rail-title)' }}>{t('helpExport')}</span>
-        <span className="bar-status">
-          {progress ? tz(`${progress.done} of ${progress.total} processed`, `已处理 ${progress.done} / ${progress.total}`) : ''}
+        <span className="bar-status" data-testid="export-status">
+          {progress ? progressText(progress) : ''}
         </span>
         <span className="pill-menu" style={{ marginRight: 12 }}>
           {tz(`${frames.length} image${frames.length === 1 ? '' : 's'}`, `${frames.length} 张`)}
@@ -258,6 +298,12 @@ export function ExportPage() {
           </>
         )}
       </div>
+      {progress && (
+        <div className="export-progress" role="progressbar" aria-label={tz('Export progress', '导出进度')}
+          aria-valuemin={0} aria-valuemax={100} aria-valuenow={progressPercent(progress)} data-testid="export-progress">
+          <div className="export-progress-fill" style={{ width: `${progressPercent(progress)}%` }} />
+        </div>
+      )}
       <div className="export-body">
         <aside className="rail left" style={{ pointerEvents: batch ? 'none' : undefined }}>
           <div className="rail-scroll">
