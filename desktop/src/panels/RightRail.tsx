@@ -5,6 +5,7 @@
 import { useRef, useState } from 'react';
 import { Checkbox, NumberField, PillMenu, ScrubSlider, Section, SegmentedSwitch, ToggleRow, signed } from '../controls/controls';
 import { isChinese, t, tz } from '../i18n';
+import { hostMessage } from '../host/messages';
 import { cameraParams, cameraExposureBaseline, cameraExposureTotal, setCameraMetering, setCameraExposureTotal, resetCameraExposure, pairFocus, shownAdjustments, shownDecode as selectedDecode, updatePair, canPickNeutral, currentPlacementWindow, hostRedecodes, placeScene, placementReady, resetScenePlacement, setAdjustments, setDecode, setFilmFrame, setFilmSide, setParams, setSideLengthMM, startNeutralPick, useSession } from '../state/session';
 import { settingsStore, useSettings } from '../state/settings';
 import {
@@ -139,7 +140,7 @@ function CameraSection() {
   const span = Math.max(hole ? 5 : 8, Math.ceil(Math.abs(total ?? 0)));
   const lens = (focus ? state.pairInfo?.[focus]?.metadata : state.metadata)?.lens_correction;
   const lensReady = lens?.available === true && !!state.hello?.methods?.includes(state.pair ? 'update_pair' : 'redecode') && !state.batchExporting;
-  const lensReason = lens?.reason || tz('No matching lens profile is available for this photograph.', '此照片没有匹配的镜头配置文件。');
+  const lensReason = lens?.reason ? hostMessage(lens.reason) : tz('No matching lens profile is available for this photograph.', '此照片没有匹配的镜头配置文件。');
   const lensParts = lens ? [lens.distortion && tz('distortion', '畸变'), lens.tca && tz('colour fringing', '横向色差'), lens.vignetting && tz('vignetting', '暗角')].filter(Boolean).join(' · ') : '';
   const wb = useWhiteBalance();
   const options: { value: AEMethod; label: string; disabled?: boolean }[] = [

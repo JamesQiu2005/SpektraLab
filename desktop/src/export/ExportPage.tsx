@@ -12,6 +12,7 @@ import { platform, baseName } from '../platform';
 import { sessionStore, setPages, useSession } from '../state/session';
 import { settingsStore } from '../state/settings';
 import { host, type ProofReply } from '../host/client';
+import { hostMessage } from '../host/messages';
 import { Thumb } from '../windows/Filmstrip';
 import { GEOMETRY_DEFAULT } from '@shared/geometry';
 import { isPairPath } from '@shared/pair';
@@ -421,7 +422,7 @@ export function ExportPage() {
               </div>
               {log.map((l, i) => (
                 <div key={i} className="caption mono" style={{ color: l.outcome.kind === 'failed' ? 'var(--hist-r)' : undefined }}>
-                  {l.name}: {l.outcome.kind === 'written' ? `→ ${l.outcome.path}` : l.outcome.kind === 'skipped' ? tz(`skipped (${l.outcome.path} exists)`, `已跳过（${l.outcome.path} 已存在）`) : l.outcome.kind === 'cancelled' ? tz('cancelled', '已取消') : l.outcome.message}
+                  {l.name}: {l.outcome.kind === 'written' ? `→ ${l.outcome.path}` : l.outcome.kind === 'skipped' ? tz(`skipped (${l.outcome.path} exists)`, `已跳过（${l.outcome.path} 已存在）`) : l.outcome.kind === 'cancelled' ? tz('cancelled', '已取消') : hostMessage(l.outcome.message)}
                 </div>
               ))}
               {log.some((l) => l.outcome.kind === 'written') && (

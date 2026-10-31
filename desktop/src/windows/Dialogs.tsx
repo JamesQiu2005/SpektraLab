@@ -6,6 +6,7 @@ import * as Dialog from '@radix-ui/react-dialog';
 import { useEffect, useState } from 'react';
 import { PillMenu, ToggleRow } from '../controls/controls';
 import { t, tz } from '../i18n';
+import { hostMessage } from '../host/messages';
 import { host } from '../host/client';
 import { platform, type AppPaths } from '../platform';
 import { recomputeFilmFormat, requestPrint, setPages, useSession, sessionStore } from '../state/session';
@@ -299,7 +300,7 @@ export function HostFailure() {
             <h2>{tz('The render engine could not start', '渲染引擎无法启动')}</h2>
           </Dialog.Title>
           <div className="dialog-body">
-            <p>{st.reason}</p>
+            <p>{hostMessage(st.reason)}</p>
             {vulkan && (
               <p className="caption">
                 {tz(

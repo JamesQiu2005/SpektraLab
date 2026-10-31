@@ -31,7 +31,7 @@ vi.mock('../controls/controls', () => ({
   Section: ({ children }: { children: ReactNode }) => <section>{children}</section>,
   Checkbox: () => null, NumberField: () => null, PillMenu: () => null, ScrubSlider: () => null,
 }));
-vi.mock('../i18n', () => ({ t: (key: string) => key, tz: (english: string) => english }));
+vi.mock('../i18n', () => ({ t: (key: string) => key, tz: (english: string) => english, isChinese: () => false }));
 import { ExportPage } from './ExportPage';
 import { sessionStore } from '../state/session';
 
