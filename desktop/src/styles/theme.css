@@ -193,6 +193,11 @@ input {
 .icon-btn.dim {
   color: rgba(249, 247, 243, 0.55);
 }
+.recent-button {
+  width: 14px;
+  margin-left: -6px;
+  font-size: var(--fs-small);
+}
 .action-pill {
   min-width: calc(83px * var(--ui-scale));
   height: calc(19px * var(--ui-scale));

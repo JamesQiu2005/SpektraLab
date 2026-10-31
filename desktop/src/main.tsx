@@ -21,11 +21,14 @@ function applySettings() {
 }
 applySettings();
 
+// The native menu is built once per language and per recent-folder list.
 let lastLanguage = settingsStore.getState().language;
+let lastRecent = settingsStore.getState().recentFolders;
 settingsStore.subscribe((s) => {
   applySettings();
-  if (s.language !== lastLanguage) {
+  if (s.language !== lastLanguage || s.recentFolders !== lastRecent) {
     lastLanguage = s.language;
+    lastRecent = s.recentFolders;
     if (inTauri()) void installMenu().catch((e) => console.error('menu', e));
   }
 });

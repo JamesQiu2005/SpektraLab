@@ -11,6 +11,7 @@ import { openDialog, openExport, openFilesDialog, restartHost, revealSettings } 
 import {
   setAdjustments,
   makePair,
+  openFolder,
   copySettings,
   currentFitZoom,
   pasteSettings,
@@ -31,7 +32,7 @@ import {
   zoomTo,
   zoomToFit,
 } from '../state/session';
-import { settingsStore } from '../state/settings';
+import { forgetRecentFolders, settingsStore } from '../state/settings';
 import { turned } from '@shared/geometry';
 import { platform } from '../platform';
 
@@ -70,12 +71,29 @@ const item = (text: string, action: () => void, accelerator?: string) => {
 };
 const sep = () => PredefinedMenuItem.new({ item: 'Separator' });
 
+/** File › Open Recent: the folders opened most recently, newest first. The
+ * menu is installed again when the list changes (main.tsx). */
+const recentSubmenu = async () => {
+  const recent = settingsStore.getState().recentFolders;
+  return Submenu.new({
+    text: tz('Open Recent', '最近打开'),
+    enabled: recent.length > 0,
+    items: [
+      // "&" marks a mnemonic in a native menu; a path keeps its own.
+      ...await Promise.all(recent.map((dir) => item(dir.replace(/&/g, '&&'), () => void openFolder(dir)))),
+      await sep(),
+      await item(tz('Clear Menu', '清除列表'), forgetRecentFolders),
+    ],
+  });
+};
+
 export async function installMenu(): Promise<void> {
   const file = await Submenu.new({
     text: tz('&File', '文件(&F)'),
     items: [
       await item(tz('Open Folder…', '打开文件夹…'), () => void openDialog(), 'CmdOrCtrl+O'),
       await item(tz('Open Photographs…', '打开照片…'), () => void openFilesDialog(), 'CmdOrCtrl+Shift+O'),
+      await recentSubmenu(),
       await item(tz('Export…', '导出…'), openExport, 'CmdOrCtrl+E'),
       await sep(),
       await item(tz('Settings…', '设置…'), () => setPages({ settingsOpen: true }), 'CmdOrCtrl+,'),
