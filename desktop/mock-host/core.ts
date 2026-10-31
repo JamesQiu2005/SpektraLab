@@ -167,6 +167,7 @@ class HostError extends Error {
 export class MockHost {
   private sessions = new Map<string, Session>();
   private next = 1;
+  private listeners = new Set<(event: Record<string, unknown>) => void>();
   private opts: Required<Omit<MockOptions, 'missing'>> & { missing?: (p: string) => boolean };
 
   constructor(opts: MockOptions = {}) {
@@ -178,6 +179,27 @@ export class MockHost {
       renderDelayMs: opts.renderDelayMs ?? 0,
       missing: opts.missing,
     };
+  }
+
+  /** The protocol's events (`{"event": ...}` headers), as the Tauri core relays them. */
+  onEvent(cb: (event: Record<string, unknown>) => void): () => void {
+    this.listeners.add(cb);
+    return () => void this.listeners.delete(cb);
+  }
+
+  private emit(event: Record<string, unknown>) {
+    for (const cb of this.listeners) cb(event);
+  }
+
+  /** Progress events for a request that carries a `progress_id`, in the
+   * protocol's stages; the render delay paces them so a bar can be seen. */
+  private async progress(p: Record<string, unknown>) {
+    if (typeof p.progress_id !== 'string') return;
+    const stages = [[0, 'render'], [0.5, 'transform'], [1, 'done']] as const;
+    for (const [fraction, stage] of stages) {
+      if (this.opts.renderDelayMs && fraction > 0) await sleep(this.opts.renderDelayMs);
+      this.emit({ event: 'progress', session: String(p.session ?? ''), progress_id: p.progress_id, fraction, stage });
+    }
   }
 
   async handle(req: MockRequest): Promise<MockReply> {
@@ -582,6 +604,7 @@ export class MockHost {
         const out = outputSize((p.geometry as Geometry | undefined) ?? GEOMETRY_DEFAULT, cut);
         const edge = method === 'export_cineon' ? 0 : Number(p.long_edge ?? 0);
         const scale = edge > 0 ? Math.min(1, edge / Math.max(out.width, out.height)) : 1;
+        await this.progress(p);
         return { result: { path: String(p.path), width: Math.max(1, Math.round(out.width * scale)),
           height: Math.max(1, Math.round(out.height * scale)), bytes: 0, color_space: p.color_space ?? 'srgb',
           generation: p.generation, print_cached: !noFilm && (editor?.viewPrints.has('full') ?? false), exif_copied: true,

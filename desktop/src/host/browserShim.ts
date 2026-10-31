@@ -41,8 +41,8 @@ export function browserTransport(): Transport {
       stateListeners.add(cb);
       return () => stateListeners.delete(cb);
     },
-    onEvent() {
-      return () => {};
+    onEvent(cb) {
+      return mock.onEvent(cb);
     },
     async restart() {},
     async diagnostics() {
