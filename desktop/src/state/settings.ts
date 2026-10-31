@@ -15,6 +15,10 @@ import { RENDER_PREFERENCES_DEFAULT, renderPreferences } from '@shared/renderPre
 export type InterfaceScale = 100 | 115 | 130;
 export const INTERFACE_SCALES: InterfaceScale[] = [100, 115, 130];
 export const PREVIEW_EDGES = [3840, 2560, 1920, 1080] as const;
+// Declared before loadSettings runs for the module's own store below: a
+// reference to a const not yet initialised throws, and loadSettings's catch
+// would then hand every setting back at its default.
+export const RECENT_FOLDERS_MAX = 8;
 export const PANEL_WIDTHS = { leftWidth: [232, 254, 380], rightWidth: [280, 288, 364] } as const;
 export function boundedPanelWidth(key: keyof typeof PANEL_WIDTHS, width: number): number {
   const [lo, normal, hi] = PANEL_WIDTHS[key];
@@ -39,6 +43,8 @@ export interface Settings {
   filmEdgeBodySeed: number;
   collapsedSections: Record<string, boolean>;
   lastFolder: string | null;
+  /** Folders opened most recently, newest first (File › Open Recent). */
+  recentFolders: string[];
   settingsPage: 'general' | 'rendering' | 'memory' | 'diagnostics' | 'agents';
 }
 
@@ -59,6 +65,7 @@ export const SETTINGS_DEFAULT: Settings = {
   filmEdgeBodySeed: 0,
   collapsedSections: {},
   lastFolder: null,
+  recentFolders: [],
   settingsPage: 'general',
 };
 
@@ -83,6 +90,8 @@ export function loadSettings(storage: Pick<Storage, 'getItem'> | null): Settings
     s.rightWidth = boundedPanelWidth('rightWidth', s.rightWidth);
     if (!Number.isInteger(s.filmEdgeBodySeed) || s.filmEdgeBodySeed < 0 || s.filmEdgeBodySeed > 2147483647) s.filmEdgeBodySeed = 0;
     if (!['general', 'rendering', 'memory', 'diagnostics', 'agents'].includes(s.settingsPage)) s.settingsPage = 'general';
+    s.recentFolders = (Array.isArray(s.recentFolders) ? s.recentFolders : [])
+      .filter((p): p is string => typeof p === 'string' && p.length > 0).slice(0, RECENT_FOLDERS_MAX);
     return s;
   } catch {
     return SETTINGS_DEFAULT;
@@ -131,6 +140,31 @@ function defaultStorage(): Storage | null {
 }
 
 export const settingsStore = createSettingsStore(defaultStorage());
+
+
+/** One folder, one entry: slashes and a trailing separator do not make a
+ * second one, nor does letter case on a Windows path. */
+function sameFolder(a: string, b: string): boolean {
+  const key = (p: string) => {
+    const n = p.replace(/\\/g, '/').replace(/\/+$/, '');
+    return /^([a-z]:|\/\/)/i.test(n) ? n.toLowerCase() : n;
+  };
+  return key(a) === key(b);
+}
+
+/** `recent` with `dir` in front, once, and no more than RECENT_FOLDERS_MAX. */
+export function withRecentFolder(recent: readonly string[], dir: string): string[] {
+  return [dir, ...recent.filter((p) => !sameFolder(p, dir))].slice(0, RECENT_FOLDERS_MAX);
+}
+
+export function rememberFolder(dir: string) {
+  const s = settingsStore.getState();
+  s.set('recentFolders', withRecentFolder(s.recentFolders, dir));
+}
+
+export function forgetRecentFolders() {
+  settingsStore.getState().set('recentFolders', []);
+}
 // The headless CLI has no WebView localStorage. Mirror only the two switches
 // that affect pixels, via an atomic native write independent of batch leases.
 // Serialize writes so a slow startup save cannot replace a newer selection.
