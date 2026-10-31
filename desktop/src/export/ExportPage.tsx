@@ -8,7 +8,7 @@
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { Checkbox, NumberField, PillMenu, ScrubSlider, Section } from '../controls/controls';
 import { t, tz } from '../i18n';
-import { platform, baseName } from '../platform';
+import { platform, baseName, dirName } from '../platform';
 import { sessionStore, setPages, useSession } from '../state/session';
 import { settingsStore } from '../state/settings';
 import { host, type ProofReply } from '../host/client';
@@ -51,6 +51,30 @@ export function progressText(p: ExportProgress): string {
   const base = tz(`${p.done} of ${p.total} processed`, `已处理 ${p.done} / ${p.total}`);
   if (p.done >= p.total || !p.stage) return base;
   return `${base} · ${(STAGE_LABEL[p.stage] ?? (() => p.stage!))()} ${Math.round(p.fraction * 100)}%`;
+}
+
+/** The finished batch, in a dialog: what was written, what was not, and the
+ * folder. A stopped batch is not announced; the page shows where it stopped. */
+export async function reportFinished(outcomes: readonly ExportOutcome[]): Promise<void> {
+  if (!outcomes.length || outcomes.some((o) => o.kind === 'cancelled')) return;
+  const written = outcomes.filter((o): o is Extract<ExportOutcome, { kind: 'written' }> => o.kind === 'written');
+  const failed = outcomes.filter((o): o is Extract<ExportOutcome, { kind: 'failed' }> => o.kind === 'failed');
+  const skipped = outcomes.length - written.length - failed.length;
+  const lines = [tz(
+    `${written.length} written, ${skipped} skipped, ${failed.length} failed.`,
+    `已写入 ${written.length} 张，跳过 ${skipped} 张，失败 ${failed.length} 张。`,
+  )];
+  if (written[0]) lines.push(tz(`Folder: ${dirName(written[0].path)}`, `文件夹：${dirName(written[0].path)}`));
+  if (failed[0]) lines.push(failed[0].message);
+  const title = tz('Export finished', '导出完成');
+  if (!written[0]) {
+    await platform().message(title, lines.join('\n'), 'warning');
+    return;
+  }
+  const show = await platform().confirm(title,
+    `${lines.join('\n')}\n\n${tz('Show the files in their folder?', '是否在文件夹中显示这些文件？')}`,
+    failed.length ? 'warning' : 'info');
+  if (show) await platform().reveal(written[0].path);
 }
 
 async function loadRecipes(): Promise<ExportRecipe[]> {
@@ -224,6 +248,7 @@ export function ExportPage() {
     sessionStore.setState({ batchExporting: true });
     let done = 0;
     let lease: number | null = null;
+    const outcomes: ExportOutcome[] = [];
     // The host reports a private job's progress under its progress id
     // (HOST-PROTOCOL.md, Events). Only the active job moves the bar.
     const unsubscribe = host().onEvent((e) => {
@@ -252,6 +277,7 @@ export function ExportPage() {
           });
         platform().log(outcome.kind === 'failed' ? 'error' : 'info', `export ${baseName(item.path)}: ${JSON.stringify(outcome)}`);
         setLog((l) => [...l, { name: baseName(item.path), outcome }]);
+        outcomes.push(outcome);
         if (outcome.kind === 'cancelled') break;
         setProgress({ done: ++done, total: paths.length, fraction: 0, stage: null });
       }
@@ -259,12 +285,14 @@ export function ExportPage() {
       const message = e instanceof Error ? e.message : String(e);
       platform().log('error', `export batch: ${message}`);
       setLog((l) => [...l, { name: tz('Batch', '批量导出'), outcome: { kind: 'failed', message } }]);
+      outcomes.push({ kind: 'failed', message });
     } finally {
       unsubscribe();
       active.current = null;
       if (lease !== null) await platform().workspaceEnd(lease).catch((e) => platform().log('error', `export lease: ${String(e)}`));
       sessionStore.setState({ batchExporting: false });
     }
+    if (!stop.current) await reportFinished(outcomes).catch((e) => platform().log('error', `export report: ${String(e)}`));
   };
 
   const cancel = () => {

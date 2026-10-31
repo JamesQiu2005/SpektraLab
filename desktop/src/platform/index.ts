@@ -50,7 +50,7 @@ export interface Platform {
   reveal(path: string): Promise<void>;
   openUrl(url: string): Promise<void>;
   message(title: string, text: string, kind?: 'info' | 'warning' | 'error'): Promise<void>;
-  confirm(title: string, text: string): Promise<boolean>;
+  confirm(title: string, text: string, kind?: 'info' | 'warning'): Promise<boolean>;
   onOpenPaths(cb: (paths: string[]) => void): () => void;
   onDrop(cb: (paths: string[]) => void): () => void;
   setTitle(title: string): Promise<void>;

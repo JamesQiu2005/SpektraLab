@@ -12,7 +12,7 @@ const fake = vi.hoisted(() => ({
   select: vi.fn(), request: vi.fn(), renderProof: vi.fn(), cancel: vi.fn(), probe: vi.fn(), sidecarLoad: vi.fn(),
   ensureDir: vi.fn(), pathExists: vi.fn(), log: vi.fn(), storeRead: vi.fn(), storeWrite: vi.fn(), pickFolder: vi.fn(), paint: vi.fn(),
   workspaceBegin: vi.fn(), workspaceEnd: vi.fn(),
-  onEvent: vi.fn(),
+  onEvent: vi.fn(), message: vi.fn(), confirm: vi.fn(), reveal: vi.fn(),
   output: { width: 1, height: 1, colorSpace: 'display-p3', data: new Uint8Array([180, 120, 80, 255]) },
 }));
 vi.mock('../state/session', async () => {
@@ -78,6 +78,9 @@ beforeEach(() => {
   fake.workspaceBegin.mockResolvedValue(71);
   fake.workspaceEnd.mockResolvedValue(undefined);
   fake.onEvent.mockReturnValue(() => {});
+  fake.message.mockResolvedValue(undefined);
+  fake.confirm.mockResolvedValue(false);
+  fake.reveal.mockResolvedValue(undefined);
   sessionStore.setState({ exportOpen: true, picked: ['D:/photos/b.NEF', 'D:/photos/a.NEF'],
     selection: 'D:/photos/a.NEF', engineSession: 'editor', batchExporting: false, developing: false, redecoding: false,
     nativeSize: { width: 6000, height: 4000 }, metadata: {}, gate: structuredClone(ALL_FEATURES),
@@ -160,6 +163,9 @@ describe('export page batch integration', () => {
     expect(div.textContent).toContain('0 of 2 processed');
     expect(div.textContent).toContain('cancelled');
     expect(fake.workspaceEnd).toHaveBeenCalledExactlyOnceWith(71);
+    await settle();
+    expect(fake.confirm).not.toHaveBeenCalled();
+    expect(fake.message).not.toHaveBeenCalled();
   });
   it('does not start any export or release an unowned lease when another process owns the workspace', async () => {
     fake.workspaceBegin.mockRejectedValue(new Error('Workspace busy'));
@@ -185,7 +191,7 @@ describe('export page batch integration', () => {
   });
 });
 
-describe('export progress', () => {
+describe('export progress and completion', () => {
   const run = () => div.querySelector('[data-testid=export-run]') as HTMLButtonElement;
   const bar = () => div.querySelector('[data-testid=export-progress]')!;
   const progress = (fields: Record<string, unknown>) => act(async () => {
@@ -214,6 +220,38 @@ describe('export progress', () => {
     expect(div.textContent).not.toContain('%');
     expect(fake.onEvent).toHaveBeenCalledOnce();
     expect(unsubscribe).toHaveBeenCalledOnce();
+  });
+  it('announces the finished batch after the page is free again, and shows the folder on request', async () => {
+    fake.confirm.mockImplementation(async () => {
+      expect(sessionStore.getState().batchExporting).toBe(false);
+      return true;
+    });
+    await mount(); await click(run()); await settle();
+    expect(fake.confirm).toHaveBeenCalledOnce();
+    const [title, text, kind] = fake.confirm.mock.calls[0]! as [string, string, string];
+    expect(title).toBe('Export finished');
+    expect(kind).toBe('info');
+    expect(text).toContain('2 written, 0 skipped, 0 failed.');
+    expect(text).toContain('Folder: D:/out');
+    expect(fake.reveal).toHaveBeenCalledExactlyOnceWith('D:/out/image.jpg');
+    expect(fake.message).not.toHaveBeenCalled();
+  });
+  it('warns about a failed frame, and only informs when nothing was written', async () => {
+    fake.request.mockRejectedValueOnce(new Error('disk full')).mockResolvedValueOnce(reply());
+    await mount(); await click(run()); await settle();
+    expect(fake.confirm).toHaveBeenCalledOnce();
+    expect(fake.confirm.mock.calls[0]![2]).toBe('warning');
+    expect(fake.confirm.mock.calls[0]![1]).toContain('1 written, 0 skipped, 1 failed.');
+    expect(fake.confirm.mock.calls[0]![1]).toContain('disk full');
+    expect(fake.reveal).not.toHaveBeenCalled();
+    fake.confirm.mockClear();
+    fake.request.mockRejectedValue(new Error('disk full'));
+    await click(run()); await settle();
+    expect(fake.confirm).not.toHaveBeenCalled();
+    expect(fake.message).toHaveBeenCalledOnce();
+    expect(fake.message.mock.calls[0]![0]).toBe('Export finished');
+    expect(fake.message.mock.calls[0]![1]).toContain('0 written, 0 skipped, 2 failed.');
+    expect(fake.message.mock.calls[0]![2]).toBe('warning');
   });
 });
 

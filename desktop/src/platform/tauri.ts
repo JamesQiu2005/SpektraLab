@@ -58,7 +58,7 @@ export function tauriPlatform(): Platform {
     async message(title, text, kind = 'info') {
       await message(text, { title, kind });
     },
-    confirm: (title, text) => ask(text, { title, kind: 'warning' }),
+    confirm: (title, text, kind = 'warning') => ask(text, { title, kind }),
     onOpenPaths(cb) {
       const un = listen<string[]>('open-paths', (e) => cb(e.payload));
       return () => void un.then((f) => f());
