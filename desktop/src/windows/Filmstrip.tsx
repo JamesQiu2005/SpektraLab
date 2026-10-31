@@ -8,12 +8,13 @@
 
 import { useEffect, useRef, useState, useSyncExternalStore } from 'react';
 import { ChevronLeft, ChevronRight } from '../controls/icons';
-import { click, moveFrame, saveFrameOrder, selectRelative, sessionStore, useSession } from '../state/session';
+import { click, moveFrame, removeFrames, saveFrameOrder, selectRelative, sessionStore, useSession } from '../state/session';
 import { installFrameDrag } from './frameDrag';
 import { thumbs } from '../state/thumbs';
 import { type Geometry, GEOMETRY_DEFAULT } from '@shared/geometry';
 import { thumbnailGeometryPlan } from '@shared/surfaces';
-import { t } from '../i18n';
+import { t, tz } from '../i18n';
+import { platform } from '../platform';
 
 export function Filmstrip() {
   const frames = useSession((s) => s.frames);
@@ -24,6 +25,26 @@ export function Filmstrip() {
   const batch = useSession((s) => s.batchExporting);
   const strip = useRef<HTMLDivElement>(null);
   const [, visibleChanged] = useState(0);
+  const [menu, setMenu] = useState<{ path: string; x: number; y: number } | null>(null);
+  const menuEl = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    if (!menu) return;
+    const close = () => setMenu(null);
+    // Capture, so a press anywhere else closes the menu before it is handled;
+    // a press on the menu itself must reach its item.
+    const press = (e: PointerEvent) => { if (!menuEl.current?.contains(e.target as Node)) close(); };
+    const key = (e: KeyboardEvent) => { if (e.key === 'Escape') close(); };
+    document.addEventListener('pointerdown', press, true);
+    document.addEventListener('keydown', key, true);
+    window.addEventListener('blur', close);
+    return () => {
+      document.removeEventListener('pointerdown', press, true);
+      document.removeEventListener('keydown', key, true);
+      window.removeEventListener('blur', close);
+    };
+  }, [menu]);
+  // Right-click on a picked frame addresses the whole picked set.
+  const targets = menu ? (picked.includes(menu.path) && picked.length > 1 ? picked : [menu.path]) : [];
   useEffect(() => {
     const root = strip.current;
     if (!root) return;
@@ -109,6 +130,12 @@ export function Filmstrip() {
             key={f.path}
             className={'thumb' + (f.path === selection ? ' open' : '') + (picked.includes(f.path) ? ' picked' : '')}
             onClick={(e) => click(f.path, e.ctrlKey || e.metaKey)}
+            onContextMenu={(e) => {
+              if (batch) return;
+              e.preventDefault();
+              const r = e.currentTarget.closest('.filmstrip')?.getBoundingClientRect();
+              setMenu({ path: f.path, x: e.clientX - (r?.left ?? 0), y: e.clientY - (r?.top ?? 0) });
+            }}
             draggable={false}
             style={{ touchAction: 'none' }}
             title={f.name}
@@ -122,6 +149,12 @@ export function Filmstrip() {
       <button className="strip-chevron" onClick={() => selectRelative(1)} disabled={batch} aria-label="Next">
         <ChevronRight />
       </button>
+      {menu && <div ref={menuEl} role="menu" className="menu pair-context filmstrip-menu" style={{ left: menu.x, top: menu.y }} data-testid="filmstrip-menu">
+        <button role="menuitem" onClick={() => { void removeFrames(targets); setMenu(null); }}>
+          {targets.length > 1 ? tz(`Remove ${targets.length} photos from the roll`, `从工作台移除 ${targets.length} 张照片`) : tz('Remove from the roll', '从工作台移除')}
+        </button>
+        <button role="menuitem" onClick={() => { void platform().reveal(menu.path); setMenu(null); }}>{tz('Show in folder', '在文件夹中显示')}</button>
+      </div>}
     </div>
   );
 }

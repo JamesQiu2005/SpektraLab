@@ -1048,3 +1048,6 @@ input {
 .pair-context { position: absolute; z-index: 20; display: flex; flex-direction: column; padding: 4px; }
 .pair-context button { text-align: left; background: transparent; color: var(--text); border: 0; padding: 6px 12px; }
 .pair-context button:hover { background: var(--well); }
+/* The filmstrip's own menu: anchored to the strip, above the thumbnails. */
+.filmstrip { position: relative; }
+.filmstrip-menu { bottom: auto; transform: translateY(-100%); }
