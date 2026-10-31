@@ -44,8 +44,9 @@ import { type LatitudeReply, type PlacementIssue, type PlacementSide, type Place
   applyLatitudeFit, fitPlacement, latitudeRequest, measuredFromReply, placementIntent, placementLanding, placementWindow } from '@shared/latitude';
 import { HostCallError, host } from '../host/client';
 import { type FileEntry, baseName, dirName, platform } from '../platform';
-import { settingsStore } from './settings';
+import { SETTINGS_DEFAULT, SOFTWARE_PREVIEW_EDGE, settingsStore } from './settings';
 import { newPhotoSidecar } from '@shared/newPhotoDefaults';
+import { isSoftwareDevice } from '../host/device';
 import { frameImages, makeThumbFromPrint, THUMB_EDGE } from './frames';
 import { thumbs } from './thumbs';
 import { frameOrder } from './frameOrder';
@@ -2191,6 +2192,23 @@ export function setStatus(status: string) {
 
 // --------------------------------------------------------------------- boot
 
+/**
+ * A software Vulkan device (lavapipe, SwiftShader, WARP) renders the live
+ * tier in seconds at 2560 px. Until the user picks a preview edge, follow
+ * the device: the smallest edge there, and the default again on hardware,
+ * so a later real GPU gets the default back without a visit to Settings.
+ */
+export function adoptPreviewEdgeForDevice(hello: HelloResult): void {
+  const settings = settingsStore.getState();
+  if (settings.previewLongEdgeChosen) return;
+  const device = hello.backend?.device_name ?? '';
+  const software = isSoftwareDevice(device);
+  const want = software ? SOFTWARE_PREVIEW_EDGE : SETTINGS_DEFAULT.previewLongEdge;
+  if (settings.previewLongEdge === want) return;
+  settings.set('previewLongEdge', want);
+  if (software) set({ status: tz(`The engine renders on the CPU (${device}); interactive edits now preview at ${want} px.`, `引擎在 CPU 上渲染（${device}），交互预览分辨率已改为 ${want} px。`) });
+}
+
 let lastReadyHello: unknown = null;
 
 function takeHostState(st: HostState) {
@@ -2212,6 +2230,8 @@ function takeHostState(st: HostState) {
       unsupported,
       gate: featureGate(unsupported, settingsStore.getState().diBlueCompensation, st.hello.view_options?.includes('no_film') ?? false),
     });
+    // Before the first `open`: the edge travels with the session's params.
+    adoptPreviewEdgeForDevice(st.hello);
     queueImportPreviews();
     // A new host (first start or a restart): re-open the frame from its sidecar.
     if (lastReadyHello !== st.hello) {

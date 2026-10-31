@@ -10,6 +10,7 @@ import { host } from '../host/client';
 import { platform, type AppPaths } from '../platform';
 import { recomputeFilmFormat, requestPrint, setPages, useSession, sessionStore } from '../state/session';
 import { INTERFACE_SCALES, PREVIEW_EDGES, settingsStore, useSettings, SETTINGS_DEFAULT } from '../state/settings';
+import { isSoftwareDevice } from '../host/device';
 import { featureGate } from '@shared/params';
 import { AgentsSettings, MemorySettings, UpdateSettings } from './SettingsPages';
 import { diagnosticReport } from './diagnosticReport';
@@ -114,6 +115,7 @@ export function SettingsDialog() {
                 options={PREVIEW_EDGES.map((e) => ({ value: e, label: `${e} px` }))}
                 onChange={(v) => {
                   set('previewLongEdge', v);
+                  set('previewLongEdgeChosen', true);
                   // The live tier's size is a session parameter: send it, render.
                   const sid = sessionStore.getState().engineSession;
                   if (sid) void host().setParams(sid, { preview_long_edge: v }).then(() => requestPrint());
@@ -123,6 +125,10 @@ export function SettingsDialog() {
                 {tz(
                   "The resolution every interactive edit renders at. The frame's own resolution is rendered separately once an edit settles, so this trades responsiveness while dragging against nothing in the finished picture.",
                   '每次交互编辑的渲染分辨率。编辑停下后会另外按照片本身的分辨率渲染，所以这里只是拖动时的流畅度，与最终画面无关。',
+                )}
+                {isSoftwareDevice(hello?.backend?.device_name) && !st.previewLongEdgeChosen && (
+                  <> {tz(`The engine renders on the CPU (${hello?.backend?.device_name}), so the smallest edge was chosen automatically; a choice here is kept.`,
+                    `引擎在 CPU 上渲染（${hello?.backend?.device_name}），已自动选用最小的分辨率；在这里选择后将保持你的选择。`)}</>
                 )}
               </div>
             </div>
