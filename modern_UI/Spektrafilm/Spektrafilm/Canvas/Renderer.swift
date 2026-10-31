@@ -129,7 +129,10 @@ final class Renderer: NSObject {
     /// to). `showOriginal` swaps the canvas to the decode, so "what the plot
     /// describes" is not a property of the print alone: a draw encodes again
     /// whenever the texture it is about to show is not this one.
-    private var histogramSource: ObjectIdentifier?
+    ///
+    /// Internal rather than private so the regression test can seed it; the
+    /// decision below is the whole of the #35 follow-up.
+    var histogramSource: ObjectIdentifier?
 
     /// The interactive, live-tier image: the print if there is one, else the
     /// decode preview. This is what the canvas shows at fit and while zoomed
@@ -726,6 +729,16 @@ final class Renderer: NSObject {
         enc.endEncoding()
     }
 
+    /// Whether the bins have to be re-encoded for `src`.
+    ///
+    /// Identity alone is not enough: `ensureAdjusted` reuses one texture while
+    /// its size matches, and Layer 2 rewrites that texture **in place**. After
+    /// the first draw the same object then holds a different grade, so a second
+    /// Layer-2 edit would never reach the plot (#35 follow-up).
+    func histogramNeedsEncoding(_ src: MTLTexture, gradeChanged: Bool) -> Bool {
+        gradeChanged || histogramSource != ObjectIdentifier(src)
+    }
+
     /// Encode the `histogram` kernel over `src` unless the bins on screen
     /// already describe it.
     ///
@@ -734,11 +747,12 @@ final class Renderer: NSObject {
     /// The completion asks for one more draw, because the frame (or the
     /// Original toggle) can move while the pass is running; that draw re-encodes
     /// for whatever is on screen then, and is a no-op when nothing moved.
-    private func encodeHistogramIfNeeded(_ cb: MTLCommandBuffer, src: MTLTexture) {
-        let id = ObjectIdentifier(src)
-        guard !histogramInFlight, histogramSource != id else { return }
+    private func encodeHistogramIfNeeded(_ cb: MTLCommandBuffer, src: MTLTexture,
+                                         gradeChanged: Bool = false) {
+        guard !histogramInFlight,
+              histogramNeedsEncoding(src, gradeChanged: gradeChanged) else { return }
         histogramInFlight = true
-        histogramSource = id
+        histogramSource = ObjectIdentifier(src)
         encodeHistogram(cb, src: src)
         cb.addCompletedHandler { [weak self] _ in
             Task { @MainActor in
@@ -854,7 +868,10 @@ final class Renderer: NSObject {
                 // decode too. Same working space, same axis (`publishHistogram`).
                 encodeHistogramIfNeeded(cb, src: original)
             } else if let dst = ensureAdjusted(for: base) {
-                if layer2Dirty {
+                // Layer 2 rewrites `dst` in place, so its identity does not
+                // change when its contents do; the histogram has to be told.
+                let gradeChanged = layer2Dirty
+                if gradeChanged {
                     encodeLayer2(cb, src: base, dst: dst)
                     layer2Dirty = false
                 }
@@ -862,7 +879,7 @@ final class Renderer: NSObject {
                 // the working-space texture — now that there is no
                 // converted one to take it of. What that means for its
                 // axis is recorded on `publishHistogram`.
-                encodeHistogramIfNeeded(cb, src: dst)
+                encodeHistogramIfNeeded(cb, src: dst, gradeChanged: gradeChanged)
                 shown = dst
             }
         }
