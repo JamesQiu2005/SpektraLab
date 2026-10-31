@@ -99,6 +99,26 @@ final class SurfaceAgreementTests: XCTestCase {
         XCTAssertEqual(bins[512 + 255], 0, "the histogram still counts the print")
     }
 
+    /// The decision behind the #35 follow-up: `ensureAdjusted` reuses one
+    /// texture, so a Layer 2 edit changes its contents without changing its
+    /// identity. `gradeChanged` is what forces the new pass; without it the
+    /// plot freezes on the first post-dev grade.
+    func testALayer2EditNeedsANewHistogramPass() throws {
+        let renderer = try XCTUnwrap(Renderer())
+        let card = try solid(renderer, red: 24_000, green: 24_000, blue: 24_000,
+                             width: 32, height: 16)
+        renderer.histogramSource = ObjectIdentifier(card)
+
+        XCTAssertFalse(renderer.histogramNeedsEncoding(card, gradeChanged: false),
+                       "an unchanged grade on the same texture must not re-encode")
+        XCTAssertTrue(renderer.histogramNeedsEncoding(card, gradeChanged: true),
+                      "a Layer 2 edit rewrites the same texture and must re-encode")
+
+        let other = try solid(renderer, red: 0, green: 0, blue: 0, width: 32, height: 16)
+        XCTAssertTrue(renderer.histogramNeedsEncoding(other, gradeChanged: false),
+                      "a different texture must re-encode")
+    }
+
     // MARK: - the exported file (camera fixture: it has EXIF to carry)
 
     /// The written file is the frame the canvas shows: a cropped, quarter-
