@@ -4,16 +4,17 @@ import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 import { GEOMETRY_DEFAULT } from '@shared/geometry';
 
-const fake = vi.hoisted(() => ({ thumbnail: vi.fn(), url: vi.fn(), state: {} as Record<string, unknown> }));
+const fake = vi.hoisted(() => ({ thumbnail: vi.fn(), url: vi.fn(), removeFrames: vi.fn(), reveal: vi.fn(), state: {} as Record<string, unknown> }));
 vi.mock('../host/client', () => ({ host: () => ({ thumbnail: fake.thumbnail }) }));
 vi.mock('../state/frames', () => ({ rgbaToURL: fake.url }));
 vi.mock('../state/session', () => ({
-  click: vi.fn(), moveFrame: vi.fn(), saveFrameOrder: vi.fn(), selectRelative: vi.fn(),
+  click: vi.fn(), moveFrame: vi.fn(), saveFrameOrder: vi.fn(), selectRelative: vi.fn(), removeFrames: fake.removeFrames,
   sessionStore: { getState: () => fake.state },
   useSession: <T,>(selector: (state: typeof fake.state) => T) => selector(fake.state),
 }));
 vi.mock('./frameDrag', () => ({ installFrameDrag: () => () => {} }));
-vi.mock('../i18n', () => ({ t: (key: string) => key }));
+vi.mock('../i18n', () => ({ t: (key: string) => key, tz: (english: string) => english }));
+vi.mock('../platform', () => ({ platform: () => ({ reveal: fake.reveal }) }));
 
 let root: Root;
 let container: HTMLDivElement;
@@ -92,4 +93,36 @@ it('rebuilds visible requests after replacing a library while selection has paus
   expect(fake.thumbnail).not.toHaveBeenCalled();
   await act(async () => thumbs.setPaused(false));
   expect(fake.thumbnail.mock.calls.map(([path]) => path)).toEqual(['/new.ARW']);
+});
+
+it('offers to remove a frame, or the picked set it belongs to, from the roll', async () => {
+  const { Filmstrip } = await import('./Filmstrip');
+  fake.state = { ...fake.state, picked: ['/1.ARW', '/3.ARW'] };
+  await act(async () => root.render(<Filmstrip />));
+  const cell = (path: string) => container.querySelector(`.thumb[data-path="${path}"]`)!;
+  const menu = () => container.querySelector('[data-testid=filmstrip-menu]');
+  const item = (text: string) => [...menu()!.querySelectorAll('button')].find((b) => b.textContent === text)!;
+  expect(menu()).toBeNull();
+  await act(async () => cell('/5.ARW').dispatchEvent(new MouseEvent('contextmenu', { bubbles: true, cancelable: true, clientX: 40, clientY: 30 })));
+  expect(menu()).not.toBeNull();
+  await act(async () => item('Remove from the roll').dispatchEvent(new MouseEvent('click', { bubbles: true })));
+  expect(fake.removeFrames).toHaveBeenCalledExactlyOnceWith(['/5.ARW']);
+  expect(menu()).toBeNull();
+  await act(async () => cell('/3.ARW').dispatchEvent(new MouseEvent('contextmenu', { bubbles: true, cancelable: true })));
+  await act(async () => item('Remove 2 photos from the roll').dispatchEvent(new MouseEvent('click', { bubbles: true })));
+  expect(fake.removeFrames).toHaveBeenLastCalledWith(['/1.ARW', '/3.ARW']);
+  await act(async () => cell('/0.ARW').dispatchEvent(new MouseEvent('contextmenu', { bubbles: true, cancelable: true })));
+  await act(async () => item('Show in folder').dispatchEvent(new MouseEvent('click', { bubbles: true })));
+  expect(fake.reveal).toHaveBeenCalledExactlyOnceWith('/0.ARW');
+  await act(async () => cell('/0.ARW').dispatchEvent(new MouseEvent('contextmenu', { bubbles: true, cancelable: true })));
+  await act(async () => document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape' })));
+  expect(menu()).toBeNull();
+});
+
+it('does not open the menu while a batch export runs', async () => {
+  const { Filmstrip } = await import('./Filmstrip');
+  fake.state = { ...fake.state, batchExporting: true };
+  await act(async () => root.render(<Filmstrip />));
+  await act(async () => container.querySelector('.thumb[data-path="/2.ARW"]')!.dispatchEvent(new MouseEvent('contextmenu', { bubbles: true, cancelable: true })));
+  expect(container.querySelector('[data-testid=filmstrip-menu]')).toBeNull();
 });
