@@ -28,4 +28,10 @@ test('a frame leaves the roll from the filmstrip menu; the open frame hands over
   await expect(page.locator('.thumb')).toHaveCount(6);
   await expect.poll(() => state(page, 's.selection')).toBe('/mock/Roll 01/DSC_0002.NEF');
   await expect(page.getByTestId('tier-badge')).toHaveText('full', { timeout: 20_000 });
+
+  // Delete removes the picked frame too, and hands over the same way.
+  await page.keyboard.press('Delete');
+  await expect(page.locator('.thumb')).toHaveCount(5);
+  await expect.poll(() => state(page, 's.selection')).toBe('/mock/Roll 01/DSC_0003.NEF');
+  await expect(page.getByTestId('tier-badge')).toHaveText('full', { timeout: 20_000 });
 });

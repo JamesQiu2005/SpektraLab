@@ -8,7 +8,7 @@
 // characters, arrows and delete to a focused editable element. Ctrl/Alt
 // combinations and Return/Enter/Esc/Tab are not typing keys.
 
-import { makePair, setAdjustments, setGeometry, selectRelative, setOriginal, setTool, toggleCompare, undo, redo, zoomStep, zoomTo, zoomToFit, currentFitZoom, copySettings, pasteSettings, selectAllFrames, sessionStore, setPages } from '../state/session';
+import { makePair, setAdjustments, setGeometry, selectRelative, setOriginal, setTool, toggleCompare, undo, redo, zoomStep, zoomTo, zoomToFit, currentFitZoom, copySettings, pasteSettings, selectAllFrames, removeSelectedFrames, sessionStore, setPages } from '../state/session';
 import { turned } from '@shared/geometry';
 import { openDialog, openFilesDialog, openExport, restartHost } from './actions';
 import { settingsStore } from '../state/settings';
@@ -87,6 +87,8 @@ export function shortcutTable(): Record<string, Action> {
     '.': () => zoomTo(1),
     arrowleft: () => selectRelative(-1),
     arrowright: () => selectRelative(1),
+    // The picked frames leave the roll (Lightroom's Delete; the file stays).
+    delete: () => void removeSelectedFrames(),
     escape: () => {
       const s = sessionStore.getState();
       if (s.exportOpen && !s.batchExporting) setPages({ exportOpen: false });
