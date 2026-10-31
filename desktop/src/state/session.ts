@@ -1518,6 +1518,41 @@ export async function removePair() {
   } catch (e) { noteError(tz('Removing pair', '移除半格拼接'), e); }
 }
 
+/** Take frames off the roll for this session. The files and their settings
+ * stay where they are, and the folder lists them again when it is opened
+ * next; only the roll on the filmstrip forgets them. An open frame that goes
+ * hands the canvas to its nearest remaining neighbour, the next one first. */
+export async function removeFrames(paths: readonly string[]) {
+  const s = get();
+  const gone = new Set(paths);
+  if (s.batchExporting || !gone.size) return;
+  const frames = s.frames.filter((f) => !gone.has(f.path));
+  if (frames.length === s.frames.length) return;
+  const picked = s.picked.filter((p) => !gone.has(p));
+  if (!s.selection || !gone.has(s.selection)) {
+    set({ frames, picked });
+    saveFrameOrder();
+    return;
+  }
+  const at = s.frames.findIndex((f) => f.path === s.selection);
+  const next = s.frames.slice(at + 1).find((f) => !gone.has(f.path))
+    ?? s.frames.slice(0, Math.max(0, at)).reverse().find((f) => !gone.has(f.path)) ?? null;
+  try {
+    await flushSave();
+    if (get().externalEditConflict) return;
+    await closeEngineSession();
+    set({ frames, picked, selection: null, pair: null, pairInfo: null, pairLayer: 'film', pairPlacing: false });
+    saveFrameOrder();
+    if (next) await select(next.path);
+  } catch (e) { noteError(tz('Removing from the roll', '从工作台移除'), e); }
+}
+
+/** The frames a menu command removes: the picked set, else the open frame. */
+export function removeSelectedFrames() {
+  const s = get();
+  return removeFrames(s.picked.length ? s.picked : s.selection ? [s.selection] : []);
+}
+
 export function recomputeFilmFormat() {
   const p = get().sidecar.params;
   const mm = derived(p.filmSide, p.sideLengthMM);
