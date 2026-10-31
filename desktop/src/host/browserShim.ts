@@ -16,6 +16,8 @@ export function browserTransport(): Transport {
     nativeWidth: 1800,
     nativeHeight: 1200,
     renderDelayMs: Number(params.get('renderDelay') ?? 0),
+    // `?gpu=software`: the engine on a CPU rasterizer, as lavapipe names it.
+    ...(params.get('gpu') === 'software' ? { deviceName: 'llvmpipe (LLVM 17.0.6, 256 bits)' } : {}),
   });
   let id = 1;
   let hello: Record<string, unknown> | null = null;
