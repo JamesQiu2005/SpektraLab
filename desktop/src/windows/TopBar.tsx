@@ -6,8 +6,8 @@
 import * as DropdownMenu from '@radix-ui/react-dropdown-menu';
 import { BeforeAfter, Crop, Cursor, Export, Import, SidebarLeft, SidebarRight, ZoomIn, ZoomOut } from '../controls/icons';
 import { t, tz } from '../i18n';
-import { canMakePair, makePair, currentFitZoom, pairComplete, reloadExternalEdits, setOriginal, setPages, setTool, solveNow, toggleCompare, useSession, zoomStep, zoomTo, zoomToFit } from '../state/session';
-import { settingsStore, useSettings } from '../state/settings';
+import { canMakePair, makePair, currentFitZoom, openFolder, pairComplete, reloadExternalEdits, setOriginal, setPages, setTool, solveNow, toggleCompare, useSession, zoomStep, zoomTo, zoomToFit } from '../state/session';
+import { forgetRecentFolders, settingsStore, useSettings } from '../state/settings';
 import { openDialog } from './actions';
 import { baseName } from '../platform';
 import type { PreviewGamut } from '../canvas/colorSpace';
@@ -16,6 +16,7 @@ import { sourceGeometryFor } from '@shared/filmEdge';
 export function TopBar() {
   const leftCollapsed = useSettings((s) => s.leftCollapsed);
   const rightCollapsed = useSettings((s) => s.rightCollapsed);
+  const recent = useSettings((s) => s.recentFolders);
   const previewGamut = useSettings((s) => s.previewGamut);
   const displaySpace = useSession((s) => s.displaySpace);
   const tool = useSession((s) => s.tool);
@@ -56,6 +57,25 @@ export function TopBar() {
           <button className="icon-btn" title={t('helpOpen') + ' (Ctrl+O)'} onClick={() => void openDialog()} data-testid="open-button">
             <Import />
           </button>
+          <DropdownMenu.Root>
+            <DropdownMenu.Trigger asChild>
+              <button className="icon-btn dim recent-button" title={tz('Open Recent', '最近打开')} aria-label={tz('Open Recent', '最近打开')} data-testid="recent-button">▾</button>
+            </DropdownMenu.Trigger>
+            <DropdownMenu.Portal>
+              <DropdownMenu.Content className="menu" sideOffset={4} align="start" data-testid="recent-menu">
+                {recent.length === 0 && <div className="menu-label">{tz('No recent folders', '没有最近打开的文件夹')}</div>}
+                {recent.map((dir) => (
+                  <DropdownMenu.Item key={dir} className="menu-item" title={dir} onSelect={() => void openFolder(dir)}>
+                    {baseName(dir) || dir}
+                  </DropdownMenu.Item>
+                ))}
+                {recent.length > 0 && <>
+                  <div className="menu-sep" />
+                  <DropdownMenu.Item className="menu-item" onSelect={forgetRecentFolders}>{tz('Clear Menu', '清除列表')}</DropdownMenu.Item>
+                </>}
+              </DropdownMenu.Content>
+            </DropdownMenu.Portal>
+          </DropdownMenu.Root>
           <button className="icon-btn" title={t('helpExport') + ' (Ctrl+E)'} disabled={!selection || !exportReady} onClick={() => setPages({ exportOpen: true })} data-testid="export-button">
             <Export />
           </button>
