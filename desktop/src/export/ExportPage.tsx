@@ -32,6 +32,8 @@ export interface ExportProgress {
   /** The active job's fraction and stage, from the host's progress events. */
   fraction: number;
   stage: string | null;
+  /** Stopped by the person: the bar is at rest and no stage is under way. */
+  stopped?: boolean;
 }
 
 const STAGE_LABEL: Record<string, () => string> = {
@@ -49,6 +51,7 @@ export function progressPercent(p: ExportProgress): number {
 
 export function progressText(p: ExportProgress): string {
   const base = tz(`${p.done} of ${p.total} processed`, `已处理 ${p.done} / ${p.total}`);
+  if (p.stopped) return `${base} · ${tz('stopped', '已停止')}`;
   if (p.done >= p.total || !p.stage) return base;
   return `${base} · ${(STAGE_LABEL[p.stage] ?? (() => p.stage!))()} ${Math.round(p.fraction * 100)}%`;
 }
@@ -119,6 +122,12 @@ export function ExportPage() {
 
   useEffect(() => {
     if (open) void loadRecipes().then(setRecipes);
+  }, [open]);
+
+  // A page opened anew starts clean: the previous batch's bar text and log
+  // belong to that batch. (The page cannot be closed while one runs.)
+  useEffect(() => {
+    if (open && !sessionStore.getState().batchExporting) { setProgress(null); setLog([]); }
   }, [open]);
 
   const r = recipes[Math.min(current, recipes.length - 1)] ?? DEFAULT_RECIPES[0]!;
@@ -291,6 +300,9 @@ export function ExportPage() {
       active.current = null;
       if (lease !== null) await platform().workspaceEnd(lease).catch((e) => platform().log('error', `export lease: ${String(e)}`));
       sessionStore.setState({ batchExporting: false });
+      // No stage outlives the batch, whether it finished, failed or was
+      // stopped: the bar rests on the frames that were processed.
+      setProgress((p) => p && { ...p, fraction: 0, stage: null, ...(stop.current ? { stopped: true } : {}) });
     }
     if (!stop.current) await reportFinished(outcomes).catch((e) => platform().log('error', `export report: ${String(e)}`));
   };

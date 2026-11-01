@@ -221,6 +221,40 @@ describe('export progress and completion', () => {
     expect(fake.onEvent).toHaveBeenCalledOnce();
     expect(unsubscribe).toHaveBeenCalledOnce();
   });
+  it('a frame that fails mid-stage leaves no stage behind either', async () => {
+    const pending = deferred<ReturnType<typeof reply>>();
+    fake.request.mockReturnValueOnce(pending.promise).mockResolvedValueOnce(reply());
+    await mount(); await click(run());
+    const job = fake.request.mock.calls[0]![1] as { progress_id: string };
+    await progress({ progress_id: job.progress_id, fraction: 0.4, stage: 'render' });
+    expect(div.textContent).toContain('rendering 40%');
+    await act(async () => { pending.reject(new Error('disk full')); });
+    await settle();
+    expect(div.querySelector('[data-testid=export-status]')!.textContent).toBe('2 of 2 processed');
+    expect(div.textContent).not.toContain('%');
+    expect(div.textContent).toContain('disk full');
+  });
+  it('a stop during encoding leaves no stage behind, and a page opened anew starts clean', async () => {
+    const pending = deferred<ReturnType<typeof reply>>();
+    fake.request.mockReturnValueOnce(pending.promise);
+    fake.cancel.mockImplementation(async () => { pending.reject(Object.assign(new Error('cancelled'), { code: 'cancelled' })); return true; });
+    await mount(); await click(run());
+    const job = fake.request.mock.calls[0]![1] as { progress_id: string };
+    await progress({ progress_id: job.progress_id, fraction: 0.6, stage: 'encode' });
+    expect(div.textContent).toContain('0 of 2 processed · encoding 60%');
+    await click([...div.querySelectorAll('button')].find((b) => b.textContent === 'Stop')!);
+    await settle();
+    expect(div.querySelector('[data-testid=export-status]')!.textContent).toBe('0 of 2 processed · stopped');
+    expect(bar().getAttribute('aria-valuenow')).toBe('0');
+    expect(div.textContent).toContain('cancelled');
+    // Closed and opened again: nothing of the stopped batch remains.
+    await act(async () => { sessionStore.setState({ exportOpen: false }); });
+    await act(async () => { sessionStore.setState({ exportOpen: true }); });
+    expect(div.querySelector('[data-testid=export-status]')!.textContent).toBe('');
+    expect(div.textContent).not.toContain('cancelled');
+    expect(div.textContent).not.toContain('stopped');
+    expect(run()).toBeTruthy();
+  });
   it('announces the finished batch after the page is free again, and shows the folder on request', async () => {
     fake.confirm.mockImplementation(async () => {
       expect(sessionStore.getState().batchExporting).toBe(false);
