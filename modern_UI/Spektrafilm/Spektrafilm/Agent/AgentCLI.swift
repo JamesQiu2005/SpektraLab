@@ -21,6 +21,8 @@ enum AgentCLI {
       process  <file>                        the Process button    [--preview out.jpg]
       latitude <file>                        what the film and paper hold
       place    <file> --highlight S --shadow S   Scene Placement through the Fit
+      compare  <file> [--films a,b,…] [--mono] [--long-edge N] [--preview sheet.jpg]
+                                             proofs on several films, numbered
       preview  <file> -o out.jpg [--long-edge N] the finished print, sRGB JPEG
       export   <file> [--recipe NAME] [--to DIR]  export with a recipe
       mcp                                    serve MCP over stdio
@@ -100,6 +102,13 @@ enum AgentCLI {
                 args["patch"] = try readPatch(try value(flag))
             case ("edit_image", "--preview"), ("process_image", "--preview"),
                  ("reset_edit", "--preview"), ("place_scene", "--preview"):
+                preview = URL(fileURLWithPath: absolute(try value(flag)))
+            case ("compare_stocks", "--films"):
+                args["films"] = .array(try value(flag).split(separator: ",")
+                    .map { .string($0.trimmingCharacters(in: .whitespaces)) })
+            case ("compare_stocks", "--mono"): args["include_monochrome"] = true
+            case ("compare_stocks", "--long-edge"): args["long_edge"] = try number(flag)
+            case ("compare_stocks", "--preview"):
                 preview = URL(fileURLWithPath: absolute(try value(flag)))
             case ("place_scene", "--highlight"): args["highlight"] = try number(flag)
             case ("place_scene", "--shadow"): args["shadow"] = try number(flag)

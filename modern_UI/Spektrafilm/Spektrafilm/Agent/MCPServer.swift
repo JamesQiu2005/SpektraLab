@@ -118,8 +118,9 @@ final class MCPServer {
     edit the app's window makes, saved where the app reads it; nothing is ever written over the original.
 
     To edit a photograph from one sentence: describe_image, then get_schema, then process_image once \
-    (this meters and neutralises the print). Choose a film and paper (list_stocks) for the look asked for, \
-    then refine with small edit_image patches, looking at each returned preview before the next. Prefer \
+    (this meters and neutralises the print). Choose a film and paper for the look asked for — \
+    compare_stocks shows the photograph on many films at once, on one neutral print, with numbers per \
+    tile; list_stocks names them all — then refine with small edit_image patches, looking at each returned preview before the next. Prefer \
     the physical controls — film, paper, Film Exposure, enlarger exposure and Y/M filters, Scene Placement \
     (measure_latitude, place_scene) — over the grade (adjustments), which is the scan's. \
     Export only when asked.

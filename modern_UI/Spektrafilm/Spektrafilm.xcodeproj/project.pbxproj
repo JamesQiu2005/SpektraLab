@@ -26,6 +26,17 @@
 			path = "Agent";
 			sourceTree = "<group>";
 		};
+		3224FCB3F4F27DE5231A3F36 /* ImageMetrics.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "ImageMetrics.swift"; sourceTree = "<group>"; };
+		BC0AA8A2E5868D5A5FBCA628 /* ProofSheet.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "ProofSheet.swift"; sourceTree = "<group>"; };
+		527312969419113845F9CB7D /* AI */ = {
+			isa = PBXGroup;
+			children = (
+				3224FCB3F4F27DE5231A3F36 /* ImageMetrics.swift */,
+				BC0AA8A2E5868D5A5FBCA628 /* ProofSheet.swift */
+			);
+			path = "AI";
+			sourceTree = "<group>";
+		};
 		3375270C81BEA0B1B8896473 /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = "Assets.xcassets"; sourceTree = "<group>"; };
 		DB77486F6667B838E6E94001 /* CineonLUT.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CineonLUT.swift"; sourceTree = "<group>"; };
 		3CC9377A61A47BF9746521A9 /* ColourManagement.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "ColourManagement.swift"; sourceTree = "<group>"; };
@@ -326,6 +337,7 @@
 			isa = PBXGroup;
 			children = (
 				7A3683AAE552F19C52489403 /* Agent */,
+				527312969419113845F9CB7D /* AI */,
 				3375270C81BEA0B1B8896473 /* Assets.xcassets */,
 				F2592FDD5EA53DA4A185D88F /* Canvas */,
 				8BA0238B9B43478A480FB02A /* Controls */,
@@ -592,6 +604,8 @@
 		722D321E07ADA6275817D9B6 /* AgentWorkspace.swift */ = {isa = PBXBuildFile; fileRef = FE1C55C032E624649ECCF435; };
 		5C1C1099E8520CC61F5A4C8A /* JSONValue.swift */ = {isa = PBXBuildFile; fileRef = 289061D1542FA5C983606512; };
 		075BB3FC17E1D07FC0587A6B /* MCPServer.swift */ = {isa = PBXBuildFile; fileRef = 4A6A8509D23271E17BB3C34E; };
+		964490296E8302BC9BAD7706 /* ImageMetrics.swift */ = {isa = PBXBuildFile; fileRef = 3224FCB3F4F27DE5231A3F36; };
+		6E026D8CDCDD236BDA7D617F /* ProofSheet.swift */ = {isa = PBXBuildFile; fileRef = BC0AA8A2E5868D5A5FBCA628; };
 		36E5C336CD3474CD19DFA79C /* CineonLUT.swift */ = {isa = PBXBuildFile; fileRef = DB77486F6667B838E6E94001; };
 		F443D4211A905991F59FAF70 /* ColourManagement.swift */ = {isa = PBXBuildFile; fileRef = 3CC9377A61A47BF9746521A9; };
 		CDAFF5BAC779CA0E91DCC89D /* CompareOverlay.swift */ = {isa = PBXBuildFile; fileRef = AE9DF7CC994C0A44902731CA; };
@@ -725,6 +739,8 @@
 				722D321E07ADA6275817D9B6 /* AgentWorkspace.swift */,
 				5C1C1099E8520CC61F5A4C8A /* JSONValue.swift */,
 				075BB3FC17E1D07FC0587A6B /* MCPServer.swift */,
+				964490296E8302BC9BAD7706 /* ImageMetrics.swift */,
+				6E026D8CDCDD236BDA7D617F /* ProofSheet.swift */,
 				36E5C336CD3474CD19DFA79C /* CineonLUT.swift */,
 				F443D4211A905991F59FAF70 /* ColourManagement.swift */,
 				CDAFF5BAC779CA0E91DCC89D /* CompareOverlay.swift */,
@@ -939,6 +955,8 @@
 		5781C3C2C3F0BE7BEC4CCE45 /* AgentWorkspace.swift */ = {isa = PBXBuildFile; fileRef = FE1C55C032E624649ECCF435; };
 		BF02421F7C58B3717CC29BAF /* JSONValue.swift */ = {isa = PBXBuildFile; fileRef = 289061D1542FA5C983606512; };
 		D008FBE9D65E1B095ED2F8B4 /* MCPServer.swift */ = {isa = PBXBuildFile; fileRef = 4A6A8509D23271E17BB3C34E; };
+		06494EE23A2573B4D3771A9B /* ImageMetrics.swift */ = {isa = PBXBuildFile; fileRef = 3224FCB3F4F27DE5231A3F36; };
+		1D9963C2980B5BF919224B8F /* ProofSheet.swift */ = {isa = PBXBuildFile; fileRef = BC0AA8A2E5868D5A5FBCA628; };
 		BF474BA5499BF78CD5FB92F3 /* CineonLUT.swift */ = {isa = PBXBuildFile; fileRef = DB77486F6667B838E6E94001; };
 		8CDECFAE3D708A987D5F23D1 /* ColourManagement.swift */ = {isa = PBXBuildFile; fileRef = 3CC9377A61A47BF9746521A9; };
 		047A7D7877482487B6E36B80 /* CompareOverlay.swift */ = {isa = PBXBuildFile; fileRef = AE9DF7CC994C0A44902731CA; };
@@ -1132,6 +1150,8 @@
 				5781C3C2C3F0BE7BEC4CCE45 /* AgentWorkspace.swift */,
 				BF02421F7C58B3717CC29BAF /* JSONValue.swift */,
 				D008FBE9D65E1B095ED2F8B4 /* MCPServer.swift */,
+				06494EE23A2573B4D3771A9B /* ImageMetrics.swift */,
+				1D9963C2980B5BF919224B8F /* ProofSheet.swift */,
 				BF474BA5499BF78CD5FB92F3 /* CineonLUT.swift */,
 				8CDECFAE3D708A987D5F23D1 /* ColourManagement.swift */,
 				047A7D7877482487B6E36B80 /* CompareOverlay.swift */,

@@ -71,6 +71,15 @@ enum AgentTools {
                            "shadow": ["type": "number", "minimum": 0, "maximum": 6, "description": "Stops the scene's bottom is pulled up."],
                            "preview": wantPreview],
               required: ["path", "highlight", "shadow"]),
+        .init(name: "compare_stocks", command: "compare",
+              summary: "Print the image small on several films at once and return a numbered contact sheet, with each proof's clipping, brightness, contrast, colourfulness, cast and the fraction of the frame the film holds. All proofs share one neutral print, so they compare films, not grades. Use it to choose a film, then set it with edit_image. Changes nothing.",
+              properties: ["path": path,
+                           "films": ["type": "array", "items": ["type": "string"],
+                                     "description": "Film ids to compare, each on its declared paper (default: the current film, then every colour film, push processes aside)."],
+                           "include_monochrome": ["type": "boolean", "description": "Add the black-and-white films to the default list (default false)."],
+                           "long_edge": ["type": "integer", "minimum": 256, "maximum": 1024,
+                                         "description": "Proof size in pixels (default 768)."]],
+              required: ["path"]),
         .init(name: "preview_image", command: "preview",
               summary: "Render the finished print as a small sRGB JPEG and return it, so you can see what the edit looks like.",
               properties: ["path": path,
@@ -165,6 +174,15 @@ enum AgentTools {
         case "place_scene":
             let body = try await ws.place(highlight: try number("highlight") ?? 0, shadow: try number("shadow") ?? 0)
             return try await withPreview(body)
+        case "compare_stocks":
+            var films: [String]?
+            if let v = a["films"] {
+                guard case .array(let items) = v, let ids = Optional(items.compactMap(\.string)),
+                      ids.count == items.count else { throw AgentError.refused("films must be an array of film ids.") }
+                films = ids
+            }
+            return try await ws.compareStocks(films: films, includeMonochrome: a["include_monochrome"]?.bool ?? false,
+                                              longEdge: try number("long_edge").map { Int($0) } ?? ProofSheet.defaultLongEdge)
         case "preview_image":
             let edge = try number("long_edge").map { Int($0) } ?? 1024
             let keep = try string("output").map { URL(fileURLWithPath: ($0 as NSString).expandingTildeInPath) }

@@ -238,6 +238,34 @@ final class AgentWorkspace {
         return target
     }
 
+    /// The frame printed small on several films at once, on an engine of its
+    /// own (`ProofSheet`): a contact sheet, and the numbers behind each tile.
+    /// Changes nothing about the frame's edit.
+    func compareStocks(films: [String]?, includeMonochrome: Bool, longEdge: Int) async throws -> AgentResult {
+        guard session.selection != nil else { throw AgentError.refused("No frame is open.") }
+        guard (256...1024).contains(longEdge) else { throw AgentError.refused("The long edge must be within 256…1024.") }
+        let catalog = session.catalog
+        let candidates = try films.map { try ProofSheet.candidates(films: $0, catalog: catalog) }
+            ?? ProofSheet.defaultCandidates(catalog: catalog, current: session.params,
+                                            includeMonochrome: includeMonochrome)
+        let proofs: [ProofSheet.Proof]
+        do {
+            proofs = try await ProofSheet.render(session: session, candidates: candidates, longEdge: longEdge)
+        } catch let e as ProofSheet.Failure {
+            if case .noPixels = e { throw AgentError.failed(e.description) }
+            throw AgentError.refused(e.description)
+        }
+        guard let sheet = ProofSheet.contactSheet(proofs, catalog: catalog) else {
+            throw AgentError.failed("The contact sheet could not be drawn.")
+        }
+        let file = FileManager.default.temporaryDirectory
+            .appending(path: "spektralab-proofs-\(UUID().uuidString.prefix(8)).jpg")
+        try ProofSheet.writeJPEG(sheet, to: file)
+        return AgentResult(body: ["proofs": .array(proofs.map { $0.json(in: catalog) }),
+                                  "note": "Proofs share one neutral print: meter on, no filter shifts, no Scene Placement, no grain, glare or grade. latitude.within is the fraction of the frame the film and paper hold."],
+                           preview: file)
+    }
+
     /// Export with one of the person's recipes (the first when none is
     /// named), optionally into another folder. Never overwrites unless the
     /// recipe says so.
