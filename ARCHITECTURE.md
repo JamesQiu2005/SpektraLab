@@ -551,7 +551,10 @@ through controls a person already has:
 - **Refining is scoped.** `AIPrompts.refinable`: Film Exposure, print
   brightness, the Y/M shifts, pre-flash, grain and halation, and all of
   Post-Dev. Not the film or paper, the crop, the film edge, the date or the
-  decode. Out-of-scope or out-of-range writes are refused whole.
+  decode. Out-of-scope or out-of-range writes are refused whole. A Scene
+  Placement a model writes into the patch (a `placement` section, or the
+  read-only `params.sceneLatitude` pull-backs) is lifted out and run through
+  the Fit instead of being refused (`AIPrompts.liftPlacement`).
 - **One way back.** The sidecar before the first AI change on the frame is
   kept; *Undo AI changes* restores it as one step (`Session.restoreSidecar`),
   and ⌘Z takes that step back.

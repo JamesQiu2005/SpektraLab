@@ -209,6 +209,21 @@ final class AIUnitTests: XCTestCase {
         let object = try AIPrompts.readMove(["rationale": "", "patch_json": ["adjustments": ["contrast": 4]],
                                              "placement": .null, "done": false])
         XCTAssertEqual(object.patch, ["adjustments": ["contrast": 4]])
+
+        // A placement written into the patch is lifted out and run through the Fit.
+        let inPatch = try AIPrompts.readMove(["rationale": "", "placement": .null, "done": false,
+                                              "patch_json": "{\"params\":{\"yFilterShift\":0.03},\"placement\":{\"highlight\":0.5,\"shadow\":0}}"])
+        XCTAssertEqual(inPatch.patch, ["params": ["yFilterShift": 0.03]])
+        XCTAssertEqual(inPatch.placement?.highlight, 0.5)
+        XCTAssertEqual(inPatch.placement?.shadow, 0)
+        let viaParams = try AIPrompts.readMove(["rationale": "", "placement": .null, "done": false,
+                                                "patch_json": ["params": ["sceneLatitude": ["shadowPullBack": 1.25]]]])
+        XCTAssertNil(viaParams.patch, "nothing else was asked for")
+        XCTAssertEqual(viaParams.placement?.shadow, 1.25)
+        let both = try AIPrompts.readMove(["rationale": "", "done": false, "placement": ["highlight": 1, "shadow": 0],
+                                           "patch_json": "{\"placement\":{\"highlight\":3,\"shadow\":0}}"])
+        XCTAssertEqual(both.placement?.highlight, 1, "the placement field wins")
+        XCTAssertNil(both.patch)
     }
 
     // MARK: which films
@@ -469,9 +484,12 @@ final class AISessionTests: XCTestCase {
 final class AIEndToEndTests: XCTestCase {
     func testChooseRefineAndUndo() async throws {
         let env = ProcessInfo.processInfo.environment
+        // `SPK_AI_E2E=anthropic` uses Claude with the key saved in Settings ▸ AI
+        // (the Keychain); anything else is an OpenAI-compatible base URL.
         guard let base = env["SPK_AI_E2E"], let model = env["SPK_AI_MODEL"] else {
             throw XCTSkip("SPK_AI_E2E and SPK_AI_MODEL are not set")
         }
+        let anthropic = base == "anthropic"
         let source = try XCTUnwrap(env["SPK_AI_IMAGE"].map(URL.init(fileURLWithPath:)), "SPK_AI_IMAGE")
         let dir = FileManager.default.temporaryDirectory.appending(path: "spk-ai-e2e-\(UUID().uuidString)")
         try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
@@ -479,14 +497,22 @@ final class AIEndToEndTests: XCTestCase {
         let url = dir.appending(path: source.lastPathComponent)
         try FileManager.default.copyItem(at: source, to: url)
 
-        let saved = (AISettings.enabled, AISettings.provider, AISettings.openAIBaseURL, AISettings.openAIModel)
+        let saved = (AISettings.enabled, AISettings.provider, AISettings.openAIBaseURL, AISettings.openAIModel,
+                     AISettings.anthropicModel)
         addTeardownBlock { @MainActor in
-            (AISettings.enabled, AISettings.provider, AISettings.openAIBaseURL, AISettings.openAIModel) = saved
+            (AISettings.enabled, AISettings.provider, AISettings.openAIBaseURL, AISettings.openAIModel,
+             AISettings.anthropicModel) = saved
         }
         AISettings.enabled = true
-        AISettings.provider = .openAICompatible
-        AISettings.openAIBaseURL = base
-        AISettings.openAIModel = model
+        if anthropic {
+            try XCTSkipUnless(AIKeychain.has(.anthropic), "no Anthropic key in Settings ▸ AI")
+            AISettings.provider = .anthropic
+            AISettings.anthropicModel = model
+        } else {
+            AISettings.provider = .openAICompatible
+            AISettings.openAIBaseURL = base
+            AISettings.openAIModel = model
+        }
 
         let ws = AgentWorkspace()
         try await ws.open(url.path)
@@ -509,6 +535,7 @@ final class AIEndToEndTests: XCTestCase {
         XCTAssertNil(assistant.error, assistant.error ?? "")
         let rec = try XCTUnwrap(assistant.recommendation)
         print("E2E summary:", rec.summary)
+        print("E2E applied first pick; proofs compared:", rec.compared)
         for p in rec.picks { print("E2E pick \(p.index) \(p.candidate.film) \(p.score): \(p.reason)") }
         XCTAssertFalse(rec.picks.isEmpty)
         XCTAssertEqual(s.sidecar, before, "recommending changes nothing")
@@ -526,7 +553,8 @@ final class AIEndToEndTests: XCTestCase {
         }
         XCTAssertFalse(assistant.steps.isEmpty)
         s.flushSave()
-        let preview = try await ws.preview(to: URL(fileURLWithPath: "/tmp/spk-test/e2e-refined.jpg"), longEdge: 1024)
+        let out = env["SPK_AI_OUT"] ?? "/tmp/spk-test/e2e-refined.jpg"
+        let preview = try await ws.preview(to: URL(fileURLWithPath: out), longEdge: 1024)
         print("E2E preview:", preview.path)
 
         XCTAssertTrue(assistant.canUndo)

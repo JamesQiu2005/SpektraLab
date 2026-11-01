@@ -207,28 +207,52 @@ enum AIPrompts {
     }
 
     static func readMove(_ answer: JSONValue) throws -> Move {
-        let patch: JSONValue?
+        var patch: [String: JSONValue] = [:]
         // The compatible servers do not hold the schema, and a model there may
         // hand the patch over as an object rather than as a string of one.
         let text = (answer["patch_json"]?.string ?? "{}").trimmingCharacters(in: .whitespacesAndNewlines)
         if case .object(let o)? = answer["patch_json"] {
-            patch = o.isEmpty ? nil : .object(o)
-        } else if text.isEmpty || text == "{}" || text == "null" {
-            patch = nil
-        } else {
-            guard let p = try? JSONValue.parse(text), let o = p.object else {
+            patch = o
+        } else if !(text.isEmpty || text == "{}" || text == "null") {
+            guard let o = (try? JSONValue.parse(text))?.object else {
                 throw AIError.badReply("patch_json is not a JSON object")
             }
-            patch = o.isEmpty ? nil : p
+            patch = o
         }
-        var placement: (Double, Double)?
-        if let h = answer["placement"]?["highlight"]?.number, let s = answer["placement"]?["shadow"]?.number,
-           h > 0 || s > 0 {
-            placement = (min(6, max(0, h)), min(6, max(0, s)))
+        // The placement field wins; otherwise a placement written into the
+        // patch is lifted out of it rather than refused as an unknown section.
+        var placement = side(answer["placement"])
+        let lifted = liftPlacement(&patch)
+        if answer["placement"]?.object == nil { placement = lifted }
+        return Move(rationale: answer["rationale"]?.string ?? "", patch: patch.isEmpty ? nil : .object(patch),
+                    placement: placement, done: answer["done"]?.bool ?? false)
+    }
+
+    /// `{highlight, shadow}` in stops, clamped to the Fit's 0…6; nil when
+    /// absent or both 0 (no placement, not a reset).
+    private static func side(_ v: JSONValue?) -> (highlight: Double, shadow: Double)? {
+        guard let o = v?.object else { return nil }
+        let h = (o["highlight"] ?? o["highlightPullBack"])?.number ?? 0
+        let s = (o["shadow"] ?? o["shadowPullBack"])?.number ?? 0
+        guard h > 0 || s > 0 else { return nil }
+        return (min(6, max(0, h)), min(6, max(0, s)))
+    }
+
+    /// The places a model puts a Scene Placement when it does not use the
+    /// `placement` field: a top-level `placement` (or `place`) section, or the
+    /// read-only `params.sceneLatitude` pull-backs, which go through the Fit
+    /// and never through the patch. Removed from `patch`; the first found is
+    /// returned.
+    static func liftPlacement(_ patch: inout [String: JSONValue]) -> (highlight: Double, shadow: Double)? {
+        var found: (highlight: Double, shadow: Double)?
+        for key in ["placement", "place", "scenePlacement"] {
+            if let v = patch.removeValue(forKey: key), found == nil { found = side(v) }
         }
-        return Move(rationale: answer["rationale"]?.string ?? "", patch: patch,
-                    placement: placement.map { (highlight: $0.0, shadow: $0.1) },
-                    done: answer["done"]?.bool ?? false)
+        if var params = patch["params"]?.object, let sl = params.removeValue(forKey: "sceneLatitude") {
+            if found == nil { found = side(sl) }
+            if params.isEmpty { patch.removeValue(forKey: "params") } else { patch["params"] = .object(params) }
+        }
+        return found
     }
 
     // MARK: shared lines
