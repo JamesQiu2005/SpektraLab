@@ -223,6 +223,7 @@
 			path = "Model";
 			sourceTree = "<group>";
 		};
+		AE57F5998B03090AA39DFE26 /* AISection.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "AISection.swift"; sourceTree = "<group>"; };
 		831653CD6B716B9CB37E7445 /* CameraSection.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CameraSection.swift"; sourceTree = "<group>"; };
 		927C1341FFF10E11B804120C /* ClipboardSection.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "ClipboardSection.swift"; sourceTree = "<group>"; };
 		773B97297FE5E4580B7CE70F /* CropSection.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CropSection.swift"; sourceTree = "<group>"; };
@@ -240,6 +241,7 @@
 		6D96546C1610FE27FA9014C7 /* Sections */ = {
 			isa = PBXGroup;
 			children = (
+				AE57F5998B03090AA39DFE26 /* AISection.swift */,
 				831653CD6B716B9CB37E7445 /* CameraSection.swift */,
 				927C1341FFF10E11B804120C /* ClipboardSection.swift */,
 				773B97297FE5E4580B7CE70F /* CropSection.swift */,
@@ -313,6 +315,7 @@
 		};
 		9F23C3316C10DCB824FB61A8 /* AboutWindow.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "AboutWindow.swift"; sourceTree = "<group>"; };
 		EB1385C1FE7F75D9B22BE1F2 /* AgentsSettingsPage.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "AgentsSettingsPage.swift"; sourceTree = "<group>"; };
+		FD4A734283F393BA91D984CF /* AISettingsPage.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "AISettingsPage.swift"; sourceTree = "<group>"; };
 		09F0E1278E0E11D0A2B20BCA /* BootWindow.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "BootWindow.swift"; sourceTree = "<group>"; };
 		1314FC9749243D900B18259C /* CollapseTab.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CollapseTab.swift"; sourceTree = "<group>"; };
 		ADC8065A5E52A589C2F6AE42 /* EditorWindow.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "EditorWindow.swift"; sourceTree = "<group>"; };
@@ -326,6 +329,7 @@
 			children = (
 				9F23C3316C10DCB824FB61A8 /* AboutWindow.swift */,
 				EB1385C1FE7F75D9B22BE1F2 /* AgentsSettingsPage.swift */,
+				FD4A734283F393BA91D984CF /* AISettingsPage.swift */,
 				09F0E1278E0E11D0A2B20BCA /* BootWindow.swift */,
 				1314FC9749243D900B18259C /* CollapseTab.swift */,
 				ADC8065A5E52A589C2F6AE42 /* EditorWindow.swift */,
@@ -682,6 +686,7 @@
 		ECD5185216EA4EBDF7B8AC43 /* Sidecar.swift */ = {isa = PBXBuildFile; fileRef = F41E0CBEE2514220F975C465; };
 		495103DED5BC4AF1790BAE6B /* StockCatalog.swift */ = {isa = PBXBuildFile; fileRef = 54760792255D82D0FCE4FE92; };
 		3B9DD29CA88CB7BA4E13D6C1 /* ToneMask.swift */ = {isa = PBXBuildFile; fileRef = 73CD38122A0624F1B181E883; };
+		4B29CE65A31692734A7A9D32 /* AISection.swift */ = {isa = PBXBuildFile; fileRef = AE57F5998B03090AA39DFE26; };
 		31490F929F81724E9A336A94 /* CameraSection.swift */ = {isa = PBXBuildFile; fileRef = 831653CD6B716B9CB37E7445; };
 		40F8BD8BF544616033F3E633 /* ClipboardSection.swift */ = {isa = PBXBuildFile; fileRef = 927C1341FFF10E11B804120C; };
 		15B6AEDCC3FE5FBED0DC689E /* CropSection.swift */ = {isa = PBXBuildFile; fileRef = 773B97297FE5E4580B7CE70F; };
@@ -708,6 +713,7 @@
 		8111223953FAA398DB461ED3 /* UpdateCheck.swift */ = {isa = PBXBuildFile; fileRef = 60EC177B720E7F60B0465202; };
 		7485388DD7C86A4BB6126DD2 /* AboutWindow.swift */ = {isa = PBXBuildFile; fileRef = 9F23C3316C10DCB824FB61A8; };
 		96CDFA98F80E78DD0F842FA4 /* AgentsSettingsPage.swift */ = {isa = PBXBuildFile; fileRef = EB1385C1FE7F75D9B22BE1F2; };
+		8657B48BC1064F0980B33519 /* AISettingsPage.swift */ = {isa = PBXBuildFile; fileRef = FD4A734283F393BA91D984CF; };
 		11E93F8098E4781E687D3B40 /* BootWindow.swift */ = {isa = PBXBuildFile; fileRef = 09F0E1278E0E11D0A2B20BCA; };
 		9F226DBBF6D9A09997010B68 /* CollapseTab.swift */ = {isa = PBXBuildFile; fileRef = 1314FC9749243D900B18259C; };
 		30D807F890E0D613B37D2F53 /* EditorWindow.swift */ = {isa = PBXBuildFile; fileRef = ADC8065A5E52A589C2F6AE42; };
@@ -821,6 +827,7 @@
 				ECD5185216EA4EBDF7B8AC43 /* Sidecar.swift */,
 				495103DED5BC4AF1790BAE6B /* StockCatalog.swift */,
 				3B9DD29CA88CB7BA4E13D6C1 /* ToneMask.swift */,
+				4B29CE65A31692734A7A9D32 /* AISection.swift */,
 				31490F929F81724E9A336A94 /* CameraSection.swift */,
 				40F8BD8BF544616033F3E633 /* ClipboardSection.swift */,
 				15B6AEDCC3FE5FBED0DC689E /* CropSection.swift */,
@@ -847,6 +854,7 @@
 				8111223953FAA398DB461ED3 /* UpdateCheck.swift */,
 				7485388DD7C86A4BB6126DD2 /* AboutWindow.swift */,
 				96CDFA98F80E78DD0F842FA4 /* AgentsSettingsPage.swift */,
+				8657B48BC1064F0980B33519 /* AISettingsPage.swift */,
 				11E93F8098E4781E687D3B40 /* BootWindow.swift */,
 				9F226DBBF6D9A09997010B68 /* CollapseTab.swift */,
 				30D807F890E0D613B37D2F53 /* EditorWindow.swift */,
@@ -1041,6 +1049,7 @@
 		FAC8A65917DB53B483714521 /* Sidecar.swift */ = {isa = PBXBuildFile; fileRef = F41E0CBEE2514220F975C465; };
 		2F1C84D952E02D091BF4FD75 /* StockCatalog.swift */ = {isa = PBXBuildFile; fileRef = 54760792255D82D0FCE4FE92; };
 		877A4E321C0E2EFDCAAB662C /* ToneMask.swift */ = {isa = PBXBuildFile; fileRef = 73CD38122A0624F1B181E883; };
+		594E75136068667C16282F48 /* AISection.swift */ = {isa = PBXBuildFile; fileRef = AE57F5998B03090AA39DFE26; };
 		FD3265098AA8A6AC64068557 /* CameraSection.swift */ = {isa = PBXBuildFile; fileRef = 831653CD6B716B9CB37E7445; };
 		DEE999778942877A40E1F1DA /* ClipboardSection.swift */ = {isa = PBXBuildFile; fileRef = 927C1341FFF10E11B804120C; };
 		3949D904607209196C68D6D2 /* CropSection.swift */ = {isa = PBXBuildFile; fileRef = 773B97297FE5E4580B7CE70F; };
@@ -1067,6 +1076,7 @@
 		2AF8C98E7896A9A4668F18FA /* UpdateCheck.swift */ = {isa = PBXBuildFile; fileRef = 60EC177B720E7F60B0465202; };
 		079BA19AF46D3C795867E568 /* AboutWindow.swift */ = {isa = PBXBuildFile; fileRef = 9F23C3316C10DCB824FB61A8; };
 		3D2BBCE9222E3EA99D27172C /* AgentsSettingsPage.swift */ = {isa = PBXBuildFile; fileRef = EB1385C1FE7F75D9B22BE1F2; };
+		8F3DA7AEF58676371B346893 /* AISettingsPage.swift */ = {isa = PBXBuildFile; fileRef = FD4A734283F393BA91D984CF; };
 		E173521E6D3C6C05CEBB9055 /* BootWindow.swift */ = {isa = PBXBuildFile; fileRef = 09F0E1278E0E11D0A2B20BCA; };
 		47529647F3D60BBE8CE96974 /* CollapseTab.swift */ = {isa = PBXBuildFile; fileRef = 1314FC9749243D900B18259C; };
 		6BE641FE29553FD2270F5946 /* EditorWindow.swift */ = {isa = PBXBuildFile; fileRef = ADC8065A5E52A589C2F6AE42; };
@@ -1240,6 +1250,7 @@
 				FAC8A65917DB53B483714521 /* Sidecar.swift */,
 				2F1C84D952E02D091BF4FD75 /* StockCatalog.swift */,
 				877A4E321C0E2EFDCAAB662C /* ToneMask.swift */,
+				594E75136068667C16282F48 /* AISection.swift */,
 				FD3265098AA8A6AC64068557 /* CameraSection.swift */,
 				DEE999778942877A40E1F1DA /* ClipboardSection.swift */,
 				3949D904607209196C68D6D2 /* CropSection.swift */,
@@ -1266,6 +1277,7 @@
 				2AF8C98E7896A9A4668F18FA /* UpdateCheck.swift */,
 				079BA19AF46D3C795867E568 /* AboutWindow.swift */,
 				3D2BBCE9222E3EA99D27172C /* AgentsSettingsPage.swift */,
+				8F3DA7AEF58676371B346893 /* AISettingsPage.swift */,
 				E173521E6D3C6C05CEBB9055 /* BootWindow.swift */,
 				47529647F3D60BBE8CE96974 /* CollapseTab.swift */,
 				6BE641FE29553FD2270F5946 /* EditorWindow.swift */,

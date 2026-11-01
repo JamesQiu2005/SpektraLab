@@ -85,6 +85,8 @@ struct SettingsWindow: View {
                         bundleSection
                     case .agents:
                         AgentsSettingsPage()
+                    case .ai:
+                        AISettingsPage()
                     }
                 }
                 .padding(.vertical, Theme.Metric.Settings.verticalInset)
@@ -661,7 +663,7 @@ struct SettingsRows<Content: View>: View {
 // MARK: - pages, tabs and groups (Capture One's preferences, RFC-026)
 
 enum SettingsPage: String, CaseIterable, Identifiable {
-    case general, rendering, memory, diagnostics, agents
+    case general, rendering, memory, diagnostics, agents, ai
     var id: String { rawValue }
 
     @MainActor var title: String {
@@ -671,6 +673,7 @@ enum SettingsPage: String, CaseIterable, Identifiable {
         case .memory: L(.setTabMemory)
         case .diagnostics: L(.setTabDiagnostics)
         case .agents: L(.setTabAgents)
+        case .ai: "AI"
         }
     }
 
@@ -681,6 +684,7 @@ enum SettingsPage: String, CaseIterable, Identifiable {
         case .memory: "memorychip"
         case .diagnostics: "stethoscope"
         case .agents: "terminal"
+        case .ai: "sparkles"
         }
     }
 }

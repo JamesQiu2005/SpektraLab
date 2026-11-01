@@ -22,9 +22,15 @@
 import SwiftUI
 
 enum ParametersTab: String, CaseIterable, Identifiable {
-    case preDev, postDev
+    case preDev, postDev, ai
     var id: String { rawValue }
-    @MainActor var title: String { self == .preDev ? L(.tabPreDev) : L(.tabPostDev) }
+    @MainActor var title: String {
+        switch self {
+        case .preDev: L(.tabPreDev)
+        case .postDev: L(.tabPostDev)
+        case .ai: "AI"
+        }
+    }
 }
 
 struct RightPanel: View {
@@ -47,6 +53,10 @@ struct RightPanel: View {
             s.append(("scenePlacement", AnyView(ScenePlacementSection(session: session))))
             // Withdrawn for the next version (`FeatureFlags.toneMask`).
             if FeatureFlags.toneMask { s.append(("toneMask", AnyView(ToneMaskSection(session: session)))) }
+        } else if tab == .ai {
+            // ARCHITECTURE §7.14: proofs, a ranking and a refinement, all
+            // through this frame's own controls.
+            s.append(("ai", AnyView(AISection(session: session))))
         } else {
             s.append(("wb2", AnyView(WhiteBalanceSection(session: session))))
             s.append(("exposure2", AnyView(ExposureSection(session: session))))
