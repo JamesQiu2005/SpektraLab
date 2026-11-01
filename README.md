@@ -1,4 +1,4 @@
-# SpektraLab
+# SpektraLab™
 
 **English** · [简体中文](README.zh-CN.md) · [spektralab.app](https://spektralab.app)
 
@@ -160,3 +160,17 @@ around it.
 | metal-cpp | Apache-2.0 |
 
 All texts ship inside the app, under **SpektraLab → About SpektraLab**.
+
+## Trademark
+
+SpektraLab™ and the SpektraLab icon are managed by Guangzhou Songzi Intelligent
+Technology Services Co., Ltd.; trademark registration is in progress.
+
+Forks are welcome. You can study, modify, port and redistribute the code under
+its licences, which cover the code and data but not the name or the icon. Keeping
+both in a personal fork is fine. If you publish a build for other people, even a
+free one, please give it its own name and icon. You are welcome to say it is
+based on SpektraLab, as long as it is clear that your project is unofficial.
+
+We reserve the right to act against builds that pass themselves off as official
+or imply our endorsement.

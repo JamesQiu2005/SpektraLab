@@ -1,4 +1,4 @@
-# SpektraLab
+# SpektraLab™
 
 [English](README.md) · **简体中文** · [spektralab.app](https://spektralab.app)
 
@@ -111,3 +111,11 @@ xcodebuild -project Spektrafilm.xcodeproj -scheme SpektrafilmTests \
 | metal-cpp | Apache-2.0 |
 
 全部许可文本随应用附带，见 **SpektraLab → 关于 SpektraLab**。
+
+## 商标
+
+SpektraLab™ 名称及其图标由广州松子智能科技服务有限公司管理，相关商标注册申请正在办理中。
+
+欢迎 Fork。你可以依照开源许可研究、修改、移植和再分发代码；这些许可涵盖代码与数据，但不包括名称与图标。在个人 fork 中保留它们没有问题。如果要向他人发布构建版本，即使是免费的，也请换用自己的名称和图标。欢迎说明项目基于 SpektraLab，但请清楚标明它并非官方版本。
+
+对于冒充官方版本或暗示获得我们认可的行为，我们保留依法采取措施的权利。
