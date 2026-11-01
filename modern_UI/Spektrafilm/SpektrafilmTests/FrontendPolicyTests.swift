@@ -408,6 +408,44 @@ final class FrontendPolicyTests: XCTestCase {
         session.flushSave()
     }
 
+    /// The same echo, through a field the codec does not round-trip: a nil
+    /// date-back `camera` is written by omitting the key and read back as
+    /// `.f135`. Recorded as the in-memory value, the agreement then differed
+    /// from the file it described, so the window's own save still looked like
+    /// an outside edit and rolled the newer edit back — which is how a Scene
+    /// Placement made through `spektralab place` vanished on the next settle.
+    func testTheWindowsOwnSaveIsRecognisedWhenTheCodecIsNotAnIdentity() throws {
+        let dir = FileManager.default.temporaryDirectory
+            .appending(path: "spk-sidecar-codec-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        addTeardownBlock { try? FileManager.default.removeItem(at: dir) }
+        let url = dir.appending(path: "frame.tif")
+        try Data().write(to: url)
+        addTeardownBlock { Sidecar.remove(for: url) }
+
+        let session = Session()
+        session.select(url)
+        var s1 = session.params
+        s1.printBrightnessStops = -0.5
+        session.params = s1
+        // Set past the setter, which resolves the camera again: nil is what a
+        // frame whose Film Format describes no camera carries.
+        session.sidecar.params.dateBack.camera = nil
+        XCTAssertNil(session.params.dateBack.camera)
+        session.flushSave()
+        XCTAssertEqual(Sidecar.load(for: url)?.params.dateBack.camera, .f135,
+                       "the premise: nil does not survive the codec")
+
+        var s2 = session.params
+        s2.printBrightnessStops = -1.1
+        session.params = s2
+
+        session.sidecarStoreChanged()
+        XCTAssertEqual(session.params.printBrightnessStops, -1.1,
+                       "the window's own save was adopted as an outside edit")
+        session.flushSave()
+    }
+
     /// The other half of the rule: a change that is not the last agreement is
     /// still adopted, so the suppression above cannot swallow the CLI and the
     /// MCP server.

@@ -2866,7 +2866,13 @@ final class Session: CanvasHost {
         saveTask?.cancel()
         guard let url = selection else { return }
         if (try? sidecar.save(for: url)) != nil {
-            var written = sidecar
+            // What a reader of the file will see, not what was in memory: the
+            // codec is not an identity for every field (a nil date-back
+            // `camera` reads back as 135), and `sidecarStoreChanged` compares
+            // the file against this. Recorded as the in-memory value, the
+            // window's own write looked like someone else's and was adopted
+            // over every edit made after it.
+            var written = (try? JSONDecoder().decode(Sidecar.self, from: JSONEncoder().encode(sidecar))) ?? sidecar
             written.source = Sidecar.identity(of: url)
             lastSynced[url] = written
         }
