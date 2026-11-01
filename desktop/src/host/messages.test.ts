@@ -22,4 +22,10 @@ describe('hostMessage', () => {
     expect(hostMessage('TIFF strip outside file')).toBe('TIFF strip outside file');
     expect(hostMessage('')).toBe('');
   });
+  it('never meets Object.prototype: a file named like a built-in property is a file name', () => {
+    setLanguage('simplifiedChinese');
+    for (const name of ['constructor', 'toString', '__proto__', 'hasOwnProperty', 'valueOf'])
+      expect(hostMessage(`not found: ${name}`)).toBe(`找不到文件：${name}`);
+    expect(hostMessage('constructor')).toBe('constructor');
+  });
 });
