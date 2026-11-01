@@ -1530,7 +1530,8 @@ export async function removeFrames(paths: readonly string[]) {
   if (frames.length === s.frames.length) return;
   const picked = s.picked.filter((p) => !gone.has(p));
   if (!s.selection || !gone.has(s.selection)) {
-    set({ frames, picked });
+    for (const path of gone) thumbs.invalidate(path);
+    set({ frames, picked, thumbVersion: s.thumbVersion + 1 });
     saveFrameOrder();
     return;
   }
@@ -1538,12 +1539,33 @@ export async function removeFrames(paths: readonly string[]) {
   const next = s.frames.slice(at + 1).find((f) => !gone.has(f.path))
     ?? s.frames.slice(0, Math.max(0, at)).reverse().find((f) => !gone.has(f.path)) ?? null;
   try {
+    // The open frame's settings go to disk first. `flushSave` reports its
+    // own failure and leaves the save pending; a frame whose settings are
+    // not saved, or that sits on an external edit conflict, stays.
     await flushSave();
-    if (get().externalEditConflict) return;
+    if (savePending || get().externalEditConflict) {
+      const why = get().lastError;
+      set({ status: why ? tz(`Not removed — ${why}`, `未移除 — ${why}`) : tz('Not removed: the open photo has unsaved settings.', '未移除：当前照片的设置尚未保存。') });
+      return;
+    }
+    // The canvas moved on while the save ran: this command is stale.
+    if (get().selection !== s.selection || get().frames !== s.frames) return;
     await closeEngineSession();
-    set({ frames, picked, selection: null, pair: null, pairInfo: null, pairLayer: 'film', pairPlacing: false });
+    // Nothing of the frame outlives it: the uploaded pictures, its size and
+    // metadata, the badge (the `openFolder` reset, minus the roll itself).
+    frameImages.print = null;
+    frameImages.original = null;
+    for (const path of gone) thumbs.invalidate(path);
+    set({
+      frames, picked, selection: null, pair: null, pairInfo: null, pairLayer: 'film', pairPlacing: false,
+      nativeSize: null, metadata: null, frameKind: null, badge: null, developing: false, redecoding: false,
+      undo: [], redo: [], showingOriginal: false, tool: 'select',
+      imageVersion: get().imageVersion + 1, thumbVersion: get().thumbVersion + 1,
+      status: next ? get().status : tz('The roll is empty.', '工作台已清空。'),
+    });
     saveFrameOrder();
     if (next) await select(next.path);
+    else if (get().folder) void platform().setTitle(`SpektraLab — ${baseName(get().folder!)}`);
   } catch (e) { noteError(tz('Removing from the roll', '从工作台移除'), e); }
 }
 

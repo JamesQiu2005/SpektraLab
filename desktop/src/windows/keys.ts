@@ -88,7 +88,8 @@ export function shortcutTable(): Record<string, Action> {
     arrowleft: () => selectRelative(-1),
     arrowright: () => selectRelative(1),
     // The picked frames leave the roll (Lightroom's Delete; the file stays).
-    delete: () => void removeSelectedFrames(),
+    // Only from the plain editor: not mid-crop, mid-pick or while placing a pair.
+    delete: () => { const s = sessionStore.getState(); if (s.tool === 'select' && !s.pairPlacing) void removeSelectedFrames(); },
     escape: () => {
       const s = sessionStore.getState();
       if (s.exportOpen && !s.batchExporting) setPages({ exportOpen: false });
@@ -121,6 +122,8 @@ export function installKeys(menuOwns: Set<string> = new Set()): () => void {
     const c = chord(e);
     if ((s.exportOpen || s.settingsOpen || s.aboutOpen) && c !== 'escape' && !c.startsWith('ctrl+')) return;
     if (s.batchExporting && c !== 'f11') return;
+    // A held Delete must not empty the roll one frame per repeat.
+    if (e.repeat && c === 'delete') { e.preventDefault(); return; }
     // Text editing shortcuts belong to the focused field, not the photograph.
     if (isEditable(e.target) && ['ctrl+a', 'ctrl+c', 'ctrl+v', 'ctrl+x', 'ctrl+z', 'ctrl+shift+z', 'ctrl+y'].includes(c)) return;
     const a = table[c];

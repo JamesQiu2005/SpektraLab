@@ -34,4 +34,12 @@ test('a frame leaves the roll from the filmstrip menu; the open frame hands over
   await expect(page.locator('.thumb')).toHaveCount(5);
   await expect.poll(() => state(page, 's.selection')).toBe('/mock/Roll 01/DSC_0003.NEF');
   await expect(page.getByTestId('tier-badge')).toHaveText('full', { timeout: 20_000 });
+
+  // Everything goes: the canvas is empty, nothing of the last frame remains.
+  await page.keyboard.press('Control+a');
+  await page.keyboard.press('Delete');
+  await expect(page.locator('.thumb')).toHaveCount(0);
+  await expect(page.getByTestId('canvas-empty')).toBeVisible();
+  await expect(page.getByTestId('tier-badge')).toHaveCount(0);
+  expect(await state(page, '[s.selection, s.nativeSize, s.metadata, s.picked.length]')).toEqual([null, null, null, 0]);
 });

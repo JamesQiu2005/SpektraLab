@@ -49,6 +49,16 @@ it('Delete removes the picked frames from the roll, but not from inside a text f
     sessionStore.setState({ frames: [frame(1), frame(2), frame(3)], picked: ['/roll/2.ARW'], selection: null, batchExporting: false, exportOpen: false, settingsOpen: false, aboutOpen: false });
     expect(fire(field).preventDefault).not.toHaveBeenCalled();
     expect(sessionStore.getState().frames).toHaveLength(3);
+    // A held key repeats: only the first press counts.
+    const held = { ...k('Delete', div), repeat: true, preventDefault: vi.fn() };
+    callbacks[0]!(held as unknown as KeyboardEvent);
+    expect(held.preventDefault).toHaveBeenCalled();
+    expect(sessionStore.getState().frames).toHaveLength(3);
+    // Mid-crop the key is not a removal either.
+    sessionStore.setState({ tool: 'crop' });
+    fire(div);
+    expect(sessionStore.getState().frames).toHaveLength(3);
+    sessionStore.setState({ tool: 'select' });
     expect(fire(div).preventDefault).toHaveBeenCalled();
     expect(sessionStore.getState().frames.map((f) => f.name)).toEqual(['1.ARW', '3.ARW']);
     expect(sessionStore.getState().picked).toEqual([]);

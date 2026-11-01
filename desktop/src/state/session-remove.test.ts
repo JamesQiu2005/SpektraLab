@@ -79,12 +79,44 @@ describe('removeFrames', () => {
     expect(paths()).toEqual(['/owned/a.ARW']);
     expect(session.sessionStore.getState().selection).toBe('/owned/a.ARW');
   });
-  it('leaves an empty roll with no selection', async () => {
+  it('leaves an empty roll with no selection, and nothing of the last frame on the canvas', async () => {
+    const { frameImages } = await import('./frames');
+    frameImages.print = { width: 6, height: 4, data: new Uint8Array(96), colorSpace: 'sRGB' } as never;
+    session.sessionStore.setState({ metadata: { orientation: 1 } as never, frameKind: 'raw', badge: 'full' as never, imageVersion: 7 });
     await session.removeFrames(roll().map((f) => f.path));
+    const s = session.sessionStore.getState();
     expect(paths()).toEqual([]);
-    expect(session.sessionStore.getState().selection).toBeNull();
-    expect(session.sessionStore.getState().picked).toEqual([]);
+    expect(s.selection).toBeNull();
+    expect(s.picked).toEqual([]);
     expect(fake.open).not.toHaveBeenCalled();
+    expect(fake.close).toHaveBeenCalledOnce();
+    expect([s.nativeSize, s.metadata, s.frameKind, s.badge, frameImages.print, frameImages.original]).toEqual([null, null, null, null, null, null]);
+    expect(s.imageVersion).toBe(8);
+    expect(s.status).toMatch(/roll is empty|工作台已清空/);
+  });
+  it('keeps the open frame when its settings cannot be saved', async () => {
+    session.setAdjustments((a) => ({ ...a, exposure: 0.5 }));
+    fake.save.mockRejectedValueOnce(new Error('disk full'));
+    await session.removeFrames(['/owned/b.ARW']);
+    const s = session.sessionStore.getState();
+    expect(paths()).toHaveLength(4);
+    expect(s.selection).toBe('/owned/b.ARW');
+    expect(s.engineSession).toBe('s1');
+    expect(fake.close).not.toHaveBeenCalled();
+    expect(s.status).toMatch(/^(Not removed|未移除)/);
+    expect(s.status).toContain('disk full');
+    // Once the save goes through, the same command removes it.
+    await session.removeFrames(['/owned/b.ARW']);
+    expect(paths()).toHaveLength(3);
+    expect(fake.save).toHaveBeenCalledTimes(2);
+  });
+  it('keeps the open frame while it sits on an external edit conflict', async () => {
+    session.sessionStore.setState({ externalEditConflict: true });
+    await session.removeFrames(['/owned/b.ARW']);
+    expect(paths()).toHaveLength(4);
+    expect(session.sessionStore.getState().selection).toBe('/owned/b.ARW');
+    expect(fake.close).not.toHaveBeenCalled();
+    expect(session.sessionStore.getState().status).toMatch(/^(Not removed|未移除)/);
   });
   it('takes the picked set from a menu command, else the open frame', async () => {
     session.sessionStore.setState({ picked: ['/owned/a.ARW', '/owned/d.ARW'] });
