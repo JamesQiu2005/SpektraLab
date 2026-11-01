@@ -44,7 +44,7 @@ import { type LatitudeReply, type PlacementIssue, type PlacementSide, type Place
   applyLatitudeFit, fitPlacement, latitudeRequest, measuredFromReply, placementIntent, placementLanding, placementWindow } from '@shared/latitude';
 import { HostCallError, host } from '../host/client';
 import { type FileEntry, baseName, dirName, platform } from '../platform';
-import { rememberFolder, settingsStore } from './settings';
+import { forgetRecentFolder, rememberFolder, settingsStore } from './settings';
 import { newPhotoSidecar } from '@shared/newPhotoDefaults';
 import { frameImages, makeThumbFromPrint, THUMB_EDGE } from './frames';
 import { thumbs } from './thumbs';
@@ -1630,6 +1630,13 @@ export async function openFolder(dir: string) {
     if (first) await select(first.path);
   } catch (e) {
     noteError(tz('Opening the folder', '打开文件夹'), e);
+    // A folder that is gone (moved, deleted, a drive unplugged) leaves the
+    // recent list rather than failing again on every visit.
+    const there = await Promise.resolve().then(() => platform().pathExists(dir)).catch(() => true);
+    if (!there) {
+      forgetRecentFolder(dir);
+      set({ status: tz(`${baseName(dir)} is no longer there; it left Open Recent.`, `${baseName(dir)} 已不存在，已从最近打开中移除。`) });
+    }
   }
 }
 

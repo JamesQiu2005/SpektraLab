@@ -13,6 +13,7 @@ const fake = vi.hoisted(() => ({
   state: vi.fn(),
   listImages: vi.fn<(dir: string) => Promise<FileEntry[]>>(),
   expandPaths: vi.fn<(paths: string[]) => Promise<FileEntry[]>>(),
+  pathExists: vi.fn<(path: string) => Promise<boolean>>(),
   open: vi.fn(async () => ({ session: 's1', width: 6, height: 4, kind: 'raw', metadata: { orientation: 1 } })),
 }));
 vi.mock('@shared/stocks', async (original) => ({ ...(await original<typeof StocksModule>()), loadCatalog: fake.loadCatalog }));
@@ -28,7 +29,7 @@ vi.mock('../host/client', () => ({
 vi.mock('../platform', () => ({
   platform: () => ({
     log: () => {}, sidecarLoad: async () => null, sidecarSave: async () => '',
-    listImages: fake.listImages, expandPaths: fake.expandPaths, setTitle: async () => {},
+    listImages: fake.listImages, expandPaths: fake.expandPaths, setTitle: async () => {}, pathExists: fake.pathExists,
     onOpenPaths: () => {}, onDrop: () => {}, takeLaunchPaths: async () => [],
   }),
   baseName: (p: string) => p.split(/[\\/]/).pop() ?? p,
@@ -72,6 +73,19 @@ describe('recent folders', () => {
     await session.openPaths(['/photos/roll 4/a.ARW']);
     expect(settings.settingsStore.getState().recentFolders).toEqual(['/photos/roll 3']);
     expect(session.sessionStore.getState().frames.map((f) => f.path)).toEqual(['/photos/roll 4/a.ARW']);
+  });
+  it('drops a folder that is no longer there when opening it fails, and keeps one that is', async () => {
+    await session.openFolder('/photos/roll 1');
+    await session.openFolder('/photos/roll 2');
+    fake.listImages.mockRejectedValueOnce(new Error('ENOENT'));
+    fake.pathExists.mockResolvedValueOnce(false);
+    await session.openFolder('/photos/roll 1');
+    expect(settings.settingsStore.getState().recentFolders).toEqual(['/photos/roll 2']);
+    expect(session.sessionStore.getState().status).toMatch(/no longer there|已不存在/);
+    fake.listImages.mockRejectedValueOnce(new Error('EACCES'));
+    fake.pathExists.mockResolvedValueOnce(true);
+    await session.openFolder('/photos/roll 2');
+    expect(settings.settingsStore.getState().recentFolders).toEqual(['/photos/roll 2']);
   });
   it('forgets the list on request', async () => {
     await session.openFolder('/photos/roll 1');

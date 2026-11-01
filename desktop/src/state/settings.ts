@@ -167,6 +167,12 @@ export function rememberFolder(dir: string) {
 export function forgetRecentFolders() {
   settingsStore.getState().set('recentFolders', []);
 }
+
+/** One folder leaves the list (it is no longer there). */
+export function forgetRecentFolder(dir: string) {
+  const s = settingsStore.getState();
+  if (s.recentFolders.some((p) => sameFolder(p, dir))) s.set('recentFolders', s.recentFolders.filter((p) => !sameFolder(p, dir)));
+}
 // The headless CLI has no WebView localStorage. Mirror only the two switches
 // that affect pixels, via an atomic native write independent of batch leases.
 // Serialize writes so a slow startup save cannot replace a newer selection.
