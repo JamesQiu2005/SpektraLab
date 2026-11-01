@@ -109,9 +109,10 @@ final class MaskTests: XCTestCase {
             // ellipse's frame, divided by the semi-axes.
             let dx = (n.x - c.a.x), dy = (n.y - c.a.y) / aspect
             let a = c.angle * .pi / 180
-            let ex = (dx * cos(a) + dy * sin(a)) / c.radii.width
-            let ey = (-dx * sin(a) + dy * cos(a)) / c.radii.height
-            XCTAssertEqual((ex * ex + ey * ey).squareRoot(), 1, accuracy: 1e-9,
+            let ca = CGFloat(cos(a)), sa = CGFloat(sin(a))
+            let ex: CGFloat = (dx * ca + dy * sa) / c.radii.width
+            let ey: CGFloat = (-dx * sa + dy * ca) / c.radii.height
+            XCTAssertEqual(Double((ex * ex + ey * ey).squareRoot()), 1, accuracy: 1e-9,
                            "grip at t=\(t) is not on the ellipse the shader draws")
         }
     }

@@ -223,8 +223,9 @@ final class ViewportStateTests: XCTestCase {
             let g = Geometry.default.straightened(to: degrees, in: photo)
             let box = g.editBounds(pivot: g.centre, in: photo)
             let a = degrees * .pi / 180
-            let across = (photo.width * abs(cos(a)) + photo.height * abs(sin(a))) / photo.width / 2
-            let down = (photo.width * abs(sin(a)) + photo.height * abs(cos(a))) / photo.height / 2
+            let c = CGFloat(abs(cos(a))), s = CGFloat(abs(sin(a)))
+            let across: CGFloat = (photo.width * c + photo.height * s) / photo.width / 2
+            let down: CGFloat = (photo.width * s + photo.height * c) / photo.height / 2
             XCTAssertEqual(box.width / 2, across, accuracy: 1e-9, "\(degrees)° across")
             XCTAssertEqual(box.height / 2, down, accuracy: 1e-9, "\(degrees)° down")
             XCTAssertEqual(box.midX, g.centre.x, accuracy: 1e-9, "\(degrees)°")
