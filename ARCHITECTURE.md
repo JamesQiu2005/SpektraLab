@@ -22,6 +22,7 @@ they stay put; new material goes in new subsections.
   │  Renderer     the canvas: Layer 2, geometry, histogram                │
   │  Export/      recipes · soft proof · batch · ImageIO writers          │
   │  Agent/       CLI + MCP front doors onto the same Session (RFC-026)   │
+  │  AI/          proofs, a vision model, film choice + refinement §7.14  │
   │  Diagnostics/ log · memory arena · SQLite-indexed disk cache          │
   │  EngineClient ── actor · JSON params in · MTLTexture out              │
   │        │  spk_engine.h, a hand-written extern "C" surface             │
@@ -441,6 +442,9 @@ SpektraLab mcp         a Model Context Protocol server on stdio
   access on, and while a batch export runs.
 - A patch is validated whole before anything is applied; ranges are the
   interface's ranges.
+- **`compare_stocks`** (`spektralab compare`) prints the frame small on many
+  films at once and returns a numbered contact sheet with each proof's
+  numbers — on an engine of its own, so it changes nothing (§7.14).
 
 ### 7.10 Keys
 
@@ -518,6 +522,55 @@ inside a field. `TypingKeyGuard` is a local key monitor that sends typing keys
 - **Select all and Sync** (⌘A, Settings Clipboard ▸ Sync to N) write the ticked
   groups from the current frame to the picked set through the clipboard's own
   rules; there is no batch undo.
+
+### 7.14 The AI assistant (fork addition)
+
+The Parameters rail's third tab, **AI**, and Settings ▸ AI. Two jobs, both
+through controls a person already has:
+
+| | what happens | code |
+|---|---|---|
+| **Choose a film** | the frame is printed small (512 px) on every colour film, each on its declared paper, slides scanned, push processes aside, the current pair first; a vision model sees the numbered contact sheet and each proof's numbers and ranks the best 3–5 with reasons; **Apply** is `selectFilmStock` + `selectPrintStock` + Solve | `AI/ProofSheet`, `AI/ImageMetrics`, `AI/AIAssistant.recommendFilm` |
+| **Refine** | up to three rounds of: the finished print (1024 px, through `Exporter` like an agent preview) + the writable fields + the latitude report → the model answers a JSON merge patch and an optional Scene Placement → `applyAgentEdit` / `placeSceneNow`, refusals reported back | `AIAssistant.refine`, `AI/AIPrompts` |
+
+- **Proofs run on a second `EngineClient`.** `open` replaces a client's one
+  session, so proofing on the canvas's client would swap the frame out from
+  under the person. `ProofSheet.render` makes its own client on the same
+  device, hands it the frame (geometry applied, shrunk) and stops it after.
+  `AISessionTests.testProofsLeaveTheSessionAlone` renders the canvas's
+  session again afterwards and checks it is still the frame — shown red with
+  the shared client. Nineteen films at 768 px: ~3 s on an M-series Mac.
+- **A proof is a neutral print** (`ProofSheet.proofParams`): meter on, Exp.
+  Comp., filter shifts and print brightness 0 with the pack solved per pair,
+  no Scene Placement, film edge or date, and grain and glare off — so a proof
+  reproduces bit for bit (AGENTS.md trap 1) and the tiles differ only by film.
+- **The numbers** (`ImageMetrics`, on the 8-bit sRGB proof the model sees):
+  highlight and shadow clip fractions, mean luma, RMS contrast, Hasler–
+  Süsstrunk colourfulness and the RG/YB cast — plus the engine's own latitude
+  measurement (fraction of the scene below, within and above the medium).
+- **Refining is scoped.** `AIPrompts.refinable`: Film Exposure, print
+  brightness, the Y/M shifts, pre-flash, grain and halation, and all of
+  Post-Dev. Not the film or paper, the crop, the film edge, the date or the
+  decode. Out-of-scope or out-of-range writes are refused whole.
+- **One way back.** The sidecar before the first AI change on the frame is
+  kept; *Undo AI changes* restores it as one step (`Session.restoreSidecar`),
+  and ⌘Z takes that step back.
+- **Providers** (`AI/AIProvider`): the Anthropic Messages API (structured
+  output via `output_config.format`; `fallbacks: "default"` on the models
+  that take it; Opus 5.5 by default) or any OpenAI-compatible
+  `/chat/completions` (OpenAI, OpenRouter, a local Ollama), asked for a JSON
+  object. The key is a Keychain item per provider (`AIKeychain`), never in
+  `UserDefaults`, a sidecar or the log.
+- **Off by default, its own consent.** Settings ▸ AI is separate from
+  Settings ▸ Agents: that one lets a program on this Mac drive the app, this
+  one sends small copies of the photograph to a service — the contact sheet
+  (~1,500 px across) to choose, the print at 1024 px to refine. Nothing is
+  sent except when Recommend or Refine is pressed. Not on a half-frame pair
+  yet.
+- **Tests:** `AIUnitTests` (metrics, both wire formats, ranking, scope, CLI
+  parse), `AISessionTests` (proofs on a synthetic frame — no fixture, so no
+  skip), and the opt-in `AIEndToEndTests` against a real model (see its
+  comment; a local Ollama costs nothing).
 
 ---
 

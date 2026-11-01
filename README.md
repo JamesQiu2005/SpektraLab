@@ -85,6 +85,43 @@ the pointer. A pair is one item in the filmstrip and exports as one picture.
 Drag a thumbnail along the filmstrip to reorder a folder; the order is kept for
 that folder. A file dropped from Finder still opens and edits.
 
+## AI film choice and refinement (this fork)
+
+The Parameters rail has an **AI** tab. It is off by default: turn it on in
+**Settings ▸ AI**, choose a provider and enter its API key. For an
+OpenAI-compatible `/chat/completions` service, enter its base URL and a model
+that accepts images. Local Ollama can use `http://localhost:11434/v1` without
+a key. Anthropic Claude defaults to `claude-opus-5-5`; `claude-sonnet-5-5`,
+`claude-fable-5-1` and `claude-haiku-5-5` are also available.
+
+**Choose a film** prints small proofs on each colour film with its declared
+paper (slides are scanned), skips push-process variants and puts the current
+combination first; black and white can be included. Each proof uses the same
+neutral settings: automatic metering and a neutral filter pack, without Scene
+Placement, grain, glare or grading. A vision model receives a numbered contact
+sheet and measurements of clipping, brightness, contrast, colourfulness, cast
+and latitude coverage, then returns 3–5 choices with scores and reasons.
+**Apply** selects the film and paper and presses Process. Proofs run in a
+separate engine instance, leaving the canvas, edit and undo history alone;
+19 films at 768 px took about 3 seconds on an M-series Mac.
+
+**Refine** gives the model a 1024 px view of the print and up to three rounds
+to adjust Film Exposure, paper brightness, enlarger Y/M filters, pre-flash,
+grain, halation, Scene Placement and Post-Dev grading. It cannot change film,
+paper, crop, Film Edge, Date Back or decode; out-of-scope or out-of-range
+changes are refused and reported back to the model. **Undo AI changes** restores
+the edit from before AI in one step; ⌘Z can undo that restoration. This is not
+generative retouching: it changes existing controls, not pixels or the film
+model, and the result is saved in the ordinary sidecar. Half-frame pairs are
+not yet supported.
+
+Photos are sent only when **Recommend** or **Refine** is pressed, along with
+exposure data and edit values; the connection test sends a text-only request.
+Usage is billed to your own API account. Keys are stored in the macOS Keychain,
+not in settings, sidecars or logs. The MCP tool `compare_stocks` also lets
+external Claude Code or Claude Desktop compare films without an in-app API key;
+its CLI equivalent is `spektralab compare photo.NEF --mono --preview sheet.jpg`.
+
 ## Build
 
 Xcode 26.6.

@@ -348,6 +348,25 @@ what is assumed: `research/black-and-white-tri-x.md`, `research/black-and-white-
 `research/colour-film-granularity.md` (`/research` is ignored; these were added by hand).
 Each of the four has its `kEdgeLooks` row; HP5 Plus has a 135 layout of its own (`Edge135::Ilford`).
 
+### The AI assistant (fork addition, 2026-11-01)
+
+`AI/` and the rail's AI tab: film proofs ranked by a vision model, then a
+scoped refinement through `applyAgentEdit`. `ARCHITECTURE.md` §7.14 is the
+map. Three things to keep:
+
+- **Never proof on `session.client`.** An `EngineClient` holds one session and
+  `open` replaces it; `ProofSheet.render` makes its own client for exactly
+  that reason. `AISessionTests.testProofsLeaveTheSessionAlone` catches the
+  regression (it was shown red with the shared client: 384 px back instead
+  of 1200).
+- **The model only moves existing controls.** A new refinable field is a row
+  in `AIPrompts.refinable` *and* in `AgentSchema`; nothing in `AI/` writes
+  pixels, profiles or LUTs.
+- **The opt-in end-to-end test is free locally:**
+  `TEST_RUNNER_SPK_AI_E2E=http://localhost:11434/v1
+  TEST_RUNNER_SPK_AI_MODEL=<vision model> TEST_RUNNER_SPK_AI_IMAGE=<photo>`
+  with `-only-testing:SpektrafilmTests/AIEndToEndTests`.
+
 ## Traps
 
 ### 1. The pipeline is nondeterministic by default
