@@ -27,6 +27,14 @@ final class AgentWorkspace {
         self.session = session
     }
 
+    /// The window's own session, on the frame it has open — the AI
+    /// assistant's way in. `open` is never called for that frame: it would
+    /// replace the library with the one file.
+    init(attachedTo session: Session) {
+        self.session = session
+        self.url = session.selection
+    }
+
     // MARK: waiting
 
     private func wait(_ what: String, _ done: () -> Bool) async throws {

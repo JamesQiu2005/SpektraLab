@@ -3870,6 +3870,31 @@ final class Session: CanvasHost {
         status = "Undo — \(undoStack.count) step\(undoStack.count == 1 ? "" : "s") left."
     }
 
+    /// Put a whole earlier edit of this frame back — the AI assistant's "Undo
+    /// AI changes", which spans many coalesced steps — as **one** step Undo
+    /// can take back in turn. The same re-render `undo` does. Not on a pair,
+    /// where the piece's own file would have to travel with it.
+    func restoreSidecar(_ snapshot: Sidecar) {
+        guard !batchExporting, selection != nil, pair == nil, snapshot != sidecar else { return }
+        lastUndoAt = .distantPast
+        pushUndo()
+        let current = sidecar
+        sidecar = snapshot
+        pushLayer2(snapshot.adjustments)
+        renderer.geometry = canvasGeometry
+        selectedMaskID = snapshot.masks.first { $0.id == selectedMaskID }?.id ?? snapshot.masks.last?.id
+        syncMasks()
+        if current.decode != snapshot.decode {
+            previewSoft = true
+            scheduleReopen()
+        } else {
+            requestPrint()
+        }
+        markStale()
+        scheduleSave()
+        lastUndoAt = .distantPast
+    }
+
     var canCopySettings: Bool { selection != nil && !clipboardGroups.isEmpty }
     var canPasteSettings: Bool { clipboard != nil && selection != nil && !batchExporting }
 

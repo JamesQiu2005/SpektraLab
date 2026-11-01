@@ -26,6 +26,8 @@
 			path = "Agent";
 			sourceTree = "<group>";
 		};
+		3A1B60F925689F05E9443172 /* AIAssistant.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "AIAssistant.swift"; sourceTree = "<group>"; };
+		D7D60FA4EE36EA6A6F8DAEDD /* AIPrompts.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "AIPrompts.swift"; sourceTree = "<group>"; };
 		8613BBBD80BA85142E6E47DC /* AIProvider.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "AIProvider.swift"; sourceTree = "<group>"; };
 		99F32C53BAD0BAF51BC1781A /* AISettings.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "AISettings.swift"; sourceTree = "<group>"; };
 		3224FCB3F4F27DE5231A3F36 /* ImageMetrics.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "ImageMetrics.swift"; sourceTree = "<group>"; };
@@ -33,6 +35,8 @@
 		527312969419113845F9CB7D /* AI */ = {
 			isa = PBXGroup;
 			children = (
+				3A1B60F925689F05E9443172 /* AIAssistant.swift */,
+				D7D60FA4EE36EA6A6F8DAEDD /* AIPrompts.swift */,
 				8613BBBD80BA85142E6E47DC /* AIProvider.swift */,
 				99F32C53BAD0BAF51BC1781A /* AISettings.swift */,
 				3224FCB3F4F27DE5231A3F36 /* ImageMetrics.swift */,
@@ -608,6 +612,8 @@
 		722D321E07ADA6275817D9B6 /* AgentWorkspace.swift */ = {isa = PBXBuildFile; fileRef = FE1C55C032E624649ECCF435; };
 		5C1C1099E8520CC61F5A4C8A /* JSONValue.swift */ = {isa = PBXBuildFile; fileRef = 289061D1542FA5C983606512; };
 		075BB3FC17E1D07FC0587A6B /* MCPServer.swift */ = {isa = PBXBuildFile; fileRef = 4A6A8509D23271E17BB3C34E; };
+		F4C0887A86B8A949C1B58BFF /* AIAssistant.swift */ = {isa = PBXBuildFile; fileRef = 3A1B60F925689F05E9443172; };
+		574C0A0861B835F2655DF06B /* AIPrompts.swift */ = {isa = PBXBuildFile; fileRef = D7D60FA4EE36EA6A6F8DAEDD; };
 		3F4172227EF2C15A2FD69EC8 /* AIProvider.swift */ = {isa = PBXBuildFile; fileRef = 8613BBBD80BA85142E6E47DC; };
 		8F2541C4CAB6D26242780880 /* AISettings.swift */ = {isa = PBXBuildFile; fileRef = 99F32C53BAD0BAF51BC1781A; };
 		964490296E8302BC9BAD7706 /* ImageMetrics.swift */ = {isa = PBXBuildFile; fileRef = 3224FCB3F4F27DE5231A3F36; };
@@ -745,6 +751,8 @@
 				722D321E07ADA6275817D9B6 /* AgentWorkspace.swift */,
 				5C1C1099E8520CC61F5A4C8A /* JSONValue.swift */,
 				075BB3FC17E1D07FC0587A6B /* MCPServer.swift */,
+				F4C0887A86B8A949C1B58BFF /* AIAssistant.swift */,
+				574C0A0861B835F2655DF06B /* AIPrompts.swift */,
 				3F4172227EF2C15A2FD69EC8 /* AIProvider.swift */,
 				8F2541C4CAB6D26242780880 /* AISettings.swift */,
 				964490296E8302BC9BAD7706 /* ImageMetrics.swift */,
@@ -963,6 +971,8 @@
 		5781C3C2C3F0BE7BEC4CCE45 /* AgentWorkspace.swift */ = {isa = PBXBuildFile; fileRef = FE1C55C032E624649ECCF435; };
 		BF02421F7C58B3717CC29BAF /* JSONValue.swift */ = {isa = PBXBuildFile; fileRef = 289061D1542FA5C983606512; };
 		D008FBE9D65E1B095ED2F8B4 /* MCPServer.swift */ = {isa = PBXBuildFile; fileRef = 4A6A8509D23271E17BB3C34E; };
+		39729D8725F1265E84439943 /* AIAssistant.swift */ = {isa = PBXBuildFile; fileRef = 3A1B60F925689F05E9443172; };
+		E6D7B7970771B572A6674F4D /* AIPrompts.swift */ = {isa = PBXBuildFile; fileRef = D7D60FA4EE36EA6A6F8DAEDD; };
 		A4EC7801EB09E4AD8B4356DB /* AIProvider.swift */ = {isa = PBXBuildFile; fileRef = 8613BBBD80BA85142E6E47DC; };
 		96D0B5DEF3726AF4145CFB94 /* AISettings.swift */ = {isa = PBXBuildFile; fileRef = 99F32C53BAD0BAF51BC1781A; };
 		06494EE23A2573B4D3771A9B /* ImageMetrics.swift */ = {isa = PBXBuildFile; fileRef = 3224FCB3F4F27DE5231A3F36; };
@@ -1160,6 +1170,8 @@
 				5781C3C2C3F0BE7BEC4CCE45 /* AgentWorkspace.swift */,
 				BF02421F7C58B3717CC29BAF /* JSONValue.swift */,
 				D008FBE9D65E1B095ED2F8B4 /* MCPServer.swift */,
+				39729D8725F1265E84439943 /* AIAssistant.swift */,
+				E6D7B7970771B572A6674F4D /* AIPrompts.swift */,
 				A4EC7801EB09E4AD8B4356DB /* AIProvider.swift */,
 				96D0B5DEF3726AF4145CFB94 /* AISettings.swift */,
 				06494EE23A2573B4D3771A9B /* ImageMetrics.swift */,
