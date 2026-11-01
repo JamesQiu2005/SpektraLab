@@ -132,9 +132,10 @@ enum MaskGeometry {
         let long = max(imageSize.width, imageSize.height)
         let sx = imageSize.width / long, sy = imageSize.height / long
         let a = c.angle * .pi / 180
-        let ex = c.radii.width * scale * cos(t), ey = c.radii.height * scale * sin(t)
-        let rx = ex * cos(a) - ey * sin(a)
-        let ry = ex * sin(a) + ey * cos(a)
+        let ex = c.radii.width * scale * CGFloat(cos(t)), ey = c.radii.height * scale * CGFloat(sin(t))
+        let ca = CGFloat(cos(a)), sa = CGFloat(sin(a))
+        let rx = ex * ca - ey * sa
+        let ry = ex * sa + ey * ca
         // Long-edge units → normalised on each axis.
         return CGPoint(x: c.a.x + rx / sx, y: c.a.y + ry / sy)
     }

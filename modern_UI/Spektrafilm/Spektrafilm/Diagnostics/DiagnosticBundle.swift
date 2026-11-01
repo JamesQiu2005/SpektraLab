@@ -250,8 +250,10 @@ struct ZipWriter {
         calendar.timeZone = .current
         let c = calendar.dateComponents([.year, .month, .day, .hour, .minute, .second], from: date)
         let year = max(1980, c.year ?? 1980)
-        let time = UInt16((c.hour ?? 0) << 11 | (c.minute ?? 0) << 5 | ((c.second ?? 0) / 2))
-        let day = UInt16((year - 1980) << 9 | (c.month ?? 1) << 5 | (c.day ?? 1))
+        let hour: Int = c.hour ?? 0, minute: Int = c.minute ?? 0, second: Int = c.second ?? 0
+        let month: Int = c.month ?? 1, dayOfMonth: Int = c.day ?? 1
+        let time = UInt16(hour << 11 | minute << 5 | second / 2)
+        let day = UInt16((year - 1980) << 9 | month << 5 | dayOfMonth)
         return (time, day)
     }
 }

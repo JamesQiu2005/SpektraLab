@@ -334,8 +334,9 @@ final class Session: CanvasHost {
                 c.angle = atan2(dy, dx) * 180 / .pi
             } else {
                 let a = c.angle * .pi / 180
-                let ex = dx * cos(a) + dy * sin(a)
-                let ey = -dx * sin(a) + dy * cos(a)
+                let ca = CGFloat(cos(a)), sa = CGFloat(sin(a))
+                let ex = dx * ca + dy * sa
+                let ey = -dx * sa + dy * ca
                 if h.role == .radiusX { c.radii.width = max(abs(ex), 0.01) }
                 else { c.radii.height = max(abs(ey), 0.01) }
             }

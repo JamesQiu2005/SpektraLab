@@ -453,7 +453,7 @@ struct Geometry: Codable, Equatable, Sendable {
         let cw = crop.width * w, ch = crop.height * h
         // Corners first: on a small crop the corner and the two edges it
         // belongs to all match, and the corner is what the user meant.
-        var best: (handle: CropHandle, rank: Double)?
+        var best: (handle: CropHandle, rank: CGFloat)?
         for handle in CropHandle.allCases where handle != .body {
             let pos = handle.position
             let d = hypot(dx - pos.x * cw, dy - pos.y * ch)

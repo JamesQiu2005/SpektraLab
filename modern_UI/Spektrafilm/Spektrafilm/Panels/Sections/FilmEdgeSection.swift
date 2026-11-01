@@ -437,8 +437,8 @@ private struct FormatGlyph: View {
             // fit: 6×17's 168 mm would make 135 a speck, so the long side is
             // compressed — a glyph, not a measurement.
             let along = min(1, 0.35 + gate.long / 120)
-            let filmH = size.height * (format.group == .film135 ? 0.62 : 0.86)
-            let w = size.width * along
+            let filmH: CGFloat = size.height * (format.group == .film135 ? 0.62 : 0.86)
+            let w: CGFloat = size.width * along
             let filmRect = CGRect(x: (size.width - w) / 2, y: (size.height - filmH) / 2, width: w, height: filmH)
             ctx.fill(Path(roundedRect: filmRect, cornerRadius: 1.5), with: .color(Theme.Ink.tertiary.opacity(0.35)))
             let inset = format.isPerforated ? filmH * 0.2 : filmH * 0.08
