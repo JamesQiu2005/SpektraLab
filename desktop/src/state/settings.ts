@@ -11,6 +11,7 @@ import type { LanguageSetting } from '../i18n';
 import type { SideUnit } from '@shared/params';
 import type { PreviewGamut } from '../canvas/colorSpace';
 import { RENDER_PREFERENCES_DEFAULT, renderPreferences } from '@shared/renderPreferences';
+import { NEW_PHOTO_DEFAULTS, type NewPhotoDefaults } from '@shared/newPhotoDefaults';
 
 export type InterfaceScale = 100 | 115 | 130;
 export const INTERFACE_SCALES: InterfaceScale[] = [100, 115, 130];
@@ -21,7 +22,7 @@ export function boundedPanelWidth(key: keyof typeof PANEL_WIDTHS, width: number)
   return Number.isFinite(width) ? Math.max(lo, Math.min(hi, width)) : normal;
 }
 
-export interface Settings {
+export interface Settings extends NewPhotoDefaults {
   language: LanguageSetting;
   interfaceScale: InterfaceScale;
   previewLongEdge: number;
@@ -43,6 +44,7 @@ export interface Settings {
 }
 
 export const SETTINGS_DEFAULT: Settings = {
+  ...NEW_PHOTO_DEFAULTS,
   language: 'system',
   interfaceScale: 115,
   previewLongEdge: 2560,

@@ -10,6 +10,7 @@ import { type FilmParams, type FeatureGate, filmFormatMM, fullDelta, normalizeSt
 import { type DecodeSettings, type Sidecar, decodeSidecar, newSidecar } from '@shared/sidecar';
 import { decodeWire, isRawPath } from '@shared/whiteBalance';
 import type { StockCatalog } from '@shared/stocks';
+import { NEW_PHOTO_DEFAULTS, newPhotoSidecar, type NewPhotoDefaults } from '@shared/newPhotoDefaults';
 import { latitudeRequest } from '@shared/latitude';
 import { tz } from '../i18n';
 import { host } from '../host/client';
@@ -91,16 +92,22 @@ function snapshotGeometry(sidecar: Sidecar, params: FilmParams, gate: FeatureGat
 export async function captureExportFrames(
   paths: readonly string[], selected: SelectedExportFrame | null, catalog: StockCatalog,
   gate: FeatureGate, recalculateEffectsAfterCrop: boolean, cancelled: () => boolean = () => false,
+  newPhotoDefaults: NewPhotoDefaults = NEW_PHOTO_DEFAULTS,
 ): Promise<PreparedExportFrame[]> {
   const current = selected ? structuredClone(selected) : null;
   const frozenGate = structuredClone(gate);
+  // Capture preferences before the first sidecar read: changing settings
+  // while metadata loads must not give untouched frames different defaults.
+  const defaults = { ...newPhotoDefaults };
   const result: PreparedExportFrame[] = [];
   for (const path of [...paths]) {
     if (cancelled()) break;
     try {
       const active = path === current?.path ? current : null;
       const saved = active ? null : await platform().sidecarLoad(path);
-      const sidecar = active?.sidecar ?? structuredClone(saved == null ? newSidecar() : decodeSidecar(saved));
+      const sidecar = active?.sidecar ?? structuredClone(saved == null
+        ? isPairPath(path) ? newSidecar() : newPhotoSidecar(catalog, defaults)
+        : decodeSidecar(saved));
       if (isPairPath(path)) {
         const pair = active?.pair ?? decodePair(await platform().pairLoad(path));
         if (!pair) throw new Error(tz('The half-frame pair recipe cannot be read.', '无法读取半格拼接配方。'));

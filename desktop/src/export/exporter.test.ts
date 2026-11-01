@@ -7,6 +7,7 @@ import { DEFAULT_RECIPES } from './recipes';
 import { GEOMETRY_DEFAULT } from '@shared/geometry';
 import { newHole, newPair, pairFitRegion } from '@shared/pair';
 import type * as PlatformModule from '../platform';
+import stockData from '../../../modern_UI/Spektrafilm/Spektrafilm/Resources/StockCatalog.json';
 
 const fake = vi.hoisted(() => ({
   request: vi.fn(), renderProof: vi.fn(), open: vi.fn(), close: vi.fn(), probe: vi.fn(),
@@ -235,6 +236,23 @@ describe('host frame export', () => {
 });
 
 describe('batch snapshots', () => {
+  it('freezes new-photo defaults for untouched batch frames and retains existing edits', async () => {
+    const stocks = new StockCatalog(stockData.stocks);
+    const defaults = { newPhotoFilmStock: 'kodak_gold_200', newPhotoPrintStock: 'kodak_2383' };
+    const saved = structuredClone(newSidecar());
+    saved.params.filmStock = 'kodak_ektar_100'; saved.adjustments.exposure = 1.5;
+    const first = deferred<unknown>();
+    fake.sidecarLoad.mockImplementation(async (path: string) => path === 'new.NEF' ? first.promise : encodeSidecar(saved));
+    const pending = captureExportFrames(['new.NEF', 'saved.NEF'], null, stocks, ALL_FEATURES, false, () => false, defaults);
+    defaults.newPhotoFilmStock = 'kodak_tri_x_400';
+    first.resolve(null);
+    const [newFrame, oldFrame] = await pending;
+    if (!newFrame || !('frame' in newFrame) || !oldFrame || !('frame' in oldFrame)) throw new Error('missing batch frames');
+    expect(newFrame.frame.params).toMatchObject({ filmStock: 'kodak_gold_200', printStock: 'kodak_2383' });
+    expect(oldFrame.frame.params).toMatchObject({ filmStock: 'kodak_ektar_100', printStock: saved.params.printStock });
+    expect(oldFrame.frame.adjustments.exposure).toBe(1.5);
+  });
+
   it('freezes selected unsaved edits before loading other sidecars, without loading the selected sidecar', async () => {
     const sidecar = structuredClone(newSidecar()); sidecar.adjustments.exposure = 1;
     const saved = structuredClone(newSidecar()); saved.params.filmStock = 'slide'; saved.params.scanFilm = false;
