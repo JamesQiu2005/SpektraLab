@@ -2,8 +2,8 @@
 # setup-libraw.sh -- the POSIX twin of setup-libraw.ps1.
 #
 # Fetches the one LibRaw release the native RAW path is validated against
-# (0.22.2) into a gitignored dependency directory, and verifies it before it
-# is used:
+# (0.22.2) into a gitignored dependency directory, verifies it, and applies the
+# tracked Sony ARW 6 / A7 V overlay:
 #
 #   1. the release zip from codeload.github.com, checked against the same
 #      SHA-256 setup-libraw.ps1 pins, before anything is extracted; or, when
@@ -12,8 +12,9 @@
 #      commit id *and* its tree id -- a content hash over every file -- so a
 #      moved tag or a different tree is refused exactly as a bad zip is.
 #
-# An existing tree is re-verified and never overwritten, so a locally patched
-# LibRaw cannot silently become "the pinned source".
+# An existing tree is re-verified and never accepts arbitrary local patches:
+# every file must be either the pinned archive content or the exact tracked
+# overlay. The overlay is then copied over the tree idempotently.
 #
 #   engine/setup-libraw.sh [deps-dir]      (default: <repo>/build/deps)
 #
@@ -35,48 +36,129 @@ git_commit=b93f6e45c194f5df9b02a43b1af9a54b4f41f33f
 git_tree=0fd7d10c62714db90d9fa922230916a030c2d6d3
 archive="$deps/LibRaw-$version.zip"
 source="$deps/LibRaw-$version"
+overlay="$here/third_party/libraw-arw6/files"
 
-verify_git_tree() {   # $1 = a checkout; succeeds only on the pinned commit+tree, clean
-  local dir="$1"
+if [[ ! -d "$overlay" ]]; then
+  echo "Missing tracked LibRaw ARW 6 overlay: $overlay" >&2
+  exit 1
+fi
+
+verify_git_tree() {   # $1 = a checkout; pinned commit+tree, only overlay edits
+  local dir="$1" path
   [[ "$(git -C "$dir" rev-parse HEAD)" == "$git_commit" ]] || return 1
   [[ "$(git -C "$dir" rev-parse 'HEAD^{tree}')" == "$git_tree" ]] || return 1
-  [[ -z "$(git -C "$dir" status --porcelain --ignored)" ]] || return 1
+  while IFS= read -r path; do
+    [[ -n "$path" ]] || continue
+    [[ -f "$overlay/$path" ]] || return 1
+  done < <(git -C "$dir" status --porcelain=v1 | cut -c4-)
 }
 
-verify_zip_tree() {   # the extracted tree against the verified archive, byte for byte
-  python3 - "$archive" "$deps" <<'PY'
+verify_zip_tree() {   # $1 = pre (archive or overlay) | final (overlay required)
+  python3 - "$archive" "$deps" "$overlay" "$1" <<'PY'
 import hashlib, os, sys, zipfile
-archive, deps = sys.argv[1], sys.argv[2]
+archive, deps, overlay, mode = sys.argv[1], sys.argv[2], sys.argv[3], sys.argv[4]
+overlay = os.path.abspath(overlay)
 z = zipfile.ZipFile(archive)
+overlay_files = {}
+for root, _, files in os.walk(overlay):
+    for name in files:
+        full = os.path.join(root, name)
+        overlay_files[os.path.relpath(full, overlay)] = full
+if not overlay_files:
+    sys.exit(f"Empty LibRaw ARW 6 overlay: {overlay}")
+if mode not in ("pre", "final"):
+    sys.exit(f"Unknown verification mode: {mode}")
+
+def digest_bytes(data):
+    return hashlib.sha256(data).digest()
+
+def digest_file(path):
+    with open(path, 'rb') as f:
+        return hashlib.sha256(f.read()).digest()
+
 expected = set()
+archive_relatives = set()
+top = None
 for info in z.infolist():
     if info.is_dir():
         continue
-    path = os.path.normpath(os.path.join(deps, info.filename))
+    parts = info.filename.replace('\\', '/').split('/')
+    if top is None:
+        top = parts[0]
+    if parts[0] != top or '..' in parts:
+        sys.exit(f"Unsafe LibRaw archive path: {info.filename}")
+    rel = '/'.join(parts[1:])
+    archive_relatives.add(rel)
+    path = os.path.normpath(os.path.join(deps, *parts))
     expected.add(path)
     if not os.path.isfile(path):
         sys.exit(f"Incomplete LibRaw source tree: {path}")
-    if hashlib.sha256(z.read(info)).digest() != hashlib.sha256(open(path, 'rb').read()).digest():
+    actual = digest_file(path)
+    archive_digest = digest_bytes(z.read(info))
+    if rel in overlay_files:
+        overlay_digest = digest_file(overlay_files[rel])
+        allowed = {overlay_digest} if mode == "final" else {archive_digest, overlay_digest}
+    else:
+        allowed = {archive_digest}
+    if actual not in allowed:
         sys.exit(f"Modified LibRaw source file: {path}. Existing files were not overwritten.")
-top = os.path.join(deps, z.namelist()[0].split('/')[0])
-for root, _, files in os.walk(top):
-    for f in files:
-        p = os.path.normpath(os.path.join(root, f))
-        if p not in expected:
-            sys.exit(f"Unexpected file in pinned LibRaw source: {p}")
+
+for rel, full in overlay_files.items():
+    path = os.path.normpath(os.path.join(deps, top, *rel.split('/')))
+    expected.add(path)
+    # Archive-backed overlay files were checked above, allowing either the
+    # pristine archive content or this exact overlay.
+    if rel in archive_relatives:
+        continue
+    if os.path.isfile(path):
+        if digest_file(path) != digest_file(full):
+            sys.exit(f"Modified LibRaw overlay file: {path}. Existing files were not overwritten.")
+    elif mode == "final":
+        sys.exit(f"Incomplete LibRaw overlay: {path}")
+    elif os.path.exists(path):
+        sys.exit(f"Unexpected non-file at LibRaw overlay path: {path}")
+
+for root, _, files in os.walk(os.path.join(deps, top)):
+    for name in files:
+        path = os.path.normpath(os.path.join(root, name))
+        if path not in expected:
+            sys.exit(f"Unexpected file in pinned LibRaw source: {path}")
 PY
+}
+
+apply_overlay() {
+  local dir="$1"
+  cp -R "$overlay"/. "$dir"/
+}
+
+verify_overlay_files() {   # every tracked overlay file is present, byte for byte
+  local dir="$1" rel
+  while IFS= read -r rel; do
+    [[ -n "$rel" ]] || continue
+    cmp -s "$overlay/$rel" "$dir/$rel" || {
+      echo "LibRaw overlay was not applied correctly: $dir/$rel" >&2
+      return 1
+    }
+  done < <(cd "$overlay" && find . -type f | sed 's|^\./||')
 }
 
 if [[ -d "$source" ]]; then
   if [[ -d "$source/.git" ]]; then
-    verify_git_tree "$source" || { echo "LibRaw at $source is not the pinned, clean $version tree; not touched." >&2; exit 1; }
+    verify_git_tree "$source" || { echo "LibRaw at $source is not the pinned $version tree with only the tracked ARW 6 overlay; not touched." >&2; exit 1; }
+    apply_overlay "$source"
+    verify_overlay_files "$source"
+    echo "LibRaw $version: existing git source verified and ARW 6 overlay applied." >&2
+    echo "$source"
+    exit 0
   elif [[ -f "$archive" ]]; then
-    verify_zip_tree
+    verify_zip_tree pre
   else
     echo "LibRaw at $source has no archive or git metadata to verify it against; remove it and re-run." >&2
     exit 1
   fi
-  echo "LibRaw $version: existing source verified." >&2
+  apply_overlay "$source"
+  verify_zip_tree final
+  echo "LibRaw $version: existing source verified and ARW 6 overlay applied." >&2
   echo "$source"
   exit 0
 fi
@@ -102,7 +184,9 @@ for n in z.namelist():
         sys.exit(f"Unsafe LibRaw archive path: {n}")
 z.extractall(deps)
 PY
-  echo "LibRaw $version: archive SHA256 verified and extracted." >&2
+  apply_overlay "$source"
+  verify_zip_tree final
+  echo "LibRaw $version: archive SHA256 verified, extracted, and ARW 6 overlay applied." >&2
 else
   echo "codeload.github.com unreachable; falling back to a pinned git clone." >&2
   tmp="$source.partial"
@@ -113,7 +197,9 @@ else
     echo "LibRaw git clone does not match the pinned commit $git_commit / tree $git_tree." >&2
     exit 1
   fi
+  apply_overlay "$tmp"
+  verify_overlay_files "$tmp"
   mv "$tmp" "$source"
-  echo "LibRaw $version: git commit and tree id verified." >&2
+  echo "LibRaw $version: git commit and tree id verified, ARW 6 overlay applied." >&2
 fi
 echo "$source"

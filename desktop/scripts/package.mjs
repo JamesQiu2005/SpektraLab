@@ -58,7 +58,12 @@ for (let i = 0; i < args.length; i++) {
 }
 const buildDir = process.env.SPEKTRALAB_HOST_BUILD ?? join(repo, 'build');
 const onWindows = process.platform === 'win32';
-const winToolchain = onWindows ? 'native' : process.env.SPEKTRALAB_WIN_TOOLCHAIN === 'msvc' ? 'msvc' : 'gnu';
+// A native Windows build is MSVC in CI, but this checkout has no MSVC tools.
+// SPEKTRALAB_WIN_TOOLCHAIN=gnu selects the WinLibs GCC/MinGW path instead,
+// with the same -gnu triple and staging a Linux/macOS cross build uses.
+const winToolchain = process.env.SPEKTRALAB_WIN_TOOLCHAIN === 'gnu'
+  ? 'gnu'
+  : onWindows ? 'native' : process.env.SPEKTRALAB_WIN_TOOLCHAIN === 'msvc' ? 'msvc' : 'gnu';
 
 const TARGETS = {
   linux: {

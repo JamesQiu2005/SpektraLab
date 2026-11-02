@@ -43,11 +43,15 @@ $deps = Join-Path (Split-Path (Get-Location) -Parent) 'deps'
     -LibRawSourceDirectory (Join-Path $deps 'LibRaw-0.22.2')
 ```
 
-`setup-libraw.ps1` downloads and verifies a fixed official source archive; it
-does not install a system-wide library. CMake itself does not download it.
-The wrapper builds, deploys adjacent MinGW runtime DLLs, runs CTest, and writes
-`toolchain.json` containing source, shader, dependency and executable hashes.
-A failed run records failure instead of leaving an old success manifest.
+`setup-libraw.ps1` downloads and verifies a fixed official source archive,
+applies the tracked Sony ARW 6 / A7 V overlay from
+`engine/third_party/libraw-arw6/`, and does not install a system-wide library.
+It also upgrades an existing pristine 0.22.2 tree by applying the overlay;
+CMake and the setup script reject a plain or locally patched LibRaw tree.
+CMake itself does not download it. The wrapper builds, deploys adjacent MinGW
+runtime DLLs, runs CTest, and writes `toolchain.json` containing source,
+shader, dependency and executable hashes. A failed run records failure instead
+of leaving an old success manifest.
 
 The wrapper defaults to this checkout's `build/windows` directory. Use a
 different `-BuildDirectory` when preserving an earlier baseline or building
