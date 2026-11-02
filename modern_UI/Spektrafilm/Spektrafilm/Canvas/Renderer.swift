@@ -124,7 +124,8 @@ final class Renderer: NSObject {
     /// so the export's synchronous path reads them straight off the CPU after
     /// `waitUntilCompleted` with no blit.
     private let transformStats: MTLBuffer
-    private var histogramInFlight = false
+    /// Internal rather than private so the regression test can seed it.
+    var histogramInFlight = false
     /// The texture the bins in `histogramBuffer` describe (or are on their way
     /// to). `showOriginal` swaps the canvas to the decode, so "what the plot
     /// describes" is not a property of the print alone: a draw encodes again
@@ -739,6 +740,27 @@ final class Renderer: NSObject {
         gradeChanged || histogramSource != ObjectIdentifier(src)
     }
 
+    /// Claim the histogram pass for `src`, or defer it: true when the caller
+    /// should encode now.
+    ///
+    /// A pass that is needed while another is in flight cannot run, and a
+    /// Layer 2 edit does not come back: `layer2Dirty` is cleared by the draw
+    /// that skipped, and the texture is the same object. So the deferral
+    /// forgets what the bins describe, and the draw the in-flight pass's
+    /// completion asks for sees a texture the plot does not describe and
+    /// encodes it. Without that, the last step of a slider drag could leave
+    /// the plot one grade behind the picture until the next edit.
+    func beginHistogramPass(for src: MTLTexture, gradeChanged: Bool) -> Bool {
+        guard histogramNeedsEncoding(src, gradeChanged: gradeChanged) else { return false }
+        guard !histogramInFlight else {
+            histogramSource = nil
+            return false
+        }
+        histogramInFlight = true
+        histogramSource = ObjectIdentifier(src)
+        return true
+    }
+
     /// Encode the `histogram` kernel over `src` unless the bins on screen
     /// already describe it.
     ///
@@ -749,10 +771,7 @@ final class Renderer: NSObject {
     /// for whatever is on screen then, and is a no-op when nothing moved.
     private func encodeHistogramIfNeeded(_ cb: MTLCommandBuffer, src: MTLTexture,
                                          gradeChanged: Bool = false) {
-        guard !histogramInFlight,
-              histogramNeedsEncoding(src, gradeChanged: gradeChanged) else { return }
-        histogramInFlight = true
-        histogramSource = ObjectIdentifier(src)
+        guard beginHistogramPass(for: src, gradeChanged: gradeChanged) else { return }
         encodeHistogram(cb, src: src)
         cb.addCompletedHandler { [weak self] _ in
             Task { @MainActor in

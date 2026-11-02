@@ -119,6 +119,29 @@ final class SurfaceAgreementTests: XCTestCase {
                       "a different texture must re-encode")
     }
 
+    /// The same edit, landing while the previous pass is still on the GPU. It
+    /// cannot encode then, and nothing brings it back: the draw that skipped
+    /// cleared `layer2Dirty`, and the texture is the same object. The draw the
+    /// in-flight pass's completion asks for has to encode it anyway, or the
+    /// last step of a slider drag leaves the plot one grade behind.
+    func testALayer2EditDuringAPassIsEncodedByTheNextDraw() throws {
+        let renderer = try XCTUnwrap(Renderer())
+        let card = try solid(renderer, red: 24_000, green: 24_000, blue: 24_000,
+                             width: 32, height: 16)
+        renderer.histogramSource = ObjectIdentifier(card)
+        renderer.histogramInFlight = true
+
+        XCTAssertFalse(renderer.beginHistogramPass(for: card, gradeChanged: true),
+                       "the premise: a second pass must not start while one is in flight")
+
+        // The in-flight pass completes; its follow-up draw sees no grade change.
+        renderer.histogramInFlight = false
+        XCTAssertTrue(renderer.beginHistogramPass(for: card, gradeChanged: false),
+                      "the edit deferred by the in-flight pass never reached the plot")
+        XCTAssertFalse(renderer.beginHistogramPass(for: card, gradeChanged: false),
+                       "once encoded, an unchanged grade must not encode again")
+    }
+
     // MARK: - the exported file (camera fixture: it has EXIF to carry)
 
     /// The written file is the frame the canvas shows: a cropped, quarter-
