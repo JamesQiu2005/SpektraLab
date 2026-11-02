@@ -14,6 +14,7 @@ import { featureGate } from '@shared/params';
 import { AgentsSettings, MemorySettings, UpdateSettings } from './SettingsPages';
 import { diagnosticReport } from './diagnosticReport';
 import { DiagnosticSettings } from './DiagnosticSettings';
+import { NewPhotoDefaultsSettings } from './NewPhotoDefaultsSettings';
 
 function Frame({ open, onClose, title, children, actions, testId }: { open: boolean; onClose: () => void; title: string; children: React.ReactNode; actions?: React.ReactNode; testId?: string }) {
   return (
@@ -99,6 +100,7 @@ export function SettingsDialog() {
                 </button>
               </div>
             </div>
+            <NewPhotoDefaultsSettings />
             <UpdateSettings version={paths?.version} os={paths?.os} />
           </>
         )}

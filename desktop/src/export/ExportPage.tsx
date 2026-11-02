@@ -147,7 +147,7 @@ export function ExportPage() {
       void (async () => {
         try {
           const [item] = await captureExportFrames([selection], selected, catalog, gate,
-            settingsStore.getState().recalculateEffectsAfterCrop, () => obsolete);
+            settingsStore.getState().recalculateEffectsAfterCrop, () => obsolete, settingsStore.getState());
           if (obsolete || !item) return;
           if ('error' in item) throw new Error(item.error);
           const result = await renderProof(recipe, item.frame, catalog, hello.methods, display ?? 'srgb', proofEdge, generation,
@@ -202,7 +202,7 @@ export function ExportPage() {
       // each host call, so an external editor cannot change this batch's inputs.
       lease = await platform().workspaceBegin();
       const prepared = await captureExportFrames(paths, selected, state.catalog, state.gate,
-        settingsStore.getState().recalculateEffectsAfterCrop, () => stop.current);
+        settingsStore.getState().recalculateEffectsAfterCrop, () => stop.current, settingsStore.getState());
       for (const item of prepared) {
         if (stop.current) break;
         const outcome: ExportOutcome = 'error' in item ? { kind: 'failed', message: item.error }

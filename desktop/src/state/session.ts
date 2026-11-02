@@ -45,6 +45,7 @@ import { type LatitudeReply, type PlacementIssue, type PlacementSide, type Place
 import { HostCallError, host } from '../host/client';
 import { type FileEntry, baseName, dirName, platform } from '../platform';
 import { settingsStore } from './settings';
+import { newPhotoSidecar } from '@shared/newPhotoDefaults';
 import { frameImages, makeThumbFromPrint, THUMB_EDGE } from './frames';
 import { thumbs } from './thumbs';
 import { frameOrder } from './frameOrder';
@@ -1228,11 +1229,11 @@ export async function makePair(enter = false) {
   try {
     const hole = async (path: string) => {
       const raw = path === s.selection ? encodeSidecar(s.sidecar) : await platform().sidecarLoad(path);
-      const own = raw ? decodeSidecar(raw) : newSidecar();
+      const own = raw ? decodeSidecar(raw) : newEditorSidecar(path);
       return { ...newHole(path), decode: own.decode, geometry: own.geometry };
     };
     const ownRaw = anchor === s.selection ? encodeSidecar(s.sidecar) : await platform().sidecarLoad(anchor);
-    const own = ownRaw ? decodeSidecar(ownRaw) : newSidecar();
+    const own = ownRaw ? decodeSidecar(ownRaw) : newEditorSidecar(anchor);
     const size = anchor === s.selection ? s.nativeSize : await host().probe(anchor).then((r) => ({ width: r.width, height: r.height })).catch(() => null);
     const pair = { ...newPair(dirName(anchor)), left: picked[0] ? await hole(picked[0]) : null, right: picked[1] ? await hole(picked[1]) : null,
       turned: size ? outputSize(own.geometry, size).width > outputSize(own.geometry, size).height : false,
@@ -1429,7 +1430,7 @@ function savePairDecode(path: string, decode: DecodeSettings): Promise<void> {
   pairDecodeSave = pairDecodeSave.catch(() => {}).then(async () => {
     if (get().externalEditConflict) throw new Error('EXTERNAL_EDIT_CONFLICT: Resolve the current conflict before saving.');
     let own = pairSourceSidecars.get(path);
-    if (!own) { const raw = await platform().sidecarLoad(path); own = raw ? decodeSidecar(raw) : newSidecar(); }
+    if (!own) { const raw = await platform().sidecarLoad(path); own = raw ? decodeSidecar(raw) : newEditorSidecar(path); }
     const next = { ...own, decode, state: own.state === 'processed' ? 'stale' as const : own.state };
     try {
       await platform().sidecarSave(path, encodeSidecar(next));
@@ -1476,7 +1477,7 @@ export async function setPairHole(side: PairSide, path: string | null) {
     let hole = null;
     let sourceSidecar: Sidecar | null = null;
     if (path) {
-      const raw = await platform().sidecarLoad(path); const own = raw ? decodeSidecar(raw) : newSidecar();
+      const raw = await platform().sidecarLoad(path); const own = raw ? decodeSidecar(raw) : newEditorSidecar(path);
       sourceSidecar = own;
       hole = { ...newHole(path), decode: own.decode, geometry: own.geometry };
     }
@@ -1717,6 +1718,12 @@ export function selectRelative(delta: number) {
   if (i >= 0 && j !== i) click(s.frames[j]!.path);
 }
 
+function newEditorSidecar(path: string): Sidecar {
+  // A pair recipe owns its shared look. Only an ordinary photograph without
+  // a saved sidecar inherits application preferences; decoding and reset stay neutral.
+  return isPairPath(path) ? newSidecar() : newPhotoSidecar(get().catalog, settingsStore.getState());
+}
+
 /**
  * Put a frame on the canvas. **Not guarded by `batchExporting`**: it is the
  * export run's own door (AGENTS.md trap 34). Everything a person does goes
@@ -1742,7 +1749,7 @@ export async function select(path: string, options: { externalReload?: boolean; 
   }
   const raw = await platform().sidecarLoad(path).catch(() => null);
   if (gen !== openGen) return;
-  const loaded = raw ? decodeSidecar(raw) : newSidecar();
+  const loaded = raw ? decodeSidecar(raw) : newEditorSidecar(path);
   let sidecar = filmStageSidecar(loaded);
   let pair: HalfFramePair | null = null;
   const sources = new Map<string, Sidecar>();
@@ -1754,7 +1761,7 @@ export async function select(path: string, options: { externalReload?: boolean; 
     for (const side of PAIR_SIDES) {
       const hole: PairHole | null = pair[side]; if (!hole) continue;
       const ownRaw: unknown = await platform().sidecarLoad(hole.path).catch(() => null);
-      const own: Sidecar = ownRaw ? decodeSidecar(ownRaw) : newSidecar();
+      const own: Sidecar = ownRaw ? decodeSidecar(ownRaw) : newEditorSidecar(hole.path);
       sources.set(hole.path, own);
       pair = { ...pair, [side]: { ...hole, decode: own.decode, geometry: own.geometry } };
     }
@@ -2059,7 +2066,7 @@ export function copySettings() {
 
 async function pasteOffline(clip: SettingsClip, path: string): Promise<boolean> {
   const raw = await platform().sidecarLoad(path).catch(() => null);
-  const target = raw ? decodeSidecar(raw) : newSidecar();
+  const target = raw ? decodeSidecar(raw) : newEditorSidecar(path);
   const applied = applyClip(clip, target);
   const next = filmStageSidecar(applied);
   if (!clipChanges(clip, target) && next === applied) return false;

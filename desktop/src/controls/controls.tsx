@@ -280,6 +280,8 @@ export function PillMenu<T extends string | number>(p: {
   reason?: string;
   testId?: string;
   display?: string;
+  // Long catalog menus near the bottom of a dialog must fit the available space.
+  scrollable?: boolean;
 }) {
   const cur = p.options.find((o) => o.value === p.value);
   let lastGroup: string | undefined;
@@ -294,7 +296,8 @@ export function PillMenu<T extends string | number>(p: {
         </button>
       </DropdownMenu.Trigger>
       <DropdownMenu.Portal>
-        <DropdownMenu.Content className="menu" align="start" sideOffset={4}>
+        <DropdownMenu.Content className="menu" align="start" sideOffset={4}
+          style={p.scrollable ? { maxHeight: 'min(360px, var(--radix-dropdown-menu-content-available-height))', overflowY: 'auto' } : undefined}>
           {p.options.map((o) => {
             const header = o.group && o.group !== lastGroup ? o.group : null;
             lastGroup = o.group;

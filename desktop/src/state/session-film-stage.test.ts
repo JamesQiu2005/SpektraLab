@@ -68,6 +68,60 @@ beforeEach(async () => {
 });
 afterEach(() => { vi.clearAllTimers(); vi.useRealTimers(); vi.restoreAllMocks(); vi.unstubAllGlobals(); });
 
+describe('new photograph stock preferences', () => {
+  beforeEach(async () => {
+    session.sessionStore.setState({ catalog: new StockCatalog(stockData.stocks) });
+    const { settingsStore } = await import('./settings');
+    settingsStore.setState({ newPhotoFilmStock: 'kodak_gold_200', newPhotoPrintStock: 'kodak_2383' });
+  });
+
+  it('uses the preferred film and paper before opening a photograph with no saved edits', async () => {
+    await session.select('/owned/new.ARW');
+    expect(fake.open).toHaveBeenCalledWith('/owned/new.ARW', expect.objectContaining({
+      film_stock: 'kodak_gold_200', print_stock: 'kodak_2383', scan_film: false,
+    }), expect.anything());
+    await session.flushSave();
+    expect(decodeSidecar(fake.save.mock.calls.at(-1)?.[1]).params).toMatchObject({
+      filmStock: 'kodak_gold_200', printStock: 'kodak_2383',
+    });
+  });
+
+  it('retains saved stocks and edits when the application defaults change', async () => {
+    const saved = structuredClone(newSidecar());
+    saved.params.filmStock = 'kodak_ektar_100';
+    saved.params.printStock = 'kodak_supra_endura';
+    saved.params.exposureCompensationEV = 1.25;
+    saved.adjustments.exposure = 0.5;
+    fake.load.mockResolvedValue(encodeSidecar(saved));
+    await session.select('/owned/existing.ARW');
+    expect(session.sessionStore.getState().sidecar.params).toMatchObject({
+      filmStock: saved.params.filmStock, printStock: saved.params.printStock, exposureCompensationEV: 1.25,
+    });
+    expect(session.sessionStore.getState().sidecar.adjustments).toEqual(saved.adjustments);
+    const { settingsStore } = await import('./settings');
+    settingsStore.getState().set('newPhotoFilmStock', 'kodak_tri_x_400');
+    expect(session.sessionStore.getState().sidecar.params.filmStock).toBe('kodak_ektar_100');
+  });
+
+  it('uses a compatible silver paper for a new black-and-white photograph', async () => {
+    const { settingsStore } = await import('./settings');
+    settingsStore.getState().set('newPhotoFilmStock', 'kodak_tri_x_400');
+    await session.select('/owned/new-bw.ARW');
+    expect(fake.open).toHaveBeenCalledWith('/owned/new-bw.ARW', expect.objectContaining({
+      film_stock: 'kodak_tri_x_400', print_stock: 'ilford_multigrade_iv_rc', scan_film: false,
+    }), expect.anything());
+  });
+
+  it('opens a preferred reversal film as a direct scan', async () => {
+    const { settingsStore } = await import('./settings');
+    settingsStore.getState().set('newPhotoFilmStock', 'fujifilm_provia_100f');
+    await session.select('/owned/new-slide.ARW');
+    expect(fake.open).toHaveBeenCalledWith('/owned/new-slide.ARW', expect.objectContaining({
+      film_stock: 'fujifilm_provia_100f', scan_film: true,
+    }), expect.anything());
+  });
+});
+
 describe('black-and-white settings through the editor and persistence doors', () => {
   const released = new StockCatalog(stockData.stocks);
   const silverPaper = 'ilford_multigrade_iv_rc';
