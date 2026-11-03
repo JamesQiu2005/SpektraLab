@@ -73,6 +73,73 @@ failure; without it, CMake can build only the portable core. The wrapper
 always requires Vulkan. Generated SPIR-V and binaries stay in the build
 directory; tracked baked resources do not need regeneration.
 
+### Export, input and lens dependencies
+
+The host links three further static dependency sets. Each is fetched and
+verified by its own script; CMake never downloads them, and each script
+refuses to overwrite a modified source tree. They install under `build/deps`
+by default (`SPEKTRALAB_DEPS_DIR`), which is what the CMake cache uses.
+
+```powershell
+# Export codecs: libjpeg-turbo 3.2.0, libpng 1.6.59, zlib-ng 2.3.3, nasm 2.16.03
+& .\engine\setup-codecs.ps1 -DependencyDirectory .\build\deps\export-codecs
+
+# Input codecs: OpenEXR 3.5.2, Imath 3.2.3, libheif 1.23.6, libde265 1.1.3, Little CMS 2.19.1
+python .\engine\setup-input-codecs.py `
+    --sources .\build\deps\input-codecs `
+    --build .\build\deps\input-codecs-build `
+    --install .\build\deps\input-codecs\install `
+    --generator "MinGW Makefiles" --cc gcc --cxx g++ --make mingw32-make --jobs 8
+
+# Lens correction: Lensfun on a static GLib 2.86.5 (needs Meson 1.9.2 and Ninja)
+python .\engine\setup-lens-codecs.py `
+    --sources .\build\deps\lens-codecs `
+    --build .\build\deps\lens-codecs-build `
+    --install .\build\deps\lens-codecs\install `
+    --generator "MinGW Makefiles" --cc gcc --cxx g++ --make mingw32-make --jobs 8
+```
+
+`setup-lens-codecs.py` also needs the PCRE2/zlib wrap archives in the GLib
+`subprojects/packagecache` and two pinned subprojects (`libffi`,
+`proxy-libintl`) cloned under `subprojects/`. It downloads and verifies them
+itself; on a machine that cannot reach GitHub or gitlab.freedesktop.org, place
+the verified archives and clones there first — the script reuses both instead
+of fetching.
+
+CMake finds the installations through their default paths
+(`<deps>/export-codecs`, `<deps>/input-codecs/install`,
+`<deps>/lens-codecs/install`); override with `SPEKTRALAB_CODECS_DIR`,
+`SPEKTRALAB_INPUT_CODEC_PREFIX` and `SPEKTRALAB_LENS_PREFIX`.
+
+MinGW GCC 16.2's `libgomp.a` references `dlopen`/`dlsym`, so a host link fails
+with `undefined reference to 'dlopen'` unless libdl is linked **after** the
+libraries. Configure the build directory once with:
+
+```powershell
+cmake -S . -B build/windows -DCMAKE_CXX_STANDARD_LIBRARIES=-ldl
+```
+
+The same flag is needed for the host-only directory used for packaging
+(`SPEKTRALAB_BUILD_DESKTOP=OFF`). Putting `-ldl` in
+`CMAKE_EXE_LINKER_FLAGS` is not enough: CMake emits it before the archives,
+where it resolves nothing.
+
+### Packaging the desktop installer
+
+`desktop/scripts/build-agent.mjs` stages the agent CLI and requires the pinned
+Node **v24.19.0** runtime. Point packaging at one before running it:
+
+```powershell
+$env:SPEKTRALAB_NODE_RUNTIME = 'D:\path\to\node-v24.19.0-win-x64\node.exe'
+npm run package:win   # from desktop/
+```
+
+Without it packaging stops at `Packaging needs the verified Node v24.19.0
+runtime (SPEKTRALAB_NODE_RUNTIME)`. The installer is built from the staged host
+in `build/host-win-x64`, so rebuild and restage that host after engine changes
+(`engine/stage-host.sh` needs Git Bash on Windows and
+`SPEKTRALAB_DEPS_DIR` pointing at the LibRaw and Vulkan-Headers trees).
+
 ### TypeScript desktop shell
 
 The current Windows/Linux editor is the Tauri application under `desktop/`;
@@ -125,10 +192,10 @@ the disk-I/O tradeoff and regression commands.
 
 ## Reproduce the local gates
 
-The integrated Win32 build passed **16 CTest tests**. The backend-only build
-has 11, and the native RAW build without desktop has 15. These cover schema,
-setup, GPU math and transfers, geometry, LUT/DI, C ABI ownership, TIFF, RAW
-error handling, headroom math, metadata-only LibRaw linkage and desktop
+The integrated Win32 build passed **33 CTest tests** and the native RAW build
+without desktop **45**; the backend-only configuration defines 26. These cover
+schema, setup, GPU math and transfers, geometry, LUT/DI, C ABI ownership, TIFF,
+RAW error handling, headroom math, metadata-only LibRaw linkage and desktop
 conversion/viewport boundaries. The default desktop CTest does not open a
 visible window or require a private RAW fixture.
 
