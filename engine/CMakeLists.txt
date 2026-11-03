@@ -16,6 +16,15 @@
 # through MoltenVK: every source then takes the portable (non-Apple) path,
 # selected by SPK_VULKAN_BACKEND, so the Mac can grade Vulkan against Metal on
 # identical input. Off Apple nothing changes.
+# State the language standard instead of inheriting each compiler's default.
+# GCC, Clang and MinGW default to gnu++17 and so build this tree unchanged, but
+# MSVC defaults to C++14 and rejects C++17 constructs such as the nested
+# namespace definitions in src/io/raw_camera.hpp (error C2429). Extensions stay
+# on, so the MinGW/GCC builds keep gnu++17 exactly as before.
+set(CMAKE_CXX_STANDARD 17)
+set(CMAKE_CXX_STANDARD_REQUIRED ON)
+set(CMAKE_CXX_EXTENSIONS ON)
+
 option(SPEKTRALAB_VULKAN_ON_APPLE "Build the Vulkan backend on macOS (MoltenVK), for parity tests" OFF)
 if(NOT APPLE OR SPEKTRALAB_VULKAN_ON_APPLE)
     set(SPEKTRALAB_PORTABLE_BACKEND ON)
