@@ -48,8 +48,23 @@ The [Win32 viewer](WINDOWS_DESKTOP.md) uses the same decoder and TIFF writer.
 The dependency is official [LibRaw 0.22.2](https://github.com/LibRaw/LibRaw/releases/tag/0.22.2),
 using the [fixed source archive](https://codeload.github.com/LibRaw/LibRaw/zip/refs/tags/0.22.2)
 with SHA-256 `02275a04cf0d1477ab9fd7ee231ddea59e7b14497458da6e3ba957517d6655c7`.
-`setup-libraw.ps1` verifies it before extraction. CMake does not fetch mutable
+The setup scripts verify the archive, extract it when needed, and apply the
+tracked Sony ARW 6 overlay in `engine/third_party/libraw-arw6/`. The overlay adds
+the upstream ARW 6 lossy decoder plus Sony A7 V (`ILCE-7M5`) identification and
+colour data; it does not change LibRaw's reported 0.22.2 version. A plain
+0.22.2 tree is rejected by CMake and by the setup scripts, because it cannot
+open A7 V "Compressed" or "Compressed (HQ)" files. CMake does not fetch mutable
 dependencies. Build manifests record source and runtime hashes.
+
+Sony A7 V ARW 6 lossy files are decoded through `sony_arw6_load_raw()`.
+Full-frame "Compressed" and "Compressed (HQ)" report 7040x4688 stored and
+7028x4688 cropped; APS-C variants and lossless-compressed files use the same
+metadata path, with lossless going through the pre-existing
+`sony_ljpeg_load_raw()` decoder. The supplied A7 V Full-Frame "Compressed (HQ)"
+sample decoded without unpack errors and produced a visually correct frame.
+The overlay also passes six A7R VI ARW 6 samples, including two that failed
+with intermediate upstream decoder revisions. This is sample-level coverage,
+not a guarantee for every ARW 6 camera or mode.
 
 The build selects LibRaw's LGPL-2.1 licence option and deploys `LICENSE.LGPL`
 and `COPYRIGHT` under the output's `third-party/LibRaw` directory. Preserve

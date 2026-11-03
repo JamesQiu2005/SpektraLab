@@ -164,4 +164,7 @@ geometry are future work. TIFF and PNG16 retain 16-bit
 pixels; PNG8/JPEG8 use 8-bit samples, and resizing is explicitly requested.
 
 Nikon HE/HE* RAW remains explicitly unsupported by this LibRaw build. A failed
-NEF open must leave the previous ARW and its session usable.
+NEF open must leave the previous ARW and its session usable. Sony A7 V
+(`ILCE-7M5`) ARW 6 "Compressed" and "Compressed (HQ)" files are supported
+through the tracked LibRaw ARW 6 overlay described in
+`engine/WINDOWS_NATIVE_RAW.md`.

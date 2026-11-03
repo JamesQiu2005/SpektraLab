@@ -10,6 +10,15 @@ list(FIND libraw_version "#define LIBRAW_PATCH_VERSION 2" libraw_patch)
 if(libraw_major EQUAL -1 OR libraw_minor EQUAL -1 OR libraw_patch EQUAL -1)
     message(FATAL_ERROR "This RAW integration is validated with LibRaw 0.22.2 only")
 endif()
+# The pinned release predates Sony ARW 6; engine/third_party/libraw-arw6 is
+# applied by the setup scripts. Refuse a tree without it so a plain 0.22.2
+# checkout cannot silently keep failing on A7 V Compressed (HQ) files.
+file(STRINGS "${SPEKTRALAB_LIBRAW_SOURCE}/internal/libraw_internal_funcs.h" libraw_arw6_decl REGEX "sony_arw6_load_raw")
+file(STRINGS "${SPEKTRALAB_LIBRAW_SOURCE}/internal/libraw_cameraids.h" libraw_a7m5_id REGEX "SonyID_ILCE_7M5")
+if(NOT EXISTS "${SPEKTRALAB_LIBRAW_SOURCE}/src/decoders/sony_arw6.cpp" OR
+   NOT libraw_arw6_decl OR NOT libraw_a7m5_id)
+    message(FATAL_ERROR "LibRaw 0.22.2 is missing the tracked Sony ARW 6 overlay; rerun engine/setup-libraw.ps1 (Windows) or engine/setup-libraw.sh (POSIX) with SPEKTRALAB_LIBRAW_SOURCE pointing at the overlaid tree")
+endif()
 file(GLOB_RECURSE libraw_sources CONFIGURE_DEPENDS "${SPEKTRALAB_LIBRAW_SOURCE}/src/*.cpp")
 # *_ph.cpp are replacement placeholders for LibRaw's no-postprocessing build,
 # not extra implementations. Including them beside the real processing units
