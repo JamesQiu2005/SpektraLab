@@ -17,6 +17,7 @@
 #include "volk.h"
 
 #include <algorithm>
+#include <atomic>
 #include <chrono>
 #include <cmath>
 #include <cstdint>
@@ -52,12 +53,24 @@ struct Buffer {
     bool persistent = false;
 };
 
+// Test-only entry point, defined at the end of this file: forces the latch so
+// the fail-fast path can be exercised without provoking a real GPU reset.
+bool test_latch_device_lost(Gpu* gpu, std::string& error);
+
 namespace {
 
 constexpr uint32_t kWorkgroup = 256;
 
 std::string vk_error(const char* operation, VkResult result) {
-    return std::string(operation) + " failed (VkResult " + std::to_string(int(result)) + ")";
+    std::string text = std::string(operation) + " failed (VkResult " + std::to_string(int(result)) + ")";
+    if (result == VK_ERROR_DEVICE_LOST)
+        text += ": the device was lost (the GPU was reset under this process -- a Windows TDR, "
+                "a driver fault, or a frame whose working set this adapter could not sustain). "
+                "Vulkan still defines valid calls on a lost device -- destroying objects, "
+                "freeing memory -- so this backend keeps those and refuses work instead: no "
+                "further allocation, transfer or rendering until the device is recreated or "
+                "the app restarts";
+    return text;
 }
 
 struct KernelSpec { const char* name; uint32_t bindings; uint32_t workgroup; };
@@ -472,6 +485,7 @@ public:
         BufferRef out = alloc(bytes, error);
         if (!out) return {};
         std::lock_guard<std::mutex> lock(dispatch_mutex_);
+        if (!device_usable(error)) return {};
         const auto start = diagnostic_start();
         if (!submit_sync([&](VkCommandBuffer command) {
                 device_barrier(command, VK_PIPELINE_STAGE_TRANSFER_BIT, VK_ACCESS_TRANSFER_WRITE_BIT);
@@ -559,6 +573,7 @@ public:
         if (!validate_copy(dst, dst_offset, src, src_offset, bytes, error)) return false;
         if (!bytes || (dst == src && dst_offset == src_offset)) return true;
         std::lock_guard<std::mutex> lock(dispatch_mutex_);
+        if (!device_usable(error)) return false;
         const auto start = diagnostic_start();
         if (!submit_sync([&](VkCommandBuffer command) {
                 device_barrier(command, VK_PIPELINE_STAGE_TRANSFER_BIT,
@@ -576,6 +591,9 @@ public:
         if (!validate_read(src, src_offset, dst, bytes, error)) return false;
         if (!bytes) return true;
         std::lock_guard<std::mutex> lock(dispatch_mutex_);
+        // No staging growth and no transfer on a lost device. The host range
+        // the caller passed stays untouched: nothing is copied into it.
+        if (!device_usable(error)) return false;
         const auto start = diagnostic_start();
         if (!ensure_staging(read_staging_, std::min(bytes, staging_chunk_bytes_), true, error)) return false;
         for (size_t offset = 0; offset < bytes;) {
@@ -608,6 +626,7 @@ public:
     bool dispatch(const char* kernel, const std::vector<Arg>& args,
                   size_t n_threads, std::string& error) override {
         if (n_threads == 0) return true;
+        if (!device_usable(error)) return false;
         // Probe kernels must not recurse into the startup gate. A rejected
         // device stays rejected, including low-level callers that dispatch
         // without first calling check_math_mode themselves.
@@ -654,6 +673,9 @@ public:
         }
 
         std::lock_guard<std::mutex> lock(dispatch_mutex_);
+        // Re-checked once the queue is ours: the check above ran before any
+        // wait, and the loss may have been recorded by whoever held this lock.
+        if (!device_usable(error)) return false;
         ComputePipeline* pipeline = get_pipeline(*spec, error);
         if (!pipeline) return false;
 
@@ -702,7 +724,10 @@ public:
         return submitted;
     }
 
-    bool flush(std::string&) override { return true; }  // dispatch is synchronous for this milestone
+    // Dispatch is synchronous for this milestone, so there is never work to
+    // queue -- but a lost device has to keep failing here too, or a caller
+    // that only flushes would believe the frame still landed.
+    bool flush(std::string& error) override { return device_usable(error); }
     void* texture(Buffer* buffer, uint32_t width, uint32_t height,
                   uint32_t row_stride_px, std::string& error) override {
         if (!buffer || width == 0 || height == 0 || row_stride_px < width ||
@@ -810,6 +835,8 @@ public:
     bool take_critical_pressure() override { return false; }
 
 private:
+    friend bool ::spk::gpu::test_latch_device_lost(Gpu* gpu, std::string& error);
+
     using Clock = std::chrono::steady_clock;
     static constexpr size_t kMaxStagingBytes = size_t(64) * 1024 * 1024;
 
@@ -831,10 +858,32 @@ private:
             static_cast<unsigned long long>(read_staging_.allocation_bytes));
     }
 
+    // A lost device ends rendering for this backend. Vulkan still defines
+    // valid calls on it -- destroying objects, freeing memory -- and those
+    // keep working so a session can be torn down. What is refused is work:
+    // every allocation, transfer, dispatch and flush fails fast with the one
+    // latched diagnosis instead of handing an invalid device to the driver
+    // node after node. The check is repeated under the queue lock, so a
+    // request that waited observes a loss recorded while it waited.
+    bool device_usable(std::string& error) const {
+        if (!device_lost_.load(std::memory_order_acquire)) return true;
+        std::lock_guard<std::mutex> lock(device_lost_mutex_);
+        error = device_lost_error_;
+        return false;
+    }
+
+    void latch_device_lost(VkResult result, const char* operation) {
+        if (result != VK_ERROR_DEVICE_LOST) return;
+        std::lock_guard<std::mutex> lock(device_lost_mutex_);
+        if (!device_lost_.exchange(true, std::memory_order_acq_rel))
+            device_lost_error_ = vk_error(operation, result);
+    }
+
     // Caller holds dispatch_mutex_: one queue and command pool, and synchronous
     // completion before any staging allocation or pooled buffer can be reused.
     template <typename Record>
     bool submit_sync(Record&& record, const char* operation, std::string& error) {
+        if (!device_usable(error)) return false;
         VkCommandBufferAllocateInfo allocate_info{};
         allocate_info.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO;
         allocate_info.commandPool = command_pool_;
@@ -861,7 +910,11 @@ private:
             }
             vkFreeCommandBuffers(device_, command_pool_, 1, &command);
         }
-        if (result != VK_SUCCESS) { error = vk_error(operation, result); return false; }
+        if (result != VK_SUCCESS) {
+            latch_device_lost(result, operation);
+            error = vk_error(operation, result);
+            return false;
+        }
         return true;
     }
 
@@ -940,6 +993,9 @@ private:
         BufferRef out = allocate(bytes, persistent, error);
         if (!out) return {};
         std::lock_guard<std::mutex> lock(dispatch_mutex_);
+        // No staging growth, no host copy and no transfer once the device is
+        // gone. The allocation above is handed back by returning an empty ref.
+        if (!device_usable(error)) return {};
         if (!ensure_staging(upload_staging_, std::min(bytes, staging_chunk_bytes_), false, error)) return {};
         for (size_t offset = 0; offset < bytes;) {
             const size_t chunk = std::min(bytes - offset, staging_chunk_bytes_);
@@ -980,6 +1036,10 @@ private:
             return {};
         }
         std::lock_guard<std::mutex> lock(buffers_mutex_);
+        // Checked under the lock, so a request queued behind another one sees
+        // a loss that request recorded before it allocates or reuses anything.
+        // Only work is refused: release() and trim_pool() keep freeing.
+        if (!device_usable(error)) return {};
         if (!persistent) {
             // Do not retain a full-resolution plane for a small preview or
             // constant request. Dispatch completion makes zero-ref blocks idle.
@@ -1073,7 +1133,11 @@ private:
                                   VK_BUFFER_USAGE_TRANSFER_DST_BIT);
         create.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
         VkResult result = vkCreateBuffer(device_, &create, nullptr, &b.handle);
-        if (result != VK_SUCCESS) { error = vk_error("vkCreateBuffer", result); return false; }
+        if (result != VK_SUCCESS) {
+            latch_device_lost(result, "vkCreateBuffer");
+            error = vk_error("vkCreateBuffer", result);
+            return false;
+        }
         VkMemoryRequirements requirements{};
         vkGetBufferMemoryRequirements(device_, b.handle, &requirements);
         uint32_t memory_index = UINT32_MAX;
@@ -1260,6 +1324,12 @@ private:
     Buffer read_staging_;
     size_t staging_chunk_bytes_ = kMaxStagingBytes;
     bool transfer_timings_ = false;
+    // First VK_ERROR_DEVICE_LOST seen, latched: rendering work is refused from
+    // here until the device is recreated. Mutable state guarded by its own
+    // mutex, because flush() reads it without the dispatch lock.
+    std::atomic<bool> device_lost_{false};
+    mutable std::mutex device_lost_mutex_;
+    std::string device_lost_error_;
     std::vector<Buffer*> buffers_;
     PoolAudit audit_;
     size_t frame_high_water_ = 0;
@@ -1268,6 +1338,13 @@ private:
 };
 
 }  // namespace
+
+bool test_latch_device_lost(Gpu* gpu, std::string& error) {
+    auto* vulkan = dynamic_cast<VulkanGpu*>(gpu);
+    if (!vulkan) { error = "not a Vulkan backend"; return false; }
+    vulkan->latch_device_lost(VK_ERROR_DEVICE_LOST, "injected device loss");
+    return true;
+}
 
 Gpu* Gpu::create_vulkan(const std::string& shader_dir, std::string& error) {
     auto gpu = std::make_unique<VulkanGpu>(shader_dir);
