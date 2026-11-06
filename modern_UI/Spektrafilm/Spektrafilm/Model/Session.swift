@@ -5291,13 +5291,17 @@ extension Session {
         // print of its own to grade).
         let filmGrade = sidecar.adjustments
         guard let graded = renderer.applyAdjustments(filmGrade, to: base) else { return nil }
-        func layer(_ side: HalfFramePair.Side) -> MTLTexture? {
+        // Keep the texture uses on this actor, without capturing the borrowed
+        // base in a nested actor-isolated function (Swift 6 Release checking).
+        var gradedLayers: [HalfFramePair.Side: MTLTexture] = [:]
+        for side in [HalfFramePair.Side.left, .right] {
             let own = p[side]?.adjustments
-            guard prints[side] != nil || (own != nil && own != filmGrade) else { return nil }
-            return renderer.applyAdjustments(own ?? filmGrade, to: prints[side] ?? base)
+            if prints[side] != nil || (own != nil && own != filmGrade) {
+                gradedLayers[side] = renderer.applyAdjustments(own ?? filmGrade, to: prints[side] ?? base)
+            }
         }
-        return renderer.compositePair(base: graded, first: layer(.left), firstRect: ra,
-                                      second: layer(.right), secondRect: rb)
+        return renderer.compositePair(base: graded, first: gradedLayers[.left], firstRect: ra,
+                                      second: gradedLayers[.right], secondRect: rb)
     }
 
     /// The print on the canvas made again from the engine's last one: a
