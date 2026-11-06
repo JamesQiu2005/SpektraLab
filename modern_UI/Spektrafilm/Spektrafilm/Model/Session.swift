@@ -46,6 +46,8 @@ final class Session: CanvasHost {
     /// a view, this would be a fifth notion of "selected".
     private(set) var picked: Set<URL> = []
 
+    private(set) var pickAnchor: URL?
+
     /// Every picked frame, **in display order**.
     ///
     /// One property, so the filmstrip, the Browse grid and the export page
@@ -1357,6 +1359,7 @@ final class Session: CanvasHost {
         // the count would disagree with the set. Dropped here, at the one
         // point where `frames` is replaced.
         picked = []
+        pickAnchor = nil
         // One file is a handoff — Finder's "Open With", a Capture One "Edit
         // With", a single drop — and it means "develop this". A folder or a
         // multi-file selection is a session to look through, and the old build
@@ -1511,28 +1514,26 @@ final class Session: CanvasHost {
         if j != i { click(frames[j].id) }
     }
 
-    /// A left click on a thumbnail — the only thing the person can do that
-    /// adds to or removes from the picked set.
-    ///
-    /// `command` is the ⌘ modifier. A plain click picks exactly this frame,
-    /// collapsing whatever set there was, and opens it; ⌘-click toggles one
-    /// frame's membership and **leaves the canvas where it is**, which is what
-    /// `notes.md` asks for ("the viewed image stays as the one the user is
-    /// previously on"). There is no ⇧-click and no range extension: the two
-    /// modifiers this app has are the two that change one frame at a time, so
-    /// a stray ⇧-click does nothing rather than silently adding a range.
-    ///
-    /// The modifier is a parameter and not read off `NSEvent` in here, so that
-    /// what a ⌘-click does is testable without synthesising one — the reading
-    /// itself stays in the gesture, once, at each call site.
+    /// Shift extends from the last plain/command click without moving the canvas.
     func click(_ url: URL, command: Bool = false) {
+        click(url, command: command, shift: false)
+    }
+
+    func click(_ url: URL, command: Bool, shift: Bool) {
         guard !batchExporting else { return }
-        guard command else {
-            picked = [url]
-            select(url)
+        if shift {
+            let ids = frames.map(\.id)
+            guard let end = ids.firstIndex(of: url) else { return }
+            let start = pickAnchor.flatMap { ids.firstIndex(of: $0) } ?? end
+            var range = Set(ids[min(start, end)...max(start, end)])
+            // Same invariant as `togglePick`: the frame on the canvas stays in.
+            if let selection { range.insert(selection) }
+            picked = command ? picked.union(range) : range
             return
         }
-        togglePick(url)
+        pickAnchor = url
+        if command { togglePick(url) }
+        else { picked = [url]; select(url) }
     }
 
     var canSelectAllFrames: Bool { !batchExporting && !frames.isEmpty }

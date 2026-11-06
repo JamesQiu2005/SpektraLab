@@ -49,7 +49,8 @@ struct Filmstrip: View {
                                 // ⌘-click would collapse the set as well.
                                 .onTapGesture {
                                     session.click(frame.id,
-                                                  command: NSEvent.modifierFlags.contains(.command))
+                                                  command: NSEvent.modifierFlags.contains(.command),
+                                                  shift: NSEvent.modifierFlags.contains(.shift))
                                 }
                                 .contextMenu {
                                     Button(L(.helpRevealInFinder)) { NSWorkspace.shared.activateFileViewerSelecting([frame.id]) }

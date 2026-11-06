@@ -51,6 +51,33 @@ final class SelectionModelTests: XCTestCase {
         return (session, session.frames.map(\.id))
     }
 
+    func testShiftRangeKeepsCanvasAndAnchor() throws {
+        let (session, urls) = try openedSession()
+        session.click(urls[1])
+        session.click(urls[3], command: false, shift: true)
+        XCTAssertEqual(session.selectedFrames, Array(urls[1...3]))
+        XCTAssertEqual(session.selection, urls[1])
+        XCTAssertEqual(session.pickAnchor, urls[1])
+        session.click(urls[0], command: false, shift: true)
+        XCTAssertEqual(session.selectedFrames, Array(urls[0...1]))
+        XCTAssertEqual(session.selection, urls[1])
+    }
+
+    func testCommandClickSetsAnchorAndCommandShiftAppends() throws {
+        let (session, urls) = try openedSession()
+        session.click(urls[0])
+        session.click(urls[2], command: true)
+        session.click(urls[3], command: true, shift: true)
+        XCTAssertEqual(session.selectedFrames, [urls[0], urls[2], urls[3]])
+        XCTAssertEqual(session.pickAnchor, urls[2])
+        XCTAssertEqual(session.selection, urls[0])
+        session.open(urls: [urls[0].deletingLastPathComponent()])
+        XCTAssertNil(session.pickAnchor)
+        session.click(urls[3], command: false, shift: true)
+        XCTAssertEqual(session.selectedFrames, [urls[3]])
+        XCTAssertNil(session.selection)
+    }
+
     /// A plain click: exactly one frame, and it opens.
     ///
     /// The collapse is the whole point — a click that merely *added* would
