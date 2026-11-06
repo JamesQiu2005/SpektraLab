@@ -15,6 +15,7 @@ import {
   currentFitZoom,
   pasteSettings,
   redo,
+  removeSelectedFrames,
   resetAdjustments,
   resetCrop,
   resetParams,
@@ -134,6 +135,7 @@ export async function installMenu(): Promise<void> {
     items: [
       await item(tz('Previous  (←)', '上一张  (←)'), () => selectRelative(-1)),
       await item(tz('Next  (→)', '下一张  (→)'), () => selectRelative(1)),
+      await item(tz('Remove from Roll', '从工作台移除'), () => void removeSelectedFrames()),
       await item(tz('New Photo Pair (Half Frame)', '新建双图拼接（半格）'), () => void makePair(), 'CmdOrCtrl+J'),
       await sep(),
       await item(tz('Reset Film, Paper, Camera and Enlarger', '重置胶片、相纸、相机与放大机'), resetParams),

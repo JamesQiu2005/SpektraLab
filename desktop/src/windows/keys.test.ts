@@ -34,6 +34,40 @@ describe('typing-key guard', () => {
 });
 
 
+it('Delete removes the picked frames from the roll, but not from inside a text field', async () => {
+  const { sessionStore } = await import('../state/session');
+  const callbacks: ((e: KeyboardEvent) => void)[] = [];
+  vi.stubGlobal('window', { addEventListener: (_: string, cb: (e: KeyboardEvent) => void) => callbacks.push(cb), removeEventListener: () => {} });
+  const dispose = installKeys();
+  const frame = (n: number) => ({ path: `/roll/${n}.ARW`, name: `${n}.ARW`, size: 1, mtime_ms: 0 });
+  const fire = (target: EventTarget) => {
+    const e = { ...k('Delete', target), preventDefault: vi.fn() };
+    callbacks[0]!(e as unknown as KeyboardEvent);
+    return e;
+  };
+  try {
+    sessionStore.setState({ frames: [frame(1), frame(2), frame(3)], picked: ['/roll/2.ARW'], selection: null, batchExporting: false, exportOpen: false, settingsOpen: false, aboutOpen: false });
+    expect(fire(field).preventDefault).not.toHaveBeenCalled();
+    expect(sessionStore.getState().frames).toHaveLength(3);
+    // A held key repeats: only the first press counts.
+    const held = { ...k('Delete', div), repeat: true, preventDefault: vi.fn() };
+    callbacks[0]!(held as unknown as KeyboardEvent);
+    expect(held.preventDefault).toHaveBeenCalled();
+    expect(sessionStore.getState().frames).toHaveLength(3);
+    // Mid-crop the key is not a removal either.
+    sessionStore.setState({ tool: 'crop' });
+    fire(div);
+    expect(sessionStore.getState().frames).toHaveLength(3);
+    sessionStore.setState({ tool: 'select' });
+    expect(fire(div).preventDefault).toHaveBeenCalled();
+    expect(sessionStore.getState().frames.map((f) => f.name)).toEqual(['1.ARW', '3.ARW']);
+    expect(sessionStore.getState().picked).toEqual([]);
+  } finally {
+    dispose(); vi.unstubAllGlobals();
+    sessionStore.setState({ frames: [], picked: [], selection: null });
+  }
+});
+
 it('Windows routes menu keys through WebView2; Linux keeps its native accelerators', () => {
   expect(webviewOwnsMenuKeys('Mozilla/5.0 (Windows NT 10.0; Win64; x64)')).toBe(true);
   expect(webviewOwnsMenuKeys('Mozilla/5.0 (X11; Linux x86_64)')).toBe(false);

@@ -8,7 +8,7 @@
 // characters, arrows and delete to a focused editable element. Ctrl/Alt
 // combinations and Return/Enter/Esc/Tab are not typing keys.
 
-import { makePair, setAdjustments, setGeometry, selectRelative, setOriginal, setTool, toggleCompare, undo, redo, zoomStep, zoomTo, zoomToFit, currentFitZoom, copySettings, pasteSettings, selectAllFrames, sessionStore, setPages } from '../state/session';
+import { makePair, setAdjustments, setGeometry, selectRelative, setOriginal, setTool, toggleCompare, undo, redo, zoomStep, zoomTo, zoomToFit, currentFitZoom, copySettings, pasteSettings, selectAllFrames, removeSelectedFrames, sessionStore, setPages } from '../state/session';
 import { turned } from '@shared/geometry';
 import { openDialog, openFilesDialog, openExport, restartHost } from './actions';
 import { settingsStore } from '../state/settings';
@@ -87,6 +87,9 @@ export function shortcutTable(): Record<string, Action> {
     '.': () => zoomTo(1),
     arrowleft: () => selectRelative(-1),
     arrowright: () => selectRelative(1),
+    // The picked frames leave the roll (Lightroom's Delete; the file stays).
+    // Only from the plain editor: not mid-crop, mid-pick or while placing a pair.
+    delete: () => { const s = sessionStore.getState(); if (s.tool === 'select' && !s.pairPlacing) void removeSelectedFrames(); },
     escape: () => {
       const s = sessionStore.getState();
       if (s.exportOpen && !s.batchExporting) setPages({ exportOpen: false });
@@ -119,6 +122,8 @@ export function installKeys(menuOwns: Set<string> = new Set()): () => void {
     const c = chord(e);
     if ((s.exportOpen || s.settingsOpen || s.aboutOpen) && c !== 'escape' && !c.startsWith('ctrl+')) return;
     if (s.batchExporting && c !== 'f11') return;
+    // A held Delete must not empty the roll one frame per repeat.
+    if (e.repeat && c === 'delete') { e.preventDefault(); return; }
     // Text editing shortcuts belong to the focused field, not the photograph.
     if (isEditable(e.target) && ['ctrl+a', 'ctrl+c', 'ctrl+v', 'ctrl+x', 'ctrl+z', 'ctrl+shift+z', 'ctrl+y'].includes(c)) return;
     const a = table[c];
