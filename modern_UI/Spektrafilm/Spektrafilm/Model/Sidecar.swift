@@ -433,6 +433,14 @@ struct Sidecar: Codable, Equatable, Sendable {
         image.deletingPathExtension().appendingPathExtension("spektra.json")
     }
 
+    // Inject the existence lookup so tests can count actual filesystem demand.
+    static func isRelocationCandidate(_ candidate: Source, for wanted: Source,
+                                      exists: (String) -> Bool = { FileManager.default.fileExists(atPath: $0) }) -> Bool {
+        // Most misses are unrelated photos: do the in-memory check before any stat.
+        guard candidate.matches(wanted) else { return false }
+        return !exists(candidate.path)
+    }
+
     static func load(for image: URL) -> Sidecar? {
         // 1. Where this frame's settings are if it has not moved.
         if let data = try? Data(contentsOf: url(for: image)),
@@ -456,8 +464,7 @@ struct Sidecar: Codable, Equatable, Sendable {
                // first thing it actually broke was a test that copies one
                // fixture into several temporary directories: identical bytes,
                // identical digests, and the wrong sidecar answered.
-               guard !FileManager.default.fileExists(atPath: candidate.source.path) else { return false }
-               return candidate.source.matches(wanted)
+               return isRelocationCandidate(candidate.source, for: wanted)
            }),
            let data = try? Data(contentsOf: hit.url),
            var sidecar = try? JSONDecoder().decode(Sidecar.self, from: data) {
