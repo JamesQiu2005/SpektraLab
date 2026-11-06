@@ -3954,16 +3954,49 @@ final class Session: CanvasHost {
     /// The frame on the canvas takes it live and undoably; the others take it
     /// on disk and develop with it when they are opened.
     func pasteSettings() {
-        guard let clip = clipboard, let open = selection, !batchExporting else { return }
+        guard let clip = clipboard, let written = paste(clip) else { return }
+        status = written == 0
+            ? "Nothing to paste — the frames already have these settings."
+            : "Pasted \(clip.groups.count) group\(clip.groups.count == 1 ? "" : "s") onto \(written) frame\(written == 1 ? "" : "s")."
+    }
+
+    /// The one paste (RFC-027 §4), shared by ⇧⌘V and a saved preset: the
+    /// clip onto every paste target, the open frame live and undoably, the
+    /// others on disk. The number of frames that changed, or nil when nothing
+    /// may be pasted now.
+    private func paste(_ clip: SettingsClip) -> Int? {
+        guard let open = selection, !batchExporting else { return nil }
         let targets = pasteTargets
         var written = 0
         for url in targets where url != open {
             if pasteOffline(clip, to: url) == .written { written += 1 }
         }
         if targets.contains(open), pasteLive(clip) { written += 1 }
+        return written
+    }
+
+    // MARK: saved presets (1.3.6)
+
+    /// A preset is applied where a paste would go, and under the same rule
+    /// (trap 34: never while a batch export holds the open frame).
+    var canApplyPreset: Bool { selection != nil && !batchExporting }
+    /// A preset is saved from what a copy would take.
+    var canSavePreset: Bool { canCopySettings }
+
+    /// The open frame's settings in the ticked groups, as a preset.
+    func presetFromOpenFrame(name: String) -> SettingsPreset? {
+        guard canSavePreset else { return nil }
+        return SettingsPreset(name: name, groups: clipboardGroups, from: sidecar)
+    }
+
+    /// Apply a saved preset: a paste of its clip, nothing more.
+    func applyPreset(_ preset: SettingsPreset) {
+        guard canApplyPreset, let written = paste(preset.clip) else { return }
         status = written == 0
-            ? "Nothing to paste — the frames already have these settings."
-            : "Pasted \(clip.groups.count) group\(clip.groups.count == 1 ? "" : "s") onto \(written) frame\(written == 1 ? "" : "s")."
+            ? String(format: L("“%@”: the frames already have these settings.",
+                               zh: "“%@”：这些照片的设置已相同。"), preset.name)
+            : String(format: L("“%@” applied. Photos changed: %d.", zh: "已应用“%@”，改动 %d 张照片。"),
+                     preset.name, written)
     }
 
     /// The paste on the frame on the canvas: one undo step, then each side

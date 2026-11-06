@@ -174,6 +174,7 @@
 		DD7E26A3E79A78EBDD307CA5 /* Session+FilmEdge.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Session+FilmEdge.swift"; sourceTree = "<group>"; };
 		5E28E5289A5F9446065A3593 /* Session.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Session.swift"; sourceTree = "<group>"; };
 		5D2036B1E86CE9C074686839 /* SettingsClipboard.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "SettingsClipboard.swift"; sourceTree = "<group>"; };
+		B5BD02953A96200A1859C9A3 /* SettingsPresets.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "SettingsPresets.swift"; sourceTree = "<group>"; };
 		F41E0CBEE2514220F975C465 /* Sidecar.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Sidecar.swift"; sourceTree = "<group>"; };
 		54760792255D82D0FCE4FE92 /* StockCatalog.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "StockCatalog.swift"; sourceTree = "<group>"; };
 		73CD38122A0624F1B181E883 /* ToneMask.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "ToneMask.swift"; sourceTree = "<group>"; };
@@ -197,6 +198,7 @@
 				DD7E26A3E79A78EBDD307CA5 /* Session+FilmEdge.swift */,
 				5E28E5289A5F9446065A3593 /* Session.swift */,
 				5D2036B1E86CE9C074686839 /* SettingsClipboard.swift */,
+				B5BD02953A96200A1859C9A3 /* SettingsPresets.swift */,
 				F41E0CBEE2514220F975C465 /* Sidecar.swift */,
 				54760792255D82D0FCE4FE92 /* StockCatalog.swift */,
 				73CD38122A0624F1B181E883 /* ToneMask.swift */
@@ -216,6 +218,7 @@
 		AAE77600C4DB8964A93036B8 /* NavigatorSection.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "NavigatorSection.swift"; sourceTree = "<group>"; };
 		6F4A151AC41077EF596D04AE /* PairSection.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "PairSection.swift"; sourceTree = "<group>"; };
 		31604E276003EFAFDCC77A76 /* ParameterSections.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "ParameterSections.swift"; sourceTree = "<group>"; };
+		9F3502CF6A16AFA2ABEA353F /* PresetsSheet.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "PresetsSheet.swift"; sourceTree = "<group>"; };
 		CBC3A4A2D1A91A9075EFE386 /* PrintProfileSection.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "PrintProfileSection.swift"; sourceTree = "<group>"; };
 		31CECD7A983BF62235F8F909 /* RightSections.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "RightSections.swift"; sourceTree = "<group>"; };
 		6D96546C1610FE27FA9014C7 /* Sections */ = {
@@ -233,6 +236,7 @@
 				AAE77600C4DB8964A93036B8 /* NavigatorSection.swift */,
 				6F4A151AC41077EF596D04AE /* PairSection.swift */,
 				31604E276003EFAFDCC77A76 /* ParameterSections.swift */,
+				9F3502CF6A16AFA2ABEA353F /* PresetsSheet.swift */,
 				CBC3A4A2D1A91A9075EFE386 /* PrintProfileSection.swift */,
 				31CECD7A983BF62235F8F909 /* RightSections.swift */
 			);
@@ -390,6 +394,7 @@
 		7D4B68041F25E6391CDA5225 /* PanelResizeWiringTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "PanelResizeWiringTests.swift"; sourceTree = "<group>"; };
 		670BA02F66C2FB67FF1B53EE /* ParamsTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "ParamsTests.swift"; sourceTree = "<group>"; };
 		5F214EAA4F7ED54CD0BD2A5F /* PerformanceRegressionTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "PerformanceRegressionTests.swift"; sourceTree = "<group>"; };
+		C922BEB494C7D06A4440A130 /* PresetsSheetCapture.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "PresetsSheetCapture.swift"; sourceTree = "<group>"; };
 		01CA7776C0EA70DF7CA1038D /* PrintCacheTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "PrintCacheTests.swift"; sourceTree = "<group>"; };
 		A02C1261DEB889B4B7370EFA /* PrintLUTTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "PrintLUTTests.swift"; sourceTree = "<group>"; };
 		E3EB8BA02101A5094E3983D5 /* PrintWritebackTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "PrintWritebackTests.swift"; sourceTree = "<group>"; };
@@ -402,6 +407,7 @@
 		A1FAAAE6B727F27EBAB44065 /* SessionPrintWritebackTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "SessionPrintWritebackTests.swift"; sourceTree = "<group>"; };
 		7CD35478B275449BA431A774 /* SettingsClipboardSessionTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "SettingsClipboardSessionTests.swift"; sourceTree = "<group>"; };
 		EE5952667264FA7541A23024 /* SettingsClipboardTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "SettingsClipboardTests.swift"; sourceTree = "<group>"; };
+		DB831E076F03D89F511FBE37 /* SettingsPresetsTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "SettingsPresetsTests.swift"; sourceTree = "<group>"; };
 		8630411B375EF0CFA90FE35D /* SoftProofParityTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "SoftProofParityTests.swift"; sourceTree = "<group>"; };
 		CC56E077560147D2B373F9FD /* StockListTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "StockListTests.swift"; sourceTree = "<group>"; };
 		A22F896FD4B37B60574E621A /* SurfaceAgreementTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "SurfaceAgreementTests.swift"; sourceTree = "<group>"; };
@@ -457,6 +463,7 @@
 				7D4B68041F25E6391CDA5225 /* PanelResizeWiringTests.swift */,
 				670BA02F66C2FB67FF1B53EE /* ParamsTests.swift */,
 				5F214EAA4F7ED54CD0BD2A5F /* PerformanceRegressionTests.swift */,
+				C922BEB494C7D06A4440A130 /* PresetsSheetCapture.swift */,
 				01CA7776C0EA70DF7CA1038D /* PrintCacheTests.swift */,
 				A02C1261DEB889B4B7370EFA /* PrintLUTTests.swift */,
 				E3EB8BA02101A5094E3983D5 /* PrintWritebackTests.swift */,
@@ -469,6 +476,7 @@
 				A1FAAAE6B727F27EBAB44065 /* SessionPrintWritebackTests.swift */,
 				7CD35478B275449BA431A774 /* SettingsClipboardSessionTests.swift */,
 				EE5952667264FA7541A23024 /* SettingsClipboardTests.swift */,
+				DB831E076F03D89F511FBE37 /* SettingsPresetsTests.swift */,
 				8630411B375EF0CFA90FE35D /* SoftProofParityTests.swift */,
 				CC56E077560147D2B373F9FD /* StockListTests.swift */,
 				A22F896FD4B37B60574E621A /* SurfaceAgreementTests.swift */,
@@ -659,6 +667,7 @@
 		DF567A683015AAB03F594D6A /* Session+FilmEdge.swift */ = {isa = PBXBuildFile; fileRef = DD7E26A3E79A78EBDD307CA5; };
 		88BD30B14D98C97D23F43C21 /* Session.swift */ = {isa = PBXBuildFile; fileRef = 5E28E5289A5F9446065A3593; };
 		9E50813C5CDDEEF0BDEE986A /* SettingsClipboard.swift */ = {isa = PBXBuildFile; fileRef = 5D2036B1E86CE9C074686839; };
+		D19437FA05434239B97C0F5E /* SettingsPresets.swift */ = {isa = PBXBuildFile; fileRef = B5BD02953A96200A1859C9A3; };
 		ECD5185216EA4EBDF7B8AC43 /* Sidecar.swift */ = {isa = PBXBuildFile; fileRef = F41E0CBEE2514220F975C465; };
 		495103DED5BC4AF1790BAE6B /* StockCatalog.swift */ = {isa = PBXBuildFile; fileRef = 54760792255D82D0FCE4FE92; };
 		3B9DD29CA88CB7BA4E13D6C1 /* ToneMask.swift */ = {isa = PBXBuildFile; fileRef = 73CD38122A0624F1B181E883; };
@@ -674,6 +683,7 @@
 		0CCA806D2F95EB2D2949855E /* NavigatorSection.swift */ = {isa = PBXBuildFile; fileRef = AAE77600C4DB8964A93036B8; };
 		6D4F7CDBC30F2321A525E63F /* PairSection.swift */ = {isa = PBXBuildFile; fileRef = 6F4A151AC41077EF596D04AE; };
 		1009C9B8473A8FBBE2957EAD /* ParameterSections.swift */ = {isa = PBXBuildFile; fileRef = 31604E276003EFAFDCC77A76; };
+		D7C80C611E528AFC2CACE06A /* PresetsSheet.swift */ = {isa = PBXBuildFile; fileRef = 9F3502CF6A16AFA2ABEA353F; };
 		384534AC4F4E049FF3365CE8 /* PrintProfileSection.swift */ = {isa = PBXBuildFile; fileRef = CBC3A4A2D1A91A9075EFE386; };
 		5EE5B3916E48CC0C5AA7CA44 /* RightSections.swift */ = {isa = PBXBuildFile; fileRef = 31CECD7A983BF62235F8F909; };
 		D10D12A1E58E8FF4886C03E1 /* CropMaskedThumbnail.swift */ = {isa = PBXBuildFile; fileRef = 6B9FBE8501886FCAB3FC35BF; };
@@ -792,6 +802,7 @@
 				DF567A683015AAB03F594D6A /* Session+FilmEdge.swift */,
 				88BD30B14D98C97D23F43C21 /* Session.swift */,
 				9E50813C5CDDEEF0BDEE986A /* SettingsClipboard.swift */,
+				D19437FA05434239B97C0F5E /* SettingsPresets.swift */,
 				ECD5185216EA4EBDF7B8AC43 /* Sidecar.swift */,
 				495103DED5BC4AF1790BAE6B /* StockCatalog.swift */,
 				3B9DD29CA88CB7BA4E13D6C1 /* ToneMask.swift */,
@@ -807,6 +818,7 @@
 				0CCA806D2F95EB2D2949855E /* NavigatorSection.swift */,
 				6D4F7CDBC30F2321A525E63F /* PairSection.swift */,
 				1009C9B8473A8FBBE2957EAD /* ParameterSections.swift */,
+				D7C80C611E528AFC2CACE06A /* PresetsSheet.swift */,
 				384534AC4F4E049FF3365CE8 /* PrintProfileSection.swift */,
 				5EE5B3916E48CC0C5AA7CA44 /* RightSections.swift */,
 				D10D12A1E58E8FF4886C03E1 /* CropMaskedThumbnail.swift */,
@@ -919,6 +931,7 @@
 		CCB54740C6B298D2CB260013 /* PanelResizeWiringTests.swift */ = {isa = PBXBuildFile; fileRef = 7D4B68041F25E6391CDA5225; };
 		039B6FFCF4BFB676662323BD /* ParamsTests.swift */ = {isa = PBXBuildFile; fileRef = 670BA02F66C2FB67FF1B53EE; };
 		CA361A9245BF6B8D045AC68B /* PerformanceRegressionTests.swift */ = {isa = PBXBuildFile; fileRef = 5F214EAA4F7ED54CD0BD2A5F; };
+		30A9A6A482AACCB587019ADA /* PresetsSheetCapture.swift */ = {isa = PBXBuildFile; fileRef = C922BEB494C7D06A4440A130; };
 		D9117673191FD5C22C19AC20 /* PrintCacheTests.swift */ = {isa = PBXBuildFile; fileRef = 01CA7776C0EA70DF7CA1038D; };
 		503F68DEA38B3A6A770B76FC /* PrintLUTTests.swift */ = {isa = PBXBuildFile; fileRef = A02C1261DEB889B4B7370EFA; };
 		498EAF27D8FD685268C6725B /* PrintWritebackTests.swift */ = {isa = PBXBuildFile; fileRef = E3EB8BA02101A5094E3983D5; };
@@ -931,6 +944,7 @@
 		C6D378B47B21E303D1C4602C /* SessionPrintWritebackTests.swift */ = {isa = PBXBuildFile; fileRef = A1FAAAE6B727F27EBAB44065; };
 		24EF3789D6346F4EC128E0E8 /* SettingsClipboardSessionTests.swift */ = {isa = PBXBuildFile; fileRef = 7CD35478B275449BA431A774; };
 		FDE7618D308971D4B750FC58 /* SettingsClipboardTests.swift */ = {isa = PBXBuildFile; fileRef = EE5952667264FA7541A23024; };
+		7DC18BCD9CAF6081CD805A9F /* SettingsPresetsTests.swift */ = {isa = PBXBuildFile; fileRef = DB831E076F03D89F511FBE37; };
 		79B440F7C064DEE4BA8CB3A1 /* SoftProofParityTests.swift */ = {isa = PBXBuildFile; fileRef = 8630411B375EF0CFA90FE35D; };
 		066A83C93205AA978E100BE7 /* StockListTests.swift */ = {isa = PBXBuildFile; fileRef = CC56E077560147D2B373F9FD; };
 		886E981C9232825E1654C23F /* SurfaceAgreementTests.swift */ = {isa = PBXBuildFile; fileRef = A22F896FD4B37B60574E621A; };
@@ -1009,6 +1023,7 @@
 		2EDF729FF7E2F40EE520272A /* Session+FilmEdge.swift */ = {isa = PBXBuildFile; fileRef = DD7E26A3E79A78EBDD307CA5; };
 		9BB0059CCEA6F6A2DDE94304 /* Session.swift */ = {isa = PBXBuildFile; fileRef = 5E28E5289A5F9446065A3593; };
 		C4928129500601E057DE95B8 /* SettingsClipboard.swift */ = {isa = PBXBuildFile; fileRef = 5D2036B1E86CE9C074686839; };
+		1CB8B42C1D62C0ACA38B5F66 /* SettingsPresets.swift */ = {isa = PBXBuildFile; fileRef = B5BD02953A96200A1859C9A3; };
 		FAC8A65917DB53B483714521 /* Sidecar.swift */ = {isa = PBXBuildFile; fileRef = F41E0CBEE2514220F975C465; };
 		2F1C84D952E02D091BF4FD75 /* StockCatalog.swift */ = {isa = PBXBuildFile; fileRef = 54760792255D82D0FCE4FE92; };
 		877A4E321C0E2EFDCAAB662C /* ToneMask.swift */ = {isa = PBXBuildFile; fileRef = 73CD38122A0624F1B181E883; };
@@ -1024,6 +1039,7 @@
 		6AAD8973CE3B98DD57053895 /* NavigatorSection.swift */ = {isa = PBXBuildFile; fileRef = AAE77600C4DB8964A93036B8; };
 		E70873AE9A7409C519D329AB /* PairSection.swift */ = {isa = PBXBuildFile; fileRef = 6F4A151AC41077EF596D04AE; };
 		167E76A7FC4DDCE7012A39C0 /* ParameterSections.swift */ = {isa = PBXBuildFile; fileRef = 31604E276003EFAFDCC77A76; };
+		73B25F81E4841F59A1AEB0B8 /* PresetsSheet.swift */ = {isa = PBXBuildFile; fileRef = 9F3502CF6A16AFA2ABEA353F; };
 		9476B966137052CD34C19AE8 /* PrintProfileSection.swift */ = {isa = PBXBuildFile; fileRef = CBC3A4A2D1A91A9075EFE386; };
 		131A1550D28F76CE987D3BA4 /* RightSections.swift */ = {isa = PBXBuildFile; fileRef = 31CECD7A983BF62235F8F909; };
 		473524AAA6EE61537B35C232 /* CropMaskedThumbnail.swift */ = {isa = PBXBuildFile; fileRef = 6B9FBE8501886FCAB3FC35BF; };
@@ -1115,6 +1131,7 @@
 				CCB54740C6B298D2CB260013 /* PanelResizeWiringTests.swift */,
 				039B6FFCF4BFB676662323BD /* ParamsTests.swift */,
 				CA361A9245BF6B8D045AC68B /* PerformanceRegressionTests.swift */,
+				30A9A6A482AACCB587019ADA /* PresetsSheetCapture.swift */,
 				D9117673191FD5C22C19AC20 /* PrintCacheTests.swift */,
 				503F68DEA38B3A6A770B76FC /* PrintLUTTests.swift */,
 				498EAF27D8FD685268C6725B /* PrintWritebackTests.swift */,
@@ -1127,6 +1144,7 @@
 				C6D378B47B21E303D1C4602C /* SessionPrintWritebackTests.swift */,
 				24EF3789D6346F4EC128E0E8 /* SettingsClipboardSessionTests.swift */,
 				FDE7618D308971D4B750FC58 /* SettingsClipboardTests.swift */,
+				7DC18BCD9CAF6081CD805A9F /* SettingsPresetsTests.swift */,
 				79B440F7C064DEE4BA8CB3A1 /* SoftProofParityTests.swift */,
 				066A83C93205AA978E100BE7 /* StockListTests.swift */,
 				886E981C9232825E1654C23F /* SurfaceAgreementTests.swift */,
@@ -1205,6 +1223,7 @@
 				2EDF729FF7E2F40EE520272A /* Session+FilmEdge.swift */,
 				9BB0059CCEA6F6A2DDE94304 /* Session.swift */,
 				C4928129500601E057DE95B8 /* SettingsClipboard.swift */,
+				1CB8B42C1D62C0ACA38B5F66 /* SettingsPresets.swift */,
 				FAC8A65917DB53B483714521 /* Sidecar.swift */,
 				2F1C84D952E02D091BF4FD75 /* StockCatalog.swift */,
 				877A4E321C0E2EFDCAAB662C /* ToneMask.swift */,
@@ -1220,6 +1239,7 @@
 				6AAD8973CE3B98DD57053895 /* NavigatorSection.swift */,
 				E70873AE9A7409C519D329AB /* PairSection.swift */,
 				167E76A7FC4DDCE7012A39C0 /* ParameterSections.swift */,
+				73B25F81E4841F59A1AEB0B8 /* PresetsSheet.swift */,
 				9476B966137052CD34C19AE8 /* PrintProfileSection.swift */,
 				131A1550D28F76CE987D3BA4 /* RightSections.swift */,
 				473524AAA6EE61537B35C232 /* CropMaskedThumbnail.swift */,
