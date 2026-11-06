@@ -3,9 +3,7 @@
 //  both ends, and the folder name with a count at the far left when there is
 //  room.
 //
-//  Selection is the white frame and **nothing else** (PRD §5): the open
-//  frame is marked by the strongest frame and a picked one by the same frame
-//  held back, and no cell carries a state pip next to it.
+//  Frames show selection; stars and the edit badge describe the photograph.
 //
 //  Which frame a cell gets is `Session.framing(of:)`, not a comparison made
 //  here — the Browse grid asks the same function, so the two surfaces cannot
@@ -32,7 +30,8 @@ struct Filmstrip: View {
                             FilmstripCell(frame: frame,
                                           geometry: session.thumbnailGeometry(for: frame.id),
                                           framing: session.framing(of: frame.id),
-                                          state: session.frameStates[frame.id] ?? .unprocessed)
+                                          state: session.frameStates[frame.id] ?? .unprocessed,
+                                          edited: session.editedFrames.contains(frame.id))
                                 .id(frame.id)
                                 // Dragged along the strip a frame is moved
                                 // (`FrameReorder`); onto a pair's hole on the
@@ -64,8 +63,7 @@ struct Filmstrip: View {
                                         .disabled(!session.canMakePair)
                                     }
                                     Button(L(.helpResetDefaults)) {
-                                        if frame.id == session.selection { session.resetParams(); session.resetAdjustments() }
-                                        else { Sidecar.remove(for: frame.id); session.refreshState(for: frame.id) }
+                                        session.resetFrame(frame.id)
                                     }
                                 }
                         }
@@ -145,6 +143,7 @@ struct FilmstripCell: View {
     let framing: FrameFraming
     /// Unread by this cell; kept as the guard test's construction seam.
     let state: FrameState
+    var edited = false
     @State private var rating = 0
     var body: some View {
         CropMaskedThumbnail(url: frame.id, geometry: geometry) { image in
@@ -174,6 +173,14 @@ struct FilmstripCell: View {
                     Text(String(repeating: "★", count: rating))
                         .font(.system(size: 9)).foregroundStyle(.white)
                         .padding(3).background(.black.opacity(0.6)).padding(3)
+                }
+            }
+            .overlay(alignment: .topTrailing) {
+                if edited {
+                    Image(systemName: "slider.horizontal.3")
+                        .font(.system(size: 9)).foregroundStyle(.white)
+                        .padding(3).background(.black.opacity(0.6)).padding(3)
+                        .help(L("Edited", zh: "已修"))
                 }
             }
             .overlay(RoundedRectangle(cornerRadius: 2)

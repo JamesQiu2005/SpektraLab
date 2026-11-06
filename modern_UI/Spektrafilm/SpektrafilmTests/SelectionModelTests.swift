@@ -89,6 +89,26 @@ final class SelectionModelTests: XCTestCase {
         XCTAssertEqual(urls.map { Ratings.rating(for: $0) }, [0, 0, 0, 0])
     }
 
+    func testEditedMeansUserContentRatherThanDevelopBookkeeping() {
+        var saved = Sidecar()
+        XCTAssertFalse(saved.hasUserEdits)
+        saved.solvedEV = 2.5
+        saved.state = .processed
+        saved.decode.temperature = 6200
+        saved.decode.tint = 12
+        XCTAssertFalse(saved.hasUserEdits)
+        saved.params.exposureCompensationEV = 1
+        XCTAssertTrue(saved.hasUserEdits)
+        saved.params = .default
+        saved.adjustments.exposure = 1
+        XCTAssertTrue(saved.hasUserEdits)
+        saved.adjustments = .default
+        XCTAssertFalse(saved.hasUserEdits)
+        saved.geometry = Geometry.default
+        saved.decode.lensCorrection = true
+        XCTAssertTrue(saved.hasUserEdits)
+    }
+
     /// A plain click: exactly one frame, and it opens.
     ///
     /// The collapse is the whole point — a click that merely *added* would

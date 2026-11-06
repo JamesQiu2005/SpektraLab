@@ -47,11 +47,38 @@ final class Session: CanvasHost {
     private(set) var picked: Set<URL> = []
 
     private(set) var pickAnchor: URL?
+    private(set) var editedFrames: Set<URL> = []
 
     func rateSelected(_ stars: Int) {
         guard !batchExporting else { return }
         let targets = picked.count > 1 ? selectedFrames : selection.map { [$0] } ?? []
         for url in targets { Ratings.set(stars, for: url) }
+    }
+
+    func refreshFilmstripEdits() {
+        editedFrames = Set(frames.compactMap {
+            Sidecar.load(for: $0.id)?.hasUserEdits == true ? $0.id : nil
+        })
+    }
+
+    func resetFrame(_ url: URL) {
+        guard !batchExporting else { return }
+        if url == selection {
+            pushUndo()
+            params = .default
+            geometry = .default
+            adjustments = .default
+            decode = DecodeSettings()
+            sidecar.masks = []
+            sidecar.heldCrop = nil
+            sidecar.noFilm = false
+            syncMasks()
+            flushSave()
+        } else {
+            Sidecar.remove(for: url)
+            refreshState(for: url)
+        }
+        refreshFilmstripEdits()
     }
 
     /// Every picked frame, **in display order**.
@@ -1366,6 +1393,7 @@ final class Session: CanvasHost {
         // point where `frames` is replaced.
         picked = []
         pickAnchor = nil
+        editedFrames = Set(saved.filter { $0.1?.hasUserEdits == true }.map(\.0))
         // One file is a handoff — Finder's "Open With", a Capture One "Edit
         // With", a single drop — and it means "develop this". A folder or a
         // multi-file selection is a session to look through, and the old build
@@ -1426,6 +1454,7 @@ final class Session: CanvasHost {
     /// Re-read a frame's sidecar state — used after a reset from the grid.
     func refreshState(for url: URL) {
         let saved = Sidecar.load(for: url)
+        if saved?.hasUserEdits == true { editedFrames.insert(url) } else { editedFrames.remove(url) }
         frameStates[url] = saved?.state ?? .unprocessed
         savedGeometry[url] = saved?.geometry ?? .default
         if url == selection { sidecar = Sidecar.load(for: url) ?? Sidecar() }
@@ -1445,6 +1474,7 @@ final class Session: CanvasHost {
     /// Internal rather than private so a test can drive the callback without
     /// waiting on a file descriptor and a debounce.
     func sidecarStoreChanged() {
+        refreshFilmstripEdits()
         guard pair == nil, let url = selection,
               let fresh = Sidecar.load(for: url) else { return }
         var comparable = fresh
@@ -2975,6 +3005,7 @@ final class Session: CanvasHost {
             var written = (try? JSONDecoder().decode(Sidecar.self, from: JSONEncoder().encode(sidecar))) ?? sidecar
             written.source = Sidecar.identity(of: url)
             lastSynced[url] = written
+            if sidecar.hasUserEdits { editedFrames.insert(url) } else { editedFrames.remove(url) }
         }
         savedGeometry[url] = sidecar.geometry
         if sidecar.params.cutsFrame { filmEdgeThumbnails.insert(url) } else { filmEdgeThumbnails.remove(url) }
@@ -4153,6 +4184,7 @@ final class Session: CanvasHost {
             return .failed
         }
         renderer.store.setPrint(nil, for: url)
+        if next.hasUserEdits { editedFrames.insert(url) } else { editedFrames.remove(url) }
         frameStates[url] = .stale
         return .written
     }

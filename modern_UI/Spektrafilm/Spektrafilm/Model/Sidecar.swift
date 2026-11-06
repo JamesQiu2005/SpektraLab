@@ -145,6 +145,14 @@ struct Sidecar: Codable, Equatable, Sendable {
     /// The film settings are kept, so switching it off gives them back.
     var noFilm = false
 
+    /// Runtime bookkeeping and the camera's cached As Shot values are not edits.
+    var hasUserEdits: Bool {
+        params != .default || !adjustments.isNeutral || geometry != .default
+            || !masks.isEmpty || heldCrop != nil || noFilm
+            || decoder != "coreimage" || decode.lensCorrection
+            || decode.whiteBalance != .asShot
+    }
+
     private enum CodingKeys: String, CodingKey {
         case schemaVersion, decoder, decode, params, adjustments, geometry, masks, solvedEV, placementNeedsFit, state
         case heldCrop, noFilm
