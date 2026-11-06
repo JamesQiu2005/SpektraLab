@@ -57,6 +57,7 @@ struct SettingsWindow: View {
     /// closes. A settings page nobody is looking at has no business taking
     /// samples.
     @State private var ticker: Timer?
+    @AppStorage(ImportSelection.preferenceKey) private var showFolderImport = true
     @AppStorage(Session.decoupleEffectsKey) private var decoupleEffects = false
 
     /// The page on screen, remembered between openings like the editor's
@@ -72,6 +73,12 @@ struct SettingsWindow: View {
                     switch page {
                     case .general:
                         languageSection
+                        SettingsGroup(L("Import", zh: "导入")) {
+                            SettingsRows {
+                                Toggle(L("Show import window when opening folders", zh: "打开文件夹时先显示导入窗口"),
+                                       isOn: $showFolderImport)
+                            }
+                        }
                         appearanceSection
                         machineSection
                     case .rendering:
