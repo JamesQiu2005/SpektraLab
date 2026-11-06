@@ -78,6 +78,17 @@ final class SelectionModelTests: XCTestCase {
         XCTAssertNil(session.selection)
     }
 
+    func testRatingAppliesToEveryPickAndZeroClears() throws {
+        let (session, urls) = try openedSession()
+        defer { for url in urls { Ratings.set(0, for: url) } }
+        session.click(urls[0])
+        session.click(urls[2], command: true)
+        session.rateSelected(4)
+        XCTAssertEqual(urls.map { Ratings.rating(for: $0) }, [4, 0, 4, 0])
+        session.rateSelected(0)
+        XCTAssertEqual(urls.map { Ratings.rating(for: $0) }, [0, 0, 0, 0])
+    }
+
     /// A plain click: exactly one frame, and it opens.
     ///
     /// The collapse is the whole point — a click that merely *added* would

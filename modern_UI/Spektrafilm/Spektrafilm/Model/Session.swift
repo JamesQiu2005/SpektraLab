@@ -48,6 +48,12 @@ final class Session: CanvasHost {
 
     private(set) var pickAnchor: URL?
 
+    func rateSelected(_ stars: Int) {
+        guard !batchExporting else { return }
+        let targets = picked.count > 1 ? selectedFrames : selection.map { [$0] } ?? []
+        for url in targets { Ratings.set(stars, for: url) }
+    }
+
     /// Every picked frame, **in display order**.
     ///
     /// One property, so the filmstrip, the Browse grid and the export page

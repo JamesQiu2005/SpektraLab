@@ -145,9 +145,14 @@ struct FilmstripCell: View {
     let framing: FrameFraming
     /// Unread by this cell; kept as the guard test's construction seam.
     let state: FrameState
+    @State private var rating = 0
     var body: some View {
         CropMaskedThumbnail(url: frame.id, geometry: geometry) { image in
             cell(image)
+        }
+        .onAppear { rating = Ratings.rating(for: frame.id) }
+        .onReceive(NotificationCenter.default.publisher(for: Ratings.didChange)) { _ in
+            rating = Ratings.rating(for: frame.id)
         }
         .help(frame.name)
     }
@@ -164,6 +169,13 @@ struct FilmstripCell: View {
                 }
             }
             .frame(height: Theme.Metric.thumbHeight)
+            .overlay(alignment: .bottomLeading) {
+                if rating > 0 {
+                    Text(String(repeating: "★", count: rating))
+                        .font(.system(size: 9)).foregroundStyle(.white)
+                        .padding(3).background(.black.opacity(0.6)).padding(3)
+                }
+            }
             .overlay(RoundedRectangle(cornerRadius: 2)
                 .stroke(Theme.selectionFrame, lineWidth: framing.lineWidth)
                 .opacity(framing.opacity))
