@@ -979,6 +979,16 @@ input {
   display: flex;
   flex-direction: column;
 }
+.export-progress {
+  height: 3px;
+  flex: none;
+  background: var(--rule);
+}
+.export-progress-fill {
+  height: 100%;
+  background: var(--accent);
+  transition: width 120ms linear;
+}
 .export-body {
   flex: 1;
   min-height: 0;
