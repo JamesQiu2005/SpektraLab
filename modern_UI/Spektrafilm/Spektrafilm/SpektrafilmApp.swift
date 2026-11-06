@@ -178,6 +178,13 @@ struct EditorCommands: Commands {
                 .keyboardShortcut("y", modifiers: [])
                 .disabled(!session.canCompare)
             Divider()
+            // 1.3.6: show the canvas as an export to this space would look.
+            Picker(L("Canvas Preview Space", zh: "画布预览色彩空间"), selection: Binding(
+                get: { session.canvasPreviewSpace },
+                set: { session.setCanvasPreviewSpace($0) })) {
+                ForEach(CanvasPreviewSpace.allCases) { Text($0.title).tag($0) }
+            }
+            Divider()
             Button("Restart Render Service") { session.restartService() }
                 .keyboardShortcut("r", modifiers: [.command, .option])
                 .disabled(session.selection == nil)
