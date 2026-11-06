@@ -22,6 +22,7 @@
 //    an edit settles→  reprint(preview resolution)      →  the full render follows
 //    open(folder)   →  Browse, nothing rendered        →  select() enters Print
 
+import Combine
 import AppKit
 import Foundation
 import Observation
@@ -46,19 +47,41 @@ final class Session: CanvasHost {
     /// a view, this would be a fifth notion of "selected".
     private(set) var picked: Set<URL> = []
 
+    @ObservationIgnored private var ratingsSubscription: AnyCancellable?
     private(set) var pickAnchor: URL?
+    private var ratingsRevision = 0
     private(set) var editedFrames: Set<URL> = []
+    var filmstripFilter: FilmstripFilter = .all {
+        didSet { pruneHiddenPicks() }
+    }
+    var visibleFrames: [Frame] {
+        _ = ratingsRevision
+        return frames.filter { filmstripFilter.includes(rating: Ratings.rating(for: $0.id),
+                                                 edited: editedFrames.contains($0.id)) }
+    }
+
+    func pruneHiddenPicks() {
+        guard !batchExporting else { return }
+        // The open frame never leaves the set (see `togglePick`): a filter
+        // that hides it still leaves it the sync source and the export proof.
+        var visible = Set(visibleFrames.map(\.id))
+        if let selection { visible.insert(selection) }
+        picked.formIntersection(visible)
+        if let pickAnchor, !visible.contains(pickAnchor) { self.pickAnchor = nil }
+    }
 
     func rateSelected(_ stars: Int) {
         guard !batchExporting else { return }
         let targets = picked.count > 1 ? selectedFrames : selection.map { [$0] } ?? []
         for url in targets { Ratings.set(stars, for: url) }
+        pruneHiddenPicks()
     }
 
     func refreshFilmstripEdits() {
         editedFrames = Set(frames.compactMap {
             Sidecar.load(for: $0.id)?.hasUserEdits == true ? $0.id : nil
         })
+        pruneHiddenPicks()
     }
 
     func resetFrame(_ url: URL) {
@@ -673,7 +696,10 @@ final class Session: CanvasHost {
     var batchExporting = false {
         didSet {
             if batchExporting { cancelBackgroundFullRender() }
-            else if oldValue && !renderer.showsFullRender { scheduleFullRender() }
+            else {
+                pruneHiddenPicks()
+                if oldValue && !renderer.showsFullRender { scheduleFullRender() }
+            }
         }
     }
 
@@ -1150,6 +1176,14 @@ final class Session: CanvasHost {
         Task { await client.set(onTermination: { [weak self] reason in
             Task { @MainActor in self?.serviceReady = false; self?.status = reason; self?.lastError = reason }
         }) }
+        ratingsSubscription = NotificationCenter.default.publisher(for: Ratings.didChange)
+            .sink { [weak self] _ in
+                // Ratings posts synchronously from its main-actor-only setter.
+                MainActor.assumeIsolated {
+                    self?.ratingsRevision += 1
+                    self?.pruneHiddenPicks()
+                }
+            }
         sidecarWatch.start { [weak self] in self?.sidecarStoreChanged() }
         bootTask = warmUp()
     }
@@ -1455,6 +1489,7 @@ final class Session: CanvasHost {
     func refreshState(for url: URL) {
         let saved = Sidecar.load(for: url)
         if saved?.hasUserEdits == true { editedFrames.insert(url) } else { editedFrames.remove(url) }
+        pruneHiddenPicks()
         frameStates[url] = saved?.state ?? .unprocessed
         savedGeometry[url] = saved?.geometry ?? .default
         if url == selection { sidecar = Sidecar.load(for: url) ?? Sidecar() }
@@ -1545,9 +1580,14 @@ final class Session: CanvasHost {
     /// A chevron or an arrow key: the same act as a plain click on the
     /// neighbouring frame, and it collapses the set for the same reason.
     func selectRelative(_ delta: Int) {
-        guard let selection, let i = frames.firstIndex(where: { $0.id == selection }) else { return }
-        let j = (i + delta).clamped(to: 0...(frames.count - 1))
-        if j != i { click(frames[j].id) }
+        let visible = visibleFrames
+        guard !visible.isEmpty else { return }
+        guard let selection, let i = visible.firstIndex(where: { $0.id == selection }) else {
+            click(delta < 0 ? visible[visible.count - 1].id : visible[0].id)
+            return
+        }
+        let j = (i + delta).clamped(to: 0...(visible.count - 1))
+        if j != i { click(visible[j].id) }
     }
 
     /// Shift extends from the last plain/command click without moving the canvas.
@@ -1558,7 +1598,7 @@ final class Session: CanvasHost {
     func click(_ url: URL, command: Bool, shift: Bool) {
         guard !batchExporting else { return }
         if shift {
-            let ids = frames.map(\.id)
+            let ids = visibleFrames.map(\.id)
             guard let end = ids.firstIndex(of: url) else { return }
             let start = pickAnchor.flatMap { ids.firstIndex(of: $0) } ?? end
             var range = Set(ids[min(start, end)...max(start, end)])
@@ -1572,14 +1612,16 @@ final class Session: CanvasHost {
         else { picked = [url]; select(url) }
     }
 
-    var canSelectAllFrames: Bool { !batchExporting && !frames.isEmpty }
+    var canSelectAllFrames: Bool { !batchExporting && !visibleFrames.isEmpty }
 
     /// Keep the current frame as the sync source. A folder with no open frame
     /// starts with the first in display order; only that frame is loaded.
     func selectAllFrames() {
         guard canSelectAllFrames else { return }
-        picked = Set(frames.map(\.id))
-        if selection == nil, let first = frames.first { select(first.id) }
+        picked = Set(visibleFrames.map(\.id))
+        // The open frame stays in the set even when the filter hides it.
+        if let selection { picked.insert(selection) }
+        if selection == nil, let first = visibleFrames.first { select(first.id) }
     }
 
     /// One frame in or out of the set, canvas unmoved.
@@ -3006,6 +3048,7 @@ final class Session: CanvasHost {
             written.source = Sidecar.identity(of: url)
             lastSynced[url] = written
             if sidecar.hasUserEdits { editedFrames.insert(url) } else { editedFrames.remove(url) }
+            pruneHiddenPicks()
         }
         savedGeometry[url] = sidecar.geometry
         if sidecar.params.cutsFrame { filmEdgeThumbnails.insert(url) } else { filmEdgeThumbnails.remove(url) }
@@ -4185,6 +4228,7 @@ final class Session: CanvasHost {
         }
         renderer.store.setPrint(nil, for: url)
         if next.hasUserEdits { editedFrames.insert(url) } else { editedFrames.remove(url) }
+        pruneHiddenPicks()
         frameStates[url] = .stale
         return .written
     }

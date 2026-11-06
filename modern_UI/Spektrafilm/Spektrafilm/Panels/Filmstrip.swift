@@ -22,11 +22,16 @@ struct Filmstrip: View {
 
     var body: some View {
         HStack(spacing: 0) {
+            Picker(L("Filter", zh: "筛选"), selection: $session.filmstripFilter) {
+                ForEach(FilmstripFilter.allCases) { Text($0.title).tag($0) }
+            }
+            .labelsHidden().frame(width: 78).padding(.leading, 6)
+            .disabled(session.batchExporting)
             edgeButton("chevron.left") { session.selectRelative(-1) }
             ScrollViewReader { proxy in
                 ScrollView(.horizontal, showsIndicators: false) {
                     LazyHStack(spacing: 14) {
-                        ForEach(session.frames) { frame in
+                        ForEach(session.visibleFrames) { frame in
                             FilmstripCell(frame: frame,
                                           geometry: session.thumbnailGeometry(for: frame.id),
                                           framing: session.framing(of: frame.id),
@@ -98,7 +103,7 @@ struct Filmstrip: View {
                 .frame(width: 18, height: Theme.Metric.filmstripHeight).contentShape(Rectangle())
         }
         .buttonStyle(.plain)
-        .disabled(session.frames.isEmpty)
+        .disabled(session.visibleFrames.isEmpty)
     }
 }
 

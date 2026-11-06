@@ -89,6 +89,44 @@ final class SelectionModelTests: XCTestCase {
         XCTAssertEqual(urls.map { Ratings.rating(for: $0) }, [0, 0, 0, 0])
     }
 
+    func testFilterPrunesPicksAndLimitsSelectAllAndNavigation() throws {
+        let (session, urls) = try openedSession()
+        defer { for url in urls { Ratings.set(0, for: url) } }
+        Ratings.set(3, for: urls[1])
+        Ratings.set(5, for: urls[3])
+        session.click(urls[0])
+        session.selectAllFrames()
+        session.filmstripFilter = .three
+        XCTAssertEqual(session.frames.count, 4)
+        XCTAssertEqual(session.selection, urls[0])
+        // The open frame stays picked even when the filter hides it.
+        XCTAssertEqual(session.selectedFrames, [urls[0], urls[1], urls[3]])
+        session.selectAllFrames()
+        XCTAssertEqual(session.selectedFrames, [urls[0], urls[1], urls[3]])
+        session.selectRelative(1)
+        XCTAssertEqual(session.selection, urls[1])
+        session.click(urls[3], command: false, shift: true)
+        XCTAssertEqual(session.selectedFrames, [urls[1], urls[3]])
+        Ratings.set(0, for: urls[3])
+        XCTAssertEqual(session.selectedFrames, [urls[1]])
+    }
+
+    func testEditedFilterAndOfflineReset() throws {
+        let (session, urls) = try openedSession()
+        var saved = Sidecar()
+        saved.params.exposureCompensationEV = 1
+        try saved.save(for: urls[1])
+        defer { Sidecar.remove(for: urls[1]) }
+        session.refreshFilmstripEdits()
+        session.filmstripFilter = .edited
+        XCTAssertEqual(session.visibleFrames.map(\.id), [urls[1]])
+        session.resetFrame(urls[1])
+        XCTAssertTrue(session.visibleFrames.isEmpty)
+        XCTAssertFalse(session.editedFrames.contains(urls[1]))
+        session.filmstripFilter = .unedited
+        XCTAssertEqual(session.visibleFrames.count, 4)
+    }
+
     func testEditedMeansUserContentRatherThanDevelopBookkeeping() {
         var saved = Sidecar()
         XCTAssertFalse(saved.hasUserEdits)
