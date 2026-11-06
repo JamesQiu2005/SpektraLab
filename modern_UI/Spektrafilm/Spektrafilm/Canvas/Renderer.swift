@@ -204,6 +204,83 @@ final class Renderer: NSObject {
     /// display. Nothing between Layer 2 and the drawable has to be re-run when
     /// something upstream changes.
     private var layer2Dirty = true
+    /// Bumped every time Layer 2 rewrites `adjusted` in place, so the canvas
+    /// preview below knows its converted copy is stale without comparing
+    /// pixels.
+    private var layer2Generation = 0
+
+    // MARK: the canvas preview space (1.3.6)
+
+    /// The conversion the canvas shows the picture through, or nil to draw the
+    /// working space as it is (ProPhoto RGB — the 2026-09-13 decision, and
+    /// still the default).
+    ///
+    /// When set, the canvas shows **the export's conversion**: the same
+    /// `outputTransform` kernel with the same setup `Exporter.filePixels`
+    /// fetches for a recipe in that space, run once per Layer 2 result into
+    /// `previewed` and once per decode into `previewedOriginal` — never per
+    /// draw, so pan and zoom cost what they always did. The drawable is then
+    /// tagged with the target (`displaySpace`) and the ground re-encoded for
+    /// it (`groundValue`); the three are set together by `setPreview`.
+    private(set) var previewSetup: OutputTransformSetup?
+    /// What the drawable is tagged with: the working space, or the preview's
+    /// target. Read by `draw(in:)`, which retags the layer when it changes.
+    private(set) var displaySpace: CGColorSpace? = ImageDecoder.workingSpace
+    /// The letterbox grey encoded for `displaySpace` (AGENTS.md trap 27).
+    private(set) var groundValue: Float = CanvasGround.value
+
+    /// Switch the canvas to `setup` (nil: the working space), with the tag and
+    /// the ground that go with it. One call so the three cannot disagree for a
+    /// frame.
+    func setPreview(_ setup: OutputTransformSetup?, ground: Float) {
+        previewSetup = setup
+        displaySpace = setup?.target ?? ImageDecoder.workingSpace
+        groundValue = setup == nil ? CanvasGround.value : ground
+        previewed = nil
+        previewedKey = nil
+        previewedOriginal = nil
+        previewedOriginalKey = nil
+        needsDraw?()
+    }
+
+    private var previewedHandle: MemoryArena.Handle?
+    /// `adjusted` converted into the preview space.
+    private var previewed: MTLTexture? { didSet { if let h = previewedHandle { arena.release(h) }; previewedHandle = previewed.flatMap { arena.registerPinned(bytes: $0.width * $0.height * 8, kind: "previewed") } } }
+    private var previewedKey: (ObjectIdentifier, Int)?
+    private var previewedOriginalHandle: MemoryArena.Handle?
+    /// `original` converted into the preview space, for Space and the split.
+    private var previewedOriginal: MTLTexture? { didSet { if let h = previewedOriginalHandle { arena.release(h) }; previewedOriginalHandle = previewedOriginal.flatMap { arena.registerPinned(bytes: $0.width * $0.height * 8, kind: "previewedOriginal") } } }
+    private var previewedOriginalKey: ObjectIdentifier?
+
+    /// `src` in the preview space, converted only when its contents changed.
+    /// `key` identifies the contents (texture identity, plus Layer 2's
+    /// generation for `adjusted`, which is rewritten in place).
+    private func converted(_ cb: MTLCommandBuffer, _ src: MTLTexture, setup: OutputTransformSetup,
+                           original: Bool) -> MTLTexture? {
+        if original {
+            let key = ObjectIdentifier(src)
+            if let t = previewedOriginal, previewedOriginalKey == key,
+               t.width == src.width, t.height == src.height { return t }
+            guard let dst = store.makeWritable(width: src.width, height: src.height) else { return nil }
+            encodeOutputTransform(cb, src: src, dst: dst, setup: setup)
+            previewedOriginal = dst
+            previewedOriginalKey = key
+            return dst
+        }
+        let key = (ObjectIdentifier(src), layer2Generation)
+        if let t = previewed, let k = previewedKey, k == key,
+           t.width == src.width, t.height == src.height { return t }
+        let dst: MTLTexture
+        if let t = previewed, t.width == src.width, t.height == src.height { dst = t }
+        else {
+            guard let made = store.makeWritable(width: src.width, height: src.height) else { return nil }
+            dst = made
+        }
+        encodeOutputTransform(cb, src: src, dst: dst, setup: setup)
+        previewed = dst
+        previewedKey = key
+        return dst
+    }
 
     var viewport = ViewportState()
     var showOriginal = false { didSet { if oldValue != showOriginal { needsDraw?() } } }
@@ -878,36 +955,13 @@ final class Renderer: NSObject {
             log("no drawable (size \(view.drawableSize), window \(view.window != nil))")
             return
         }
-        var shown: MTLTexture? = nil
-        if let base = graded {
-            if showOriginal, let original {
-                shown = original
-                // The plot follows the picture: Space and the split's left
-                // half show the decode, so the histogram has to describe the
-                // decode too. Same working space, same axis (`publishHistogram`).
-                encodeHistogramIfNeeded(cb, src: original)
-            } else if let dst = ensureAdjusted(for: base) {
-                // Layer 2 rewrites `dst` in place, so its identity does not
-                // change when its contents do; the histogram has to be told.
-                let gradeChanged = layer2Dirty
-                if gradeChanged {
-                    encodeLayer2(cb, src: base, dst: dst)
-                    layer2Dirty = false
-                }
-                // The histogram is taken of **what the canvas draws** —
-                // the working-space texture — now that there is no
-                // converted one to take it of. What that means for its
-                // axis is recorded on `publishHistogram`.
-                encodeHistogramIfNeeded(cb, src: dst, gradeChanged: gradeChanged)
-                shown = dst
-            }
+        let (shown, before) = canvasTextures(cb)
+        if let layer = view.layer as? CAMetalLayer, let space = displaySpace, layer.colorspace != space {
+            layer.colorspace = space
         }
-        // Left of the split and under Space. The same texture the right half is
-        // drawn from — both are the working space, so the split compares two
-        // renderings and not two colour spaces.
-        let before = original ?? shown
         let bs = Float(view.window?.backingScaleFactor ?? viewport.backingScale)
         var u = canvasUniforms(shown: shown, viewportSize: view.drawableSize, backingScale: CGFloat(bs))
+        u.surroundGray = groundValue
         // The timestamp is not decoration: "the canvas twitches" is a question
         // about *when* frames reach the screen, and a log of states without
         // times cannot answer it. Milliseconds since the process started, so
@@ -938,6 +992,60 @@ final class Renderer: NSObject {
         enc.endEncoding()
         cb.present(drawable)
         cb.commit()
+    }
+
+    /// What the canvas draws, encoded into `cb`: the picture (`shown`) and the
+    /// left of the split (`before`). Split out of `draw(in:)` so a test can run
+    /// exactly this without a drawable (`canvasTexturesNow`).
+    ///
+    /// The histogram is taken of the **working-space** texture either way — its
+    /// axis is the working space's (`publishHistogram`), and the preview space
+    /// changes how the picture is shown, not what the print is.
+    private func canvasTextures(_ cb: MTLCommandBuffer) -> (shown: MTLTexture?, before: MTLTexture?) {
+        var shown: MTLTexture? = nil
+        if let base = graded {
+            if showOriginal, let original {
+                shown = original
+                // The plot follows the picture: Space and the split's left
+                // half show the decode, so the histogram has to describe the
+                // decode too. Same working space, same axis (`publishHistogram`).
+                encodeHistogramIfNeeded(cb, src: original)
+            } else if let dst = ensureAdjusted(for: base) {
+                // Layer 2 rewrites `dst` in place, so its identity does not
+                // change when its contents do; the histogram has to be told.
+                let gradeChanged = layer2Dirty
+                if gradeChanged {
+                    encodeLayer2(cb, src: base, dst: dst)
+                    layer2Dirty = false
+                    layer2Generation &+= 1
+                }
+                encodeHistogramIfNeeded(cb, src: dst, gradeChanged: gradeChanged)
+                shown = dst
+            }
+        }
+        // Left of the split and under Space. Both halves get the same
+        // treatment, so the split compares two renderings and never two
+        // colour spaces — in the working space, or both through the preview.
+        var before = original ?? shown
+        if let setup = previewSetup {
+            if let s = shown {
+                shown = converted(cb, s, setup: setup, original: s === original)
+            }
+            if let o = original { before = converted(cb, o, setup: setup, original: true) }
+            else { before = shown }
+        }
+        return (shown, before)
+    }
+
+    /// `canvasTextures`, committed and waited on. Tests only: the parity
+    /// between the canvas preview and the export is a statement about these
+    /// textures.
+    func canvasTexturesNow() -> (shown: MTLTexture?, before: MTLTexture?) {
+        guard let cb = queue.makeCommandBuffer() else { return (nil, nil) }
+        let r = canvasTextures(cb)
+        cb.commit()
+        cb.waitUntilCompleted()
+        return r
     }
 
     // MARK: offscreen (export, snapshot, tests)
@@ -1063,11 +1171,20 @@ final class Renderer: NSObject {
         } else if let base = graded, let dst = ensureAdjusted(for: base) {
             encodeLayer2(cb, src: base, dst: dst)
             layer2Dirty = false
+            layer2Generation &+= 1
             shown = dst
             encodeHistogram(cb, src: dst)
         }
-        let before = original ?? shown
+        let histogrammed = shown
+        var before = original ?? shown
+        // The canvas preview, as `canvasTextures` applies it; the capture is
+        // then in `displaySpace`, which is what its caller tags it with.
+        if let setup = previewSetup {
+            if let s = shown { shown = converted(cb, s, setup: setup, original: s === original) }
+            if let o = original { before = converted(cb, o, setup: setup, original: true) } else { before = shown }
+        }
         var u = canvasUniforms(shown: shown, viewportSize: CGSize(width: w, height: h), backingScale: backingScale)
+        u.surroundGray = groundValue
         let rpd = MTLRenderPassDescriptor()
         rpd.colorAttachments[0].texture = target
         rpd.colorAttachments[0].loadAction = .clear
@@ -1084,8 +1201,8 @@ final class Renderer: NSObject {
         enc.endEncoding()
         cb.commit()
         cb.waitUntilCompleted()
-        if let shown {
-            histogramSource = ObjectIdentifier(shown)
+        if let histogrammed {
+            histogramSource = ObjectIdentifier(histogrammed)
             publishHistogram()
         }
         return target

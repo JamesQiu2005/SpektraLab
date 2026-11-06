@@ -660,7 +660,11 @@ final class Session: CanvasHost {
             : (filmEdgeThumbnails.contains(url) ? .default : (savedGeometry[url] ?? .default))
     }
     var lastRenderMs: Double = 0
-    private var statusBase: String?
+    /// "<file>  ·  <w>×<h>", set when a develop lands; the colour fact is
+    /// appended live (`statusBase`), so switching the canvas preview space
+    /// updates the line without a re-develop.
+    private var statusFrame: String?
+    private var statusBase: String? { statusFrame.map { "\($0)  ·  \(colourSummary)" } }
     var stockWarning: String?
     var showExport = false
 
@@ -2480,7 +2484,7 @@ final class Session: CanvasHost {
             // (RFC-018 §4.1). `detectedInput` still carries the input space
             // for anyone who asks; it is just no longer presented as either of
             // the two this line is about.
-            statusBase = "\(url.lastPathComponent)  ·  \(r.meta.width)×\(r.meta.height)  ·  \(colourSummary)"
+            statusFrame = "\(url.lastPathComponent)  ·  \(r.meta.width)×\(r.meta.height)"
             if let b = backend, b.isSlowPath {
                 // Loud, because the symptom is otherwise just "slow" and the
                 // cause is usually that the engine is not in this checkout.
@@ -2514,7 +2518,74 @@ final class Session: CanvasHost {
     /// this is, so there is no second space for the app to name — and the user
     /// asked for less of this in the interface rather than more ("there's not
     /// much need to actually explaining that much, right?").
-    private var colourSummary: String { workingSpaceName }
+    ///
+    /// With a canvas preview space chosen (1.3.6) the canvas is no longer in
+    /// the working space, so the line names the space it *is* in — and, when
+    /// the engine could not build that conversion, says so rather than
+    /// showing the working space under the preview's name.
+    private var colourSummary: String {
+        if canvasPreviewProblem != nil {
+            let name = canvasPreviewSpace.title
+            return L("\(name) preview unavailable · \(workingSpaceName)",
+                     zh: "无法预览 \(name) · \(workingSpaceName)")
+        }
+        guard renderer.previewSetup != nil else { return workingSpaceName }
+        let name = canvasPreviewSpace.title
+        return L("\(name) preview", zh: "\(name) 预览")
+    }
+
+    // MARK: - the canvas preview space (1.3.6)
+
+    /// Which space the canvas shows the picture in. ProPhoto RGB — the working
+    /// space, unconverted — unless the user picks another (`CanvasPreviewSpace`).
+    private(set) var canvasPreviewSpace: CanvasPreviewSpace = CanvasPreviewSpace.stored(in: .standard)
+    /// Set when the engine could not build the conversion; the canvas then
+    /// draws the working space and the status line says so.
+    private(set) var canvasPreviewProblem: String?
+
+    func setCanvasPreviewSpace(_ space: CanvasPreviewSpace, defaults: UserDefaults = .standard) {
+        CanvasPreviewSpace.store(space, in: defaults)
+        guard space != canvasPreviewSpace else { return }
+        canvasPreviewSpace = space
+        applyCanvasPreviewSpace()
+    }
+
+    /// Install the conversion for `canvasPreviewSpace` on the renderer — the
+    /// same `ColourManagement.setup` an export to that space fetches, with its
+    /// default compression, so the canvas and the file cannot be converted
+    /// differently. The working space itself needs no conversion.
+    func applyCanvasPreviewSpace() {
+        let space = canvasPreviewSpace
+        guard space.engineName != workingSpaceName else {
+            renderer.setPreview(nil, ground: CanvasGround.value)
+            canvasPreviewProblem = nil
+            refreshStatusColour()
+            return
+        }
+        Task { [weak self] in
+            guard let self else { return }
+            let (setup, problem) = await ColourManagement.setup(client: self.client,
+                                                                source: self.workingSpaceName,
+                                                                target: space.colorSpace,
+                                                                device: self.renderer.device)
+            // A later choice wins; this one's answer is no longer wanted.
+            guard self.canvasPreviewSpace == space else { return }
+            if let setup {
+                self.renderer.setPreview(setup, ground: space.groundValue)
+                self.canvasPreviewProblem = nil
+            } else {
+                self.renderer.setPreview(nil, ground: CanvasGround.value)
+                self.canvasPreviewProblem = problem ?? "the engine refused it"
+                self.log.warn(.engine, "canvas_preview_unavailable", [
+                    .init("space", space.engineName), .init("problem", problem ?? "-")])
+            }
+            self.refreshStatusColour()
+        }
+    }
+
+    private func refreshStatusColour() {
+        if !working, let base = statusBase { status = base }
+    }
 
     /// Record the space the engine resolved for this session.
     ///
@@ -2523,8 +2594,15 @@ final class Session: CanvasHost {
     /// when an export or a proof actually needs to convert to a destination
     /// (`ColourManagement`, from `Exporter` and `SoftProof`).
     private func noteWorkingSpace(_ source: String) {
+        let changed = source != workingSpaceName
         workingSpaceName = source
         log.info(.engine, "working_space", [.init("space", source)])
+        // The preview converts *from* the working space, so a new one needs a
+        // new setup; and the first open is when a stored choice is installed.
+        if changed || (canvasPreviewSpace.engineName != source && renderer.previewSetup == nil
+                       && canvasPreviewProblem == nil) {
+            applyCanvasPreviewSpace()
+        }
     }
 
     private func applyRender(_ outcome: RenderOutcome, generation: Int, composed: Bool = false) {

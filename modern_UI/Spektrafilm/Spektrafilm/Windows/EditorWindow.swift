@@ -372,7 +372,10 @@ struct SnapshotCanvas: View {
         session.renderer.viewport.backingScale = 2
         session.renderer.viewport.resize(viewport: size)
         session.viewportChanged()
-        image = session.renderer.renderOffscreen(size: size, backingScale: 2)?.makeCGImage()
+        // Tagged with what the canvas is in: the working space, or the preview
+        // space's target when the canvas is previewing one.
+        let space = session.renderer.displaySpace ?? ImageDecoder.workingSpace ?? ImageDecoder.displayP3
+        image = session.renderer.renderOffscreen(size: size, backingScale: 2)?.makeCGImage(space: space)
     }
 }
 

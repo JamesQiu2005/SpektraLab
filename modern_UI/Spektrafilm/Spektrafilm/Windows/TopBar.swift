@@ -108,6 +108,10 @@ struct TopBar: View {
             // The empty middle of the bar is the window's drag surface: the
             // titlebar is hidden, and this is where a toolbar would be.
             WindowDragHandle().frame(minWidth: 8, maxWidth: .infinity)
+            // The canvas preview space (1.3.6): how the picture would look
+            // exported into that space. Beside before/after because it, too,
+            // changes how the canvas is displayed and not what it holds.
+            previewSpacePill.padding(.trailing, Theme.Metric.beforeAfterGap)
             // Before/after, immediately left of the zoom controls. It belongs
             // with zoom rather than with the tools because it changes how the
             // canvas is *displayed*, not what a click on it does.
@@ -202,6 +206,38 @@ struct TopBar: View {
         .buttonStyle(.plain)
         .disabled(disabled)
         .help(help)
+    }
+
+    /// The zoom pill's shape, holding the preview space's short name. The
+    /// accent says the canvas is converted — a preview you forgot you chose
+    /// would otherwise look like a duller render.
+    private var previewSpacePill: some View {
+        Menu {
+            ForEach(CanvasPreviewSpace.allCases) { space in
+                Button {
+                    session.setCanvasPreviewSpace(space)
+                } label: {
+                    if space == session.canvasPreviewSpace {
+                        Label(space.title, systemImage: "checkmark")
+                    } else {
+                        Text(space.title)
+                    }
+                }
+            }
+        } label: {
+            Text(session.canvasPreviewSpace.shortTitle)
+                .font(Theme.Font.zoomValue)
+                .foregroundStyle(session.canvasPreviewSpace == .proPhoto ? Theme.text : Theme.accent)
+                .fixedSize()
+                .padding(.horizontal, 7)
+                .frame(minWidth: Theme.Metric.zoomPill.width, minHeight: Theme.Metric.zoomPill.height,
+                       maxHeight: Theme.Metric.zoomPill.height)
+                .background(Theme.pill, in: Capsule())
+                .contentShape(Capsule())
+        }
+        .menuStyle(.button).buttonStyle(.plain).menuIndicator(.hidden).fixedSize()
+        .help(L("Canvas preview space: show the picture as an export to this space would look. ProPhoto RGB shows the working space unconverted.",
+                zh: "画布预览色彩空间：按导出到该空间后的效果显示照片。ProPhoto RGB 显示未经转换的工作空间。"))
     }
 
     private var zoomPill: some View {
