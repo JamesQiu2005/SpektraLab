@@ -7,8 +7,10 @@
 //  a single loop that, whenever they differ, waits a short debounce, sends
 //  one delta for the whole difference, and applies the result only if no
 //  newer frame was opened in the meantime (a generation counter). Shoot-layer
-//  edits, which re-run the film side, get a longer debounce than print-layer
-//  edits, which reprint from the cached negative.
+//  edits still re-run the film side, while print-layer edits use the cached
+//  negative. Both coalesce for one display interval. The single-flight loop
+//  already limits expensive film renders; an extra 220 ms per turn only adds
+//  latency and is not needed to bound the queue.
 
 import Foundation
 
@@ -97,7 +99,7 @@ final class RenderScheduler {
             let (delta, layers) = wanted.delta(from: sent)
             if delta.isEmpty { return }
             let shoot = layers.contains(.shoot)
-            try? await Task.sleep(for: .milliseconds(shoot ? 220 : 40))
+            try? await Task.sleep(for: .milliseconds(16))
             if Task.isCancelled || gen != generation {
                 // A render that was never issued: the edit it was for has been
                 // superseded before the engine saw anything. Recorded at
