@@ -160,7 +160,7 @@ enum Exporter {
         let started = Date()
         do {
             var result = format == .di
-                ? try await exportDigitalIntermediate(session: session, to: out)
+                ? try await exportDigitalIntermediate(session: session, to: out, compression: recipe.tiffCompression)
                 : try await exportPrint(session: session, to: out, format: format,
                                         quality: recipe.quality, recipe: recipe,
                                         sessionID: sessionID,
@@ -214,6 +214,7 @@ enum Exporter {
             .init("format", format.rawValue),
             .init("ext", format.ext),
             .init("bit_depth", depth(format)),
+            .init("tiff_compression", (format == .tiff || format == .di) ? recipe.tiffCompression.rawValue : 0),
             .init("color_space", colourSpace(recipe)),
             // The file has a second picture in it, and the record of what was
             // written should say so: a preview is about a tenth of the file,
@@ -473,10 +474,36 @@ enum Exporter {
                                     sourceEXIF: [CFString: Any]?) async throws -> Result {
         let r = try await filePixels(session: session, recipe: recipe, sessionID: sessionID)
         guard let image = r.texture.makeCGImage(space: r.target) else { throw ExportError.noPixels }
-        let preview = writesPreviewPage(recipe) ? preview(of: image) : nil
-        try write(image, to: out, format: format, quality: quality, preview: preview,
-                  sourceEXIF: sourceEXIF)
+        try await writeInBackground(image, to: out, format: format, quality: quality,
+                                    tiffCompression: recipe.tiffCompression,
+                                    embedsPreview: writesPreviewPage(recipe), sourceEXIF: sourceEXIF)
         return Result(urls: [out], note: nil, appliedEV: r.appliedEV, pixels: r.pixels)
+    }
+
+    // One owned image crosses the writer boundary; no Session or pooled texture does.
+    static func writeInBackground(_ image: CGImage, to url: URL, format: ExportFormat,
+                                  quality: Double = 0.95, tiffCompression: TIFFCompression = .uncompressed,
+                                  embedsPreview: Bool = false,
+                                  sourceEXIF: [CFString: Any]? = nil, previewImage: CGImage? = nil,
+                                  onWrite: @escaping @Sendable () -> Void = {}) async throws {
+        let job = WriteJob(image: image, preview: previewImage, exif: sourceEXIF)
+        // Once started, a file finishes atomically even if the batch is stopped.
+        // One awaited worker bounds memory; the next frame does not start early.
+        try await Task.detached(priority: .userInitiated) {
+            onWrite()
+            try write(job.image, to: url, format: format, quality: quality,
+                      tiffCompression: tiffCompression,
+                      preview: job.preview ?? (embedsPreview ? preview(of: job.image) : nil),
+                      sourceEXIF: job.exif)
+        }.value
+    }
+
+    /// CGImage and ImageIO metadata are immutable snapshots here. No mutable
+    /// Session state or borrowed pooled texture crosses the worker boundary.
+    private struct WriteJob: @unchecked Sendable {
+        let image: CGImage
+        let preview: CGImage?
+        let exif: [CFString: Any]?
     }
 
     // MARK: - the Digital Intermediate
@@ -496,7 +523,8 @@ enum Exporter {
     ///
     /// Geometry is already in the negative (`node_geometry` runs on the film
     /// side). Post-Dev is not, and must not be: the DI is where a grade starts.
-    private static func exportDigitalIntermediate(session: Session, to out: URL) async throws -> Result {
+    private static func exportDigitalIntermediate(session: Session, to out: URL,
+                                                  compression: TIFFCompression) async throws -> Result {
         let di = try await session.client.renderDigitalIntermediate()
         guard let texture = di.texture,
               let cg = texture.makeCGImage(space: CGColorSpaceCreateDeviceRGB())
@@ -506,7 +534,8 @@ enum Exporter {
             .flatMap { self.preview(of: $0) }
         var exif = session.decoded?.sourceEXIF
         exif?[kCGImagePropertyExifColorSpace] = 0xFFFF
-        try write(cg, to: out, format: .tiff, preview: preview, sourceEXIF: exif)
+        try await writeInBackground(cg, to: out, format: .tiff, tiffCompression: compression,
+                                    sourceEXIF: exif, previewImage: preview)
         let luts = (try? CineonLUT.copyBeside(directory: out.deletingLastPathComponent())) ?? []
         let note = L("Digital Intermediate: Cineon log in ProPhoto primaries, 16-bit and untagged. The two DI-view LUTs beside it (to ProPhoto RGB, to Rec.709) show it as the canvas does.",
                      zh: "数字中间片：ProPhoto 原色的 Cineon 对数，16 位，不嵌入色彩配置。旁边的两个数字中间片视图 LUT（转 ProPhoto RGB、转 Rec.709）按画布的方式显示它。")
@@ -538,8 +567,9 @@ enum Exporter {
     /// worth 16 bits) and keeps its own profile, which is what lets IFD0 stay
     /// untagged.
     @discardableResult
-    static func write(_ image: CGImage, to url: URL, format: ExportFormat,
-                      quality: Double = 0.95, preview: CGImage? = nil,
+    nonisolated static func write(_ image: CGImage, to url: URL, format: ExportFormat,
+                      quality: Double = 0.95, tiffCompression: TIFFCompression = .uncompressed,
+                      preview: CGImage? = nil,
                       sourceEXIF: [CFString: Any]? = nil) throws -> URL {
         var cg = image
         let needsEight = format.isEightBit
@@ -569,7 +599,7 @@ enum Exporter {
         }
         var props: [CFString: Any] = [:]
         if format == .jpeg { props[kCGImageDestinationLossyCompressionQuality] = quality.clamped(to: 0.1...1) }
-        if format == .tiff { props[kCGImagePropertyTIFFDictionary] = [kCGImagePropertyTIFFCompression: 5] }
+        if format == .tiff { props[kCGImagePropertyTIFFDictionary] = [kCGImagePropertyTIFFCompression: tiffCompression.rawValue] }
         // EXIF is a side channel, never an engine input. Pass the source
         // dictionary through unchanged; ImageIO owns only the outer file
         // container and the export's pixels.
@@ -596,7 +626,7 @@ enum Exporter {
     ///
     /// `size` is the context's, so a caller can ask for a *resample* rather
     /// than a copy — the preview page is the only one that does.
-    private static func redraw(_ cg: CGImage, in space: CGColorSpace, bitsPerComponent: Int,
+    nonisolated private static func redraw(_ cg: CGImage, in space: CGColorSpace, bitsPerComponent: Int,
                                size: CGSize? = nil) -> CGImage? {
         let w = Int(size?.width ?? CGFloat(cg.width))
         let h = Int(size?.height ?? CGFloat(cg.height))
@@ -622,7 +652,7 @@ enum Exporter {
     /// of the file, which is the figure the user was given when they chose
     /// this as a per-recipe option. Move it if the page wants a different
     /// picture on screen — nothing else depends on it.
-    static let previewLongEdge = 2048
+    nonisolated static let previewLongEdge = 2048
 
     /// Whether this recipe's file carries a preview page: the rule the writer
     /// follows and the job log records, in one place so they cannot disagree.
@@ -652,7 +682,7 @@ enum Exporter {
     /// "the flag is on *and* the file is big enough", and a page that quietly
     /// falls back to the render is indistinguishable from one that never
     /// asked. `nil` is reserved for an image with no pixels at all.
-    static func preview(of image: CGImage, longEdge: Int = previewLongEdge) -> CGImage? {
+    nonisolated static func preview(of image: CGImage, longEdge: Int = previewLongEdge) -> CGImage? {
         let w = CGFloat(image.width), h = CGFloat(image.height)
         guard w > 0, h > 0 else { return nil }
         let scale = min(1, CGFloat(longEdge) / max(w, h))

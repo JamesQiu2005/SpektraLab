@@ -97,7 +97,7 @@ struct ExportPage: View {
     /// off them (`Theme.Metric.Export.labelWidth(fitting:)`). A label added to
     /// a row goes here too; `LayoutTests` checks the column holds them all.
     @MainActor static var columnLabels: [String] { [L("Folder", zh: "文件夹"), L("Subfolder", zh: "子文件夹"), L("Existing File", zh: "已有文件"), L("Format", zh: "格式"), L("File name", zh: "文件名"),
-                               L("Color Space", zh: "色彩空间"), L("Quality", zh: "质量"), L("Size", zh: "尺寸"), L("Open With", zh: "打开方式"), L("Preview", zh: "预览")] }
+                               L("Color Space", zh: "色彩空间"), L("Quality", zh: "质量"), L("Size", zh: "尺寸"), L("Open With", zh: "打开方式"), L("Preview", zh: "预览"), L("Storage", zh: "存储方式")] }
 
     /// The label column: wide enough for the widest label at the scale in use.
     @MainActor static var labelColumn: CGFloat { M.labelWidth(fitting: columnLabels) }
@@ -938,6 +938,14 @@ struct ExportPage: View {
                                     metrics: Self.sliderMetrics,
                                     onCommit: { store.save() })
                     }
+                    if recipe.wrappedValue.format == .tiff || recipe.wrappedValue.format == .di {
+                        PillMenu(label: L("Storage", zh: "存储方式"), options: TIFFCompression.allCases,
+                                 title: { Self.storageName($0) },
+                                 selection: recipe.tiffCompression,
+                                 labelWidth: ExportPage.labelColumn, font: F.label)
+                            .help(L("Both keep every 16-bit pixel. Uncompressed writes several times faster. LZW was the only choice before 1.3.6; on a print with grain it is usually larger, not smaller.",
+                                    zh: "两种方式都保留全部 16 位像素。无压缩的写入速度快数倍。1.3.6 之前只有 LZW；对带颗粒的照片，LZW 通常反而更大。"))
+                    }
                     if recipe.wrappedValue.format.carriesPreviewPage { previewRow }
                     sizeRows
                     openWithRow
@@ -1040,7 +1048,47 @@ struct ExportPage: View {
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .padding(.leading, ExportPage.labelColumn)
                 .help(resultingSizeHelp)
+            Text(fileSizeLine)
+                .font(F.value).foregroundStyle(Theme.Ink.tertiary)
+                .fixedSize(horizontal: false, vertical: true)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .padding(.leading, ExportPage.labelColumn)
+                .help(fileSizeHelp)
         }
+    }
+
+    static func storageName(_ c: TIFFCompression) -> String {
+        c == .uncompressed ? L("Fast · uncompressed", zh: "快速 · 无压缩")
+                           : L("LZW · lossless", zh: "LZW · 无损压缩")
+    }
+
+    /// The file this recipe writes for the frame on the canvas, and the batch
+    /// at that size (`ExportRecipe.estimatedFileSize`). "About" unless the
+    /// number is arithmetic; a batch under Original has frames of other sizes,
+    /// so its total is said to be at this frame's.
+    private var fileSizeLine: String {
+        let r = recipe.wrappedValue
+        let source = nameContext.pixelSize
+        let est = r.estimatedFileSize(pixels: r.outputSize.pixels(for: source) ?? source)
+        let one = Self.bytes(est.bytes)
+        let head = est.exact ? L("File \(one)", zh: "文件 \(one)")
+                             : L("File about \(one)", zh: "文件约 \(one)")
+        guard batch.count > 1 else { return head }
+        let all = Self.bytes(est.bytes * batch.count)
+        return head + L(" · about \(all) for \(batch.count) at this size",
+                        zh: " · \(batch.count) 张同尺寸约 \(all)")
+    }
+
+    private var fileSizeHelp: String {
+        recipe.wrappedValue.estimatedFileSize(pixels: .init(width: 1, height: 1)).exact
+            ? L("An uncompressed file is its pixels: 6 bytes each, plus the preview page if it has one.",
+                zh: "无压缩文件就是它的像素：每像素 6 字节，有预览页时再加上预览页。")
+            : L("Measured on finished prints with grain; a particular photograph can come out a fifth larger or smaller.",
+                zh: "按带颗粒的成品照片实测估算；具体照片可能大或小约五分之一。")
+    }
+
+    static func bytes(_ n: Int) -> String {
+        ByteCountFormatter.string(fromByteCount: Int64(n), countStyle: .file)
     }
 
     /// The frame's own long edge, which is what "Resize" starts at — switching
@@ -1588,7 +1636,12 @@ struct ExportPage: View {
             L("File name  \(sampleName)", zh: "文件名  \(sampleName)"),
             L("Format  \(r.format.shortLabel) · \(r.format.bitDepth) bit", zh: "格式  \(formatName(r.format)) · \(r.format.bitDepth) 位"),
             L("Size  \(resultingSizeLine)", zh: "尺寸  \(resultingSizeLine)"),
+            fileSizeLine,
         ]
+        if r.format == .tiff || r.format == .di {
+            let storage = Self.storageName(r.tiffCompression)
+            lines.append(L("Storage  \(storage)", zh: "存储方式  \(storage)"))
+        }
         if r.format.takesColorSpace {
             let name = ColorSpaceCatalog.name(for: r.colorSpace) ?? L("Unknown profile", zh: "未知描述文件")
             lines.append(L("Color Space  \(name)", zh: "色彩空间  \(name)"))

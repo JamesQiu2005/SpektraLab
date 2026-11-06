@@ -526,6 +526,20 @@ enum ExistingFilePolicy: String, Codable, CaseIterable, Identifiable, Sendable {
 
 // MARK: - the recipe
 
+/// How a TIFF's pixels are stored (issue #80). Both keep every 16-bit sample.
+///
+/// LZW was the only choice through 1.3.5, and it stays the default for every
+/// recipe that does not say otherwise, so a recipe file written by an earlier
+/// build writes the same files it always did. Measured on 45 MP prints with
+/// grain (2026-11-06): LZW took ~3 s per frame to encode against ~0.4 s
+/// uncompressed, and was **larger** (332 MB against 273 MB) — grain is noise,
+/// and noise is what LZW cannot compress. The built-in "Fast" recipe is the
+/// uncompressed one; the raw values are the TIFF tag's own.
+enum TIFFCompression: Int, Codable, CaseIterable, Sendable {
+    case uncompressed = 1
+    case lzw = 5
+}
+
 struct ExportRecipe: Codable, Identifiable, Hashable, Sendable {
     var id: UUID = UUID()
     var name: String = "Untitled"
@@ -539,6 +553,8 @@ struct ExportRecipe: Codable, Identifiable, Hashable, Sendable {
     var existing: ExistingFilePolicy = .addSuffix
     /// JPEG only, 0…1.
     var quality: Double = 0.95
+    /// TIFF and the Digital Intermediate only. See `TIFFCompression`.
+    var tiffCompression: TIFFCompression = .lzw
     /// The pixels to write. Applied by `Exporter.exportPrint` through
     /// `Renderer.applyResize` — the same `geometryResample` the canvas
     /// samples with — after the geometry and *before* the output transform,
@@ -564,6 +580,7 @@ struct ExportRecipe: Codable, Identifiable, Hashable, Sendable {
         naming = (try? c.decode(NamingRule.self, forKey: .naming)) ?? NamingRule()
         existing = (try? c.decode(ExistingFilePolicy.self, forKey: .existing)) ?? .addSuffix
         quality = (try? c.decode(Double.self, forKey: .quality)) ?? 0.95
+        tiffCompression = (try? c.decode(TIFFCompression.self, forKey: .tiffCompression)) ?? .lzw
         outputSize = (try? c.decode(OutputSize.self, forKey: .outputSize)) ?? .original
         embedsPreview = (try? c.decode(Bool.self, forKey: .embedsPreview)) ?? false
         openWith = try? c.decodeIfPresent(OpenWith.self, forKey: .openWith)
@@ -573,7 +590,8 @@ struct ExportRecipe: Codable, Identifiable, Hashable, Sendable {
          colorSpace: ExportColorSpace = .displayP3, folder: ExportFolder = .besideOriginal,
          subfolder: String = "_prints", naming: NamingRule = NamingRule(),
          existing: ExistingFilePolicy = .addSuffix, quality: Double = 0.95,
-         outputSize: OutputSize = .original, openWith: OpenWith? = nil) {
+         outputSize: OutputSize = .original, openWith: OpenWith? = nil,
+         tiffCompression: TIFFCompression = .lzw) {
         self.id = id
         self.name = name
         self.format = format
@@ -585,11 +603,12 @@ struct ExportRecipe: Codable, Identifiable, Hashable, Sendable {
         self.quality = quality
         self.outputSize = outputSize
         self.openWith = openWith
+        self.tiffCompression = tiffCompression
     }
 
     private enum CodingKeys: String, CodingKey {
         case id, name, format, colorSpace, folder, subfolder, naming, existing, quality,
-             outputSize, openWith, embedsPreview
+             outputSize, openWith, embedsPreview, tiffCompression
     }
 
     /// The directory this recipe writes into for a given source frame,
@@ -693,13 +712,94 @@ struct ExportRecipe: Codable, Identifiable, Hashable, Sendable {
     static let digitalIntermediateName = "Digital Intermediate"
     static let legacyDigitalIntermediateNames = ["DI package", "Digital Intermediate Package"]
 
+    /// The uncompressed TIFF recipe, added in 1.3.6. Its own value because a
+    /// recipe file from an earlier build gets it once (`RecipeStore.load`).
+    static let fastTIFF = ExportRecipe(name: fastTIFFName, format: .tiff,
+                                       colorSpace: .builtIn(CGColorSpace.rommrgb as String),
+                                       tiffCompression: .uncompressed)
+    static let fastTIFFName = "TIFF 16-bit — ProPhoto · Fast"
+
     static let defaults: [ExportRecipe] = [
         ExportRecipe(name: "JPEG — Display P3", format: .jpeg, colorSpace: .displayP3),
         ExportRecipe(name: "TIFF 16-bit — ProPhoto", format: .tiff,
                      colorSpace: .builtIn(CGColorSpace.rommrgb as String)),
+        fastTIFF,
         ExportRecipe(name: "PNG 8-bit — sRGB", format: .png, colorSpace: .sRGB),
         ExportRecipe(name: ExportRecipe.digitalIntermediateName, format: .di, colorSpace: .displayP3, subfolder: "_prints"),
     ]
+}
+
+// MARK: - file size
+
+extension ExportRecipe {
+    /// What the page says a file will weigh, before it exists.
+    struct FileSizeEstimate: Equatable, Sendable {
+        var bytes: Int
+        /// True when the number is arithmetic (an uncompressed TIFF or DI is
+        /// its pixels plus a fixed preview and header); false when it is a
+        /// measured average, which a particular photograph can miss by a fifth.
+        var exact: Bool
+    }
+
+    /// Bytes per output pixel, measured 2026-11-06 on finished prints with the
+    /// default grain on: DSC03710 and DSC03733 (24 MP ARW), R0030139 (16 MP
+    /// DNG), _DSC2663 and _DSC8127 (45 MP NEF), Portra 400 on Endura. Grain is
+    /// noise, so these sit near the top of what a camera file would give.
+    /// JPEG's curve is flat from 0.95 to 0.99 and jumps fourfold at 1.0.
+    static let jpegBytesPerPixel: [(quality: Double, bpp: Double)] = [
+        (0.30, 0.050), (0.45, 0.090), (0.60, 0.162), (0.70, 0.207), (0.80, 0.280),
+        (0.90, 0.362), (0.99, 0.398), (1.00, 1.52),
+    ]
+    /// 1.69–1.92 measured.
+    static let pngBytesPerPixel = 1.80
+    /// 6.87–7.33 measured: **more** than the 6.0 uncompressed, on every frame.
+    static let tiffLZWBytesPerPixel = 7.10
+    /// 7.70–7.81 measured; Cineon log compresses no better than the print.
+    static let diLZWBytesPerPixel = 7.75
+    /// The IFDs, the ICC profile and the EXIF: ~12 kB measured.
+    static let tiffHeaderBytes = 12_000
+
+    /// The file this recipe writes for a frame of `pixels` (the output size,
+    /// after `pixelSize(for:)`).
+    func estimatedFileSize(pixels: CGSize) -> FileSizeEstimate {
+        let w = max(0, Int(pixels.width.rounded())), h = max(0, Int(pixels.height.rounded()))
+        let count = Double(w) * Double(h)
+        switch format {
+        case .jpeg:
+            return FileSizeEstimate(bytes: Int(count * Self.interpolatedJPEG(quality)), exact: false)
+        case .png:
+            return FileSizeEstimate(bytes: Int(count * Self.pngBytesPerPixel), exact: false)
+        case .tiff, .di:
+            // The DI always carries its preview page; a TIFF when asked.
+            let preview = format == .di || embedsPreview ? Self.previewPageBytes(w, h) : 0
+            switch tiffCompression {
+            case .uncompressed:
+                return FileSizeEstimate(bytes: w * h * 6 + preview + Self.tiffHeaderBytes, exact: true)
+            case .lzw:
+                let bpp = format == .di ? Self.diLZWBytesPerPixel : Self.tiffLZWBytesPerPixel
+                return FileSizeEstimate(bytes: Int(count * bpp) + preview + Self.tiffHeaderBytes, exact: false)
+            }
+        }
+    }
+
+    /// The preview page: 8-bit RGB at `Exporter.previewLongEdge`, never
+    /// enlarged (`Exporter.preview(of:)`). Its size barely changes with LZW.
+    static func previewPageBytes(_ w: Int, _ h: Int) -> Int {
+        guard w > 0, h > 0 else { return 0 }
+        let scale = min(1, Double(Exporter.previewLongEdge) / Double(max(w, h)))
+        return Int((Double(w) * scale).rounded()) * Int((Double(h) * scale).rounded()) * 3
+    }
+
+    static func interpolatedJPEG(_ quality: Double) -> Double {
+        let table = jpegBytesPerPixel
+        guard let first = table.first, let last = table.last else { return 0 }
+        if quality <= first.quality { return first.bpp }
+        if quality >= last.quality { return last.bpp }
+        for (a, b) in zip(table, table.dropFirst()) where quality <= b.quality {
+            return a.bpp + (b.bpp - a.bpp) * (quality - a.quality) / (b.quality - a.quality)
+        }
+        return last.bpp
+    }
 }
 
 // MARK: - the store
@@ -749,12 +849,18 @@ final class ExportRecipeStore {
         selectedID = recipes.first?.id
         // Seed the file on first run, so "set in some separated json" is true
         // from the first launch rather than after the first edit.
-        if loaded.problem == nil, !FileManager.default.fileExists(atPath: url.path) { save() }
+        if loaded.problem == nil,
+           !FileManager.default.fileExists(atPath: url.path) || loaded.migrated { save() }
     }
 
-    private static func load(from url: URL) -> (recipes: [ExportRecipe], problem: String?) {
+    /// `migrated` is true when the file was written by a build before 1.3.6
+    /// and was given the Fast TIFF recipe here; the caller saves it, so the
+    /// recipe is added **once** — every recipe this build writes carries
+    /// `tiffCompression`, and a file whose recipes all lack it can only be an
+    /// old one. Deleting the Fast recipe afterwards therefore sticks.
+    private static func load(from url: URL) -> (recipes: [ExportRecipe], problem: String?, migrated: Bool) {
         guard FileManager.default.fileExists(atPath: url.path) else {
-            return (ExportRecipe.defaults, nil)
+            return (ExportRecipe.defaults, nil, false)
         }
         do {
             let data = try Data(contentsOf: url)
@@ -767,10 +873,20 @@ final class ExportRecipeStore {
             }
             // An empty array is a file that says "no recipes", which is not a
             // state the UI can do anything with.
-            return decoded.isEmpty ? (ExportRecipe.defaults, nil) : (decoded, nil)
+            if decoded.isEmpty { return (ExportRecipe.defaults, nil, false) }
+            let raw = (try? JSONSerialization.jsonObject(with: data)) as? [[String: Any]] ?? []
+            let predatesStorage = !raw.contains { $0["tiffCompression"] != nil }
+            guard predatesStorage else { return (decoded, nil, false) }
+            var withFast = decoded
+            // Beside the TIFF recipe it is the fast twin of, when that is still there.
+            let at = withFast.firstIndex { $0.format == .tiff }.map { $0 + 1 } ?? withFast.count
+            var fast = ExportRecipe.fastTIFF
+            fast.id = UUID()
+            withFast.insert(fast, at: at)
+            return (withFast, nil, true)
         } catch {
             return (ExportRecipe.defaults,
-                    "\(url.lastPathComponent) could not be read (\(error.localizedDescription)). Using the built-in recipes; your file has not been changed.")
+                    "\(url.lastPathComponent) could not be read (\(error.localizedDescription)). Using the built-in recipes; your file has not been changed.", false)
         }
     }
 
