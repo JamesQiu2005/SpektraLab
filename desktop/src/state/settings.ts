@@ -161,7 +161,11 @@ export function withRecentFolder(recent: readonly string[], dir: string): string
 
 export function rememberFolder(dir: string) {
   const s = settingsStore.getState();
-  s.set('recentFolders', withRecentFolder(s.recentFolders, dir));
+  const next = withRecentFolder(s.recentFolders, dir);
+  // Opening the folder already in front again changes nothing, and so
+  // nothing downstream (the native menu) needs to hear about it.
+  if (next.length === s.recentFolders.length && next.every((p, i) => p === s.recentFolders[i])) return;
+  s.set('recentFolders', next);
 }
 
 export function forgetRecentFolders() {
