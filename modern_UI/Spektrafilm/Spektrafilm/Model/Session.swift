@@ -5291,10 +5291,14 @@ extension Session {
         // print of its own to grade).
         let filmGrade = sidecar.adjustments
         guard let graded = renderer.applyAdjustments(filmGrade, to: base) else { return nil }
+        // Xcode 26.6's region analysis reads the nested function's capture of
+        // `base` as a send; the texture never leaves the main actor, so an
+        // explicitly unchecked local carries it (no behaviour change).
+        nonisolated(unsafe) let baseTexture = base
         func layer(_ side: HalfFramePair.Side) -> MTLTexture? {
             let own = p[side]?.adjustments
             guard prints[side] != nil || (own != nil && own != filmGrade) else { return nil }
-            return renderer.applyAdjustments(own ?? filmGrade, to: prints[side] ?? base)
+            return renderer.applyAdjustments(own ?? filmGrade, to: prints[side] ?? baseTexture)
         }
         return renderer.compositePair(base: graded, first: layer(.left), firstRect: ra,
                                       second: layer(.right), secondRect: rb)
