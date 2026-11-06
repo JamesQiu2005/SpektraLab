@@ -66,7 +66,7 @@ struct ClipboardSection: View {
 
     private var holds: String {
         guard let clip = session.clipboard else { return L(.clipEmpty) }
-        return String(format: L(.clipHolds), clip.sourceName, clip.groups.count)
+        return String(format: L(.clipHolds), clip.sourceName, clip.groups.count, ClipboardGroup.offered.count)
     }
 
     private var pasteTitle: String {

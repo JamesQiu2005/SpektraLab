@@ -4016,6 +4016,13 @@ final class Session: CanvasHost {
             selectedMaskID = sidecar.masks.first?.id
             syncMasks()
         }
+        // The grade is Layer 2, drawn by the canvas rather than the engine:
+        // it reaches the screen the way an undo puts it back, or through the
+        // pair's composite when the piece grades frame by frame.
+        if clip.groups.contains(.postDev) {
+            if pair != nil { recomposePair(); renderer.needsDraw?() }
+            else { pushLayer2(sidecar.adjustments) }
+        }
         if decodeChanged {
             previewSoft = true
             scheduleReopen()

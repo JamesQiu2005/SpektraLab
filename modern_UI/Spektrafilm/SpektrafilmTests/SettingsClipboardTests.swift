@@ -150,9 +150,14 @@ final class SettingsClipboardTests: XCTestCase {
 
     func testAllGroupsLeaveTheFrameItsCropGradeLensAndState() {
         let t = target()
-        let out = SettingsClip(groups: Set(ClipboardGroup.allCases), settings: source(), sourceName: "src").applied(to: t)
+        // Every group but Post-Dev leaves the grade alone; Post-Dev (1.3.6)
+        // is the grade, whole.
+        let groups = Set(ClipboardGroup.allCases).subtracting([.postDev])
+        let out = SettingsClip(groups: groups, settings: source(), sourceName: "src").applied(to: t)
         XCTAssertEqual(out.geometry, t.geometry)
         XCTAssertEqual(out.adjustments, t.adjustments)
+        let graded = SettingsClip(groups: [.postDev], settings: source(), sourceName: "src").applied(to: t)
+        XCTAssertEqual(graded.adjustments, source().adjustments)
         XCTAssertEqual(out.decode.lensCorrection, t.decode.lensCorrection)
         XCTAssertEqual(out.state, t.state)
     }

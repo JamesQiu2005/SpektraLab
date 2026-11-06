@@ -71,13 +71,16 @@ final class SettingsPresetsTests: XCTestCase {
         }
     }
 
-    /// The preset file carries no photograph: not its path, crop, grade,
-    /// report or state.
+    /// The preset file carries no photograph: not its path, crop, report or
+    /// state — and the grade only when Post-Dev is ticked (1.3.6).
     func testAPresetKeepsOnlyTheOwnedFields() {
         let p = SettingsPreset(name: "p", groups: Set(ClipboardGroup.allCases), from: source())
         XCTAssertNil(p.settings.source)
         XCTAssertEqual(p.settings.geometry, Sidecar().geometry)
-        XCTAssertEqual(p.settings.adjustments, Sidecar().adjustments)
+        XCTAssertEqual(p.settings.adjustments, source().adjustments)
+        let ungraded = SettingsPreset(name: "q", groups: Set(ClipboardGroup.allCases).subtracting([.postDev]),
+                                      from: source())
+        XCTAssertEqual(ungraded.settings.adjustments, Sidecar().adjustments)
         XCTAssertFalse(p.settings.decode.lensCorrection)
         XCTAssertNil(p.settings.solvedEV)
         XCTAssertEqual(p.settings.state, Sidecar().state)

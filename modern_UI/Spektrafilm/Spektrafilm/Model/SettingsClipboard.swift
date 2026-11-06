@@ -26,7 +26,7 @@ enum ClipboardGroup: String, CaseIterable, Codable, Sendable, Identifiable {
         allCases.filter { $0 != .masks || FeatureFlags.masks || FeatureFlags.toneMask }
     }
 
-    case filmAndPaper, exposure, whiteBalance, filmEffects, printEffects, scenePlacement, masks
+    case filmAndPaper, exposure, whiteBalance, filmEffects, printEffects, scenePlacement, postDev, masks
 
     var id: String { rawValue }
 
@@ -58,6 +58,9 @@ enum ClipboardGroup: String, CaseIterable, Codable, Sendable, Identifiable {
             ["params.printEffects", "params.preflashExposure"]
         case .scenePlacement:
             ["params.sceneLatitude", "placementNeedsFit"]
+        case .postDev:
+            // The whole Post-Dev grade, as one setting (owner, 2026-11-06).
+            ["adjustments"]
         case .masks:
             ["params.contrastMask", "masks"]
         }
@@ -66,7 +69,6 @@ enum ClipboardGroup: String, CaseIterable, Codable, Sendable, Identifiable {
     /// Stored fields no group owns, and why.
     static let notCopied: [String: String] = [
         "decode.lensCorrection": "a property of the lens, not of the look",
-        "adjustments": "the Post-Dev grade, outside the 2026-09-23 positioning",
         "geometry": "crop and framing belong to the photograph (PRD §7)",
         "heldCrop": "the photograph's own crop, kept while Film Edge frames it",
         "noFilm": "Don't Apply Film Simulation is the frame's own choice, like its crop",
@@ -95,6 +97,7 @@ enum ClipboardGroup: String, CaseIterable, Codable, Sendable, Identifiable {
         case .filmEffects: L(.clipFilmEffects)
         case .printEffects: L(.clipPrintEffects)
         case .scenePlacement: L(.clipScenePlacement)
+        case .postDev: L(.clipPostDev)
         case .masks: L(.clipMasks)
         }
     }
@@ -107,6 +110,7 @@ enum ClipboardGroup: String, CaseIterable, Codable, Sendable, Identifiable {
         case .filmEffects: L(.clipFilmEffectsHelp)
         case .printEffects: L(.clipPrintEffectsHelp)
         case .scenePlacement: L(.clipScenePlacementHelp)
+        case .postDev: L(.clipPostDevHelp)
         case .masks: L(.clipMasksHelp)
         }
     }
@@ -183,6 +187,11 @@ struct SettingsClip: Equatable, Sendable {
             to.norm = from.norm
             out.params.sceneLatitude = to
             out.placementNeedsFit = to.highlightPullBack > 0 || to.shadowPullBack > 0
+        }
+        if groups.contains(.postDev) {
+            // The grade is relative to the print it sits on, so it is pasted
+            // as it stands: it was set by eye, and there is nothing to re-solve.
+            out.adjustments = s.adjustments
         }
         if groups.contains(.masks) {
             out.params.contrastMask = s.params.contrastMask

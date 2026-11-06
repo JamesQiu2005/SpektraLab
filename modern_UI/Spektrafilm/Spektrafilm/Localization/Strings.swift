@@ -110,8 +110,8 @@ enum S: String, CaseIterable, Sendable {
 
     // MARK: the settings clipboard (RFC-027)
     case sectionClipboard, clipCopy, clipPaste, clipPasteTo, clipHolds, clipEmpty
-    case clipFilmAndPaper, clipExposure, clipWhiteBalance, clipFilmEffects, clipPrintEffects, clipScenePlacement, clipMasks
-    case clipFilmAndPaperHelp, clipExposureHelp, clipWhiteBalanceHelp, clipFilmEffectsHelp, clipPrintEffectsHelp, clipScenePlacementHelp, clipMasksHelp
+    case clipFilmAndPaper, clipExposure, clipWhiteBalance, clipFilmEffects, clipPrintEffects, clipScenePlacement, clipPostDev, clipMasks
+    case clipFilmAndPaperHelp, clipExposureHelp, clipWhiteBalanceHelp, clipFilmEffectsHelp, clipPrintEffectsHelp, clipScenePlacementHelp, clipPostDevHelp, clipMasksHelp
     case clipCopyHelp, clipPasteHelp
     case clipSync, clipSyncTo, clipSyncHelp, clipSyncDone, clipSyncResult, clipSyncNothing
 
@@ -193,7 +193,7 @@ extension S {
         case .clipCopy: "Copy"
         case .clipPaste: "Paste"
         case .clipPasteTo: "Paste to %d"
-        case .clipHolds: "Holds: %@ · %d of 7"
+        case .clipHolds: "Holds: %@ · %d of %d"
         case .clipEmpty: "The clipboard is empty."
         case .clipFilmAndPaper: "Film & Paper"
         case .clipExposure: "Exposure"
@@ -201,6 +201,7 @@ extension S {
         case .clipFilmEffects: "Film Effects"
         case .clipPrintEffects: "Print Effects"
         case .clipScenePlacement: "Scene Placement"
+        case .clipPostDev: "Post-Dev Effects"
         case .clipMasks: "Masks"
         case .clipFilmAndPaperHelp: "Film, paper, No Print Profile and EDR."
         case .clipExposureHelp: "Metering method, film exposure and enlarger brightness. Each frame meters itself."
@@ -208,6 +209,7 @@ extension S {
         case .clipFilmEffectsHelp: "Film format, grain, halation, glare, scatter and couplers."
         case .clipPrintEffectsHelp: "The Print Effects switch and pre-flash."
         case .clipScenePlacementHelp: "Highlight and shadow pull-back. The curve is fitted again on each frame."
+        case .clipPostDevHelp: "The whole Post-Dev grade: white balance, exposure, curves and colour balance, as set."
         case .clipMasksHelp: "The Tone Mask and the local masks."
         case .clipCopyHelp: "Copy the ticked groups from the frame on the canvas (⇧⌘C)."
         case .clipPasteHelp: "Paste what the clipboard holds onto every picked frame (⇧⌘V)."
@@ -516,7 +518,7 @@ extension S {
         case .clipCopy: "复制"
         case .clipPaste: "粘贴"
         case .clipPasteTo: "粘贴到 %d 张"
-        case .clipHolds: "剪贴板：%@ · %d/7 项"
+        case .clipHolds: "剪贴板：%@ · %d/%d 项"
         case .clipEmpty: "剪贴板为空。"
         case .clipFilmAndPaper: "胶片&相纸"
         case .clipExposure: "曝光"
@@ -524,6 +526,7 @@ extension S {
         case .clipFilmEffects: "胶片效果"
         case .clipPrintEffects: "相纸效果"
         case .clipScenePlacement: "场景置位"
+        case .clipPostDev: "显影后处理效果"
         case .clipMasks: "遮罩"
         case .clipFilmAndPaperHelp: "胶片、相纸、不使用相纸配置与 EDR。"
         case .clipExposureHelp: "测光方式、胶片曝光与放大机亮度。每张照片各自测光。"
@@ -531,6 +534,7 @@ extension S {
         case .clipFilmEffectsHelp: "胶片画幅、颗粒、光晕、耀光、散射与耦合剂。"
         case .clipPrintEffectsHelp: "相纸效果开关与预闪。"
         case .clipScenePlacementHelp: "高光与阴影的回拉量。曲线在每张照片上重新拟合。"
+        case .clipPostDevHelp: "整套显影后调整：白平衡、曝光、曲线与色彩平衡，按原值粘贴。"
         case .clipMasksHelp: "影调蒙版与局部蒙版。"
         case .clipCopyHelp: "从画布上的照片复制勾选的项目（⇧⌘C）。"
         case .clipPasteHelp: "把剪贴板里的内容粘贴到所有选中的照片（⇧⌘V）。"

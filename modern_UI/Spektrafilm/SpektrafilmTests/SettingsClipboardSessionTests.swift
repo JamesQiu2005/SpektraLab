@@ -161,6 +161,35 @@ final class SettingsClipboardSessionTests: XCTestCase {
         XCTAssertEqual(s.sidecar.decode, before.decode)
     }
 
+    /// 1.3.6: Post-Dev is a group. Its paste is Layer 2, which the canvas
+    /// draws itself, so the check is the renderer's uniforms, not the sidecar
+    /// alone — a grade written to the sidecar and never pushed would look
+    /// pasted in the panel and not on the picture.
+    func testAPastedPostDevGradeReachesTheCanvasAndUndoes() async throws {
+        let url = try copies(of: "_smoke_1mp.tif")[0]
+        let s = Session()
+        s.open(urls: [url])
+        try await waitUntil("the frame to decode") { s.decoded != nil }
+        let before = s.sidecar
+        XCTAssertEqual(s.renderer.layer2.exposureGain, 1)
+
+        s.clipboardGroups = [.postDev]
+        s.sidecar.adjustments.exposure = 1      // the source's grade, no undo step
+        s.copySettings()
+        s.sidecar = before
+
+        try await Task.sleep(for: .milliseconds(600))
+        s.pasteSettings()
+        XCTAssertEqual(s.adjustments.exposure, 1)
+        XCTAssertEqual(s.sidecar.params, before.params, "Post-Dev pasted something it does not own")
+        XCTAssertEqual(s.renderer.layer2.exposureGain, s.adjustments.uniforms.exposureGain)
+        XCTAssertNotEqual(s.renderer.layer2.exposureGain, 1, "the grade never reached the canvas")
+
+        s.undo()
+        XCTAssertEqual(s.adjustments, before.adjustments)
+        XCTAssertEqual(s.renderer.layer2.exposureGain, 1)
+    }
+
     /// PRD R6.
     func testPasteIsRefusedDuringABatchExport() async throws {
         let url = try copies(of: "_smoke_1mp.tif")[0]
