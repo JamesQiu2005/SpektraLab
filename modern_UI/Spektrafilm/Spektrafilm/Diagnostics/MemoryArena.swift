@@ -188,6 +188,17 @@ final class MemoryArena: @unchecked Sendable {
         return evicted.reduce(0) { $0 + $1.bytes }
     }
 
+    /// Release all discretionary cache references before a full render's peak.
+    /// Pinned allocations (including the current canvas) are never selected.
+    @discardableResult
+    func evictCaches() -> Int {
+        state.lock()
+        let evicted = removeLowestPriorityLocked(needed: UInt64(evictableBytesLocked()))
+        state.unlock()
+        evicted.forEach { $0.evict?() }
+        return evicted.reduce(0) { $0 + $1.bytes }
+    }
+
     /// Evictions accumulated since the last call, including those performed
     /// by admission. Draining is what keeps the log record scoped to one sample.
     func takeEvictionReport() -> EvictionReport {
