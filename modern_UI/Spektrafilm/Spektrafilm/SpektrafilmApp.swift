@@ -112,69 +112,69 @@ struct EditorCommands: Commands {
 
     var body: some Commands {
         CommandGroup(replacing: .appInfo) {
-            Button("About SpektraLab") { openAbout() }
+            Button(L("About SpektraLab", zh: "关于 SpektraLab")) { openAbout() }
         }
         // Hand-declared because the page is a `Window` and not a `Settings`
         // scene — see the comment on that scene. Same slot, same shortcut.
         CommandGroup(replacing: .appSettings) {
-            Button("Settings…") { openWindow(id: "settings") }
+            Button(L("Settings…", zh: "设置…")) { openWindow(id: "settings") }
                 .keyboardShortcut(",", modifiers: .command)
         }
         CommandGroup(replacing: .newItem) {
-            Button("Open…") { session.openPanel() }.keyboardShortcut("o")
-            Button("Export…") { session.showExport = true }.keyboardShortcut("e").disabled(session.selection == nil)
+            Button(L("Open…", zh: "打开…")) { session.openPanel() }.keyboardShortcut("o")
+            Button(L("Export…", zh: "导出…")) { session.showExport = true }.keyboardShortcut("e").disabled(session.selection == nil)
         }
         CommandGroup(replacing: .undoRedo) {
-            Button("Undo") { session.undo() }.keyboardShortcut("z").disabled(!session.canUndo)
+            Button(L("Undo", zh: "撤销")) { session.undo() }.keyboardShortcut("z").disabled(!session.canUndo)
         }
         CommandGroup(replacing: .pasteboard) {
-            Button("Copy Settings") { session.copySettings() }
+            Button(L("Copy Settings", zh: "复制设置")) { session.copySettings() }
                 // Capture One's adjustment clipboard uses ⇧⌘C / ⇧⌘V. Keep
                 // plain ⌘C / ⌘V available for the system pasteboard.
                 .keyboardShortcut("c", modifiers: [.command, .shift]).disabled(!session.canCopySettings)
-            Button("Paste Settings") { session.pasteSettings() }
+            Button(L("Paste Settings", zh: "粘贴设置")) { session.pasteSettings() }
                 .keyboardShortcut("v", modifiers: [.command, .shift]).disabled(!session.canPasteSettings)
             Divider()
-            Button("Select All Photos") { session.selectAllFrames() }
+            Button(L("Select All Photos", zh: "选择所有照片")) { session.selectAllFrames() }
                 .keyboardShortcut("a", modifiers: .command).disabled(!session.canSelectAllFrames)
-            Button("Sync Settings") { session.syncSettings() }
+            Button(L("Sync Settings", zh: "同步设置")) { session.syncSettings() }
                 .disabled(!session.canSyncSettings)
         }
-        CommandMenu("View") {
+        CommandMenu(L("View", zh: "视图")) {
             // Greyed out in the crop tool, where the view is fitted to the
             // whole turned photograph and the user cannot move it
             // (`Session.zoomLocked`). Disabled rather than silently ignored:
             // a shortcut that does nothing and says nothing reads as a bug.
             // These follow Capture One's Viewer shortcuts: ⌘+ / ⌘− step the
             // magnification, while comma and period are fit and 100%.
-            Button("Zoom In") { session.zoomStep(1) }
+            Button(L("Zoom In", zh: "放大")) { session.zoomStep(1) }
                 .keyboardShortcut("+", modifiers: .command).disabled(session.zoomLocked)
-            Button("Zoom Out") { session.zoomStep(-1) }
+            Button(L("Zoom Out", zh: "缩小")) { session.zoomStep(-1) }
                 .keyboardShortcut("-", modifiers: .command).disabled(session.zoomLocked)
-            Button("Zoom to Fit") { session.zoomToFit() }
+            Button(L("Zoom to Fit", zh: "适合窗口")) { session.zoomToFit() }
                 .keyboardShortcut(",", modifiers: []).disabled(session.zoomLocked)
-            Button("Zoom to 100 %") { session.zoomTo(fraction: 1) }
+            Button(L("Zoom to 100 %", zh: "缩放至 100 %")) { session.zoomTo(fraction: 1) }
                 .keyboardShortcut(".", modifiers: []).disabled(session.zoomLocked)
             Divider()
-            Button("Toggle Side Panels") {
+            Button(L("Toggle Side Panels", zh: "显示或隐藏侧边栏")) {
                 withAnimation(.easeOut(duration: 0.18)) {
                     let c = !(session.leftCollapsed && session.rightCollapsed)
                     session.leftCollapsed = c; session.rightCollapsed = c
                 }
             }.keyboardShortcut("b", modifiers: .command)
-            Button("Toggle Filmstrip") { withAnimation { session.filmstripCollapsed.toggle() } }.keyboardShortcut("f", modifiers: [.command, .shift])
+            Button(L("Toggle Filmstrip", zh: "显示或隐藏胶片条")) { withAnimation { session.filmstripCollapsed.toggle() } }.keyboardShortcut("f", modifiers: [.command, .shift])
             Divider()
             // The only door onto this now — the right rail's dotted-circle glyph
             // is gone, so this label is also the state read-out. It says which
             // way the switch is pointing, as Before / After does, because a
             // bypass you forgot you turned on looks like a broken render.
-            Button(session.adjustments.enabled ? "Bypass Adjustments" : "Restore Adjustments") {
+            Button(session.adjustments.enabled ? L("Bypass Adjustments", zh: "停用调整") : L("Restore Adjustments", zh: "恢复调整")) {
                 var a = session.adjustments; a.enabled.toggle(); session.adjustments = a
             }.keyboardShortcut("b", modifiers: [.command, .shift])
             // Capture One uses Y for its single Before/After toggle. The
             // split-view mode is a separate affordance in Capture One, but
             // SpektraLab exposes one comparison state, so Y owns that toggle.
-            Button(session.comparing ? "Hide Before / After" : "Before / After") { session.comparing.toggle() }
+            Button(session.comparing ? L("Hide Before / After", zh: "隐藏前后对比") : L("Before / After", zh: "前后对比")) { session.comparing.toggle() }
                 .keyboardShortcut("y", modifiers: [])
                 .disabled(!session.canCompare)
             Divider()
@@ -185,31 +185,31 @@ struct EditorCommands: Commands {
                 ForEach(CanvasPreviewSpace.allCases) { Text($0.title).tag($0) }
             }
             Divider()
-            Button("Restart Render Service") { session.restartService() }
+            Button(L("Restart Render Service", zh: "重启渲染服务")) { session.restartService() }
                 .keyboardShortcut("r", modifiers: [.command, .option])
                 .disabled(session.selection == nil)
         }
-        CommandMenu("Frame") {
+        CommandMenu(L("Frame", zh: "照片")) {
             // Capture One uses the unmodified arrow keys for adjacent images.
             // The canvas responder already routes the same keys to
             // `stepFrame`, so this remains usable when the viewer has focus.
-            Button("Previous") { session.selectRelative(-1) }
+            Button(L("Previous", zh: "上一张")) { session.selectRelative(-1) }
                 .keyboardShortcut(.leftArrow, modifiers: [])
-            Button("Next") { session.selectRelative(1) }
+            Button(L("Next", zh: "下一张")) { session.selectRelative(1) }
                 .keyboardShortcut(.rightArrow, modifiers: [])
             Divider()
             // Two neighbouring half frames on one piece of film: the picked
             // frames fill its holes (design-proposals/half-frame-pair-2026-10-02).
-            Button("New Half-Frame Pair") { session.newPair() }
+            Button(L("New Half-Frame Pair", zh: "新建半格配对")) { session.newPair() }
                 .keyboardShortcut("j", modifiers: .command).disabled(!session.canMakePair)
             Divider()
             // These three were the left rail header's "•••" until the
             // 2026-09-17 drawing took the menu off that row. They are frame
             // commands rather than panel commands — each one is about the
             // open frame's settings — so this is where they belong anyway.
-            Button("Reset Film, Paper, Camera and Enlarger") { session.resetParams() }
-            Button("Reset Adjustments") { session.resetAdjustments() }
-            Button("Reveal Settings in Finder") {
+            Button(L("Reset Film, Paper, Camera and Enlarger", zh: "重置胶片、相纸、相机和放大机")) { session.resetParams() }
+            Button(L("Reset Adjustments", zh: "重置调整")) { session.resetAdjustments() }
+            Button(L("Reveal Settings in Finder", zh: "在访达中显示设置")) {
                 guard let u = session.selection else { return }
                 // The settings live in the app's store, not beside the image,
                 // so this can be asked for a frame that has never been saved.
@@ -227,38 +227,38 @@ struct EditorCommands: Commands {
         // a menu is a promise, and this one cannot be kept while the feature
         // is not on offer.
         if FeatureFlags.masks {
-            CommandMenu("Mask") {
-                Button("Add Linear Gradient") { session.addMask(.linearGradient) }
+            CommandMenu(L("Mask", zh: "蒙版")) {
+                Button(L("Add Linear Gradient", zh: "添加线性渐变")) { session.addMask(.linearGradient) }
                     .keyboardShortcut("m", modifiers: [.shift])
-                Button("Add Radial Gradient") { session.addMask(.radialGradient) }
+                Button(L("Add Radial Gradient", zh: "添加径向渐变")) { session.addMask(.radialGradient) }
                     .keyboardShortcut("m", modifiers: [.shift, .option])
-                Button("Add Luminance Range") { session.addMask(.luminanceRange) }
-                Button("Add Colour Range") { session.addMask(.colorRange) }
+                Button(L("Add Luminance Range", zh: "添加亮度范围")) { session.addMask(.luminanceRange) }
+                Button(L("Add Colour Range", zh: "添加颜色范围")) { session.addMask(.colorRange) }
                 Divider()
-                Button("Show Mask Overlay") { session.maskOverlayVisible.toggle() }
+                Button(L("Show Mask Overlay", zh: "显示蒙版叠加")) { session.maskOverlayVisible.toggle() }
                     .keyboardShortcut("o", modifiers: [.shift])
-                Button("Invert Mask") {
+                Button(L("Invert Mask", zh: "反转蒙版")) {
                     if var m = session.selectedMask { m.inverted.toggle(); session.selectedMask = m }
                 }.disabled(session.selectedMask == nil)
                 Divider()
-                Button("Delete Mask") { if let id = session.selectedMaskID { session.deleteMask(id) } }
+                Button(L("Delete Mask", zh: "删除蒙版")) { if let id = session.selectedMaskID { session.deleteMask(id) } }
                     .disabled(session.selectedMaskID == nil)
             }
         }
-        CommandMenu("Crop") {
-            Button("Rotate Left") { session.geometry = session.geometry.turned(by: -1) }
+        CommandMenu(L("Crop", zh: "裁剪")) {
+            Button(L("Rotate Left", zh: "向左旋转")) { session.geometry = session.geometry.turned(by: -1) }
                 .keyboardShortcut("[", modifiers: [.command, .option])
-            Button("Rotate Right") { session.geometry = session.geometry.turned(by: 1) }
+            Button(L("Rotate Right", zh: "向右旋转")) { session.geometry = session.geometry.turned(by: 1) }
                 .keyboardShortcut("]", modifiers: [.command, .option])
-            Button("Flip Horizontally") { var g = session.geometry; g.flipH.toggle(); session.geometry = g }
-            Button("Flip Vertically") { var g = session.geometry; g.flipV.toggle(); session.geometry = g }
+            Button(L("Flip Horizontally", zh: "水平翻转")) { var g = session.geometry; g.flipH.toggle(); session.geometry = g }
+            Button(L("Flip Vertically", zh: "垂直翻转")) { var g = session.geometry; g.flipV.toggle(); session.geometry = g }
             Divider()
-            Button("Reset Crop") { session.geometry = .default }
+            Button(L("Reset Crop", zh: "重置裁剪")) { session.geometry = .default }
         }
-        CommandMenu("Tool") {
-            Button("Select") { session.tool = .select }.keyboardShortcut("v", modifiers: [])
-            Button("Hand") { session.tool = .hand }.keyboardShortcut("h", modifiers: [])
-            Button("Crop") { session.tool = .crop }.keyboardShortcut("c", modifiers: [])
+        CommandMenu(L("Tool", zh: "工具")) {
+            Button(L("Select", zh: "选择")) { session.tool = .select }.keyboardShortcut("v", modifiers: [])
+            Button(L("Hand", zh: "抓手")) { session.tool = .hand }.keyboardShortcut("h", modifiers: [])
+            Button(L("Crop", zh: "裁剪")) { session.tool = .crop }.keyboardShortcut("c", modifiers: [])
         }
     }
 }
