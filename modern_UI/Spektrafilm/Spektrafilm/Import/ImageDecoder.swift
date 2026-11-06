@@ -68,12 +68,14 @@ struct DecodedImage: @unchecked Sendable {
     let asShotTemperature: Double?
     let asShotTint: Double?
     let lifetime: DecodeLifetime
+    /// Owned by the current decoded frame, never a global multi-photo cache.
+    let rawSource: RAWDecodeSource?
 
     init(linear: CIImage, display: CIImage, pixelSize: CGSize, isRAW: Bool,
          lensCorrectionSupported: Bool = false,
          sourceURL: URL, sourceEXIF: [CFString: Any]? = nil,
          asShotTemperature: Double?, asShotTint: Double?,
-         lifetime: DecodeLifetime = DecodeLifetime()) {
+         lifetime: DecodeLifetime = DecodeLifetime(), rawSource: RAWDecodeSource? = nil) {
         self.linear = linear
         self.display = display
         self.pixelSize = pixelSize
@@ -84,6 +86,7 @@ struct DecodedImage: @unchecked Sendable {
         self.asShotTemperature = asShotTemperature
         self.asShotTint = asShotTint
         self.lifetime = lifetime
+        self.rawSource = rawSource
     }
 
     var megapixels: Double { pixelSize.width * pixelSize.height / 1e6 }
@@ -104,6 +107,77 @@ struct EngineFrame: @unchecked Sendable {
     let width: Int
     let height: Int
     let channels: Int
+}
+
+/// CIRAWFilter is mutable; all access to the pair is serialized by this lock.
+/// Its output CIImages are immutable snapshots and may be rendered after a
+/// later edit. Keeping the source lets Core Image reuse RAW preprocessing.
+final class RAWDecodeSource: @unchecked Sendable {
+    private let lock = NSLock()
+    private var linear: CIRAWFilter
+    private var display: CIRAWFilter
+    private var hasCustomWhiteBalance = false
+    private let temperature: Double
+    private let tint: Double
+    private let url: URL
+    private let identity: String
+    private let exif: [CFString: Any]?
+
+    init(url: URL, sourceEXIF: [CFString: Any]?, checkpoint: () throws -> Void) throws {
+        self.url = url
+        var freshURL = url; freshURL.removeAllCachedResourceValues()
+        identity = CacheKey.sourceIdentity(for: freshURL)
+        exif = sourceEXIF
+        try checkpoint()
+        let a = try ImageDecoder.rawFilter(url, look: .linear, settings: DecodeSettings())
+        try checkpoint()
+        let b = try ImageDecoder.rawFilter(url, look: .display, settings: DecodeSettings())
+        linear = a.filter; display = b.filter
+        temperature = b.asShotTemperature; tint = b.asShotTint
+    }
+
+    func matches(_ candidate: URL) -> Bool {
+        var freshURL = candidate; freshURL.removeAllCachedResourceValues()
+        return url == candidate && identity == CacheKey.sourceIdentity(for: freshURL)
+    }
+
+    func decode(settings: DecodeSettings, checkpoint: () throws -> Void) throws -> DecodedImage {
+        try lock.withLock {
+            // Assigning even the reported camera chromaticity activates a
+            // user WB override in CIRAWFilter. Only pristine filters restore
+            // the original as-shot decode exactly; do not approximate it.
+            if settings.whiteBalance == .asShot, hasCustomWhiteBalance {
+                try checkpoint()
+                let a = try ImageDecoder.rawFilter(url, look: .linear, settings: settings)
+                try checkpoint()
+                let b = try ImageDecoder.rawFilter(url, look: .display, settings: settings)
+                linear = a.filter; display = b.filter
+                hasCustomWhiteBalance = false
+            }
+            func apply(_ filter: CIRAWFilter) {
+                filter.isLensCorrectionEnabled = settings.lensCorrection && filter.isLensCorrectionSupported
+                if settings.whiteBalance != .asShot {
+                    // Mark before mutating either look: cancellation between
+                    // them must still force a pristine as-shot restore.
+                    hasCustomWhiteBalance = true
+                    filter.neutralTemperature = Float(settings.temperature)
+                    filter.neutralTint = Float(settings.tint)
+                }
+            }
+            try checkpoint()
+            apply(linear)
+            try checkpoint()
+            guard let a = linear.outputImage else { throw ImageDecoder.Failure.unsupported(url) }
+            try checkpoint()
+            apply(display)
+            try checkpoint()
+            guard let b = display.outputImage else { throw ImageDecoder.Failure.unsupported(url) }
+            return DecodedImage(linear: a, display: b, pixelSize: a.extent.size, isRAW: true,
+                lensCorrectionSupported: display.isLensCorrectionSupported,
+                sourceURL: url, sourceEXIF: exif, asShotTemperature: temperature,
+                asShotTint: tint, rawSource: self)
+        }
+    }
 }
 
 enum ImageDecoder {
@@ -176,12 +250,13 @@ enum ImageDecoder {
     // MARK: decode
 
     static func decode(_ url: URL, settings: DecodeSettings,
+                       reusing source: RAWDecodeSource? = nil,
                        checkpoint: () throws -> Void = {}) throws -> DecodedImage {
         // A half-frame pair decodes as its two frames on one piece of film.
         if HalfFramePair.isPair(url) { return try PairComposer.decode(url, checkpoint: checkpoint) }
         let sourceEXIF = sourceEXIF(from: url)
         return rawExtensions.contains(url.pathExtension.lowercased())
-            ? try decodeRAW(url, settings: settings, sourceEXIF: sourceEXIF, checkpoint: checkpoint)
+            ? try decodeRAW(url, settings: settings, sourceEXIF: sourceEXIF, reusing: source, checkpoint: checkpoint)
             : try decodeFlat(url, sourceEXIF: sourceEXIF, checkpoint: checkpoint)
     }
 
@@ -204,9 +279,8 @@ enum ImageDecoder {
     enum RAWLook { case linear, display }
 
     /// A `CIRAWFilter` configured for one of the two decodes. Separate
-    /// instances, not one filter read twice: a filter is mutable, and a decode
-    /// whose settings could change under an image already handed out is the
-    /// kind of sharing this split exists to rule out.
+    /// instances for the two looks. RAWDecodeSource serializes subsequent
+    /// mutations; each outputImage is an immutable snapshot of those settings.
     /// Build one of the two independent RAW looks and report the camera's
     /// white balance before any user override is applied. The values have to
     /// come from this filter itself: constructing a third probe filter costs
@@ -241,26 +315,16 @@ enum ImageDecoder {
 
     private static func decodeRAW(_ url: URL, settings: DecodeSettings,
                                   sourceEXIF: [CFString: Any]?,
+                                  reusing previous: RAWDecodeSource?,
                                   checkpoint: () throws -> Void) throws -> DecodedImage {
-        // A checkpoint before each filter and before each `outputImage` read
-        // (which is where the demosaic actually happens) is what makes a
-        // superseded decode cost at most one filter.
         try checkpoint()
-        let linearResult = try rawFilter(url, look: .linear, settings: settings)
-        try checkpoint()
-        guard let linear = linearResult.filter.outputImage else { throw Failure.unsupported(url) }
-        try checkpoint()
-        let displayResult = try rawFilter(url, look: .display, settings: settings)
-        let asShotT = displayResult.asShotTemperature
-        let asShotTint = displayResult.asShotTint
-        try checkpoint()
-        guard let display = displayResult.filter.outputImage else { throw Failure.unsupported(url) }
-        return DecodedImage(linear: linear, display: display, pixelSize: linear.extent.size,
-                            isRAW: true,
-                            lensCorrectionSupported: displayResult.filter.isLensCorrectionSupported,
-                            sourceURL: url,
-                            sourceEXIF: sourceEXIF,
-                            asShotTemperature: asShotT, asShotTint: asShotTint)
+        let source: RAWDecodeSource
+        if let previous, previous.matches(url) {
+            source = previous
+        } else {
+            source = try RAWDecodeSource(url: url, sourceEXIF: sourceEXIF, checkpoint: checkpoint)
+        }
+        return try source.decode(settings: settings, checkpoint: checkpoint)
     }
 
     private static func decodeFlat(_ url: URL, sourceEXIF: [CFString: Any]?,

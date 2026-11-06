@@ -2095,13 +2095,16 @@ final class Session: CanvasHost {
         // the whole of an open. The develop is `develop(_:_:clock:)`, below,
         // and it runs only if it has been asked for (`wantsDevelop`).
         let decodedImage: DecodedImage?
+        // Only the selected frame owns a RAW source. The decoder verifies file
+        // identity before reuse; frame switches still release the residency.
+        let rawSource = decoded?.rawSource
         decodeCount += 1
         if FeatureFlags.framePipeline {
             decodedImage = try? await pipeline.run(generation: generation) { checkpoint in
-                try ImageDecoder.decode(url, settings: settings, checkpoint: checkpoint)
+                try ImageDecoder.decode(url, settings: settings, reusing: rawSource, checkpoint: checkpoint)
             }
         } else {
-            decodedImage = try? ImageDecoder.decode(url, settings: settings)
+            decodedImage = try? ImageDecoder.decode(url, settings: settings, reusing: rawSource)
         }
         clock.lap("decode")
         guard !Task.isCancelled, selection == url, let d = decodedImage else {
@@ -2804,8 +2807,9 @@ final class Session: CanvasHost {
         cancelBackgroundFullRender()
         cancelNativeOriginal()
         reopenTask?.cancel()
+        let delay = pair == nil && decoded?.rawSource != nil ? 40 : 350
         reopenTask = Task {
-            try? await Task.sleep(for: .milliseconds(350))
+            try? await Task.sleep(for: .milliseconds(delay))
             guard !Task.isCancelled, let url = selection else { return }
             loadTask?.cancel()
             // A develop of the *previous* decode is not the develop of this
