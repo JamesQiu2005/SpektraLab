@@ -635,7 +635,12 @@ final class Session: CanvasHost {
     /// `open(urls:)`, the arrow keys through `click` — is a no-op, so a click
     /// mid-batch cannot put a different frame under the file being written.
     /// `select` itself is not gated: it is the run's own door.
-    var batchExporting = false
+    var batchExporting = false {
+        didSet {
+            if batchExporting { cancelBackgroundFullRender() }
+            else if oldValue && !renderer.showsFullRender { scheduleFullRender() }
+        }
+    }
 
     /// Every library frame's geometry as last saved, for the thumbnails that
     /// mask each frame's crop (`CropMaskedThumbnail`). Read from the sidecars
@@ -2312,6 +2317,8 @@ final class Session: CanvasHost {
     /// Everything that wants a picture rather than a decode comes through
     /// here — a parameter edit, an undo, a paste, an export, a capture.
     func requestPrint() {
+        // New interaction invalidates detail work before the preview finishes.
+        cancelBackgroundFullRender()
         wantsDevelop = true
         resolveFilmEdge()
         // A film edge changes which frame the engine holds (the decode cut by
@@ -2792,6 +2799,10 @@ final class Session: CanvasHost {
     }
 
     private func scheduleReopen() {
+        // White balance has its own decode path, outside RenderScheduler.
+        // Do not let obsolete detail work get ahead of this interaction.
+        cancelBackgroundFullRender()
+        cancelNativeOriginal()
         reopenTask?.cancel()
         reopenTask = Task {
             try? await Task.sleep(for: .milliseconds(350))
@@ -3685,11 +3696,24 @@ final class Session: CanvasHost {
     /// keeps a dragged slider from starting one per step; the generation is
     /// what keeps a slow render from landing on a frame or a grade the user
     /// has moved on from.
+    nonisolated static func allowsBackgroundFullRender(batchExporting: Bool, editPending: Bool) -> Bool {
+        !batchExporting && !editPending
+    }
+
+    private func cancelBackgroundFullRender() {
+        fullTask?.cancel()
+        fullTask = nil
+        fullGeneration += 1
+        // An already-running native call owns fullPending until it returns.
+        // Task cancellation prevents queued calls and publication, not GPU preemption.
+    }
+
     private func scheduleFullRender() {
         fullTask?.cancel()
         fullTask = nil
         fullPending = false
-        guard wantsFullRender, let url = selection, let sid = serviceSessionID else { return }
+        guard Self.allowsBackgroundFullRender(batchExporting: batchExporting, editPending: scheduler.pending),
+              wantsFullRender, let url = selection, let sid = serviceSessionID else { return }
         fullGeneration += 1
         let gen = fullGeneration
         fullTask = Task { [weak self] in
@@ -3748,6 +3772,7 @@ final class Session: CanvasHost {
     }
 
     private func renderFullRender(for url: URL, sessionID sid: String, generation gen: Int) async {
+        guard !Task.isCancelled, !batchExporting else { return }
         // The transport is single-flight, so this sits in front of the user's
         // next slider release. The rule is the one the ladder used: never
         // start one while an edit is owed a render — wait for the scheduler to
@@ -3810,6 +3835,8 @@ final class Session: CanvasHost {
             sampleMemory("full_render")
             if let base = statusBase { status = base }
             schedulePrintWriteback()
+        } catch is CancellationError {
+            // An edit or export superseded detail work before native submission.
         } catch {
             noteFailure(error, operation: "full_render", frame: url.lastPathComponent)
         }

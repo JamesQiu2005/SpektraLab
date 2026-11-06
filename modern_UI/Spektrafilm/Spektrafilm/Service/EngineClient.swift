@@ -412,6 +412,9 @@ actor EngineClient {
     /// is warm and renders the film side when it is not, which is exactly
     /// `spk_reprint`'s own contract.
     func render(_ method: Method, _ request: RenderRequest) async throws -> RenderOutcome {
+        // Actor work can have waited behind a native render after its caller
+        // was cancelled. Do not start another expensive, obsolete GPU job.
+        try Task.checkCancellation()
         if state != .running { try start() }
         return try renderTexture(method, request)
     }
