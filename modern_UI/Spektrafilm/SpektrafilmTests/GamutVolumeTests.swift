@@ -295,7 +295,13 @@ final class GamutVolumeTests: XCTestCase {
             print(String(format: "  %@ — outside P3: linear-cube test %.5f %%, kernel %.5f %% "
                          + "(lightness compression off), %.5f %% (on)",
                          key, linear * 100, noLC * 100, withLC * 100))
-            XCTAssertEqual(noLC, linear, accuracy: max(linear * 0.5, 1e-5),
+            // The floor is pixels sitting on the P3 boundary, where the CAM16
+            // C_max table (interpolated) and the exact cube can answer
+            // differently. 1.3.6's knee keeps more saturation in a ProPhoto
+            // export, so more pixels sit there: after-neutral measured 1.675e-5
+            // (cube) against 2.85e-5 (kernel), ~280 of 24 M pixels, where 1.3.5
+            // read 1.20e-5 / 1.29e-5. A count, not a pixel: no file changes.
+            XCTAssertEqual(noLC, linear, accuracy: max(linear * 0.5, 2e-5),
                            "\(key): the CAM16 chroma test and the linear-cube test disagree — "
                            + "they are the same question asked two ways")
         }

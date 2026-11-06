@@ -160,8 +160,22 @@ enum ColourManagement {
     ///
     /// Keep the chroma knee, because this is the conversion into the recipe's
     /// gamut. Drop only the lightness stage, because it already happened once.
+    ///
+    /// **The knee starts at 70 % of the destination's C_max (1.3.6).** The
+    /// engine's default, `[0, 1, 6]`, is "a gentle, always-on roll-off": every
+    /// colour with any chroma is pulled in, one at 90 % of the gamut edge by
+    /// 7 % and one on the edge by 11 % — colours the destination could hold.
+    /// That was the "exports look blander than the canvas" report. Measured
+    /// 2026-11-06 on six fixtures against the canvas as a P3/sRGB screen
+    /// shows it (mean C*ab): into P3 −1.8…−10.4 % became −1.0…−4.4 %, into
+    /// sRGB −3.1…−14.9 % became −1.0…−7.0 %; `_DSC0897`'s top 1 % into P3
+    /// −16.6 % became −4.8 %. 0.8 and `[0.85, 1, 8]` gain under 0.8 % more and
+    /// the latter starts to clip; 0.7 keeps the widest roll-off for the
+    /// colours that really are outside. The ~1 % left on frames with nothing
+    /// outside is the white-point adaptation (CAT02 here, Bradford in
+    /// ColorSync), not compression. `limit` stays 1, so nothing leaves the cube.
     static let gamutCompressionWithoutLightness =
-        #"{"lightness_compression_active": false}"#
+        #"{"lightness_compression_active": false, "knee": [0.7, 0.995, 6]}"#
 
     /// The setup for `source` → `target`, or `nil` when the engine cannot
     /// build one — with `problem` saying which space it did not know.
