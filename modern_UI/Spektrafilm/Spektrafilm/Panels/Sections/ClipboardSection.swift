@@ -13,6 +13,8 @@ import SwiftUI
 
 struct ClipboardSection: View {
     @Bindable var session: Session
+    /// The saved presets sheet (1.3.6).
+    @State private var showingPresets = false
 
     var body: some View {
         PanelSection(L(.sectionClipboard), key: "clipboard", initiallyExpanded: false) {
@@ -41,12 +43,23 @@ struct ClipboardSection: View {
                     }
                     Spacer(minLength: 0)
                 }
-                HStack {
+                HStack(spacing: 8) {
                     pill(syncTitle, help: L(.clipSyncHelp), enabled: session.canSyncSettings) {
                         session.syncSettings()
                     }
+                    pill(L("Presets", zh: "预设"),
+                         help: L("Save the ticked groups as a named preset, or apply one",
+                                 zh: "将勾选的项目保存为命名预设，或应用已有预设"),
+                         enabled: true) {
+                        showingPresets = true
+                    }
                     Spacer(minLength: 0)
                 }
+            }
+        }
+        .sheet(isPresented: $showingPresets) {
+            PresetsSheet(session: session, store: SettingsPresetStore.shared) {
+                showingPresets = false
             }
         }
     }
