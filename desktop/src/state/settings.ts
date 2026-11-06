@@ -16,6 +16,8 @@ import { NEW_PHOTO_DEFAULTS, type NewPhotoDefaults } from '@shared/newPhotoDefau
 export type InterfaceScale = 100 | 115 | 130;
 export const INTERFACE_SCALES: InterfaceScale[] = [100, 115, 130];
 export const PREVIEW_EDGES = [3840, 2560, 1920, 1080] as const;
+/** The live tier on a software Vulkan device (`host/device.ts`): the smallest edge. */
+export const SOFTWARE_PREVIEW_EDGE = 1080;
 export const PANEL_WIDTHS = { leftWidth: [232, 254, 380], rightWidth: [280, 288, 364] } as const;
 export function boundedPanelWidth(key: keyof typeof PANEL_WIDTHS, width: number): number {
   const [lo, normal, hi] = PANEL_WIDTHS[key];
@@ -26,6 +28,9 @@ export interface Settings extends NewPhotoDefaults {
   language: LanguageSetting;
   interfaceScale: InterfaceScale;
   previewLongEdge: number;
+  /** True once the user picked the edge; until then a software renderer
+   * lowers it and a hardware one restores the default (session.ts). */
+  previewLongEdgeChosen: boolean;
   previewGamut: PreviewGamut;
   sideUnit: SideUnit;
   decoupleEffects: boolean;
@@ -48,6 +53,7 @@ export const SETTINGS_DEFAULT: Settings = {
   language: 'system',
   interfaceScale: 115,
   previewLongEdge: 2560,
+  previewLongEdgeChosen: false,
   previewGamut: 'auto',
   sideUnit: 'mm',
   decoupleEffects: false,
@@ -80,6 +86,8 @@ export function loadSettings(storage: Pick<Storage, 'getItem'> | null): Settings
     const s = out as unknown as Settings;
     if (!INTERFACE_SCALES.includes(s.interfaceScale)) s.interfaceScale = SETTINGS_DEFAULT.interfaceScale;
     if (!(PREVIEW_EDGES as readonly number[]).includes(s.previewLongEdge)) s.previewLongEdge = SETTINGS_DEFAULT.previewLongEdge;
+    // Settings saved before the flag existed: an edge other than the default was the user's pick.
+    if (o.previewLongEdgeChosen === undefined && s.previewLongEdge !== SETTINGS_DEFAULT.previewLongEdge) s.previewLongEdgeChosen = true;
     if (!(['auto', 'srgb', 'display-p3'] as const).includes(s.previewGamut)) s.previewGamut = SETTINGS_DEFAULT.previewGamut;
     s.leftWidth = boundedPanelWidth('leftWidth', s.leftWidth);
     s.rightWidth = boundedPanelWidth('rightWidth', s.rightWidth);

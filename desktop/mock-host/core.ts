@@ -44,6 +44,9 @@ export interface MockOptions {
   renderDelayMs?: number;
   /** Paths `probe`/`open` treat as missing (tests). */
   missing?: (path: string) => boolean;
+  /** What `hello.backend.device_name` reports (default "Mock GPU"); a
+   * software rasterizer's name exercises the interface's CPU fallback. */
+  deviceName?: string;
 }
 
 type Value = number | boolean | string;
@@ -178,6 +181,7 @@ export class MockHost {
       nativeHeight: opts.nativeHeight ?? 2000,
       renderDelayMs: opts.renderDelayMs ?? 0,
       missing: opts.missing,
+      deviceName: opts.deviceName ?? 'Mock GPU',
     };
   }
 
@@ -345,7 +349,7 @@ export class MockHost {
             protocol: 1,
             host_version: '1.3.1-mock',
             build_info: 'mock host (desktop/mock-host) — synthetic pictures, no engine',
-            backend: { api: 'mock', device_name: 'Mock GPU', driver: 'none' },
+            backend: { api: 'mock', device_name: this.opts.deviceName, driver: 'none' },
             capabilities: this.capabilities(),
             resources_dir: '(mock)',
             methods: METHODS,
