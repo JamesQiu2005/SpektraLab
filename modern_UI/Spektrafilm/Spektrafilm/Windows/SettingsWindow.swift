@@ -170,7 +170,19 @@ struct SettingsWindow: View {
                              title: { "\($0) px" },
                              selection: Binding(get: { session.previewLongEdge },
                                                 set: { session.setPreviewLongEdge($0) }))
-                    caption(L("The resolution every interactive edit renders at. The frame's own resolution is rendered separately once an edit settles, so this trades responsiveness while dragging against nothing in the finished picture. The recorded cost of a reprint on a 45 MP frame is 13.7 ms at 2560 px, and rises roughly with the pixels.", zh: "每次交互编辑的渲染分辨率。编辑停下后会另外按照片本身的分辨率渲染，所以这里只是拖动时的流畅度，与最终画面无关。在 4500 万像素的照片上，2560 px 时一次重新印放实测约 13.7 ms，大致随像素数增加。"))
+                    caption(L("The resolution every interactive edit renders at. The policy below controls rendering at the frame's own resolution once an edit settles, so this trades responsiveness while dragging against nothing in the finished picture. The recorded cost of a reprint on a 45 MP frame is 13.7 ms at 2560 px, and rises roughly with the pixels.", zh: "每次交互编辑的渲染分辨率。编辑停下后按下方策略决定是否按照片本身的分辨率渲染，所以这里只是拖动时的流畅度，与最终画面无关。在 4500 万像素的照片上，2560 px 时一次重新印放实测约 13.7 ms，大致随像素数增加。"))
+                    PillMenu(label: L("Full-resolution rendering", zh: "全分辨率渲染"),
+                             options: Session.FullRenderPolicy.allCases,
+                             title: { policy in
+                                 switch policy {
+                                 case .auto: return L("Auto (when memory permits)", zh: "自动（内存允许时）")
+                                 case .always: return L("Always", zh: "总是")
+                                 case .never: return L("Never", zh: "从不")
+                                 }
+                             },
+                             selection: Binding(get: { session.fullRenderPolicy },
+                                                set: { session.setFullRenderPolicy($0) }))
+                    caption(L("Zooming beyond the preview or inspecting the original still requests full resolution. Export always uses the original resolution.", zh: "放大超过预览分辨率或查看原图时仍会请求全分辨率。导出始终使用原始分辨率。"))
                     ToggleRow(label: L("Fast stock preview", zh: "快速相纸预览"), isOn: $session.fastStockPreview)
                     caption(L("When a print stock is picked, show the LUT applied to the negative already on the canvas instead of waiting for the full reprint. It is the same table, so the preview and the print agree.", zh: "选择相纸时，先把查找表套用到画布上已有的负片上显示，而不是等待完整的重新印放。用的是同一张表，所以预览与印放结果一致。"))
                 }

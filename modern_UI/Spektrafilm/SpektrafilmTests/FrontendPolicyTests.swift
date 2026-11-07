@@ -10,6 +10,41 @@ import XCTest
 
 @MainActor
 final class FrontendPolicyTests: XCTestCase {
+    func testFullRenderPolicyDefaultsAndParsing() throws {
+        let name = "FullRenderPolicyTests.\(UUID().uuidString)"
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: name))
+        defer { defaults.removePersistentDomain(forName: name) }
+        XCTAssertEqual(Session.fullRenderPolicy(in: defaults), .auto)
+        XCTAssertEqual(Session.fullRenderPolicyKey, "ui2.fullRenderPolicy")
+        for policy in Session.FullRenderPolicy.allCases {
+            defaults.set(policy.rawValue, forKey: Session.fullRenderPolicyKey)
+            XCTAssertEqual(Session.fullRenderPolicy(in: defaults), policy)
+        }
+        defaults.set("unknown", forKey: Session.fullRenderPolicyKey)
+        XCTAssertEqual(Session.fullRenderPolicy(in: defaults), .auto)
+    }
+
+    func testAutomaticFullRenderAdmission() {
+        XCTAssertFalse(Session.shouldAutoRenderFull(policy: .auto, projectionFits: false, allowOverReserve: false))
+        XCTAssertTrue(Session.shouldAutoRenderFull(policy: .auto, projectionFits: true, allowOverReserve: false))
+        XCTAssertTrue(Session.shouldAutoRenderFull(policy: .auto, projectionFits: false, allowOverReserve: true))
+        for fits in [false, true] {
+            for override in [false, true] {
+                XCTAssertTrue(Session.shouldAutoRenderFull(policy: .always, projectionFits: fits, allowOverReserve: override))
+                XCTAssertFalse(Session.shouldAutoRenderFull(policy: .never, projectionFits: fits, allowOverReserve: override))
+            }
+        }
+    }
+
+    func testExplicitFullRenderBypassesNeverAndMemoryAdmission() {
+        for policy in Session.FullRenderPolicy.allCases {
+            XCTAssertTrue(Session.shouldRenderFull(policy: policy, projectionFits: false,
+                                                   allowOverReserve: false, explicit: true))
+        }
+        XCTAssertFalse(Session.shouldRenderFull(policy: .never, projectionFits: true,
+                                                allowOverReserve: true, explicit: false))
+    }
+
 
     /// The four slide films are the four the catalogue calls positive, and
     /// none of them declares a paper.
