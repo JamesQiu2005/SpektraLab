@@ -352,3 +352,24 @@ struct LongestThatFits: Layout {
         }
     }
 }
+
+/// Its one subview at the subview's ideal width when the offer holds it, and
+/// nothing — zero width, the subview parked out of sight — when it does not.
+/// Never wider than its ideal, so in an HStack it can be given a high
+/// `layoutPriority` without eating the row's spare width (issue #86: the
+/// canvas preview-space pill).
+struct IdealOrNothing: Layout {
+    func sizeThatFits(proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) -> CGSize {
+        guard let ideal = subviews.first?.sizeThatFits(.unspecified) else { return .zero }
+        guard let offered = proposal.width else { return ideal }
+        return offered + 0.5 >= ideal.width ? ideal : CGSize(width: 0, height: ideal.height)
+    }
+
+    func placeSubviews(in bounds: CGRect, proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) {
+        guard let subview = subviews.first else { return }
+        let ideal = subview.sizeThatFits(.unspecified)
+        let fits = bounds.width + 0.5 >= ideal.width
+        let x = fits ? bounds.minX : bounds.maxX + 10_000
+        subview.place(at: CGPoint(x: x, y: bounds.midY - ideal.height / 2), proposal: ProposedViewSize(ideal))
+    }
+}

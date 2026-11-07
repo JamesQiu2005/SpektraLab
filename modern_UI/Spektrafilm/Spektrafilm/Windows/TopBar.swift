@@ -111,7 +111,18 @@ struct TopBar: View {
             // The canvas preview space (1.3.6): how the picture would look
             // exported into that space. Beside before/after because it, too,
             // changes how the canvas is displayed and not what it holds.
-            previewSpacePill.padding(.trailing, Theme.Metric.beforeAfterGap)
+            //
+            // **It is the one control the bar drops (issue #86).** Fixed-size,
+            // it raised the bar's minimum by ~95 pt, and a centre column that
+            // cannot shrink pushes both rails past the window's edges — the
+            // HStack centres what does not fit. So it takes its full width or
+            // none, and is asked first for whatever the bar has spare; the
+            // View menu's Canvas Preview Space holds the same switch.
+            IdealOrNothing {
+                previewSpacePill.padding(.trailing, Theme.Metric.beforeAfterGap)
+            }
+            .clipped()
+            .layoutPriority(2)
             // Before/after, immediately left of the zoom controls. It belongs
             // with zoom rather than with the tools because it changes how the
             // canvas is *displayed*, not what a click on it does.

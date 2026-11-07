@@ -287,4 +287,69 @@ final class LayoutTests: XCTestCase {
                                  "Solve / Original would run off a narrowed rail")
         XCTAssertLessThanOrEqual(needed, m.leftPanelWidth)
     }
+
+    /// Issue #86: in 1.3.6 both rails ran off the window's edges when both
+    /// were open. The bar is the centre column's floor — a column narrower
+    /// than the bar's minimum cannot shrink, and the HStack then centres an
+    /// overflow that cuts into both rails. Measured on the real `TopBar`,
+    /// not added up from tokens: the preview-space pill was fixed-size and
+    /// the token sums never saw it.
+    func testTheBarFitsBetweenTheWidestRails() {
+        let m = Theme.Metric.self
+        let session = Session()
+        let probe = MinimumWidthProbe()
+        let host = NSHostingView(rootView: MinimumWidthProbeLayout(probe: probe) {
+            TopBar(session: session)
+        }.environment(\.snapshotMode, true))
+        host.frame = CGRect(x: 0, y: 0, width: 1512, height: 38)
+        host.layoutSubtreeIfNeeded()
+        let minimum = probe.minimum
+        // 833.9 pt in 1.3.6 with the pill fixed-size; 722.9 once it gives way.
+        XCTAssertGreaterThan(minimum, 200, "the probe measured nothing")
+        // The narrowest window macOS ships on a 13-inch MacBook Air (1470 pt)
+        // with both rails at their widest still leaves the bar its minimum.
+        let centre = 1470 - m.leftPanelRange.widest - m.rightPanelRange.widest
+        XCTAssertLessThanOrEqual(minimum, centre,
+                                 "the bar is wider than the column between two widest rails")
+    }
+}
+
+extension LayoutTests {
+    /// The slot the preview-space pill sits in: all of it or none of it.
+    func testIdealOrNothingIsAllOrNothing() {
+        func width(offered: CGFloat) -> CGFloat {
+            let probe = MinimumWidthProbe()
+            let host = NSHostingView(rootView: MinimumWidthProbeLayout(probe: probe, offered: offered) {
+                IdealOrNothing { Color.clear.frame(width: 50, height: 10) }
+            })
+            host.frame = CGRect(x: 0, y: 0, width: 400, height: 40)
+            host.layoutSubtreeIfNeeded()
+            return probe.offeredWidth
+        }
+        XCTAssertEqual(width(offered: 400), 50, "more than it needs: its ideal, not the offer")
+        XCTAssertEqual(width(offered: 50), 50)
+        XCTAssertEqual(width(offered: 49), 0, "one point short: nothing")
+        XCTAssertEqual(width(offered: 0), 0)
+    }
+}
+
+/// Records a single subview's minimum width (offered 0) and its width when
+/// offered `offered`.
+final class MinimumWidthProbe {
+    var minimum: CGFloat = -1
+    var offeredWidth: CGFloat = -1
+}
+
+struct MinimumWidthProbeLayout: Layout {
+    let probe: MinimumWidthProbe
+    var offered: CGFloat = 0
+    func sizeThatFits(proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) -> CGSize {
+        guard let bar = subviews.first else { return .zero }
+        probe.minimum = bar.sizeThatFits(ProposedViewSize(width: 0, height: 38)).width
+        probe.offeredWidth = bar.sizeThatFits(ProposedViewSize(width: offered, height: 38)).width
+        return proposal.replacingUnspecifiedDimensions()
+    }
+    func placeSubviews(in bounds: CGRect, proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) {
+        subviews.first?.place(at: bounds.origin, proposal: ProposedViewSize(bounds.size))
+    }
 }
