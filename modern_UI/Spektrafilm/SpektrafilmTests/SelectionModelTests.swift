@@ -51,6 +51,102 @@ final class SelectionModelTests: XCTestCase {
         return (session, session.frames.map(\.id))
     }
 
+    func testShiftRangeKeepsCanvasAndAnchor() throws {
+        let (session, urls) = try openedSession()
+        session.click(urls[1])
+        session.click(urls[3], command: false, shift: true)
+        XCTAssertEqual(session.selectedFrames, Array(urls[1...3]))
+        XCTAssertEqual(session.selection, urls[1])
+        XCTAssertEqual(session.pickAnchor, urls[1])
+        session.click(urls[0], command: false, shift: true)
+        XCTAssertEqual(session.selectedFrames, Array(urls[0...1]))
+        XCTAssertEqual(session.selection, urls[1])
+    }
+
+    func testCommandClickSetsAnchorAndCommandShiftAppends() throws {
+        let (session, urls) = try openedSession()
+        session.click(urls[0])
+        session.click(urls[2], command: true)
+        session.click(urls[3], command: true, shift: true)
+        XCTAssertEqual(session.selectedFrames, [urls[0], urls[2], urls[3]])
+        XCTAssertEqual(session.pickAnchor, urls[2])
+        XCTAssertEqual(session.selection, urls[0])
+        session.open(urls: [urls[0].deletingLastPathComponent()])
+        XCTAssertNil(session.pickAnchor)
+        session.click(urls[3], command: false, shift: true)
+        XCTAssertEqual(session.selectedFrames, [urls[3]])
+        XCTAssertNil(session.selection)
+    }
+
+    func testRatingAppliesToEveryPickAndZeroClears() throws {
+        let (session, urls) = try openedSession()
+        defer { for url in urls { Ratings.set(0, for: url) } }
+        session.click(urls[0])
+        session.click(urls[2], command: true)
+        session.rateSelected(4)
+        XCTAssertEqual(urls.map { Ratings.rating(for: $0) }, [4, 0, 4, 0])
+        session.rateSelected(0)
+        XCTAssertEqual(urls.map { Ratings.rating(for: $0) }, [0, 0, 0, 0])
+    }
+
+    func testFilterPrunesPicksAndLimitsSelectAllAndNavigation() throws {
+        let (session, urls) = try openedSession()
+        defer { for url in urls { Ratings.set(0, for: url) } }
+        Ratings.set(3, for: urls[1])
+        Ratings.set(5, for: urls[3])
+        session.click(urls[0])
+        session.selectAllFrames()
+        session.filmstripFilter = .three
+        XCTAssertEqual(session.frames.count, 4)
+        XCTAssertEqual(session.selection, urls[0])
+        // The open frame stays picked even when the filter hides it.
+        XCTAssertEqual(session.selectedFrames, [urls[0], urls[1], urls[3]])
+        session.selectAllFrames()
+        XCTAssertEqual(session.selectedFrames, [urls[0], urls[1], urls[3]])
+        session.selectRelative(1)
+        XCTAssertEqual(session.selection, urls[1])
+        session.click(urls[3], command: false, shift: true)
+        XCTAssertEqual(session.selectedFrames, [urls[1], urls[3]])
+        Ratings.set(0, for: urls[3])
+        XCTAssertEqual(session.selectedFrames, [urls[1]])
+    }
+
+    func testEditedFilterAndOfflineReset() throws {
+        let (session, urls) = try openedSession()
+        var saved = Sidecar()
+        saved.params.exposureCompensationEV = 1
+        try saved.save(for: urls[1])
+        defer { Sidecar.remove(for: urls[1]) }
+        session.refreshFilmstripEdits()
+        session.filmstripFilter = .edited
+        XCTAssertEqual(session.visibleFrames.map(\.id), [urls[1]])
+        session.resetFrame(urls[1])
+        XCTAssertTrue(session.visibleFrames.isEmpty)
+        XCTAssertFalse(session.editedFrames.contains(urls[1]))
+        session.filmstripFilter = .unedited
+        XCTAssertEqual(session.visibleFrames.count, 4)
+    }
+
+    func testEditedMeansUserContentRatherThanDevelopBookkeeping() {
+        var saved = Sidecar()
+        XCTAssertFalse(saved.hasUserEdits)
+        saved.solvedEV = 2.5
+        saved.state = .processed
+        saved.decode.temperature = 6200
+        saved.decode.tint = 12
+        XCTAssertFalse(saved.hasUserEdits)
+        saved.params.exposureCompensationEV = 1
+        XCTAssertTrue(saved.hasUserEdits)
+        saved.params = .default
+        saved.adjustments.exposure = 1
+        XCTAssertTrue(saved.hasUserEdits)
+        saved.adjustments = .default
+        XCTAssertFalse(saved.hasUserEdits)
+        saved.geometry = Geometry.default
+        saved.decode.lensCorrection = true
+        XCTAssertTrue(saved.hasUserEdits)
+    }
+
     /// A plain click: exactly one frame, and it opens.
     ///
     /// The collapse is the whole point — a click that merely *added* would

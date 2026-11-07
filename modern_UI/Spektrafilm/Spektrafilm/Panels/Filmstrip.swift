@@ -3,9 +3,7 @@
 //  both ends, and the folder name with a count at the far left when there is
 //  room.
 //
-//  Selection is the white frame and **nothing else** (PRD §5): the open
-//  frame is marked by the strongest frame and a picked one by the same frame
-//  held back, and no cell carries a state pip next to it.
+//  Frames show selection; stars and the edit badge describe the photograph.
 //
 //  Which frame a cell gets is `Session.framing(of:)`, not a comparison made
 //  here — the Browse grid asks the same function, so the two surfaces cannot
@@ -24,15 +22,21 @@ struct Filmstrip: View {
 
     var body: some View {
         HStack(spacing: 0) {
+            Picker(L("Filter", zh: "筛选"), selection: $session.filmstripFilter) {
+                ForEach(FilmstripFilter.allCases) { Text($0.title).tag($0) }
+            }
+            .labelsHidden().frame(width: 78).padding(.leading, 6)
+            .disabled(session.batchExporting)
             edgeButton("chevron.left") { session.selectRelative(-1) }
             ScrollViewReader { proxy in
                 ScrollView(.horizontal, showsIndicators: false) {
                     LazyHStack(spacing: 14) {
-                        ForEach(session.frames) { frame in
+                        ForEach(session.visibleFrames) { frame in
                             FilmstripCell(frame: frame,
                                           geometry: session.thumbnailGeometry(for: frame.id),
                                           framing: session.framing(of: frame.id),
-                                          state: session.frameStates[frame.id] ?? .unprocessed)
+                                          state: session.frameStates[frame.id] ?? .unprocessed,
+                                          edited: session.editedFrames.contains(frame.id))
                                 .id(frame.id)
                                 // Dragged along the strip a frame is moved
                                 // (`FrameReorder`); onto a pair's hole on the
@@ -49,7 +53,8 @@ struct Filmstrip: View {
                                 // ⌘-click would collapse the set as well.
                                 .onTapGesture {
                                     session.click(frame.id,
-                                                  command: NSEvent.modifierFlags.contains(.command))
+                                                  command: NSEvent.modifierFlags.contains(.command),
+                                                  shift: NSEvent.modifierFlags.contains(.shift))
                                 }
                                 .contextMenu {
                                     Button(L(.helpRevealInFinder)) { NSWorkspace.shared.activateFileViewerSelecting([frame.id]) }
@@ -63,8 +68,7 @@ struct Filmstrip: View {
                                         .disabled(!session.canMakePair)
                                     }
                                     Button(L(.helpResetDefaults)) {
-                                        if frame.id == session.selection { session.resetParams(); session.resetAdjustments() }
-                                        else { Sidecar.remove(for: frame.id); session.refreshState(for: frame.id) }
+                                        session.resetFrame(frame.id)
                                     }
                                 }
                         }
@@ -99,7 +103,7 @@ struct Filmstrip: View {
                 .frame(width: 18, height: Theme.Metric.filmstripHeight).contentShape(Rectangle())
         }
         .buttonStyle(.plain)
-        .disabled(session.frames.isEmpty)
+        .disabled(session.visibleFrames.isEmpty)
     }
 }
 
@@ -144,9 +148,15 @@ struct FilmstripCell: View {
     let framing: FrameFraming
     /// Unread by this cell; kept as the guard test's construction seam.
     let state: FrameState
+    var edited = false
+    @State private var rating = 0
     var body: some View {
         CropMaskedThumbnail(url: frame.id, geometry: geometry) { image in
             cell(image)
+        }
+        .onAppear { rating = Ratings.rating(for: frame.id) }
+        .onReceive(NotificationCenter.default.publisher(for: Ratings.didChange)) { _ in
+            rating = Ratings.rating(for: frame.id)
         }
         .help(frame.name)
     }
@@ -163,6 +173,21 @@ struct FilmstripCell: View {
                 }
             }
             .frame(height: Theme.Metric.thumbHeight)
+            .overlay(alignment: .bottomLeading) {
+                if rating > 0 {
+                    Text(String(repeating: "★", count: rating))
+                        .font(.system(size: 9)).foregroundStyle(.white)
+                        .padding(3).background(.black.opacity(0.6)).padding(3)
+                }
+            }
+            .overlay(alignment: .topTrailing) {
+                if edited {
+                    Image(systemName: "slider.horizontal.3")
+                        .font(.system(size: 9)).foregroundStyle(.white)
+                        .padding(3).background(.black.opacity(0.6)).padding(3)
+                        .help(L("Edited", zh: "已修"))
+                }
+            }
             .overlay(RoundedRectangle(cornerRadius: 2)
                 .stroke(Theme.selectionFrame, lineWidth: framing.lineWidth)
                 .opacity(framing.opacity))
