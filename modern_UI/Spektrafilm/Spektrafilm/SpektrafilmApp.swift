@@ -190,6 +190,16 @@ struct EditorCommands: Commands {
                 .disabled(session.selection == nil)
         }
         CommandMenu(L("Frame", zh: "照片")) {
+            Menu(L("Rating", zh: "星级")) {
+                ForEach(0...5, id: \.self) { stars in
+                    Button(stars == 0 ? L("No Stars", zh: "无星") : "\(stars) ★") {
+                        session.rateSelected(stars)
+                    }
+                    .keyboardShortcut(KeyEquivalent(Character(String(stars))), modifiers: [])
+                    .disabled((session.selection == nil && session.picked.count < 2) || session.batchExporting)
+                }
+            }
+
             // Capture One uses the unmodified arrow keys for adjacent images.
             // The canvas responder already routes the same keys to
             // `stepFrame`, so this remains usable when the viewer has focus.

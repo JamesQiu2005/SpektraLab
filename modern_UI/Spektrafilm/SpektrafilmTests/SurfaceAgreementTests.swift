@@ -27,6 +27,38 @@ import XCTest
 @MainActor
 final class SurfaceAgreementTests: XCTestCase {
 
+    /// Import is a source culler: a cropped/turned developed thumbnail in the
+    /// editor must not replace the original embedded preview in either mode.
+    func testImportPreviewIgnoresTheEditorsDevelopedThumbnail() async throws {
+        let url = FileManager.default.temporaryDirectory
+            .appending(path: "import-source-\(UUID().uuidString).tif")
+        defer { try? FileManager.default.removeItem(at: url) }
+        let context = try XCTUnwrap(CGContext(data: nil, width: 24, height: 16,
+            bitsPerComponent: 8, bytesPerRow: 0, space: CGColorSpaceCreateDeviceRGB(),
+            bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue))
+        context.setFillColor(CGColor(red: 1, green: 0, blue: 0, alpha: 1))
+        context.fill(CGRect(x: 0, y: 0, width: 24, height: 16))
+        let source = try XCTUnwrap(context.makeImage())
+        let destination = try XCTUnwrap(CGImageDestinationCreateWithURL(url as CFURL,
+            "public.tiff" as CFString, 1, nil))
+        CGImageDestinationAddImage(destination, source, nil)
+        XCTAssertTrue(CGImageDestinationFinalize(destination))
+        // A developed crop has different dimensions from the source.
+        let developed = try XCTUnwrap(source.cropping(to: CGRect(x: 0, y: 0, width: 16, height: 12)))
+        ThumbnailCache.shared.store(developed, for: url)
+        let cached = await ThumbnailCache.shared.thumbnail(for: url)
+        XCTAssertEqual(cached?.width, 16, "the control must see the developed thumbnail")
+        let cache = ImportPreviewDecoder.makeCache()
+        let gridValue = await cache.thumbnail(for: url, maxPixel: 520)
+        let previewValue = await cache.thumbnail(for: url, maxPixel: 2048)
+        let grid = try XCTUnwrap(gridValue)
+        let preview = try XCTUnwrap(previewValue)
+        XCTAssertEqual(grid.width, 24)
+        XCTAssertEqual(grid.height, 16)
+        XCTAssertEqual(preview.width, grid.width)
+        XCTAssertEqual(preview.height, grid.height)
+    }
+
     // MARK: - the histogram (GPU, no fixture)
 
     /// The canvas histogram describes the picture the canvas shows: after a
