@@ -12,6 +12,9 @@ private final class ImportModel {
     var anchor: URL?
     var ratings: [URL: Int] = [:]
     var rawOnly = true
+    /// Suspected duplicates, each mapped to the path it appears to copy.
+    var duplicates: [URL: String] = [:]
+    var hideDuplicates = true
     var filter = 0 // 0: all, 1…5: minimum stars, 6: checked
     var size = 160.0
     var preview = false
@@ -22,7 +25,8 @@ private final class ImportModel {
     var visible: [URL] {
         let base = rawOnly ? ImportSelection.removingPairedJPEGs(urls, rawExtensions: ImageDecoder.rawExtensions) : urls
         return ImportSelection.filtered(base, minimumRating: filter == 6 ? 0 : filter,
-                                        checkedOnly: filter == 6, checked: checked, ratings: ratings)
+                                        checkedOnly: filter == 6, checked: checked, ratings: ratings,
+                                        hiding: hideDuplicates ? Set(duplicates.keys) : [])
     }
 
     func click(_ url: URL) {
@@ -136,6 +140,10 @@ private struct ImportWindow: View {
                 Button(L("Select None", zh: "全不选")) { model.checked.subtract(model.visible) }
                 Button(L("Invert", zh: "反选")) { model.checked.formSymmetricDifference(model.visible) }
                 Toggle(L("RAW only (paired JPEGs hidden)", zh: "只显示 RAW（隐藏配对 JPEG）"), isOn: $model.rawOnly)
+                Toggle(L("Hide suspected duplicates", zh: "隐藏疑似重复") + " (\(model.duplicates.count))",
+                       isOn: $model.hideDuplicates)
+                    .help(L("Same size and same first 64 KB as another photo in this folder, or as one already rated or developed elsewhere.",
+                            zh: "与本文件夹里另一张、或其他位置已打星/已修的照片大小相同且前 64 KB 相同。"))
                 Spacer()
                 Picker(L("Filter", zh: "筛选"), selection: $model.filter) {
                     Text(L("All", zh: "全部")).tag(0)
@@ -184,8 +192,26 @@ private struct ImportWindow: View {
         .task {
             let urls = await Task.detached(priority: .userInitiated) { [folder] in Library.frames(at: folder).map(\.id) }.value
             guard !Task.isCancelled else { return }
+            // A 64 KB read per file, off the main actor, before the grid shows:
+            // hiding duplicates by default must not make cells vanish later.
+            // The sidecar store is scanned here too (its first scan reads
+            // every sidecar); the catalog is main-actor and indexed.
+            let (prints, developed) = await Task.detached(priority: .userInitiated) {
+                var prints: [URL: ImportSelection.Fingerprint] = [:]
+                var developed: [ImportSelection.Fingerprint: [String]] = [:]
+                for url in urls {
+                    guard let p = ImportSelection.Fingerprint.of(url) else { continue }
+                    prints[url] = p
+                    if developed[p] == nil { developed[p] = Sidecar.knownCopies(size: p.size, headDigest: p.headDigest) }
+                }
+                return (prints, developed)
+            }.value
+            guard !Task.isCancelled else { return }
             model.urls = urls
             model.ratings = Dictionary(uniqueKeysWithValues: urls.map { ($0, Ratings.rating(for: $0)) })
+            model.duplicates = ImportSelection.suspectedDuplicates(urls, fingerprints: prints) { p in
+                (developed[p] ?? []) + Ratings.knownCopies(size: p.size, headDigest: p.headDigest)
+            }
             model.focus = model.visible.first
             model.loading = false
         }
@@ -208,6 +234,10 @@ private struct ImportWindow: View {
                     }.buttonStyle(.plain).accessibilityLabel(L("Check photo", zh: "勾选照片"))
                 }
             Text(url.lastPathComponent).lineLimit(1).font(.caption)
+            if let original = model.duplicates[url] {
+                Text(L("Suspected duplicate", zh: "疑似重复")).font(.caption2).foregroundStyle(.orange)
+                    .help(original)
+            }
             Text(String(repeating: "★", count: model.ratings[url] ?? 0) + String(repeating: "☆", count: 5 - (model.ratings[url] ?? 0)))
                 .font(.caption).foregroundStyle(.secondary)
         }
