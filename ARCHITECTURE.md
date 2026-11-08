@@ -333,6 +333,7 @@ film-edge pages in scene points (`PAGES.md` §1). Its notes live beside its sour
 
 ```
 App/          AppServices (the one @Observable model) · RootView · routes · launch arguments
+Agent/        the command line and the MCP server, and the app's socket they reach it by (§7.16)
 Mac/          the window and its pages: Library (LibraryUI/, Library/), Import/, Export/,
               Settings/, LightTable/, Render/ (what is kept), MacShortcuts, the drive harnesses
 Features/     Develop (and Edit), Frame (crop), FilmEdge, Pair, Import, Export, Library, Settings
@@ -410,8 +411,8 @@ so a name the engine does not know is reported rather than sent (`ENGINE-WIRING.
   write (§7.6).
 - **No write to Capture One.** A Capture One catalog is read through a snapshot and never written; no
   rating, label, album, trash flag or file goes back (§7.13).
-- **No masks, no agent door.** The 1.x masks and its CLI and MCP front doors (§A.4, §A.9) are not in
-  the Mac app.
+- **No masks.** The 1.x masks (§A.4) are not in the Mac app. Its CLI and MCP front doors (§A.9) came
+  back in another shape: clients of the running app, over the library (§7.16).
 
 ### 7.5 The colour chain, end to end
 
@@ -566,6 +567,45 @@ English, 简体中文, 繁體中文 and 日本語 (`LOCALIZATION.md`). Every sen
 first launch takes the system's preferred languages once. `tools/localization_check.py` holds every
 sentence in four languages, in the right script, looked up where it is shown. A film's or a paper's
 name is the catalogue's (`Stock.name`), never a profile id.
+
+### 7.16 Agents: the command line and MCP
+
+```
+SpektraLab                        the app
+SpektraLab cli <tool> '{json}'    one tool call, one JSON object out; exit 0 done, 1 failed, 2 refused
+SpektraLab cli tools | help       the table, with each tool's JSON input schema
+SpektraLab mcp                    a Model Context Protocol server, newline-delimited JSON-RPC 2.0 on stdio
+```
+
+- **Through the running app.** The executable's entry (`SpektraLabMain`) sends `cli` and `mcp` to
+  `AgentClient` before UIKit is touched; both are clients. The app listens on a Unix domain socket
+  from launch (`AgentServer`) and runs each call on its main actor against its own state
+  (`AgentExecutor`: `macLibrary`, `AppServices.change`, `MacExportRun`), one call at a time, app-wide.
+  A catalog's database is held by the app's own `spklib-host`, so no second process ever opens one.
+  When nothing answers, the client opens the app hidden (`open -g -j`, by `posix_spawn`) and waits up
+  to 30 s for its socket.
+- **The socket** is `NSTemporaryDirectory()/spektralab-<bundle id>.sock` (a test's `CFFIXED_USER_HOME`
+  adds a hash of that home, and the launch passes the home on with `open --env`), mode 0600 in the
+  user's own temporary folder, so a Debug build and a release never answer each other's agents. A stale
+  file is removed at start unless something answers on it. Newline-delimited JSON both ways:
+  `{"id", "tool", "arguments"}` in, `{"id", "ok": true, "result"}` or `{"id", "ok": false, "refused",
+  "error"}` out.
+- **Access is off by default** (`AppSettings.agentAccess`, Settings › General › Agents) and read at
+  every call: off, every tool is refused, the listings included. While an export batch runs, the tools
+  that change a frame or make files from one are refused (`AgentTool.touchesFrames`).
+- **`AgentTools` is the one table**: a name, a one-line summary, a JSON Schema; a call is held to it
+  whole in the client and again in the app, and what needs the library (the pictures, the film and the
+  paper) is checked before the first change. `list_sources`, `open_source`, `create_catalog`,
+  `create_session`, `list_collections`, `list_images`, `import_images`, `trash_images`,
+  `restore_images`, `set_rating`, `set_color_label`, `list_recipes`, `export_images`, `list_stocks`,
+  `get_develop`, `set_develop`. A picture is `"<source id>/<image id>"`. A listing selects what it
+  lists in the window. A film is loaded and a paper printed on as the strips do (`PAGES.md` §4 rules
+  8–9). No Light Table tools.
+- **Deletion is the catalog's Trash only.** `trash_images` and `restore_images` are `setTrashed`: no
+  file moves. No tool moves a file to the system's Trash, empties a Trash, or removes a file or a
+  source; a Capture One source takes ratings and labels only (§7.13).
+- `tools/agent_selftest.swift` holds the table, the socket end to end over a stand-in app, and MCP's
+  framing, without the app.
 
 ---
 

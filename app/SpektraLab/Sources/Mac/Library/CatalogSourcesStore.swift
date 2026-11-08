@@ -967,7 +967,15 @@ final class CatalogSourcesStore: MacLibraryData {
         guard s.isHelperBacked else { throw MacLibraryError.readOnly }
         let h = try await handle(s)
         let wanted = Set(ids)
-        let variants = images.filter { wanted.contains($0.id) }.compactMap(\.primaryVariant)
+        let loaded = images.filter { wanted.contains($0.id) }
+        var variants = loaded.compactMap(\.primaryVariant)
+        // A picture that is not among the loaded rows (an agent's call names any picture of the source,
+        // `AgentExecutor`; the window's own keys only ever name loaded ones): its first variant is asked of
+        // the helper, as Info's panel asks it.
+        let unloaded = wanted.subtracting(loaded.map(\.id))
+        for id in unloaded where id.source == s.id {
+            if let v = try await detail(of: id).image.primaryVariant { variants.append(v) }
+        }
         guard !variants.isEmpty else { return }
         try await body(client, h, variants)
         metadataRevision += 1

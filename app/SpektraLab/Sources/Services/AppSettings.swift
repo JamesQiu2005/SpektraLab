@@ -78,6 +78,11 @@ final class AppSettings {
     /// Which of the gallery's three views the Library shows (`GalleryView`): 全部 unless another was
     /// chosen (the owner, 2026-10-21: the reference device opens on 全部, the pill switches, and is remembered).
     var galleryView = GalleryView.all { didSet { save() } }
+    /// **Allow agents to use SpektraLab** (Settings › General › Agents; ARCHITECTURE.md §7.16): whether a
+    /// program on this Mac may call the app through its command line and MCP server (`AgentExecutor`).
+    /// Off by default, and read at every call: it is the person's consent to another program changing
+    /// their library, so turning it off refuses an agent's very next call.
+    var agentAccess = false { didSet { save() } }
 
     init(defaults: UserDefaults? = .standard) {
         self.defaults = defaults
@@ -112,6 +117,7 @@ final class AppSettings {
         canvasGamut = d.string(forKey: "settings.canvasGamut").flatMap(CanvasGamut.init(rawValue:)) ?? canvasGamut
         if d.object(forKey: "settings.checksForUpdates") != nil { checksForUpdates = d.bool(forKey: "settings.checksForUpdates") }
         galleryView = d.string(forKey: "settings.galleryView").flatMap(GalleryView.init(rawValue:)) ?? galleryView
+        agentAccess = d.bool(forKey: "agent.access")
     }
 
     /// Another camera body: a new gate, new margins, new holes.
@@ -148,5 +154,6 @@ final class AppSettings {
         d.set(canvasGamut.rawValue, forKey: "settings.canvasGamut")
         d.set(checksForUpdates, forKey: "settings.checksForUpdates")
         d.set(galleryView.rawValue, forKey: "settings.galleryView")
+        d.set(agentAccess, forKey: "agent.access")
     }
 }

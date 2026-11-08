@@ -18,6 +18,8 @@
 # Check for Updates' arithmetic (tools/update_selftest.swift: which release is newer, what a manifest must hold),
 # Settings' Supporters (tools/supporters_selftest.swift: the shipped Resources/Supporters.json decodes, and the
 # page lists every entry with its note, over the shipped file and a fixture of its own),
+# the agents' command line and MCP server (tools/agent_selftest.swift: the tool table and a call held to it whole,
+# the socket's path, the socket end to end over a stand-in app, the CLI's exit codes, MCP's framing),
 # the app's own log (tools/log_selftest.swift: a line with no file's name in it, the session's file
 # and its 7 days, how the session before ended, what is due to send, and the zip), which readings of
 # the app's memory become records (tools/memory_selftest.swift),
@@ -150,11 +152,17 @@ swiftc -O -parse-as-library -o "$out/supporters_selftest" \
 swiftc -O -parse-as-library -o "$out/update_selftest" \
   "$src/Model/Localization.swift" "$src/Services/UpdateCheck.swift" \
   "$here/tools/update_selftest.swift" 2> "$out/update-selftest-build.log" || { grep -E "error" "$out/update-selftest-build.log" | head -30; exit 1; }
+# The agents' command line and MCP server, without the app: the tool table and a call held to it, the
+# socket's path, the socket end to end over a stand-in app, MCP's framing (ARCHITECTURE.md §7.16).
+swiftc -O -parse-as-library -o "$out/agent_selftest" \
+  "$src/Agent/JSONValue.swift" "$src/Agent/AgentTools.swift" "$src/Agent/AgentWire.swift" "$src/Agent/AgentClient.swift" \
+  "$src/Agent/AgentServer.swift" "$here/tools/agent_selftest.swift" 2> "$out/agent-selftest-build.log" || { grep -E "error" "$out/agent-selftest-build.log" | head -30; exit 1; }
 status=0
 "$out/strip_source_selftest" || status=1
 "$out/update_selftest" || status=1
 "$out/window_selftest" || status=1
 "$out/supporters_selftest" "$@" || status=1
+"$out/agent_selftest" "$@" || status=1
 "$out/history_selftest" || status=1
 "$out/feedback_selftest" || status=1
 "$out/scheduler_selftest" "$@" || status=1

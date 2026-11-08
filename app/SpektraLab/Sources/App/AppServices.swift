@@ -317,6 +317,25 @@ final class AppServices {
             if arguments.contains("--print-crop") { model.router.show(.printCrop(id)) }
             if arguments.contains("--film-edge") { model.router.show(.filmEdge(id, .frame)) }
         }
+        #if DEBUG
+        // `--agent-access`: Settings › General › Agents turned on, and kept, for a check's launch, which has
+        // no hand to tick the box. Kept where every setting is: in the bundle id's own domain, which a
+        // `CFFIXED_USER_HOME` does not move (measured 2026-11-09: the plist was the real home's) -- so a check
+        // run under a bundle id of its own (`gen_project.py --bundle-id`) never turns it on for anyone else.
+        if arguments.contains("--agent-access") { model.settings.agentAccess = true }
+        #endif
+        // The agents' socket (ARCHITECTURE.md §7.16): listened on from launch, whatever the switch says —
+        // the switch is read at each call. Never for the snapshot harness, which leaves at once, nor the
+        // drawings' own library, which is not the person's.
+        if real, !arguments.contains("--snapshot") {
+            AgentServer.shared.start { [weak model] tool, args in
+                guard let model else { return ["ok": false, "refused": false, "error": "SpektraLab is closing."] }
+                return await AgentExecutor(model: model).reply(tool, args)
+            }
+            NotificationCenter.default.addObserver(forName: UIApplication.willTerminateNotification, object: nil, queue: .main) { _ in
+                AgentServer.shared.stop()
+            }
+        }
         return model
     }
 

@@ -2245,6 +2245,28 @@
         }
       }
     },
+    "A program on this Mac, such as an AI agent, can then list, rate, label, import, develop and export your pictures through SpektraLab while it is open, and opens it when it is not. It can move pictures to a library's Trash and back, and never deletes a file. Off, every call is refused." : {
+      "localizations" : {
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "オンにすると、この Mac 上のプログラム（AI エージェントなど）が、SpektraLab が開いている間、SpektraLab を通じて写真の一覧表示、レーティング、ラベル付け、読み込み、現像、書き出しを行えます。開いていなければ SpektraLab を開きます。写真をライブラリのゴミ箱に入れたり戻したりできますが、ファイルを削除することはありません。オフのときは、すべての呼び出しが拒否されます。"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "打开后，这台 Mac 上的程序（例如 AI 智能体）可以在 SpektraLab 打开时通过它列出、评级、标记、导入、冲洗和导出你的照片；SpektraLab 未打开时会将其打开。它可以把照片移到图库的废纸篓并放回，但从不删除任何文件。关闭时，所有调用都会被拒绝。"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "開啟後，這台 Mac 上的程式（例如 AI 智慧代理）可以在 SpektraLab 開啟時透過它列出、評級、標記、輸入、沖洗和輸出你的照片；SpektraLab 未開啟時會將其開啟。它可以把照片移到圖庫的垃圾桶並放回，但從不刪除任何檔案。關閉時，所有呼叫都會被拒絕。"
+          }
+        }
+      }
+    },
     "A side with nothing to take is dimmed, and says why." : {
       "localizations" : {
         "ja" : {
@@ -2707,6 +2729,28 @@
         }
       }
     },
+    "Agents" : {
+      "localizations" : {
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "エージェント"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "智能体"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "智慧代理"
+          }
+        }
+      }
+    },
     "All" : {
       "localizations" : {
         "ja" : {
@@ -2769,6 +2813,28 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "全部"
+          }
+        }
+      }
+    },
+    "Allow agents to use SpektraLab" : {
+      "localizations" : {
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "エージェントに SpektraLab の使用を許可"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "允许智能体使用 SpektraLab"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "允許智慧代理使用 SpektraLab"
           }
         }
       }
@@ -4599,6 +4665,28 @@
         }
       }
     },
+    "Command line" : {
+      "localizations" : {
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "コマンドライン"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "命令行"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "命令列"
+          }
+        }
+      }
+    },
     "Compare" : {
       "localizations" : {
         "ja" : {
@@ -4727,6 +4815,28 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "對比度"
+          }
+        }
+      }
+    },
+    "Copied" : {
+      "localizations" : {
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "コピーしました"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "已拷贝"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "已拷貝"
           }
         }
       }
@@ -4881,6 +4991,28 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "拷貝"
+          }
+        }
+      }
+    },
+    "Copy MCP Configuration" : {
+      "localizations" : {
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "MCP 設定をコピー"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "拷贝 MCP 配置"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "拷貝 MCP 設定"
           }
         }
       }
@@ -12053,6 +12185,28 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "明度"
+          }
+        }
+      }
+    },
+    "MCP server" : {
+      "localizations" : {
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "MCP サーバ"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "MCP 服务器"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "MCP 伺服器"
           }
         }
       }

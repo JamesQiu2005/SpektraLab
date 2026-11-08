@@ -78,6 +78,12 @@ enum MacSettingsCoverage {
         "Save to": .shown(.export),
         // About.
         "Language": .shown(.general),
+        // Agents (ARCHITECTURE.md §7.16): the switch, the commands, the configuration to copy.
+        "Agents": .shown(.general),
+        "Allow agents to use SpektraLab": .shown(.general),
+        "Command line": .shown(.general),
+        "MCP server": .shown(.general),
+        "Copy MCP Configuration": .shown(.general),
         // Appearance (2026-10-24): the window's page, the Mac's section, one view (AppearancePage.swift).
         "Appearance": .shown(.appearance),
         "Visual style": .shown(.appearance),

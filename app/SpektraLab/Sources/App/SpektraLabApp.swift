@@ -5,7 +5,21 @@
 import SwiftUI
 import UIKit
 
+/// The executable's entry: an agent's client (`SpektraLab cli …`, `SpektraLab mcp`; ARCHITECTURE.md
+/// §7.16), else the app. Decided from the first argument before anything of UIKit's is touched: a client
+/// is a short conversation with the running app over its socket (`AgentClient`), never a second app — a
+/// catalog's database is the running app's helper's alone.
 @main
+enum SpektraLabMain {
+    @MainActor static func main() {
+        let arguments = CommandLine.arguments
+        if arguments.count > 1, arguments[1] == "cli" || arguments[1] == "mcp" {
+            exit(AgentClient.run(Array(arguments.dropFirst())))
+        }
+        SpektraLabApp.main()
+    }
+}
+
 struct SpektraLabApp: App {
     @UIApplicationDelegateAdaptor(AppDelegate.self) private var delegate
     @State private var model = AppServices.launch()
