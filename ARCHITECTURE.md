@@ -358,13 +358,15 @@ full-window pages. Which part of the column a control is in says what moving it 
 
 | change | costs |
 |---|---|
-| Develop: film, paper, Film Exposure, effects, film edge, date back, enlarger, Scene Placement, the Decode curve | the engine: a reprint from the session's negative if the field is `print`-side, a develop if `shoot`-side (§8.5); a film-side drag develops when it rests or ends |
+| Develop: film, paper (or the Digital Intermediate), Film Exposure, effects, film edge, date back, the Decode curve | the engine: a reprint from the session's negative if the field is `print`-side, a develop if `shoot`-side (§8.5); a film-side drag develops when it rests or ends |
 | Develop: white balance, lens correction | a re-decode (Core Image), then a develop |
 | Develop's crop, straighten, turns, flips | the engine's cut: geometry is applied when the frame is read, before the meter (`ENGINE-WIRING.md` §4.3); under a film edge the host cuts instead (§7.11) |
-| Edit: Light, Curve, Colour | Layer 2: one GPU pass over the developed picture, no job (§7.2) |
+| Edit: Brightness, Contrast, Tone, HSL, Channels, Colour Wheels, Vibrance, Saturation, Temperature, Curve, Vignette (the clipboard's Light, Curve and Colour groups) | Layer 2: one GPU pass over the developed picture, no job (§7.2) |
 | Edit's crop | a crop of the finished picture, after the print (`FrameEdit.printCrop`) |
 | *Apply Film Emulation* off | Apple's own decode, cut by the crop, with Edit on top: no film, no paper, no session |
 
+- **The enlarger and Scene Placement have no controls on the Mac**: the Decode curve took Scene
+  Placement's place, and a frame keeps the values it already had (Reset clears them).
 - **There is no live render.** A control's number follows the pointer; a render is a scheduled job
   (RFC-036 §4, `Services/OpenFrameSession.swift`). Print-side edits are coalesced reprints; film-side
   edits develop when the drag rests or ends.

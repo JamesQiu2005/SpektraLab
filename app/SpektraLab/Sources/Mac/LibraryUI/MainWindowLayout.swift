@@ -488,10 +488,11 @@ struct MainWindowLayout: View {
     }
 }
 
-/// Undo, Redo, the actions menu (Reset, Copy Settings, Presets, Settings), Paste, Compare, then Export:
-/// the develop page's half of the bar, drawn from its `MacDevelopBar`.
+/// Undo, Redo, the actions menu (Reset, Copy Settings, Presets, Canvas Colour Space, Settings), Paste, Compare,
+/// then Export: the develop page's half of the bar, drawn from its `MacDevelopBar`.
 struct MacDevelopActions: View {
     let bar: MacDevelopBar
+    @Environment(AppSettings.self) private var settings
 
     private var disc: CGFloat { MacMetric.pt(28) }
 
@@ -511,6 +512,15 @@ struct MacDevelopActions: View {
                 Divider()
                 Button(L("Copy Settings"), action: bar.copySettings)
                 Button(L("Presets"), action: bar.presets)
+                Divider()
+                // The space the canvas shows its picture in (`CanvasGamut`, 2.2.1): a proof, never an edit. This is
+                // the Mac's menu; the host's `DevelopWorkspace.moreMenu` has the same picker.
+                Picker(L("Canvas Colour Space"), selection: Binding(get: { settings.canvasGamut },
+                                                                   set: { settings.canvasGamut = $0 })) {
+                    ForEach(CanvasGamut.allCases) { Text($0.title).tag($0) }
+                }
+                .pickerStyle(.menu)
+                .accessibilityIdentifier("mac.develop.canvas-gamut")
                 Divider()
                 Button(L("Settings"), action: bar.settings)
             } label: { round("ellipsis") }
