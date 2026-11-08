@@ -26,6 +26,24 @@ final class TypingKeyGuardTests: XCTestCase {
         }
     }
 
+    func testRatingDigitsReachFocusedTextInsteadOfMenu() throws {
+        let (target, window, field) = try harness()
+        let text = try XCTUnwrap(window.firstResponder as? NSTextView)
+        text.setSelectedRange(NSRange(location: field.stringValue.utf16.count, length: 0))
+        let item = try XCTUnwrap(NSApp.mainMenu?.items.first?.submenu?.items.first)
+        for stars in 0...5 {
+            let digit = String(stars)
+            item.keyEquivalent = digit
+            let event = try XCTUnwrap(NSEvent.keyEvent(with: .keyDown, location: .zero,
+                modifierFlags: [], timestamp: 0, windowNumber: window.windowNumber,
+                context: nil, characters: digit, charactersIgnoringModifiers: digit,
+                isARepeat: false, keyCode: 0))
+            XCTAssertTrue(TypingKeyGuard.route(event))
+        }
+        XCTAssertEqual(text.string, "ab012345")
+        XCTAssertEqual(target.fired, 0)
+    }
+
     func testCommandsAndCommitKeysStayWithTheMenu() {
         let cases: [(NSEvent.ModifierFlags, String)] = [
             ([.command], "z"), ([.command], "e"), ([.control], "c"),
