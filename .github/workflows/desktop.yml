@@ -13,7 +13,9 @@
 #                         the cross-built host; then installed silently and
 #                         the installed host asked `hello` on a real Windows.
 #   release-windows       on Windows_Linux only, all of the above green: the
-#                         installer onto the macOS release of the same version.
+#                         installer onto the macOS release of the same version,
+#                         or onto a Windows-only pre-release when no macOS
+#                         release carries that version.
 #
 # What a hosted runner cannot tell us: anything about a real GPU (no Vulkan
 # driver on the Windows runner, lavapipe on Linux), whole-image parity with
@@ -313,14 +315,15 @@ jobs:
           retention-days: 14
 
   # Every job above green on Windows_Linux: the installer goes onto the macOS
-  # release of the same version (tag spektralab-v<desktop/package.json version>),
-  # named as a pre-release so it does not read as the Mac build's equal. The
-  # release itself stays as published -- it is not marked pre-release, which
-  # would take "Latest" away from the DMG. If the tag has no release yet (the
-  # Mac build ships first), this job says so and uploads nothing: it never
-  # creates a tag, since one cut here would point at a Windows_Linux commit.
+  # release of the same version (tag spektralab-v<desktop/package.json version>)
+  # when that release exists. When it does not -- the macOS line ships 1.3.5 and
+  # later while this branch still says 1.3.4 -- the build gets
+  # spektralab-windows-v<version> instead, marked pre-release so "Latest" stays
+  # with the Mac DMG. A tag cut here points at a Windows_Linux commit, which is
+  # why the fallback is a pre-release and carries the commit and run in its
+  # notes: it is a build, not a product announcement.
   release-windows:
-    name: Attach the Windows pre-release to the macOS release
+    name: Attach the Windows installer to a release
     needs: [engine-linux, engine-windows-cross, desktop-checks, package-linux, package-windows]
     if: github.ref == 'refs/heads/Windows_Linux' && (github.event_name == 'push' || github.event_name == 'workflow_dispatch')
     runs-on: ubuntu-24.04
@@ -346,10 +349,25 @@ jobs:
         run: |
           set -euo pipefail
           version=$(node -p "require('./desktop/package.json').version")
+          # The macOS line and this branch do not share a version number: main
+          # ships 1.3.5-1.3.7 while these Windows builds sit on 1.3.4 until the
+          # port catches up. Attaching to spektralab-v<version> alone therefore
+          # pins every upload to whichever macOS release already carries that
+          # number, and the file ends up newer than the tag it sits under, with
+          # nothing recording the commit that produced it. Keep that behaviour
+          # while the tag exists, and otherwise give the build a release of its
+          # own -- marked pre-release, so "Latest" stays with the Mac DMG.
           tag="spektralab-v$version"
-          if ! gh release view "$tag" --json tagName >/dev/null 2>&1; then
-            echo "::notice::No release $tag yet; nothing uploaded. Publish the macOS $version release, then re-run this job."
-            exit 0
+          if gh release view "$tag" --json tagName >/dev/null 2>&1; then
+            target="$tag"
+          else
+            target="spektralab-windows-v$version"
+            if ! gh release view "$target" --json tagName >/dev/null 2>&1; then
+              gh release create "$target" --target "$GITHUB_SHA" --prerelease \
+                --title "SpektraLab $version for Windows x64 (pre-release)" \
+                --notes 'Windows builds from `Windows_Linux`. Not code-signed; needs a Vulkan driver and the Microsoft Edge WebView2 Runtime.'
+            fi
+            echo "::notice::No release $tag; attaching the installer to $target instead."
           fi
 
           shopt -s nullglob
@@ -358,11 +376,11 @@ jobs:
           asset="SpektraLab-$version-windows-x64-prerelease-setup.exe"
           cp "${setups[0]}" "dist/$asset"
           (cd dist && sha256sum "$asset" > "$asset.sha256")
-          gh release upload "$tag" "dist/$asset" "dist/$asset.sha256" --clobber
+          gh release upload "$target" "dist/$asset" "dist/$asset.sha256" --clobber
 
           # One Windows section in the notes, rewritten on every upload.
           sha=$(cut -d' ' -f1 "dist/$asset.sha256")
-          gh release view "$tag" --json body -q .body > notes.md
+          gh release view "$target" --json body -q .body > notes.md
           awk '/<!-- windows-prerelease:begin -->/{skip=1} !skip{print} /<!-- windows-prerelease:end -->/{skip=0}' notes.md > notes.trimmed.md
           {
             sed -e :a -e '/^\n*$/{$d;N;ba' -e '}' notes.trimmed.md
@@ -379,5 +397,5 @@ jobs:
             echo "\`$sha\`"
             echo '<!-- windows-prerelease:end -->'
           } > notes.new.md
-          gh release edit "$tag" --notes-file notes.new.md
-          echo "Attached $asset to $tag"
+          gh release edit "$target" --notes-file notes.new.md
+          echo "Attached $asset to $target"
