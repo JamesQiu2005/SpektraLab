@@ -11,7 +11,7 @@ DIR couplers and the enlarger's filter pack, at full resolution in about a secon
 The film simulation, its 28 measured film and paper profiles and the print and scan model are
 spektrafilm's; SpektraLab is the engine's implementation on Metal and the Mac app built around it.
 
-![SpektraLab: Lower Manhattan on Kodak Portra 160, printed on Kodak Vision 2383](screenshots/Screenshot_English.png)
+![SpektraLab 2's Develop page: an elk on Kodak Portra 400, printed on Kodak Portra Endura](screenshots/Screenshot_v2.png)
 
 ## What it does
 
@@ -48,9 +48,9 @@ spektrafilm's; SpektraLab is the engine's implementation on Metal and the Mac ap
 
 ## Build
 
-macOS 15 or later on Apple silicon, and Xcode 26 with its Metal toolchain (from Xcode 26 the Metal
-compiler is a separate component: `xcodebuild -downloadComponent MetalToolchain`). The app is a Mac
-Catalyst app.
+macOS 15 or later on Apple silicon, and **Xcode 27 or later** with its Metal toolchain. Xcode 26
+cannot type-check parts of the app. Since Xcode 26 the Metal compiler is a separate component:
+`xcodebuild -downloadComponent MetalToolchain`. The app is a Mac Catalyst app.
 
 ```bash
 app/SpektraLab/tools/build_engine_mac.sh      # the SpektraLab engine for Mac Catalyst, its kernels and resources

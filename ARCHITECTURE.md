@@ -2,12 +2,13 @@
 
 How SpektraLab is put together: a SwiftUI app with a C++ Metal render engine
 compiled into it. Written for someone about to change the pipeline, the app or
-the release. Current as of **1.3.0, 2026-10-04**.
+the release. Current as of **1.3.0, 2026-10-04**; §5 opens with SpektraLab 2's build and
+release, current as of **2.2.0, 2026-11-08**.
 
 **SpektraLab 2.** The engine (§1–§4, §6, §8) is the one SpektraLab 2 runs: **the SpektraLab
 engine**, a C++/Metal implementation derived from spektrafilm by Andrea Volpato
-(GPL-3.0-or-later). §5, §7 and §9 describe the 1.x app (`modern_UI/Spektrafilm`), whose sources are
-no longer in the tree; §7 opens with what replaced it. Their rules (one colour chain, every surface
+(GPL-3.0-or-later). §5 opens with SpektraLab 2's build and release; the rest of §5, and §7 and §9,
+describe the 1.x app (`modern_UI/Spektrafilm`), whose sources are no longer in the tree; §7 opens with what replaced it. Their rules (one colour chain, every surface
 shows the canvas's frame, export develops again from the original) still apply to the Mac app.
 
 §0 is the map. §1 is the physical model, §2–§4 the engine's runtime, §5 build
@@ -214,6 +215,45 @@ and the code is ~8 MB of it.
 ---
 
 ## 5. Build and release
+
+**SpektraLab 2 (the Mac app, `app/SpektraLab`).**
+
+```
+app/SpektraLab/tools/build_engine_mac.sh   the engine for Mac Catalyst, and EngineResources/
+app/SpektraLab/gen_project.py              the Xcode project, generated from the tree
+xcodebuild … build                         Debug, -destination 'platform=macOS,variant=Mac Catalyst'
+xcodebuild … archive                       a release: Release, ARCHS='arm64 x86_64', unsigned
+```
+
+- **Xcode 27 or later.** Xcode 26.6 cannot type-check parts of the app: GitHub's `macos-26`
+  image stopped twice on 2026-11-08 (the Develop strips' card chain in `StockPreviewPanel`, the
+  parametric curve in `CurveMath`). Both were rewritten, but Xcode 27 is the floor the app is
+  written against, as the README says. CI (`.github/workflows/build.yml`) selects the newest
+  Xcode 27 on the image and fails with that message when there is none.
+- **The engine is built for Catalyst by `build_engine_mac.sh`**, from the same sources and with
+  the same safe-math kernels as `engine/build.sh` (§8.4), because a Catalyst app cannot link a
+  plain macOS object. It writes `build/engine-macosx/`, which the project links and copies.
+- **Versions** live in `gen_project.py`: the default is the current release (2.2.0); a release
+  passes `--version`, `--build <yyyyMMddHHmm>` and `--bundle-id com.spektralab.mac`, and the
+  generated project is committed with it. A build without `--version` shows the default in
+  Settings › General › About.
+- **The library helper** is `vendor/spklib/macos/spklib-host`, a prebuilt MIT binary built by
+  `./build.sh release` from a public tag of
+  [SpektraLab_library](https://github.com/JamesQiu2005/SpektraLab_library) (2.2.0 ships v0.3.1),
+  its sha256 beside it; `API-SPEC-library-helper.md` §7 is how to update it. The app copies it to
+  `Contents/Helpers` and runs it as a separate process.
+- **Signing and notarisation.** The archive is unsigned. The helper is signed first
+  (`codesign -i spklib-host`), then the app, with the Developer ID Application identity,
+  hardened runtime and no entitlements; the DMG (the app, an Applications link, `Licenses/`) is
+  signed, notarised with `notarytool` and stapled, then checked with `spctl`. Releases are
+  GitHub releases carrying the DMG (`SpektraLab-2.2.0-universal.dmg`). The DMG is universal; the
+  x86_64 slice has not been run on an Intel Mac.
+- **Licences.** GPL-3.0 (`license/LICENSE`), the spektrafilm profiles' CC BY-SA 4.0
+  (`license/SPEKTRAFILM_LICENSE.txt`), metal-cpp's Apache-2.0 and spklib's MIT go into
+  `EngineResources/Licenses` and the DMG's `Licenses/`, with `license/NOTICE.md`. For 2.2.0 they
+  were copied by hand after the archive; no script in the tree does it yet.
+
+**1.x (`modern_UI/Spektrafilm`), history:**
 
 ```
 engine/build.sh bundle     compile the kernels, rsync engine/resources into the app

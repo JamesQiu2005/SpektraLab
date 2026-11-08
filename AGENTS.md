@@ -150,7 +150,7 @@ Full text in `docs/agents/TRAPS.md`. 1–13 are the upstream Python/MLX engine's
 - **`screenshots/` must match the interface**; when it moves, say so in the
   commit. Captures are of the running app, not the snapshot harness; never
   resample the 1:1 grain capture. The main captures are the user's own
-  (`Screenshot_English.png`, `Screenshot_ZH_HANS.png`, one per README) —
+  (`Screenshot_v2.png`, the 2.2.0 Develop page, shown by both READMEs) —
   ask before replacing them.
   `Tools/capture-live.sh` force-quits every running SpektraLab — if the user
   has one open, launch a second copy by hand instead.

@@ -6,7 +6,7 @@ Mac 上的胶片暗房。打开一张 RAW，选好胶片和相纸，得到一张
 
 **SpektraLab 引擎是基于 Andrea Volpato 的 [spektrafilm](https://github.com/andreavolpato/spektrafilm)（GPL-3.0-or-later）派生而来的 C++/Metal 实现。**（The SpektraLab engine is a C++/Metal implementation derived from spektrafilm by Andrea Volpato (GPL-3.0-or-later).）胶片模拟、28 款实测胶片与相纸配置、印放与扫描模型都来自 spektrafilm；SpektraLab 是这套引擎在 Metal 上的实现，以及围绕它构建的 Mac 应用。
 
-![SpektraLab：曼哈顿下城，Kodak Portra 160 胶片，Kodak Vision 2383 放映拷贝片](screenshots/Screenshot_ZH_HANS.png)
+![SpektraLab 2 冲洗页面：一头马鹿，Kodak Portra 400 胶片，Kodak Portra Endura 相纸](screenshots/Screenshot_v2.png)
 
 ## 功能
 
@@ -27,7 +27,7 @@ Mac 上的胶片暗房。打开一张 RAW，选好胶片和相纸，得到一张
 
 ## 构建
 
-需要 Apple 芯片、macOS 15 或更高版本，以及带 Metal 工具链的 Xcode 26（从 Xcode 26 起 Metal 编译器是单独的组件：`xcodebuild -downloadComponent MetalToolchain`）。应用是一个 Mac Catalyst 应用。
+需要 Apple 芯片、macOS 15 或更高版本，以及带 Metal 工具链的 **Xcode 27 或更高版本**（Xcode 26 无法完成部分代码的类型检查；从 Xcode 26 起 Metal 编译器是单独的组件：`xcodebuild -downloadComponent MetalToolchain`）。应用是一个 Mac Catalyst 应用。
 
 ```bash
 app/SpektraLab/tools/build_engine_mac.sh      # 为 Mac Catalyst 构建 SpektraLab 引擎、着色器与资源

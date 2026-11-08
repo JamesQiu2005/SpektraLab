@@ -28,8 +28,15 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      # The app needs Xcode 27 or later (README, Build): Xcode 26 gives up type-checking a few of
+      # its expressions. The newest Xcode 27 on the image, or a clear failure (2026-11-08).
       - name: Xcode
-        run: xcodebuild -version
+        run: |
+          ls -d /Applications/Xcode*.app
+          x=$(ls -d /Applications/Xcode_27*.app 2>/dev/null | sort -V | tail -1)
+          if [ -z "$x" ]; then echo "::error::no Xcode 27 on this runner image; the app needs Xcode 27 or later"; exit 1; fi
+          sudo xcode-select -s "$x"
+          xcodebuild -version
 
       # From Xcode 26 the Metal compiler is a separate component.
       - name: Metal toolchain

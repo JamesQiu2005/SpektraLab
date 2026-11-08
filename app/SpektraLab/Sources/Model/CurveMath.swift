@@ -342,10 +342,11 @@ struct ParametricCurve: Codable, Equatable, Sendable {
 
     /// The points this curve places, in the unit square, held non-decreasing.
     var curve: Curve {
-        let s = [0, shadowSplit, midtoneSplit, highlightSplit, 1]
-        let amounts = [shadows, darks, lights, highlights]
+        // Typed: untyped, the mixed literals here were past Xcode 26's type checker (2026-11-08).
+        let s: [Double] = [0, shadowSplit, midtoneSplit, highlightSplit, 1]
+        let amounts: [Double] = [shadows, darks, lights, highlights]
         // Each region's offset at its middle: ±100 is half the region's width.
-        let offsets = (0..<4).map { r in amounts[r] / 100 * (s[r + 1] - s[r]) / 2 }
+        let offsets: [Double] = (0..<4).map { (r: Int) -> Double in amounts[r] / 100 * (s[r + 1] - s[r]) / 2 }
         var pts: [(Double, Double)] = [(0, 0)]
         for r in 0..<4 {
             let mid = (s[r] + s[r + 1]) / 2
