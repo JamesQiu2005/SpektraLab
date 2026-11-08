@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """gen_project.py -- write SpektraLab.xcodeproj (and its shared scheme) from this file.
 
-    gen_project.py [--team TEAMID] [--bundle-id ID] [--no-engine] [--version 2.2.0] [--build N]
+    gen_project.py [--team TEAMID] [--bundle-id ID] [--no-engine] [--version 2.2.1] [--build N]
                    [--mac-idiom pad|mac] [--unhardened]
 
 The project is generated rather than kept, so what it builds is readable here and
@@ -145,7 +145,7 @@ def main() -> None:
     ap.add_argument("--bundle-id", default=None)
     ap.add_argument("--no-engine", action="store_true",
                     help="do not link the engine even where tools/build_engine_mac.sh has built it")
-    ap.add_argument("--version", default="2.2.0", help="the app's version (CFBundleShortVersionString)")
+    ap.add_argument("--version", default="2.2.1", help="the app's version (CFBundleShortVersionString)")
     ap.add_argument("--build", default="1", help="the build's number (CFBundleVersion): higher for every release")
     ap.add_argument("--update-feed", default="https://spektralab.app/updates/mac.json",
                     help="where Check for Updates reads the latest Mac release's manifest (Info.plist SPKUpdateFeedURL)")

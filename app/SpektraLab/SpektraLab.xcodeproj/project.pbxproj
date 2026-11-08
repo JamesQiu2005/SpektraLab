@@ -199,6 +199,7 @@
 			children = (
 				054B31A9712678F4D236936D /* Adjustments.swift */,
 				E09A2B5CD6234E5E2F1C58A8 /* CameraCrop.swift */,
+				4DC187235EDBBA75D92211A0 /* CanvasGamut.swift */,
 				F9C5D986E0DC2D1ED45ADEBF /* CropGuides.swift */,
 				4F9E4736C2882AD9FA3DBFA5 /* CurveMath.swift */,
 				92DCFA0B4A668A8B9A52A600 /* DevelopStatus.swift */,
@@ -299,6 +300,7 @@
 		4D67B327DA246DA5958B2530 /* MacColourWheel.swift in Sources */ = {isa = PBXBuildFile; fileRef = 459B5A51503E36BA2B8328C0 /* MacColourWheel.swift */; };
 		4D6EE8038E92C40335E69E36 /* SettingsWindowRoot.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SettingsWindowRoot.swift; sourceTree = "<group>"; };
 		4DB68A365FFCDB05278C2DE7 /* EngineWire.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = EngineWire.swift; sourceTree = "<group>"; };
+		4DC187235EDBBA75D92211A0 /* CanvasGamut.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CanvasGamut.swift; sourceTree = "<group>"; };
 		4DDB570605B0120A11F209E7 /* MacCatalogCheck.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MacCatalogCheck.swift; sourceTree = "<group>"; };
 		4E9594DC82C5E7F6F785E64E /* FilmEdgeFlow.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9CF0FD3F28555B6826890A65 /* FilmEdgeFlow.swift */; };
 		4EAAEC742FA7A3FC57061F62 /* MacCatalogActions.swift in Sources */ = {isa = PBXBuildFile; fileRef = A671D8956FD4BE6A2CD7FC6E /* MacCatalogActions.swift */; };
@@ -352,7 +354,7 @@
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
 				CODE_SIGN_IDENTITY = "-";
 				CODE_SIGN_STYLE = Manual;
-				CURRENT_PROJECT_VERSION = 202611082150;
+				CURRENT_PROJECT_VERSION = 202611090126;
 				ENABLE_PREVIEWS = NO;
 				GENERATE_INFOPLIST_FILE = YES;
 				HEADER_SEARCH_PATHS = ("$(PROJECT_DIR)/../../engine/include");
@@ -364,10 +366,11 @@
 				INFOPLIST_KEY_UIStatusBarStyle = UIStatusBarStyleLightContent;
 				INFOPLIST_KEY_UIUserInterfaceStyle = Dark;
 				LD_RUNPATH_SEARCH_PATHS = ("$(inherited)", "@executable_path/Frameworks");
-				MARKETING_VERSION = 2.2.0;
+				MARKETING_VERSION = 2.2.1;
 				PRODUCT_BUNDLE_IDENTIFIER = com.spektralab.mac;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SPK_COMMIT = "";
+				SPK_UPDATE_FEED_URL = "https://spektralab.app/updates/mac.json";
 				SUPPORTS_MACCATALYST = YES;
 				SUPPORTS_MAC_DESIGNED_FOR_IPHONE_IPAD = NO;
 				SUPPORTS_XR_DESIGNED_FOR_IPHONE_IPAD = NO;
@@ -386,6 +389,7 @@
 		5587FF259227416BF5EC56D5 /* MacLightTablePanel.swift in Sources */ = {isa = PBXBuildFile; fileRef = E5B59C2333841CC8B5A53D7E /* MacLightTablePanel.swift */; };
 		55A46E754F6E89F5F26D5E82 /* DevelopLayout.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DevelopLayout.swift; sourceTree = "<group>"; };
 		55FDDF40A78C751E9C0EE4E5 /* SpektraLabApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SpektraLabApp.swift; sourceTree = "<group>"; };
+		563E1D4AE762163417201C17 /* GamutProof.swift in Sources */ = {isa = PBXBuildFile; fileRef = 703D18873770C875EAF17CC5 /* GamutProof.swift */; };
 		56E40A1F9429775CF3AC3168 /* DevelopWorkspace.swift in Sources */ = {isa = PBXBuildFile; fileRef = C49DB28897704CD14F706651 /* DevelopWorkspace.swift */; };
 		57C857975640AB16E99851CF /* Build configuration list for PBXProject "SpektraLab" */ = {
 			isa = XCConfigurationList;
@@ -427,6 +431,7 @@
 				E065517F646C315A2C3C1161 /* SpektraLabApp.swift */,
 				D49C67D1051E5440D70BD4A1 /* StripProbe.swift */,
 				DF37759FD9B231AF820C3F8B /* Tour.swift */,
+				62A0083B2BB74D0DA6E5EF19 /* UpdateAnnounce.swift */,
 				C07FD8557167CE2A9C81C1DE /* WindowLayout.swift */,
 				320FC43BB3A5612D4F63D6D6 /* WindowLayoutRule.swift */,
 				11C9FB5EC9AAB19BD04C060B /* AppBackground.swift */,
@@ -470,6 +475,7 @@
 				454AB8B7303AC1E4C6F48177 /* FullDetail.swift */,
 				B7E1AA59D59CF0F126A7AA88 /* FullRender.swift */,
 				D6CDBCA7F9296B202B019FFE /* FullRenderJobs.swift */,
+				563E1D4AE762163417201C17 /* GamutProof.swift */,
 				C6D25646B8BFF02EC94EB865 /* HostCut.swift */,
 				019A685312FE20CD6C47FD58 /* JobDiagnostics.swift */,
 				25A15B83D345B74E6556F9A8 /* Layer2Copies.swift */,
@@ -648,6 +654,7 @@
 				D2D91492B5196DDFFE31A217 /* SettingsWindowRoot.swift */,
 				16E0093FB8EA7FE5616A593D /* Adjustments.swift */,
 				26DE04F7A88858186CA00094 /* CameraCrop.swift */,
+				E1DAC300A7CFC81262C88FAF /* CanvasGamut.swift */,
 				20090AC01A73BD0DF96392CA /* CropGuides.swift */,
 				597251C3ACE697D3DC174A22 /* CurveMath.swift */,
 				3DEDE11159D863F4E86C159E /* DevelopStatus.swift */,
@@ -701,6 +708,7 @@
 				AE23EC30D107D03BCCC14599 /* StorageTidy.swift */,
 				718BE959984B4B59D1BB5254 /* StripSource.swift */,
 				617FDEB7B98A3238E31D5531 /* ThumbnailStore.swift */,
+				A6CB5F773280E9A8A0AA89B6 /* UpdateCheck.swift */,
 				00B47E6BF16737FF9D61497D /* WorkingCopies.swift */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
@@ -755,6 +763,7 @@
 		617FDEB7B98A3238E31D5531 /* ThumbnailStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 524906E579F01B81BDD196E4 /* ThumbnailStore.swift */; };
 		61D8A9C89EF0F5D70FFE324A /* PresetStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 42A3FA76845ADAD4052BCC5A /* PresetStore.swift */; };
 		627BBC9C62B0C159B656E415 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = 9CCD11486CB5CFFBAC839C56 /* Assets.xcassets */; };
+		62A0083B2BB74D0DA6E5EF19 /* UpdateAnnounce.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9AB6B1930E0D679CE4CC62FE /* UpdateAnnounce.swift */; };
 		62CC16E730A16808B33CD794 /* LightTableTouch.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LightTableTouch.swift; sourceTree = "<group>"; };
 		63CD3E70E698C9644CFB51EA /* WorkingCopies.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorkingCopies.swift; sourceTree = "<group>"; };
 		63E2FF0BD16B7810F9A5D37C /* Sources.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Sources.swift; sourceTree = "<group>"; };
@@ -825,6 +834,7 @@
 		6F3E5E6175E86D3996129B08 /* MacMetadataPicker.swift in Sources */ = {isa = PBXBuildFile; fileRef = D422D63D8072C1C601B2B438 /* MacMetadataPicker.swift */; };
 		6F5459DC6629D35BE1B47E34 /* MacWheelRow.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8BE0CA9D7D07E66456FB4D03 /* MacWheelRow.swift */; };
 		6F88AFD5CE38988DCFE4B1AB /* MacLibraryPage.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MacLibraryPage.swift; sourceTree = "<group>"; };
+		703D18873770C875EAF17CC5 /* GamutProof.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GamutProof.swift; sourceTree = "<group>"; };
 		70C0619AA6FE760AD6A50259 /* MacLightTableMenu.swift in Sources */ = {isa = PBXBuildFile; fileRef = A203435A2388291ACDE8A0A8 /* MacLightTableMenu.swift */; };
 		718BE959984B4B59D1BB5254 /* StripSource.swift in Sources */ = {isa = PBXBuildFile; fileRef = 84A85FBE4CB83C62A52F8729 /* StripSource.swift */; };
 		721634B96286FC5C61BF7A51 /* MacSettingsStorage.swift in Sources */ = {isa = PBXBuildFile; fileRef = CF2A60FA313F19E17F49134A /* MacSettingsStorage.swift */; };
@@ -950,6 +960,7 @@
 				55FDDF40A78C751E9C0EE4E5 /* SpektraLabApp.swift */,
 				4492CEFB9E17CBE1A0A7756C /* StripProbe.swift */,
 				DAF809954D5E17C5D775BE6F /* Tour.swift */,
+				9AB6B1930E0D679CE4CC62FE /* UpdateAnnounce.swift */,
 				C289C7854C884A46E5D34D11 /* WindowLayout.swift */,
 				01E29EBC5303F94364138738 /* WindowLayoutRule.swift */,
 			);
@@ -1073,6 +1084,7 @@
 		9995DFFEAC52EE9F16B882C7 /* FilmEdge.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FilmEdge.swift; sourceTree = "<group>"; };
 		9A5426FBDBEBBA592A99EC4C /* MacPairRows.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MacPairRows.swift; sourceTree = "<group>"; };
 		9A84DD039B077207EC917A1E /* PairEntrySnapshots.swift in Sources */ = {isa = PBXBuildFile; fileRef = E357344D7257C38EAA5F8B4E /* PairEntrySnapshots.swift */; };
+		9AB6B1930E0D679CE4CC62FE /* UpdateAnnounce.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = UpdateAnnounce.swift; sourceTree = "<group>"; };
 		9ADCF2687FF7DBD24500C0B5 /* Supporters.json */ = {isa = PBXFileReference; lastKnownFileType = text.json; name = Supporters.json; path = Resources/Supporters.json; sourceTree = "<group>"; };
 		9B76368FED837EE2C87001C3 /* CropScreen.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4819F7FF4E95787364003CA5 /* CropScreen.swift */; };
 		9BA7BD07773A70475583DDB0 /* ValueSlider.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ValueSlider.swift; sourceTree = "<group>"; };
@@ -1158,6 +1170,7 @@
 		A5B4441C6C89D05D521F91D4 /* HelperProcess.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2A41FF721D3AE50188B77B53 /* HelperProcess.swift */; };
 		A671D8956FD4BE6A2CD7FC6E /* MacCatalogActions.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MacCatalogActions.swift; sourceTree = "<group>"; };
 		A69BBC1028968E7A9B0A64F3 /* MacLibraryMove.swift in Sources */ = {isa = PBXBuildFile; fileRef = 27E074CEB9973C5386D30499 /* MacLibraryMove.swift */; };
+		A6CB5F773280E9A8A0AA89B6 /* UpdateCheck.swift in Sources */ = {isa = PBXBuildFile; fileRef = C30D38BF4C37498062174B5C /* UpdateCheck.swift */; };
 		A7E26307015F20083A8C7C57 /* StockPairPicker.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = StockPairPicker.swift; sourceTree = "<group>"; };
 		A81F05AFB73E67F1614E3493 /* LightTableFrames.swift in Sources */ = {isa = PBXBuildFile; fileRef = 57E6BB68B29F073A6086A189 /* LightTableFrames.swift */; };
 		A89D571209E2B5484684F97F /* HSLPanel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HSLPanel.swift; sourceTree = "<group>"; };
@@ -1306,7 +1319,7 @@
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
 				CODE_SIGN_IDENTITY = "-";
 				CODE_SIGN_STYLE = Manual;
-				CURRENT_PROJECT_VERSION = 202611082150;
+				CURRENT_PROJECT_VERSION = 202611090126;
 				ENABLE_PREVIEWS = NO;
 				GENERATE_INFOPLIST_FILE = YES;
 				HEADER_SEARCH_PATHS = ("$(PROJECT_DIR)/../../engine/include");
@@ -1318,10 +1331,11 @@
 				INFOPLIST_KEY_UIStatusBarStyle = UIStatusBarStyleLightContent;
 				INFOPLIST_KEY_UIUserInterfaceStyle = Dark;
 				LD_RUNPATH_SEARCH_PATHS = ("$(inherited)", "@executable_path/Frameworks");
-				MARKETING_VERSION = 2.2.0;
+				MARKETING_VERSION = 2.2.1;
 				PRODUCT_BUNDLE_IDENTIFIER = com.spektralab.mac;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SPK_COMMIT = "";
+				SPK_UPDATE_FEED_URL = "https://spektralab.app/updates/mac.json";
 				SUPPORTS_MACCATALYST = YES;
 				SUPPORTS_MAC_DESIGNED_FOR_IPHONE_IPAD = NO;
 				SUPPORTS_XR_DESIGNED_FOR_IPHONE_IPAD = NO;
@@ -1338,6 +1352,7 @@
 		C26D799E104D4DCF911A44EF /* JSONValue.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = JSONValue.swift; sourceTree = "<group>"; };
 		C289C7854C884A46E5D34D11 /* WindowLayout.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WindowLayout.swift; sourceTree = "<group>"; };
 		C2EFC26BDDD2FF4AEADF0518 /* StockPreviewRules.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8F7D9781A4CD00E26D4D55CD /* StockPreviewRules.swift */; };
+		C30D38BF4C37498062174B5C /* UpdateCheck.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = UpdateCheck.swift; sourceTree = "<group>"; };
 		C35513BA2416D7B09622C16F /* LibraryScreen.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LibraryScreen.swift; sourceTree = "<group>"; };
 		C39A3D7B509A4C60540A254D /* SceneLatitude.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3407893D836FC1D0CFA7BE71 /* SceneLatitude.swift */; };
 		C424F12D313DD8AF47CDF923 /* PadDevelopPage.swift in Sources */ = {isa = PBXBuildFile; fileRef = 610C107A887F0E653E80D32D /* PadDevelopPage.swift */; };
@@ -1471,6 +1486,7 @@
 				ECB44BE50A00C6F2CCED158C /* FullDetail.swift */,
 				F897104136B5BB9B156AC45D /* FullRender.swift */,
 				0651D8CA7D4C78FB350EBE9E /* FullRenderJobs.swift */,
+				703D18873770C875EAF17CC5 /* GamutProof.swift */,
 				DDA5DAFC2CC8326D51F5AAD6 /* HostCut.swift */,
 				F67795B6D2BBF81AD6D72197 /* JobDiagnostics.swift */,
 				CE3C578F6D2980FC7CDEDD78 /* Layer2Copies.swift */,
@@ -1536,6 +1552,7 @@
 		E09A2B5CD6234E5E2F1C58A8 /* CameraCrop.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CameraCrop.swift; sourceTree = "<group>"; };
 		E11C0385836F64E8056CD76C /* PairDevelop.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PairDevelop.swift; sourceTree = "<group>"; };
 		E1A3B1E8C8DFC94D4FBE60AE /* Routes.swift in Sources */ = {isa = PBXBuildFile; fileRef = 778C42EEE84D1B3369862632 /* Routes.swift */; };
+		E1DAC300A7CFC81262C88FAF /* CanvasGamut.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4DC187235EDBBA75D92211A0 /* CanvasGamut.swift */; };
 		E23AAFD9BE0F7A57D346DB49 /* RawProxy.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RawProxy.swift; sourceTree = "<group>"; };
 		E34D92693A99940D92DE2E95 /* MacLightTableBar.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MacLightTableBar.swift; sourceTree = "<group>"; };
 		E357344D7257C38EAA5F8B4E /* PairEntrySnapshots.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PairEntrySnapshots.swift; sourceTree = "<group>"; };
@@ -1603,6 +1620,7 @@
 				EC31C3FDC920757C4D167A55 /* StorageTidy.swift */,
 				84A85FBE4CB83C62A52F8729 /* StripSource.swift */,
 				524906E579F01B81BDD196E4 /* ThumbnailStore.swift */,
+				C30D38BF4C37498062174B5C /* UpdateCheck.swift */,
 				63CD3E70E698C9644CFB51EA /* WorkingCopies.swift */,
 			);
 			path = Services;
