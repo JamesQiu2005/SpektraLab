@@ -84,6 +84,11 @@ enum MacSettingsCoverage {
         "Command line": .shown(.general),
         "MCP server": .shown(.general),
         "Copy MCP Configuration": .shown(.general),
+        // Updates (2.2.1): check at launch or not, and Check Now.
+        "Updates": .shown(.general),
+        "Check for updates automatically": .shown(.general),
+        "Check for Updates": .shown(.general),
+        "Check Now": .shown(.general),
         // Appearance (2026-10-24): the window's page, the Mac's section, one view (AppearancePage.swift).
         "Appearance": .shown(.appearance),
         "Visual style": .shown(.appearance),

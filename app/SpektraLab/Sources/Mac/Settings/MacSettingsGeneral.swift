@@ -8,6 +8,8 @@
 //    in the General section's place (`SettingsWindowRoot`).
 //  - **Agents** (ARCHITECTURE.md §7.16): the switch that lets a program on this Mac use SpektraLab through
 //    its command line and MCP server (`AppSettings.agentAccess`, off by default), and the commands.
+//  - **Updates** (2.2.1, 自动更新): check at launch or not (`AppSettings.checksForUpdates`, on by default),
+//    and Check Now, with what it found and the release's links (`UpdateCheck`).
 
 import SwiftUI
 import UIKit
@@ -32,6 +34,7 @@ struct MacSettingsGeneral: View {
                 .macSettingsItem("Language")
             }
             agents
+            updates
             MacSettingsGroup(title: L("About")) {
                 MacSettingsValueRow(label: L("Version"), value: "SpektraLab " + diagnostics.build.text)
                     .macSettingsItem("About", "This app")
@@ -66,6 +69,47 @@ struct MacSettingsGeneral: View {
                 .accessibilityIdentifier("mac.settings.supporters")
                 .macSettingsItem("Supporters")
             }
+        }
+    }
+
+    // MARK: updates
+
+    @Environment(\.openURL) private var openURL
+    private var check: UpdateCheck { .shared }
+
+    private var updates: some View {
+        MacSettingsGroup(title: L("Updates")) {
+            MacSettingsRow(label: L("Check for updates automatically"),
+                           caption: L("Once, a few seconds after SpektraLab opens. Only the address of the latest release is asked for: nothing about you, your Mac or your pictures is sent.")) {
+                MacSettingsCheckbox(label: L("Check for updates automatically"),
+                                    on: Binding(get: { settings.checksForUpdates }, set: { settings.checksForUpdates = $0 }))
+            }
+            .macSettingsItem("Updates", "Check for updates automatically")
+            MacSettingsRow(label: L("Check for Updates"), caption: updateWords, last: true) {
+                HStack(spacing: MacMetric.pt(8)) {
+                    if case .available(let release) = check.state {
+                        if let notes = release.notes {
+                            Button(L("Release Notes")) { openURL(notes) }.buttonStyle(MacSettingsButtonStyle())
+                        }
+                        Button(L("Download")) { openURL(release.url) }.buttonStyle(MacSettingsButtonStyle())
+                    }
+                    Button(L("Check Now")) { check.check() }
+                        .buttonStyle(MacSettingsButtonStyle())
+                        .disabled(check.state == .checking)
+                }
+            }
+            .macSettingsItem("Check for Updates", "Check Now")
+        }
+    }
+
+    /// What the last check found, in a line.
+    private var updateWords: String {
+        switch check.state {
+        case .idle: L("SpektraLab \(UpdateCheck.runningVersion) is the version on this Mac.")
+        case .checking: L("Checking…")
+        case .upToDate: L("SpektraLab \(UpdateCheck.runningVersion) is the latest version.")
+        case .available(let release): L("SpektraLab \(release.version) is available. You have \(UpdateCheck.runningVersion).")
+        case .failed(let why): L("Could not check: \(why)")
         }
     }
 

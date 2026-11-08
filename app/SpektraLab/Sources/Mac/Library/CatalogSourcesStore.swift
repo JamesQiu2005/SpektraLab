@@ -609,7 +609,10 @@ final class CatalogSourcesStore: MacLibraryData {
         }
         return MacDevelopInfo(frameID: f.id,
                               film: f.edit.appliesFilm ? catalog.stock(f.edit.params.filmStock)?.name : nil,
-                              paper: f.edit.appliesFilm ? catalog.stock(f.edit.params.printStock)?.name : nil,
+                              // The Digital Intermediate takes the paper's place (2.2.1): it is what the frame is "on".
+                              paper: !f.edit.appliesFilm ? nil
+                                  : f.edit.params.digitalIntermediateActive(filmIsPositive: catalog.isSlide(f.edit.params.filmStock))
+                                  ? L("Digital Intermediate") : catalog.stock(f.edit.params.printStock)?.name,
                               state: state)
     }
 
