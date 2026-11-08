@@ -1083,7 +1083,7 @@ static std::string meter_key(const Params& params) {
 // The frame at the meter's own resolution: what the meter reads, and what
 // Scene Latitude's scene statistic reads (RFC-023 §9.1 -- the same sample, so
 // its `E = 0` is the meter's).
-bool meter_frame(spk_session* session, Image& small, std::string& error) {
+bool meter_frame(spk_session* session, Image& metered, std::string& error) {
     // Reusing the live tier's image is free only while that tier happens to be
     // the meter's own size. With the preview resolution settable that is a
     // runtime question rather than a constant one, so off 1600 this costs one
@@ -1092,8 +1092,8 @@ bool meter_frame(spk_session* session, Image& small, std::string& error) {
     // change. See the note in `params.hpp`: the meter must not follow the
     // preview size, which is the whole reason it has its own constant.
     return tier_long_edge(session->params, kTiers[0]) == kMeterLongEdge
-        ? tier_image(session, kTiers[0], small, error)
-        : downscale(session->engine->gpu, session->source, kMeterLongEdge, small, error);
+        ? tier_image(session, kTiers[0], metered, error)
+        : downscale(session->engine->gpu, session->source, kMeterLongEdge, metered, error);
 }
 
 // The session's meter, computed on demand -- whichever render or solve needs
@@ -1101,10 +1101,10 @@ bool meter_frame(spk_session* session, Image& small, std::string& error) {
 bool ensure_meter(spk_session* session, std::string& error) {
     const std::string key = meter_key(session->params);
     if (session->meter.valid && session->meter.key == key) return true;
-    Image small;
+    Image metered;
     ExposureEvs evs;
-    if (!meter_frame(session, small, error) ||
-        !session->pipeline->measure_meter_evs(small, evs, error)) return false;
+    if (!meter_frame(session, metered, error) ||
+        !session->pipeline->measure_meter_evs(metered, evs, error)) return false;
     session->meter.valid = true;
     session->meter.key = key;
     session->meter.evs = evs;
@@ -2778,11 +2778,11 @@ spk_status spk_scene_latitude(spk_session* session, const char* request_json, ch
         const std::string scene_key = meter_key(session->params) + base.norm + "|" + ev_text +
                                       (has_region ? region_text : "");
         if (cache.scene_key != scene_key) {
-            Image small;
+            Image metered;
             std::vector<double> E;
-            ok = meter_frame(session, small, error);
+            ok = meter_frame(session, metered, error);
             if (ok && base.norm == session->params.camera.scene_latitude.norm) {
-                ok = session->pipeline->scene_latitude_sample(small, ev, E, error, has_region ? region : nullptr);
+                ok = session->pipeline->scene_latitude_sample(metered, ev, E, error, has_region ? region : nullptr);
             } else if (ok) {
                 // The sample reads the norm from its pipeline's params, so a
                 // "what if" on another norm gets a pipeline of its own rather
@@ -2791,7 +2791,7 @@ spk_status spk_scene_latitude(spk_session* session, const char* request_json, ch
                 p.camera.scene_latitude.norm = base.norm;
                 Pipeline sampler(gpu, &session->engine->colour, &session->engine->blob,
                                  &session->engine->setup_cache);
-                ok = sampler.build(p, error) && sampler.scene_latitude_sample(small, ev, E, error, has_region ? region : nullptr);
+                ok = sampler.build(p, error) && sampler.scene_latitude_sample(metered, ev, E, error, has_region ? region : nullptr);
             }
             if (ok) {
                 cache.scene = slm::scene_stats(std::move(E));
