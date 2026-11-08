@@ -17,8 +17,8 @@ lives beside it:
   the 1.x app's capture/snapshot tools and open-path timing log, black and white.
 - `app/SpektraLab/` — the app's own notes beside its sources (`ENGINE-WIRING.md`, `PAGES.md`,
   `PAIR-WIRING.md`, `MAC-LIBRARY-DATA.md`, `LOCALIZATION.md`) and its self-tests (`tools/*_selftest*`).
-- `ARCHITECTURE.md` §0 (the map), §7 (the 1.x app, whose rules for surfaces and export still hold;
-  §7.7 surfaces that show the frame, §7.8 export), §8 (the engine). Read trap 26 before trusting
+- `ARCHITECTURE.md` §0 (the map), §7 (the Mac app; §7.7 surfaces that show the frame, §7.8 export),
+  §8 (the engine), Appendix A (the 1.x app, which `desktop/` cites as §7.x). Read trap 26 before trusting
   any green run, trap 33 before any green surface.
 
 ---

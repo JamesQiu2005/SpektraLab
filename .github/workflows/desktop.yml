@@ -12,6 +12,8 @@
 #   package-windows       the NSIS installer, built natively on Windows around
 #                         the cross-built host; then installed silently and
 #                         the installed host asked `hello` on a real Windows.
+#   release-windows       on Windows_Linux only, all of the above green: the
+#                         installer onto the macOS release of the same version.
 #
 # What a hosted runner cannot tell us: anything about a real GPU (no Vulkan
 # driver on the Windows runner, lavapipe on Linux), whole-image parity with
@@ -22,10 +24,15 @@
 
 name: Desktop (Linux, Windows)
 
+# Windows_Linux only. main is the macOS product and build.yml is its gate; a
+# change there reaches this port when it is merged into Windows_Linux, and that
+# push runs this. A pull_request run reads the workflow from its base branch's
+# merge, so the filter below keeps PRs into main off the Windows runners too.
 on:
   push:
-    branches: [main, Windows_Linux, 'claude/**']
+    branches: [Windows_Linux]
   pull_request:
+    branches: [Windows_Linux]
   workflow_dispatch:
 
 concurrency:
@@ -54,8 +61,11 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends \
-            build-essential cmake ninja-build glslang-tools \
-            libvulkan1 mesa-vulkan-drivers vulkan-tools python3
+            build-essential cmake ninja-build nasm glslang-tools \
+            libvulkan1 mesa-vulkan-drivers vulkan-tools python3 python3-venv pkg-config
+          python3 -m venv "$RUNNER_TEMP/spk-build-python"
+          "$RUNNER_TEMP/spk-build-python/bin/pip" install meson==1.9.2
+          echo "$RUNNER_TEMP/spk-build-python/bin" >> "$GITHUB_PATH"
 
       - name: Vulkan device
         run: vulkaninfo --summary
@@ -64,7 +74,7 @@ jobs:
       - uses: actions/cache@v4
         with:
           path: build/deps
-          key: engine-deps-${{ runner.os }}-${{ hashFiles('engine/setup-deps.sh', 'engine/setup-libraw.sh') }}
+          key: engine-deps-${{ runner.os }}-native-${{ hashFiles('engine/setup-*.sh', 'engine/setup-*.py', 'engine/cmake/*pins.json', 'engine/cmake/input-dependencies/**') }}
 
       - name: Build, CTest, host smoke
         run: engine/build-linux.sh --test
@@ -90,14 +100,20 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends \
-            cmake ninja-build glslang-tools python3 \
+            cmake ninja-build nasm glslang-tools python3 python3-venv pkg-config \
             g++-mingw-w64-x86-64-posix gcc-mingw-w64-x86-64-posix binutils-mingw-w64-x86-64 \
             wine wine64 xvfb xauth libvulkan1 mesa-vulkan-drivers   # `wine` is the command; wine64 alone does not provide it
+          python3 -m venv "$RUNNER_TEMP/spk-build-python"
+          "$RUNNER_TEMP/spk-build-python/bin/pip" install meson==1.9.2
+          echo "$RUNNER_TEMP/spk-build-python/bin" >> "$GITHUB_PATH"
 
       - uses: actions/cache@v4
         with:
           path: build/deps
-          key: engine-deps-${{ runner.os }}-${{ hashFiles('engine/setup-deps.sh', 'engine/setup-libraw.sh') }}
+          key: engine-deps-${{ runner.os }}-cross-${{ hashFiles('engine/setup-*.sh', 'engine/setup-*.py', 'engine/cmake/*pins.json', 'engine/cmake/input-dependencies/**') }}
+
+      - name: Dependency setup regression tests
+        run: python3 -m unittest discover -s engine/tests -p 'test_*codec*.py' -v
 
       # Also fails if the exe imports anything but system DLLs.
       - name: Cross-build spektralab-host.exe
@@ -121,6 +137,138 @@ jobs:
           name: host-win-x64
           path: host-win-x64.tgz
           retention-days: 14
+
+  engine-windows-msvc:
+    name: Engine (Windows x64, MSVC, CTest)
+    runs-on: windows-2022
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: MSVC environment
+        uses: ilammy/msvc-dev-cmd@v1
+        with:
+          arch: x64
+
+      - uses: actions/cache@v4
+        with:
+          path: build/deps
+          key: engine-deps-windows-msvc-${{ hashFiles('engine/setup-libraw.ps1', 'engine/setup-libraw.sh', 'engine/third_party/libraw-arw6/**') }}
+
+      # CMake 3.31.6 rather than whatever the image defaults to: 4.x refuses a
+      # cmake_minimum_required without a version range, which is what this tree
+      # writes. Vulkan-Headers and glslang are the pins engine/setup-deps.sh
+      # uses, here by commit and by SHA-256; the loader is never linked, volk
+      # opens vulkan-1.dll at run time.
+      - name: Pinned CMake, Vulkan headers, glslang, LibRaw
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $deps = Join-Path $env:GITHUB_WORKSPACE 'build/deps'
+          New-Item -ItemType Directory -Force -Path $deps | Out-Null
+
+          function Get-PinnedZip {
+              param([string]$Url, [string]$Name, [string]$Sha)
+              $zip = Join-Path $deps $Name
+              if ((Test-Path -LiteralPath $zip) -and
+                  ((Get-FileHash -LiteralPath $zip -Algorithm SHA256).Hash.ToLowerInvariant() -eq $Sha)) {
+                  return $zip
+              }
+              if (Test-Path -LiteralPath $zip) { Remove-Item -LiteralPath $zip -Force }
+              Invoke-WebRequest -Uri $Url -OutFile $zip -MaximumRetryCount 3
+              $actual = (Get-FileHash -LiteralPath $zip -Algorithm SHA256).Hash.ToLowerInvariant()
+              if ($actual -ne $Sha) { throw "checksum mismatch for $Url : expected $Sha, got $actual" }
+              return $zip
+          }
+
+          $cmakeHome = Join-Path $deps 'cmake-3.31.6-windows-x86_64'
+          if (-not (Test-Path -LiteralPath $cmakeHome)) {
+              $zip = Get-PinnedZip 'https://github.com/Kitware/CMake/releases/download/v3.31.6/cmake-3.31.6-windows-x86_64.zip' 'cmake-3.31.6-windows-x86_64.zip' 'd163cd3ab4959b0a53fa8988f2ddbd2e6c501658201e6a154386bad9dbe4f836'
+              Expand-Archive -LiteralPath $zip -DestinationPath $deps -Force
+          }
+
+          $glslangHome = Join-Path $deps 'glslang-16.6.0'
+          if (-not (Test-Path -LiteralPath (Join-Path $glslangHome 'bin/glslang.exe'))) {
+              $zip = Get-PinnedZip 'https://github.com/KhronosGroup/glslang/releases/download/16.6.0/glslang-16.6.0-windows-x86_64-release.zip' 'glslang-16.6.0-windows-x86_64-release.zip' '82bf434e69b9bb4829de7e2b4bc2c5e7a7861e53d66cf75e5cc70f5f694a8d9b'
+              Expand-Archive -LiteralPath $zip -DestinationPath $glslangHome -Force
+          }
+
+          $vkHeaders = Join-Path $deps 'Vulkan-Headers'
+          if (-not (Test-Path -LiteralPath $vkHeaders)) {
+              git -c advice.detachedHead=false clone --quiet --depth 1 --branch vulkan-sdk-1.4.341.0 https://github.com/KhronosGroup/Vulkan-Headers.git $vkHeaders
+              if ($LASTEXITCODE) { throw "Vulkan-Headers clone exited $LASTEXITCODE" }
+          }
+          $head = (git -C $vkHeaders rev-parse HEAD).Trim()
+          if ($head -ne 'b5c8f996196ba4aa6d8f97e52b5d3b6e70f7e4e2') {
+              throw "Vulkan-Headers is at $head, not the pinned b5c8f996"
+          }
+
+          & (Join-Path $env:GITHUB_WORKSPACE 'engine/setup-libraw.ps1') -DependencyDirectory $deps
+          if (-not (Test-Path -LiteralPath (Join-Path $deps 'LibRaw-0.22.2/libraw/libraw.h'))) {
+              throw 'LibRaw 0.22.2 did not land in build/deps'
+          }
+          Get-ChildItem -LiteralPath $deps -Directory | Select-Object -ExpandProperty Name
+
+      - name: Configure, build, CTest
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $deps = Join-Path $env:GITHUB_WORKSPACE 'build/deps'
+          $cmake = Join-Path $deps 'cmake-3.31.6-windows-x86_64/bin/cmake.exe'
+          $ctest = Join-Path $deps 'cmake-3.31.6-windows-x86_64/bin/ctest.exe'
+          $ninja = (Get-Command ninja -ErrorAction SilentlyContinue).Source
+          if (-not $ninja) { throw 'ninja is not on PATH' }
+          & $cmake --version | Select-Object -First 1
+          "ninja: $ninja"
+
+          # /utf-8: the tree carries UTF-8 sources and MSVC otherwise reads them
+          # in the ANSI code page. SPEKTRALAB_REQUIRE_VULKAN=ON makes a missing
+          # toolchain a configure error instead of a silent portable-core build.
+          $configure = @(
+              '-S', $env:GITHUB_WORKSPACE,
+              '-B', 'build/root-msvc',
+              '-G', 'Ninja',
+              "-DCMAKE_MAKE_PROGRAM=$ninja",
+              '-DCMAKE_BUILD_TYPE=Release',
+              "-DSPEKTRALAB_VULKAN_HEADERS=$deps/Vulkan-Headers/include",
+              "-DSPEKTRALAB_GLSLANG=$deps/glslang-16.6.0/bin/glslang.exe",
+              "-DSPEKTRALAB_LIBRAW_SOURCE=$deps/LibRaw-0.22.2",
+              '-DSPEKTRALAB_REQUIRE_VULKAN=ON',
+              '-DSPEKTRALAB_LIBRAW_OPENMP=OFF',
+              '-DSPEKTRALAB_BUILD_NATIVE_RAW=ON',
+              '-DSPEKTRALAB_BUILD_HOST=OFF',
+              '-DBUILD_TESTING=ON',
+              '-DCMAKE_C_FLAGS=/utf-8',
+              '-DCMAKE_CXX_FLAGS=/utf-8'
+          )
+          & $cmake @configure
+          if ($LASTEXITCODE) { throw "configure exited $LASTEXITCODE" }
+
+          & $cmake --build build/root-msvc --parallel
+          if ($LASTEXITCODE) { throw "build exited $LASTEXITCODE" }
+
+          # ctest reading zero tests would pass silently; the tree has 34.
+          $listing = & $ctest --test-dir build/root-msvc -N
+          $listing | Select-Object -Last 3
+          $total = [int]([regex]::Match(($listing -join "`n"), 'Total Tests: (\d+)').Groups[1].Value)
+          if ($total -lt 30) { throw "ctest registered $total tests; the MSVC configuration lost most of them" }
+
+          # The hosted image has no Vulkan loader and no ICD, so every suite that
+          # creates a device or an engine stops on "no Vulkan loader found".
+          # gpu_vulkan_smoke.cpp:537 turns that into return 1, and there is no
+          # skip path anywhere in tests/, so they are held back by name rather
+          # than leaving the job permanently red. They do run, from these same
+          # sources, on the Linux lavapipe job, which has both. Giving this job a
+          # loader plus Mesa's software ICD would bring them back; that is a
+          # separate change, not a CI fix, and it would add a 200 MB SDK install
+          # to every Windows run.
+          $noGpu = '^(spk_vulkan_|spk_math_gate_|spk_windows_(c_abi|feature_boundaries)$)'
+          $kept = & $ctest --test-dir build/root-msvc -N -E $noGpu
+          $keptTotal = [int]([regex]::Match(($kept -join "`n"), 'Total Tests: (\d+)').Groups[1].Value)
+          if ($keptTotal -lt 10) { throw "the exclusion left $keptTotal tests; expected at least 10" }
+
+          & $ctest --test-dir build/root-msvc --output-on-failure -E $noGpu
+          if ($LASTEXITCODE) { throw "ctest exited $LASTEXITCODE" }
 
   desktop-checks:
     name: Frontend checks
@@ -159,6 +307,9 @@ jobs:
       - name: Web build
         run: npm run build:web
 
+      - name: Build the bundled CLI
+        run: npm run build:agent
+
       - name: Rust tests
         working-directory: desktop/src-tauri
         run: cargo test --locked
@@ -184,7 +335,7 @@ jobs:
 
       - uses: actions/setup-node@v4
         with:
-          node-version: 22
+          node-version: 24.19.0
           cache: npm
           cache-dependency-path: desktop/package-lock.json
 
@@ -231,7 +382,7 @@ jobs:
 
       - uses: actions/setup-node@v4
         with:
-          node-version: 22
+          node-version: 24.19.0
           cache: npm
           cache-dependency-path: desktop/package-lock.json
 
@@ -292,3 +443,73 @@ jobs:
           path: desktop/release/windows/*-setup.exe
           if-no-files-found: error
           retention-days: 14
+
+  # Every job above green on Windows_Linux: the installer goes onto the macOS
+  # release of the same version (tag spektralab-v<desktop/package.json version>),
+  # named as a pre-release so it does not read as the Mac build's equal. The
+  # release itself stays as published -- it is not marked pre-release, which
+  # would take "Latest" away from the DMG. If the tag has no release yet (the
+  # Mac build ships first), this job says so and uploads nothing: it never
+  # creates a tag, since one cut here would point at a Windows_Linux commit.
+  release-windows:
+    name: Attach the Windows pre-release to the macOS release
+    needs: [engine-linux, engine-windows-cross, desktop-checks, package-linux, package-windows]
+    if: github.ref == 'refs/heads/Windows_Linux' && (github.event_name == 'push' || github.event_name == 'workflow_dispatch')
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    permissions:
+      contents: write
+    concurrency:
+      group: release-windows
+      cancel-in-progress: false
+    env:
+      GH_TOKEN: ${{ github.token }}
+      GH_REPO: ${{ github.repository }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/download-artifact@v4
+        with:
+          name: spektralab-windows-x64
+          path: dist
+
+      - name: Upload the installer and its checksum
+        shell: bash
+        run: |
+          set -euo pipefail
+          version=$(node -p "require('./desktop/package.json').version")
+          tag="spektralab-v$version"
+          if ! gh release view "$tag" --json tagName >/dev/null 2>&1; then
+            echo "::notice::No release $tag yet; nothing uploaded. Publish the macOS $version release, then re-run this job."
+            exit 0
+          fi
+
+          shopt -s nullglob
+          setups=(dist/*-setup.exe)
+          [ ${#setups[@]} -eq 1 ] || { echo "expected one installer, found ${#setups[@]}"; exit 1; }
+          asset="SpektraLab-$version-windows-x64-prerelease-setup.exe"
+          cp "${setups[0]}" "dist/$asset"
+          (cd dist && sha256sum "$asset" > "$asset.sha256")
+          gh release upload "$tag" "dist/$asset" "dist/$asset.sha256" --clobber
+
+          # One Windows section in the notes, rewritten on every upload.
+          sha=$(cut -d' ' -f1 "dist/$asset.sha256")
+          gh release view "$tag" --json body -q .body > notes.md
+          awk '/<!-- windows-prerelease:begin -->/{skip=1} !skip{print} /<!-- windows-prerelease:end -->/{skip=0}' notes.md > notes.trimmed.md
+          {
+            sed -e :a -e '/^\n*$/{$d;N;ba' -e '}' notes.trimmed.md
+            echo
+            echo '<!-- windows-prerelease:begin -->'
+            echo '### Windows x64 (pre-release)'
+            echo
+            echo "\`$asset\` is a pre-release built by CI from \`Windows_Linux\` at"
+            echo "[\`${GITHUB_SHA::8}\`]($GITHUB_SERVER_URL/$GITHUB_REPOSITORY/commit/$GITHUB_SHA)"
+            echo "([run]($GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID)). Not code-signed;"
+            echo 'it needs a Vulkan driver and the Microsoft Edge WebView2 Runtime.'
+            echo
+            echo 'SHA-256:'
+            echo "\`$sha\`"
+            echo '<!-- windows-prerelease:end -->'
+          } > notes.new.md
+          gh release edit "$tag" --notes-file notes.new.md
+          echo "Attached $asset to $tag"

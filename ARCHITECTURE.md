@@ -1,78 +1,83 @@
 # ARCHITECTURE.md
 
-How SpektraLab is put together: a SwiftUI app with a C++ Metal render engine
-compiled into it. Written for someone about to change the pipeline, the app or
-the release. Current as of **1.3.0, 2026-10-04**; §5 opens with SpektraLab 2's build and
-release, current as of **2.2.0, 2026-11-08**.
+How SpektraLab 2 is put together: a Mac Catalyst app with the SpektraLab engine, a C++/Metal render
+engine, linked into it, and a library helper, `spklib-host`, running beside it. Written for someone
+about to change the pipeline, the app or the release. Current as of **2.2.0, 2026-11-08**.
 
-**SpektraLab 2.** The engine (§1–§4, §6, §8) is the one SpektraLab 2 runs: **the SpektraLab
-engine**, a C++/Metal implementation derived from spektrafilm by Andrea Volpato
-(GPL-3.0-or-later). §5 opens with SpektraLab 2's build and release; the rest of §5, and §7 and §9,
-describe the 1.x app (`modern_UI/Spektrafilm`), whose sources are no longer in the tree; §7 opens with what replaced it. Their rules (one colour chain, every surface
-shows the canvas's frame, export develops again from the original) still apply to the Mac app.
+The SpektraLab engine is a C++/Metal implementation derived from spektrafilm by Andrea Volpato
+(GPL-3.0-or-later). The engine's sections (§1–§4, §6, §8) carry over from 1.x except where they
+named the app. The app's sections (§0, §5, §7, §9) describe `app/SpektraLab`. The 1.x app
+(`modern_UI/Spektrafilm`, whose sources are no longer in the tree) is Appendix A. The Windows and
+Linux port (`desktop/`) was written against it and cites its numbers as §7.x; §A keeps them as
+§A.1–§A.13, in the same order.
 
-§0 is the map. §1 is the physical model, §2–§4 the engine's runtime, §5 build
-and release, §6 cost, §7 the macOS app, §8 the engine in detail, §9 how the app
-is verified. Other documents cite these numbers (§3, §7.3, §7.5, §8.2–§8.8), so
-they stay put; new material goes in new subsections.
+§0 is the map. §1 is the physical model, §2–§4 the engine's runtime, §5 build and release, §6 cost,
+§7 the Mac app, §8 the engine in detail, §9 how it is verified. Other documents and the code cite
+these numbers (§3, §6.1, §6.2, §7.x, §8.2–§8.8), so they stay put; new material goes in new
+subsections.
 
 ---
 
 ## 0. The product, end to end
 
 ```
-  ┌─ SpektraLab.app ── one arm64 binary, 32 MB, macOS 15+ ────────────────┐
-  │  SwiftUI + AppKit + Metal · English / 简体中文                         │
+  ┌─ SpektraLab.app ── Mac Catalyst, universal, macOS 15+, 68 MB ─────────┐
+  │  SwiftUI + UIKit, AppKit through the runtime · en · 简 · 繁 · 日本語    │
   │                                                                       │
-  │  Import/      RAW + TIFF decode (Core Image) → linear ProPhoto float  │
-  │  Session      all state · @Observable · @MainActor                    │
-  │  Renderer     the canvas: Layer 2, geometry, histogram                │
-  │  Export/      recipes · soft proof · batch · ImageIO writers          │
-  │  Agent/       CLI + MCP front doors onto the same Session (RFC-026)   │
-  │  Diagnostics/ log · memory arena · SQLite-indexed disk cache          │
-  │  EngineClient ── actor · JSON params in · MTLTexture out              │
+  │  App/  Mac/   AppServices (the one model) · the window: Library ·     │
+  │               Develop · Edit, Light Table, Import, Export, Settings   │
+  │  Features/    the develop, edit, crop, film-edge and pair pages       │
+  │  Model/       FrameEdit · FilmParams (the wire) · StockCatalog ·      │
+  │               Geometry · FilmEdge · HalfFramePair                     │
+  │  Services/    OpenFrameSession · FrameCatalog · import · previews     │
+  │  Scheduler/   RenderQueue · MemoryBudget · CostModel · SpkEngine      │
+  │  Engine/      EngineRouter · EngineHost · FrameDecoder (Core Image) · │
+  │               OutputTransform · Layer 2 · FullRender · ExportWriter   │
+  │  Diagnostics/ the log, kept on this Mac                               │
   │        │  spk_engine.h, a hand-written extern "C" surface             │
   │        ▼                                                              │
-  │  ┌─ engine/ ── C++20, compiled into this target ──────────────────┐   │
-  │  │  core/      setup maths: colour, profiles, curves, couplers,   │   │
-  │  │             CAM16, the Hanatos LUT, print LUTs                  │   │
-  │  │  gpu/       a five-verb interface + its Metal backend           │   │
-  │  │  shaders/   MSL → spektralab.metallib (built by build.sh)       │   │
-  │  │  pipeline/  the node sequence, the session, the C ABI           │   │
-  │  └─────────────────────────────────────────────────────────────────┘   │
-  │  Resources/engine/    baked constants, 28 profiles, 8 print LUTs      │
-  │  Resources/Licenses/  four licence texts, shown in About              │
+  │  libspektralab_engine.a ── engine/, C++20, linked into the app        │
+  │     core/ setup maths · gpu/ five verbs and Metal · pipeline/ the     │
+  │     nodes, the session, the C ABI                                     │
+  │  EngineResources/  constants, profiles, minilab tables, the metallib  │
+  │                    and its archive, licences                          │
+  │                                                                       │
+  │  Helpers/spklib-host ── its own process, JSON lines on pipes ─────────┼──▶ .spkcatalog, sessions,
+  │                         (MIT, JamesQiu2005/SpektraLab_library)        │    Capture One read one way
   └───────────────────────────────────────────────────────────────────────┘
 ```
 
-- **One process.** No pipe, no subprocess, no Python at run time. The engine
-  takes pixels and returns an `MTLTexture` the canvas draws, zero-copy
-  (RFC-014). The Python implementation it was ported from lives upstream and
-  is only the oracle for the parity harnesses (§8.6).
-- **Parameters cross as JSON; pixels do not.** `EngineClient.call` takes a
-  `Method` and Codable types (`transport_version` and `schema_version` are
-  both 1). Renders go through `EngineClient.render`, because a texture cannot
-  travel through a `Decodable`.
-- **The engine returns pixels, never files.** `Exporter.swift` writes every
-  file through ImageIO (§8.8).
-- **Three front doors, one implementation.** The window, `SpektraLab cli`
-  and `SpektraLab mcp` drive the same `Session` and save to the same sidecar
-  (§7.9).
+- **Two processes, one engine.** The engine runs in the app's process and returns an `MTLTexture`
+  over its own buffer, zero-copy (RFC-014). The library is `spklib-host`, a child process: a crash in
+  it cannot take a render down, the main actor never waits on SQLite, and an MIT program beside a
+  GPL app is aggregation, not linking. No Python runs at any time; the Python implementation the
+  engine was ported from lives upstream and is only the oracle for the parity harnesses (§8.6).
+- **Parameters cross as JSON; pixels do not.** `FilmParams.wire` opens a session and then travels
+  as deltas (`spk_set_params`); the frame's pixels are a buffer of the engine's own device, borrowed
+  by `spk_open_device` without a copy (`app/SpektraLab/ENGINE-WIRING.md` §3, §4).
+- **Every render is a job** on `RenderQueue`. A page never calls the engine and never loops a render
+  (§4, §7.3).
+- **The engine returns pixels, never files.** `ExportWriter` writes every file through ImageIO
+  (§7.8, §8.8).
+- **Edits live in the app's library and catalogs**, never beside the photograph, and a Capture One
+  catalog is never written (§7.6, §7.13).
 
-**Who owns what.** `CONTRACT-frontend-backend.md` §1 governs the wire: a field
-name, tier name, file layout or version number is a wire change even when it
-looks like a refactor.
+**Who owns what.** `CONTRACT-frontend-backend.md` §1 governs the wire: a field name, tier name, file
+layout or version number is a wire change even when it looks like a refactor.
 
 | topic | read |
 |---|---|
-| the engine: what was built, what parity measures | `rfc/RFC-014-native-cpp-engine.md` §8 |
+| the engine: what was built, what parity measures | `rfc/RFC-014-native-cpp-engine.md` §8, §8 here |
 | the wire and version negotiation | `CONTRACT-frontend-backend.md`, `API-SPEC-callable-render-service.md` |
+| how the app builds, creates and calls the engine | `app/SpektraLab/ENGINE-WIRING.md` |
+| the library, catalogs, Capture One | `app/SpektraLab/MAC-LIBRARY-DATA.md`, `API-SPEC-library-helper.md` |
+| pages, the window's layout | `app/SpektraLab/PAGES.md`, `app/SpektraLab/design/MAC-LIBRARY-UI.md` |
+| the half-frame pair | `app/SpektraLab/PAIR-WIRING.md` |
+| languages | `app/SpektraLab/LOCALIZATION.md` |
 | the colour chain | §7.5, `rfc/RFC-018` |
 | memory | §4, `rfc/RFC-019`, `rfc/RFC-020` |
 | scene latitude · contrast mask · effect strengths | `rfc/RFC-023`, `RFC-024`, `RFC-025` |
-| agents | §7.9, `rfc/RFC-026` |
-| traps that cost real debugging time | `AGENTS.md` |
-
+| traps that cost real debugging time | `AGENTS.md`, `docs/agents/TRAPS.md` |
 ---
 
 ## 1. The physical model
@@ -158,6 +163,9 @@ A **session** holds one opened frame and its last negative. A `print`-layer
 edit reprints from the cached negative; a `shoot`-layer edit rebuilds it
 (§8.5). Tiers are `live` (the user's preview long edge), `preview` and `full`
 (the frame's own pixels); the names are wire (contract §1.2.3).
+- **Tiers on the Mac.** A job below the full tier sends `preview_long_edge` with the frame decoded no
+  larger, so the engine's `live` tier is the job's own canvas; a full-tier job decodes the original at
+  its own size (`ENGINE-WIRING.md` §4.3, §5).
 
 ---
 
@@ -189,26 +197,24 @@ highlights; changing it changes the picture.
   P/F/R are released as the graph passes them; a 102 MP Hasselblad frame
   peaks at 13.7 GB in 1.0.3, from 23 GB. The render is the peak, not Core
   Image.
-- **One full-resolution render at a time.** Interactive renders are at the
-  preview edge; the native render runs once after edits settle (§7.3).
-- **Exports run one frame at a time** (§7.8) for the same reason: two full
-  renders at 100 MP do not fit.
-- **The arena accounts, it does not own** (RFC-019). `Diagnostics/MemoryArena`
-  registers every large holding with an evict closure against two settings:
-  a reserve left for the machine and a working-set cap for the app.
-- **A disk cache below RAM** (RFC-019 §8). `DiskCacheStore` keeps decodes and
-  finished prints under `~/Library/Caches/com.hanze.spektralab/store/`: payload
-  files in hashed folders, one SQLite index (`index.sqlite`, system
-  `libsqlite3`) ranking entries GDSF-style by recompute cost, hits and age.
-  The file is complete before its row is written; a row without a file is
-  garbage, a file without a row is swept at launch. Default cap **8 GB**,
-  settable. Finished prints reach it through `PrintWriteback`, a bounded
-  FIFO that drops the oldest past ~500 MB — a dropped entry only costs a
-  re-render.
-- **Export never enlarges.** `OutputSize.pixels(for:)` returns no resample at
-  or above the frame's own long edge.
+- **One GPU job at a time, priced first.** Every render is a job on `RenderQueue`
+  (`app/SpektraLab/Sources/Scheduler`). The budget is read before every job, never cached
+  (`MemoryBudget`, `MemoryProbe`): on the Mac the machine's headroom (free, inactive and purgeable
+  pages) binds, against the app's own `phys_footprint`. A job that cannot fit waits and says why
+  (`WaitReason`); it does not gamble. Canvas jobs coalesce: one queued per frame, the latest wins.
+- **The decode is no larger than its canvas** below the full tier, and is opened without a CPU copy;
+  its buffer is released before the render starts, so the decode's peak and the render's do not add
+  up (`ENGINE-WIRING.md` §3, §3.1).
+- **What is kept on disk, and what that costs.** A frame's develop (a Display P3 picture, named by the
+  stamp of everything it was made from, in its catalog's `Cache/Previews`); a RAW's preview-size
+  decode (`RawProxy`); and full renders, as 256 × 256 tiles at the full size and half of it (8 bytes
+  a pixel and a quarter more: 48 MP is 480 MB), under Settings' cache limit, the one used longest ago
+  going first, never the one shown or being made (`ENGINE-WIRING.md` §6.2). Deleting any of them costs
+  time, never work.
+- **Export never enlarges.** A recipe's size is made in the decode, and no frame is made larger than
+  its original (`ExportPlan`).
 
-RSS cannot see the Metal pool. Measure with `footprint -p <pid>`: on a live
+RSS cannot see the Metal pool. Measure with `footprint -p <pid>`: on a live 1.x
 session ~75 % of the app's footprint is `IOAccelerator` — pixels on the GPU —
 and the code is ~8 MB of it.
 
@@ -293,291 +299,273 @@ The model is **spatial-dominated**: halation and DIR diffusion were the two
 largest nodes in the reference's 12.9 s 45 MP profile, and neither fuses.
 Per-node engine timings need `SPEKTRALAB_NODE_TIMINGS=1` (§8.9).
 
+On the Mac the RAW is decoded by Core Image once at the frame's preview size and kept (`RawProxy`), so
+reopening a frame, and Develop's film and paper strips, do not pay for that decode again
+(`ENGINE-WIRING.md` §3.1).
+
+### 6.1 An execution plan changes how, never which
+
+The scheduler plans each job: the memory it reserves, a whole render or bands, the size it is decoded
+at, and when it runs (`CostModel`, `Planner`, `DevicePolicy`). A plan changes **how** a picture is made
+and never **which** picture: the same edit at the same tier is the same pixels whatever the plan. The
+engine renders every job of the Mac app whole; `.bands(rows)` is reported as planned progress, and
+nothing is handed to the engine for it (`ENGINE-WIRING.md` §5). `DevicePolicy` holds the plan's
+device-side numbers, and each says whether it was measured and where.
+
+### 6.2 A reduced picture is never labelled full
+
+Where a picture is less than the develop it stands for — a camera's own preview before the engine has
+reached the frame, a picture decoded smaller than the original, an effect left out — the page says so
+(`TagPill`, Info's *This render*, the status line). Nothing reduced is passed off as the real thing,
+and an omitted effect is named (`PAGES.md` §4, rules 3 and 5).
+
 ---
 
-## 7. The app (`modern_UI/Spektrafilm`, 1.x)
+## 7. The Mac app (`app/SpektraLab`)
 
-**SpektraLab 2's app is `app/SpektraLab`**, a Mac Catalyst app: SwiftUI and UIKit, Metal in the
-engine and the Light Table, and AppKit reached through the Objective-C runtime where Catalyst has no
-API (the scroll wheel, the open and save panels). One window with three modes, Library · Develop ·
-Edit, plus the Light Table, the Import page and the Export page. Its library (catalogs, sessions,
-albums, ratings, a linked Capture One catalog read through a snapshot) is the helper `spklib-host`
-(`API-SPEC-library-helper.md`). It links the engine as `libspektralab_engine.a`, which
-`app/SpektraLab/tools/build_engine_mac.sh` builds for Mac Catalyst together with `EngineResources/`
-(the baked constants, the profiles, `spektralab.metallib`), copied into
-`Contents/Resources/EngineResources`. Its notes live beside its sources: `ENGINE-WIRING.md` (the
-engine calls), `PAGES.md`, `PAIR-WIRING.md`, `MAC-LIBRARY-DATA.md`, `LOCALIZATION.md`.
-
-The rest of §7 is the 1.x app, kept because other documents cite its numbers.
-
-SwiftUI for panels, AppKit for windows and keys, Metal for the canvas.
+A Mac Catalyst app: SwiftUI and UIKit, Metal in the engine, the Edit layer and the Light Table, and
+AppKit reached through the Objective-C runtime where Catalyst has no API of its own (the scroll wheel,
+the open and save panels). It is drawn at Catalyst's scaled idiom, so a scene point is 0.77 of a Mac
+point; the library, Settings, Import and Export are written in Mac points and the develop, crop and
+film-edge pages in scene points (`PAGES.md` §1). Its notes live beside its sources:
+`ENGINE-WIRING.md`, `PAGES.md`, `PAIR-WIRING.md`, `MAC-LIBRARY-DATA.md`, `LOCALIZATION.md`, and
+`design/MAC-LIBRARY-UI.md` for the window.
 
 ```
-Model/        Session · Params (Layer 1, the wire) · Adjustments (Layer 2) ·
-              Geometry · Sidecar · StockCatalog · Latitude · ToneMask
-Import/       Library · ImageDecoder (Core Image) · FramePipeline · ThumbnailCache
-Canvas/       Renderer · Shaders.metal (layer2 · geometryResample · histogram ·
-              canvasFragment) · ColourManagement · overlays
-Service/      EngineClient (§8) · RenderScheduler (sent-vs-wanted coalescing) ·
-              EngineMessage (engine errors in words a user can act on)
-Export/       ExportPage · ExportRecipe · Exporter · SoftProof
-Agent/        AgentTools (the one tool table) · AgentWorkspace · AgentCLI · MCPServer
-Panels/ Controls/ Windows/ Theme/   the interface, drawn to the v4 layout
-Localization/ English · 简体中文 (enum display names stay English; tests pin them)
-Diagnostics/  Log · JobLog · MemoryArena · MemorySampler · DiskCacheStore
+App/          AppServices (the one @Observable model) · RootView · routes · launch arguments
+Mac/          the window and its pages: Library (LibraryUI/, Library/), Import/, Export/,
+              Settings/, LightTable/, Render/ (what is kept), MacShortcuts, the drive harnesses
+Features/     Develop (and Edit), Frame (crop), FilmEdge, Pair, Import, Export, Library, Settings
+Model/        FrameEdit · FilmParams (Layer 1, the wire) · StockCatalog · Geometry · FilmEdge ·
+              HalfFramePair · Localization · CurveMath
+Services/     OpenFrameSession · FrameCatalog (the app library) · import · library previews
+Scheduler/    RenderQueue · MemoryBudget · MemoryProbe · CostModel · Planner · SpkEngine
+Engine/       EngineRouter · EngineHost · FrameDecoder · RawProxy · OutputTransform ·
+              Layer2Renderer · FullRender · FullDetail · ExportPlan · ExportWriter
+FilmEdge/     the film's layout, ported from the engine (FilmLayout), and its canvas
+LightTable/   the light table (RFC-045)
+DesignSystem/ Theme, the shared parts, the interface scale, the app's own icons
+Diagnostics/  the log and the memory records
 ```
 
-### 7.1 The window (v4, 2026-09-26)
+### 7.1 The window
 
-Three regions and a filmstrip. Which rail a control is on says what moving it
-costs.
-
-| region | sections | runs in |
-|---|---|---|
-| **Film and Print** (left) | Navigator · Half-Frame Pair (on a pair) · Settings Clipboard · Film · Film Edge · Date Back · Print · Crop · Enlarger | the engine; Crop is geometry (below) — except under a film edge, where it is the negative (§7.11) |
-| **Parameters ▸ Pre-Dev** (right) | Latitude · Input / Camera · Film Format · Scene Placement | the engine, except Camera's white balance and lens correction, which are the **decode**. On a pair these are the picked frame's (§7.12) |
-| **Parameters ▸ Post-Dev** (right) | White Balance · Exposure · Curve · Color Balance | **Layer 2**, one draw |
-| canvas, top right | histogram · tier badges | reads, never writes |
-| filmstrip | one cell per frame | — |
-
-Costs, precisely:
+Capture One's arrangement in SpektraLab's language (`design/MAC-LIBRARY-UI.md` §8): one window, a
+left column whose mode row reads **Library · Develop · Edit**, the picture at the centre, and a browser
+of the current collection shared by every mode. The Light Table, Import, Export and Settings are
+full-window pages. Which part of the column a control is in says what moving it costs:
 
 | change | costs |
 |---|---|
-| Camera Temperature · Tint · Lens Correction | a re-decode (`CIRAWFilter`), then a render |
-| anything else on Film and Print or Pre-Dev | a `params_delta` and a render |
-| Post-Dev | one draw |
-| Crop · Straighten · turns · flips | one draw — geometry sits **after** the engine; `Exporter` applies it to the returned print |
-| Original (⎵ held) | one draw — shows the decode instead of the print |
+| Develop: film, paper, Film Exposure, effects, film edge, date back, enlarger, Scene Placement, the Decode curve | the engine: a reprint from the session's negative if the field is `print`-side, a develop if `shoot`-side (§8.5); a film-side drag develops when it rests or ends |
+| Develop: white balance, lens correction | a re-decode (Core Image), then a develop |
+| Develop's crop, straighten, turns, flips | the engine's cut: geometry is applied when the frame is read, before the meter (`ENGINE-WIRING.md` §4.3); under a film edge the host cuts instead (§7.11) |
+| Edit: Light, Curve, Colour | Layer 2: one GPU pass over the developed picture, no job (§7.2) |
+| Edit's crop | a crop of the finished picture, after the print (`FrameEdit.printCrop`) |
+| *Apply Film Emulation* off | Apple's own decode, cut by the crop, with Edit on top: no film, no paper, no session |
 
-- **Film Format is not metadata.** Format, side and length become one number
-  — the frame's long edge in mm — and the engine divides its µm quantities by
-  it. Call the same photograph 35 mm and its grain is coarser, correctly.
-  Cropping does not change it unless `recalculateEffectsAfterCrop` is on.
-- **Three white balances, three stages.** Camera's is the decode's (kelvin);
-  Post-Dev's is Layer 2's, on the scan; the enlarger's filter pack is what
-  **Solve** solves. Two stages never share a name.
-- **Latitude** reads the scene histogram *after* Scene Placement's curve
-  (`spk_scene_latitude`'s `placed_fractions`) and says why when it cannot
-  measure, rather than going blank.
-- **The interface scales** (`ui2.interfaceScale`); label columns scale with
-  the type.
+- **There is no live render.** A control's number follows the pointer; a render is a scheduled job
+  (RFC-036 §4, `Services/OpenFrameSession.swift`). Print-side edits are coalesced reprints; film-side
+  edits develop when the drag rests or ends.
+- **Film Format is not metadata.** Format, side and length become the frame's long edge in mm, and the
+  engine divides its µm quantities by it.
+- **Two crops.** Develop's crop is the negative's (the engine's cut, before the film); Edit's is the
+  finished picture's. They are different questions and are kept apart.
 
 ### 7.2 The two layers
 
 | | Layer 1 | Layer 2 |
 |---|---|---|
-| what | film, paper, camera, enlarger, placement, mask | exposure, curves, colour balance, WB on the scan |
-| where | the **engine** | a **Metal kernel in the app** |
-| cost | ~14 ms at the 2560 default, ~0.12 s native | sub-millisecond |
+| what | film, paper, camera decode, enlarger, placement, effects, the film edge | Edit's Light, Curve and Colour |
+| where | the **engine**, a job on `RenderQueue` | a pointwise **Metal pass in the app** (`Engine/Layer2Renderer.swift`, `Layer2Kernel.swift`) |
+| cost | a reprint or a develop | follows the pointer |
 
-A Layer 1 edit sends a `params_delta` and waits for pixels; a Layer 2 edit
-never leaves the app. Putting a control on the wrong side is the difference
-between a slider that tracks the mouse and one that does not.
+A Layer 1 edit sends a `params_delta` and waits for pixels; a Layer 2 edit never leaves the app. The
+page's picture, a tile's copy, an export and the zoom run the same Layer 2 functions, and
+`tools/layer2_selftest.swift` runs the kernels on the Mac's GPU against a reference. Layer 2 follows
+the print and never reaches back into the film or the paper (`AGENTS.md`, "Do not pollute the
+material model").
 
-`FilmParams.wire` is the one place Layer 1 field names live, each tagged
-`shoot` or `print`. `ParamsTests.testWireNamesMatchTheServiceSchema` and
-`parity_schema.py` pin them: **a rename fails a test instead of silently
-rejecting every delta.**
+`FilmParams.wire` (`Model/FilmParams.swift`) is the one place Layer 1 field names live, in a stable
+order; `AppServices.checkWire` holds them against the engine's `spk_params_schema` at every launch,
+so a name the engine does not know is reported rather than sent (`ENGINE-WIRING.md` §2, §4.2).
 
-### 7.3 Resolution: two states, not a ladder
+### 7.3 Resolution: the preview size, and full when it is asked for
 
-- **Preview:** every interactive edit renders at the preview long edge — 3840,
-  2560 (default), 1920 or 1080 — the engine's `live` tier.
-- **Original:** a render at the frame's own pixels, started 400 ms after the
-  edit stops and shown when it lands. One alive at a time.
-- **Zoom selects neither** (2026-09-12). The canvas is soft above the preview
-  edge until the original lands — the `preview` badge — and `full` means the
-  frame is on the canvas at its own size, at any zoom.
-
-45 MP, grain and glare off: a live reprint is 6.2 ms at 1600, 13.7 ms at 2560,
-121.7 ms at 8192.
+- **Preview.** Every frame is developed at the preview size Settings › Develop sets, for the library,
+  the browser and the develop page. The develop is kept, named by its stamp (§4, §7.6).
+- **Full.** A render at the frame's own pixels is a job of its own (`fullView`), made when the develop
+  page is zoomed past the preview (`FullDetail`), by the Light Table, or by an export at Full, and
+  kept as tiles (§4). The zoom reads only the tiles the screen touches, from the half size at half or
+  less, through the same output transform and Layer 2.
+- **`full` is never a reduced size.** A full-tier job decodes the original at its own size; a job
+  below it says what size it is (§6.2).
 
 ### 7.4 What the app does not do
 
-- **No display transform.** The canvas layer is tagged ProPhoto RGB and
-  ColorSync converts for the display (§7.5).
-- **No post-print editing beyond Layer 2.** The product edits the physical
-  process; retouching belongs to other software.
-- **No masks, for now.** Built, withdrawn behind `FeatureFlags.masks = false`
-  pending a redesign; the flag also stops sidecar masks reaching the kernel.
+- **No live render** (§7.1), and no picture that claims to be more than it is (§6.2).
+- **No grade after the print beyond Layer 2.** The product edits the physical process; retouching
+  belongs to other software.
+- **No writes beside the photograph.** The person's folders are written only where Export is told to
+  write (§7.6).
+- **No write to Capture One.** A Capture One catalog is read through a snapshot and never written; no
+  rating, label, album, trash flag or file goes back (§7.13).
+- **No masks, no agent door.** The 1.x masks and its CLI and MCP front doors (§A.4, §A.9) are not in
+  the Mac app.
 
 ### 7.5 The colour chain, end to end
 
-RFC-018. One working space, exactly one conversion per destination.
+RFC-018. One working space, exactly one conversion out of it per destination.
 
 | # | stage | space |
 |---|---|---|
-| 1 | RAW decode (Core Image) | linear ProPhoto float32 |
-| 2 | engine ingest | `io.input_color_space = "ProPhoto RGB"`, no decode |
-| 3 | engine interior | **no RGB space** — spectra → log exposure → density → print density → scan |
+| 1 | decode (`FrameDecoder`, Core Image; a RAW with a linear look) | scene-linear float32, ProPhoto RGB, in a buffer of the engine's device |
+| 2 | engine ingest | `spk_open_device`, no decode in the engine |
+| 3 | engine interior | **no RGB space**: spectra → log exposure → density → print density → scan |
 | 4 | gamut compression | CAM16-UCS into ProPhoto RGB |
-| 5 | engine output | **ProPhoto RGB, CCTF encoded** — the working space |
-| 6 | Layer 2, curves, geometry | ProPhoto RGB encoded |
-| 7a | canvas | layer tagged ProPhoto RGB; **ColorSync** converts to the display |
-| 7b | export | one output transform: CAM16 into the recipe's gamut, then its TRC; tagged, written, **no Core Graphics conversion** |
-| 7c | soft proof | the same transform, at the file's own resolution |
+| 5 | engine output | **ProPhoto RGB, CCTF encoded**: the working space, never sent as a setting |
+| 6a | a page | `OutputTransform` to Display P3, 16 bits, with Layer 2 inside the same pass |
+| 6b | a file | `OutputTransform` to the recipe's space (sRGB, Display P3, Adobe RGB, ProPhoto RGB) at its own depth: 8 bits written by the kernel for JPEG, HEIF and PNG, 16 for TIFF |
 
-- **No RGB working space inside the engine.** ProPhoto is the ingest and output
-  colorimetry, not an intermediate.
-- **Whatever goes in, ProPhoto comes out**, so every other space is a
-  compression of the output — which is why the gamut mapping belongs to the
-  export, not the display.
-- **The app reads the resolved output space** from the `open` reply
-  (`Session.workingSpaceName`) and never assumes it (`AGENTS.md` trap 28).
-- **The one trade:** the canvas clips out-of-display colour (ColorSync, matrix
-  profile) where the export rolls it off — 0.0012 % of a neutral frame. The
-  file is the thing that does not move.
-- **The TIFF default is Display P3**, which costs ~11 % chroma irreversibly
-  before grading starts. Choose ProPhoto in the recipe for a file you will
-  grade further.
+- **One conversion a destination** (`Engine/OutputTransform.swift`): the engine's own numbers
+  (`spk_output_transform`): the working space's curve off, a chromatically adapted 3 × 3, CAM16-UCS
+  gamut compression into the target, the target's curve on. The kernel is compiled at run time from
+  source with safe math, since no `.metal` file may be in the app's target. Its lightness stage is left
+  off: the engine ran it before encoding the working space, and a second pass compressed an export's
+  highlights (`ENGINE-WIRING.md` §6.1).
+- **The decode's Core Image working space has sRGB's primaries** (extended, linear, half floats): RAW 9
+  decoded Bayer files in the wrong colour with any other (`ENGINE-WIRING.md` §3.1).
+- **Whatever goes in, ProPhoto comes out**, so every other space is a compression of the output, which
+  is why the gamut mapping belongs to the output transform.
 
 ### 7.6 State: what lives where
 
 | what | where | survives |
 |---|---|---|
-| a frame's edits (params, adjustments, geometry, state) | one sidecar per frame in `~/Library/Application Support/SpektraLab/Sidecars/`, named `<file>-<sha256(path)[:16]>.spektra.json`; a moved or renamed file is recognised by a stored fingerprint. Old sidecars beside the image are migrated there on first read | everything |
-| app settings, layout, interface scale | `UserDefaults` (`ui2.*`, `diag.*`) | everything |
-| decodes and finished prints | the disk cache (§4) | until evicted; deleting it costs speed, never work |
-| the session log | `~/Library/Logs/SpektraLab/` (RFC-016), settable | its retention settings |
-| an export's job log | `<file>.joblog.jsonl` beside it — **opt-in** since 2026-09-26 (Settings ▸ Diagnostics) | — |
+| the sources, the app library, the catalogs the app makes | `~/Library/Application Support/<bundle id>/` (`MAC-LIBRARY-DATA.md` §3); the debug build's bundle id is `com.spektralab.mac.local` | everything |
+| a frame's edit (`FrameEdit`: the wire's settings, the decode, both crops, Edit's layer, the film edge, a pair's look) | its library: the app library (`library.json`) or the catalog it belongs to, through `spklib-host` | everything; on-disk and wire names are pinned (`tools/persisted_names.py`), and a 2.1.4 library is read and written back the same (`tools/persisted_check.swift`) |
+| a half-frame pair | `Pairs/<name>.spektrapair`, and a row of kind `pair` in its library (§7.12) | everything |
+| a SpektraLab catalog or session the person made | where the person put it (`<Name>.spkcatalog`, `<Name>/<Name>.spksession`) | everything |
+| a frame's develop, a RAW's preview decode, full renders | the caches (§4); a catalog's develops in its `Cache/Previews` | until evicted; deleting them costs time, never work |
+| settings | `UserDefaults` of the bundle id | everything |
+| the log | `~/Library/Application Support/<bundle id>/Logs`, 7 days, on this Mac; it leaves only when the person exports it | its 7 days |
 
-Nothing is written into the photo's folder except exports. A develop writes
-the sidecar and changes the exposure meter's input, so a test opens a **copy**
-of a fixture, never the fixture.
+- **Nothing is written beside the photograph** (trap 35). A test opens a **copy** of a fixture: a
+  develop writes the frame's edit and changes the exposure meter's input.
+- **What a picture claims.** A page shows what is kept; a picture that is not the print wears a label
+  (`TagPill`), and no reduced picture passes for the real one (§6.2).
 
 ### 7.7 Surfaces that show the frame
 
-Every surface that shows a frame shows the canvas's frame. This is the rule
-the navigator broke while every suite was green (§9).
+Every surface that shows a frame shows the develop's picture as the page shows it.
 
 | surface | shows | from |
 |---|---|---|
-| canvas | the output: geometry applied at draw | `Renderer` |
-| navigator | the cropped, turned frame only — it is a map of the canvas | the thumbnail through `Geometry.outputToSourceTransform` |
-| filmstrip, export strip, export grid | the **whole** photograph, the outside of the crop under an 82 % mask, turned and flipped (Capture One's behaviour) | `CropMaskedThumbnail`, with `Session.thumbnailGeometry(for:)`: the live geometry for the open frame, the saved one for the rest |
-| histogram | **known defect:** counts the uncropped print — `encodeHistogram` reads the Layer 2 texture before geometry | pinned by `SurfaceAgreementTests` |
-| exported file, agent preview | the output, via `Exporter.filePixels` | pinned by `SurfaceAgreementTests` |
+| the develop page's picture | the develop, with Edit's layer | the kept develop at the preview size; `FullDetail`'s tiles when zoomed past it |
+| the browser, the library grid | the kept develop | `DevelopedPicture`, drawn at the size it is shown; never developed again to draw a tile |
+| histogram | the picture as shown: R, G, B and luma, 256 bins | Layer 2's own histogram pass (`spkLayer2Histogram`) |
+| Light Table | the films at their true size | the kept develops, and full renders for a 1:1 read |
+| an exported file | the recipe's size and space | the same output transform and Layer 2 (§7.8) |
 
-`ThumbnailCache` holds the **uncropped** print thumbnail on purpose; each
-surface applies the geometry itself.
+The 1.x app's `SurfaceAgreementTests` (trap 33, §A.7) have no counterpart in the Mac app yet: a
+surface that shows the frame is checked by the drive harnesses and by looking at the running window
+(§9).
 
 ### 7.8 Export
 
-- **A recipe** is format, depth, colour space, long edge, naming and folder
-  (`ExportRecipe`). The export page proves the file at its own resolution
-  before it is written (soft proof, §7.5 row 7c) — measured identical to the
-  file, pixel for pixel.
-- **Batch is a loop, one frame at a time** (`ExportPage.run`): select →
-  `ensureDeveloped` → `Exporter.export` → next. No queue, no parallelism, no
-  database: one full render's peak, not N.
-- **The batch holds the frame.** The exporter writes *whatever frame is open*,
-  so while `Session.batchExporting` is set every person's way of changing the
-  open frame or the picked set is a no-op, the editor takes no hits, and agent
-  tools that touch a frame are refused. `select` itself is the run's own door.
-- **Stop** cancels between frames; a frame being written is finished whole.
-- **Files land whole.** `Exporter.write` finalises to a hidden
-  `.<name>.partial-*` and moves it into place, so a crash never leaves a
-  truncated file that a `.skip` recipe would keep as "already exists".
-- **The source EXIF rides through** as a side channel; ImageIO rewrites the
-  pixel dimensions to the file's own. Only typed shooting values ever make
-  pixels — the date back's text and the gate's f-number (`ShootingData`,
-  RFC-033, answer E10); the dictionary itself never reaches the engine.
+- **A recipe** is format, depth, colour space, size, naming and folder; saved recipes are kept and
+  edited in Settings (`MacSettingsRecipes`). The size a recipe names is made in the decode, at a long edge whose sides are both
+  whole and even, and the cut is the host's, with the film's millimetres carried down, so a cropped
+  frame keeps the grain and halation scale the develop page showed (`ENGINE-WIRING.md` §4.3).
+- **One job a picture** (`ExportService`, batched by `MacExportRun` on the Export page): priced,
+  queued and run like any other job; one full render's peak, not N.
+- **A kept full render is reused.** An export whose engine side is a kept full render's (same file,
+  decode, cut, wire and engine) is delivered from it in any space and container, and the engine is not
+  run (`FrameSource.cached`).
+- **Files land whole.** `ExportWriter` writes to a hidden `.<name>.partial-*` beside the destination,
+  reads it back, and moves it into place, so a crash never leaves a truncated file.
 
-### 7.9 Agents (RFC-026)
+### 7.9 Sizes: the largest frame, and the size a picture says
 
-```
-SpektraLab             the window
-SpektraLab cli <cmd>   one tool call, JSON out   (installed as `spektralab`)
-SpektraLab mcp         a Model Context Protocol server on stdio
-```
-
-- **Parity by construction.** All three run `Session` in the same binary:
-  open is `Session.open`, process is `solveNow`, export is `Exporter.export`,
-  edits land in the same sidecar. There is no second implementation to drift.
-- **`AgentTools` is the one table** of tools, arguments and commands; the CLI
-  and MCP are two encodings of it.
-- **Off by default.** Every tool is refused until Settings ▸ Agents turns
-  access on, and while a batch export runs.
-- A patch is validated whole before anything is applied; ranges are the
-  interface's ranges.
+There is no cap on what is offered: every export size is offered (the owner, 2026-10-20). A frame
+larger than a job's memory allows is not refused; it is decoded smaller and labelled with the size it
+was developed at (`DevicePolicy`, §6.2). Settings › Diagnostics › This build shows the budget a job
+would be given now, and which of the machine's headroom and the app's own allowance binds.
 
 ### 7.10 Keys
 
-Capture One's single-key shortcuts (V/H/C tools, ←/→ frames, `,`/`.` zoom,
-Y compare) are menu items, and AppKit offers a key to the menu **before** the
-focused text field — measured: a modifier-free ← fired "next frame" from
-inside a field. `TypingKeyGuard` is a local key monitor that sends typing keys
-(characters, arrows, delete) straight to a focused editable text view.
-⌘/⌃ combinations and Return, Enter, Esc, Tab still reach the menu.
+- **Capture One's default keys** (`Mac/MacShortcuts.swift`), with the approved Mac conflicts
+  resolved. The binding list owns keys; pages own actions (`MacShortcutButton(.crop) { … }`). The
+  responder chain and the menu read the same registrations, and a registration belongs to a view, so
+  an outgoing page cannot unregister its replacement's key.
+- **Catalyst drops a plain key** given to `keyboardShortcut` without a modifier, and a tapped text
+  field never resigns. A plain key is therefore the window's own command (`MacKeyAnchor`), and a
+  focused field keeps its typing keys.
 
 ### 7.11 Film Edge and Date Back (RFC-032, RFC-031)
 
-- **The film is the canvas.** With a film edge on, the engine is handed the
-  decode **cut by the crop** and returns the whole film canvas — gate, rebate,
-  holes. The crop is therefore in the negative: `FilmParams.cutsFrame`
-  is the one question ("is the engine's frame cut?"), `Session.canvasGeometry`
-  is the identity while the film shows, and the crop tool frames the decode
-  over the film print (`filmEdgeFraming`). The date alone, under a crop, a turn
-  or a flip, cuts the frame the same way.
-- **Formats** are the engine's table (`overscan.cpp` `kFormats`): 135, 135
-  half, XPan, 645, 6×6, 6×7, 6×8, 6×9, 6×12, 6×17. The gate's shape, the edge
-  print and the frame number are per stock, measured on the owner's strips;
-  the edge text is the film's own words (`Session.edgeText`), never its
-  marketing name, and the engine prints no maker's name of its own.
-- **A re-decode holds the film.** A white balance change, or a pair's frame
-  moved, re-decodes the frame; the bare decode is another shape with no film,
-  so it is not put over a film canvas a develop is about to replace
-  (`Session.holdsFilmCanvas`). Without a film edge the new decode is shown at
-  once, as before.
-- **The print stamp carries the framing** (`Session.printStamp`), because the
-  same parameters with another framing is another picture.
+- **The engine draws the film.** The rebate, the holes, the edge print and the date are exposure on the
+  negative, and the picture the engine hands back is the film's canvas, larger than the picture
+  (API-SPEC §15). `FilmWire` sends `overscan_*` and `date_imprint_*` in the model's own words.
+- **With a film edge the host cuts the picture, not the engine** (`FrameEdit.hostCut`, made in
+  `FrameDecoder`), and the wire's own cut is none: the engine sets the film's millimetres from the frame
+  it is handed. A film turned half round is the host's doing too, by whole quarter turns, with no
+  resampling (`ENGINE-WIRING.md` §4.4).
+- **A page never decides where anything on a film is.** It asks for the film's geometry
+  (`AppServices.filmEdge(for:edit:)`) and draws it with `FilmCanvasView`, as a guide over the
+  undeveloped picture or where the develop belongs. `tools/film_edge_parity.py` holds the app's port of
+  the engine's layout (`FilmLayout`) against the engine's render, case by case (`PAGES.md` §6).
+- **Formats** are the engine's table (`overscan.cpp` `kFormats`, §8.10); a format a stock was never made
+  in, or a date face a camera never printed, is shown and cannot be chosen, and the page says why. The
+  edge's words are `Stock.edgeText`, never a marketing name.
 
 ### 7.12 The half-frame pair
 
-- **A pair is a file**, `.spektrapair` JSON under `Sidecars/Pairs`, and its URL
-  is a filmstrip `Frame`. It references two frames; it does not own them.
-  Its look is an ordinary sidecar for that URL.
-- **Its decode is composed** (`PairComposer.decode`): each frame decoded with
-  its own white balance, framed by its own geometry, placed under its hole
-  (`Hole.placement`: scale, x, y, quarter turns) on one piece — the gap black
-  — no longer than one frame. Each hole is rendered once and kept, keyed on
-  everything its pixels depend on; the display side is the files' embedded
-  previews. One decode and one engine session, as for any frame.
-- **One meter reading per hole.** The engine's meter would read both pictures
-  and the gap as one scene, so each hole is metered alone and its gain applied
-  to the piece (`PairComposer.exposed`; the engine's auto exposure is exactly
-  a gain of 2^EV), with the engine's own meter off.
-- **Per-frame print.** One negative is printed up to three times in one actor
-  call (`EngineClient.renderLayers`), graded, and cut together by a Metal
-  kernel (`Renderer.compositePair`). While no frame prints or grades for
-  itself (`pairIsLayered`), the piece is one print and none of this runs.
-  A native render is kept under a stamp that carries the frames' own prints.
-- **The rails act on the picked frame** (`focusSide`): meter, Film Exposure,
-  white balance and lens correction (written to the frame's own sidecar —
-  the shot is the frame's in every pair and alone), Scene Placement
-  (`scene_latitude_split` and the `_b_` fields), the Enlarger and Post-Dev,
-  with a *Frame / + Film* scope. With the film picked, the Enlarger moves
-  every frame's own print with it. A section never vanishes on a pair.
-- **A crop gesture is one write.** A drag, a scroll, a pinch or a slider shows
-  the frame's framed preview under the hole at once (`PairDrag`), is written
-  when it rests — one undo step, one save, one develop — and stays up until
-  that develop lands. The zoom holds the point under the pointer; the piece's
-  size does not depend on a placement's scale.
+- **To the engine a pair is one frame.** The host composes both pictures onto one piece of film and
+  hands the engine that buffer. The engine is told four things a frame is not: the piece's millimetres,
+  that its meter is off (each picture's exposure is already in its pixels), that a film edge carries
+  two exposures (`overscan_pair`), and where the second frame begins (`scene_latitude_split`)
+  (`PAIR-WIRING.md` §1).
+- **A pair is a library item and a row.** One `LibraryFrame` whose edit is the pair's look and which
+  carries the `HalfFramePair`; on the Mac also a row of kind `pair` in the library it was made in,
+  pointing at `Pairs/<name>.spektrapair` (spklib 0.3.1, `MAC-LIBRARY-DATA.md` §2i). A pair never owns
+  a frame: removing a frame leaves its hole *Missing* and the export refused.
+- **The shot stays the frame's.** Each hole's decode and geometry are read again from its frame every
+  time the pair is opened or developed (`HalfFramePair.mirror`).
+- **A frame's own print** (`PAIR-WIRING.md` §12): one negative printed up to three times and cut
+  together, while a frame prints or grades for itself.
 
-### 7.13 The library: order, selection, sync
+### 7.13 The library
 
-- **Order is the folder's.** A thumbnail dragged over another takes its place
-  (`Session.moveFrame`); the order is one small file per folder under
-  `Sidecars/Order` (`FrameOrder`), laid over the listing on open. Frames it
-  does not name stay after their neighbour.
-- **One door for dropped files** (`Session.dropped(files:)`): files from
-  outside are opened (one file is "edit this"); the strip's own thumbnail is
-  ignored; a file of the open folder goes on the canvas with the folder still
-  around it.
-- **Select all and Sync** (⌘A, Settings Clipboard ▸ Sync to N) write the ticked
-  groups from the current frame to the picked set through the clipboard's own
-  rules; there is no batch undo.
+- **Sources, one row each** (`MAC-LIBRARY-DATA.md` §1): the app library, SpektraLab catalogs and
+  sessions, Capture One catalogs and sessions read one way, and folders linked from Finder. Each has a
+  collection tree laid out like Capture One's Library tool, and rows loaded a page at a time.
+- **The helper owns the database.** `CatalogSourcesStore` (`Mac/Library/`) is the one
+  `@Observable @MainActor` store over `spklib-host`; it starts no process and reads no file until a view
+  calls `start()`. The helper's methods and their guarantees are `API-SPEC-library-helper.md` and the
+  SDK's own `API-SPEC.md`.
+- **Capture One, one way.** The helper copies `<Name>.cocatalogdb` to a temporary place, checks the
+  copy, and reads only the copy; it refuses while Capture One holds a hot journal. What SpektraLab keeps
+  about those pictures is kept in a mirror, `Libraries/Linked/<document UUID>.spkcatalog`.
+- **A linked folder's files are never moved, renamed or deleted;** `folders.sync` writes rows only.
+- **Previews are the library's** (`MAC-LIBRARY-DATA.md` §2j): a catalog's develops live in its own
+  `Cache/Previews`, so a catalog carries its previews with it.
+
+### 7.14 The Light Table
+
+RFC-045: the website's light table (`spektralab.app/lighttable`) ported to the app, an A4 light pad
+seen straight down, measured in millimetres, with the library's frames lying on it at their true size.
+`LightTableModel.swift` is the website's arithmetic ported statement for statement, so a film put down
+in the app lies where the website would put it. Its full-size reads are full renders, shared with the
+develop page (`FullRenderJobs`: made once, whoever asks).
+
+### 7.15 Languages
+
+English, 简体中文, 繁體中文 and 日本語 (`LOCALIZATION.md`). Every sentence a page shows goes through
+`L("…")`; Settings › General › Language is the one setting, with no "follow the system", and the
+first launch takes the system's preferred languages once. `tools/localization_check.py` holds every
+sentence in four languages, in the right script, looked up where it is shown. A film's or a paper's
+name is the catalogue's (`Stock.name`), never a profile id.
 
 ---
 
@@ -600,13 +588,10 @@ engine/tests/           seven parity harnesses, three C++ drivers, the math guar
 engine/build.sh         lib | dylib | metallib | tests | bundle | all
 ```
 
-In 1.x the engine compiled **into the app target**; `Tools/gen-project.py`
-listed its translation units, so a new `.cpp` needed the generator or it was
-silently not compiled (a link error, not a missing-file error). In SpektraLab 2
-`app/SpektraLab/tools/build_engine_mac.sh` compiles every
-`engine/src/{core,gpu,pipeline}/*.cpp` into `libspektralab_engine.a`, so a new
-file there is picked up by running it again; a stale library is the same link
-error.
+The Mac app links the engine as a static library: `app/SpektraLab/tools/build_engine_mac.sh` compiles
+every `engine/src/{core,gpu,pipeline}/*.cpp` for both Catalyst architectures into
+`libspektralab_engine.a`, so a new file there is picked up by running it again, and a stale library
+is a link error (`ENGINE-WIRING.md` §1).
 
 ### 8.2 The C ABI
 
@@ -745,26 +730,22 @@ rebuild them, or three harnesses grade a stale engine green.
 
 Opening a 24 MP RAW is ~2.0 s, ~1.6 s of it Core Image.
 
-**The bundle is 32 MB, and ~3 MB of it is code.** 15 MB is engine data
-(constants — mostly the float16 Hanatos spectra and the 3.45 MB of print
-LUTs — plus 5.8 MB of profiles), 13 MB is `Assets.car` (the Icon Composer
-icon's SVG layers, which `actool` keeps so the system can compose light, dark
-and tinted renderings), 3.3 MB the executable (app + engine), 148 kB the
-canvas metallib. Everything else is a system framework: Metal, SwiftUI, Core
-Image, ImageIO, CryptoKit, `libsqlite3`.
+**The 2.2.0 app is 68 MB** (measured on the released DMG's app): the executable 27.8 MB (app and
+engine, arm64 and x86_64), `EngineResources/` 24.8 MB (6.1 MB of profiles, 6.3 MB of minilab tables,
+the 0.2 MB metallib and its 0.9 MB archive, and the baked constants), `Assets.car` 12.0 MB (the Icon
+Composer icon's layers), and `spklib-host` 2.0 MB. Everything else is a system framework.
 
 ### 8.8 Export methods
 
-| method | the engine does | Swift does |
+| method | the engine does | the Mac app does |
 |---|---|---|
-| `export` | `spk_reprint` at the full tier | Layer 2, geometry, the file (ImageIO) |
-| `preview_stock_lut` | the negative through the trilinear kernel | draws or writes it |
-| `export_di` | the negative normalised by the LUT's axes, and the table | the 16-bit TIFF and the `.cube`, one folder |
+| a render (`spk_render`, `spk_reprint`) at the job's tier | the print, in the working space | the output transform, Layer 2 and the file (ImageIO, §7.8) |
+| `preview_stock_lut` | the negative through the trilinear kernel | not called by the Mac app |
+| `export_di` | the negative normalised by the LUT's axes, and the table | not called by the Mac app (1.x's Digital Intermediate export, §A.8) |
 
-**No file writer in the engine**, by design: ImageIO already writes the formats
-and owns the colour tagging. The DI TIFF is **device RGB, not a colour** — its
-channels are film densities the `.cube` indexes — and `PrintLUTTests` asserts
-it carries no profile. The package is one folder of exactly two files.
+**No file writer in the engine**, by design: ImageIO already writes the formats and owns the colour
+tagging. The DI TIFF the engine can make is **device RGB, not a colour**: its channels are film
+densities the `.cube` indexes, and it carries no profile.
 
 ### 8.9 Node timings measure encode time unless you ask
 
@@ -794,9 +775,319 @@ not.
 
 ## 9. Verification
 
-The 1.x app's suites below are history; SpektraLab 2 verifies the app with
-`app/SpektraLab/tools/*_selftest*` and a Debug and a Release build, and the
-engine with the same `engine/tests/`. The principles in the list hold for both.
+```
+app/SpektraLab/tools/selftest.sh   the app's self-tests, no Xcode project: the scheduler, the Latitude card and
+                                    the placement solve, the host's cut, an export's arithmetic and recipes,
+                                    the develop page's panels, a pair's arithmetic and cut, the film-edge flow,
+                                    Develop's strips, storage, Supporters, the log, the language and every
+                                    sentence, Layer 2's kernels on this Mac's GPU, the persisted 2.1.4 formats
+                                    (~320 s on this Mac)
+app/SpektraLab/tools/film_edge_parity.py --engine engine   the app's film layout against the engine's render
+the drive harnesses                 --library-check, --import-check, --export-check, --render-check,
+                                    --settings-check, --lighttable-check, --catalog-check, --clipboard-check,
+                                    --drop-check, --mac-drive: the real window driven from a launch argument,
+                                    writing a report
+app/SpektraLab/tools/snapshot.sh    every page drawn offscreen, in any of the four languages
+engine/tests/                       the parity harnesses (§8.6), gpu_smoke, check_math_guard.sh
+CI (.github/workflows/build.yml)    a clean checkout builds: Debug, Mac Catalyst, Xcode 27
+```
+
+- **Read the duration, not the failure count.** A full self-test run takes minutes; a run that skipped
+  its fixture cases also reports 0 failures (trap 26).
+- **Build Release as well as Debug** before calling a change done: a release path that reaches code
+  under `#if DEBUG` compiles in Debug and fails in Release.
+- **A guard must be seen to fire.** New regression tests are shown red on the old behaviour first;
+  harness-level checks carry a control that reproduces the bug without the fix
+  (`film_edge_parity.py --self-test`: 9 broken layouts, 9 caught; `check_math_guard.sh`).
+- **An offscreen snapshot is not the window.** It cannot see a Metal layer, a stall or the window's own
+  chrome; the drive harnesses and `--capture-window` capture the real window. A report with 0 failures
+  that a person has not clicked through is said to be so.
+- **A green unit is not a correct surface** (trap 33). The Mac app has no surface-agreement suite yet
+  (§7.7); look at the running app.
+- **Engine parity** runs only when engine inputs, kernels, resources or the render boundary changed
+  (`docs/agents/BUILD-AND-TEST.md`).
+
+---
+
+## Appendix A. The 1.x app (`modern_UI/Spektrafilm`), history
+
+The 1.x app was SwiftUI and AppKit with a Metal canvas, one arm64 binary of 32 MB. Its sources are no
+longer in this tree (they are on the branch `main_v1` of the public repository). It is kept here
+because the Windows and Linux port (`desktop/`) and some engine comments were written against it and
+cite its sections as §7.1–§7.13: read them as §A.1–§A.13. The rules it established (one colour chain,
+every surface shows the canvas's frame, export develops again from the original, files land whole)
+carry over to the Mac app (§7).
+
+SwiftUI for panels, AppKit for windows and keys, Metal for the canvas.
+
+```
+Model/        Session · Params (Layer 1, the wire) · Adjustments (Layer 2) ·
+              Geometry · Sidecar · StockCatalog · Latitude · ToneMask
+Import/       Library · ImageDecoder (Core Image) · FramePipeline · ThumbnailCache
+Canvas/       Renderer · Shaders.metal (layer2 · geometryResample · histogram ·
+              canvasFragment) · ColourManagement · overlays
+Service/      EngineClient (§8) · RenderScheduler (sent-vs-wanted coalescing) ·
+              EngineMessage (engine errors in words a user can act on)
+Export/       ExportPage · ExportRecipe · Exporter · SoftProof
+Agent/        AgentTools (the one tool table) · AgentWorkspace · AgentCLI · MCPServer
+Panels/ Controls/ Windows/ Theme/   the interface, drawn to the v4 layout
+Localization/ English · 简体中文 (enum display names stay English; tests pin them)
+Diagnostics/  Log · JobLog · MemoryArena · MemorySampler · DiskCacheStore
+```
+
+### A.1 The window (v4, 2026-09-26)
+
+Three regions and a filmstrip. Which rail a control is on says what moving it
+costs.
+
+| region | sections | runs in |
+|---|---|---|
+| **Film and Print** (left) | Navigator · Half-Frame Pair (on a pair) · Settings Clipboard · Film · Film Edge · Date Back · Print · Crop · Enlarger | the engine; Crop is geometry (below) — except under a film edge, where it is the negative (§A.11) |
+| **Parameters ▸ Pre-Dev** (right) | Latitude · Input / Camera · Film Format · Scene Placement | the engine, except Camera's white balance and lens correction, which are the **decode**. On a pair these are the picked frame's (§A.12) |
+| **Parameters ▸ Post-Dev** (right) | White Balance · Exposure · Curve · Color Balance | **Layer 2**, one draw |
+| canvas, top right | histogram · tier badges | reads, never writes |
+| filmstrip | one cell per frame | — |
+
+Costs, precisely:
+
+| change | costs |
+|---|---|
+| Camera Temperature · Tint · Lens Correction | a re-decode (`CIRAWFilter`), then a render |
+| anything else on Film and Print or Pre-Dev | a `params_delta` and a render |
+| Post-Dev | one draw |
+| Crop · Straighten · turns · flips | one draw — geometry sits **after** the engine; `Exporter` applies it to the returned print |
+| Original (⎵ held) | one draw — shows the decode instead of the print |
+
+- **Film Format is not metadata.** Format, side and length become one number
+  — the frame's long edge in mm — and the engine divides its µm quantities by
+  it. Call the same photograph 35 mm and its grain is coarser, correctly.
+  Cropping does not change it unless `recalculateEffectsAfterCrop` is on.
+- **Three white balances, three stages.** Camera's is the decode's (kelvin);
+  Post-Dev's is Layer 2's, on the scan; the enlarger's filter pack is what
+  **Solve** solves. Two stages never share a name.
+- **Latitude** reads the scene histogram *after* Scene Placement's curve
+  (`spk_scene_latitude`'s `placed_fractions`) and says why when it cannot
+  measure, rather than going blank.
+- **The interface scales** (`ui2.interfaceScale`); label columns scale with
+  the type.
+
+### A.2 The two layers
+
+| | Layer 1 | Layer 2 |
+|---|---|---|
+| what | film, paper, camera, enlarger, placement, mask | exposure, curves, colour balance, WB on the scan |
+| where | the **engine** | a **Metal kernel in the app** |
+| cost | ~14 ms at the 2560 default, ~0.12 s native | sub-millisecond |
+
+A Layer 1 edit sends a `params_delta` and waits for pixels; a Layer 2 edit
+never leaves the app. Putting a control on the wrong side is the difference
+between a slider that tracks the mouse and one that does not.
+
+`FilmParams.wire` is the one place Layer 1 field names live, each tagged
+`shoot` or `print`. `ParamsTests.testWireNamesMatchTheServiceSchema` and
+`parity_schema.py` pin them: **a rename fails a test instead of silently
+rejecting every delta.**
+
+### A.3 Resolution: two states, not a ladder
+
+- **Preview:** every interactive edit renders at the preview long edge — 3840,
+  2560 (default), 1920 or 1080 — the engine's `live` tier.
+- **Original:** a render at the frame's own pixels, started 400 ms after the
+  edit stops and shown when it lands. One alive at a time.
+- **Zoom selects neither** (2026-09-12). The canvas is soft above the preview
+  edge until the original lands — the `preview` badge — and `full` means the
+  frame is on the canvas at its own size, at any zoom.
+
+45 MP, grain and glare off: a live reprint is 6.2 ms at 1600, 13.7 ms at 2560,
+121.7 ms at 8192.
+
+### A.4 What the app does not do
+
+- **No display transform.** The canvas layer is tagged ProPhoto RGB and
+  ColorSync converts for the display (§A.5).
+- **No post-print editing beyond Layer 2.** The product edits the physical
+  process; retouching belongs to other software.
+- **No masks, for now.** Built, withdrawn behind `FeatureFlags.masks = false`
+  pending a redesign; the flag also stops sidecar masks reaching the kernel.
+
+### A.5 The colour chain, end to end
+
+RFC-018. One working space, exactly one conversion per destination.
+
+| # | stage | space |
+|---|---|---|
+| 1 | RAW decode (Core Image) | linear ProPhoto float32 |
+| 2 | engine ingest | `io.input_color_space = "ProPhoto RGB"`, no decode |
+| 3 | engine interior | **no RGB space** — spectra → log exposure → density → print density → scan |
+| 4 | gamut compression | CAM16-UCS into ProPhoto RGB |
+| 5 | engine output | **ProPhoto RGB, CCTF encoded** — the working space |
+| 6 | Layer 2, curves, geometry | ProPhoto RGB encoded |
+| 7a | canvas | layer tagged ProPhoto RGB; **ColorSync** converts to the display |
+| 7b | export | one output transform: CAM16 into the recipe's gamut, then its TRC; tagged, written, **no Core Graphics conversion** |
+| 7c | soft proof | the same transform, at the file's own resolution |
+
+- **No RGB working space inside the engine.** ProPhoto is the ingest and output
+  colorimetry, not an intermediate.
+- **Whatever goes in, ProPhoto comes out**, so every other space is a
+  compression of the output — which is why the gamut mapping belongs to the
+  export, not the display.
+- **The app reads the resolved output space** from the `open` reply
+  (`Session.workingSpaceName`) and never assumes it (`AGENTS.md` trap 28).
+- **The one trade:** the canvas clips out-of-display colour (ColorSync, matrix
+  profile) where the export rolls it off — 0.0012 % of a neutral frame. The
+  file is the thing that does not move.
+- **The TIFF default is Display P3**, which costs ~11 % chroma irreversibly
+  before grading starts. Choose ProPhoto in the recipe for a file you will
+  grade further.
+
+### A.6 State: what lives where
+
+| what | where | survives |
+|---|---|---|
+| a frame's edits (params, adjustments, geometry, state) | one sidecar per frame in `~/Library/Application Support/SpektraLab/Sidecars/`, named `<file>-<sha256(path)[:16]>.spektra.json`; a moved or renamed file is recognised by a stored fingerprint. Old sidecars beside the image are migrated there on first read | everything |
+| app settings, layout, interface scale | `UserDefaults` (`ui2.*`, `diag.*`) | everything |
+| decodes and finished prints | the disk cache (§4) | until evicted; deleting it costs speed, never work |
+| the session log | `~/Library/Logs/SpektraLab/` (RFC-016), settable | its retention settings |
+| an export's job log | `<file>.joblog.jsonl` beside it — **opt-in** since 2026-09-26 (Settings ▸ Diagnostics) | — |
+
+Nothing is written into the photo's folder except exports. A develop writes
+the sidecar and changes the exposure meter's input, so a test opens a **copy**
+of a fixture, never the fixture.
+
+### A.7 Surfaces that show the frame
+
+Every surface that shows a frame shows the canvas's frame. This is the rule
+the navigator broke while every suite was green (§A.14).
+
+| surface | shows | from |
+|---|---|---|
+| canvas | the output: geometry applied at draw | `Renderer` |
+| navigator | the cropped, turned frame only — it is a map of the canvas | the thumbnail through `Geometry.outputToSourceTransform` |
+| filmstrip, export strip, export grid | the **whole** photograph, the outside of the crop under an 82 % mask, turned and flipped (Capture One's behaviour) | `CropMaskedThumbnail`, with `Session.thumbnailGeometry(for:)`: the live geometry for the open frame, the saved one for the rest |
+| histogram | **known defect:** counts the uncropped print — `encodeHistogram` reads the Layer 2 texture before geometry | pinned by `SurfaceAgreementTests` |
+| exported file, agent preview | the output, via `Exporter.filePixels` | pinned by `SurfaceAgreementTests` |
+
+`ThumbnailCache` holds the **uncropped** print thumbnail on purpose; each
+surface applies the geometry itself.
+
+### A.8 Export
+
+- **A recipe** is format, depth, colour space, long edge, naming and folder
+  (`ExportRecipe`). The export page proves the file at its own resolution
+  before it is written (soft proof, §A.5 row 7c) — measured identical to the
+  file, pixel for pixel.
+- **Batch is a loop, one frame at a time** (`ExportPage.run`): select →
+  `ensureDeveloped` → `Exporter.export` → next. No queue, no parallelism, no
+  database: one full render's peak, not N.
+- **The batch holds the frame.** The exporter writes *whatever frame is open*,
+  so while `Session.batchExporting` is set every person's way of changing the
+  open frame or the picked set is a no-op, the editor takes no hits, and agent
+  tools that touch a frame are refused. `select` itself is the run's own door.
+- **Stop** cancels between frames; a frame being written is finished whole.
+- **Files land whole.** `Exporter.write` finalises to a hidden
+  `.<name>.partial-*` and moves it into place, so a crash never leaves a
+  truncated file that a `.skip` recipe would keep as "already exists".
+- **The source EXIF rides through** as a side channel; ImageIO rewrites the
+  pixel dimensions to the file's own. Only typed shooting values ever make
+  pixels — the date back's text and the gate's f-number (`ShootingData`,
+  RFC-033, answer E10); the dictionary itself never reaches the engine.
+
+### A.9 Agents (RFC-026)
+
+```
+SpektraLab             the window
+SpektraLab cli <cmd>   one tool call, JSON out   (installed as `spektralab`)
+SpektraLab mcp         a Model Context Protocol server on stdio
+```
+
+- **Parity by construction.** All three run `Session` in the same binary:
+  open is `Session.open`, process is `solveNow`, export is `Exporter.export`,
+  edits land in the same sidecar. There is no second implementation to drift.
+- **`AgentTools` is the one table** of tools, arguments and commands; the CLI
+  and MCP are two encodings of it.
+- **Off by default.** Every tool is refused until Settings ▸ Agents turns
+  access on, and while a batch export runs.
+- A patch is validated whole before anything is applied; ranges are the
+  interface's ranges.
+
+### A.10 Keys
+
+Capture One's single-key shortcuts (V/H/C tools, ←/→ frames, `,`/`.` zoom,
+Y compare) are menu items, and AppKit offers a key to the menu **before** the
+focused text field — measured: a modifier-free ← fired "next frame" from
+inside a field. `TypingKeyGuard` is a local key monitor that sends typing keys
+(characters, arrows, delete) straight to a focused editable text view.
+⌘/⌃ combinations and Return, Enter, Esc, Tab still reach the menu.
+
+### A.11 Film Edge and Date Back (RFC-032, RFC-031)
+
+- **The film is the canvas.** With a film edge on, the engine is handed the
+  decode **cut by the crop** and returns the whole film canvas — gate, rebate,
+  holes. The crop is therefore in the negative: `FilmParams.cutsFrame`
+  is the one question ("is the engine's frame cut?"), `Session.canvasGeometry`
+  is the identity while the film shows, and the crop tool frames the decode
+  over the film print (`filmEdgeFraming`). The date alone, under a crop, a turn
+  or a flip, cuts the frame the same way.
+- **Formats** are the engine's table (`overscan.cpp` `kFormats`): 135, 135
+  half, XPan, 645, 6×6, 6×7, 6×8, 6×9, 6×12, 6×17. The gate's shape, the edge
+  print and the frame number are per stock, measured on the owner's strips;
+  the edge text is the film's own words (`Session.edgeText`), never its
+  marketing name, and the engine prints no maker's name of its own.
+- **A re-decode holds the film.** A white balance change, or a pair's frame
+  moved, re-decodes the frame; the bare decode is another shape with no film,
+  so it is not put over a film canvas a develop is about to replace
+  (`Session.holdsFilmCanvas`). Without a film edge the new decode is shown at
+  once, as before.
+- **The print stamp carries the framing** (`Session.printStamp`), because the
+  same parameters with another framing is another picture.
+
+### A.12 The half-frame pair
+
+- **A pair is a file**, `.spektrapair` JSON under `Sidecars/Pairs`, and its URL
+  is a filmstrip `Frame`. It references two frames; it does not own them.
+  Its look is an ordinary sidecar for that URL.
+- **Its decode is composed** (`PairComposer.decode`): each frame decoded with
+  its own white balance, framed by its own geometry, placed under its hole
+  (`Hole.placement`: scale, x, y, quarter turns) on one piece — the gap black
+  — no longer than one frame. Each hole is rendered once and kept, keyed on
+  everything its pixels depend on; the display side is the files' embedded
+  previews. One decode and one engine session, as for any frame.
+- **One meter reading per hole.** The engine's meter would read both pictures
+  and the gap as one scene, so each hole is metered alone and its gain applied
+  to the piece (`PairComposer.exposed`; the engine's auto exposure is exactly
+  a gain of 2^EV), with the engine's own meter off.
+- **Per-frame print.** One negative is printed up to three times in one actor
+  call (`EngineClient.renderLayers`), graded, and cut together by a Metal
+  kernel (`Renderer.compositePair`). While no frame prints or grades for
+  itself (`pairIsLayered`), the piece is one print and none of this runs.
+  A native render is kept under a stamp that carries the frames' own prints.
+- **The rails act on the picked frame** (`focusSide`): meter, Film Exposure,
+  white balance and lens correction (written to the frame's own sidecar —
+  the shot is the frame's in every pair and alone), Scene Placement
+  (`scene_latitude_split` and the `_b_` fields), the Enlarger and Post-Dev,
+  with a *Frame / + Film* scope. With the film picked, the Enlarger moves
+  every frame's own print with it. A section never vanishes on a pair.
+- **A crop gesture is one write.** A drag, a scroll, a pinch or a slider shows
+  the frame's framed preview under the hole at once (`PairDrag`), is written
+  when it rests — one undo step, one save, one develop — and stays up until
+  that develop lands. The zoom holds the point under the pointer; the piece's
+  size does not depend on a placement's scale.
+
+### A.13 The library: order, selection, sync
+
+- **Order is the folder's.** A thumbnail dragged over another takes its place
+  (`Session.moveFrame`); the order is one small file per folder under
+  `Sidecars/Order` (`FrameOrder`), laid over the listing on open. Frames it
+  does not name stay after their neighbour.
+- **One door for dropped files** (`Session.dropped(files:)`): files from
+  outside are opened (one file is "edit this"); the strip's own thumbnail is
+  ignored; a file of the open folder goes on the canvas with the folder still
+  around it.
+- **Select all and Sync** (⌘A, Settings Clipboard ▸ Sync to N) write the ticked
+  groups from the current frame to the picked set through the clipboard's own
+  rules; there is no batch undo.
+
+### A.14 Verification (1.x)
 
 ```
 SpektrafilmTests      the full suite — ~550 tests, ~350 s with fixtures
@@ -829,3 +1120,26 @@ engine/tests/         parity harnesses (§8.6), gpu_smoke, check_math_guard.sh
   `CAMetalLayer`; `Tools/capture-live.sh` photographs the real window and is
   the only capture that proves the canvas draws. Neither sees a stall; the
   canvas log (`SPEKTRAFILM_CANVAS_LOG=1`) does.
+
+### A.15 Memory (1.x)
+
+What §4 said of the 1.x app:
+
+- **One full-resolution render at a time.** Interactive renders are at the
+  preview edge; the native render runs once after edits settle (§A.3).
+- **Exports run one frame at a time** (§A.8) for the same reason: two full
+  renders at 100 MP do not fit.
+- **The arena accounts, it does not own** (RFC-019). `Diagnostics/MemoryArena`
+  registers every large holding with an evict closure against two settings:
+  a reserve left for the machine and a working-set cap for the app.
+- **A disk cache below RAM** (RFC-019 §8). `DiskCacheStore` keeps decodes and
+  finished prints under `~/Library/Caches/com.hanze.spektralab/store/`: payload
+  files in hashed folders, one SQLite index (`index.sqlite`, system
+  `libsqlite3`) ranking entries GDSF-style by recompute cost, hits and age.
+  The file is complete before its row is written; a row without a file is
+  garbage, a file without a row is swept at launch. Default cap **8 GB**,
+  settable. Finished prints reach it through `PrintWriteback`, a bounded
+  FIFO that drops the oldest past ~500 MB — a dropped entry only costs a
+  re-render.
+- **Export never enlarges.** `OutputSize.pixels(for:)` returns no resample at
+  or above the frame's own long edge.
