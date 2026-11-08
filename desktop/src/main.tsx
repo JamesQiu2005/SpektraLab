@@ -8,7 +8,7 @@ import { settingsStore } from './state/settings';
 import { boot } from './state/session';
 import { EditorWindow } from './windows/EditorWindow';
 import { installKeys, webviewOwnsMenuKeys } from './windows/keys';
-import { MENU_CHORDS, installMenu } from './windows/menus';
+import { MENU_CHORDS, installMenu, refreshRecentMenu } from './windows/menus';
 import { inTauri } from './host/transport';
 import { useSettings } from './state/settings';
 
@@ -21,17 +21,26 @@ function applySettings() {
 }
 applySettings();
 
+// The native menu is built once per language; a change to the recent-folder
+// list only swaps the entries under File › Open Recent. Both are queued in
+// menus.ts, so they apply in the order they happened.
 let lastLanguage = settingsStore.getState().language;
+let lastRecent = settingsStore.getState().recentFolders;
 settingsStore.subscribe((s) => {
   applySettings();
+  if (!inTauri()) return;
   if (s.language !== lastLanguage) {
     lastLanguage = s.language;
-    if (inTauri()) void installMenu().catch((e) => console.error('menu', e));
+    lastRecent = s.recentFolders;
+    void installMenu();
+  } else if (s.recentFolders !== lastRecent) {
+    lastRecent = s.recentFolders;
+    void refreshRecentMenu();
   }
 });
 
 installKeys(inTauri() && !webviewOwnsMenuKeys() ? MENU_CHORDS : new Set());
-if (inTauri()) void installMenu().catch((e) => console.error('menu', e));
+if (inTauri()) void installMenu();
 
 // The webview's own context menu (Reload / Inspect) is not the app's.
 if (import.meta.env.PROD) window.addEventListener('contextmenu', (e) => e.preventDefault());
