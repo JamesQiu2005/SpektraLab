@@ -1,0 +1,22 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<!-- Everything else is generated from gen_project.py's INFOPLIST_KEY_* settings. -->
+	<!-- The four languages Settings > Language chooses among (LOCALIZATION.md): said outright, so
+	     the system offers the same four for its own pieces whatever folders a build happens to carry. -->
+	<key>CFBundleLocalizations</key>
+	<array>
+		<string>en</string>
+		<string>zh-Hans</string>
+		<string>zh-Hant</string>
+		<string>ja</string>
+	</array>
+	<!-- The app's own key, a build setting gen_project.py writes: the commit the build was made from.
+	     Where the log is sent, and the key that server asks for, are never here: where the checkout
+	     holds logs.local, gen_project.py writes build/Info-logs.plist, this file with SPKLogsURL and
+	     SPKLogsKey added, and any other build has neither key. -->
+	<key>SPKCommit</key>
+	<string>$(SPK_COMMIT)</string>
+</dict>
+</plist>

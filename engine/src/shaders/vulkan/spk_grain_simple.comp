@@ -1,0 +1,29 @@
+#version 450
+#extension GL_GOOGLE_include_directive : require
+#include "spk_rng.glsl"
+layout(local_size_x = 256) in;
+layout(std430, binding = 0) readonly buffer Cmy { float cmy[]; };
+layout(std430, binding = 1) readonly buffer Lp { float lp[]; };
+layout(std430, binding = 2) readonly buffer Streams { uint streams[]; };
+layout(std430, binding = 3) readonly buffer Meta { uint meta[]; };
+layout(std430, binding = 4) writeonly buffer Out { float dst[]; };
+
+// vulkan_gpu.cpp folds a dispatch past maxComputeWorkGroupCount[0] (65535 on
+// lavapipe and Intel) into rows of workgroups; this is the 1D index it means.
+uint spk_global_index() {
+    return gl_GlobalInvocationID.y * (gl_NumWorkGroups.x * gl_WorkGroupSize.x) + gl_GlobalInvocationID.x;
+}
+void main() {
+    uint i = spk_global_index();
+    uint n = meta[0], nsub = meta[1], seed = meta[2];
+    if (i >= n) return;
+    for (uint ch = 0u; ch < 3u; ++ch) {
+        precise float d = cmy[3u * i + ch] + lp[4u * ch];
+        precise float acc = 0.0;
+        for (uint sl = 0u; sl < nsub; ++sl) {
+            Rng rng = rng_init(i, streams[ch] + sl * 10u, seed);
+            acc += layer_draw(rng, d, lp[4u * ch + 1u], lp[4u * ch + 2u], lp[4u * ch + 3u]);
+        }
+        dst[3u * i + ch] = acc;
+    }
+}

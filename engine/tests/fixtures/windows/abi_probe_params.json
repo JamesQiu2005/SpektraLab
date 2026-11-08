@@ -1,0 +1,11 @@
+{
+  "film_stock": "kodak_portra_400",
+  "print_stock": "kodak_portra_endura",
+  "input_color_space": "ProPhoto RGB",
+  "input_cctf_decoding": false,
+  "output_color_space": "ProPhoto RGB",
+  "output_cctf_encoding": true,
+  "grain_active": false,
+  "glare_active": false,
+  "auto_exposure": false
+}

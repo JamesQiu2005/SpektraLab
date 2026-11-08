@@ -1,0 +1,171 @@
+{
+ "roots": {
+  "before": "/private/tmp/spektralab-v2-performance-20261024/reference",
+  "after": "<local-input>/engine"
+ },
+ "results": [
+  {
+   "case": "default",
+   "exact": true
+  },
+  {
+   "case": "edge",
+   "exact": true
+  },
+  {
+   "case": "halation_zero",
+   "exact": true
+  },
+  {
+   "case": "dir_off",
+   "exact": true
+  },
+  {
+   "case": "dir_high",
+   "exact": true
+  },
+  {
+   "case": "scan",
+   "exact": true
+  },
+  {
+   "case": "DI",
+   "exact": true
+  },
+  {
+   "case": "positive",
+   "exact": true
+  },
+  {
+   "case": "other_pair",
+   "exact": true
+  },
+  {
+   "case": "encoded",
+   "exact": true
+  },
+  {
+   "case": "linear",
+   "exact": true
+  },
+  {
+   "case": "ProPhoto RGB",
+   "exact": true
+  },
+  {
+   "case": "Display P3",
+   "exact": true
+  },
+  {
+   "case": "Adobe RGB (1998)",
+   "exact": true
+  },
+  {
+   "case": "ITU-R BT.2020",
+   "exact": true
+  },
+  {
+   "case": "ACEScg",
+   "exact": true
+  },
+  {
+   "case": "checkpoint_plain",
+   "exact": 16,
+   "events": [
+    "saved bytes=52439040 io_ms=6.667",
+    "hit bytes=52439040 io_ms=18.944",
+    "hit bytes=52439040 io_ms=13.265",
+    "hit bytes=52439040 io_ms=14.231",
+    "saved bytes=52439040 io_ms=33.813",
+    "hit bytes=52439040 io_ms=17.799",
+    "saved bytes=52439040 io_ms=7.705",
+    "hit bytes=52439040 io_ms=20.909",
+    "saved bytes=52439040 io_ms=24.674",
+    "hit bytes=52439040 io_ms=17.825",
+    "hit bytes=52439040 io_ms=12.632",
+    "hit bytes=52439040 io_ms=13.693"
+   ]
+  },
+  {
+   "case": "checkpoint_edge",
+   "exact": 16,
+   "events": [
+    "saved bytes=79380864 io_ms=14.385",
+    "hit bytes=79380864 io_ms=32.026",
+    "hit bytes=79380864 io_ms=21.427",
+    "hit bytes=79380864 io_ms=22.686",
+    "saved bytes=79380864 io_ms=11.671",
+    "hit bytes=79380864 io_ms=27.533",
+    "saved bytes=79380864 io_ms=40.127",
+    "hit bytes=79380864 io_ms=34.224",
+    "saved bytes=79380864 io_ms=44.120",
+    "hit bytes=79380864 io_ms=33.665",
+    "hit bytes=79380864 io_ms=27.883",
+    "hit bytes=79380864 io_ms=21.497"
+   ]
+  },
+  {
+   "case": "checkpoint_curve",
+   "exact": 16,
+   "events": [
+    "saved bytes=52439040 io_ms=8.053",
+    "hit bytes=52439040 io_ms=20.026",
+    "hit bytes=52439040 io_ms=15.032",
+    "hit bytes=52439040 io_ms=15.235",
+    "saved bytes=52439040 io_ms=8.133",
+    "hit bytes=52439040 io_ms=18.830",
+    "saved bytes=52439040 io_ms=7.288",
+    "hit bytes=52439040 io_ms=16.306",
+    "saved bytes=52439040 io_ms=12.471",
+    "hit bytes=52439040 io_ms=16.408",
+    "hit bytes=52439040 io_ms=14.506",
+    "hit bytes=52439040 io_ms=14.058"
+   ]
+  },
+  {
+   "case": "checkpoint_geometry",
+   "exact": 16,
+   "events": [
+    "saved bytes=33570816 io_ms=6.064",
+    "hit bytes=33570816 io_ms=11.487",
+    "hit bytes=33570816 io_ms=9.699",
+    "hit bytes=33570816 io_ms=9.606",
+    "saved bytes=33570816 io_ms=4.671",
+    "hit bytes=33570816 io_ms=9.258",
+    "saved bytes=33570816 io_ms=5.358",
+    "hit bytes=33570816 io_ms=8.000",
+    "saved bytes=33570816 io_ms=5.112",
+    "hit bytes=33570816 io_ms=11.016",
+    "hit bytes=33570816 io_ms=8.050",
+    "hit bytes=33570816 io_ms=7.685"
+   ]
+  },
+  {
+   "case": "fault_write",
+   "exact": 4,
+   "events": []
+  },
+  {
+   "case": "fault_read",
+   "exact": 4,
+   "events": [
+    "saved bytes=79380864 io_ms=19.290",
+    "read-failed bytes=0 io_ms=1.744",
+    "saved bytes=79380864 io_ms=10.269",
+    "read-failed bytes=0 io_ms=1.077",
+    "saved bytes=79380864 io_ms=10.743"
+   ]
+  },
+  {
+   "case": "fault_short",
+   "exact": 4,
+   "events": [
+    "saved bytes=79380864 io_ms=32.117",
+    "invalid bytes=0 io_ms=0.172",
+    "saved bytes=79380864 io_ms=37.720",
+    "invalid bytes=0 io_ms=0.108",
+    "saved bytes=79380864 io_ms=33.286"
+   ]
+  }
+ ]
+}

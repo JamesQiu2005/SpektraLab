@@ -1,0 +1,36 @@
+# Pinned standalone LibRaw build; no download or Python at configure/runtime.
+set(SPEKTRALAB_LIBRAW_SOURCE "${SPEKTRALAB_DEPS_DIR}/LibRaw-0.22.2" CACHE PATH "Extracted official LibRaw 0.22.2 source")
+if(NOT EXISTS "${SPEKTRALAB_LIBRAW_SOURCE}/libraw/libraw.h")
+    message(FATAL_ERROR "Native RAW requires LibRaw 0.22.2; run engine/setup-libraw.ps1 (Windows) or engine/setup-libraw.sh (POSIX) and set SPEKTRALAB_LIBRAW_SOURCE")
+endif()
+file(STRINGS "${SPEKTRALAB_LIBRAW_SOURCE}/libraw/libraw_version.h" libraw_version REGEX "^#define LIBRAW_(MAJOR|MINOR|PATCH)_VERSION")
+list(FIND libraw_version "#define LIBRAW_MAJOR_VERSION 0" libraw_major)
+list(FIND libraw_version "#define LIBRAW_MINOR_VERSION 22" libraw_minor)
+list(FIND libraw_version "#define LIBRAW_PATCH_VERSION 2" libraw_patch)
+if(libraw_major EQUAL -1 OR libraw_minor EQUAL -1 OR libraw_patch EQUAL -1)
+    message(FATAL_ERROR "This RAW integration is validated with LibRaw 0.22.2 only")
+endif()
+file(GLOB_RECURSE libraw_sources CONFIGURE_DEPENDS "${SPEKTRALAB_LIBRAW_SOURCE}/src/*.cpp")
+# *_ph.cpp are replacement placeholders for LibRaw's no-postprocessing build,
+# not extra implementations. Including them beside the real processing units
+# makes small metadata-only consumers fail with duplicate symbols.
+list(FILTER libraw_sources EXCLUDE REGEX "/[^/]*_ph\\.cpp$")
+add_library(spk_libraw STATIC ${libraw_sources})
+target_include_directories(spk_libraw PUBLIC "${SPEKTRALAB_LIBRAW_SOURCE}")
+target_compile_definitions(spk_libraw PUBLIC LIBRAW_NODLL PRIVATE LIBRAW_NOTHREADS)
+target_compile_features(spk_libraw PUBLIC cxx_std_11)
+set_target_properties(spk_libraw PROPERTIES POSITION_INDEPENDENT_CODE ON)
+if(WIN32)
+    target_link_libraries(spk_libraw PUBLIC ws2_32)
+else()
+    target_link_libraries(spk_libraw PUBLIC m)
+endif()
+# LibRaw's own sources are not ours to warn about.
+if(CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")
+    target_compile_options(spk_libraw PRIVATE -w)
+endif()
+# Select the LGPL-2.1 option offered by the LibRaw dual license.
+file(MAKE_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}/third-party/LibRaw")
+foreach(notice LICENSE.LGPL COPYRIGHT)
+    configure_file("${SPEKTRALAB_LIBRAW_SOURCE}/${notice}" "third-party/LibRaw/${notice}" COPYONLY)
+endforeach()

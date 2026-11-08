@@ -1,0 +1,893 @@
+[
+ {
+  "name": "film_stock",
+  "path": "film.info.stock",
+  "type": "str",
+  "layer": "shoot",
+  "live": false
+ },
+ {
+  "name": "print_stock",
+  "path": "print.info.stock",
+  "type": "str",
+  "layer": "print",
+  "live": false
+ },
+ {
+  "name": "exposure_compensation_ev",
+  "path": "camera.exposure_compensation_ev",
+  "type": "float",
+  "layer": "shoot",
+  "live": false,
+  "range": [
+   -8.0,
+   8.0
+  ]
+ },
+ {
+  "name": "auto_exposure",
+  "path": "camera.auto_exposure",
+  "type": "bool",
+  "layer": "shoot",
+  "live": false
+ },
+ {
+  "name": "auto_exposure_method",
+  "path": "camera.auto_exposure_method",
+  "type": "str",
+  "layer": "shoot",
+  "live": false
+ },
+ {
+  "name": "film_format_mm",
+  "path": "camera.film_format_mm",
+  "type": "float",
+  "layer": "shoot",
+  "live": false,
+  "range": [
+   4.0,
+   200.0
+  ]
+ },
+ {
+  "name": "lens_blur_um",
+  "path": "camera.lens_blur_um",
+  "type": "float",
+  "layer": "shoot",
+  "live": false,
+  "range": [
+   0.0,
+   200.0
+  ]
+ },
+ {
+  "name": "halation_active",
+  "path": "film_render.halation.active",
+  "type": "bool",
+  "layer": "shoot",
+  "live": false
+ },
+ {
+  "name": "halation_amount",
+  "path": "film_render.halation.halation_amount",
+  "type": "float",
+  "layer": "shoot",
+  "live": false,
+  "range": [
+   0.0,
+   4.0
+  ]
+ },
+ {
+  "name": "halation_boost_ev",
+  "path": "film_render.halation.boost_ev",
+  "type": "float",
+  "layer": "shoot",
+  "live": false,
+  "range": [
+   0.0,
+   8.0
+  ]
+ },
+ {
+  "name": "grain_active",
+  "path": "film_render.grain.active",
+  "type": "bool",
+  "layer": "shoot",
+  "live": false
+ },
+ {
+  "name": "grain_sublayers_active",
+  "path": "film_render.grain.sublayers_active",
+  "type": "bool",
+  "layer": "shoot",
+  "live": false
+ },
+ {
+  "name": "dir_couplers_active",
+  "path": "film_render.dir_couplers.active",
+  "type": "bool",
+  "layer": "shoot",
+  "live": false
+ },
+ {
+  "name": "dir_couplers_amount",
+  "path": "film_render.dir_couplers.amount",
+  "type": "float",
+  "layer": "shoot",
+  "live": false,
+  "range": [
+   0.0,
+   4.0
+  ]
+ },
+ {
+  "name": "density_curve_gamma",
+  "path": "film_render.density_curve_gamma",
+  "type": "float",
+  "layer": "shoot",
+  "live": false,
+  "range": [
+   0.2,
+   4.0
+  ]
+ },
+ {
+  "name": "input_color_space",
+  "path": "io.input_color_space",
+  "type": "str",
+  "layer": "shoot",
+  "live": false
+ },
+ {
+  "name": "input_cctf_decoding",
+  "path": "io.input_cctf_decoding",
+  "type": "bool",
+  "layer": "shoot",
+  "live": false
+ },
+ {
+  "name": "geometry_crop_x",
+  "path": "io.geometry.crop_x",
+  "type": "float",
+  "layer": "shoot",
+  "live": false,
+  "range": [
+   0.0,
+   1.0
+  ]
+ },
+ {
+  "name": "geometry_crop_y",
+  "path": "io.geometry.crop_y",
+  "type": "float",
+  "layer": "shoot",
+  "live": false,
+  "range": [
+   0.0,
+   1.0
+  ]
+ },
+ {
+  "name": "geometry_crop_w",
+  "path": "io.geometry.crop_w",
+  "type": "float",
+  "layer": "shoot",
+  "live": false,
+  "range": [
+   0.0001,
+   1.0
+  ]
+ },
+ {
+  "name": "geometry_crop_h",
+  "path": "io.geometry.crop_h",
+  "type": "float",
+  "layer": "shoot",
+  "live": false,
+  "range": [
+   0.0001,
+   1.0
+  ]
+ },
+ {
+  "name": "geometry_rotation_deg",
+  "path": "io.geometry.rotation_deg",
+  "type": "float",
+  "layer": "shoot",
+  "live": false,
+  "range": [
+   -45.0,
+   45.0
+  ]
+ },
+ {
+  "name": "geometry_quarter_turns",
+  "path": "io.geometry.quarter_turns",
+  "type": "int",
+  "layer": "shoot",
+  "live": false,
+  "range": [
+   0.0,
+   3.0
+  ]
+ },
+ {
+  "name": "geometry_flip_h",
+  "path": "io.geometry.flip_h",
+  "type": "bool",
+  "layer": "shoot",
+  "live": false
+ },
+ {
+  "name": "geometry_flip_v",
+  "path": "io.geometry.flip_v",
+  "type": "bool",
+  "layer": "shoot",
+  "live": false
+ },
+ {
+  "name": "print_exposure",
+  "path": "enlarger.print_exposure",
+  "type": "float",
+  "layer": "print",
+  "live": true,
+  "range": [
+   0.05,
+   20.0
+  ]
+ },
+ {
+  "name": "m_filter_shift",
+  "path": "enlarger.m_filter_shift",
+  "type": "float",
+  "layer": "print",
+  "live": true,
+  "range": [
+   -1.0,
+   1.0
+  ]
+ },
+ {
+  "name": "y_filter_shift",
+  "path": "enlarger.y_filter_shift",
+  "type": "float",
+  "layer": "print",
+  "live": true,
+  "range": [
+   -1.0,
+   1.0
+  ]
+ },
+ {
+  "name": "c_filter_neutral",
+  "path": "enlarger.c_filter_neutral",
+  "type": "float",
+  "layer": "print",
+  "live": false,
+  "range": [
+   0.0,
+   200.0
+  ]
+ },
+ {
+  "name": "m_filter_neutral",
+  "path": "enlarger.m_filter_neutral",
+  "type": "float",
+  "layer": "print",
+  "live": false,
+  "range": [
+   0.0,
+   200.0
+  ]
+ },
+ {
+  "name": "y_filter_neutral",
+  "path": "enlarger.y_filter_neutral",
+  "type": "float",
+  "layer": "print",
+  "live": false,
+  "range": [
+   0.0,
+   200.0
+  ]
+ },
+ {
+  "name": "preflash_exposure",
+  "path": "enlarger.preflash_exposure",
+  "type": "float",
+  "layer": "print",
+  "live": true,
+  "range": [
+   0.0,
+   1.0
+  ]
+ },
+ {
+  "name": "enlarger_illuminant",
+  "path": "enlarger.illuminant",
+  "type": "str",
+  "layer": "print",
+  "live": false
+ },
+ {
+  "name": "glare_active",
+  "path": "print_render.glare.active",
+  "type": "bool",
+  "layer": "print",
+  "live": false
+ },
+ {
+  "name": "scanner_white_correction",
+  "path": "scanner.white_correction",
+  "type": "bool",
+  "layer": "print",
+  "live": false
+ },
+ {
+  "name": "scanner_black_correction",
+  "path": "scanner.black_correction",
+  "type": "bool",
+  "layer": "print",
+  "live": false
+ },
+ {
+  "name": "scanner_lens_blur",
+  "path": "scanner.lens_blur",
+  "type": "float",
+  "layer": "print",
+  "live": false,
+  "range": [
+   0.0,
+   20.0
+  ]
+ },
+ {
+  "name": "output_color_space",
+  "path": "io.output_color_space",
+  "type": "str",
+  "layer": "print",
+  "live": false
+ },
+ {
+  "name": "output_cctf_encoding",
+  "path": "io.output_cctf_encoding",
+  "type": "bool",
+  "layer": "print",
+  "live": false
+ },
+ {
+  "name": "scan_film",
+  "path": "io.scan_film",
+  "type": "bool",
+  "layer": "print",
+  "live": false
+ },
+ {
+  "name": "extended_dynamic_range",
+  "path": "print_render.edr_enabled",
+  "type": "bool",
+  "layer": "print",
+  "live": false
+ },
+ {
+  "name": "striped",
+  "path": "settings.striped",
+  "type": "bool",
+  "layer": "print",
+  "live": true
+ },
+ {
+  "name": "strip_rows",
+  "path": "settings.strip_rows",
+  "type": "int",
+  "layer": "print",
+  "live": true,
+  "range": [
+   0.0,
+   16384.0
+  ]
+ },
+ {
+  "name": "strip_budget_bytes",
+  "path": "settings.strip_budget_bytes",
+  "type": "int",
+  "layer": "print",
+  "live": true,
+  "range": [
+   0.0,
+   8000000000.0
+  ]
+ },
+ {
+  "name": "contrast_mask_active",
+  "path": "print_render.contrast_mask.active",
+  "type": "bool",
+  "layer": "print",
+  "live": false
+ },
+ {
+  "name": "contrast_mask_highlights",
+  "path": "print_render.contrast_mask.highlights",
+  "type": "float",
+  "layer": "print",
+  "live": false,
+  "range": [
+   0.0,
+   3.0
+  ]
+ },
+ {
+  "name": "contrast_mask_shadows",
+  "path": "print_render.contrast_mask.shadows",
+  "type": "float",
+  "layer": "print",
+  "live": false,
+  "range": [
+   0.0,
+   3.0
+  ]
+ },
+ {
+  "name": "contrast_mask_core",
+  "path": "print_render.contrast_mask.core",
+  "type": "float",
+  "layer": "print",
+  "live": false,
+  "range": [
+   0.0,
+   3.0
+  ]
+ },
+ {
+  "name": "contrast_mask_scale",
+  "path": "print_render.contrast_mask.scale",
+  "type": "float",
+  "layer": "print",
+  "live": false,
+  "range": [
+   0.002,
+   0.12
+  ]
+ },
+ {
+  "name": "contrast_mask_scheme",
+  "path": "print_render.contrast_mask.scheme",
+  "type": "str",
+  "layer": "print",
+  "live": false
+ },
+ {
+  "name": "scene_latitude_active",
+  "path": "camera.scene_latitude.active",
+  "type": "bool",
+  "layer": "shoot",
+  "live": false
+ },
+ {
+  "name": "scene_latitude_norm",
+  "path": "camera.scene_latitude.norm",
+  "type": "str",
+  "layer": "shoot",
+  "live": false
+ },
+ {
+  "name": "scene_latitude_highlight_knee",
+  "path": "camera.scene_latitude.highlight_knee",
+  "type": "float",
+  "layer": "shoot",
+  "live": false,
+  "range": [
+   -24.0,
+   24.0
+  ]
+ },
+ {
+  "name": "scene_latitude_highlight_room",
+  "path": "camera.scene_latitude.highlight_room",
+  "type": "float",
+  "layer": "shoot",
+  "live": false,
+  "range": [
+   0.0,
+   24.0
+  ]
+ },
+ {
+  "name": "scene_latitude_shadow_knee",
+  "path": "camera.scene_latitude.shadow_knee",
+  "type": "float",
+  "layer": "shoot",
+  "live": false,
+  "range": [
+   -24.0,
+   24.0
+  ]
+ },
+ {
+  "name": "scene_latitude_shadow_room",
+  "path": "camera.scene_latitude.shadow_room",
+  "type": "float",
+  "layer": "shoot",
+  "live": false,
+  "range": [
+   0.0,
+   24.0
+  ]
+ },
+ {
+  "name": "scene_latitude_rolloff",
+  "path": "camera.scene_latitude.rolloff",
+  "type": "float",
+  "layer": "shoot",
+  "live": false,
+  "range": [
+   1.0,
+   4.0
+  ]
+ },
+ {
+  "name": "scene_latitude_max_lift",
+  "path": "camera.scene_latitude.max_lift",
+  "type": "float",
+  "layer": "shoot",
+  "live": false,
+  "range": [
+   0.25,
+   12.0
+  ]
+ },
+ {
+  "name": "halation_scatter_amount",
+  "path": "film_render.halation.scatter_amount",
+  "type": "float",
+  "layer": "shoot",
+  "live": false,
+  "range": [
+   0.0,
+   1.0
+  ]
+ },
+ {
+  "name": "grain_amount",
+  "path": "film_render.grain.amount",
+  "type": "float",
+  "layer": "shoot",
+  "live": false,
+  "range": [
+   0.0,
+   2.0
+  ]
+ },
+ {
+  "name": "glare_amount",
+  "path": "print_render.glare.amount",
+  "type": "float",
+  "layer": "print",
+  "live": false,
+  "range": [
+   0.0,
+   30.0
+  ]
+ },
+ {
+  "name": "digital_intermediate",
+  "path": "io.digital_intermediate",
+  "type": "bool",
+  "layer": "print",
+  "live": false
+ },
+ {
+  "name": "digital_intermediate_blue_compensation",
+  "path": "io.digital_intermediate_blue_compensation",
+  "type": "bool",
+  "layer": "print",
+  "live": false
+ },
+ {
+  "name": "overscan_active",
+  "path": "film_render.overscan.active",
+  "type": "bool",
+  "layer": "shoot",
+  "live": false
+ },
+ {
+  "name": "overscan_format",
+  "path": "film_render.overscan.format",
+  "type": "str",
+  "layer": "shoot",
+  "live": false
+ },
+ {
+  "name": "overscan_mode",
+  "path": "film_render.overscan.mode",
+  "type": "str",
+  "layer": "shoot",
+  "live": false
+ },
+ {
+  "name": "overscan_camera_seed",
+  "path": "film_render.overscan.camera_seed",
+  "type": "int",
+  "layer": "shoot",
+  "live": false,
+  "range": [
+   0.0,
+   2147483647.0
+  ]
+ },
+ {
+  "name": "overscan_frame_seed",
+  "path": "film_render.overscan.frame_seed",
+  "type": "int",
+  "layer": "shoot",
+  "live": false,
+  "range": [
+   0.0,
+   2147483647.0
+  ]
+ },
+ {
+  "name": "overscan_fog",
+  "path": "film_render.overscan.fog",
+  "type": "float",
+  "layer": "shoot",
+  "live": false,
+  "range": [
+   0.0,
+   4.0
+  ]
+ },
+ {
+  "name": "overscan_leaks",
+  "path": "film_render.overscan.leaks",
+  "type": "float",
+  "layer": "shoot",
+  "live": false,
+  "range": [
+   0.0,
+   4.0
+  ]
+ },
+ {
+  "name": "overscan_edge_text",
+  "path": "film_render.overscan.edge_text",
+  "type": "str",
+  "layer": "shoot",
+  "live": false
+ },
+ {
+  "name": "overscan_f_number",
+  "path": "film_render.overscan.f_number",
+  "type": "float",
+  "layer": "shoot",
+  "live": false,
+  "range": [
+   0.0,
+   64.0
+  ]
+ },
+ {
+  "name": "overscan_gate",
+  "path": "film_render.overscan.gate",
+  "type": "str",
+  "layer": "shoot",
+  "live": false
+ },
+ {
+  "name": "overscan_holes",
+  "path": "film_render.overscan.holes",
+  "type": "str",
+  "layer": "shoot",
+  "live": false
+ },
+ {
+  "name": "date_imprint_active",
+  "path": "film_render.date_imprint.active",
+  "type": "bool",
+  "layer": "shoot",
+  "live": false
+ },
+ {
+  "name": "date_imprint_text",
+  "path": "film_render.date_imprint.text",
+  "type": "str",
+  "layer": "shoot",
+  "live": false
+ },
+ {
+  "name": "date_imprint_placement",
+  "path": "film_render.date_imprint.placement",
+  "type": "str",
+  "layer": "shoot",
+  "live": false
+ },
+ {
+  "name": "date_imprint_ev",
+  "path": "film_render.date_imprint.exposure_ev",
+  "type": "float",
+  "layer": "shoot",
+  "live": false,
+  "range": [
+   -2.0,
+   8.0
+  ]
+ },
+ {
+  "name": "date_imprint_style",
+  "path": "film_render.date_imprint.style",
+  "type": "str",
+  "layer": "shoot",
+  "live": false
+ },
+ {
+  "name": "date_imprint_size",
+  "path": "film_render.date_imprint.size",
+  "type": "float",
+  "layer": "shoot",
+  "live": false,
+  "range": [
+   0.4,
+   3.0
+  ]
+ },
+ {
+  "name": "date_imprint_corner",
+  "path": "film_render.date_imprint.corner",
+  "type": "str",
+  "layer": "shoot",
+  "live": false
+ },
+ {
+  "name": "date_imprint_inset_x",
+  "path": "film_render.date_imprint.inset_x",
+  "type": "float",
+  "layer": "shoot",
+  "live": false,
+  "range": [
+   0.0,
+   30.0
+  ]
+ },
+ {
+  "name": "date_imprint_inset_y",
+  "path": "film_render.date_imprint.inset_y",
+  "type": "float",
+  "layer": "shoot",
+  "live": false,
+  "range": [
+   0.0,
+   30.0
+  ]
+ },
+ {
+  "name": "antihalation_removed",
+  "path": "film_render.halation.antihalation_removed",
+  "type": "bool",
+  "layer": "shoot",
+  "live": false
+ },
+ {
+  "name": "overscan_frame_number",
+  "path": "film_render.overscan.frame_number",
+  "type": "int",
+  "layer": "shoot",
+  "live": false,
+  "range": [
+   0.0,
+   99.0
+  ]
+ },
+ {
+  "name": "overscan_carrier",
+  "path": "film_render.overscan.carrier",
+  "type": "str",
+  "layer": "shoot",
+  "live": false
+ },
+ {
+  "name": "overscan_pair",
+  "path": "film_render.overscan.pair",
+  "type": "bool",
+  "layer": "shoot",
+  "live": false
+ },
+ {
+  "name": "date_imprint_text_b",
+  "path": "film_render.date_imprint.text_b",
+  "type": "str",
+  "layer": "shoot",
+  "live": false
+ },
+ {
+  "name": "date_imprint_data_text",
+  "path": "film_render.date_imprint.data_text",
+  "type": "str",
+  "layer": "shoot",
+  "live": false
+ },
+ {
+  "name": "scene_latitude_split",
+  "path": "camera.scene_latitude.split",
+  "type": "float",
+  "layer": "shoot",
+  "live": false,
+  "range": [
+   0.0,
+   1.0
+  ]
+ },
+ {
+  "name": "scene_latitude_b_active",
+  "path": "camera.scene_latitude.b_active",
+  "type": "bool",
+  "layer": "shoot",
+  "live": false
+ },
+ {
+  "name": "scene_latitude_b_highlight_knee",
+  "path": "camera.scene_latitude.b_highlight_knee",
+  "type": "float",
+  "layer": "shoot",
+  "live": false,
+  "range": [
+   -24.0,
+   24.0
+  ]
+ },
+ {
+  "name": "scene_latitude_b_highlight_room",
+  "path": "camera.scene_latitude.b_highlight_room",
+  "type": "float",
+  "layer": "shoot",
+  "live": false,
+  "range": [
+   0.0,
+   24.0
+  ]
+ },
+ {
+  "name": "scene_latitude_b_shadow_knee",
+  "path": "camera.scene_latitude.b_shadow_knee",
+  "type": "float",
+  "layer": "shoot",
+  "live": false,
+  "range": [
+   -24.0,
+   24.0
+  ]
+ },
+ {
+  "name": "scene_latitude_b_shadow_room",
+  "path": "camera.scene_latitude.b_shadow_room",
+  "type": "float",
+  "layer": "shoot",
+  "live": false,
+  "range": [
+   0.0,
+   24.0
+  ]
+ },
+ {
+  "name": "filter_shift_scale",
+  "path": "enlarger.filter_shift_scale",
+  "type": "float",
+  "layer": "print",
+  "live": true,
+  "range": [
+   1.0,
+   60.0
+  ]
+ },
+ {
+  "name": "preview_long_edge",
+  "path": "io.preview_long_edge",
+  "type": "int",
+  "layer": "print",
+  "live": false,
+  "range": [
+   800.0,
+   8192.0
+  ]
+ }
+]

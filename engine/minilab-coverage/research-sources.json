@@ -1,0 +1,31 @@
+{
+  "schema_version": 1,
+  "research_root": "research",
+  "note": "Read-only source snapshot for the SOP. This is not the complete dataset/dependency manifest required for each bake. Reconcile source drift before using the frozen recipe.",
+  "files": {
+    "HANDOFF-v2-engine-2026-10-24.md": "b36e366a9d4d81a01e24d6bb09557ff89e0e7b716a592c5360039653201592bb",
+    "Metamerism/study/filmlib.py": "b54d59303f132d3e2fc0c7f8f641a5d9a033cc0272b93142835d3d4027ffacdd",
+    "Metamerism/study/patch_experiment.py": "b6fe63bf27c2c9a6049c16c32668344fae939672934cf95ddbd752076e4af323",
+    "Metamerism/v2/build_v2.sh": "aa6bfb3db84d3a7c3796f069c30b20520e5110bc376df47b5c61a3563d200eb0",
+    "Metamerism/v2/c2_lib.py": "c1a299dc6844a8696b57804240faba514294ea57848d8a93d2d00e81f7886ef0",
+    "Metamerism/v2/c3_build_f.py": "937bdac370c6a42bb63f4545bdb4be516d38fb7b70a1868d7ea558fac8b7f6bc",
+    "Metamerism/v2/c3_eval.py": "85524244c014eb2c8ed28df82922d0a7805197c069f7baf6abd67ac9f4479873",
+    "Metamerism/v2/c3_lib.py": "c8877d03024181bc69f290c654750c6d21e283a07a7c03ba9dc3cd175e832bdc",
+    "Metamerism/v2/c3_phaseD.py": "545bdfd5ecc1349db6f4ecb1a551b08de69aa80b2f550726d892c6c08e8f7335",
+    "Metamerism/v2/c3_tone.py": "a8eb15d2a0b517893561a6cef755ba4eb333157b68b295b7c129d8642eca16ab",
+    "Metamerism/v2/e1_films.py": "85f2f76eb238605cc91c4f7037c65f7429e134c8f5dbe6f4b70063658a54a776",
+    "Metamerism/v2/e1_fit.py": "35166c634bc98dfa05b8b5002b726aa02836117bfa3a39ddbec34ca82f58077d",
+    "Metamerism/v2/e1x.py": "2cdb2a674762154663b47e54af166f1cceef21b60c76e01d1dc33f6d9b1d8493",
+    "Metamerism/v2/eng2.py": "796c99768a07624416a0ed6410795aaf900e635a57a9f118c1c0a077a45ab5e8",
+    "Metamerism/v2/eng2_worker.py": "132d00ee213fbb2737497ce45d394eba311b8211293638ca756ba87a98f996fa",
+    "Metamerism/v2/fitlib.py": "a96785c9faaadde1bcf5f9184e2ab19d175ceba1f68af490c5ea0202467b5666",
+    "Metamerism/v2/minilab_io.py": "c3fd02e481dcae80796390eea587b07c9790563d8b1a012925f5ee6de01019d8",
+    "Metamerism/v2/minilab_validate.py": "f1181d7dfe81f79a6d0d431907c5a4e91731f83dd9b53fe4cf705b8567d891f7",
+    "Metamerism/v2/negs.py": "c023f79c0438e5eecb20a4c5f229b8290d2086ba0ecce1f0d399a4f1c3ba0e4a",
+    "Metamerism/v2/patch_v2_minilab.py": "143bc326a31666bc2628809a2c927df9df5f45f3d62c90256c9f665af4f770b1",
+    "Metamerism/v2/patch_v2_phaseE.py": "f50e19f8f663f667658c30fbb66d26e1fa743a15e56b4587f057567656ba16de",
+    "Metamerism/v2/patch_v2_print.py": "feb8960d5b50644d8b6b4143588e364fe72257bfaa0085b9914e78117ad89ba3",
+    "checkpoint-study/patch_experiment.py": "061a334e73b92fa5540c361aefce126b78c562773dc68f4e6bc5770060083a85",
+    "edge-exposure-study/patch_experiment.py": "e7598108dbd1e4ca52c423eb602bcb52269d2aa4e12c95bddfe0276929321729"
+  }
+}

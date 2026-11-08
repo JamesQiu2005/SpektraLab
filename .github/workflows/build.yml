@@ -1,0 +1,51 @@
+# Does a clean checkout build?
+#
+# Deliberately the only thing CI does. The tests run locally before a push
+# (AGENTS.md, "Test gates"): the ones that matter need camera fixtures and the
+# Python oracle, which this CI checkout does not provision. What a local
+# build cannot see is a clean checkout — a file on disk but not committed, a
+# project not regenerated after adding a source file — and that is this job.
+
+name: Build
+
+permissions:
+  contents: read
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group: build-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: macos-26          # GitHub's arm64 image, its default Xcode
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Xcode
+        run: xcodebuild -version
+
+      # From Xcode 26 the Metal compiler is a separate component.
+      - name: Metal toolchain
+        run: |
+          xcrun -sdk macosx metal --version || xcodebuild -downloadComponent MetalToolchain
+          xcrun -sdk macosx --find metallib
+
+      # The Mac app is a Mac Catalyst app: its own engine build (engine/ for macabi, safe-math
+      # kernels), its generated project, a Mac Catalyst build.
+      - name: Engine for Mac Catalyst
+        run: app/SpektraLab/tools/build_engine_mac.sh
+
+      - name: App
+        working-directory: app/SpektraLab
+        run: |
+          python3 gen_project.py
+          xcodebuild -project SpektraLab.xcodeproj -scheme SpektraLab -configuration Debug \
+            -destination 'platform=macOS,variant=Mac Catalyst' -jobs 4 \
+            -derivedDataPath "$RUNNER_TEMP/DerivedData" build

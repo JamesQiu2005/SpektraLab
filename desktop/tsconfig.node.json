@@ -1,0 +1,25 @@
+{
+  "extends": "./tsconfig.base.json",
+  "compilerOptions": {
+    "lib": [
+      "ES2023",
+      "DOM"
+    ],
+    "types": [
+      "node"
+    ]
+  },
+  "include": [
+    "mock-host/**/*.ts",
+    "src/shared/**/*.ts",
+    "vite.config.ts",
+    "vitest.config.ts",
+    "playwright.config.ts",
+    "tests/**/*.ts",
+    "src/export/realhost.test.ts",
+    "src/export/exporter.ts"
+  ],
+  "exclude": [
+    "src/shared/**/*.test.ts"
+  ]
+}

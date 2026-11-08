@@ -1,0 +1,90 @@
+// The resample half of util.metal's tier downscale. The Gaussian prefilter
+// remains the existing mirror-mode spk_sep_fir_acc pass on the host.
+#version 450
+layout(local_size_x = 256) in;
+layout(std430, binding = 0) readonly buffer Img { float img[]; };
+layout(std430, binding = 1) readonly buffer Meta { uint meta[]; };
+layout(std430, binding = 2) writeonly buffer Out { float dst[]; };
+
+// vulkan_gpu.cpp folds a dispatch past maxComputeWorkGroupCount[0] (65535 on
+// lavapipe and Intel) into rows of workgroups; this is the 1D index it means.
+uint spk_global_index() {
+    return gl_GlobalInvocationID.y * (gl_NumWorkGroups.x * gl_WorkGroupSize.x) + gl_GlobalInvocationID.x;
+}
+
+// Pair layout is {low, high}. Use exact two-word integer arithmetic instead
+// of requiring Vulkan shaderInt64, or rounding a large pixel coordinate.
+uvec2 product(uint a, uint b) { uint hi, lo; umulExtended(a, b, hi, lo); return uvec2(lo, hi); }
+bool less64(uvec2 a, uvec2 b) { return a.y < b.y || (a.y == b.y && a.x < b.x); }
+uvec2 subtract64(uvec2 a, uvec2 b) { return uvec2(a.x - b.x, a.y - b.y - uint(a.x < b.x)); }
+uvec2 shift64(uvec2 a) { return uvec2(a.x << 1u, (a.y << 1u) | (a.x >> 31u)); }
+
+uint divide64(uvec2 numerator, uvec2 denominator, out uvec2 remainder) {
+    if (denominator.y == 0u) {
+        if (numerator.y == 0u) {
+            remainder = uvec2(numerator.x % denominator.x, 0u);
+            return numerator.x / denominator.x;
+        }
+        // The quotient is a source pixel index, so it fits in one uint and
+        // numerator.high < denominator. Each step carries the 33rd bit
+        // explicitly; this also handles denominators above 2^31.
+        uint q = 0u, r = numerator.y;
+        for (int bit = 31; bit >= 0; --bit) {
+            uint carry = r >> 31u;
+            r = (r << 1u) | ((numerator.x >> uint(bit)) & 1u);
+            if (carry != 0u || r >= denominator.x) { r -= denominator.x; q |= 1u << uint(bit); }
+        }
+        remainder = uvec2(r, 0u); return q;
+    }
+    // Only enormous single axes reach a 64-bit denominator. Keep the
+    // arithmetic defined without an extra device feature even in that case.
+    uvec2 r = uvec2(0u); uint q = 0u;
+    for (int bit = 63; bit >= 0; --bit) {
+        uint digit = bit >= 32 ? ((numerator.y >> uint(bit - 32)) & 1u)
+                              : ((numerator.x >> uint(bit)) & 1u);
+        r = shift64(r); r.x |= digit;
+        if (!less64(r, denominator)) {
+            r = subtract64(r, denominator);
+            if (bit < 32) q |= 1u << uint(bit);
+        }
+    }
+    remainder = r; return q;
+}
+
+void sample_axis(uint o, uint in_len, uint out_len, out uint i0, out uint i1, out float t) {
+    // Metal: N=(2*out+1)*in_len-out_len, D=2*out_len. Mirror N
+    // around 0 and D*(in_len-1), then divide before converting the fraction.
+    uvec2 p = product(2u * o + 1u, in_len), offset = uvec2(out_len, 0u);
+    bool negative = less64(p, offset);
+    uvec2 num = negative ? subtract64(offset, p) : subtract64(p, offset);
+    uvec2 den = uvec2(out_len << 1u, out_len >> 31u);
+    uvec2 top = shift64(product(out_len, in_len - 1u));
+    if (!negative && less64(top, num)) {
+        uvec2 twice_top = shift64(top);
+        num = less64(twice_top, num) ? subtract64(num, twice_top) : subtract64(twice_top, num);
+    }
+    uvec2 rem;
+    i0 = divide64(num, den, rem);
+    i1 = min(i0 + 1u, in_len - 1u);
+    precise float numerator = float(rem.x) + float(rem.y) * 4294967296.0;
+    precise float denominator = float(den.x) + float(den.y) * 4294967296.0;
+    t = numerator / denominator;
+}
+
+void main() {
+    uint i = spk_global_index();
+    uint SH = meta[0], SW = meta[1], OH = meta[2], OW = meta[3];
+    if (i >= OH * OW) return;
+    uint oy = i / OW, ox = i % OW;
+    uint ya, yb, xa, xb; float ty, tx;
+    sample_axis(oy, SH, OH, ya, yb, ty);
+    sample_axis(ox, SW, OW, xa, xb, tx);
+    for (uint c = 0u; c < 3u; ++c) {
+        float a = img[3u * (ya * SW + xa) + c], b = img[3u * (ya * SW + xb) + c];
+        float d = img[3u * (yb * SW + xa) + c], e = img[3u * (yb * SW + xb) + c];
+        precise float top = a + tx * (b - a);
+        precise float bot = d + tx * (e - d);
+        precise float v = top + ty * (bot - top);
+        dst[3u * i + c] = v;
+    }
+}

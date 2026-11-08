@@ -1,0 +1,63 @@
+cff-version: 1.2.0
+message: |
+  SpektraLab is a macOS application for spectral film and print simulation,
+  built on the SpektraLab engine. The SpektraLab engine is a C++/Metal
+  implementation derived from spektrafilm by Andrea Volpato
+  (GPL-3.0-or-later), which is where the film simulation, the measured
+  profiles and the print+scan model come from.
+
+  **If you are citing the science, cite spektrafilm, not this.** The physical
+  modelling, the profile measurements and the RA-4 print simulation are that
+  project's contribution; see the `references` section below and
+  https://github.com/andreavolpato/spektrafilm. Cite this repository only when
+  you mean the application, the C++/Metal implementation of the engine, or the
+  GPU pipeline.
+
+  SpektraLab is GPL-3.0-or-later; the spektrafilm profiles and the LUTs baked
+  from them are CC BY-SA 4.0 and remain Andrea Volpato's work. SpektraLab is
+  not affiliated with or endorsed by the spektrafilm project.
+
+title: "SpektraLab: a macOS application for spectral film and print simulation"
+abstract: |
+  SpektraLab develops a scene-linear photograph through a virtual film
+  negative and a print, on the GPU, interactively. It is a Mac application
+  built around the SpektraLab engine, a C++/Metal implementation of the
+  spektrafilm render engine, held to the Python reference at float32 storage
+  epsilon by a set of parity harnesses. It contributes the application and the
+  engine implementation; the spectral modelling it renders is spektrafilm's.
+
+authors:
+  - family-names: "Qiu"
+    given-names: "Hanze"
+
+version: "2.0.0"
+license: "GPL-3.0-or-later"
+repository-code: "https://github.com/JamesQiu2005/SpektraLab"
+url: "https://github.com/JamesQiu2005/SpektraLab"
+
+keywords:
+  - "film emulation"
+  - "spectral imaging"
+  - "color science"
+  - "RA-4 print simulation"
+  - "Metal"
+  - "macOS"
+  - "GPU rendering"
+
+references:
+  - type: "software"
+    title: "spektrafilm: spectral simulation of analog photography"
+    abstract: |
+      The spectral film and print simulation SpektraLab renders. Source of the
+      28 film and paper profiles, the characteristic curves, the DIR-coupler
+      and halation models, and the RA-4 print and scan chain. The SpektraLab
+      engine is a C++/Metal implementation derived from it.
+    authors:
+      - family-names: "Volpato"
+        given-names: "Andrea"
+        orcid: "https://orcid.org/0000-0003-3368-0017"
+        affiliation: "KTH Royal Institute of Technology, Sweden"
+    repository-code: "https://github.com/andreavolpato/spektrafilm"
+    url: "https://github.com/andreavolpato/spektrafilm"
+    license: "GPL-3.0-or-later"
+    year: 2025

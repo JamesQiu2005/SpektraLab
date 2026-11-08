@@ -1,0 +1,1159 @@
+# API Spec — Callable Render Service (implementation reference)
+
+| | |
+|---|---|
+| **Status** | Reference for implementation. Not a rewrite of the engine — see `PRD-callable-render-api.md` for product rationale, this doc for exact call sequences. |
+| **Which engine** | §1–§10 were written against the Python reference, `src/spektrafilm` (upstream), and its stdio service. From §11 on, the sections are the wire of **the SpektraLab engine** (`engine/`), the C++/Metal implementation derived from spektrafilm by Andrea Volpato (GPL-3.0-or-later), which the app compiles in and calls through the `spk_` C ABI. The rename changed no field, method or ABI symbol. |
+| **Read this if** | You are the session building the Tauri-facing service, or the frontend that calls it. |
+| **Probe evidence** | `tests/baseline/probe_callable_api.py` — run it, results below are from an actual run, 2026-08-25, on the 16 MP reference image. |
+| **Date** | 2026-08-25 |
+
+This document exists because the PRD's §11 open questions turned out to be
+answerable by reading and running the existing engine, not by designing new
+engine surface. Everything below was verified against `src/spektrafilm`, not
+assumed. Where a claim is "confirmed", it means: read the source, or ran it,
+or both — file:line citations are given so you can re-verify after the code
+moves.
+
+---
+
+## 1. The three calls that matter, mapped to engine code
+
+Do not build a new abstraction layer. `SimulationPipeline` already has the
+three primitives a render service needs:
+
+| service call | engine call | confirmed |
+|---|---|---|
+| `open` | `pipeline = SimulationPipeline(digest_params(params)); negative = pipeline.process(image, inject=Tap.RGB_IN, collect=Tap.CMY_FILM)` | `pipeline.py:107-142`, `topology.py:125-215`. Live in production: `scripts/scan_negative_demasked.py:142`. |
+| `reprint` | mutate `pipeline.enlarger.*` / `pipeline.print_render.*` / `pipeline.scanner.*` **in place on the same `pipeline` object**, then `pipeline.process(negative, inject=Tap.CMY_FILM, collect=Tap.RGB_OUT)` | Bit-exact equivalence to a from-scratch full render with the same params, verified below (§2). |
+| full render (shoot-side change) | new `SimulationPipeline(digest_params(new_params))`, `pipeline.process(image)` (defaults: `inject=RGB_IN`, `collect=RGB_OUT`) | Standard path, unchanged. |
+
+`SimulationPipeline.process`'s `inject`/`collect` kwargs are the entire
+mechanism. `TapsParams` (`runtime/params_schema.py:208-217`) even carries
+these as schema fields already, so a params-delta JSON patch can set them
+directly instead of the service special-casing tap selection.
+
+**Do not use `Pipeline.soft_update()`** (`pipeline.py:166-195`) for the
+service's `reprint`/`set_params`. It's a narrower, older mechanism — in-place
+field mutation plus a recompute of the midgray print-balance reference, no tap
+re-seeding — that the current `spektrafilm_gui` doesn't even use (see §3). It
+predates the tap-alias system `prune_identity_nodes` builds and can drift from
+it. Build on `inject`/`collect` instead; it is what `scan_negative_demasked.py`
+already validates in production.
+
+---
+
+## 2. Confirmed: reprint is cheap AND bit-exact — with one caveat
+
+Ran `tests/baseline/probe_callable_api.py --no-matrix` on the 16 MP reference
+(`tests/baseline/_DSC2439_16mp_linear_prophoto.tif`), grain and glare disabled
+(see caveat below):
+
+```
+open (rgb_in -> cmy_film):          2.65s
+reprint (cmy_film -> rgb_out):      3.15s
+full re-render (rgb_in -> rgb_out): 5.05s
+max abs diff:  0.000e+00
+mean abs diff: 0.000e+00
+reprint speedup vs full render: 1.6x
+RESULT: PASS
+```
+
+Bit-exact, not just close. This is the strongest evidence the PRD's cache
+architecture (§2-3) is sound: `reprint` really is "the same computation,
+minus the film-side nodes", not an approximation.
+
+**Caveat — grain and glare are unseeded by design (RFC-002 / RFC-008).**
+`settings.grain_sampler = 'stochastic'` draws a fresh Poisson realisation on
+every independent `SimulationPipeline` construction; glare does the same. Two
+independently-built pipelines with identical params will *not* be pixel
+identical unless both are disabled, or unless the same pipeline instance is
+reused for both draws being compared (which `reprint` naturally does — the
+grain realisation is already baked into the cached `Tap.CMY_FILM` negative
+and is not re-drawn on reprint, since the film-side nodes don't fire). In
+other words: **within one session, reprint is grain-consistent for free**
+(the whole point of caching the negative) — the equivalence *test* just has
+to disable stochastic sources to compare against an independently-built
+full-render pipeline, which draws its own separate grain. Don't read the
+15 MP/16 MP timing numbers above as the real product budget — see PRD §6 for
+that; this run's numbers are just proof of the caching mechanism, not a perf
+budget (they're CPU/current-repo-state dependent).
+
+**16 MP full-render absolute time (~5-7s here) is faster than the PRD's
+45 MP number (24.3s) as expected** — but note this run used
+`working_precision` and `spectral_backend` defaults from `init_params`, not
+necessarily the RFC-007/008-tuned settings the 45 MP number was measured
+under. Don't use this run's absolute seconds for the §6 tier decision;
+re-measure at 45 MP with the settings the service will actually ship with.
+
+**Why `reprint` has to be the grading path, not just the fast one.** Tested
+directly: is a print-referred tap (`Tap.SCAN_RGB`) linearly gradable if
+exported and pushed with a flat gain, the way an external tool (Photoshop,
+Lightroom) would push an exposure slider? No. Rendered the same frame two
+ways, both +1 stop brighter in the same direction: (a) the physically
+correct way — `pipeline.enlarger.print_exposure = 0.5` (paper convention:
+*less* enlarger exposure prints *brighter* — the opposite of the "more
+exposure = brighter" intuition that holds for camera exposure, worth
+flagging for anyone building the print-side UI copy), re-rendered from the
+cached negative via `reprint`; (b) the naive way — the baseline `SCAN_RGB`
+array multiplied by a flat ×2 gain, then continued through the rest of the
+pipeline. Mean abs diff 0.126, max 0.343 — not a rounding difference. Visibly:
+the correct version compresses the sky/highlights as exposure goes up (the
+paper's shoulder responding nonlinearly, exposure-dependently); the naive
+gain just scales every pixel uniformly and keeps the original contrast
+ratio, so it never reproduces that highlight rolloff. **A flat/linear grade
+on exported print-referred pixels will not match what the physical model
+would have produced at that exposure** — which means `reprint` isn't only
+the fast path for print-side edits, it's the *only correct* one. Do not
+build (or let a frontend build) a "grade the exported print TIFF externally"
+workflow expecting it to match `reprint`'s output; the two are not
+interchangeable, by physics, not by implementation gap.
+
+**But the print+scan chain *is* representable as a 3D LUT, and that's a real,
+measured, different thing from "gradable."** A LUT doesn't let you grade —
+it lets you *preview* a specific stock's look cheaply, matching how real DI
+grading actually works: a colorist works on wide-latitude scan/negative data
+while *viewing* it through a live-composited print-emulation LUT, baked into
+the deliverable only at final export. Checked whether `Tap.CMY_FILM ->
+Tap.RGB_OUT` is representable that way here: every node in the chain is
+pointwise under default params (`printing.expose.print_exposure` is spatial
+only via the diffusion filter, off by default; `scanning.scanner_blur` /
+`scanning.unsharp` are off by default) **except `scanning.glare`, which is
+spatial+stochastic and is ON by default** — a 3D LUT structurally cannot
+represent it.
+
+**Shipped, not just prototyped (2026-08-25).** `scripts/bake_all_print_luts.py`
+bakes a 33³ LUT for **all 8 print stocks** in the profile library (checked
+directly: `fujifilm_crystal_archive_typeii`, `kodak_2383`, `kodak_2393`,
+`kodak_ektacolor_edge`, `kodak_endura_premier`, `kodak_portra_endura`,
+`kodak_supra_endura`, `kodak_ultra_endura` — every profile with
+`info.stage == "printing"`), one `pipeline.process(grid, inject=Tap.CMY_FILM,
+collect=Tap.RGB_OUT)` call per stock over a 35,937-point density grid sized
+to *that film's own* characteristic-curve range (not one test photo's
+observed range, so the shipped LUT is valid for any negative from that
+film, not just the frame it happened to be tested on). Output:
+`src/spektrafilm/data/luts/print_preview/<print_stock>.{npz,json}`, ~370 KB
+each, all 8 baked in **0.71 s total**.
+
+**Pairing note, checked against the data, not guessed:** each film profile
+declares its own `info.target_print` — `kodak_portra_400 → kodak_portra_endura`,
+`kodak_vision3_250d → kodak_2383`, `fujifilm_pro_400h →
+fujifilm_crystal_archive_typeii` are all explicit in the profile JSON. Five
+print stocks have no film that declares them as `target_print`
+(`kodak_2393`, `kodak_ektacolor_edge`, `kodak_endura_premier`,
+`kodak_supra_endura`, `kodak_ultra_endura`) — each shipped LUT for those is
+paired with a reasonable default (`kodak_portra_400` for the orphaned Kodak
+still papers, `kodak_vision3_250d` for `kodak_2393` — same product family as
+`2383`), marked `"declared_pairing": false` in that LUT's own `.json`
+sidecar. **The LUT is coupled to both the paper's curve and the negative's
+dye spectra** (`_film_cmy_to_print_log_raw` uses the film's own
+`channel_density`/`base_density`) — it is not purely a property of the
+print stock, so applying a shipped LUT against a film it wasn't paired with
+is an approximation with unmeasured error. Flagged in `HANDOFF-PRINT-LUT.md`
+as the open question for the next session, not resolved here.
+
+**Real deliverable produced end to end**, not just a comparison sheet:
+`scripts/apply_print_lut.py` loads a shipped LUT and a real RAW, renders
+the negative, applies the LUT, and writes a genuine TIFF —
+`tmp/Test_image/out/_DSC2484_kodak_2393_via_lut.tif`, 15.03 s total (10.51 s
+negative render + 4.51 s LUT apply) on the 45 MP dehancer-comparison frame,
+against ~19.5 s for the full print+scan render on the same frame. Verified
+correct against the same-pipeline-instance ground truth (not an
+independent, differently-grained render — that comparison gave a
+misleadingly large 0.05 mean diff purely from two unseeded stochastic grain
+draws, the same "must disable grain to isolate other differences" trap this
+session hit before): **mean abs diff 0.0017, max 0.174**, matching the
+original single-stock prototype exactly.
+
+**New API method, added to `PRD-callable-render-api.md` §7.3:**
+`preview_stock_lut` — `{session_id, print_stock, film_stock?}` →
+`{preview_path, lut_source, apply_ms}`. Applies a shipped (or, if none
+exists for that pair, freshly-baked — baking is cheap enough, ~0.01-0.25s,
+to be a legitimate fallback) LUT to the session's cached negative. This is
+explicitly **not** `reprint`'s replacement — no `params_delta`, can't
+represent exposure/filter-pack changes, skips glare entirely. It exists so
+a frontend can let a user flip between stocks/looks near-instantly before
+committing to a real render; see the PRD for the full contract and the
+glare tradeoff reasoning.
+
+`SpectralLUTService` (`use_enlarger_lut`/`use_scanner_lut`) already did a
+narrower version of this for the spectral-integral sub-steps only; this
+widens the same technique to the whole print+scan chain, output tap
+included.
+
+---
+
+## 3. Current GUI does not use either cheap path
+
+`spektrafilm_gui/controller.py:644` calls `self._runtime_simulator.process(image_data)`
+with no `inject`/`collect` and no `soft_update`. Every slider nudge in the
+existing Tk/napari frontend re-runs the full pipeline. This is why the user
+describes it as unusable for interactive work, and it's the concrete baseline
+the new service should be measured against — "faster than the current GUI"
+is a low, well-defined bar; "faster than the §6 tier for the interaction it's
+driving" is the real target.
+
+---
+
+## 4. Mandatory vs toggleable parameter layers (for the frontend)
+
+This is the frontend contract, grounded in what the engine actually gates and
+verified visually via `tests/baseline/probe_callable_api.py` (contact sheet
+at `tests/baseline/out/callable_api_probe/contact_sheet.png`, 8 labeled
+variants, 16 MP reference image, rendered 2026-08-25).
+
+**Corrected 2026-08-25: the first version of this contact sheet was visibly
+wrong (flat, hazy, low-contrast) and it was a bug in the probe script, not
+the engine — worth recording so it isn't re-litigated.** `io.output_cctf_encoding
+= True` means the pipeline's own `scanning.cctf` node (`pipeline.py:317-322`)
+already applies the display OETF before `process()` returns — the array is
+already gamma-encoded. The probe's PNG display helper applied a *second*
+`**(1/2.2)` gamma on top for "display", which raises every value toward mid-
+grey and crushes contrast — this is a double-encoding bug, not a color-
+management bug, and it only ever affected the probe's own contact-sheet PNG,
+never the TIFF/EXR the engine actually writes. Also corrected in the same
+pass: the probe was set to `output_color_space="sRGB"`; this project's
+reference convention is ProPhoto RGB in / **Display P3** out (matches
+`tests/baseline/out/compare_rfc004_p0_p1_p2_displayp3.png` and
+`run_reference.py`'s own defaults), so the probe now renders Display P3 and
+the contact-sheet PNG converts P3 primaries to sRGB primaries
+(`colour.RGB_to_RGB(..., apply_cctf_decoding=True, apply_cctf_encoding=True)`)
+purely for correct display in a plain, non-color-managed PNG viewer — the
+saved `variant_NN.tif` files stay in Display P3, matching the product's real
+output. **Lesson for whoever writes the service's own preview/thumbnail path:
+never hand-roll a gamma curve on an array that already went through
+`output_cctf_encoding`; either display it as-is (already encoded) or convert
+primaries only, never re-apply an OETF.**
+
+| layer | mandatory? | what "off" means in the engine | confirmed in contact sheet |
+|---|---|---|---|
+| **film + paper stock** | **mandatory** — `RuntimePhotoParams.film`/`.print` are non-optional constructor args and `__post_init__` raises `TypeError` if either isn't a `Profile` (`params_schema.py:282-286`) | N/A — no "off" state exists | variant 1 (film/paper swapped `kodak_portra_400`/`kodak_portra_endura` → `kodak_ektar_100`/`kodak_ektacolor_edge`) visibly changes color response — confirms stock selection actually propagates to the render, not just metadata |
+| **enlarger (printing stage)** | optional, as a *whole stage bypass* | `io.scan_film = True` skips the entire printing stage and scans `Tap.CMY_FILM` directly (`pipeline.py:325-341`) — this is the real "disable the enlarger" toggle, not a per-param flag | variant 2 — dramatically different (raw orange negative, inverted tone) because it's genuinely a different pipeline path, not the same print with the enlarger's contribution zeroed. **UI implication: don't expose this as a subtle checkbox; it changes what the artifact *is*** (a scanned negative vs a printed positive), matching PRD §9's demask-negative distinction |
+| **scanner** | optional per-correction | `scanner.white_correction`, `scanner.black_correction` (bool), `scanner.unsharp_mask` (tuple, `(0,0)` = off), `scanner.lens_blur` (float, `0` = off) — no single master switch | variants 3 (on) vs 4 (off) — visibly different tonal range/sharpness, confirms these flags reach the render |
+| **grain** | optional | `film_render.grain.active` + `.sublayers_active` (both bool) | variant 5 — looks like a no-op at contact-sheet thumbnail scale, but is not: pixel diff against baseline is mean 0.011 / **max 0.52** (measured directly on `variant_00.tif` vs `variant_05.tif`, full res, Display P3). It's real, high-frequency, and gets averaged away by thumbnail downsampling. **Always check 100% crops for grain, never the contact sheet** — the thumbnail will make a working toggle look broken. |
+| **halation** | optional | `film_render.halation.active` (bool) | variant 6 — same story: mean diff 0.017 / **max 1.21** against baseline, invisible at thumbnail scale on this flat-lit studio frame because halation is highlight-driven (see PRD §5's halation-boost note) and this frame has no strong specular/backlit source. Confirmed working, just not visible in the grid — **re-test on a frame with a bright practical light or backlit edge if a human needs to visually confirm it, don't rely on this contact sheet for that.** |
+| **hue** | **does not exist — do not add one** | no code path | variant 7 uses `enlarger.y_filter_shift`/`m_filter_shift` (the physically real "color mood" lever) instead — visibly a magenta/green cast, correctly not framed as "hue" in the UI copy. See PRD §5's dedicated hue note for the reasoning: color is produced by the spectral dye simulation, not graded, so a generic hue/saturation slider would be the same category of dishonesty as the gain/temp/tint non-goal already in the PRD. If a future session is asked for a "color" slider by a designer who doesn't know this, point them at the filter pack + stock picker, not a new HSV node. |
+
+**Test-writing note for whoever wires this into `set_params`/`params_schema`
+validation (PRD §8):** film/paper should be validated as required fields at
+the transport-schema level (reject a request missing either, don't let it
+fall through to a `TypeError` from `__post_init__`). Every other toggle in
+the table above is a normal optional field with an engine-defined default —
+the schema's `default` annotation (PRD §8) should match the `dataclass`
+default in `params_schema.py`, not be re-decided by the frontend.
+
+---
+
+## 5. Stock choice is not a neutral default — measured, not assumed
+
+Every render this session, across the whole dataset benchmark, used
+`kodak_portra_400` / `kodak_portra_endura` — a **still-photo consumer**
+negative/paper pair — as the unexamined default. Worth flagging explicitly
+for whoever builds the stock picker: **this repo already ships the actual
+Kodak theatrical release-print stock**, unused until this point.
+
+- `data/profiles/kodak_2383.json` / `kodak_2393.json` — "Kodak Vision 2383" /
+  "Kodak Vision Premier 2393", `info.use = "cine"`, `viewing_illuminant =
+  "K75P"` (the real theatrical-projector illuminant standard, not a photo
+  viewing condition). These are the print stocks the majority of theatrical
+  film prints were actually struck on.
+- `data/profiles/kodak_vision3_{50d,250d,200t,500t}.json` — the matching
+  Vision3 **cine camera negative** stocks (daylight/tungsten pairs), the
+  correct negative to pair with 2383/2393 rather than a still-photo negative.
+- Provenance is documented in-repo, not assumed: every profile's `metadata.datasource`
+  states plainly — *"Film/photo-paper: Kodak and Fujifilm data-sheets,
+  scientific publications, and technical material... all data publicly
+  available."* This is digitized published sensitometric data, not a
+  reverse-engineered LUT grab, and it's CC BY-SA 4.0
+  (`license/SPEKTRAFILM_LICENSE.txt`), not something requiring separate licensing to
+  ship.
+
+**Measured, not just theorized — the two pairings produce a visibly
+different result on the same negative-side image.** Rendered the same frame
+through both:
+
+| | still-photo default | real cine pair |
+|---|---|---|
+| film / print | `kodak_portra_400` / `kodak_portra_endura` | `kodak_vision3_250d` / `kodak_2393` |
+| character | cooler, this session's baseline throughout | visibly warmer — richer stone/skin tones, golden cast on skyline highlights, different overall contrast |
+
+Side-by-side: `tmp/Test_image/out/still_vs_cine_stock.png`. The difference is
+not subtle — this is two different, both-authentic renderings of the same
+capture, and **which one a frontend defaults to is a real product decision**,
+not an implementation detail to leave at whatever `init_params`'s hardcoded
+default happens to be. At minimum: the stock picker (film × paper, §4's
+mandatory pair) needs cine stocks as first-class options alongside
+consumer-photo ones, not buried as an advanced/hidden choice, since for a
+user chasing "the film look" in the cinema sense, the cine pair may be
+closer to what they actually mean by that phrase than the still-photo
+default this whole session quietly assumed.
+
+---
+
+## 6. Multi-tier resolution architecture — measured, not projected
+
+The frontend needs three resolution tiers, not two: a live-edit tier for
+slider drag, a preview tier large enough to actually judge grain/halation
+(per §4's finding — both are invisible at small scale, so "preview" must be
+big enough to read them), and the real full-resolution export. Measured on
+the 16 MP reference image, M-series Mac, `spectral_backend='mlx'`:
+
+| tier | resolution | mechanism | measured time | measured peak RSS |
+|---|---|---|---|---|
+| **live-edit** | 2 MP (e.g. 1154×1732) | full render (film+print+scan), `gpu_backend=''` (CPU dispatch) | **1.17 s** | 1.39 GB |
+| **live-edit, reprint only** | 2 MP | `reprint` from cached negative (`inject=Tap.CMY_FILM`), `gpu_backend=''` | **~390 ms** warm | — |
+| **live-edit, reprint only, GPU+f32** | 2 MP | same, `gpu_backend='mlx'`, `working_precision='float32'` | **~260 ms** warm | — |
+| **preview** | 8 MP (e.g. 2308×3465) | full render | **3.60 s** | 3.59 GB |
+| **full** | 45 MP | full render (cited from RFC-008 Part B, not re-measured this session — re-measure at the settings the service actually ships with, see PRD §6) | 24.33 s | 12.34 GB |
+
+**Reading these numbers against PRD §6's interaction tiers:**
+- Full-pipeline 2 MP (1.17 s) does **not** hit the "<100ms real-time drag"
+  tier — a shoot-side param change (which invalidates the negative and must
+  run the full pipeline even at preview res) lands in PRD §6's
+  "100ms-500ms: drag with down-res preview, release for full frame" tier, or
+  worse, at 2 MP.
+- **`reprint`-only at 2 MP (260-390 ms warm) is the number that actually
+  matters for the primary interaction** — PRD §0's "sliders exist to
+  *override* the auto-solve" model means print-side sliders (exposure,
+  filter pack) are the sliders a user drags continuously, and those go
+  through `reprint`, not a full render. This is close to real-time already
+  and is the strongest argument for building `reprint` on `inject`/`collect`
+  (§1-2) rather than anything else — it's the only path in this table with a
+  realistic shot at feeling instant.
+- Getting shoot-side changes (which do invalidate the negative) under
+  100-500ms at usable preview resolution is the actual open engineering
+  problem, not something these numbers solve. `warm-up`/JIT costs (numba,
+  ~0.4s first-call) are separate from these steady-state numbers — reuse one
+  long-lived pipeline object across a session, not a fresh
+  `SimulationPipeline()` per request, or every request pays JIT again.
+
+**Three concrete resolution tiers for the service, following from the
+table:**
+1. **Live-edit (2 MP or smaller):** always driven by `reprint`
+   (`inject=Tap.CMY_FILM`) against a *preview-resolution* cached negative —
+   not the full-res one. This means the service caches **two** negatives per
+   session, not one: a small one for drag-responsiveness, and the real one
+   at working resolution for `export`. Re-render the small negative only
+   when a shoot-side param changes (rare, by PRD §0's own design — "sliders
+   exist to override the auto-solve", implying most drag interaction is
+   print-side).
+2. **Preview (8-12 MP):** the tier a user checks grain/halation at before
+   committing to a full export. Given §4's finding that these effects are
+   easy to miss below 100% crop, this tier exists specifically so a user can
+   *see* what they're toggling, not just get a faster preview of color.
+   Consider a "zoom to 100%" affordance in this tier rather than only ever
+   showing the whole downscaled frame — the whole point is to catch grain
+   and halation, which downscaling itself partially erases.
+3. **Full (working resolution, up to 45 MP):** `export` only, always shown
+   as a progress state per PRD §6, never blocking.
+
+## 7. Memory budget and disk-spill cache design
+
+**Problem this section is for:** PRD §7.2 scopes the service to "one
+service, one session, one workspace" — a single open image at a time. Even
+within that single-image scope, the three-tier design in §6 above means the
+service now holds **multiple resident buffers simultaneously**: a live-edit
+negative (2 MP), a preview negative (8-12 MP), and the working-resolution
+negative (up to 45 MP), plus whatever the last few `reprint` outputs were if
+the frontend wants instant undo/redo across print-side history. At 45 MP a
+single float32 RGB buffer is ~0.54 GB (PRD §7.4); the negative tap is the
+same order of magnitude. None of this is the "10+ open images" problem a
+general asset-management cache would solve — it's "a handful of same-image,
+different-resolution/different-history buffers," which is a much smaller and
+more tractable problem than a general LRU-over-everything cache.
+
+**Design: a small, explicit, capacity-bounded buffer table, not a generic
+cache.**
+
+- The service tracks a fixed, named set of resident buffers per session:
+  `{live_negative, preview_negative, working_negative, last_export}` plus a
+  bounded ring of recent `reprint` outputs for undo (size configurable,
+  default small — e.g. 8 entries at live-edit resolution only, never at
+  working resolution).
+- Each buffer has a declared resolution tier, so the memory cost is
+  predictable up front, not discovered at runtime: live (2 MP) + preview
+  (8-12 MP) + working (up to 0.54 GB at 45 MP) + a small undo ring is on the
+  order of 1-2 GB total resident — nowhere near the 12+ GB single-render
+  peak PRD §6 already documents, because these are cached *taps*
+  (post-film-side, pre-print), not the ~7 live intermediate buffers a single
+  `run_topology` call holds transiently (and which `free_taps` already frees
+  as it goes — see `topology.py:143-149,201-204` — that part of the memory
+  story is already handled by the engine, don't re-solve it at the service
+  layer).
+- **Spill policy:** when the *working-resolution* negative is not the active
+  render target (user is dragging live-edit sliders, hasn't touched a
+  shoot-side param in N seconds), write it to the session workspace as a
+  `.npy` (not re-encoded — a raw dump, so reload is a `mmap`/`np.load`, not a
+  decode) and drop the in-memory reference. Reload it lazily the moment
+  `export` or a resolution-tier switch needs it. This is the "manually dump
+  to disk past a cap" mechanism — but scoped to one specific, predictable
+  buffer (the working negative), not a generic cache eviction policy,
+  because there's only ever one session and a small, known set of buffers to
+  manage.
+- **Hard cap as a backstop, not the primary mechanism:** track process RSS
+  (same `resource.getrusage(...).ru_maxrss` used throughout this repo's own
+  benchmarking scripts, e.g. `tests/baseline/run_reference.py:24-26`) and if
+  it crosses a configured ceiling (e.g. 80% of a conservative fraction of
+  system RAM), force-spill the working negative and the undo ring
+  immediately, before starting the next render — never let a render *start*
+  against a buffer table that's already near the ceiling, since PRD §7.6
+  already establishes single-flight (one render at a time), so the check has
+  a clean place to run: at the top of every service method that's about to
+  call `pipeline.process`.
+- **What NOT to build:** a general LRU cache with arbitrary keys, TTLs, or
+  multi-image eviction. That's solving a multi-session/multi-image problem
+  this PRD explicitly doesn't have (§7.2's "one session" scope). If a future
+  version adds roll/contact-sheet batch handling (PRD §4, batch solve), that
+  is the point to revisit this section — not before, and it should be a new
+  RFC, the same way RFC-009 is a new RFC for the fast-look path rather than
+  a quiet addition here.
+
+## 8. Experimental non-physical fast-GPU look path
+
+See `rfc/RFC-009-experimental-fast-gpu-look.md` for the full writeup. Short
+version: a from-scratch, all-MLX path (`scripts/experimental_fast_gpu_look.py`)
+that skips the spectral integral, the measured characteristic curves, and the
+Poisson grain model entirely — 202 ms / 1.09 GB peak RSS at 16 MP against the
+real pipeline's ~7 s / several GB, a genuine ~35x speedup, **but the
+prototype's specific look is flat and lower-contrast than the real pipeline**
+(side-by-side: `tests/baseline/out/experimental_fast_gpu_look/comparison.png`)
+and needs real color-grading iteration before it's worth shipping, not
+another engineering pass. If it ships, it must be an explicit, clearly-labeled
+opt-in `render_mode`, never a silent fallback or a "fast preview" default —
+see RFC-009 §0, §3.
+
+## 9. Re-running the probe
+
+```
+python tests/baseline/probe_callable_api.py                  # both checks
+python tests/baseline/probe_callable_api.py --no-matrix       # equivalence only (~15s)
+python tests/baseline/probe_callable_api.py --no-check-reprint # contact sheet only (~50s)
+```
+
+Outputs land in `tests/baseline/out/callable_api_probe/`:
+`contact_sheet.png` (labeled grid, for eyeballing), `variant_00..07.tif`
+(full-res float32, for 100% crops — needed for grain/halation per the table
+above), `reprint_vs_full.exr` (the diff image, all-zero on a pass).
+
+This script is deliberately **not** part of the pytest suite — it makes no
+engine behavior changes, so there's nothing to gate strictly; it's a probe to
+re-run by hand whenever the reprint mechanism or the mandatory/optional
+param table above is in question, e.g. after a future engine change touches
+`run_topology`, `prune_identity_nodes`, or any of the enlarger-service
+attribute reads this doc's §1-2 depend on staying live-mutation-safe.
+
+
+---
+
+## 10. The service, as built (2026-08-25)
+
+`src/spektrafilm/service/` implements §1's routing table and PRD §7.3's
+thirteen methods. It renders nothing itself — every method is a routing
+decision over engine calls that already existed.
+
+```
+spektrafilm/service/
+  errors.py      PRD §7.7 taxonomy: user / resource / bug (+ Cancelled)
+  schema.py      PRD §8 versioned transport schema, delta validation, layer map
+  session.py     tiers, cached negatives, the on_fire cancel/progress hook
+  service.py     the 13 methods
+  transport.py   stdio JSON-RPC 2.0, single-threaded by design
+  __main__.py    python -m spektrafilm.service [--workspace DIR]
+```
+
+Run it: `python -m spektrafilm.service --workspace /tmp/ws`, then write
+JSON-RPC lines to stdin. Tests: `tests/test_service.py` (27).
+
+### 10.1 The landmine §1 did not spell out
+
+> `SimulationPipeline.__init__` does `self._params = copy.deepcopy(params)`
+> (`pipeline.py:37`).
+
+§1 says to mutate "`pipeline.enlarger.*` … **in place on the same `pipeline`
+object**", which is correct — but the emphasis lands on *same object* when the
+load-bearing word is *`pipeline`*. Mutating the `RuntimePhotoParams` the
+pipeline was **built from** does nothing: the pipeline is reading its own deep
+copy and never looks at the original again. The first cut of the service did
+exactly that, and the failure mode is nasty — every method returns success,
+every render runs, the timings look right, and **the sliders silently do
+nothing**. It was caught by asserting that reprint output equals a full render
+(§2's own check, ported into `tests/test_service.py`), which is the argument
+for keeping that check as a test rather than a probe.
+
+Two regression tests now assert *pixels move* when a delta is applied, one per
+path, because "the call succeeded" is not evidence here.
+
+### 10.2 Which params are live-mutable, and what the rest cost
+
+`schema.LIVE_MUTABLE` is deliberately four fields — `print_exposure`,
+`m_filter_shift`, `y_filter_shift`, `preflash_exposure` — the ones §1/§3
+verified. Everything else drops the pipeline and rebuilds it on next use,
+because construction derives state that in-place mutation would leave stale:
+the print-balance midgray reference, the `io.scan_film` topology branch, and
+the `prune_identity_nodes` set (a node pruned at `sigma == 0` does not come
+back when you raise sigma on a live object).
+
+That conservative default is nearly free: **pipeline construction measured
+18.8 ms** against a 190 ms live-tier reprint. The cached *negative* — the
+expensive artifact — survives a rebuild; only a shoot-layer change drops it.
+Do not "optimise" this by widening `LIVE_MUTABLE` without re-running the
+reprint-equivalence test for each field added.
+
+### 10.3 Measured, end to end, on `_DSC2439.NEF` (45.75 MP)
+
+| call | time | path |
+|---|---|---|
+| `capabilities` / `params_schema` | 4–45 ms | — |
+| `open` (RAW decode + live negative) | 6.98 s | film side at live tier |
+| `solve` (exposure + filter pack) | 100 ms | `measure_autoexposure_ev` + neutral DB |
+| `reprint` (live tier, warm) | **193–199 ms** | `inject=CMY_FILM` |
+| `preview_stock_lut` (live tier) | **4–10 ms apply** | Metal trilinear kernel |
+| `preview_render` (preview tier, cold negative) | 2.39 s | film side + print side |
+| `export` (45 MP, cold negative) | 13.9 s | full render |
+| `set_params` | <1 ms | routing only |
+
+`reprint` at 193 ms is the number that matters — §6 called it "the number
+that actually matters for the primary interaction", and it is now what the
+service actually does on a print-side slider drag.
+
+### 10.4 Deliberate limitations, stated not hidden
+
+- **`cancel` cannot arrive mid-render on the stdio transport.** Requests are
+  handled one at a time on the main thread, on purpose (numba's `workqueue`
+  layer is not threadsafe — §10.5). The hook works and is tested; delivering
+  it during a render needs a second connection or a socket transport whose
+  reader thread touches only the progress record.
+- **`preview_stock_lut` only serves shipped LUTs.** PRD §7.3 allows a
+  bake-on-demand fallback (`lut_source: "baked"`); the service returns a
+  `no_lut_for_stock` user error instead. Baking is cheap (0.01–0.25 s) so this
+  is a small gap, but it is a gap.
+- **No disk spill.** §7's spill policy for the working-resolution negative is
+  not implemented; the service holds what it holds.
+- **One session at a time.** `open` releases the previous session, matching
+  PRD §7.2's scope.
+
+### 10.5 numba in a long-lived process — measured
+
+The question is whether numba suits a persistent backend at all. Measured in
+one process (1 MP live tier, 12 consecutive reprints):
+
+| | |
+|---|---|
+| `import spektrafilm.service` | 1.76 s (matches HANDOFF-IPC §3's 1.78 s) |
+| first render, warm numba disk cache | 0.48 s |
+| steady-state reprint | 137–155 ms, **no upward drift over 12 renders** |
+| peak RSS | 0.53 → 0.57 GB, **flat — no leak or creep** |
+| threading layer | **`workqueue`** — `tbb` and `omp` are both absent from the venv |
+
+So: yes, numba is fit for a persistent process. The JIT cost is one-time and
+already disk-cached, and nothing accumulates. The catch is the threading
+layer: `workqueue` is numba's fallback, and it is the one that aborts the
+*process* on concurrent or nested entry into a `parallel=True` kernel. That is
+not a latent risk to be fixed later — it is the reason the transport is
+single-threaded, and installing `tbb` is the only thing that would change that
+calculus (untested here; it would need its own measurement pass, and TBB is
+also the layer that makes nested parallelism safe, which would unblock
+`parallel_pointwise` wrapping fused kernels — see RFC-007 §8.5).
+
+## 11. RFC-024 virtual contrast mask — wire fields (2026-09-23)
+
+Six native-only fields, all **print layer** and **not live**. A mask edit costs
+a pipeline rebuild plus a reprint of the cached negative. It never re-develops
+the negative: `negative_was_cached` is 1 on the reprint that follows.
+`parity_schema.py` pins them in `NATIVE_ONLY`.
+
+| field | path | type | default | range | meaning |
+|---|---|---|---|---|---|
+| `contrast_mask_active` | `print_render.contrast_mask.active` | bool | `false` | — | the switch; `false` keeps the unmasked dispatches exactly (byte-identical to the pre-RFC build) |
+| `contrast_mask_highlights` | `…contrast_mask.highlights` | float | `0.0` | 0–3 | stops by which a low base exposure (**print highlight**) is raised, read 4 stops past the knee; `0` disables the branch exactly |
+| `contrast_mask_shadows` | `…contrast_mask.shadows` | float | `0.0` | 0–3 | the same for high base exposures (**print shadows**), which are lowered |
+| `contrast_mask_core` | `…contrast_mask.core` | float | `1.0` | 0–3 | half-width, in stops about the negative's mid-grey, of the identity core |
+| `contrast_mask_scale` | `…contrast_mask.scale` | float | `0.03` | 0.002–0.12 | the base extractor's sigma as a fraction of the frame's long edge (tier-independent) |
+| `contrast_mask_scheme` | `…contrast_mask.scheme` | str | `"gaussian"` | `gaussian` | the base extractor, by name; the classic unsharp mask is the only product scheme |
+
+**Changed 2026-09-24, by the user's decision, before any client depended on
+it:** `contrast_mask_edge_aware` (bool) is gone. It is replaced by the
+`contrast_mask_scheme` enum. The guided base behaved like the excluded
+per-pixel arm at its fixed threshold (RFC-024 §12.4), so it is research-only:
+`SPEKTRALAB_MASK_GUIDED=1`.
+
+The scale range narrowed from 0.001–0.25 to 0.002–0.12, for two reasons:
+- Below about 4 ÷ the preview's long edge, the live tier caps the analysis
+  grid, and the canvas stops matching the export.
+- At 0.25 a live edit cost 161 ms.
+
+Measured on a 45 MP frame with a 2560 px preview:
+
+| scale | live edit, mask off | live edit, mask on | full reprint, mask off | full reprint, mask on |
+|---|---|---|---|---|
+| 0.008–0.12 | 18 ms | 24–25 ms | 164 ms | 221 ms (0.03) |
+| 0.004 | | 30 ms | | |
+| 0.002 | | 61 ms | | 274 ms |
+
+The defaults are placeholders, not recommendations. Every control is the
+user's, and no values are calibrated (RFC-024 §12.5).
+
+With `active` and at least one non-zero amount, and only for ordinary
+negative-to-paper printing (it is ignored under `scan_film`, on a positive
+print material, and in `lut_mode`), the print run has one extra whole-frame
+analysis step, and `printing.expose.enlarger_spectral` is replaced by
+`printing.expose.contrast_mask`. That node is pointwise and bands under
+`striped`, and its output is byte-identical to the un-striped render. The
+masked exposure is `P·[2^δ·A + F]`: the gain applies to the image exposure
+before the existing pre-flash `F`, and `print_exposure` `P` keeps its meaning.
+The print LUT and DI paths (`spk_print_lut_table`, `spk_preview_stock_lut`,
+`spk_export_di`) are pointwise tables and do not carry the mask.
+
+**`spk_contrast_mask_field(session, tier, &delta, &grid_w, &grid_h)`**
+returns the mask as a picture, for a canvas overlay. `delta` is in stops after
+the gain bound: positive raises the print's highlights, negative lowers its
+shadows. It is sampled at each analysis-grid cell, row-major, `grid_w` ×
+`grid_h`, in the frame's own aspect (at least 512 cells on the long edge, 4
+per σ).
+
+- It is exactly what the next print of `tier` applies. On a real frame it was
+  bit-identical to the third plane of `SPEKTRALAB_MASK_DUMP`.
+- It needs the tier's cached negative (render the tier first); otherwise it is
+  refused.
+- With the mask off it returns `SPK_OK`, a NULL field and a 0 × 0 grid.
+- It runs the analysis only. It does not draw the print's glare seed, so the
+  next print is unchanged: verified byte for byte.
+- The floats are engine-owned and valid until the next call on the session.
+
+Research-only environment switches, off the wire:
+- `SPEKTRALAB_MASK_DUMP=<file>` writes the analysis grid (`x`, base, δ).
+- `SPEKTRALAB_MASK_POINTWISE=1` turns the base into each pixel's own `x`,
+  which is RFC-024 §9.1's pointwise comparator.
+- `SPEKTRALAB_MASK_GUIDED=1` selects the self-guided base.
+
+## 12. RFC-023 Scene Latitude — wire fields and `spk_scene_latitude` (2026-09-24)
+
+Eight native-only fields, all **shoot layer** and **not live**: the node sits
+before the film (after auto-exposure, before `filming.expose.upsample`), so an
+edit re-develops the negative (`negative_was_cached` is 0 on the next render).
+`parity_schema.py` pins them in `NATIVE_ONLY`.
+
+| field | path | type | default | range | meaning |
+|---|---|---|---|---|---|
+| `scene_latitude_active` | `camera.scene_latitude.active` | bool | `false` | — | the switch; `false`, or both rooms 0, dispatches nothing (byte-identical to the pre-RFC build) |
+| `scene_latitude_norm` | `…scene_latitude.norm` | str | `"power"` | `power` \| `y` \| `max` | the scalar the gain is computed on (RFC-023 §5.2, §15.5) |
+| `scene_latitude_highlight_knee` | `…highlight_knee` | float | `2.0` | −24–24 | `K_h`, stops from the metered mid-grey |
+| `scene_latitude_highlight_room` | `…highlight_room` | float | `0.0` | 0–24 | `H_h`, stops; **0 turns the highlight side off exactly** |
+| `scene_latitude_shadow_knee` | `…shadow_knee` | float | `−2.0` | −24–24 | `K_s` |
+| `scene_latitude_shadow_room` | `…shadow_room` | float | `0.0` | 0–24 | `H_s`; 0 turns the shadow side off |
+| `scene_latitude_rolloff` | `…rolloff` | float | `2.0` | 1–4 | `m`, the roll-off order |
+| `scene_latitude_max_lift` | `…max_lift` | float | `4.0` | 0.25–12 | `L_max`, stops: the smooth bound on the shadow lift |
+
+These are the **resolved** curve, never the UI's pull-backs (RFC-023 §8.3): a
+paper change must not re-render an old edit. With both sides on, a delta whose
+`shadow_knee ≥ highlight_knee` is refused by `spk_set_params`.
+
+**`spk_scene_latitude(session, request_json, &out_json)`** measures, suggests
+and solves; it never renders and never writes a parameter. Request (every key
+optional): `highlight_pull_back`, `shadow_pull_back` (stops; 0 = side off;
+absent = the suggestion), `rolloff`, `max_lift`, `norm` (absent = the
+session's), `margin` (0.25), `shadow_percentile` (0.1 or 1),
+`highlight_percentile` (99.9 or 99). Reply:
+
+- `medium` — `shadow_ev`, `highlight_ev`, `latitude_stops`, `y_black`,
+  `y_white`, and a 128-point `ramp_ev`/`ramp_y`: a 1024-sample neutral ramp
+  rendered through the session's own film, paper and enlarger (grain,
+  halation, glare, mask, EDR, crop and **the Decode curve** off), read with
+  ISO 6846's criteria. Cached per session until a field it reads changes.
+  **Since 2026-10-25 (RFC-035 §5.3)** the probe also runs at Exp. Comp. 0
+  wherever the enlarger is not re-timed for it (`print_exposure_compensation`
+  false, the product's default): there Exp. Comp. is a pure shift of the
+  window (measured −4.6277/+2.3976 at 0, −5.6277/+1.3976 at +1), so the probe
+  runs once per film and paper and the reply moves it. Where the enlarger is
+  re-timed (the reference's default) Exp. Comp. changes the window's shape
+  (−5.1992/+2.3698 at +1), so the probe keeps it. Either way the reported
+  boundaries are on the same axis as `scene`, below — before Exp. Comp. — and
+  `fit` is solved on them.
+- `scene` — `p0_1`, `p1`, `p50`, `p99`, `p99_9` and a 128-bin `histogram` over
+  [−16, 16] EV, on the node's own axis: the meter's frame, through
+  input_cast/decode/geometry and the session's auto-exposure EV, in the norm.
+  The histogram carries `lo_ev`, `hi_ev`, `fractions`, `placed_fractions`
+  (present when the fit is valid), and since 2026-10-25 (RFC-035, additive):
+  - `fractions_r`, `fractions_g`, `fractions_b` — each channel by itself,
+    log2(c / mid-grey) on the same bins and the same `lo_ev`/`hi_ev`, each the
+    share of that channel's own positive samples. Before Scene Placement;
+    there is no placed form.
+  - `exposure_ev` — the session's `exposure_compensation_ev`, c. **Every stop
+    in this reply is before Exp. Comp.**: `lo_ev`/`hi_ev`, the percentiles,
+    the medium's boundaries and ramp, the fit. Adding c puts one on the film's
+    axis, the Decode curve's (§17). There the medium's window is the film and
+    paper's own and does not move with Exp. Comp. or the curve, and the
+    scene's histogram moves c stops right.
+- `suggested` — RFC-023 §9.3's policy: pull-backs landing each extreme
+  `margin` inside the medium, less margin if needed, `valid` false if none works.
+- `fit` — `valid`, `issues` (refusals: `pull_back_below_minimum`,
+  `pull_back_exceeds_max_lift`, `knees_cross`, `room_below_minimum`,
+  `out_of_range`), `warnings` (`knee_past_midgrey`: legal, but the subject is no
+  longer in the untouched core), per side `on`, `pull_back`,
+  `minimum_pull_back`, `scene_extreme_ev`, `medium_boundary_ev`, `knee`,
+  `room`, `landing_ev`, `slope_at_extreme`, and `core_stops`. **`params_delta`
+  is present only when `valid`** — it is what a client sends to commit.
+
+The shadow pull-back is the **bounded** lift: `landing_ev` is where the render
+really puts the extreme, because the Fit solves the curve for the lift that
+`max_lift`'s bound brings back to the pull-back. A pull-back at or beyond
+`max_lift` is refused.
+
+## 13. RFC-032/031 overscan and the date back — wire fields (2026-10-01)
+
+**Status: in this engine since 2026-10-02** (`engine/src/pipeline/overscan.cpp`, `shaders/overscan.metal`). The section is the contract every frontend builds against. Checked when it landed: `overscan_checks.py` (34), `parity_schema.py` (the twenty rows are pinned in `NATIVE_ONLY`), `parity_session.py`, and 18 off-path renders byte-identical to the engine before it.
+
+**With the Digital Intermediate** (RFC-028): `film_present` runs before the DI node, so the film's edge and the gate are in the DI, but the scan's view of the holes (`spk_overscan_light`) has no DI counterpart and the perforations do not show. Open.
+
+Twenty-one native-only fields, all **shoot layer** and **not live**. Every mark
+(gate shadow, fog, leaks, edge print, DX code, date) is exposure on the
+negative, so an edit re-develops it (`negative_was_cached` is 0 on the next
+render). The fields sit before `preview_long_edge` with the other native
+fields. Design and measurements: RFC-032 §26–§29 and RFC-031 (the date back).
+
+**Overscan: the film outside the frame**
+
+| field | path | type | default | range | meaning |
+|---|---|---|---|---|---|
+| `overscan_active` | `film_render.overscan.active` | bool | `false` | — | the switch; `false` dispatches nothing (byte-identical to the pre-RFC build) |
+| `overscan_format` | `…overscan.format` | str | `"135"` | `135` \| `135_half` \| `120_645` \| `120_6x6` \| `120_6x7` \| `120_6x8` \| `120_6x9` \| `135_xpan` \| `120_6x12` \| `120_6x17` | the film and its gate (`135_half`: 18 × 24 mm half frame, below). The panoramic long formats (2026-10-03, reversing "nothing larger than 6×9"): `135_xpan` 24 × 65 on 14 perforations, `120_6x12` 56 × 112, `120_6x17` 56 × 168; their gates are `square` until real strips are measured, and none carries a date |
+| `overscan_mode` | `…overscan.mode` | str | `"strip"` | `strip` \| `filed` | the whole film width, or a filed-out carrier's sliver of rebate |
+| `overscan_gate` | `…overscan.gate` | str | `"auto"` | `auto` \| `square` \| `rounded` \| `eared` \| `shouldered` \| `kicked` | the gate's shape family (RFC-032 §29.2, §30.2); `auto` lets the camera seed pick one the format's real cameras have. `shouldered` (6×8) also seats the gate at the stock-name edge, with its ears ~1.2 mm from it and the edge print in the recess between them |
+| `overscan_holes` | `…overscan.holes` | str | `"white"` | `white` \| `black` | what shows through the perforations (past the film's long edges is `overscan_carrier`'s). `white`: the picture's white (a scan's light). `black`: a black backing or a darkroom print. Either way the cut is not a perfectly vertical knife: a slight rounding of the base shows as a faint, patchy shoulder just outside each hole (1-6 % lift, ~0.03 mm), different on every hole, plus per-hole punch tolerances, roughness and burrs (RFC-032 §30.5, §31.5) |
+| `overscan_camera_seed` | `…overscan.camera_seed` | int | `1` | 0–2³¹−1 | **the body**: gate shape and radii, burrs, gate-to-emulsion gap, where the frame sits on the perforations, fog, flare |
+| `overscan_frame_seed` | `…overscan.frame_seed` | int | `1` | 0–2³¹−1 | **the advance and the scan**: weave, advance error, scan rotation, leaks, and which numbers are on the edge when `overscan_frame_number` is 0 |
+| `overscan_frame_number` | `…overscan.frame_number` | int | `0` | 0–99 | **the frame's number on the edge print** (2026-10-03). `0`: the frame seed's draw, byte for byte. Set: this frame's own mark — the 135 `N`/`NA` pair, the digit by Kodak 120's triangle, Fujifilm 120's number — with its neighbours counting from it and nothing drawn below 1. Kodak 120's counting-edge numbers ("51 / 52") are the roll's, not the frame's, and stay seeded. The last native field, after `antihalation_removed` |
+| `overscan_carrier` | `…overscan.carrier` | str | `"none"` | `none` \| `black` \| `open` | **what a strip scan shows past the film's long edges.** `none` (the default since 1.3.1): nothing — the canvas ends at the film's edges, and where the scan's tilt carries a corner past the edge the film is drawn on, so there is no band and no wedge. `black` / `open` (2026-10-03): the canvas reaches 0.40 mm past each edge and shows a carrier, or the scan's light. Nothing on the film changes with it. `filed` never reaches the edge |
+| `overscan_pair` | `…overscan.pair` | bool | `false` | — | **a half-frame pair on one strip** (2026-10-03). `135_half` only (another format is refused), held level or turned. The input carries both pictures at the gate's height: the first 18 mm wide, the second starting **19.00 mm** (one advance of 4 perforations) along, so the frame is 37 × 24. The gate is exposed twice; the gap between is unexposed film; the edge print, fog, leaks and halation run across both as on one piece of film |
+| `overscan_fog` | `…overscan.fog` | float | `1.0` | 0–4 | edge fog's strength; 0 = none (see *Edge light* below) |
+| `overscan_leaks` | `…overscan.leaks` | float | `0.0` | 0–4 | spool light leaks: their count and strength; 0 = none (see *Edge light* below) |
+| `overscan_edge_text` | `…overscan.edge_text` | str | `""` | — | the stock's edge print. **The host chooses** real names or display names of its own. On Fujifilm's 120 layout the first of several words is the maker's mark, printed apart from the name |
+| `overscan_f_number` | `…overscan.f_number` | float | `0.0` | 0–64 | from EXIF; sets the gate's penumbra. 0 = unknown (f/5.6) |
+
+**The date back: one mechanism, three faces**
+
+| field | path | type | default | range | meaning |
+|---|---|---|---|---|---|
+| `date_imprint_active` | `film_render.date_imprint.active` | bool | `false` | — | the switch; works with overscan off (in the frame) or on |
+| `date_imprint_style` | `…date_imprint.style` | str | `"lcd"` | `lcd` \| `dots` \| `data` | seven segments, slanted; an upright 5×7 dot matrix; shooting data in a 5×7 face |
+| `date_imprint_text` | `…date_imprint.text` | str | `""` | — | **formatted by the host**: `'26 10 1`, or `Av 1/125 F2.8 +1.0Ev 45mm SPOT ISO 200` for `data`. The 5×7 face draws 0–9, A–Z, m v s and `. / - + : ' ( )`; anything else is a space |
+| `date_imprint_text_b` | `…date_imprint.text_b` | str | `""` | — | a pair's second frame's date, placed in its own gate with the same face, corner and insets. Empty: none on it. Ignored without `overscan_pair` |
+| `date_imprint_data_text` | `…date_imprint.data_text` | str | `""` | — | **the shooting data, printed as well as the date** (1.3.1), **formatted by the host** like `date_imprint_text` under `data`. Between frames on 135, in the margin on 120; needs the film edge. Empty: none. Ignored under `style` = `data`, where `date_imprint_text` is the data line. Native-only, after `date_imprint_text_b` |
+| `date_imprint_placement` | `…date_imprint.placement` | str | `"frame"` | `frame` \| `rebate` | `lcd`/`dots`: in the picture, or between frames (needs overscan) |
+| `date_imprint_corner` | `…date_imprint.corner` | str | `"br"` | `br` \| `bl` \| `tr` \| `tl` | frame placement, in the **film's** frame (the camera held level), never the picture's: on a turned full frame the date turns with the camera (below) |
+| `date_imprint_inset_x` | `…date_imprint.inset_x` | float | `3.0` | 0–30 | mm from the gate's side to the text |
+| `date_imprint_inset_y` | `…date_imprint.inset_y` | float | `2.4` | 0–30 | mm from the gate's top/bottom to the text |
+| `date_imprint_size` | `…date_imprint.size` | float | `1.0` | 0.4–3 | a scale on the face's own height (lcd 1.3 mm, dots 0.95 mm, data 0.50 mm on 135 / 0.55 mm on 645) |
+| `date_imprint_ev` | `…date_imprint.exposure_ev` | float | `3.5` | −2–8 | the LED's exposure, stops over 18 % grey |
+
+**Edge light: fog, spool leaks and gate flare (the random light)**
+
+All three are light added to the raw exposure before halation. They develop,
+halate and grain like the picture.
+Two settings drive them; the rest is drawn from the seeds. Measurements and
+reasoning: RFC-032 §25, §27.
+
+| effect | what it is | amount | shape | drawn from |
+|---|---|---|---|---|
+| **Edge fog** | the spool's light piping into the film's edges (135: the cassette lips; 120: the backing paper's edges) | at the edge: `overscan_fog` × 18 % grey × 2^(0.3 ± 0.4) stops | decays inward from the nearer long edge, `exp(−d / w)`, w = 0.8–1.8 mm (135) or 1.2–2.6 mm (120); along the film it swells and fades as 0.3 + 0.7 × two-octave noise with a 5–11 mm period | strength, width and period: **camera**; where the swells fall: **frame** |
+| **Spool leaks** | brighter blobs at the edge where light got past the spool, as in the owner's IMG_6473 | count = round(1 + 2 × `overscan_leaks`), at most 6 (`leaks` = 0: none; 1: three), times canvas length / 90 mm on a canvas longer than that (6×12 ×1.3, 6×17 ×1.9; at most 12); each `overscan_leaks` × 18 % grey × 2^(0.5–2.5) stops | Gaussian along the film (σ 1.2–4 mm), decaying inward from its edge (0.4–1.3 mm); on 120 (2.5 mm of rebate) a strong one reaches into the picture | which edge the body leaks from (50/50 per body): **camera**; each leak's position anywhere along the canvas, edge (80 % the body's side), strength and size: **frame** |
+| **Gate flare** | the gate's bevel reflecting the scene onto the film just outside the frame: a thin rim that is bright where the picture is bright | 0.10–0.35 × the scene's own light just inside the gate | decays outward from the gate's edge over 0.03–0.08 mm, following the gate's shape | **camera** (no setting) |
+
+- **Colour.** Fog and leaks share one light: a 2800 K source from the front,
+  weighted through *this film's* own spectral sensitivity, so the colour
+  follows the stock with no per-stock table. Gate flare has the scene's
+  colour.
+- **Same seeds, same light**, as with the rest of the overscan. A new frame
+  seed moves the leaks and the fog's swells but keeps the body's character:
+  its leaky side, fog strength and width.
+- **Fog only shows where it reaches mid-grey.** A print stays black until the
+  negative has mid-grey-like exposure, which is why the edge level sits at
+  ~+0.3 stops (measured by sweeping it, RFC-032 §27). Halving
+  `overscan_fog` takes a full stop off the edge level.
+- **Off means off.** `overscan_fog = 0` zeroes the fog's amplitude and
+  `overscan_leaks = 0` draws no leaks, so neither adds any exposure. Gate
+  flare stays: it is part of the gate.
+
+**The date back: how a date is printed, and where**
+
+- **What it is:** a light inside the camera's back, behind the film, shining
+  through a mask. The engine draws the mask (seven segments for `lcd`, a 5×7
+  dot matrix for `dots` and `data`) and adds it as exposure on the negative
+  before halation. So it develops, halates and grains with the picture, and
+  prints from behind the film (no blue layer, which is why it is
+  orange-red).
+- **Strength and softness:** the light is `date_imprint_ev` stops over
+  18 % grey, through RFC-031's 2700 K LED and orange light guide. The mask
+  is softened by 0.015 mm (the projection's blur).
+- **It belongs to the camera, not the picture.** Every placement is in the
+  film's own frame: along the film, across it, with "down" the camera's
+  down when held level. `date_imprint_corner` (`br` default) and
+  `date_imprint_inset_x/_y` name a corner and its insets *in that frame*.
+- **When the camera is turned:**
+
+| how it was shot | picture | where `br` lands | how it reads |
+|---|---|---|---|
+| full frame held level | landscape | lower right | upright, along the film |
+| full frame turned (portrait) | portrait, film runs down the picture | lower left, beside the picture | rotated a quarter turn, running down the film; never upright |
+| half frame held level | portrait, film runs across it | lower right | upright |
+| half frame turned | landscape, film runs down the picture | along the film | rotated |
+
+  An upright date in the corner of a portrait full frame is impossible on
+  film, and the engine does not draw one.
+- **The date alone (overscan off)** draws on the bare frame. The film's
+  direction comes from the frame's shape and `overscan_format`: a `135`
+  frame taller than wide, or a `135_half` frame wider than tall, was shot
+  turned. Set `film_format_mm` to the format's long edge (36, or 24 for half
+  frame).
+- **The quarter turn:** for a turned camera it is always the same one, the
+  one the overscan layout uses (the stock name reads down the picture's
+  right edge).
+
+**135 half frame (`135_half`)**
+
+- **The frame:** 18 × 24 mm, advancing 4 perforations (19.00 mm) a frame
+  instead of 8 (38.00 mm). 72 frames on a 36-exposure roll, ~1 mm between
+  frames.
+- **Held level** the frame is portrait, 18 along the film by 24 across it.
+  Turned, it is landscape.
+- **Same film:** 35 mm wide, KS perforations, the same DX code and edge
+  print. The film marks every 19 mm (`12`, `12A`, …), and the DX code
+  repeats there with its half-frame bit. That is two per full frame, so a
+  whole code survives the lab's cut between frames, and on half frame it
+  means one per frame. Each half frame carries one number and about half
+  the edge print, so on a half-frame strip the stock name or a number
+  shows, not both.
+- **Overscan:** the canvas is the film's width across and the frame plus
+  ~0.45 mm a side along (the 1 mm gap). The frame's pixel pitch is set from
+  its 24 mm long edge.
+- **Date faces:** `lcd` and `dots` as for 135, placed by the rules above.
+  `data` between frames uses the 1 mm gap, so keep its `date_imprint_size`
+  at or under 1.
+
+**Rules a host relies on**
+
+- **The output grows.** With overscan on, `spk_result.width/height` are the
+  film canvas, not the source: e.g. a 2400×1600 135 frame renders at
+  about 2514×2333 (the exact size follows the gate and the camera seed).
+  Never assume the source size.
+- **The frame's pixel pitch is the format's.** Overscan sets the frame's long
+  edge to the format's gate (36.25 × 24.3 for 135 — the mean of seven real strips, 2026-10-03 —
+  24 for half frame, 56, 69.5, 76 or 84 mm) and overrides
+  `film_format_mm`, so grain and halation are at the format's scale. Picture
+  aspect is the host's crop. The engine reads the film's direction from it
+  (a landscape 645 or a portrait 6×7 runs vertically).
+- **A strip scan ends at the film's long edges** (1.3.1, 2026-10-04: the
+  owner did not want the 0.40 mm of pure black a carrier put past them, and
+  did not know why it was there). `overscan_carrier` = `black` or `open`
+  brings the 0.40 mm back. Either way nothing printed on the film is cut at
+  any length or tilt and no sliver of the holes' light shows (before
+  2026-10-03 the canvas cropped ~0.14 mm inside the film, which did both):
+  with no carrier the film is drawn on under the corners a tilted scan
+  carries past its edge. The scan's tilt is capped by how far it moves the
+  film's ends, 0.27 mm: 0.35° up to 6×9, 0.27° on 6×12, 0.18° on 6×17.
+  The canvas size depends on the source size and the frame spacing. Spacing
+  is the camera seed's (0.75–0.95 mm on 135). On 120 it also moves
+  ±0.25 mm with the frame seed. A host reads the size from every result.
+- **Seeds are the host's to keep.** `camera_seed` per body or per user;
+  `frame_seed` per photo, stored with the edit. The same seeds always give
+  the same film. A new frame seed never moves the body's draws (gate,
+  perforation phase, fog). A new camera seed re-draws the frame's too,
+  because the frame stream is keyed on both.
+- **Where the back prints** (1.3.1, 2026-10-05). It prints two things, each
+  in its own place, and both at once when both are sent: the **date**
+  (`date_imprint_text` under `style` = `lcd` | `dots`) and the **shooting
+  data** (`date_imprint_data_text`; or `date_imprint_text` under `style` =
+  `data`, which prints the data alone as before). On 135 and 135 half frame
+  the date is in the picture (or between frames with `placement` = `rebate`)
+  and the data between frames, rotated; when both go between frames the data
+  takes the gap before the frame and the date the one after. On 120 — 645,
+  6×6, 6×7, 6×8, 6×9 — both are one line in the film margin beside the
+  frame, the data from the frame's leading end and the date ending at its far
+  end; a 120 date needs the film (`overscan_active`), there being no margin
+  without it. On the panoramic formats nothing is drawn. Until 1.3.1 the
+  three faces were one choice, so a frame carried its date or its data and
+  never both, and no 120 format but 645 printed anything (data only).
+- **Every stock's own film edge** (2026-10-03, from the owner's scans in
+  `reference_film/`, which stay untracked): a per-stock look table
+  (`kEdgeLooks`, `overscan.cpp`) keyed like the DX table. Kodak negatives:
+  the measured Kodak layout (12.7 mm DX, caps 1.22 top / 1.40 bottom,
+  numerals widened ×1.25 and tracked apart, tan). Fujifilm slides (Provia,
+  Velvia): no DX bars, orange matrix faces, bold numbers on both
+  edges, "36 ▷ 27A". X-Tra 400: 14.1 mm DX reading 628, condensed numbers,
+  "S-400". Pro 400H (120): one edge, the maker's mark/roll number, frame
+  number, a stepped tack marker, "PRO400H", "EFCDCD". **The maker's mark on
+  Fujifilm 120 is the host's** (2026-10-04): the first word of `edge_text`
+  when it has more than one ("FUJI PRO400H" prints "FUJI" before the even
+  numbers and "PRO400H" as the name); a single
+  word prints no mark. The engine draws no maker's name of its own. C200: Kodak's layout in a
+  regular weight (it is Kodak-made: DX part 1 = Gold's). Vision3: one
+  "EASTMAN 52xx" keycode line and dashes, no numbers or bars. E100: white
+  marks. On Kodak 120 the name is centred between consecutive numbers.
+  **The black-and-white stocks** (2026-10-09; the profiles are the product's and not installed,
+  §15): one emulsion, so the printer's light is the same in all three layers and the marks are
+  grey. Tri-X 400 and T-Max 100: Kodak's layout with no DX bars (none on the strips), Tri-X in the
+  regular weight. Neopan 100 Acros II: the Fujifilm slides' layout (dots, no bars); a text's "II"
+  standing as a word is one cell, so the host sends "FUJI 100 ACROS II". HP5 Plus 400: Ilford's
+  135 print is Kodak's two bands turned half a turn -- with the picture upright the DX code
+  (13.06 mm, reading 1753 = 109/9) and the frame numbers run along the top band and the name reads
+  upside down along the bottom one, in a square 5 × 7 face with 1.50 mm caps ("ILFORD HP5 PLUS").
+  Its frame numbers' face and order are assumed (the one strip is cropped through them), and its
+  120 edge borrows Kodak's.
+  **CineStill 800T** (2026-10-23, from the owner's screenshots: three 135 frames on two rolls,
+  four 120 6×7 frames on two rolls): yellow-orange ink, no DX bars. On 135 the host's text alone
+  runs along one band in the square 5 × 7 face (caps 1.47 mm, a character every 1.38 mm, once a
+  frame, starting 6.4 mm before the frame's number); the other band carries "N" in a heavy
+  monospaced face standing on the film's edge (caps 1.78 mm, 0.79 mm past a perforation's centre)
+  and 18.4 mm on a stepped arrow and "NA" (caps 1.09 mm). On 120 the count runs above the frame
+  ("18" and a 3.4 mm wedge pointing back at it, every 39.5 mm) and below it a batch number and
+  the host's name (caps 1.23 mm, 25.0 mm apart, 66.6 mm a period); the batch is 4789 or 4727, the
+  only two the frames show. No wire change: the stock id selects it and `edge_text` carries the
+  name ("CINESTILL 800T").
+  **The lettering, re-measured 2026-10-04** (the owner's real-against-rendered
+  pairs; 1.3.1). Fujifilm's print is a dot matrix and is drawn as one: every
+  mark is a pattern of dots 0.1155 mm apart along the film and 0.0984 mm
+  across it, each dot a disc 0.114 mm across, so strokes stay beaded. Its
+  faces were read off the strips dot by dot: names 7 × 9 with one-dot strokes
+  (a character every nine dots), frame numbers 12 × 16 with three-dot stems,
+  the half frame's "36A" 8 × 12 with two-dot strokes, the roll length 3 × 5,
+  and the arrow itself 22 × 12 dots. A text's closing "III" is the film's
+  one-cell numeral, so the host still sends "FUJI RDPIII". Fujifilm 120 is a
+  plain 5 × 7 matrix of larger dots (0.161 × 0.148 mm apart, 0.15 across, zeros slashed, RDP's III three plain strokes,
+  caps 1.05 mm) with its marker in the same dots; the code after the name
+  ("EFCDCD") is 5 × 7 on the 135 grid. X-Tra 400's numbers are the two-dot
+  face, not a condensed Helvetica; its bars and arrow are still drawn solid.
+  Kodak 120: the first word and the numbers are an extended black face
+  (Helvetica Neue Bold ×1.3 along the line, "KODAK" 7.3 mm at caps 1.13), the
+  rest of the name follows 2.5 mm on in an ordinary bold (Medium on Portra) —
+  a gap, not a word space.
+  **Borrowed, no reference:** Pro 400H on 135 (X-Tra's layout), Velvia 100
+  (Velvia 50's), E100 on 135 (Kodak's), every half-frame layout. The host's
+  `edge_text` is the film's own words, with the emulsion suffix where a strip
+  shows one ("KODAK GB 200-7", "KODAK PORTRA 800-3").
+- **A perforation's edge is a scan's** (2026-10-04, measured on the eight
+  135 strips in `reference_film/`): it takes 44-71 microns (median 59) to go
+  from 10 % to 90 % of the hole's light, so the edge is a Gaussian of sigma
+  17 microns in film millimetres plus the pixel's own width -- about 55
+  microns at 25 px/mm and 43 at any larger size, where it used to be one
+  pixel (5 microns on a 6000 px frame). The scan's view of the holes is
+  composed after the scanner's blur and sharpening, which had drawn two
+  pixels of pure black around every hole; on the strips the film just outside
+  a hole is 0.5-1.0 of the film nearby. All four sides of a hole are alike
+  (the leading edge had been cut hard, with no shoulder). The film's long
+  edges against the carrier are unchanged.
+- **DX code** (135): ISO 1007, 12.7 mm on Kodak (measured 12.64–12.78),
+  14.1 mm on X-Tra 400, drawn from the stock's DX number — read off the
+  strips where one could be (Gold 200 = 1548, Portra 160 = 1534, C200 =
+  1550, X-Tra = 628), the database's otherwise (Portra 400 = 1277, …).
+  Stocks with no DX code (Vision3, Kodachrome, the Fujifilm slides) print
+  no bars. The bars are the same for every host; only `edge_text`
+  differs.
+- **Refusals:** an unknown enum value is refused by name with the valid list.
+  Overscan on the striped executor (`striped = true`) is refused. A host
+  must render whole-frame when overscan is on. **The frame is the gate:** a
+  frame whose shape is not the format's gate (either way up, within 5 %) is
+  refused — `a 1800 x 600 frame is not the 135 gate's shape (36 x 24); crop
+  the picture to the gate first` — because it was laid out as if it were and
+  the picture was cut by the film's width (2026-10-03). The host crops first.
+- **Marks stay in their place:** an edge text longer than its slot between
+  the frame numbers is cut back to the words that fit, and a date too large
+  or too far inset for the frame is kept inside it (2026-10-03).
+- **Tests:** `engine/tests/overscan_checks.py`. They include a DX
+  code read back off the rendered pixels; white hole interiors; edges that
+  differ from hole to hole; black holes that still read as holes; the date
+  turning with the camera; the half-frame canvas; a reprint of a film
+  canvas, on the live tier after the full one has rendered and after a
+  print-layer edit has rebuilt the pipeline, equal to a fresh render pixel
+  for pixel; the marks' limits; the gate's shape; the frame number (0 is the
+  seed's draw, a number set changes the edge, two numbers differ) on three
+  layouts. 63 checks.
+
+**A pair's two frames, each its own** (2026-10-04):
+
+- **The date with no film edge.** `overscan_pair = true` with `overscan_active = false` and the date on: the frame is the piece (both pictures along its long edge, either way up), and each frame gets its own date in its own corner -- `date_imprint_text` on the first, `date_imprint_text_b` on the second (empty: none). `overscan_format` must be `135_half`.
+- **Scene Placement per frame.** `scene_latitude_split` (float 0–1, default 0 = one curve for the frame) is where the second frame starts along the frame's long edge, as a fraction of it; from there the node uses `scene_latitude_b_active`, `scene_latitude_b_highlight_knee`, `_b_highlight_room`, `_b_shadow_knee`, `_b_shadow_room` instead of the first set. Roll-off, the lift bound and the norm are shared. All six are native-only SHOOT fields.
+- **The Fit on one frame.** `spk_scene_latitude`'s request takes `region`: `[x0, y0, x1, y1]`, normalised to the frame the engine was handed. The scene is then measured inside it only; the reply's `params_delta` still names the first set, and the host maps it onto the frame it asked about.
+- A turned pair (the film running down the picture) renders: the first frame is the upper one.
+
+**`spk_overscan_geometry(session, char** out_json)`** (2026-10-03) returns where
+the gates are on the canvas the session's last render laid out: `valid`,
+`canvas_w`, `canvas_h`, `mm_per_px`, `vertical`, `format`, `gate_mm`,
+`penumbra_mm` and `gates` -- one quad per gate (two for a pair), eight numbers
+each: the corners normalised to the canvas (so they hold at every tier), in
+the film's order (s0,t0), (s1,t0), (s1,t1), (s0,t1). `{"valid": false}` with
+overscan off or before a render. It never renders. A host uses it to keep a
+crop overlay, a meter or a per-gate print cut on the picture and off the
+rebate. The quad is the gate's nominal rectangle; the gate's own corners, ears
+and penumbra are inside a few tenths of a millimetre of it.
+
+**Proposed, not implemented** (for the frontend contract):
+
+1. A per-gate Scene Placement for a pair (the half-frame pair's E3).
+2. A per-render diagnostic when a date is asked for but not drawn (wrong
+   format or style), so the UI can grey the control instead of failing
+   silently.
+3. `overscan_holes` acts only in the print stages and could become
+   `print`-layer (a reprint, not a re-develop). It stays `shoot` until a
+   reprint is shown to keep the overscan layout across a pipeline rebuild.
+
+## 14. `filter_shift_scale` — what a unit of the two filter shifts is (2026-10-04)
+
+`y_filter_shift` and `m_filter_shift` are the oracle's fields and keep its range, −1…1. The engine adds them to the enlarger's filter pack, which is in CC units (the solved neutral is about 55 / 65), so sent bare the whole range is **one CC**: measured at the ends on `_smoke_1mp.tif`, blue against red moves 0.014 stop and green against magenta 0.009 — nothing a person can see. The Enlarger's two filters shipped that way.
+
+| field | type | layer | default | range | live |
+|---|---|---|---|---|---|
+| `filter_shift_scale` | float | print | 1.0 | 1–60 | yes |
+
+The pack is `neutral + shift × filter_shift_scale` for M and Y (C has no shift). Native-only: at the default a request renders exactly as the reference does, and `parity_render`'s `filter_shift` case (which does not name it) still passes. The Digital Intermediate's live offsets (`di_live_offsets`) carry the same factor. The preflash's own shifts are not scaled.
+
+The macOS app sends **40** always (`FilmParams.filterShiftCC`), so its sliders' ends are ±40 CC: blue against red ±0.3 stop of the print's encoded values on the fixture, pinned by `EnlargerFilterTests` (red at a scale of 1). More filtration prints the *other* way on a negative — Yellow up is a bluer print, Magenta up a greener one — and the app's slider tracks are coloured as the print goes.
+
+It is live for the same reason the shifts are: it changes the light on the paper and nothing upstream.
+
+## 15. `camera_filter` — a colour filter on the lens (2026-10-07, branch `bw-tri-x`)
+
+Native only; the Python reference has no such stage. String, SHOOT layer (an edit re-develops),
+default `""` (none). Names: `w8` `w11` `w12` `w15` `w21` `w25` `w47` `w58` (Kodak Wratten numbers);
+any other value is refused with the list.
+
+- The filter's transmittance (`engine/src/core/camera_filters.hpp`, 380-780 nm at 5 nm) multiplies
+  the film's spectral sensitivity before the upsampling table is built (`film_sensitivity`,
+  `hanatos.cpp`). The setup cache keys on the resulting sensitivity, so nothing else changes.
+- **The filter factor is given.** One scalar, the green-sensitive layer's ratio under the film's
+  reference illuminant, divides the result: on a one-emulsion film 18 % grey keeps its exposure, and
+  a colour film keeps the filter's cast. Auto exposure meters the input and never sees the filter.
+- **Only the picture passes the lens.** Overscan's edge print, fog and date back read
+  `film_sensitivity_edge_`, the sensitivity without the filter.
+- Data: Kodak B-3 tables as transcribed (third-hand). Against Tri-X 400's published factors the
+  computed ones are within 0.21 stop for six of seven filters in daylight; No. 58 is 0.67 stop high.
+- Measured (`research/bw-tri-x/engine-test/test_filter.py`): the wire field agrees with a profile
+  whose sensitivity has the same table baked in to 2/255; a live session re-develops and returns;
+  the 135 and 645 rebates change by at most 1/255 under `w25`.
+- Not verified: colour stocks beyond one render; the app has no control for it.
+
+## 16. CineStill 800T — the back-reflection halo and `halation_headroom_ev` (2026-10-23, branch `cinestill-800t`)
+
+**`film_stock: "cinestill_800t"`** is a product profile (`engine/resources_product/profiles/`) and
+an **alias**: `"derived_from": "kodak_vision3_500t"` with only `info` keys of its own (`name`,
+`use: still`, `antihalation: no`). The engine loads the base's data whole and lays the alias's
+`info` over it (`load_profile`); the neutral print pack falls back to the base's row. The film's
+stock in replies and in the setup cache is `cinestill_800t`.
+
+**A film with no anti-halation layer** — a profile whose own `antihalation` tag is `no`
+(`cinestill_800t`), **or any film under `antihalation_removed`** — takes the **back-reflection**
+halo instead of the reference's three Gaussian bounces, and answers `halation_headroom_ev` (the
+owner's decision for 2.0, 2026-10-23). Vision3 500T with its layer switched off renders exactly as
+CineStill 800T. Every film switched off takes CineStill's base geometry and per-layer strengths,
+the only stock they were measured on. **1.3.x differs:** on `release-1.3.4` the switch keeps the
+reference's Gaussian `no` preset (0.30 / 0.10 / 0.015) and ignores the headroom. The base's
+rear face reflects the light the emulsion scatters into it (Fresnel inside the critical angle, all
+of it past 42.5°), and inside it the camera's pressure plate returns 10 % of what leaves the base,
+so a point light exposes a disc with a brighter rim at r_c = 2 d tan θc = 1.83 d, then a cos⁴
+tail; the emulsion's re-scatter (35 %) sums further bounces. **Per layer**, the light returning to
+green and blue crosses the layers below them at the slant θ and loses exp(−τ(1/cos θ − 1)),
+τ = 0 / 1.2 / 3.0, so red's halo reaches furthest (90 % of its energy within 8.2 d, green's 3.8 d,
+blue's 2.7 d). `engine/tests/halation_psf_fit.py` integrates it and fits a four-Gaussian kernel
+per layer in `engine/src/core/halation_psf.hpp`; d = 120 µm, which is what a CineStill scan
+measures (the flat orange band beside a tube light ends at 0.21 mm). Strengths R/G/B
+0.30 / 0.03 / 0.003. Checked against the scans' red/green half-height reach, 1.49–2.65 on five
+lights (measured by a GPT Astra study, 2026-10-23): a +9 / +12 EV disc renders 1.92 / 2.12;
+a kernel shared by the three layers swings out of that range with brightness
+(`cinestill_checks.py`).
+`halation_amount` stays an area multiplier (d scales with its square root). Films with a layer are
+unchanged byte for byte. **The Python reference's `no` preset is the Gaussian one; there is no
+parity case for it.**
+
+| field | path | type | default | range | meaning |
+|---|---|---|---|---|---|
+| `halation_headroom_ev` | `film_render.halation.headroom_ev` | float | `4.0` | 0–8 | **back-reflection only.** The stops a *clipped* highlight is taken to have been above what the frame recorded. The negative's exposure has each pixel scaled by 2^(headroom · s), s the product of two smoothsteps of the pixel's brightest channel: within a stop of the frame's own maximum (full from a quarter stop under it), and +1.5 … +2.5 EV over mid-grey. A lamp clipped at +3.5 EV exposes the film as a +7.5 EV lamp would — its halo, and its core on the film's shoulder (a clipped red tube's core prints pink-white inside a red halo); a face auto-exposure lifted to +2.5 EV on a night frame, three stops under the lamps, is left alone. `0` is the recorded frame. Native-only, SHOOT, not live, after `camera_filter` |
+
+`node_headroom` runs in the whole-frame `film_boost` stage, after `boost` (the frame's maximum is
+its statistic) and **before `film_overscan`**: the edge print, fog and date are exposures the engine
+knows exactly, and halate at what they are. Measured canvas against export (live 1200 px vs full
+downscaled): the halo's energy is 0.83–1.01 of the export's (the low end a frame of tiny lights), and the frame's mean difference is no
+larger than plain 500T's. The kernel `spk_highlight_headroom` is Metal only: the Vulkan backend
+refuses a back-reflection film at dispatch.
+
+## 17. `scene_curve` — the Decode curve, a tone curve on the scene before the film (2026-10-24, branch `mac/decode`; axis after Exp. Comp. since 2026-10-25, RFC-035)
+
+Native only; the Python reference has no such stage. String, SHOOT layer (an edit re-develops), not
+live, default `""` (off: the node is not dispatched, and the render is the one without the field, to
+the bit). Declared after `halation_headroom_ev`.
+
+The owner (2026-10-24) asked for a curve "that works similarly as the current curve in edit … but it
+applies straight to the linear tiff", in place of Scene Placement. The host draws it with its Edit
+curve's own data and sends it as a table:
+
+- **The value**: `5n` comma-separated numbers in 0…1, n ≥ 2 — five rows of `n` samples in the order
+  rgb, luma, r, g, b, each row the curve at `i/(n−1)`. The Mac app sends n = 129. Anything else
+  is refused with the field named (`parse_scene_curve`, `params.cpp`).
+- **The axis is stops about mid-grey on the film** — the metered scene *as exposed onto the film*, after
+  Exp. Comp. (RFC-035 §5.3, 2026-10-25; before that it was the scene before Exp. Comp.): the unit
+  square's 0…1 is −8…+8 stops (`kSceneCurveStops`) on both axes, so the film's mid-grey is the centre
+  and the diagonal is no change. A point at +1 is what lands one stop over mid-grey on this film,
+  whatever Exp. Comp. put it there. A host draws `spk_scene_latitude`'s histogram and window on it by
+  adding `scene.histogram.exposure_ev` (§12). A table sent before the change renders the same at Exp.
+  Comp. 0 and moves by c stops otherwise (no version flag: the owner had no frames to keep).
+- **Where**: `node_scene_curve` (`scene_latitude.cpp`, kernel `spk_scene_curve` in
+  `scene_latitude.metal`), after `node_scene_latitude` and before `node_upsample` — after the meter and
+  before Exp. Comp. (`node_exposure`). It is pointwise, so it bands with that stage.
+- **What**: a gain on the linear signal, never a re-encoding. For a value v, E = log2(v / mid-grey)
+  and c = `exposure_compensation_ev`; the row is read at E + c and v is scaled by 2^(f(E + c) − (E + c)).
+  `node_exposure` then multiplies by 2^c, so the film's exposure is exactly f(E + c): the curve applied
+  after Exp. Comp. without moving the node across `node_upsample` (a per-channel gain does not commute
+  with the spectral upsample, so the reorder would change the picture). c reaches the kernel as `p[6]`. Luma first, as one gain on Y (the meter's
+  row) for all three channels; then the rgb row on each channel; then each channel's own row — the
+  order of the app's Layer 2 curve. Past ±8 stops the end's gain holds (slope 1), so the curve never
+  folds a value back. A value that is not positive and finite passes as it came.
+- Not under `debug.lut_mode` (the print LUT bake stands for the paper).
+
+| field | path | type | default | meaning |
+|---|---|---|---|---|
+| `scene_curve` | `camera.scene_curve` | str | `""` | the Decode curve's five-row table, above. Native-only, SHOOT, not live |
+
+Checked (`engine/tests/scene_curve_checks.py`, needs only `build.sh dylib`): `""` equals no field,
+bit for bit; an identity table is no change; an rgb or luma row lifted by one stop renders exactly as
+the input doubled, and a red row as the red input doubled; past +8 stops the end's gain holds; three
+malformed tables are refused. Since RFC-035: under Exp. Comp. +1 a local bump at film stop 0 renders
+exactly as the same bump at Exp. Comp. 0 on the doubled input (red on the pre-change kernel, 0.114);
+the window plus `exposure_ev` is the same at Exp. Comp. 0 and +1, with and without a curve; a neutral
+frame's `fractions_r/g/b` equal its `fractions`, and doubling red moves only `fractions_r`, four bins. The Vulkan backend has no `spk_scene_curve`.
+
+## 18. v2 Mac minilab and lossless execution caches (2026-10-24)
+
+The 100-field wire, ABI and `scene_curve` format are unchanged. For each qualified
+film/paper pair, the Mac engine automatically uses the v2
+minilab print transform: negative CMY → recovered log-positive RGB → 65³
+trilinear paper CMY → the existing scan/output stages. The bundle's
+`minilab/index.json` identifies qualified pairs and the exact profiles/tables.
+The sRGB output selects its sRGB calibration; other supported outputs select
+the ProPhoto calibration and retain their own downstream output transform.
+Unlisted pairs retain optical printing; DI, scan-film, positive and monochrome
+paths retain their existing meanings. Corrupt/missing listed calibration is an
+error, never an implicit optical substitution.
+
+For minilab-qualified rendering, the research transform replaces the optical
+enlarger/exposure/print-curve block. Its enlarger controls (including
+`print_exposure`, filter shifts, preflash, print gamma and contrast mask) remain
+accepted wire fields but do not alter that calibrated block. Film exposure,
+Decode and film effects still operate upstream; scan/output controls still
+operate downstream. The optical paths retain the earlier control semantics.
+The dedicated DI/stock-LUT export APIs still return their own documented
+transforms, not a minilab approximation.
+
+Factory edge lettering is a separate exposure with fixed 2% factory back-return
+and unit effect multipliers. Camera scene spill and date exposure retain the
+camera path. This changes the v1 optical edge model to the approved v2 model;
+performance validation compares against that same v2 model.
+
+Execution may reuse a private lossless float32 pre-grain disk checkpoint. There
+is at most one slot per process (1 GiB including its header), no retained GPU
+checkpoint and no checkpoint write on the first render. A grain-only edit may
+probe admission; actual write/read cost must repay the skipped work. Source
+session identity, tier, dimensions, all fields except the three downstream
+grain controls, and stage version identify the slot. Every non-grain edit
+invalidates it conservatively, including `scene_curve`, stock reloads and
+halation's zero crossing. Session teardown closes the slot; any I/O failure
+falls back to full computation. Striped rendering does not use it.
+`SPK_CHECKPOINT_MODE=off` is a diagnostic forced-full path, not a new wire field.
+`SPK_V2_REFERENCE_OPTICAL=1` is exclusively the old-oracle qualification switch.

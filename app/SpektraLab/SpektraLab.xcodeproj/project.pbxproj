@@ -1,0 +1,1667 @@
+// !$*UTF8*$!
+{
+	archiveVersion = 1;
+	classes = {
+	};
+	objectVersion = 56;
+	objects = {
+		00626F334C13834E3C8F1F6E /* MacLibraryUIState.swift in Sources */ = {isa = PBXBuildFile; fileRef = 83D7277A7315A21B47E6F6E2 /* MacLibraryUIState.swift */; };
+		00B47E6BF16737FF9D61497D /* WorkingCopies.swift in Sources */ = {isa = PBXBuildFile; fileRef = 63CD3E70E698C9644CFB51EA /* WorkingCopies.swift */; };
+		01503D660CB7D23B3F5F8C35 /* SpektraLab.icon in Resources */ = {isa = PBXBuildFile; fileRef = B519D0A3C5C7E08A61DA5752 /* SpektraLab.icon */; };
+		0175F4A8C750D00DE12FD8DB /* LibraryParts.swift in Sources */ = {isa = PBXBuildFile; fileRef = C9C6DDA905A1F25F680CD23B /* LibraryParts.swift */; };
+		019A685312FE20CD6C47FD58 /* JobDiagnostics.swift in Sources */ = {isa = PBXBuildFile; fileRef = F67795B6D2BBF81AD6D72197 /* JobDiagnostics.swift */; };
+		01E29EBC5303F94364138738 /* WindowLayoutRule.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WindowLayoutRule.swift; sourceTree = "<group>"; };
+		0251BA3150C8B651326A7921 /* LookTransactions.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LookTransactions.swift; sourceTree = "<group>"; };
+		02E7045D35F848D4B8FF7D6E /* SizePage.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SizePage.swift; sourceTree = "<group>"; };
+		032B94A8EEC3690AE07902F4 /* PairKeeping.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0461DDEBA01EAC413228AEB0 /* PairKeeping.swift */; };
+		0369904EA89C422A48059347 /* CropStage.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CropStage.swift; sourceTree = "<group>"; };
+		03709B12B3716DA55C861C10 /* AppMenuCommands.swift in Sources */ = {isa = PBXBuildFile; fileRef = D16597A7DAFE93B72E432F37 /* AppMenuCommands.swift */; };
+		03CE3288234E587975804303 /* AppRouter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppRouter.swift; sourceTree = "<group>"; };
+		04171A8BD6053A51486176E9 /* MacFlowBar.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MacFlowBar.swift; sourceTree = "<group>"; };
+		043BB7142F2099DF7105656A /* MacLibraryGrid.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MacLibraryGrid.swift; sourceTree = "<group>"; };
+		0461DDEBA01EAC413228AEB0 /* PairKeeping.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PairKeeping.swift; sourceTree = "<group>"; };
+		047E89F96AF048AC3ED1175B /* LightTableShaders.swift in Sources */ = {isa = PBXBuildFile; fileRef = 779642BF4056276DC3EEBFDB /* LightTableShaders.swift */; };
+		04DE328DFED1D62DD2F783F0 /* MacLibraryEntryCheck.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MacLibraryEntryCheck.swift; sourceTree = "<group>"; };
+		054B31A9712678F4D236936D /* Adjustments.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Adjustments.swift; sourceTree = "<group>"; };
+		064D5BF0C99DC36F7E31AC62 /* FilmEdgeSnapshots.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0D1D13338B335BA4D9CAE25 /* FilmEdgeSnapshots.swift */; };
+		0651D8CA7D4C78FB350EBE9E /* FullRenderJobs.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FullRenderJobs.swift; sourceTree = "<group>"; };
+		06932D196DB6942184FDE392 /* Layer2Picture.swift in Sources */ = {isa = PBXBuildFile; fileRef = 93E33E6168D1D401CA48C274 /* Layer2Picture.swift */; };
+		06A18080EC29E640FED97F56 /* LightTableSizing.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7A1244BD6FBE732BD2295CD9 /* LightTableSizing.swift */; };
+		06E738F0A5C5DA8267D0AEBC /* FolderHarness.swift in Sources */ = {isa = PBXBuildFile; fileRef = B252D9EA4DC1F503CE18F18C /* FolderHarness.swift */; };
+		0711B18E4740058A18AF9002 /* MacLightTableAddPage.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MacLightTableAddPage.swift; sourceTree = "<group>"; };
+		07149ABD4B8FA34C49A82499 /* LightTableController.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8952C903AF5236EF3F1C9308 /* LightTableController.swift */; };
+		073AC3410610903127CFD4E6 /* DrawnLayout.swift in Sources */ = {isa = PBXBuildFile; fileRef = D466C54CCD5FD603C47AB4E3 /* DrawnLayout.swift */; };
+		07D41F3BE91FDA82433733CE /* RenderQueue.swift in Sources */ = {isa = PBXBuildFile; fileRef = FBF55B480EDB2D0B74A40403 /* RenderQueue.swift */; };
+		091120469326DFB285F3E52E /* ExportRecipeStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ExportRecipeStore.swift; sourceTree = "<group>"; };
+		0992E8801560EDB7F1ED83E9 /* DevelopController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DevelopController.swift; sourceTree = "<group>"; };
+		09B0A03B0AD6A9F019571FC1 /* PairPieceView.swift in Sources */ = {isa = PBXBuildFile; fileRef = F89A74F6D39F026A4F53EE66 /* PairPieceView.swift */; };
+		0A0B3B8094A20EEE599CAAED /* MacOpenPanel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MacOpenPanel.swift; sourceTree = "<group>"; };
+		0A78E61E0EDBD46E1087435C /* MacPageActions.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4BEE9D51F0DF78B565FC1FBA /* MacPageActions.swift */; };
+		0B6276A380BD74C13A89E90D /* MacSettingsSupporters.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9DB755F2BBA0EF6618DCFB1F /* MacSettingsSupporters.swift */; };
+		0B711D31CE0CD25559F91AEF /* MacSettingsCoverage.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MacSettingsCoverage.swift; sourceTree = "<group>"; };
+		0CAC6FFA99CC79A6C51E2F9A /* MacLibraryMovePage.swift in Sources */ = {isa = PBXBuildFile; fileRef = 47B9721DBB526355D53601B5 /* MacLibraryMovePage.swift */; };
+		0CFA5FB5F96542996B0F782C /* LibraryOrdering.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LibraryOrdering.swift; sourceTree = "<group>"; };
+		0D182527EA5E1EC07086FA0E /* PresetSheet.swift in Sources */ = {isa = PBXBuildFile; fileRef = AE07A959C09525C683183F58 /* PresetSheet.swift */; };
+		0D4213F502BF5AAF02B309BD /* SchedulerSignals.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SchedulerSignals.swift; sourceTree = "<group>"; };
+		0E7D91F9A1D32253D2CC9652 /* InfoPlist.xcstrings */ = {isa = PBXFileReference; lastKnownFileType = text.json.xcstrings; name = InfoPlist.xcstrings; path = Resources/InfoPlist.xcstrings; sourceTree = "<group>"; };
+		0E8A3AD980EC179856012B7E /* SpektraLab */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = AD93199714967CF686CACB3E;
+			buildPhases = (
+				5B1B2B2ECB524BA8C71F3188 /* Sources */,
+				E941DA8187B32B086A8E8098 /* Frameworks */,
+				C5926192950FAB508AE8C163 /* Resources */,
+				97E082E473A3E14FF6A82F65 /* Engine resources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+			);
+			name = SpektraLab;
+			productName = SpektraLab;
+			productReference = 7D1043473D55BFA90E8530D3 /* SpektraLab.app */;
+			productType = "com.apple.product-type.application";
+		};
+		0F0B6802D9A0D03D85326EB9 /* EngineWire.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4DB68A365FFCDB05278C2DE7 /* EngineWire.swift */; };
+		0F1F06C1E0FCD37464AAB7B4 /* AdjustSliders.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AdjustSliders.swift; sourceTree = "<group>"; };
+		0F9A1452D64CDD2461BF4B31 /* HistogramPanel.swift in Sources */ = {isa = PBXBuildFile; fileRef = DFD5DC2E22462390BE2E041F /* HistogramPanel.swift */; };
+		0FB360C0872C14CAC3ED2463 /* ExportRecipeStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 091120469326DFB285F3E52E /* ExportRecipeStore.swift */; };
+		1004577F499CCD09FBEEBE81 /* Gallery.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Gallery.swift; sourceTree = "<group>"; };
+		10A187E71E276CDB08F36834 /* SampleFrames */ = {isa = PBXFileReference; lastKnownFileType = folder; name = SampleFrames; path = build/SampleFrames; sourceTree = "<group>"; };
+		10CC5FD61470EA95AD7257EE /* LightTableHarness.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LightTableHarness.swift; sourceTree = "<group>"; };
+		1199CF6ED911E7A14BDB4757 /* InputFeedbackRules.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = InputFeedbackRules.swift; sourceTree = "<group>"; };
+		11C9FB5EC9AAB19BD04C060B /* AppBackground.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5F5870DAC8F30B1E1E3E2B59 /* AppBackground.swift */; };
+		11F06B4A285A40D2CCF27137 /* MacImportDropCheck.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MacImportDropCheck.swift; sourceTree = "<group>"; };
+		1206A3F92213CD72DB8E45D3 /* InfoPlist.xcstrings in Resources */ = {isa = PBXBuildFile; fileRef = 0E7D91F9A1D32253D2CC9652 /* InfoPlist.xcstrings */; };
+		123519F34A6A7E452D79A238 /* DevelopRegions.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DevelopRegions.swift; sourceTree = "<group>"; };
+		126703E579C76F164CDB045A /* LibraryAPI.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8B7F85FF4C9467FC761F1980 /* LibraryAPI.swift */; };
+		127DB119A57280FC2E1D80EE /* MacClipboardCheck.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MacClipboardCheck.swift; sourceTree = "<group>"; };
+		1309042FEFF9E6A6C21BD868 /* LightTableView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B2C4090D253B3A032192FAE6 /* LightTableView.swift */; };
+		13EE332ABA7A3CB0E346E2A2 /* MacDevelopBrowser.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MacDevelopBrowser.swift; sourceTree = "<group>"; };
+		14960C0E2F2103BB572FE722 /* Diagnostics */ = {
+			isa = PBXGroup;
+			children = (
+				65CD429C88B9577531D22F9D /* Diagnostics.swift */,
+				EB19ED171B5848F1BE42B375 /* LogBundle.swift */,
+				E7D46C7E7EAB01F4DF06CE1E /* LogRecords.swift */,
+				5A859784FCF48628C1664F93 /* LogShipping.swift */,
+				AE2A9216AE4C88460C6A3CC3 /* LogStore.swift */,
+				4F665C099579B0018EDCF397 /* MemoryLog.swift */,
+				B761FB841C14F0FBE5DC255E /* MemoryTrace.swift */,
+			);
+			path = Diagnostics;
+			sourceTree = "<group>";
+		};
+		14ECE8BD74D78A700215C062 /* DevelopMenuCommands.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DevelopMenuCommands.swift; sourceTree = "<group>"; };
+		1507F021100E808DBE2FAA00 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = "<group>"; };
+		15645C00091E162425D7EFA5 /* SpkIcon.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8E64F6B4F2B88FDE5DD69BBF /* SpkIcon.swift */; };
+		15A16AEBDB7879A3320E30EA /* DevelopEngine.swift in Sources */ = {isa = PBXBuildFile; fileRef = 29A50F109CE9CACCB80D2ED7 /* DevelopEngine.swift */; };
+		15A9FDA0FDB8A0B6FF8A2BDA /* MacRenderCheck.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MacRenderCheck.swift; sourceTree = "<group>"; };
+		161EBEFC891AC53A97FCB352 /* FilmLayout.swift in Sources */ = {isa = PBXBuildFile; fileRef = 81B876A5D0C7EED692836B18 /* FilmLayout.swift */; };
+		16A14C264BA9EF1E287D512B /* Navigation.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2702D0710CF3F5F03168FB49 /* Navigation.swift */; };
+		16D1F2827872C407464745F4 /* ValueSlider.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9BA7BD07773A70475583DDB0 /* ValueSlider.swift */; };
+		16E0093FB8EA7FE5616A593D /* Adjustments.swift in Sources */ = {isa = PBXBuildFile; fileRef = 054B31A9712678F4D236936D /* Adjustments.swift */; };
+		180F8E4A85CDF29CCE6FD27B /* PairLayout.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PairLayout.swift; sourceTree = "<group>"; };
+		189D2B3A2C29A1E283E10E59 /* EditTool.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = EditTool.swift; sourceTree = "<group>"; };
+		18A66CDB19FD202EDFAC3662 /* PairSnapshots.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PairSnapshots.swift; sourceTree = "<group>"; };
+		18BF2C4AB0F45CDB1C0B2BB7 /* LatitudeMeter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LatitudeMeter.swift; sourceTree = "<group>"; };
+		18CA00C33D1E68E05087E8CD /* MacImportCheck.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MacImportCheck.swift; sourceTree = "<group>"; };
+		1941AC60ACF1B6E715BA33C0 /* InterfaceScale.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = InterfaceScale.swift; sourceTree = "<group>"; };
+		1A0FA5791717E1B823AECC2C /* LightTableShare.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LightTableShare.swift; sourceTree = "<group>"; };
+		1AEF1053C986EBC89A174A4A /* PairOriginalPreview.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PairOriginalPreview.swift; sourceTree = "<group>"; };
+		1BBFCCB078A9F1C3D7ADDDDF /* PairFlow.swift in Sources */ = {isa = PBXBuildFile; fileRef = FBD15D48B5288848A843E336 /* PairFlow.swift */; };
+		1CC65DCD6B1E371DE9C8736F /* SchedulerSignals.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0D4213F502BF5AAF02B309BD /* SchedulerSignals.swift */; };
+		1CE6D911AFA3D8725424A1C7 /* AppRouter.swift in Sources */ = {isa = PBXBuildFile; fileRef = 03CE3288234E587975804303 /* AppRouter.swift */; };
+		1D6E120F4359C16E6AABBEB7 /* MacImportSession.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6BA042FEE31B72B7784D3BC1 /* MacImportSession.swift */; };
+		1D83EE801E16F4DE1342CF19 /* ColourPads.swift in Sources */ = {isa = PBXBuildFile; fileRef = 44D5D1E6C5949563F8A371FA /* ColourPads.swift */; };
+		1DE1A0B2F5CCA1EB741AFCE0 /* DarkroomSnapshots.swift in Sources */ = {isa = PBXBuildFile; fileRef = D696E2623A672FF2E9AF7849 /* DarkroomSnapshots.swift */; };
+		1E51731BDF2C3970D7AFD1AF /* PairFramePicker.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PairFramePicker.swift; sourceTree = "<group>"; };
+		1E70BA0B3D0B661D4865D7A5 /* CopySettingsDialog.swift in Sources */ = {isa = PBXBuildFile; fileRef = 935FD39F1EE1B7BBEAF29F48 /* CopySettingsDialog.swift */; };
+		1F020A6723BA2CC6AA7BC9E9 /* MacDevelopBrowser.swift in Sources */ = {isa = PBXBuildFile; fileRef = 13EE332ABA7A3CB0E346E2A2 /* MacDevelopBrowser.swift */; };
+		20090AC01A73BD0DF96392CA /* CropGuides.swift in Sources */ = {isa = PBXBuildFile; fileRef = F9C5D986E0DC2D1ED45ADEBF /* CropGuides.swift */; };
+		20FD740E2F325B9B2C6073CE /* MacLibraryPreviews.swift in Sources */ = {isa = PBXBuildFile; fileRef = 688A1AED184FD42ABF1ABE60 /* MacLibraryPreviews.swift */; };
+		2174C33FE26AE6E9CBEF7D3D /* Planner.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2411DB8A1CC539A4DEC62490 /* Planner.swift */; };
+		21C15140687B2D483A7B31CD /* HalfFramePair.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HalfFramePair.swift; sourceTree = "<group>"; };
+		22919E979FA48D80151913F8 /* Render */ = {
+			isa = PBXGroup;
+			children = (
+				806CA75FACB855E02484D2E0 /* MacRenderCache.swift */,
+				15A9FDA0FDB8A0B6FF8A2BDA /* MacRenderCheck.swift */,
+			);
+			path = Render;
+			sourceTree = "<group>";
+		};
+		22A03C40B0A1713C477832E6 /* Format.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8E8A77E55D52918BC5778B05 /* Format.swift */; };
+		22E5938C603CC64270BA9E1E /* LightTableRenderer.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2D8994A44C706B5BBC77D68F /* LightTableRenderer.swift */; };
+		234E694E206D12A16A234AF8 /* DevelopedPicture.swift in Sources */ = {isa = PBXBuildFile; fileRef = F106739DC8980EECF5DAFD3D /* DevelopedPicture.swift */; };
+		2411DB8A1CC539A4DEC62490 /* Planner.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Planner.swift; sourceTree = "<group>"; };
+		25A15B83D345B74E6556F9A8 /* Layer2Copies.swift in Sources */ = {isa = PBXBuildFile; fileRef = CE3C578F6D2980FC7CDEDD78 /* Layer2Copies.swift */; };
+		25A4C237DC49B3F3AB6586E6 /* MacClipboardCheck.swift in Sources */ = {isa = PBXBuildFile; fileRef = 127DB119A57280FC2E1D80EE /* MacClipboardCheck.swift */; };
+		260942587A06E41C0BCDEAE9 /* MacScrollZoom.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MacScrollZoom.swift; sourceTree = "<group>"; };
+		2699E0B37C2AC6E894936E26 /* LightTableTextures.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2D2F25F1891C5670D7751BB2 /* LightTableTextures.swift */; };
+		26DE04F7A88858186CA00094 /* CameraCrop.swift in Sources */ = {isa = PBXBuildFile; fileRef = E09A2B5CD6234E5E2F1C58A8 /* CameraCrop.swift */; };
+		2702D0710CF3F5F03168FB49 /* Navigation.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Navigation.swift; sourceTree = "<group>"; };
+		2776C4B1458ED9380E8FCDE5 /* DevelopCanvas.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DevelopCanvas.swift; sourceTree = "<group>"; };
+		27B2019A7C8009687F3B163E /* MacImportDrop.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MacImportDrop.swift; sourceTree = "<group>"; };
+		27E074CEB9973C5386D30499 /* MacLibraryMove.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MacLibraryMove.swift; sourceTree = "<group>"; };
+		27F78D56440AD13EFD1AE51C /* Chips.swift in Sources */ = {isa = PBXBuildFile; fileRef = F2080FFCEBEDFECEA32FF678 /* Chips.swift */; };
+		285269E9F2034AE86071A464 /* HalfFramePair.swift in Sources */ = {isa = PBXBuildFile; fileRef = 21C15140687B2D483A7B31CD /* HalfFramePair.swift */; };
+		28AADA651E1FAD0527CF9611 /* StockCatalog.json */ = {isa = PBXFileReference; lastKnownFileType = text.json; name = StockCatalog.json; path = Resources/StockCatalog.json; sourceTree = "<group>"; };
+		297B1BA0A549F116C0DF90B9 /* ExportSheet.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ExportSheet.swift; sourceTree = "<group>"; };
+		29A50F109CE9CACCB80D2ED7 /* DevelopEngine.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DevelopEngine.swift; sourceTree = "<group>"; };
+		29B324599BA5B3E6294F0068 /* SchedulerTypes.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SchedulerTypes.swift; sourceTree = "<group>"; };
+		2A41FF721D3AE50188B77B53 /* HelperProcess.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HelperProcess.swift; sourceTree = "<group>"; };
+		2A92A805B7AD61731ED631E7 /* FrameEdit.swift in Sources */ = {isa = PBXBuildFile; fileRef = B292FAFA67C152F24AAFC992 /* FrameEdit.swift */; };
+		2C7251BFBAD3404F3F0CAC08 /* FilmParams.swift in Sources */ = {isa = PBXBuildFile; fileRef = BFFE3E24FACD7AE5905EFEE1 /* FilmParams.swift */; };
+		2CA80992883C4894E66FF5A8 /* FilmEdgeStock.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FilmEdgeStock.swift; sourceTree = "<group>"; };
+		2CD11C356A2ED4B240AC7231 /* ExportWriter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ExportWriter.swift; sourceTree = "<group>"; };
+		2D000294C69A6C581031647A /* ScenePlacement.swift in Sources */ = {isa = PBXBuildFile; fileRef = FC8BAA475F60491FDB00FF81 /* ScenePlacement.swift */; };
+		2D2F25F1891C5670D7751BB2 /* LightTableTextures.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LightTableTextures.swift; sourceTree = "<group>"; };
+		2D8994A44C706B5BBC77D68F /* LightTableRenderer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LightTableRenderer.swift; sourceTree = "<group>"; };
+		2D9FF35EF802679AE3B7371A /* Layer2Export.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Layer2Export.swift; sourceTree = "<group>"; };
+		2DB9B887C9CE11099BA6445E /* SettingsScreen.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SettingsScreen.swift; sourceTree = "<group>"; };
+		2FDA04419DAB374C321717FD /* PairLayout.swift in Sources */ = {isa = PBXBuildFile; fileRef = 180F8E4A85CDF29CCE6FD27B /* PairLayout.swift */; };
+		320FC43BB3A5612D4F63D6D6 /* WindowLayoutRule.swift in Sources */ = {isa = PBXBuildFile; fileRef = 01E29EBC5303F94364138738 /* WindowLayoutRule.swift */; };
+		322A2634314FCEA8173719FE /* KeptFileAside.swift in Sources */ = {isa = PBXBuildFile; fileRef = 886E83887947A4C888AD708C /* KeptFileAside.swift */; };
+		331D8E6DBDD38DE5D142C9EC /* PairParts.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9399E3E3D5ABE396744E07FC /* PairParts.swift */; };
+		33375B2E462E6FE9235829BE /* DevicePolicy.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7FBCE1C61100E28132893BA3 /* DevicePolicy.swift */; };
+		334D2861EEC13CC399C947C6 /* FrameDecoder.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FrameDecoder.swift; sourceTree = "<group>"; };
+		33C9660A75AB3E2D370A08C4 /* SchedulerTypes.swift in Sources */ = {isa = PBXBuildFile; fileRef = 29B324599BA5B3E6294F0068 /* SchedulerTypes.swift */; };
+		3407893D836FC1D0CFA7BE71 /* SceneLatitude.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SceneLatitude.swift; sourceTree = "<group>"; };
+		35245F9112593AB19FF961C6 /* LightTableGestures.swift in Sources */ = {isa = PBXBuildFile; fileRef = EFB405806E63F6C279CA59B7 /* LightTableGestures.swift */; };
+		36B38B9C9FFE22398D8D2550 /* FilmEdgeJourney.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FilmEdgeJourney.swift; sourceTree = "<group>"; };
+		372B02868E392477EDB043A3 /* Import */ = {
+			isa = PBXGroup;
+			children = (
+				18CA00C33D1E68E05087E8CD /* MacImportCheck.swift */,
+				27B2019A7C8009687F3B163E /* MacImportDrop.swift */,
+				11F06B4A285A40D2CCF27137 /* MacImportDropCheck.swift */,
+				47EC52328A77F0D5E207E84D /* MacImportFlow.swift */,
+				A03C1901435B28D2CB26BBCD /* MacImportScan.swift */,
+				6BA042FEE31B72B7784D3BC1 /* MacImportSession.swift */,
+			);
+			path = Import;
+			sourceTree = "<group>";
+		};
+		37C292D2FE3F407F8C4FB677 /* Supporters.swift in Sources */ = {isa = PBXBuildFile; fileRef = F154C6E8C9F0FCEB3736F12A /* Supporters.swift */; };
+		3809D960515CD2406FA72FF5 /* Gallery.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1004577F499CCD09FBEEBE81 /* Gallery.swift */; };
+		38D84B32A6872C0671B75E42 /* StockCards.swift in Sources */ = {isa = PBXBuildFile; fileRef = FA61A4EC609AB88F353095D4 /* StockCards.swift */; };
+		391D76D691695C5179B381CF /* FrameCatalog.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FrameCatalog.swift; sourceTree = "<group>"; };
+		39217BB874BCAFA3F4950B13 /* LightTablePane.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LightTablePane.swift; sourceTree = "<group>"; };
+		395190775B5BF17EE5EC7BEB /* DiagnosticsPage.swift in Sources */ = {isa = PBXBuildFile; fileRef = C6059218083541AF4F23B08D /* DiagnosticsPage.swift */; };
+		399E3BC5426C1DE8E5B5C9CF /* EngineRouter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = EngineRouter.swift; sourceTree = "<group>"; };
+		39E11A0807C3788C69112DF5 /* MacWindowCapture.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MacWindowCapture.swift; sourceTree = "<group>"; };
+		3A9F5D64781CA88D8F81C580 /* Model */ = {
+			isa = PBXGroup;
+			children = (
+				054B31A9712678F4D236936D /* Adjustments.swift */,
+				E09A2B5CD6234E5E2F1C58A8 /* CameraCrop.swift */,
+				F9C5D986E0DC2D1ED45ADEBF /* CropGuides.swift */,
+				4F9E4736C2882AD9FA3DBFA5 /* CurveMath.swift */,
+				92DCFA0B4A668A8B9A52A600 /* DevelopStatus.swift */,
+				CB8F4F17133932923125F54E /* EditHistory.swift */,
+				CC2FA04F065B6F2088EADFC5 /* ExportRecipe.swift */,
+				C60E54EB40A39EA165BF0D64 /* FeatureFlags.swift */,
+				9995DFFEAC52EE9F16B882C7 /* FilmEdge.swift */,
+				BFFE3E24FACD7AE5905EFEE1 /* FilmParams.swift */,
+				8E8A77E55D52918BC5778B05 /* Format.swift */,
+				B292FAFA67C152F24AAFC992 /* FrameEdit.swift */,
+				43E84A02E7DA493A8BA0E80D /* Geometry.swift */,
+				21C15140687B2D483A7B31CD /* HalfFramePair.swift */,
+				AA7BB6AD6149D74BF2C29044 /* LibraryFrame.swift */,
+				40159D765CAB16E90B8E7135 /* Localization.swift */,
+				5583D0E258CCFA605A15094A /* SettingsClipboard.swift */,
+				63E2FF0BD16B7810F9A5D37C /* Sources.swift */,
+				E45EFD95B503E9EBF93999E9 /* Stock.swift */,
+				F154C6E8C9F0FCEB3736F12A /* Supporters.swift */,
+			);
+			path = Model;
+			sourceTree = "<group>";
+		};
+		3B047320A8AB1EA3FD75D4AA /* DrawnIcons.swift in Sources */ = {isa = PBXBuildFile; fileRef = F73C1C4218B1914A13ED2F03 /* DrawnIcons.swift */; };
+		3B18BBF6A60FCE6723EC5405 /* LightTableStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5B958A3085CF7DD11BA739C1 /* LightTableStore.swift */; };
+		3B94B5E80C71B114C5D3C6F3 /* PrintLayers.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PrintLayers.swift; sourceTree = "<group>"; };
+		3BC9DABE408C88E90577D6A6 /* MacSettingsDevelop.swift in Sources */ = {isa = PBXBuildFile; fileRef = A45C20FBEAE9A59459DAD27D /* MacSettingsDevelop.swift */; };
+		3BD96A98C0D9B927FA4EB856 /* SpektraLab-Bridging-Header.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = "SpektraLab-Bridging-Header.h"; sourceTree = "<group>"; };
+		3BDA2656C7006CE6B9BCC3C0 /* SettingsClipboard.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5583D0E258CCFA605A15094A /* SettingsClipboard.swift */; };
+		3C9ADAADC7EB1A20EF56F836 /* MacWindowCapture.swift in Sources */ = {isa = PBXBuildFile; fileRef = 39E11A0807C3788C69112DF5 /* MacWindowCapture.swift */; };
+		3D9CEBB216746590C61C68D3 /* TickRuler.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TickRuler.swift; sourceTree = "<group>"; };
+		3DEDE11159D863F4E86C159E /* DevelopStatus.swift in Sources */ = {isa = PBXBuildFile; fileRef = 92DCFA0B4A668A8B9A52A600 /* DevelopStatus.swift */; };
+		3E318131436F296CFD124F57 /* CanvasZoom.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CanvasZoom.swift; sourceTree = "<group>"; };
+		3EB6BCF6269DE7FC43773E33 /* MacLibrarySidebar.swift in Sources */ = {isa = PBXBuildFile; fileRef = F8F36876F8F23C7B6D9C2E07 /* MacLibrarySidebar.swift */; };
+		3ECAE83C41749A122195A4F6 /* LightTableModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4A4484C566F484FA0E5A93CB /* LightTableModel.swift */; };
+		3FD36877CC6E4E769A977BE9 /* MacExportCheck.swift in Sources */ = {isa = PBXBuildFile; fileRef = 69991894737BCB987E8B2AD3 /* MacExportCheck.swift */; };
+		3FEEBE350CADF17D573CDB21 /* MacWindow.swift in Sources */ = {isa = PBXBuildFile; fileRef = 67202E6DB48DD39BB5318021 /* MacWindow.swift */; };
+		3FF3C8302FA0456C550BA545 /* FilmCanvasView.swift in Sources */ = {isa = PBXBuildFile; fileRef = ABAEE27F621ED5477C8CD315 /* FilmCanvasView.swift */; };
+		40159D765CAB16E90B8E7135 /* Localization.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Localization.swift; sourceTree = "<group>"; };
+		408FB909633D7DD350599828 /* MacOpenPanel.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0A0B3B8094A20EEE599CAAED /* MacOpenPanel.swift */; };
+		409A72DFCB795B8530270414 /* CostModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = B644B44AB8C9E4450A58A317 /* CostModel.swift */; };
+		4131D600B94F92B01867A854 /* MacExportPage.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MacExportPage.swift; sourceTree = "<group>"; };
+		41951E8ED04537DE502DC445 /* LibrarySideSnapshots.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LibrarySideSnapshots.swift; sourceTree = "<group>"; };
+		41E7BB6A1CDB66786D10C8C9 /* Theme.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Theme.swift; sourceTree = "<group>"; };
+		41ECA65AF3BBE08A7F904E27 /* MacLibraryDocuments.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6054AC077AF79ED35C451C78 /* MacLibraryDocuments.swift */; };
+		41FFAD600DC744E3FDEBBF21 /* FrameView.swift in Sources */ = {isa = PBXBuildFile; fileRef = AD4428AC886DB43542DA8C3D /* FrameView.swift */; };
+		4236F2E8BEA8E1610EA89F4E /* LightTable */ = {
+			isa = PBXGroup;
+			children = (
+				DFCA06923A9114B91B3F76D7 /* MacDisplay.swift */,
+				0711B18E4740058A18AF9002 /* MacLightTableAddPage.swift */,
+				E34D92693A99940D92DE2E95 /* MacLightTableBar.swift */,
+				E8B92171E58FB163AB661F23 /* MacLightTableCheck.swift */,
+				A203435A2388291ACDE8A0A8 /* MacLightTableMenu.swift */,
+				E5B59C2333841CC8B5A53D7E /* MacLightTablePanel.swift */,
+				5C76B5DDEB88F1F7B4B1AFAB /* MacLightTableRail.swift */,
+			);
+			path = LightTable;
+			sourceTree = "<group>";
+		};
+		42935C2450AC381AC3C47489 /* StockPreviewPanel.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5E7DA9C40C4D74BADA40D562 /* StockPreviewPanel.swift */; };
+		42A3FA76845ADAD4052BCC5A /* PresetStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PresetStore.swift; sourceTree = "<group>"; };
+		42B236436D38BA2CD30190B4 /* RemovalWords.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RemovalWords.swift; sourceTree = "<group>"; };
+		42DAC20CE3A11E82F5C57DFB /* FilmGeometry.swift in Sources */ = {isa = PBXBuildFile; fileRef = F0CBE4AFB72208EBD6FAA83D /* FilmGeometry.swift */; };
+		43E84A02E7DA493A8BA0E80D /* Geometry.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Geometry.swift; sourceTree = "<group>"; };
+		4492CEFB9E17CBE1A0A7756C /* StripProbe.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = StripProbe.swift; sourceTree = "<group>"; };
+		44D5D1E6C5949563F8A371FA /* ColourPads.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ColourPads.swift; sourceTree = "<group>"; };
+		44F53DF9FD982ECF0C81122E /* MacScrollZoom.swift in Sources */ = {isa = PBXBuildFile; fileRef = 260942587A06E41C0BCDEAE9 /* MacScrollZoom.swift */; };
+		44F712D885D71CA13A9BFEF7 /* DesignGallery.swift in Sources */ = {isa = PBXBuildFile; fileRef = F6F388FDC24A33E67153771D /* DesignGallery.swift */; };
+		454AB8B7303AC1E4C6F48177 /* FullDetail.swift in Sources */ = {isa = PBXBuildFile; fileRef = ECB44BE50A00C6F2CCED158C /* FullDetail.swift */; };
+		459B5A51503E36BA2B8328C0 /* MacColourWheel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MacColourWheel.swift; sourceTree = "<group>"; };
+		46A53981DEA987207EE41850 /* Sources.swift in Sources */ = {isa = PBXBuildFile; fileRef = 63E2FF0BD16B7810F9A5D37C /* Sources.swift */; };
+		475AE2475D5A4B3B5A0C5D5F /* RawExposure.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RawExposure.swift; sourceTree = "<group>"; };
+		47B9721DBB526355D53601B5 /* MacLibraryMovePage.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MacLibraryMovePage.swift; sourceTree = "<group>"; };
+		47DB8F19E2CF45F9767DCBE0 /* DemoLibrary.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DemoLibrary.swift; sourceTree = "<group>"; };
+		47EC52328A77F0D5E207E84D /* MacImportFlow.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MacImportFlow.swift; sourceTree = "<group>"; };
+		4819F7FF4E95787364003CA5 /* CropScreen.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CropScreen.swift; sourceTree = "<group>"; };
+		481EBCB7F399BC5679C23C3D /* Segmented.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Segmented.swift; sourceTree = "<group>"; };
+		48358155B913CE5C93A04BD8 /* MacExportPage.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4131D600B94F92B01867A854 /* MacExportPage.swift */; };
+		494340B340DB2450A826EFEF /* InputFeedbackRules.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1199CF6ED911E7A14BDB4757 /* InputFeedbackRules.swift */; };
+		49A2B934FBC037472B398F48 /* MacImportFlow.swift in Sources */ = {isa = PBXBuildFile; fileRef = 47EC52328A77F0D5E207E84D /* MacImportFlow.swift */; };
+		49B9A4311B3A5039B4E43AB0 /* Export */ = {
+			isa = PBXGroup;
+			children = (
+				297B1BA0A549F116C0DF90B9 /* ExportSheet.swift */,
+				548B4BA44F76C00C49192494 /* RecipeChips.swift */,
+				02E7045D35F848D4B8FF7D6E /* SizePage.swift */,
+			);
+			path = Export;
+			sourceTree = "<group>";
+		};
+		4A4484C566F484FA0E5A93CB /* LightTableModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LightTableModel.swift; sourceTree = "<group>"; };
+		4BEE9D51F0DF78B565FC1FBA /* MacPageActions.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MacPageActions.swift; sourceTree = "<group>"; };
+		4C385A5AC6717F3A602E3EE6 /* Localizable.xcstrings in Resources */ = {isa = PBXBuildFile; fileRef = C65BF85E66C547F8282A9FAC /* Localizable.xcstrings */; };
+		4C3D7674468781F445893E6D /* StockCatalog.json in Resources */ = {isa = PBXBuildFile; fileRef = 28AADA651E1FAD0527CF9611 /* StockCatalog.json */; };
+		4C7EBAD0B4F86EBFCDE1B7FD /* FilmEdgeColumn.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FilmEdgeColumn.swift; sourceTree = "<group>"; };
+		4D638E290798BD46B588AFDB /* Badges.swift in Sources */ = {isa = PBXBuildFile; fileRef = D0FBFBA73B44578C79838D17 /* Badges.swift */; };
+		4D67B327DA246DA5958B2530 /* MacColourWheel.swift in Sources */ = {isa = PBXBuildFile; fileRef = 459B5A51503E36BA2B8328C0 /* MacColourWheel.swift */; };
+		4D6EE8038E92C40335E69E36 /* SettingsWindowRoot.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SettingsWindowRoot.swift; sourceTree = "<group>"; };
+		4DB68A365FFCDB05278C2DE7 /* EngineWire.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = EngineWire.swift; sourceTree = "<group>"; };
+		4DDB570605B0120A11F209E7 /* MacCatalogCheck.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MacCatalogCheck.swift; sourceTree = "<group>"; };
+		4E9594DC82C5E7F6F785E64E /* FilmEdgeFlow.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9CF0FD3F28555B6826890A65 /* FilmEdgeFlow.swift */; };
+		4EAAEC742FA7A3FC57061F62 /* MacCatalogActions.swift in Sources */ = {isa = PBXBuildFile; fileRef = A671D8956FD4BE6A2CD7FC6E /* MacCatalogActions.swift */; };
+		4ECB2203A26E4613F850E069 /* RecipePages.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RecipePages.swift; sourceTree = "<group>"; };
+		4EE67377973F6E7400AAD398 /* DevelopPane.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA30006F73EB09526C547909 /* DevelopPane.swift */; };
+		4F5A1AFFAE02722854CCDB74 /* Layer2Snapshots.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Layer2Snapshots.swift; sourceTree = "<group>"; };
+		4F665C099579B0018EDCF397 /* MemoryLog.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MemoryLog.swift; sourceTree = "<group>"; };
+		4F9E4736C2882AD9FA3DBFA5 /* CurveMath.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CurveMath.swift; sourceTree = "<group>"; };
+		50261090D4CF7FD9936806D6 /* MacLightTableCheck.swift in Sources */ = {isa = PBXBuildFile; fileRef = E8B92171E58FB163AB661F23 /* MacLightTableCheck.swift */; };
+		503C6C830DD135E1273D4E30 /* DevelopCanvas.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2776C4B1458ED9380E8FCDE5 /* DevelopCanvas.swift */; };
+		5070E5241BDE4621F862A19C /* PieceComposer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PieceComposer.swift; sourceTree = "<group>"; };
+		5071F7FF48AD55E4D62AA57E /* MacBrowserSplit.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MacBrowserSplit.swift; sourceTree = "<group>"; };
+		5106684521E1C080C4E8AE05 /* LibraryHost.swift in Sources */ = {isa = PBXBuildFile; fileRef = 80F6A6597797456F679ED6F6 /* LibraryHost.swift */; };
+		524906E579F01B81BDD196E4 /* ThumbnailStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ThumbnailStore.swift; sourceTree = "<group>"; };
+		5327D0384DBAC03BEDE08B0C /* DesignSystem */ = {
+			isa = PBXGroup;
+			children = (
+				5F5870DAC8F30B1E1E3E2B59 /* AppBackground.swift */,
+				671B19B1DD4EC1A16177899E /* AppearanceTokens.swift */,
+				D0FBFBA73B44578C79838D17 /* Badges.swift */,
+				5FDE665E7B3AE888C42ECC47 /* Buttons.swift */,
+				F2080FFCEBEDFECEA32FF678 /* Chips.swift */,
+				5FC3890096B3E6CDA082DC2F /* CoexistingDrag.swift */,
+				F73C1C4218B1914A13ED2F03 /* DrawnIcons.swift */,
+				D466C54CCD5FD603C47AB4E3 /* DrawnLayout.swift */,
+				CA18D29B842F25802E87E341 /* Indicators.swift */,
+				1199CF6ED911E7A14BDB4757 /* InputFeedbackRules.swift */,
+				1941AC60ACF1B6E715BA33C0 /* InterfaceScale.swift */,
+				18BF2C4AB0F45CDB1C0B2BB7 /* LatitudeMeter.swift */,
+				8942FCE16E118FAA7371B57A /* ResetAlert.swift */,
+				9E412292F641F321214D4C20 /* Rows.swift */,
+				481EBCB7F399BC5679C23C3D /* Segmented.swift */,
+				53CC1B28785C9CABAF2F77C2 /* Sheets.swift */,
+				8E64F6B4F2B88FDE5DD69BBF /* SpkIcon.swift */,
+				A39E0323F308011BC73380F6 /* StubPage.swift */,
+				41E7BB6A1CDB66786D10C8C9 /* Theme.swift */,
+				3D9CEBB216746590C61C68D3 /* TickRuler.swift */,
+				9BA7BD07773A70475583DDB0 /* ValueSlider.swift */,
+			);
+			path = DesignSystem;
+			sourceTree = "<group>";
+		};
+		53797DE442FCF2C62405D6BD /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				"IPHONEOS_DEPLOYMENT_TARGET[sdk=macosx*]" = 18.0;
+				"OTHER_LDFLAGS[sdk=macosx*]" = ("$(inherited)", "$(PROJECT_DIR)/build/engine-macosx/libspektralab_engine.a", "-lc++", "-framework", Metal, "-framework", QuartzCore, "-framework", CoreText, "-framework", CoreGraphics, "-framework", Accelerate);
+				"SWIFT_ACTIVE_COMPILATION_CONDITIONS[sdk=macosx*]" = "$(inherited) SPK_ENGINE";
+				"TARGETED_DEVICE_FAMILY[sdk=macosx*]" = 2;
+				ASSETCATALOG_COMPILER_APPICON_NAME = SpektraLab;
+				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
+				CODE_SIGN_IDENTITY = "-";
+				CODE_SIGN_STYLE = Manual;
+				CURRENT_PROJECT_VERSION = 202611082150;
+				ENABLE_PREVIEWS = NO;
+				GENERATE_INFOPLIST_FILE = YES;
+				HEADER_SEARCH_PATHS = ("$(PROJECT_DIR)/../../engine/include");
+				INFOPLIST_FILE = Info.plist;
+				INFOPLIST_KEY_CFBundleDisplayName = SpektraLab;
+				INFOPLIST_KEY_ITSAppUsesNonExemptEncryption = NO;
+				INFOPLIST_KEY_LSSupportsOpeningDocumentsInPlace = YES;
+				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
+				INFOPLIST_KEY_UIStatusBarStyle = UIStatusBarStyleLightContent;
+				INFOPLIST_KEY_UIUserInterfaceStyle = Dark;
+				LD_RUNPATH_SEARCH_PATHS = ("$(inherited)", "@executable_path/Frameworks");
+				MARKETING_VERSION = 2.2.0;
+				PRODUCT_BUNDLE_IDENTIFIER = com.spektralab.mac;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SPK_COMMIT = "";
+				SUPPORTS_MACCATALYST = YES;
+				SUPPORTS_MAC_DESIGNED_FOR_IPHONE_IPAD = NO;
+				SUPPORTS_XR_DESIGNED_FOR_IPHONE_IPAD = NO;
+				SWIFT_ACTIVE_COMPILATION_CONDITIONS = "$(inherited) SPK_LOG_UPLOAD";
+				SWIFT_EMIT_LOC_STRINGS = NO;
+				SWIFT_OBJC_BRIDGING_HEADER = "Sources/Support/SpektraLab-Bridging-Header.h";
+				TARGETED_DEVICE_FAMILY = 2;
+			};
+			name = Debug;
+		};
+		53BA58019251248590395073 /* RemovalWords.swift in Sources */ = {isa = PBXBuildFile; fileRef = 42B236436D38BA2CD30190B4 /* RemovalWords.swift */; };
+		53CC1B28785C9CABAF2F77C2 /* Sheets.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Sheets.swift; sourceTree = "<group>"; };
+		548B4BA44F76C00C49192494 /* RecipeChips.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RecipeChips.swift; sourceTree = "<group>"; };
+		5583D0E258CCFA605A15094A /* SettingsClipboard.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SettingsClipboard.swift; sourceTree = "<group>"; };
+		5587FF259227416BF5EC56D5 /* MacLightTablePanel.swift in Sources */ = {isa = PBXBuildFile; fileRef = E5B59C2333841CC8B5A53D7E /* MacLightTablePanel.swift */; };
+		55A46E754F6E89F5F26D5E82 /* DevelopLayout.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DevelopLayout.swift; sourceTree = "<group>"; };
+		55FDDF40A78C751E9C0EE4E5 /* SpektraLabApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SpektraLabApp.swift; sourceTree = "<group>"; };
+		56E40A1F9429775CF3AC3168 /* DevelopWorkspace.swift in Sources */ = {isa = PBXBuildFile; fileRef = C49DB28897704CD14F706651 /* DevelopWorkspace.swift */; };
+		57C857975640AB16E99851CF /* Build configuration list for PBXProject "SpektraLab" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				5E8ACABCCBE1DB5D311988C9 /* Debug */,
+				F84FD35CA8548076F2B51EDF /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+		57E6BB68B29F073A6086A189 /* LightTableFrames.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LightTableFrames.swift; sourceTree = "<group>"; };
+		5899CD471BA6156875091453 /* MacImportCheck.swift in Sources */ = {isa = PBXBuildFile; fileRef = 18CA00C33D1E68E05087E8CD /* MacImportCheck.swift */; };
+		597251C3ACE697D3DC174A22 /* CurveMath.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4F9E4736C2882AD9FA3DBFA5 /* CurveMath.swift */; };
+		5A859784FCF48628C1664F93 /* LogShipping.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LogShipping.swift; sourceTree = "<group>"; };
+		5AEEF68038B3C8383F7C799B /* LightTableAddSheet.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6C99207271DDEF15B9317D22 /* LightTableAddSheet.swift */; };
+		5AF1121C6548FC6C8CD816C3 /* MacImportDropCheck.swift in Sources */ = {isa = PBXBuildFile; fileRef = 11F06B4A285A40D2CCF27137 /* MacImportDropCheck.swift */; };
+		5B1B2B2ECB524BA8C71F3188 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				03709B12B3716DA55C861C10 /* AppMenuCommands.swift */,
+				1CE6D911AFA3D8725424A1C7 /* AppRouter.swift */,
+				A37C88C732CF1F42794B9E7E /* AppServices.swift */,
+				F01E30743B99413B68B1BECD /* BlackAndWhiteSnapshots.swift */,
+				44F712D885D71CA13A9BFEF7 /* DesignGallery.swift */,
+				06E738F0A5C5DA8267D0AEBC /* FolderHarness.swift */,
+				FB5BE2CAAB8D821C4452FB71 /* LightTableHarness.swift */,
+				16A14C264BA9EF1E287D512B /* Navigation.swift */,
+				E8EB797FC7B931792536B82F /* RootView.swift */,
+				E1A3B1E8C8DFC94D4FBE60AE /* Routes.swift */,
+				B1686ED53F5CC54D013D5D7A /* SnapshotHarness.swift */,
+				E065517F646C315A2C3C1161 /* SpektraLabApp.swift */,
+				D49C67D1051E5440D70BD4A1 /* StripProbe.swift */,
+				DF37759FD9B231AF820C3F8B /* Tour.swift */,
+				C07FD8557167CE2A9C81C1DE /* WindowLayout.swift */,
+				320FC43BB3A5612D4F63D6D6 /* WindowLayoutRule.swift */,
+				11C9FB5EC9AAB19BD04C060B /* AppBackground.swift */,
+				E45DBA231DAB0E7A35CBA1EF /* AppearanceTokens.swift */,
+				4D638E290798BD46B588AFDB /* Badges.swift */,
+				97CBADBD1860BF23EA347807 /* Buttons.swift */,
+				27F78D56440AD13EFD1AE51C /* Chips.swift */,
+				6BC2C5D77E080C9DDB067C64 /* CoexistingDrag.swift */,
+				3B047320A8AB1EA3FD75D4AA /* DrawnIcons.swift */,
+				073AC3410610903127CFD4E6 /* DrawnLayout.swift */,
+				C8D68B4089123276BDA27481 /* Indicators.swift */,
+				494340B340DB2450A826EFEF /* InputFeedbackRules.swift */,
+				DC6EC72DDD0051EC3633316F /* InterfaceScale.swift */,
+				F6034D53EACF02223BD49F34 /* LatitudeMeter.swift */,
+				87CA7C5FC5A9A8EA7E43FF31 /* ResetAlert.swift */,
+				DCDF24286E4A1C29B96A536E /* Rows.swift */,
+				9E5D39C78A2389C1B05E615C /* Segmented.swift */,
+				98A1D449F0222960024348A2 /* Sheets.swift */,
+				15645C00091E162425D7EFA5 /* SpkIcon.swift */,
+				8B1F01B88A05C8AB8DDDDE32 /* StubPage.swift */,
+				79FE2EFDD06CF75B360A2185 /* Theme.swift */,
+				D6E4BAD6D241FF4FE78F6FD6 /* TickRuler.swift */,
+				16D1F2827872C407464745F4 /* ValueSlider.swift */,
+				C9D4A93FCB58712306D14884 /* Diagnostics.swift */,
+				9E8535A1BB0CF7B4478369B6 /* LogBundle.swift */,
+				C463F3A4566F0CFBE355E71D /* LogRecords.swift */,
+				76BFBC872F5579DB55A98EED /* LogShipping.swift */,
+				6ED1A200B3F7C3BBAEA65889 /* LogStore.swift */,
+				7B9DFB2BFA0F784E94342F95 /* MemoryLog.swift */,
+				EAAFD97675AEA11BB4078813 /* MemoryTrace.swift */,
+				234E694E206D12A16A234AF8 /* DevelopedPicture.swift */,
+				D826786A6E391A503D9A11D3 /* DigitalDecode.swift */,
+				AFD4903E1751F009A38505C7 /* EngineHost.swift */,
+				EF27D11C48AAABAE083031E3 /* EngineRouter.swift */,
+				0F0B6802D9A0D03D85326EB9 /* EngineWire.swift */,
+				66394C2DA8FB170937955AFF /* ExportPlan.swift */,
+				985ADFC810E50E49E059720E /* ExportWriter.swift */,
+				CC34ED8221FF601136AA011C /* FinishedCut.swift */,
+				D5401E9815AD627DDAC0D283 /* FrameDecoder.swift */,
+				454AB8B7303AC1E4C6F48177 /* FullDetail.swift */,
+				B7E1AA59D59CF0F126A7AA88 /* FullRender.swift */,
+				D6CDBCA7F9296B202B019FFE /* FullRenderJobs.swift */,
+				C6D25646B8BFF02EC94EB865 /* HostCut.swift */,
+				019A685312FE20CD6C47FD58 /* JobDiagnostics.swift */,
+				25A15B83D345B74E6556F9A8 /* Layer2Copies.swift */,
+				B21305164722E3DA1F238861 /* Layer2Export.swift */,
+				B5B14C267A2367F250324533 /* Layer2Kernel.swift */,
+				EEBB3C70E6945B9C03A4383D /* Layer2Live.swift */,
+				8A3FD9AA15DCC35976F2405E /* Layer2Renderer.swift */,
+				7843833E299D9E4F6264A21F /* OutputTransform.swift */,
+				D75D8DEC3E3BBA082648243F /* PairDevelop.swift */,
+				DF42DC6D01CBF34E856B01D2 /* PieceComposer.swift */,
+				60DB7BE413C50A355BA82980 /* PiecePlacer.swift */,
+				B16E3AF64522EBC47F7FF2AC /* PrintLayers.swift */,
+				68464DABB341A44D7730D274 /* RawExposure.swift */,
+				6A7DE718C2AF7A05C67F7EFB /* RawProxy.swift */,
+				C39A3D7B509A4C60540A254D /* SceneLatitude.swift */,
+				2D000294C69A6C581031647A /* ScenePlacement.swift */,
+				C7C5679126080EA0B2DB93DE /* CanvasZoom.swift */,
+				1E70BA0B3D0B661D4865D7A5 /* CopySettingsDialog.swift */,
+				1DE1A0B2F5CCA1EB741AFCE0 /* DarkroomSnapshots.swift */,
+				FADF9681965FC9CA02A9DE69 /* DecodeSection.swift */,
+				503C6C830DD135E1273D4E30 /* DevelopCanvas.swift */,
+				B18BE81F223B985E1A172E7E /* DevelopController.swift */,
+				8A4211C001E2FC5D5DBB63FA /* DevelopInspectorParts.swift */,
+				5C3FE7A6E8C67B925C08F406 /* DevelopLayout.swift */,
+				9DB82A4FB5C716E0AAE43775 /* DevelopMenuCommands.swift */,
+				4EE67377973F6E7400AAD398 /* DevelopPane.swift */,
+				CB834054720006343E96BD6D /* DevelopPanels.swift */,
+				93164DD0FAF4E358A2D1BD1C /* DevelopRegions.swift */,
+				56E40A1F9429775CF3AC3168 /* DevelopWorkspace.swift */,
+				CDC007209A8989B9B50EE795 /* AdjustInspector.swift */,
+				DD4034B51DA2E838B08C7A69 /* AdjustSliders.swift */,
+				1D83EE801E16F4DE1342CF19 /* ColourPads.swift */,
+				ECB468703CD975CD98AA56A9 /* CurvePanel.swift */,
+				94679F406CF6BE708D50BE89 /* EditTool.swift */,
+				D9A5B93EA5BF0B18DB5279E2 /* HSLPanel.swift */,
+				06932D196DB6942184FDE392 /* Layer2Picture.swift */,
+				A08555755771CFDF00A8B5BD /* Layer2Snapshots.swift */,
+				74DFD5E1C11C4B31AAF5BB9D /* FilmEdgeColumn.swift */,
+				CA3994324F443EDE9D71CA5F /* FlowDialogLayout.swift */,
+				0F9A1452D64CDD2461BF4B31 /* HistogramPanel.swift */,
+				C424F12D313DD8AF47CDF923 /* PadDevelopPage.swift */,
+				902EC57EF384C3F937548EEE /* PairOriginalPreview.swift */,
+				909280D8F6F80DD1B075485E /* PairPanels.swift */,
+				8A4D4C6C2EBA2EFA5C2876EC /* PaneDividers.swift */,
+				0D182527EA5E1EC07086FA0E /* PresetSheet.swift */,
+				38D84B32A6872C0671B75E42 /* StockCards.swift */,
+				42935C2450AC381AC3C47489 /* StockPreviewPanel.swift */,
+				689F7423F291018251FB4022 /* ViewerPane.swift */,
+				EFDAC7EBD8D20CAC865F5C98 /* WorkspaceSnapshots.swift */,
+				77D2E178BB51F1516401EF0C /* ExportSheet.swift */,
+				87520CEDDC9B20D0BC2F20CF /* RecipeChips.swift */,
+				F09A0DBCBD8E535F7BA1845E /* SizePage.swift */,
+				4E9594DC82C5E7F6F785E64E /* FilmEdgeFlow.swift */,
+				B68814B263C505B7156BB47A /* FilmEdgeJourney.swift */,
+				064D5BF0C99DC36F7E31AC62 /* FilmEdgeSnapshots.swift */,
+				C84467E65F28C8F304ECEFBB /* FilmEdgeSteps.swift */,
+				9B76368FED837EE2C87001C3 /* CropScreen.swift */,
+				758E54DAA98B7B40C82AF0F8 /* CropStage.swift */,
+				8C2D12905261E08561AFAC84 /* ImportService.swift */,
+				775BF6F01D11C687449C2C2C /* ImportSheet.swift */,
+				9677F10793A93632B72A5794 /* LinkedFolderActions.swift */,
+				D264157254C76D9C167F111B /* InfoSheet.swift */,
+				0175F4A8C750D00DE12FD8DB /* LibraryParts.swift */,
+				5B4F591CD84C4B38EDB18FF5 /* LibraryScreen.swift */,
+				F68436496BCF0A9AAC203D58 /* LibrarySideSnapshots.swift */,
+				AFF51A11D6DFFBD0C328F4B6 /* LocateSheet.swift */,
+				53BA58019251248590395073 /* RemovalWords.swift */,
+				9A84DD039B077207EC917A1E /* PairEntrySnapshots.swift */,
+				1BBFCCB078A9F1C3D7ADDDDF /* PairFlow.swift */,
+				F07E74802FF918B355FA11B3 /* PairFramePicker.swift */,
+				2FDA04419DAB374C321717FD /* PairLayout.swift */,
+				331D8E6DBDD38DE5D142C9EC /* PairParts.swift */,
+				09B0A03B0AD6A9F019571FC1 /* PairPieceView.swift */,
+				E458A8B72A1C7F6BB7E01E49 /* PairSnapshots.swift */,
+				60F6B1CC85E386CE6408AB50 /* PairWithSheet.swift */,
+				BECDFBC9C0BFBDED2E6EFE7C /* AppearancePage.swift */,
+				395190775B5BF17EE5EC7BEB /* DiagnosticsPage.swift */,
+				C6F8C5EF24848BD2CB44C400 /* RecipePages.swift */,
+				A9E4ECFD8A3D7937999E8B6A /* SettingsScreen.swift */,
+				69A3D5D19DF0480A6EEB4DDE /* StockPairPicker.swift */,
+				3FF3C8302FA0456C550BA545 /* FilmCanvasView.swift */,
+				F019CAF403B56357060EF8D3 /* FilmEdgeResolver.swift */,
+				8483640F95DD62C7F5D74052 /* FilmEdgeStock.swift */,
+				42DAC20CE3A11E82F5C57DFB /* FilmGeometry.swift */,
+				161EBEFC891AC53A97FCB352 /* FilmLayout.swift */,
+				5AEEF68038B3C8383F7C799B /* LightTableAddSheet.swift */,
+				07149ABD4B8FA34C49A82499 /* LightTableController.swift */,
+				D84FF7D04C6967F7EB33E215 /* LightTableExport.swift */,
+				CCD5057B492419A2D9D34CDF /* LightTableExportPlan.swift */,
+				8A4791ADAEEB7DFF74273D93 /* LightTableExportSheet.swift */,
+				A81F05AFB73E67F1614E3493 /* LightTableFrames.swift */,
+				5F410B7E3E6A7CC5D62B42C0 /* LightTableFullRead.swift */,
+				35245F9112593AB19FF961C6 /* LightTableGestures.swift */,
+				EC8582135DE39E758BFB21D2 /* LightTableMacMath.swift */,
+				3ECAE83C41749A122195A4F6 /* LightTableModel.swift */,
+				B4FEB4596A34246A3AC3F5F5 /* LightTablePane.swift */,
+				22E5938C603CC64270BA9E1E /* LightTableRenderer.swift */,
+				047E89F96AF048AC3ED1175B /* LightTableShaders.swift */,
+				99108A0254D789C04C237ED7 /* LightTableShare.swift */,
+				06A18080EC29E640FED97F56 /* LightTableSizing.swift */,
+				3B18BBF6A60FCE6723EC5405 /* LightTableStore.swift */,
+				2699E0B37C2AC6E894936E26 /* LightTableTextures.swift */,
+				CFA2FE30F8755D53D352D21C /* LightTableTouch.swift */,
+				1309042FEFF9E6A6C21BD868 /* LightTableView.swift */,
+				C46DB2A13F7DFE025F878087 /* CaptureOneSource.swift */,
+				3FD36877CC6E4E769A977BE9 /* MacExportCheck.swift */,
+				48358155B913CE5C93A04BD8 /* MacExportPage.swift */,
+				C24ECB06AF3EAC6AFB855825 /* MacExportRun.swift */,
+				5899CD471BA6156875091453 /* MacImportCheck.swift */,
+				85184072DF0F2A41EB70F6A1 /* MacImportDrop.swift */,
+				5AF1121C6548FC6C8CD816C3 /* MacImportDropCheck.swift */,
+				49A2B934FBC037472B398F48 /* MacImportFlow.swift */,
+				DAA5FCE198F009EBB54C657C /* MacImportScan.swift */,
+				1D6E120F4359C16E6AABBEB7 /* MacImportSession.swift */,
+				C4655522C1CF9DF986387530 /* CatalogSourcesStore.swift */,
+				A5B4441C6C89D05D521F91D4 /* HelperProcess.swift */,
+				126703E579C76F164CDB045A /* LibraryAPI.swift */,
+				5106684521E1C080C4E8AE05 /* LibraryHost.swift */,
+				4EAAEC742FA7A3FC57061F62 /* MacCatalogActions.swift */,
+				F44190FCE525E6A853C3D367 /* MacLibraryCheck.swift */,
+				41ECA65AF3BBE08A7F904E27 /* MacLibraryDocuments.swift */,
+				C917686F64745665B6C467AD /* MacLibraryEntryCheck.swift */,
+				ECA6D743BA886A2B0DCA032D /* MacLibraryModels.swift */,
+				20FD740E2F325B9B2C6073CE /* MacLibraryPreviews.swift */,
+				408FB909633D7DD350599828 /* MacOpenPanel.swift */,
+				6F0BB91EE57281250CB932FE /* MacPairRows.swift */,
+				81B989948C15D30A71BE44ED /* MacSavePanel.swift */,
+				EF88E16E0FCB6572BAEE27D6 /* BrowserViewerSplit.swift */,
+				F7AAA2E334719BFCE3A380BB /* MacBrowserSplit.swift */,
+				25A4C237DC49B3F3AB6586E6 /* MacClipboardCheck.swift */,
+				1F020A6723BA2CC6AA7BC9E9 /* MacDevelopBrowser.swift */,
+				73E28348BEB410F881BFA83A /* MacInfoStrip.swift */,
+				6CEFE95AC9B17AFB46675045 /* MacLibraryActions.swift */,
+				A1D2F15514D1036BE6528A00 /* MacLibraryDriver.swift */,
+				A8FB9131409705573B551C8C /* MacLibraryGrid.swift */,
+				B8C1F775E9A20DF40C42E99D /* MacLibraryPage.swift */,
+				3EB6BCF6269DE7FC43773E33 /* MacLibrarySidebar.swift */,
+				00626F334C13834E3C8F1F6E /* MacLibraryUIState.swift */,
+				6F3E5E6175E86D3996129B08 /* MacMetadataPicker.swift */,
+				BAE73C9416DD8232815E2DF7 /* MacModeSwitch.swift */,
+				C9166ECF597DB5A9B99D8FF6 /* MacSharedControls.swift */,
+				8C72AAF1761476B9C849BCB6 /* MainWindowLayout.swift */,
+				5C3039B0E487639159682EE3 /* WindowToolbar.swift */,
+				A52F1BB5C82D330698B63CA5 /* MacDisplay.swift */,
+				930AF744547FED5684357191 /* MacLightTableAddPage.swift */,
+				BF0830BF20A40E3EB45F2B25 /* MacLightTableBar.swift */,
+				50261090D4CF7FD9936806D6 /* MacLightTableCheck.swift */,
+				70C0619AA6FE760AD6A50259 /* MacLightTableMenu.swift */,
+				5587FF259227416BF5EC56D5 /* MacLightTablePanel.swift */,
+				CAD30BF3557AEBA5D1ACCBA0 /* MacLightTableRail.swift */,
+				4D67B327DA246DA5958B2530 /* MacColourWheel.swift */,
+				B0943D86E1AEC6349F66CBA3 /* MacDriver.swift */,
+				6C81384AF42D9F55B4BCD02D /* MacEditCommands.swift */,
+				9F5CBD1524E8DA1827B03413 /* MacFlowBar.swift */,
+				0A78E61E0EDBD46E1087435C /* MacPageActions.swift */,
+				44F53DF9FD982ECF0C81122E /* MacScrollZoom.swift */,
+				92A655FE74D5F1D7B27B5C1F /* MacShortcuts.swift */,
+				6F5459DC6629D35BE1B47E34 /* MacWheelRow.swift */,
+				3FEEBE350CADF17D573CDB21 /* MacWindow.swift */,
+				3C9ADAADC7EB1A20EF56F836 /* MacWindowCapture.swift */,
+				AE52D3251F01C2B3FF04BABB /* MacCatalogCheck.swift */,
+				A69BBC1028968E7A9B0A64F3 /* MacLibraryMove.swift */,
+				0CAC6FFA99CC79A6C51E2F9A /* MacLibraryMovePage.swift */,
+				9152B5330E8742D119A8D8EE /* MacRenderCache.swift */,
+				87C2C796F387FC849381F734 /* MacRenderCheck.swift */,
+				6ACEB6A3B360F096E2EFE063 /* MacSettingsCheck.swift */,
+				84A57786F406596B7EB6FD96 /* MacSettingsCoverage.swift */,
+				3BC9DABE408C88E90577D6A6 /* MacSettingsDevelop.swift */,
+				98F9762A756CAAA1229272E5 /* MacSettingsDiagnostics.swift */,
+				D4CC6FF9A42506306AF6B30C /* MacSettingsGeneral.swift */,
+				B5ED08D2F119177330D977D9 /* MacSettingsParts.swift */,
+				D34C9194D3129C67EDD07200 /* MacSettingsRecipes.swift */,
+				90DC59BD4506263FB7B0DD57 /* MacSettingsSources.swift */,
+				721634B96286FC5C61BF7A51 /* MacSettingsStorage.swift */,
+				0B6276A380BD74C13A89E90D /* MacSettingsSupporters.swift */,
+				D2D91492B5196DDFFE31A217 /* SettingsWindowRoot.swift */,
+				16E0093FB8EA7FE5616A593D /* Adjustments.swift */,
+				26DE04F7A88858186CA00094 /* CameraCrop.swift */,
+				20090AC01A73BD0DF96392CA /* CropGuides.swift */,
+				597251C3ACE697D3DC174A22 /* CurveMath.swift */,
+				3DEDE11159D863F4E86C159E /* DevelopStatus.swift */,
+				8E57384C300B3B0EB9DB240D /* EditHistory.swift */,
+				EED76DFFCD8D9F71AE99023A /* ExportRecipe.swift */,
+				AF7A702837A29C4FA7977F81 /* FeatureFlags.swift */,
+				8479D90A2318869A9B04AA49 /* FilmEdge.swift */,
+				2C7251BFBAD3404F3F0CAC08 /* FilmParams.swift */,
+				22A03C40B0A1713C477832E6 /* Format.swift */,
+				2A92A805B7AD61731ED631E7 /* FrameEdit.swift */,
+				6631A08B8B3E6BCB19A7DA6F /* Geometry.swift */,
+				285269E9F2034AE86071A464 /* HalfFramePair.swift */,
+				EB4785FC84F35055783F5ACB /* LibraryFrame.swift */,
+				A4230BC1D1BB145BEF1B6BEB /* Localization.swift */,
+				3BDA2656C7006CE6B9BCC3C0 /* SettingsClipboard.swift */,
+				46A53981DEA987207EE41850 /* Sources.swift */,
+				7CBAFCB92B9FCC1AB0ADDE03 /* Stock.swift */,
+				37C292D2FE3F407F8C4FB677 /* Supporters.swift */,
+				409A72DFCB795B8530270414 /* CostModel.swift */,
+				15A16AEBDB7879A3320E30EA /* DevelopEngine.swift */,
+				33375B2E462E6FE9235829BE /* DevicePolicy.swift */,
+				F6393E395E04F427DBE4819E /* JobLogFile.swift */,
+				A21D6271BB3FBBDC6A482D27 /* MemoryBudget.swift */,
+				819216FCE81E529AA992521E /* MemoryProbe.swift */,
+				2174C33FE26AE6E9CBEF7D3D /* Planner.swift */,
+				07D41F3BE91FDA82433733CE /* RenderQueue.swift */,
+				1CC65DCD6B1E371DE9C8736F /* SchedulerSignals.swift */,
+				33C9660A75AB3E2D370A08C4 /* SchedulerTypes.swift */,
+				76E0A4DF1AF82920B88A3AB2 /* SimulatedEngine.swift */,
+				6EE9EBC04983A2B6A8C160C9 /* SpkEngine.swift */,
+				9C46CEE2384422D53DB663C5 /* AppSettings.swift */,
+				C89B752F05E4DF8008296F7E /* DemoLibrary.swift */,
+				0FB360C0872C14CAC3ED2463 /* ExportRecipeStore.swift */,
+				D54F3C8DCE3F65059E10F847 /* ExportService.swift */,
+				66D8C6FA10F70F605A936063 /* FolderReach.swift */,
+				B270BE18262274941D1C8807 /* FrameCatalog.swift */,
+				41FFAD600DC744E3FDEBBF21 /* FrameView.swift */,
+				3809D960515CD2406FA72FF5 /* Gallery.swift */,
+				322A2634314FCEA8173719FE /* KeptFileAside.swift */,
+				7BC92B5B601F10CD0822BD1C /* LibraryBrowser.swift */,
+				E39FCFF9014F6391AA8B75BB /* LibraryOrdering.swift */,
+				8B575475EA5EA5143BA5FD50 /* LibraryPersistence.swift */,
+				BDEE8AE5F8AD76E74CCF4157 /* LibraryPreviews.swift */,
+				69EC72ABA6AA86A1C1A073AF /* LookTransactions.swift */,
+				A41AE6F5AC0A72755AEDC66E /* OpenFrameSession.swift */,
+				D023D99AFB6529902F88188C /* Originals.swift */,
+				032B94A8EEC3690AE07902F4 /* PairKeeping.swift */,
+				61D8A9C89EF0F5D70FFE324A /* PresetStore.swift */,
+				C2EFC26BDDD2FF4AEADF0518 /* StockPreviewRules.swift */,
+				D8F0B5B58AA48C13983928BC /* StockPreviews.swift */,
+				AE23EC30D107D03BCCC14599 /* StorageTidy.swift */,
+				718BE959984B4B59D1BB5254 /* StripSource.swift */,
+				617FDEB7B98A3238E31D5531 /* ThumbnailStore.swift */,
+				00B47E6BF16737FF9D61497D /* WorkingCopies.swift */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		5B4F591CD84C4B38EDB18FF5 /* LibraryScreen.swift in Sources */ = {isa = PBXBuildFile; fileRef = C35513BA2416D7B09622C16F /* LibraryScreen.swift */; };
+		5B958A3085CF7DD11BA739C1 /* LightTableStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LightTableStore.swift; sourceTree = "<group>"; };
+		5BEAB01098E89E57E5BAA040 /* PairPanels.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PairPanels.swift; sourceTree = "<group>"; };
+		5C3039B0E487639159682EE3 /* WindowToolbar.swift in Sources */ = {isa = PBXBuildFile; fileRef = F93D1D3D983C8E739EAFE157 /* WindowToolbar.swift */; };
+		5C3FE7A6E8C67B925C08F406 /* DevelopLayout.swift in Sources */ = {isa = PBXBuildFile; fileRef = 55A46E754F6E89F5F26D5E82 /* DevelopLayout.swift */; };
+		5C67D0B723112B38F3D72123 /* LocateSheet.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LocateSheet.swift; sourceTree = "<group>"; };
+		5C76B5DDEB88F1F7B4B1AFAB /* MacLightTableRail.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MacLightTableRail.swift; sourceTree = "<group>"; };
+		5C968C812CFE3C4F26F865FC /* FilmEdge */ = {
+			isa = PBXGroup;
+			children = (
+				ABAEE27F621ED5477C8CD315 /* FilmCanvasView.swift */,
+				77050384F72B91CF75DB1310 /* FilmEdgeResolver.swift */,
+				2CA80992883C4894E66FF5A8 /* FilmEdgeStock.swift */,
+				F0CBE4AFB72208EBD6FAA83D /* FilmGeometry.swift */,
+				81B876A5D0C7EED692836B18 /* FilmLayout.swift */,
+			);
+			path = FilmEdge;
+			sourceTree = "<group>";
+		};
+		5C9C6377AC9BACD93CB57436 /* PairWithSheet.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PairWithSheet.swift; sourceTree = "<group>"; };
+		5E7DA9C40C4D74BADA40D562 /* StockPreviewPanel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = StockPreviewPanel.swift; sourceTree = "<group>"; };
+		5E8ACABCCBE1DB5D311988C9 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ALWAYS_SEARCH_USER_PATHS = NO;
+				CLANG_ENABLE_OBJC_ARC = YES;
+				DEBUG_INFORMATION_FORMAT = dwarf;
+				ENABLE_TESTABILITY = YES;
+				ENABLE_USER_SCRIPT_SANDBOXING = NO;
+				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
+				ONLY_ACTIVE_ARCH = YES;
+				SDKROOT = iphoneos;
+				SWIFT_ACTIVE_COMPILATION_CONDITIONS = DEBUG;
+				SWIFT_OPTIMIZATION_LEVEL = "-Onone";
+				SWIFT_VERSION = 5.0;
+			};
+			name = Debug;
+		};
+		5ED5786A6DCBB92DB6EF94CF /* MacExportRun.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MacExportRun.swift; sourceTree = "<group>"; };
+		5F410B7E3E6A7CC5D62B42C0 /* LightTableFullRead.swift in Sources */ = {isa = PBXBuildFile; fileRef = E5D2A25697F7CBBD8DFEAA92 /* LightTableFullRead.swift */; };
+		5F5870DAC8F30B1E1E3E2B59 /* AppBackground.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppBackground.swift; sourceTree = "<group>"; };
+		5FC3890096B3E6CDA082DC2F /* CoexistingDrag.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CoexistingDrag.swift; sourceTree = "<group>"; };
+		5FDE665E7B3AE888C42ECC47 /* Buttons.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Buttons.swift; sourceTree = "<group>"; };
+		6054AC077AF79ED35C451C78 /* MacLibraryDocuments.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MacLibraryDocuments.swift; sourceTree = "<group>"; };
+		60DB7BE413C50A355BA82980 /* PiecePlacer.swift in Sources */ = {isa = PBXBuildFile; fileRef = E974799B6367D44B5E8244BA /* PiecePlacer.swift */; };
+		60F6B1CC85E386CE6408AB50 /* PairWithSheet.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5C9C6377AC9BACD93CB57436 /* PairWithSheet.swift */; };
+		610C107A887F0E653E80D32D /* PadDevelopPage.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PadDevelopPage.swift; sourceTree = "<group>"; };
+		617FDEB7B98A3238E31D5531 /* ThumbnailStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 524906E579F01B81BDD196E4 /* ThumbnailStore.swift */; };
+		61D8A9C89EF0F5D70FFE324A /* PresetStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 42A3FA76845ADAD4052BCC5A /* PresetStore.swift */; };
+		627BBC9C62B0C159B656E415 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = 9CCD11486CB5CFFBAC839C56 /* Assets.xcassets */; };
+		62CC16E730A16808B33CD794 /* LightTableTouch.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LightTableTouch.swift; sourceTree = "<group>"; };
+		63CD3E70E698C9644CFB51EA /* WorkingCopies.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorkingCopies.swift; sourceTree = "<group>"; };
+		63E2FF0BD16B7810F9A5D37C /* Sources.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Sources.swift; sourceTree = "<group>"; };
+		640025A011B09D62BFC05B9C /* DevelopPanels.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DevelopPanels.swift; sourceTree = "<group>"; };
+		647673B7C552B631CD8AC9E1 /* EngineHost.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = EngineHost.swift; sourceTree = "<group>"; };
+		657052AA022CC1DC06835C45 /* MacShortcuts.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MacShortcuts.swift; sourceTree = "<group>"; };
+		65CD429C88B9577531D22F9D /* Diagnostics.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Diagnostics.swift; sourceTree = "<group>"; };
+		6612F91AB847363573C055D3 /* MainWindowLayout.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MainWindowLayout.swift; sourceTree = "<group>"; };
+		6631A08B8B3E6BCB19A7DA6F /* Geometry.swift in Sources */ = {isa = PBXBuildFile; fileRef = 43E84A02E7DA493A8BA0E80D /* Geometry.swift */; };
+		66394C2DA8FB170937955AFF /* ExportPlan.swift in Sources */ = {isa = PBXBuildFile; fileRef = 830B2710B4076FBC2AB5B287 /* ExportPlan.swift */; };
+		66D8C6FA10F70F605A936063 /* FolderReach.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7B9B37171A7550B40803BEC1 /* FolderReach.swift */; };
+		671B19B1DD4EC1A16177899E /* AppearanceTokens.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppearanceTokens.swift; sourceTree = "<group>"; };
+		67202E6DB48DD39BB5318021 /* MacWindow.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MacWindow.swift; sourceTree = "<group>"; };
+		67BA0371C085119BC103B8A1 /* CatalogSourcesStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CatalogSourcesStore.swift; sourceTree = "<group>"; };
+		68464DABB341A44D7730D274 /* RawExposure.swift in Sources */ = {isa = PBXBuildFile; fileRef = 475AE2475D5A4B3B5A0C5D5F /* RawExposure.swift */; };
+		688A1AED184FD42ABF1ABE60 /* MacLibraryPreviews.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MacLibraryPreviews.swift; sourceTree = "<group>"; };
+		689F7423F291018251FB4022 /* ViewerPane.swift in Sources */ = {isa = PBXBuildFile; fileRef = E91C427AD55C4053CF4488D7 /* ViewerPane.swift */; };
+		69991894737BCB987E8B2AD3 /* MacExportCheck.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MacExportCheck.swift; sourceTree = "<group>"; };
+		69A3D5D19DF0480A6EEB4DDE /* StockPairPicker.swift in Sources */ = {isa = PBXBuildFile; fileRef = A7E26307015F20083A8C7C57 /* StockPairPicker.swift */; };
+		69EC72ABA6AA86A1C1A073AF /* LookTransactions.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0251BA3150C8B651326A7921 /* LookTransactions.swift */; };
+		6A7DE718C2AF7A05C67F7EFB /* RawProxy.swift in Sources */ = {isa = PBXBuildFile; fileRef = E23AAFD9BE0F7A57D346DB49 /* RawProxy.swift */; };
+		6ACEB6A3B360F096E2EFE063 /* MacSettingsCheck.swift in Sources */ = {isa = PBXBuildFile; fileRef = F47FCAF8EA089197D6648F37 /* MacSettingsCheck.swift */; };
+		6BA042FEE31B72B7784D3BC1 /* MacImportSession.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MacImportSession.swift; sourceTree = "<group>"; };
+		6BC2C5D77E080C9DDB067C64 /* CoexistingDrag.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5FC3890096B3E6CDA082DC2F /* CoexistingDrag.swift */; };
+		6C81384AF42D9F55B4BCD02D /* MacEditCommands.swift in Sources */ = {isa = PBXBuildFile; fileRef = C06BE30AD323E4200C411449 /* MacEditCommands.swift */; };
+		6C99207271DDEF15B9317D22 /* LightTableAddSheet.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LightTableAddSheet.swift; sourceTree = "<group>"; };
+		6CEFE95AC9B17AFB46675045 /* MacLibraryActions.swift in Sources */ = {isa = PBXBuildFile; fileRef = C45D610BA130E2D2E0F93372 /* MacLibraryActions.swift */; };
+		6D6872E9CCC22E442FEEF950 /* LightTable */ = {
+			isa = PBXGroup;
+			children = (
+				6C99207271DDEF15B9317D22 /* LightTableAddSheet.swift */,
+				8952C903AF5236EF3F1C9308 /* LightTableController.swift */,
+				DEA7849B919FE45587184147 /* LightTableExport.swift */,
+				B9FBD238D19220A465FBB971 /* LightTableExportPlan.swift */,
+				8AE5B7AF02C981FEAC5A1B5A /* LightTableExportSheet.swift */,
+				57E6BB68B29F073A6086A189 /* LightTableFrames.swift */,
+				E5D2A25697F7CBBD8DFEAA92 /* LightTableFullRead.swift */,
+				EFB405806E63F6C279CA59B7 /* LightTableGestures.swift */,
+				D7E14E5EFA1C71DBE137E9EE /* LightTableMacMath.swift */,
+				4A4484C566F484FA0E5A93CB /* LightTableModel.swift */,
+				39217BB874BCAFA3F4950B13 /* LightTablePane.swift */,
+				2D8994A44C706B5BBC77D68F /* LightTableRenderer.swift */,
+				779642BF4056276DC3EEBFDB /* LightTableShaders.swift */,
+				1A0FA5791717E1B823AECC2C /* LightTableShare.swift */,
+				7A1244BD6FBE732BD2295CD9 /* LightTableSizing.swift */,
+				5B958A3085CF7DD11BA739C1 /* LightTableStore.swift */,
+				2D2F25F1891C5670D7751BB2 /* LightTableTextures.swift */,
+				62CC16E730A16808B33CD794 /* LightTableTouch.swift */,
+				B2C4090D253B3A032192FAE6 /* LightTableView.swift */,
+			);
+			path = LightTable;
+			sourceTree = "<group>";
+		};
+		6E788BEA3F8C0E2A104F2C1A /* MemoryBudget.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MemoryBudget.swift; sourceTree = "<group>"; };
+		6EB878375904859CAE2750D4 /* Import */ = {
+			isa = PBXGroup;
+			children = (
+				E5830F76710A2DCEA70F461F /* ImportService.swift */,
+				CF429DFCB56AEAE935183485 /* ImportSheet.swift */,
+				CF364E3731ADE572F541F09B /* LinkedFolderActions.swift */,
+			);
+			path = Import;
+			sourceTree = "<group>";
+		};
+		6ED1A200B3F7C3BBAEA65889 /* LogStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = AE2A9216AE4C88460C6A3CC3 /* LogStore.swift */; };
+		6EE9EBC04983A2B6A8C160C9 /* SpkEngine.swift in Sources */ = {isa = PBXBuildFile; fileRef = D9EE7CD3A89B05557A613FDD /* SpkEngine.swift */; };
+		6F0BB91EE57281250CB932FE /* MacPairRows.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9A5426FBDBEBBA592A99EC4C /* MacPairRows.swift */; };
+		6F3E5E6175E86D3996129B08 /* MacMetadataPicker.swift in Sources */ = {isa = PBXBuildFile; fileRef = D422D63D8072C1C601B2B438 /* MacMetadataPicker.swift */; };
+		6F5459DC6629D35BE1B47E34 /* MacWheelRow.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8BE0CA9D7D07E66456FB4D03 /* MacWheelRow.swift */; };
+		6F88AFD5CE38988DCFE4B1AB /* MacLibraryPage.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MacLibraryPage.swift; sourceTree = "<group>"; };
+		70C0619AA6FE760AD6A50259 /* MacLightTableMenu.swift in Sources */ = {isa = PBXBuildFile; fileRef = A203435A2388291ACDE8A0A8 /* MacLightTableMenu.swift */; };
+		718BE959984B4B59D1BB5254 /* StripSource.swift in Sources */ = {isa = PBXBuildFile; fileRef = 84A85FBE4CB83C62A52F8729 /* StripSource.swift */; };
+		721634B96286FC5C61BF7A51 /* MacSettingsStorage.swift in Sources */ = {isa = PBXBuildFile; fileRef = CF2A60FA313F19E17F49134A /* MacSettingsStorage.swift */; };
+		73E28348BEB410F881BFA83A /* MacInfoStrip.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7BEB3A0F0258AD180FABF7FD /* MacInfoStrip.swift */; };
+		74DFD5E1C11C4B31AAF5BB9D /* FilmEdgeColumn.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4C7EBAD0B4F86EBFCDE1B7FD /* FilmEdgeColumn.swift */; };
+		75336A09B29F10FE098C4539 /* DigitalDecode.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DigitalDecode.swift; sourceTree = "<group>"; };
+		758E54DAA98B7B40C82AF0F8 /* CropStage.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0369904EA89C422A48059347 /* CropStage.swift */; };
+		76BFBC872F5579DB55A98EED /* LogShipping.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5A859784FCF48628C1664F93 /* LogShipping.swift */; };
+		76E0A4DF1AF82920B88A3AB2 /* SimulatedEngine.swift in Sources */ = {isa = PBXBuildFile; fileRef = E56704A7E7DD74FACAB8CE6D /* SimulatedEngine.swift */; };
+		77050384F72B91CF75DB1310 /* FilmEdgeResolver.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FilmEdgeResolver.swift; sourceTree = "<group>"; };
+		775BF6F01D11C687449C2C2C /* ImportSheet.swift in Sources */ = {isa = PBXBuildFile; fileRef = CF429DFCB56AEAE935183485 /* ImportSheet.swift */; };
+		778C42EEE84D1B3369862632 /* Routes.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Routes.swift; sourceTree = "<group>"; };
+		779642BF4056276DC3EEBFDB /* LightTableShaders.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LightTableShaders.swift; sourceTree = "<group>"; };
+		77D2E178BB51F1516401EF0C /* ExportSheet.swift in Sources */ = {isa = PBXBuildFile; fileRef = 297B1BA0A549F116C0DF90B9 /* ExportSheet.swift */; };
+		7843833E299D9E4F6264A21F /* OutputTransform.swift in Sources */ = {isa = PBXBuildFile; fileRef = 88D7561E935AA38FE4B43DF2 /* OutputTransform.swift */; };
+		79FE2EFDD06CF75B360A2185 /* Theme.swift in Sources */ = {isa = PBXBuildFile; fileRef = 41E7BB6A1CDB66786D10C8C9 /* Theme.swift */; };
+		7A1244BD6FBE732BD2295CD9 /* LightTableSizing.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LightTableSizing.swift; sourceTree = "<group>"; };
+		7B9B37171A7550B40803BEC1 /* FolderReach.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FolderReach.swift; sourceTree = "<group>"; };
+		7B9DFB2BFA0F784E94342F95 /* MemoryLog.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4F665C099579B0018EDCF397 /* MemoryLog.swift */; };
+		7BC92B5B601F10CD0822BD1C /* LibraryBrowser.swift in Sources */ = {isa = PBXBuildFile; fileRef = D1972080FD6ED57A3CD78CBD /* LibraryBrowser.swift */; };
+		7BEB3A0F0258AD180FABF7FD /* MacInfoStrip.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MacInfoStrip.swift; sourceTree = "<group>"; };
+		7CBAFCB92B9FCC1AB0ADDE03 /* Stock.swift in Sources */ = {isa = PBXBuildFile; fileRef = E45EFD95B503E9EBF93999E9 /* Stock.swift */; };
+		7D1043473D55BFA90E8530D3 /* SpektraLab.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = SpektraLab.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		7DB82D3ECC8C402A19BE2C8B /* LibraryPersistence.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LibraryPersistence.swift; sourceTree = "<group>"; };
+		7FBCE1C61100E28132893BA3 /* DevicePolicy.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DevicePolicy.swift; sourceTree = "<group>"; };
+		806CA75FACB855E02484D2E0 /* MacRenderCache.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MacRenderCache.swift; sourceTree = "<group>"; };
+		80F6A6597797456F679ED6F6 /* LibraryHost.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LibraryHost.swift; sourceTree = "<group>"; };
+		819216FCE81E529AA992521E /* MemoryProbe.swift in Sources */ = {isa = PBXBuildFile; fileRef = D8FB05E0478DF7E03776E9C5 /* MemoryProbe.swift */; };
+		81B876A5D0C7EED692836B18 /* FilmLayout.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FilmLayout.swift; sourceTree = "<group>"; };
+		81B989948C15D30A71BE44ED /* MacSavePanel.swift in Sources */ = {isa = PBXBuildFile; fileRef = B707CACFA39BD7C5F1C38922 /* MacSavePanel.swift */; };
+		830B2710B4076FBC2AB5B287 /* ExportPlan.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ExportPlan.swift; sourceTree = "<group>"; };
+		83D7277A7315A21B47E6F6E2 /* MacLibraryUIState.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MacLibraryUIState.swift; sourceTree = "<group>"; };
+		8479D90A2318869A9B04AA49 /* FilmEdge.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9995DFFEAC52EE9F16B882C7 /* FilmEdge.swift */; };
+		8483640F95DD62C7F5D74052 /* FilmEdgeStock.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2CA80992883C4894E66FF5A8 /* FilmEdgeStock.swift */; };
+		84A57786F406596B7EB6FD96 /* MacSettingsCoverage.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0B711D31CE0CD25559F91AEF /* MacSettingsCoverage.swift */; };
+		84A85FBE4CB83C62A52F8729 /* StripSource.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = StripSource.swift; sourceTree = "<group>"; };
+		85184072DF0F2A41EB70F6A1 /* MacImportDrop.swift in Sources */ = {isa = PBXBuildFile; fileRef = 27B2019A7C8009687F3B163E /* MacImportDrop.swift */; };
+		86668A6A636992A786357B85 /* CurvePanel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CurvePanel.swift; sourceTree = "<group>"; };
+		87520CEDDC9B20D0BC2F20CF /* RecipeChips.swift in Sources */ = {isa = PBXBuildFile; fileRef = 548B4BA44F76C00C49192494 /* RecipeChips.swift */; };
+		87C2C796F387FC849381F734 /* MacRenderCheck.swift in Sources */ = {isa = PBXBuildFile; fileRef = 15A9FDA0FDB8A0B6FF8A2BDA /* MacRenderCheck.swift */; };
+		87CA7C5FC5A9A8EA7E43FF31 /* ResetAlert.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8942FCE16E118FAA7371B57A /* ResetAlert.swift */; };
+		886E83887947A4C888AD708C /* KeptFileAside.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = KeptFileAside.swift; sourceTree = "<group>"; };
+		88D7561E935AA38FE4B43DF2 /* OutputTransform.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OutputTransform.swift; sourceTree = "<group>"; };
+		8942FCE16E118FAA7371B57A /* ResetAlert.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ResetAlert.swift; sourceTree = "<group>"; };
+		8952C903AF5236EF3F1C9308 /* LightTableController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LightTableController.swift; sourceTree = "<group>"; };
+		896C059AB949FF2D7167458D /* SnapshotHarness.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SnapshotHarness.swift; sourceTree = "<group>"; };
+		8A3FD9AA15DCC35976F2405E /* Layer2Renderer.swift in Sources */ = {isa = PBXBuildFile; fileRef = EEEC8E379ED69C002020FF84 /* Layer2Renderer.swift */; };
+		8A4211C001E2FC5D5DBB63FA /* DevelopInspectorParts.swift in Sources */ = {isa = PBXBuildFile; fileRef = D698EA74C9C0B58A9CADC324 /* DevelopInspectorParts.swift */; };
+		8A4791ADAEEB7DFF74273D93 /* LightTableExportSheet.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8AE5B7AF02C981FEAC5A1B5A /* LightTableExportSheet.swift */; };
+		8A4D4C6C2EBA2EFA5C2876EC /* PaneDividers.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1D1DA80476563F2C9E68A0F /* PaneDividers.swift */; };
+		8AE5B7AF02C981FEAC5A1B5A /* LightTableExportSheet.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LightTableExportSheet.swift; sourceTree = "<group>"; };
+		8B1E856481F18198D4CBA87D /* AppServices.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppServices.swift; sourceTree = "<group>"; };
+		8B1F01B88A05C8AB8DDDDE32 /* StubPage.swift in Sources */ = {isa = PBXBuildFile; fileRef = A39E0323F308011BC73380F6 /* StubPage.swift */; };
+		8B575475EA5EA5143BA5FD50 /* LibraryPersistence.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7DB82D3ECC8C402A19BE2C8B /* LibraryPersistence.swift */; };
+		8B7F85FF4C9467FC761F1980 /* LibraryAPI.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LibraryAPI.swift; sourceTree = "<group>"; };
+		8BE0CA9D7D07E66456FB4D03 /* MacWheelRow.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MacWheelRow.swift; sourceTree = "<group>"; };
+		8C2D12905261E08561AFAC84 /* ImportService.swift in Sources */ = {isa = PBXBuildFile; fileRef = E5830F76710A2DCEA70F461F /* ImportService.swift */; };
+		8C72AAF1761476B9C849BCB6 /* MainWindowLayout.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6612F91AB847363573C055D3 /* MainWindowLayout.swift */; };
+		8D52DB36244D5893704D2B79 /* FilmEdge */ = {
+			isa = PBXGroup;
+			children = (
+				9CF0FD3F28555B6826890A65 /* FilmEdgeFlow.swift */,
+				36B38B9C9FFE22398D8D2550 /* FilmEdgeJourney.swift */,
+				C0D1D13338B335BA4D9CAE25 /* FilmEdgeSnapshots.swift */,
+				9F3C16DBF37CD134278226AB /* FilmEdgeSteps.swift */,
+			);
+			path = FilmEdge;
+			sourceTree = "<group>";
+		};
+		8E42E4E2B5E4F2BCA59D7128 /* Pair */ = {
+			isa = PBXGroup;
+			children = (
+				E357344D7257C38EAA5F8B4E /* PairEntrySnapshots.swift */,
+				FBD15D48B5288848A843E336 /* PairFlow.swift */,
+				1E51731BDF2C3970D7AFD1AF /* PairFramePicker.swift */,
+				180F8E4A85CDF29CCE6FD27B /* PairLayout.swift */,
+				9399E3E3D5ABE396744E07FC /* PairParts.swift */,
+				F89A74F6D39F026A4F53EE66 /* PairPieceView.swift */,
+				18A66CDB19FD202EDFAC3662 /* PairSnapshots.swift */,
+				5C9C6377AC9BACD93CB57436 /* PairWithSheet.swift */,
+			);
+			path = Pair;
+			sourceTree = "<group>";
+		};
+		8E57384C300B3B0EB9DB240D /* EditHistory.swift in Sources */ = {isa = PBXBuildFile; fileRef = CB8F4F17133932923125F54E /* EditHistory.swift */; };
+		8E64F6B4F2B88FDE5DD69BBF /* SpkIcon.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SpkIcon.swift; sourceTree = "<group>"; };
+		8E8A77E55D52918BC5778B05 /* Format.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Format.swift; sourceTree = "<group>"; };
+		8F7D9781A4CD00E26D4D55CD /* StockPreviewRules.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = StockPreviewRules.swift; sourceTree = "<group>"; };
+		902EC57EF384C3F937548EEE /* PairOriginalPreview.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1AEF1053C986EBC89A174A4A /* PairOriginalPreview.swift */; };
+		909280D8F6F80DD1B075485E /* PairPanels.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5BEAB01098E89E57E5BAA040 /* PairPanels.swift */; };
+		90B25C99B8EC912182463593 /* OpenFrameSession.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OpenFrameSession.swift; sourceTree = "<group>"; };
+		90DC59BD4506263FB7B0DD57 /* MacSettingsSources.swift in Sources */ = {isa = PBXBuildFile; fileRef = F8D48FF37D111C9D5A4101EA /* MacSettingsSources.swift */; };
+		91468586F9881985D065A03B /* App */ = {
+			isa = PBXGroup;
+			children = (
+				D16597A7DAFE93B72E432F37 /* AppMenuCommands.swift */,
+				03CE3288234E587975804303 /* AppRouter.swift */,
+				8B1E856481F18198D4CBA87D /* AppServices.swift */,
+				F3419AD5DDAB7E8EAC306487 /* BlackAndWhiteSnapshots.swift */,
+				F6F388FDC24A33E67153771D /* DesignGallery.swift */,
+				B252D9EA4DC1F503CE18F18C /* FolderHarness.swift */,
+				10CC5FD61470EA95AD7257EE /* LightTableHarness.swift */,
+				2702D0710CF3F5F03168FB49 /* Navigation.swift */,
+				E810538DBFBE802D5CBC75AB /* RootView.swift */,
+				778C42EEE84D1B3369862632 /* Routes.swift */,
+				896C059AB949FF2D7167458D /* SnapshotHarness.swift */,
+				55FDDF40A78C751E9C0EE4E5 /* SpektraLabApp.swift */,
+				4492CEFB9E17CBE1A0A7756C /* StripProbe.swift */,
+				DAF809954D5E17C5D775BE6F /* Tour.swift */,
+				C289C7854C884A46E5D34D11 /* WindowLayout.swift */,
+				01E29EBC5303F94364138738 /* WindowLayoutRule.swift */,
+			);
+			path = App;
+			sourceTree = "<group>";
+		};
+		9152B5330E8742D119A8D8EE /* MacRenderCache.swift in Sources */ = {isa = PBXBuildFile; fileRef = 806CA75FACB855E02484D2E0 /* MacRenderCache.swift */; };
+		92A655FE74D5F1D7B27B5C1F /* MacShortcuts.swift in Sources */ = {isa = PBXBuildFile; fileRef = 657052AA022CC1DC06835C45 /* MacShortcuts.swift */; };
+		92BEE4B2FF96DBA8ABAC8EAF /* CaptureOneSource.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CaptureOneSource.swift; sourceTree = "<group>"; };
+		92DCFA0B4A668A8B9A52A600 /* DevelopStatus.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DevelopStatus.swift; sourceTree = "<group>"; };
+		930AF744547FED5684357191 /* MacLightTableAddPage.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0711B18E4740058A18AF9002 /* MacLightTableAddPage.swift */; };
+		93164DD0FAF4E358A2D1BD1C /* DevelopRegions.swift in Sources */ = {isa = PBXBuildFile; fileRef = 123519F34A6A7E452D79A238 /* DevelopRegions.swift */; };
+		935FD39F1EE1B7BBEAF29F48 /* CopySettingsDialog.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CopySettingsDialog.swift; sourceTree = "<group>"; };
+		9399E3E3D5ABE396744E07FC /* PairParts.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PairParts.swift; sourceTree = "<group>"; };
+		93E33E6168D1D401CA48C274 /* Layer2Picture.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Layer2Picture.swift; sourceTree = "<group>"; };
+		94679F406CF6BE708D50BE89 /* EditTool.swift in Sources */ = {isa = PBXBuildFile; fileRef = 189D2B3A2C29A1E283E10E59 /* EditTool.swift */; };
+		9573AB442387013C4C635C94 /* Export */ = {
+			isa = PBXGroup;
+			children = (
+				69991894737BCB987E8B2AD3 /* MacExportCheck.swift */,
+				4131D600B94F92B01867A854 /* MacExportPage.swift */,
+				5ED5786A6DCBB92DB6EF94CF /* MacExportRun.swift */,
+			);
+			path = Export;
+			sourceTree = "<group>";
+		};
+		9609659DF571EC8BB40854B1 /* Develop */ = {
+			isa = PBXGroup;
+			children = (
+				9F015AB80DF81A6909DC858F /* Edit */,
+				3E318131436F296CFD124F57 /* CanvasZoom.swift */,
+				935FD39F1EE1B7BBEAF29F48 /* CopySettingsDialog.swift */,
+				D696E2623A672FF2E9AF7849 /* DarkroomSnapshots.swift */,
+				B787AA25680451B11140C5B6 /* DecodeSection.swift */,
+				2776C4B1458ED9380E8FCDE5 /* DevelopCanvas.swift */,
+				0992E8801560EDB7F1ED83E9 /* DevelopController.swift */,
+				D698EA74C9C0B58A9CADC324 /* DevelopInspectorParts.swift */,
+				55A46E754F6E89F5F26D5E82 /* DevelopLayout.swift */,
+				14ECE8BD74D78A700215C062 /* DevelopMenuCommands.swift */,
+				AA30006F73EB09526C547909 /* DevelopPane.swift */,
+				640025A011B09D62BFC05B9C /* DevelopPanels.swift */,
+				123519F34A6A7E452D79A238 /* DevelopRegions.swift */,
+				C49DB28897704CD14F706651 /* DevelopWorkspace.swift */,
+				4C7EBAD0B4F86EBFCDE1B7FD /* FilmEdgeColumn.swift */,
+				EB58C4EC6CA468A386B15371 /* FlowDialogLayout.swift */,
+				DFD5DC2E22462390BE2E041F /* HistogramPanel.swift */,
+				610C107A887F0E653E80D32D /* PadDevelopPage.swift */,
+				1AEF1053C986EBC89A174A4A /* PairOriginalPreview.swift */,
+				5BEAB01098E89E57E5BAA040 /* PairPanels.swift */,
+				A1D1DA80476563F2C9E68A0F /* PaneDividers.swift */,
+				AE07A959C09525C683183F58 /* PresetSheet.swift */,
+				FA61A4EC609AB88F353095D4 /* StockCards.swift */,
+				5E7DA9C40C4D74BADA40D562 /* StockPreviewPanel.swift */,
+				E91C427AD55C4053CF4488D7 /* ViewerPane.swift */,
+				B416DFA20655306A9F4F76F2 /* WorkspaceSnapshots.swift */,
+			);
+			path = Develop;
+			sourceTree = "<group>";
+		};
+		9677F10793A93632B72A5794 /* LinkedFolderActions.swift in Sources */ = {isa = PBXBuildFile; fileRef = CF364E3731ADE572F541F09B /* LinkedFolderActions.swift */; };
+		97CBADBD1860BF23EA347807 /* Buttons.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5FDE665E7B3AE888C42ECC47 /* Buttons.swift */; };
+		97E082E473A3E14FF6A82F65 /* Engine resources */ = {
+			isa = PBXShellScriptBuildPhase;
+			alwaysOutOfDate = 1;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			inputFileListPaths = (
+			);
+			inputPaths = (
+			);
+			name = "Engine resources";
+			outputFileListPaths = (
+			);
+			outputPaths = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+			shellPath = /bin/sh;
+			shellScript = "src=\"$PROJECT_DIR/build/engine-$PLATFORM_NAME/EngineResources\"\ndst=\"$TARGET_BUILD_DIR/$UNLOCALIZED_RESOURCES_FOLDER_PATH/EngineResources\"\nif [ -d \"$src\" ]; then mkdir -p \"$dst\" && rsync -a --delete \"$src/\" \"$dst/\"; else rm -rf \"$dst\"; fi\nif [ \"$PLATFORM_NAME\" = macosx ]; then h=\"$TARGET_BUILD_DIR/$CONTENTS_FOLDER_PATH/Helpers\"; mkdir -p \"$h\" && cp -f \"$PROJECT_DIR/../../vendor/spklib/macos/spklib-host\" \"$h/\" && codesign --force --options runtime --timestamp=none --sign \"${EXPANDED_CODE_SIGN_IDENTITY:--}\" \"$h/spklib-host\"; fi\n";
+		};
+		985ADFC810E50E49E059720E /* ExportWriter.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2CD11C356A2ED4B240AC7231 /* ExportWriter.swift */; };
+		98A1D449F0222960024348A2 /* Sheets.swift in Sources */ = {isa = PBXBuildFile; fileRef = 53CC1B28785C9CABAF2F77C2 /* Sheets.swift */; };
+		98F54143AB4E86B28C3AFEE0 /* Project object */ = {
+			isa = PBXProject;
+			attributes = {
+				BuildIndependentTargetsInParallel = 1;
+				LastSwiftUpdateCheck = 1600;
+				LastUpgradeCheck = 1600;
+			};
+			buildConfigurationList = 57C857975640AB16E99851CF;
+			compatibilityVersion = "Xcode 14.0";
+			developmentRegion = en;
+			hasScannedForEncodings = 0;
+			knownRegions = (
+				en,
+				Base,
+				"zh-Hans",
+				"zh-Hant",
+				ja,
+			);
+			mainGroup = B28B7AF69320201D1CF206EB;
+			productRefGroup = FBDC4F23F93125BBEEAE800C /* Products */;
+			projectDirPath = "";
+			projectRoot = "";
+			targets = (
+				0E8A3AD980EC179856012B7E /* SpektraLab */,
+			);
+		};
+		98F9762A756CAAA1229272E5 /* MacSettingsDiagnostics.swift in Sources */ = {isa = PBXBuildFile; fileRef = A9737012F2F7110274DC19C9 /* MacSettingsDiagnostics.swift */; };
+		99108A0254D789C04C237ED7 /* LightTableShare.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1A0FA5791717E1B823AECC2C /* LightTableShare.swift */; };
+		9992052B7F7B5B8F389FEAD8 /* Migration */ = {
+			isa = PBXGroup;
+			children = (
+				4DDB570605B0120A11F209E7 /* MacCatalogCheck.swift */,
+				27E074CEB9973C5386D30499 /* MacLibraryMove.swift */,
+				47B9721DBB526355D53601B5 /* MacLibraryMovePage.swift */,
+			);
+			path = Migration;
+			sourceTree = "<group>";
+		};
+		9995DFFEAC52EE9F16B882C7 /* FilmEdge.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FilmEdge.swift; sourceTree = "<group>"; };
+		9A5426FBDBEBBA592A99EC4C /* MacPairRows.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MacPairRows.swift; sourceTree = "<group>"; };
+		9A84DD039B077207EC917A1E /* PairEntrySnapshots.swift in Sources */ = {isa = PBXBuildFile; fileRef = E357344D7257C38EAA5F8B4E /* PairEntrySnapshots.swift */; };
+		9ADCF2687FF7DBD24500C0B5 /* Supporters.json */ = {isa = PBXFileReference; lastKnownFileType = text.json; name = Supporters.json; path = Resources/Supporters.json; sourceTree = "<group>"; };
+		9B76368FED837EE2C87001C3 /* CropScreen.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4819F7FF4E95787364003CA5 /* CropScreen.swift */; };
+		9BA7BD07773A70475583DDB0 /* ValueSlider.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ValueSlider.swift; sourceTree = "<group>"; };
+		9C46CEE2384422D53DB663C5 /* AppSettings.swift in Sources */ = {isa = PBXBuildFile; fileRef = CF4A81C65BEB58FFF1814898 /* AppSettings.swift */; };
+		9C5D5F39357306E91F89DC85 /* StockPreviews.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = StockPreviews.swift; sourceTree = "<group>"; };
+		9CCD11486CB5CFFBAC839C56 /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; name = Assets.xcassets; path = Resources/Assets.xcassets; sourceTree = "<group>"; };
+		9CF0FD3F28555B6826890A65 /* FilmEdgeFlow.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FilmEdgeFlow.swift; sourceTree = "<group>"; };
+		9D5FE2DA246D4135EA1C813D /* Originals.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Originals.swift; sourceTree = "<group>"; };
+		9D756A79786A998CCABA280E /* Features */ = {
+			isa = PBXGroup;
+			children = (
+				9609659DF571EC8BB40854B1 /* Develop */,
+				49B9A4311B3A5039B4E43AB0 /* Export */,
+				8D52DB36244D5893704D2B79 /* FilmEdge */,
+				FC8C0596B0F1B29CBAF77A5B /* Frame */,
+				6EB878375904859CAE2750D4 /* Import */,
+				B9B6BB23D8AB2A4E87F68B71 /* Library */,
+				8E42E4E2B5E4F2BCA59D7128 /* Pair */,
+				D056A9199D9131868EE779B7 /* Settings */,
+			);
+			path = Features;
+			sourceTree = "<group>";
+		};
+		9DB755F2BBA0EF6618DCFB1F /* MacSettingsSupporters.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MacSettingsSupporters.swift; sourceTree = "<group>"; };
+		9DB82A4FB5C716E0AAE43775 /* DevelopMenuCommands.swift in Sources */ = {isa = PBXBuildFile; fileRef = 14ECE8BD74D78A700215C062 /* DevelopMenuCommands.swift */; };
+		9E412292F641F321214D4C20 /* Rows.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Rows.swift; sourceTree = "<group>"; };
+		9E5D39C78A2389C1B05E615C /* Segmented.swift in Sources */ = {isa = PBXBuildFile; fileRef = 481EBCB7F399BC5679C23C3D /* Segmented.swift */; };
+		9E8535A1BB0CF7B4478369B6 /* LogBundle.swift in Sources */ = {isa = PBXBuildFile; fileRef = EB19ED171B5848F1BE42B375 /* LogBundle.swift */; };
+		9F015AB80DF81A6909DC858F /* Edit */ = {
+			isa = PBXGroup;
+			children = (
+				F3DD7EBE895D5E90688660CF /* AdjustInspector.swift */,
+				0F1F06C1E0FCD37464AAB7B4 /* AdjustSliders.swift */,
+				44D5D1E6C5949563F8A371FA /* ColourPads.swift */,
+				86668A6A636992A786357B85 /* CurvePanel.swift */,
+				189D2B3A2C29A1E283E10E59 /* EditTool.swift */,
+				A89D571209E2B5484684F97F /* HSLPanel.swift */,
+				93E33E6168D1D401CA48C274 /* Layer2Picture.swift */,
+				4F5A1AFFAE02722854CCDB74 /* Layer2Snapshots.swift */,
+			);
+			path = Edit;
+			sourceTree = "<group>";
+		};
+		9F3C16DBF37CD134278226AB /* FilmEdgeSteps.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FilmEdgeSteps.swift; sourceTree = "<group>"; };
+		9F5CBD1524E8DA1827B03413 /* MacFlowBar.swift in Sources */ = {isa = PBXBuildFile; fileRef = 04171A8BD6053A51486176E9 /* MacFlowBar.swift */; };
+		A03C1901435B28D2CB26BBCD /* MacImportScan.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MacImportScan.swift; sourceTree = "<group>"; };
+		A08555755771CFDF00A8B5BD /* Layer2Snapshots.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4F5A1AFFAE02722854CCDB74 /* Layer2Snapshots.swift */; };
+		A1D1DA80476563F2C9E68A0F /* PaneDividers.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PaneDividers.swift; sourceTree = "<group>"; };
+		A1D2F15514D1036BE6528A00 /* MacLibraryDriver.swift in Sources */ = {isa = PBXBuildFile; fileRef = CB1735149B54079AE8094685 /* MacLibraryDriver.swift */; };
+		A203435A2388291ACDE8A0A8 /* MacLightTableMenu.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MacLightTableMenu.swift; sourceTree = "<group>"; };
+		A21D6271BB3FBBDC6A482D27 /* MemoryBudget.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6E788BEA3F8C0E2A104F2C1A /* MemoryBudget.swift */; };
+		A37C88C732CF1F42794B9E7E /* AppServices.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8B1E856481F18198D4CBA87D /* AppServices.swift */; };
+		A39E0323F308011BC73380F6 /* StubPage.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = StubPage.swift; sourceTree = "<group>"; };
+		A3B25F129F000D39DBFA29CA /* MacSettingsParts.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MacSettingsParts.swift; sourceTree = "<group>"; };
+		A41AE6F5AC0A72755AEDC66E /* OpenFrameSession.swift in Sources */ = {isa = PBXBuildFile; fileRef = 90B25C99B8EC912182463593 /* OpenFrameSession.swift */; };
+		A4230BC1D1BB145BEF1B6BEB /* Localization.swift in Sources */ = {isa = PBXBuildFile; fileRef = 40159D765CAB16E90B8E7135 /* Localization.swift */; };
+		A45C20FBEAE9A59459DAD27D /* MacSettingsDevelop.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MacSettingsDevelop.swift; sourceTree = "<group>"; };
+		A5129EBF4BAC59CBBB005A56 /* LibraryUI */ = {
+			isa = PBXGroup;
+			children = (
+				CD87438996D650696E1526A9 /* BrowserViewerSplit.swift */,
+				5071F7FF48AD55E4D62AA57E /* MacBrowserSplit.swift */,
+				127DB119A57280FC2E1D80EE /* MacClipboardCheck.swift */,
+				13EE332ABA7A3CB0E346E2A2 /* MacDevelopBrowser.swift */,
+				7BEB3A0F0258AD180FABF7FD /* MacInfoStrip.swift */,
+				C45D610BA130E2D2E0F93372 /* MacLibraryActions.swift */,
+				CB1735149B54079AE8094685 /* MacLibraryDriver.swift */,
+				043BB7142F2099DF7105656A /* MacLibraryGrid.swift */,
+				6F88AFD5CE38988DCFE4B1AB /* MacLibraryPage.swift */,
+				F8F36876F8F23C7B6D9C2E07 /* MacLibrarySidebar.swift */,
+				83D7277A7315A21B47E6F6E2 /* MacLibraryUIState.swift */,
+				D422D63D8072C1C601B2B438 /* MacMetadataPicker.swift */,
+				D58C6E514707C414C3CBD0B1 /* MacModeSwitch.swift */,
+				D5A3568DE16F373C074D695B /* MacSharedControls.swift */,
+				6612F91AB847363573C055D3 /* MainWindowLayout.swift */,
+				F93D1D3D983C8E739EAFE157 /* WindowToolbar.swift */,
+			);
+			path = LibraryUI;
+			sourceTree = "<group>";
+		};
+		A52F1BB5C82D330698B63CA5 /* MacDisplay.swift in Sources */ = {isa = PBXBuildFile; fileRef = DFCA06923A9114B91B3F76D7 /* MacDisplay.swift */; };
+		A5B4441C6C89D05D521F91D4 /* HelperProcess.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2A41FF721D3AE50188B77B53 /* HelperProcess.swift */; };
+		A671D8956FD4BE6A2CD7FC6E /* MacCatalogActions.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MacCatalogActions.swift; sourceTree = "<group>"; };
+		A69BBC1028968E7A9B0A64F3 /* MacLibraryMove.swift in Sources */ = {isa = PBXBuildFile; fileRef = 27E074CEB9973C5386D30499 /* MacLibraryMove.swift */; };
+		A7E26307015F20083A8C7C57 /* StockPairPicker.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = StockPairPicker.swift; sourceTree = "<group>"; };
+		A81F05AFB73E67F1614E3493 /* LightTableFrames.swift in Sources */ = {isa = PBXBuildFile; fileRef = 57E6BB68B29F073A6086A189 /* LightTableFrames.swift */; };
+		A89D571209E2B5484684F97F /* HSLPanel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HSLPanel.swift; sourceTree = "<group>"; };
+		A8FB9131409705573B551C8C /* MacLibraryGrid.swift in Sources */ = {isa = PBXBuildFile; fileRef = 043BB7142F2099DF7105656A /* MacLibraryGrid.swift */; };
+		A9012353AFD6A66EB75D4BE2 /* Sources */ = {
+			isa = PBXGroup;
+			children = (
+				91468586F9881985D065A03B /* App */,
+				5327D0384DBAC03BEDE08B0C /* DesignSystem */,
+				14960C0E2F2103BB572FE722 /* Diagnostics */,
+				D0C5DD4DD7C5F744166D291D /* Engine */,
+				9D756A79786A998CCABA280E /* Features */,
+				5C968C812CFE3C4F26F865FC /* FilmEdge */,
+				6D6872E9CCC22E442FEEF950 /* LightTable */,
+				CC33E9634D96F72D705161E7 /* Mac */,
+				3A9F5D64781CA88D8F81C580 /* Model */,
+				B56EBC0551747EBFBA857FC7 /* Scheduler */,
+				EF972FBDF6EB970E6AA4CC4F /* Services */,
+				B2ADD567ADCD61F91327283F /* Support */,
+			);
+			path = Sources;
+			sourceTree = "<group>";
+		};
+		A97330053E180E9B7A67ABAC /* AppearancePage.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppearancePage.swift; sourceTree = "<group>"; };
+		A9737012F2F7110274DC19C9 /* MacSettingsDiagnostics.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MacSettingsDiagnostics.swift; sourceTree = "<group>"; };
+		A9AB99A31AC300F7545235A5 /* JobLogFile.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = JobLogFile.swift; sourceTree = "<group>"; };
+		A9E4ECFD8A3D7937999E8B6A /* SettingsScreen.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2DB9B887C9CE11099BA6445E /* SettingsScreen.swift */; };
+		AA30006F73EB09526C547909 /* DevelopPane.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DevelopPane.swift; sourceTree = "<group>"; };
+		AA7BB6AD6149D74BF2C29044 /* LibraryFrame.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LibraryFrame.swift; sourceTree = "<group>"; };
+		ABAEE27F621ED5477C8CD315 /* FilmCanvasView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FilmCanvasView.swift; sourceTree = "<group>"; };
+		AD4428AC886DB43542DA8C3D /* FrameView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FrameView.swift; sourceTree = "<group>"; };
+		AD93199714967CF686CACB3E /* Build configuration list for PBXNativeTarget "SpektraLab" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				53797DE442FCF2C62405D6BD /* Debug */,
+				C015BAAA3C846BD82DBAB3CE /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+		AE07A959C09525C683183F58 /* PresetSheet.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PresetSheet.swift; sourceTree = "<group>"; };
+		AE23EC30D107D03BCCC14599 /* StorageTidy.swift in Sources */ = {isa = PBXBuildFile; fileRef = EC31C3FDC920757C4D167A55 /* StorageTidy.swift */; };
+		AE2A9216AE4C88460C6A3CC3 /* LogStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LogStore.swift; sourceTree = "<group>"; };
+		AE52D3251F01C2B3FF04BABB /* MacCatalogCheck.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4DDB570605B0120A11F209E7 /* MacCatalogCheck.swift */; };
+		AF7A702837A29C4FA7977F81 /* FeatureFlags.swift in Sources */ = {isa = PBXBuildFile; fileRef = C60E54EB40A39EA165BF0D64 /* FeatureFlags.swift */; };
+		AFD4903E1751F009A38505C7 /* EngineHost.swift in Sources */ = {isa = PBXBuildFile; fileRef = 647673B7C552B631CD8AC9E1 /* EngineHost.swift */; };
+		AFF51A11D6DFFBD0C328F4B6 /* LocateSheet.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5C67D0B723112B38F3D72123 /* LocateSheet.swift */; };
+		B0943D86E1AEC6349F66CBA3 /* MacDriver.swift in Sources */ = {isa = PBXBuildFile; fileRef = DADC9850397FEEC96308FE20 /* MacDriver.swift */; };
+		B1686ED53F5CC54D013D5D7A /* SnapshotHarness.swift in Sources */ = {isa = PBXBuildFile; fileRef = 896C059AB949FF2D7167458D /* SnapshotHarness.swift */; };
+		B16E3AF64522EBC47F7FF2AC /* PrintLayers.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3B94B5E80C71B114C5D3C6F3 /* PrintLayers.swift */; };
+		B18BE81F223B985E1A172E7E /* DevelopController.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0992E8801560EDB7F1ED83E9 /* DevelopController.swift */; };
+		B21305164722E3DA1F238861 /* Layer2Export.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2D9FF35EF802679AE3B7371A /* Layer2Export.swift */; };
+		B252D9EA4DC1F503CE18F18C /* FolderHarness.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FolderHarness.swift; sourceTree = "<group>"; };
+		B270BE18262274941D1C8807 /* FrameCatalog.swift in Sources */ = {isa = PBXBuildFile; fileRef = 391D76D691695C5179B381CF /* FrameCatalog.swift */; };
+		B28B7AF69320201D1CF206EB /* main */ = {
+			isa = PBXGroup;
+			children = (
+				A9012353AFD6A66EB75D4BE2 /* Sources */,
+				9CCD11486CB5CFFBAC839C56 /* Assets.xcassets */,
+				B519D0A3C5C7E08A61DA5752 /* SpektraLab.icon */,
+				28AADA651E1FAD0527CF9611 /* StockCatalog.json */,
+				9ADCF2687FF7DBD24500C0B5 /* Supporters.json */,
+				C75666A906ECECB3B24031AB /* PrivacyInfo.xcprivacy */,
+				C65BF85E66C547F8282A9FAC /* Localizable.xcstrings */,
+				0E7D91F9A1D32253D2CC9652 /* InfoPlist.xcstrings */,
+				10A187E71E276CDB08F36834 /* SampleFrames */,
+				1507F021100E808DBE2FAA00 /* Info.plist */,
+				FBDC4F23F93125BBEEAE800C /* Products */,
+			);
+			sourceTree = "<group>";
+		};
+		B292FAFA67C152F24AAFC992 /* FrameEdit.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FrameEdit.swift; sourceTree = "<group>"; };
+		B2ADD567ADCD61F91327283F /* Support */ = {
+			isa = PBXGroup;
+			children = (
+				3BD96A98C0D9B927FA4EB856 /* SpektraLab-Bridging-Header.h */,
+			);
+			path = Support;
+			sourceTree = "<group>";
+		};
+		B2C4090D253B3A032192FAE6 /* LightTableView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LightTableView.swift; sourceTree = "<group>"; };
+		B416DFA20655306A9F4F76F2 /* WorkspaceSnapshots.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorkspaceSnapshots.swift; sourceTree = "<group>"; };
+		B4FEB4596A34246A3AC3F5F5 /* LightTablePane.swift in Sources */ = {isa = PBXBuildFile; fileRef = 39217BB874BCAFA3F4950B13 /* LightTablePane.swift */; };
+		B519D0A3C5C7E08A61DA5752 /* SpektraLab.icon */ = {isa = PBXFileReference; lastKnownFileType = folder.iconcomposer.icon; name = SpektraLab.icon; path = Resources/SpektraLab.icon; sourceTree = "<group>"; };
+		B56EBC0551747EBFBA857FC7 /* Scheduler */ = {
+			isa = PBXGroup;
+			children = (
+				B644B44AB8C9E4450A58A317 /* CostModel.swift */,
+				29A50F109CE9CACCB80D2ED7 /* DevelopEngine.swift */,
+				7FBCE1C61100E28132893BA3 /* DevicePolicy.swift */,
+				A9AB99A31AC300F7545235A5 /* JobLogFile.swift */,
+				6E788BEA3F8C0E2A104F2C1A /* MemoryBudget.swift */,
+				D8FB05E0478DF7E03776E9C5 /* MemoryProbe.swift */,
+				2411DB8A1CC539A4DEC62490 /* Planner.swift */,
+				FBF55B480EDB2D0B74A40403 /* RenderQueue.swift */,
+				0D4213F502BF5AAF02B309BD /* SchedulerSignals.swift */,
+				29B324599BA5B3E6294F0068 /* SchedulerTypes.swift */,
+				E56704A7E7DD74FACAB8CE6D /* SimulatedEngine.swift */,
+				D9EE7CD3A89B05557A613FDD /* SpkEngine.swift */,
+			);
+			path = Scheduler;
+			sourceTree = "<group>";
+		};
+		B5B14C267A2367F250324533 /* Layer2Kernel.swift in Sources */ = {isa = PBXBuildFile; fileRef = CAF51F184B82293C13DBF678 /* Layer2Kernel.swift */; };
+		B5ED08D2F119177330D977D9 /* MacSettingsParts.swift in Sources */ = {isa = PBXBuildFile; fileRef = A3B25F129F000D39DBFA29CA /* MacSettingsParts.swift */; };
+		B644B44AB8C9E4450A58A317 /* CostModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CostModel.swift; sourceTree = "<group>"; };
+		B68814B263C505B7156BB47A /* FilmEdgeJourney.swift in Sources */ = {isa = PBXBuildFile; fileRef = 36B38B9C9FFE22398D8D2550 /* FilmEdgeJourney.swift */; };
+		B707CACFA39BD7C5F1C38922 /* MacSavePanel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MacSavePanel.swift; sourceTree = "<group>"; };
+		B761FB841C14F0FBE5DC255E /* MemoryTrace.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MemoryTrace.swift; sourceTree = "<group>"; };
+		B787AA25680451B11140C5B6 /* DecodeSection.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DecodeSection.swift; sourceTree = "<group>"; };
+		B7E1AA59D59CF0F126A7AA88 /* FullRender.swift in Sources */ = {isa = PBXBuildFile; fileRef = F897104136B5BB9B156AC45D /* FullRender.swift */; };
+		B8C1F775E9A20DF40C42E99D /* MacLibraryPage.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6F88AFD5CE38988DCFE4B1AB /* MacLibraryPage.swift */; };
+		B9B6BB23D8AB2A4E87F68B71 /* Library */ = {
+			isa = PBXGroup;
+			children = (
+				D3C175FF4848E19A59D0E5DE /* InfoSheet.swift */,
+				C9C6DDA905A1F25F680CD23B /* LibraryParts.swift */,
+				C35513BA2416D7B09622C16F /* LibraryScreen.swift */,
+				41951E8ED04537DE502DC445 /* LibrarySideSnapshots.swift */,
+				5C67D0B723112B38F3D72123 /* LocateSheet.swift */,
+				42B236436D38BA2CD30190B4 /* RemovalWords.swift */,
+			);
+			path = Library;
+			sourceTree = "<group>";
+		};
+		B9FBD238D19220A465FBB971 /* LightTableExportPlan.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LightTableExportPlan.swift; sourceTree = "<group>"; };
+		BAD244396688E9138C68D6A8 /* FinishedCut.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FinishedCut.swift; sourceTree = "<group>"; };
+		BAE73C9416DD8232815E2DF7 /* MacModeSwitch.swift in Sources */ = {isa = PBXBuildFile; fileRef = D58C6E514707C414C3CBD0B1 /* MacModeSwitch.swift */; };
+		BBA9B4086F546FD4833D8996 /* LibraryPreviews.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LibraryPreviews.swift; sourceTree = "<group>"; };
+		BDEE8AE5F8AD76E74CCF4157 /* LibraryPreviews.swift in Sources */ = {isa = PBXBuildFile; fileRef = BBA9B4086F546FD4833D8996 /* LibraryPreviews.swift */; };
+		BEA270BDB4CC88A2CEADF82E /* ExportService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ExportService.swift; sourceTree = "<group>"; };
+		BECDFBC9C0BFBDED2E6EFE7C /* AppearancePage.swift in Sources */ = {isa = PBXBuildFile; fileRef = A97330053E180E9B7A67ABAC /* AppearancePage.swift */; };
+		BF0830BF20A40E3EB45F2B25 /* MacLightTableBar.swift in Sources */ = {isa = PBXBuildFile; fileRef = E34D92693A99940D92DE2E95 /* MacLightTableBar.swift */; };
+		BF5F1F49C7F32C47CDBD4B95 /* MacSettingsRecipes.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MacSettingsRecipes.swift; sourceTree = "<group>"; };
+		BFFE3E24FACD7AE5905EFEE1 /* FilmParams.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FilmParams.swift; sourceTree = "<group>"; };
+		C015BAAA3C846BD82DBAB3CE /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				"IPHONEOS_DEPLOYMENT_TARGET[sdk=macosx*]" = 18.0;
+				"OTHER_LDFLAGS[sdk=macosx*]" = ("$(inherited)", "$(PROJECT_DIR)/build/engine-macosx/libspektralab_engine.a", "-lc++", "-framework", Metal, "-framework", QuartzCore, "-framework", CoreText, "-framework", CoreGraphics, "-framework", Accelerate);
+				"SWIFT_ACTIVE_COMPILATION_CONDITIONS[sdk=macosx*]" = "$(inherited) SPK_ENGINE";
+				"TARGETED_DEVICE_FAMILY[sdk=macosx*]" = 2;
+				ASSETCATALOG_COMPILER_APPICON_NAME = SpektraLab;
+				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
+				CODE_SIGN_IDENTITY = "-";
+				CODE_SIGN_STYLE = Manual;
+				CURRENT_PROJECT_VERSION = 202611082150;
+				ENABLE_PREVIEWS = NO;
+				GENERATE_INFOPLIST_FILE = YES;
+				HEADER_SEARCH_PATHS = ("$(PROJECT_DIR)/../../engine/include");
+				INFOPLIST_FILE = Info.plist;
+				INFOPLIST_KEY_CFBundleDisplayName = SpektraLab;
+				INFOPLIST_KEY_ITSAppUsesNonExemptEncryption = NO;
+				INFOPLIST_KEY_LSSupportsOpeningDocumentsInPlace = YES;
+				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
+				INFOPLIST_KEY_UIStatusBarStyle = UIStatusBarStyleLightContent;
+				INFOPLIST_KEY_UIUserInterfaceStyle = Dark;
+				LD_RUNPATH_SEARCH_PATHS = ("$(inherited)", "@executable_path/Frameworks");
+				MARKETING_VERSION = 2.2.0;
+				PRODUCT_BUNDLE_IDENTIFIER = com.spektralab.mac;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SPK_COMMIT = "";
+				SUPPORTS_MACCATALYST = YES;
+				SUPPORTS_MAC_DESIGNED_FOR_IPHONE_IPAD = NO;
+				SUPPORTS_XR_DESIGNED_FOR_IPHONE_IPAD = NO;
+				SWIFT_EMIT_LOC_STRINGS = NO;
+				SWIFT_OBJC_BRIDGING_HEADER = "Sources/Support/SpektraLab-Bridging-Header.h";
+				TARGETED_DEVICE_FAMILY = 2;
+			};
+			name = Release;
+		};
+		C06BE30AD323E4200C411449 /* MacEditCommands.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MacEditCommands.swift; sourceTree = "<group>"; };
+		C07FD8557167CE2A9C81C1DE /* WindowLayout.swift in Sources */ = {isa = PBXBuildFile; fileRef = C289C7854C884A46E5D34D11 /* WindowLayout.swift */; };
+		C0D1D13338B335BA4D9CAE25 /* FilmEdgeSnapshots.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FilmEdgeSnapshots.swift; sourceTree = "<group>"; };
+		C24ECB06AF3EAC6AFB855825 /* MacExportRun.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5ED5786A6DCBB92DB6EF94CF /* MacExportRun.swift */; };
+		C289C7854C884A46E5D34D11 /* WindowLayout.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WindowLayout.swift; sourceTree = "<group>"; };
+		C2EFC26BDDD2FF4AEADF0518 /* StockPreviewRules.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8F7D9781A4CD00E26D4D55CD /* StockPreviewRules.swift */; };
+		C35513BA2416D7B09622C16F /* LibraryScreen.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LibraryScreen.swift; sourceTree = "<group>"; };
+		C39A3D7B509A4C60540A254D /* SceneLatitude.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3407893D836FC1D0CFA7BE71 /* SceneLatitude.swift */; };
+		C424F12D313DD8AF47CDF923 /* PadDevelopPage.swift in Sources */ = {isa = PBXBuildFile; fileRef = 610C107A887F0E653E80D32D /* PadDevelopPage.swift */; };
+		C45D610BA130E2D2E0F93372 /* MacLibraryActions.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MacLibraryActions.swift; sourceTree = "<group>"; };
+		C463F3A4566F0CFBE355E71D /* LogRecords.swift in Sources */ = {isa = PBXBuildFile; fileRef = E7D46C7E7EAB01F4DF06CE1E /* LogRecords.swift */; };
+		C4655522C1CF9DF986387530 /* CatalogSourcesStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 67BA0371C085119BC103B8A1 /* CatalogSourcesStore.swift */; };
+		C46DB2A13F7DFE025F878087 /* CaptureOneSource.swift in Sources */ = {isa = PBXBuildFile; fileRef = 92BEE4B2FF96DBA8ABAC8EAF /* CaptureOneSource.swift */; };
+		C49DB28897704CD14F706651 /* DevelopWorkspace.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DevelopWorkspace.swift; sourceTree = "<group>"; };
+		C5926192950FAB508AE8C163 /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				627BBC9C62B0C159B656E415 /* Assets.xcassets */,
+				01503D660CB7D23B3F5F8C35 /* SpektraLab.icon */,
+				4C3D7674468781F445893E6D /* StockCatalog.json */,
+				F3C73E4933C9B48268A67D46 /* Supporters.json */,
+				FC0CB21E6ADF24E540AC513C /* PrivacyInfo.xcprivacy */,
+				4C385A5AC6717F3A602E3EE6 /* Localizable.xcstrings */,
+				1206A3F92213CD72DB8E45D3 /* InfoPlist.xcstrings */,
+				EA36A6B9C247B08C96479F2C /* SampleFrames */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		C6059218083541AF4F23B08D /* DiagnosticsPage.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DiagnosticsPage.swift; sourceTree = "<group>"; };
+		C60E54EB40A39EA165BF0D64 /* FeatureFlags.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FeatureFlags.swift; sourceTree = "<group>"; };
+		C65BF85E66C547F8282A9FAC /* Localizable.xcstrings */ = {isa = PBXFileReference; lastKnownFileType = text.json.xcstrings; name = Localizable.xcstrings; path = Resources/Localizable.xcstrings; sourceTree = "<group>"; };
+		C6D25646B8BFF02EC94EB865 /* HostCut.swift in Sources */ = {isa = PBXBuildFile; fileRef = DDA5DAFC2CC8326D51F5AAD6 /* HostCut.swift */; };
+		C6F8C5EF24848BD2CB44C400 /* RecipePages.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4ECB2203A26E4613F850E069 /* RecipePages.swift */; };
+		C75666A906ECECB3B24031AB /* PrivacyInfo.xcprivacy */ = {isa = PBXFileReference; lastKnownFileType = text.xml; name = PrivacyInfo.xcprivacy; path = Resources/PrivacyInfo.xcprivacy; sourceTree = "<group>"; };
+		C7C5679126080EA0B2DB93DE /* CanvasZoom.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3E318131436F296CFD124F57 /* CanvasZoom.swift */; };
+		C84467E65F28C8F304ECEFBB /* FilmEdgeSteps.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9F3C16DBF37CD134278226AB /* FilmEdgeSteps.swift */; };
+		C89B752F05E4DF8008296F7E /* DemoLibrary.swift in Sources */ = {isa = PBXBuildFile; fileRef = 47DB8F19E2CF45F9767DCBE0 /* DemoLibrary.swift */; };
+		C8D68B4089123276BDA27481 /* Indicators.swift in Sources */ = {isa = PBXBuildFile; fileRef = CA18D29B842F25802E87E341 /* Indicators.swift */; };
+		C9166ECF597DB5A9B99D8FF6 /* MacSharedControls.swift in Sources */ = {isa = PBXBuildFile; fileRef = D5A3568DE16F373C074D695B /* MacSharedControls.swift */; };
+		C917686F64745665B6C467AD /* MacLibraryEntryCheck.swift in Sources */ = {isa = PBXBuildFile; fileRef = 04DE328DFED1D62DD2F783F0 /* MacLibraryEntryCheck.swift */; };
+		C9C6DDA905A1F25F680CD23B /* LibraryParts.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LibraryParts.swift; sourceTree = "<group>"; };
+		C9D4A93FCB58712306D14884 /* Diagnostics.swift in Sources */ = {isa = PBXBuildFile; fileRef = 65CD429C88B9577531D22F9D /* Diagnostics.swift */; };
+		CA18D29B842F25802E87E341 /* Indicators.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Indicators.swift; sourceTree = "<group>"; };
+		CA3994324F443EDE9D71CA5F /* FlowDialogLayout.swift in Sources */ = {isa = PBXBuildFile; fileRef = EB58C4EC6CA468A386B15371 /* FlowDialogLayout.swift */; };
+		CAD30BF3557AEBA5D1ACCBA0 /* MacLightTableRail.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5C76B5DDEB88F1F7B4B1AFAB /* MacLightTableRail.swift */; };
+		CAF51F184B82293C13DBF678 /* Layer2Kernel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Layer2Kernel.swift; sourceTree = "<group>"; };
+		CB1735149B54079AE8094685 /* MacLibraryDriver.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MacLibraryDriver.swift; sourceTree = "<group>"; };
+		CB834054720006343E96BD6D /* DevelopPanels.swift in Sources */ = {isa = PBXBuildFile; fileRef = 640025A011B09D62BFC05B9C /* DevelopPanels.swift */; };
+		CB8F4F17133932923125F54E /* EditHistory.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = EditHistory.swift; sourceTree = "<group>"; };
+		CC2FA04F065B6F2088EADFC5 /* ExportRecipe.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ExportRecipe.swift; sourceTree = "<group>"; };
+		CC33E9634D96F72D705161E7 /* Mac */ = {
+			isa = PBXGroup;
+			children = (
+				9573AB442387013C4C635C94 /* Export */,
+				372B02868E392477EDB043A3 /* Import */,
+				F7576EC3CBAA06FE59C503A9 /* Library */,
+				A5129EBF4BAC59CBBB005A56 /* LibraryUI */,
+				4236F2E8BEA8E1610EA89F4E /* LightTable */,
+				9992052B7F7B5B8F389FEAD8 /* Migration */,
+				22919E979FA48D80151913F8 /* Render */,
+				CEC96E16F4C63591AE0A4892 /* Settings */,
+				92BEE4B2FF96DBA8ABAC8EAF /* CaptureOneSource.swift */,
+				459B5A51503E36BA2B8328C0 /* MacColourWheel.swift */,
+				DADC9850397FEEC96308FE20 /* MacDriver.swift */,
+				C06BE30AD323E4200C411449 /* MacEditCommands.swift */,
+				04171A8BD6053A51486176E9 /* MacFlowBar.swift */,
+				4BEE9D51F0DF78B565FC1FBA /* MacPageActions.swift */,
+				260942587A06E41C0BCDEAE9 /* MacScrollZoom.swift */,
+				657052AA022CC1DC06835C45 /* MacShortcuts.swift */,
+				8BE0CA9D7D07E66456FB4D03 /* MacWheelRow.swift */,
+				67202E6DB48DD39BB5318021 /* MacWindow.swift */,
+				39E11A0807C3788C69112DF5 /* MacWindowCapture.swift */,
+			);
+			path = Mac;
+			sourceTree = "<group>";
+		};
+		CC34ED8221FF601136AA011C /* FinishedCut.swift in Sources */ = {isa = PBXBuildFile; fileRef = BAD244396688E9138C68D6A8 /* FinishedCut.swift */; };
+		CCD5057B492419A2D9D34CDF /* LightTableExportPlan.swift in Sources */ = {isa = PBXBuildFile; fileRef = B9FBD238D19220A465FBB971 /* LightTableExportPlan.swift */; };
+		CD87438996D650696E1526A9 /* BrowserViewerSplit.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BrowserViewerSplit.swift; sourceTree = "<group>"; };
+		CDC007209A8989B9B50EE795 /* AdjustInspector.swift in Sources */ = {isa = PBXBuildFile; fileRef = F3DD7EBE895D5E90688660CF /* AdjustInspector.swift */; };
+		CE3C578F6D2980FC7CDEDD78 /* Layer2Copies.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Layer2Copies.swift; sourceTree = "<group>"; };
+		CEC96E16F4C63591AE0A4892 /* Settings */ = {
+			isa = PBXGroup;
+			children = (
+				F47FCAF8EA089197D6648F37 /* MacSettingsCheck.swift */,
+				0B711D31CE0CD25559F91AEF /* MacSettingsCoverage.swift */,
+				A45C20FBEAE9A59459DAD27D /* MacSettingsDevelop.swift */,
+				A9737012F2F7110274DC19C9 /* MacSettingsDiagnostics.swift */,
+				CF762EA9F251E62F330054AF /* MacSettingsGeneral.swift */,
+				A3B25F129F000D39DBFA29CA /* MacSettingsParts.swift */,
+				BF5F1F49C7F32C47CDBD4B95 /* MacSettingsRecipes.swift */,
+				F8D48FF37D111C9D5A4101EA /* MacSettingsSources.swift */,
+				CF2A60FA313F19E17F49134A /* MacSettingsStorage.swift */,
+				9DB755F2BBA0EF6618DCFB1F /* MacSettingsSupporters.swift */,
+				4D6EE8038E92C40335E69E36 /* SettingsWindowRoot.swift */,
+			);
+			path = Settings;
+			sourceTree = "<group>";
+		};
+		CF2A60FA313F19E17F49134A /* MacSettingsStorage.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MacSettingsStorage.swift; sourceTree = "<group>"; };
+		CF364E3731ADE572F541F09B /* LinkedFolderActions.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LinkedFolderActions.swift; sourceTree = "<group>"; };
+		CF429DFCB56AEAE935183485 /* ImportSheet.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ImportSheet.swift; sourceTree = "<group>"; };
+		CF4A81C65BEB58FFF1814898 /* AppSettings.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppSettings.swift; sourceTree = "<group>"; };
+		CF762EA9F251E62F330054AF /* MacSettingsGeneral.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MacSettingsGeneral.swift; sourceTree = "<group>"; };
+		CFA2FE30F8755D53D352D21C /* LightTableTouch.swift in Sources */ = {isa = PBXBuildFile; fileRef = 62CC16E730A16808B33CD794 /* LightTableTouch.swift */; };
+		D023D99AFB6529902F88188C /* Originals.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9D5FE2DA246D4135EA1C813D /* Originals.swift */; };
+		D056A9199D9131868EE779B7 /* Settings */ = {
+			isa = PBXGroup;
+			children = (
+				A97330053E180E9B7A67ABAC /* AppearancePage.swift */,
+				C6059218083541AF4F23B08D /* DiagnosticsPage.swift */,
+				4ECB2203A26E4613F850E069 /* RecipePages.swift */,
+				2DB9B887C9CE11099BA6445E /* SettingsScreen.swift */,
+				A7E26307015F20083A8C7C57 /* StockPairPicker.swift */,
+			);
+			path = Settings;
+			sourceTree = "<group>";
+		};
+		D0C5DD4DD7C5F744166D291D /* Engine */ = {
+			isa = PBXGroup;
+			children = (
+				F106739DC8980EECF5DAFD3D /* DevelopedPicture.swift */,
+				75336A09B29F10FE098C4539 /* DigitalDecode.swift */,
+				647673B7C552B631CD8AC9E1 /* EngineHost.swift */,
+				399E3BC5426C1DE8E5B5C9CF /* EngineRouter.swift */,
+				4DB68A365FFCDB05278C2DE7 /* EngineWire.swift */,
+				830B2710B4076FBC2AB5B287 /* ExportPlan.swift */,
+				2CD11C356A2ED4B240AC7231 /* ExportWriter.swift */,
+				BAD244396688E9138C68D6A8 /* FinishedCut.swift */,
+				334D2861EEC13CC399C947C6 /* FrameDecoder.swift */,
+				ECB44BE50A00C6F2CCED158C /* FullDetail.swift */,
+				F897104136B5BB9B156AC45D /* FullRender.swift */,
+				0651D8CA7D4C78FB350EBE9E /* FullRenderJobs.swift */,
+				DDA5DAFC2CC8326D51F5AAD6 /* HostCut.swift */,
+				F67795B6D2BBF81AD6D72197 /* JobDiagnostics.swift */,
+				CE3C578F6D2980FC7CDEDD78 /* Layer2Copies.swift */,
+				2D9FF35EF802679AE3B7371A /* Layer2Export.swift */,
+				CAF51F184B82293C13DBF678 /* Layer2Kernel.swift */,
+				E8A152F47AB36BF5705F2161 /* Layer2Live.swift */,
+				EEEC8E379ED69C002020FF84 /* Layer2Renderer.swift */,
+				88D7561E935AA38FE4B43DF2 /* OutputTransform.swift */,
+				E11C0385836F64E8056CD76C /* PairDevelop.swift */,
+				5070E5241BDE4621F862A19C /* PieceComposer.swift */,
+				E974799B6367D44B5E8244BA /* PiecePlacer.swift */,
+				3B94B5E80C71B114C5D3C6F3 /* PrintLayers.swift */,
+				475AE2475D5A4B3B5A0C5D5F /* RawExposure.swift */,
+				E23AAFD9BE0F7A57D346DB49 /* RawProxy.swift */,
+				3407893D836FC1D0CFA7BE71 /* SceneLatitude.swift */,
+				FC8BAA475F60491FDB00FF81 /* ScenePlacement.swift */,
+			);
+			path = Engine;
+			sourceTree = "<group>";
+		};
+		D0FBFBA73B44578C79838D17 /* Badges.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Badges.swift; sourceTree = "<group>"; };
+		D16597A7DAFE93B72E432F37 /* AppMenuCommands.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppMenuCommands.swift; sourceTree = "<group>"; };
+		D1972080FD6ED57A3CD78CBD /* LibraryBrowser.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LibraryBrowser.swift; sourceTree = "<group>"; };
+		D264157254C76D9C167F111B /* InfoSheet.swift in Sources */ = {isa = PBXBuildFile; fileRef = D3C175FF4848E19A59D0E5DE /* InfoSheet.swift */; };
+		D2D91492B5196DDFFE31A217 /* SettingsWindowRoot.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4D6EE8038E92C40335E69E36 /* SettingsWindowRoot.swift */; };
+		D34C9194D3129C67EDD07200 /* MacSettingsRecipes.swift in Sources */ = {isa = PBXBuildFile; fileRef = BF5F1F49C7F32C47CDBD4B95 /* MacSettingsRecipes.swift */; };
+		D3C175FF4848E19A59D0E5DE /* InfoSheet.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = InfoSheet.swift; sourceTree = "<group>"; };
+		D422D63D8072C1C601B2B438 /* MacMetadataPicker.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MacMetadataPicker.swift; sourceTree = "<group>"; };
+		D466C54CCD5FD603C47AB4E3 /* DrawnLayout.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DrawnLayout.swift; sourceTree = "<group>"; };
+		D49C67D1051E5440D70BD4A1 /* StripProbe.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4492CEFB9E17CBE1A0A7756C /* StripProbe.swift */; };
+		D4CC6FF9A42506306AF6B30C /* MacSettingsGeneral.swift in Sources */ = {isa = PBXBuildFile; fileRef = CF762EA9F251E62F330054AF /* MacSettingsGeneral.swift */; };
+		D5401E9815AD627DDAC0D283 /* FrameDecoder.swift in Sources */ = {isa = PBXBuildFile; fileRef = 334D2861EEC13CC399C947C6 /* FrameDecoder.swift */; };
+		D54F3C8DCE3F65059E10F847 /* ExportService.swift in Sources */ = {isa = PBXBuildFile; fileRef = BEA270BDB4CC88A2CEADF82E /* ExportService.swift */; };
+		D58C6E514707C414C3CBD0B1 /* MacModeSwitch.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MacModeSwitch.swift; sourceTree = "<group>"; };
+		D5A3568DE16F373C074D695B /* MacSharedControls.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MacSharedControls.swift; sourceTree = "<group>"; };
+		D696E2623A672FF2E9AF7849 /* DarkroomSnapshots.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DarkroomSnapshots.swift; sourceTree = "<group>"; };
+		D698EA74C9C0B58A9CADC324 /* DevelopInspectorParts.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DevelopInspectorParts.swift; sourceTree = "<group>"; };
+		D6CDBCA7F9296B202B019FFE /* FullRenderJobs.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0651D8CA7D4C78FB350EBE9E /* FullRenderJobs.swift */; };
+		D6E4BAD6D241FF4FE78F6FD6 /* TickRuler.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3D9CEBB216746590C61C68D3 /* TickRuler.swift */; };
+		D75D8DEC3E3BBA082648243F /* PairDevelop.swift in Sources */ = {isa = PBXBuildFile; fileRef = E11C0385836F64E8056CD76C /* PairDevelop.swift */; };
+		D7E14E5EFA1C71DBE137E9EE /* LightTableMacMath.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LightTableMacMath.swift; sourceTree = "<group>"; };
+		D826786A6E391A503D9A11D3 /* DigitalDecode.swift in Sources */ = {isa = PBXBuildFile; fileRef = 75336A09B29F10FE098C4539 /* DigitalDecode.swift */; };
+		D84FF7D04C6967F7EB33E215 /* LightTableExport.swift in Sources */ = {isa = PBXBuildFile; fileRef = DEA7849B919FE45587184147 /* LightTableExport.swift */; };
+		D8F0B5B58AA48C13983928BC /* StockPreviews.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9C5D5F39357306E91F89DC85 /* StockPreviews.swift */; };
+		D8FB05E0478DF7E03776E9C5 /* MemoryProbe.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MemoryProbe.swift; sourceTree = "<group>"; };
+		D9A5B93EA5BF0B18DB5279E2 /* HSLPanel.swift in Sources */ = {isa = PBXBuildFile; fileRef = A89D571209E2B5484684F97F /* HSLPanel.swift */; };
+		D9EE7CD3A89B05557A613FDD /* SpkEngine.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SpkEngine.swift; sourceTree = "<group>"; };
+		DAA5FCE198F009EBB54C657C /* MacImportScan.swift in Sources */ = {isa = PBXBuildFile; fileRef = A03C1901435B28D2CB26BBCD /* MacImportScan.swift */; };
+		DADC9850397FEEC96308FE20 /* MacDriver.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MacDriver.swift; sourceTree = "<group>"; };
+		DAE2CB9F6DCF19330E793878 /* MacLibraryCheck.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MacLibraryCheck.swift; sourceTree = "<group>"; };
+		DAF809954D5E17C5D775BE6F /* Tour.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Tour.swift; sourceTree = "<group>"; };
+		DC6EC72DDD0051EC3633316F /* InterfaceScale.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1941AC60ACF1B6E715BA33C0 /* InterfaceScale.swift */; };
+		DCDF24286E4A1C29B96A536E /* Rows.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9E412292F641F321214D4C20 /* Rows.swift */; };
+		DD4034B51DA2E838B08C7A69 /* AdjustSliders.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0F1F06C1E0FCD37464AAB7B4 /* AdjustSliders.swift */; };
+		DDA5DAFC2CC8326D51F5AAD6 /* HostCut.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HostCut.swift; sourceTree = "<group>"; };
+		DEA7849B919FE45587184147 /* LightTableExport.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LightTableExport.swift; sourceTree = "<group>"; };
+		DF37759FD9B231AF820C3F8B /* Tour.swift in Sources */ = {isa = PBXBuildFile; fileRef = DAF809954D5E17C5D775BE6F /* Tour.swift */; };
+		DF42DC6D01CBF34E856B01D2 /* PieceComposer.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5070E5241BDE4621F862A19C /* PieceComposer.swift */; };
+		DFCA06923A9114B91B3F76D7 /* MacDisplay.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MacDisplay.swift; sourceTree = "<group>"; };
+		DFD5DC2E22462390BE2E041F /* HistogramPanel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HistogramPanel.swift; sourceTree = "<group>"; };
+		E065517F646C315A2C3C1161 /* SpektraLabApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = 55FDDF40A78C751E9C0EE4E5 /* SpektraLabApp.swift */; };
+		E09A2B5CD6234E5E2F1C58A8 /* CameraCrop.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CameraCrop.swift; sourceTree = "<group>"; };
+		E11C0385836F64E8056CD76C /* PairDevelop.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PairDevelop.swift; sourceTree = "<group>"; };
+		E1A3B1E8C8DFC94D4FBE60AE /* Routes.swift in Sources */ = {isa = PBXBuildFile; fileRef = 778C42EEE84D1B3369862632 /* Routes.swift */; };
+		E23AAFD9BE0F7A57D346DB49 /* RawProxy.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RawProxy.swift; sourceTree = "<group>"; };
+		E34D92693A99940D92DE2E95 /* MacLightTableBar.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MacLightTableBar.swift; sourceTree = "<group>"; };
+		E357344D7257C38EAA5F8B4E /* PairEntrySnapshots.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PairEntrySnapshots.swift; sourceTree = "<group>"; };
+		E39FCFF9014F6391AA8B75BB /* LibraryOrdering.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0CFA5FB5F96542996B0F782C /* LibraryOrdering.swift */; };
+		E458A8B72A1C7F6BB7E01E49 /* PairSnapshots.swift in Sources */ = {isa = PBXBuildFile; fileRef = 18A66CDB19FD202EDFAC3662 /* PairSnapshots.swift */; };
+		E45DBA231DAB0E7A35CBA1EF /* AppearanceTokens.swift in Sources */ = {isa = PBXBuildFile; fileRef = 671B19B1DD4EC1A16177899E /* AppearanceTokens.swift */; };
+		E45EFD95B503E9EBF93999E9 /* Stock.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Stock.swift; sourceTree = "<group>"; };
+		E4AB4629033A21CC495E903E /* MacLibraryModels.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MacLibraryModels.swift; sourceTree = "<group>"; };
+		E56704A7E7DD74FACAB8CE6D /* SimulatedEngine.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SimulatedEngine.swift; sourceTree = "<group>"; };
+		E5830F76710A2DCEA70F461F /* ImportService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ImportService.swift; sourceTree = "<group>"; };
+		E5B59C2333841CC8B5A53D7E /* MacLightTablePanel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MacLightTablePanel.swift; sourceTree = "<group>"; };
+		E5D2A25697F7CBBD8DFEAA92 /* LightTableFullRead.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LightTableFullRead.swift; sourceTree = "<group>"; };
+		E7D46C7E7EAB01F4DF06CE1E /* LogRecords.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LogRecords.swift; sourceTree = "<group>"; };
+		E810538DBFBE802D5CBC75AB /* RootView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RootView.swift; sourceTree = "<group>"; };
+		E8A152F47AB36BF5705F2161 /* Layer2Live.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Layer2Live.swift; sourceTree = "<group>"; };
+		E8B92171E58FB163AB661F23 /* MacLightTableCheck.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MacLightTableCheck.swift; sourceTree = "<group>"; };
+		E8EB797FC7B931792536B82F /* RootView.swift in Sources */ = {isa = PBXBuildFile; fileRef = E810538DBFBE802D5CBC75AB /* RootView.swift */; };
+		E91C427AD55C4053CF4488D7 /* ViewerPane.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ViewerPane.swift; sourceTree = "<group>"; };
+		E941DA8187B32B086A8E8098 /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		E974799B6367D44B5E8244BA /* PiecePlacer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PiecePlacer.swift; sourceTree = "<group>"; };
+		EA36A6B9C247B08C96479F2C /* SampleFrames in Resources */ = {isa = PBXBuildFile; fileRef = 10A187E71E276CDB08F36834 /* SampleFrames */; };
+		EAAFD97675AEA11BB4078813 /* MemoryTrace.swift in Sources */ = {isa = PBXBuildFile; fileRef = B761FB841C14F0FBE5DC255E /* MemoryTrace.swift */; };
+		EB19ED171B5848F1BE42B375 /* LogBundle.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LogBundle.swift; sourceTree = "<group>"; };
+		EB4785FC84F35055783F5ACB /* LibraryFrame.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA7BB6AD6149D74BF2C29044 /* LibraryFrame.swift */; };
+		EB58C4EC6CA468A386B15371 /* FlowDialogLayout.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FlowDialogLayout.swift; sourceTree = "<group>"; };
+		EC31C3FDC920757C4D167A55 /* StorageTidy.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = StorageTidy.swift; sourceTree = "<group>"; };
+		EC8582135DE39E758BFB21D2 /* LightTableMacMath.swift in Sources */ = {isa = PBXBuildFile; fileRef = D7E14E5EFA1C71DBE137E9EE /* LightTableMacMath.swift */; };
+		ECA6D743BA886A2B0DCA032D /* MacLibraryModels.swift in Sources */ = {isa = PBXBuildFile; fileRef = E4AB4629033A21CC495E903E /* MacLibraryModels.swift */; };
+		ECB44BE50A00C6F2CCED158C /* FullDetail.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FullDetail.swift; sourceTree = "<group>"; };
+		ECB468703CD975CD98AA56A9 /* CurvePanel.swift in Sources */ = {isa = PBXBuildFile; fileRef = 86668A6A636992A786357B85 /* CurvePanel.swift */; };
+		EEBB3C70E6945B9C03A4383D /* Layer2Live.swift in Sources */ = {isa = PBXBuildFile; fileRef = E8A152F47AB36BF5705F2161 /* Layer2Live.swift */; };
+		EED76DFFCD8D9F71AE99023A /* ExportRecipe.swift in Sources */ = {isa = PBXBuildFile; fileRef = CC2FA04F065B6F2088EADFC5 /* ExportRecipe.swift */; };
+		EEEC8E379ED69C002020FF84 /* Layer2Renderer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Layer2Renderer.swift; sourceTree = "<group>"; };
+		EF27D11C48AAABAE083031E3 /* EngineRouter.swift in Sources */ = {isa = PBXBuildFile; fileRef = 399E3BC5426C1DE8E5B5C9CF /* EngineRouter.swift */; };
+		EF88E16E0FCB6572BAEE27D6 /* BrowserViewerSplit.swift in Sources */ = {isa = PBXBuildFile; fileRef = CD87438996D650696E1526A9 /* BrowserViewerSplit.swift */; };
+		EF972FBDF6EB970E6AA4CC4F /* Services */ = {
+			isa = PBXGroup;
+			children = (
+				CF4A81C65BEB58FFF1814898 /* AppSettings.swift */,
+				47DB8F19E2CF45F9767DCBE0 /* DemoLibrary.swift */,
+				091120469326DFB285F3E52E /* ExportRecipeStore.swift */,
+				BEA270BDB4CC88A2CEADF82E /* ExportService.swift */,
+				7B9B37171A7550B40803BEC1 /* FolderReach.swift */,
+				391D76D691695C5179B381CF /* FrameCatalog.swift */,
+				AD4428AC886DB43542DA8C3D /* FrameView.swift */,
+				1004577F499CCD09FBEEBE81 /* Gallery.swift */,
+				886E83887947A4C888AD708C /* KeptFileAside.swift */,
+				D1972080FD6ED57A3CD78CBD /* LibraryBrowser.swift */,
+				0CFA5FB5F96542996B0F782C /* LibraryOrdering.swift */,
+				7DB82D3ECC8C402A19BE2C8B /* LibraryPersistence.swift */,
+				BBA9B4086F546FD4833D8996 /* LibraryPreviews.swift */,
+				0251BA3150C8B651326A7921 /* LookTransactions.swift */,
+				90B25C99B8EC912182463593 /* OpenFrameSession.swift */,
+				9D5FE2DA246D4135EA1C813D /* Originals.swift */,
+				0461DDEBA01EAC413228AEB0 /* PairKeeping.swift */,
+				42A3FA76845ADAD4052BCC5A /* PresetStore.swift */,
+				8F7D9781A4CD00E26D4D55CD /* StockPreviewRules.swift */,
+				9C5D5F39357306E91F89DC85 /* StockPreviews.swift */,
+				EC31C3FDC920757C4D167A55 /* StorageTidy.swift */,
+				84A85FBE4CB83C62A52F8729 /* StripSource.swift */,
+				524906E579F01B81BDD196E4 /* ThumbnailStore.swift */,
+				63CD3E70E698C9644CFB51EA /* WorkingCopies.swift */,
+			);
+			path = Services;
+			sourceTree = "<group>";
+		};
+		EFB405806E63F6C279CA59B7 /* LightTableGestures.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LightTableGestures.swift; sourceTree = "<group>"; };
+		EFDAC7EBD8D20CAC865F5C98 /* WorkspaceSnapshots.swift in Sources */ = {isa = PBXBuildFile; fileRef = B416DFA20655306A9F4F76F2 /* WorkspaceSnapshots.swift */; };
+		F019CAF403B56357060EF8D3 /* FilmEdgeResolver.swift in Sources */ = {isa = PBXBuildFile; fileRef = 77050384F72B91CF75DB1310 /* FilmEdgeResolver.swift */; };
+		F01E30743B99413B68B1BECD /* BlackAndWhiteSnapshots.swift in Sources */ = {isa = PBXBuildFile; fileRef = F3419AD5DDAB7E8EAC306487 /* BlackAndWhiteSnapshots.swift */; };
+		F07E74802FF918B355FA11B3 /* PairFramePicker.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1E51731BDF2C3970D7AFD1AF /* PairFramePicker.swift */; };
+		F09A0DBCBD8E535F7BA1845E /* SizePage.swift in Sources */ = {isa = PBXBuildFile; fileRef = 02E7045D35F848D4B8FF7D6E /* SizePage.swift */; };
+		F0CBE4AFB72208EBD6FAA83D /* FilmGeometry.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FilmGeometry.swift; sourceTree = "<group>"; };
+		F106739DC8980EECF5DAFD3D /* DevelopedPicture.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DevelopedPicture.swift; sourceTree = "<group>"; };
+		F154C6E8C9F0FCEB3736F12A /* Supporters.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Supporters.swift; sourceTree = "<group>"; };
+		F2080FFCEBEDFECEA32FF678 /* Chips.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Chips.swift; sourceTree = "<group>"; };
+		F3419AD5DDAB7E8EAC306487 /* BlackAndWhiteSnapshots.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BlackAndWhiteSnapshots.swift; sourceTree = "<group>"; };
+		F3C73E4933C9B48268A67D46 /* Supporters.json in Resources */ = {isa = PBXBuildFile; fileRef = 9ADCF2687FF7DBD24500C0B5 /* Supporters.json */; };
+		F3DD7EBE895D5E90688660CF /* AdjustInspector.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AdjustInspector.swift; sourceTree = "<group>"; };
+		F44190FCE525E6A853C3D367 /* MacLibraryCheck.swift in Sources */ = {isa = PBXBuildFile; fileRef = DAE2CB9F6DCF19330E793878 /* MacLibraryCheck.swift */; };
+		F47FCAF8EA089197D6648F37 /* MacSettingsCheck.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MacSettingsCheck.swift; sourceTree = "<group>"; };
+		F6034D53EACF02223BD49F34 /* LatitudeMeter.swift in Sources */ = {isa = PBXBuildFile; fileRef = 18BF2C4AB0F45CDB1C0B2BB7 /* LatitudeMeter.swift */; };
+		F6393E395E04F427DBE4819E /* JobLogFile.swift in Sources */ = {isa = PBXBuildFile; fileRef = A9AB99A31AC300F7545235A5 /* JobLogFile.swift */; };
+		F67795B6D2BBF81AD6D72197 /* JobDiagnostics.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = JobDiagnostics.swift; sourceTree = "<group>"; };
+		F68436496BCF0A9AAC203D58 /* LibrarySideSnapshots.swift in Sources */ = {isa = PBXBuildFile; fileRef = 41951E8ED04537DE502DC445 /* LibrarySideSnapshots.swift */; };
+		F6F388FDC24A33E67153771D /* DesignGallery.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DesignGallery.swift; sourceTree = "<group>"; };
+		F73C1C4218B1914A13ED2F03 /* DrawnIcons.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DrawnIcons.swift; sourceTree = "<group>"; };
+		F7576EC3CBAA06FE59C503A9 /* Library */ = {
+			isa = PBXGroup;
+			children = (
+				67BA0371C085119BC103B8A1 /* CatalogSourcesStore.swift */,
+				2A41FF721D3AE50188B77B53 /* HelperProcess.swift */,
+				8B7F85FF4C9467FC761F1980 /* LibraryAPI.swift */,
+				80F6A6597797456F679ED6F6 /* LibraryHost.swift */,
+				A671D8956FD4BE6A2CD7FC6E /* MacCatalogActions.swift */,
+				DAE2CB9F6DCF19330E793878 /* MacLibraryCheck.swift */,
+				6054AC077AF79ED35C451C78 /* MacLibraryDocuments.swift */,
+				04DE328DFED1D62DD2F783F0 /* MacLibraryEntryCheck.swift */,
+				E4AB4629033A21CC495E903E /* MacLibraryModels.swift */,
+				688A1AED184FD42ABF1ABE60 /* MacLibraryPreviews.swift */,
+				0A0B3B8094A20EEE599CAAED /* MacOpenPanel.swift */,
+				9A5426FBDBEBBA592A99EC4C /* MacPairRows.swift */,
+				B707CACFA39BD7C5F1C38922 /* MacSavePanel.swift */,
+			);
+			path = Library;
+			sourceTree = "<group>";
+		};
+		F7AAA2E334719BFCE3A380BB /* MacBrowserSplit.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5071F7FF48AD55E4D62AA57E /* MacBrowserSplit.swift */; };
+		F84FD35CA8548076F2B51EDF /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ALWAYS_SEARCH_USER_PATHS = NO;
+				CLANG_ENABLE_OBJC_ARC = YES;
+				COPY_PHASE_STRIP = NO;
+				DEAD_CODE_STRIPPING = YES;
+				DEBUG_INFORMATION_FORMAT = "dwarf-with-dsym";
+				DEPLOYMENT_POSTPROCESSING = YES;
+				ENABLE_USER_SCRIPT_SANDBOXING = NO;
+				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
+				SDKROOT = iphoneos;
+				STRIP_INSTALLED_PRODUCT = YES;
+				STRIP_STYLE = all;
+				SWIFT_COMPILATION_MODE = wholemodule;
+				SWIFT_OPTIMIZATION_LEVEL = "-O";
+				SWIFT_VERSION = 5.0;
+				VALIDATE_PRODUCT = YES;
+			};
+			name = Release;
+		};
+		F897104136B5BB9B156AC45D /* FullRender.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FullRender.swift; sourceTree = "<group>"; };
+		F89A74F6D39F026A4F53EE66 /* PairPieceView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PairPieceView.swift; sourceTree = "<group>"; };
+		F8D48FF37D111C9D5A4101EA /* MacSettingsSources.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MacSettingsSources.swift; sourceTree = "<group>"; };
+		F8F36876F8F23C7B6D9C2E07 /* MacLibrarySidebar.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MacLibrarySidebar.swift; sourceTree = "<group>"; };
+		F93D1D3D983C8E739EAFE157 /* WindowToolbar.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WindowToolbar.swift; sourceTree = "<group>"; };
+		F9C5D986E0DC2D1ED45ADEBF /* CropGuides.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CropGuides.swift; sourceTree = "<group>"; };
+		FA61A4EC609AB88F353095D4 /* StockCards.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = StockCards.swift; sourceTree = "<group>"; };
+		FADF9681965FC9CA02A9DE69 /* DecodeSection.swift in Sources */ = {isa = PBXBuildFile; fileRef = B787AA25680451B11140C5B6 /* DecodeSection.swift */; };
+		FB5BE2CAAB8D821C4452FB71 /* LightTableHarness.swift in Sources */ = {isa = PBXBuildFile; fileRef = 10CC5FD61470EA95AD7257EE /* LightTableHarness.swift */; };
+		FBD15D48B5288848A843E336 /* PairFlow.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PairFlow.swift; sourceTree = "<group>"; };
+		FBDC4F23F93125BBEEAE800C /* Products */ = {
+			isa = PBXGroup;
+			children = (
+				7D1043473D55BFA90E8530D3 /* SpektraLab.app */,
+			);
+			name = Products;
+			sourceTree = "<group>";
+		};
+		FBF55B480EDB2D0B74A40403 /* RenderQueue.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RenderQueue.swift; sourceTree = "<group>"; };
+		FC0CB21E6ADF24E540AC513C /* PrivacyInfo.xcprivacy in Resources */ = {isa = PBXBuildFile; fileRef = C75666A906ECECB3B24031AB /* PrivacyInfo.xcprivacy */; };
+		FC8BAA475F60491FDB00FF81 /* ScenePlacement.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ScenePlacement.swift; sourceTree = "<group>"; };
+		FC8C0596B0F1B29CBAF77A5B /* Frame */ = {
+			isa = PBXGroup;
+			children = (
+				4819F7FF4E95787364003CA5 /* CropScreen.swift */,
+				0369904EA89C422A48059347 /* CropStage.swift */,
+			);
+			path = Frame;
+			sourceTree = "<group>";
+		};
+	};
+	rootObject = 98F54143AB4E86B28C3AFEE0 /* Project object */;
+}

@@ -1,0 +1,205 @@
+{
+  "archive": "off",
+  "rows": [
+    {
+      "engine": 0,
+      "footprint_mib": 66.0,
+      "fds": 6
+    },
+    {
+      "engine": 1,
+      "footprint_mib": 66.0,
+      "fds": 6
+    },
+    {
+      "engine": 2,
+      "footprint_mib": 66.0,
+      "fds": 6
+    },
+    {
+      "engine": 3,
+      "footprint_mib": 66.0,
+      "fds": 6
+    },
+    {
+      "engine": 4,
+      "footprint_mib": 66.0,
+      "fds": 6
+    },
+    {
+      "engine": 5,
+      "footprint_mib": 66.0,
+      "fds": 6
+    },
+    {
+      "engine": 6,
+      "footprint_mib": 66.0,
+      "fds": 6
+    },
+    {
+      "engine": 7,
+      "footprint_mib": 66.0,
+      "fds": 6
+    },
+    {
+      "engine": 8,
+      "footprint_mib": 66.0,
+      "fds": 6
+    },
+    {
+      "engine": 9,
+      "footprint_mib": 66.0,
+      "fds": 6
+    },
+    {
+      "engine": 10,
+      "footprint_mib": 66.0,
+      "fds": 6
+    },
+    {
+      "engine": 11,
+      "footprint_mib": 66.0,
+      "fds": 6
+    },
+    {
+      "engine": 12,
+      "footprint_mib": 66.0,
+      "fds": 6
+    },
+    {
+      "engine": 13,
+      "footprint_mib": 66.0,
+      "fds": 6
+    },
+    {
+      "engine": 14,
+      "footprint_mib": 66.0,
+      "fds": 6
+    },
+    {
+      "engine": 15,
+      "footprint_mib": 66.0,
+      "fds": 6
+    },
+    {
+      "engine": 16,
+      "footprint_mib": 66.0,
+      "fds": 6
+    },
+    {
+      "engine": 17,
+      "footprint_mib": 66.0,
+      "fds": 6
+    },
+    {
+      "engine": 18,
+      "footprint_mib": 66.0,
+      "fds": 6
+    },
+    {
+      "engine": 19,
+      "footprint_mib": 66.0,
+      "fds": 6
+    },
+    {
+      "engine": 20,
+      "footprint_mib": 66.0,
+      "fds": 6
+    },
+    {
+      "engine": 21,
+      "footprint_mib": 66.0,
+      "fds": 6
+    },
+    {
+      "engine": 22,
+      "footprint_mib": 66.0,
+      "fds": 6
+    },
+    {
+      "engine": 23,
+      "footprint_mib": 66.0,
+      "fds": 6
+    },
+    {
+      "engine": 24,
+      "footprint_mib": 66.0,
+      "fds": 6
+    },
+    {
+      "engine": 25,
+      "footprint_mib": 66.0,
+      "fds": 6
+    },
+    {
+      "engine": 26,
+      "footprint_mib": 66.0,
+      "fds": 6
+    },
+    {
+      "engine": 27,
+      "footprint_mib": 66.0,
+      "fds": 6
+    },
+    {
+      "engine": 28,
+      "footprint_mib": 66.0,
+      "fds": 6
+    },
+    {
+      "engine": 29,
+      "footprint_mib": 66.0,
+      "fds": 6
+    },
+    {
+      "engine": 30,
+      "footprint_mib": 75.0,
+      "fds": 6
+    },
+    {
+      "engine": 31,
+      "footprint_mib": 75.0,
+      "fds": 6
+    },
+    {
+      "engine": 32,
+      "footprint_mib": 75.0,
+      "fds": 6
+    },
+    {
+      "engine": 33,
+      "footprint_mib": 76.0,
+      "fds": 6
+    },
+    {
+      "engine": 34,
+      "footprint_mib": 76.0,
+      "fds": 6
+    },
+    {
+      "engine": 35,
+      "footprint_mib": 76.0,
+      "fds": 6
+    },
+    {
+      "engine": 36,
+      "footprint_mib": 76.0,
+      "fds": 6
+    },
+    {
+      "engine": 37,
+      "footprint_mib": 76.0,
+      "fds": 6
+    },
+    {
+      "engine": 38,
+      "footprint_mib": 76.0,
+      "fds": 6
+    },
+    {
+      "engine": 39,
+      "footprint_mib": 76.0,
+      "fds": 6
+    }
+  ]
+}

@@ -1,0 +1,63 @@
+#version 450
+
+// Shipped print LUT: tightly packed (S,S,S,3), third density axis fastest.
+// Binding order and interpolation order match util.metal. One thread/pixel.
+layout(local_size_x = 256) in;
+layout(set = 0, binding = 0, std430) readonly buffer Density { float value[]; } density;
+layout(set = 0, binding = 1, std430) readonly buffer Lut { float value[]; } lut_data;
+layout(set = 0, binding = 2, std430) readonly buffer Lower { float value[]; } lower;
+layout(set = 0, binding = 3, std430) readonly buffer InverseSpan { float value[]; } inverse_span;
+layout(set = 0, binding = 4, std430) readonly buffer Meta { uint value[]; } meta;
+layout(set = 0, binding = 5, std430) writeonly buffer Output { float value[]; } output_data;
+
+// vulkan_gpu.cpp folds a dispatch past maxComputeWorkGroupCount[0] (65535 on
+// lavapipe and Intel) into rows of workgroups; this is the 1D index it means.
+uint spk_global_index() {
+    return gl_GlobalInvocationID.y * (gl_NumWorkGroups.x * gl_WorkGroupSize.x) + gl_GlobalInvocationID.x;
+}
+
+float metal_clamp01(float x) {
+    // Metal precise clamp is fmin(fmax(x,0),1): NaN becomes the lower bound.
+    // GLSL FClamp's NaN choice is implementation-dependent, so spell it out.
+    if (isnan(x) || x < 0.0) return 0.0;
+    if (x > 1.0) return 1.0;
+    return x;
+}
+
+void main() {
+    uint gid = spk_global_index();
+    if (gid >= meta.value[0]) return;
+    uint size = meta.value[1];  // The resource loader enforces size >= 2.
+    precise float scale = float(size - 1u);
+    precise float c0 = (density.value[3u * gid] - lower.value[0]) * inverse_span.value[0];
+    precise float c1 = (density.value[3u * gid + 1u] - lower.value[1]) * inverse_span.value[1];
+    precise float c2 = (density.value[3u * gid + 2u] - lower.value[2]) * inverse_span.value[2];
+    c0 = metal_clamp01(c0) * scale;
+    c1 = metal_clamp01(c1) * scale;
+    c2 = metal_clamp01(c2) * scale;
+    uint i0 = uint(floor(c0)), j0 = uint(floor(c1)), k0 = uint(floor(c2));
+    uint i1 = min(i0 + 1u, size - 1u);
+    uint j1 = min(j0 + 1u, size - 1u);
+    uint k1 = min(k0 + 1u, size - 1u);
+    precise float fx = c0 - float(i0), fy = c1 - float(j0), fz = c2 - float(k0);
+    uint b00 = (i0 * size + j0) * size * 3u;
+    uint b01 = (i0 * size + j1) * size * 3u;
+    uint b10 = (i1 * size + j0) * size * 3u;
+    uint b11 = (i1 * size + j1) * size * 3u;
+    uint k0_offset = k0 * 3u, k1_offset = k1 * 3u;
+    precise float w0 = 1.0 - fx, w1 = fx;
+    precise float v0 = 1.0 - fy, v1 = fy;
+    precise float u0 = 1.0 - fz, u1 = fz;
+    for (uint channel = 0u; channel < 3u; ++channel) {
+        precise float c00 = lut_data.value[b00 + k0_offset + channel] * u0 +
+                           lut_data.value[b00 + k1_offset + channel] * u1;
+        precise float c01 = lut_data.value[b01 + k0_offset + channel] * u0 +
+                           lut_data.value[b01 + k1_offset + channel] * u1;
+        precise float c10 = lut_data.value[b10 + k0_offset + channel] * u0 +
+                           lut_data.value[b10 + k1_offset + channel] * u1;
+        precise float c11 = lut_data.value[b11 + k0_offset + channel] * u0 +
+                           lut_data.value[b11 + k1_offset + channel] * u1;
+        precise float result = (c00 * v0 + c01 * v1) * w0 + (c10 * v0 + c11 * v1) * w1;
+        output_data.value[3u * gid + channel] = result;
+    }
+}

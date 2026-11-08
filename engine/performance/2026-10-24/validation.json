@@ -1,0 +1,30 @@
+{
+  "parity-setup": "dump_setup: ok\n\n227 quantities compared, 86 bit-exact, 0 failed",
+  "parity-schema": "schema: 100 engine fields; Python fields identical plus 59 pinned native extension\nknown params.output_color_space (6 pairs): C++ 'ProPhoto RGB', Python 'sRGB' \u2014 RFC-018 \u00a75.1: the declared output default is the *working space*, so that `core/params.hpp` and `spk_open` stop disagreeing (\u00a74.2 named that disagreement as a defect \u2014 the header said sRGB while the behaviour was Display P3). The Python oracle still declares sRGB because it is the old product's schema and nothing regenerates it; what this harness exists to catch \u2014 a rename, a moved path, a changed layer or order \u2014 is unchanged. The wire is still transport 1 / schema 1 and no client reads this default.\nparams + internals: 6 stock pairs, identical\n\n0 failures",
+  "parity-render": "ok   strips render/full: 5 heights, all a42fdaf3db70d319   [H skipped: 1200 rows would be 1200 passes per group]\nok   strips reprint/live: 5 heights, all a42fdaf3db70d319   [H skipped: 1200 rows would be 1200 passes per group]\nok   strips reprint/full: 5 heights, all a42fdaf3db70d319   [H skipped: 1200 rows would be 1200 passes per group]\n\n27 cases, 0 failed",
+  "parity-session": "\nok   all 100 fields applied, rendered, and invalidated the right layer\nok   solve and preview_render match the reference\n\n100 fields, 0 failed",
+  "parity-grain": "  0.800     0.755995/0.755998         0.9954     -0.0038/+0.0125   \n  1.500     0.804835/0.804834         0.9866     -0.0121/-0.0019   \n\n9 levels, 0 failed\nbars: mean 4e-03 absolute, std ratio within 8%, skew 0.25",
+  "parity-lut": "ok   di      fujifilm_crystal_archive_typeii: max 7.80e-06 absolute, 1 count\nok   fujifilm_crystal_archive_typeii: warns that the LUT is paired with 'fujifilm_pro_400h'\n     apply 0.34 ms on native-metal\n\n3 stocks, 0 failed",
+  "scene": "ok   beyond +8 stops the end's gain holds  max |d| 0.00e+00\nok   refuses a value outside 0..1  'scene_curve' must be comma-separated numbers in 0..1\nok   refuses not five rows  'scene_curve' must hold five rows of at least two samples (rgb, luma, r, g, b)\nok   refuses not numbers  'scene_curve' must be comma-separated numbers in 0..1\nall passed",
+  "bw": "PASS an unknown filter is refused -- 'camera_filter' = 'w99' is not a camera filter ('' for none,\nPASS HP5 Plus's DX code reads back turned (1753 = 109/9, this frame's number, good parity) -- (1753, 12, True, True)\nPASS and not the way Kodak's lies\nPASS Tri-X and T-Max print no DX bars\n0 failure(s)",
+  "strips": "ok    strip_rows=1: the runs and crossings are pinned  -- runs {'film': 2, 'print': 2}, crossings {'film': 4, 'print': 4} (2 x runs = 8 in total)\nok    strip_rows=1: the swept stages cover the plane  -- film_couplers 2 spans, 4 launches  [weak: the hash is the strong witness]\nok    strip_rows=1: and the picture is the un-striped one, render and reprint  -- render bcde95db8c539c64 against bcde95db8c539c64, reprint d3fc6fb608c7eada against d3fc6fb608c7eada\n\n0 failed",
+  "smoke": "ok    spk_reduce_max\nok    spk_to_rgba16 + zero-copy texture\nok    frame arena survives three frames of eight buffers\n\n0 failures",
+  "math": "ok   the fast-math guard fires on a fast-math library\nok   and passes on the shipped one:\nok    math mode is safe  -- safe (probe: fma contraction present, no reassociation)",
+  "cam16": "ok changed setup metadata is a miss\nok corrupt payload is a miss\nok truncated payload is a miss\nok nonfinite table is a miss despite valid checksum\nok invalid artifact computes exact fallback",
+  "catalyst_app": "BUILD SUCCEEDED (Debug Mac Catalyst; arm64 and x86_64 static engine)",
+  "device_ownership_red": "borrowed device: before=30 after=62 delta=32 over 32 engines\n",
+  "device_ownership_green": "borrowed device: before=26 after=26 delta=0 over 32 engines\nunsubmitted rejected dispatch: spk_affine3: argument 1 is empty\n",
+  "image_comparisons": {
+    "original_full_v2": 22,
+    "checkpoint_vs_full": 64,
+    "io_fault_vs_full": 12,
+    "precision": "RGBA16 bit-exact; direct DIR/gamut float32 fusion checks also exact"
+  },
+  "notes": [
+    "Legacy oracle uses SPK_V2_REFERENCE_OPTICAL=1; it does not validate minilab appearance.",
+    "Correctness/fault tests force checkpoint admission; benchmarks do not.",
+    "Scoped Metal ownership was requalified with the final source and final benchmark; no image arithmetic changed after the oracle runs.",
+    "No installation or GUI runtime qualification.",
+    "CMake core configure/build was not run: cmake command unavailable. Mac build.sh and Catalyst build passed."
+  ]
+}

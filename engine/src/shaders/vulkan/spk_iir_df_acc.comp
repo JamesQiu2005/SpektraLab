@@ -1,0 +1,123 @@
+#version 450
+
+// Direct port of blur.metal's Young & van Vliet recurrence. Each invocation
+// owns one complete line/channel; the forward float32 plane is read again by
+// the backward sweep. Bindings 0 and 6 may alias for the second separable pass.
+layout(local_size_x = 256) in;
+// vulkan_gpu.cpp sets this from the device's measured fma behaviour.
+layout(constant_id = 0) const bool SPK_FUSED_FMA = true;
+layout(set = 0, binding = 0, std430) readonly buffer Input { float value[]; } image_data;
+layout(set = 0, binding = 1, std430) readonly buffer Coefficients { float value[]; } coefficients;
+layout(set = 0, binding = 2, std430) readonly buffer Active { uint value[]; } active_channels;
+layout(set = 0, binding = 3, std430) readonly buffer Accumulator { float value[]; } accumulator;
+layout(set = 0, binding = 4, std430) readonly buffer MixWeights { float value[]; } mix_weights;
+layout(set = 0, binding = 5, std430) readonly buffer Meta { uint value[]; } meta;
+layout(set = 0, binding = 6, std430) buffer Output { float value[]; } output_data;
+
+// vulkan_gpu.cpp folds a dispatch past maxComputeWorkGroupCount[0] (65535 on
+// lavapipe and Intel) into rows of workgroups; this is the 1D index it means.
+uint spk_global_index() {
+    return gl_GlobalInvocationID.y * (gl_NumWorkGroups.x * gl_WorkGroupSize.x) + gl_GlobalInvocationID.x;
+}
+
+// (hi, lo) float pairs, translated from spk_common.h. precise preserves the
+// error-free transforms: only the explicit fma in two_prod may be fused.
+vec2 two_sum(float a, float b) {
+    precise float s = a + b;
+    precise float bb = s - a;
+    precise float e = (a - (s - bb)) + (b - bb);
+    return vec2(s, e);
+}
+
+vec2 quick_two_sum(float a, float b) {
+    precise float s = a + b;
+    precise float e = b - (s - a);
+    return vec2(s, e);
+}
+
+vec2 two_prod(float a, float b) {
+    precise float p = a * b;
+    if (SPK_FUSED_FMA) {
+        precise float e = fma(a, b, -p);
+        return vec2(p, e);
+    }
+    // A device that does not fuse fma (lavapipe) would return e == 0 above
+    // and lose the low word. Veltkamp/Dekker splitting gives the same exact
+    // error term with plain products, so both paths produce identical pairs.
+    precise float ca = 4097.0 * a;
+    precise float ahi = ca - (ca - a);
+    precise float alo = a - ahi;
+    precise float cb = 4097.0 * b;
+    precise float bhi = cb - (cb - b);
+    precise float blo = b - bhi;
+    precise float e = ((ahi * bhi - p) + ahi * blo + alo * bhi) + alo * blo;
+    return vec2(p, e);
+}
+
+vec2 df_add(vec2 a, vec2 b) {
+    vec2 s = two_sum(a.x, b.x);
+    vec2 t = two_sum(a.y, b.y);
+    precise float lo = s.y + t.x;
+    s = quick_two_sum(s.x, lo);
+    precise float final_lo = s.y + t.y;
+    return quick_two_sum(s.x, final_lo);
+}
+
+vec2 df_mul(vec2 a, vec2 b) {
+    vec2 p = two_prod(a.x, b.x);
+    precise float cross_terms = a.x * b.y + a.y * b.x;
+    precise float lo = p.y + cross_terms;
+    return quick_two_sum(p.x, lo);
+}
+
+vec2 df_mul_f(vec2 a, float b) {
+    vec2 p = two_prod(a.x, b);
+    precise float lo = p.y + a.y * b;
+    return quick_two_sum(p.x, lo);
+}
+
+void main() {
+    uint t = spk_global_index();
+    uint height = meta.value[0], width = meta.value[1];
+    uint accumulate = meta.value[2], axis = meta.value[3];
+    uint threads = axis == 0u ? width * 3u : height * 3u;
+    if (t >= threads) return;
+    uint channel = t % 3u, line = t / 3u;
+    uint length = axis == 0u ? height : width;
+    uint stride = axis == 0u ? width * 3u : 3u;
+    uint base = axis == 0u ? line * 3u + channel : line * width * 3u + channel;
+    vec2 B = vec2(coefficients.value[8u * channel], coefficients.value[8u * channel + 1u]);
+    vec2 B1 = vec2(coefficients.value[8u * channel + 2u], coefficients.value[8u * channel + 3u]);
+    vec2 B2 = vec2(coefficients.value[8u * channel + 4u], coefficients.value[8u * channel + 5u]);
+    vec2 B3 = vec2(coefficients.value[8u * channel + 6u], coefficients.value[8u * channel + 7u]);
+    if (active_channels.value[channel] == 0u) {
+        for (uint i = 0u; i < length; ++i) {
+            uint index = base + i * stride;
+            precise float mixed = accumulator.value[index] + mix_weights.value[channel] * image_data.value[index];
+            output_data.value[index] = accumulate != 0u ? mixed : image_data.value[index];
+        }
+        return;
+    }
+    float x0 = image_data.value[base];
+    vec2 w1 = vec2(x0, 0.0), w2 = w1, w3 = w1;
+    for (uint i = 0u; i < length; ++i) {
+        vec2 v = df_mul_f(B, image_data.value[base + i * stride]);
+        v = df_add(v, df_mul(B1, w1));
+        v = df_add(v, df_mul(B2, w2));
+        v = df_add(v, df_mul(B3, w3));
+        output_data.value[base + i * stride] = v.x;
+        w3 = w2; w2 = w1; w1 = v;
+    }
+    float xn = output_data.value[base + (length - 1u) * stride];
+    vec2 y1 = vec2(xn, 0.0), y2 = y1, y3 = y1;
+    for (int i = int(length) - 1; i >= 0; --i) {
+        uint index = base + uint(i) * stride;
+        vec2 v = df_mul_f(B, output_data.value[index]);
+        v = df_add(v, df_mul(B1, y1));
+        v = df_add(v, df_mul(B2, y2));
+        v = df_add(v, df_mul(B3, y3));
+        precise float mixed = accumulator.value[index] + mix_weights.value[channel] * v.x;
+        output_data.value[index] = accumulate != 0u ? mixed : v.x;
+        y3 = y2; y2 = y1; y1 = v;
+    }
+}

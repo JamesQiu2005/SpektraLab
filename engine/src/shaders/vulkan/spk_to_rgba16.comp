@@ -1,0 +1,26 @@
+#version 450
+
+// Pack two 16-bit channels per uint. This avoids requiring the optional
+// Vulkan storageBuffer16BitAccess feature; Windows is little-endian here.
+layout(local_size_x = 256) in;
+layout(set = 0, binding = 0, std430) readonly buffer Input { float value[]; } input_data;
+layout(set = 0, binding = 1, std430) readonly buffer Meta { uint value[]; } meta;
+layout(set = 0, binding = 2, std430) writeonly buffer Output { uint value[]; } output_data;
+
+// vulkan_gpu.cpp folds a dispatch past maxComputeWorkGroupCount[0] (65535 on
+// lavapipe and Intel) into rows of workgroups; this is the 1D index it means.
+uint spk_global_index() {
+    return gl_GlobalInvocationID.y * (gl_NumWorkGroups.x * gl_WorkGroupSize.x) + gl_GlobalInvocationID.x;
+}
+
+void main() {
+    uint i = spk_global_index();
+    if (i >= meta.value[0]) return;
+    uint row = i / meta.value[1], column = i % meta.value[1];
+    uint dst = row * meta.value[2] + column;
+    uint red = uint(clamp(input_data.value[3u * i], 0.0, 1.0) * 65535.0 + 0.5);
+    uint green = uint(clamp(input_data.value[3u * i + 1u], 0.0, 1.0) * 65535.0 + 0.5);
+    uint blue = uint(clamp(input_data.value[3u * i + 2u], 0.0, 1.0) * 65535.0 + 0.5);
+    output_data.value[2u * dst] = red | (green << 16u);
+    output_data.value[2u * dst + 1u] = blue | (65535u << 16u);
+}

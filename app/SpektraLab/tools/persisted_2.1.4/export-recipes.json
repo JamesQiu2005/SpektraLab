@@ -1,0 +1,101 @@
+[
+  {
+    "colour" : "sRGB",
+    "destination" : "Files",
+    "format" : "JPEG",
+    "id" : "5B1D0005-0000-4000-8000-53504B524543",
+    "quality" : 96,
+    "size" : {
+      "full" : {
+
+      }
+    }
+  },
+  {
+    "colour" : "Display P3",
+    "destination" : "Files",
+    "format" : "JPEG",
+    "id" : "5B1D0001-0000-4000-8000-53504B524543",
+    "quality" : 96,
+    "size" : {
+      "full" : {
+
+      }
+    }
+  },
+  {
+    "colour" : "Display P3",
+    "destination" : "Files",
+    "format" : "HEIF",
+    "id" : "5B1D0002-0000-4000-8000-53504B524543",
+    "quality" : 96,
+    "size" : {
+      "full" : {
+
+      }
+    }
+  },
+  {
+    "colour" : "ProPhoto",
+    "destination" : "Files",
+    "format" : "TIFF",
+    "id" : "5B1D0003-0000-4000-8000-53504B524543",
+    "quality" : 96,
+    "size" : {
+      "full" : {
+
+      }
+    }
+  },
+  {
+    "colour" : "sRGB",
+    "destination" : "Files",
+    "format" : "PNG",
+    "id" : "5B1D0004-0000-4000-8000-53504B524543",
+    "quality" : 96,
+    "size" : {
+      "full" : {
+
+      }
+    }
+  },
+  {
+    "colour" : "ProPhoto",
+    "destination" : "Photos",
+    "format" : "TIFF",
+    "id" : "D13D13D1-0000-4000-8000-000000000100",
+    "quality" : 96,
+    "size" : {
+      "megapixels" : {
+        "_0" : 25
+      }
+    },
+    "title" : "Fixture 0"
+  },
+  {
+    "colour" : "ProPhoto",
+    "destination" : "Share",
+    "format" : "TIFF",
+    "id" : "D13D13D1-0000-4000-8000-000000000101",
+    "quality" : 96,
+    "size" : {
+      "longEdge" : {
+        "_0" : 4097
+      }
+    },
+    "title" : "Fixture 1"
+  },
+  {
+    "colour" : "ProPhoto",
+    "destination" : "Files",
+    "format" : "TIFF",
+    "id" : "D13D13D1-0000-4000-8000-000000000102",
+    "quality" : 96,
+    "size" : {
+      "shortEdge" : {
+        "_0" : 2049
+      }
+    },
+    "title" : "Fixture 2"
+  }
+]

@@ -1,0 +1,50 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<!-- The app's privacy manifest. Nothing here tracks anyone: no advertising, no data broker,
+	     no other company's SDK. -->
+	<key>NSPrivacyTracking</key>
+	<false/>
+	<key>NSPrivacyTrackingDomains</key>
+	<array/>
+	<!-- Nothing is collected. The log is kept on the device for 7 days and leaves it only when the
+	     user hands its zip on themselves (Settings, Export Log Zip): a release build has no code
+	     that could send it unless its checkout was given a server (logs.local, gen_project.py). -->
+	<key>NSPrivacyCollectedDataTypes</key>
+	<array/>
+	<!-- The system's interfaces Apple asks a reason for, and the app's reason for each. -->
+	<key>NSPrivacyAccessedAPITypes</key>
+	<array>
+		<!-- The app's own settings (AppSettings, Diagnostics). -->
+		<dict>
+			<key>NSPrivacyAccessedAPIType</key>
+			<string>NSPrivacyAccessedAPICategoryUserDefaults</string>
+			<key>NSPrivacyAccessedAPITypeReasons</key>
+			<array>
+				<string>CA92.1</string>
+			</array>
+		</dict>
+		<!-- When a file was written: the app's own (working copies go oldest first, the launch's tidy,
+		     the log's 7 days), and files the user picked or linked. -->
+		<dict>
+			<key>NSPrivacyAccessedAPIType</key>
+			<string>NSPrivacyAccessedAPICategoryFileTimestamp</string>
+			<key>NSPrivacyAccessedAPITypeReasons</key>
+			<array>
+				<string>C617.1</string>
+				<string>3B52.1</string>
+			</array>
+		</dict>
+		<!-- How long a develop took (the scheduler's and the engine's clocks). -->
+		<dict>
+			<key>NSPrivacyAccessedAPIType</key>
+			<string>NSPrivacyAccessedAPICategorySystemBootTime</string>
+			<key>NSPrivacyAccessedAPITypeReasons</key>
+			<array>
+				<string>35F9.1</string>
+			</array>
+		</dict>
+	</array>
+</dict>
+</plist>

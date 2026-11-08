@@ -1,0 +1,45 @@
+#version 450
+
+// Per-channel fast_interp, with the same right-biased binary search as
+// spk_common.h. The baked x/y tables are interleaved (K,3).
+layout(local_size_x = 256) in;
+layout(set = 0, binding = 0, std430) readonly buffer Input { float value[]; } input_data;
+layout(set = 0, binding = 1, std430) readonly buffer XAxis { float value[]; } x_axis;
+layout(set = 0, binding = 2, std430) readonly buffer InverseSteps { float value[]; } inverse_steps;
+layout(set = 0, binding = 3, std430) readonly buffer YAxis { float value[]; } y_axis;
+layout(set = 0, binding = 4, std430) readonly buffer Meta { uint value[]; } meta;
+layout(set = 0, binding = 5, std430) writeonly buffer Output { float value[]; } output_data;
+
+// vulkan_gpu.cpp folds a dispatch past maxComputeWorkGroupCount[0] (65535 on
+// lavapipe and Intel) into rows of workgroups; this is the 1D index it means.
+uint spk_global_index() {
+    return gl_GlobalInvocationID.y * (gl_NumWorkGroups.x * gl_WorkGroupSize.x) + gl_GlobalInvocationID.x;
+}
+
+float interpolate(uint count, uint channel, float value) {
+    float x0 = x_axis.value[channel];
+    float x_last = x_axis.value[(count - 1u) * 3u + channel];
+    if (value <= x0) return y_axis.value[channel];
+    if (value >= x_last) return y_axis.value[(count - 1u) * 3u + channel];
+    uint lo = 0u, hi = count;
+    while (lo < hi) {
+        uint mid = lo + ((hi - lo) >> 1u);
+        if (x_axis.value[mid * 3u + channel] <= value) lo = mid + 1u;
+        else hi = mid;
+    }
+    uint low = lo - 1u;
+    float fraction = (value - x_axis.value[low * 3u + channel])
+                     * inverse_steps.value[low * 3u + channel];
+    float y0 = y_axis.value[low * 3u + channel];
+    float y1 = y_axis.value[(low + 1u) * 3u + channel];
+    return y0 + fraction * (y1 - y0);
+}
+
+void main() {
+    uint pixel = spk_global_index();
+    uint count = meta.value[0];
+    if (pixel >= meta.value[1]) return;
+    for (uint channel = 0u; channel < 3u; ++channel)
+        output_data.value[3u * pixel + channel] =
+            interpolate(count, channel, input_data.value[3u * pixel + channel]);
+}

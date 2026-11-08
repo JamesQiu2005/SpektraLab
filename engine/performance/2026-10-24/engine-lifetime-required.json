@@ -1,0 +1,205 @@
+{
+  "archive": "required",
+  "rows": [
+    {
+      "engine": 0,
+      "footprint_mib": 67.0,
+      "fds": 7
+    },
+    {
+      "engine": 1,
+      "footprint_mib": 67.0,
+      "fds": 7
+    },
+    {
+      "engine": 2,
+      "footprint_mib": 67.0,
+      "fds": 7
+    },
+    {
+      "engine": 3,
+      "footprint_mib": 67.0,
+      "fds": 7
+    },
+    {
+      "engine": 4,
+      "footprint_mib": 67.0,
+      "fds": 7
+    },
+    {
+      "engine": 5,
+      "footprint_mib": 67.0,
+      "fds": 7
+    },
+    {
+      "engine": 6,
+      "footprint_mib": 67.0,
+      "fds": 7
+    },
+    {
+      "engine": 7,
+      "footprint_mib": 67.0,
+      "fds": 7
+    },
+    {
+      "engine": 8,
+      "footprint_mib": 67.0,
+      "fds": 7
+    },
+    {
+      "engine": 9,
+      "footprint_mib": 67.0,
+      "fds": 7
+    },
+    {
+      "engine": 10,
+      "footprint_mib": 67.0,
+      "fds": 7
+    },
+    {
+      "engine": 11,
+      "footprint_mib": 67.0,
+      "fds": 7
+    },
+    {
+      "engine": 12,
+      "footprint_mib": 67.0,
+      "fds": 7
+    },
+    {
+      "engine": 13,
+      "footprint_mib": 67.0,
+      "fds": 7
+    },
+    {
+      "engine": 14,
+      "footprint_mib": 67.0,
+      "fds": 7
+    },
+    {
+      "engine": 15,
+      "footprint_mib": 67.0,
+      "fds": 7
+    },
+    {
+      "engine": 16,
+      "footprint_mib": 67.0,
+      "fds": 7
+    },
+    {
+      "engine": 17,
+      "footprint_mib": 67.0,
+      "fds": 7
+    },
+    {
+      "engine": 18,
+      "footprint_mib": 67.0,
+      "fds": 7
+    },
+    {
+      "engine": 19,
+      "footprint_mib": 67.0,
+      "fds": 7
+    },
+    {
+      "engine": 20,
+      "footprint_mib": 67.0,
+      "fds": 7
+    },
+    {
+      "engine": 21,
+      "footprint_mib": 67.0,
+      "fds": 7
+    },
+    {
+      "engine": 22,
+      "footprint_mib": 67.0,
+      "fds": 7
+    },
+    {
+      "engine": 23,
+      "footprint_mib": 67.0,
+      "fds": 7
+    },
+    {
+      "engine": 24,
+      "footprint_mib": 67.0,
+      "fds": 7
+    },
+    {
+      "engine": 25,
+      "footprint_mib": 67.0,
+      "fds": 7
+    },
+    {
+      "engine": 26,
+      "footprint_mib": 67.0,
+      "fds": 7
+    },
+    {
+      "engine": 27,
+      "footprint_mib": 67.0,
+      "fds": 7
+    },
+    {
+      "engine": 28,
+      "footprint_mib": 67.0,
+      "fds": 7
+    },
+    {
+      "engine": 29,
+      "footprint_mib": 67.0,
+      "fds": 7
+    },
+    {
+      "engine": 30,
+      "footprint_mib": 67.0,
+      "fds": 7
+    },
+    {
+      "engine": 31,
+      "footprint_mib": 67.0,
+      "fds": 7
+    },
+    {
+      "engine": 32,
+      "footprint_mib": 67.0,
+      "fds": 7
+    },
+    {
+      "engine": 33,
+      "footprint_mib": 67.0,
+      "fds": 7
+    },
+    {
+      "engine": 34,
+      "footprint_mib": 67.0,
+      "fds": 7
+    },
+    {
+      "engine": 35,
+      "footprint_mib": 67.0,
+      "fds": 7
+    },
+    {
+      "engine": 36,
+      "footprint_mib": 67.0,
+      "fds": 7
+    },
+    {
+      "engine": 37,
+      "footprint_mib": 67.0,
+      "fds": 7
+    },
+    {
+      "engine": 38,
+      "footprint_mib": 67.0,
+      "fds": 7
+    },
+    {
+      "engine": 39,
+      "footprint_mib": 67.0,
+      "fds": 7
+    }
+  ]
+}

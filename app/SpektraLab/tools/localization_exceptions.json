@@ -1,0 +1,22 @@
+{
+  "unwrapped": {},
+  "made_at_run_time": {
+    "slide (positive)": "a stock's kind, read from Resources/StockCatalog.json (StockCards, StockPairPicker)",
+    "colour negative": "a stock's kind, read from Resources/StockCatalog.json (StockCards, StockPairPicker)",
+    "cine negative": "a stock's kind, read from Resources/StockCatalog.json (StockCards, StockPairPicker)",
+    "b&w negative": "a stock's kind, read from Resources/StockCatalog.json (StockCards, StockPairPicker)",
+    "colour paper": "a stock's kind, read from Resources/StockCatalog.json (StockCards, StockPairPicker)",
+    "cine print film": "a stock's kind, read from Resources/StockCatalog.json (StockCards, StockPairPicker)",
+    "b&w paper": "a stock's kind, read from Resources/StockCatalog.json (StockCards, StockPairPicker)",
+    "Rounded": "FilmEdgeGate.label: the case's name with a capital (Model/FilmEdge.swift)",
+    "Eared": "FilmEdgeGate.label: the case's name with a capital (Model/FilmEdge.swift)",
+    "Kicked": "FilmEdgeGate.label: the case's name with a capital (Model/FilmEdge.swift)",
+    "Shouldered": "FilmEdgeGate.label: the case's name with a capital (Model/FilmEdge.swift)",
+    "Scene": "DevelopTab.title: the case's name with a capital (DevelopLayout.swift)",
+    "Placement": "EffectsPage.title: the case's name with a capital (DevelopLayout.swift)",
+    "This Mac cannot write JPEG": "ExportWriter.Failure.noEncoder's sentence, with the format's name in it; shown where an export fails",
+    "This Mac cannot write HEIF": "ExportWriter.Failure.noEncoder's sentence, with the format's name in it; shown where an export fails",
+    "This Mac cannot write PNG": "ExportWriter.Failure.noEncoder's sentence, with the format's name in it; shown where an export fails",
+    "This Mac cannot write TIFF": "ExportWriter.Failure.noEncoder's sentence, with the format's name in it; shown where an export fails"
+  }
+}

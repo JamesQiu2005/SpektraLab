@@ -1,0 +1,22 @@
+[
+  {
+    "case": "missing_catalog",
+    "rejected": true
+  },
+  {
+    "case": "corrupt_table",
+    "rejected": true
+  },
+  {
+    "case": "other_pair_independent",
+    "passed": true
+  },
+  {
+    "case": "missing_table",
+    "rejected": true
+  },
+  {
+    "case": "profile_identity",
+    "rejected": true
+  }
+]

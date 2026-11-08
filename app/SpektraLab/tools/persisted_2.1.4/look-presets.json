@@ -1,0 +1,396 @@
+{
+  "presets" : [
+    {
+      "clip" : {
+        "groups" : [
+          "filmAndPaper",
+          "light"
+        ],
+        "settings" : {
+          "adjustments" : {
+            "blackPoint" : 1,
+            "brightness" : 1,
+            "colorBalance" : {
+              "highlights" : {
+                "hue" : 1,
+                "luminance" : 1,
+                "saturation" : 1
+              },
+              "master" : {
+                "hue" : 1,
+                "luminance" : 1,
+                "saturation" : 1
+              },
+              "midtones" : {
+                "hue" : 1,
+                "luminance" : 1,
+                "saturation" : 1
+              },
+              "shadows" : {
+                "hue" : 1,
+                "luminance" : 1,
+                "saturation" : 1
+              }
+            },
+            "contrast" : 1,
+            "curves" : {
+              "blue" : {
+                "points" : [
+                  [
+                    1,
+                    1
+                  ],
+                  [
+                    2,
+                    2
+                  ]
+                ]
+              },
+              "green" : {
+                "points" : [
+                  [
+                    1,
+                    1
+                  ],
+                  [
+                    2,
+                    2
+                  ]
+                ]
+              },
+              "luma" : {
+                "points" : [
+                  [
+                    1,
+                    1
+                  ],
+                  [
+                    2,
+                    2
+                  ]
+                ]
+              },
+              "parametric" : {
+                "blue" : {
+                  "darks" : 1,
+                  "highlights" : 1,
+                  "highlightSplit" : 0.875,
+                  "lights" : 1,
+                  "midtoneSplit" : 0.625,
+                  "shadows" : 1,
+                  "shadowSplit" : 0.375
+                },
+                "green" : {
+                  "darks" : 1,
+                  "highlights" : 1,
+                  "highlightSplit" : 0.875,
+                  "lights" : 1,
+                  "midtoneSplit" : 0.625,
+                  "shadows" : 1,
+                  "shadowSplit" : 0.375
+                },
+                "luma" : {
+                  "darks" : 1,
+                  "highlights" : 1,
+                  "highlightSplit" : 0.875,
+                  "lights" : 1,
+                  "midtoneSplit" : 0.625,
+                  "shadows" : 1,
+                  "shadowSplit" : 0.375
+                },
+                "red" : {
+                  "darks" : 1,
+                  "highlights" : 1,
+                  "highlightSplit" : 0.875,
+                  "lights" : 1,
+                  "midtoneSplit" : 0.625,
+                  "shadows" : 1,
+                  "shadowSplit" : 0.375
+                },
+                "rgb" : {
+                  "darks" : 1,
+                  "highlights" : 1,
+                  "highlightSplit" : 0.875,
+                  "lights" : 1,
+                  "midtoneSplit" : 0.625,
+                  "shadows" : 1,
+                  "shadowSplit" : 0.375
+                }
+              },
+              "red" : {
+                "points" : [
+                  [
+                    1,
+                    1
+                  ],
+                  [
+                    2,
+                    2
+                  ]
+                ]
+              },
+              "rgb" : {
+                "points" : [
+                  [
+                    1,
+                    1
+                  ],
+                  [
+                    2,
+                    2
+                  ]
+                ]
+              }
+            },
+            "enabled" : false,
+            "exposure" : 0.375,
+            "highlights" : 1,
+            "saturation" : 1,
+            "shadows" : 1,
+            "temperature" : 1,
+            "tint" : 1,
+            "vignette" : {
+              "amount" : 1,
+              "midpoint" : 51
+            },
+            "whitePoint" : 1
+          },
+          "dateBack" : {
+            "active" : true,
+            "alsoData" : true,
+            "brightness" : 2,
+            "brightnessEV" : 3.625,
+            "corner" : "br",
+            "insetXMM" : 4,
+            "insetYMM" : 2.5249999999999999,
+            "order" : "japan",
+            "placement" : "frame",
+            "size" : 2,
+            "style" : "lcd"
+          },
+          "decode" : {
+            "lensCorrection" : true,
+            "rawExposureTreatment" : "source-reference.2",
+            "temperature" : 5501,
+            "tint" : 1,
+            "whiteBalance" : "As Shot"
+          },
+          "decoder" : "coreimage",
+          "filmEdge" : {
+            "active" : true,
+            "cameraSeed" : 1,
+            "edgeBrightness" : 2,
+            "fog" : 2,
+            "format" : "135",
+            "frameNumber" : 1,
+            "gate" : "auto",
+            "holes" : "white",
+            "leaks" : 1,
+            "mode" : "strip",
+            "turn" : 1
+          },
+          "frameSeed" : 2,
+          "geometry" : {
+            "angle" : 1,
+            "aspect" : "free",
+            "crop" : {
+              "height" : 2,
+              "width" : 2,
+              "x" : 1,
+              "y" : 1
+            },
+            "flipH" : true,
+            "flipV" : true,
+            "quarterTurns" : 1
+          },
+          "params" : {
+            "antihalationRemoved" : true,
+            "autoExposure" : true,
+            "autoExposureMethod" : "balanced",
+            "contrastMask" : {
+              "active" : true,
+              "core" : 2,
+              "highlights" : 1,
+              "scale" : 0.155,
+              "scheme" : "gaussian",
+              "shadows" : 1
+            },
+            "digitalIntermediate" : true,
+            "effects" : {
+              "couplers" : 2,
+              "couplersActive" : false,
+              "glare" : 2,
+              "grain" : 2,
+              "grainLayered" : false,
+              "halation" : 2,
+              "scatter" : 2
+            },
+            "exposureCompensationEV" : 1,
+            "extendedDynamicRange" : true,
+            "filmFormatMM" : 37,
+            "filmFrame" : "135",
+            "filmSide" : "short",
+            "filmStock" : "kodak_portra_400",
+            "glareActive" : false,
+            "grainActive" : false,
+            "halationActive" : false,
+            "mFilterShift" : 1,
+            "pairSplit" : 1,
+            "placementIsRight" : true,
+            "preflashExposure" : 1,
+            "printBrightnessStops" : 1,
+            "printEffects" : false,
+            "printStock" : "kodak_supra_endura",
+            "scanFilm" : true,
+            "sceneCurve" : {
+              "blue" : {
+                "points" : [
+                  [
+                    1,
+                    1
+                  ],
+                  [
+                    2,
+                    2
+                  ]
+                ]
+              },
+              "green" : {
+                "points" : [
+                  [
+                    1,
+                    1
+                  ],
+                  [
+                    2,
+                    2
+                  ]
+                ]
+              },
+              "luma" : {
+                "points" : [
+                  [
+                    1,
+                    1
+                  ],
+                  [
+                    2,
+                    2
+                  ]
+                ]
+              },
+              "parametric" : {
+                "blue" : {
+                  "darks" : 1,
+                  "highlights" : 1,
+                  "highlightSplit" : 0.875,
+                  "lights" : 1,
+                  "midtoneSplit" : 0.625,
+                  "shadows" : 1,
+                  "shadowSplit" : 0.375
+                },
+                "green" : {
+                  "darks" : 1,
+                  "highlights" : 1,
+                  "highlightSplit" : 0.875,
+                  "lights" : 1,
+                  "midtoneSplit" : 0.625,
+                  "shadows" : 1,
+                  "shadowSplit" : 0.375
+                },
+                "luma" : {
+                  "darks" : 1,
+                  "highlights" : 1,
+                  "highlightSplit" : 0.875,
+                  "lights" : 1,
+                  "midtoneSplit" : 0.625,
+                  "shadows" : 1,
+                  "shadowSplit" : 0.375
+                },
+                "red" : {
+                  "darks" : 1,
+                  "highlights" : 1,
+                  "highlightSplit" : 0.875,
+                  "lights" : 1,
+                  "midtoneSplit" : 0.625,
+                  "shadows" : 1,
+                  "shadowSplit" : 0.375
+                },
+                "rgb" : {
+                  "darks" : 1,
+                  "highlights" : 1,
+                  "highlightSplit" : 0.875,
+                  "lights" : 1,
+                  "midtoneSplit" : 0.625,
+                  "shadows" : 1,
+                  "shadowSplit" : 0.375
+                }
+              },
+              "red" : {
+                "points" : [
+                  [
+                    1,
+                    1
+                  ],
+                  [
+                    2,
+                    2
+                  ]
+                ]
+              },
+              "rgb" : {
+                "points" : [
+                  [
+                    1,
+                    1
+                  ],
+                  [
+                    2,
+                    2
+                  ]
+                ]
+              }
+            },
+            "sceneLatitude" : {
+              "active" : true,
+              "highlightKnee" : 3,
+              "highlightPercentile" : 100.02500000000001,
+              "highlightPullBack" : 1,
+              "highlightRoom" : 1,
+              "maxLift" : 5,
+              "norm" : "power",
+              "rolloff" : 3,
+              "shadowKnee" : -1,
+              "shadowPercentile" : 0.22500000000000001,
+              "shadowPullBack" : 1,
+              "shadowRoom" : 1
+            },
+            "sceneLatitudeOther" : {
+              "active" : true,
+              "highlightKnee" : 3,
+              "highlightPercentile" : 100.02500000000001,
+              "highlightPullBack" : 1,
+              "highlightRoom" : 1,
+              "maxLift" : 5,
+              "norm" : "power",
+              "rolloff" : 3,
+              "shadowKnee" : -1,
+              "shadowPercentile" : 0.22500000000000001,
+              "shadowPullBack" : 1,
+              "shadowRoom" : 1
+            },
+            "sideLengthMM" : 25,
+            "yFilterShift" : 1
+          },
+          "placementNeedsFit" : true,
+          "schemaVersion" : 5
+        },
+        "sourceAspect" : 1.625,
+        "sourceName" : ""
+      },
+      "id" : "42E3C55C-25D1-4FEA-AA90-EB22843264F9",
+      "name" : "Fixture look"
+    }
+  ],
+  "version" : 1
+}

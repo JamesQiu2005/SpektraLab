@@ -1,0 +1,2 @@
+# Where a build sends its log, and the key (gen_project.py reads it): never in the repository.
+logs.local

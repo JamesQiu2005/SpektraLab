@@ -1,0 +1,25 @@
+#version 450
+
+// Host supplies the highlight threshold and normalisation solved from max(x).
+layout(local_size_x = 256) in;
+layout(set = 0, binding = 0, std430) readonly buffer Input { float value[]; } input_data;
+layout(set = 0, binding = 1, std430) readonly buffer Parameters { float value[]; } parameters;
+layout(set = 0, binding = 2, std430) readonly buffer Count { uint value[]; } count_data;
+layout(set = 0, binding = 3, std430) writeonly buffer Output { float value[]; } output_data;
+
+// vulkan_gpu.cpp folds a dispatch past maxComputeWorkGroupCount[0] (65535 on
+// lavapipe and Intel) into rows of workgroups; this is the 1D index it means.
+uint spk_global_index() {
+    return gl_GlobalInvocationID.y * (gl_NumWorkGroups.x * gl_WorkGroupSize.x) + gl_GlobalInvocationID.x;
+}
+
+void main() {
+    uint i = spk_global_index();
+    if (i >= count_data.value[0]) return;
+    float x = input_data.value[i];
+    float raw_x0 = parameters.value[0], inv_max_raw = parameters.value[1];
+    float a = parameters.value[2], boost_scale = parameters.value[3];
+    if (x <= raw_x0) { output_data.value[i] = x; return; }
+    float dx = (x - raw_x0) * inv_max_raw;
+    output_data.value[i] = x + boost_scale * (exp(a * dx) - a * dx - 1.0);
+}

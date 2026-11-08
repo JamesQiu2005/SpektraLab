@@ -1,0 +1,67 @@
+#version 450
+
+// Separable three-channel FIR. Keep the Metal kernel's axis, edge modes, and
+// optional accumulation so downscale and film blur share one implementation.
+layout(local_size_x = 256) in;
+layout(set = 0, binding = 0, std430) readonly buffer Input { float value[]; } image_data;
+layout(set = 0, binding = 1, std430) readonly buffer Weights { float value[]; } weights;
+layout(set = 0, binding = 2, std430) readonly buffer Accumulator { float value[]; } accumulator;
+layout(set = 0, binding = 3, std430) readonly buffer MixWeights { float value[]; } mix_weights;
+layout(set = 0, binding = 4, std430) readonly buffer Meta { uint value[]; } meta;
+layout(set = 0, binding = 5, std430) writeonly buffer Output { float value[]; } output_data;
+
+// vulkan_gpu.cpp folds a dispatch past maxComputeWorkGroupCount[0] (65535 on
+// lavapipe and Intel) into rows of workgroups; this is the 1D index it means.
+uint spk_global_index() {
+    return gl_GlobalInvocationID.y * (gl_NumWorkGroups.x * gl_WorkGroupSize.x) + gl_GlobalInvocationID.x;
+}
+
+int reflect_index(int index, int length) {
+    // GLSL '%' is undefined for negative operands. Fold the negative side
+    // first so even odd-sized planes and bands use the same boundary rule.
+    // -(index + 1) also avoids signed overflow at the most negative integer.
+    uint folded = index < 0 ? uint(-(index + 1)) : uint(index);
+    uint period = 2u * uint(length);
+    uint j = folded % period;
+    return int(j >= uint(length) ? period - 1u - j : j);
+}
+
+int mirror_index(int index, int length) {
+    if (length <= 1) return 0;
+    uint folded = index < 0 ? uint(-(index + 1)) + 1u : uint(index);
+    uint period = 2u * uint(length - 1);
+    uint j = folded % period;
+    return int(j >= uint(length) ? period - j : j);
+}
+
+void main() {
+    uint pixel = spk_global_index();
+    uint height = meta.value[0], width = meta.value[1];
+    if (pixel >= height * width) return;
+    int radius = int(meta.value[2]);
+    uint axis = meta.value[3], accumulate = meta.value[4], mirror = meta.value[5];
+    uint y = pixel / width, x = pixel % width;
+    int length = axis == 0u ? int(height) : int(width);
+    int base = axis == 0u ? int(y) : int(x);
+    uint taps = uint(2 * radius + 1);
+    vec3 sum = vec3(0.0);
+    for (int k = -radius; k <= radius; ++k) {
+        int j = mirror != 0u ? mirror_index(base + k, length)
+                             : reflect_index(base + k, length);
+        uint source = axis == 0u ? uint(j) * width + x : y * width + uint(j);
+        uint tap = uint(k + radius);
+        vec3 sample_value = vec3(image_data.value[3 * source],
+                                 image_data.value[3 * source + 1],
+                                 image_data.value[3 * source + 2]);
+        vec3 weight = vec3(weights.value[tap], weights.value[taps + tap],
+                           weights.value[2 * taps + tap]);
+        sum += sample_value * weight;
+    }
+    if (accumulate != 0u)
+        sum = vec3(accumulator.value[3 * pixel], accumulator.value[3 * pixel + 1],
+                   accumulator.value[3 * pixel + 2])
+              + sum * vec3(mix_weights.value[0], mix_weights.value[1], mix_weights.value[2]);
+    output_data.value[3 * pixel] = sum.x;
+    output_data.value[3 * pixel + 1] = sum.y;
+    output_data.value[3 * pixel + 2] = sum.z;
+}

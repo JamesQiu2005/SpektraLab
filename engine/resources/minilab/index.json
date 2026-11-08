@@ -1,0 +1,25 @@
+{
+  "version": 1,
+  "pairs": {
+    "kodak_portra_400|kodak_portra_endura": {
+      "sRGB": {
+        "file": "kodak_portra_400__kodak_portra_endura.lut3d",
+        "side": 65,
+        "hash": "9e88d77f58e59738",
+        "film_hash": "ac618e6ae5faa4f9",
+        "paper_hash": "7fe2a5ebb294fdb3",
+        "look_retention": 1,
+        "calibration_space": "sRGB"
+      },
+      "ProPhoto RGB": {
+        "file": "kodak_portra_400__kodak_portra_endura_pp.lut3d",
+        "side": 65,
+        "hash": "1265306b2f2d821e",
+        "film_hash": "ac618e6ae5faa4f9",
+        "paper_hash": "7fe2a5ebb294fdb3",
+        "look_retention": 1,
+        "calibration_space": "ProPhoto RGB"
+      }
+    }
+  }
+}

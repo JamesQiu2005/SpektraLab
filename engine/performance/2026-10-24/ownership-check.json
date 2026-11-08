@@ -1,0 +1,5 @@
+{
+  "red": "borrowed device: before=30 after=62 delta=32 over 32 engines\n",
+  "green": "borrowed device: before=26 after=26 delta=0 over 32 engines\nunsubmitted rejected dispatch: spk_affine3: argument 1 is empty\n",
+  "native_engine_cycles_per_mode": 40
+}

@@ -1,0 +1,131 @@
+{
+  "ClipboardGroup" : [
+    "filmAndPaper",
+    "exposure",
+    "whiteBalance",
+    "filmEffects",
+    "printEffects",
+    "scenePlacement",
+    "filmEdgeAndDateBack",
+    "light",
+    "curve",
+    "colour",
+    "filmExposure",
+    "format",
+    "decode",
+    "enlarger",
+    "couplers",
+    "preflash"
+  ],
+  "CropAspect" : [
+    "free",
+    "original",
+    "originalPortrait",
+    "square",
+    "r3x2",
+    "r2x3",
+    "r4x3",
+    "r3x4",
+    "r16x9",
+    "r9x16",
+    "r5x4",
+    "r4x5",
+    "r7x5",
+    "r5x7"
+  ],
+  "CurveChannel" : [
+    "rgb",
+    "luma",
+    "red",
+    "green",
+    "blue"
+  ],
+  "DateBackCorner" : [
+    "br",
+    "bl",
+    "tr",
+    "tl"
+  ],
+  "DateBackFace" : [
+    "lcd",
+    "dots",
+    "data"
+  ],
+  "DateBackOrder" : [
+    "us",
+    "japan"
+  ],
+  "DateBackPlacement" : [
+    "frame",
+    "rebate"
+  ],
+  "DecodeSettings.WhiteBalance" : [
+    "As Shot",
+    "Daylight",
+    "Cloudy",
+    "Shade",
+    "Tungsten",
+    "Fluorescent",
+    "Custom"
+  ],
+  "ExportRecipe.Colour" : [
+    "sRGB",
+    "Adobe RGB",
+    "Display P3",
+    "ProPhoto"
+  ],
+  "ExportRecipe.Destination" : [
+    "Photos",
+    "Files",
+    "Share"
+  ],
+  "ExportRecipe.Format" : [
+    "JPEG",
+    "HEIF",
+    "PNG",
+    "TIFF"
+  ],
+  "FilmEdgeFormat" : [
+    "135",
+    "135_half",
+    "120_645",
+    "120_6x6",
+    "120_6x7",
+    "120_6x8",
+    "120_6x9",
+    "135_xpan",
+    "120_6x12",
+    "120_6x17"
+  ],
+  "FilmEdgeGate" : [
+    "auto",
+    "square",
+    "rounded",
+    "eared",
+    "shouldered",
+    "kicked"
+  ],
+  "FilmEdgeHoles" : [
+    "white",
+    "black"
+  ],
+  "FilmEdgeView" : [
+    "strip",
+    "filed"
+  ],
+  "HalfFramePair.Scope" : [
+    "frame",
+    "film"
+  ],
+  "LightTablePaper" : [
+    "a4",
+    "a5",
+    "a6"
+  ],
+  "ParametricCurve.Region" : [
+    "highlights",
+    "lights",
+    "darks",
+    "shadows"
+  ]
+}

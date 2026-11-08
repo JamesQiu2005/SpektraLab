@@ -1,0 +1,88 @@
+{
+  "folder" : "\/Volumes\/Fixture\/Roll 7",
+  "left" : {
+    "autoExposure" : true,
+    "decode" : {
+      "lensCorrection" : true,
+      "rawExposureTreatment" : "source-reference.2",
+      "temperature" : 5501,
+      "tint" : 1,
+      "whiteBalance" : "As Shot"
+    },
+    "exposureEV" : 1,
+    "exposureScope" : "frame",
+    "frame" : "D13D13D1-0000-4000-8000-000000000001",
+    "geometry" : {
+      "angle" : 1,
+      "aspect" : "free",
+      "crop" : {
+        "height" : 0.9375,
+        "width" : 0.875,
+        "x" : 0.25,
+        "y" : 0.1875
+      },
+      "flipH" : true,
+      "flipV" : true,
+      "quarterTurns" : 2
+    },
+    "meteredEV" : 0.625,
+    "meteredFor" : "fixture",
+    "meterMethod" : "protect_highlights",
+    "path" : "\/Volumes\/Fixture\/Roll 7\/01.dng",
+    "placement" : {
+      "quarterTurns" : 1,
+      "scale" : 2,
+      "x" : 1,
+      "y" : 1
+    },
+    "print" : {
+      "brightnessStops" : 1,
+      "mFilterShift" : 1,
+      "preflashExposure" : 1,
+      "yFilterShift" : 1
+    },
+    "printScope" : "film"
+  },
+  "onStrip" : true,
+  "origin" : "D13D13D1-0000-4000-8000-000000000002",
+  "right" : {
+    "autoExposure" : false,
+    "decode" : {
+      "lensCorrection" : true,
+      "rawExposureTreatment" : "source-reference.2",
+      "temperature" : 5501,
+      "tint" : 1,
+      "whiteBalance" : "As Shot"
+    },
+    "exposureEV" : 1,
+    "exposureScope" : "frame",
+    "frame" : "D13D13D1-0000-4000-8000-000000000002",
+    "geometry" : {
+      "angle" : 1,
+      "aspect" : "free",
+      "crop" : {
+        "height" : 2,
+        "width" : 2,
+        "x" : 1,
+        "y" : 1
+      },
+      "flipH" : true,
+      "flipV" : true,
+      "quarterTurns" : 1
+    },
+    "meteredEV" : -0.375,
+    "meteredFor" : "fixture",
+    "meterMethod" : "balanced",
+    "path" : "\/Volumes\/Fixture\/Roll 7\/02.dng",
+    "placement" : {
+      "quarterTurns" : 1,
+      "scale" : 2,
+      "x" : 1,
+      "y" : 1
+    },
+    "printScope" : "film"
+  },
+  "schemaVersion" : 1,
+  "spacingMM" : 2,
+  "turned" : true
+}

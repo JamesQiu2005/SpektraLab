@@ -1,0 +1,4428 @@
+{
+  "schema_version": 1,
+  "note": "Inventory only. Catalog presence is not a new QA pass; no rows are silently dropped.",
+  "recipe": {
+    "side": 65,
+    "storage": "float32",
+    "spaces": [
+      "sRGB",
+      "ProPhoto RGB"
+    ],
+    "r_blend": 1.0,
+    "ymode": "opt",
+    "mode": "hybrid",
+    "print_ev": 0.0
+  },
+  "summary": {
+    "films": 25,
+    "papers": 9,
+    "all_pairs": 225,
+    "routes": {
+      "colour_minilab": 136,
+      "incompatible_channel_models": 49,
+      "silver_path": 4,
+      "positive_bypass": 36
+    },
+    "colour_pairs_with_both_catalog_entries": 1,
+    "total_production_tables": 272,
+    "production_payload_bytes": 896383616
+  },
+  "films": [
+    {
+      "id": "cinestill_800t",
+      "stage": "filming",
+      "type": "negative",
+      "monochrome": false,
+      "derived_from": "kodak_vision3_500t",
+      "target_print": "kodak_2383",
+      "profile_sha256": {
+        "resources_product/profiles/cinestill_800t.json": "4b5c5771a1d4755cf2f2994bbc0529387d579cc8d9fb6e23fe5d3d856fc13161",
+        "resources/profiles/kodak_vision3_500t.json": "d7beca68bf16db88dbb7373fd13a6a1150a57a911a54bb0309a760a6f9883329"
+      }
+    },
+    {
+      "id": "fujifilm_c200",
+      "stage": "filming",
+      "type": "negative",
+      "monochrome": false,
+      "derived_from": null,
+      "target_print": "fujifilm_crystal_archive_typeii",
+      "profile_sha256": {
+        "resources/profiles/fujifilm_c200.json": "30db07d88090aadc62e03d18c2c51f67a20a1673390c69f99933b7ed5406d2c8"
+      }
+    },
+    {
+      "id": "fujifilm_neopan_acros_100_ii",
+      "stage": "filming",
+      "type": "negative",
+      "monochrome": true,
+      "derived_from": null,
+      "target_print": "ilford_multigrade_iv_rc",
+      "profile_sha256": {
+        "resources_product/profiles/fujifilm_neopan_acros_100_ii.json": "4429b45664a06c7ee8d16687bcc7adf656403e534fba584f83762e160abdc4f9"
+      }
+    },
+    {
+      "id": "fujifilm_pro_400h",
+      "stage": "filming",
+      "type": "negative",
+      "monochrome": false,
+      "derived_from": null,
+      "target_print": "fujifilm_crystal_archive_typeii",
+      "profile_sha256": {
+        "resources/profiles/fujifilm_pro_400h.json": "da1be731ab79fb5535c43042494fa7298c942179abb68270b928aa012c629b31"
+      }
+    },
+    {
+      "id": "fujifilm_provia_100f",
+      "stage": "filming",
+      "type": "positive",
+      "monochrome": false,
+      "derived_from": null,
+      "target_print": null,
+      "profile_sha256": {
+        "resources/profiles/fujifilm_provia_100f.json": "f061f7aa55e3fefe1c89ee2edb8555a2d44fe8167d02f663c787067d131137b6"
+      }
+    },
+    {
+      "id": "fujifilm_velvia_100",
+      "stage": "filming",
+      "type": "positive",
+      "monochrome": false,
+      "derived_from": null,
+      "target_print": null,
+      "profile_sha256": {
+        "resources/profiles/fujifilm_velvia_100.json": "af696fa9662e0483cb9428d2939675044f2016fc3fad760b50a20a0a586fc04b"
+      }
+    },
+    {
+      "id": "fujifilm_xtra_400",
+      "stage": "filming",
+      "type": "negative",
+      "monochrome": false,
+      "derived_from": null,
+      "target_print": "fujifilm_crystal_archive_typeii",
+      "profile_sha256": {
+        "resources/profiles/fujifilm_xtra_400.json": "5f2a3642c7c8db5e750d7366c34b47d24b89ad78d2abe41da4b5282fd4286e58"
+      }
+    },
+    {
+      "id": "ilford_hp5_plus_400",
+      "stage": "filming",
+      "type": "negative",
+      "monochrome": true,
+      "derived_from": null,
+      "target_print": "ilford_multigrade_iv_rc",
+      "profile_sha256": {
+        "resources_product/profiles/ilford_hp5_plus_400.json": "a09ccdb57816f220ab598e534318a743ef79e16a300f8bd2de7453d451fe8ec5"
+      }
+    },
+    {
+      "id": "kodak_ektachrome_100",
+      "stage": "filming",
+      "type": "positive",
+      "monochrome": false,
+      "derived_from": null,
+      "target_print": null,
+      "profile_sha256": {
+        "resources/profiles/kodak_ektachrome_100.json": "ef194fd80c60a1ac42bbbf1df458b4d047fc07bc17eebce674bb3bcba2ccf62a"
+      }
+    },
+    {
+      "id": "kodak_ektar_100",
+      "stage": "filming",
+      "type": "negative",
+      "monochrome": false,
+      "derived_from": null,
+      "target_print": "kodak_portra_endura",
+      "profile_sha256": {
+        "resources/profiles/kodak_ektar_100.json": "60acbd46c75005771569eafb97f534a4495e9d4e1e9c1e419b90cea2676ec7cf"
+      }
+    },
+    {
+      "id": "kodak_gold_200",
+      "stage": "filming",
+      "type": "negative",
+      "monochrome": false,
+      "derived_from": null,
+      "target_print": "kodak_portra_endura",
+      "profile_sha256": {
+        "resources/profiles/kodak_gold_200.json": "aa8a0c1c7851fface3752f968cdf6c6d74a26fc9756a4460d3155d2382506b7c"
+      }
+    },
+    {
+      "id": "kodak_kodachrome_64",
+      "stage": "filming",
+      "type": "positive",
+      "monochrome": false,
+      "derived_from": null,
+      "target_print": null,
+      "profile_sha256": {
+        "resources/profiles/kodak_kodachrome_64.json": "f88ede487219cf75090ed6663af6923c595707b3c48819f2ccf27122130e921d"
+      }
+    },
+    {
+      "id": "kodak_portra_160",
+      "stage": "filming",
+      "type": "negative",
+      "monochrome": false,
+      "derived_from": null,
+      "target_print": "kodak_portra_endura",
+      "profile_sha256": {
+        "resources/profiles/kodak_portra_160.json": "1bc9b65a6940f3a4381e8d14d0ac43594aff9495051992ce4d7408e761549992"
+      }
+    },
+    {
+      "id": "kodak_portra_400",
+      "stage": "filming",
+      "type": "negative",
+      "monochrome": false,
+      "derived_from": null,
+      "target_print": "kodak_portra_endura",
+      "profile_sha256": {
+        "resources/profiles/kodak_portra_400.json": "b5cdc73dbec8f462f488bca70bedf23fd13ce79969c0457e8ac2a2565d92bf5d"
+      }
+    },
+    {
+      "id": "kodak_portra_800",
+      "stage": "filming",
+      "type": "negative",
+      "monochrome": false,
+      "derived_from": null,
+      "target_print": "kodak_portra_endura",
+      "profile_sha256": {
+        "resources/profiles/kodak_portra_800.json": "5b0c6e861c6273a2ecdf552525e80738037918e650a0dc206e095acfd02f8b43"
+      }
+    },
+    {
+      "id": "kodak_portra_800_push1",
+      "stage": "filming",
+      "type": "negative",
+      "monochrome": false,
+      "derived_from": null,
+      "target_print": "kodak_portra_endura",
+      "profile_sha256": {
+        "resources/profiles/kodak_portra_800_push1.json": "dac9cbcd2442442d9dee90bd2d6a28dcc4b996635dcac0b44ac8ecd32c4b3a4f"
+      }
+    },
+    {
+      "id": "kodak_portra_800_push2",
+      "stage": "filming",
+      "type": "negative",
+      "monochrome": false,
+      "derived_from": null,
+      "target_print": "kodak_portra_endura",
+      "profile_sha256": {
+        "resources/profiles/kodak_portra_800_push2.json": "5ee01e4a00c157721738314313a43b46fcd5dae62ed3a7e4730f9054b66f6282"
+      }
+    },
+    {
+      "id": "kodak_tmax_100",
+      "stage": "filming",
+      "type": "negative",
+      "monochrome": true,
+      "derived_from": null,
+      "target_print": "ilford_multigrade_iv_rc",
+      "profile_sha256": {
+        "resources_product/profiles/kodak_tmax_100.json": "c9160236872034b86fb42b67be3a9252088bfa7bdbb450148b0c20ad83e3033a"
+      }
+    },
+    {
+      "id": "kodak_tri_x_400",
+      "stage": "filming",
+      "type": "negative",
+      "monochrome": true,
+      "derived_from": null,
+      "target_print": "ilford_multigrade_iv_rc",
+      "profile_sha256": {
+        "resources_product/profiles/kodak_tri_x_400.json": "a54be071c6a055a9a49acb7072d10bf0b1bcddf9c0a459b0800a9b14bb66b1f1"
+      }
+    },
+    {
+      "id": "kodak_ultramax_400",
+      "stage": "filming",
+      "type": "negative",
+      "monochrome": false,
+      "derived_from": null,
+      "target_print": "kodak_portra_endura",
+      "profile_sha256": {
+        "resources/profiles/kodak_ultramax_400.json": "248b78bdcc4fdbe864e30f193f900059ecd98cbdb276c88ad8f6f5b520137901"
+      }
+    },
+    {
+      "id": "kodak_verita_200d",
+      "stage": "filming",
+      "type": "negative",
+      "monochrome": false,
+      "derived_from": null,
+      "target_print": "kodak_2383",
+      "profile_sha256": {
+        "resources/profiles/kodak_verita_200d.json": "5d71a3f544721a71cfa0b0671ce1b5eda6dc1e6a09273810793d4bc821b272fc"
+      }
+    },
+    {
+      "id": "kodak_vision3_200t",
+      "stage": "filming",
+      "type": "negative",
+      "monochrome": false,
+      "derived_from": null,
+      "target_print": "kodak_2383",
+      "profile_sha256": {
+        "resources/profiles/kodak_vision3_200t.json": "4a28f049fd6bad67be98efdb058b413c6b3c022e2932b357b346d902c4c393c8"
+      }
+    },
+    {
+      "id": "kodak_vision3_250d",
+      "stage": "filming",
+      "type": "negative",
+      "monochrome": false,
+      "derived_from": null,
+      "target_print": "kodak_2383",
+      "profile_sha256": {
+        "resources/profiles/kodak_vision3_250d.json": "9ab85c8627c0533beb925b747e441e93beabe9e98c2429695b0a53866b56fcc7"
+      }
+    },
+    {
+      "id": "kodak_vision3_500t",
+      "stage": "filming",
+      "type": "negative",
+      "monochrome": false,
+      "derived_from": null,
+      "target_print": "kodak_2383",
+      "profile_sha256": {
+        "resources/profiles/kodak_vision3_500t.json": "d7beca68bf16db88dbb7373fd13a6a1150a57a911a54bb0309a760a6f9883329"
+      }
+    },
+    {
+      "id": "kodak_vision3_50d",
+      "stage": "filming",
+      "type": "negative",
+      "monochrome": false,
+      "derived_from": null,
+      "target_print": "kodak_2383",
+      "profile_sha256": {
+        "resources/profiles/kodak_vision3_50d.json": "fd426abc9de911682080db222020978dee4e8df7ca939bfcd5c9d0f6df249fa1"
+      }
+    }
+  ],
+  "papers": [
+    {
+      "id": "fujifilm_crystal_archive_typeii",
+      "stage": "printing",
+      "type": "negative",
+      "monochrome": false,
+      "derived_from": null,
+      "target_print": null,
+      "profile_sha256": {
+        "resources/profiles/fujifilm_crystal_archive_typeii.json": "b613da2fc9cde092da450abe00b230c73d7ec6afc20fed2b4112e5b5fa77e80e"
+      }
+    },
+    {
+      "id": "ilford_multigrade_iv_rc",
+      "stage": "printing",
+      "type": "negative",
+      "monochrome": true,
+      "derived_from": null,
+      "target_print": null,
+      "profile_sha256": {
+        "resources_product/profiles/ilford_multigrade_iv_rc.json": "0f776f1f26f04aca4ec438ed377dc1acf4073dc1a8ae32c51607a6cb1a02521d"
+      }
+    },
+    {
+      "id": "kodak_2383",
+      "stage": "printing",
+      "type": "negative",
+      "monochrome": false,
+      "derived_from": null,
+      "target_print": null,
+      "profile_sha256": {
+        "resources/profiles/kodak_2383.json": "273eda5e3c9f4a624c1ce65a8249e343fb227d49bcf9bab54167415ac6fd5540"
+      }
+    },
+    {
+      "id": "kodak_2393",
+      "stage": "printing",
+      "type": "negative",
+      "monochrome": false,
+      "derived_from": null,
+      "target_print": null,
+      "profile_sha256": {
+        "resources/profiles/kodak_2393.json": "11fc419921ac81bde811305c46c4bc25a833373e5378a06f3c88929b55d16b33"
+      }
+    },
+    {
+      "id": "kodak_ektacolor_edge",
+      "stage": "printing",
+      "type": "negative",
+      "monochrome": false,
+      "derived_from": null,
+      "target_print": null,
+      "profile_sha256": {
+        "resources/profiles/kodak_ektacolor_edge.json": "82af7d6f3e268f2debbf1a6993356193ac0e948f8fb9725bb8b68d75daddaef4"
+      }
+    },
+    {
+      "id": "kodak_endura_premier",
+      "stage": "printing",
+      "type": "negative",
+      "monochrome": false,
+      "derived_from": null,
+      "target_print": null,
+      "profile_sha256": {
+        "resources/profiles/kodak_endura_premier.json": "7dd0ffe44fc383aa68dc0cee85d4a7e084bec7698784675ea567ca313af00fc1"
+      }
+    },
+    {
+      "id": "kodak_portra_endura",
+      "stage": "printing",
+      "type": "negative",
+      "monochrome": false,
+      "derived_from": null,
+      "target_print": null,
+      "profile_sha256": {
+        "resources/profiles/kodak_portra_endura.json": "ad5ac4b98640c2d6ad0ba24c33ac880d927cbbf1c60551594f2a081cfc2d8d9a"
+      }
+    },
+    {
+      "id": "kodak_supra_endura",
+      "stage": "printing",
+      "type": "negative",
+      "monochrome": false,
+      "derived_from": null,
+      "target_print": null,
+      "profile_sha256": {
+        "resources/profiles/kodak_supra_endura.json": "8d49b240952c77b8302d6d7e652400e21bed595233f926bcc588481d100d2055"
+      }
+    },
+    {
+      "id": "kodak_ultra_endura",
+      "stage": "printing",
+      "type": "negative",
+      "monochrome": false,
+      "derived_from": null,
+      "target_print": null,
+      "profile_sha256": {
+        "resources/profiles/kodak_ultra_endura.json": "8ea5aa5643c5a27b9c189f81a5a126573484f679d4b6d37dbee1b27485b6de9a"
+      }
+    }
+  ],
+  "pairs": [
+    {
+      "film": "cinestill_800t",
+      "paper": "fujifilm_crystal_archive_typeii",
+      "route": "colour_minilab",
+      "reason": "Bake and qualify this explicit negative-film / colour-paper pair.",
+      "default_pair": false,
+      "catalogued_spaces": [],
+      "missing_spaces": [
+        "sRGB",
+        "ProPhoto RGB"
+      ],
+      "state": "pending",
+      "alias_dependency_check_required": true,
+      "profile_sha256": {
+        "resources_product/profiles/cinestill_800t.json": "4b5c5771a1d4755cf2f2994bbc0529387d579cc8d9fb6e23fe5d3d856fc13161",
+        "resources/profiles/kodak_vision3_500t.json": "d7beca68bf16db88dbb7373fd13a6a1150a57a911a54bb0309a760a6f9883329",
+        "resources/profiles/fujifilm_crystal_archive_typeii.json": "b613da2fc9cde092da450abe00b230c73d7ec6afc20fed2b4112e5b5fa77e80e"
+      },
+      "visible_in_supplied_app_catalog": false
+    },
+    {
+      "film": "cinestill_800t",
+      "paper": "ilford_multigrade_iv_rc",
+      "route": "incompatible_channel_models",
+      "reason": "Colour/silver mismatch; preserve the product pairing rule.",
+      "default_pair": false,
+      "catalogued_spaces": [],
+      "missing_spaces": [],
+      "state": "accounted_special_path",
+      "alias_dependency_check_required": true,
+      "profile_sha256": {
+        "resources_product/profiles/cinestill_800t.json": "4b5c5771a1d4755cf2f2994bbc0529387d579cc8d9fb6e23fe5d3d856fc13161",
+        "resources/profiles/kodak_vision3_500t.json": "d7beca68bf16db88dbb7373fd13a6a1150a57a911a54bb0309a760a6f9883329",
+        "resources_product/profiles/ilford_multigrade_iv_rc.json": "0f776f1f26f04aca4ec438ed377dc1acf4073dc1a8ae32c51607a6cb1a02521d"
+      },
+      "visible_in_supplied_app_catalog": false
+    },
+    {
+      "film": "cinestill_800t",
+      "paper": "kodak_2383",
+      "route": "colour_minilab",
+      "reason": "Bake and qualify this explicit negative-film / colour-paper pair.",
+      "default_pair": true,
+      "catalogued_spaces": [],
+      "missing_spaces": [
+        "sRGB",
+        "ProPhoto RGB"
+      ],
+      "state": "pending",
+      "alias_dependency_check_required": true,
+      "profile_sha256": {
+        "resources_product/profiles/cinestill_800t.json": "4b5c5771a1d4755cf2f2994bbc0529387d579cc8d9fb6e23fe5d3d856fc13161",
+        "resources/profiles/kodak_vision3_500t.json": "d7beca68bf16db88dbb7373fd13a6a1150a57a911a54bb0309a760a6f9883329",
+        "resources/profiles/kodak_2383.json": "273eda5e3c9f4a624c1ce65a8249e343fb227d49bcf9bab54167415ac6fd5540"
+      },
+      "visible_in_supplied_app_catalog": false
+    },
+    {
+      "film": "cinestill_800t",
+      "paper": "kodak_2393",
+      "route": "colour_minilab",
+      "reason": "Bake and qualify this explicit negative-film / colour-paper pair.",
+      "default_pair": false,
+      "catalogued_spaces": [],
+      "missing_spaces": [
+        "sRGB",
+        "ProPhoto RGB"
+      ],
+      "state": "pending",
+      "alias_dependency_check_required": true,
+      "profile_sha256": {
+        "resources_product/profiles/cinestill_800t.json": "4b5c5771a1d4755cf2f2994bbc0529387d579cc8d9fb6e23fe5d3d856fc13161",
+        "resources/profiles/kodak_vision3_500t.json": "d7beca68bf16db88dbb7373fd13a6a1150a57a911a54bb0309a760a6f9883329",
+        "resources/profiles/kodak_2393.json": "11fc419921ac81bde811305c46c4bc25a833373e5378a06f3c88929b55d16b33"
+      },
+      "visible_in_supplied_app_catalog": false
+    },
+    {
+      "film": "cinestill_800t",
+      "paper": "kodak_ektacolor_edge",
+      "route": "colour_minilab",
+      "reason": "Bake and qualify this explicit negative-film / colour-paper pair.",
+      "default_pair": false,
+      "catalogued_spaces": [],
+      "missing_spaces": [
+        "sRGB",
+        "ProPhoto RGB"
+      ],
+      "state": "pending",
+      "alias_dependency_check_required": true,
+      "profile_sha256": {
+        "resources_product/profiles/cinestill_800t.json": "4b5c5771a1d4755cf2f2994bbc0529387d579cc8d9fb6e23fe5d3d856fc13161",
+        "resources/profiles/kodak_vision3_500t.json": "d7beca68bf16db88dbb7373fd13a6a1150a57a911a54bb0309a760a6f9883329",
+        "resources/profiles/kodak_ektacolor_edge.json": "82af7d6f3e268f2debbf1a6993356193ac0e948f8fb9725bb8b68d75daddaef4"
+      },
+      "visible_in_supplied_app_catalog": false
+    },
+    {
+      "film": "cinestill_800t",
+      "paper": "kodak_endura_premier",
+      "route": "colour_minilab",
+      "reason": "Bake and qualify this explicit negative-film / colour-paper pair.",
+      "default_pair": false,
+      "catalogued_spaces": [],
+      "missing_spaces": [
+        "sRGB",
+        "ProPhoto RGB"
+      ],
+      "state": "pending",
+      "alias_dependency_check_required": true,
+      "profile_sha256": {
+        "resources_product/profiles/cinestill_800t.json": "4b5c5771a1d4755cf2f2994bbc0529387d579cc8d9fb6e23fe5d3d856fc13161",
+        "resources/profiles/kodak_vision3_500t.json": "d7beca68bf16db88dbb7373fd13a6a1150a57a911a54bb0309a760a6f9883329",
+        "resources/profiles/kodak_endura_premier.json": "7dd0ffe44fc383aa68dc0cee85d4a7e084bec7698784675ea567ca313af00fc1"
+      },
+      "visible_in_supplied_app_catalog": false
+    },
+    {
+      "film": "cinestill_800t",
+      "paper": "kodak_portra_endura",
+      "route": "colour_minilab",
+      "reason": "Bake and qualify this explicit negative-film / colour-paper pair.",
+      "default_pair": false,
+      "catalogued_spaces": [],
+      "missing_spaces": [
+        "sRGB",
+        "ProPhoto RGB"
+      ],
+      "state": "pending",
+      "alias_dependency_check_required": true,
+      "profile_sha256": {
+        "resources_product/profiles/cinestill_800t.json": "4b5c5771a1d4755cf2f2994bbc0529387d579cc8d9fb6e23fe5d3d856fc13161",
+        "resources/profiles/kodak_vision3_500t.json": "d7beca68bf16db88dbb7373fd13a6a1150a57a911a54bb0309a760a6f9883329",
+        "resources/profiles/kodak_portra_endura.json": "ad5ac4b98640c2d6ad0ba24c33ac880d927cbbf1c60551594f2a081cfc2d8d9a"
+      },
+      "visible_in_supplied_app_catalog": false
+    },
+    {
+      "film": "cinestill_800t",
+      "paper": "kodak_supra_endura",
+      "route": "colour_minilab",
+      "reason": "Bake and qualify this explicit negative-film / colour-paper pair.",
+      "default_pair": false,
+      "catalogued_spaces": [],
+      "missing_spaces": [
+        "sRGB",
+        "ProPhoto RGB"
+      ],
+      "state": "pending",
+      "alias_dependency_check_required": true,
+      "profile_sha256": {
+        "resources_product/profiles/cinestill_800t.json": "4b5c5771a1d4755cf2f2994bbc0529387d579cc8d9fb6e23fe5d3d856fc13161",
+        "resources/profiles/kodak_vision3_500t.json": "d7beca68bf16db88dbb7373fd13a6a1150a57a911a54bb0309a760a6f9883329",
+        "resources/profiles/kodak_supra_endura.json": "8d49b240952c77b8302d6d7e652400e21bed595233f926bcc588481d100d2055"
+      },
+      "visible_in_supplied_app_catalog": false
+    },
+    {
+      "film": "cinestill_800t",
+      "paper": "kodak_ultra_endura",
+      "route": "colour_minilab",
+      "reason": "Bake and qualify this explicit negative-film / colour-paper pair.",
+      "default_pair": false,
+      "catalogued_spaces": [],
+      "missing_spaces": [
+        "sRGB",
+        "ProPhoto RGB"
+      ],
+      "state": "pending",
+      "alias_dependency_check_required": true,
+      "profile_sha256": {
+        "resources_product/profiles/cinestill_800t.json": "4b5c5771a1d4755cf2f2994bbc0529387d579cc8d9fb6e23fe5d3d856fc13161",
+        "resources/profiles/kodak_vision3_500t.json": "d7beca68bf16db88dbb7373fd13a6a1150a57a911a54bb0309a760a6f9883329",
+        "resources/profiles/kodak_ultra_endura.json": "8ea5aa5643c5a27b9c189f81a5a126573484f679d4b6d37dbee1b27485b6de9a"
+      },
+      "visible_in_supplied_app_catalog": false
+    },
+    {
+      "film": "fujifilm_c200",
+      "paper": "fujifilm_crystal_archive_typeii",
+      "route": "colour_minilab",
+      "reason": "Bake and qualify this explicit negative-film / colour-paper pair.",
+      "default_pair": true,
+      "catalogued_spaces": [],
+      "missing_spaces": [
+        "sRGB",
+        "ProPhoto RGB"
+      ],
+      "state": "pending",
+      "alias_dependency_check_required": false,
+      "profile_sha256": {
+        "resources/profiles/fujifilm_c200.json": "30db07d88090aadc62e03d18c2c51f67a20a1673390c69f99933b7ed5406d2c8",
+        "resources/profiles/fujifilm_crystal_archive_typeii.json": "b613da2fc9cde092da450abe00b230c73d7ec6afc20fed2b4112e5b5fa77e80e"
+      },
+      "visible_in_supplied_app_catalog": true
+    },
+    {
+      "film": "fujifilm_c200",
+      "paper": "ilford_multigrade_iv_rc",
+      "route": "incompatible_channel_models",
+      "reason": "Colour/silver mismatch; preserve the product pairing rule.",
+      "default_pair": false,
+      "catalogued_spaces": [],
+      "missing_spaces": [],
+      "state": "accounted_special_path",
+      "alias_dependency_check_required": false,
+      "profile_sha256": {
+        "resources/profiles/fujifilm_c200.json": "30db07d88090aadc62e03d18c2c51f67a20a1673390c69f99933b7ed5406d2c8",
+        "resources_product/profiles/ilford_multigrade_iv_rc.json": "0f776f1f26f04aca4ec438ed377dc1acf4073dc1a8ae32c51607a6cb1a02521d"
+      },
+      "visible_in_supplied_app_catalog": true
+    },
+    {
+      "film": "fujifilm_c200",
+      "paper": "kodak_2383",
+      "route": "colour_minilab",
+      "reason": "Bake and qualify this explicit negative-film / colour-paper pair.",
+      "default_pair": false,
+      "catalogued_spaces": [],
+      "missing_spaces": [
+        "sRGB",
+        "ProPhoto RGB"
+      ],
+      "state": "pending",
+      "alias_dependency_check_required": false,
+      "profile_sha256": {
+        "resources/profiles/fujifilm_c200.json": "30db07d88090aadc62e03d18c2c51f67a20a1673390c69f99933b7ed5406d2c8",
+        "resources/profiles/kodak_2383.json": "273eda5e3c9f4a624c1ce65a8249e343fb227d49bcf9bab54167415ac6fd5540"
+      },
+      "visible_in_supplied_app_catalog": true
+    },
+    {
+      "film": "fujifilm_c200",
+      "paper": "kodak_2393",
+      "route": "colour_minilab",
+      "reason": "Bake and qualify this explicit negative-film / colour-paper pair.",
+      "default_pair": false,
+      "catalogued_spaces": [],
+      "missing_spaces": [
+        "sRGB",
+        "ProPhoto RGB"
+      ],
+      "state": "pending",
+      "alias_dependency_check_required": false,
+      "profile_sha256": {
+        "resources/profiles/fujifilm_c200.json": "30db07d88090aadc62e03d18c2c51f67a20a1673390c69f99933b7ed5406d2c8",
+        "resources/profiles/kodak_2393.json": "11fc419921ac81bde811305c46c4bc25a833373e5378a06f3c88929b55d16b33"
+      },
+      "visible_in_supplied_app_catalog": true
+    },
+    {
+      "film": "fujifilm_c200",
+      "paper": "kodak_ektacolor_edge",
+      "route": "colour_minilab",
+      "reason": "Bake and qualify this explicit negative-film / colour-paper pair.",
+      "default_pair": false,
+      "catalogued_spaces": [],
+      "missing_spaces": [
+        "sRGB",
+        "ProPhoto RGB"
+      ],
+      "state": "pending",
+      "alias_dependency_check_required": false,
+      "profile_sha256": {
+        "resources/profiles/fujifilm_c200.json": "30db07d88090aadc62e03d18c2c51f67a20a1673390c69f99933b7ed5406d2c8",
+        "resources/profiles/kodak_ektacolor_edge.json": "82af7d6f3e268f2debbf1a6993356193ac0e948f8fb9725bb8b68d75daddaef4"
+      },
+      "visible_in_supplied_app_catalog": true
+    },
+    {
+      "film": "fujifilm_c200",
+      "paper": "kodak_endura_premier",
+      "route": "colour_minilab",
+      "reason": "Bake and qualify this explicit negative-film / colour-paper pair.",
+      "default_pair": false,
+      "catalogued_spaces": [],
+      "missing_spaces": [
+        "sRGB",
+        "ProPhoto RGB"
+      ],
+      "state": "pending",
+      "alias_dependency_check_required": false,
+      "profile_sha256": {
+        "resources/profiles/fujifilm_c200.json": "30db07d88090aadc62e03d18c2c51f67a20a1673390c69f99933b7ed5406d2c8",
+        "resources/profiles/kodak_endura_premier.json": "7dd0ffe44fc383aa68dc0cee85d4a7e084bec7698784675ea567ca313af00fc1"
+      },
+      "visible_in_supplied_app_catalog": true
+    },
+    {
+      "film": "fujifilm_c200",
+      "paper": "kodak_portra_endura",
+      "route": "colour_minilab",
+      "reason": "Bake and qualify this explicit negative-film / colour-paper pair.",
+      "default_pair": false,
+      "catalogued_spaces": [],
+      "missing_spaces": [
+        "sRGB",
+        "ProPhoto RGB"
+      ],
+      "state": "pending",
+      "alias_dependency_check_required": false,
+      "profile_sha256": {
+        "resources/profiles/fujifilm_c200.json": "30db07d88090aadc62e03d18c2c51f67a20a1673390c69f99933b7ed5406d2c8",
+        "resources/profiles/kodak_portra_endura.json": "ad5ac4b98640c2d6ad0ba24c33ac880d927cbbf1c60551594f2a081cfc2d8d9a"
+      },
+      "visible_in_supplied_app_catalog": true
+    },
+    {
+      "film": "fujifilm_c200",
+      "paper": "kodak_supra_endura",
+      "route": "colour_minilab",
+      "reason": "Bake and qualify this explicit negative-film / colour-paper pair.",
+      "default_pair": false,
+      "catalogued_spaces": [],
+      "missing_spaces": [
+        "sRGB",
+        "ProPhoto RGB"
+      ],
+      "state": "pending",
+      "alias_dependency_check_required": false,
+      "profile_sha256": {
+        "resources/profiles/fujifilm_c200.json": "30db07d88090aadc62e03d18c2c51f67a20a1673390c69f99933b7ed5406d2c8",
+        "resources/profiles/kodak_supra_endura.json": "8d49b240952c77b8302d6d7e652400e21bed595233f926bcc588481d100d2055"
+      },
+      "visible_in_supplied_app_catalog": true
+    },
+    {
+      "film": "fujifilm_c200",
+      "paper": "kodak_ultra_endura",
+      "route": "colour_minilab",
+      "reason": "Bake and qualify this explicit negative-film / colour-paper pair.",
+      "default_pair": false,
+      "catalogued_spaces": [],
+      "missing_spaces": [
+        "sRGB",
+        "ProPhoto RGB"
+      ],
+      "state": "pending",
+      "alias_dependency_check_required": false,
+      "profile_sha256": {
+        "resources/profiles/fujifilm_c200.json": "30db07d88090aadc62e03d18c2c51f67a20a1673390c69f99933b7ed5406d2c8",
+        "resources/profiles/kodak_ultra_endura.json": "8ea5aa5643c5a27b9c189f81a5a126573484f679d4b6d37dbee1b27485b6de9a"
+      },
+      "visible_in_supplied_app_catalog": true
+    },
+    {
+      "film": "fujifilm_neopan_acros_100_ii",
+      "paper": "fujifilm_crystal_archive_typeii",
+      "route": "incompatible_channel_models",
+      "reason": "Colour/silver mismatch; preserve the product pairing rule.",
+      "default_pair": false,
+      "catalogued_spaces": [],
+      "missing_spaces": [],
+      "state": "accounted_special_path",
+      "alias_dependency_check_required": false,
+      "profile_sha256": {
+        "resources_product/profiles/fujifilm_neopan_acros_100_ii.json": "4429b45664a06c7ee8d16687bcc7adf656403e534fba584f83762e160abdc4f9",
+        "resources/profiles/fujifilm_crystal_archive_typeii.json": "b613da2fc9cde092da450abe00b230c73d7ec6afc20fed2b4112e5b5fa77e80e"
+      },
+      "visible_in_supplied_app_catalog": true
+    },
+    {
+      "film": "fujifilm_neopan_acros_100_ii",
+      "paper": "ilford_multigrade_iv_rc",
+      "route": "silver_path",
+      "reason": "Dedicated monochrome path; colour hue recovery is not applicable.",
+      "default_pair": true,
+      "catalogued_spaces": [],
+      "missing_spaces": [],
+      "state": "accounted_special_path",
+      "alias_dependency_check_required": false,
+      "profile_sha256": {
+        "resources_product/profiles/fujifilm_neopan_acros_100_ii.json": "4429b45664a06c7ee8d16687bcc7adf656403e534fba584f83762e160abdc4f9",
+        "resources_product/profiles/ilford_multigrade_iv_rc.json": "0f776f1f26f04aca4ec438ed377dc1acf4073dc1a8ae32c51607a6cb1a02521d"
+      },
+      "visible_in_supplied_app_catalog": true
+    },
+    {
+      "film": "fujifilm_neopan_acros_100_ii",
+      "paper": "kodak_2383",
+      "route": "incompatible_channel_models",
+      "reason": "Colour/silver mismatch; preserve the product pairing rule.",
+      "default_pair": false,
+      "catalogued_spaces": [],
+      "missing_spaces": [],
+      "state": "accounted_special_path",
+      "alias_dependency_check_required": false,
+      "profile_sha256": {
+        "resources_product/profiles/fujifilm_neopan_acros_100_ii.json": "4429b45664a06c7ee8d16687bcc7adf656403e534fba584f83762e160abdc4f9",
+        "resources/profiles/kodak_2383.json": "273eda5e3c9f4a624c1ce65a8249e343fb227d49bcf9bab54167415ac6fd5540"
+      },
+      "visible_in_supplied_app_catalog": true
+    },
+    {
+      "film": "fujifilm_neopan_acros_100_ii",
+      "paper": "kodak_2393",
+      "route": "incompatible_channel_models",
+      "reason": "Colour/silver mismatch; preserve the product pairing rule.",
+      "default_pair": false,
+      "catalogued_spaces": [],
+      "missing_spaces": [],
+      "state": "accounted_special_path",
+      "alias_dependency_check_required": false,
+      "profile_sha256": {
+        "resources_product/profiles/fujifilm_neopan_acros_100_ii.json": "4429b45664a06c7ee8d16687bcc7adf656403e534fba584f83762e160abdc4f9",
+        "resources/profiles/kodak_2393.json": "11fc419921ac81bde811305c46c4bc25a833373e5378a06f3c88929b55d16b33"
+      },
+      "visible_in_supplied_app_catalog": true
+    },
+    {
+      "film": "fujifilm_neopan_acros_100_ii",
+      "paper": "kodak_ektacolor_edge",
+      "route": "incompatible_channel_models",
+      "reason": "Colour/silver mismatch; preserve the product pairing rule.",
+      "default_pair": false,
+      "catalogued_spaces": [],
+      "missing_spaces": [],
+      "state": "accounted_special_path",
+      "alias_dependency_check_required": false,
+      "profile_sha256": {
+        "resources_product/profiles/fujifilm_neopan_acros_100_ii.json": "4429b45664a06c7ee8d16687bcc7adf656403e534fba584f83762e160abdc4f9",
+        "resources/profiles/kodak_ektacolor_edge.json": "82af7d6f3e268f2debbf1a6993356193ac0e948f8fb9725bb8b68d75daddaef4"
+      },
+      "visible_in_supplied_app_catalog": true
+    },
+    {
+      "film": "fujifilm_neopan_acros_100_ii",
+      "paper": "kodak_endura_premier",
+      "route": "incompatible_channel_models",
+      "reason": "Colour/silver mismatch; preserve the product pairing rule.",
+      "default_pair": false,
+      "catalogued_spaces": [],
+      "missing_spaces": [],
+      "state": "accounted_special_path",
+      "alias_dependency_check_required": false,
+      "profile_sha256": {
+        "resources_product/profiles/fujifilm_neopan_acros_100_ii.json": "4429b45664a06c7ee8d16687bcc7adf656403e534fba584f83762e160abdc4f9",
+        "resources/profiles/kodak_endura_premier.json": "7dd0ffe44fc383aa68dc0cee85d4a7e084bec7698784675ea567ca313af00fc1"
+      },
+      "visible_in_supplied_app_catalog": true
+    },
+    {
+      "film": "fujifilm_neopan_acros_100_ii",
+      "paper": "kodak_portra_endura",
+      "route": "incompatible_channel_models",
+      "reason": "Colour/silver mismatch; preserve the product pairing rule.",
+      "default_pair": false,
+      "catalogued_spaces": [],
+      "missing_spaces": [],
+      "state": "accounted_special_path",
+      "alias_dependency_check_required": false,
+      "profile_sha256": {
+        "resources_product/profiles/fujifilm_neopan_acros_100_ii.json": "4429b45664a06c7ee8d16687bcc7adf656403e534fba584f83762e160abdc4f9",
+        "resources/profiles/kodak_portra_endura.json": "ad5ac4b98640c2d6ad0ba24c33ac880d927cbbf1c60551594f2a081cfc2d8d9a"
+      },
+      "visible_in_supplied_app_catalog": true
+    },
+    {
+      "film": "fujifilm_neopan_acros_100_ii",
+      "paper": "kodak_supra_endura",
+      "route": "incompatible_channel_models",
+      "reason": "Colour/silver mismatch; preserve the product pairing rule.",
+      "default_pair": false,
+      "catalogued_spaces": [],
+      "missing_spaces": [],
+      "state": "accounted_special_path",
+      "alias_dependency_check_required": false,
+      "profile_sha256": {
+        "resources_product/profiles/fujifilm_neopan_acros_100_ii.json": "4429b45664a06c7ee8d16687bcc7adf656403e534fba584f83762e160abdc4f9",
+        "resources/profiles/kodak_supra_endura.json": "8d49b240952c77b8302d6d7e652400e21bed595233f926bcc588481d100d2055"
+      },
+      "visible_in_supplied_app_catalog": true
+    },
+    {
+      "film": "fujifilm_neopan_acros_100_ii",
+      "paper": "kodak_ultra_endura",
+      "route": "incompatible_channel_models",
+      "reason": "Colour/silver mismatch; preserve the product pairing rule.",
+      "default_pair": false,
+      "catalogued_spaces": [],
+      "missing_spaces": [],
+      "state": "accounted_special_path",
+      "alias_dependency_check_required": false,
+      "profile_sha256": {
+        "resources_product/profiles/fujifilm_neopan_acros_100_ii.json": "4429b45664a06c7ee8d16687bcc7adf656403e534fba584f83762e160abdc4f9",
+        "resources/profiles/kodak_ultra_endura.json": "8ea5aa5643c5a27b9c189f81a5a126573484f679d4b6d37dbee1b27485b6de9a"
+      },
+      "visible_in_supplied_app_catalog": true
+    },
+    {
+      "film": "fujifilm_pro_400h",
+      "paper": "fujifilm_crystal_archive_typeii",
+      "route": "colour_minilab",
+      "reason": "Bake and qualify this explicit negative-film / colour-paper pair.",
+      "default_pair": true,
+      "catalogued_spaces": [],
+      "missing_spaces": [
+        "sRGB",
+        "ProPhoto RGB"
+      ],
+      "state": "pending",
+      "alias_dependency_check_required": false,
+      "profile_sha256": {
+        "resources/profiles/fujifilm_pro_400h.json": "da1be731ab79fb5535c43042494fa7298c942179abb68270b928aa012c629b31",
+        "resources/profiles/fujifilm_crystal_archive_typeii.json": "b613da2fc9cde092da450abe00b230c73d7ec6afc20fed2b4112e5b5fa77e80e"
+      },
+      "visible_in_supplied_app_catalog": true
+    },
+    {
+      "film": "fujifilm_pro_400h",
+      "paper": "ilford_multigrade_iv_rc",
+      "route": "incompatible_channel_models",
+      "reason": "Colour/silver mismatch; preserve the product pairing rule.",
+      "default_pair": false,
+      "catalogued_spaces": [],
+      "missing_spaces": [],
+      "state": "accounted_special_path",
+      "alias_dependency_check_required": false,
+      "profile_sha256": {
+        "resources/profiles/fujifilm_pro_400h.json": "da1be731ab79fb5535c43042494fa7298c942179abb68270b928aa012c629b31",
+        "resources_product/profiles/ilford_multigrade_iv_rc.json": "0f776f1f26f04aca4ec438ed377dc1acf4073dc1a8ae32c51607a6cb1a02521d"
+      },
+      "visible_in_supplied_app_catalog": true
+    },
+    {
+      "film": "fujifilm_pro_400h",
+      "paper": "kodak_2383",
+      "route": "colour_minilab",
+      "reason": "Bake and qualify this explicit negative-film / colour-paper pair.",
+      "default_pair": false,
+      "catalogued_spaces": [],
+      "missing_spaces": [
+        "sRGB",
+        "ProPhoto RGB"
+      ],
+      "state": "pending",
+      "alias_dependency_check_required": false,
+      "profile_sha256": {
+        "resources/profiles/fujifilm_pro_400h.json": "da1be731ab79fb5535c43042494fa7298c942179abb68270b928aa012c629b31",
+        "resources/profiles/kodak_2383.json": "273eda5e3c9f4a624c1ce65a8249e343fb227d49bcf9bab54167415ac6fd5540"
+      },
+      "visible_in_supplied_app_catalog": true
+    },
+    {
+      "film": "fujifilm_pro_400h",
+      "paper": "kodak_2393",
+      "route": "colour_minilab",
+      "reason": "Bake and qualify this explicit negative-film / colour-paper pair.",
+      "default_pair": false,
+      "catalogued_spaces": [],
+      "missing_spaces": [
+        "sRGB",
+        "ProPhoto RGB"
+      ],
+      "state": "pending",
+      "alias_dependency_check_required": false,
+      "profile_sha256": {
+        "resources/profiles/fujifilm_pro_400h.json": "da1be731ab79fb5535c43042494fa7298c942179abb68270b928aa012c629b31",
+        "resources/profiles/kodak_2393.json": "11fc419921ac81bde811305c46c4bc25a833373e5378a06f3c88929b55d16b33"
+      },
+      "visible_in_supplied_app_catalog": true
+    },
+    {
+      "film": "fujifilm_pro_400h",
+      "paper": "kodak_ektacolor_edge",
+      "route": "colour_minilab",
+      "reason": "Bake and qualify this explicit negative-film / colour-paper pair.",
+      "default_pair": false,
+      "catalogued_spaces": [],
+      "missing_spaces": [
+        "sRGB",
+        "ProPhoto RGB"
+      ],
+      "state": "pending",
+      "alias_dependency_check_required": false,
+      "profile_sha256": {
+        "resources/profiles/fujifilm_pro_400h.json": "da1be731ab79fb5535c43042494fa7298c942179abb68270b928aa012c629b31",
+        "resources/profiles/kodak_ektacolor_edge.json": "82af7d6f3e268f2debbf1a6993356193ac0e948f8fb9725bb8b68d75daddaef4"
+      },
+      "visible_in_supplied_app_catalog": true
+    },
+    {
+      "film": "fujifilm_pro_400h",
+      "paper": "kodak_endura_premier",
+      "route": "colour_minilab",
+      "reason": "Bake and qualify this explicit negative-film / colour-paper pair.",
+      "default_pair": false,
+      "catalogued_spaces": [],
+      "missing_spaces": [
+        "sRGB",
+        "ProPhoto RGB"
+      ],
+      "state": "pending",
+      "alias_dependency_check_required": false,
+      "profile_sha256": {
+        "resources/profiles/fujifilm_pro_400h.json": "da1be731ab79fb5535c43042494fa7298c942179abb68270b928aa012c629b31",
+        "resources/profiles/kodak_endura_premier.json": "7dd0ffe44fc383aa68dc0cee85d4a7e084bec7698784675ea567ca313af00fc1"
+      },
+      "visible_in_supplied_app_catalog": true
+    },
+    {
+      "film": "fujifilm_pro_400h",
+      "paper": "kodak_portra_endura",
+      "route": "colour_minilab",
+      "reason": "Bake and qualify this explicit negative-film / colour-paper pair.",
+      "default_pair": false,
+      "catalogued_spaces": [],
+      "missing_spaces": [
+        "sRGB",
+        "ProPhoto RGB"
+      ],
+      "state": "pending",
+      "alias_dependency_check_required": false,
+      "profile_sha256": {
+        "resources/profiles/fujifilm_pro_400h.json": "da1be731ab79fb5535c43042494fa7298c942179abb68270b928aa012c629b31",
+        "resources/profiles/kodak_portra_endura.json": "ad5ac4b98640c2d6ad0ba24c33ac880d927cbbf1c60551594f2a081cfc2d8d9a"
+      },
+      "visible_in_supplied_app_catalog": true
+    },
+    {
+      "film": "fujifilm_pro_400h",
+      "paper": "kodak_supra_endura",
+      "route": "colour_minilab",
+      "reason": "Bake and qualify this explicit negative-film / colour-paper pair.",
+      "default_pair": false,
+      "catalogued_spaces": [],
+      "missing_spaces": [
+        "sRGB",
+        "ProPhoto RGB"
+      ],
+      "state": "pending",
+      "alias_dependency_check_required": false,
+      "profile_sha256": {
+        "resources/profiles/fujifilm_pro_400h.json": "da1be731ab79fb5535c43042494fa7298c942179abb68270b928aa012c629b31",
+        "resources/profiles/kodak_supra_endura.json": "8d49b240952c77b8302d6d7e652400e21bed595233f926bcc588481d100d2055"
+      },
+      "visible_in_supplied_app_catalog": true
+    },
+    {
+      "film": "fujifilm_pro_400h",
+      "paper": "kodak_ultra_endura",
+      "route": "colour_minilab",
+      "reason": "Bake and qualify this explicit negative-film / colour-paper pair.",
+      "default_pair": false,
+      "catalogued_spaces": [],
+      "missing_spaces": [
+        "sRGB",
+        "ProPhoto RGB"
+      ],
+      "state": "pending",
+      "alias_dependency_check_required": false,
+      "profile_sha256": {
+        "resources/profiles/fujifilm_pro_400h.json": "da1be731ab79fb5535c43042494fa7298c942179abb68270b928aa012c629b31",
+        "resources/profiles/kodak_ultra_endura.json": "8ea5aa5643c5a27b9c189f81a5a126573484f679d4b6d37dbee1b27485b6de9a"
+      },
+      "visible_in_supplied_app_catalog": true
+    },
+    {
+      "film": "fujifilm_provia_100f",
+      "paper": "fujifilm_crystal_archive_typeii",
+      "route": "positive_bypass",
+      "reason": "Reversal scan bypasses paper; do not invent a negative minilab calibration.",
+      "default_pair": false,
+      "catalogued_spaces": [],
+      "missing_spaces": [],
+      "state": "accounted_special_path",
+      "alias_dependency_check_required": false,
+      "profile_sha256": {
+        "resources/profiles/fujifilm_provia_100f.json": "f061f7aa55e3fefe1c89ee2edb8555a2d44fe8167d02f663c787067d131137b6",
+        "resources/profiles/fujifilm_crystal_archive_typeii.json": "b613da2fc9cde092da450abe00b230c73d7ec6afc20fed2b4112e5b5fa77e80e"
+      },
+      "visible_in_supplied_app_catalog": true
+    },
+    {
+      "film": "fujifilm_provia_100f",
+      "paper": "ilford_multigrade_iv_rc",
+      "route": "positive_bypass",
+      "reason": "Reversal scan bypasses paper; do not invent a negative minilab calibration.",
+      "default_pair": false,
+      "catalogued_spaces": [],
+      "missing_spaces": [],
+      "state": "accounted_special_path",
+      "alias_dependency_check_required": false,
+      "profile_sha256": {
+        "resources/profiles/fujifilm_provia_100f.json": "f061f7aa55e3fefe1c89ee2edb8555a2d44fe8167d02f663c787067d131137b6",
+        "resources_product/profiles/ilford_multigrade_iv_rc.json": "0f776f1f26f04aca4ec438ed377dc1acf4073dc1a8ae32c51607a6cb1a02521d"
+      },
+      "visible_in_supplied_app_catalog": true
+    },
+    {
+      "film": "fujifilm_provia_100f",
+      "paper": "kodak_2383",
+      "route": "positive_bypass",
+      "reason": "Reversal scan bypasses paper; do not invent a negative minilab calibration.",
+      "default_pair": false,
+      "catalogued_spaces": [],
+      "missing_spaces": [],
+      "state": "accounted_special_path",
+      "alias_dependency_check_required": false,
+      "profile_sha256": {
+        "resources/profiles/fujifilm_provia_100f.json": "f061f7aa55e3fefe1c89ee2edb8555a2d44fe8167d02f663c787067d131137b6",
+        "resources/profiles/kodak_2383.json": "273eda5e3c9f4a624c1ce65a8249e343fb227d49bcf9bab54167415ac6fd5540"
+      },
+      "visible_in_supplied_app_catalog": true
+    },
+    {
+      "film": "fujifilm_provia_100f",
+      "paper": "kodak_2393",
+      "route": "positive_bypass",
+      "reason": "Reversal scan bypasses paper; do not invent a negative minilab calibration.",
+      "default_pair": false,
+      "catalogued_spaces": [],
+      "missing_spaces": [],
+      "state": "accounted_special_path",
+      "alias_dependency_check_required": false,
+      "profile_sha256": {
+        "resources/profiles/fujifilm_provia_100f.json": "f061f7aa55e3fefe1c89ee2edb8555a2d44fe8167d02f663c787067d131137b6",
+        "resources/profiles/kodak_2393.json": "11fc419921ac81bde811305c46c4bc25a833373e5378a06f3c88929b55d16b33"
+      },
+      "visible_in_supplied_app_catalog": true
+    },
+    {
+      "film": "fujifilm_provia_100f",
+      "paper": "kodak_ektacolor_edge",
+      "route": "positive_bypass",
+      "reason": "Reversal scan bypasses paper; do not invent a negative minilab calibration.",
+      "default_pair": false,
+      "catalogued_spaces": [],
+      "missing_spaces": [],
+      "state": "accounted_special_path",
+      "alias_dependency_check_required": false,
+      "profile_sha256": {
+        "resources/profiles/fujifilm_provia_100f.json": "f061f7aa55e3fefe1c89ee2edb8555a2d44fe8167d02f663c787067d131137b6",
+        "resources/profiles/kodak_ektacolor_edge.json": "82af7d6f3e268f2debbf1a6993356193ac0e948f8fb9725bb8b68d75daddaef4"
+      },
+      "visible_in_supplied_app_catalog": true
+    },
+    {
+      "film": "fujifilm_provia_100f",
+      "paper": "kodak_endura_premier",
+      "route": "positive_bypass",
+      "reason": "Reversal scan bypasses paper; do not invent a negative minilab calibration.",
+      "default_pair": false,
+      "catalogued_spaces": [],
+      "missing_spaces": [],
+      "state": "accounted_special_path",
+      "alias_dependency_check_required": false,
+      "profile_sha256": {
+        "resources/profiles/fujifilm_provia_100f.json": "f061f7aa55e3fefe1c89ee2edb8555a2d44fe8167d02f663c787067d131137b6",
+        "resources/profiles/kodak_endura_premier.json": "7dd0ffe44fc383aa68dc0cee85d4a7e084bec7698784675ea567ca313af00fc1"
+      },
+      "visible_in_supplied_app_catalog": true
+    },
+    {
+      "film": "fujifilm_provia_100f",
+      "paper": "kodak_portra_endura",
+      "route": "positive_bypass",
+      "reason": "Reversal scan bypasses paper; do not invent a negative minilab calibration.",
+      "default_pair": false,
+      "catalogued_spaces": [],
+      "missing_spaces": [],
+      "state": "accounted_special_path",
+      "alias_dependency_check_required": false,
+      "profile_sha256": {
+        "resources/profiles/fujifilm_provia_100f.json": "f061f7aa55e3fefe1c89ee2edb8555a2d44fe8167d02f663c787067d131137b6",
+        "resources/profiles/kodak_portra_endura.json": "ad5ac4b98640c2d6ad0ba24c33ac880d927cbbf1c60551594f2a081cfc2d8d9a"
+      },
+      "visible_in_supplied_app_catalog": true
+    },
+    {
+      "film": "fujifilm_provia_100f",
+      "paper": "kodak_supra_endura",
+      "route": "positive_bypass",
+      "reason": "Reversal scan bypasses paper; do not invent a negative minilab calibration.",
+      "default_pair": false,
+      "catalogued_spaces": [],
+      "missing_spaces": [],
+      "state": "accounted_special_path",
+      "alias_dependency_check_required": false,
+      "profile_sha256": {
+        "resources/profiles/fujifilm_provia_100f.json": "f061f7aa55e3fefe1c89ee2edb8555a2d44fe8167d02f663c787067d131137b6",
+        "resources/profiles/kodak_supra_endura.json": "8d49b240952c77b8302d6d7e652400e21bed595233f926bcc588481d100d2055"
+      },
+      "visible_in_supplied_app_catalog": true
+    },
+    {
+      "film": "fujifilm_provia_100f",
+      "paper": "kodak_ultra_endura",
+      "route": "positive_bypass",
+      "reason": "Reversal scan bypasses paper; do not invent a negative minilab calibration.",
+      "default_pair": false,
+      "catalogued_spaces": [],
+      "missing_spaces": [],
+      "state": "accounted_special_path",
+      "alias_dependency_check_required": false,
+      "profile_sha256": {
+        "resources/profiles/fujifilm_provia_100f.json": "f061f7aa55e3fefe1c89ee2edb8555a2d44fe8167d02f663c787067d131137b6",
+        "resources/profiles/kodak_ultra_endura.json": "8ea5aa5643c5a27b9c189f81a5a126573484f679d4b6d37dbee1b27485b6de9a"
+      },
+      "visible_in_supplied_app_catalog": true
+    },
+    {
+      "film": "fujifilm_velvia_100",
+      "paper": "fujifilm_crystal_archive_typeii",
+      "route": "positive_bypass",
+      "reason": "Reversal scan bypasses paper; do not invent a negative minilab calibration.",
+      "default_pair": false,
+      "catalogued_spaces": [],
+      "missing_spaces": [],
+      "state": "accounted_special_path",
+      "alias_dependency_check_required": false,
+      "profile_sha256": {
+        "resources/profiles/fujifilm_velvia_100.json": "af696fa9662e0483cb9428d2939675044f2016fc3fad760b50a20a0a586fc04b",
+        "resources/profiles/fujifilm_crystal_archive_typeii.json": "b613da2fc9cde092da450abe00b230c73d7ec6afc20fed2b4112e5b5fa77e80e"
+      },
+      "visible_in_supplied_app_catalog": true
+    },
+    {
+      "film": "fujifilm_velvia_100",
+      "paper": "ilford_multigrade_iv_rc",
+      "route": "positive_bypass",
+      "reason": "Reversal scan bypasses paper; do not invent a negative minilab calibration.",
+      "default_pair": false,
+      "catalogued_spaces": [],
+      "missing_spaces": [],
+      "state": "accounted_special_path",
+      "alias_dependency_check_required": false,
+      "profile_sha256": {
+        "resources/profiles/fujifilm_velvia_100.json": "af696fa9662e0483cb9428d2939675044f2016fc3fad760b50a20a0a586fc04b",
+        "resources_product/profiles/ilford_multigrade_iv_rc.json": "0f776f1f26f04aca4ec438ed377dc1acf4073dc1a8ae32c51607a6cb1a02521d"
+      },
+      "visible_in_supplied_app_catalog": true
+    },
+    {
+      "film": "fujifilm_velvia_100",
+      "paper": "kodak_2383",
+      "route": "positive_bypass",
+      "reason": "Reversal scan bypasses paper; do not invent a negative minilab calibration.",
+      "default_pair": false,
+      "catalogued_spaces": [],
+      "missing_spaces": [],
+      "state": "accounted_special_path",
+      "alias_dependency_check_required": false,
+      "profile_sha256": {
+        "resources/profiles/fujifilm_velvia_100.json": "af696fa9662e0483cb9428d2939675044f2016fc3fad760b50a20a0a586fc04b",
+        "resources/profiles/kodak_2383.json": "273eda5e3c9f4a624c1ce65a8249e343fb227d49bcf9bab54167415ac6fd5540"
+      },
+      "visible_in_supplied_app_catalog": true
+    },
+    {
+      "film": "fujifilm_velvia_100",
+      "paper": "kodak_2393",
+      "route": "positive_bypass",
+      "reason": "Reversal scan bypasses paper; do not invent a negative minilab calibration.",
+      "default_pair": false,
+      "catalogued_spaces": [],
+      "missing_spaces": [],
+      "state": "accounted_special_path",
+      "alias_dependency_check_required": false,
+      "profile_sha256": {
+        "resources/profiles/fujifilm_velvia_100.json": "af696fa9662e0483cb9428d2939675044f2016fc3fad760b50a20a0a586fc04b",
+        "resources/profiles/kodak_2393.json": "11fc419921ac81bde811305c46c4bc25a833373e5378a06f3c88929b55d16b33"
+      },
+      "visible_in_supplied_app_catalog": true
+    },
+    {
+      "film": "fujifilm_velvia_100",
+      "paper": "kodak_ektacolor_edge",
+      "route": "positive_bypass",
+      "reason": "Reversal scan bypasses paper; do not invent a negative minilab calibration.",
+      "default_pair": false,
+      "catalogued_spaces": [],
+      "missing_spaces": [],
+      "state": "accounted_special_path",
+      "alias_dependency_check_required": false,
+      "profile_sha256": {
+        "resources/profiles/fujifilm_velvia_100.json": "af696fa9662e0483cb9428d2939675044f2016fc3fad760b50a20a0a586fc04b",
+        "resources/profiles/kodak_ektacolor_edge.json": "82af7d6f3e268f2debbf1a6993356193ac0e948f8fb9725bb8b68d75daddaef4"
+      },
+      "visible_in_supplied_app_catalog": true
+    },
+    {
+      "film": "fujifilm_velvia_100",
+      "paper": "kodak_endura_premier",
+      "route": "positive_bypass",
+      "reason": "Reversal scan bypasses paper; do not invent a negative minilab calibration.",
+      "default_pair": false,
+      "catalogued_spaces": [],
+      "missing_spaces": [],
+      "state": "accounted_special_path",
+      "alias_dependency_check_required": false,
+      "profile_sha256": {
+        "resources/profiles/fujifilm_velvia_100.json": "af696fa9662e0483cb9428d2939675044f2016fc3fad760b50a20a0a586fc04b",
+        "resources/profiles/kodak_endura_premier.json": "7dd0ffe44fc383aa68dc0cee85d4a7e084bec7698784675ea567ca313af00fc1"
+      },
+      "visible_in_supplied_app_catalog": true
+    },
+    {
+      "film": "fujifilm_velvia_100",
+      "paper": "kodak_portra_endura",
+      "route": "positive_bypass",
+      "reason": "Reversal scan bypasses paper; do not invent a negative minilab calibration.",
+      "default_pair": false,
+      "catalogued_spaces": [],
+      "missing_spaces": [],
+      "state": "accounted_special_path",
+      "alias_dependency_check_required": false,
+      "profile_sha256": {
+        "resources/profiles/fujifilm_velvia_100.json": "af696fa9662e0483cb9428d2939675044f2016fc3fad760b50a20a0a586fc04b",
+        "resources/profiles/kodak_portra_endura.json": "ad5ac4b98640c2d6ad0ba24c33ac880d927cbbf1c60551594f2a081cfc2d8d9a"
+      },
+      "visible_in_supplied_app_catalog": true
+    },
+    {
+      "film": "fujifilm_velvia_100",
+      "paper": "kodak_supra_endura",
+      "route": "positive_bypass",
+      "reason": "Reversal scan bypasses paper; do not invent a negative minilab calibration.",
+      "default_pair": false,
+      "catalogued_spaces": [],
+      "missing_spaces": [],
+      "state": "accounted_special_path",
+      "alias_dependency_check_required": false,
+      "profile_sha256": {
+        "resources/profiles/fujifilm_velvia_100.json": "af696fa9662e0483cb9428d2939675044f2016fc3fad760b50a20a0a586fc04b",
+        "resources/profiles/kodak_supra_endura.json": "8d49b240952c77b8302d6d7e652400e21bed595233f926bcc588481d100d2055"
+      },
+      "visible_in_supplied_app_catalog": true
+    },
+    {
+      "film": "fujifilm_velvia_100",
+      "paper": "kodak_ultra_endura",
+      "route": "positive_bypass",
+      "reason": "Reversal scan bypasses paper; do not invent a negative minilab calibration.",
+      "default_pair": false,
+      "catalogued_spaces": [],
+      "missing_spaces": [],
+      "state": "accounted_special_path",
+      "alias_dependency_check_required": false,
+      "profile_sha256": {
+        "resources/profiles/fujifilm_velvia_100.json": "af696fa9662e0483cb9428d2939675044f2016fc3fad760b50a20a0a586fc04b",
+        "resources/profiles/kodak_ultra_endura.json": "8ea5aa5643c5a27b9c189f81a5a126573484f679d4b6d37dbee1b27485b6de9a"
+      },
+      "visible_in_supplied_app_catalog": true
+    },
+    {
+      "film": "fujifilm_xtra_400",
+      "paper": "fujifilm_crystal_archive_typeii",
+      "route": "colour_minilab",
+      "reason": "Bake and qualify this explicit negative-film / colour-paper pair.",
+      "default_pair": true,
+      "catalogued_spaces": [],
+      "missing_spaces": [
+        "sRGB",
+        "ProPhoto RGB"
+      ],
+      "state": "pending",
+      "alias_dependency_check_required": false,
+      "profile_sha256": {
+        "resources/profiles/fujifilm_xtra_400.json": "5f2a3642c7c8db5e750d7366c34b47d24b89ad78d2abe41da4b5282fd4286e58",
+        "resources/profiles/fujifilm_crystal_archive_typeii.json": "b613da2fc9cde092da450abe00b230c73d7ec6afc20fed2b4112e5b5fa77e80e"
+      },
+      "visible_in_supplied_app_catalog": true
+    },
+    {
+      "film": "fujifilm_xtra_400",
+      "paper": "ilford_multigrade_iv_rc",
+      "route": "incompatible_channel_models",
+      "reason": "Colour/silver mismatch; preserve the product pairing rule.",
+      "default_pair": false,
+      "catalogued_spaces": [],
+      "missing_spaces": [],
+      "state": "accounted_special_path",
+      "alias_dependency_check_required": false,
+      "profile_sha256": {
+        "resources/profiles/fujifilm_xtra_400.json": "5f2a3642c7c8db5e750d7366c34b47d24b89ad78d2abe41da4b5282fd4286e58",
+        "resources_product/profiles/ilford_multigrade_iv_rc.json": "0f776f1f26f04aca4ec438ed377dc1acf4073dc1a8ae32c51607a6cb1a02521d"
+      },
+      "visible_in_supplied_app_catalog": true
+    },
+    {
+      "film": "fujifilm_xtra_400",
+      "paper": "kodak_2383",
+      "route": "colour_minilab",
+      "reason": "Bake and qualify this explicit negative-film / colour-paper pair.",
+      "default_pair": false,
+      "catalogued_spaces": [],
+      "missing_spaces": [
+        "sRGB",
+        "ProPhoto RGB"
+      ],
+      "state": "pending",
+      "alias_dependency_check_required": false,
+      "profile_sha256": {
+        "resources/profiles/fujifilm_xtra_400.json": "5f2a3642c7c8db5e750d7366c34b47d24b89ad78d2abe41da4b5282fd4286e58",
+        "resources/profiles/kodak_2383.json": "273eda5e3c9f4a624c1ce65a8249e343fb227d49bcf9bab54167415ac6fd5540"
+      },
+      "visible_in_supplied_app_catalog": true
+    },
+    {
+      "film": "fujifilm_xtra_400",
+      "paper": "kodak_2393",
+      "route": "colour_minilab",
+      "reason": "Bake and qualify this explicit negative-film / colour-paper pair.",
+      "default_pair": false,
+      "catalogued_spaces": [],
+      "missing_spaces": [
+        "sRGB",
+        "ProPhoto RGB"
+      ],
+      "state": "pending",
+      "alias_dependency_check_required": false,
+      "profile_sha256": {
+        "resources/profiles/fujifilm_xtra_400.json": "5f2a3642c7c8db5e750d7366c34b47d24b89ad78d2abe41da4b5282fd4286e58",
+        "resources/profiles/kodak_2393.json": "11fc419921ac81bde811305c46c4bc25a833373e5378a06f3c88929b55d16b33"
+      },
+      "visible_in_supplied_app_catalog": true
+    },
+    {
+      "film": "fujifilm_xtra_400",
+      "paper": "kodak_ektacolor_edge",
+      "route": "colour_minilab",
+      "reason": "Bake and qualify this explicit negative-film / colour-paper pair.",
+      "default_pair": false,
+      "catalogued_spaces": [],
+      "missing_spaces": [
+        "sRGB",
+        "ProPhoto RGB"
+      ],
+      "state": "pending",
+      "alias_dependency_check_required": false,
+      "profile_sha256": {
+        "resources/profiles/fujifilm_xtra_400.json": "5f2a3642c7c8db5e750d7366c34b47d24b89ad78d2abe41da4b5282fd4286e58",
+        "resources/profiles/kodak_ektacolor_edge.json": "82af7d6f3e268f2debbf1a6993356193ac0e948f8fb9725bb8b68d75daddaef4"
+      },
+      "visible_in_supplied_app_catalog": true
+    },
+    {
+      "film": "fujifilm_xtra_400",
+      "paper": "kodak_endura_premier",
+      "route": "colour_minilab",
+      "reason": "Bake and qualify this explicit negative-film / colour-paper pair.",
+      "default_pair": false,
+      "catalogued_spaces": [],
+      "missing_spaces": [
+        "sRGB",
+        "ProPhoto RGB"
+      ],
+      "state": "pending",
+      "alias_dependency_check_required": false,
+      "profile_sha256": {
+        "resources/profiles/fujifilm_xtra_400.json": "5f2a3642c7c8db5e750d7366c34b47d24b89ad78d2abe41da4b5282fd4286e58",
+        "resources/profiles/kodak_endura_premier.json": "7dd0ffe44fc383aa68dc0cee85d4a7e084bec7698784675ea567ca313af00fc1"
+      },
+      "visible_in_supplied_app_catalog": true
+    },
+    {
+      "film": "fujifilm_xtra_400",
+      "paper": "kodak_portra_endura",
+      "route": "colour_minilab",
+      "reason": "Bake and qualify this explicit negative-film / colour-paper pair.",
+      "default_pair": false,
+      "catalogued_spaces": [],
+      "missing_spaces": [
+        "sRGB",
+        "ProPhoto RGB"
+      ],
+      "state": "pending",
+      "alias_dependency_check_required": false,
+      "profile_sha256": {
+        "resources/profiles/fujifilm_xtra_400.json": "5f2a3642c7c8db5e750d7366c34b47d24b89ad78d2abe41da4b5282fd4286e58",
+        "resources/profiles/kodak_portra_endura.json": "ad5ac4b98640c2d6ad0ba24c33ac880d927cbbf1c60551594f2a081cfc2d8d9a"
+      },
+      "visible_in_supplied_app_catalog": true
+    },
+    {
+      "film": "fujifilm_xtra_400",
+      "paper": "kodak_supra_endura",
+      "route": "colour_minilab",
+      "reason": "Bake and qualify this explicit negative-film / colour-paper pair.",
+      "default_pair": false,
+      "catalogued_spaces": [],
+      "missing_spaces": [
+        "sRGB",
+        "ProPhoto RGB"
+      ],
+      "state": "pending",
+      "alias_dependency_check_required": false,
+      "profile_sha256": {
+        "resources/profiles/fujifilm_xtra_400.json": "5f2a3642c7c8db5e750d7366c34b47d24b89ad78d2abe41da4b5282fd4286e58",
+        "resources/profiles/kodak_supra_endura.json": "8d49b240952c77b8302d6d7e652400e21bed595233f926bcc588481d100d2055"
+      },
+      "visible_in_supplied_app_catalog": true
+    },
+    {
+      "film": "fujifilm_xtra_400",
+      "paper": "kodak_ultra_endura",
+      "route": "colour_minilab",
+      "reason": "Bake and qualify this explicit negative-film / colour-paper pair.",
+      "default_pair": false,
+      "catalogued_spaces": [],
+      "missing_spaces": [
+        "sRGB",
+        "ProPhoto RGB"
+      ],
+      "state": "pending",
+      "alias_dependency_check_required": false,
+      "profile_sha256": {
+        "resources/profiles/fujifilm_xtra_400.json": "5f2a3642c7c8db5e750d7366c34b47d24b89ad78d2abe41da4b5282fd4286e58",
+        "resources/profiles/kodak_ultra_endura.json": "8ea5aa5643c5a27b9c189f81a5a126573484f679d4b6d37dbee1b27485b6de9a"
+      },
+      "visible_in_supplied_app_catalog": true
+    },
+    {
+      "film": "ilford_hp5_plus_400",
+      "paper": "fujifilm_crystal_archive_typeii",
+      "route": "incompatible_channel_models",
+      "reason": "Colour/silver mismatch; preserve the product pairing rule.",
+      "default_pair": false,
+      "catalogued_spaces": [],
+      "missing_spaces": [],
+      "state": "accounted_special_path",
+      "alias_dependency_check_required": false,
+      "profile_sha256": {
+        "resources_product/profiles/ilford_hp5_plus_400.json": "a09ccdb57816f220ab598e534318a743ef79e16a300f8bd2de7453d451fe8ec5",
+        "resources/profiles/fujifilm_crystal_archive_typeii.json": "b613da2fc9cde092da450abe00b230c73d7ec6afc20fed2b4112e5b5fa77e80e"
+      },
+      "visible_in_supplied_app_catalog": true
+    },
+    {
+      "film": "ilford_hp5_plus_400",
+      "paper": "ilford_multigrade_iv_rc",
+      "route": "silver_path",
+      "reason": "Dedicated monochrome path; colour hue recovery is not applicable.",
+      "default_pair": true,
+      "catalogued_spaces": [],
+      "missing_spaces": [],
+      "state": "accounted_special_path",
+      "alias_dependency_check_required": false,
+      "profile_sha256": {
+        "resources_product/profiles/ilford_hp5_plus_400.json": "a09ccdb57816f220ab598e534318a743ef79e16a300f8bd2de7453d451fe8ec5",
+        "resources_product/profiles/ilford_multigrade_iv_rc.json": "0f776f1f26f04aca4ec438ed377dc1acf4073dc1a8ae32c51607a6cb1a02521d"
+      },
+      "visible_in_supplied_app_catalog": true
+    },
+    {
+      "film": "ilford_hp5_plus_400",
+      "paper": "kodak_2383",
+      "route": "incompatible_channel_models",
+      "reason": "Colour/silver mismatch; preserve the product pairing rule.",
+      "default_pair": false,
+      "catalogued_spaces": [],
+      "missing_spaces": [],
+      "state": "accounted_special_path",
+      "alias_dependency_check_required": false,
+      "profile_sha256": {
+        "resources_product/profiles/ilford_hp5_plus_400.json": "a09ccdb57816f220ab598e534318a743ef79e16a300f8bd2de7453d451fe8ec5",
+        "resources/profiles/kodak_2383.json": "273eda5e3c9f4a624c1ce65a8249e343fb227d49bcf9bab54167415ac6fd5540"
+      },
+      "visible_in_supplied_app_catalog": true
+    },
+    {
+      "film": "ilford_hp5_plus_400",
+      "paper": "kodak_2393",
+      "route": "incompatible_channel_models",
+      "reason": "Colour/silver mismatch; preserve the product pairing rule.",
+      "default_pair": false,
+      "catalogued_spaces": [],
+      "missing_spaces": [],
+      "state": "accounted_special_path",
+      "alias_dependency_check_required": false,
+      "profile_sha256": {
+        "resources_product/profiles/ilford_hp5_plus_400.json": "a09ccdb57816f220ab598e534318a743ef79e16a300f8bd2de7453d451fe8ec5",
+        "resources/profiles/kodak_2393.json": "11fc419921ac81bde811305c46c4bc25a833373e5378a06f3c88929b55d16b33"
+      },
+      "visible_in_supplied_app_catalog": true
+    },
+    {
+      "film": "ilford_hp5_plus_400",
+      "paper": "kodak_ektacolor_edge",
+      "route": "incompatible_channel_models",
+      "reason": "Colour/silver mismatch; preserve the product pairing rule.",
+      "default_pair": false,
+      "catalogued_spaces": [],
+      "missing_spaces": [],
+      "state": "accounted_special_path",
+      "alias_dependency_check_required": false,
+      "profile_sha256": {
+        "resources_product/profiles/ilford_hp5_plus_400.json": "a09ccdb57816f220ab598e534318a743ef79e16a300f8bd2de7453d451fe8ec5",
+        "resources/profiles/kodak_ektacolor_edge.json": "82af7d6f3e268f2debbf1a6993356193ac0e948f8fb9725bb8b68d75daddaef4"
+      },
+      "visible_in_supplied_app_catalog": true
+    },
+    {
+      "film": "ilford_hp5_plus_400",
+      "paper": "kodak_endura_premier",
+      "route": "incompatible_channel_models",
+      "reason": "Colour/silver mismatch; preserve the product pairing rule.",
+      "default_pair": false,
+      "catalogued_spaces": [],
+      "missing_spaces": [],
+      "state": "accounted_special_path",
+      "alias_dependency_check_required": false,
+      "profile_sha256": {
+        "resources_product/profiles/ilford_hp5_plus_400.json": "a09ccdb57816f220ab598e534318a743ef79e16a300f8bd2de7453d451fe8ec5",
+        "resources/profiles/kodak_endura_premier.json": "7dd0ffe44fc383aa68dc0cee85d4a7e084bec7698784675ea567ca313af00fc1"
+      },
+      "visible_in_supplied_app_catalog": true
+    },
+    {
+      "film": "ilford_hp5_plus_400",
+      "paper": "kodak_portra_endura",
+      "route": "incompatible_channel_models",
+      "reason": "Colour/silver mismatch; preserve the product pairing rule.",
+      "default_pair": false,
+      "catalogued_spaces": [],
+      "missing_spaces": [],
+      "state": "accounted_special_path",
+      "alias_dependency_check_required": false,
+      "profile_sha256": {
+        "resources_product/profiles/ilford_hp5_plus_400.json": "a09ccdb57816f220ab598e534318a743ef79e16a300f8bd2de7453d451fe8ec5",
+        "resources/profiles/kodak_portra_endura.json": "ad5ac4b98640c2d6ad0ba24c33ac880d927cbbf1c60551594f2a081cfc2d8d9a"
+      },
+      "visible_in_supplied_app_catalog": true
+    },
+    {
+      "film": "ilford_hp5_plus_400",
+      "paper": "kodak_supra_endura",
+      "route": "incompatible_channel_models",
+      "reason": "Colour/silver mismatch; preserve the product pairing rule.",
+      "default_pair": false,
+      "catalogued_spaces": [],
+      "missing_spaces": [],
+      "state": "accounted_special_path",
+      "alias_dependency_check_required": false,
+      "profile_sha256": {
+        "resources_product/profiles/ilford_hp5_plus_400.json": "a09ccdb57816f220ab598e534318a743ef79e16a300f8bd2de7453d451fe8ec5",
+        "resources/profiles/kodak_supra_endura.json": "8d49b240952c77b8302d6d7e652400e21bed595233f926bcc588481d100d2055"
+      },
+      "visible_in_supplied_app_catalog": true
+    },
+    {
+      "film": "ilford_hp5_plus_400",
+      "paper": "kodak_ultra_endura",
+      "route": "incompatible_channel_models",
+      "reason": "Colour/silver mismatch; preserve the product pairing rule.",
+      "default_pair": false,
+      "catalogued_spaces": [],
+      "missing_spaces": [],
+      "state": "accounted_special_path",
+      "alias_dependency_check_required": false,
+      "profile_sha256": {
+        "resources_product/profiles/ilford_hp5_plus_400.json": "a09ccdb57816f220ab598e534318a743ef79e16a300f8bd2de7453d451fe8ec5",
+        "resources/profiles/kodak_ultra_endura.json": "8ea5aa5643c5a27b9c189f81a5a126573484f679d4b6d37dbee1b27485b6de9a"
+      },
+      "visible_in_supplied_app_catalog": true
+    },
+    {
+      "film": "kodak_ektachrome_100",
+      "paper": "fujifilm_crystal_archive_typeii",
+      "route": "positive_bypass",
+      "reason": "Reversal scan bypasses paper; do not invent a negative minilab calibration.",
+      "default_pair": false,
+      "catalogued_spaces": [],
+      "missing_spaces": [],
+      "state": "accounted_special_path",
+      "alias_dependency_check_required": false,
+      "profile_sha256": {
+        "resources/profiles/kodak_ektachrome_100.json": "ef194fd80c60a1ac42bbbf1df458b4d047fc07bc17eebce674bb3bcba2ccf62a",
+        "resources/profiles/fujifilm_crystal_archive_typeii.json": "b613da2fc9cde092da450abe00b230c73d7ec6afc20fed2b4112e5b5fa77e80e"
+      },
+      "visible_in_supplied_app_catalog": true
+    },
+    {
+      "film": "kodak_ektachrome_100",
+      "paper": "ilford_multigrade_iv_rc",
+      "route": "positive_bypass",
+      "reason": "Reversal scan bypasses paper; do not invent a negative minilab calibration.",
+      "default_pair": false,
+      "catalogued_spaces": [],
+      "missing_spaces": [],
+      "state": "accounted_special_path",
+      "alias_dependency_check_required": false,
+      "profile_sha256": {
+        "resources/profiles/kodak_ektachrome_100.json": "ef194fd80c60a1ac42bbbf1df458b4d047fc07bc17eebce674bb3bcba2ccf62a",
+        "resources_product/profiles/ilford_multigrade_iv_rc.json": "0f776f1f26f04aca4ec438ed377dc1acf4073dc1a8ae32c51607a6cb1a02521d"
+      },
+      "visible_in_supplied_app_catalog": true
+    },
+    {
+      "film": "kodak_ektachrome_100",
+      "paper": "kodak_2383",
+      "route": "positive_bypass",
+      "reason": "Reversal scan bypasses paper; do not invent a negative minilab calibration.",
+      "default_pair": false,
+      "catalogued_spaces": [],
+      "missing_spaces": [],
+      "state": "accounted_special_path",
+      "alias_dependency_check_required": false,
+      "profile_sha256": {
+        "resources/profiles/kodak_ektachrome_100.json": "ef194fd80c60a1ac42bbbf1df458b4d047fc07bc17eebce674bb3bcba2ccf62a",
+        "resources/profiles/kodak_2383.json": "273eda5e3c9f4a624c1ce65a8249e343fb227d49bcf9bab54167415ac6fd5540"
+      },
+      "visible_in_supplied_app_catalog": true
+    },
+    {
+      "film": "kodak_ektachrome_100",
+      "paper": "kodak_2393",
+      "route": "positive_bypass",
+      "reason": "Reversal scan bypasses paper; do not invent a negative minilab calibration.",
+      "default_pair": false,
+      "catalogued_spaces": [],
+      "missing_spaces": [],
+      "state": "accounted_special_path",
+      "alias_dependency_check_required": false,
+      "profile_sha256": {
+        "resources/profiles/kodak_ektachrome_100.json": "ef194fd80c60a1ac42bbbf1df458b4d047fc07bc17eebce674bb3bcba2ccf62a",
+        "resources/profiles/kodak_2393.json": "11fc419921ac81bde811305c46c4bc25a833373e5378a06f3c88929b55d16b33"
+      },
+      "visible_in_supplied_app_catalog": true
+    },
+    {
+      "film": "kodak_ektachrome_100",
+      "paper": "kodak_ektacolor_edge",
+      "route": "positive_bypass",
+      "reason": "Reversal scan bypasses paper; do not invent a negative minilab calibration.",
+      "default_pair": false,
+      "catalogued_spaces": [],
+      "missing_spaces": [],
+      "state": "accounted_special_path",
+      "alias_dependency_check_required": false,
+      "profile_sha256": {
+        "resources/profiles/kodak_ektachrome_100.json": "ef194fd80c60a1ac42bbbf1df458b4d047fc07bc17eebce674bb3bcba2ccf62a",
+        "resources/profiles/kodak_ektacolor_edge.json": "82af7d6f3e268f2debbf1a6993356193ac0e948f8fb9725bb8b68d75daddaef4"
+      },
+      "visible_in_supplied_app_catalog": true
+    },
+    {
+      "film": "kodak_ektachrome_100",
+      "paper": "kodak_endura_premier",
+      "route": "positive_bypass",
+      "reason": "Reversal scan bypasses paper; do not invent a negative minilab calibration.",
+      "default_pair": false,
+      "catalogued_spaces": [],
+      "missing_spaces": [],
+      "state": "accounted_special_path",
+      "alias_dependency_check_required": false,
+      "profile_sha256": {
+        "resources/profiles/kodak_ektachrome_100.json": "ef194fd80c60a1ac42bbbf1df458b4d047fc07bc17eebce674bb3bcba2ccf62a",
+        "resources/profiles/kodak_endura_premier.json": "7dd0ffe44fc383aa68dc0cee85d4a7e084bec7698784675ea567ca313af00fc1"
+      },
+      "visible_in_supplied_app_catalog": true
+    },
+    {
+      "film": "kodak_ektachrome_100",
+      "paper": "kodak_portra_endura",
+      "route": "positive_bypass",
+      "reason": "Reversal scan bypasses paper; do not invent a negative minilab calibration.",
+      "default_pair": false,
+      "catalogued_spaces": [],
+      "missing_spaces": [],
+      "state": "accounted_special_path",
+      "alias_dependency_check_required": false,
+      "profile_sha256": {
+        "resources/profiles/kodak_ektachrome_100.json": "ef194fd80c60a1ac42bbbf1df458b4d047fc07bc17eebce674bb3bcba2ccf62a",
+        "resources/profiles/kodak_portra_endura.json": "ad5ac4b98640c2d6ad0ba24c33ac880d927cbbf1c60551594f2a081cfc2d8d9a"
+      },
+      "visible_in_supplied_app_catalog": true
+    },
+    {
+      "film": "kodak_ektachrome_100",
+      "paper": "kodak_supra_endura",
+      "route": "positive_bypass",
+      "reason": "Reversal scan bypasses paper; do not invent a negative minilab calibration.",
+      "default_pair": false,
+      "catalogued_spaces": [],
+      "missing_spaces": [],
+      "state": "accounted_special_path",
+      "alias_dependency_check_required": false,
+      "profile_sha256": {
+        "resources/profiles/kodak_ektachrome_100.json": "ef194fd80c60a1ac42bbbf1df458b4d047fc07bc17eebce674bb3bcba2ccf62a",
+        "resources/profiles/kodak_supra_endura.json": "8d49b240952c77b8302d6d7e652400e21bed595233f926bcc588481d100d2055"
+      },
+      "visible_in_supplied_app_catalog": true
+    },
+    {
+      "film": "kodak_ektachrome_100",
+      "paper": "kodak_ultra_endura",
+      "route": "positive_bypass",
+      "reason": "Reversal scan bypasses paper; do not invent a negative minilab calibration.",
+      "default_pair": false,
+      "catalogued_spaces": [],
+      "missing_spaces": [],
+      "state": "accounted_special_path",
+      "alias_dependency_check_required": false,
+      "profile_sha256": {
+        "resources/profiles/kodak_ektachrome_100.json": "ef194fd80c60a1ac42bbbf1df458b4d047fc07bc17eebce674bb3bcba2ccf62a",
+        "resources/profiles/kodak_ultra_endura.json": "8ea5aa5643c5a27b9c189f81a5a126573484f679d4b6d37dbee1b27485b6de9a"
+      },
+      "visible_in_supplied_app_catalog": true
+    },
+    {
+      "film": "kodak_ektar_100",
+      "paper": "fujifilm_crystal_archive_typeii",
+      "route": "colour_minilab",
+      "reason": "Bake and qualify this explicit negative-film / colour-paper pair.",
+      "default_pair": false,
+      "catalogued_spaces": [],
+      "missing_spaces": [
+        "sRGB",
+        "ProPhoto RGB"
+      ],
+      "state": "pending",
+      "alias_dependency_check_required": false,
+      "profile_sha256": {
+        "resources/profiles/kodak_ektar_100.json": "60acbd46c75005771569eafb97f534a4495e9d4e1e9c1e419b90cea2676ec7cf",
+        "resources/profiles/fujifilm_crystal_archive_typeii.json": "b613da2fc9cde092da450abe00b230c73d7ec6afc20fed2b4112e5b5fa77e80e"
+      },
+      "visible_in_supplied_app_catalog": true
+    },
+    {
+      "film": "kodak_ektar_100",
+      "paper": "ilford_multigrade_iv_rc",
+      "route": "incompatible_channel_models",
+      "reason": "Colour/silver mismatch; preserve the product pairing rule.",
+      "default_pair": false,
+      "catalogued_spaces": [],
+      "missing_spaces": [],
+      "state": "accounted_special_path",
+      "alias_dependency_check_required": false,
+      "profile_sha256": {
+        "resources/profiles/kodak_ektar_100.json": "60acbd46c75005771569eafb97f534a4495e9d4e1e9c1e419b90cea2676ec7cf",
+        "resources_product/profiles/ilford_multigrade_iv_rc.json": "0f776f1f26f04aca4ec438ed377dc1acf4073dc1a8ae32c51607a6cb1a02521d"
+      },
+      "visible_in_supplied_app_catalog": true
+    },
+    {
+      "film": "kodak_ektar_100",
+      "paper": "kodak_2383",
+      "route": "colour_minilab",
+      "reason": "Bake and qualify this explicit negative-film / colour-paper pair.",
+      "default_pair": false,
+      "catalogued_spaces": [],
+      "missing_spaces": [
+        "sRGB",
+        "ProPhoto RGB"
+      ],
+      "state": "pending",
+      "alias_dependency_check_required": false,
+      "profile_sha256": {
+        "resources/profiles/kodak_ektar_100.json": "60acbd46c75005771569eafb97f534a4495e9d4e1e9c1e419b90cea2676ec7cf",
+        "resources/profiles/kodak_2383.json": "273eda5e3c9f4a624c1ce65a8249e343fb227d49bcf9bab54167415ac6fd5540"
+      },
+      "visible_in_supplied_app_catalog": true
+    },
+    {
+      "film": "kodak_ektar_100",
+      "paper": "kodak_2393",
+      "route": "colour_minilab",
+      "reason": "Bake and qualify this explicit negative-film / colour-paper pair.",
+      "default_pair": false,
+      "catalogued_spaces": [],
+      "missing_spaces": [
+        "sRGB",
+        "ProPhoto RGB"
+      ],
+      "state": "pending",
+      "alias_dependency_check_required": false,
+      "profile_sha256": {
+        "resources/profiles/kodak_ektar_100.json": "60acbd46c75005771569eafb97f534a4495e9d4e1e9c1e419b90cea2676ec7cf",
+        "resources/profiles/kodak_2393.json": "11fc419921ac81bde811305c46c4bc25a833373e5378a06f3c88929b55d16b33"
+      },
+      "visible_in_supplied_app_catalog": true
+    },
+    {
+      "film": "kodak_ektar_100",
+      "paper": "kodak_ektacolor_edge",
+      "route": "colour_minilab",
+      "reason": "Bake and qualify this explicit negative-film / colour-paper pair.",
+      "default_pair": false,
+      "catalogued_spaces": [],
+      "missing_spaces": [
+        "sRGB",
+        "ProPhoto RGB"
+      ],
+      "state": "pending",
+      "alias_dependency_check_required": false,
+      "profile_sha256": {
+        "resources/profiles/kodak_ektar_100.json": "60acbd46c75005771569eafb97f534a4495e9d4e1e9c1e419b90cea2676ec7cf",
+        "resources/profiles/kodak_ektacolor_edge.json": "82af7d6f3e268f2debbf1a6993356193ac0e948f8fb9725bb8b68d75daddaef4"
+      },
+      "visible_in_supplied_app_catalog": true
+    },
+    {
+      "film": "kodak_ektar_100",
+      "paper": "kodak_endura_premier",
+      "route": "colour_minilab",
+      "reason": "Bake and qualify this explicit negative-film / colour-paper pair.",
+      "default_pair": false,
+      "catalogued_spaces": [],
+      "missing_spaces": [
+        "sRGB",
+        "ProPhoto RGB"
+      ],
+      "state": "pending",
+      "alias_dependency_check_required": false,
+      "profile_sha256": {
+        "resources/profiles/kodak_ektar_100.json": "60acbd46c75005771569eafb97f534a4495e9d4e1e9c1e419b90cea2676ec7cf",
+        "resources/profiles/kodak_endura_premier.json": "7dd0ffe44fc383aa68dc0cee85d4a7e084bec7698784675ea567ca313af00fc1"
+      },
+      "visible_in_supplied_app_catalog": true
+    },
+    {
+      "film": "kodak_ektar_100",
+      "paper": "kodak_portra_endura",
+      "route": "colour_minilab",
+      "reason": "Bake and qualify this explicit negative-film / colour-paper pair.",
+      "default_pair": true,
+      "catalogued_spaces": [],
+      "missing_spaces": [
+        "sRGB",
+        "ProPhoto RGB"
+      ],
+      "state": "pending",
+      "alias_dependency_check_required": false,
+      "profile_sha256": {
+        "resources/profiles/kodak_ektar_100.json": "60acbd46c75005771569eafb97f534a4495e9d4e1e9c1e419b90cea2676ec7cf",
+        "resources/profiles/kodak_portra_endura.json": "ad5ac4b98640c2d6ad0ba24c33ac880d927cbbf1c60551594f2a081cfc2d8d9a"
+      },
+      "visible_in_supplied_app_catalog": true
+    },
+    {
+      "film": "kodak_ektar_100",
+      "paper": "kodak_supra_endura",
+      "route": "colour_minilab",
+      "reason": "Bake and qualify this explicit negative-film / colour-paper pair.",
+      "default_pair": false,
+      "catalogued_spaces": [],
+      "missing_spaces": [
+        "sRGB",
+        "ProPhoto RGB"
+      ],
+      "state": "pending",
+      "alias_dependency_check_required": false,
+      "profile_sha256": {
+        "resources/profiles/kodak_ektar_100.json": "60acbd46c75005771569eafb97f534a4495e9d4e1e9c1e419b90cea2676ec7cf",
+        "resources/profiles/kodak_supra_endura.json": "8d49b240952c77b8302d6d7e652400e21bed595233f926bcc588481d100d2055"
+      },
+      "visible_in_supplied_app_catalog": true
+    },
+    {
+      "film": "kodak_ektar_100",
+      "paper": "kodak_ultra_endura",
+      "route": "colour_minilab",
+      "reason": "Bake and qualify this explicit negative-film / colour-paper pair.",
+      "default_pair": false,
+      "catalogued_spaces": [],
+      "missing_spaces": [
+        "sRGB",
+        "ProPhoto RGB"
+      ],
+      "state": "pending",
+      "alias_dependency_check_required": false,
+      "profile_sha256": {
+        "resources/profiles/kodak_ektar_100.json": "60acbd46c75005771569eafb97f534a4495e9d4e1e9c1e419b90cea2676ec7cf",
+        "resources/profiles/kodak_ultra_endura.json": "8ea5aa5643c5a27b9c189f81a5a126573484f679d4b6d37dbee1b27485b6de9a"
+      },
+      "visible_in_supplied_app_catalog": true
+    },
+    {
+      "film": "kodak_gold_200",
+      "paper": "fujifilm_crystal_archive_typeii",
+      "route": "colour_minilab",
+      "reason": "Bake and qualify this explicit negative-film / colour-paper pair.",
+      "default_pair": false,
+      "catalogued_spaces": [],
+      "missing_spaces": [
+        "sRGB",
+        "ProPhoto RGB"
+      ],
+      "state": "pending",
+      "alias_dependency_check_required": false,
+      "profile_sha256": {
+        "resources/profiles/kodak_gold_200.json": "aa8a0c1c7851fface3752f968cdf6c6d74a26fc9756a4460d3155d2382506b7c",
+        "resources/profiles/fujifilm_crystal_archive_typeii.json": "b613da2fc9cde092da450abe00b230c73d7ec6afc20fed2b4112e5b5fa77e80e"
+      },
+      "visible_in_supplied_app_catalog": true
+    },
+    {
+      "film": "kodak_gold_200",
+      "paper": "ilford_multigrade_iv_rc",
+      "route": "incompatible_channel_models",
+      "reason": "Colour/silver mismatch; preserve the product pairing rule.",
+      "default_pair": false,
+      "catalogued_spaces": [],
+      "missing_spaces": [],
+      "state": "accounted_special_path",
+      "alias_dependency_check_required": false,
+      "profile_sha256": {
+        "resources/profiles/kodak_gold_200.json": "aa8a0c1c7851fface3752f968cdf6c6d74a26fc9756a4460d3155d2382506b7c",
+        "resources_product/profiles/ilford_multigrade_iv_rc.json": "0f776f1f26f04aca4ec438ed377dc1acf4073dc1a8ae32c51607a6cb1a02521d"
+      },
+      "visible_in_supplied_app_catalog": true
+    },
+    {
+      "film": "kodak_gold_200",
+      "paper": "kodak_2383",
+      "route": "colour_minilab",
+      "reason": "Bake and qualify this explicit negative-film / colour-paper pair.",
+      "default_pair": false,
+      "catalogued_spaces": [],
+      "missing_spaces": [
+        "sRGB",
+        "ProPhoto RGB"
+      ],
+      "state": "pending",
+      "alias_dependency_check_required": false,
+      "profile_sha256": {
+        "resources/profiles/kodak_gold_200.json": "aa8a0c1c7851fface3752f968cdf6c6d74a26fc9756a4460d3155d2382506b7c",
+        "resources/profiles/kodak_2383.json": "273eda5e3c9f4a624c1ce65a8249e343fb227d49bcf9bab54167415ac6fd5540"
+      },
+      "visible_in_supplied_app_catalog": true
+    },
+    {
+      "film": "kodak_gold_200",
+      "paper": "kodak_2393",
+      "route": "colour_minilab",
+      "reason": "Bake and qualify this explicit negative-film / colour-paper pair.",
+      "default_pair": false,
+      "catalogued_spaces": [],
+      "missing_spaces": [
+        "sRGB",
+        "ProPhoto RGB"
+      ],
+      "state": "pending",
+      "alias_dependency_check_required": false,
+      "profile_sha256": {
+        "resources/profiles/kodak_gold_200.json": "aa8a0c1c7851fface3752f968cdf6c6d74a26fc9756a4460d3155d2382506b7c",
+        "resources/profiles/kodak_2393.json": "11fc419921ac81bde811305c46c4bc25a833373e5378a06f3c88929b55d16b33"
+      },
+      "visible_in_supplied_app_catalog": true
+    },
+    {
+      "film": "kodak_gold_200",
+      "paper": "kodak_ektacolor_edge",
+      "route": "colour_minilab",
+      "reason": "Bake and qualify this explicit negative-film / colour-paper pair.",
+      "default_pair": false,
+      "catalogued_spaces": [],
+      "missing_spaces": [
+        "sRGB",
+        "ProPhoto RGB"
+      ],
+      "state": "pending",
+      "alias_dependency_check_required": false,
+      "profile_sha256": {
+        "resources/profiles/kodak_gold_200.json": "aa8a0c1c7851fface3752f968cdf6c6d74a26fc9756a4460d3155d2382506b7c",
+        "resources/profiles/kodak_ektacolor_edge.json": "82af7d6f3e268f2debbf1a6993356193ac0e948f8fb9725bb8b68d75daddaef4"
+      },
+      "visible_in_supplied_app_catalog": true
+    },
+    {
+      "film": "kodak_gold_200",
+      "paper": "kodak_endura_premier",
+      "route": "colour_minilab",
+      "reason": "Bake and qualify this explicit negative-film / colour-paper pair.",
+      "default_pair": false,
+      "catalogued_spaces": [],
+      "missing_spaces": [
+        "sRGB",
+        "ProPhoto RGB"
+      ],
+      "state": "pending",
+      "alias_dependency_check_required": false,
+      "profile_sha256": {
+        "resources/profiles/kodak_gold_200.json": "aa8a0c1c7851fface3752f968cdf6c6d74a26fc9756a4460d3155d2382506b7c",
+        "resources/profiles/kodak_endura_premier.json": "7dd0ffe44fc383aa68dc0cee85d4a7e084bec7698784675ea567ca313af00fc1"
+      },
+      "visible_in_supplied_app_catalog": true
+    },
+    {
+      "film": "kodak_gold_200",
+      "paper": "kodak_portra_endura",
+      "route": "colour_minilab",
+      "reason": "Bake and qualify this explicit negative-film / colour-paper pair.",
+      "default_pair": true,
+      "catalogued_spaces": [],
+      "missing_spaces": [
+        "sRGB",
+        "ProPhoto RGB"
+      ],
+      "state": "pending",
+      "alias_dependency_check_required": false,
+      "profile_sha256": {
+        "resources/profiles/kodak_gold_200.json": "aa8a0c1c7851fface3752f968cdf6c6d74a26fc9756a4460d3155d2382506b7c",
+        "resources/profiles/kodak_portra_endura.json": "ad5ac4b98640c2d6ad0ba24c33ac880d927cbbf1c60551594f2a081cfc2d8d9a"
+      },
+      "visible_in_supplied_app_catalog": true
+    },
+    {
+      "film": "kodak_gold_200",
+      "paper": "kodak_supra_endura",
+      "route": "colour_minilab",
+      "reason": "Bake and qualify this explicit negative-film / colour-paper pair.",
+      "default_pair": false,
+      "catalogued_spaces": [],
+      "missing_spaces": [
+        "sRGB",
+        "ProPhoto RGB"
+      ],
+      "state": "pending",
+      "alias_dependency_check_required": false,
+      "profile_sha256": {
+        "resources/profiles/kodak_gold_200.json": "aa8a0c1c7851fface3752f968cdf6c6d74a26fc9756a4460d3155d2382506b7c",
+        "resources/profiles/kodak_supra_endura.json": "8d49b240952c77b8302d6d7e652400e21bed595233f926bcc588481d100d2055"
+      },
+      "visible_in_supplied_app_catalog": true
+    },
+    {
+      "film": "kodak_gold_200",
+      "paper": "kodak_ultra_endura",
+      "route": "colour_minilab",
+      "reason": "Bake and qualify this explicit negative-film / colour-paper pair.",
+      "default_pair": false,
+      "catalogued_spaces": [],
+      "missing_spaces": [
+        "sRGB",
+        "ProPhoto RGB"
+      ],
+      "state": "pending",
+      "alias_dependency_check_required": false,
+      "profile_sha256": {
+        "resources/profiles/kodak_gold_200.json": "aa8a0c1c7851fface3752f968cdf6c6d74a26fc9756a4460d3155d2382506b7c",
+        "resources/profiles/kodak_ultra_endura.json": "8ea5aa5643c5a27b9c189f81a5a126573484f679d4b6d37dbee1b27485b6de9a"
+      },
+      "visible_in_supplied_app_catalog": true
+    },
+    {
+      "film": "kodak_kodachrome_64",
+      "paper": "fujifilm_crystal_archive_typeii",
+      "route": "positive_bypass",
+      "reason": "Reversal scan bypasses paper; do not invent a negative minilab calibration.",
+      "default_pair": false,
+      "catalogued_spaces": [],
+      "missing_spaces": [],
+      "state": "accounted_special_path",
+      "alias_dependency_check_required": false,
+      "profile_sha256": {
+        "resources/profiles/kodak_kodachrome_64.json": "f88ede487219cf75090ed6663af6923c595707b3c48819f2ccf27122130e921d",
+        "resources/profiles/fujifilm_crystal_archive_typeii.json": "b613da2fc9cde092da450abe00b230c73d7ec6afc20fed2b4112e5b5fa77e80e"
+      },
+      "visible_in_supplied_app_catalog": true
+    },
+    {
+      "film": "kodak_kodachrome_64",
+      "paper": "ilford_multigrade_iv_rc",
+      "route": "positive_bypass",
+      "reason": "Reversal scan bypasses paper; do not invent a negative minilab calibration.",
+      "default_pair": false,
+      "catalogued_spaces": [],
+      "missing_spaces": [],
+      "state": "accounted_special_path",
+      "alias_dependency_check_required": false,
+      "profile_sha256": {
+        "resources/profiles/kodak_kodachrome_64.json": "f88ede487219cf75090ed6663af6923c595707b3c48819f2ccf27122130e921d",
+        "resources_product/profiles/ilford_multigrade_iv_rc.json": "0f776f1f26f04aca4ec438ed377dc1acf4073dc1a8ae32c51607a6cb1a02521d"
+      },
+      "visible_in_supplied_app_catalog": true
+    },
+    {
+      "film": "kodak_kodachrome_64",
+      "paper": "kodak_2383",
+      "route": "positive_bypass",
+      "reason": "Reversal scan bypasses paper; do not invent a negative minilab calibration.",
+      "default_pair": false,
+      "catalogued_spaces": [],
+      "missing_spaces": [],
+      "state": "accounted_special_path",
+      "alias_dependency_check_required": false,
+      "profile_sha256": {
+        "resources/profiles/kodak_kodachrome_64.json": "f88ede487219cf75090ed6663af6923c595707b3c48819f2ccf27122130e921d",
+        "resources/profiles/kodak_2383.json": "273eda5e3c9f4a624c1ce65a8249e343fb227d49bcf9bab54167415ac6fd5540"
+      },
+      "visible_in_supplied_app_catalog": true
+    },
+    {
+      "film": "kodak_kodachrome_64",
+      "paper": "kodak_2393",
+      "route": "positive_bypass",
+      "reason": "Reversal scan bypasses paper; do not invent a negative minilab calibration.",
+      "default_pair": false,
+      "catalogued_spaces": [],
+      "missing_spaces": [],
+      "state": "accounted_special_path",
+      "alias_dependency_check_required": false,
+      "profile_sha256": {
+        "resources/profiles/kodak_kodachrome_64.json": "f88ede487219cf75090ed6663af6923c595707b3c48819f2ccf27122130e921d",
+        "resources/profiles/kodak_2393.json": "11fc419921ac81bde811305c46c4bc25a833373e5378a06f3c88929b55d16b33"
+      },
+      "visible_in_supplied_app_catalog": true
+    },
+    {
+      "film": "kodak_kodachrome_64",
+      "paper": "kodak_ektacolor_edge",
+      "route": "positive_bypass",
+      "reason": "Reversal scan bypasses paper; do not invent a negative minilab calibration.",
+      "default_pair": false,
+      "catalogued_spaces": [],
+      "missing_spaces": [],
+      "state": "accounted_special_path",
+      "alias_dependency_check_required": false,
+      "profile_sha256": {
+        "resources/profiles/kodak_kodachrome_64.json": "f88ede487219cf75090ed6663af6923c595707b3c48819f2ccf27122130e921d",
+        "resources/profiles/kodak_ektacolor_edge.json": "82af7d6f3e268f2debbf1a6993356193ac0e948f8fb9725bb8b68d75daddaef4"
+      },
+      "visible_in_supplied_app_catalog": true
+    },
+    {
+      "film": "kodak_kodachrome_64",
+      "paper": "kodak_endura_premier",
+      "route": "positive_bypass",
+      "reason": "Reversal scan bypasses paper; do not invent a negative minilab calibration.",
+      "default_pair": false,
+      "catalogued_spaces": [],
+      "missing_spaces": [],
+      "state": "accounted_special_path",
+      "alias_dependency_check_required": false,
+      "profile_sha256": {
+        "resources/profiles/kodak_kodachrome_64.json": "f88ede487219cf75090ed6663af6923c595707b3c48819f2ccf27122130e921d",
+        "resources/profiles/kodak_endura_premier.json": "7dd0ffe44fc383aa68dc0cee85d4a7e084bec7698784675ea567ca313af00fc1"
+      },
+      "visible_in_supplied_app_catalog": true
+    },
+    {
+      "film": "kodak_kodachrome_64",
+      "paper": "kodak_portra_endura",
+      "route": "positive_bypass",
+      "reason": "Reversal scan bypasses paper; do not invent a negative minilab calibration.",
+      "default_pair": false,
+      "catalogued_spaces": [],
+      "missing_spaces": [],
+      "state": "accounted_special_path",
+      "alias_dependency_check_required": false,
+      "profile_sha256": {
+        "resources/profiles/kodak_kodachrome_64.json": "f88ede487219cf75090ed6663af6923c595707b3c48819f2ccf27122130e921d",
+        "resources/profiles/kodak_portra_endura.json": "ad5ac4b98640c2d6ad0ba24c33ac880d927cbbf1c60551594f2a081cfc2d8d9a"
+      },
+      "visible_in_supplied_app_catalog": true
+    },
+    {
+      "film": "kodak_kodachrome_64",
+      "paper": "kodak_supra_endura",
+      "route": "positive_bypass",
+      "reason": "Reversal scan bypasses paper; do not invent a negative minilab calibration.",
+      "default_pair": false,
+      "catalogued_spaces": [],
+      "missing_spaces": [],
+      "state": "accounted_special_path",
+      "alias_dependency_check_required": false,
+      "profile_sha256": {
+        "resources/profiles/kodak_kodachrome_64.json": "f88ede487219cf75090ed6663af6923c595707b3c48819f2ccf27122130e921d",
+        "resources/profiles/kodak_supra_endura.json": "8d49b240952c77b8302d6d7e652400e21bed595233f926bcc588481d100d2055"
+      },
+      "visible_in_supplied_app_catalog": true
+    },
+    {
+      "film": "kodak_kodachrome_64",
+      "paper": "kodak_ultra_endura",
+      "route": "positive_bypass",
+      "reason": "Reversal scan bypasses paper; do not invent a negative minilab calibration.",
+      "default_pair": false,
+      "catalogued_spaces": [],
+      "missing_spaces": [],
+      "state": "accounted_special_path",
+      "alias_dependency_check_required": false,
+      "profile_sha256": {
+        "resources/profiles/kodak_kodachrome_64.json": "f88ede487219cf75090ed6663af6923c595707b3c48819f2ccf27122130e921d",
+        "resources/profiles/kodak_ultra_endura.json": "8ea5aa5643c5a27b9c189f81a5a126573484f679d4b6d37dbee1b27485b6de9a"
+      },
+      "visible_in_supplied_app_catalog": true
+    },
+    {
+      "film": "kodak_portra_160",
+      "paper": "fujifilm_crystal_archive_typeii",
+      "route": "colour_minilab",
+      "reason": "Bake and qualify this explicit negative-film / colour-paper pair.",
+      "default_pair": false,
+      "catalogued_spaces": [],
+      "missing_spaces": [
+        "sRGB",
+        "ProPhoto RGB"
+      ],
+      "state": "pending",
+      "alias_dependency_check_required": false,
+      "profile_sha256": {
+        "resources/profiles/kodak_portra_160.json": "1bc9b65a6940f3a4381e8d14d0ac43594aff9495051992ce4d7408e761549992",
+        "resources/profiles/fujifilm_crystal_archive_typeii.json": "b613da2fc9cde092da450abe00b230c73d7ec6afc20fed2b4112e5b5fa77e80e"
+      },
+      "visible_in_supplied_app_catalog": true
+    },
+    {
+      "film": "kodak_portra_160",
+      "paper": "ilford_multigrade_iv_rc",
+      "route": "incompatible_channel_models",
+      "reason": "Colour/silver mismatch; preserve the product pairing rule.",
+      "default_pair": false,
+      "catalogued_spaces": [],
+      "missing_spaces": [],
+      "state": "accounted_special_path",
+      "alias_dependency_check_required": false,
+      "profile_sha256": {
+        "resources/profiles/kodak_portra_160.json": "1bc9b65a6940f3a4381e8d14d0ac43594aff9495051992ce4d7408e761549992",
+        "resources_product/profiles/ilford_multigrade_iv_rc.json": "0f776f1f26f04aca4ec438ed377dc1acf4073dc1a8ae32c51607a6cb1a02521d"
+      },
+      "visible_in_supplied_app_catalog": true
+    },
+    {
+      "film": "kodak_portra_160",
+      "paper": "kodak_2383",
+      "route": "colour_minilab",
+      "reason": "Bake and qualify this explicit negative-film / colour-paper pair.",
+      "default_pair": false,
+      "catalogued_spaces": [],
+      "missing_spaces": [
+        "sRGB",
+        "ProPhoto RGB"
+      ],
+      "state": "pending",
+      "alias_dependency_check_required": false,
+      "profile_sha256": {
+        "resources/profiles/kodak_portra_160.json": "1bc9b65a6940f3a4381e8d14d0ac43594aff9495051992ce4d7408e761549992",
+        "resources/profiles/kodak_2383.json": "273eda5e3c9f4a624c1ce65a8249e343fb227d49bcf9bab54167415ac6fd5540"
+      },
+      "visible_in_supplied_app_catalog": true
+    },
+    {
+      "film": "kodak_portra_160",
+      "paper": "kodak_2393",
+      "route": "colour_minilab",
+      "reason": "Bake and qualify this explicit negative-film / colour-paper pair.",
+      "default_pair": false,
+      "catalogued_spaces": [],
+      "missing_spaces": [
+        "sRGB",
+        "ProPhoto RGB"
+      ],
+      "state": "pending",
+      "alias_dependency_check_required": false,
+      "profile_sha256": {
+        "resources/profiles/kodak_portra_160.json": "1bc9b65a6940f3a4381e8d14d0ac43594aff9495051992ce4d7408e761549992",
+        "resources/profiles/kodak_2393.json": "11fc419921ac81bde811305c46c4bc25a833373e5378a06f3c88929b55d16b33"
+      },
+      "visible_in_supplied_app_catalog": true
+    },
+    {
+      "film": "kodak_portra_160",
+      "paper": "kodak_ektacolor_edge",
+      "route": "colour_minilab",
+      "reason": "Bake and qualify this explicit negative-film / colour-paper pair.",
+      "default_pair": false,
+      "catalogued_spaces": [],
+      "missing_spaces": [
+        "sRGB",
+        "ProPhoto RGB"
+      ],
+      "state": "pending",
+      "alias_dependency_check_required": false,
+      "profile_sha256": {
+        "resources/profiles/kodak_portra_160.json": "1bc9b65a6940f3a4381e8d14d0ac43594aff9495051992ce4d7408e761549992",
+        "resources/profiles/kodak_ektacolor_edge.json": "82af7d6f3e268f2debbf1a6993356193ac0e948f8fb9725bb8b68d75daddaef4"
+      },
+      "visible_in_supplied_app_catalog": true
+    },
+    {
+      "film": "kodak_portra_160",
+      "paper": "kodak_endura_premier",
+      "route": "colour_minilab",
+      "reason": "Bake and qualify this explicit negative-film / colour-paper pair.",
+      "default_pair": false,
+      "catalogued_spaces": [],
+      "missing_spaces": [
+        "sRGB",
+        "ProPhoto RGB"
+      ],
+      "state": "pending",
+      "alias_dependency_check_required": false,
+      "profile_sha256": {
+        "resources/profiles/kodak_portra_160.json": "1bc9b65a6940f3a4381e8d14d0ac43594aff9495051992ce4d7408e761549992",
+        "resources/profiles/kodak_endura_premier.json": "7dd0ffe44fc383aa68dc0cee85d4a7e084bec7698784675ea567ca313af00fc1"
+      },
+      "visible_in_supplied_app_catalog": true
+    },
+    {
+      "film": "kodak_portra_160",
+      "paper": "kodak_portra_endura",
+      "route": "colour_minilab",
+      "reason": "Bake and qualify this explicit negative-film / colour-paper pair.",
+      "default_pair": true,
+      "catalogued_spaces": [],
+      "missing_spaces": [
+        "sRGB",
+        "ProPhoto RGB"
+      ],
+      "state": "pending",
+      "alias_dependency_check_required": false,
+      "profile_sha256": {
+        "resources/profiles/kodak_portra_160.json": "1bc9b65a6940f3a4381e8d14d0ac43594aff9495051992ce4d7408e761549992",
+        "resources/profiles/kodak_portra_endura.json": "ad5ac4b98640c2d6ad0ba24c33ac880d927cbbf1c60551594f2a081cfc2d8d9a"
+      },
+      "visible_in_supplied_app_catalog": true
+    },
+    {
+      "film": "kodak_portra_160",
+      "paper": "kodak_supra_endura",
+      "route": "colour_minilab",
+      "reason": "Bake and qualify this explicit negative-film / colour-paper pair.",
+      "default_pair": false,
+      "catalogued_spaces": [],
+      "missing_spaces": [
+        "sRGB",
+        "ProPhoto RGB"
+      ],
+      "state": "pending",
+      "alias_dependency_check_required": false,
+      "profile_sha256": {
+        "resources/profiles/kodak_portra_160.json": "1bc9b65a6940f3a4381e8d14d0ac43594aff9495051992ce4d7408e761549992",
+        "resources/profiles/kodak_supra_endura.json": "8d49b240952c77b8302d6d7e652400e21bed595233f926bcc588481d100d2055"
+      },
+      "visible_in_supplied_app_catalog": true
+    },
+    {
+      "film": "kodak_portra_160",
+      "paper": "kodak_ultra_endura",
+      "route": "colour_minilab",
+      "reason": "Bake and qualify this explicit negative-film / colour-paper pair.",
+      "default_pair": false,
+      "catalogued_spaces": [],
+      "missing_spaces": [
+        "sRGB",
+        "ProPhoto RGB"
+      ],
+      "state": "pending",
+      "alias_dependency_check_required": false,
+      "profile_sha256": {
+        "resources/profiles/kodak_portra_160.json": "1bc9b65a6940f3a4381e8d14d0ac43594aff9495051992ce4d7408e761549992",
+        "resources/profiles/kodak_ultra_endura.json": "8ea5aa5643c5a27b9c189f81a5a126573484f679d4b6d37dbee1b27485b6de9a"
+      },
+      "visible_in_supplied_app_catalog": true
+    },
+    {
+      "film": "kodak_portra_400",
+      "paper": "fujifilm_crystal_archive_typeii",
+      "route": "colour_minilab",
+      "reason": "Bake and qualify this explicit negative-film / colour-paper pair.",
+      "default_pair": false,
+      "catalogued_spaces": [],
+      "missing_spaces": [
+        "sRGB",
+        "ProPhoto RGB"
+      ],
+      "state": "pending",
+      "alias_dependency_check_required": false,
+      "profile_sha256": {
+        "resources/profiles/kodak_portra_400.json": "b5cdc73dbec8f462f488bca70bedf23fd13ce79969c0457e8ac2a2565d92bf5d",
+        "resources/profiles/fujifilm_crystal_archive_typeii.json": "b613da2fc9cde092da450abe00b230c73d7ec6afc20fed2b4112e5b5fa77e80e"
+      },
+      "visible_in_supplied_app_catalog": true
+    },
+    {
+      "film": "kodak_portra_400",
+      "paper": "ilford_multigrade_iv_rc",
+      "route": "incompatible_channel_models",
+      "reason": "Colour/silver mismatch; preserve the product pairing rule.",
+      "default_pair": false,
+      "catalogued_spaces": [],
+      "missing_spaces": [],
+      "state": "accounted_special_path",
+      "alias_dependency_check_required": false,
+      "profile_sha256": {
+        "resources/profiles/kodak_portra_400.json": "b5cdc73dbec8f462f488bca70bedf23fd13ce79969c0457e8ac2a2565d92bf5d",
+        "resources_product/profiles/ilford_multigrade_iv_rc.json": "0f776f1f26f04aca4ec438ed377dc1acf4073dc1a8ae32c51607a6cb1a02521d"
+      },
+      "visible_in_supplied_app_catalog": true
+    },
+    {
+      "film": "kodak_portra_400",
+      "paper": "kodak_2383",
+      "route": "colour_minilab",
+      "reason": "Bake and qualify this explicit negative-film / colour-paper pair.",
+      "default_pair": false,
+      "catalogued_spaces": [],
+      "missing_spaces": [
+        "sRGB",
+        "ProPhoto RGB"
+      ],
+      "state": "pending",
+      "alias_dependency_check_required": false,
+      "profile_sha256": {
+        "resources/profiles/kodak_portra_400.json": "b5cdc73dbec8f462f488bca70bedf23fd13ce79969c0457e8ac2a2565d92bf5d",
+        "resources/profiles/kodak_2383.json": "273eda5e3c9f4a624c1ce65a8249e343fb227d49bcf9bab54167415ac6fd5540"
+      },
+      "visible_in_supplied_app_catalog": true
+    },
+    {
+      "film": "kodak_portra_400",
+      "paper": "kodak_2393",
+      "route": "colour_minilab",
+      "reason": "Bake and qualify this explicit negative-film / colour-paper pair.",
+      "default_pair": false,
+      "catalogued_spaces": [],
+      "missing_spaces": [
+        "sRGB",
+        "ProPhoto RGB"
+      ],
+      "state": "pending",
+      "alias_dependency_check_required": false,
+      "profile_sha256": {
+        "resources/profiles/kodak_portra_400.json": "b5cdc73dbec8f462f488bca70bedf23fd13ce79969c0457e8ac2a2565d92bf5d",
+        "resources/profiles/kodak_2393.json": "11fc419921ac81bde811305c46c4bc25a833373e5378a06f3c88929b55d16b33"
+      },
+      "visible_in_supplied_app_catalog": true
+    },
+    {
+      "film": "kodak_portra_400",
+      "paper": "kodak_ektacolor_edge",
+      "route": "colour_minilab",
+      "reason": "Bake and qualify this explicit negative-film / colour-paper pair.",
+      "default_pair": false,
+      "catalogued_spaces": [],
+      "missing_spaces": [
+        "sRGB",
+        "ProPhoto RGB"
+      ],
+      "state": "pending",
+      "alias_dependency_check_required": false,
+      "profile_sha256": {
+        "resources/profiles/kodak_portra_400.json": "b5cdc73dbec8f462f488bca70bedf23fd13ce79969c0457e8ac2a2565d92bf5d",
+        "resources/profiles/kodak_ektacolor_edge.json": "82af7d6f3e268f2debbf1a6993356193ac0e948f8fb9725bb8b68d75daddaef4"
+      },
+      "visible_in_supplied_app_catalog": true
+    },
+    {
+      "film": "kodak_portra_400",
+      "paper": "kodak_endura_premier",
+      "route": "colour_minilab",
+      "reason": "Bake and qualify this explicit negative-film / colour-paper pair.",
+      "default_pair": false,
+      "catalogued_spaces": [],
+      "missing_spaces": [
+        "sRGB",
+        "ProPhoto RGB"
+      ],
+      "state": "pending",
+      "alias_dependency_check_required": false,
+      "profile_sha256": {
+        "resources/profiles/kodak_portra_400.json": "b5cdc73dbec8f462f488bca70bedf23fd13ce79969c0457e8ac2a2565d92bf5d",
+        "resources/profiles/kodak_endura_premier.json": "7dd0ffe44fc383aa68dc0cee85d4a7e084bec7698784675ea567ca313af00fc1"
+      },
+      "visible_in_supplied_app_catalog": true
+    },
+    {
+      "film": "kodak_portra_400",
+      "paper": "kodak_portra_endura",
+      "route": "colour_minilab",
+      "reason": "Bake and qualify this explicit negative-film / colour-paper pair.",
+      "default_pair": true,
+      "catalogued_spaces": [
+        "sRGB",
+        "ProPhoto RGB"
+      ],
+      "missing_spaces": [],
+      "state": "catalogued_recheck",
+      "alias_dependency_check_required": false,
+      "profile_sha256": {
+        "resources/profiles/kodak_portra_400.json": "b5cdc73dbec8f462f488bca70bedf23fd13ce79969c0457e8ac2a2565d92bf5d",
+        "resources/profiles/kodak_portra_endura.json": "ad5ac4b98640c2d6ad0ba24c33ac880d927cbbf1c60551594f2a081cfc2d8d9a"
+      },
+      "visible_in_supplied_app_catalog": true
+    },
+    {
+      "film": "kodak_portra_400",
+      "paper": "kodak_supra_endura",
+      "route": "colour_minilab",
+      "reason": "Bake and qualify this explicit negative-film / colour-paper pair.",
+      "default_pair": false,
+      "catalogued_spaces": [],
+      "missing_spaces": [
+        "sRGB",
+        "ProPhoto RGB"
+      ],
+      "state": "pending",
+      "alias_dependency_check_required": false,
+      "profile_sha256": {
+        "resources/profiles/kodak_portra_400.json": "b5cdc73dbec8f462f488bca70bedf23fd13ce79969c0457e8ac2a2565d92bf5d",
+        "resources/profiles/kodak_supra_endura.json": "8d49b240952c77b8302d6d7e652400e21bed595233f926bcc588481d100d2055"
+      },
+      "visible_in_supplied_app_catalog": true
+    },
+    {
+      "film": "kodak_portra_400",
+      "paper": "kodak_ultra_endura",
+      "route": "colour_minilab",
+      "reason": "Bake and qualify this explicit negative-film / colour-paper pair.",
+      "default_pair": false,
+      "catalogued_spaces": [],
+      "missing_spaces": [
+        "sRGB",
+        "ProPhoto RGB"
+      ],
+      "state": "pending",
+      "alias_dependency_check_required": false,
+      "profile_sha256": {
+        "resources/profiles/kodak_portra_400.json": "b5cdc73dbec8f462f488bca70bedf23fd13ce79969c0457e8ac2a2565d92bf5d",
+        "resources/profiles/kodak_ultra_endura.json": "8ea5aa5643c5a27b9c189f81a5a126573484f679d4b6d37dbee1b27485b6de9a"
+      },
+      "visible_in_supplied_app_catalog": true
+    },
+    {
+      "film": "kodak_portra_800",
+      "paper": "fujifilm_crystal_archive_typeii",
+      "route": "colour_minilab",
+      "reason": "Bake and qualify this explicit negative-film / colour-paper pair.",
+      "default_pair": false,
+      "catalogued_spaces": [],
+      "missing_spaces": [
+        "sRGB",
+        "ProPhoto RGB"
+      ],
+      "state": "pending",
+      "alias_dependency_check_required": false,
+      "profile_sha256": {
+        "resources/profiles/kodak_portra_800.json": "5b0c6e861c6273a2ecdf552525e80738037918e650a0dc206e095acfd02f8b43",
+        "resources/profiles/fujifilm_crystal_archive_typeii.json": "b613da2fc9cde092da450abe00b230c73d7ec6afc20fed2b4112e5b5fa77e80e"
+      },
+      "visible_in_supplied_app_catalog": true
+    },
+    {
+      "film": "kodak_portra_800",
+      "paper": "ilford_multigrade_iv_rc",
+      "route": "incompatible_channel_models",
+      "reason": "Colour/silver mismatch; preserve the product pairing rule.",
+      "default_pair": false,
+      "catalogued_spaces": [],
+      "missing_spaces": [],
+      "state": "accounted_special_path",
+      "alias_dependency_check_required": false,
+      "profile_sha256": {
+        "resources/profiles/kodak_portra_800.json": "5b0c6e861c6273a2ecdf552525e80738037918e650a0dc206e095acfd02f8b43",
+        "resources_product/profiles/ilford_multigrade_iv_rc.json": "0f776f1f26f04aca4ec438ed377dc1acf4073dc1a8ae32c51607a6cb1a02521d"
+      },
+      "visible_in_supplied_app_catalog": true
+    },
+    {
+      "film": "kodak_portra_800",
+      "paper": "kodak_2383",
+      "route": "colour_minilab",
+      "reason": "Bake and qualify this explicit negative-film / colour-paper pair.",
+      "default_pair": false,
+      "catalogued_spaces": [],
+      "missing_spaces": [
+        "sRGB",
+        "ProPhoto RGB"
+      ],
+      "state": "pending",
+      "alias_dependency_check_required": false,
+      "profile_sha256": {
+        "resources/profiles/kodak_portra_800.json": "5b0c6e861c6273a2ecdf552525e80738037918e650a0dc206e095acfd02f8b43",
+        "resources/profiles/kodak_2383.json": "273eda5e3c9f4a624c1ce65a8249e343fb227d49bcf9bab54167415ac6fd5540"
+      },
+      "visible_in_supplied_app_catalog": true
+    },
+    {
+      "film": "kodak_portra_800",
+      "paper": "kodak_2393",
+      "route": "colour_minilab",
+      "reason": "Bake and qualify this explicit negative-film / colour-paper pair.",
+      "default_pair": false,
+      "catalogued_spaces": [],
+      "missing_spaces": [
+        "sRGB",
+        "ProPhoto RGB"
+      ],
+      "state": "pending",
+      "alias_dependency_check_required": false,
+      "profile_sha256": {
+        "resources/profiles/kodak_portra_800.json": "5b0c6e861c6273a2ecdf552525e80738037918e650a0dc206e095acfd02f8b43",
+        "resources/profiles/kodak_2393.json": "11fc419921ac81bde811305c46c4bc25a833373e5378a06f3c88929b55d16b33"
+      },
+      "visible_in_supplied_app_catalog": true
+    },
+    {
+      "film": "kodak_portra_800",
+      "paper": "kodak_ektacolor_edge",
+      "route": "colour_minilab",
+      "reason": "Bake and qualify this explicit negative-film / colour-paper pair.",
+      "default_pair": false,
+      "catalogued_spaces": [],
+      "missing_spaces": [
+        "sRGB",
+        "ProPhoto RGB"
+      ],
+      "state": "pending",
+      "alias_dependency_check_required": false,
+      "profile_sha256": {
+        "resources/profiles/kodak_portra_800.json": "5b0c6e861c6273a2ecdf552525e80738037918e650a0dc206e095acfd02f8b43",
+        "resources/profiles/kodak_ektacolor_edge.json": "82af7d6f3e268f2debbf1a6993356193ac0e948f8fb9725bb8b68d75daddaef4"
+      },
+      "visible_in_supplied_app_catalog": true
+    },
+    {
+      "film": "kodak_portra_800",
+      "paper": "kodak_endura_premier",
+      "route": "colour_minilab",
+      "reason": "Bake and qualify this explicit negative-film / colour-paper pair.",
+      "default_pair": false,
+      "catalogued_spaces": [],
+      "missing_spaces": [
+        "sRGB",
+        "ProPhoto RGB"
+      ],
+      "state": "pending",
+      "alias_dependency_check_required": false,
+      "profile_sha256": {
+        "resources/profiles/kodak_portra_800.json": "5b0c6e861c6273a2ecdf552525e80738037918e650a0dc206e095acfd02f8b43",
+        "resources/profiles/kodak_endura_premier.json": "7dd0ffe44fc383aa68dc0cee85d4a7e084bec7698784675ea567ca313af00fc1"
+      },
+      "visible_in_supplied_app_catalog": true
+    },
+    {
+      "film": "kodak_portra_800",
+      "paper": "kodak_portra_endura",
+      "route": "colour_minilab",
+      "reason": "Bake and qualify this explicit negative-film / colour-paper pair.",
+      "default_pair": true,
+      "catalogued_spaces": [],
+      "missing_spaces": [
+        "sRGB",
+        "ProPhoto RGB"
+      ],
+      "state": "pending",
+      "alias_dependency_check_required": false,
+      "profile_sha256": {
+        "resources/profiles/kodak_portra_800.json": "5b0c6e861c6273a2ecdf552525e80738037918e650a0dc206e095acfd02f8b43",
+        "resources/profiles/kodak_portra_endura.json": "ad5ac4b98640c2d6ad0ba24c33ac880d927cbbf1c60551594f2a081cfc2d8d9a"
+      },
+      "visible_in_supplied_app_catalog": true
+    },
+    {
+      "film": "kodak_portra_800",
+      "paper": "kodak_supra_endura",
+      "route": "colour_minilab",
+      "reason": "Bake and qualify this explicit negative-film / colour-paper pair.",
+      "default_pair": false,
+      "catalogued_spaces": [],
+      "missing_spaces": [
+        "sRGB",
+        "ProPhoto RGB"
+      ],
+      "state": "pending",
+      "alias_dependency_check_required": false,
+      "profile_sha256": {
+        "resources/profiles/kodak_portra_800.json": "5b0c6e861c6273a2ecdf552525e80738037918e650a0dc206e095acfd02f8b43",
+        "resources/profiles/kodak_supra_endura.json": "8d49b240952c77b8302d6d7e652400e21bed595233f926bcc588481d100d2055"
+      },
+      "visible_in_supplied_app_catalog": true
+    },
+    {
+      "film": "kodak_portra_800",
+      "paper": "kodak_ultra_endura",
+      "route": "colour_minilab",
+      "reason": "Bake and qualify this explicit negative-film / colour-paper pair.",
+      "default_pair": false,
+      "catalogued_spaces": [],
+      "missing_spaces": [
+        "sRGB",
+        "ProPhoto RGB"
+      ],
+      "state": "pending",
+      "alias_dependency_check_required": false,
+      "profile_sha256": {
+        "resources/profiles/kodak_portra_800.json": "5b0c6e861c6273a2ecdf552525e80738037918e650a0dc206e095acfd02f8b43",
+        "resources/profiles/kodak_ultra_endura.json": "8ea5aa5643c5a27b9c189f81a5a126573484f679d4b6d37dbee1b27485b6de9a"
+      },
+      "visible_in_supplied_app_catalog": true
+    },
+    {
+      "film": "kodak_portra_800_push1",
+      "paper": "fujifilm_crystal_archive_typeii",
+      "route": "colour_minilab",
+      "reason": "Bake and qualify this explicit negative-film / colour-paper pair.",
+      "default_pair": false,
+      "catalogued_spaces": [],
+      "missing_spaces": [
+        "sRGB",
+        "ProPhoto RGB"
+      ],
+      "state": "pending",
+      "alias_dependency_check_required": false,
+      "profile_sha256": {
+        "resources/profiles/kodak_portra_800_push1.json": "dac9cbcd2442442d9dee90bd2d6a28dcc4b996635dcac0b44ac8ecd32c4b3a4f",
+        "resources/profiles/fujifilm_crystal_archive_typeii.json": "b613da2fc9cde092da450abe00b230c73d7ec6afc20fed2b4112e5b5fa77e80e"
+      },
+      "visible_in_supplied_app_catalog": true
+    },
+    {
+      "film": "kodak_portra_800_push1",
+      "paper": "ilford_multigrade_iv_rc",
+      "route": "incompatible_channel_models",
+      "reason": "Colour/silver mismatch; preserve the product pairing rule.",
+      "default_pair": false,
+      "catalogued_spaces": [],
+      "missing_spaces": [],
+      "state": "accounted_special_path",
+      "alias_dependency_check_required": false,
+      "profile_sha256": {
+        "resources/profiles/kodak_portra_800_push1.json": "dac9cbcd2442442d9dee90bd2d6a28dcc4b996635dcac0b44ac8ecd32c4b3a4f",
+        "resources_product/profiles/ilford_multigrade_iv_rc.json": "0f776f1f26f04aca4ec438ed377dc1acf4073dc1a8ae32c51607a6cb1a02521d"
+      },
+      "visible_in_supplied_app_catalog": true
+    },
+    {
+      "film": "kodak_portra_800_push1",
+      "paper": "kodak_2383",
+      "route": "colour_minilab",
+      "reason": "Bake and qualify this explicit negative-film / colour-paper pair.",
+      "default_pair": false,
+      "catalogued_spaces": [],
+      "missing_spaces": [
+        "sRGB",
+        "ProPhoto RGB"
+      ],
+      "state": "pending",
+      "alias_dependency_check_required": false,
+      "profile_sha256": {
+        "resources/profiles/kodak_portra_800_push1.json": "dac9cbcd2442442d9dee90bd2d6a28dcc4b996635dcac0b44ac8ecd32c4b3a4f",
+        "resources/profiles/kodak_2383.json": "273eda5e3c9f4a624c1ce65a8249e343fb227d49bcf9bab54167415ac6fd5540"
+      },
+      "visible_in_supplied_app_catalog": true
+    },
+    {
+      "film": "kodak_portra_800_push1",
+      "paper": "kodak_2393",
+      "route": "colour_minilab",
+      "reason": "Bake and qualify this explicit negative-film / colour-paper pair.",
+      "default_pair": false,
+      "catalogued_spaces": [],
+      "missing_spaces": [
+        "sRGB",
+        "ProPhoto RGB"
+      ],
+      "state": "pending",
+      "alias_dependency_check_required": false,
+      "profile_sha256": {
+        "resources/profiles/kodak_portra_800_push1.json": "dac9cbcd2442442d9dee90bd2d6a28dcc4b996635dcac0b44ac8ecd32c4b3a4f",
+        "resources/profiles/kodak_2393.json": "11fc419921ac81bde811305c46c4bc25a833373e5378a06f3c88929b55d16b33"
+      },
+      "visible_in_supplied_app_catalog": true
+    },
+    {
+      "film": "kodak_portra_800_push1",
+      "paper": "kodak_ektacolor_edge",
+      "route": "colour_minilab",
+      "reason": "Bake and qualify this explicit negative-film / colour-paper pair.",
+      "default_pair": false,
+      "catalogued_spaces": [],
+      "missing_spaces": [
+        "sRGB",
+        "ProPhoto RGB"
+      ],
+      "state": "pending",
+      "alias_dependency_check_required": false,
+      "profile_sha256": {
+        "resources/profiles/kodak_portra_800_push1.json": "dac9cbcd2442442d9dee90bd2d6a28dcc4b996635dcac0b44ac8ecd32c4b3a4f",
+        "resources/profiles/kodak_ektacolor_edge.json": "82af7d6f3e268f2debbf1a6993356193ac0e948f8fb9725bb8b68d75daddaef4"
+      },
+      "visible_in_supplied_app_catalog": true
+    },
+    {
+      "film": "kodak_portra_800_push1",
+      "paper": "kodak_endura_premier",
+      "route": "colour_minilab",
+      "reason": "Bake and qualify this explicit negative-film / colour-paper pair.",
+      "default_pair": false,
+      "catalogued_spaces": [],
+      "missing_spaces": [
+        "sRGB",
+        "ProPhoto RGB"
+      ],
+      "state": "pending",
+      "alias_dependency_check_required": false,
+      "profile_sha256": {
+        "resources/profiles/kodak_portra_800_push1.json": "dac9cbcd2442442d9dee90bd2d6a28dcc4b996635dcac0b44ac8ecd32c4b3a4f",
+        "resources/profiles/kodak_endura_premier.json": "7dd0ffe44fc383aa68dc0cee85d4a7e084bec7698784675ea567ca313af00fc1"
+      },
+      "visible_in_supplied_app_catalog": true
+    },
+    {
+      "film": "kodak_portra_800_push1",
+      "paper": "kodak_portra_endura",
+      "route": "colour_minilab",
+      "reason": "Bake and qualify this explicit negative-film / colour-paper pair.",
+      "default_pair": true,
+      "catalogued_spaces": [],
+      "missing_spaces": [
+        "sRGB",
+        "ProPhoto RGB"
+      ],
+      "state": "pending",
+      "alias_dependency_check_required": false,
+      "profile_sha256": {
+        "resources/profiles/kodak_portra_800_push1.json": "dac9cbcd2442442d9dee90bd2d6a28dcc4b996635dcac0b44ac8ecd32c4b3a4f",
+        "resources/profiles/kodak_portra_endura.json": "ad5ac4b98640c2d6ad0ba24c33ac880d927cbbf1c60551594f2a081cfc2d8d9a"
+      },
+      "visible_in_supplied_app_catalog": true
+    },
+    {
+      "film": "kodak_portra_800_push1",
+      "paper": "kodak_supra_endura",
+      "route": "colour_minilab",
+      "reason": "Bake and qualify this explicit negative-film / colour-paper pair.",
+      "default_pair": false,
+      "catalogued_spaces": [],
+      "missing_spaces": [
+        "sRGB",
+        "ProPhoto RGB"
+      ],
+      "state": "pending",
+      "alias_dependency_check_required": false,
+      "profile_sha256": {
+        "resources/profiles/kodak_portra_800_push1.json": "dac9cbcd2442442d9dee90bd2d6a28dcc4b996635dcac0b44ac8ecd32c4b3a4f",
+        "resources/profiles/kodak_supra_endura.json": "8d49b240952c77b8302d6d7e652400e21bed595233f926bcc588481d100d2055"
+      },
+      "visible_in_supplied_app_catalog": true
+    },
+    {
+      "film": "kodak_portra_800_push1",
+      "paper": "kodak_ultra_endura",
+      "route": "colour_minilab",
+      "reason": "Bake and qualify this explicit negative-film / colour-paper pair.",
+      "default_pair": false,
+      "catalogued_spaces": [],
+      "missing_spaces": [
+        "sRGB",
+        "ProPhoto RGB"
+      ],
+      "state": "pending",
+      "alias_dependency_check_required": false,
+      "profile_sha256": {
+        "resources/profiles/kodak_portra_800_push1.json": "dac9cbcd2442442d9dee90bd2d6a28dcc4b996635dcac0b44ac8ecd32c4b3a4f",
+        "resources/profiles/kodak_ultra_endura.json": "8ea5aa5643c5a27b9c189f81a5a126573484f679d4b6d37dbee1b27485b6de9a"
+      },
+      "visible_in_supplied_app_catalog": true
+    },
+    {
+      "film": "kodak_portra_800_push2",
+      "paper": "fujifilm_crystal_archive_typeii",
+      "route": "colour_minilab",
+      "reason": "Bake and qualify this explicit negative-film / colour-paper pair.",
+      "default_pair": false,
+      "catalogued_spaces": [],
+      "missing_spaces": [
+        "sRGB",
+        "ProPhoto RGB"
+      ],
+      "state": "pending",
+      "alias_dependency_check_required": false,
+      "profile_sha256": {
+        "resources/profiles/kodak_portra_800_push2.json": "5ee01e4a00c157721738314313a43b46fcd5dae62ed3a7e4730f9054b66f6282",
+        "resources/profiles/fujifilm_crystal_archive_typeii.json": "b613da2fc9cde092da450abe00b230c73d7ec6afc20fed2b4112e5b5fa77e80e"
+      },
+      "visible_in_supplied_app_catalog": true
+    },
+    {
+      "film": "kodak_portra_800_push2",
+      "paper": "ilford_multigrade_iv_rc",
+      "route": "incompatible_channel_models",
+      "reason": "Colour/silver mismatch; preserve the product pairing rule.",
+      "default_pair": false,
+      "catalogued_spaces": [],
+      "missing_spaces": [],
+      "state": "accounted_special_path",
+      "alias_dependency_check_required": false,
+      "profile_sha256": {
+        "resources/profiles/kodak_portra_800_push2.json": "5ee01e4a00c157721738314313a43b46fcd5dae62ed3a7e4730f9054b66f6282",
+        "resources_product/profiles/ilford_multigrade_iv_rc.json": "0f776f1f26f04aca4ec438ed377dc1acf4073dc1a8ae32c51607a6cb1a02521d"
+      },
+      "visible_in_supplied_app_catalog": true
+    },
+    {
+      "film": "kodak_portra_800_push2",
+      "paper": "kodak_2383",
+      "route": "colour_minilab",
+      "reason": "Bake and qualify this explicit negative-film / colour-paper pair.",
+      "default_pair": false,
+      "catalogued_spaces": [],
+      "missing_spaces": [
+        "sRGB",
+        "ProPhoto RGB"
+      ],
+      "state": "pending",
+      "alias_dependency_check_required": false,
+      "profile_sha256": {
+        "resources/profiles/kodak_portra_800_push2.json": "5ee01e4a00c157721738314313a43b46fcd5dae62ed3a7e4730f9054b66f6282",
+        "resources/profiles/kodak_2383.json": "273eda5e3c9f4a624c1ce65a8249e343fb227d49bcf9bab54167415ac6fd5540"
+      },
+      "visible_in_supplied_app_catalog": true
+    },
+    {
+      "film": "kodak_portra_800_push2",
+      "paper": "kodak_2393",
+      "route": "colour_minilab",
+      "reason": "Bake and qualify this explicit negative-film / colour-paper pair.",
+      "default_pair": false,
+      "catalogued_spaces": [],
+      "missing_spaces": [
+        "sRGB",
+        "ProPhoto RGB"
+      ],
+      "state": "pending",
+      "alias_dependency_check_required": false,
+      "profile_sha256": {
+        "resources/profiles/kodak_portra_800_push2.json": "5ee01e4a00c157721738314313a43b46fcd5dae62ed3a7e4730f9054b66f6282",
+        "resources/profiles/kodak_2393.json": "11fc419921ac81bde811305c46c4bc25a833373e5378a06f3c88929b55d16b33"
+      },
+      "visible_in_supplied_app_catalog": true
+    },
+    {
+      "film": "kodak_portra_800_push2",
+      "paper": "kodak_ektacolor_edge",
+      "route": "colour_minilab",
+      "reason": "Bake and qualify this explicit negative-film / colour-paper pair.",
+      "default_pair": false,
+      "catalogued_spaces": [],
+      "missing_spaces": [
+        "sRGB",
+        "ProPhoto RGB"
+      ],
+      "state": "pending",
+      "alias_dependency_check_required": false,
+      "profile_sha256": {
+        "resources/profiles/kodak_portra_800_push2.json": "5ee01e4a00c157721738314313a43b46fcd5dae62ed3a7e4730f9054b66f6282",
+        "resources/profiles/kodak_ektacolor_edge.json": "82af7d6f3e268f2debbf1a6993356193ac0e948f8fb9725bb8b68d75daddaef4"
+      },
+      "visible_in_supplied_app_catalog": true
+    },
+    {
+      "film": "kodak_portra_800_push2",
+      "paper": "kodak_endura_premier",
+      "route": "colour_minilab",
+      "reason": "Bake and qualify this explicit negative-film / colour-paper pair.",
+      "default_pair": false,
+      "catalogued_spaces": [],
+      "missing_spaces": [
+        "sRGB",
+        "ProPhoto RGB"
+      ],
+      "state": "pending",
+      "alias_dependency_check_required": false,
+      "profile_sha256": {
+        "resources/profiles/kodak_portra_800_push2.json": "5ee01e4a00c157721738314313a43b46fcd5dae62ed3a7e4730f9054b66f6282",
+        "resources/profiles/kodak_endura_premier.json": "7dd0ffe44fc383aa68dc0cee85d4a7e084bec7698784675ea567ca313af00fc1"
+      },
+      "visible_in_supplied_app_catalog": true
+    },
+    {
+      "film": "kodak_portra_800_push2",
+      "paper": "kodak_portra_endura",
+      "route": "colour_minilab",
+      "reason": "Bake and qualify this explicit negative-film / colour-paper pair.",
+      "default_pair": true,
+      "catalogued_spaces": [],
+      "missing_spaces": [
+        "sRGB",
+        "ProPhoto RGB"
+      ],
+      "state": "pending",
+      "alias_dependency_check_required": false,
+      "profile_sha256": {
+        "resources/profiles/kodak_portra_800_push2.json": "5ee01e4a00c157721738314313a43b46fcd5dae62ed3a7e4730f9054b66f6282",
+        "resources/profiles/kodak_portra_endura.json": "ad5ac4b98640c2d6ad0ba24c33ac880d927cbbf1c60551594f2a081cfc2d8d9a"
+      },
+      "visible_in_supplied_app_catalog": true
+    },
+    {
+      "film": "kodak_portra_800_push2",
+      "paper": "kodak_supra_endura",
+      "route": "colour_minilab",
+      "reason": "Bake and qualify this explicit negative-film / colour-paper pair.",
+      "default_pair": false,
+      "catalogued_spaces": [],
+      "missing_spaces": [
+        "sRGB",
+        "ProPhoto RGB"
+      ],
+      "state": "pending",
+      "alias_dependency_check_required": false,
+      "profile_sha256": {
+        "resources/profiles/kodak_portra_800_push2.json": "5ee01e4a00c157721738314313a43b46fcd5dae62ed3a7e4730f9054b66f6282",
+        "resources/profiles/kodak_supra_endura.json": "8d49b240952c77b8302d6d7e652400e21bed595233f926bcc588481d100d2055"
+      },
+      "visible_in_supplied_app_catalog": true
+    },
+    {
+      "film": "kodak_portra_800_push2",
+      "paper": "kodak_ultra_endura",
+      "route": "colour_minilab",
+      "reason": "Bake and qualify this explicit negative-film / colour-paper pair.",
+      "default_pair": false,
+      "catalogued_spaces": [],
+      "missing_spaces": [
+        "sRGB",
+        "ProPhoto RGB"
+      ],
+      "state": "pending",
+      "alias_dependency_check_required": false,
+      "profile_sha256": {
+        "resources/profiles/kodak_portra_800_push2.json": "5ee01e4a00c157721738314313a43b46fcd5dae62ed3a7e4730f9054b66f6282",
+        "resources/profiles/kodak_ultra_endura.json": "8ea5aa5643c5a27b9c189f81a5a126573484f679d4b6d37dbee1b27485b6de9a"
+      },
+      "visible_in_supplied_app_catalog": true
+    },
+    {
+      "film": "kodak_tmax_100",
+      "paper": "fujifilm_crystal_archive_typeii",
+      "route": "incompatible_channel_models",
+      "reason": "Colour/silver mismatch; preserve the product pairing rule.",
+      "default_pair": false,
+      "catalogued_spaces": [],
+      "missing_spaces": [],
+      "state": "accounted_special_path",
+      "alias_dependency_check_required": false,
+      "profile_sha256": {
+        "resources_product/profiles/kodak_tmax_100.json": "c9160236872034b86fb42b67be3a9252088bfa7bdbb450148b0c20ad83e3033a",
+        "resources/profiles/fujifilm_crystal_archive_typeii.json": "b613da2fc9cde092da450abe00b230c73d7ec6afc20fed2b4112e5b5fa77e80e"
+      },
+      "visible_in_supplied_app_catalog": true
+    },
+    {
+      "film": "kodak_tmax_100",
+      "paper": "ilford_multigrade_iv_rc",
+      "route": "silver_path",
+      "reason": "Dedicated monochrome path; colour hue recovery is not applicable.",
+      "default_pair": true,
+      "catalogued_spaces": [],
+      "missing_spaces": [],
+      "state": "accounted_special_path",
+      "alias_dependency_check_required": false,
+      "profile_sha256": {
+        "resources_product/profiles/kodak_tmax_100.json": "c9160236872034b86fb42b67be3a9252088bfa7bdbb450148b0c20ad83e3033a",
+        "resources_product/profiles/ilford_multigrade_iv_rc.json": "0f776f1f26f04aca4ec438ed377dc1acf4073dc1a8ae32c51607a6cb1a02521d"
+      },
+      "visible_in_supplied_app_catalog": true
+    },
+    {
+      "film": "kodak_tmax_100",
+      "paper": "kodak_2383",
+      "route": "incompatible_channel_models",
+      "reason": "Colour/silver mismatch; preserve the product pairing rule.",
+      "default_pair": false,
+      "catalogued_spaces": [],
+      "missing_spaces": [],
+      "state": "accounted_special_path",
+      "alias_dependency_check_required": false,
+      "profile_sha256": {
+        "resources_product/profiles/kodak_tmax_100.json": "c9160236872034b86fb42b67be3a9252088bfa7bdbb450148b0c20ad83e3033a",
+        "resources/profiles/kodak_2383.json": "273eda5e3c9f4a624c1ce65a8249e343fb227d49bcf9bab54167415ac6fd5540"
+      },
+      "visible_in_supplied_app_catalog": true
+    },
+    {
+      "film": "kodak_tmax_100",
+      "paper": "kodak_2393",
+      "route": "incompatible_channel_models",
+      "reason": "Colour/silver mismatch; preserve the product pairing rule.",
+      "default_pair": false,
+      "catalogued_spaces": [],
+      "missing_spaces": [],
+      "state": "accounted_special_path",
+      "alias_dependency_check_required": false,
+      "profile_sha256": {
+        "resources_product/profiles/kodak_tmax_100.json": "c9160236872034b86fb42b67be3a9252088bfa7bdbb450148b0c20ad83e3033a",
+        "resources/profiles/kodak_2393.json": "11fc419921ac81bde811305c46c4bc25a833373e5378a06f3c88929b55d16b33"
+      },
+      "visible_in_supplied_app_catalog": true
+    },
+    {
+      "film": "kodak_tmax_100",
+      "paper": "kodak_ektacolor_edge",
+      "route": "incompatible_channel_models",
+      "reason": "Colour/silver mismatch; preserve the product pairing rule.",
+      "default_pair": false,
+      "catalogued_spaces": [],
+      "missing_spaces": [],
+      "state": "accounted_special_path",
+      "alias_dependency_check_required": false,
+      "profile_sha256": {
+        "resources_product/profiles/kodak_tmax_100.json": "c9160236872034b86fb42b67be3a9252088bfa7bdbb450148b0c20ad83e3033a",
+        "resources/profiles/kodak_ektacolor_edge.json": "82af7d6f3e268f2debbf1a6993356193ac0e948f8fb9725bb8b68d75daddaef4"
+      },
+      "visible_in_supplied_app_catalog": true
+    },
+    {
+      "film": "kodak_tmax_100",
+      "paper": "kodak_endura_premier",
+      "route": "incompatible_channel_models",
+      "reason": "Colour/silver mismatch; preserve the product pairing rule.",
+      "default_pair": false,
+      "catalogued_spaces": [],
+      "missing_spaces": [],
+      "state": "accounted_special_path",
+      "alias_dependency_check_required": false,
+      "profile_sha256": {
+        "resources_product/profiles/kodak_tmax_100.json": "c9160236872034b86fb42b67be3a9252088bfa7bdbb450148b0c20ad83e3033a",
+        "resources/profiles/kodak_endura_premier.json": "7dd0ffe44fc383aa68dc0cee85d4a7e084bec7698784675ea567ca313af00fc1"
+      },
+      "visible_in_supplied_app_catalog": true
+    },
+    {
+      "film": "kodak_tmax_100",
+      "paper": "kodak_portra_endura",
+      "route": "incompatible_channel_models",
+      "reason": "Colour/silver mismatch; preserve the product pairing rule.",
+      "default_pair": false,
+      "catalogued_spaces": [],
+      "missing_spaces": [],
+      "state": "accounted_special_path",
+      "alias_dependency_check_required": false,
+      "profile_sha256": {
+        "resources_product/profiles/kodak_tmax_100.json": "c9160236872034b86fb42b67be3a9252088bfa7bdbb450148b0c20ad83e3033a",
+        "resources/profiles/kodak_portra_endura.json": "ad5ac4b98640c2d6ad0ba24c33ac880d927cbbf1c60551594f2a081cfc2d8d9a"
+      },
+      "visible_in_supplied_app_catalog": true
+    },
+    {
+      "film": "kodak_tmax_100",
+      "paper": "kodak_supra_endura",
+      "route": "incompatible_channel_models",
+      "reason": "Colour/silver mismatch; preserve the product pairing rule.",
+      "default_pair": false,
+      "catalogued_spaces": [],
+      "missing_spaces": [],
+      "state": "accounted_special_path",
+      "alias_dependency_check_required": false,
+      "profile_sha256": {
+        "resources_product/profiles/kodak_tmax_100.json": "c9160236872034b86fb42b67be3a9252088bfa7bdbb450148b0c20ad83e3033a",
+        "resources/profiles/kodak_supra_endura.json": "8d49b240952c77b8302d6d7e652400e21bed595233f926bcc588481d100d2055"
+      },
+      "visible_in_supplied_app_catalog": true
+    },
+    {
+      "film": "kodak_tmax_100",
+      "paper": "kodak_ultra_endura",
+      "route": "incompatible_channel_models",
+      "reason": "Colour/silver mismatch; preserve the product pairing rule.",
+      "default_pair": false,
+      "catalogued_spaces": [],
+      "missing_spaces": [],
+      "state": "accounted_special_path",
+      "alias_dependency_check_required": false,
+      "profile_sha256": {
+        "resources_product/profiles/kodak_tmax_100.json": "c9160236872034b86fb42b67be3a9252088bfa7bdbb450148b0c20ad83e3033a",
+        "resources/profiles/kodak_ultra_endura.json": "8ea5aa5643c5a27b9c189f81a5a126573484f679d4b6d37dbee1b27485b6de9a"
+      },
+      "visible_in_supplied_app_catalog": true
+    },
+    {
+      "film": "kodak_tri_x_400",
+      "paper": "fujifilm_crystal_archive_typeii",
+      "route": "incompatible_channel_models",
+      "reason": "Colour/silver mismatch; preserve the product pairing rule.",
+      "default_pair": false,
+      "catalogued_spaces": [],
+      "missing_spaces": [],
+      "state": "accounted_special_path",
+      "alias_dependency_check_required": false,
+      "profile_sha256": {
+        "resources_product/profiles/kodak_tri_x_400.json": "a54be071c6a055a9a49acb7072d10bf0b1bcddf9c0a459b0800a9b14bb66b1f1",
+        "resources/profiles/fujifilm_crystal_archive_typeii.json": "b613da2fc9cde092da450abe00b230c73d7ec6afc20fed2b4112e5b5fa77e80e"
+      },
+      "visible_in_supplied_app_catalog": true
+    },
+    {
+      "film": "kodak_tri_x_400",
+      "paper": "ilford_multigrade_iv_rc",
+      "route": "silver_path",
+      "reason": "Dedicated monochrome path; colour hue recovery is not applicable.",
+      "default_pair": true,
+      "catalogued_spaces": [],
+      "missing_spaces": [],
+      "state": "accounted_special_path",
+      "alias_dependency_check_required": false,
+      "profile_sha256": {
+        "resources_product/profiles/kodak_tri_x_400.json": "a54be071c6a055a9a49acb7072d10bf0b1bcddf9c0a459b0800a9b14bb66b1f1",
+        "resources_product/profiles/ilford_multigrade_iv_rc.json": "0f776f1f26f04aca4ec438ed377dc1acf4073dc1a8ae32c51607a6cb1a02521d"
+      },
+      "visible_in_supplied_app_catalog": true
+    },
+    {
+      "film": "kodak_tri_x_400",
+      "paper": "kodak_2383",
+      "route": "incompatible_channel_models",
+      "reason": "Colour/silver mismatch; preserve the product pairing rule.",
+      "default_pair": false,
+      "catalogued_spaces": [],
+      "missing_spaces": [],
+      "state": "accounted_special_path",
+      "alias_dependency_check_required": false,
+      "profile_sha256": {
+        "resources_product/profiles/kodak_tri_x_400.json": "a54be071c6a055a9a49acb7072d10bf0b1bcddf9c0a459b0800a9b14bb66b1f1",
+        "resources/profiles/kodak_2383.json": "273eda5e3c9f4a624c1ce65a8249e343fb227d49bcf9bab54167415ac6fd5540"
+      },
+      "visible_in_supplied_app_catalog": true
+    },
+    {
+      "film": "kodak_tri_x_400",
+      "paper": "kodak_2393",
+      "route": "incompatible_channel_models",
+      "reason": "Colour/silver mismatch; preserve the product pairing rule.",
+      "default_pair": false,
+      "catalogued_spaces": [],
+      "missing_spaces": [],
+      "state": "accounted_special_path",
+      "alias_dependency_check_required": false,
+      "profile_sha256": {
+        "resources_product/profiles/kodak_tri_x_400.json": "a54be071c6a055a9a49acb7072d10bf0b1bcddf9c0a459b0800a9b14bb66b1f1",
+        "resources/profiles/kodak_2393.json": "11fc419921ac81bde811305c46c4bc25a833373e5378a06f3c88929b55d16b33"
+      },
+      "visible_in_supplied_app_catalog": true
+    },
+    {
+      "film": "kodak_tri_x_400",
+      "paper": "kodak_ektacolor_edge",
+      "route": "incompatible_channel_models",
+      "reason": "Colour/silver mismatch; preserve the product pairing rule.",
+      "default_pair": false,
+      "catalogued_spaces": [],
+      "missing_spaces": [],
+      "state": "accounted_special_path",
+      "alias_dependency_check_required": false,
+      "profile_sha256": {
+        "resources_product/profiles/kodak_tri_x_400.json": "a54be071c6a055a9a49acb7072d10bf0b1bcddf9c0a459b0800a9b14bb66b1f1",
+        "resources/profiles/kodak_ektacolor_edge.json": "82af7d6f3e268f2debbf1a6993356193ac0e948f8fb9725bb8b68d75daddaef4"
+      },
+      "visible_in_supplied_app_catalog": true
+    },
+    {
+      "film": "kodak_tri_x_400",
+      "paper": "kodak_endura_premier",
+      "route": "incompatible_channel_models",
+      "reason": "Colour/silver mismatch; preserve the product pairing rule.",
+      "default_pair": false,
+      "catalogued_spaces": [],
+      "missing_spaces": [],
+      "state": "accounted_special_path",
+      "alias_dependency_check_required": false,
+      "profile_sha256": {
+        "resources_product/profiles/kodak_tri_x_400.json": "a54be071c6a055a9a49acb7072d10bf0b1bcddf9c0a459b0800a9b14bb66b1f1",
+        "resources/profiles/kodak_endura_premier.json": "7dd0ffe44fc383aa68dc0cee85d4a7e084bec7698784675ea567ca313af00fc1"
+      },
+      "visible_in_supplied_app_catalog": true
+    },
+    {
+      "film": "kodak_tri_x_400",
+      "paper": "kodak_portra_endura",
+      "route": "incompatible_channel_models",
+      "reason": "Colour/silver mismatch; preserve the product pairing rule.",
+      "default_pair": false,
+      "catalogued_spaces": [],
+      "missing_spaces": [],
+      "state": "accounted_special_path",
+      "alias_dependency_check_required": false,
+      "profile_sha256": {
+        "resources_product/profiles/kodak_tri_x_400.json": "a54be071c6a055a9a49acb7072d10bf0b1bcddf9c0a459b0800a9b14bb66b1f1",
+        "resources/profiles/kodak_portra_endura.json": "ad5ac4b98640c2d6ad0ba24c33ac880d927cbbf1c60551594f2a081cfc2d8d9a"
+      },
+      "visible_in_supplied_app_catalog": true
+    },
+    {
+      "film": "kodak_tri_x_400",
+      "paper": "kodak_supra_endura",
+      "route": "incompatible_channel_models",
+      "reason": "Colour/silver mismatch; preserve the product pairing rule.",
+      "default_pair": false,
+      "catalogued_spaces": [],
+      "missing_spaces": [],
+      "state": "accounted_special_path",
+      "alias_dependency_check_required": false,
+      "profile_sha256": {
+        "resources_product/profiles/kodak_tri_x_400.json": "a54be071c6a055a9a49acb7072d10bf0b1bcddf9c0a459b0800a9b14bb66b1f1",
+        "resources/profiles/kodak_supra_endura.json": "8d49b240952c77b8302d6d7e652400e21bed595233f926bcc588481d100d2055"
+      },
+      "visible_in_supplied_app_catalog": true
+    },
+    {
+      "film": "kodak_tri_x_400",
+      "paper": "kodak_ultra_endura",
+      "route": "incompatible_channel_models",
+      "reason": "Colour/silver mismatch; preserve the product pairing rule.",
+      "default_pair": false,
+      "catalogued_spaces": [],
+      "missing_spaces": [],
+      "state": "accounted_special_path",
+      "alias_dependency_check_required": false,
+      "profile_sha256": {
+        "resources_product/profiles/kodak_tri_x_400.json": "a54be071c6a055a9a49acb7072d10bf0b1bcddf9c0a459b0800a9b14bb66b1f1",
+        "resources/profiles/kodak_ultra_endura.json": "8ea5aa5643c5a27b9c189f81a5a126573484f679d4b6d37dbee1b27485b6de9a"
+      },
+      "visible_in_supplied_app_catalog": true
+    },
+    {
+      "film": "kodak_ultramax_400",
+      "paper": "fujifilm_crystal_archive_typeii",
+      "route": "colour_minilab",
+      "reason": "Bake and qualify this explicit negative-film / colour-paper pair.",
+      "default_pair": false,
+      "catalogued_spaces": [],
+      "missing_spaces": [
+        "sRGB",
+        "ProPhoto RGB"
+      ],
+      "state": "pending",
+      "alias_dependency_check_required": false,
+      "profile_sha256": {
+        "resources/profiles/kodak_ultramax_400.json": "248b78bdcc4fdbe864e30f193f900059ecd98cbdb276c88ad8f6f5b520137901",
+        "resources/profiles/fujifilm_crystal_archive_typeii.json": "b613da2fc9cde092da450abe00b230c73d7ec6afc20fed2b4112e5b5fa77e80e"
+      },
+      "visible_in_supplied_app_catalog": true
+    },
+    {
+      "film": "kodak_ultramax_400",
+      "paper": "ilford_multigrade_iv_rc",
+      "route": "incompatible_channel_models",
+      "reason": "Colour/silver mismatch; preserve the product pairing rule.",
+      "default_pair": false,
+      "catalogued_spaces": [],
+      "missing_spaces": [],
+      "state": "accounted_special_path",
+      "alias_dependency_check_required": false,
+      "profile_sha256": {
+        "resources/profiles/kodak_ultramax_400.json": "248b78bdcc4fdbe864e30f193f900059ecd98cbdb276c88ad8f6f5b520137901",
+        "resources_product/profiles/ilford_multigrade_iv_rc.json": "0f776f1f26f04aca4ec438ed377dc1acf4073dc1a8ae32c51607a6cb1a02521d"
+      },
+      "visible_in_supplied_app_catalog": true
+    },
+    {
+      "film": "kodak_ultramax_400",
+      "paper": "kodak_2383",
+      "route": "colour_minilab",
+      "reason": "Bake and qualify this explicit negative-film / colour-paper pair.",
+      "default_pair": false,
+      "catalogued_spaces": [],
+      "missing_spaces": [
+        "sRGB",
+        "ProPhoto RGB"
+      ],
+      "state": "pending",
+      "alias_dependency_check_required": false,
+      "profile_sha256": {
+        "resources/profiles/kodak_ultramax_400.json": "248b78bdcc4fdbe864e30f193f900059ecd98cbdb276c88ad8f6f5b520137901",
+        "resources/profiles/kodak_2383.json": "273eda5e3c9f4a624c1ce65a8249e343fb227d49bcf9bab54167415ac6fd5540"
+      },
+      "visible_in_supplied_app_catalog": true
+    },
+    {
+      "film": "kodak_ultramax_400",
+      "paper": "kodak_2393",
+      "route": "colour_minilab",
+      "reason": "Bake and qualify this explicit negative-film / colour-paper pair.",
+      "default_pair": false,
+      "catalogued_spaces": [],
+      "missing_spaces": [
+        "sRGB",
+        "ProPhoto RGB"
+      ],
+      "state": "pending",
+      "alias_dependency_check_required": false,
+      "profile_sha256": {
+        "resources/profiles/kodak_ultramax_400.json": "248b78bdcc4fdbe864e30f193f900059ecd98cbdb276c88ad8f6f5b520137901",
+        "resources/profiles/kodak_2393.json": "11fc419921ac81bde811305c46c4bc25a833373e5378a06f3c88929b55d16b33"
+      },
+      "visible_in_supplied_app_catalog": true
+    },
+    {
+      "film": "kodak_ultramax_400",
+      "paper": "kodak_ektacolor_edge",
+      "route": "colour_minilab",
+      "reason": "Bake and qualify this explicit negative-film / colour-paper pair.",
+      "default_pair": false,
+      "catalogued_spaces": [],
+      "missing_spaces": [
+        "sRGB",
+        "ProPhoto RGB"
+      ],
+      "state": "pending",
+      "alias_dependency_check_required": false,
+      "profile_sha256": {
+        "resources/profiles/kodak_ultramax_400.json": "248b78bdcc4fdbe864e30f193f900059ecd98cbdb276c88ad8f6f5b520137901",
+        "resources/profiles/kodak_ektacolor_edge.json": "82af7d6f3e268f2debbf1a6993356193ac0e948f8fb9725bb8b68d75daddaef4"
+      },
+      "visible_in_supplied_app_catalog": true
+    },
+    {
+      "film": "kodak_ultramax_400",
+      "paper": "kodak_endura_premier",
+      "route": "colour_minilab",
+      "reason": "Bake and qualify this explicit negative-film / colour-paper pair.",
+      "default_pair": false,
+      "catalogued_spaces": [],
+      "missing_spaces": [
+        "sRGB",
+        "ProPhoto RGB"
+      ],
+      "state": "pending",
+      "alias_dependency_check_required": false,
+      "profile_sha256": {
+        "resources/profiles/kodak_ultramax_400.json": "248b78bdcc4fdbe864e30f193f900059ecd98cbdb276c88ad8f6f5b520137901",
+        "resources/profiles/kodak_endura_premier.json": "7dd0ffe44fc383aa68dc0cee85d4a7e084bec7698784675ea567ca313af00fc1"
+      },
+      "visible_in_supplied_app_catalog": true
+    },
+    {
+      "film": "kodak_ultramax_400",
+      "paper": "kodak_portra_endura",
+      "route": "colour_minilab",
+      "reason": "Bake and qualify this explicit negative-film / colour-paper pair.",
+      "default_pair": true,
+      "catalogued_spaces": [],
+      "missing_spaces": [
+        "sRGB",
+        "ProPhoto RGB"
+      ],
+      "state": "pending",
+      "alias_dependency_check_required": false,
+      "profile_sha256": {
+        "resources/profiles/kodak_ultramax_400.json": "248b78bdcc4fdbe864e30f193f900059ecd98cbdb276c88ad8f6f5b520137901",
+        "resources/profiles/kodak_portra_endura.json": "ad5ac4b98640c2d6ad0ba24c33ac880d927cbbf1c60551594f2a081cfc2d8d9a"
+      },
+      "visible_in_supplied_app_catalog": true
+    },
+    {
+      "film": "kodak_ultramax_400",
+      "paper": "kodak_supra_endura",
+      "route": "colour_minilab",
+      "reason": "Bake and qualify this explicit negative-film / colour-paper pair.",
+      "default_pair": false,
+      "catalogued_spaces": [],
+      "missing_spaces": [
+        "sRGB",
+        "ProPhoto RGB"
+      ],
+      "state": "pending",
+      "alias_dependency_check_required": false,
+      "profile_sha256": {
+        "resources/profiles/kodak_ultramax_400.json": "248b78bdcc4fdbe864e30f193f900059ecd98cbdb276c88ad8f6f5b520137901",
+        "resources/profiles/kodak_supra_endura.json": "8d49b240952c77b8302d6d7e652400e21bed595233f926bcc588481d100d2055"
+      },
+      "visible_in_supplied_app_catalog": true
+    },
+    {
+      "film": "kodak_ultramax_400",
+      "paper": "kodak_ultra_endura",
+      "route": "colour_minilab",
+      "reason": "Bake and qualify this explicit negative-film / colour-paper pair.",
+      "default_pair": false,
+      "catalogued_spaces": [],
+      "missing_spaces": [
+        "sRGB",
+        "ProPhoto RGB"
+      ],
+      "state": "pending",
+      "alias_dependency_check_required": false,
+      "profile_sha256": {
+        "resources/profiles/kodak_ultramax_400.json": "248b78bdcc4fdbe864e30f193f900059ecd98cbdb276c88ad8f6f5b520137901",
+        "resources/profiles/kodak_ultra_endura.json": "8ea5aa5643c5a27b9c189f81a5a126573484f679d4b6d37dbee1b27485b6de9a"
+      },
+      "visible_in_supplied_app_catalog": true
+    },
+    {
+      "film": "kodak_verita_200d",
+      "paper": "fujifilm_crystal_archive_typeii",
+      "route": "colour_minilab",
+      "reason": "Bake and qualify this explicit negative-film / colour-paper pair.",
+      "default_pair": false,
+      "catalogued_spaces": [],
+      "missing_spaces": [
+        "sRGB",
+        "ProPhoto RGB"
+      ],
+      "state": "pending",
+      "alias_dependency_check_required": false,
+      "profile_sha256": {
+        "resources/profiles/kodak_verita_200d.json": "5d71a3f544721a71cfa0b0671ce1b5eda6dc1e6a09273810793d4bc821b272fc",
+        "resources/profiles/fujifilm_crystal_archive_typeii.json": "b613da2fc9cde092da450abe00b230c73d7ec6afc20fed2b4112e5b5fa77e80e"
+      },
+      "visible_in_supplied_app_catalog": true
+    },
+    {
+      "film": "kodak_verita_200d",
+      "paper": "ilford_multigrade_iv_rc",
+      "route": "incompatible_channel_models",
+      "reason": "Colour/silver mismatch; preserve the product pairing rule.",
+      "default_pair": false,
+      "catalogued_spaces": [],
+      "missing_spaces": [],
+      "state": "accounted_special_path",
+      "alias_dependency_check_required": false,
+      "profile_sha256": {
+        "resources/profiles/kodak_verita_200d.json": "5d71a3f544721a71cfa0b0671ce1b5eda6dc1e6a09273810793d4bc821b272fc",
+        "resources_product/profiles/ilford_multigrade_iv_rc.json": "0f776f1f26f04aca4ec438ed377dc1acf4073dc1a8ae32c51607a6cb1a02521d"
+      },
+      "visible_in_supplied_app_catalog": true
+    },
+    {
+      "film": "kodak_verita_200d",
+      "paper": "kodak_2383",
+      "route": "colour_minilab",
+      "reason": "Bake and qualify this explicit negative-film / colour-paper pair.",
+      "default_pair": true,
+      "catalogued_spaces": [],
+      "missing_spaces": [
+        "sRGB",
+        "ProPhoto RGB"
+      ],
+      "state": "pending",
+      "alias_dependency_check_required": false,
+      "profile_sha256": {
+        "resources/profiles/kodak_verita_200d.json": "5d71a3f544721a71cfa0b0671ce1b5eda6dc1e6a09273810793d4bc821b272fc",
+        "resources/profiles/kodak_2383.json": "273eda5e3c9f4a624c1ce65a8249e343fb227d49bcf9bab54167415ac6fd5540"
+      },
+      "visible_in_supplied_app_catalog": true
+    },
+    {
+      "film": "kodak_verita_200d",
+      "paper": "kodak_2393",
+      "route": "colour_minilab",
+      "reason": "Bake and qualify this explicit negative-film / colour-paper pair.",
+      "default_pair": false,
+      "catalogued_spaces": [],
+      "missing_spaces": [
+        "sRGB",
+        "ProPhoto RGB"
+      ],
+      "state": "pending",
+      "alias_dependency_check_required": false,
+      "profile_sha256": {
+        "resources/profiles/kodak_verita_200d.json": "5d71a3f544721a71cfa0b0671ce1b5eda6dc1e6a09273810793d4bc821b272fc",
+        "resources/profiles/kodak_2393.json": "11fc419921ac81bde811305c46c4bc25a833373e5378a06f3c88929b55d16b33"
+      },
+      "visible_in_supplied_app_catalog": true
+    },
+    {
+      "film": "kodak_verita_200d",
+      "paper": "kodak_ektacolor_edge",
+      "route": "colour_minilab",
+      "reason": "Bake and qualify this explicit negative-film / colour-paper pair.",
+      "default_pair": false,
+      "catalogued_spaces": [],
+      "missing_spaces": [
+        "sRGB",
+        "ProPhoto RGB"
+      ],
+      "state": "pending",
+      "alias_dependency_check_required": false,
+      "profile_sha256": {
+        "resources/profiles/kodak_verita_200d.json": "5d71a3f544721a71cfa0b0671ce1b5eda6dc1e6a09273810793d4bc821b272fc",
+        "resources/profiles/kodak_ektacolor_edge.json": "82af7d6f3e268f2debbf1a6993356193ac0e948f8fb9725bb8b68d75daddaef4"
+      },
+      "visible_in_supplied_app_catalog": true
+    },
+    {
+      "film": "kodak_verita_200d",
+      "paper": "kodak_endura_premier",
+      "route": "colour_minilab",
+      "reason": "Bake and qualify this explicit negative-film / colour-paper pair.",
+      "default_pair": false,
+      "catalogued_spaces": [],
+      "missing_spaces": [
+        "sRGB",
+        "ProPhoto RGB"
+      ],
+      "state": "pending",
+      "alias_dependency_check_required": false,
+      "profile_sha256": {
+        "resources/profiles/kodak_verita_200d.json": "5d71a3f544721a71cfa0b0671ce1b5eda6dc1e6a09273810793d4bc821b272fc",
+        "resources/profiles/kodak_endura_premier.json": "7dd0ffe44fc383aa68dc0cee85d4a7e084bec7698784675ea567ca313af00fc1"
+      },
+      "visible_in_supplied_app_catalog": true
+    },
+    {
+      "film": "kodak_verita_200d",
+      "paper": "kodak_portra_endura",
+      "route": "colour_minilab",
+      "reason": "Bake and qualify this explicit negative-film / colour-paper pair.",
+      "default_pair": false,
+      "catalogued_spaces": [],
+      "missing_spaces": [
+        "sRGB",
+        "ProPhoto RGB"
+      ],
+      "state": "pending",
+      "alias_dependency_check_required": false,
+      "profile_sha256": {
+        "resources/profiles/kodak_verita_200d.json": "5d71a3f544721a71cfa0b0671ce1b5eda6dc1e6a09273810793d4bc821b272fc",
+        "resources/profiles/kodak_portra_endura.json": "ad5ac4b98640c2d6ad0ba24c33ac880d927cbbf1c60551594f2a081cfc2d8d9a"
+      },
+      "visible_in_supplied_app_catalog": true
+    },
+    {
+      "film": "kodak_verita_200d",
+      "paper": "kodak_supra_endura",
+      "route": "colour_minilab",
+      "reason": "Bake and qualify this explicit negative-film / colour-paper pair.",
+      "default_pair": false,
+      "catalogued_spaces": [],
+      "missing_spaces": [
+        "sRGB",
+        "ProPhoto RGB"
+      ],
+      "state": "pending",
+      "alias_dependency_check_required": false,
+      "profile_sha256": {
+        "resources/profiles/kodak_verita_200d.json": "5d71a3f544721a71cfa0b0671ce1b5eda6dc1e6a09273810793d4bc821b272fc",
+        "resources/profiles/kodak_supra_endura.json": "8d49b240952c77b8302d6d7e652400e21bed595233f926bcc588481d100d2055"
+      },
+      "visible_in_supplied_app_catalog": true
+    },
+    {
+      "film": "kodak_verita_200d",
+      "paper": "kodak_ultra_endura",
+      "route": "colour_minilab",
+      "reason": "Bake and qualify this explicit negative-film / colour-paper pair.",
+      "default_pair": false,
+      "catalogued_spaces": [],
+      "missing_spaces": [
+        "sRGB",
+        "ProPhoto RGB"
+      ],
+      "state": "pending",
+      "alias_dependency_check_required": false,
+      "profile_sha256": {
+        "resources/profiles/kodak_verita_200d.json": "5d71a3f544721a71cfa0b0671ce1b5eda6dc1e6a09273810793d4bc821b272fc",
+        "resources/profiles/kodak_ultra_endura.json": "8ea5aa5643c5a27b9c189f81a5a126573484f679d4b6d37dbee1b27485b6de9a"
+      },
+      "visible_in_supplied_app_catalog": true
+    },
+    {
+      "film": "kodak_vision3_200t",
+      "paper": "fujifilm_crystal_archive_typeii",
+      "route": "colour_minilab",
+      "reason": "Bake and qualify this explicit negative-film / colour-paper pair.",
+      "default_pair": false,
+      "catalogued_spaces": [],
+      "missing_spaces": [
+        "sRGB",
+        "ProPhoto RGB"
+      ],
+      "state": "pending",
+      "alias_dependency_check_required": false,
+      "profile_sha256": {
+        "resources/profiles/kodak_vision3_200t.json": "4a28f049fd6bad67be98efdb058b413c6b3c022e2932b357b346d902c4c393c8",
+        "resources/profiles/fujifilm_crystal_archive_typeii.json": "b613da2fc9cde092da450abe00b230c73d7ec6afc20fed2b4112e5b5fa77e80e"
+      },
+      "visible_in_supplied_app_catalog": true
+    },
+    {
+      "film": "kodak_vision3_200t",
+      "paper": "ilford_multigrade_iv_rc",
+      "route": "incompatible_channel_models",
+      "reason": "Colour/silver mismatch; preserve the product pairing rule.",
+      "default_pair": false,
+      "catalogued_spaces": [],
+      "missing_spaces": [],
+      "state": "accounted_special_path",
+      "alias_dependency_check_required": false,
+      "profile_sha256": {
+        "resources/profiles/kodak_vision3_200t.json": "4a28f049fd6bad67be98efdb058b413c6b3c022e2932b357b346d902c4c393c8",
+        "resources_product/profiles/ilford_multigrade_iv_rc.json": "0f776f1f26f04aca4ec438ed377dc1acf4073dc1a8ae32c51607a6cb1a02521d"
+      },
+      "visible_in_supplied_app_catalog": true
+    },
+    {
+      "film": "kodak_vision3_200t",
+      "paper": "kodak_2383",
+      "route": "colour_minilab",
+      "reason": "Bake and qualify this explicit negative-film / colour-paper pair.",
+      "default_pair": true,
+      "catalogued_spaces": [],
+      "missing_spaces": [
+        "sRGB",
+        "ProPhoto RGB"
+      ],
+      "state": "pending",
+      "alias_dependency_check_required": false,
+      "profile_sha256": {
+        "resources/profiles/kodak_vision3_200t.json": "4a28f049fd6bad67be98efdb058b413c6b3c022e2932b357b346d902c4c393c8",
+        "resources/profiles/kodak_2383.json": "273eda5e3c9f4a624c1ce65a8249e343fb227d49bcf9bab54167415ac6fd5540"
+      },
+      "visible_in_supplied_app_catalog": true
+    },
+    {
+      "film": "kodak_vision3_200t",
+      "paper": "kodak_2393",
+      "route": "colour_minilab",
+      "reason": "Bake and qualify this explicit negative-film / colour-paper pair.",
+      "default_pair": false,
+      "catalogued_spaces": [],
+      "missing_spaces": [
+        "sRGB",
+        "ProPhoto RGB"
+      ],
+      "state": "pending",
+      "alias_dependency_check_required": false,
+      "profile_sha256": {
+        "resources/profiles/kodak_vision3_200t.json": "4a28f049fd6bad67be98efdb058b413c6b3c022e2932b357b346d902c4c393c8",
+        "resources/profiles/kodak_2393.json": "11fc419921ac81bde811305c46c4bc25a833373e5378a06f3c88929b55d16b33"
+      },
+      "visible_in_supplied_app_catalog": true
+    },
+    {
+      "film": "kodak_vision3_200t",
+      "paper": "kodak_ektacolor_edge",
+      "route": "colour_minilab",
+      "reason": "Bake and qualify this explicit negative-film / colour-paper pair.",
+      "default_pair": false,
+      "catalogued_spaces": [],
+      "missing_spaces": [
+        "sRGB",
+        "ProPhoto RGB"
+      ],
+      "state": "pending",
+      "alias_dependency_check_required": false,
+      "profile_sha256": {
+        "resources/profiles/kodak_vision3_200t.json": "4a28f049fd6bad67be98efdb058b413c6b3c022e2932b357b346d902c4c393c8",
+        "resources/profiles/kodak_ektacolor_edge.json": "82af7d6f3e268f2debbf1a6993356193ac0e948f8fb9725bb8b68d75daddaef4"
+      },
+      "visible_in_supplied_app_catalog": true
+    },
+    {
+      "film": "kodak_vision3_200t",
+      "paper": "kodak_endura_premier",
+      "route": "colour_minilab",
+      "reason": "Bake and qualify this explicit negative-film / colour-paper pair.",
+      "default_pair": false,
+      "catalogued_spaces": [],
+      "missing_spaces": [
+        "sRGB",
+        "ProPhoto RGB"
+      ],
+      "state": "pending",
+      "alias_dependency_check_required": false,
+      "profile_sha256": {
+        "resources/profiles/kodak_vision3_200t.json": "4a28f049fd6bad67be98efdb058b413c6b3c022e2932b357b346d902c4c393c8",
+        "resources/profiles/kodak_endura_premier.json": "7dd0ffe44fc383aa68dc0cee85d4a7e084bec7698784675ea567ca313af00fc1"
+      },
+      "visible_in_supplied_app_catalog": true
+    },
+    {
+      "film": "kodak_vision3_200t",
+      "paper": "kodak_portra_endura",
+      "route": "colour_minilab",
+      "reason": "Bake and qualify this explicit negative-film / colour-paper pair.",
+      "default_pair": false,
+      "catalogued_spaces": [],
+      "missing_spaces": [
+        "sRGB",
+        "ProPhoto RGB"
+      ],
+      "state": "pending",
+      "alias_dependency_check_required": false,
+      "profile_sha256": {
+        "resources/profiles/kodak_vision3_200t.json": "4a28f049fd6bad67be98efdb058b413c6b3c022e2932b357b346d902c4c393c8",
+        "resources/profiles/kodak_portra_endura.json": "ad5ac4b98640c2d6ad0ba24c33ac880d927cbbf1c60551594f2a081cfc2d8d9a"
+      },
+      "visible_in_supplied_app_catalog": true
+    },
+    {
+      "film": "kodak_vision3_200t",
+      "paper": "kodak_supra_endura",
+      "route": "colour_minilab",
+      "reason": "Bake and qualify this explicit negative-film / colour-paper pair.",
+      "default_pair": false,
+      "catalogued_spaces": [],
+      "missing_spaces": [
+        "sRGB",
+        "ProPhoto RGB"
+      ],
+      "state": "pending",
+      "alias_dependency_check_required": false,
+      "profile_sha256": {
+        "resources/profiles/kodak_vision3_200t.json": "4a28f049fd6bad67be98efdb058b413c6b3c022e2932b357b346d902c4c393c8",
+        "resources/profiles/kodak_supra_endura.json": "8d49b240952c77b8302d6d7e652400e21bed595233f926bcc588481d100d2055"
+      },
+      "visible_in_supplied_app_catalog": true
+    },
+    {
+      "film": "kodak_vision3_200t",
+      "paper": "kodak_ultra_endura",
+      "route": "colour_minilab",
+      "reason": "Bake and qualify this explicit negative-film / colour-paper pair.",
+      "default_pair": false,
+      "catalogued_spaces": [],
+      "missing_spaces": [
+        "sRGB",
+        "ProPhoto RGB"
+      ],
+      "state": "pending",
+      "alias_dependency_check_required": false,
+      "profile_sha256": {
+        "resources/profiles/kodak_vision3_200t.json": "4a28f049fd6bad67be98efdb058b413c6b3c022e2932b357b346d902c4c393c8",
+        "resources/profiles/kodak_ultra_endura.json": "8ea5aa5643c5a27b9c189f81a5a126573484f679d4b6d37dbee1b27485b6de9a"
+      },
+      "visible_in_supplied_app_catalog": true
+    },
+    {
+      "film": "kodak_vision3_250d",
+      "paper": "fujifilm_crystal_archive_typeii",
+      "route": "colour_minilab",
+      "reason": "Bake and qualify this explicit negative-film / colour-paper pair.",
+      "default_pair": false,
+      "catalogued_spaces": [],
+      "missing_spaces": [
+        "sRGB",
+        "ProPhoto RGB"
+      ],
+      "state": "pending",
+      "alias_dependency_check_required": false,
+      "profile_sha256": {
+        "resources/profiles/kodak_vision3_250d.json": "9ab85c8627c0533beb925b747e441e93beabe9e98c2429695b0a53866b56fcc7",
+        "resources/profiles/fujifilm_crystal_archive_typeii.json": "b613da2fc9cde092da450abe00b230c73d7ec6afc20fed2b4112e5b5fa77e80e"
+      },
+      "visible_in_supplied_app_catalog": true
+    },
+    {
+      "film": "kodak_vision3_250d",
+      "paper": "ilford_multigrade_iv_rc",
+      "route": "incompatible_channel_models",
+      "reason": "Colour/silver mismatch; preserve the product pairing rule.",
+      "default_pair": false,
+      "catalogued_spaces": [],
+      "missing_spaces": [],
+      "state": "accounted_special_path",
+      "alias_dependency_check_required": false,
+      "profile_sha256": {
+        "resources/profiles/kodak_vision3_250d.json": "9ab85c8627c0533beb925b747e441e93beabe9e98c2429695b0a53866b56fcc7",
+        "resources_product/profiles/ilford_multigrade_iv_rc.json": "0f776f1f26f04aca4ec438ed377dc1acf4073dc1a8ae32c51607a6cb1a02521d"
+      },
+      "visible_in_supplied_app_catalog": true
+    },
+    {
+      "film": "kodak_vision3_250d",
+      "paper": "kodak_2383",
+      "route": "colour_minilab",
+      "reason": "Bake and qualify this explicit negative-film / colour-paper pair.",
+      "default_pair": true,
+      "catalogued_spaces": [],
+      "missing_spaces": [
+        "sRGB",
+        "ProPhoto RGB"
+      ],
+      "state": "pending",
+      "alias_dependency_check_required": false,
+      "profile_sha256": {
+        "resources/profiles/kodak_vision3_250d.json": "9ab85c8627c0533beb925b747e441e93beabe9e98c2429695b0a53866b56fcc7",
+        "resources/profiles/kodak_2383.json": "273eda5e3c9f4a624c1ce65a8249e343fb227d49bcf9bab54167415ac6fd5540"
+      },
+      "visible_in_supplied_app_catalog": true
+    },
+    {
+      "film": "kodak_vision3_250d",
+      "paper": "kodak_2393",
+      "route": "colour_minilab",
+      "reason": "Bake and qualify this explicit negative-film / colour-paper pair.",
+      "default_pair": false,
+      "catalogued_spaces": [],
+      "missing_spaces": [
+        "sRGB",
+        "ProPhoto RGB"
+      ],
+      "state": "pending",
+      "alias_dependency_check_required": false,
+      "profile_sha256": {
+        "resources/profiles/kodak_vision3_250d.json": "9ab85c8627c0533beb925b747e441e93beabe9e98c2429695b0a53866b56fcc7",
+        "resources/profiles/kodak_2393.json": "11fc419921ac81bde811305c46c4bc25a833373e5378a06f3c88929b55d16b33"
+      },
+      "visible_in_supplied_app_catalog": true
+    },
+    {
+      "film": "kodak_vision3_250d",
+      "paper": "kodak_ektacolor_edge",
+      "route": "colour_minilab",
+      "reason": "Bake and qualify this explicit negative-film / colour-paper pair.",
+      "default_pair": false,
+      "catalogued_spaces": [],
+      "missing_spaces": [
+        "sRGB",
+        "ProPhoto RGB"
+      ],
+      "state": "pending",
+      "alias_dependency_check_required": false,
+      "profile_sha256": {
+        "resources/profiles/kodak_vision3_250d.json": "9ab85c8627c0533beb925b747e441e93beabe9e98c2429695b0a53866b56fcc7",
+        "resources/profiles/kodak_ektacolor_edge.json": "82af7d6f3e268f2debbf1a6993356193ac0e948f8fb9725bb8b68d75daddaef4"
+      },
+      "visible_in_supplied_app_catalog": true
+    },
+    {
+      "film": "kodak_vision3_250d",
+      "paper": "kodak_endura_premier",
+      "route": "colour_minilab",
+      "reason": "Bake and qualify this explicit negative-film / colour-paper pair.",
+      "default_pair": false,
+      "catalogued_spaces": [],
+      "missing_spaces": [
+        "sRGB",
+        "ProPhoto RGB"
+      ],
+      "state": "pending",
+      "alias_dependency_check_required": false,
+      "profile_sha256": {
+        "resources/profiles/kodak_vision3_250d.json": "9ab85c8627c0533beb925b747e441e93beabe9e98c2429695b0a53866b56fcc7",
+        "resources/profiles/kodak_endura_premier.json": "7dd0ffe44fc383aa68dc0cee85d4a7e084bec7698784675ea567ca313af00fc1"
+      },
+      "visible_in_supplied_app_catalog": true
+    },
+    {
+      "film": "kodak_vision3_250d",
+      "paper": "kodak_portra_endura",
+      "route": "colour_minilab",
+      "reason": "Bake and qualify this explicit negative-film / colour-paper pair.",
+      "default_pair": false,
+      "catalogued_spaces": [],
+      "missing_spaces": [
+        "sRGB",
+        "ProPhoto RGB"
+      ],
+      "state": "pending",
+      "alias_dependency_check_required": false,
+      "profile_sha256": {
+        "resources/profiles/kodak_vision3_250d.json": "9ab85c8627c0533beb925b747e441e93beabe9e98c2429695b0a53866b56fcc7",
+        "resources/profiles/kodak_portra_endura.json": "ad5ac4b98640c2d6ad0ba24c33ac880d927cbbf1c60551594f2a081cfc2d8d9a"
+      },
+      "visible_in_supplied_app_catalog": true
+    },
+    {
+      "film": "kodak_vision3_250d",
+      "paper": "kodak_supra_endura",
+      "route": "colour_minilab",
+      "reason": "Bake and qualify this explicit negative-film / colour-paper pair.",
+      "default_pair": false,
+      "catalogued_spaces": [],
+      "missing_spaces": [
+        "sRGB",
+        "ProPhoto RGB"
+      ],
+      "state": "pending",
+      "alias_dependency_check_required": false,
+      "profile_sha256": {
+        "resources/profiles/kodak_vision3_250d.json": "9ab85c8627c0533beb925b747e441e93beabe9e98c2429695b0a53866b56fcc7",
+        "resources/profiles/kodak_supra_endura.json": "8d49b240952c77b8302d6d7e652400e21bed595233f926bcc588481d100d2055"
+      },
+      "visible_in_supplied_app_catalog": true
+    },
+    {
+      "film": "kodak_vision3_250d",
+      "paper": "kodak_ultra_endura",
+      "route": "colour_minilab",
+      "reason": "Bake and qualify this explicit negative-film / colour-paper pair.",
+      "default_pair": false,
+      "catalogued_spaces": [],
+      "missing_spaces": [
+        "sRGB",
+        "ProPhoto RGB"
+      ],
+      "state": "pending",
+      "alias_dependency_check_required": false,
+      "profile_sha256": {
+        "resources/profiles/kodak_vision3_250d.json": "9ab85c8627c0533beb925b747e441e93beabe9e98c2429695b0a53866b56fcc7",
+        "resources/profiles/kodak_ultra_endura.json": "8ea5aa5643c5a27b9c189f81a5a126573484f679d4b6d37dbee1b27485b6de9a"
+      },
+      "visible_in_supplied_app_catalog": true
+    },
+    {
+      "film": "kodak_vision3_500t",
+      "paper": "fujifilm_crystal_archive_typeii",
+      "route": "colour_minilab",
+      "reason": "Bake and qualify this explicit negative-film / colour-paper pair.",
+      "default_pair": false,
+      "catalogued_spaces": [],
+      "missing_spaces": [
+        "sRGB",
+        "ProPhoto RGB"
+      ],
+      "state": "pending",
+      "alias_dependency_check_required": false,
+      "profile_sha256": {
+        "resources/profiles/kodak_vision3_500t.json": "d7beca68bf16db88dbb7373fd13a6a1150a57a911a54bb0309a760a6f9883329",
+        "resources/profiles/fujifilm_crystal_archive_typeii.json": "b613da2fc9cde092da450abe00b230c73d7ec6afc20fed2b4112e5b5fa77e80e"
+      },
+      "visible_in_supplied_app_catalog": true
+    },
+    {
+      "film": "kodak_vision3_500t",
+      "paper": "ilford_multigrade_iv_rc",
+      "route": "incompatible_channel_models",
+      "reason": "Colour/silver mismatch; preserve the product pairing rule.",
+      "default_pair": false,
+      "catalogued_spaces": [],
+      "missing_spaces": [],
+      "state": "accounted_special_path",
+      "alias_dependency_check_required": false,
+      "profile_sha256": {
+        "resources/profiles/kodak_vision3_500t.json": "d7beca68bf16db88dbb7373fd13a6a1150a57a911a54bb0309a760a6f9883329",
+        "resources_product/profiles/ilford_multigrade_iv_rc.json": "0f776f1f26f04aca4ec438ed377dc1acf4073dc1a8ae32c51607a6cb1a02521d"
+      },
+      "visible_in_supplied_app_catalog": true
+    },
+    {
+      "film": "kodak_vision3_500t",
+      "paper": "kodak_2383",
+      "route": "colour_minilab",
+      "reason": "Bake and qualify this explicit negative-film / colour-paper pair.",
+      "default_pair": true,
+      "catalogued_spaces": [],
+      "missing_spaces": [
+        "sRGB",
+        "ProPhoto RGB"
+      ],
+      "state": "pending",
+      "alias_dependency_check_required": false,
+      "profile_sha256": {
+        "resources/profiles/kodak_vision3_500t.json": "d7beca68bf16db88dbb7373fd13a6a1150a57a911a54bb0309a760a6f9883329",
+        "resources/profiles/kodak_2383.json": "273eda5e3c9f4a624c1ce65a8249e343fb227d49bcf9bab54167415ac6fd5540"
+      },
+      "visible_in_supplied_app_catalog": true
+    },
+    {
+      "film": "kodak_vision3_500t",
+      "paper": "kodak_2393",
+      "route": "colour_minilab",
+      "reason": "Bake and qualify this explicit negative-film / colour-paper pair.",
+      "default_pair": false,
+      "catalogued_spaces": [],
+      "missing_spaces": [
+        "sRGB",
+        "ProPhoto RGB"
+      ],
+      "state": "pending",
+      "alias_dependency_check_required": false,
+      "profile_sha256": {
+        "resources/profiles/kodak_vision3_500t.json": "d7beca68bf16db88dbb7373fd13a6a1150a57a911a54bb0309a760a6f9883329",
+        "resources/profiles/kodak_2393.json": "11fc419921ac81bde811305c46c4bc25a833373e5378a06f3c88929b55d16b33"
+      },
+      "visible_in_supplied_app_catalog": true
+    },
+    {
+      "film": "kodak_vision3_500t",
+      "paper": "kodak_ektacolor_edge",
+      "route": "colour_minilab",
+      "reason": "Bake and qualify this explicit negative-film / colour-paper pair.",
+      "default_pair": false,
+      "catalogued_spaces": [],
+      "missing_spaces": [
+        "sRGB",
+        "ProPhoto RGB"
+      ],
+      "state": "pending",
+      "alias_dependency_check_required": false,
+      "profile_sha256": {
+        "resources/profiles/kodak_vision3_500t.json": "d7beca68bf16db88dbb7373fd13a6a1150a57a911a54bb0309a760a6f9883329",
+        "resources/profiles/kodak_ektacolor_edge.json": "82af7d6f3e268f2debbf1a6993356193ac0e948f8fb9725bb8b68d75daddaef4"
+      },
+      "visible_in_supplied_app_catalog": true
+    },
+    {
+      "film": "kodak_vision3_500t",
+      "paper": "kodak_endura_premier",
+      "route": "colour_minilab",
+      "reason": "Bake and qualify this explicit negative-film / colour-paper pair.",
+      "default_pair": false,
+      "catalogued_spaces": [],
+      "missing_spaces": [
+        "sRGB",
+        "ProPhoto RGB"
+      ],
+      "state": "pending",
+      "alias_dependency_check_required": false,
+      "profile_sha256": {
+        "resources/profiles/kodak_vision3_500t.json": "d7beca68bf16db88dbb7373fd13a6a1150a57a911a54bb0309a760a6f9883329",
+        "resources/profiles/kodak_endura_premier.json": "7dd0ffe44fc383aa68dc0cee85d4a7e084bec7698784675ea567ca313af00fc1"
+      },
+      "visible_in_supplied_app_catalog": true
+    },
+    {
+      "film": "kodak_vision3_500t",
+      "paper": "kodak_portra_endura",
+      "route": "colour_minilab",
+      "reason": "Bake and qualify this explicit negative-film / colour-paper pair.",
+      "default_pair": false,
+      "catalogued_spaces": [],
+      "missing_spaces": [
+        "sRGB",
+        "ProPhoto RGB"
+      ],
+      "state": "pending",
+      "alias_dependency_check_required": false,
+      "profile_sha256": {
+        "resources/profiles/kodak_vision3_500t.json": "d7beca68bf16db88dbb7373fd13a6a1150a57a911a54bb0309a760a6f9883329",
+        "resources/profiles/kodak_portra_endura.json": "ad5ac4b98640c2d6ad0ba24c33ac880d927cbbf1c60551594f2a081cfc2d8d9a"
+      },
+      "visible_in_supplied_app_catalog": true
+    },
+    {
+      "film": "kodak_vision3_500t",
+      "paper": "kodak_supra_endura",
+      "route": "colour_minilab",
+      "reason": "Bake and qualify this explicit negative-film / colour-paper pair.",
+      "default_pair": false,
+      "catalogued_spaces": [],
+      "missing_spaces": [
+        "sRGB",
+        "ProPhoto RGB"
+      ],
+      "state": "pending",
+      "alias_dependency_check_required": false,
+      "profile_sha256": {
+        "resources/profiles/kodak_vision3_500t.json": "d7beca68bf16db88dbb7373fd13a6a1150a57a911a54bb0309a760a6f9883329",
+        "resources/profiles/kodak_supra_endura.json": "8d49b240952c77b8302d6d7e652400e21bed595233f926bcc588481d100d2055"
+      },
+      "visible_in_supplied_app_catalog": true
+    },
+    {
+      "film": "kodak_vision3_500t",
+      "paper": "kodak_ultra_endura",
+      "route": "colour_minilab",
+      "reason": "Bake and qualify this explicit negative-film / colour-paper pair.",
+      "default_pair": false,
+      "catalogued_spaces": [],
+      "missing_spaces": [
+        "sRGB",
+        "ProPhoto RGB"
+      ],
+      "state": "pending",
+      "alias_dependency_check_required": false,
+      "profile_sha256": {
+        "resources/profiles/kodak_vision3_500t.json": "d7beca68bf16db88dbb7373fd13a6a1150a57a911a54bb0309a760a6f9883329",
+        "resources/profiles/kodak_ultra_endura.json": "8ea5aa5643c5a27b9c189f81a5a126573484f679d4b6d37dbee1b27485b6de9a"
+      },
+      "visible_in_supplied_app_catalog": true
+    },
+    {
+      "film": "kodak_vision3_50d",
+      "paper": "fujifilm_crystal_archive_typeii",
+      "route": "colour_minilab",
+      "reason": "Bake and qualify this explicit negative-film / colour-paper pair.",
+      "default_pair": false,
+      "catalogued_spaces": [],
+      "missing_spaces": [
+        "sRGB",
+        "ProPhoto RGB"
+      ],
+      "state": "pending",
+      "alias_dependency_check_required": false,
+      "profile_sha256": {
+        "resources/profiles/kodak_vision3_50d.json": "fd426abc9de911682080db222020978dee4e8df7ca939bfcd5c9d0f6df249fa1",
+        "resources/profiles/fujifilm_crystal_archive_typeii.json": "b613da2fc9cde092da450abe00b230c73d7ec6afc20fed2b4112e5b5fa77e80e"
+      },
+      "visible_in_supplied_app_catalog": true
+    },
+    {
+      "film": "kodak_vision3_50d",
+      "paper": "ilford_multigrade_iv_rc",
+      "route": "incompatible_channel_models",
+      "reason": "Colour/silver mismatch; preserve the product pairing rule.",
+      "default_pair": false,
+      "catalogued_spaces": [],
+      "missing_spaces": [],
+      "state": "accounted_special_path",
+      "alias_dependency_check_required": false,
+      "profile_sha256": {
+        "resources/profiles/kodak_vision3_50d.json": "fd426abc9de911682080db222020978dee4e8df7ca939bfcd5c9d0f6df249fa1",
+        "resources_product/profiles/ilford_multigrade_iv_rc.json": "0f776f1f26f04aca4ec438ed377dc1acf4073dc1a8ae32c51607a6cb1a02521d"
+      },
+      "visible_in_supplied_app_catalog": true
+    },
+    {
+      "film": "kodak_vision3_50d",
+      "paper": "kodak_2383",
+      "route": "colour_minilab",
+      "reason": "Bake and qualify this explicit negative-film / colour-paper pair.",
+      "default_pair": true,
+      "catalogued_spaces": [],
+      "missing_spaces": [
+        "sRGB",
+        "ProPhoto RGB"
+      ],
+      "state": "pending",
+      "alias_dependency_check_required": false,
+      "profile_sha256": {
+        "resources/profiles/kodak_vision3_50d.json": "fd426abc9de911682080db222020978dee4e8df7ca939bfcd5c9d0f6df249fa1",
+        "resources/profiles/kodak_2383.json": "273eda5e3c9f4a624c1ce65a8249e343fb227d49bcf9bab54167415ac6fd5540"
+      },
+      "visible_in_supplied_app_catalog": true
+    },
+    {
+      "film": "kodak_vision3_50d",
+      "paper": "kodak_2393",
+      "route": "colour_minilab",
+      "reason": "Bake and qualify this explicit negative-film / colour-paper pair.",
+      "default_pair": false,
+      "catalogued_spaces": [],
+      "missing_spaces": [
+        "sRGB",
+        "ProPhoto RGB"
+      ],
+      "state": "pending",
+      "alias_dependency_check_required": false,
+      "profile_sha256": {
+        "resources/profiles/kodak_vision3_50d.json": "fd426abc9de911682080db222020978dee4e8df7ca939bfcd5c9d0f6df249fa1",
+        "resources/profiles/kodak_2393.json": "11fc419921ac81bde811305c46c4bc25a833373e5378a06f3c88929b55d16b33"
+      },
+      "visible_in_supplied_app_catalog": true
+    },
+    {
+      "film": "kodak_vision3_50d",
+      "paper": "kodak_ektacolor_edge",
+      "route": "colour_minilab",
+      "reason": "Bake and qualify this explicit negative-film / colour-paper pair.",
+      "default_pair": false,
+      "catalogued_spaces": [],
+      "missing_spaces": [
+        "sRGB",
+        "ProPhoto RGB"
+      ],
+      "state": "pending",
+      "alias_dependency_check_required": false,
+      "profile_sha256": {
+        "resources/profiles/kodak_vision3_50d.json": "fd426abc9de911682080db222020978dee4e8df7ca939bfcd5c9d0f6df249fa1",
+        "resources/profiles/kodak_ektacolor_edge.json": "82af7d6f3e268f2debbf1a6993356193ac0e948f8fb9725bb8b68d75daddaef4"
+      },
+      "visible_in_supplied_app_catalog": true
+    },
+    {
+      "film": "kodak_vision3_50d",
+      "paper": "kodak_endura_premier",
+      "route": "colour_minilab",
+      "reason": "Bake and qualify this explicit negative-film / colour-paper pair.",
+      "default_pair": false,
+      "catalogued_spaces": [],
+      "missing_spaces": [
+        "sRGB",
+        "ProPhoto RGB"
+      ],
+      "state": "pending",
+      "alias_dependency_check_required": false,
+      "profile_sha256": {
+        "resources/profiles/kodak_vision3_50d.json": "fd426abc9de911682080db222020978dee4e8df7ca939bfcd5c9d0f6df249fa1",
+        "resources/profiles/kodak_endura_premier.json": "7dd0ffe44fc383aa68dc0cee85d4a7e084bec7698784675ea567ca313af00fc1"
+      },
+      "visible_in_supplied_app_catalog": true
+    },
+    {
+      "film": "kodak_vision3_50d",
+      "paper": "kodak_portra_endura",
+      "route": "colour_minilab",
+      "reason": "Bake and qualify this explicit negative-film / colour-paper pair.",
+      "default_pair": false,
+      "catalogued_spaces": [],
+      "missing_spaces": [
+        "sRGB",
+        "ProPhoto RGB"
+      ],
+      "state": "pending",
+      "alias_dependency_check_required": false,
+      "profile_sha256": {
+        "resources/profiles/kodak_vision3_50d.json": "fd426abc9de911682080db222020978dee4e8df7ca939bfcd5c9d0f6df249fa1",
+        "resources/profiles/kodak_portra_endura.json": "ad5ac4b98640c2d6ad0ba24c33ac880d927cbbf1c60551594f2a081cfc2d8d9a"
+      },
+      "visible_in_supplied_app_catalog": true
+    },
+    {
+      "film": "kodak_vision3_50d",
+      "paper": "kodak_supra_endura",
+      "route": "colour_minilab",
+      "reason": "Bake and qualify this explicit negative-film / colour-paper pair.",
+      "default_pair": false,
+      "catalogued_spaces": [],
+      "missing_spaces": [
+        "sRGB",
+        "ProPhoto RGB"
+      ],
+      "state": "pending",
+      "alias_dependency_check_required": false,
+      "profile_sha256": {
+        "resources/profiles/kodak_vision3_50d.json": "fd426abc9de911682080db222020978dee4e8df7ca939bfcd5c9d0f6df249fa1",
+        "resources/profiles/kodak_supra_endura.json": "8d49b240952c77b8302d6d7e652400e21bed595233f926bcc588481d100d2055"
+      },
+      "visible_in_supplied_app_catalog": true
+    },
+    {
+      "film": "kodak_vision3_50d",
+      "paper": "kodak_ultra_endura",
+      "route": "colour_minilab",
+      "reason": "Bake and qualify this explicit negative-film / colour-paper pair.",
+      "default_pair": false,
+      "catalogued_spaces": [],
+      "missing_spaces": [
+        "sRGB",
+        "ProPhoto RGB"
+      ],
+      "state": "pending",
+      "alias_dependency_check_required": false,
+      "profile_sha256": {
+        "resources/profiles/kodak_vision3_50d.json": "fd426abc9de911682080db222020978dee4e8df7ca939bfcd5c9d0f6df249fa1",
+        "resources/profiles/kodak_ultra_endura.json": "8ea5aa5643c5a27b9c189f81a5a126573484f679d4b6d37dbee1b27485b6de9a"
+      },
+      "visible_in_supplied_app_catalog": true
+    }
+  ]
+}

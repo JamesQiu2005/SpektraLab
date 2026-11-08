@@ -1,0 +1,50 @@
+{
+ "roots": {
+  "before": "/private/tmp/spektralab-v2-performance-20261024/reference",
+  "after": "<local-input>/engine"
+ },
+ "results": [
+  {
+   "case": "photo",
+   "input": "apple_2048.npy",
+   "width": 1365,
+   "height": 2048,
+   "exact": true
+  },
+  {
+   "case": "photo_edge",
+   "input": "apple_2048.npy",
+   "width": 1365,
+   "height": 2048,
+   "exact": true
+  },
+  {
+   "case": "photo_date",
+   "input": "apple_2048.npy",
+   "width": 1365,
+   "height": 2048,
+   "exact": true
+  },
+  {
+   "case": "photo_120",
+   "input": "apple_2048.npy",
+   "width": 1365,
+   "height": 2048,
+   "exact": true
+  },
+  {
+   "case": "photo",
+   "input": "apple_full.npy",
+   "width": 5504,
+   "height": 8256,
+   "exact": true
+  },
+  {
+   "case": "photo_edge",
+   "input": "apple_full.npy",
+   "width": 5504,
+   "height": 8256,
+   "exact": true
+  }
+ ]
+}
