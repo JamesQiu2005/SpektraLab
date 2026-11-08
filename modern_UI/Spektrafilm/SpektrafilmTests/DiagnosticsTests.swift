@@ -1001,6 +1001,22 @@ final class DiagnosticsTests: XCTestCase {
 
     // MARK: - MemoryArena accounting
 
+    func testFullRenderEvictionPreservesPinnedHoldings() {
+        let arena = MemoryArena()
+        let pinned = arena.registerPinned(bytes: 100, kind: "canvas")
+        // The callback re-enters the arena: eviction must release its lock
+        // before asking cache owners to drop their references.
+        let cached = arena.admitCache(bytes: 40, kind: "prints", costMs: 2,
+                                      evict: { _ = arena.totalBytes })
+        XCTAssertNotNil(cached)
+        XCTAssertEqual(arena.evictCaches(), 40)
+        XCTAssertEqual(arena.totalBytes, 100)
+        XCTAssertEqual(arena.evictableBytes, 0)
+        XCTAssertEqual(arena.takeEvictionReport().bytes, 40)
+        XCTAssertEqual(arena.evictCaches(), 0)
+        arena.release(pinned)
+    }
+
     func testArenaRegistrationAndReleaseAccounting() {
         let arena = MemoryArena()
         let pinned = arena.registerPinned(bytes: 100, kind: "original")
