@@ -18,5 +18,10 @@
 	     SPKLogsKey added, and any other build has neither key. -->
 	<key>SPKCommit</key>
 	<string>$(SPK_COMMIT)</string>
+	<!-- Where Check for Updates reads the latest Mac release (a small JSON manifest, `UpdateCheck`): a build
+	     setting gen_project.py writes (`--update-feed`), so moving the manifest to another host or CDN is a
+	     build's choice, never a change to the code. -->
+	<key>SPKUpdateFeedURL</key>
+	<string>$(SPK_UPDATE_FEED_URL)</string>
 </dict>
 </plist>

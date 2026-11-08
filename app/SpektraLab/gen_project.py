@@ -147,6 +147,8 @@ def main() -> None:
                     help="do not link the engine even where tools/build_engine_mac.sh has built it")
     ap.add_argument("--version", default="2.2.0", help="the app's version (CFBundleShortVersionString)")
     ap.add_argument("--build", default="1", help="the build's number (CFBundleVersion): higher for every release")
+    ap.add_argument("--update-feed", default="https://spektralab.app/updates/mac.json",
+                    help="where Check for Updates reads the latest Mac release's manifest (Info.plist SPKUpdateFeedURL)")
     ap.add_argument("--mac-idiom", choices=("pad", "mac"), default="pad",
                     help="pad (default): scaled Catalyst metrics, the interface at the size it was "
                          "drawn, scaled for the Mac. mac: \"Optimize for Mac\", the Mac idiom, which changes the "
@@ -340,6 +342,7 @@ def main() -> None:
         "INFOPLIST_KEY_ITSAppUsesNonExemptEncryption": "NO",
         # Read by Info.plist: the commit this build is of.
         "SPK_COMMIT": q(commit()) or '""',
+        "SPK_UPDATE_FEED_URL": q(args.update_feed),
         "LD_RUNPATH_SEARCH_PATHS": '("$(inherited)", "@executable_path/Frameworks")',
         "ENABLE_PREVIEWS": "NO",
         "SWIFT_OBJC_BRIDGING_HEADER": '"Sources/Support/SpektraLab-Bridging-Header.h"',

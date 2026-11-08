@@ -49,6 +49,7 @@ struct RootView: View {
         #if SPK_LOG_UPLOAD
         .modifier(ShareLogAsk())                                          // the log: may it be shared? (a testers' build's)
         #endif
+        .modifier(UpdateAnnounce())                                       // Check for Updates at launch (Settings › General)
         // GPU work is refused in the background: the scheduler holds every job
         // until the app is in front again (RFC-036 §6.7).
         .onChange(of: phase, initial: true) { _, new in

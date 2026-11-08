@@ -1959,6 +1959,28 @@
         }
       }
     },
+    "A New Version Is Available" : {
+      "localizations" : {
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "新しいバージョンがあります"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "有新版本可用"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "有新版本可用"
+          }
+        }
+      }
+    },
     "A catalog is already there. Choose another name or place." : {
       "localizations" : {
         "ja" : {
@@ -6399,6 +6421,28 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "向下"
+          }
+        }
+      }
+    },
+    "Download" : {
+      "localizations" : {
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "ダウンロード"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "下载"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "下載"
           }
         }
       }
@@ -11107,6 +11151,28 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "上次使用"
+          }
+        }
+      }
+    },
+    "Later" : {
+      "localizations" : {
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "後で"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "稍后"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "稍後"
           }
         }
       }
@@ -16699,6 +16765,28 @@
         }
       }
     },
+    "Release Notes" : {
+      "localizations" : {
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "リリースノート"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "版本说明"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "版本說明"
+          }
+        }
+      }
+    },
     "Remove" : {
       "localizations" : {
         "ja" : {
@@ -18851,6 +18939,28 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "SpektraLab"
+          }
+        }
+      }
+    },
+    "SpektraLab %@ is available. You have %@." : {
+      "localizations" : {
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "SpektraLab %1$@ が公開されています。お使いのバージョンは %2$@ です。"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "SpektraLab %1$@ 已发布，当前为 %2$@。"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "SpektraLab %1$@ 已發佈，目前為 %2$@。"
           }
         }
       }
@@ -21341,6 +21451,50 @@
         }
       }
     },
+    "The update server answered %@." : {
+      "localizations" : {
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "アップデートサーバーの応答: %@。"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "更新服务器返回了 %@。"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "更新伺服器回傳了 %@。"
+          }
+        }
+      }
+    },
+    "The update server's answer could not be read." : {
+      "localizations" : {
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "アップデートサーバーの応答を読み取れませんでした。"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "无法读取更新服务器的回应。"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "無法讀取更新伺服器的回應。"
+          }
+        }
+      }
+    },
     "Their previews are developing." : {
       "localizations" : {
         "ja" : {
@@ -21733,6 +21887,28 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "此版本不沖洗照片：每張照片保留相機自帶的預覽，隨 App 附帶的範例照片才是 SpektraLab 沖洗的。"
+          }
+        }
+      }
+    },
+    "This build has no address to check for updates." : {
+      "localizations" : {
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "このビルドにはアップデートを確認するアドレスがありません。"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "此版本没有检查更新的地址。"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "此版本沒有檢查更新的位址。"
           }
         }
       }

@@ -15,6 +15,7 @@
 # silver, what each card is rendered from and its key, the size it keeps),
 # and what the app keeps on disk and lets go of (tools/storage_selftest.swift: the working copies'
 # limit, which of them go and which never do, and the launch's tidy of the files no frame names),
+# Check for Updates' arithmetic (tools/update_selftest.swift: which release is newer, what a manifest must hold),
 # Settings' Supporters (tools/supporters_selftest.swift: the shipped Resources/Supporters.json decodes, and the
 # page lists every entry with its note, over the shipped file and a fixture of its own),
 # the app's own log (tools/log_selftest.swift: a line with no file's name in it, the session's file
@@ -145,8 +146,13 @@ swiftc -O -parse-as-library -o "$out/window_selftest" \
 swiftc -O -parse-as-library -o "$out/supporters_selftest" \
   "$src/Model/Format.swift" "$src/Model/Localization.swift" "$src/Model/Supporters.swift" \
   "$here/tools/supporters_selftest.swift" 2> "$out/supporters-selftest-build.log" || { grep -E "error" "$out/supporters-selftest-build.log" | head -30; exit 1; }
+# Check for Updates: which release is newer, and what a manifest must hold (no network).
+swiftc -O -parse-as-library -o "$out/update_selftest" \
+  "$src/Model/Localization.swift" "$src/Services/UpdateCheck.swift" \
+  "$here/tools/update_selftest.swift" 2> "$out/update-selftest-build.log" || { grep -E "error" "$out/update-selftest-build.log" | head -30; exit 1; }
 status=0
 "$out/strip_source_selftest" || status=1
+"$out/update_selftest" || status=1
 "$out/window_selftest" || status=1
 "$out/supporters_selftest" "$@" || status=1
 "$out/history_selftest" || status=1
