@@ -181,6 +181,8 @@ def main() -> None:
         ("Resources/StockCatalog.json", "text.json"),
         # The people Settings › General › About › Supporters thanks (Model/Supporters.swift).
         ("Resources/Supporters.json", "text.json"),
+        # The Digital Intermediate's view: 1.x's Cineon -> ProPhoto 3D LUT, read by Engine/CineonView.swift.
+        ("Resources/DIView-Cineon-to-ProPhoto.cube", "text"),
         # What the app reads of the system that Apple asks a reason for.
         ("Resources/PrivacyInfo.xcprivacy", "text.xml"),
         # The app's words in Simplified and Traditional Chinese and Japanese (English is the key),

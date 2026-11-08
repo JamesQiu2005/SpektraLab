@@ -188,11 +188,21 @@ final class SpkEngine: DevelopEngine, @unchecked Sendable {
         var applied: [String: ParamValue]
     }
     private var editing: Editing?
+    /// The Digital Intermediate's view (`CineonView`), made the first time a DI is rendered. Touched on `work`.
+    private var cineonView: CineonView?
 
     /// `resources` holds the baked constants, the profiles and the metallib
     /// built **with safe math** (`tools/build_engine_mac.sh`). The engine is
     /// made on the host's own device, so the frames the host decodes into that
     /// device's buffers are the engine's to read (`spk_open_device`).
+    /// Whether the engine renders this wire as a Digital Intermediate: the switch on, no film scan
+    /// in front of it, a negative film (`Pipeline::di_active_`, `FilmParams.digitalIntermediateActive`).
+    static func wantsCineonView(_ wire: [String: ParamValue], _ catalog: StockCatalog = .shared) -> Bool {
+        guard wire["digital_intermediate"] == .bool(true), wire["scan_film"] != .bool(true) else { return false }
+        if case .string(let film)? = wire["film_stock"] { return !catalog.isSlide(film) }
+        return false
+    }
+
     init(resources: String, device: MTLDevice, source: any FrameSource) throws {
         guard let engine = spk_engine_create(resources, Unmanaged.passUnretained(device as AnyObject).toOpaque()) else {
             throw EngineError.failed("engine: " + String(cString: spk_last_error(nil)))
@@ -589,6 +599,12 @@ final class SpkEngine: DevelopEngine, @unchecked Sendable {
         }
         progress(RenderProgress(stage: job.decodesOriginal ? .save : .scan, fraction: 0.97,
                                 band: bandCount - 1, bandCount: bandCount))
+        // A Digital Intermediate is Cineon log: read through the DI view into the working space
+        // before anything of the host's sees it (`CineonView`).
+        if Self.wantsCineonView(source.params(job)) {
+            if cineonView == nil { cineonView = try CineonView(device: device) }
+            if let view = cineonView { pixels = try view.decode(pixels) }
+        }
         let deliverStarted = Self.now()
         source.deliver(job, pixels)
         let deliverSeconds = Self.since(deliverStarted)

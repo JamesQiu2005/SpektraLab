@@ -102,6 +102,10 @@ struct StockCatalog: Sendable {
     /// (a desktop edit's *No Print Profile*) says so too.
     func pairText(_ params: FilmParams) -> String {
         guard !isScanned(params) else { return "\(stock(params.filmStock)?.shortName ?? params.filmStock) · \(L(shown: Self.scannedWord))" }
+        // The Digital Intermediate takes the paper's place, and the line says so (2.2.1).
+        if params.digitalIntermediateActive(filmIsPositive: false) {
+            return "\(stock(params.filmStock)?.shortName ?? params.filmStock) · \(L("Digital Intermediate"))"
+        }
         return pairText(film: params.filmStock, paper: params.printStock)
     }
 

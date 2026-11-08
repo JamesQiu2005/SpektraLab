@@ -94,6 +94,10 @@ enum ChangeDescriber {
         // A slide's own change is its film's, named above; this is a negative
         // going to a scan or back to a paper.
         if a.scanFilm != b.scanFilm { return b.scanFilm ? L("Scanned") : catalog.stock(b.printStock)?.shortName ?? L("Printed") }
+        // The Digital Intermediate takes the paper's place, or gives it back.
+        if a.digitalIntermediate != b.digitalIntermediate {
+            return b.digitalIntermediate ? L("Digital Intermediate") : catalog.stock(b.printStock)?.shortName ?? L("Printed")
+        }
         if a.printStock != b.printStock { return catalog.stock(b.printStock)?.shortName ?? b.printStock }
         if a.printBrightnessStops != b.printBrightnessStops { return L("Brightness ") + Fmt.signed(b.printBrightnessStops) }
         if a.yFilterShift != b.yFilterShift { return L("Yellow ") + Fmt.signed(b.yFilterShift, decimals: 2) }

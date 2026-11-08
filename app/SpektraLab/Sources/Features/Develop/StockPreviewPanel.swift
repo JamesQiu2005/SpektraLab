@@ -45,9 +45,7 @@ struct StockPreviewPanel: View {
     }
     private var cards: [StockPreviewCard] { (filmCards + paperCards).filter { strip.isLive($0) && serves($0) } }
     /// No paper is chosen under a slide: it is scanned.
-    private var chosenPaper: String {
-        StockCatalog.shared.isSlide(session.edit.params.filmStock) ? "" : session.edit.params.printStock
-    }
+    private var chosenPaper: String { StockPreviewRules.chosenPaper(session.edit.params) }
     /// The panel's height with `rows` rows to each strip, laid as the column lays them, Decode
     /// showing its shortest part (Exposure): a taller part scrolls, rather than the strips losing a
     /// row under the pointer each time a chip is chosen.
@@ -221,7 +219,7 @@ struct EnlargerPaperRow: View {
     }
 
     var body: some View {
-        StockPreviewRow(session: session, strip: strip, cards: cards, selected: session.edit.params.printStock,
+        StockPreviewRow(session: session, strip: strip, cards: cards, selected: StockPreviewRules.chosenPaper(session.edit.params),
                         compact: compact, visible: $visible, active: session.edit.appliesFilm)
             .id(shelf)
             .onChange(of: session.edit, initial: true) { _, edit in strip.edit = edit }
@@ -390,9 +388,10 @@ struct StockPreviewRow: View {
         Button {
             // The chosen card again changes nothing (`StockPreviewRules.pick`).
             let p = session.edit.params
-            switch StockPreviewRules.pick(card, film: p.filmStock, paper: p.printStock) {
+            switch StockPreviewRules.pick(card, film: p.filmStock, paper: StockPreviewRules.chosenPaper(p)) {
             case .film(let film): session.change { $0.params.load(film: film) }
             case .paper(let paper): session.change { $0.params.print(on: paper) }
+            case .digitalIntermediate: session.change { $0.params.scanFilm = false; $0.params.digitalIntermediate = true }
             case nil: break
             }
         } label: {
@@ -420,7 +419,7 @@ struct StockPreviewRow: View {
 
     /// The card's name, and on a paper card the film's recommended paper says so.
     private func accessibilityName(_ card: StockPreviewCard) -> String {
-        let name: String = StockCatalog.shared.stock(card.stock)?.name ?? card.stock
+        let name: String = StockCatalog.shared.stock(card.stock)?.name ?? (card.isDigitalIntermediate ? L("Digital Intermediate") : card.stock)
         let recommended = card.strip == .paper && StockCatalog.shared.isRecommendedPairing(film: card.film, paper: card.stock)
         return recommended ? name + L(", the film's own paper") : name
     }
@@ -441,7 +440,7 @@ struct StockPreviewRow: View {
                 if card.strip == .paper, StockCatalog.shared.isRecommendedPairing(film: card.film, paper: card.stock) {
                     Circle().fill(StockCatalog.shared.stock(card.film)?.color ?? .white).frame(width: 5, height: 5).padding(.bottom, 3)
                 }
-                Text(stock?.shortName ?? card.stock).font(Theme.Font.ui(labelSize, .semibold))
+                Text(stock?.shortName ?? (card.isDigitalIntermediate ? L("Digital Intermediate") : card.stock)).font(Theme.Font.ui(labelSize, .semibold))
                     .foregroundStyle(.white).lineLimit(2).minimumScaleFactor(0.8)
                 Spacer(minLength: 0)
             }.padding(6)

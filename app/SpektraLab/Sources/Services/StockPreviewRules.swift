@@ -52,6 +52,13 @@ struct StockPreviewCard: Identifiable, Hashable, Sendable {
     /// The paper strip under another film, or any card under another edit, is
     /// the same slot asked again, and replaces what was asked before.
     var slot: String { strip.rawValue + ":" + stock }
+
+    /// The paper strip's last card, **the Digital Intermediate** (数字中间片, RFC-028; back in 2.2.1):
+    /// the DI takes the paper's place, so it is chosen among the papers. Its id is the card's own and
+    /// never a paper's: choosing it sets `FilmParams.digitalIntermediate` and leaves `printStock` as it
+    /// was (the model's rule: "which paper" and "is there a paper" stay two questions).
+    static let digitalIntermediate = "digital_intermediate"
+    var isDigitalIntermediate: Bool { strip == .paper && paper == Self.digitalIntermediate }
 }
 
 enum StockPreviewRules {
@@ -74,8 +81,27 @@ enum StockPreviewRules {
     /// In the catalogue's order.
     static func paperStrip(under film: String, _ catalog: StockCatalog = .shared) -> [StockPreviewCard] {
         guard catalog.stock(film) != nil, !catalog.isSlide(film) else { return [] }
-        return catalog.papers.filter { catalog.canPrint(film: film, on: $0.id) }
+        let papers = catalog.papers.filter { catalog.canPrint(film: film, on: $0.id) }
             .map { StockPreviewCard(strip: .paper, film: film, paper: $0.id) }
+        return papers + (takesDigitalIntermediate(film, catalog) ? [digitalIntermediateCard(under: film)] : [])
+    }
+
+    /// The DI is a colour negative's: a slide has no mask and no paper, and a black-and-white film's
+    /// DI is not one the engine was measured for.
+    static func takesDigitalIntermediate(_ film: String, _ catalog: StockCatalog = .shared) -> Bool {
+        guard let stock = catalog.stock(film) else { return false }
+        return !stock.isPositive && !stock.isMonochrome
+    }
+
+    static func digitalIntermediateCard(under film: String) -> StockPreviewCard {
+        StockPreviewCard(strip: .paper, film: film, paper: StockPreviewCard.digitalIntermediate)
+    }
+
+    /// The paper card that is chosen for `params`: none under a slide, the DI's when it is on, the
+    /// paper otherwise.
+    static func chosenPaper(_ params: FilmParams, _ catalog: StockCatalog = .shared) -> String {
+        if catalog.isSlide(params.filmStock) { return "" }
+        return params.digitalIntermediate && !params.scanFilm ? StockPreviewCard.digitalIntermediate : params.printStock
     }
 
     /// The papers the strip *shows* under `film`: every paper, always, so the
@@ -85,7 +111,7 @@ enum StockPreviewRules {
     /// paper"). Only those of `paperStrip` can be chosen or are rendered; the
     /// rest are there greyed — every one of them under a slide.
     static func paperShelf(under film: String, _ catalog: StockCatalog = .shared) -> [StockPreviewCard] {
-        catalog.papers.map { StockPreviewCard(strip: .paper, film: film, paper: $0.id) }
+        catalog.papers.map { StockPreviewCard(strip: .paper, film: film, paper: $0.id) } + [digitalIntermediateCard(under: film)]
     }
 
     /// Whether a paper can print some film on the film row's shelf (the owner,
@@ -95,6 +121,9 @@ enum StockPreviewRules {
     /// silver paper; on a colour shelf the colour papers.
     static func paperServes(_ paper: String, filmShelf: StockShelf, _ catalog: StockCatalog = .shared) -> Bool {
         guard filmShelf != .all else { return true }
+        if paper == StockPreviewCard.digitalIntermediate {
+            return catalog.films.contains { filmShelf.holds($0) && takesDigitalIntermediate($0.id, catalog) }
+        }
         return catalog.films.contains { filmShelf.holds($0) && !$0.isPositive && catalog.canPrint(film: $0.id, on: paper) }
     }
 
@@ -105,7 +134,10 @@ enum StockPreviewRules {
     static func params(_ card: StockPreviewCard, from frame: FilmParams, _ catalog: StockCatalog = .shared) -> FilmParams {
         var p = frame
         p.filmStock = card.film
-        if let paper = card.paper, !catalog.isSlide(card.film) {
+        if card.isDigitalIntermediate, takesDigitalIntermediate(card.film, catalog) {
+            p.scanFilm = false
+            p.digitalIntermediate = true
+        } else if let paper = card.paper, !catalog.isSlide(card.film) {
             p.printStock = paper
             p.scanFilm = false
             p.digitalIntermediate = false
@@ -130,6 +162,8 @@ enum StockPreviewRules {
 enum StockPick: Equatable, Sendable {
     case film(String)
     case paper(String)
+    /// The paper strip's Digital Intermediate card.
+    case digitalIntermediate
 }
 
 /// Where a card lies in its strip's viewport: wholly inside it, cut by an
@@ -165,7 +199,7 @@ extension StockPreviewRules {
         case .film: return card.film == film ? nil : .film(card.film)
         case .paper:
             guard let p = card.paper, p != paper else { return nil }
-            return .paper(p)
+            return card.isDigitalIntermediate ? .digitalIntermediate : .paper(p)
         }
     }
 
@@ -295,6 +329,7 @@ enum StockShelf: String, CaseIterable, Identifiable, Sendable {
 
     /// The cards of a strip on this shelf, in the strip's order.
     func cards(_ cards: [StockPreviewCard], _ catalog: StockCatalog = .shared) -> [StockPreviewCard] {
-        self == .all ? cards : cards.filter { catalog.stock($0.stock).map(holds) ?? false }
+        // The DI card is on the colour papers' shelf: it takes a colour negative.
+        self == .all ? cards : cards.filter { $0.isDigitalIntermediate ? self == .standard : (catalog.stock($0.stock).map(holds) ?? false) }
     }
 }

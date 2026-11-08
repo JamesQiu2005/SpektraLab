@@ -14,6 +14,7 @@
 //      notifyutil -p com.spektralab.mac.drive.filmedge    # the selected frame: Film Edge and Date Back on
 //      notifyutil -p com.spektralab.mac.drive.dateonly    # the selected frame: Date Back alone, no film edge
 //      notifyutil -p com.spektralab.mac.drive.plain       # the selected frame: both off
+//      notifyutil -p com.spektralab.mac.drive.di.on       # …the Digital Intermediate in the paper's place (.di.off)
 //      notifyutil -p com.spektralab.mac.drive.film.gold200  # …its film: Gold 200 (.film.provia: Provia 100F,
 //.film.cinestill / .film.vision500t: on 2383)
 //      notifyutil -p com.spektralab.mac.drive.format.6x7  # …its film edge: 120 6x7
@@ -141,6 +142,9 @@ enum MacDriver {
             // The film on the frame (a negative: its paper stays), and the film edge's format.
             ("film.gold200", { m in edit(m) { e, _ in e.params.filmStock = "kodak_gold_200" } }),
             ("film.provia", { m in edit(m) { e, _ in e.params.filmStock = "fujifilm_provia_100f" } }),
+            // The Digital Intermediate in the paper's place, as its card chooses it (.di.off: printed again).
+            ("di.on", { m in edit(m) { e, _ in e.params.scanFilm = false; e.params.digitalIntermediate = true } }),
+            ("di.off", { m in edit(m) { e, _ in e.params.digitalIntermediate = false } }),
             // CineStill 800T and its emulsion, each on the paper the catalogue pairs it with (2383).
             ("film.cinestill", { m in edit(m) { e, _ in e.params.filmStock = "cinestill_800t"; e.params.printStock = "kodak_2383" } }),
             ("film.vision500t", { m in edit(m) { e, _ in e.params.filmStock = "kodak_vision3_500t"; e.params.printStock = "kodak_2383" } }),
