@@ -1529,7 +1529,23 @@ final class Session: CanvasHost {
         status = "\(frames.count) frames · pick one in the filmstrip to develop."
     }
 
-    func openPanel() { let urls = Library.chooseFilesOrFolder(); if !urls.isEmpty { open(urls: urls) } }
+    func openPanel() {
+        guard !batchExporting else { return }
+        openFromUser(urls: Library.chooseFilesOrFolder())
+    }
+
+    /// Only the folder handoff is culled; explicit file selections and internal
+    /// opens (including pairs and agents) retain their existing behavior.
+    private func openFromUser(urls: [URL]) {
+        guard !batchExporting, !urls.isEmpty else { return }
+        let showImport = clipboardDefaults.object(forKey: ImportSelection.preferenceKey) as? Bool ?? true
+        if showImport, urls.count == 1,
+           (try? urls[0].resourceValues(forKeys: [.isDirectoryKey]).isDirectory) == true {
+            ImportWindowController.show(folder: urls[0], session: self)
+        } else {
+            open(urls: urls)
+        }
+    }
 
     /// Re-read a frame's sidecar state — used after a reset from the grid.
     func refreshState(for url: URL) {
@@ -2995,7 +3011,7 @@ final class Session: CanvasHost {
         guard !urls.isEmpty else { return }
         let listed = Set(frames.map { $0.id.standardizedFileURL })
         let known = urls.filter { listed.contains($0.standardizedFileURL) }
-        guard known.count == urls.count else { open(urls: urls); return }
+        guard known.count == urls.count else { openFromUser(urls: urls); return }
         if let own, urls.count == 1, urls[0].standardizedFileURL == own.standardizedFileURL { return }
         if urls.count == 1, let frame = frames.first(where: { $0.id.standardizedFileURL == urls[0].standardizedFileURL }) {
             click(frame.id)

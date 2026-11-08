@@ -415,6 +415,16 @@ struct Sidecar: Codable, Equatable, Sendable {
     /// is about to remove instead of guessing — nothing here deletes, because
     /// an absent file is as likely to be an unmounted volume as a deleted
     /// photograph.
+    /// Existing files the store holds settings for with this size and head
+    /// digest. For the import culler's duplicate warning; nothing *matches*
+    /// on content (see `Source`).
+    static func knownCopies(size: Int, headDigest: String) -> [String] {
+        identityIndex()
+            .filter { $0.source.size == size && $0.source.headDigest == headDigest }
+            .map(\.source.path)
+            .filter { FileManager.default.fileExists(atPath: $0) }
+    }
+
     static func orphans() -> [(url: URL, rememberedPath: String)] {
         identityIndex()
             .filter { !FileManager.default.fileExists(atPath: $0.source.path) }
