@@ -145,6 +145,12 @@ enum MacDriver {
             // The Digital Intermediate in the paper's place, as its card chooses it (.di.off: printed again).
             ("di.on", { m in edit(m) { e, _ in e.params.scanFilm = false; e.params.digitalIntermediate = true } }),
             ("di.off", { m in edit(m) { e, _ in e.params.digitalIntermediate = false } }),
+            // The canvas's colour space (`CanvasGamut`), and the recipe Export opens with in sRGB or Display P3.
+            ("gamut.srgb", { m in m.settings.canvasGamut = .sRGB }),
+            ("gamut.adobe", { m in m.settings.canvasGamut = .adobeRGB }),
+            ("gamut.prophoto", { m in m.settings.canvasGamut = .proPhoto }),
+            ("recipe.srgb", { m in m.settings.recipe.colour = .sRGB }),
+            ("recipe.p3", { m in m.settings.recipe.colour = .displayP3 }),
             // CineStill 800T and its emulsion, each on the paper the catalogue pairs it with (2383).
             ("film.cinestill", { m in edit(m) { e, _ in e.params.filmStock = "cinestill_800t"; e.params.printStock = "kodak_2383" } }),
             ("film.vision500t", { m in edit(m) { e, _ in e.params.filmStock = "kodak_vision3_500t"; e.params.printStock = "kodak_2383" } }),

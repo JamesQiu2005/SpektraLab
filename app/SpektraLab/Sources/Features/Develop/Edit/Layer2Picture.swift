@@ -22,6 +22,7 @@ struct Layer2Picture<Base: View>: View {
 
     @Environment(\.displayScale) private var scale
     @Environment(\.isSnapshot) private var isSnapshot
+    @Environment(\.gamutProof) private var gamutProof
 
     /// `FramePicture`'s size for the same place: the screen's pixels, in steps of 64.
     private var maxPixel: Int { max(64, Int((pointSize * scale / 64).rounded(.up)) * 64) }
@@ -32,7 +33,7 @@ struct Layer2Picture<Base: View>: View {
         ZStack {
             base()
             if let shown {
-                Image(uiImage: UIImage(cgImage: shown)).resizable().aspectRatio(contentMode: .fit)
+                Image(uiImage: UIImage(cgImage: GamutProof.shared.proofed(shown, gamutProof))).resizable().aspectRatio(contentMode: .fit)
                     .accessibilityHidden(true)
             }
         }

@@ -235,6 +235,8 @@ struct FramePicture: View {
 
     @Environment(\.displayScale) private var scale
     @Environment(\.isSnapshot) private var isSnapshot
+    /// The space a page shows it in (`CanvasGamut`): Develop's canvas, the Export page's preview.
+    @Environment(\.gamutProof) private var gamutProof
     @State private var image: UIImage?
 
     private var maxPixel: Int? { PictureLoading.maxPixel(points: pointSize, scale: scale) }
@@ -243,7 +245,7 @@ struct FramePicture: View {
         ZStack {
             Theme.plot
             if let shown = image ?? ThumbnailStore.shared.cachedAny(picture) ?? (isSnapshot ? maxPixel.flatMap { ThumbnailStore.shared.load(picture, maxPixel: $0) } : nil) {
-                Image(uiImage: shown).resizable().aspectRatio(contentMode: contentMode)
+                Image(uiImage: GamutProof.shared.proofed(shown, gamutProof)).resizable().aspectRatio(contentMode: contentMode)
             }
         }
         .task(id: "\(picture)-\(maxPixel ?? 0)") {

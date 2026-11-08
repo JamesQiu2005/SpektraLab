@@ -82,6 +82,7 @@ struct DevelopCanvas: View {
     private var displaysOriginal: Bool { requestsOriginal && (!allowsOriginalHold || sourceReady) }
 
     @Environment(AppServices.self) private var model
+    @Environment(\.gamutProof) private var gamutProof
     @Environment(\.displayScale) private var displayScale
     /// The screen's pixels to one of this page's points. The window's: `displayScale`. **The Mac's
     /// (Catalyst, "scaled Catalyst mode") is 77 % of it**: UIKit draws a 1,330-point window at 2x
@@ -136,6 +137,11 @@ struct DevelopCanvas: View {
     private var showsSplit: Bool { comparing && hasOriginal && (!allowsOriginalHold || sourceReady) }
 
     var body: some View {
+        // The canvas in the space the person chose to judge it in (`CanvasGamut`, the "···" menu).
+        canvas.environment(\.gamutProof, model.settings.canvasGamut)
+    }
+
+    private var canvas: some View {
         GeometryReader { geo in
             let area = geo.size
             let fit = fitSize(in: area)
@@ -387,7 +393,7 @@ struct DevelopCanvas: View {
             // The part on screen of the render at full size, where it is of the edit as it stands.
             if let d = fullView?.detail, d.adjustments == edit.adjustments, zoom > 1.01 {
                 GeometryReader { g in
-                    Image(decorative: d.image, scale: 1)
+                    Image(decorative: GamutProof.shared.proofed(d.image, gamutProof), scale: 1)
                         .resizable()
                         .frame(width: d.rect.width * g.size.width, height: d.rect.height * g.size.height)
                         .position(x: d.rect.midX * g.size.width, y: d.rect.midY * g.size.height)

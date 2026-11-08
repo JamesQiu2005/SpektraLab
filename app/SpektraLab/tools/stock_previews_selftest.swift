@@ -171,19 +171,36 @@ func run(_ broken: Broken, catalog: StockCatalog, quiet: Bool) -> Checker {
     c.expect(underTri.count == 1 && underTri.allSatisfy { catalog.isMonochrome($0.paper ?? "") },
              "paper strip: the silver paper alone under a black-and-white film, got \(underTri.compactMap(\.paper))")
     let underPorta = paperStrip(porta)
-    c.expect(underPorta.map(\.paper) == catalog.papers.filter { !$0.isMonochrome }.map(\.id),
-             "paper strip: every colour paper under a colour film, in the catalogue's order")
+    c.expect(underPorta.map(\.paper) == catalog.papers.filter { !$0.isMonochrome }.map(\.id) + [StockPreviewCard.digitalIntermediate],
+             "paper strip: every colour paper under a colour film, in the catalogue's order, then the Digital Intermediate")
     // What the row shows (2026-10-19): every paper under a silver film, only the silver one live.
     let shownUnderTri = StockPreviewRules.paperShelf(under: tri, catalog)
-    c.expect(shownUnderTri.compactMap(\.paper) == catalog.papers.map(\.id),
-             "paper row: every paper shown under a black-and-white film, in the catalogue's order")
+    c.expect(shownUnderTri.compactMap(\.paper) == catalog.papers.map(\.id) + [StockPreviewCard.digitalIntermediate],
+             "paper row: every paper shown under a black-and-white film, in the catalogue's order, then the Digital Intermediate")
     c.expect(shownUnderTri.filter { underTri.contains($0) } == underTri,
              "paper row: under a black-and-white film the live cards are the strip's")
     // 2026-10-20: every paper under every film, a slide's included; under a slide none is live.
-    c.expect(StockPreviewRules.paperShelf(under: porta, catalog).compactMap(\.paper) == catalog.papers.map(\.id)
-             && StockPreviewRules.paperShelf(under: slide, catalog).compactMap(\.paper) == catalog.papers.map(\.id)
+    c.expect(StockPreviewRules.paperShelf(under: porta, catalog).compactMap(\.paper) == catalog.papers.map(\.id) + [StockPreviewCard.digitalIntermediate]
+             && StockPreviewRules.paperShelf(under: slide, catalog).compactMap(\.paper) == catalog.papers.map(\.id) + [StockPreviewCard.digitalIntermediate]
              && paperStrip(slide).isEmpty,
              "paper row: every paper under a colour film and under a slide, none live under a slide")
+    // The Digital Intermediate (2.2.1): a colour negative's last paper card, never under a slide or a silver film;
+    // its card sets the switch and keeps the paper; the chosen card follows the switch.
+    c.expect(underPorta.last?.isDigitalIntermediate == true && !underTri.contains { $0.isDigitalIntermediate }
+             && !paperStrip(slide).contains { $0.isDigitalIntermediate },
+             "digital intermediate: the last card under a colour negative, none under a black-and-white film or a slide")
+    var printed = FilmParams.default
+    printed.load(film: porta, catalog: catalog)
+    let paperBefore = printed.printStock
+    let diParams = StockPreviewRules.params(underPorta.last!, from: printed, catalog)
+    c.expect(diParams.digitalIntermediate && !diParams.scanFilm && diParams.printStock == paperBefore,
+             "digital intermediate: its card sets the switch and keeps the paper (\(diParams.printStock))")
+    c.expect(StockPreviewRules.chosenPaper(diParams, catalog) == StockPreviewCard.digitalIntermediate && StockPreviewRules.chosenPaper(printed, catalog) == paperBefore,
+             "digital intermediate: the chosen paper card follows the switch")
+    c.expect(StockPreviewRules.paperServes(StockPreviewCard.digitalIntermediate, filmShelf: .negative, catalog)
+             && !StockPreviewRules.paperServes(StockPreviewCard.digitalIntermediate, filmShelf: .positive, catalog)
+             && !StockPreviewRules.paperServes(StockPreviewCard.digitalIntermediate, filmShelf: .mono, catalog),
+             "digital intermediate: served by the Negative shelf, not by Positive or B&W")
     // The film row's shelf greys the papers that print none of its films.
     let silverPapers = catalog.papers.filter(\.isMonochrome).map(\.id), colourPapers = catalog.papers.filter { !$0.isMonochrome }.map(\.id)
     c.expect(catalog.papers.allSatisfy { StockPreviewRules.paperServes($0.id, filmShelf: .all, catalog) }
@@ -193,7 +210,7 @@ func run(_ broken: Broken, catalog: StockCatalog, quiet: Bool) -> Checker {
              "paper row under a film shelf: All every paper, Positive none, B&W the silver paper, Negative the colour papers")
     for film in catalog.films {
         for card in paperStrip(film.id) {
-            c.expect(card.film == film.id && card.paper.map { catalog.canPrint(film: film.id, on: $0) } == true,
+            c.expect(card.film == film.id && (card.isDigitalIntermediate || card.paper.map { catalog.canPrint(film: film.id, on: $0) } == true),
                      "paper strip: \(film.shortName) on \(card.paper ?? "none") is a pair the model prints")
         }
     }
@@ -276,7 +293,7 @@ func run(_ broken: Broken, catalog: StockCatalog, quiet: Bool) -> Checker {
     }
     for card in papers {
         let picked = pick(card, film: chosenFilm, paper: chosenPaper)
-        c.expect(card.paper == chosenPaper ? picked == nil : picked == .paper(card.paper!),
+        c.expect(card.paper == chosenPaper ? picked == nil : picked == (card.isDigitalIntermediate ? .digitalIntermediate : .paper(card.paper!)),
                  "tap: paper \(card.paper!), \(chosenPaper) chosen, picks \(String(describing: picked))")
     }
     c.expect(StripPlacement.of(minX: 16, maxX: 116, width: 402) == .whole

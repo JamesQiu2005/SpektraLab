@@ -485,6 +485,9 @@ private struct MacExportScreen: View {
             }
         }
         .onChange(of: focus, initial: true) { _, i in if let i, pictures.indices.contains(i) { want(pictures[i]) } }
+        // The pictures as the recipe's colour space holds them (`CanvasGamut`): switching the recipe from
+        // Display P3 to sRGB shows the sRGB file's colours before it is written (2.2.1).
+        .environment(\.gamutProof, CanvasGamut((recipe ?? opening).colour))
     }
 
     private var viewer: some View {

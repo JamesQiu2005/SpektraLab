@@ -104,13 +104,20 @@ final class OutputTransformer {
     /// the engine for a destination's numbers, once per destination.
     func image(_ pixels: RenderedPixels, to target: Target, depth: Depth = .sixteen,
                fetch: (String, String, String?) throws -> SpkEngine.OutputTransformData) throws -> CGImage {
-        let w = pixels.size.width, h = pixels.size.height
-        guard w > 0, h > 0 else { throw EngineError.failed("an empty picture") }
-        let pipeline = try state(depth)
         if setups[target] == nil {
             setups[target] = try setup(fetch(Self.workingSpace, target.rawValue, Self.withoutLightness))
         }
         guard let setup = setups[target] else { throw EngineError.failed("no output transform for \(target.rawValue)") }
+        return try image(texture: pixels.texture, width: pixels.size.width, height: pixels.size.height,
+                         setup: setup, space: target.colorSpace, depth: depth)
+    }
+
+    /// The kernel on any 16-bit picture with any pair of spaces' numbers (`setup`): a page's own picture
+    /// from the working space, or a page's Display P3 picture proofed into a smaller space (`GamutProof`).
+    func image(texture: MTLTexture, width w: Int, height h: Int, setup: Setup, space: CGColorSpace,
+               depth: Depth = .sixteen) throws -> CGImage {
+        guard w > 0, h > 0 else { throw EngineError.failed("an empty picture") }
+        let pipeline = try state(depth)
         let bytes = w * h * depth.bytesPerPixel
         guard bytes <= device.maxBufferLength, let out = device.makeBuffer(length: bytes, options: .storageModeShared),
               let commands = queue.makeCommandBuffer(), let encoder = commands.makeComputeCommandEncoder() else {
@@ -120,7 +127,7 @@ final class OutputTransformer {
         // The last two words of the block: the picture's width, and a spare.
         withUnsafeBytes(of: UInt32(w)) { uniforms.replaceSubrange((uniforms.count - 8)..<(uniforms.count - 4), with: $0) }
         encoder.setComputePipelineState(pipeline)
-        encoder.setTexture(pixels.texture, index: 0)
+        encoder.setTexture(texture, index: 0)
         encoder.setBytes(uniforms, length: uniforms.count, index: 0)
         encoder.setBuffer(setup.cmax, offset: 0, index: 1)
         encoder.setBuffer(out, offset: 0, index: 2)
@@ -145,7 +152,7 @@ final class OutputTransformer {
         let info = CGBitmapInfo(rawValue: order | CGImageAlphaInfo.noneSkipLast.rawValue)
         guard let image = CGImage(width: w, height: h, bitsPerComponent: depth.rawValue, bitsPerPixel: depth.rawValue * 4,
                                   bytesPerRow: w * depth.bytesPerPixel,
-                                  space: target.colorSpace, bitmapInfo: info, provider: provider, decode: nil,
+                                  space: space, bitmapInfo: info, provider: provider, decode: nil,
                                   shouldInterpolate: true, intent: .defaultIntent) else {
             throw EngineError.failed("the picture could not be made")
         }

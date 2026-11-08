@@ -69,6 +69,9 @@ final class AppSettings {
     /// it is read where the wire is made (`EngineRouter.cropIsFrame`, `ExportService.cropIsFrame`), so a
     /// develop's stamp and a kept full render follow it, and switching it re-develops the open page.
     var cropRemapsFrame = false { didSet { save() } }
+    /// **Canvas Colour Space** (2.2.1, Develop's "···" menu): the space Develop's canvas shows its picture in
+    /// (`CanvasGamut`); ProPhoto RGB, the picture as it is made, unless another was chosen.
+    var canvasGamut = CanvasGamut.proPhoto { didSet { save() } }
     /// Which of the gallery's three views the Library shows (`GalleryView`): 全部 unless another was
     /// chosen (the owner, 2026-10-21: the reference device opens on 全部, the pill switches, and is remembered).
     var galleryView = GalleryView.all { didSet { save() } }
@@ -103,6 +106,7 @@ final class AppSettings {
         if let kept = d.object(forKey: "settings.fullRenderCacheLimit") as? NSNumber, kept.int64Value > 0 { fullRenderCacheLimit = kept.int64Value }
         if d.object(forKey: "settings.lensCorrection") != nil { lensCorrection = d.bool(forKey: "settings.lensCorrection") }
         cropRemapsFrame = d.bool(forKey: "settings.cropRemapsFrame")
+        canvasGamut = d.string(forKey: "settings.canvasGamut").flatMap(CanvasGamut.init(rawValue:)) ?? canvasGamut
         galleryView = d.string(forKey: "settings.galleryView").flatMap(GalleryView.init(rawValue:)) ?? galleryView
     }
 
@@ -137,6 +141,7 @@ final class AppSettings {
         d.set(NSNumber(value: fullRenderCacheLimit), forKey: "settings.fullRenderCacheLimit")
         d.set(lensCorrection, forKey: "settings.lensCorrection")
         d.set(cropRemapsFrame, forKey: "settings.cropRemapsFrame")
+        d.set(canvasGamut.rawValue, forKey: "settings.canvasGamut")
         d.set(galleryView.rawValue, forKey: "settings.galleryView")
     }
 }

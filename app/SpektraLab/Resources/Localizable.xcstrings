@@ -2619,6 +2619,28 @@
         }
       }
     },
+    "Adobe RGB" : {
+      "localizations" : {
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Adobe RGB"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Adobe RGB"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Adobe RGB"
+          }
+        }
+      }
+    },
     "Advance" : {
       "localizations" : {
         "ja" : {
@@ -3583,6 +3605,28 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "取消"
+          }
+        }
+      }
+    },
+    "Canvas Colour Space" : {
+      "localizations" : {
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "キャンバスの色域"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "画布色域"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "畫布色域"
           }
         }
       }
@@ -6245,6 +6289,28 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "數位中間片"
+          }
+        }
+      }
+    },
+    "Display P3" : {
+      "localizations" : {
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Display P3"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Display P3"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Display P3"
           }
         }
       }
@@ -15819,6 +15885,28 @@
         }
       }
     },
+    "ProPhoto RGB" : {
+      "localizations" : {
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "ProPhoto RGB"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "ProPhoto RGB"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "ProPhoto RGB"
+          }
+        }
+      }
+    },
     "Process" : {
       "localizations" : {
         "ja" : {
@@ -25187,6 +25275,28 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "保護陰影"
+          }
+        }
+      }
+    },
+    "sRGB" : {
+      "localizations" : {
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "sRGB"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "sRGB"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "sRGB"
           }
         }
       }

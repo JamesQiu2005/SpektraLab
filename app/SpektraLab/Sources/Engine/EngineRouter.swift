@@ -725,6 +725,14 @@ final class EngineRouter {
 
     /// The Metal device the engine runs on, for the page's zoom.
     var device: MTLDevice? { (engine as? SpkEngine)?.device }
+
+    /// The output transform's numbers from the page's Display P3 into `target`, for a proof of the
+    /// page's picture in a smaller space (`GamutProof`): asked of the engine on its queue.
+    func proofTransform(to target: OutputTransformer.Target) async throws -> SpkEngine.OutputTransformData? {
+        guard let engine = engine as? SpkEngine else { return nil }
+        return try await engine.outputTransform(from: OutputTransformer.Target.displayP3.rawValue, to: target.rawValue,
+                                                gamutCompress: OutputTransformer.withoutLightness)
+    }
     #endif
 
     /// What became of an export job's file: asked once, after the job has

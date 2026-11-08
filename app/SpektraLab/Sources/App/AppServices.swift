@@ -80,6 +80,9 @@ final class AppServices {
         let darkroom = EngineRouter(wantsEngine: realLibrary && !isSnapshot, simulatedSpeed: engineSpeed)
         self.darkroom = darkroom
         engine = darkroom.engine
+        #if SPK_ENGINE
+        GamutProof.shared.darkroom = darkroom   // the numbers a page's proof into a smaller space uses
+        #endif
         self.isSnapshot = isSnapshot
         scheduler = RenderQueue(engine: darkroom.engine, defaults: persists ? .standard : nil)
         // The window's profile of the budget where the app runs on one (`BudgetTuning.window`).

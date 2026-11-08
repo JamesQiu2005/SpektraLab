@@ -476,6 +476,13 @@ struct DevelopWorkspace: View {
             Button(L("Reset") + (resetTitle.map { " " + $0 } ?? "")) { asksReset = true }
                 .disabled(resetTitle == nil || !resetChangesAnything)
             Divider()
+            // The space the canvas shows its picture in (`CanvasGamut`, 2.2.1): a proof, never an edit.
+            Picker(L("Canvas Colour Space"), selection: Binding(get: { model.settings.canvasGamut },
+                                                               set: { model.settings.canvasGamut = $0 })) {
+                ForEach(CanvasGamut.allCases) { Text($0.title).tag($0) }
+            }
+            .pickerStyle(.menu)
+            Divider()
             Button(L("Copy Settings")) { router.present(.copySettings(frame.id)) }
             Button(L("Presets")) { presets = true }
             Divider()
