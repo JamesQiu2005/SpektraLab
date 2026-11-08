@@ -23,7 +23,7 @@ concurrency:
 
 jobs:
   build:
-    runs-on: macos-26          # GitHub's arm64 image, its default Xcode
+    runs-on: xcode-27          # GitHub's arm64 image with Xcode 27 (public preview); macos-26 has none
     timeout-minutes: 30
     steps:
       - uses: actions/checkout@v4
@@ -33,7 +33,7 @@ jobs:
       - name: Xcode
         run: |
           ls -d /Applications/Xcode*.app
-          x=$(ls -d /Applications/Xcode_27*.app 2>/dev/null | sort -V | tail -1)
+          x=$(ls -d /Applications/Xcode_27*.app 2>/dev/null | grep -v -i -E "candidate|beta" | sort -V | tail -1)
           if [ -z "$x" ]; then echo "::error::no Xcode 27 on this runner image; the app needs Xcode 27 or later"; exit 1; fi
           sudo xcode-select -s "$x"
           xcodebuild -version

@@ -228,8 +228,9 @@ xcodebuild … archive                       a release: Release, ARCHS='arm64 x8
 - **Xcode 27 or later.** Xcode 26.6 cannot type-check parts of the app: GitHub's `macos-26`
   image stopped twice on 2026-11-08 (the Develop strips' card chain in `StockPreviewPanel`, the
   parametric curve in `CurveMath`). Both were rewritten, but Xcode 27 is the floor the app is
-  written against, as the README says. CI (`.github/workflows/build.yml`) selects the newest
-  Xcode 27 on the image and fails with that message when there is none.
+  written against, as the README says. CI (`.github/workflows/build.yml`) runs on GitHub's
+  `xcode-27` image (`macos-26` has Xcode 26 only), selects its newest released Xcode 27 and fails
+  with that message when there is none.
 - **The engine is built for Catalyst by `build_engine_mac.sh`**, from the same sources and with
   the same safe-math kernels as `engine/build.sh` (§8.4), because a Catalyst app cannot link a
   plain macOS object. It writes `build/engine-macosx/`, which the project links and copies.
