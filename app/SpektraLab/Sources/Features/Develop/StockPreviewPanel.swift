@@ -379,18 +379,26 @@ struct StockPreviewRow: View {
         // Changing film keeps paper targets laid out, so scrollTo
         // can reveal its new recommendation in the same update.
         ForEach(cards, id: \.stock) { card in
-            Button {
-                // The chosen card again changes nothing (`StockPreviewRules.pick`).
-                let p = session.edit.params
-                switch StockPreviewRules.pick(card, film: p.filmStock, paper: p.printStock) {
-                case .film(let film): session.change { $0.params.load(film: film) }
-                case .paper(let paper): session.change { $0.params.print(on: paper) }
-                case nil: break
-                }
-            } label: {
-                cardView(card, selected: card.stock == selected, live: live(card))
+            cell(card, width: width)
+        }
+    }
+
+    /// One card's button. Its own function, not the `ForEach` closure: as one expression the
+    /// chain below is past what Xcode 26's type checker finishes in time (GitHub's macos-26
+    /// image, 2026-11-08); Xcode 27 managed it.
+    private func cell(_ card: StockPreviewCard, width: CGFloat) -> some View {
+        Button {
+            // The chosen card again changes nothing (`StockPreviewRules.pick`).
+            let p = session.edit.params
+            switch StockPreviewRules.pick(card, film: p.filmStock, paper: p.printStock) {
+            case .film(let film): session.change { $0.params.load(film: film) }
+            case .paper(let paper): session.change { $0.params.print(on: paper) }
+            case nil: break
             }
-            .buttonStyle(.plain).id(card.stock)
+        } label: {
+            cardView(card, selected: card.stock == selected, live: live(card))
+        }
+        .buttonStyle(.plain).id(card.stock)
             .disabled(!live(card))
             .onGeometryChange(for: StripPlacement.self) { geo in
                 let rect = geo.frame(in: .scrollView(axis: .horizontal))
@@ -402,15 +410,19 @@ struct StockPreviewRow: View {
             }
             // A card the lazy row lets go of has no place: a choice of it is brought to the middle.
             .onDisappear { placement[card.slot] = nil }
-            .accessibilityLabel((StockCatalog.shared.stock(card.stock)?.name ?? card.stock)
-                + (card.strip == .paper && StockCatalog.shared.isRecommendedPairing(film: card.film, paper: card.stock)
-                   ? L(", the film's own paper") : ""))
+            .accessibilityLabel(accessibilityName(card))
             .accessibilityIdentifier("stock-preview." + card.slot)
             .accessibilityValue(live(card) && strip.state(card).isRendering ? L("Developing") : "")
             .accessibilityAddTraits(card.stock == selected ? .isSelected : [])
             .accessibilityAction(named: L("Retry")) { strip.refresh() }
             .contextMenu { if live(card) { Button(L("Retry")) { strip.refresh() } } }
-        }
+    }
+
+    /// The card's name, and on a paper card the film's recommended paper says so.
+    private func accessibilityName(_ card: StockPreviewCard) -> String {
+        let name: String = StockCatalog.shared.stock(card.stock)?.name ?? card.stock
+        let recommended = card.strip == .paper && StockCatalog.shared.isRecommendedPairing(film: card.film, paper: card.stock)
+        return recommended ? name + L(", the film's own paper") : name
     }
 
     private func cardView(_ card: StockPreviewCard, selected: Bool, live: Bool) -> some View {
