@@ -19,6 +19,14 @@ if(NOT EXISTS "${SPEKTRALAB_LIBRAW_SOURCE}/src/decoders/sony_arw6.cpp" OR
    NOT libraw_arw6_decl OR NOT libraw_a7m5_id)
     message(FATAL_ERROR "LibRaw 0.22.2 is missing the tracked Sony ARW 6 overlay; rerun engine/setup-libraw.ps1 (Windows) or engine/setup-libraw.sh (POSIX) with SPEKTRALAB_LIBRAW_SOURCE pointing at the overlaid tree")
 endif()
+set(libraw_overlay "${CMAKE_CURRENT_LIST_DIR}/../third_party/libraw-arw6/files")
+foreach(path IN ITEMS src/metadata/canon.cpp src/tables/colordata.cpp)
+    file(SHA256 "${SPEKTRALAB_LIBRAW_SOURCE}/${path}" libraw_staged_hash)
+    file(SHA256 "${libraw_overlay}/${path}" libraw_overlay_hash)
+    if(NOT libraw_staged_hash STREQUAL libraw_overlay_hash)
+        message(FATAL_ERROR "LibRaw 0.22.2 is missing the Canon CR3 overlay (${path}); rerun engine/setup-libraw.ps1 (Windows) or engine/setup-libraw.sh (POSIX)")
+    endif()
+endforeach()
 file(GLOB_RECURSE libraw_sources CONFIGURE_DEPENDS "${SPEKTRALAB_LIBRAW_SOURCE}/src/*.cpp")
 # *_ph.cpp are replacement placeholders for LibRaw's no-postprocessing build,
 # not extra implementations. Including them beside the real processing units

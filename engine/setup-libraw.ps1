@@ -10,6 +10,11 @@ $source = Join-Path $DependencyDirectory 'LibRaw-0.22.2'
 $overlay = Join-Path $PSScriptRoot 'third_party\libraw-arw6\files'
 $url = 'https://codeload.github.com/LibRaw/LibRaw/zip/refs/tags/0.22.2'
 $expected = '02275a04cf0d1477ab9fd7ee231ddea59e7b14497458da6e3ba957517d6655c7'
+# Exact copies of the previous ARW 6 colour table, with LF or CRLF.
+$previousColorTableHashes = @(
+    'db2c5648071a3076d771d6eb7fa7324d5b4399e631858d24d3485635544f90eb',
+    '7b4bc930b7e0dc8af6f907d8014c1c8c5b0cab1b426f54b38fa596846b426ec2'
+)
 
 if (-not (Test-Path -LiteralPath $overlay -PathType Container)) {
     throw "Missing tracked LibRaw ARW 6 overlay: $overlay"
@@ -76,7 +81,8 @@ try {
             $actual = Get-FileSha256 $target
             $archiveDigest = Get-ZipEntrySha256 $entry
             $overlayTarget = if ($null -ne $relative -and $overlayFiles.ContainsKey($relative)) { $overlayFiles[$relative] } else { $null }
-            if ($actual -ne $archiveDigest -and
+            $previousColorTable = $relative -eq 'src\tables\colordata.cpp' -and $actual -in $previousColorTableHashes
+            if ($actual -ne $archiveDigest -and -not $previousColorTable -and
                 ($null -eq $overlayTarget -or $actual -ne (Get-FileSha256 $overlayTarget))) {
                 throw "Modified LibRaw source file: $target. Existing files were not overwritten."
             }
