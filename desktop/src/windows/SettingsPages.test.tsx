@@ -2,12 +2,12 @@
 import React, { act } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
-const mocks = vi.hoisted(() => ({ invoke: vi.fn(), cache: vi.fn(), clear: vi.fn(), configure: vi.fn(), report: vi.fn() }));
+const mocks = vi.hoisted(() => ({ invoke: vi.fn(), cache: vi.fn(), clear: vi.fn(), configure: vi.fn(), report: vi.fn(), pickFolder: vi.fn(), directory: vi.fn() }));
 vi.mock('@tauri-apps/api/core', () => ({ invoke: mocks.invoke }));
 vi.mock('../host/transport', () => ({ inTauri: () => true }));
 vi.mock('../host/client', () => ({ host: () => ({ memoryReport: mocks.report }) }));
-vi.mock('../state/displayCache', () => ({ displayCacheStatus: mocks.cache, clearDisplayCache: mocks.clear, configureDisplayCache: mocks.configure }));
-vi.mock('../platform', () => ({ platform: () => ({ reveal: vi.fn(), openUrl: vi.fn() }) }));
+vi.mock('../state/displayCache', () => ({ displayCacheStatus: mocks.cache, clearDisplayCache: mocks.clear, configureDisplayCache: mocks.configure, setDisplayCacheDirectory: mocks.directory }));
+vi.mock('../platform', () => ({ platform: () => ({ reveal: vi.fn(), openUrl: vi.fn(), pickFolder: mocks.pickFolder }) }));
 vi.mock('../i18n', () => ({ tz: (s: string) => s }));
 vi.mock('../controls/controls', () => ({ ToggleRow: (p: { label: string; disabled: boolean; on: boolean; onChange: (v: boolean) => void }) =>
   <button disabled={p.disabled} aria-pressed={p.on} onClick={() => p.onChange(!p.on)}>{p.label}</button> }));
@@ -56,6 +56,29 @@ it('shows real ledger values and only clears the preview disk cache', async () =
   await act(async () => button('Clear display cache').click());
   expect(mocks.clear).toHaveBeenCalledOnce(); expect(mocks.configure).not.toHaveBeenCalled();
   expect(formatBytes(Number.NaN)).toBe('—');
+});
+it('uses the folder picker and can restore the default when the selected drive is unavailable', async () => {
+  const initial = { bytes: 0, cap_bytes: 2 * 1024 ** 3, entries: 0, path: 'C:/Frames-v1', custom: false, error: null };
+  mocks.report.mockResolvedValue({});
+  mocks.cache.mockResolvedValue(initial);
+  mocks.pickFolder.mockResolvedValueOnce(null).mockResolvedValueOnce('D:/Photos');
+  mocks.directory.mockImplementation(async (folder: string | null) => {
+    mocks.cache.mockResolvedValue(folder === null ? initial : {
+      ...initial, path: 'D:/Photos/SpektraLab-Frames-v1', custom: true, error: 'Drive unavailable',
+    });
+  });
+  await act(async () => root.render(<MemorySettings />));
+  await act(async () => button('Choose folder…').click());
+  expect(mocks.directory).not.toHaveBeenCalled();
+  await act(async () => button('Choose folder…').click());
+  expect(mocks.directory).toHaveBeenCalledWith('D:/Photos');
+  expect(div.textContent).toContain('D:/Photos/SpektraLab-Frames-v1');
+  expect(div.textContent).toContain('Drive unavailable');
+  expect(button('Clear display cache').disabled).toBe(true);
+  await act(async () => button('Restore default folder').click());
+  expect(mocks.directory).toHaveBeenCalledWith(null);
+  expect(div.textContent).toContain('C:/Frames-v1');
+  expect(button('Restore default folder')).toBeUndefined();
 });
 it('keeps agent access off until the user toggles it and displays missing packaged runtime', async () => {
   const state = { enabled: false, runtime_available: false, executable: 'D:/owned/spektralab.cmd', command: '', mcp_config: {} };

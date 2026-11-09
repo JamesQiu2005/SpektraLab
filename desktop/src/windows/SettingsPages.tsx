@@ -1,11 +1,11 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { invoke } from '@tauri-apps/api/core';
 import { host } from '../host/client';
 import { inTauri } from '../host/transport';
 import { platform } from '../platform';
 import { tz } from '../i18n';
 import { ToggleRow } from '../controls/controls';
-import { clearDisplayCache, configureDisplayCache, displayCacheStatus, type DisplayCacheStatus } from '../state/displayCache';
+import { clearDisplayCache, configureDisplayCache, displayCacheStatus, setDisplayCacheDirectory, type DisplayCacheStatus } from '../state/displayCache';
 import { checkWindowsUpdate, type UpdateStatus } from './updateCheck';
 
 const GiB = 1024 ** 3;
@@ -24,40 +24,51 @@ export function MemorySettings() {
   const [limit, setLimit] = useState('16');
   const [error, setError] = useState('');
   const [busy, setBusy] = useState(false);
+  const cacheRevision = useRef(0);
   // One sample at a time; unmount cancels the timer, not an engine job. A
   // queued report cannot pile up while the worker is busy developing a RAW.
   useEffect(() => {
     let mounted = true;
     let timer: ReturnType<typeof setTimeout> | undefined;
     const refresh = async () => {
+      const revision = cacheRevision.current;
       const results = await Promise.allSettled([host().memoryReport(), displayCacheStatus()]);
       if (!mounted) return;
       setCacheLoading(false);
       if (results[0].status === 'fulfilled') setMemory(results[0].value);
-      if (results[1].status === 'fulfilled') {
+      if (revision === cacheRevision.current && results[1].status === 'fulfilled') {
         const value = results[1].value;
         setCache(value);
         if (!timer && value) setLimit(String(value.cap_bytes / GiB));
       }
-      const failed = results.find((r) => r.status === 'rejected');
+      const failed = results.find((r, index) => (index === 0 || revision === cacheRevision.current) && r.status === 'rejected');
       if (failed?.status === 'rejected') setError(String(failed.reason));
       timer = setTimeout(() => void refresh(), 2000);
     };
     void refresh();
     return () => { mounted = false; clearTimeout(timer); };
   }, []);
-  const changeCache = async (clear: boolean) => {
-    const n = Number(limit);
-    if (!clear && (!Number.isFinite(n) || n < 0 || n > 64)) {
-      setError(tz('Choose a cache limit between 0 and 64 GiB.', '缓存上限应为 0 至 64 GiB。')); return;
-    }
+  const updateCache = async (action: () => Promise<void>) => {
     setBusy(true); setError('');
     try {
-      if (clear) await clearDisplayCache(); else await configureDisplayCache(Math.round(n * GiB));
-      setCache(await displayCacheStatus());
+      await action();
+      const current = await displayCacheStatus();
+      cacheRevision.current++;
+      setCache(current);
     } catch (e) { setError(String(e)); }
     finally { setBusy(false); }
   };
+  const applyLimit = () => {
+    const n = Number(limit);
+    if (!Number.isFinite(n) || n < 0 || n > 64) {
+      setError(tz('Choose a cache limit between 0 and 64 GiB.', '缓存上限应为 0 至 64 GiB。')); return;
+    }
+    void updateCache(() => configureDisplayCache(Math.round(n * GiB)));
+  };
+  const chooseDirectory = () => updateCache(async () => {
+    const folder = await platform().pickFolder(tz('Choose display cache folder', '选择显示缓存目录'));
+    if (folder !== null) await setDisplayCacheDirectory(folder);
+  });
   return <>
     <div className="settings-group">
       <h3>{tz('Engine allocations', '引擎分配')}</h3>
@@ -76,17 +87,22 @@ export function MemorySettings() {
       <h3>{tz('Display cache on disk', '显示磁盘缓存')}</h3>
       <p className="caption">{tz('Recent previews also use up to 128 MiB of memory. Clear removes both memory and disk previews.', '近期预览另外使用最多 128 MiB 内存；清空会同时清除内存与磁盘预览。')}</p>
       {cache ? <>
-        <p className="caption">{formatBytes(cache.bytes)} / {formatBytes(cache.cap_bytes)} · {cache.entries} {tz('pictures', '张图片')}</p>
+        {cache.error
+          ? <p className="caption" role="status">{tz('Cache folder unavailable. Choose another folder or restore the default.', '缓存目录不可用。请选择其他目录或恢复默认位置。')} {cache.error}</p>
+          : <p className="caption">{formatBytes(cache.bytes)} / {formatBytes(cache.cap_bytes)} · {cache.entries} {tz('pictures', '张图片')}</p>}
         <label>{tz('Limit (GiB; 0 disables disk caching)', '上限（GiB；0 关闭磁盘缓存）')}
           <input aria-label={tz('Cache limit', '缓存上限')} type="number" min="0" max="64" step="1" value={limit} onChange={(e) => setLimit(e.target.value)} disabled={busy} style={{ width: 80, marginLeft: 8 }} />
         </label>
-        <div className="row" style={{ gap: 8, marginTop: 10 }}>
-          <button className="btn" disabled={busy} onClick={() => void changeCache(false)}>{tz('Apply limit', '应用上限')}</button>
-          <button className="btn" disabled={busy} onClick={() => void changeCache(true)}>{tz('Clear display cache', '清空显示缓存')}</button>
-          <button className="btn" onClick={() => void platform().reveal(cache.path).catch((e) => setError(String(e)))}>{tz('Show folder', '显示目录')}</button>
+        <div className="row" style={{ gap: 8, marginTop: 10, flexWrap: 'wrap' }}>
+          <button className="btn" disabled={busy || !!cache.error} onClick={applyLimit}>{tz('Apply limit', '应用上限')}</button>
+          <button className="btn" disabled={busy || !!cache.error} onClick={() => void updateCache(clearDisplayCache)}>{tz('Clear display cache', '清空显示缓存')}</button>
+          <button className="btn" disabled={busy || !!cache.error} onClick={() => void platform().reveal(cache.path).catch((e) => setError(String(e)))}>{tz('Show folder', '显示目录')}</button>
+          <button className="btn" disabled={busy} onClick={() => void chooseDirectory()}>{tz('Choose folder…', '选择目录…')}</button>
+          {cache.custom && <button className="btn" disabled={busy} onClick={() => void updateCache(() => setDisplayCacheDirectory(null))}>{tz('Restore default folder', '恢复默认目录')}</button>}
         </div>
         <p className="caption mono" style={{ overflowWrap: 'anywhere' }}>{cache.path}</p>
         <p className="caption">{tz('Only rendered previews are cached; originals, edits and exports are kept separately. Entries are checked and evicted by least recent use. Clearing does not delete photographs or edits.', '这里只缓存渲染预览，原片、编辑参数和导出文件独立保存。缓存按校验及最近使用情况管理；清空不会删除照片或编辑参数。')}</p>
+        <p className="caption">{tz('New previews go into a SpektraLab subfolder. To free space in the current folder, clear its previews before switching.', '新预览会写入所选目录下的 SpektraLab 子目录。如需释放当前目录的空间，请先清空显示缓存再切换。')}</p>
       </> : <p className="caption">{!inTauri()
         ? tz('Available in the desktop application.', '此功能在桌面应用中可用。')
         : cacheLoading ? tz('Loading display cache…', '正在加载显示缓存…')
