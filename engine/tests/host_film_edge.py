@@ -1,8 +1,10 @@
 #!/usr/bin/env python3
 """Prefilm held crop, full canvas metadata, original isolation and cache tests."""
 import argparse
+from datetime import datetime
 from pathlib import Path
 import struct
+import sys
 import tempfile
 import zlib
 
@@ -10,17 +12,48 @@ from host_smoke import Host
 from host_proof import good
 
 
-def png(path, pixels):
+def png(path, pixels, xmp=None):
     h, w = len(pixels), len(pixels[0])
     def chunk(kind, data):
         return struct.pack('>I', len(data)) + kind + data + struct.pack('>I', zlib.crc32(kind + data))
     rows = b''.join(b'\0' + bytes(v for p in row for v in p) for row in pixels)
+    metadata = chunk(b'iTXt', b'XML:com.adobe.xmp\0\0\0\0\0' + xmp) if xmp else b''
     path.write_bytes(b'\x89PNG\r\n\x1a\n' + chunk(b'IHDR', struct.pack('>IIBBBBB', w,h,8,2,0,0,0)) +
-                     chunk(b'IDAT', zlib.compress(rows)) + chunk(b'IEND', b''))
+                     metadata + chunk(b'IDAT', zlib.compress(rows)) + chunk(b'IEND', b''))
+
+
+def check_windows_png_xmp(host, folder, pixels):
+    # Reading PNG XMP here depends on the installed Windows photo handler.
+    if sys.platform != 'win32' or sys.getwindowsversion().platform_version[2] < 26100:
+        return
+    capture = '2026-10-12T12:00:00+08:00'
+    xmp = f'''<x:xmpmeta xmlns:x="adobe:ns:meta/">
+      <rdf:RDF xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#">
+        <rdf:Description rdf:about="" xmlns:exif="http://ns.adobe.com/exif/1.0/"
+          xmlns:xmp="http://ns.adobe.com/xap/1.0/"
+          exif:DateTimeOriginal="{capture}" xmp:CreateDate="{capture}"
+          exif:ExposureTime="1/125" exif:FNumber="14/10" exif:FocalLength="35/1">
+          <exif:ISOSpeedRatings><rdf:Seq><rdf:li>4000</rdf:li></rdf:Seq></exif:ISOSpeedRatings>
+        </rdf:Description>
+      </rdf:RDF>
+    </x:xmpmeta>'''.encode('utf-8')
+    source = folder / 'camera-xmp.png'
+    png(source, pixels, xmp)
+    probed, _ = good(host, 'probe', {'path': str(source)})
+    opened, _ = good(host, 'open', {'path': str(source)})
+    expected_date = datetime.fromisoformat(capture).astimezone().replace(tzinfo=None).isoformat()
+    metadata = opened['metadata']
+    assert metadata == probed['metadata'], metadata
+    assert metadata['datetime_original'] == expected_date, metadata
+    assert metadata['shutter_s'] == 1/125 and metadata['aperture'] == 1.4, metadata
+    assert metadata['iso'] == 4000 and metadata['focal_mm'] == 35, metadata
+    good(host, 'close', {'session': opened['session']})
+    print('PNG XMP: capture date and shooting data passed', flush=True)
 
 
 def exercise(host, folder):
     pixels = [[(40+x, 30+y, 20+(x+y)//2) for x in range(192)] for y in range(128)]
+    check_windows_png_xmp(host, folder, pixels)
     original = folder / 'source.png'
     png(original, pixels)
     crop = [row[48:144] for row in pixels[32:96]]
