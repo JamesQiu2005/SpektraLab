@@ -240,13 +240,13 @@ xcodebuild … archive                       a release: Release, ARCHS='arm64 x8
 - **The engine is built for Catalyst by `build_engine_mac.sh`**, from the same sources and with
   the same safe-math kernels as `engine/build.sh` (§8.4), because a Catalyst app cannot link a
   plain macOS object. It writes `build/engine-macosx/`, which the project links and copies.
-- **Versions** live in `gen_project.py`: the default is the current release (2.2.1); a release
+- **Versions** live in `gen_project.py`: the default is the current release (2.2.2); a release
   passes `--version`, `--build <yyyyMMddHHmm>` and `--bundle-id com.spektralab.mac`, and the
   generated project is committed with it. A build without `--version` shows the default in
   Settings › General › About.
 - **The library helper** is `vendor/spklib/macos/spklib-host`, a prebuilt MIT binary built by
   `./build.sh release` from a public tag of
-  [SpektraLab_library](https://github.com/JamesQiu2005/SpektraLab_library) (2.2.0 and 2.2.1 ship v0.3.1),
+  [SpektraLab_library](https://github.com/JamesQiu2005/SpektraLab_library) (2.2.x ships v0.3.1),
   its sha256 beside it; `API-SPEC-library-helper.md` §7 is how to update it. The app copies it to
   `Contents/Helpers` and runs it as a separate process.
 - **Signing and notarisation.** The archive is unsigned. The helper is signed first
