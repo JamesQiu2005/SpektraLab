@@ -134,6 +134,20 @@ derived and what was changed.
 Capture One catalogs are read by spklib (MIT, https://github.com/JamesQiu2005/SpektraLab_library);
 the app ships its prebuilt helper.
 
+## Trademark
+
+SpektraLab™ and the SpektraLab icon are managed by Guangzhou Songzi Intelligent
+Technology Services Co., Ltd.; trademark registration is in progress.
+
+Forks are welcome. You can study, modify, port and redistribute the code under
+its licences, which cover the code and data but not the name or the icon. Keeping
+both in a personal fork is fine. If you publish a build for other people, even a
+free one, please give it its own name and icon. You are welcome to say it is
+based on SpektraLab, as long as it is clear that your project is unofficial.
+
+We reserve the right to act against builds that pass themselves off as official
+or imply our endorsement.
+
 Capture One is a trademark of Capture One A/S. SpektraLab and spklib are not affiliated with or
 endorsed by it; they read a catalog and never write to it. SpektraLab is not affiliated with or
 endorsed by the spektrafilm project. Film and paper names are their owners' trademarks; they say
