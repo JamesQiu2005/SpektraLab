@@ -52,9 +52,9 @@ SpektraLab 是 Mac 上的胶片暗房。打开一张照片，选好胶片和相�
 
 ## 2. 安装与系统要求
 
-- **macOS 15 或更高版本**，**Apple 芯片**。
+- **macOS 15 或更高版本**，**Apple 芯片**或 **Intel Mac**（2.3.2 起）。
 - 下载的是一个经过签名和公证的磁盘映像（DMG）。打开后，把 SpektraLab 拖进“应用程序”文件夹。
-- DMG 是通用版本，也包含适用于 Intel Mac 的代码。但 **Intel Mac 没有经过测试**，可能能用，也可能不能用。受支持的机器是 Apple 芯片。
+- DMG 是通用版本：Apple 芯片和 Intel Mac 用同一个下载。2.3.2 之前，引擎在 Intel Mac 上拒绝启动；2.3.2 修复了这一点，并已在一台 Intel Mac 上测试过：Mac mini 2018，外接 AMD Radeon RX 590 显卡。其他 Intel Mac，尤其是只有 Intel 集成显卡的机型，还没有测试过。
 - 只有从源码自己构建 SpektraLab 时才需要 Xcode 27。日常使用不需要。
 - 安装和运行都不需要 Python。
 
@@ -744,7 +744,7 @@ Capture One 正在以写入方式使用这个目录，它持有日志期间 Spek
 如果文件大到你的 Mac 无法完整冲洗，SpektraLab 会把它缩小，并标明实际冲洗的尺寸，绝不把缩小的图叫作全尺寸。**设置 › 诊断 › 此版本**会显示此刻一次冲洗会分到的内存上限。
 
 **能在 Intel Mac 上运行吗？**
-没有测试过。App 是通用版本，但受支持的只有 Apple 芯片。
+可以，从 2.3.2 起。此前引擎在 Intel Mac 上拒绝启动。已在 Mac mini 2018（外接 AMD Radeon RX 590 显卡）上测试；其他 Intel Mac 还没有测试过。
 
 **它会改动我的原片或 Capture One 目录吗？**
 不会。编辑保存在图库里。SpektraLab 不会在你的照片旁边写任何东西，Capture One 是只读的。SpektraLab 唯一会往你文件夹里写文件的情形，就是导出被告知要写到那里。

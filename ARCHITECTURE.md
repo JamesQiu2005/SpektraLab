@@ -2,7 +2,7 @@
 
 How SpektraLab 2 is put together: a Mac Catalyst app with the SpektraLab engine, a C++/Metal render
 engine, linked into it, and a library helper, `spklib-host`, running beside it. Written for someone
-about to change the pipeline, the app or the release. Current as of **2.3.1, 2026-11-10**.
+about to change the pipeline, the app or the release. Current as of **2.3.2, 2026-11-10**.
 
 The SpektraLab engine is a C++/Metal implementation derived from spektrafilm by Andrea Volpato
 (GPL-3.0-or-later). The engine's sections (§1–§4, §6, §8) carry over from 1.x except where they
@@ -240,7 +240,7 @@ xcodebuild … archive                       a release: Release, ARCHS='arm64 x8
 - **The engine is built for Catalyst by `build_engine_mac.sh`**, from the same sources and with
   the same safe-math kernels as `engine/build.sh` (§8.4), because a Catalyst app cannot link a
   plain macOS object. It writes `build/engine-macosx/`, which the project links and copies.
-- **Versions** live in `gen_project.py`: the default is the current release (2.3.1); a release
+- **Versions** live in `gen_project.py`: the default is the current release (2.3.2); a release
   passes `--version`, `--build <yyyyMMddHHmm>` and `--bundle-id com.spektralab.mac`, and the
   generated project is committed with it. A build without `--version` shows the default in
   Settings › General › About.
@@ -253,8 +253,12 @@ xcodebuild … archive                       a release: Release, ARCHS='arm64 x8
   (`codesign -i spklib-host`), then the app, with the Developer ID Application identity,
   hardened runtime and no entitlements; the DMG (the app, an Applications link, `Licenses/`) is
   signed, notarised with `notarytool` and stapled, then checked with `spctl`. Releases are
-  GitHub releases carrying the DMG (`SpektraLab-<version>-universal.dmg`). The DMG is universal; the
-  x86_64 slice has not been run on an Intel Mac.
+  GitHub releases carrying the DMG (`SpektraLab-<version>-universal.dmg`). The DMG is universal. The
+  x86_64 slice runs from 2.3.2 (PR #104). Before it the engine did not start on an Intel Mac: the
+  fast-math probe, `a*b - a*b`, relied on the GPU contracting one product into an fma.
+  `spk_metal_math_probe` tests reassociation instead, which holds whether or not a driver contracts.
+  It has been run on a Mac mini 2018 with an AMD RX 590 eGPU, and under Rosetta on Apple silicon,
+  where the engine's full render matches arm64 to the bit. Intel integrated graphics are untried.
 - **Licences.** GPL-3.0 (`license/LICENSE`), the spektrafilm profiles' CC BY-SA 4.0
   (`license/SPEKTRAFILM_LICENSE.txt`), metal-cpp's Apache-2.0 and spklib's MIT go into
   `EngineResources/Licenses` and the DMG's `Licenses/`, with `license/NOTICE.md`. For 2.2.0 they

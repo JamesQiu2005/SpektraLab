@@ -52,9 +52,9 @@ It is a simulation of a physical process, not a set of filters. The engine behin
 
 ## 2. Install and requirements
 
-- **macOS 15 or later**, on **Apple silicon**.
+- **macOS 15 or later**, on **Apple silicon** or an **Intel Mac** (from 2.3.2).
 - The download is a single disk image (DMG), signed and notarised. Open it and drag SpektraLab into your Applications folder.
-- The DMG is universal, which means it also contains code for Intel Macs. **Intel Macs are untested.** It may work, and it may not. Apple silicon is the supported machine.
+- The DMG is universal: one download for Apple silicon and Intel Macs. Before 2.3.2 the engine refused to start on Intel Macs. 2.3.2 fixes that, and has been tested on one Intel Mac: a Mac mini 2018 with an AMD Radeon RX 590 eGPU. Other Intel Macs, and Intel integrated graphics in particular, have not been tried yet.
 - Xcode 27 only matters if you build SpektraLab from source. Using the app does not need it.
 - Nothing needs Python, at install time or at run time.
 
@@ -742,7 +742,7 @@ That is Canvas Colour Space proofing the picture into a smaller space (section 6
 If a file is too large for your Mac to develop in full, SpektraLab makes it smaller and labels it with the size it was developed at. It never calls a reduced picture full. **Settings › Diagnostics › This build** shows the budget a develop would be given now.
 
 **Does it run on an Intel Mac?**
-Untested. The app is universal, but only Apple silicon is supported.
+Yes, from 2.3.2. Before that the engine refused to start on Intel Macs. It has been tested on a Mac mini 2018 with an AMD Radeon RX 590 eGPU; other Intel Macs have not been tried yet.
 
 **Will it change my originals, or my Capture One catalog?**
 No. Edits are kept in the library. SpektraLab does not write beside your photographs, and Capture One is read-only. The only time SpektraLab writes a file in a folder of yours is when Export is told to write there.

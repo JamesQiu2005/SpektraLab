@@ -76,7 +76,7 @@ commits.
 |---|---|---|---|
 | `spk_take_rgb`, `spk_affine3`, `spk_mul`, `spk_glare_add`, `spk_reduce_max`, `spk_to_rgba16`, `spk_stride_sample` | same names | tested (Windows) | tested (`spk_vulkan_pointwise`, `_transfer`) |
 | `spk_zoom_bilinear_mirror` | same | tested | tested (`spk_vulkan_resample`) |
-| Math probe | `spk_metal_math_probe` | tested | `spk_math_probe` tested. tested; lavapipe reports *unfused fma*, accepted only on a CPU device, and selects the Dekker path |
+| Math probe | `spk_metal_math_probe` | tested | `spk_math_probe` tested; lavapipe reports *unfused fma*, accepted only on a CPU device, and selects the Dekker path |
 | `spk_lut3d_trilinear`, `spk_di_normalise` | same | tested | tested (`spk_vulkan_lut_di`) |
 | `spk_sep_fir_acc` | same | tested | tested (`spk_vulkan_smoke` FIR oracle) |
 | `spk_iir_df_acc` | same | tested | tested on lavapipe at the original bound (exact Dekker product on an unfused device, §5) |
