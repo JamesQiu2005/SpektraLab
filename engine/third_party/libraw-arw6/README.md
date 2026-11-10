@@ -9,7 +9,7 @@ the "Compressed" and "Compressed (HQ)" modes used by the Sony A7 V
 (`ILCE-7M5`). Apple's Core Image raw support also returns no image for these
 files. Upstream LibRaw added the decoder and camera metadata after 0.22.2, but
 moving to an upstream snapshot would also drop fixes that are only in 0.22.2.
-This overlay backports only the ARW 6 support.
+This overlay backports ARW 6 support and a targeted Canon CR3 fix.
 
 ## Contents
 
@@ -28,7 +28,8 @@ root:
 | `src/metadata/normalize_model.cpp` | Normalised `ILCE-7M5` model name |
 | `src/metadata/identify.cpp` | A7 V crop dimensions |
 | `src/tables/cameralist.cpp` | A7 V camera-list entry |
-| `src/tables/colordata.cpp` | A7 V colour matrix |
+| `src/tables/colordata.cpp` | A7 V and EOS R6 Mark III colour matrices |
+| `src/metadata/canon.cpp` | CR3 ColorData subversion 66 white balance and level offsets |
 
 The overlay intentionally does not change LibRaw's version number or public
 headers. `LibRaw::version()` still reports 0.22.2, as required by the build
@@ -51,6 +52,10 @@ Sony A7 V identification and colour metadata came from upstream commit
 `8eb3433879bd` and its follow-ups. The backport was assembled against the
 0.22.2 tree rather than copied wholesale, because 0.22.2 and upstream master
 have diverged.
+
+The Canon ColorData subversion 66 branch and the EOS R6 Mark III colour matrix
+are from [LibRaw snapshot 202611](https://github.com/LibRaw/LibRaw/commit/a9a14b1970d188c25dade81f8326ff00a6e33649).
+The rest of `canon.cpp` comes from the pinned 0.22.2 release.
 
 The decoder is Copyright 2026 LibRaw LLC and Jiang Yaogeng, distributed under
 LibRaw's LGPL-2.1 / CDDL-1.0 dual licence. The overlay carries the same licence

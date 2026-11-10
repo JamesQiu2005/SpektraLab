@@ -7,6 +7,13 @@ struct Camera : spk::io::detail::CameraLibRaw {
     bool uncalibrated() const { return libraw_internal_data.internal_output_params.raw_color; }
 };
 int main() {
+    // LibRaw matches model prefixes, so R6 Mark III must precede R6 Mark II.
+    auto canon = std::make_unique<Camera>();
+    canon->imgdata.idata.colors = 3;
+    if (!canon->adobe_coeff(LIBRAW_CAMERAMAKER_Canon, "EOS R6 Mark III") ||
+        std::abs(canon->imgdata.color.cam_xyz[0][0] - 0.8309f) > 1e-6f) return 11;
+    if (!canon->adobe_coeff(LIBRAW_CAMERAMAKER_Canon, "EOS R6 Mark II") ||
+        std::abs(canon->imgdata.color.cam_xyz[0][0] - 0.9539f) > 1e-6f) return 12;
     for (const auto* name : {"GFX100RF", "GFX 100RF"}) {
         auto raw = std::make_unique<Camera>();
         raw->imgdata.idata.colors = 3;

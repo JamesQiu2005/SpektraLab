@@ -98,6 +98,12 @@ for info in z.infolist():
     if rel in overlay_files:
         overlay_digest = digest_file(overlay_files[rel])
         allowed = {overlay_digest} if mode == "final" else {archive_digest, overlay_digest}
+        if mode == "pre" and rel == "src/tables/colordata.cpp":
+            # The previous ARW 6 colour table, with LF or CRLF.
+            allowed.update({
+                bytes.fromhex("db2c5648071a3076d771d6eb7fa7324d5b4399e631858d24d3485635544f90eb"),
+                bytes.fromhex("7b4bc930b7e0dc8af6f907d8014c1c8c5b0cab1b426f54b38fa596846b426ec2"),
+            })
     else:
         allowed = {archive_digest}
     if actual not in allowed:
