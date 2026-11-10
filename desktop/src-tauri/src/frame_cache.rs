@@ -1,5 +1,6 @@
 //! Bounded persistent display pictures. These bytes are NEVER decoded engine
 //! input, negative-cache data, export input, or neutral-picker samples.
+use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use sha2::{Digest, Sha256};
 use std::fs::{self, File, FileTimes, OpenOptions};
@@ -12,10 +13,138 @@ use std::time::{SystemTime, UNIX_EPOCH};
 const MAX_IMAGE: usize = 64 * 1024 * 1024;
 const MAX_HEADER: usize = 1024 * 1024;
 const DEFAULT_CAP: u64 = 16 * 1024 * 1024 * 1024;
+const MAX_CAP: u64 = 64 * 1024 * 1024 * 1024;
+const CUSTOM_SUBDIR: &str = "SpektraLab-Frames-v1";
 static SERIAL: AtomicU64 = AtomicU64::new(0);
-static IO: Mutex<()> = Mutex::new(());
 
-pub struct FrameCache { pub dir: PathBuf }
+#[derive(Clone, Serialize, Deserialize)]
+struct Preferences {
+    folder: Option<PathBuf>,
+    cap_bytes: u64,
+}
+
+pub struct FrameCache {
+    default_dir: PathBuf,
+    preferences_path: PathBuf,
+    // Hold this across disk I/O so a switch never races with a cache write.
+    preferences: Mutex<Preferences>,
+}
+
+struct CacheDirectory {
+    dir: PathBuf,
+    custom: bool,
+}
+
+fn read_settings(path: &Path, limit: u64) -> Option<Vec<u8>> {
+    if !fs::symlink_metadata(path).is_ok_and(|m| m.is_file() && plain(&m) && m.len() <= limit) {
+        return None;
+    }
+    fs::read(path).ok()
+}
+
+impl FrameCache {
+    pub fn new(default_dir: PathBuf, preferences_path: PathBuf) -> Self {
+        let preferences = read_settings(&preferences_path, MAX_HEADER as u64)
+            .and_then(|bytes| serde_json::from_slice::<Preferences>(&bytes).ok())
+            .filter(|p| p.cap_bytes <= MAX_CAP && p.folder.as_ref().map_or(true, |folder| folder.is_absolute()))
+            .unwrap_or_else(|| Preferences {
+                folder: None,
+                cap_bytes: read_settings(&default_dir.join("settings.json"), 4096)
+                    .and_then(|bytes| serde_json::from_slice::<Value>(&bytes).ok())
+                    .and_then(|v| v["cap_bytes"].as_u64())
+                    .filter(|cap| *cap <= MAX_CAP)
+                    .unwrap_or(DEFAULT_CAP),
+            });
+        Self { default_dir, preferences_path, preferences: Mutex::new(preferences) }
+    }
+
+    fn directory(&self, preferences: &Preferences) -> CacheDirectory {
+        match &preferences.folder {
+            Some(folder) => CacheDirectory { dir: folder.join(CUSTOM_SUBDIR), custom: true },
+            None => CacheDirectory { dir: self.default_dir.clone(), custom: false },
+        }
+    }
+
+    fn save_preferences(&self, preferences: &Preferences) -> Result<(), String> {
+        let parent = self.preferences_path.parent().ok_or("Cache preferences have no parent directory")?;
+        fs::create_dir_all(parent).map_err(|e| e.to_string())?;
+        let bytes = serde_json::to_vec(preferences).map_err(|e| e.to_string())?;
+        atomic(&self.preferences_path, &bytes, &[])
+    }
+
+    pub fn set_directory(&self, folder: Option<PathBuf>) -> Result<(), String> {
+        let mut preferences = self.preferences.lock().map_err(|e| e.to_string())?;
+        if folder.as_ref().is_some_and(|path| !path.is_absolute()) {
+            return Err("Choose an absolute cache folder".into());
+        }
+        let next = Preferences { folder, cap_bytes: preferences.cap_bytes };
+        let directory = self.directory(&next);
+        directory.prepare()?;
+        // Verify the new directory before persisting the choice.
+        let probe = temporary_path(&directory.dir);
+        let file = OpenOptions::new().write(true).create_new(true).open(&probe).map_err(|e| e.to_string())?;
+        drop(file);
+        fs::remove_file(probe).map_err(|e| e.to_string())?;
+        directory.trim(next.cap_bytes)?;
+        self.save_preferences(&next)?;
+        *preferences = next;
+        Ok(())
+    }
+
+    pub fn status(&self) -> Result<Value, String> {
+        let preferences = self.preferences.lock().map_err(|e| e.to_string())?;
+        let directory = self.directory(&preferences);
+        let entries = directory.entries();
+        let (bytes, count) = entries.as_ref().map_or((0, 0), |items| {
+            (items.iter().map(|entry| entry.1).sum::<u64>(), items.len())
+        });
+        Ok(json!({
+            "cap_bytes": preferences.cap_bytes, "bytes": bytes, "entries": count,
+            "max_entry_bytes": MAX_IMAGE, "path": directory.dir, "custom": directory.custom,
+            "error": entries.err()
+        }))
+    }
+
+    pub fn configure(&self, cap_bytes: u64) -> Result<(), String> {
+        if cap_bytes > MAX_CAP { return Err("Cache limit must be between 0 and 64 GiB".into()); }
+        let mut preferences = self.preferences.lock().map_err(|e| e.to_string())?;
+        let next = Preferences { cap_bytes, ..preferences.clone() };
+        self.directory(&next).trim(cap_bytes)?;
+        self.save_preferences(&next)?;
+        *preferences = next;
+        Ok(())
+    }
+
+    pub fn clear(&self) -> Result<(), String> {
+        let preferences = self.preferences.lock().map_err(|e| e.to_string())?;
+        self.directory(&preferences).trim(0)
+    }
+
+    pub fn store(&self, key: &str, metadata: &Value, payload: &[u8]) -> Result<bool, String> {
+        let preferences = self.preferences.lock().map_err(|e| e.to_string())?;
+        self.directory(&preferences).store(key, metadata, payload, preferences.cap_bytes)
+    }
+
+    pub fn load(&self, key: &str) -> Result<Option<(Value, Vec<u8>)>, String> {
+        let preferences = self.preferences.lock().map_err(|e| e.to_string())?;
+        self.directory(&preferences).load(key, preferences.cap_bytes)
+    }
+}
+
+fn temporary_path(dir: &Path) -> PathBuf {
+    dir.join(format!(".frame-{}-{}.partial", std::process::id(), SERIAL.fetch_add(1, Ordering::Relaxed)))
+}
+
+fn atomic(path: &Path, header: &[u8], payload: &[u8]) -> Result<(), String> {
+    let temp = temporary_path(path.parent().ok_or("Cache file has no parent directory")?);
+    let mut file = OpenOptions::new().write(true).create_new(true).open(&temp).map_err(|e| e.to_string())?;
+    let written = file.write_all(header).and_then(|_| file.write_all(payload)).and_then(|_| file.sync_all());
+    drop(file);
+    let result = written.and_then(|_| fs::rename(&temp, path));
+    if result.is_err() { let _ = fs::remove_file(temp); }
+    result.map_err(|e| e.to_string())
+}
+
 fn plain(md: &fs::Metadata) -> bool {
     if md.file_type().is_symlink() { return false; }
     #[cfg(windows)]
@@ -58,17 +187,22 @@ fn valid_image(header: &Value, bytes: usize) -> bool {
         &&matches!(image["colorSpace"].as_str(),Some("sRGB"|"Display P3"))
 }
 
-impl FrameCache {
+impl CacheDirectory {
     fn prepare(&self) -> Result<(),String> {
-        if let Ok(md)=fs::symlink_metadata(&self.dir) { if !md.is_dir()||!plain(&md){return Err("Cache root must be a plain directory".into());} }
-        fs::create_dir_all(&self.dir).map_err(|e|e.to_string())
-    }
-    fn cap(&self) -> u64 {
-        let path=self.dir.join("settings.json");
-        if !fs::symlink_metadata(&path).is_ok_and(|m|m.is_file()&&plain(&m)&&m.len()<4096){return DEFAULT_CAP;}
-        fs::read(path).ok()
-            .and_then(|b|serde_json::from_slice::<Value>(&b).ok())
-            .and_then(|v|v["cap_bytes"].as_u64()).filter(|n|*n<=64*1024*1024*1024).unwrap_or(DEFAULT_CAP)
+        if self.custom {
+            let parent = self.dir.parent().ok_or("Cache folder has no parent directory")?;
+            let metadata = fs::symlink_metadata(parent).map_err(|e| e.to_string())?;
+            if !metadata.is_dir() || !plain(&metadata) { return Err("Choose an existing cache folder".into()); }
+        }
+        match fs::symlink_metadata(&self.dir) {
+            Ok(metadata) if metadata.is_dir() && plain(&metadata) => Ok(()),
+            Ok(_) => Err("Cache root must be a plain directory".into()),
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
+                let result = if self.custom { fs::create_dir(&self.dir) } else { fs::create_dir_all(&self.dir) };
+                result.map_err(|e| e.to_string())
+            }
+            Err(e) => Err(e.to_string()),
+        }
     }
     fn entries(&self)->Result<Vec<(PathBuf,u64,SystemTime)>,String>{
         self.prepare()?;let mut items=Vec::new();
@@ -85,44 +219,22 @@ impl FrameCache {
         for (path,size,_) in items { if bytes<=cap {break;} fs::remove_file(path).map_err(|e|e.to_string())?;bytes=bytes.saturating_sub(size); }
         Ok(())
     }
-    pub fn status(&self)->Result<Value,String>{
-        let _lock=IO.lock().map_err(|e|e.to_string())?;
-        let entries=self.entries()?;
-        Ok(json!({"cap_bytes":self.cap(),"bytes":entries.iter().map(|e|e.1).sum::<u64>(),"entries":entries.len(),"max_entry_bytes":MAX_IMAGE,"path":self.dir}))
-    }
-    pub fn configure(&self,cap:u64)->Result<(),String>{
-        if cap>64*1024*1024*1024{return Err("Cache limit must be between 0 and 64 GiB".into());}
-        let _lock=IO.lock().map_err(|e|e.to_string())?;self.prepare()?;
-        self.atomic(&self.dir.join("settings.json"),&serde_json::to_vec(&json!({"cap_bytes":cap})).unwrap(),&[])?;
-        self.trim(cap)
-    }
-    pub fn clear(&self)->Result<(),String>{
-        let _lock=IO.lock().map_err(|e|e.to_string())?;self.trim(0)
-    }
-    fn atomic(&self,path:&Path,header:&[u8],payload:&[u8])->Result<(),String>{
-        let temp=self.dir.join(format!(".frame-{}-{}.partial",std::process::id(),SERIAL.fetch_add(1,Ordering::Relaxed)));
-        let result=(||{
-            let mut f=OpenOptions::new().write(true).create_new(true).open(&temp).map_err(|e|e.to_string())?;
-            f.write_all(header).and_then(|_|f.write_all(payload)).and_then(|_|f.sync_all()).map_err(|e|e.to_string())?;
-            drop(f);fs::rename(&temp,path).map_err(|e|e.to_string())
-        })();if result.is_err(){let _=fs::remove_file(temp);}result
-    }
-    pub fn store(&self,key:&str,metadata:&Value,payload:&[u8])->Result<bool,String>{
+    fn store(&self,key:&str,metadata:&Value,payload:&[u8],cap:u64)->Result<bool,String>{
         if key.len()!=64||!key.bytes().all(|b|b.is_ascii_hexdigit()){return Err("Invalid cache key".into());}
-        if !valid_image(metadata,payload.len()){return Ok(false);}
-        let _lock=IO.lock().map_err(|e|e.to_string())?;self.prepare()?;let cap=self.cap();
+        if cap == 0 || !valid_image(metadata,payload.len()){return Ok(false);}
+        self.prepare()?;
         let h=serde_json::to_vec(&json!({"version":1,"key":key,"checksum":digest(payload),"metadata":metadata})).map_err(|e|e.to_string())?;
         if h.len()>MAX_HEADER || payload.len()as u64+h.len()as u64+12>cap{return Ok(false);}
         let mut head=Vec::with_capacity(h.len()+12);head.extend_from_slice(b"SPFC");head.extend_from_slice(&(h.len()as u32).to_le_bytes());
         head.extend_from_slice(&(payload.len()as u32).to_le_bytes());head.extend_from_slice(&h);
         let path=self.dir.join(format!("{key}.spfc"));
         if fs::symlink_metadata(&path).is_ok_and(|md|!plain(&md)){return Err("Cache entry is not a plain file".into());}
-        self.atomic(&path,&head,payload)?;self.trim(cap)?;Ok(true)
+        atomic(&path,&head,payload)?;self.trim(cap)?;Ok(true)
     }
-    pub fn load(&self,key:&str)->Result<Option<(Value,Vec<u8>)>,String>{
+    fn load(&self,key:&str,cap:u64)->Result<Option<(Value,Vec<u8>)>,String>{
         if key.len()!=64||!key.bytes().all(|b|b.is_ascii_hexdigit()){return Err("Invalid cache key".into());}
-        let _lock=IO.lock().map_err(|e|e.to_string())?;self.prepare()?;
-        if self.cap()==0{return Ok(None);}
+        if cap == 0 {return Ok(None);}
+        self.prepare()?;
         let path=self.dir.join(format!("{key}.spfc"));
         let Ok(md)=fs::symlink_metadata(&path)else{return Ok(None)};
         if !md.is_file()||!plain(&md){return Ok(None);}
@@ -165,24 +277,78 @@ pub fn engine_fingerprint(program:&Path,resources:&Path)->Result<String,String>{
     use super::*;
     #[test]fn persistence_eviction_corruption_and_source_identity(){
         let root=std::env::temp_dir().join(format!("spk-cache-test-{}-{}",std::process::id(),SERIAL.fetch_add(1,Ordering::Relaxed)));
-        fs::create_dir_all(&root).unwrap();let cache=FrameCache{dir:root.join("cache")};
+        fs::create_dir_all(&root).unwrap();
+        let dir = root.join("cache");
+        let settings = root.join("preferences.json");
+        let cache = FrameCache::new(dir.clone(), settings.clone());
         let source=root.join("source.raw");fs::write(&source,b"source").unwrap();
         let d=json!({"kind":"print","sources":[source],"configuration":{"film":"a","display":"srgb"}});
         let a=key(&d,"engine-a").unwrap();assert_ne!(a,key(&d,"engine-b").unwrap());
         let metadata=json!({"image":{"width":2,"height":2,"format":"rgba16","colorSpace":"sRGB"},"geometry":{"rotation":0}});
         assert!(cache.store(&a,&metadata,&[17;32]).unwrap());
-        let reopened=FrameCache{dir:cache.dir.clone()};assert_eq!(reopened.load(&a).unwrap().unwrap(),(metadata.clone(),vec![17;32]));
-        fs::write(cache.dir.join("unrelated.txt"),b"keep").unwrap();
+        let reopened = FrameCache::new(dir.clone(), settings);
+        assert_eq!(reopened.load(&a).unwrap().unwrap(),(metadata.clone(),vec![17;32]));
+        fs::write(dir.join("unrelated.txt"),b"keep").unwrap();
         fs::write(&source,b"source changed").unwrap();assert_ne!(a,key(&d,"engine-a").unwrap());
-        fs::write(cache.dir.join(format!("{a}.spfc")),b"SPFC\xff\xff\xff\xff\xff\xff\xff\xff").unwrap();
-        assert!(cache.load(&a).unwrap().is_none());assert!(!cache.dir.join(format!("{a}.spfc")).exists());
+        fs::write(dir.join(format!("{a}.spfc")),b"SPFC\xff\xff\xff\xff\xff\xff\xff\xff").unwrap();
+        assert!(cache.load(&a).unwrap().is_none());assert!(!dir.join(format!("{a}.spfc")).exists());
         cache.configure(600).unwrap();
         for i in 0..8{let k=digest(&[i]);cache.store(&k,&metadata,&[i;32]).unwrap();}
         assert!(cache.status().unwrap()["bytes"].as_u64().unwrap()<=600);
         cache.clear().unwrap();assert_eq!(cache.status().unwrap()["entries"],0);
-        assert_eq!(fs::read(cache.dir.join("unrelated.txt")).unwrap(),b"keep");
+        assert_eq!(fs::read(dir.join("unrelated.txt")).unwrap(),b"keep");
         cache.configure(0).unwrap();assert!(!cache.store(&a,&metadata,&[1;32]).unwrap());
         assert!(cache.load("../escape").is_err());
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn directory_choice_preserves_the_limit_and_can_recover_from_a_missing_drive() {
+        let root = std::env::temp_dir().join(format!(
+            "spk-cache-location-{}-{}", std::process::id(), SERIAL.fetch_add(1, Ordering::Relaxed)
+        ));
+        let default_dir = root.join("default");
+        let custom_folder = root.join("照片缓存");
+        let settings = root.join("data").join("display-cache.json");
+        fs::create_dir_all(&default_dir).unwrap();
+        fs::write(default_dir.join("settings.json"), br#"{"cap_bytes":4096}"#).unwrap();
+        fs::create_dir(&custom_folder).unwrap();
+        fs::write(custom_folder.join("original.raw"), b"keep").unwrap();
+
+        let cache = FrameCache::new(default_dir.clone(), settings.clone());
+        let key = digest(b"frame");
+        let image = json!({"image":{"width":2,"height":2,"format":"rgba8","colorSpace":"sRGB"}});
+        assert!(cache.store(&key, &image, &[1; 16]).unwrap());
+        assert!(cache.set_directory(Some(root.join("missing"))).is_err());
+        assert!(cache.set_directory(Some(PathBuf::from("relative"))).is_err());
+        assert!(!settings.exists());
+        assert_eq!(cache.status().unwrap()["path"], json!(default_dir));
+
+        cache.set_directory(Some(custom_folder.clone())).unwrap();
+        assert!(cache.load(&key).unwrap().is_none());
+        assert!(cache.store(&key, &image, &[2; 16]).unwrap());
+        let reopened = FrameCache::new(default_dir.clone(), settings.clone());
+        let status = reopened.status().unwrap();
+        assert_eq!(status["path"], json!(custom_folder.join(CUSTOM_SUBDIR)));
+        assert_eq!(status["cap_bytes"], 4096);
+        assert_eq!(status["custom"], true);
+        assert_eq!(reopened.load(&key).unwrap().unwrap().1, vec![2; 16]);
+        assert!(default_dir.join(format!("{key}.spfc")).exists());
+        assert_eq!(fs::read(custom_folder.join("original.raw")).unwrap(), b"keep");
+
+        fs::rename(&custom_folder, root.join("disconnected")).unwrap();
+        let reopened = FrameCache::new(default_dir.clone(), settings.clone());
+        let status = reopened.status().unwrap();
+        assert_eq!(status["path"], json!(custom_folder.join(CUSTOM_SUBDIR)));
+        assert!(status["error"].is_string());
+        assert!(reopened.store(&key, &image, &[3; 16]).is_err());
+        assert!(!custom_folder.exists());
+        reopened.set_directory(None).unwrap();
+        assert_eq!(reopened.load(&key).unwrap().unwrap().1, vec![1; 16]);
+        let restored = FrameCache::new(default_dir.clone(), settings).status().unwrap();
+        assert_eq!(restored["path"], json!(default_dir));
+        assert_eq!(restored["cap_bytes"], 4096);
+        assert_eq!(restored["custom"], false);
         fs::remove_dir_all(root).unwrap();
     }
 }

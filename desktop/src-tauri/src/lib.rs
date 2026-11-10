@@ -202,6 +202,11 @@ async fn frame_cache_configure(state: State<'_, AppState>, cap_bytes: u64) -> Re
     tauri::async_runtime::spawn_blocking(move || cache.configure(cap_bytes)).await.map_err(|e|e.to_string())?
 }
 #[tauri::command]
+async fn frame_cache_set_directory(state: State<'_, AppState>, folder: Option<PathBuf>) -> Result<(), String> {
+    let cache = Arc::clone(&state.frames);
+    tauri::async_runtime::spawn_blocking(move || cache.set_directory(folder)).await.map_err(|e| e.to_string())?
+}
+#[tauri::command]
 async fn frame_cache_clear(state: State<'_, AppState>) -> Result<(),String> {
     let cache=Arc::clone(&state.frames);
     tauri::async_runtime::spawn_blocking(move || cache.clear()).await.map_err(|e|e.to_string())?
@@ -316,7 +321,10 @@ pub fn run() {
                 host: Arc::clone(&host),
                 sidecars: files::SidecarStore { dir: sidecar_dir },
                 launch_paths: Mutex::new(file_args(&argv)),
-                frames: Arc::new(frame_cache::FrameCache { dir: app.path().app_cache_dir()?.join("Frames-v1") }),
+                frames: Arc::new(frame_cache::FrameCache::new(
+                    app.path().app_cache_dir()?.join("Frames-v1"),
+                    app.path().app_data_dir()?.join("display-cache.json"),
+                )),
                 cache_fingerprint: Arc::new(Mutex::new(None)),
                 workspace: workspace::Workspace::new(app.path().app_data_dir()?),
             });
@@ -359,6 +367,7 @@ pub fn run() {
             frame_cache_write,
             frame_cache_status,
             frame_cache_configure,
+            frame_cache_set_directory,
             frame_cache_clear,
             workspace_begin,
             workspace_end,

@@ -13,6 +13,7 @@ export interface DisplayCacheDescriptor {
 }
 export interface DisplayCacheStatus {
   cap_bytes: number; bytes: number; entries: number; max_entry_bytes: number; path: string;
+  custom: boolean; error: string | null;
 }
 export interface DisplayCacheOptions {
   /** Background whole-folder previews must not evict recently viewed frames. */
@@ -165,6 +166,9 @@ export async function displayCacheStatus(): Promise<DisplayCacheStatus | null> {
 }
 export async function configureDisplayCache(capBytes: number): Promise<void> {
   if (inTauri()) await invoke('frame_cache_configure', { capBytes });
+}
+export async function setDisplayCacheDirectory(folder: string | null): Promise<void> {
+  if (inTauri()) await invoke('frame_cache_set_directory', { folder });
 }
 export async function clearDisplayCache(): Promise<void> {
   clearDisplayMemoryCache();
