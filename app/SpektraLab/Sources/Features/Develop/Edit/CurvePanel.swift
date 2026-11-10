@@ -14,16 +14,17 @@
 //  points, the channels and the gestures are these, and what they edit is the
 //  scene before the film (`FilmParams.sceneCurve`) — so a finger is a shoot-layer
 //  edit, developed when it rests or lifts, as a ruler's is. Its axis is stops
-//  about the metered mid-grey; the histogram behind it is the scene's on that
-//  axis (the Latitude card's), with the window the film and paper hold marked.
+//  about the metered mid-grey on the film; behind it is the scene **after** the
+//  curve, drawn as the Latitude card draws a placed scene, against the window
+//  the film and paper hold (RFC-051, `drawPlaced`).
 //
 //  "I want it
 //  to behave more like Capture One in terms of the curve behavior". The tool is drawn as Capture
 //  One draws its curve
 //  (`wideBody`): the channels are words over the plot (RGB · 亮度 · 红色 · 绿色 · 蓝色, the chosen
-//  one in the accent with its underline, a dot on a moved one); behind the plot RGB shows the three
-//  channels as lines over the luminance, 亮度 the luminance, a colour its own; the film/paper window
-//  on Decode only, never on Edit; square points, the chosen one filled and the rest outlined, which
+//  one in the accent with its underline, a dot on a moved one); behind Edit's plot RGB shows the three
+//  channels as lines over the luminance, 亮度 the luminance, a colour its own; Decode's is one shape
+//  on every tab, with the film/paper window, never on Edit; square points, the chosen one filled and the rest outlined, which
 //  ⌫ deletes; both ends move in x too (`Curve.move`); a crosshair through the point only while it is
 //  dragged; a 1 pt curve, the other channels' moved curves faint, the diagonal only when moved; the
 //  input and output of the chosen point in a row under the plot; and a plot near square, at most
@@ -94,10 +95,14 @@ struct CurveTool: View {
     @State private var selected: Int?
     /// A wide window's press is open: what it took, if anything, is in `grabbed`.
     @State private var pressed = false
-    /// Set only by a debug build's `MacDriver` (`curve.norows`): draws the plot as a reply without
-    /// per-channel rows draws it, so the no-hills state can be seen and captured. Nothing in the app
-    /// sets it; an old engine, or the demo before a measurement, reaches that state by itself.
-    @State private var ignoreChannelRows = false
+
+    /// The HDR line on Edit's wide plot (header): where SDR white falls for this frame's Enable HDR at the canvas's
+    /// weight, and the share of the picture past it. Nil on Decode's, with Enable HDR off, or nothing reaching white.
+    private var hdrLine: (x: Double, share: Double?)? {
+        guard target == .adjust, let look = HDRLook.of(session.edit, session.hdr),
+              let x = look.sdrWhiteCrossing(weight: HDRZoneFeed.weight(look)) else { return nil }
+        return (x, session.hdrZone.zone?.share)
+    }
 
     /// The curves this tool edits, as they stand.
     private var curves: CurveSet {
@@ -133,7 +138,9 @@ struct CurveTool: View {
     }
 
     var body: some View {
-        wideBody
+        Group {
+            if target == .adjust { wideBody.modifier(HDRZoneFeed(session: session)) } else { wideBody }
+        }
         .onChange(of: channel) { _, _ in letGo() }
         .onChange(of: mode) { _, _ in letGo() }
         .onAppear { if target == .adjust { session.layer2.holdHistogram("curve") } }
@@ -182,28 +189,6 @@ struct CurveTool: View {
         guard target == .decode else { return String(format: "%.0f", unit * 255) }
         let ev = (Double(unit) * 2 - 1) * FilmParams.sceneCurveStops
         return LatitudeReadout.stopText(ev) + " EV"
-    }
-
-    /// Decode's ground: the scene's histogram on the curve's stop axis — the Latitude card's
-    /// reading, measured before the curve, which is what the curve's input is — and the window
-    /// the film and paper hold, dashed, so a point is put where the medium will keep it.
-    private func drawScene(in context: inout GraphicsContext, size: CGSize) {
-        guard let r = session.latitude.readout else { return }
-        let stops = FilmParams.sceneCurveStops
-        // The curve's axis is stops on the film since RFC-035 §5.3: the reading's stop + Film Exposure.
-        // At 0 EV, the host's drawing is exactly as it was.
-        func x(_ ev: Double) -> CGFloat { CGFloat((ev + r.exposureEV + stops) / (2 * stops)) * size.width }
-        if r.bins.count > 1 {
-            var p = Path(); p.move(to: CGPoint(x: x(r.binEV(0)), y: size.height))
-            for i in r.bins.indices { p.addLine(to: CGPoint(x: x(r.binEV(i)), y: (1 - r.bins[i]) * size.height)) }
-            p.addLine(to: CGPoint(x: x(r.binEV(r.bins.count - 1)), y: size.height)); p.closeSubpath()
-            context.fill(p, with: .color(Theme.text.opacity(0.12)))
-        }
-        var window = Path()
-        for ev in [r.shadowEV, r.highlightEV] where abs(ev + r.exposureEV) < stops {
-            window.move(to: CGPoint(x: x(ev), y: 0)); window.addLine(to: CGPoint(x: x(ev), y: size.height))
-        }
-        context.stroke(window, with: .color(Theme.dim), style: StrokeStyle(lineWidth: 1, dash: [2, 3]))
     }
 
     static let inset: CGFloat = 8
@@ -296,12 +281,10 @@ extension CurveTool {
     private var widePlot: some View {
         GeometryReader { geo in
             let curve: Curve = curves[channel]
-            let hills: SceneHills = sceneHills
-            let note: String? = noHillsNote
             let value: String = curve.points.map { reading($0.x) + "→" + reading($0.y) }.joined(separator: ", ")
-                + (note.map { "; " + $0 } ?? "")
+            let hdr = hdrLine
             Canvas { context, full in
-                drawWidePlot(&context, full: full, curve: curve, hills: hills, note: note)
+                drawWidePlot(&context, full: full, curve: curve, hdr: hdr)
             }
             .contentShape(Rectangle())
             .onContinuousHover { phase in
@@ -357,18 +340,20 @@ extension CurveTool {
         }
     }
 
-    /// Everything `widePlot` draws, in one function: the plot's ground (the hills, Decode's only), the
-    /// grid, the film/paper window, the curves, the points and the no-hills note. Held out of the
+    /// Everything `widePlot` draws, in one function: the plot's ground (Edit's picture histogram, or
+    /// Decode's scene after the curve against the film/paper window), the grid, the curves and the
+    /// points. Held out of the
     /// `Canvas` closure because the whole of it inline is more than the type checker will take.
     private func drawWidePlot(_ context: inout GraphicsContext, full: CGSize, curve: Curve,
-                              hills: SceneHills, note: String?) {
+                              hdr: (x: Double, share: Double?)?) {
         // Drawn over the whole view, the plot inset by `inset`: a Canvas clips at its bounds, so
         // the ends' squares need the margin inside it to be drawn whole.
         context.translateBy(x: Self.inset, y: Self.inset)
         let size = CGSize(width: full.width - 2 * Self.inset, height: full.height - 2 * Self.inset)
         let whole = CGRect(origin: .zero, size: size)
         context.fill(Path(whole), with: .color(Theme.plot))
-        if target == .decode { drawSceneRows(hills, in: &context, size: size) } else { drawPictureRows(in: &context, size: size) }
+        if target == .decode { drawPlaced(in: &context, size: size) } else { drawPictureRows(in: &context, size: size) }
+        if let hdr { Self.drawHDRLine(hdr.x, share: hdr.share, in: &context, size: size) }
         var grid = Path()
         for n in 0...4 {
             let f = CGFloat(n) / 4
@@ -376,8 +361,8 @@ extension CurveTool {
             grid.move(to: CGPoint(x: 0, y: f * size.height)); grid.addLine(to: CGPoint(x: size.width, y: f * size.height))
         }
         context.stroke(grid, with: .color(Theme.rule), lineWidth: 0.5)
-        // The film/paper window: Decode's only, never Edit's (RFC-035 §3.3).
-        if target == .decode { drawWindow(in: &context, size: size) }
+        // The film/paper window's two edges and their stops: Decode's only, never Edit's (RFC-035 §3.3).
+        if target == .decode { drawWindowEdges(in: &context, size: size) }
         if !curves.isIdentity(channel) {
             var diagonal = Path()
             diagonal.move(to: CGPoint(x: 0, y: size.height)); diagonal.addLine(to: CGPoint(x: size.width, y: 0))
@@ -409,12 +394,6 @@ extension CurveTool {
                 }
             }
         }
-        // A tab with no hill of its own says so, in the plot's corner, over everything else: nothing is
-        // drawn behind the curve and the reason is not left to be guessed (trap 16).
-        if let note {
-            context.draw(Text(note).font(Theme.Font.ui(10.5, .medium)).foregroundStyle(Theme.secondaryText),
-                         at: CGPoint(x: 8, y: 8), anchor: .topLeading)
-        }
     }
 
     /// A point of the unit square on the plot, on whole points so a square's edges are sharp.
@@ -430,6 +409,28 @@ extension CurveTool {
             if n == 0 { line.move(to: p) } else { line.addLine(to: p) }
         }
         return line
+    }
+
+    /// The HDR line: a rule where SDR white falls, the part past it a shade lighter, and "HDR" with
+    /// its share at the top, on the side with room. What lies right of the line is what the histogram panel draws
+    /// past white.
+    static func drawHDRLine(_ x: Double, share: Double?, in context: inout GraphicsContext, size: CGSize) {
+        let at = (x * size.width).rounded() + 0.5
+        context.fill(Path(CGRect(x: at, y: 0, width: max(0, size.width - at), height: size.height)), with: .color(Theme.text.opacity(0.05)))
+        var rule = Path()
+        rule.move(to: CGPoint(x: at, y: 0)); rule.addLine(to: CGPoint(x: at, y: size.height))
+        context.stroke(rule, with: .color(Theme.text.opacity(0.7)), lineWidth: 1)
+        let label = context.resolve(Text(hdrWords(share)).font(Theme.Font.ui(10, .medium)).monospacedDigit().foregroundStyle(Theme.secondaryText))
+        let room = size.width - at
+        let fits = room >= label.measure(in: size).width + 8
+        context.draw(label, at: CGPoint(x: fits ? at + 4 : at - 4, y: 4), anchor: fits ? .topLeading : .topTrailing)
+    }
+
+    /// "HDR 12%", "HDR 0.4%", "HDR <0.1%"; "HDR" alone until the share is counted.
+    static func hdrWords(_ share: Double?) -> String {
+        var words = L("HDR")
+        if let share { words += " " + (share > 0 && share < 0.001 ? "<0.1%" : String(format: share < 0.1 ? "%.1f%%" : "%.0f%%", share * 100)) }
+        return words
     }
 
     /// Edit's ground (RFC-035 §3.2): the picture as shown (`Layer2Histogram`), drawn as the histogram
@@ -455,94 +456,91 @@ extension CurveTool {
         }
     }
 
-    /// Decode's ground (RFC-035 §3.2, §5.3): the scene's histogram on the curve's axis, which is stops
-    /// **on the film** — the Latitude card's stop plus Film Exposure (`LatitudeReadout.exposureEV`, the
-    /// owner's Q1: "the Decode curve's axis follows Film Exposure"), so +1 EV moves the histogram one
-    /// stop right, as Capture One's moves with its Exposure.
+    /// The window on the film's own axis (the reading's stop + Film Exposure): the medium's, measured
+    /// with no exposure and no curve (RFC-035 §5.3), so it never moves while a point is dragged.
+    private var filmWindow: (shadow: Double, highlight: Double)? {
+        guard let r = session.latitude.readout else { return nil }
+        return (r.shadowEV + r.exposureEV, r.highlightEV + r.exposureEV)
+    }
+
+    /// A film stop across the plot: ±`sceneCurveStops`, the curve's own axis.
+    private func axisX(_ ev: Double, _ size: CGSize) -> CGFloat {
+        CGFloat((ev + FilmParams.sceneCurveStops) / (2 * FilmParams.sceneCurveStops)) * size.width
+    }
+
+    /// Decode's ground (RFC-051, as the owner settled it 2026-11-09): **the scene after the curve, drawn
+    /// as the Latitude card draws a placed scene** — one grey shape on the film's stop axis, light inside
+    /// the window the film and paper hold, dim beyond it — so the curve is read as Scene Placement was:
+    /// bend it, and watch the scene come into the window.
     ///
-    /// **What is drawn is `SceneHills`, and only that**: the model decides which rows the tab has
-    /// (`LatitudeReadout.hills(for:)`), and a tab whose channel the reading does not carry gets `.none` —
-    /// no hills, plus `noHillsNote` in the plot. The luminance is never drawn in a channel's place
-    /// (trap 16); the old fallback was exactly that, and it looked identical to the real thing.
+    /// Nothing of the scene before the curve is drawn. The owner: "the original apple decode histogram
+    /// is abandoned completely, as on desktop people can look at the top histogram directly". The first
+    /// build of RFC-051 drew the input's hills with R, G, B lines, a veil, horizontal window lines and an
+    /// after-curve strip on the trailing edge; the owner, on the running app: "the worst kind of UX".
     ///
-    /// The hills are the **input** — the scene before the curve (`scene_latitude_sample` runs neither
-    /// `scene_latitude` nor `scene_curve`), as Capture One's are — so they do not move while a point is
-    /// dragged. The film/paper window is drawn over them (`drawWindow`), also fixed.
-    private func drawSceneRows(_ hills: SceneHills, in context: inout GraphicsContext, size: CGSize) {
-        guard let r = session.latitude.readout else { return }
+    /// RGB and 亮度 draw the scene's norm, as the card does, in the card's greys; 红 / 绿 / 蓝 draw that
+    /// channel's own scene after the curve (`curved_fractions_r/g/b`), in its colour, light inside the
+    /// window and faint beyond (the owner, 2026-11-09: "show Red, Green, and Blue's respective
+    /// histograms when we're in Red, Green and Blue"). A reading without a channel's row draws nothing
+    /// on that tab, never the norm in its place (trap 16). Where the engine has measured this
+    /// very curve it is its reading (`curved_fractions`, through the render's own nodes); while a point
+    /// moves, and until the develop where it rests has been measured, it is the input carried through
+    /// this tab's curve (`DecodeTransfer.carried`), exact for a neutral pixel, and it settles to the
+    /// engine's when that lands.
+    private func drawPlaced(in context: inout GraphicsContext, size: CGSize) {
+        guard let r = session.latitude.readout, let shares = r.shares, let w = filmWindow,
+              let out = r.output(for: channel, curve: curves, exposureEV: session.edit.params.exposureCompensationEV,
+                                 transfer: DecodeTransfer(curves, channel: channel)) else { return }
         let stops = FilmParams.sceneCurveStops
-        // A film stop is the reading's stop + c (the engine reads `scene_curve` at E + c since RFC-035 §5.3).
-        let shift = r.exposureEV
-        func x(_ ev: Double) -> CGFloat { CGFloat((ev + shift + stops) / (2 * stops)) * size.width }
-        func shape(_ bins: [Double], closed: Bool) -> Path {
-            var p = Path()
-            guard bins.count > 1 else { return p }
-            func point(_ i: Int) -> CGPoint { CGPoint(x: x(r.binEV(i)), y: (1 - bins[i]) * size.height) }
-            if closed { p.move(to: CGPoint(x: x(r.binEV(0)), y: size.height)); p.addLine(to: point(0)) } else { p.move(to: point(0)) }
-            for i in 1..<bins.count { p.addLine(to: point(i)) }
-            if closed { p.addLine(to: CGPoint(x: x(r.binEV(bins.count - 1)), y: size.height)); p.closeSubpath() }
-            return p
+        let row = out.row
+        let on = row.indices.filter { abs(shares.centre($0) + r.exposureEV) < stops }
+        guard let lowest = on.first, let highest = on.last else { return }
+        let tallest = on.map { max(row[$0], 0).squareRoot() }.max() ?? 0
+        guard tallest > 0 else { return }
+        // One bin past each end of the axis, so the fill runs to the plot's edges (the card's rule).
+        let first = max(0, lowest - 1), last = min(row.count - 1, highest + 1)
+        let top = size.height * 0.08, base = size.height
+        func x(_ i: Int) -> CGFloat { axisX(shares.centre(i) + r.exposureEV, size) }
+        var shape = Path()
+        shape.move(to: CGPoint(x: x(first), y: base))
+        for i in first...last {
+            shape.addLine(to: CGPoint(x: x(i), y: base - CGFloat(min(1, max(row[i], 0).squareRoot() / tallest)) * (base - top)))
         }
-        // Faint, so the curve and the window read over it: the distribution is the ground, not the
-        // subject (the owner, 2026-10-26: the hills "make the user guess").
-        let grey = Theme.dim.opacity(0.22)
-        let line = StrokeStyle(lineWidth: 1.25, lineJoin: .round)
-        switch hills {
-        case .none:
-            return
-        case .luma(let bins):
-            context.fill(shape(bins, closed: true), with: .color(grey))
-        case .rgb(let luma, let red, let green, let blue):
-            context.fill(shape(luma, closed: true), with: .color(grey))
-            for (bins, ch) in [(red, CurveChannel.red), (green, .green), (blue, .blue)] {
-                context.stroke(shape(bins, closed: false), with: .color(ch.swatch.opacity(0.9)), style: line)
-            }
-        case .channel(let bins):
-            context.fill(shape(bins, closed: true), with: .color(channel.swatch.opacity(0.22)))
-            context.stroke(shape(bins, closed: false), with: .color(channel.swatch.opacity(0.9)), style: line)
-        }
+        shape.addLine(to: CGPoint(x: x(last), y: base))
+        shape.closeSubpath()
+        var plot = context
+        plot.clip(to: Path(CGRect(origin: .zero, size: size)))
+        let (beyond, held): (Color, Color) = channel.isColour
+            ? (channel.swatch.opacity(0.22), channel.swatch.opacity(0.6))
+            : (Theme.latitudeBeyond, Theme.latitudeInside)
+        plot.fill(shape, with: .color(beyond))
+        let w0 = axisX(w.shadow, size), w1 = axisX(w.highlight, size)
+        var inside = plot
+        inside.clip(to: Path(CGRect(x: w0, y: 0, width: max(w1 - w0, 0), height: size.height)))
+        inside.fill(shape, with: .color(held))
     }
 
-    /// The reading's hills for the tab in front, with this build's capture override applied.
-    private var sceneHills: SceneHills {
-        guard let r = session.latitude.readout else { return .none }
-        guard ignoreChannelRows else { return r.hills(for: channel) }
-        var bare = r
-        (bare.binsR, bare.binsG, bare.binsB) = (nil, nil, nil)
-        return bare.hills(for: channel)
-    }
-
-    /// Where a colour tab has no hill of its own, the plot says so rather than showing the luminance in
-    /// its place (trap 16). Nil on the luminance tab, which claims nothing about a channel.
-    private var noHillsNote: String? {
-        guard target == .decode, channel != .luma, case .none = sceneHills else { return nil }
-        return L("No channel histogram for this picture")
-    }
-
-    /// The window the film and paper hold, solid 1 pt dim lines under the curve, each with its stop at
-    /// its foot where the label fits inside the window (RFC-035 §3.3). Decode's only. On the film's own
-    /// axis (the reading's stop + Film Exposure), and the engine measures the medium with no exposure
-    /// and no curve (RFC-035 §5.3): the two lines are the pair's, and stay put while a point is dragged
-    /// or Film Exposure moves — the histogram moves under them.
-    private func drawWindow(in context: inout GraphicsContext, size: CGSize) {
-        guard let raw = session.latitude.readout else { return }
-        var r = raw
-        r.shadowEV += raw.exposureEV; r.highlightEV += raw.exposureEV
+    /// The window's two edges, as the Latitude card draws them: thin lines at the film and paper's two
+    /// stops (on the film's axis), each named at its top — outside the window, or inside where there is
+    /// no room outside (`LatitudeReadout.labelX`). Fixed: a point dragged moves the scene, not these.
+    private func drawWindowEdges(in context: inout GraphicsContext, size: CGSize) {
+        guard let w = filmWindow else { return }
         let stops = FilmParams.sceneCurveStops
-        func x(_ ev: Double) -> CGFloat { CGFloat((ev + stops) / (2 * stops)) * size.width }
-        var window = Path()
-        for ev in [r.shadowEV, r.highlightEV] where abs(ev) < stops {
-            window.move(to: CGPoint(x: x(ev), y: 0)); window.addLine(to: CGPoint(x: x(ev), y: size.height))
+        var edges = Path()
+        for ev in [w.shadow, w.highlight] where abs(ev) < stops {
+            edges.move(to: CGPoint(x: axisX(ev, size), y: 0)); edges.addLine(to: CGPoint(x: axisX(ev, size), y: size.height))
         }
-        // The window is the medium's own, measured with the curve and the placement cleared, so it
-        // never moves while a point is dragged (RFC-035 §5.3) — one more thing that is not a control.
-        context.stroke(window, with: .color(Theme.dim), lineWidth: 1)
-        guard abs(r.shadowEV) < stops, abs(r.highlightEV) < stops, x(r.highlightEV) - x(r.shadowEV) > 72 else { return }
-        let font = Theme.Font.ui(10, .medium)
-        context.draw(Text(LatitudeReadout.stopText(r.shadowEV)).font(font).foregroundStyle(Theme.secondaryText),
-                     at: CGPoint(x: x(r.shadowEV) + 4, y: size.height - 4), anchor: .bottomLeading)
-        context.draw(Text(LatitudeReadout.stopText(r.highlightEV)).font(font).foregroundStyle(Theme.secondaryText),
-                     at: CGPoint(x: x(r.highlightEV) - 4, y: size.height - 4), anchor: .bottomTrailing)
+        context.stroke(edges, with: .color(Theme.latitudeInsideEdge), lineWidth: 0.8)
+        let font = Theme.Font.ui(10, .semibold)
+        if abs(w.shadow) < stops {
+            context.draw(Text(LatitudeReadout.stopText(w.shadow)).font(font).foregroundStyle(Theme.secondaryText),
+                         at: CGPoint(x: LatitudeReadout.labelX(shadowEdge: axisX(w.shadow, size)), y: 8), anchor: .center)
+        }
+        if abs(w.highlight) < stops {
+            context.draw(Text(LatitudeReadout.stopText(w.highlight)).font(font).foregroundStyle(Theme.secondaryText),
+                         at: CGPoint(x: LatitudeReadout.labelX(highlightEdge: axisX(w.highlight, size), width: size.width), y: 8),
+                         anchor: .center)
+        }
     }
 
     #if DEBUG
@@ -554,9 +552,6 @@ extension CurveTool {
         case "select": selected = parts.dropFirst().first.flatMap { Int($0) }; dragging = false; grabbed = nil
         case "hold": if let i = parts.dropFirst().first.flatMap({ Int($0) }) { grabbed = i; selected = i; dragging = true }
         case "release": dragging = false; grabbed = nil
-        // The plot as a reply without per-channel rows draws it (trap 16's no-hills state).
-        case "norows": ignoreChannelRows = true
-        case "rows": ignoreChannelRows = false
         case "end" where parts.count > 1 && parts[1] == "right":
             changeCurves { c in let y = c[channel].points[0].y; c[channel].move(0, to: CGPoint(x: 0.2, y: y)) }
             selected = 0

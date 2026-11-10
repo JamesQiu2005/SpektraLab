@@ -294,6 +294,13 @@ extension SceneLatitudeReply {
         out.fit = fit
         var curve = settings
         out.scene.histogram.placedFractions = curve.apply(fit) ? PlacementFit.placedHistogram(scene.histogram, curve: curve) : nil
+        // RFC-051: the engine's after-transform rows are of the placement it measured, not of these
+        // pull-backs; kept, the card would draw them and stop following the ruler (found
+        // 2026-11-09). Until the next measurement the card draws the placed histogram.
+        out.scene.histogram.curvedFractions = nil
+        out.scene.histogram.curvedFractionsR = nil
+        out.scene.histogram.curvedFractionsG = nil
+        out.scene.histogram.curvedFractionsB = nil
         return out
     }
 

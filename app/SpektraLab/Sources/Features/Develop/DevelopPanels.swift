@@ -536,11 +536,11 @@ struct PrintPanel: View {
                         .baseline(PanelY.Print.proFirst)
                     panelNote(PanelNotes.brightness).baseline(PanelY.Print.proNote)
                 case .preflash:
-                    // 0…0.03 of the wire's 0…1: the useful range, measured
+                    // 0…preflashMax of the wire's 0…1, read 0…1
                     // (FilmParams.preflashExposure).
-                    rulerRow(L("Pre-flash"), String(format: "%.3f", trim.preflashExposure),
-                             value: enlarger(.preflash, \.params.preflashExposure), range: 0...0.03, step: 0.001, majorEvery: 5,
-                             snap: 0.001, onEditingChanged: session.editing(.print))
+                    rulerRow(L("Pre-flash"), String(format: "%.2f", trim.preflashExposure / FilmParams.preflashMax),
+                             value: enlarger(.preflash, \.params.preflashExposure), range: 0...FilmParams.preflashMax, step: 0.002, majorEvery: 5,
+                             snap: 0.002, onEditingChanged: session.editing(.print))
                         .baseline(PanelY.Print.proFirst)
                     panelNote(PanelNotes.preflash).baseline(PanelY.Print.proNote)
                 }
@@ -611,11 +611,11 @@ struct PrintPanel: View {
                                      snap: 0.1, home: 0, onEditingChanged: session.editing(.print))
                             panelNote(PanelNotes.brightness).padding(.top, EnlargerStack.noteGap)
                         case .preflash:
-                            // 0…0.03 of the wire's 0…1: the useful range, measured
+                            // 0…preflashMax of the wire's 0…1, read 0…1
                             // (FilmParams.preflashExposure).
-                            rulerRow(L("Pre-flash"), String(format: "%.3f", trim.preflashExposure),
-                                     value: enlarger(.preflash, \.params.preflashExposure), range: 0...0.03, step: 0.001, majorEvery: 5,
-                                     snap: 0.001, onEditingChanged: session.editing(.print))
+                            rulerRow(L("Pre-flash"), String(format: "%.2f", trim.preflashExposure / FilmParams.preflashMax),
+                                     value: enlarger(.preflash, \.params.preflashExposure), range: 0...FilmParams.preflashMax, step: 0.002, majorEvery: 5,
+                                     snap: 0.002, onEditingChanged: session.editing(.print))
                             panelNote(PanelNotes.preflash).padding(.top, EnlargerStack.noteGap)
                         }
                     }

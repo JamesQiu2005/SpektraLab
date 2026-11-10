@@ -79,6 +79,8 @@ struct Rules {
     var previewIsCut: (Int, Int, CameraCrop.Reading) -> Bool = { CameraCrop.previewIsCut(width: $0, height: $1, $2) }
     /// The Mac crop page's scroll zoom (`Geometry.zoomed`).
     var zoom: (Geometry, CGFloat, CGPoint, CGSize) -> Geometry = { $0.zoomed(by: $1, about: $2, in: $3) }
+    /// The long edge a preview develop decodes the photo at for its crop (`Geometry.previewDecodeLongEdge`).
+    var previewDecode: (Geometry, Int, PixelSize) -> Int = { Geometry.previewDecodeLongEdge($0, preview: $1, original: $2) }
 }
 
 /// `Sources/Features/Import/ImportService.swift`, found from this file; `CROP_IMPORT_SERVICE` names another
@@ -621,9 +623,44 @@ func wholePicture(_ c: Checks) {
              "the whole-picture map does not move when the crop does")
 }
 
+/// A preview develop of a cropped photo keeps a picture near the preview's own size (2026-11-09, PRD-A A4):
+/// the owner's L1026368.DNG, a Leica Q3 portrait cut to 0.376 × 0.375 by its camera's crop, kept a develop of
+/// 480 × 720 px (its preview long edge, 1,920, times the cut) and showed it in a fit of 1,363 × 2,046 px. The
+/// decode is the whole photo's; the engine cuts it first (`preprocess.crop_rescale`), so what the picture
+/// keeps is the decode's long edge times the cut's.
+func previewDecode(_ c: Checks) {
+    let q3Portrait = PixelSize(width: 6336, height: 9520), q3 = PixelSize(width: 9520, height: 6336)
+    func kept(_ crop: CropRect, _ original: PixelSize, preview: Int = 2560) -> (decode: Int, kept: Double) {
+        var g = Geometry(); g.crop = crop
+        let decode = c.rules.previewDecode(g, preview, original)
+        let w = Double(original.width), h = Double(original.height)
+        let cut = max(crop.width * w, crop.height * h) / max(w, h)
+        return (decode, Double(decode) * cut)
+    }
+    let l368 = kept(CropRect(x: 0.3121, y: 0.3124, width: 0.3758, height: 0.3752), q3Portrait)
+    c.expect(l368.kept >= 2560 / 2.squareRoot() && l368.kept <= 2560 * 2.squareRoot(),
+             "L1026368's cut keeps a picture near the preview's size (\(Int(l368.kept)) px of 2,560; decoded at \(l368.decode))")
+    let l368old = kept(CropRect(x: 0.3121, y: 0.3124, width: 0.3758, height: 0.3752), q3Portrait, preview: 1920)
+    c.expect(l368old.kept >= 1920 / 2.squareRoot(), "…and at a 1,920 px preview (\(Int(l368old.kept)) px; it kept 720)")
+    // The frames that were sharp keep their size, so their kept develops keep their stamps.
+    c.expect(kept(CropRect(x: 0.0996, y: 0.0989, width: 0.8008, height: 0.8022), q3).decode == 2560,
+             "L1026319's 0.8 cut decodes at the preview's size, as before")
+    c.expect(kept(.full, q3).decode == 2560, "an uncropped photo decodes at the preview's size, as before")
+    // Never past the photo, never past four times the preview.
+    let tiny = kept(CropRect(x: 0.45, y: 0.45, width: 0.05, height: 0.05), q3)
+    c.expect(tiny.decode <= q3.longEdge && tiny.decode <= 4 * 2560, "a tiny cut decodes at most the photo's own size (\(tiny.decode))")
+    let small = PixelSize(width: 3000, height: 2000)
+    c.expect(kept(CropRect(x: 0.3, y: 0.3, width: 0.3, height: 0.3), small).decode == 3000, "never past the photo's long edge")
+    // A crop dragged a little does not move the decode's size (each move would open the frame again).
+    let a = kept(CropRect(x: 0.3, y: 0.3, width: 0.36, height: 0.36), q3).decode
+    let b = kept(CropRect(x: 0.3, y: 0.3, width: 0.40, height: 0.40), q3).decode
+    c.expect(a == b, "a crop dragged from 0.36 to 0.40 keeps one decode size (\(a), \(b))")
+}
+
 func run(_ rules: Rules) -> Checks {
     let c = Checks(rules)
     records(c); keystone(c); hostCut(c); guides(c); finished(c); cropIsFrame(c); cameraCrop(c); cameraCropHook(c); scrollZoom(c); wholePicture(c)
+    previewDecode(c)
     return c
 }
 
@@ -666,6 +703,12 @@ enum Main {
                 o["printCrop"] = try JSONSerialization.jsonObject(with: try enc.encode(e.printCrop))
                 return try JSONSerialization.data(withJSONObject: o, options: [.sortedKeys])
             }
+            broken.append(r)
+            r = Rules(); r.name = "a preview develop decodes the whole photo at the preview's size whatever its cut (2.2.2)"
+            r.previewDecode = { _, preview, _ in preview }
+            broken.append(r)
+            r = Rules(); r.name = "a preview develop decodes the cut at the preview's size, past the photo"
+            r.previewDecode = { g, preview, _ in Int(Double(preview) / max(min(g.crop.width, g.crop.height), 0.01)) }
             broken.append(r)
             r = Rules(); r.name = "the camera's crop is never read (2.1.3)"
             r.cameraCrop = { _ in nil }

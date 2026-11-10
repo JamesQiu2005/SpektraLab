@@ -210,6 +210,26 @@ kernel void spk_spectral_epilogue(device const float* cmy [[buffer(0)]],
     out[3u * i] = v0; out[3u * i + 1u] = v1; out[3u * i + 2u] = v2;
 }
 
+// `scan_hdr` (2026-11-06): each layer's density read
+// back from the develop's squeezed range -- below its knee's density dk the
+// layer is expanded about dk by s, so the clear base goes below zero by the
+// layer's lift (a gain on that dye's band, then integrated by
+// `spk_spectral_epilogue` as ever). At and above dk the density is copied as it
+// is, so a pixel below every knee scans to the same bits as today's.
+// hdr = {dk0, s0, dk1, s1, dk2, s2}; n[0] is the pixel count.
+kernel void spk_scan_hdr_expand(device const float* cmy [[buffer(0)]],
+                                device const float* hdr [[buffer(1)]],
+                                device const uint* n [[buffer(2)]],
+                                device float* out [[buffer(3)]],
+                                uint3 thread_position_in_grid [[thread_position_in_grid]]) {
+    uint i = thread_position_in_grid.x;
+    if (i >= n[0]) return;
+    for (uint c = 0u; c < 3u; ++c) {
+        float v = cmy[3u * i + c], dk = hdr[2u * c];
+        out[3u * i + c] = v < dk ? dk - (dk - v) * hdr[2u * c + 1u] : v;
+    }
+}
+
 kernel void spk_print_exposure(device const float* x [[buffer(0)]],
                                device const float* k [[buffer(1)]],
                                device const uint* n [[buffer(2)]],

@@ -331,7 +331,7 @@ enum MacSettingsCheck {
                         "F: the frame's develop is marked missing, so nothing draws its file (\(after?.developed?.stamp ?? "none"))")
                 r.check((after?.developed?.size.width ?? 0) > 0 && after.map(MacLightTableCarry.takes) == true,
                         "F: and what was known of it stays: its size, and the Light Table still takes the frame")
-                if let after, let want = model.darkroom.stamp(after, edit: after.edit, longEdge: after.previewSize.longEdge) {
+                if let after, let want = model.darkroom.stamp(after, edit: after.edit, longEdge: after.previewDevelopLongEdge(after.edit)) {
                     r.check(after.developed?.stamp != want, "F: and no edit's stamp is a missing develop's: it is developed again when asked")
                 }
                 r.check(fm.fileExists(atPath: home.root.appending(path: PreviewHome.catalogDatabase).path), "F: the library itself is untouched")

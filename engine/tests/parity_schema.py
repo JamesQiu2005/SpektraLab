@@ -337,6 +337,25 @@ NATIVE_ONLY = {
         "path": "camera.scene_curve", "type": "str", "layer": "shoot",
         "default": '', "live": False, "range": None,
     },
+    # A slide's HDR scan per dye layer (API-SPEC §19, 2026-11-06). The
+    # reference has no such scan. Every default is a bypass: today's scan to the bit.
+    "scan_hdr_headroom": {
+        "path": "io.scan_hdr_headroom", "type": "float", "layer": "shoot",
+        "default": 0.0, "live": False, "range": [0.0, 16.0],
+    },
+    "scan_hdr_stretch": {
+        "path": "io.scan_hdr_stretch", "type": "bool", "layer": "shoot",
+        "default": False, "live": False, "range": None,
+    },
+    "scan_hdr_output_scale": {
+        "path": "io.scan_hdr_output_scale", "type": "float", "layer": "print",
+        "default": 1.0, "live": False, "range": [0.0625, 1.0],
+    },
+    # One grain realisation across renders (0 = a fresh one each, the reference's behaviour).
+    "grain_seed": {
+        "path": "settings.film_seed", "type": "int", "layer": "shoot",
+        "default": 0, "live": False, "range": [0, 2147483647],
+    },
 }
 
 

@@ -42,6 +42,7 @@ struct RootView: View {
         .onAppear { MacImportCheck.startIfAsked(model: model) }          // the Mac: `--import-check <dir>` (Sources/Mac/Import)
         .onAppear { MacImportDropCheck.startIfAsked(model: model) }      // the Mac: `--drop-check <dir>` (Sources/Mac/Import)
         .onAppear { MacExportCheck.startIfAsked(model: model) }          // the Mac: `--export-check <dir>` (Sources/Mac/Export)
+        .onAppear { MacExportHDRCheck.startIfAsked(model: model) }       // the Mac: `--export-hdr-check <dir>` (Enable HDR's files)
         .onAppear { MacRenderCheck.startIfAsked(model: model) }          // the Mac: `--render-check <dir>` (Sources/Mac/Render)
         .onAppear { MacSettingsCheck.startIfAsked(model: model) }        // the Mac: `--settings-check <dir>` (Sources/Mac/Settings)
         .onAppear { MacLightTableCheck.startIfAsked(model: model) }      // the Mac: `--lighttable-check <dir>` (Sources/Mac/LightTable)

@@ -44,20 +44,22 @@
 //.bg.blue, .bg.default: a ground; .scale.80 … .150)
 //      notifyutil -p com.spektralab.mac.drive.flow.film   # the film-edge flow at a step (.flow.frame, .flow.edge, .flow.date)
 //      notifyutil -p com.spektralab.mac.drive.decode.curve  # Film & Paper's Decode on a part (.decode.exposure, .decode.wb)
-//      notifyutil -p com.spektralab.mac.drive.scenecurve.s  # the selected frame's Decode curve: an S on RGB (.scenecurve.0: none)
+//      notifyutil -p com.spektralab.mac.drive.scenecurve.s  # the selected frame's Decode curve: an S on RGB (.scenecurve.0: none;
+//                                                         .scenecurve.squash: the top compressed, RFC-051)
 //      notifyutil -p com.spektralab.mac.drive.surface.edit  # the open page on Edit (.surface.develop; .step.format, .step.film)
-//      notifyutil -p com.spektralab.mac.drive.histogram.spektralab  # the histogram's style (.histogram.c1), .histogram.fold / .open
+//      notifyutil -p com.spektralab.mac.drive.histogram.fold  # the histogram folded (.histogram.open)
 //      notifyutil -p com.spektralab.mac.drive.rows.film.fold  # the Film strip folded (.rows.paper.fold; .rows.open: both open)
 //      notifyutil -p com.spektralab.mac.drive.fold.filmedge  # Format's 片边 folded (.fold.dateback, .fold.decode;
 //.fold.open: all three open)
 //      notifyutil -p com.spektralab.mac.drive.applyfilm.off   # the open page's Apply Film Emulation (.applyfilm.on)
+//      notifyutil -p com.spektralab.mac.drive.hdr.on     # the open page's Enable HDR (.hdr.off), through its session
+//      notifyutil -p com.spektralab.mac.drive.edr.on     # …its print's EDR (.edr.off); .hdr.peak.1/.2/.3: HDR Peak Brightness;
+//                                                         .fold.hdr / .open.hdr: 解码 › 高动态范围 folded or open
 //      notifyutil -p com.spektralab.mac.drive.curve       # the open page on Edit › Adjust › 曲线 (.curve.set: an S on
 //                                                         RGB and a lift on red, .curve.0: none; on the curve in
 //                                                         front, Edit's or Decode's: .curve.tab.<rgb|luma|red|green|
 //                                                         blue>, .curve.select.<0|1>, .curve.hold.1 (a drag held:
-//                                                         the crosshair), .curve.release, .curve.end.right;
-//.curve.norows draws the plot as a reply without
-//                                                         per-channel rows does, .curve.rows puts it back)
+//                                                         the crosshair), .curve.release, .curve.end.right)
 //      notifyutil -p com.spektralab.mac.drive.wheels      # the open page on Edit › Adjust › 色轮 (.wheels.shadows,
 //.wheels.midtones, .wheels.highlights: the zone picked;
 //.wheels.set: a hue, strength and luminance on each zone;
@@ -206,6 +208,9 @@ enum MacDriver {
             ("crop.whole", { m in edit(m) { e, _ in e.geometry.crop = .full } }),
             ("zoom.100", { _ in NotificationCenter.default.post(name: zoomHundred, object: true) }),
             ("zoom.fit", { _ in NotificationCenter.default.post(name: zoomHundred, object: false) }),
+            // A step along the develop page's filmstrip, as → and ← do (2026-11-09: a prefetched render's reuse).
+            ("strip.next", { _ in NotificationCenter.default.post(name: .spkCheckStep, object: 1) }),
+            ("strip.prev", { _ in NotificationCenter.default.post(name: .spkCheckStep, object: -1) }),
             ("crop.done", { m in m.router.inlineCrop?.finishes += 1 }),
             ("crop.cancel", { m in m.router.inlineCrop = nil }),
             ("crop.rotate", { _ in NotificationCenter.default.post(name: cropRotate, object: nil) }),
@@ -265,14 +270,18 @@ enum MacDriver {
                 e.params.sceneCurve.rgb.insert(CGPoint(x: 0.4, y: 0.34))
                 e.params.sceneCurve.rgb.insert(CGPoint(x: 0.6, y: 0.66))
             } }),
+            // RFC-051: the top from +1 stop on the film compressed, +8 → +4 (the window carried up the input).
+            ("scenecurve.squash", { m in edit(m) { e, _ in
+                e.params.sceneCurve = CurveSet()
+                e.params.sceneCurve.rgb.insert(CGPoint(x: 9.0 / 16, y: 9.0 / 16))
+                e.params.sceneCurve.rgb.move(e.params.sceneCurve.rgb.points.count - 1, to: CGPoint(x: 1, y: 0.75))
+            } }),
             ("scenecurve.0", { m in edit(m) { e, _ in e.params.sceneCurve = CurveSet() } }),
             // The panels of a wide window (DevelopInspectorParts.swift, HistogramPanel.swift), on the open page.
             ("surface.develop", { m in page(m) { $0.show(.develop) } }),
             ("surface.edit", { m in page(m) { $0.show(.edit) } }),
             ("step.film", { m in page(m) { $0.pageNavigation.select(.filmAndPaper); $0.pageNavigation.panelFolded = false } }),
             ("step.format", { m in page(m) { $0.pageNavigation.select(.format); $0.pageNavigation.panelFolded = false } }),
-            ("histogram.c1", { _ in DevelopPanelPrefs.shared.histogramStyle = .captureOne }),
-            ("histogram.spektralab", { _ in DevelopPanelPrefs.shared.histogramStyle = .spektraLab }),
             ("histogram.fold", { _ in DevelopPanelPrefs.shared.histogramCollapsed = true }),
             ("histogram.open", { _ in DevelopPanelPrefs.shared.histogramCollapsed = false }),
             ("rows.film.fold", { _ in DevelopPanelPrefs.shared.filmRowCollapsed = true }),
@@ -288,6 +297,28 @@ enum MacDriver {
             }),
             ("applyfilm.off", { m in page(m) { $0.change { $0.setAppliesFilm(false) } } }),
             ("applyfilm.on", { m in page(m) { $0.change { $0.setAppliesFilm(true) } } }),
+            // Enable HDR (StockPreviewPanel's row under it, 2026-11-06): an undo step of the page's, as the row's.
+            ("hdr.on", { m in page(m) { $0.change { $0.hdr = true } } }),
+            ("hdr.off", { m in page(m) { $0.change { $0.hdr = false } } }),
+            // 解码 › 高动态范围 (PRD-B): the print's EDR, and HDR Peak Brightness at 1, 3 stops and back to 2.
+            ("edr.on", { m in page(m) { $0.change { $0.params.extendedDynamicRange = true } } }),
+            ("edr.off", { m in page(m) { $0.change { $0.params.extendedDynamicRange = false } } }),
+            ("hdr.peak.1", { m in page(m) { $0.change { $0.hdrPeak = 1 } } }),
+            ("hdr.peak.3", { m in page(m) { $0.change { $0.hdrPeak = 3 } } }),
+            ("hdr.peak.2", { m in page(m) { $0.change { $0.hdrPeak = 2 } } }),
+            ("fold.enlarger", { _ in DevelopPanelPrefs.shared.enlargerCollapsed = true }),
+            ("open.enlarger", { _ in DevelopPanelPrefs.shared.enlargerCollapsed = false }),
+            ("enlarger.set", { m in page(m) { $0.change { $0.params.printBrightnessStops = 0.5; $0.params.yFilterShift = 0.1
+                $0.params.mFilterShift = -0.05; $0.params.preflashExposure = 0.01 } } }),
+            ("enlarger.reset", { m in page(m) { s in m.resetPage(.enlarger, in: s); m.resetPage(.preflash, in: s) } }),
+            ("fold.hdr", { _ in DevelopPanelPrefs.shared.hdrCollapsed = true }),
+            ("open.hdr", { _ in DevelopPanelPrefs.shared.hdrCollapsed = false }),
+            // Steps that move the session's HDR curve (Couplers) and that do not (Print Exposure): the 2026-11-06
+            // review's canvas latch and the curve's cost (`HDRLook.keeps`, `EngineRouter.curveWithDevelop`).
+            ("couplers.up", { m in page(m) { $0.change { $0.params.effects.couplers += 0.1 } } }),
+            ("couplers.down", { m in page(m) { $0.change { $0.params.effects.couplers -= 0.1 } } }),
+            ("print.up", { m in page(m) { $0.change { $0.params.printBrightnessStops += 0.1 } } }),
+            ("print.down", { m in page(m) { $0.change { $0.params.printBrightnessStops -= 0.1 } } }),
             // Edit › Adjust › 色轮 (MacColourWheel.swift): the tool open, a zone picked, values on the zones.
             ("wheels", { m in page(m) { $0.show(.edit); $0.pageNavigation.tool = .adjust; $0.pageNavigation.adjust = .wheels } }),
             ("wheels.shadows", { _ in NotificationCenter.default.post(name: wheelZone, object: "shadows") }),
@@ -319,8 +350,6 @@ enum MacDriver {
             // A reply without per-channel rows, as an old engine (or the demo before a measurement)
             // gives one: the colour tabs' no-hills state (RFC-035 §3.2, trap 16). `curve.rows` puts the
             // real one back.
-            ("curve.norows", { _ in NotificationCenter.default.post(name: curveStep, object: "norows") }),
-            ("curve.rows", { _ in NotificationCenter.default.post(name: curveStep, object: "rows") }),
             ("curve.release", { _ in NotificationCenter.default.post(name: curveStep, object: "release") }),
             ("curve.end.right", { _ in NotificationCenter.default.post(name: curveStep, object: "end.right") }),
             ("lighttable", { m in m.router.dismissAllSheets(); m.router.dismissCover(); m.router.toLibrary(); m.router.open(.lightTable) }),

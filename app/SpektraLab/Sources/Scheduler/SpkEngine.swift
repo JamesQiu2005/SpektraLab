@@ -45,6 +45,16 @@
 //    session was last told stays true of it. A banded render keeps no
 //    negative: there a layer develops again, with the same grain (RFC-035 §9).
 //
+//  - **Enable HDR's curve is the session's, asked after its render** (HDR port, 2026-11-06, API-SPEC §19.2):
+//    where the host asks (`FrameSource.hdrCurveRequest`: the develop page's canvas), `spk_session_hdr_curve`
+//    on the job's own session, here on `work` — the call can run the medium's GPU probe, and two sessions
+//    of one engine driven at once abort the process — and the answer goes with the result
+//    (`RenderedPixels.hdrCurve`). It renders nothing: the picture is the one just made.
+//  - **A slide's HDR rendition is a second render of the same session**: where the host
+//    asks (`FrameSource.hdrRendition`, an export of a slide with Enable HDR on), the session is sent the
+//    rendition's fields, renders the frame again at the job's tier, the host takes both results, and the
+//    fields are put back however that ends.
+//
 //  The mode is the scheduler's (`RenderMode`); what the engine actually cut is
 //  reported back (`RenderResult.bands`), because the engine decides the height
 //  from a byte budget and its own reach (`BandGeometry`), and renders whole
@@ -92,6 +102,9 @@ struct RenderedPixels {
     /// What keeps `rgba16` alive where the texture does not: a result read
     /// back from disk (`FullRender.load`) whose texture is a copy of it.
     var keep: AnyObject? = nil
+    /// Enable HDR's curve of the session that made this (`spk_session_hdr_curve`), or the engine's refusal.
+    /// Only for a job whose host asked (`FrameSource.hdrCurveRequest`); nil otherwise.
+    var hdrCurve: HDRSessionCurve.Answer? = nil
 }
 
 /// What the engine asks its host for. Every call arrives on the engine's own
@@ -142,6 +155,18 @@ protocol FrameSource: AnyObject {
     /// A frame with Apply Film Emulation off (`DigitalDecode`): Apple's decode, cut, in the result's
     /// encoding. Handed to `deliver` in place of a render — no session, no film. Nil: render as ever.
     func digital(_ job: RenderJob, device: MTLDevice) throws -> RenderedPixels?
+    /// Enable HDR's curve for this job's session: the request `spk_session_hdr_curve` takes
+    /// (`HDRSessionCurve.request`), asked after the render, its answer in `RenderedPixels.hdrCurve`. Nil: not asked.
+    func hdrCurveRequest(_ job: RenderJob) -> String?
+    /// A slide's HDR rendition (`HDRGain`): after the job's own render the session is sent
+    /// `delta` and renders the frame again, and the host is handed both results (`takeHDRRendition`);
+    /// then the session is sent `restore`. Nil: one render, as ever.
+    func hdrRendition(_ job: RenderJob) -> (delta: [String: ParamValue], restore: [String: ParamValue])?
+    /// The rendition is made: the host makes what it keeps of the two (the map) before this returns —
+    /// `hdr` lives until then, so that one second result is alive at a time beside the job's own.
+    func takeHDRRendition(_ job: RenderJob, sdr: RenderedPixels, hdr: RenderedPixels) throws
+    /// The rendition could not be made (the engine's words): the job goes on without it.
+    func hdrRenditionFailed(_ job: RenderJob, _ message: String)
 }
 
 extension FrameSource {
@@ -153,6 +178,10 @@ extension FrameSource {
     func wantsFilmGeometry(_ job: RenderJob) -> Bool { false }
     func cached(_ job: RenderJob, device: MTLDevice) throws -> RenderedPixels? { nil }
     func digital(_ job: RenderJob, device: MTLDevice) throws -> RenderedPixels? { nil }
+    func hdrCurveRequest(_ job: RenderJob) -> String? { nil }
+    func hdrRendition(_ job: RenderJob) -> (delta: [String: ParamValue], restore: [String: ParamValue])? { nil }
+    func takeHDRRendition(_ job: RenderJob, sdr: RenderedPixels, hdr: RenderedPixels) throws {}
+    func hdrRenditionFailed(_ job: RenderJob, _ message: String) {}
 }
 
 final class SpkEngine: DevelopEngine, @unchecked Sendable {
@@ -331,6 +360,25 @@ final class SpkEngine: DevelopEngine, @unchecked Sendable {
                         return String(cString: reply)
                     }
                 })
+            }
+        }
+    }
+
+    #if DEBUG
+    static let logsHDRCurve = CommandLine.arguments.contains("--log-hdr-curve")
+    #endif
+
+    /// Enable HDR's curve of the session the canvas keeps open on `frameID` (`spk_session_hdr_curve`, API-SPEC
+    /// §19.2), asked alone: on the engine's queue, so never beside a render, and rendering nothing. Nil when no
+    /// session is open on that frame (as `sceneLatitude`'s `.cancelled`). The page's way to know the curve where
+    /// its develops do not carry it (`EngineRouter.curveWithDevelop`).
+    func hdrCurve(frameID: UUID, request: String) async -> HDRSessionCurve.Answer? {
+        await withCheckedContinuation { (done: CheckedContinuation<HDRSessionCurve.Answer?, Never>) in
+            work.async {
+                autoreleasepool {
+                    guard let e = self.editing, e.frame == frameID else { done.resume(returning: nil); return }
+                    done.resume(returning: self.hdrCurve(e.session, request))
+                }
             }
         }
     }
@@ -591,6 +639,15 @@ final class SpkEngine: DevelopEngine, @unchecked Sendable {
             seconds += layerSeconds.reduce(0, +)
             highWater = max(highWater, memory().poolHighWater)
         }
+        // A slide's HDR rendition: the frame again by `scan_hdr`, beside this result, and the host's map of
+        // the two. Not with a pair's own prints (the rendition would lack them: the map is then the curve's).
+        if layers.isEmpty, let rendition = source.hdrRendition(job) {
+            seconds += try hdrRendition(job, session, rendition, base: pixels, bandCount: bandCount, progress)
+            highWater = max(highWater, memory().poolHighWater)
+        }
+        // Enable HDR's curve, of the session that made this picture, before a one-shot session goes. After the
+        // rendition, whose fields are put back by then (the medium probe ignores them anyway, §19.1).
+        if let request = source.hdrCurveRequest(job) { pixels.hdrCurve = hdrCurve(session, request) }
         if oneShot {
             // Before the delivery, not after it: the result is the host's own
             // texture, and what the host makes of it is made beside it alone.
@@ -798,6 +855,67 @@ final class SpkEngine: DevelopEngine, @unchecked Sendable {
             seconds.append(Self.since(started))
         }
         return seconds
+    }
+
+    /// A slide's HDR rendition (`FrameSource.hdrRendition`): the session sent the rendition's fields and
+    /// rendered again at the job's tier (the film side: a develop, in bands where the first was), the host
+    /// handed both results, the session's fields put back however this ends. A failure other than a
+    /// cancel is the host's to hear and the job goes on (its map is then the curve's). Its seconds, 0 when
+    /// none was made.
+    private func hdrRendition(_ job: RenderJob, _ session: OpaquePointer,
+                              _ rendition: (delta: [String: ParamValue], restore: [String: ParamValue]),
+                              base: RenderedPixels, bandCount: Int,
+                              _ progress: @escaping @Sendable (RenderProgress) -> Void) throws -> Double {
+        try throwIfCancelled(job.id)
+        let started = Self.now()
+        progress(RenderProgress(stage: .scan, fraction: 0.6, band: bandCount - 1, bandCount: bandCount))
+        defer {
+            if (try? setParams(session, rendition.restore)) == nil, var e = editing, e.session == session {
+                for name in rendition.restore.keys { e.applied[name] = nil }
+                editing = e
+            }
+        }
+        do {
+            try setParams(session, rendition.delta)
+            try autoreleasepool {
+                setInFlight(job.id, session)
+                var out = spk_result()
+                let rc = spk_render(session, job.tier.rawValue, &out)
+                setInFlight(nil, nil)
+                if Int(rc) == Int(SPK_ERR_CANCELLED) { throw EngineError.cancelled }
+                guard Int(rc) == Int(SPK_OK), let texturePointer = out.texture, let rgba16 = out.rgba16 else {
+                    throw EngineError.failed(String(cString: spk_last_error(engine)))
+                }
+                let texture = Unmanaged<AnyObject>.fromOpaque(texturePointer).takeRetainedValue() as! MTLTexture
+                guard Int(out.width) == base.size.width, Int(out.height) == base.size.height else {
+                    throw EngineError.failed("the HDR rendition came out \(out.width) x \(out.height), not the picture's \(base.size.width) x \(base.size.height)")
+                }
+                try source.takeHDRRendition(job, sdr: base, hdr: RenderedPixels(texture: texture, rgba16: rgba16, size: base.size,
+                                                                                rowStridePixels: Int(out.row_stride_px)))
+            }
+        } catch let e as EngineError where e == .cancelled {
+            throw e
+        } catch {
+            source.hdrRenditionFailed(job, "\(error)")
+            return 0
+        }
+        return Self.since(started)
+    }
+
+    /// Enable HDR's curve of `session` (`spk_session_hdr_curve`, API-SPEC §19.2): the engine's answer, parsed —
+    /// its curve, or its refusal in its own words. Never throws: a picture is not lost for its curve. On `work`.
+    private func hdrCurve(_ session: OpaquePointer, _ request: String) -> HDRSessionCurve.Answer {
+        var reply: UnsafeMutablePointer<CChar>?
+        #if DEBUG
+        // `--log-hdr-curve`: each call and its time on stderr (the 2026-11-06 review's cost of asking with every develop).
+        let started = Self.now()
+        defer { if Self.logsHDRCurve { NSLog("hdr curve call: %.2f ms", Double(Self.now() - started) / 1e6) } }
+        #endif
+        let rc = spk_session_hdr_curve(session, request, &reply)
+        defer { if let reply { spk_string_free(reply) } }
+        guard Int(rc) == Int(SPK_OK), let reply else { return .refused(String(cString: spk_last_error(engine))) }
+        do { return .curve(try HDRSessionCurve.parse(String(cString: reply))) }
+        catch { return .refused("\(error)") }
     }
 
     /// Where the gates are on the canvas the session's last render laid out

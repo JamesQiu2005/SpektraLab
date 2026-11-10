@@ -85,6 +85,8 @@ enum ChangeDescriber {
     static func what(from old: FrameEdit, to new: FrameEdit, catalog: StockCatalog = .shared) -> String {
         let a = old.params, b = new.params
         if old.appliesFilm != new.appliesFilm { return new.appliesFilm ? L("Film emulation on") : L("Film emulation off") }
+        // Enable HDR, by the stored choice resolved (`FrameEdit.hdr`): the line under the switch it sits under.
+        if old.hdr != new.hdr { return new.hdr ? L("HDR on") : L("HDR off") }
         if a.filmStock != b.filmStock { return catalog.stock(b.filmStock)?.shortName ?? b.filmStock }
         if a.exposureCompensationEV != b.exposureCompensationEV { return L("Film Exp. ") + Fmt.signed(b.exposureCompensationEV) }
         // Pro's pill beside Film Exposure: the meter's intent, or the meter off.
@@ -158,6 +160,9 @@ enum ChangeDescriber {
         if FeatureFlags.dateBack && old.dateBack != new.dateBack { layers.insert(.shoot) }
         // The advance and the scan: only a film edge shows them.
         if old.frameSeed != new.frameSeed && new.filmEdge.effective { layers.insert(.shoot) }
+        // Enable HDR on a slide: its develop is the stretched scan, with the frame's one grain (`HDRGain.sdrWire`).
+        // A print's is no layer at all (D3: its SDR picture is the same to the bit).
+        if HDRGain.sdrWire(for: old) != HDRGain.sdrWire(for: new) { layers.insert(.shoot) }
         return layers
     }
 }

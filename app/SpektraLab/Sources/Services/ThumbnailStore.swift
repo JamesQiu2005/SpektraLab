@@ -237,6 +237,8 @@ struct FramePicture: View {
     @Environment(\.isSnapshot) private var isSnapshot
     /// The space a page shows it in (`CanvasGamut`): Develop's canvas, the Export page's preview.
     @Environment(\.gamutProof) private var gamutProof
+    /// The page's HDR for this picture (`HDRImage`), where it gives one (the develop canvas).
+    @Environment(\.hdrLook) private var hdrLook
     @State private var image: UIImage?
 
     private var maxPixel: Int? { PictureLoading.maxPixel(points: pointSize, scale: scale) }
@@ -245,7 +247,11 @@ struct FramePicture: View {
         ZStack {
             Theme.plot
             if let shown = image ?? ThumbnailStore.shared.cachedAny(picture) ?? (isSnapshot ? maxPixel.flatMap { ThumbnailStore.shared.load(picture, maxPixel: $0) } : nil) {
-                Image(uiImage: GamutProof.shared.proofed(shown, gamutProof)).resizable().aspectRatio(contentMode: contentMode)
+                if hdrLook != nil, shown.imageOrientation == .up, let cg = shown.cgImage {
+                    HDRImage(image: GamutProof.shared.proofed(cg, gamutProof), contentMode: contentMode)
+                } else {
+                    Image(uiImage: GamutProof.shared.proofed(shown, gamutProof)).resizable().aspectRatio(contentMode: contentMode)
+                }
             }
         }
         .task(id: "\(picture)-\(maxPixel ?? 0)") {

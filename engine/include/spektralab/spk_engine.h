@@ -234,6 +234,44 @@ spk_status spk_contrast_mask_field(spk_session* session, const char* tier, const
  * see `backend.unsupported_features` in capabilities. */
 spk_status spk_scene_latitude(spk_session* session, const char* request_json, char** out_json);
 
+/* Enable HDR's gain curve, the session's own (PRD/HDR-PORT-PLAN-2026-11-06 D1,
+ * API-SPEC §19.2): family A -- the medium's shoulder moved right and up by the
+ * headroom past its knee -- computed from the medium `spk_scene_latitude`
+ * measures for this session (the same cached probe, its 128-point
+ * `medium.ramp_ev` / `ramp_y`), so it follows the film, the paper, minilab and
+ * the enlarger. It runs on the medium's own axis, not the reply's: in the
+ * product Exp. Comp. only moves the frame along the medium, so it leaves the
+ * table unchanged (a pixel of one SDR Y gets one gain). Never renders a frame;
+ * no curve data ships.
+ *
+ * `request_json` may be NULL or an object with only these keys:
+ *   `headroom`      H, in [1.0001, 16]; default 4 (A_H4: two stops over SDR white)
+ *   `clip_ev`       the frame's clip, in stops on `medium.ramp_ev`'s axis (the
+ *                   metered mid-grey, before Exp. Comp.); when given, the
+ *                   expanded ramp eases into a plateau there (0.75 EV, C1)
+ *   `include_ramp`  also return the model's ramps (561 points), for a check
+ * Any other key is SPK_ERR_USER. `out_json` (caller-freed, `spk_string_free`):
+ * `version`, `headroom`, `domain_log2_y` [-12, 0], `log2_gain` (256, monotone,
+ * 0 below the knee, last = log2 H exactly), `ks` and `rho` (256 each: the
+ * grain-aware tables; rho is the raw slope, the kernel clamps it to
+ * [0, rho_max]), `top` (log2 H), `kappa`, `rho_max`, and the diagnostics
+ * `knee_ev`, `knee_log2_y`, `delta`, `y_white`, `gamma0`, `eased`, `clip_ev`
+ * (null when not given), `exposure_ev`, `medium_shift_ev` (the medium's own
+ * axis is the reply's + this: Exp. Comp. in the product, 0 where the enlarger
+ * re-times), `scan`; `ramp` {ev, log2_y, log2_y_hdr} with `include_ramp`.
+ * Every EV in the reply (`knee_ev`, `clip_ev`, `ramp.ev`) is on the request's
+ * axis, `medium.ramp_ev`'s.
+ *
+ * Refused, with no curve: a Digital Intermediate session (Cineon codes, no
+ * print), `extended_dynamic_range` on a print (the curve is measured without
+ * it), a medium the probe cannot read (SPK_ERR_GPU, as `spk_scene_latitude`),
+ * and a medium family A cannot model -- no knee past mid-grey, no gamma at
+ * mid-grey (gamma0 under 0.1), a white at or above display white
+ * (SPK_ERR_USER). Kept per
+ * session per (medium, Exp. Comp., headroom, clip_ev). Takes the session's
+ * lock, as every session call does. */
+spk_status spk_session_hdr_curve(spk_session* session, const char* request_json, char** out_json);
+
 /* RFC-032: where the gates are on the film canvas the session's last render
  * laid out (API-SPEC §13). `out_json`: `{"valid": false}` with overscan off or
  * before a render; else `canvas_w`, `canvas_h`, `mm_per_px`, `vertical`,

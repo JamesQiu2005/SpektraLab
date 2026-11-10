@@ -107,10 +107,20 @@ struct SceneLatitudeReply: Decodable, Equatable, Sendable {
             /// film and paper's own and does not move with Film Exposure or the
             /// curve. Absent (read as 0) from an engine older than 2026-10-25.
             var exposureEV: Double?
+            /// RFC-051: the frame after the scene transform the render applies before
+            /// the film -- the committed Scene Placement, then the Decode curve --
+            /// through the render's own nodes, on the same bins and axis (before Film
+            /// Exposure). Absent with neither, and from an engine older than 2026-11-09.
+            var curvedFractions: [Double]?
+            var curvedFractionsR: [Double]?
+            var curvedFractionsG: [Double]?
+            var curvedFractionsB: [Double]?
             enum CodingKeys: String, CodingKey {
                 case loEV = "lo_ev", hiEV = "hi_ev", fractions = "fractions", placedFractions = "placed_fractions"
                 case fractionsR = "fractions_r", fractionsG = "fractions_g", fractionsB = "fractions_b"
                 case exposureEV = "exposure_ev"
+                case curvedFractions = "curved_fractions", curvedFractionsR = "curved_fractions_r"
+                case curvedFractionsG = "curved_fractions_g", curvedFractionsB = "curved_fractions_b"
             }
         }
         var norm: String
@@ -379,6 +389,23 @@ struct LatitudeReadout: Equatable, Sendable {
     /// scene was moved (`PlacementSpan`).
     var highlightPlaced: PlacementSpan? = nil
     var shadowPlaced: PlacementSpan? = nil
+    /// RFC-051: the Decode curve's **input** drawn as `bins` is, where `bins` is
+    /// the frame after the curve (`curved_fractions`). Nil where the two are the
+    /// same reading -- no curve, an older engine, the demo.
+    var inputBins: [Double]? = nil
+    /// RFC-051: the reply's own shares, not the drawing's heights: what the Decode
+    /// curve's output strip is made from. `input` is the curve's input (after a
+    /// placement, before the curve); `curved` the engine's after-transform rows,
+    /// nil without a transform. Rows are luma, then r, g, b where the reply has
+    /// them; all on `shares.from…to` (the reply's axis, before Film Exposure).
+    var shares: SceneShares? = nil
+    /// RFC-051: the curve and Film Exposure this reading was measured on, where the
+    /// page knows it (`OpenFrameSession`): `shares.curved` is exact for that curve
+    /// only. Nil is "not known", never "the identity".
+    var measuredOn: DecodeStamp? = nil
+
+    /// The curve's input for the hills: the frame before the Decode curve.
+    var curveInput: [Double] { inputBins ?? bins }
 
     var heldStops: Double { highlightEV - shadowEV }
 
@@ -444,13 +471,29 @@ extension LatitudeReadout {
             fit.valid && side.on ? PlacementSpan(line: side.sceneExtremeEV, reach: side.landingEV) : nil
         }
         let h = reply.scene.histogram
-        self.init(shares: h.placedFractions ?? h.fractions, from: h.loEV, to: h.hiEV,
+        let input = h.placedFractions ?? h.fractions
+        // RFC-051: the card is the frame after the transform the render applies --
+        // the Decode curve as well as a placement -- against the window. With no
+        // transform the engine sends no curved rows and the card is as it was.
+        let curved = h.curvedFractions.flatMap { $0.count == input.count ? $0 : nil }
+        self.init(shares: curved ?? input, from: h.loEV, to: h.hiEV,
                   shadowEV: reply.medium.shadowEV, highlightEV: reply.medium.highlightEV,
                   highlightPlaced: span(fit.highlight), shadowPlaced: span(fit.shadow))
+        if curved != nil {
+            inputBins = LatitudeReadout(shares: input, from: h.loEV, to: h.hiEV, shadowEV: shadowEV,
+                                        highlightEV: highlightEV).bins
+        }
         exposureEV = h.exposureEV ?? 0
         if let r = h.fractionsR, let g = h.fractionsG, let b = h.fractionsB {
-            setChannels([r, g, b], from: h.loEV, to: h.hiEV, luma: h.placedFractions ?? h.fractions)
+            setChannels([r, g, b], from: h.loEV, to: h.hiEV, luma: input)
         }
+        func rows(_ luma: [Double], _ r: [Double]?, _ g: [Double]?, _ b: [Double]?) -> [[Double]] {
+            guard let r, let g, let b, [r, g, b].allSatisfy({ $0.count == luma.count }) else { return [luma] }
+            return [luma, r, g, b]
+        }
+        shares = SceneShares(from: h.loEV, to: h.hiEV,
+                             input: rows(input, h.fractionsR, h.fractionsG, h.fractionsB),
+                             curved: curved.map { rows($0, h.curvedFractionsR, h.curvedFractionsG, h.curvedFractionsB) })
     }
 
     /// The three channels on `bins`' samples, drawn as `bins` is (the square
@@ -485,12 +528,14 @@ extension LatitudeReadout {
             guard let row, row.count == n else { return nil }
             return row
         }
+        // The curve's input, never the frame after it (RFC-051): the hills are what the curve reads.
+        let luma = curveInput
         switch channel {
         case .luma:
-            return n > 1 ? .luma(bins) : .none
+            return n > 1 ? .luma(luma) : .none
         case .rgb:
             guard n > 1, let r = channelRow(.red), let g = channelRow(.green), let b = channelRow(.blue) else { return .none }
-            return .rgb(luma: bins.map { min($0 * channelScale, 1) }, red: r, green: g, blue: b)
+            return .rgb(luma: luma.map { min($0 * channelScale, 1) }, red: r, green: g, blue: b)
         case .red, .green, .blue:
             guard n > 1, let own = channelRow(channel) else { return .none }
             return .channel(own)
@@ -567,5 +612,151 @@ enum LatitudeReading: Equatable, Sendable {
             return .unavailable(L("No light in the frame to measure"))
         }
         return .unavailable(L("Not measured"))
+    }
+}
+
+// MARK: - RFC-051: what the Decode curve does to the scene
+
+/// The curve and Film Exposure a reading was measured on: what the engine's after-curve rows
+/// (`SceneShares.curved`) are exact for.
+struct DecodeStamp: Equatable, Sendable {
+    var curve: CurveSet
+    var exposureEV: Double
+}
+
+/// The reply's histograms as shares of the frame, on its own 128 bins (`from…to`, before Film
+/// Exposure): row 0 the norm's, then R, G, B where the reply has them.
+struct SceneShares: Equatable, Sendable {
+    var from: Double
+    var to: Double
+    var input: [[Double]]
+    var curved: [[Double]]?
+
+    var count: Int { input.first?.count ?? 0 }
+    /// The stop a bin's centre is at, on the reply's axis.
+    func centre(_ i: Int) -> Double { from + (Double(i) + 0.5) * (to - from) / Double(max(count, 1)) }
+    /// The row a tab reads: the norm's on RGB and 亮度, a colour its own; nil where there is none.
+    static func row(_ rows: [[Double]], for channel: CurveChannel) -> [Double]? {
+        switch channel {
+        case .rgb, .luma: rows.first
+        case .red: rows.count == 4 ? rows[1] : nil
+        case .green: rows.count == 4 ? rows[2] : nil
+        case .blue: rows.count == 4 ? rows[3] : nil
+        }
+    }
+}
+
+/// The Decode curve as the engine applies it, on one tab's path, in film stops (the curve's own axis,
+/// ±`FilmParams.sceneCurveStops` about mid-grey on the film): RGB and 亮度 read the luma row, then the
+/// rgb row; a colour reads both and then its own (`spk_scene_curve`: luma first, as one gain on Y; then
+/// rgb on each channel; then each channel's own). Each row is the wire's 129-sample table, read as the
+/// kernel reads it, and past ±8 stops its end's gain holds (slope 1).
+///
+/// **Exact for a neutral pixel only.** The luma row is a gain on Y, and on a colourful pixel Y's stop is
+/// not the channel's, so what this says of a colourful frame is an estimate. That is why the engine
+/// measures the frame after the curve itself (`curved_fractions`), and why the drawing uses this only
+/// while a point is moving or until that measurement of the curve as it stands has landed.
+struct DecodeTransfer: Sendable {
+    private let rows: [[Double]]
+    static let stops = FilmParams.sceneCurveStops
+
+    init(_ curves: CurveSet, channel: CurveChannel) {
+        let n = FilmParams.sceneCurveSamples
+        func row(_ c: CurveChannel) -> [Double]? {
+            curves.isIdentity(c) ? nil : curves.table(c, size: n).map(Double.init)
+        }
+        var path: [CurveChannel] = [.luma, .rgb]
+        if channel.isColourRow { path.append(channel) }
+        rows = path.compactMap(row)
+    }
+
+    var isIdentity: Bool { rows.isEmpty }
+
+    /// One row at a film stop: the table read linearly, the end's gain held past the ends.
+    private static func read(_ t: [Double], _ e: Double) -> Double {
+        let n = t.count
+        let lo = -stops, hi = stops
+        func value(_ i: Int) -> Double { t[i] * 2 * stops - stops }
+        if e <= lo { return e + (value(0) - lo) }
+        if e >= hi { return e + (value(n - 1) - hi) }
+        let u = (e - lo) / (2 * stops) * Double(n - 1)
+        let i = min(Int(u), n - 2), f = u - Double(i)
+        return value(i) + (value(i + 1) - value(i)) * f
+    }
+
+    /// Where a film stop lands on the film.
+    func callAsFunction(_ e: Double) -> Double { rows.reduce(e) { Self.read($1, $0) } }
+
+    /// The input stops the film holds: every `e` in −8…+8 with `f(e)` inside `shadow…highlight`
+    /// (film stops), as intervals, each end found to a hundredth of a stop. A curve that folds back
+    /// may hold more than one. With the identity, `shadow…highlight` clipped to the axis.
+    func held(shadow: Double, highlight: Double) -> [ClosedRange<Double>] {
+        guard highlight > shadow else { return [] }
+        let step = 1.0 / 32
+        let count = Int((2 * Self.stops / step).rounded())
+        func inside(_ e: Double) -> Bool { let y = self(e); return y >= shadow && y <= highlight }
+        func edge(_ a: Double, _ b: Double) -> Double {
+            var (lo, hi) = (a, b)
+            let start = inside(a)
+            for _ in 0..<12 { let m = (lo + hi) / 2; if inside(m) == start { lo = m } else { hi = m } }
+            return (lo + hi) / 2
+        }
+        var out: [ClosedRange<Double>] = []
+        var open: Double? = inside(-Self.stops) ? -Self.stops : nil
+        var prev = -Self.stops
+        for k in 1...count {
+            let e = -Self.stops + Double(k) * step
+            let now = inside(e)
+            if now, open == nil { open = edge(prev, e) }
+            if !now, let start = open { out.append(start...edge(prev, e)); open = nil }
+            prev = e
+        }
+        if let start = open { out.append(start...Self.stops) }
+        return out
+    }
+
+    /// A row of shares carried through the curve, as `placed_histogram` carries one through a
+    /// placement: eight sub-steps a bin, each to the bin its stop lands in. `shift` puts the reply's
+    /// axis on the film's (Film Exposure) and back. The estimate the output strip shows while the
+    /// engine's own measurement of this curve is not in.
+    func carried(_ row: [Double], from: Double, to: Double, shift: Double) -> [Double] {
+        let n = row.count
+        guard n > 1, to > from else { return row }
+        guard !isIdentity else { return row }
+        let width = (to - from) / Double(n), sub = 8
+        var out = [Double](repeating: 0, count: n)
+        for (b, share) in row.enumerated() where share != 0 {
+            for k in 0..<sub {
+                let e = from + (Double(b) + (Double(k) + 0.5) / Double(sub)) * width
+                let landed = self(e + shift) - shift
+                let to = Swift.min(Swift.max(Int(((landed - from) / width).rounded(.down)), 0), n - 1)
+                out[to] += share / Double(sub)
+            }
+        }
+        return out
+    }
+}
+
+private extension CurveChannel {
+    var isColourRow: Bool { self == .red || self == .green || self == .blue }
+}
+
+extension LatitudeReadout {
+    /// RFC-051: the frame after the Decode curve as the tab reads it, as shares on the reply's bins,
+    /// and whether it is the engine's measurement of exactly this curve (`exact`) or the app's
+    /// estimate (the input carried through `transfer`). Nil without shares, or where the tab has no row.
+    func output(for channel: CurveChannel, curve: CurveSet, exposureEV now: Double,
+                transfer: DecodeTransfer) -> (row: [Double], exact: Bool)? {
+        guard let shares else { return nil }
+        let stamp = DecodeStamp(curve: curve, exposureEV: now)
+        if measuredOn == stamp, let curved = shares.curved, let row = SceneShares.row(curved, for: channel) {
+            return (row, true)
+        }
+        // With the identity and no placement the input is the output, exactly.
+        if transfer.isIdentity, shares.curved == nil, let row = SceneShares.row(shares.input, for: channel) {
+            return (row, true)
+        }
+        guard let row = SceneShares.row(shares.input, for: channel) else { return nil }
+        return (transfer.carried(row, from: shares.from, to: shares.to, shift: exposureEV), false)
     }
 }

@@ -85,6 +85,8 @@ final class StockStrip {
         didSet {
             var before = oldValue
             before.adjustments = edit.adjustments
+            // Enable HDR does not ask for the cards again (compared by the stored choice).
+            before.hdrChoice = edit.hdrChoice
             if edit != before { owner?.editChanged(self) }
         }
     }

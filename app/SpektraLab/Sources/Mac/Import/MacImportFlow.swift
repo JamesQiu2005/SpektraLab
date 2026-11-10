@@ -174,8 +174,8 @@ private struct MacImportPage: View {
     /// The first Finder panel has been shown: cancelling it closes the flow.
     @State private var askedFirst = false
     @FocusState private var naming: Bool
-    /// A drag from Finder is over the page (`MacImportDrop`): its picks grow by what is dropped.
-    @State private var dropping = false
+    /// A drag the page takes is over it (`MacImportDropZone`): its picks grow by what is dropped.
+    @State private var dropWatch = MacImportDropWatch()
     @Environment(AppRouter.self) private var router
 
     private var browser: MacLibraryBrowser { session.browser }
@@ -204,8 +204,8 @@ private struct MacImportPage: View {
         .onChange(of: naming) { _, on in browser.typing = on }
         .onChange(of: panelShown) { _, up in session.finderUp = up || choosingSources }
         // A drop on the page, or on the window while the page is up: what was dropped joins the picks.
-        .onDrop(of: MacImportDrop.types, delegate: MacImportDropTarget(router: router, dropping: $dropping))
-        .overlay { if dropping || library.dropReading != nil { MacImportDropNote(reading: library.dropReading) } }
+        .macImportDropZone(router: router, watch: dropWatch)
+        .overlay { if dropWatch.shown || library.dropReading != nil { MacImportDropNote(reading: library.dropReading) } }
         .onChange(of: library.droppedPicks) { _, picks in
             // A page going away (closed: Cancel, an import) leaves a drop to the page asked next.
             guard askedFirst, !session.closed, let picks else { return }

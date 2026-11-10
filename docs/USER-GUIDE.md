@@ -1,10 +1,10 @@
-# SpektraLab 2.2.1 user guide
+# SpektraLab 2.3.0 user guide
 
 **English** · [简体中文](USER-GUIDE.zh-CN.md)
 
 ![SpektraLab 2's Develop page: an elk on Kodak Portra 400, printed on Kodak Portra Endura](../screenshots/Screenshot_v2.png)
 
-This guide is for the Mac app, version 2.2.1. It says what each part does and where to find it. Names in **bold** are the app's own labels, spelled as the app spells them.
+This guide is for the Mac app, version 2.3.0. It says what each part does and where to find it. Names in **bold** are the app's own labels, spelled as the app spells them.
 
 ## Contents
 
@@ -227,11 +227,13 @@ While a develop is running the card shows a spinner. If a card could not be made
 
 **The Digital Intermediate card.** The last card of the Paper strip, under a colour negative, is **Digital Intermediate**. It is not a paper. Choosing it scans the negative in place of printing it: you get a flat, neutral scan of the negative, with no paper's contrast, the kind of file a lab sends before grading. The paper you had chosen is kept underneath. To go back, choose any paper card, and that paper prints again. The card is not offered under a slide or under a black-and-white film.
 
-**Decode.** What is done to the scene before it reaches the film. Its title line folds it, and it has three parts, each with its own reset (↺):
+**Decode.** What is done to the scene before it reaches the film, and below that the print's enlarger and the picture's HDR. Its title line folds it. It has three parts, each with its own reset (↺), and then two groups that fold on their own:
 
 - **Exposure**: **Film Exposure**, from −8 to +8 EV. It changes how much light the negative gets. It is not a brightness control: the enlarger re-times the print, so the print's mid-grey does not simply follow it. If you want the picture brighter or darker, use Edit's **Brightness**.
 - **White Balance**: **Temperature** (2000–10000 K) and **Tint**. These work on RAW files only. A JPEG or TIFF already had its white balance set by the camera. The camera's own balance is **As Shot**.
-- **Curve**: a curve on the scene before the film, in stops around the metered mid-grey (±8). It replaces the old Scene Placement. A picture that had a Scene Placement before keeps it, so it does not change, and Develop's reset removes it.
+- **Curve**: a curve on the scene before the film, in stops around the metered mid-grey (±8). Behind it, the plot shows the scene **after** the curve, light inside what the film and paper hold and dim beyond, so you see what a drag does while you drag. RGB and Luma draw it in grey; Red, Green and Blue draw their own channel. It replaces the old Scene Placement. A picture that had a Scene Placement before keeps it, so it does not change, and Develop's reset removes it.
+- **Enlarger**: the print's four controls, with a reset (↺) for all four. **Brightness** (−3 to +3 stops) is the enlarger's exposure. **Yellow** and **Magenta** (−1 to +1) are the filters in the enlarger head; a negative prints the other way round, so each says where it takes the picture (→ blue, → green; on the black-and-white paper → softer, → harder). **Pre-flash** (0 to 1) is a flash of plain light on the paper before the print, which softens the highlights. The group is greyed where nothing is printed: film emulation off, a slide, a scanned film or the Digital Intermediate.
+- **High Dynamic Range**: **Extended Dynamic Range (EDR)**, which keeps the print's range past paper white; **Enable HDR**, which shows the picture's highlights past SDR white on an HDR screen and exports them with a gain map; and **HDR Peak Brightness** (0.5 to 4 stops above SDR white, 2 by default), how far those highlights may go. Enable HDR is greyed when no screen of this Mac can show HDR, and while EDR is on. See *HDR files* below.
 
 The ↺ of Film & Paper puts back the whole of Decode.
 
@@ -239,7 +241,7 @@ The ↺ of Film & Paper puts back the whole of Decode.
 
 **Lens correction** (distortion and vignetting from the RAW's lens profile) is a setting for all RAW pictures at once, in **Settings › Develop › Lens Correction**.
 
-**The enlarger.** The 2.2.1 Mac app has no enlarger controls. A picture that was edited earlier with print brightness, filter shifts or pre-flash still prints with those values, so it does not change. **Reset** in the "···" menu (titled Develop on this tab) puts them back to zero.
+**HDR files.** A picture with Enable HDR on is exported as an SDR picture with an **Apple gain map** (JPEG and HEIF). Apple Photos, Preview and Safari show it in HDR on an HDR screen. **Lightroom and Camera Raw cannot read SpektraLab's gain map yet**: they open the SDR picture only. Compatibility with them will come in a future version. The SDR picture is the same with Enable HDR on or off.
 
 ### 6.2 Format
 
@@ -311,7 +313,7 @@ Scroll or pinch to zoom. **,** fits the picture to the window, **.** shows it at
 
 ### 6.8 The histogram
 
-The histogram heads the column in Develop and Edit. It shows the picture as it is shown, with red, green, blue and luma channels. You can choose **Capture One Style** or **SpektraLab Style**, and fold the plot away.
+The histogram heads the column in Develop and Edit. It shows the picture as it is shown, with red, green, blue and luma channels, drawn as Capture One draws it, and you can fold it away. With Enable HDR on, the plot goes on past SDR white into the HDR range.
 
 ---
 

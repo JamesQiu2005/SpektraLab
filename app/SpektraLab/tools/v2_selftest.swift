@@ -99,6 +99,8 @@ extension Color { init(hexString: String) { self = .gray } }
         expect(clean.settings.frameSeed == FrameEdit.default.frameSeed && clean.settings.solvedEV == nil && clean.settings.geometry.isIdentity, "preset excludes seed/solve/crop")
         expect(clean.sourceName.isEmpty && !clean.settings.decode.lensCorrection, "preset excludes source name and lens")
         expect(!ClipboardGroup.defaultSelection.contains(.filmEdgeAndDateBack), "edge/date opt-in")
+        // 高动态范围 (HDR, 2026-11-06; PRD-B 2026-11-09): offered on every Mac, opt-in like the film edge.
+        expect(ClipboardGroup.offered.contains(.hdr) && !ClipboardGroup.defaultSelection.contains(.hdr), "HDR offered, opt-in")
         expect(!ClipboardGroup.offered.contains(.exposure) && !ClipboardGroup.offered.contains(.filmEffects), "new UI omits aggregate legacy groups")
         let folder = FileManager.default.temporaryDirectory.appendingPathComponent("spk-presets-" + UUID().uuidString)
         defer { try? FileManager.default.removeItem(at: folder) }

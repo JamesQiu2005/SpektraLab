@@ -49,6 +49,16 @@
 //  page's canvas the two gates go to the page too (`.gates`), which has no
 //  other way to know where a touch on the film lands.
 //
+//  - **Enable HDR's curve** (HDR port, 2026-11-06, API-SPEC §19.2): a canvas job asks the engine for its
+//    session's curve after the render (`Request.hdrCurve`, `SpkEngine`), and the answer goes to the page
+//    just before the picture it is of (`.hdrCurve`, then `.canvas`), so the page draws that picture's HDR
+//    with no engine in the way. A slide's export may ask for a second rendition (`Request.slideHDR`): its ratio over the picture is kept here for the export's file (`takeSlideMap`).
+//  - **An export's gain map** (the export round, D8): an export of a frame with Enable HDR on asks its own
+//    render's session for the curve (`Request.hdrCurve`, as the canvas does), so the file's map is the gain of
+//    the develop it is written from — never a page's curve, and never a kept full render's, which has no
+//    session (`cached` steps aside for it). The map is made of the finished picture (Layer 2 and the crop on
+//    it, as the base is), and a map that cannot be made or written leaves today's file, said in the log.
+//
 //  - **an export** (`.export`): out of the working space into the recipe's
 //    own colour space, at the file's own depth — 8 bits written by the
 //    transform's kernel for JPEG, HEIF and PNG, 16 for TIFF — and into the
@@ -143,6 +153,14 @@ final class EngineHost: FrameSource, @unchecked Sendable {
         /// Apply Film Emulation off: the cut Apple's decode is given (`DigitalDecode`) — the whole of the
         /// frame's geometry, the engine taking none of it. Nil: the film, through the engine.
         var digital: Geometry? = nil
+        /// Enable HDR's curve: the request `spk_session_hdr_curve` is asked with after the render
+        /// (`HDRSessionCurve.request`), its answer delivered before the picture (`.hdrCurve`), or for an export
+        /// its file's map's curve (`ExportOrder.gainMap`). The develop
+        /// page's canvas asks with every develop of a film (`EngineRouter.prepare`); nil asks nothing.
+        var hdrCurve: String? = nil
+        /// A slide's Enable HDR on an export (`HDRGain`): the second rendition the engine renders after the
+        /// job's own, whose ratio over it is the file's map. Nil for everything else.
+        var slideHDR: HDRGain.SlideRendition? = nil
 
         /// Whether the engine draws the film round the frame: the canvas is
         /// then the film, and a pair's frames are where its gates are.
@@ -186,6 +204,9 @@ final class EngineHost: FrameSource, @unchecked Sendable {
         case proxy(frame: UUID, event: RawProxy.Event)
         /// The page's full render is on disk (`FullRender`).
         case fullView(job: UUID, frame: UUID, ask: FullRender.Ask, bytes: Int64)
+        /// Enable HDR's curve of the session that made the develop page's next picture (`stamp`): sent just
+        /// before that picture's `.canvas`.
+        case hdrCurve(frame: UUID, stamp: String, answer: HDRSessionCurve.Answer)
         /// The render finished and its picture could not be made or written.
         case failed(job: UUID, frame: UUID, message: String)
     }
@@ -201,6 +222,15 @@ final class EngineHost: FrameSource, @unchecked Sendable {
     private var exports: [UUID: ExportOutcome] = [:]
     private var cards: [UUID: CGImage] = [:]
     private var feeds: [UUID: Feed] = [:]
+    /// A slide's export's map, made of its two renditions (`takeHDRRendition`), until the export takes it.
+    enum SlideMap: @unchecked Sendable {
+        case made(HDRGain.SlideRendition, HDRGainMap.Attachment)
+        /// Nothing past a knee: no map is better than a map of zeros.
+        case noGain
+        /// The rendition could not be made: the curve stands in.
+        case failed(String)
+    }
+    private var slideMaps: [UUID: SlideMap] = [:]
     private let decoder: FrameDecoder
     private var transformer: OutputTransformer?
     /// The export's Layer 2 pass, made when an export first carries an edit.
@@ -228,7 +258,7 @@ final class EngineHost: FrameSource, @unchecked Sendable {
 
     /// The job has ended, however: its answers are no longer needed.
     func forget(_ jobID: UUID) {
-        lock.lock(); requests[jobID] = nil; lock.unlock()
+        lock.lock(); requests[jobID] = nil; slideMaps[jobID] = nil; lock.unlock()
     }
 
     private func request(_ jobID: UUID) -> Request? {
@@ -365,7 +395,10 @@ final class EngineHost: FrameSource, @unchecked Sendable {
     /// An export whose render the page's zoom kept (`FullRender`): read back,
     /// the engine not asked. Only where the file is whole and of this request's stamp.
     func cached(_ job: RenderJob, device: MTLDevice) throws -> RenderedPixels? {
-        guard let r = request(job.id), case .export = r.purpose, let ask = r.fullRender,
+        // Not for a slide's HDR export: its second rendition needs a session, which a kept render has not. Nor for
+        // any export with a map: its curve is its session's (`Request.hdrCurve`), and a kept render has none.
+        guard let r = request(job.id), case .export(let order) = r.purpose, r.slideHDR == nil, !order.gainMap,
+              let ask = r.fullRender,
               let reader = FullRender.Reader(ask.url, stamp: ask.stamp) else { return nil }
         let started = DispatchTime.now().uptimeNanoseconds
         let pixels = try reader.pixels(device: device)
@@ -398,6 +431,48 @@ final class EngineHost: FrameSource, @unchecked Sendable {
 
     func params(_ job: RenderJob) -> [String: ParamValue] {
         request(job.id)?.wire ?? [:]
+    }
+
+    func hdrCurveRequest(_ job: RenderJob) -> String? {
+        guard let r = request(job.id), r.digital == nil else { return nil }
+        return r.hdrCurve
+    }
+
+    // MARK: a slide's HDR rendition (`HDRGain`)
+
+    func hdrRendition(_ job: RenderJob) -> (delta: [String: ParamValue], restore: [String: ParamValue])? {
+        guard let r = request(job.id), case .export = r.purpose, let slide = r.slideHDR, r.piece == nil,
+              r.layers.isEmpty, r.digital == nil else { return nil }
+        // Put back what the job's own wire had for each field (the stretch and its defaults otherwise).
+        var restore = slide.restore
+        for name in slide.delta.keys { if let own = r.wire[name] { restore[name] = own } }
+        return (slide.delta, restore)
+    }
+
+    func takeHDRRendition(_ job: RenderJob, sdr: RenderedPixels, hdr: RenderedPixels) throws {
+        guard let r = request(job.id), let slide = r.slideHDR else { return }
+        let started = DispatchTime.now().uptimeNanoseconds
+        let a = HDRGain.Pixels(rgba16: sdr.rgba16, width: sdr.size.width, height: sdr.size.height, stride: sdr.rowStridePixels)
+        let b = HDRGain.Pixels(rgba16: hdr.rgba16, width: hdr.size.width, height: hdr.size.height, stride: hdr.rowStridePixels)
+        let made = try HDRGain.ratioMap(sdr: a, hdr: b, rendition: slide)
+        let ms = Double(DispatchTime.now().uptimeNanoseconds - started) / 1e6
+        if let made {
+            log.info("a slide's HDR rendition at H \(slide.headroom, format: .fixed(precision: 2)): its map \(made.map.width) x \(made.map.height), top \(made.headroom, format: .fixed(precision: 2)), made in \(ms, format: .fixed(precision: 0)) ms")
+        } else {
+            log.info("a slide's HDR rendition at H \(slide.headroom, format: .fixed(precision: 2)): no pixel past a knee, no map")
+        }
+        lock.lock(); slideMaps[job.id] = made.map { .made(slide, $0) } ?? .noGain; lock.unlock()
+    }
+
+    func hdrRenditionFailed(_ job: RenderJob, _ message: String) {
+        log.error("a slide's HDR rendition was not made, its curve stands in: \(message, privacy: .public)")
+        lock.lock(); slideMaps[job.id] = .failed(message); lock.unlock()
+    }
+
+    /// A slide's export's map, once (the export round's writer takes it; nil where none was asked).
+    func takeSlideMap(_ jobID: UUID) -> SlideMap? {
+        lock.lock(); defer { lock.unlock() }
+        return slideMaps.removeValue(forKey: jobID)
     }
 
     func printLayers(_ job: RenderJob) -> [[String: ParamValue]] {
@@ -530,15 +605,38 @@ final class EngineHost: FrameSource, @unchecked Sendable {
                     log.debug("a pair's strip, \(pixels.size.width) x \(pixels.size.height): the engine's gates \(said, privacy: .public)")
                     if gates.count == 2 { onDelivery?(.gates(frame: r.frameID, rects: gates)) }
                 }
+                // Enable HDR's curve of the session that made this picture, before the picture (`Request.hdrCurve`).
+                if let answer = pixels.hdrCurve { onDelivery?(.hdrCurve(frame: r.frameID, stamp: r.stamp, answer: answer)) }
                 onDelivery?(.canvas(job: job.id, frame: r.frameID, image: image, stamp: r.stamp))
             case .keep:
                 let picture = try Self.write(image, frameID: r.frameID, stamp: r.stamp)
                 onDelivery?(.kept(job: job.id, frame: r.frameID, picture: picture))
             case .export(let order):
-                let written = try ExportWriter.write(image, format: order.format, quality: order.quality, to: order.url,
+                // The frame's Enable HDR (`order.gainMap`): a gain map beside the unchanged picture, JPEG and HEIF
+                // only, of the curve this render's own session gave (`pixels.hdrCurve`). A slide's map is the ratio
+                // of its two renditions (`HDRGain`, made on the engine's queue); its session's curve stands in
+                // where that rendition was not made. The map is never the export's failure: one that cannot be
+                // made or written leaves today's file, and the log says why.
+                let gainMap = order.gainMap ? exportMap(job, order, pixels, image: image, turns: r.turnsAfter) : nil
+                let written: ExportWriter.Written
+                do {
+                    written = try ExportWriter.write(image, format: order.format, quality: order.quality, to: order.url,
+                                                     metadataFrom: order.metadataFrom, gainMap: gainMap, layout: order.hdrLayout)
+                } catch where gainMap != nil {
+                    log.error("the file with its gain map was not written (\(String(describing: error), privacy: .public)); written again without it")
+                    written = try ExportWriter.write(image, format: order.format, quality: order.quality, to: order.url,
                                                      metadataFrom: order.metadataFrom)
+                }
+                if gainMap != nil {
+                    Log.note(.export, "written with a gain map", ["hdr": written.hdr ?? "dropped", "write_s": (written.seconds * 100).rounded() / 100,
+                                                                  "phases": written.phases, "picture": "\(image.bitsPerComponent)/\(image.bitsPerPixel) bpc/bpp, info \(image.bitmapInfo.rawValue), \((image.colorSpace?.name as String?) ?? "?")"])
+                }
+                #if DEBUG
+                if let gainMap, written.hdr != nil { HDRGainMap.exportWitness?(written.url, gainMap) }
+                #endif
                 let edited = order.adjustments.map { $0.isActive ? ", edited after the print (" + $0.changedTools.map(\.rawValue).joined(separator: ", ") + ")" : "" } ?? ""
-                log.info("exported \(order.url.lastPathComponent, privacy: .public): \(written.size.width) x \(written.size.height), \(order.format.rawValue, privacy: .public) \(order.format.bitDepth)-bit in \(order.colour.engineName, privacy: .public)\(edited, privacy: .public), \(Double(written.bytes) / 1_048_576, format: .fixed(precision: 1)) MB, written in \(written.seconds, format: .fixed(precision: 2)) s")
+                let hdr = written.hdr.map { ", HDR " + $0 } ?? ""
+                log.info("exported \(order.url.lastPathComponent, privacy: .public): \(written.size.width) x \(written.size.height), \(order.format.rawValue, privacy: .public) \(order.format.bitDepth)-bit in \(order.colour.engineName, privacy: .public)\(edited, privacy: .public)\(hdr, privacy: .public), \(Double(written.bytes) / 1_048_576, format: .fixed(precision: 1)) MB, written in \(written.seconds, format: .fixed(precision: 2)) s")
                 exported(job.id, .written(written))
             case .card:
                 // Kept for the service to take when the job has ended (`takeCard`), as an export's file is.
@@ -561,6 +659,69 @@ final class EngineHost: FrameSource, @unchecked Sendable {
             }
             onDelivery?(.failed(job: job.id, frame: r.frameID, message: message))
         }
+    }
+
+    // MARK: an export's gain map
+
+    /// The map an export of a frame with Enable HDR on carries (`ExportOrder.gainMap`): a slide's ratio of two
+    /// renditions where it was made, else the curve of this render's session over the finished picture. Nil, and
+    /// said, where there is none to make; never a throw (the file is written either way).
+    private func exportMap(_ job: RenderJob, _ order: ExportOrder, _ pixels: RenderedPixels, image: CGImage, turns: Int) -> HDRGainMap.Attachment? {
+        let started = DispatchTime.now().uptimeNanoseconds
+        let name = order.url.lastPathComponent
+        var made: HDRGainMap.Attachment?, whose = ""
+        switch takeSlideMap(job.id) {
+        case .made(let rendition, let ratio)?:
+            do {
+                made = try Self.follow(ratio, turns: turns, crop: order.printCrop, picture: image)
+                whose = "the slide's own HDR rendition at H " + String(format: "%.2f", rendition.headroom)
+            } catch {
+                log.error("\(name, privacy: .public): a slide's map could not follow its picture (\(String(describing: error), privacy: .public)); its curve stands in")
+            }
+        case .noGain?:
+            log.info("\(name, privacy: .public): HDR on, no gain map: the slide has no pixel past a knee")
+            return nil
+        default: break
+        }
+        if made == nil {
+            switch pixels.hdrCurve {
+            case .curve(let curve)?:
+                do {
+                    made = try HDRGainMap.exportAttachment(for: image, format: order.format, curve: curve)
+                    whose = curve.curve.name
+                } catch {
+                    log.error("\(name, privacy: .public): export gain map not made, the file is written without it: \(String(describing: error), privacy: .public)")
+                }
+            case .refused(let why)?:
+                log.info("\(name, privacy: .public): HDR on, no gain map: the engine gave no curve (\(why, privacy: .public))")
+            case nil:
+                log.error("\(name, privacy: .public): HDR on, no gain map: the render carried no curve")
+            }
+        }
+        if let made {
+            let ms = Double(DispatchTime.now().uptimeNanoseconds - started) / 1e6
+            log.info("\(name, privacy: .public): export gain map \(made.map.width) x \(made.map.height), headroom \(made.headroom, format: .fixed(precision: 2)), \(whose, privacy: .public), layout \(order.hdrLayout.rawValue, privacy: .public), made in \(ms, format: .fixed(precision: 0)) ms")
+            Log.note(.export, "gain map", ["size": "\(made.map.width)x\(made.map.height)", "headroom": (made.headroom * 1000).rounded() / 1000,
+                                          "of": whose, "layout": order.hdrLayout.rawValue, "ms": Int(ms),
+                                          "strips": HDRRendition.lastTimes])
+        }
+        return made
+    }
+
+    /// A slide's ratio map, made at the render's size and orientation, turned and cut as its picture was.
+    private static func follow(_ a: HDRGainMap.Attachment, turns: Int, crop: Geometry?, picture: CGImage) throws -> HDRGainMap.Attachment {
+        var map = try HDRGain.turned(a.map, quarterTurns: turns)
+        if let crop {
+            guard let whole = HDRGain.image(of: map),
+                  let cut = HDRGain.map(of: try FinishedCut.image(whole, by: crop.onFinished(CGSize(width: map.width, height: map.height)))) else {
+                throw HDRGainMap.Failure.gpu("the map could not be cut as its picture was")
+            }
+            map = cut
+        }
+        guard map.width == picture.width, map.height == picture.height else {
+            throw HDRGainMap.Failure.gpu("the map is \(map.width) x \(map.height), its picture \(picture.width) x \(picture.height)")
+        }
+        return HDRGainMap.Attachment(map: map, headroom: a.headroom)
     }
 
     // MARK: a card

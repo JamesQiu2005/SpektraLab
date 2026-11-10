@@ -271,6 +271,17 @@ class Session:
             raise EngineError(self._engine._last_error())
         return self._engine._take_json(out)
 
+    def hdr_curve(self, request: dict | None = None) -> dict:
+        """`spk_session_hdr_curve` (API-SPEC §19.2): Enable HDR's gain curve, the session's own."""
+        fn = self._engine._lib.spk_session_hdr_curve
+        fn.restype = ctypes.c_int32
+        fn.argtypes = [ctypes.c_void_p, ctypes.c_char_p, ctypes.POINTER(ctypes.c_char_p)]
+        out = ctypes.c_char_p()
+        body = json.dumps(request).encode() if request is not None else None
+        if fn(self._handle, body, ctypes.byref(out)) != SPK_OK:
+            raise EngineError(self._engine._last_error())
+        return self._engine._take_json(out)
+
     def render(self, tier: str = "live", reprint: bool = False) -> tuple[np.ndarray, SpkResult]:
         result = SpkResult()
         fn = self._engine._lib.spk_reprint if reprint else self._engine._lib.spk_render

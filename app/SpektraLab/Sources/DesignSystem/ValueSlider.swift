@@ -37,7 +37,7 @@ struct ValueSlider: View {
     /// Or in a gradient of these, left to right (saturation, the HSL bands).
     var track: [Color]? = nil
     var detentAtRest = false
-    /// False where `rest` means nothing on this scale (a 0…0.03 pre-flash).
+    /// False where `rest` means nothing on this scale (a pre-flash, which starts at 0).
     var showsRest = true
     var labelWidth: CGFloat = 92
     var fieldWidth: CGFloat = 78

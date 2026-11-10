@@ -168,6 +168,53 @@ struct FrameEdit: Codable, Equatable, Sendable {
         var dateBackActive: Bool
     }
 
+    /// **Enable HDR** (the owner, 2026-11-03: a per-image toggle, chosen over an app-wide switch;
+    /// 2026-11-06 for the Mac: "an 'Enable HDR' switch directly under Apply Film Emulation",
+    /// `PRD/HDR-PORT-PLAN-2026-11-06.md` D5): this frame's picture on an HDR screen is lifted
+    /// by its session's gain curve (`HDRLook`, `HDRSessionCurve`), and its JPEG and HEIF exports carry the same
+    /// gain as a map (the export round, D8). Off for a new frame and for every edit written before it. **For a
+    /// print, not part of any develop** (D3): no wire field, no stamp, no layer of `ChangeDescriber.layers` —
+    /// the SDR picture is the same to the bit, the screen and the file gain the map. **A slide's is**
+    /// (`HDRGain.sdrWire`): with it on the slide is developed stretched, with one grain for its two renditions.
+    /// Written only once chosen, so an edit that never chose is the same JSON as before the field existed.
+    /// Travels with Copy Settings' HDR group (`ClipboardGroup.hdr`).
+    ///
+    /// **By default** (the owner, 2026-11-03: "one toggle in the settings as 'enable HDR by default'"): a frame
+    /// whose toggle was never touched follows Settings' Enable HDR by Default (`hdrByDefault`); once the
+    /// toggle is set — here, by Copy Settings or a preset — the frame keeps its own choice (`hdrChoice`).
+    /// **Compare by `hdrChoice`, never by `hdr`**: the setter writes the choice, so `x.hdr =
+    /// y.hdr` turns a frame that never chose into one that chose off, and every comparison after it differs.
+    var hdr: Bool {
+        get { hdrChoice ?? FrameEdit.hdrByDefault }
+        set { hdrChoice = newValue }
+    }
+    /// The frame's own choice; nil follows the default.
+    var hdrChoice: Bool?
+
+    /// **HDR 峰值亮度, HDR Peak Brightness** (PRD-B, 2026-11-09): how far past SDR white this frame's HDR goes, in
+    /// stops — the curve's H (`HDRSessionCurve.request(headroom:)`, H = 2^stops), so the canvas and the file's map
+    /// change together (the file is what the screen shows). Nil is the default, `defaultPeakStops` (2 stops, H 4:
+    /// `A_H4`, today's picture), and is written only once moved, so an edit that never moved it is the
+    /// same JSON as before. Not a display cap: a screen with less headroom than H shows the gain at its share
+    /// (ISO 21496-1's weight, `HDRLook.weight`), never a clip and never a second roll-off. No part of a print's
+    /// develop (D3); a slide's second rendition takes it as its `scan_hdr_headroom`.
+    var hdrPeakStops: Double?
+    /// The slider's range and rest, stops over SDR white. 4 is the engine's ceiling (H 16, `kHdrMaxHeadroom`) and
+    /// this Mac's XDR panel's potential; under half a stop the gain is too small to see.
+    static let peakStopsRange: ClosedRange<Double> = 0.5...4.0
+    static let defaultPeakStops = 2.0
+    /// The peak in use, clamped to the range.
+    var hdrPeak: Double {
+        get { min(max(hdrPeakStops ?? Self.defaultPeakStops, Self.peakStopsRange.lowerBound), Self.peakStopsRange.upperBound) }
+        set { hdrPeakStops = abs(newValue - Self.defaultPeakStops) < 1e-9 ? nil : min(max(newValue, Self.peakStopsRange.lowerBound), Self.peakStopsRange.upperBound) }
+    }
+    /// H, the curve's headroom over SDR white (2^peak).
+    var hdrHeadroom: Double { exp2(hdrPeak) }
+
+    /// Settings' Enable HDR by Default (`AppSettings.hdrByDefault` sets it at launch and on a change). Off
+    /// until the owner turns it on: the per-image toggle's own default.
+    nonisolated(unsafe) static var hdrByDefault = false
+
     /// Whether the film is applied: the switch's state.
     var appliesFilm: Bool { filmOff == nil }
 
@@ -195,6 +242,8 @@ struct FrameEdit: Codable, Equatable, Sendable {
             geometry = "geometry", filmEdge = "filmEdge", dateBack = "dateBack", solvedEV = "solvedEV",
             placementNeedsFit = "placementNeedsFit", frameSeed = "frameSeed", adjustments = "adjustments",
             rawExposureFacts = "rawExposureFacts", printCrop = "printCrop", filmOff = "filmOff"
+        case hdr = "hdr"
+        case hdrPeak = "hdrPeak"
     }
 
     /// Every field as schema 3 read it — those it required, still required —
@@ -215,6 +264,8 @@ struct FrameEdit: Codable, Equatable, Sendable {
         rawExposureFacts = try c.decodeIfPresent(RawExposureFacts.self, forKey: .rawExposureFacts)
         printCrop = try c.decodeIfPresent(Geometry.self, forKey: .printCrop) ?? .default
         filmOff = try c.decodeIfPresent(FilmOff.self, forKey: .filmOff)
+        hdrChoice = try c.decodeIfPresent(Bool.self, forKey: .hdr)
+        hdrPeakStops = try c.decodeIfPresent(Double.self, forKey: .hdrPeak)
         schemaVersion = max(schemaVersion, Self.currentSchema)
     }
 
@@ -239,6 +290,11 @@ struct FrameEdit: Codable, Equatable, Sendable {
         if !printCrop.isIdentity { try c.encode(printCrop, forKey: .printCrop) }
         // Only while the film is off: an edit with the film applied is the same JSON as before.
         try c.encodeIfPresent(filmOff, forKey: .filmOff)
+        // Only once the frame chose (on or off): an edit that never did is the same JSON as before, and follows
+        // the default.
+        try c.encodeIfPresent(hdrChoice, forKey: .hdr)
+        // Only once moved off 2 stops (PRD-B): an edit that never moved it is the same JSON as before.
+        try c.encodeIfPresent(hdrPeakStops, forKey: .hdrPeak)
     }
 
     /// What changed against the defaults a new frame starts with, as the Info

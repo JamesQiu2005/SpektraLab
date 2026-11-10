@@ -102,7 +102,8 @@ bool Pipeline::node_scene_curve(const Image& in, Image& out, std::string& error)
 
 bool Pipeline::scene_latitude_sample(const Image& in, double ev, std::vector<double>& E,
                                      std::string& error, const double* region,
-                                     std::array<std::vector<double>, 3>* channels) {
+                                     std::array<std::vector<double>, 3>* channels,
+                                     SceneSample* curved) {
     // The node's own upstream nodes, as `measure_meter_evs` runs them: the
     // sample sees what the node would, decoded, cropped and turned.
     const uint32_t saved_long_edge = source_long_edge_;
@@ -125,36 +126,73 @@ bool Pipeline::scene_latitude_sample(const Image& in, double ev, std::vector<dou
     const double gain = double(float(std::pow(2.0, ev)));
     const std::string& norm = params_.camera.scene_latitude.norm;
     const double yr = rgb_to_xyz_ae_.m[1][0], yg = rgb_to_xyz_ae_.m[1][1], yb = rgb_to_xyz_ae_.m[1][2];
-    const size_t count = host.size() / 3;
-    E.clear();
-    E.reserve(count);
-    if (channels) for (auto& c : *channels) { c.clear(); c.reserve(count); }
-    for (size_t i = 0; i < count; ++i) {
-        // A region (x0, y0, x1, y1, normalised to the frame): one frame of a
-        // pair, measured by itself.
-        if (region && framed.w > 0 && framed.h > 0) {
-            const double x = (double(i % framed.w) + 0.5) / framed.w, y = (double(i / framed.w) + 0.5) / framed.h;
-            if (x < region[0] || x >= region[2] || y < region[1] || y >= region[3]) continue;
+    // One read of a read-back plane: `g` is the gain still to apply (the
+    // auto-exposure's on the framed plane, 1 on a plane the nodes already
+    // gained).
+    const auto collect = [&](const std::vector<float>& px, uint32_t w, uint32_t h, double g,
+                             std::vector<double>& out, std::array<std::vector<double>, 3>* rows) {
+        const size_t count = px.size() / 3;
+        out.clear();
+        out.reserve(count);
+        if (rows) for (auto& c : *rows) { c.clear(); c.reserve(count); }
+        for (size_t i = 0; i < count; ++i) {
+            // A region (x0, y0, x1, y1, normalised to the frame): one frame of a
+            // pair, measured by itself.
+            if (region && w > 0 && h > 0) {
+                const double x = (double(i % w) + 0.5) / w, y = (double(i / w) + 0.5) / h;
+                if (x < region[0] || x >= region[2] || y < region[1] || y >= region[3]) continue;
+            }
+            const double r = std::max(double(px[3 * i]) * g, 0.0);
+            const double gg = std::max(double(px[3 * i + 1]) * g, 0.0);
+            const double b = std::max(double(px[3 * i + 2]) * g, 0.0);
+            if (rows) {
+                const double rgb[3] = {r, gg, b};
+                for (int c = 0; c < 3; ++c)
+                    if (rgb[c] > 0.0 && std::isfinite(rgb[c]))
+                        (*rows)[size_t(c)].push_back(
+                            std::clamp(std::log2(rgb[c] / slm::kMidgray), -slm::kDomainStops, slm::kDomainStops));
+            }
+            double v;
+            if (norm == "y") v = yr * r + yg * gg + yb * b;
+            else if (norm == "max") v = std::max(r, std::max(gg, b));
+            else {
+                const double s2 = r * r + gg * gg + b * b;
+                v = s2 > 0.0 ? (r * r * r + gg * gg * gg + b * b * b) / s2 : 0.0;
+            }
+            if (!(v > 0.0) || !std::isfinite(v)) continue;
+            out.push_back(std::clamp(std::log2(v / slm::kMidgray), -slm::kDomainStops, slm::kDomainStops));
         }
-        const double r = std::max(double(host[3 * i]) * gain, 0.0);
-        const double g = std::max(double(host[3 * i + 1]) * gain, 0.0);
-        const double b = std::max(double(host[3 * i + 2]) * gain, 0.0);
-        if (channels) {
-            const double rgb[3] = {r, g, b};
-            for (int c = 0; c < 3; ++c)
-                if (rgb[c] > 0.0 && std::isfinite(rgb[c]))
-                    (*channels)[size_t(c)].push_back(
-                        std::clamp(std::log2(rgb[c] / slm::kMidgray), -slm::kDomainStops, slm::kDomainStops));
+    };
+    collect(host, framed.w, framed.h, gain, E, channels);
+
+    // RFC-051: the same pixels after the scene transform the render applies
+    // before the film -- Scene Placement's committed curve, then the Decode
+    // curve -- through the render's own nodes, so a colourful pixel lands
+    // where the render puts it (the norm after a per-channel curve is not a
+    // function of the norm before it: no bin-push can say this). The gain is
+    // the auto-exposure node's own (`blur_.affine`, float32), the nodes sit
+    // after it in `film_scale_and_expose`, and their `E` is before Film
+    // Exposure, as every stop in the reply is.
+    if (curved) {
+        curved->E.clear();
+        for (auto& c : curved->channels) c.clear();
+        curved->present = scene_latitude_wanted() || scene_curve_wanted();
+        if (curved->present) {
+            Image cur, next;
+            double s[3] = {gain, gain, gain}, t0[3] = {0.0, 0.0, 0.0};
+            if (!blur_.affine(framed, s, t0, cur, error)) return false;
+            if (scene_latitude_wanted()) {
+                if (!node_scene_latitude(cur, next, error)) return false;
+                cur = next;
+            }
+            if (scene_curve_wanted()) {
+                if (!node_scene_curve(cur, next, error)) return false;
+                cur = next;
+            }
+            std::vector<float> after;
+            if (!read_back(cur, after, error)) return false;
+            collect(after, cur.w, cur.h, 1.0, curved->E, &curved->channels);
         }
-        double v;
-        if (norm == "y") v = yr * r + yg * g + yb * b;
-        else if (norm == "max") v = std::max(r, std::max(g, b));
-        else {
-            const double s2 = r * r + g * g + b * b;
-            v = s2 > 0.0 ? (r * r * r + g * g * g + b * b * b) / s2 : 0.0;
-        }
-        if (!(v > 0.0) || !std::isfinite(v)) continue;
-        E.push_back(std::clamp(std::log2(v / slm::kMidgray), -slm::kDomainStops, slm::kDomainStops));
     }
     return true;
 }

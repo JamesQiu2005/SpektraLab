@@ -9,6 +9,14 @@
 import Foundation
 
 enum FeatureFlags {
+    /// **Whether a screen of this Mac can show HDR at all** (the owner, 2026-11-04: "if it is on
+    /// non-HDR machine we simply hide the HDR toggle throughout the app"): what the panels
+    /// themselves say they can do (potential EDR headroom over 1.05). On the Mac **any** attached screen's, and read
+    /// again whenever a screen changes (`HDRDisplays`, D5), not once at launch. False hides every
+    /// HDR control and every page's HDR picture; **not** a file's map (`HDRGainMap.supported`, the system's gate).
+    /// True where nothing has asked (the macOS checks).
+    nonisolated(unsafe) static var screenShowsHDR = true
+
     /// **Film Edge** (overscan): the film around the picture — rebate, holes,
     /// edge print (design ids D2-D6, RFC-032). **On** since 2026-10-04, when
     /// the owner lifted the hold of 2026-10-03.

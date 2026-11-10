@@ -197,10 +197,47 @@ struct CostModel: Sendable {
             // The buffer handed over is the host's and already in the footprint.
             peak += 3.3 * opened
         }
+        if job.hdrRendition {
+            // A slide's HDR rendition (`HDRGain`): after its own render the job renders the
+            // frame again (`scan_hdr`, the film side: a develop, in bands as the first was) while the first
+            // result is held -- 8 B a pixel -- and then holds both results and the map, 1 B a pixel, while
+            // the map is made. Arithmetic over the render's own seed, not a measurement.
+            peak += 9 * pixels
+            seconds *= 2
+        }
+        if job.gainMap {
+            // A frame's Enable HDR: its delivery, after the render has let the engine's memory go, holds the
+            // result, the picture, the map and ImageIO's whole picture at once — the job's peak where its
+            // render's own was less (a small band plan, a 12 MP frame).
+            peak = max(peak, Self.gainMapDelivery(pixels: pixels, maps: job.gainMaps))
+        }
         // The source plane of the frame the job opens, which the footprint does not show.
         let source = 12 * opened
         return CostEstimate(peakBytes: UInt64(max(peak, 0)), phoneBytes: UInt64(max(peak, 0) + source), seconds: seconds)
     }
+
+    /// What ImageIO holds a pixel while a file with a gain map is written, the map in it, over the picture
+    /// handed to it (measured on an Apple M3 Max, 2026-11-03: 48 MP at full size 9.0 (JPEG) and
+    /// 9.2 (HEIC) B; without a map JPEG streams and HEIC holds 6.9–7.7 B). Measured again on this Mac for
+    /// the desktop's own writer, Adobe's hdrgm pass included (`tools/hdr_gainmap_selftest.sh --measure 8256 5504`, this
+    /// Mac, 2026-11-06, interleaved twice each, the camera's layout): over the held 45.4 MP picture the map's making
+    /// and the write peak at +581 MB (JPEG) and +595 MB (HEIF) — 12.8 and 13.1 B a pixel, the kernel's library and
+    /// strips (~210 MB) included — against +1 MB (JPEG streams) and +291 MB (HEIF) without a map. The delivery's
+    /// price below (64 MB + 14.85 B a pixel over the result: 738 MB at 45 MP) holds it.
+    static let gainMapWriteBytesPerPixel = 9.6
+
+    /// A gain-map export's delivery: the engine's result (rgba16, 8 B a pixel), the picture it is made into
+    /// (4 B at 8 bits — JPEG and HEIF, the only containers that carry a map), ImageIO's hold with the map
+    /// (`gainMapWriteBytesPerPixel`), each copy of the map past the first, and 64 MB for the kernel's strips
+    /// and library. 1.1 GB at 48 MP.
+    static func gainMapDelivery(pixels: Double, maps: Int = 1) -> Double {
+        64 * mb + pixels * (8 + 4 + gainMapWriteBytesPerPixel + Double(max(maps - 1, 0)) * extraMapBytesPerPixel)
+    }
+
+    /// Each copy of the map past the first (RFC-046: the camera's layout codes the map again in Apple's
+    /// coding, 1 B a pixel, beside the first while the file is written; ImageIO stores one map either way).
+    /// Measured on the M3 Max (2026-11-05): +58 MB at 48.8 MP, 1.2 B a pixel.
+    static let extraMapBytesPerPixel: Double = 1.25
 
     // MARK: the correction
 
@@ -217,7 +254,8 @@ struct CostModel: Sendable {
         case .whole, .wait: how = job.isReprint ? "reprint" : "whole"
         case .bands: how = "bands"
         }
-        return "\(job.tier.rawValue)|\(size)|\(how)"
+        // A slide's two renditions are learned apart: their peak and time are not one render's.
+        return "\(job.tier.rawValue)|\(size)|\(how)" + (job.hdrRendition ? "|hdr" : "")
     }
 
     func estimate(_ job: RenderJob, mode: RenderMode) -> CostEstimate {

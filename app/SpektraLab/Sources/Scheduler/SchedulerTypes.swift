@@ -234,18 +234,31 @@ struct RenderJob: Identifiable, Equatable, Sendable {
     /// Which card of a strip the job is for: a newer job of the same kind,
     /// frame and slot replaces it, queued or running (`RenderQueue.submit`).
     let slot: String?
+    /// An export whose file carries a gain map (a frame's Enable HDR, `HDRGainMap`): its delivery holds
+    /// the map and ImageIO's whole picture beside the result (`CostModel.gainMapDelivery`).
+    let gainMap: Bool
+    /// How many copies of the map its delivery holds (RFC-046): 1; 2 for the camera's layout, whose stored
+    /// map is the first made again in Apple's coding (`HDRProfile.stored`).
+    let gainMaps: Int
+    /// A slide's HDR rendition (`HDRGain`): after its own render the job renders the frame a
+    /// second time, by the engine's `scan_hdr`, holding the first result beside it, and makes the map of
+    /// the two (`CostModel`: + 9 B a pixel, a render's time more).
+    let hdrRendition: Bool
     let submitted: Date
 
     init(id: UUID = UUID(), frameID: UUID, kind: JobKind, tier: RenderTier, canvas: PixelSize,
          layers: Set<ParamLayer> = [], what: String = "", decodesOriginal: Bool = false, bandable: Bool = true,
          original: PixelSize? = nil, printLayers: Int = 0, opens: PixelSize? = nil, slot: String? = nil,
-         submitted: Date = Date()) {
+         gainMap: Bool = false, gainMaps: Int = 1, hdrRendition: Bool = false, submitted: Date = Date()) {
         self.id = id; self.frameID = frameID; self.kind = kind; self.tier = tier; self.canvas = canvas
         self.layers = layers; self.what = what; self.decodesOriginal = decodesOriginal; self.bandable = bandable
         self.original = original
         self.printLayers = max(printLayers, 0)
         self.opens = opens
         self.slot = slot
+        self.gainMap = gainMap
+        self.gainMaps = gainMaps
+        self.hdrRendition = hdrRendition
         self.submitted = submitted
     }
 

@@ -684,6 +684,21 @@ session's), `margin` (0.25), `shadow_percentile` (0.1 or 1),
     axis, the Decode curve's (§17). There the medium's window is the film and
     paper's own and does not move with Exp. Comp. or the curve, and the
     scene's histogram moves c stops right.
+  - since 2026-11-09 (RFC-051, additive): `curved_fractions` and
+    `curved_fractions_r`, `_g`, `_b` — the same pixels after the scene
+    transform the render applies before the film: the session's committed
+    Scene Placement (`node_scene_latitude`), then the Decode curve
+    (`node_scene_curve`, §17), each where it is wanted, run on the sample by
+    the render's own nodes after the auto-exposure gain. Same bins, same axis
+    (before Exp. Comp.), same norm and per-channel rules as `fractions` and
+    `fractions_r/g/b`. **Absent** when the session has neither a placement nor
+    a curve, and when the request's `norm` is not the session's (a "what if"
+    norm would place on that norm, which the render does not). Unlike
+    `placed_fractions` they are of the session's params, not the requested
+    pull-backs, and they are exact on a colourful pixel: the norm after a
+    per-channel curve is not a function of the norm before it, so no host can
+    compute them from `fractions`. The scene cache key carries the placement,
+    `scene_curve` and Exp. Comp., so a curve edit re-reads the meter's frame.
 - `suggested` — RFC-023 §9.3's policy: pull-backs landing each extreme
   `margin` inside the medium, less margin if needed, `valid` false if none works.
 - `fit` — `valid`, `issues` (refusals: `pull_back_below_minimum`,
@@ -1119,6 +1134,13 @@ exactly as the same bump at Exp. Comp. 0 on the doubled input (red on the pre-ch
 the window plus `exposure_ev` is the same at Exp. Comp. 0 and +1, with and without a curve; a neutral
 frame's `fractions_r/g/b` equal its `fractions`, and doubling red moves only `fractions_r`, four bins. The Vulkan backend has no `spk_scene_curve`.
 
+RFC-051 (2026-11-09): `spk_scene_latitude` measures the frame after this node as well (§12,
+`curved_fractions`). Checked in the same file: absent with no curve and no placement; equal to
+`fractions` under the identity table; an rgb +1 stop row is `fractions` four bins up, each channel's row
+too, and at Exp. Comp. +1 as well; a committed placement alone is present and brings the top end down; and
+on a tinted ramp under a local squash the curved CDF equals the CDF of the frame transformed in numpy and
+measured with no curve (|d| 0.000), where a bin-push of `fractions` misses by 0.040.
+
 ## 18. v2 Mac minilab and lossless execution caches (2026-10-24)
 
 The 100-field wire, ABI and `scene_curve` format are unchanged. For each qualified
@@ -1157,3 +1179,132 @@ halation's zero crossing. Session teardown closes the slot; any I/O failure
 falls back to full computation. Striped rendering does not use it.
 `SPK_CHECKPOINT_MODE=off` is a diagnostic forced-full path, not a new wire field.
 `SPK_V2_REFERENCE_OPTICAL=1` is exclusively the old-oracle qualification switch.
+
+## 19. HDR: a slide's HDR scan (`scan_hdr_*`, `grain_seed`) and the session's gain curve (`spk_session_hdr_curve`) (2026-11-06, branch `mac/hdr-protection-research`)
+
+`PRD/HDR-PORT-PLAN-2026-11-06.md` D1, D2 (plumbing) and D4: the engine half of Enable HDR.
+Four wire fields (the wire is 104 fields now; §18's "100-field wire" was the count then) and one
+entry point. Every default is a bypass, and the entry point never renders: a session that sends
+none of this renders today's picture to the bit (`engine/tests/hdr_bypass_checks.py`, against the
+engine before the change; `parity_render.py`'s 23 picture hashes unchanged).
+
+### 19.1 A slide's HDR scan — wire fields
+
+A positive film scanned (`scan_film`) only; anything else ignores the fields. `core/scan_hdr.{hpp,cpp}`:
+each dye layer's curve moved above its own knee (family A, κ 0.8, one
+stop), three lifts solved on the host so the clear base scans to k × its own XYZ (untinted), the HDR
+density squeezed into the film's own range for the develop (grain reads a density below the base as
+the base) and expanded again by `spk_scan_hdr_expand` (Metal) before today's `spk_spectral_epilogue`.
+
+| field | path | type | default | range | meaning |
+|---|---|---|---|---|---|
+| `scan_hdr_headroom` | `io.scan_hdr_headroom` | float | `0.0` | 0–16 | SHOOT. Each dye layer's curve moved above its own knee and lifted inside the scan, so the clear base lands at H × today's, untinted. ≤ 1 = today's scan, byte for byte |
+| `scan_hdr_stretch` | `io.scan_hdr_stretch` | bool | `false` | — | SHOOT. The SDR rendition: the clear base at the page's white (scan Y 0.98), H = 0.98 / Y_white. Wins over the headroom. Below the first knee the picture is today's, byte for byte |
+| `scan_hdr_output_scale` | `io.scan_hdr_output_scale` | float | `1.0` | 1/16–1 | PRINT. The HDR rendition × this after the output's gamut compression (whose lightness roll-off the HDR rendition does not take), so a rendition above white fits; 1/H for H's |
+| `grain_seed` | `settings.film_seed` | int | `0` | 0–2³¹−1 | SHOOT. 0 = the film's grain drawn as today (a splitmix64 stream per pipeline: a fresh realisation per render of a session, restarted when a SHOOT edit rebuilds the pipeline); another value is that realisation, so a slide's two renditions carry one grain |
+
+Native-only, declared after `scene_curve`, pinned in `parity_schema.py`'s `NATIVE_ONLY`. What to know
+about where they act, and why:
+
+- **The scale node follows the whole of `print_linear`'s fused/unfused branch**, not only
+  `node_gamut_compress`: the Mac's default output path is the fused
+  `spk_xyz_cam16_compress`, so following only the unfused node would miss it. The HDR rendition's lightness roll-off is
+  dropped through the one flag both CAM16 kernels read (`baked_.cam16_lightness`, `meta[3]`).
+- **The grain seed is honoured at both film-side draw sites** (`Pipeline::draw_film_seed`):
+  `film_prefix` and the pre-grain checkpoint's restore (§18), so a restored develop and a fresh one
+  carry the same grain under one seed. The checkpoint key already includes `grain_seed`.
+- `spk_progress` adds, additively, `scan_hdr` {`version`, `headroom`, `stretch`, `output_scale`,
+  `y_white`, `y_target`, `y_reached`, `tint`, `knee_stops[3]`, `delta_stops[3]`, `lift_density[3]`}
+  (present only when the session's pipeline scans the variant) and an always-present `film_seed`
+  (the last film run's realisation; 0x5EED with grain off).
+- **Windows refuses the variant** (`windows_unported_error`, `capabilities.backend.unsupported_features`
+  gains `scan_hdr`): there is no Vulkan `spk_scan_hdr_expand`. The defaults stay usable there.
+- **The medium probe ignores all four** (`medium_probe_params` resets them): the stretch and the HDR rendition are output choices over the film, so §12's medium,
+  Scene Placement's window and §19.2's curve are the film's whether Enable HDR is on or not (measured
+  2026-11-06 on Provia 100F before the reset: highlight boundary +2.08 EV, +2.15 with the stretch, +3.94
+  at H 4 ×1/4). With the slide fields at their defaults the probe key, and so every reply, is unchanged.
+
+Checked (`engine/tests/scan_hdr_checks.py`, against the slide study's data, read from outside this
+repository): over Velvia 100, Kodachrome 64, Provia 100F and
+Ektachrome 100 — the defaults are today's scan to the bit; the stretch is byte-identical below the
+first knee; H 4 over the stretch is within 1/40 stop of no gain there; the clear base lands at its
+target untinted; the knees are within 0.1 stop of the study's; one seed is one grain.
+
+### 19.2 `spk_session_hdr_curve` — Enable HDR's gain curve, the session's own (D1, D2)
+
+```c
+spk_status spk_session_hdr_curve(spk_session* session, const char* request_json, char** out_json);
+```
+
+A fixed per-pair table (`A_H4`) baked at product defaults would ignore the session's paper, minilab
+and enlarger; here the curve is computed for the session (`core/hdr_curves.{hpp,cpp}`): family A — the research's
+`model2.py` `model_A` / `gain_table` / `finish_table` and model.py's `Medium` / `family_A` /
+`ease_top`, statement for statement — on **the medium `spk_scene_latitude` measures**: the same
+cached probe (`medium_probe_params`, keyed as §12's medium) and the same 128 samples `medium.ramp_y`
+carries, **on the medium's own axis**: mid-grey where the probe exposed it, i.e. `medium.ramp_ev +
+medium_shift_ev` (the shift is Exp. Comp. in the product, 0 where the enlarger re-times). So it follows
+the film, the paper, minilab and the enlarger; no curve data ships. **In the product, Exp. Comp. does not
+change the table**: with the enlarger not re-timed, c only moves the frame along one medium (the print's Y
+against film exposure is the same at every c), so a pixel of one SDR Y gets one gain at every c. (Run on
+the reply's axis instead, the model read γ₀ and the knee at the *scene's* mid-grey wherever c had put it:
+measured 2026-11-06, the table moved 0.6–1.4 stop at c = ±1, ±2, and at c = −6 the knee fell into the
+paper's toe and lifted every tone by 1.6 stop.) Then the grain-aware tables over it (`HdrCurveStore::derive`): Ks,
+the table smoothed by 0.12 stop in log2 Y with its ends held, and ρ, Ks's slope.
+
+**Request** (NULL, or an object with only these keys; any other key is `SPK_ERR_USER`):
+
+| key | type | default | meaning |
+|---|---|---|---|
+| `headroom` | number | `4` | H, in [1.0001, 16] (below 1.0001 `derive`'s clamp is not log2 H; the gain would be under 1.5e-4 stop anyway) |
+| `clip_ev` | number or null | absent | the frame's clip on `medium.ramp_ev`'s axis (stops over the metered mid-grey, before Exp. Comp.; for a frame with no Scene Placement or Decode curve, log2(clip × the auto-exposure gain / 0.184)). The engine moves it onto the medium's axis by `medium_shift_ev` itself. Given, the expanded ramp is eased into a plateau there (`ease_top`: a cubic Hermite over the 0.75 EV before it, C¹, zero slope at the clip); absent, plain family A. In [−24, 24] |
+| `include_ramp` | bool | `false` | also return the model's ramps |
+
+**Reply** (`out_json`, caller-freed with `spk_string_free`):
+
+| key | meaning |
+|---|---|
+| `version` | the model's identity string |
+| `headroom`, `top` | H and log2 H (exactly, as `log2_gain`'s last sample) |
+| `domain_log2_y` | `[-12, 0]` |
+| `log2_gain` | 256 samples of log2 gain over log2 Y (the SDR picture's relative luminance, CIE Y, read off the Display P3 pixels), evenly over the domain: exactly 0 below the knee, monotone, clamped to [0, log2 H], a straight bridge in log2 Y from the picture's white Y_w to **exactly** log2 H at Y = 1 |
+| `ks`, `rho` | 256 each over the same domain: the reference Ks and ρ. ρ is Ks's raw slope, **not** clamped: the per-pixel kernel applies `log2 gain = Ks(L') + κ·clamp(ρ(L'), 0, ρmax)·(log2 Y − L')`, L' the clamped base below (measured 2026-11-06: 135 of the 144 pairs exceed 2 somewhere, up to 4.3 % of samples, max 4.68 on Tri-X) |
+| `kappa`, `rho_max` | 1.0 and 2.0 (the reference constants) |
+| `detail_clamp` | τ = 0.10 stop, the kernels' clamped base (added 2026-11-09, "candidate C"): the per-pixel kernel reads the local tone no further than τ from the pixel's own, `L' = log2 Y − clamp(log2 Y − L, −τ, τ)`, then `log2 gain = Ks(L') + κ·clamp(ρ(L'), 0, ρmax)·(log2 Y − L')`. The table itself is unchanged by it. The engine has no curve-file surface, so it travels in this reply (no new C entry point). A client that predates it ignores the key |
+| `knee_ev`, `knee_log2_y` | the knee: the first EV > 0 on the medium's axis where dM/dEV falls below 0.8 γ₀ (the crossing interpolated, held inside its own sample bracket), and M there. `knee_ev` is reported on the request's axis (the medium's − `medium_shift_ev`), so it moves by −c with Exp. Comp. while the knee's Y does not |
+| `delta` | δ: H·2^M(EV_k − δ) = 2^M(EV_k), stops |
+| `y_white`, `gamma0` | the ramp's brightest Y; (M(+1) − M(−1))/2 on the medium's axis (under 0.1 is refused: no mid-tone; every real pair measures ≥ 1.14) |
+| `eased`, `clip_ev` | whether `ease_top` changed the ramp; the clip given (null when absent) |
+| `exposure_ev`, `scan` | the session's Exp. Comp. and `scan_film` (a slide's curve is its film's scan without §19.1's fields: the fallback for a slide whose HDR rendition fails) |
+| `medium_shift_ev` | the medium's axis minus the request's: Exp. Comp. in the product, 0 where the enlarger re-times |
+| `ramp` | with `include_ramp`: `ev` (561 points: the model's −6 … +8 grid on the medium's axis, reported on the request's, i.e. moved by −`medium_shift_ev`), `log2_y` (M), `log2_y_hdr` (M_H, eased when asked) |
+
+**Refused, with no curve:** a Digital Intermediate session (`digital_intermediate` on a negative:
+Cineon codes, no print; `SPK_ERR_USER`); `extended_dynamic_range` on a print (the medium is probed
+without it and the EDR stretch moves the picture's knee and white; `SPK_ERR_USER`); a medium the probe
+cannot read (`SPK_ERR_GPU`, as `spk_scene_latitude`); a medium family A cannot model — no mid-grey on
+the ramp, no gamma at mid-grey (γ₀ under 0.1), no knee past it, a white at or above display white
+(`SPK_ERR_USER`). In the product none of these depends on Exp. Comp.: 0 of the 144 pairs is refused at
+any c in ±3, ±6, ±8. Where the enlarger re-times (the reference) c changes the medium's shape, and at
+c = ±6 22 of 288 curves are refused (none returns a knee outside its bracket). Apply
+Film Emulation off never reaches the engine (the app shows Apple's decode and opens no session).
+
+Takes the session's lock. The first call for a medium costs the probe (one 1024 × 8 ramp, ~16 ms on
+the M3 Max, shared with `spk_scene_latitude`); every later call is the arithmetic or a per-session
+cache keyed on (the medium key, Exp. Comp., H, `clip_ev`, `include_ramp`). A cache miss can run the
+GPU probe, so a client calls it on the same serial queue as its renders (`EngineClient`): two sessions
+of one engine driven at once abort the process (Metal: a command buffer committed twice), as two
+renders always have.
+
+Checked (`engine/tests/hdr_curve_checks.py`, 2026-11-06, 144 pairs: each colour negative on each
+colour paper, each silver film on the silver paper, each slide scanned, product defaults, auto-exposure
+off): the table's invariants on every pair, plain and eased at +3.5 EV; the table equals the research's own
+`model2.py` run on the same ramp to 8e-15; against the reference `A_H4` tables (baked with minilab off), max |Δ log2 gain|
+≤ 0.0016 on all 143 non-minilab pairs and 0.243 on Portra 400 → Portra Endura (minilab, which those
+tables do not print through); `print_exposure` ×0.5 / ×1 / ×2 moves the knee on an optical pair (Portra
+400 / Supra Endura +0.18 / +0.43 / +1.96 EV), through `spk_set_params` exactly as a fresh session, and
+not on the minilab pair (§18: minilab's calibrated block does not take it); Exp. Comp. −8 … +8 leaves
+the table, γ₀ and the knee's Y as at 0 to the bit on three pairs (minilab default, Vision3 500T / 2383,
+XTRA 400 / Endura Premier), `knee_ev` moves by −c, and a scene clip x under c is the clip x + c under 0;
+a slide's medium and curve are the same with the stretch, H 4 ×1/4 or a grain seed; `clip_ev` gives a C¹
+plateau; the refusals above. `engine/build/hdr_curve_unit` (C++, synthetic media): the knee stays in its
+bracket where model.py's crossing extrapolated to 1e7 EV, a γ₀ of 1e-7 is refused, `top` = log2 H.

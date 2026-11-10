@@ -168,6 +168,8 @@ final class AppServices {
         // What the engine hands back: a develop page's picture, a frame's kept
         // develop, a RAW's own white balance.
         darkroom.onCanvas = { [weak self] frame, image, stamp in self?.sessions[frame]?.session?.landed(image, stamp: stamp) }
+        // Enable HDR's curve of that picture's session: the page's to draw its HDR with (`OpenFrameSession.hdr`).
+        darkroom.onHDRCurve = { [weak self] frame, answer, stamp in self?.sessions[frame]?.session?.hdrLanded(answer, stamp: stamp) }
         darkroom.onKept = { [weak self] frame, picture in self?.kept(frame, picture) }
         darkroom.onAsShot = { [weak self] frame, temperature, tint in self?.readAsShot(frame, temperature, tint) }
         darkroom.onRawExposure = { [weak self] frame, facts in self?.readRawExposure(frame, facts) }
@@ -257,6 +259,14 @@ final class AppServices {
         // Before anything says a word: the language this run is in. A launch with a `--` argument
         // (a snapshot, a tour, a harness) is English unless it names another (`Language.start`).
         Language.shared.start(arguments: arguments)
+        // HDR is offered only while a screen can show it (`FeatureFlags.screenShowsHDR`): what the panels say, read
+        // again whenever a screen changes (`HDRDisplays`, D5: a Mac's screens come and go, so once at launch is not enough).
+        HDRDisplays.shared.start()
+        #if targetEnvironment(simulator) || targetEnvironment(macCatalyst)
+        let onPhone = false
+        #else
+        let onPhone = true
+        #endif
         var scenario = DemoLibrary.Scenario.home
         var real = true   // the Mac app keeps the user's own library; `--demo <scenario>` still shows a demo
         if arguments.contains("--first-run") { scenario = .empty; real = false }
@@ -532,6 +542,9 @@ final class AppServices {
             // Edit's layer alone (Light, Curve, Colour) is the same develop: its edited copy follows instead.
             var beside = after
             beside.adjustments = before.adjustments
+            // Enable HDR: the same picture, a map in its file — but a slide's is developed again, stretched
+            // (`HDRGain.sdrWire`). The stored choice, not `hdr`.
+            if HDRGain.sdrWire(for: after) == HDRGain.sdrWire(for: before) { beside.hdrChoice = before.hdrChoice }
             if beside != before { develop(frameID, cause: cause) }
         }
     }
@@ -686,12 +699,14 @@ final class AppServices {
         let job = RenderJob(frameID: frame.id, kind: kind, tier: .preview, canvas: frame.canvas(frame.edit),
                             what: StockCatalog.shared.pairText(frame.edit.params),
                             decodesOriginal: true, original: darkroom.openSize(frame, edit: frame.edit),
-                            printLayers: darkroom.printLayers(frame, edit: frame.edit))
+                            printLayers: darkroom.printLayers(frame, edit: frame.edit),
+                            // A cropped frame's decode is larger than its canvas (`previewDevelopLongEdge`).
+                            opens: frame.previewDevelopOpens(frame.edit))
         // The frame's file, its decode and its whole wire, as they are now. A
         // frame the engine has nothing to develop from — a demo picture, an
         // original that is away — is not queued: it keeps the picture it has.
         guard darkroom.prepare(job, frame: frame, edit: frame.edit, purpose: .keep,
-                               longEdge: frame.previewSize.longEdge) else { return nil }
+                               longEdge: frame.previewDevelopLongEdge(frame.edit)) else { return nil }
         library.update(frame.id) { $0.develop = .queued }
         let id = scheduler.submit(job)
         Task { [weak self] in

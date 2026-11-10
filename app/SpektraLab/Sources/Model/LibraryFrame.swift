@@ -200,4 +200,21 @@ struct LibraryFrame: Identifiable, Equatable, Sendable {
         return PixelSize(width: Int(out.width), height: Int(out.height))
     }
     var displayAspect: Double { displaySize.aspect }
+
+    /// The long edge a preview develop of `edit` decodes this frame at — the page's canvas, the frame's kept
+    /// develop, its RAW's proxy and their stamps — so the picture kept of its crop is near the preview's own
+    /// size, not the preview's size times the crop (`Geometry.previewDecodeLongEdge`, 2026-11-09). A crop of
+    /// most of the photo, a film edge (the host cuts the gate, and the canvas is the film at the preview's
+    /// size) and a half-frame pair are decoded at the preview's size, as before.
+    func previewDevelopLongEdge(_ edit: FrameEdit) -> Int {
+        guard !isPair, !edit.filmEdge.effective else { return previewSize.longEdge }
+        return Geometry.previewDecodeLongEdge(edit.geometry, preview: previewSize.longEdge, original: originalSize)
+    }
+
+    /// The frame such a develop opens, where it is larger than its canvas (the preview): the job is priced
+    /// by it (`RenderJob.opens`), and the engine refuses a decode larger than the job's price. Nil: the canvas.
+    func previewDevelopOpens(_ edit: FrameEdit) -> PixelSize? {
+        let edge = previewDevelopLongEdge(edit)
+        return edge > previewSize.longEdge ? originalSize.scaled(toLongEdge: edge) : nil
+    }
 }

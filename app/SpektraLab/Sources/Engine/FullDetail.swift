@@ -124,6 +124,7 @@ final class FullView {
             return
         }
         if job?.stamp == ask.stamp || bringing != nil { return }       // on its way
+        noteMiss(ask)
         cancelJob()
         // An original that stays in Photos is brought first: a render at full size is of the file itself.
         if darkroom.isAway(frame) {
@@ -137,6 +138,22 @@ final class FullView {
             return
         }
         submit(frame, made)
+    }
+
+    /// Why the zoom is about to make a render rather than read one, in the log (PRD-A A1, 2026-11-09: "a
+    /// full-size render runs again every time" could not be reproduced here; the next one names its
+    /// step). A render of this frame under another name on disk is a stamp that moved — an edit, a new
+    /// engine, or a key that drifts — and its name says which file; none at all is a first render, or one
+    /// the renders' limit took.
+    private func noteMiss(_ ask: FullRender.Ask) {
+        let folder = ask.url.deletingLastPathComponent()
+        let mine = frameID.uuidString
+        let others = ((try? FileManager.default.contentsOfDirectory(atPath: folder.path)) ?? [])
+            .filter { $0.hasPrefix(mine) && $0.hasSuffix(FullRender.suffix) && $0 != ask.url.lastPathComponent }
+        let reason = FileManager.default.fileExists(atPath: ask.url.path) ? "its file is not whole or of another stamp"
+            : others.isEmpty ? "no render of this frame is kept" : "this frame's renders on disk are of another stamp"
+        log.info("full render not kept: \(reason, privacy: .public); asked \(ask.url.lastPathComponent, privacy: .public); kept \(others.joined(separator: ","), privacy: .public)")
+        Log.note(.develop, "full render not kept", ["reason": reason, "frame": String(mine.prefix(8)).lowercased(), "others": others.count])
     }
 
     /// The canvas is back within its preview: nothing more is asked for. A

@@ -234,9 +234,9 @@ struct DevelopCanvas: View {
             }
             #if DEBUG
             .onAppear {
-                let long = CGFloat(max(frame.previewSize.width, frame.previewSize.height)), fitLong = max(fit.width, fit.height)
-                NSLog("[canvas] fit %.0fx%.0f pt, %.2f px/pt (UIKit says %.2f): preview %.0f px, the full render past %.2fx (read at UIKit's scale: %.2fx)",
-                      fit.width, fit.height, pixelsPerPoint, displayScale, long,
+                let long = CGFloat(frame.previewDevelopLongEdge(edit)), fitLong = max(fit.width, fit.height)
+                NSLog("[canvas] fit %.0fx%.0f pt, %.2f px/pt (UIKit says %.2f): preview %.0f px, decoded at %.0f, the full render past %.2fx (read at UIKit's scale: %.2fx)",
+                      fit.width, fit.height, pixelsPerPoint, displayScale, CGFloat(frame.previewSize.longEdge), long,
                       max(previewOverFit(fit: fit), 1) * 1.02, max(long / max(fitLong * displayScale * cropZoom, 1), 1) * 1.02)
             }
             #endif
@@ -390,18 +390,17 @@ struct DevelopCanvas: View {
         }
         #if SPK_ENGINE
         .overlay {
-            // The part on screen of the render at full size, where it is of the edit as it stands.
+            // The part on screen of the render at full size, where it is of the edit as it stands — in HDR where
+            // the frame's look is, and then never shown before its HDR is made (`HDRPlacedImage`).
             if let d = fullView?.detail, d.adjustments == edit.adjustments, zoom > 1.01 {
-                GeometryReader { g in
-                    Image(decorative: GamutProof.shared.proofed(d.image, gamutProof), scale: 1)
-                        .resizable()
-                        .frame(width: d.rect.width * g.size.width, height: d.rect.height * g.size.height)
-                        .position(x: d.rect.midX * g.size.width, y: d.rect.midY * g.size.height)
-                }
-                .allowsHitTesting(false)
+                HDRPlacedImage(image: GamutProof.shared.proofed(d.image, gamutProof), rect: d.rect)
+                    .allowsHitTesting(false)
             }
         }
         #endif
+        // The frame's Enable HDR, on every picture of the develop drawn here (`HDRImage`): its
+        // session's curve, as the engine said it with the develop (`OpenFrameSession.hdr`). The original is never HDR.
+        .environment(\.hdrLook, HDRLook.of(edit, model.openSession(frame.id)?.hdr))
     }
 
     #if SPK_ENGINE
@@ -494,7 +493,8 @@ struct DevelopCanvas: View {
     /// The preview copy's pixels over the fit's, for the cut shown: the zoom
     /// at which one of its pixels is one of the screen's.
     private func previewOverFit(fit: CGSize) -> CGFloat {
-        let px = CGFloat(max(frame.previewSize.width, frame.previewSize.height))
+        // The develop's decode: a cropped frame's is larger than its preview (`previewDevelopLongEdge`).
+        let px = CGFloat(frame.previewDevelopLongEdge(edit))
         let fitPx = max(fit.width, fit.height) * max(pixelsPerPoint, 1)
         return px / max(fitPx * cropZoom, 1)
     }
@@ -513,7 +513,7 @@ struct DevelopCanvas: View {
     private var fullOverPreview: CGFloat {
         #if SPK_ENGINE
         guard fullView != nil, FullView.hasMore(frame), frame.previewSize.longEdge > 0 else { return 1 }
-        let own = CGFloat(frame.originalSize.longEdge) / CGFloat(frame.previewSize.longEdge)
+        let own = CGFloat(frame.originalSize.longEdge) / CGFloat(max(frame.previewDevelopLongEdge(edit), 1))
         let cap = min(1, (DevicePolicy.current.developCapMegapixels / max(frame.originalSize.megapixels, 0.01)).squareRoot())
         return max(1, own * CGFloat(cap))
         #else

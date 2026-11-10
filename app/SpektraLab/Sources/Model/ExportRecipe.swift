@@ -101,6 +101,17 @@ struct ExportRecipe: Codable, Equatable, Hashable, Sendable, Identifiable {
         var fullName: String { engineName }
     }
 
+    /// How a file carries its HDR, where the frame has Enable HDR (RFC-046): the
+    /// gain map written and the metadata beside it (`HDRContainer`). Nothing of it is written for a frame without.
+    enum HDRLayout: String, Codable, CaseIterable, Sendable {
+        /// An ISO 21496-1 map only (Gamma 1), a 10-bit HEIF's; no file is written in it this round
+        /// (the HEIF here is 8-bit), kept so the container's rules stay whole.
+        case iso
+        /// Apple's camera's own: one map in Apple's coding, declared as Apple's (MakerApple headroom,
+        /// XMP) and as ISO's with the fitted Gamma — and, in a JPEG, as Adobe's `hdrgm` too (D8, below).
+        case appleCamera
+    }
+
     enum Destination: String, Codable, CaseIterable, Sendable {
         case files = "Files", share = "Share"
         /// The raw value is what a kept recipe and the log say; this is the page's word for it.
@@ -147,6 +158,15 @@ struct ExportRecipe: Codable, Equatable, Hashable, Sendable, Identifiable {
     /// ProPhoto holds colours far outside what a screen shows, so its steps
     /// are wide: in 8 bits a smooth tone — a sky — can show them. Said under
     /// the Colour row, and never a reason to refuse the pair.
+    /// The layout an HDR frame's file is written in (RFC-046; `PRD/HDR-PORT-PLAN-2026-11-06.md` D8): the
+    /// camera's in every JPEG and HEIF — the desktop's are 8-bit, the only depth the camera's layout takes — in
+    /// any colour space; a JPEG's also declares the same map as Adobe's `hdrgm` (`HDRUltraHDR`). D8 measured
+    /// all of them HDR in ImageIO and in Adobe Camera Raw 18.6, the Apple coding within 0.05 stop of pure ISO.
+    /// Decided by the file, never kept in a recipe. PNG and TIFF carry no map (`carriesGainMap`).
+    var hdrLayoutInEffect: HDRLayout {
+        format == .jpeg || format == .heif ? .appleCamera : .iso
+    }
+
     var mayBand: Bool { colour == .proPhoto && format.bitDepth == 8 }
 
     /// Whether two recipes make the same file in the same place, whatever

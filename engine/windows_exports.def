@@ -19,6 +19,7 @@ EXPORTS
     spk_export_di
     spk_render_digital_intermediate
     spk_scene_latitude
+    spk_session_hdr_curve
     spk_contrast_mask_field
     spk_output_transform
     spk_result_free

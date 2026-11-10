@@ -1481,7 +1481,7 @@ func printChecks(_ c: inout Checker, _ rules: Rules) {
     c.expect(look.mFilterShift == 0.3 && pair.left?.print == nil && pair.right?.print == nil && !rules.isLayered(pair, look),
              "the film's print alone is one print")
     // What the enlarger takes of each (the desktop's `Session.clamped`).
-    for (field, low, high) in [(PrintField.brightness, -3.0, 3.0), (.yellow, -1.0, 1.0), (.magenta, -1.0, 1.0), (.preflash, 0.0, 0.03)] {
+    for (field, low, high) in [(PrintField.brightness, -3.0, 3.0), (.yellow, -1.0, 1.0), (.magenta, -1.0, 1.0), (.preflash, 0.0, FilmParams.preflashMax)] {
         var p = bothFrames(), l = FilmParams()
         p.right?.printScope = .frame
         rules.trim(&p, field, 99, .right, &l)

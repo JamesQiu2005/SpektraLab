@@ -30,6 +30,7 @@
 
 import Foundation
 import SwiftUI
+import UIKit
 import UniformTypeIdentifiers
 
 @MainActor
@@ -271,27 +272,165 @@ enum MacImportDrop {
     }
 }
 
-/// The window's and the import page's drop target: refused (the cursor's ⊘, no highlight) while a drop
-/// is not taken (`MacImportDrop.accepts`) or the drag plainly holds no picture, folder or catalog.
-struct MacImportDropTarget: DropDelegate {
+/// Whether a drop zone's 松手即导入 note is up (`MacDropNoteState`), for the view that draws it.
+@MainActor
+@Observable
+final class MacImportDropWatch {
+    private(set) var note = MacDropNoteState()
+    var shown: Bool { note.shown }
+
+    func apply(_ change: (inout MacDropNoteState) -> Void) {
+        var next = note
+        change(&next)
+        if next != note { note = next }
+    }
+}
+
+extension View {
+    /// The window's, or the import page's, drop target for 松手即导入 (`MacDropOffer`): `watch` says when
+    /// its note is up.
+    func macImportDropZone(router: AppRouter, watch: MacImportDropWatch) -> some View {
+        background { MacImportDropZone(router: router, watch: watch).allowsHitTesting(false) }
+    }
+}
+
+/// The drop target itself, through UIKit (2026-11-09, PRD-C): a `UIDropInteraction` on the view of the
+/// controller that hosts the zone — the window's for the window, the presented page's own for the import
+/// page — so it hears every drag over any part of it. Unlike SwiftUI's `onDrop` its session says
+/// whether the drag began in this app (`localDragSession`) and always says it has ended
+/// (`sessionDidEnd`), wherever it ended. A drag of a kind the page takes (`MacDropOffer`) shows the note
+/// while the target takes drops (`MacImportDrop.accepts`), and is refused with the cursor's ⊘ while it
+/// does not; one of files that are not pictures is refused with the ⊘; anything else — a drag from inside
+/// the app, a web page's picture, text — is not this target's at all, and nothing is shown.
+struct MacImportDropZone: UIViewRepresentable {
     let router: AppRouter
-    @Binding var dropping: Bool
+    let watch: MacImportDropWatch
 
-    private func taken(_ info: DropInfo) -> Bool {
-        MacImportDrop.accepts(router) && MacImportDrop.mayHold(info.itemProviders(for: MacImportDrop.types))
+    func makeCoordinator() -> Coordinator { Coordinator(router: router, watch: watch) }
+
+    func makeUIView(context: Context) -> Anchor {
+        let anchor = Anchor()
+        anchor.isUserInteractionEnabled = false
+        anchor.coordinator = context.coordinator
+        return anchor
     }
 
-    func validateDrop(info: DropInfo) -> Bool { info.hasItemsConforming(to: MacImportDrop.types) }
-    func dropEntered(info: DropInfo) { dropping = taken(info) }
-    func dropExited(info: DropInfo) { dropping = false }
-    func dropUpdated(info: DropInfo) -> DropProposal? {
-        let ok = taken(info)
-        if dropping != ok { dropping = ok }
-        return DropProposal(operation: ok ? .copy : .forbidden)
+    func updateUIView(_ anchor: Anchor, context: Context) { context.coordinator.router = router }
+
+    static func dismantleUIView(_ anchor: Anchor, coordinator: Coordinator) { coordinator.detach() }
+
+    /// Placed in the zone's view: when it is in a window, the interaction goes on the top of its hierarchy.
+    final class Anchor: UIView {
+        weak var coordinator: Coordinator?
+        override func didMoveToWindow() {
+            super.didMoveToWindow()
+            MainActor.assumeIsolated { if window != nil { coordinator?.attach(near: self) } else { coordinator?.detach() } }
+        }
     }
-    func performDrop(info: DropInfo) -> Bool {
-        dropping = false
-        guard taken(info) else { return false }
-        return MacImportDrop.perform(info.itemProviders(for: MacImportDrop.types), router: router)
+
+    @MainActor
+    final class Coordinator: NSObject, UIDropInteractionDelegate, UIGestureRecognizerDelegate {
+        var router: AppRouter
+        let watch: MacImportDropWatch
+        private var interaction: UIDropInteraction?
+        private var click: UITapGestureRecognizer?
+        private weak var host: UIView?
+        private var observers: [NSObjectProtocol] = []
+
+        init(router: AppRouter, watch: MacImportDropWatch) {
+            self.router = router
+            self.watch = watch
+            super.init()
+            // The app no longer in front: no drag of its is over it. (A backstop: the session's end is heard.)
+            for name in [UIApplication.willResignActiveNotification, UIApplication.didEnterBackgroundNotification] {
+                observers.append(NotificationCenter.default.addObserver(forName: name, object: nil, queue: .main) { [weak self] _ in
+                    MainActor.assumeIsolated { self?.interrupt("the app left the front") }
+                })
+            }
+        }
+
+        deinit { for o in observers { NotificationCenter.default.removeObserver(o) } }
+
+        func attach(near view: UIView) {
+            // The view of the controller that hosts the zone: the window's own for the window, the presented
+            // page's for the import page (never the window's transition view, which both are inside).
+            var top = view
+            while !(top.next is UIViewController), let up = top.superview, !(up is UIWindow) { top = up }
+            guard top !== host else { return }
+            detach()
+            let drop = UIDropInteraction(delegate: self)
+            top.addInteraction(drop)
+            // A click anywhere on it: a note still up then belongs to no drag (a backstop).
+            let tap = UITapGestureRecognizer(target: self, action: #selector(clicked))
+            tap.cancelsTouchesInView = false
+            tap.delaysTouchesEnded = false
+            tap.delegate = self
+            top.addGestureRecognizer(tap)
+            interaction = drop
+            click = tap
+            host = top
+            #if DEBUG
+            NSLog("[drop] the import drop zone is on %@ (%.0f x %.0f)", String(describing: type(of: top)), top.bounds.width, top.bounds.height)
+            #endif
+        }
+
+        func detach() {
+            if let interaction { host?.removeInteraction(interaction) }
+            if let click { host?.removeGestureRecognizer(click) }
+            interaction = nil
+            click = nil
+            host = nil
+            watch.apply { $0.ended() }
+        }
+
+        @objc private func clicked() { interrupt("a click") }
+
+        /// A key while the note is up (the page's own key handler calls it): the same backstop.
+        func interrupt(_ why: String) {
+            guard watch.shown else { return }
+            watch.apply { $0.interrupted() }
+            Log.note(.library, "mac import: the drop note taken down", ["by": why])
+        }
+
+        nonisolated func gestureRecognizer(_ g: UIGestureRecognizer, shouldRecognizeSimultaneouslyWith other: UIGestureRecognizer) -> Bool { true }
+
+        private func verdict(_ session: UIDropSession) -> MacDropVerdict {
+            MacDropOffer.verdict(local: session.localDragSession != nil, items: session.items.map(\.itemProvider.registeredTypeIdentifiers))
+        }
+
+        // MARK: UIDropInteractionDelegate
+
+        func dropInteraction(_ interaction: UIDropInteraction, canHandle session: UIDropSession) -> Bool {
+            switch verdict(session) {
+            case .files, .notImportable: return true      // the second only to show the cursor's ⊘
+            case .inApp, .noFile, .empty: return false
+            }
+        }
+
+        func dropInteraction(_ interaction: UIDropInteraction, sessionDidEnter session: UIDropSession) {
+            let v = verdict(session), ok = MacImportDrop.accepts(router)
+            watch.apply { $0.entered(v, accepting: ok) }
+        }
+
+        func dropInteraction(_ interaction: UIDropInteraction, sessionDidUpdate session: UIDropSession) -> UIDropProposal {
+            let v = verdict(session), ok = MacImportDrop.accepts(router)
+            // An update after a click took the note down brings nothing back (`MacDropNoteState.updated`).
+            watch.apply { $0.updated(v, accepting: ok) }
+            return UIDropProposal(operation: v.takes && ok ? .copy : .forbidden)
+        }
+
+        func dropInteraction(_ interaction: UIDropInteraction, sessionDidExit session: UIDropSession) {
+            watch.apply { $0.exited() }
+        }
+
+        func dropInteraction(_ interaction: UIDropInteraction, sessionDidEnd session: UIDropSession) {
+            watch.apply { $0.ended() }
+        }
+
+        func dropInteraction(_ interaction: UIDropInteraction, performDrop session: UIDropSession) {
+            watch.apply { $0.dropped() }
+            guard verdict(session).takes else { return }
+            _ = MacImportDrop.perform(session.items.map(\.itemProvider), router: router)
+        }
     }
 }

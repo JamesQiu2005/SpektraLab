@@ -291,10 +291,16 @@ final class ExportService {
             // Planned afresh: what the sheet planned may be of a file that was not here then.
             planned = nil
             let made = prepared(frame, recipe)
+            // Enable HDR (the export round, D8): a gain map of the curve the export's own
+            // render gives, or a slide's second rendition (`HDRGain`); neither, no map, and the log says why.
+            let hdr = HDRGain.export(for: frame.edit, format: recipe.format)
+            if let why = hdr.why { log.info("\(item.fileName, privacy: .public): HDR on, no gain map: \(why, privacy: .public)") }
+            // A pair's frames are not rendered twice: its map is the curve's.
+            let slideHeadroom = frame.pair == nil ? hdr.slideHeadroom : nil
             // The log's line for this item, once it has ended.
-            func noted(_ outcome: String, _ why: String? = nil, file: URL? = nil) {
+            func noted(_ outcome: String, _ why: String? = nil, file: URL? = nil, hdr: String? = nil) {
                 Log.exported(frame, recipe: recipe, made: made, outcome: outcome, why: why,
-                             seconds: Date().timeIntervalSince(began), file: file, brought: fetched)
+                             seconds: Date().timeIntervalSince(began), file: file, brought: fetched, hdr: hdr)
             }
             // A frame the host cuts renders in bands like any other; one whose
             // cut is left to the engine is one piece: planned whole, or it waits.
@@ -302,7 +308,9 @@ final class ExportService {
             let job = RenderJob(frameID: item.id, kind: .export, tier: made.fromPreview ? .preview : .full,
                                 canvas: made.plan.engineCanvas, what: item.fileName, decodesOriginal: true,
                                 bandable: !made.plan.engineCuts, original: made.plan.decoded,
-                                printLayers: darkroom?.printLayers(frame, edit: frame.edit) ?? 0)
+                                printLayers: darkroom?.printLayers(frame, edit: frame.edit) ?? 0,
+                                gainMap: hdr.map, gainMaps: recipe.hdrLayoutInEffect == .iso ? 1 : 2,
+                                hdrRendition: slideHeadroom != nil)
             if let folder {
                 guard let source = made.source, let darkroom else {
                     // A pair with an empty hole, or one whose frame has left the library, is
@@ -316,7 +324,8 @@ final class ExportService {
                 let order = ExportOrder(format: recipe.format, colour: recipe.colour, quality: recipe.quality,
                                         url: folder.appendingPathComponent(item.fileName), metadataFrom: source,
                                         adjustments: frame.edit.adjustments.isActive ? frame.edit.adjustments : nil,
-                                        printCrop: made.plan.printCrop)
+                                        printCrop: made.plan.printCrop, gainMap: hdr.map, slideHeadroom: slideHeadroom,
+                                        hdrLayout: recipe.hdrLayoutInEffect)
                 darkroom.prepareExport(job, frame: frame, source: source, isRAW: made.isRAW, plan: made.plan, order: order)
             }
             jobs[job.id] = item.id
@@ -350,7 +359,7 @@ final class ExportService {
                     // Files and Share are the system's own sheets, shown over Exporting when the batch
                     // has ended, so the file waits in the batch's folder.
                     set(i, .done)
-                    noted("saved", file: written.url)
+                    noted("saved", file: written.url, hdr: written.hdr)
                 case .failed(let why):
                     set(i, .notSaved(why))
                     noted("not saved", why)

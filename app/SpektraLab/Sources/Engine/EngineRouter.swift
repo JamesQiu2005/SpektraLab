@@ -52,6 +52,9 @@ final class EngineRouter {
 
     /// A develop page's picture has landed.
     var onCanvas: ((_ frame: UUID, _ image: UIImage, _ stamp: String) -> Void)?
+    /// Enable HDR's curve of the session that made a develop page's next picture (`stamp`), or the engine's
+    /// refusal: it comes just before that picture (`onCanvas`).
+    var onHDRCurve: ((_ frame: UUID, _ answer: HDRSessionCurve.Answer, _ stamp: String) -> Void)?
     /// A frame's develop has been written.
     var onKept: ((_ frame: UUID, _ picture: DevelopedPicture) -> Void)?
     /// A RAW's own white balance, read at its decode.
@@ -82,6 +85,47 @@ final class EngineRouter {
     var originals: Originals?
 
     private let log = Logger(subsystem: "com.spektralab.mac", category: "engine")
+    /// The last Enable HDR curve the log was told of (`said`).
+    private var lastHDRCurve = ""
+
+    /// Whether a canvas develop of `edit` asks for Enable HDR's curve with its picture: where the page draws that
+    /// picture's HDR (`HDRLook.of`: the switch on, the film applied, a system that writes maps, a screen that shows
+    /// HDR). Then the curve is carried with the picture it is of, and follows the edit step by step. Anywhere else
+    /// the page asks for it alone once the edit settles, and when the switch is turned on (`OpenFrameSession.askCurve`).
+    /// The 2026-11-06 review: asked with every develop, a print-side step (Print Exposure, a filter) re-probes the
+    /// medium — the probe's key holds them — and an Endura step's live render took 9.5–10.6 ms more (23 ms, +43 %)
+    /// on every Mac, an HDR screen or not, for a curve nothing drew.
+    static func curveWithDevelop(_ edit: FrameEdit) -> Bool {
+        edit.hdr && edit.appliesFilm && HDRGainMap.supported && FeatureFlags.screenShowsHDR
+    }
+
+    /// Enable HDR's curve of the session the page's canvas keeps open on `frameID`, asked alone (`spk_session_hdr_curve`
+    /// on the engine's queue: no render). Nil where there is none to ask: no engine, or no session on that frame.
+    /// After the page's settled `spk_scene_latitude` it is that call's cached medium (0.3 ms).
+    func hdrCurve(_ frameID: UUID, headroom: Double = HDRSessionCurve.headroom) async -> HDRSessionCurve.Answer? {
+        #if SPK_ENGINE
+        guard let spk, let answer = await spk.hdrCurve(frameID: frameID, request: HDRSessionCurve.request(headroom: headroom)) else { return nil }
+        said(frameID, answer)
+        return answer
+        #else
+        return nil
+        #endif
+    }
+
+    /// One log line a change of curve, never one a slider's develop.
+    private func said(_ frame: UUID, _ answer: HDRSessionCurve.Answer) {
+        let line: String
+        switch answer {
+        case .curve(let c): line = frame.uuidString + c.curve.name
+        case .refused(let why): line = frame.uuidString + why
+        }
+        guard line != lastHDRCurve else { return }
+        lastHDRCurve = line
+        switch answer {
+        case .curve(let c): Log.note(.develop, "hdr curve", c.said.merging(["frame": frame.uuidString]) { a, _ in a })
+        case .refused(let why): Log.note(.develop, "hdr curve refused", ["frame": frame.uuidString, "why": why])
+        }
+    }
     #if SPK_ENGINE
     private let host: EngineHost?
     private let spk: SpkEngine?
@@ -149,7 +193,7 @@ final class EngineRouter {
     /// all the same (it is developed when asked once the disk is back, `prepare` refusing meanwhile).
     func needsDevelop(_ frame: LibraryFrame) -> Bool {
         guard let kept = frame.shownDevelop else { return true }
-        guard let stamp = stamp(frame, edit: frame.edit, longEdge: frame.previewSize.longEdge, evenAway: true) else { return false }
+        guard let stamp = stamp(frame, edit: frame.edit, longEdge: frame.previewDevelopLongEdge(frame.edit), evenAway: true) else { return false }
         return kept.stamp != stamp
     }
 
@@ -187,18 +231,20 @@ final class EngineRouter {
     /// the RAW's proxy is not here to stand for it (`RawProxy`). Only an
     /// export, or a job larger than the preview, needs the original itself.
     func needsBringing(_ frame: LibraryFrame, edit: FrameEdit) -> Bool {
-        isAway(frame) && !hasProxy(frame, decode: edit.decode)
+        isAway(frame) && !hasProxy(frame, decode: edit.decode, longEdge: frame.previewDevelopLongEdge(edit))
     }
 
     // MARK: a RAW's proxy
 
     /// The proxy a job of `frame` at its preview size reads or makes, decoded
     /// with `decode`: nil for anything but a RAW photograph developed from its
-    /// own file, and where nothing is kept on disk.
-    func proxy(_ frame: LibraryFrame, decode: DecodeSettings) -> RawProxy.Ask? {
-        guard frame.developsFromRAW, !frame.isPair, frame.previewSize.longEdge > 0,
+    /// own file, and where nothing is kept on disk. `longEdge` is the job's
+    /// decode (`LibraryFrame.previewDevelopLongEdge`: a cropped frame's is
+    /// larger than its preview); nil is the frame's own edit's.
+    func proxy(_ frame: LibraryFrame, decode: DecodeSettings, longEdge: Int? = nil) -> RawProxy.Ask? {
+        let edge = longEdge ?? frame.previewDevelopLongEdge(frame.edit)
+        guard frame.developsFromRAW, !frame.isPair, edge > 0,
               let folder = originals?.copies.proxyFolder, let source = frame.developSource else { return nil }
-        let edge = frame.previewSize.longEdge
         return RawProxy.Ask(url: folder.appendingPathComponent(RawProxy.fileName(frame: frame.id, source: source,
                                                                                  decode: decode, longEdge: edge)),
                             longEdge: edge)
@@ -209,12 +255,14 @@ final class EngineRouter {
     /// otherwise the original's (`decodeSize`), which the first decode reads
     /// and makes the proxy from.
     func openSize(_ frame: LibraryFrame, edit: FrameEdit) -> PixelSize {
-        hasProxy(frame, decode: edit.decode) ? frame.previewSize : decodeSize(frame)
+        let edge = frame.previewDevelopLongEdge(edit)
+        guard hasProxy(frame, decode: edit.decode, longEdge: edge) else { return decodeSize(frame) }
+        return edge == frame.previewSize.longEdge ? frame.previewSize : frame.originalSize.scaled(toLongEdge: edge)
     }
 
-    /// Whether `frame`'s proxy for `decode` is here to read.
-    func hasProxy(_ frame: LibraryFrame, decode: DecodeSettings) -> Bool {
-        guard let ask = proxy(frame, decode: decode), let copies = originals?.copies else { return false }
+    /// Whether `frame`'s proxy for `decode` (at `longEdge`, nil: its own edit's) is here to read.
+    func hasProxy(_ frame: LibraryFrame, decode: DecodeSettings, longEdge: Int? = nil) -> Bool {
+        guard let ask = proxy(frame, decode: decode, longEdge: longEdge), let copies = originals?.copies else { return false }
         return copies.hasProxy(ask.url)
     }
 
@@ -306,7 +354,7 @@ final class EngineRouter {
         guard let host else { return true }       // the simulation asks for nothing
         // A job at the preview size reads the RAW's proxy where it is here, the original or not.
         // Apple's decode reads the file itself: a proxy is the engine's decode.
-        let proxy = edit.appliesFilm ? longEdge.flatMap { edge in self.proxy(frame, decode: edit.decode).flatMap { edge <= $0.longEdge ? $0 : nil } } : nil
+        let proxy = edit.appliesFilm ? longEdge.flatMap { edge in self.proxy(frame, decode: edit.decode, longEdge: edge).flatMap { edge <= $0.longEdge ? $0 : nil } } : nil
         guard let source = frame.developSource,
               isHere(frame) || proxy.map({ originals?.copies.hasProxy($0.url) ?? false }) == true else { return false }
         let wire = wire(frame, edit: edit, longEdge: longEdge)
@@ -319,6 +367,9 @@ final class EngineRouter {
                                          decode: edit.decode, longEdge: longEdge, cut: cut, wire: wire, turnsAfter: turns,
                                          stamp: stamp, purpose: purpose == .canvas ? .canvas : .keep, proxy: proxy)
         if !edit.appliesFilm { request.digital = cut ?? edit.geometry }
+        // The page's canvas asks for Enable HDR's curve with a develop where its HDR is drawn (`curveWithDevelop`);
+        // otherwise the page asks once the edit settles (`OpenFrameSession.askCurve`), not with every develop.
+        if purpose == .canvas, Self.curveWithDevelop(edit) { request.hdrCurve = HDRSessionCurve.request(for: edit) }
         host.register(job.id, request)
         return true
         #else
@@ -446,10 +497,13 @@ final class EngineRouter {
         let own = layers(pair, piece: piece, look: look)
         let stamp = DevelopStamp.of(wire: wire, decode: DecodeSettings(), isRAW: false, longEdge: longEdge ?? piece.size.longEdge,
                                     engine: identity, piece: piece.key, prints: own.map(\.key))
-        host.register(job.id, EngineHost.Request(frameID: job.frameID, source: first.url, isRAW: false, decode: DecodeSettings(),
-                                                 longEdge: longEdge, cut: nil, wire: wire, turnsAfter: 0, stamp: stamp,
-                                                 purpose: purpose == .canvas ? .canvas : .keep, piece: piece, layers: own,
-                                                 stripPixels: pair.piece(frames, look: look, longEdge: StockPreviewSize.openLongEdge).key))
+        var request = EngineHost.Request(frameID: job.frameID, source: first.url, isRAW: false, decode: DecodeSettings(),
+                                         longEdge: longEdge, cut: nil, wire: wire, turnsAfter: 0, stamp: stamp,
+                                         purpose: purpose == .canvas ? .canvas : .keep, piece: piece, layers: own,
+                                         stripPixels: pair.piece(frames, look: look, longEdge: StockPreviewSize.openLongEdge).key)
+        // A pair's page has Enable HDR as a photograph's has (a pair is a frame to develop like any other).
+        if purpose == .canvas, Self.curveWithDevelop(look) { request.hdrCurve = HDRSessionCurve.request(for: look) }
+        host.register(job.id, request)
         return true
         #else
         return true
@@ -641,18 +695,28 @@ final class EngineRouter {
             let piece = pair.piece(frames, look: edit, longEdge: plan.decodeLongEdge)
             guard !piece.pictures.isEmpty else { return false }
             let wire = wire(pair, frames: frames, look: edit, longEdge: job.tier == .full ? nil : plan.decodeLongEdge)
-            host.register(job.id, EngineHost.Request(frameID: frame.id, source: source, isRAW: false, decode: DecodeSettings(),
-                                                     longEdge: plan.decodeLongEdge, cut: nil, wire: wire, turnsAfter: 0,
-                                                     stamp: "", purpose: .export(order), piece: piece,
-                                                     layers: layers(pair, piece: piece, look: edit)))
+            var request = EngineHost.Request(frameID: frame.id, source: source, isRAW: false, decode: DecodeSettings(),
+                                             longEdge: plan.decodeLongEdge, cut: nil, wire: wire, turnsAfter: 0,
+                                             stamp: "", purpose: .export(order), piece: piece,
+                                             layers: layers(pair, piece: piece, look: edit))
+            // Enable HDR: the map's curve is the session's that prints the pair (never rendered twice: no slide rendition).
+            if order.gainMap { request.hdrCurve = HDRSessionCurve.request(for: edit) }
+            host.register(job.id, request)
             return true
         }
         let wire = exportWire(frame, plan: plan, full: job.tier == .full)
         var request = EngineHost.Request(frameID: frame.id, source: source, isRAW: isRAW, decode: edit.decode,
                                          longEdge: plan.decodeLongEdge, cut: plan.cut, wire: wire,
                                          turnsAfter: plan.turnsAfter, stamp: "", purpose: .export(order))
-        // The page's zoom may have kept this very render (`FullRender`): then it is the export's.
-        if job.tier == .full { request.fullRender = fullAsk(frame, plan: plan, source: source, isRAW: isRAW) }
+        // Enable HDR (the export round, D8): the file's map is of the curve this render's own session gives
+        // (`HDRSessionCurve`, asked after the render as the canvas asks), and a slide's of its second rendition.
+        if order.gainMap, edit.appliesFilm {
+            request.hdrCurve = HDRSessionCurve.request(for: edit)
+            if let headroom = order.slideHeadroom, HDRGain.isSlide(edit) { request.slideHDR = HDRGain.rendition(for: edit, headroom: headroom) }
+        }
+        // The page's zoom may have kept this very render (`FullRender`): then it is the export's — not with a map,
+        // whose curve (or second rendition) needs the session a kept render has not.
+        if job.tier == .full, !order.gainMap { request.fullRender = fullAsk(frame, plan: plan, source: source, isRAW: isRAW) }
         if !edit.appliesFilm { request.digital = plan.cut ?? (plan.engineCuts ? edit.geometry : .default) }
         host.register(job.id, request)
         return true
@@ -861,6 +925,9 @@ final class EngineRouter {
             originals?.copies.noteProxy(event.url, bytes: event.bytes)
         case .fullView(_, _, let ask, let bytes):
             originals?.copies.noteFull(ask.url, bytes: bytes)
+        case .hdrCurve(let frame, let stamp, let answer):
+            said(frame, answer)
+            onHDRCurve?(frame, answer, stamp)
         case .failed(_, let frame, let message):
             log.error("frame \(frame.uuidString, privacy: .public): \(message, privacy: .public)")
         }

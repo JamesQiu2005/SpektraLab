@@ -165,7 +165,7 @@ enum MacPreviewStaleness {
         guard !f.develop.isBusy, let kept = f.shownDevelop, d.makesPictures, model.openSession(f.id) == nil else { return false }
         // A pair's stamp is of its two frames as well: not kept (there are few, and its key would need both).
         if f.isPair { return d.needsDevelop(f) }
-        let key = Key(edit: f.edit, kept: kept.stamp, longEdge: f.previewSize.longEdge, cropIsFrame: d.cropIsFrame(),
+        let key = Key(edit: f.edit, kept: kept.stamp, longEdge: f.previewDevelopLongEdge(f.edit), cropIsFrame: d.cropIsFrame(),
                       engine: d.identity, source: f.picture.fileURL, size: f.originalSize, bodySeed: body)
         if let m = memo[f.id], m.key == key { return m.stale }
         let stale = d.needsDevelop(f)

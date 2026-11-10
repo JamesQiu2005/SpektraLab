@@ -1101,6 +1101,28 @@ struct Keystone: Equatable, Sendable {
 }
 
 extension Geometry {
+    /// The long edge a preview develop of this crop decodes the whole photo at (`LibraryFrame.previewDevelopLongEdge`).
+    ///
+    /// The decode is of the whole photo and the engine cuts it first (`preprocess.crop_rescale`), so the
+    /// picture a develop keeps is the decode's long edge times the cut's. Decoded at the preview's own size,
+    /// a cut of a third kept a third of it (2026-11-09, PRD-A A4: the owner's L1026368.DNG, cut to 0.376 ×
+    /// 0.375 by its camera's crop, kept 480 × 720 px and was shown in a fit of 1,363 × 2,046). So the decode
+    /// is made larger by the cut's zoom — the photo's long edge over the cut's — **to the nearest power of
+    /// two** (1, 2 or 4), so the picture kept is within √2 of the preview's size either way, and a crop
+    /// dragged a little keeps one decode size (each new size opens the frame again: a decode of the file).
+    /// A cut of more than about 0.7 of the photo is decoded as it always was, and keeps its stamp. Never
+    /// past the photo's own long edge.
+    static func previewDecodeLongEdge(_ g: Geometry, preview: Int, original: PixelSize) -> Int {
+        guard preview > 0, original.width > 0, original.height > 0 else { return preview }
+        let w = Double(original.width), h = Double(original.height)
+        let cut = max(g.crop.width * w, g.crop.height * h)
+        guard cut > 0 else { return preview }
+        let zoom = max(w, h) / cut
+        let step = min(4, max(1, Int(pow(2, log2(zoom).rounded()))))
+        guard step > 1 else { return preview }
+        return max(preview, min(original.longEdge, preview * step))
+    }
+
     /// This geometry's perspective on a frame `imageSize` pixels large.
     func keystone(in imageSize: CGSize) -> Keystone {
         Keystone.make(vertical: vertical, horizontal: horizontal, size: imageSize)

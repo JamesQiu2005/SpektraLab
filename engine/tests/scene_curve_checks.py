@@ -19,6 +19,9 @@ written on the input so the two renders expose the film alike; the product's
 print (`product_defaults`, no enlarger re-timing, trap 30) so the print does
 not tell c from an input gain either. A uniform lift commutes with any shift
 and could not fail this, so the bump is local.
+
+RFC-051: `spk_scene_latitude`'s `curved_fractions` (and `_r/_g/_b`) are the
+frame after the render's own scene transform, on the reply's bins and axis.
 """
 import argparse, sys
 from pathlib import Path
@@ -152,6 +155,70 @@ def main():
     r_ok = np.array_equal(np.asarray(t["fractions_r"]), np.roll(np.asarray(g["fractions_r"]), 4))
     gb_ok = all(np.array_equal(np.asarray(t[k]), np.asarray(g[k])) for k in ("fractions_g", "fractions_b"))
     check(r_ok and gb_ok, "red doubled moves red's histogram one stop, and no other")
+
+    # RFC-051: `curved_fractions`, the frame after the scene transform the
+    # render applies before the film, through the render's own nodes. Patches
+    # sit at quarter-stop bin centres (E = k + 1/8), so a float's last bit
+    # cannot move one across a bin's edge.
+    centred = np.linspace(-4, 4, 9) + 0.125
+    plain_h = latitude(ramp(centred), {})["scene"]["histogram"]
+    check("curved_fractions" not in plain_h, "no curve and no placement: no curved_fractions")
+    ident_h = latitude(ramp(centred), {"scene_curve": table()})["scene"]["histogram"]
+    d = np.abs(np.asarray(ident_h.get("curved_fractions", [9.0])) - np.asarray(ident_h["fractions"])).max()
+    check(d < 1e-9, "the identity table: curved_fractions is fractions", f"max |d| {d:.1e}")
+    lift_h = latitude(ramp(centred), {"scene_curve": table(rgb=1.0)})["scene"]["histogram"]
+    f = np.asarray(lift_h["fractions"])
+    got = np.asarray(lift_h["curved_fractions"])
+    check(np.array_equal(got, np.roll(f, 4)) and not np.array_equal(got, f),
+          "rgb +1 stop: curved_fractions is fractions four bins up, and fractions is the input's")
+    rows_ok = all(np.array_equal(np.asarray(lift_h["curved_" + k]), np.roll(np.asarray(lift_h[k]), 4))
+                  for k in ("fractions_r", "fractions_g", "fractions_b"))
+    check(rows_ok, "rgb +1 stop: each channel's curved row is its row four bins up")
+    # Under Film Exposure the reply's axis stays before it, as the curve reads
+    # E + c: a +1 lift is four bins up at c = +1 too.
+    c_h = latitude(ramp(centred), {"exposure_compensation_ev": 1.0, "scene_curve": table(rgb=1.0)})["scene"]["histogram"]
+    check(np.array_equal(np.asarray(c_h["curved_fractions"]), np.roll(np.asarray(c_h["fractions"]), 4)),
+          "c = +1: the curved rows are on the reply's axis, before Film Exposure")
+
+    # A committed Scene Placement alone is a transform too: present, and the
+    # scene's top brought down (the old frames that carry one keep it).
+    placed = {"scene_latitude_active": True, "scene_latitude_highlight_knee": 0.5,
+              "scene_latitude_highlight_room": 1.0}
+    p_h = latitude(ramp(centred), {"auto_exposure": False, **placed})["scene"]["histogram"]
+    top = lambda h: max(i for i, v in enumerate(h) if v > 0)
+    check("curved_fractions" in p_h and top(p_h["curved_fractions"]) < top(p_h["fractions"]),
+          "a committed placement: curved_fractions present, its top end brought down")
+
+    # The one an app could not compute: a colourful frame under a curve that
+    # is not a uniform lift. Truth: the render's own transform applied to the
+    # input in numpy (rgb row, per channel, at c = 0) and that frame measured
+    # with no curve. A bin-push of `fractions` through the same row -- what a
+    # host could do -- must miss it, or the check could not tell them apart.
+    def cdf(h):
+        return np.cumsum(np.asarray(h, float))
+    def through(v, rows_text):
+        rows = np.asarray([float(x) for x in rows_text.split(",")]).reshape(5, N)[0]
+        E = np.log2(np.maximum(v, 1e-30) / 0.184)
+        u = np.clip((E + STOPS) / (2 * STOPS), 0.0, 1.0)
+        fE = np.interp(u, np.linspace(0.0, 1.0, N), rows) * 2 * STOPS - STOPS
+        return v * 2.0 ** (fE - E)
+    squash = bump(1.0, stops=-2.0, width=0.75)
+    tinted = ramp(np.linspace(-3, 3, 25) + 0.125, (1.0, 0.35, 0.12))
+    # The meter off in both: the transformed frame would meter elsewhere.
+    col = latitude(tinted, {"auto_exposure": False, "scene_curve": squash})["scene"]["histogram"]
+    truth = latitude(through(tinted.astype(np.float64), squash).astype(np.float32),
+                     {"auto_exposure": False})["scene"]["histogram"]
+    d_engine = np.abs(cdf(col["curved_fractions"]) - cdf(truth["fractions"])).max()
+    bins = np.asarray(col["fractions"])
+    centres = -16.0 + (np.arange(len(bins)) + 0.5) * 0.25
+    pushed = np.zeros_like(bins)
+    landed = np.log2(through(0.184 * 2.0 ** centres, squash) / 0.184)
+    for i, v in enumerate(bins):
+        pushed[int(np.clip(np.floor((landed[i] + 16.0) / 0.25), 0, len(bins) - 1))] += v
+    d_push = np.abs(cdf(pushed) - cdf(truth["fractions"])).max()
+    check(d_engine < 0.005 and d_push > 0.02,
+          "a colourful frame: curved_fractions is the transformed frame's, which a bin-push is not",
+          f"CDF |d| engine {d_engine:.3f}, bin-push {d_push:.3f}")
 
     for bad, why in (("0.5,2", "a value outside 0..1"), ("0.1,0.2,0.3", "not five rows"), ("a,b", "not numbers")):
         try:

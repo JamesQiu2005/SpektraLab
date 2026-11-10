@@ -191,7 +191,7 @@ UserDefaults	develop.wide.decode.collapsed	key
 UserDefaults	develop.wide.filmEdge.collapsed	key
 UserDefaults	develop.wide.filmRow.collapsed	key
 UserDefaults	develop.wide.histogram.collapsed	key
-UserDefaults	develop.wide.histogram.style	key
+UserDefaults	develop.wide.histogram.style	key	retired: the histogram has one style since 2026-11-09 (the owner dropped SpektraLab Style and its menu); the stored choice is no longer read
 UserDefaults	develop.wide.paperRow.collapsed	key
 UserDefaults	diagnostics.consent	key
 UserDefaults	diagnostics.install	key
@@ -244,7 +244,7 @@ UserDefaults raw values	$=150	path
 UserDefaults raw values	$=80	path
 UserDefaults raw values	$=added	path
 UserDefaults raw values	$=all	path
-UserDefaults raw values	$=captureOne	path
+UserDefaults raw values	$=captureOne	path	retired: HistogramStyle, the histogram's two styles, removed 2026-11-09 (one style since); develop.wide.histogram.style is no longer read
 UserDefaults raw values	$=captured	path
 UserDefaults raw values	$=click	path
 UserDefaults raw values	$=colour	path
@@ -278,7 +278,7 @@ UserDefaults raw values	$=printEffects	path
 UserDefaults raw values	$=rating	path
 UserDefaults raw values	$=scenePlacement	path
 UserDefaults raw values	$=shared	path
-UserDefaults raw values	$=spektraLab	path
+UserDefaults raw values	$=spektraLab	path	retired: HistogramStyle, the histogram's two styles, removed 2026-11-09 (one style since); develop.wide.histogram.style is no longer read
 UserDefaults raw values	$=system	path
 UserDefaults raw values	$=unasked	path
 UserDefaults raw values	$=whiteBalance	path

@@ -453,6 +453,19 @@ struct IOParams {
     /// RFC-028 §10: the optional blue-sector correction of the DI's colour
     /// step. Off by default, by the user's decision of 2026-09-29.
     bool digital_intermediate_blue_compensation = false;
+    /// `scan_hdr` (2026-11-06; `core/scan_hdr.hpp`): a
+    /// slide scanned with each dye layer's shoulder moved above its own knee
+    /// and the layer lifted inside the scan, so its clear base lands at
+    /// `scan_hdr_headroom` x today's. 0 (or anything up to 1) is today's scan,
+    /// byte for byte. Only a positive film scanned (`scan_film`) has it;
+    /// anything else ignores it.
+    double scan_hdr_headroom = 0.0;
+    /// The SDR rendition: the clear base at the page's white (0.98), the
+    /// headroom `0.98 / Y_white` -- the study's H_sdr. Wins over the headroom.
+    bool scan_hdr_stretch = false;
+    /// The scan's gain, so an HDR rendition above white fits within the
+    /// output (1 / H for H's rendition); 1 is today's.
+    double scan_hdr_output_scale = 1.0;
     /// The long edge of the `live` tier, i.e. the size every interactive edit
     /// renders at — the app's **preview resolution**, and a user setting.
     /// `engine.cpp` resolves the `live` row of its tier table from here, so
@@ -495,6 +508,12 @@ struct SettingsParams {
     // invalidate a cached negative or a tier. They are `live` in the schema for
     // that reason -- written straight onto the running pipeline, read by the
     // next render, and no rebuild for a change that cannot move a pixel.
+    /// The film's grain realisation (`grain_seed`): 0 draws a
+    /// fresh one each render (today's); any other value is that realisation,
+    /// so two renders of one frame -- a slide's SDR and HDR renditions
+    /// (`scan_hdr`) -- carry the same grain.
+    int film_seed = 0;
+
     bool striped = false;              ///< run the striped executor at all
     int strip_rows = 0;                ///< 0 = let `choose_strip_height` decide
     int strip_budget_bytes = 0;        ///< accepted, recorded, varies nothing yet (§7)

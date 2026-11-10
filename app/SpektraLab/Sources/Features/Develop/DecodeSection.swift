@@ -23,6 +23,13 @@
 //  it, as the strips fold (`ColumnSectionHeader`, kept in `DevelopPanelPrefs`), and under it the three
 //  parts in that order, each under its own name with its own ↺. The host keeps the chips.
 //
+//  **高动态范围** (PRD-B, 2026-11-09): Decode's last part in a wide window, a row that folds on its own, holding the
+//  print's EDR, the picture's Enable HDR and its HDR Peak Brightness (`HighDynamicRangeGroup`). The host's chips
+//  have no such part (the Mac's column is the stacked one).
+//
+//  **放大机** (2026-11-10): the print's Brightness, Yellow, Magenta and Pre-flash (`EnlargerGroup`), a folding row
+//  before 高动态范围.
+//
 //  Scene Placement has no control any more. A frame that has one keeps it on the wire, so its picture
 //  does not change under it; the page's ↺ takes it off with the rest of the decode.
 
@@ -48,6 +55,8 @@ struct DecodeSection: View {
 
     /// The section's title line, and its chips' row.
     static let header: CGFloat = 30
+    /// A wide window's Decode folded: its rule and its title line (`stackedBody`, `ColumnSectionHeader`'s 44 pt).
+    static let foldedHeight: CGFloat = Theme.Metric.rule + 44
     static let chips: CGFloat = 44
     /// Each part's own height under the chips.
     static let exposureHeight: CGFloat = 52
@@ -95,6 +104,8 @@ struct DecodeSection: View {
                     .rowEnabled(enabled(t))
                     part(t).rowEnabled(enabled(t))
                 }
+                EnlargerGroup(session: session)
+                HighDynamicRangeGroup(session: session)
             }
         }
     }

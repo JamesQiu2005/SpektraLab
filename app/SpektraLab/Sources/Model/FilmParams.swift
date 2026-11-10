@@ -579,6 +579,10 @@ struct FilmParams: Codable, Equatable, Sendable {
     /// of the mid-grey exposure and the useful range is 0…0.03 of the wire's
     /// 0…1 (`output/preflash_DSC2663/report.md`). Print layer, live.
     var preflashExposure: Double = 0
+    /// The enlarger's pre-flash range a control gives: 0…0.2 of the wire's 0…1, shown as 0…1 (scaled at the control). The
+    /// owner, 2026-11-10, widened it from 1.x's 0…0.03 (the range measured "useful" on `_DSC2663`): at 0.03 the
+    /// highlights move by ~0.17 at most, too little to see on most frames.
+    static let preflashMax: Double = 0.2
     /// RFC-024. Print layer.
     var contrastMask = ContrastMaskSettings()
     /// RFC-023. Shoot layer.
@@ -839,8 +843,21 @@ struct FilmParams: Codable, Equatable, Sendable {
     /// (measured through a banded engine, 2026-10-09: a mean of 46,490 of 65,535
     /// where the pack gives 36,308). So at a stock change `applied` is cut back
     /// to the fields the wire has now.
+    ///
+    /// **A field the wire carries only sometimes goes back to its rest when it leaves** (`sometimesSent`, the
+    /// HDR port, 2026-11-06): a slide's Enable HDR adds the stretch and a grain seed to its wire
+    /// (`HDRGain.sdrWire`) and takes them away again when it is turned off. Absent from `now`, they were never
+    /// sent: the session kept developing the slide stretched, under a stamp that said it was not.
+    /// So a field of those that was told and is gone is sent at its rest, before a stock change
+    /// cuts `applied` back — which would otherwise forget it, and leave a slide's grain seed on the next film.
+    static let sometimesSent: [String: ParamValue] = ["scan_hdr_stretch": .bool(false), "scan_hdr_headroom": .double(0),
+                                                       "scan_hdr_output_scale": .double(1), "grain_seed": .double(0)]
+
     static func step(from applied: inout [String: ParamValue], to now: [String: ParamValue]) -> [String: ParamValue] {
-        let delta = now.filter { applied[$0.key] != $0.value }
+        var delta = now.filter { applied[$0.key] != $0.value }
+        for (name, rest) in sometimesSent where now[name] == nil {
+            if let told = applied[name], told != rest { delta[name] = rest }
+        }
         applied.merge(delta) { _, new in new }
         if delta["film_stock"] != nil || delta["print_stock"] != nil {
             applied = applied.filter { now[$0.key] != nil }

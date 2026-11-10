@@ -33,7 +33,9 @@ struct Layer2Picture<Base: View>: View {
         ZStack {
             base()
             if let shown {
-                Image(uiImage: UIImage(cgImage: GamutProof.shared.proofed(shown, gamutProof))).resizable().aspectRatio(contentMode: .fit)
+                // In HDR where the page gives a look (`HDRImage`): Edit's layer on the develop,
+                // lifted by the same gain a pixel as the develop under it.
+                HDRImage(image: GamutProof.shared.proofed(shown, gamutProof), contentMode: .fit)
                     .accessibilityHidden(true)
             }
         }

@@ -118,6 +118,8 @@ enum MacLibraryDriver {
             ("browser.default", { browser.browserWidth = MacMetric.browserWidth }),
             // The window's mode row, as a press on it does (`MainWindowLayout`, 2026-10-27).
             ("mode.library", { model.router.toLibrary() }),
+            // The library-becomes-a-catalog page's *Not Now* (Escape): a check's fresh home is offered it at start.
+            ("move.notnow", { store.move.notNow() }),
             ("mode.develop", { mode(.develop) }),
             ("mode.edit", { mode(.edit) }),
             ("scroll.last", { browser.scrollTarget = store.images.last?.id }),

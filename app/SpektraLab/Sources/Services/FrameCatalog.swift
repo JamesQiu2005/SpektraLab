@@ -504,6 +504,9 @@ final class FrameCatalog {
             guard pasted != frames[i].edit else { continue }
             var beside = pasted
             beside.adjustments = frames[i].edit.adjustments
+            // Enable HDR develops nothing either -- but a slide's is its stretched scan (`HDRGain.sdrWire`).
+            // The stored choice, not `hdr`: a frame that never chose (nil) is not one that chose off.
+            if HDRGain.sdrWire(for: pasted) == HDRGain.sdrWire(for: frames[i].edit) { beside.hdrChoice = frames[i].edit.hdrChoice }
             if beside != frames[i].edit { changed.append(id) }
             frames[i].edit = pasted
             any = true

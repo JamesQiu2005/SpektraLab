@@ -97,15 +97,15 @@ final class DevelopPanelPrefs {
     static let shared = DevelopPanelPrefs()
 
     @ObservationIgnored private let defaults: UserDefaults
-    private static let styleKey = "develop.wide.histogram.style"
     private static let histogramFoldKey = "develop.wide.histogram.collapsed"
     private static let filmFoldKey = "develop.wide.filmRow.collapsed"
     private static let paperFoldKey = "develop.wide.paperRow.collapsed"
     private static let decodeFoldKey = "develop.wide.decode.collapsed"
     private static let filmEdgeFoldKey = "develop.wide.filmEdge.collapsed"
     private static let dateBackFoldKey = "develop.wide.dateBack.collapsed"
+    private static let hdrFoldKey = "develop.wide.hdr.collapsed"
+    private static let enlargerFoldKey = "develop.wide.enlarger.collapsed"
 
-    var histogramStyle: HistogramStyle { didSet { defaults.set(histogramStyle.rawValue, forKey: Self.styleKey) } }
     var histogramCollapsed: Bool { didSet { defaults.set(histogramCollapsed, forKey: Self.histogramFoldKey) } }
     var filmRowCollapsed: Bool { didSet { defaults.set(filmRowCollapsed, forKey: Self.filmFoldKey) } }
     var paperRowCollapsed: Bool { didSet { defaults.set(paperRowCollapsed, forKey: Self.paperFoldKey) } }
@@ -114,15 +114,20 @@ final class DevelopPanelPrefs {
     var decodeCollapsed: Bool { didSet { defaults.set(decodeCollapsed, forKey: Self.decodeFoldKey) } }
     var filmEdgeCollapsed: Bool { didSet { defaults.set(filmEdgeCollapsed, forKey: Self.filmEdgeFoldKey) } }
     var dateBackCollapsed: Bool { didSet { defaults.set(dateBackCollapsed, forKey: Self.dateBackFoldKey) } }
+    /// 解码 › 高动态范围 folds on its own (PRD-B, 2026-11-09): open until folded.
+    var hdrCollapsed: Bool { didSet { defaults.set(hdrCollapsed, forKey: Self.hdrFoldKey) } }
+    /// 解码 › 放大机 folds on its own (2026-11-10): open until folded.
+    var enlargerCollapsed: Bool { didSet { defaults.set(enlargerCollapsed, forKey: Self.enlargerFoldKey) } }
 
     init(defaults: UserDefaults = .standard) {
         self.defaults = defaults
-        histogramStyle = defaults.string(forKey: Self.styleKey).flatMap(HistogramStyle.init(rawValue:)) ?? .captureOne
         histogramCollapsed = defaults.bool(forKey: Self.histogramFoldKey)
         filmRowCollapsed = defaults.bool(forKey: Self.filmFoldKey)
         paperRowCollapsed = defaults.bool(forKey: Self.paperFoldKey)
         decodeCollapsed = defaults.bool(forKey: Self.decodeFoldKey)
         filmEdgeCollapsed = defaults.bool(forKey: Self.filmEdgeFoldKey)
         dateBackCollapsed = defaults.bool(forKey: Self.dateBackFoldKey)
+        hdrCollapsed = defaults.bool(forKey: Self.hdrFoldKey)
+        enlargerCollapsed = defaults.bool(forKey: Self.enlargerFoldKey)
     }
 }

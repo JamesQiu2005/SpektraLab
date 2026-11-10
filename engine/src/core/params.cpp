@@ -214,6 +214,16 @@ const SchemaField kFields[] = {
     // film, on Scene Latitude's stop axis. Native only, SHOOT, after
     // `halation_headroom_ev`. "" = off.
     {"scene_curve",              "camera.scene_curve",                    S, SHOOT, false, 0, 0, false},
+    // `scan_hdr` (2026-11-06; API-SPEC §19): a slide's
+    // HDR scan, per dye layer (`core/scan_hdr.hpp`). Native-only, after
+    // `scene_curve`. The headroom and the stretch move the film's curves, so
+    // SHOOT; the output scale is the scan's gain, PRINT. `grain_seed` holds one
+    // realisation of the grain across renders (0 = a fresh one each, today's),
+    // SHOOT. Every default is a bypass.
+    {"scan_hdr_headroom",        "io.scan_hdr_headroom",                  F, SHOOT, true, 0.0, 16.0, false},
+    {"scan_hdr_stretch",         "io.scan_hdr_stretch",                   B, SHOOT, false, 0, 0, false},
+    {"scan_hdr_output_scale",    "io.scan_hdr_output_scale",              F, PRINT, true, 0.0625, 1.0, false},
+    {"grain_seed",               "settings.film_seed",                    I, SHOOT, true, 0.0, 2147483647.0, false},
     // The app's *preview resolution*: the `live` tier's long edge, and so the
     // size every interactive edit renders at. PRINT layer, because it is a
     // decision about the canvas rather than about the film -- but it is one of
@@ -281,6 +291,8 @@ double* float_slot(Params& p, const std::string& path) {
     if (path == "film_render.date_imprint.inset_x") return &p.film_render.date_imprint.inset_x;
     if (path == "film_render.date_imprint.inset_y") return &p.film_render.date_imprint.inset_y;
     if (path == "print_render.glare.amount") return &p.print_render.glare.amount;
+    if (path == "io.scan_hdr_headroom") return &p.io.scan_hdr_headroom;
+    if (path == "io.scan_hdr_output_scale") return &p.io.scan_hdr_output_scale;
     return nullptr;
 }
 
@@ -301,6 +313,7 @@ bool* bool_slot(Params& p, const std::string& path) {
     if (path == "scanner.black_correction") return &p.scanner.black_correction;
     if (path == "io.output_cctf_encoding") return &p.io.output_cctf_encoding;
     if (path == "io.scan_film") return &p.io.scan_film;
+    if (path == "io.scan_hdr_stretch") return &p.io.scan_hdr_stretch;
     if (path == "io.digital_intermediate") return &p.io.digital_intermediate;
     if (path == "io.digital_intermediate_blue_compensation")
         return &p.io.digital_intermediate_blue_compensation;
@@ -348,6 +361,7 @@ int* int_slot(Params& p, const std::string& path) {
     if (path == "film_render.overscan.camera_seed") return &p.film_render.overscan.camera_seed;
     if (path == "film_render.overscan.frame_seed") return &p.film_render.overscan.frame_seed;
     if (path == "film_render.overscan.frame_number") return &p.film_render.overscan.frame_number;
+    if (path == "settings.film_seed") return &p.settings.film_seed;
     return nullptr;
 }
 

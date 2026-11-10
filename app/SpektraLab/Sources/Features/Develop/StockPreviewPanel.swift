@@ -50,10 +50,16 @@ struct StockPreviewPanel: View {
     /// showing its shortest part (Exposure): a taller part scrolls, rather than the strips losing a
     /// row under the pointer each time a chip is chosen.
     /// A folded strip (`foldable`) is its pill's line alone.
-    static func height(rows: Int, compact: Bool, filmFolded: Bool = false, paperFolded: Bool = false) -> CGFloat {
+    /// `decodeFolded`: a wide window's Decode folded to its title line (`DecodeSection.foldedHeight`) gives its
+    /// rows to the strips, as a folded strip gives its to the other. The 2026-11-06 review: the 126 pt of an
+    /// unfolded Decode were held for it folded too, so at 1427 × 977 the HDR row's 54 pt took both strips from two
+    /// rows to one, with ~280 pt left empty under it.
+    static func height(rows: Int, compact: Bool, filmFolded: Bool = false, paperFolded: Bool = false,
+                       decodeFolded: Bool = false) -> CGFloat {
         let spacing: CGFloat = compact ? 6 : 10, pill: CGFloat = 44, toggle: CGFloat = 44
         let row = StockPreviewRow.height(compact: compact, rows: rows) + spacing
-        return 8 + 2 * pill + (filmFolded ? 0 : row) + (paperFolded ? 0 : row) + DecodeSection.height(.exposure)
+        let decode = decodeFolded ? DecodeSection.foldedHeight : DecodeSection.height(.exposure)
+        return 8 + 2 * pill + (filmFolded ? 0 : row) + (paperFolded ? 0 : row) + decode
             + toggle + 3 * spacing
     }
 

@@ -153,8 +153,8 @@ struct MainWindowLayout: View {
     @Environment(AppRouter.self) private var router
     @Environment(FrameCatalog.self) private var library
     @AppStorage(InterfaceScale.key) private var scaleChoice = InterfaceScale.standard.rawValue
-    /// A Finder drag is over the window (`MacImportDrop`).
-    @State private var dropping = false
+    /// A drag the import page takes is over the window (`MacImportDropZone`, `MacDropOffer`).
+    @State private var dropWatch = MacImportDropWatch()
 
     private var browser: MacLibraryBrowser { MacLibraryBrowser.shared }
     private var bar: MacShellBar { MacShellBar.shared }
@@ -186,10 +186,16 @@ struct MainWindowLayout: View {
         .background(Theme.background.ignoresSafeArea())
         // Pictures and folders dragged from Finder, in every mode: the import page with them as picked
         // (`MacImportDrop`, 2026-11-05). Refused (the cursor's ⊘) under another page's cover or sheet, and
-        // for what is plainly not a picture, a folder or a catalog.
-        .onDrop(of: MacImportDrop.types, delegate: MacImportDropTarget(router: router, dropping: $dropping))
+        // for files that are not pictures, folders or catalogs; not answered at all for a drag from inside
+        // the app or one with no file (`MacDropOffer`, 2026-11-09).
+        .macImportDropZone(router: router, watch: dropWatch)
         .overlay {
-            if dropping || browser.dropReading != nil { MacImportDropNote(reading: browser.dropReading).ignoresSafeArea() }
+            if dropWatch.shown || browser.dropReading != nil { MacImportDropNote(reading: browser.dropReading).ignoresSafeArea() }
+        }
+        // A key while the note is up: it belongs to no drag (a backstop; a drag's end is heard).
+        .onKeyPress(phases: .down) { _ in
+            if dropWatch.shown { dropWatch.apply { $0.interrupted() } }
+            return .ignored
         }
         .background { shellKeys(store, rows) }
         .background { ratingKeys(store, rows) }

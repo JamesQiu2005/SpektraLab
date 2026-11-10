@@ -71,11 +71,11 @@ swiftc -O -parse-as-library -o "$out/crop_selftest" \
   "$src/Model/Format.swift" "$src/Model/Localization.swift" "$src/Model/FeatureFlags.swift" "$src/Model/FilmParams.swift" "$src/Model/FrameEdit.swift" \
   "$src/Model/Geometry.swift" "$src/Model/FilmEdge.swift" "$src/Model/Adjustments.swift" "$src/Model/CurveMath.swift" "$src/Model/CropGuides.swift" \
   "$src/Model/CameraCrop.swift" "$src/Features/Frame/CropStage.swift" "$src/Engine/HostCut.swift" "$src/Engine/FinishedCut.swift" "$src/Engine/ExportPlan.swift" "$src/Model/ExportRecipe.swift" \
-  "$src/Services/ExportRecipeStore.swift" "$src/Services/KeptFileAside.swift" "$src/Engine/ExportWriter.swift" \
+  "$src/Services/ExportRecipeStore.swift" "$src/Services/KeptFileAside.swift" "$src/Engine/ExportWriter.swift" "$src/Engine/HDRGainMap.swift" "$src/Engine/HDRContainer.swift" "$src/Engine/HDRUltraHDR.swift" \
   "$here/tools/crop_selftest.swift" 2> "$out/crop-selftest-build.log" || { grep -E "error" "$out/crop-selftest-build.log" | head -30; exit 1; }
 swiftc -O -parse-as-library -o "$out/export_selftest" \
   "$src/Model/Format.swift" "$src/Model/Localization.swift" "$src/Model/Geometry.swift" "$src/Model/ExportRecipe.swift" "$src/Services/ExportRecipeStore.swift" "$src/Services/KeptFileAside.swift" \
-  "$src/Engine/HostCut.swift" "$src/Engine/ExportPlan.swift" "$src/Engine/ExportWriter.swift" "$src/Model/Adjustments.swift" "$src/Model/CurveMath.swift" \
+  "$src/Engine/HostCut.swift" "$src/Engine/ExportPlan.swift" "$src/Engine/ExportWriter.swift" "$src/Engine/HDRGainMap.swift" "$src/Engine/HDRContainer.swift" "$src/Engine/HDRUltraHDR.swift" "$src/Model/Adjustments.swift" "$src/Model/CurveMath.swift" \
   "$here/tools/export_selftest.swift" 2> "$out/export-selftest-build.log" || { grep -E "error" "$out/export-selftest-build.log" | head -30; exit 1; }
 swiftc -O -D DEBUG -parse-as-library -o "$out/develop_selftest" \
   "$src/Model/Format.swift" "$src/Model/Localization.swift" "$src/Model/FeatureFlags.swift" "$src/Model/FilmParams.swift" "$src/Model/FrameEdit.swift" "$src/Model/Adjustments.swift" "$src/Model/CurveMath.swift" \
@@ -129,6 +129,15 @@ swiftc -O -parse-as-library -o "$out/layer2_selftest" \
   "$src/Model/Adjustments.swift" "$src/Model/CurveMath.swift" "$src/Features/Develop/Edit/EditTool.swift" \
   "$src/Engine/Layer2Kernel.swift" "$src/Engine/Layer2Renderer.swift" \
   "$here/tools/layer2_selftest.swift" 2> "$out/layer2-selftest-build.log" || { grep -E "error" "$out/layer2-selftest-build.log" | head -30; exit 1; }
+# Enable HDR on the Mac (2026-11-06, D3/D5/D6; tools/hdr_selftest.swift): the per-frame choice and its JSON, a print's
+# wire untouched by the switch and a slide's stretched, the stretch's rest when it leaves the wire, the paste group,
+# the engine's curve reply (tools/engine_replies/hdr_curve_reply.json), and the canvas's kernels on this Mac's GPU.
+swiftc -O -parse-as-library -o "$out/hdr_selftest" \
+  "$src/Model/Format.swift" "$src/Model/Localization.swift" "$src/Model/FeatureFlags.swift" "$src/Model/FilmParams.swift" "$src/Model/FrameEdit.swift" \
+  "$src/Model/Adjustments.swift" "$src/Model/CurveMath.swift" "$src/Model/Geometry.swift" "$src/Model/FilmEdge.swift" "$src/Model/SettingsClipboard.swift" \
+  "$src/Model/Stock.swift" "$src/Engine/HDRMath.swift" "$src/Engine/HDRGrainGain.swift" "$src/Engine/HDRRendition.swift" "$src/Engine/HDRLook.swift" \
+  "$src/Engine/HDRGainMap.swift" "$src/Engine/HDRSessionCurve.swift" "$src/Engine/HDRGain.swift" "$src/Model/ExportRecipe.swift" \
+  "$here/tools/hdr_selftest.swift" 2> "$out/hdr-selftest-build.log" || { grep -E "error" "$out/hdr-selftest-build.log" | head -30; exit 1; }
 swiftc -O -parse-as-library -o "$out/navigation_selftest" \
   "$src/Model/Format.swift" "$src/Model/Localization.swift" "$src/App/Navigation.swift" \
   "$here/tools/navigation_selftest.swift" 2> "$out/navigation-selftest-build.log" || { grep -E "error" "$out/navigation-selftest-build.log" | head -30; exit 1; }
@@ -141,6 +150,9 @@ swiftc -O -parse-as-library -o "$out/history_selftest" \
   "$src/Model/EditHistory.swift" "$here/tools/history_selftest.swift"
 swiftc -O -parse-as-library -o "$out/strip_source_selftest" \
   "$src/Services/StripSource.swift" "$here/tools/strip_source_selftest.swift"
+# 松手即导入: which drags the window answers, and that its note goes however a drag ends (2026-11-09).
+swiftc -O -parse-as-library -o "$out/drop_selftest" \
+  "$src/Mac/Import/MacDropOffer.swift" "$here/tools/drop_selftest.swift" 2> "$out/drop-selftest-build.log" || { grep -E "error" "$out/drop-selftest-build.log" | head -30; exit 1; }
 # The window's layout and the column's split across it.
 swiftc -O -parse-as-library -o "$out/window_selftest" \
   "$src/App/WindowLayoutRule.swift" "$here/tools/window_selftest.swift"
@@ -161,6 +173,7 @@ status=0
 "$out/strip_source_selftest" || status=1
 "$out/update_selftest" || status=1
 "$out/window_selftest" || status=1
+"$out/drop_selftest" || status=1
 "$out/supporters_selftest" "$@" || status=1
 "$out/agent_selftest" "$@" || status=1
 "$out/history_selftest" || status=1
@@ -185,6 +198,15 @@ python3 -B "$here/tools/persisted_names.py" "$src" --check "$here/tools/persiste
 "$out/language_selftest" "$@" || status=1
 "$out/navigation_selftest" || status=1
 "$out/layer2_selftest" "$@" || status=1
+(cd "$here" && "$out/hdr_selftest") || status=1
+# The HDR histogram (2026-11-06, D7; tools/hdr_histogram_selftest.swift): counts past SDR white against the
+# rendition's own arithmetic, the GPU's picture binned against the Swift pass, half floats read with no Float16.
+bash "$here/tools/hdr_histogram_selftest.sh" || status=1
+# An export's gain map (2026-11-06, D8; tools/hdr_gainmap_selftest.swift): the map is the canvas's, JPEG and HEIF in
+# the camera's layout read back as their gain, Adobe's hdrgm the ISO declaration's to the field and ImageIO's file to
+# the bit, every surprise refused, and each of five broken rules caught.
+bash "$here/tools/hdr_gainmap_selftest.sh" | tail -1 || status=1
+bash "$here/tools/hdr_gainmap_selftest.sh" --self-test | tail -1 || status=1
 python3 "$here/tools/localization_check.py" --self-test | tail -1 || status=1
 python3 "$here/tools/localization_check.py" | tail -3 || status=1
 bash "$here/tools/v2_selftest.sh" || status=1

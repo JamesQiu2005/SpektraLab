@@ -218,13 +218,53 @@ bool Pipeline::build(const Params& params, std::string& error) {
     if (!colour_->matrix_RGB_to_XYZ(params_.io.input_color_space, nullptr, "CAT02",
                                     rgb_to_xyz_ae_, error)) return false;
 
+    // --- scan_hdr: a slide's HDR scan (core/scan_hdr.hpp) ------------------
+    // 2026-11-06 (PRD/HDR-PORT-PLAN D4). The curves the
+    // develop reads, and the scan's table, for a positive film scanned with a
+    // headroom or the stretch; otherwise inactive and every table below is the
+    // film's own, so a session without the fields builds today's pipeline.
+    scan_hdr_ = ScanHdrModel{};
+    if (params_.io.scan_film && film.info.is_positive() &&
+        (params_.io.scan_hdr_stretch || params_.io.scan_hdr_headroom > 1.0)) {
+        ScanHdrModel m;
+        m.active = true;
+        m.stretch = params_.io.scan_hdr_stretch;
+        m.headroom = params_.io.scan_hdr_headroom;
+        m.output_scale = params_.io.scan_hdr_output_scale;
+        // The scanner's integral on one pixel, with the constants the scan
+        // below bakes for the GPU (the same illuminant and normalisation: with
+        // `scan_film` the scanned profile is the film and its illuminant the
+        // film's viewing one, exactly as the scanner block below chooses).
+        Vec illum;
+        if (!standard_illuminant(*colour_, *blob_, film.info.viewing_illuminant, illum, error)) return false;
+        const Vec& cmfs = colour_->cmfs_1931_2deg();
+        double norm = 0.0;
+        for (size_t i = 0; i < illum.size(); ++i) norm += illum[i] * cmfs[3 * i + 1];
+        SpectralConstants sc;
+        prepare_spectral_constants(film.data.channel_density, film.data.base_density, illum, cmfs, norm, sc);
+        const ScanXYZ scan_xyz = [](const double cmy[3], const void* ctx, double xyz[3]) {
+            const SpectralConstants& k = *static_cast<const SpectralConstants*>(ctx);
+            xyz[0] = xyz[1] = xyz[2] = 0.0;
+            for (size_t l = 0; l < kNumWavelengths; ++l) {
+                double d = k.base_density[l];
+                for (int c = 0; c < 3; ++c) d += cmy[c] * k.channel_density[3 * l + size_t(c)];
+                const double t = std::exp2(-d * 3.321928094887362);
+                for (int c = 0; c < 3; ++c) xyz[c] += t * k.illum_x_sens[3 * l + size_t(c)];
+            }
+        };
+        if (!scan_hdr_lift(film.normalized_curves, scan_xyz, &sc, m, error)) return false;
+        if (!scan_hdr_shift(film.data.log_exposure, film.normalized_curves, m, error)) return false;
+        scan_hdr_ = std::move(m);
+    }
+    const Vec& film_curves = scan_hdr_.active ? scan_hdr_.develop : film.normalized_curves;
+
     // --- film density curves ---------------------------------------------
     const size_t k = film.data.n_exposure;
     double gamma[3];
     fill3(gamma, params_.film_render.density_curve_gamma);
     {
         InterpTables t;
-        build_interp_tables(film.data.log_exposure, gamma, film.normalized_curves, t);
+        build_interp_tables(film.data.log_exposure, gamma, film_curves, t);
         baked_.film_curve_k = t.k;
         baked_.film_curve_x = gpu_->upload_persistent_f32(t.x.data(), t.x.size(), error);
         baked_.film_curve_inv = gpu_->upload_persistent_f32(t.inv.data(), t.inv.size(), error);
@@ -237,7 +277,7 @@ bool Pipeline::build(const Params& params, std::string& error) {
         double matrix[9];
         dir_couplers_matrix(params_.film_render.dir_couplers, matrix);
         Vec curves0;
-        density_curves_before_dir_couplers(film.normalized_curves, film.data.log_exposure, matrix,
+        density_curves_before_dir_couplers(film_curves, film.data.log_exposure, matrix,
                                            film.info.is_positive(), curves0);
         InterpTables t;
         build_interp_tables(film.data.log_exposure, gamma, curves0, t);
@@ -353,6 +393,16 @@ bool Pipeline::build(const Params& params, std::string& error) {
         baked_.scan_base = gpu_->upload_persistent_f32(sc.base_density.data(), sc.base_density.size(), error);
         baked_.scan_ixs = gpu_->upload_persistent_f32(sc.illum_x_sens.data(), sc.illum_x_sens.size(), error);
         if (!baked_.scan_chd || !baked_.scan_base || !baked_.scan_ixs) return false;
+        if (scan_hdr_.active) {
+            double table[6];
+            scan_hdr_scan_table(scan_hdr_, table);
+            baked_.scan_hdr_table = gpu_->upload_persistent_f32(table, 6, error);
+            if (!baked_.scan_hdr_table) return false;
+            const double k = scan_hdr_.output_scale;
+            const double diag[9] = {k, 0, 0, 0, k, 0, 0, 0, k};
+            baked_.scan_hdr_scale = gpu_->upload_persistent_f32(diag, 9, error);
+            if (!baked_.scan_hdr_scale) return false;
+        }
 
         // The glare's tint is the viewing illuminant's own XYZ.
         double illum_xyz[3] = {0, 0, 0};
@@ -431,7 +481,12 @@ bool Pipeline::build(const Params& params, std::string& error) {
                                                         cam16_.c_max_table.size(), error);
         baked_.cam16_nl = cam16_.l_grid.size();
         baked_.cam16_nh = cam16_.h_grid.size();
-        baked_.cam16_lightness = og.lightness_compression_active;
+        // `scan_hdr`'s HDR rendition keeps the gamut's chroma compression and drops its lightness
+        // roll-off: that roll-off is the SDR picture's way to white, and the rendition's white is
+        // above it. Below the roll-off's threshold (Ln 0.7 of white) the two are the same. One
+        // flag, read by both the fused `spk_xyz_cam16_compress` (the Mac's path) and the unfused
+        // `spk_cam16ucs_compress` (`meta[3]` in each).
+        baked_.cam16_lightness = og.lightness_compression_active && !(scan_hdr_.active && !scan_hdr_.stretch);
         const double consts[22] = {
             cam16_.F_L, cam16_.N_bb, cam16_.N_cb, cam16_.n, cam16_.z, cam16_.A_w, cam16_.c, cam16_.N_c,
             cam16_.l_grid.front(), cam16_.l_grid.back(),
@@ -488,6 +543,8 @@ bool Pipeline::build(const Params& params, std::string& error) {
 #else
     node_count_ += 5;
 #endif
+    // `scan_hdr_scale`, after the gamut on either path (`print_linear`).
+    node_count_ += (scan_hdr_.active && !scan_hdr_.stretch && scan_hdr_.output_scale != 1.0) ? 1 : 0;
     node_count_ += params_.print_render.edr_enabled && !params_.io.scan_film ? 1 : 0;
     node_count_ += params_.scanner.lens_blur > 0.0 ? 1 : 0;              // scanner_blur
     node_count_ += (params_.scanner.unsharp_mask[0] > 0.0 &&
@@ -1663,7 +1720,25 @@ bool Pipeline::node_scan_spectral(const Image& in, Image& out, std::string& erro
     // `log_out = false` returns `max(v, 0) + 1e-10`, which is exactly
     // `10 ** log10(max(v, 0) + 1e-10)` -- the reference's round trip, with the
     // log and the exponent cancelled rather than evaluated.
-    return spectral(in, baked_.scan_chd, baked_.scan_base, baked_.scan_ixs, gain, offset,
+    if (!scan_hdr_.active)
+        return spectral(in, baked_.scan_chd, baked_.scan_base, baked_.scan_ixs, gain, offset,
+                        /*log_out=*/false, kNumWavelengths, out, error);
+    // `scan_hdr`: each layer read back from the develop's squeezed range (below
+    // the clear base past its shoulder) in a pass of its own, then today's
+    // integral. The scan's gain stays 1: the output's gamut compression reads
+    // absolute lightness, so the rendition is scaled after it
+    // (`node_scan_hdr_scale`), never before.
+    Image expanded;
+    if (!alloc_like(in, expanded, error)) return false;
+    // The kernel's bound is a pixel count (it reads three channels a thread).
+    // `elements()` would be safe only because `dispatchThreads` launches
+    // exactly `pixels()`; this states the bound the kernel means.
+    const uint32_t n[1] = {uint32_t(in.pixels())};
+    if (!gpu_->dispatch("spk_scan_hdr_expand",
+                        {gpu::Arg::buf(in.buf), gpu::Arg::buf(baked_.scan_hdr_table),
+                         gpu::Arg::inline_bytes(n, 1), gpu::Arg::buf(expanded.buf)},
+                        in.pixels(), error)) return false;
+    return spectral(expanded, baked_.scan_chd, baked_.scan_base, baked_.scan_ixs, gain, offset,
                     /*log_out=*/false, kNumWavelengths, out, error);
 }
 
@@ -1769,11 +1844,64 @@ bool Pipeline::node_glare(const Image& in, Image& out, std::string& error) {
                           in.elements(), error);
 }
 
+// The enlarger on a minilab pair (2026-11-10). The table is the pair's print at the enlarger's rest, and the
+// node replaced the whole optical printing stage, so Brightness, Yellow, Magenta and Pre-flash moved nothing
+// (measured: 0.000 at every level on Portra 400 / Portra Endura, where the optical path moves mid-grey by
+// 0.34 a stop). They act where the enlarger acts -- on the light through the negative, before the table: the
+// kernel's epilogue `a * gain + offset`, per channel, at rest {1,1,1,0,0,0} (the picture to the bit).
+//
+// The numbers are the optical path's own, at mid-grey: `print_constants` at these settings and at rest. A
+// channel's gain is the print exposure times the ratio of mid-grey's normalised paper exposure (gain x raw:
+// the filters' colour, with the normalisation's brightness taken out as the optical path takes it out); the
+// pre-flash is its offset as a share of mid-grey's exposure at rest, carried onto the table's own mid-grey
+// exposure. The table's channels are the paper's (`DiConstants::ixs` is the paper's printing density).
+bool Pipeline::minilab_enlarger(float ep[6], std::string& error) {
+    const EnlargerParams& en = params_.enlarger;
+    if (en.print_exposure == 1.0 && en.y_filter_shift == 0.0 && en.m_filter_shift == 0.0 && en.preflash_exposure <= 0.0)
+        return true;
+    Params rest = params_;
+    rest.enlarger.print_exposure = 1.0;
+    rest.enlarger.y_filter_shift = rest.enlarger.m_filter_shift = 0.0;
+    rest.enlarger.preflash_exposure = 0.0;
+    PrintConstants at, base;
+    if (!print_constants(*colour_, *blob_, params_, tc_lut_host_, baked_.tc_lut_side, at, error)) return false;
+    if (!print_constants(*colour_, *blob_, rest, tc_lut_host_, baked_.tc_lut_side, base, error)) return false;
+    // Mid-grey's normalised paper exposure, per channel: gain x sum(10^-d * light * sensitivity).
+    auto midgray = [](const PrintConstants& pc, double m[3]) {
+        m[0] = m[1] = m[2] = 0.0;
+        for (size_t l = 0; l < kNumWavelengths; ++l) {
+            const double t = std::pow(10.0, -pc.density_spectral_midgray[l]) * pc.print_illuminant[l];
+            if (!std::isfinite(t)) continue;
+            for (int c = 0; c < 3; ++c) m[c] += t * pc.paper_sensitivity[3 * l + size_t(c)];
+        }
+        for (int c = 0; c < 3; ++c) m[c] *= pc.gain[c];
+    };
+    double m_at[3], m_rest[3];
+    midgray(at, m_at);
+    midgray(base, m_rest);
+    // The table's own mid-grey exposure: the film's dyes above its base, through the paper's printing density.
+    double a_mid[3] = {0, 0, 0};
+    for (size_t l = 0; l < kNumWavelengths; ++l) {
+        const double d = base.density_spectral_midgray[l] - base.spectral.base_density[l];
+        const double t = std::pow(10.0, -d);
+        if (!std::isfinite(t)) continue;
+        for (int c = 0; c < 3; ++c) a_mid[c] += t * di_.ixs[3 * l + size_t(c)];
+    }
+    const double pe = en.print_exposure;
+    for (int c = 0; c < 3; ++c) {
+        const double ref = std::fmax(m_rest[c], 1e-12);
+        ep[c] = float(pe * m_at[c] / ref);
+        ep[3 + c] = float(pe * at.offset[c] / ref * a_mid[c]);
+    }
+    return true;
+}
+
 bool Pipeline::node_minilab(const Image& in, Image& out, std::string& error) {
     Timer t(this, "printing.minilab");
     if (!alloc_like(in, out, error)) return false;
     const uint32_t meta[4] = {uint32_t(in.pixels()), kNumWavelengths, uint32_t(di_.curve.k), minilab_side_};
-    const float ep[6] = {1, 1, 1, 0, 0, 0};
+    float ep[6] = {1, 1, 1, 0, 0, 0};
+    if (!minilab_enlarger(ep, error)) return false;
     return gpu_->dispatch("spk_minilab", {
         gpu::Arg::buf(in.buf), gpu::Arg::buf(baked_.di_chd), gpu::Arg::buf(baked_.di_zero_base),
         gpu::Arg::buf(baked_.di_ixs), gpu::Arg::inline_bytes(ep, 6), gpu::Arg::inline_bytes(meta, 4),
@@ -1828,6 +1956,16 @@ bool Pipeline::node_gamut_compress(const Image& in, Image& out, std::string& err
                            gpu::Arg::buf(baked_.cam16_k), gpu::Arg::inline_bytes(meta, 4),
                            gpu::Arg::buf(out.buf)},
                           in.pixels(), error);
+}
+
+// `scan_hdr`'s HDR rendition, brought within the output: x `output_scale`
+// after the gamut compression (which reads absolute lightness). Linear, so the
+// scanner's blur and sharpening after it commute with it. Absent for today's
+// scan and for the stretched SDR rendition.
+bool Pipeline::node_scan_hdr_scale(const Image& in, Image& out, std::string& error) {
+    if (!scan_hdr_.active || scan_hdr_.stretch || scan_hdr_.output_scale == 1.0) { out = in; return true; }
+    Timer t(this, "scanning.scan_hdr_scale");
+    return matmul3(in, baked_.scan_hdr_scale, out, error);
 }
 
 bool Pipeline::node_scanner_blur(const Image& in, Image& out, std::string& error) {
@@ -1934,10 +2072,16 @@ bool Pipeline::film_prefix(const Image& in, const FrameShape& frame, Image& cur,
     // so the un-striped path's sequence is untouched. That is checked, not
     // assumed: the hash of every un-striped render is byte-identical across
     // this change.
-    const GrainParams& film_grain = params_.film_render.grain;
-    film_seed_ = (film_grain.active && params_.settings.grain_sampler != "exact")
-               ? fresh_seed() : 0x5EEDu;
+    film_seed_ = draw_film_seed();
     return true;
+}
+
+uint32_t Pipeline::draw_film_seed() {
+    const GrainParams& g = params_.film_render.grain;
+    if (!(g.active && params_.settings.grain_sampler != "exact")) return 0x5EEDu;
+    // `grain_seed` holds one realisation across renders (a slide's two
+    // renditions); 0, the default, is a fresh draw, exactly as before it.
+    return params_.settings.film_seed > 0 ? uint32_t(params_.settings.film_seed) : fresh_seed();
 }
 
 // The film and print chains, as **stages**: contiguous runs of the same nodes
@@ -2121,6 +2265,9 @@ bool Pipeline::print_linear(const Chain& in, Chain& out, std::string& error) {
         SPK_NODE(node_xyz_to_rgb(cur, next, error)); cur = next;
         SPK_NODE(node_gamut_compress(cur, next, error)); cur = next;
     }
+    // After the whole if/else, not inside the unfused branch: the Mac's default is the fused one, and a
+    // scale placed beside `node_gamut_compress` would never run there.
+    SPK_NODE(node_scan_hdr_scale(cur, next, error)); cur = next;
     out = in;
     out.cur = cur;
     return true;
@@ -2250,8 +2397,7 @@ bool Pipeline::run_film_checkpoint(const Image& in, Image& out, Image* restored,
     if (restored) {
         cur.cur = std::move(*restored);
         last_ae_ev_ = cached_ev;
-        const auto& grain = params_.film_render.grain;
-        film_seed_ = (grain.active && params_.settings.grain_sampler != "exact") ? fresh_seed() : 0x5EEDu;
+        film_seed_ = draw_film_seed();   // the same draw `film_prefix` makes, `grain_seed` included
     } else {
         last_ae_ev_.reset();
         if (!film_prefix(in, FrameShape{in.h, in.w}, cur.cur, error)) return false;

@@ -88,13 +88,14 @@ struct PresetSaveSheet: View {
 
 }
 
-/// Eight V5 rows; EngineRouter expands to independent canonical leaves.
+/// Nine V5 rows (HDR the ninth, 2026-11-06); EngineRouter expands to independent
+/// canonical leaves.
 struct SettingsGroupPicker: View {
     @Binding var picked: Set<ClipboardGroup>
     let edit: FrameEdit
     // Decode is Film & Paper's since 2026-10-24 (the white balance and the curve); Scene Placement
-    // has no control left to set it.
-    private let top: [ClipboardGroup] = [.filmAndPaper, .filmExposure, .decode, .format, .filmEdgeAndDateBack]
+    // has no control left to set it. HDR is offered only while a screen shows it (`ClipboardGroup.offered`).
+    private let top: [ClipboardGroup] = [.filmAndPaper, .filmExposure, .decode, .format, .filmEdgeAndDateBack, .hdr]
     private let darkroom: [ClipboardGroup] = [.enlarger, .couplers, .preflash]
     var body: some View {
         ForEach(top.filter { ClipboardGroup.offered.contains($0) }) { row($0) }

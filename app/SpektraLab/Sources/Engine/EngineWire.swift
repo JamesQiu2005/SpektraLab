@@ -184,6 +184,10 @@ extension FrameEdit {
         var wire = StockCatalog.shared.wire(for: params)
         for field in engineGeometry.wire { wire[field.name] = field.value }
         wire["product_defaults"] = .bool(true)
+        // A slide with Enable HDR on is developed stretched, with one grain for its two renditions
+        // (`HDRGain.sdrWire`, API-SPEC §19.1); nothing for any other frame, whose wire — and so its stamp and
+        // its picture — is as it was (D3). Sent only then: an engine without §19 refuses the fields.
+        for (name, value) in HDRGain.sdrWire(for: self) { wire[name] = value }
         if let previewLongEdge {
             wire["preview_long_edge"] = .double(Double(previewLongEdge.clamped(to: 800...8192)))
         }

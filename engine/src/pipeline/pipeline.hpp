@@ -41,6 +41,7 @@
 #include "image.hpp"
 #include "params.hpp"
 #include "printing.hpp"
+#include "scan_hdr.hpp"
 #include "strip.hpp"
 #include "setup_cache.hpp"
 #include "spectral.hpp"
@@ -384,9 +385,20 @@ public:
     // as `measure_meter_evs` does. `channels`, when given, also gets each of
     // R, G and B by itself in stops about the same mid-grey (RFC-035 §5.2),
     // over the same pixels, each leaving out its own non-positive values.
+    //
+    // RFC-051: `curved`, when given, also gets the same pixels after the scene
+    // transform the render applies before the film (`node_scene_latitude`,
+    // then `node_scene_curve`, each where it is wanted), on the same axis.
+    // `present` is false, and the rows empty, when neither is wanted.
+    struct SceneSample {
+        bool present = false;
+        std::vector<double> E;
+        std::array<std::vector<double>, 3> channels;
+    };
     bool scene_latitude_sample(const Image& in, double ev, std::vector<double>& E,
                                std::string& error, const double* region = nullptr,
-                               std::array<std::vector<double>, 3>* channels = nullptr);
+                               std::array<std::vector<double>, 3>* channels = nullptr,
+                               SceneSample* curved = nullptr);
 
     // The EV the auto-exposure node applies instead of metering its own
     // input. The session sets it before every film render, so every tier is
@@ -582,6 +594,14 @@ public:
 
     int node_count() const { return node_count_; }
 
+    /// The film seed of the last film run (a cached negative's realisation),
+    /// for `spk_progress`'s `film_seed`.
+    uint32_t film_seed() const { return film_seed_; }
+    /// `scan_hdr` (2026-11-06): the slide's HDR scan
+    /// this pipeline was built with -- inactive for today's scan, which is
+    /// every other build.
+    const ScanHdrModel& scan_hdr() const { return scan_hdr_; }
+
 private:
     struct Timer;
 
@@ -714,6 +734,7 @@ private:
     bool node_xyz_to_rgb(const Image& in, Image& out, std::string& error);
     bool node_edr(const Image& in, Image& out, std::string& error);
     bool node_gamut_compress(const Image& in, Image& out, std::string& error);
+    bool node_scan_hdr_scale(const Image& in, Image& out, std::string& error);
     bool node_scanner_blur(const Image& in, Image& out, std::string& error);
     bool node_unsharp(const Image& in, Image& out, std::string& error);
     bool node_cctf(const Image& in, Image& out, std::string& error);
@@ -746,6 +767,8 @@ private:
     uint32_t minilab_side_ = 0;
     float minilab_lo_[3]{}, minilab_inv_[3]{};
     bool minilab_active_ = false;
+    // The enlarger's live controls on a minilab pair: the epilogue of `spk_minilab` (pipeline.cpp).
+    bool minilab_enlarger(float ep[6], std::string& error);
     gpu::Gpu* gpu_;
     const Colour* colour_;
     const Blob* blob_;
@@ -771,6 +794,15 @@ private:
     // -- which the hash gate checks rather than assumes.
     uint32_t film_seed_ = 0;
     uint32_t print_seed_ = 0;
+    // `grain_seed` (`settings.film_seed`): the film seed a run draws -- the
+    // wire's when it names one, else a fresh one. Both film-side draw sites
+    // (`film_prefix` and the pre-grain checkpoint's restore) go through it, so
+    // a restored develop and a fresh one carry the same grain under one seed.
+    uint32_t draw_film_seed();
+
+    // `scan_hdr` (core/scan_hdr.hpp): built with the film's curves, read by
+    // the scan and by `spk_progress`.
+    ScanHdrModel scan_hdr_;
 
     // RFC-032 §27: kept across a reprint of the cached negative, which the
     // print side's no-film mask must match pixel for pixel.
@@ -795,6 +827,8 @@ private:
         size_t print_curve_k = 0;
 
         gpu::BufferRef scan_chd, scan_base, scan_ixs;
+        gpu::BufferRef scan_hdr_table;   // {dk, s} x 3, only with `scan_hdr_` active
+        gpu::BufferRef scan_hdr_scale;   // diag(output_scale), the HDR rendition's
         gpu::BufferRef glare_illuminant;
 
         gpu::BufferRef tc_b_matrix;

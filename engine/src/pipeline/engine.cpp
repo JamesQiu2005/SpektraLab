@@ -24,6 +24,8 @@
 #include <array>
 #include <atomic>
 #include <chrono>
+#include <cmath>
+#include <cstdio>
 #include <cstdlib>
 #include <cstring>
 #include <fstream>
@@ -41,6 +43,7 @@
 
 #include "blob.hpp"
 #include "colour.hpp"
+#include "hdr_curves.hpp"
 #include "image.hpp"
 #include "json.hpp"
 #include "latitude_fit.hpp"
@@ -244,7 +247,21 @@ struct spk_session {
         std::string medium_key, scene_key;
         slm::Medium medium;
         slm::SceneStats scene;
+        // RFC-051: the scene after the transform the render applies before
+        // the film (Scene Placement's committed curve, the Decode curve), on
+        // `scene`'s bins. Read with the scene, keyed with it and the
+        // transform; `curved_present` is false when there is no transform.
+        bool curved_present = false;
+        std::vector<double> curved_histogram;
+        std::array<std::vector<double>, 3> curved_channel_histogram;
     } scene_latitude;
+
+    // `spk_session_hdr_curve` (PRD/HDR-PORT-PLAN D1): the replies already
+    // made, keyed on the medium's own key (above) plus everything else the
+    // curve reads -- Exp. Comp.'s shift of the axis, the headroom, the clip.
+    // A handful at most (the canvas asks at one H, an export at the same), so
+    // the map is simply dropped when it grows past a few.
+    std::unordered_map<std::string, std::string> hdr_curves;
 
     // RFC-024: the last field `spk_contrast_mask_field` returned. The caller's
     // pointer is into this, valid until the next call on the session.
@@ -327,7 +344,7 @@ struct spk_engine {
         // have not been ported. Defaults stay usable; explicit requests fail.
         Json unported = Json::array();
         for (const char* feature : {"digital_intermediate", "scene_latitude_mapping",
-                                    "contrast_mask", "overscan", "date_imprint"})
+                                    "contrast_mask", "overscan", "date_imprint", "scan_hdr"})
             unported.push(Json(std::string(feature)));
         backend.set("unsupported_features", std::move(unported));
 #endif
@@ -1952,6 +1969,18 @@ Params medium_probe_params(const Params& session) {
     // -5.20/+2.37), so there the probe keeps c and the shift is 0.
     p.camera.scene_curve.clear();
     if (!p.enlarger.print_exposure_compensation) p.camera.exposure_compensation_ev = 0.0;
+    // A slide's HDR scan (API-SPEC §19.1) is an output choice made over the
+    // film, not the film: the stretch puts the clear base at page white, the
+    // headroom and its output scale make the HDR rendition. Measured
+    // 2026-11-06 on Provia 100F scanned: left in, the stretch moved the
+    // medium's highlight boundary +2.08 -> +2.15 EV and H 4 x1/4 to +3.94, so
+    // turning Enable HDR on moved the slide's Scene Placement window and its
+    // gain curve, and the HDR rendition re-probed on every switch. The seed
+    // draws a grain the probe has off; it would only split the key.
+    p.io.scan_hdr_headroom = 0.0;
+    p.io.scan_hdr_stretch = false;
+    p.io.scan_hdr_output_scale = 1.0;
+    p.settings.film_seed = 0;
     return p;
 }
 
@@ -2004,6 +2033,54 @@ bool probe_medium(spk_session* session, slm::Medium& out, std::string& error) {
                          to_xyz.m[1][2] * light(q[2])) / double(rgb.h);
         }
     return slm::read_boundaries(out, error);
+}
+
+// The session's medium, probed once per `key` and kept on the session: keyed
+// on every wire field the probe reads, after the probe's own overrides -- so a
+// crop or a grain toggle does not re-probe, and a paper, filter or Exp. Comp.
+// change does. The caller holds `session->lock` and a GPU frame. Shared by
+// `spk_scene_latitude` and `spk_session_hdr_curve`, which therefore read one
+// measurement of one medium, never two.
+bool ensure_medium(spk_session* session, std::string& key, std::string& error) {
+    key = read_params(medium_probe_params(session->params)).dump() +
+          (session->product_defaults ? "|product" : "|reference") + "|" + spk_build_info();
+    auto& cache = session->scene_latitude;
+    if (cache.medium_key == key && cache.medium.valid) return true;
+    const bool ok = probe_medium(session, cache.medium, error);
+    cache.medium_key = ok ? key : std::string();
+    return ok;
+}
+
+// The cached medium on the reply's one axis: stops about the metered
+// mid-grey, **before** Film Exposure, as the scene statistic is. The probe ran
+// at `probe_ev` (0, or c where the enlarger re-times; `medium_probe_params`),
+// so on that axis the medium is the probe's moved by -(c - probe_ev). (An out
+// parameter, not a return: this block has C linkage.)
+void medium_on_scene_axis(const spk_session* session, slm::Medium& medium) {
+    const double exposure_ev = session->params.camera.exposure_compensation_ev;
+    const double probe_ev = medium_probe_params(session->params).camera.exposure_compensation_ev;
+    medium = session->scene_latitude.medium;
+    if (const double shift = probe_ev - exposure_ev; shift != 0.0) {
+        for (double& e : medium.ev) e += shift;
+        medium.shadow_ev += shift;
+        medium.highlight_ev += shift;
+    }
+}
+
+// The ramp as the reply carries it: every 8th of the probe's 1024 samples,
+// 128 points. `spk_session_hdr_curve` reads exactly these samples, on the
+// medium's own axis (before `medium_on_scene_axis`'s shift), so its curve is
+// the one a client would compute from `medium.ramp_ev + medium_shift_ev` /
+// `ramp_y` (the reference `A_H4` tables were made from this reply at Exp. Comp. 0,
+// where the shift is 0; `medium_ramps.py`).
+constexpr size_t kRampReplyStride = 8;
+void reply_ramp(const slm::Medium& medium, std::vector<double>& ev, std::vector<double>& y) {
+    ev.clear();
+    y.clear();
+    for (size_t i = 0; i < medium.ev.size(); i += kRampReplyStride) {
+        ev.push_back(medium.ev[i]);
+        y.push_back(medium.y[i]);
+    }
 }
 
 Json side_json(const slm::Side& s) {
@@ -2112,17 +2189,10 @@ spk_status spk_scene_latitude(spk_session* session, const char* request_json, ch
     std::string error;
     bool ok = true;
 
-    // The medium: keyed on every wire field the probe reads, after the probe's
-    // own overrides -- so a crop or a grain toggle does not re-probe, and a
-    // paper, filter or Exp. Comp. change does.
-    const std::string medium_key = read_params(medium_probe_params(session->params)).dump() +
-                                   (session->product_defaults ? "|product" : "|reference") + "|" +
-                                   spk_build_info();
+    // The medium (`ensure_medium`: one probe per medium key).
+    std::string medium_key;
+    ok = ensure_medium(session, medium_key, error);
     auto& cache = session->scene_latitude;
-    if (cache.medium_key != medium_key || !cache.medium.valid) {
-        ok = probe_medium(session, cache.medium, error);
-        cache.medium_key = ok ? medium_key : std::string();
-    }
 
     // The scene: the meter's frame, through the node's upstream nodes and the
     // session's one auto-exposure EV, on the requested norm.
@@ -2142,15 +2212,31 @@ spk_status spk_scene_latitude(spk_session* session, const char* request_json, ch
         }
         char region_text[160];
         std::snprintf(region_text, sizeof region_text, "|%.6f,%.6f,%.6f,%.6f", region[0], region[1], region[2], region[3]);
+        // RFC-051: the after-transform rows are read with the scene, so its key
+        // carries what they read -- the placement as committed, the Decode
+        // curve, and Film Exposure (the curve's table is read at E + c).
+        const SceneLatitudeParams& sl = cam.scene_latitude;
+        char transform_text[512];
+        std::snprintf(transform_text, sizeof transform_text,
+                      "|t%d,%.17g,%.17g,%.17g,%.17g,%.17g,%.17g,%.17g,%d,%.17g,%.17g,%.17g,%.17g,%.17g|",
+                      int(sl.active), sl.highlight_knee, sl.highlight_room, sl.shadow_knee, sl.shadow_room,
+                      sl.rolloff, sl.max_lift, sl.split, int(sl.b_active), sl.b_highlight_knee,
+                      sl.b_highlight_room, sl.b_shadow_knee, sl.b_shadow_room, cam.exposure_compensation_ev);
         const std::string scene_key = meter_key(session->params) + base.norm + "|" + ev_text +
-                                      (has_region ? region_text : "");
+                                      (has_region ? region_text : "") + transform_text + sl.norm + "|" +
+                                      cam.scene_curve;
         if (cache.scene_key != scene_key) {
             Image small;
             std::vector<double> E;
             std::array<std::vector<double>, 3> channels;
+            Pipeline::SceneSample curved;
             ok = meter_frame(session, small, error);
             if (ok && base.norm == session->params.camera.scene_latitude.norm) {
-                ok = session->pipeline->scene_latitude_sample(small, ev, E, error, has_region ? region : nullptr, &channels);
+                // Only the session's own pipeline is the render's transform: a
+                // "what if" on another norm (below) would place on that norm, so
+                // it carries no after-transform rows.
+                ok = session->pipeline->scene_latitude_sample(small, ev, E, error, has_region ? region : nullptr,
+                                                              &channels, &curved);
             } else if (ok) {
                 // The sample reads the norm from its pipeline's params, so a
                 // "what if" on another norm gets a pipeline of its own rather
@@ -2165,6 +2251,11 @@ spk_status spk_scene_latitude(spk_session* session, const char* request_json, ch
                 cache.scene = slm::scene_stats(std::move(E));
                 for (int c = 0; c < 3; ++c)
                     cache.scene.channel_histogram[size_t(c)] = slm::stop_histogram(channels[size_t(c)]);
+                cache.curved_present = curved.present;
+                cache.curved_histogram = curved.present ? slm::stop_histogram(curved.E) : std::vector<double>();
+                for (int c = 0; c < 3; ++c)
+                    cache.curved_channel_histogram[size_t(c)] =
+                        curved.present ? slm::stop_histogram(curved.channels[size_t(c)]) : std::vector<double>();
                 cache.scene_key = scene_key;
             }
         }
@@ -2175,19 +2266,12 @@ spk_status spk_scene_latitude(spk_session* session, const char* request_json, ch
 
     // The reply keeps one axis, the node's: stops about the metered mid-grey,
     // **before** Film Exposure, as the scene statistic is (Scene Placement's
-    // knees are solved on it, here and in the app). The probe ran at
-    // `probe_ev` (0, or c where the enlarger re-times; see
-    // `medium_probe_params`), so the medium on that axis is the probe's moved
-    // by -(c - probe_ev). On the film's own axis -- the Decode curve's
-    // (RFC-035) -- every stop in the reply is `exposure_ev` = c higher.
+    // knees are solved on it, here and in the app; `medium_on_scene_axis`).
+    // On the film's own axis -- the Decode curve's (RFC-035) -- every stop in
+    // the reply is `exposure_ev` = c higher.
     const double exposure_ev = session->params.camera.exposure_compensation_ev;
-    const double probe_ev = medium_probe_params(session->params).camera.exposure_compensation_ev;
-    slm::Medium medium = cache.medium;
-    if (const double shift = probe_ev - exposure_ev; shift != 0.0) {
-        for (double& e : medium.ev) e += shift;
-        medium.shadow_ev += shift;
-        medium.highlight_ev += shift;
-    }
+    slm::Medium medium;
+    medium_on_scene_axis(session, medium);
     const slm::SceneStats& scene = cache.scene;
     const slm::Suggestion suggestion = slm::suggest(medium, scene, margin, base, at);
     const double nh = request.at("highlight_pull_back").is_number()
@@ -2203,9 +2287,13 @@ spk_status spk_scene_latitude(spk_session* session, const char* request_json, ch
     m.set("y_black", Json(medium.y_black));
     m.set("y_white", Json(medium.y_white));
     Json ramp_ev = Json::array(), ramp_y = Json::array();
-    for (size_t i = 0; i < medium.ev.size(); i += 8) {   // 128 points: enough to draw
-        ramp_ev.push(Json(medium.ev[i]));
-        ramp_y.push(Json(medium.y[i]));
+    {
+        std::vector<double> rev, ry;
+        reply_ramp(medium, rev, ry);   // 128 points: enough to draw
+        for (size_t i = 0; i < rev.size(); ++i) {
+            ramp_ev.push(Json(rev[i]));
+            ramp_y.push(Json(ry[i]));
+        }
     }
     m.set("ramp_ev", std::move(ramp_ev));
     m.set("ramp_y", std::move(ramp_y));
@@ -2232,6 +2320,21 @@ spk_status spk_scene_latitude(spk_session* session, const char* request_json, ch
         hist.set(kChannelKeys[c], std::move(row));
     }
     hist.set("exposure_ev", Json(exposure_ev));
+    // RFC-051: the same frame after the scene transform the render applies
+    // before the film -- the committed Scene Placement, then the Decode curve
+    // -- through the render's own nodes, on the same bins and axis. Absent
+    // when the session has neither.
+    if (cache.curved_present) {
+        Json row = Json::array();
+        for (double v : cache.curved_histogram) row.push(Json(v));
+        hist.set("curved_fractions", std::move(row));
+        static const char* const kCurvedKeys[3] = {"curved_fractions_r", "curved_fractions_g", "curved_fractions_b"};
+        for (int c = 0; c < 3; ++c) {
+            Json r = Json::array();
+            for (double v : cache.curved_channel_histogram[size_t(c)]) r.push(Json(v));
+            hist.set(kCurvedKeys[c], std::move(r));
+        }
+    }
     // The same frame after the requested pull-backs (the UI's latitude graph),
     // on the same bins. Absent for a refused fit: there is no curve to show.
     if (f.valid()) {
@@ -2292,6 +2395,164 @@ spk_status spk_scene_latitude(spk_session* session, const char* request_json, ch
     out.set("suggested", std::move(sg));
     out.set("fit", std::move(fj));
     if (out_json) *out_json = dup_json(out);
+    return SPK_OK;
+}
+
+// PRD/HDR-PORT-PLAN-2026-11-06 D1/D2: Enable HDR's gain curve, the session's
+// own. Family A (`core/hdr_curves.hpp`) on the medium `spk_scene_latitude`
+// measures -- the same cached probe, the same 128 samples, on the medium's own
+// axis (below) -- plus the grain-aware tables over it. Never renders a frame; the
+// first call for a medium costs the probe (one 1024 x 8 ramp through the
+// pipeline), every later one is the arithmetic or the cache.
+spk_status spk_session_hdr_curve(spk_session* session, const char* request_json, char** out_json) {
+    if (!session || !out_json) { g_error = "session and out_json must not be null"; return SPK_ERR_INVALID_ARG; }
+    *out_json = nullptr;
+    Json request = Json::object();
+    if (request_json && *request_json) {
+        std::string parse_error;
+        if (!Json::parse(request_json, request, parse_error) || !request.is_object()) {
+            g_error = "hdr curve request: " + (parse_error.empty() ? "not an object" : parse_error);
+            return SPK_ERR_INVALID_ARG;
+        }
+    }
+    // A closed set of keys: a misspelt `clip_ev` would otherwise be a plain
+    // curve that looks like an eased one.
+    for (const auto& kv : request.fields()) {
+        if (kv.first != "headroom" && kv.first != "clip_ev" && kv.first != "include_ramp") {
+            g_error = "hdr curve request: unknown key '" + kv.first + "' (headroom, clip_ev, include_ramp)";
+            return SPK_ERR_USER;
+        }
+    }
+    const Json& jh = request.at("headroom");
+    const Json& jc = request.at("clip_ev");
+    const Json& jr = request.at("include_ramp");
+    if ((!jh.is_null() && !jh.is_number()) || (!jc.is_null() && !jc.is_number()) ||
+        (!jr.is_null() && !jr.is_bool())) {
+        g_error = "hdr curve request: headroom and clip_ev are numbers, include_ramp a bool";
+        return SPK_ERR_USER;
+    }
+    const double headroom = jh.as_double(kHdrDefaultHeadroom);
+    const bool has_clip = jc.is_number();
+    const double clip_ev = jc.as_double(0.0);
+    const bool include_ramp = jr.as_bool(false);
+    if (!(headroom >= kHdrMinHeadroom && headroom <= kHdrMaxHeadroom)) {
+        g_error = "hdr curve request: headroom must be in [1.0001, 16]";
+        return SPK_ERR_USER;
+    }
+    if (has_clip && !(std::isfinite(clip_ev) && clip_ev >= -24.0 && clip_ev <= 24.0)) {
+        g_error = "hdr curve request: clip_ev must be finite, in [-24, 24] stops";
+        return SPK_ERR_USER;
+    }
+
+    std::lock_guard<std::mutex> guard(session->lock);
+    g_error.clear();
+    const Params& p = session->params;
+    // Where there is no picture for a gain to lift, refuse rather than hand back
+    // a curve. (Apply Film Emulation off never reaches the engine: the app shows
+    // Apple's own decode and opens no session for it.)
+    if (p.io.digital_intermediate && !p.io.scan_film && !p.film.info.is_positive()) {
+        g_error = "hdr curve: the session renders a Digital Intermediate (Cineon log codes, not a "
+                  "picture), so there is no print for a gain to lift";
+        return SPK_ERR_USER;
+    }
+    // The medium is probed with EDR off (`medium_probe_params`) and the EDR
+    // stretch moves the picture's real knee and white, so a curve here would be
+    // read at the wrong knee (PRD/hdr-port-maps desktop-engine-hdr §4). The
+    // pipeline ignores EDR on a scan, so a scan is not refused for it.
+    if (p.print_render.edr_enabled && !p.io.scan_film) {
+        g_error = "hdr curve: extended_dynamic_range is on; the curve is measured on the print without "
+                  "it, so it would not fit this picture (turn one of the two off)";
+        return SPK_ERR_USER;
+    }
+
+    gpu::Gpu* gpu = session->engine->gpu;
+    gpu->begin_frame();
+    std::string error, medium_key;
+    const bool probed = ensure_medium(session, medium_key, error);
+    gpu->end_frame();
+    if (!probed) { g_error = "hdr curve: " + error; return SPK_ERR_GPU; }
+
+    char tail[192];
+    std::snprintf(tail, sizeof tail, "|ev=%.17g|H=%.17g|clip=%s%.17g|ramp=%d",
+                  p.camera.exposure_compensation_ev, headroom, has_clip ? "" : "none", has_clip ? clip_ev : 0.0,
+                  include_ramp ? 1 : 0);
+    const std::string key = medium_key + tail;
+    if (const auto hit = session->hdr_curves.find(key); hit != session->hdr_curves.end()) {
+        *out_json = static_cast<char*>(std::malloc(hit->second.size() + 1));
+        if (!*out_json) { g_error = "hdr curve: out of memory"; return SPK_ERR_RESOURCE; }
+        std::memcpy(*out_json, hit->second.c_str(), hit->second.size() + 1);
+        return SPK_OK;
+    }
+
+    // Family A runs on **the medium's own axis** -- the probe's, mid-grey where
+    // the probe exposed it -- never on the reply's. The gain is a function of
+    // the SDR pixel's Y, and in the product (the enlarger not re-timed) Exp.
+    // Comp. is a pure shift along the medium (`medium_probe_params`), so a
+    // pixel of a given Y sits at one point of the medium at every c and must
+    // get one gain. On the reply's axis the model read gamma0 and the knee at
+    // the *scene's* mid-grey, wherever c put it on the medium (measured
+    // 2026-11-06: the table moved 0.6-1.4 stop at c = +-1, +-2; at c = -6 the
+    // knee landed in the paper's toe and lifted every tone 1.6 stop; past
+    // +-4 the -6 ... +8 grid cut the shoulder off). Where the enlarger
+    // re-times (the reference) the probe already ran at c and the two axes
+    // are one. The request's `clip_ev` and the reply's EVs stay on the
+    // reply's axis (`spk_scene_latitude`'s); `to_medium` maps between them.
+    const double to_medium = p.camera.exposure_compensation_ev -
+                             medium_probe_params(p).camera.exposure_compensation_ev;
+    std::vector<double> ramp_ev, ramp_y;
+    reply_ramp(session->scene_latitude.medium, ramp_ev, ramp_y);
+    const double clip_on_medium = clip_ev + to_medium;
+    HdrFamilyA a;
+    if (!hdr_family_a(ramp_ev, ramp_y, headroom, has_clip ? &clip_on_medium : nullptr, a, error)) {
+        g_error = error;
+        return SPK_ERR_USER;
+    }
+    const HdrTables t = hdr_derive_tables(a.curve);
+
+    auto array = [](const auto& v) {
+        Json j = Json::array();
+        for (const auto x : v) j.push(Json(double(x)));
+        return j;
+    };
+    Json out = Json::object();
+    out.set("version", Json(std::string(kHdrCurveVersion)));
+    out.set("headroom", Json(headroom));
+    Json domain = Json::array();
+    domain.push(Json(a.curve.domain_log2_y[0]));
+    domain.push(Json(a.curve.domain_log2_y[1]));
+    out.set("domain_log2_y", std::move(domain));
+    out.set("log2_gain", array(a.curve.log2_gain));
+    out.set("ks", array(t.ks));
+    out.set("rho", array(t.slope));
+    out.set("top", Json(t.top));
+    out.set("kappa", Json(kHdrKappa));
+    out.set("rho_max", Json(kHdrRhoMax));
+    out.set("detail_clamp", Json(kHdrDetailClamp));
+    out.set("knee_ev", Json(a.knee_ev - to_medium));   // on the reply's axis, as `clip_ev`
+    out.set("knee_log2_y", Json(a.knee_log2_y));
+    out.set("delta", Json(a.delta));
+    out.set("y_white", Json(a.y_white));
+    out.set("gamma0", Json(a.gamma0));
+    out.set("eased", Json(a.eased));
+    out.set("clip_ev", has_clip ? Json(clip_ev) : Json());
+    out.set("exposure_ev", Json(p.camera.exposure_compensation_ev));
+    out.set("medium_shift_ev", Json(to_medium));
+    out.set("scan", Json(p.io.scan_film));
+    if (include_ramp) {
+        Json r = Json::object();
+        std::vector<double> ev_reply(a.ev);
+        for (double& v : ev_reply) v -= to_medium;
+        r.set("ev", array(ev_reply));
+        r.set("log2_y", array(a.log2_y));
+        r.set("log2_y_hdr", array(a.log2_y_hdr));
+        out.set("ramp", std::move(r));
+    }
+    const std::string text = out.dump();
+    if (session->hdr_curves.size() >= 8) session->hdr_curves.clear();
+    session->hdr_curves.emplace(key, text);
+    *out_json = static_cast<char*>(std::malloc(text.size() + 1));
+    if (!*out_json) { g_error = "hdr curve: out of memory"; return SPK_ERR_RESOURCE; }
+    std::memcpy(*out_json, text.c_str(), text.size() + 1);
     return SPK_OK;
 }
 
@@ -2382,6 +2643,35 @@ spk_status spk_progress(spk_session* session, const char* progress_id, char** ou
     // render started. Reported and nothing else -- the mode that would act on
     // it (§4) does not exist yet.
     out.set("memory_pressure_critical", Json(p.memory_pressure_critical));
+    // `scan_hdr` (2026-11-06), additive: present only
+    // when the session's pipeline scans a slide's HDR rendition -- what it was
+    // built with, for diagnostics and for the host's map: the headroom the
+    // clear base is put at, the film's clear base today, the lift, the knees.
+    if (session->pipeline && session->pipeline->scan_hdr().active) {
+        const ScanHdrModel& m = session->pipeline->scan_hdr();
+        Json h = Json::object();
+        h.set("version", Json(std::string(ScanHdrModel::kVersion)));
+        h.set("headroom", Json(m.headroom));
+        h.set("stretch", Json(m.stretch));
+        h.set("output_scale", Json(m.output_scale));
+        h.set("y_white", Json(m.y_white));
+        h.set("y_target", Json(m.y_target));
+        h.set("y_reached", Json(m.y_reached));
+        h.set("tint", Json(m.tint));
+        Json knees = Json::array(), deltas = Json::array(), lifts = Json::array();
+        for (int c = 0; c < 3; ++c) {
+            lifts.push(Json(m.lift[c]));
+            knees.push(Json(m.knee[c] / 0.30102999566398120));
+            deltas.push(Json(m.delta[c] / 0.30102999566398120));
+        }
+        h.set("knee_stops", std::move(knees));
+        h.set("delta_stops", std::move(deltas));
+        h.set("lift_density", std::move(lifts));
+        out.set("scan_hdr", std::move(h));
+    }
+    // The last film run's grain realisation (`grain_seed`; 0x5EED with grain
+    // off), always present, additive.
+    out.set("film_seed", Json(double(session->pipeline ? session->pipeline->film_seed() : 0u)));
     // Additive (2026-10-19): the render's time awake, and its GPU's figures
     // (`Gpu::FrameStats`). Zero before a render finishes, and from a backend
     // that does not measure.

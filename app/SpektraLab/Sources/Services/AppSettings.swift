@@ -75,6 +75,10 @@ final class AppSettings {
     /// **Check for updates at launch** (Settings › General, 2.2.1): once, a few seconds after a plain launch
     /// (`UpdateCheck`). On unless turned off.
     var checksForUpdates = true { didSet { save() } }
+    /// **Enable HDR by Default** (Settings › Develop on the Mac; the owner, 2026-11-03): every frame
+    /// whose own Enable HDR was never set follows it (`FrameEdit.hdrByDefault`). Off until turned on. A frame that
+    /// chose keeps its choice; a slide that follows it is developed again when it moves (its stretch, `HDRGain`).
+    var hdrByDefault = false { didSet { FrameEdit.hdrByDefault = hdrByDefault; save() } }
     /// Which of the gallery's three views the Library shows (`GalleryView`): 全部 unless another was
     /// chosen (the owner, 2026-10-21: the reference device opens on 全部, the pill switches, and is remembered).
     var galleryView = GalleryView.all { didSet { save() } }
@@ -116,6 +120,10 @@ final class AppSettings {
         cropRemapsFrame = d.bool(forKey: "settings.cropRemapsFrame")
         canvasGamut = d.string(forKey: "settings.canvasGamut").flatMap(CanvasGamut.init(rawValue:)) ?? canvasGamut
         if d.object(forKey: "settings.checksForUpdates") != nil { checksForUpdates = d.bool(forKey: "settings.checksForUpdates") }
+        hdrByDefault = d.bool(forKey: "settings.hdrByDefault")
+        // An initialiser's own assignment runs no `didSet`: what was kept is handed to the frames here, or a
+        // relaunch would follow "off" until the box was touched again.
+        FrameEdit.hdrByDefault = hdrByDefault
         galleryView = d.string(forKey: "settings.galleryView").flatMap(GalleryView.init(rawValue:)) ?? galleryView
         agentAccess = d.bool(forKey: "agent.access")
     }
@@ -153,6 +161,7 @@ final class AppSettings {
         d.set(cropRemapsFrame, forKey: "settings.cropRemapsFrame")
         d.set(canvasGamut.rawValue, forKey: "settings.canvasGamut")
         d.set(checksForUpdates, forKey: "settings.checksForUpdates")
+        d.set(hdrByDefault, forKey: "settings.hdrByDefault")
         d.set(galleryView.rawValue, forKey: "settings.galleryView")
         d.set(agentAccess, forKey: "agent.access")
     }

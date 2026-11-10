@@ -18,6 +18,13 @@
 //  Edit's three tools are three more groups (2026-10-15, design/v5): **Light**,
 //  **Curve** and **Colour**, ticked by default. They are Layer 2
 //  (`Adjustments`): a paste of them develops nothing.
+//
+//  **High Dynamic Range** (2026-11-06, D5; PRD-B 2026-11-09): Decode's
+//  高动态范围 group as it is drawn — the print's EDR (`FilmParams.extendedDynamicRange`, which Film & Paper carried
+//  until then), Enable HDR (`FrameEdit.hdr`) and HDR Peak Brightness (`FrameEdit.hdrPeakStops`). A group of its
+//  own, unticked when the sheet opens, offered on every Mac (its controls are greyed, not hidden, on one with no
+//  HDR screen). Before the enlarger's, so Edit's three stay the list's last. EDR reprints; Enable HDR and the
+//  peak develop nothing for a print; a slide's HDR is its stretched scan (`HDRGain.sdrWire`).
 
 import Foundation
 
@@ -29,6 +36,8 @@ enum ClipboardGroup: String, CaseIterable, Codable, Sendable, Identifiable {
     // V2 canonical leaves; legacy groups below retain their old meaning.
     case filmExposure = "filmExposure", format = "format", decode = "decode", enlarger = "enlarger",
         couplers = "couplers", preflash = "preflash"
+    /// High Dynamic Range: EDR, Enable HDR and HDR Peak Brightness (the key is the 2026-11-06 group's).
+    case hdr = "hdr"
 
     var id: String { rawValue }
 
@@ -38,14 +47,14 @@ enum ClipboardGroup: String, CaseIterable, Codable, Sendable, Identifiable {
         // Scene Placement has no control since the Decode curve replaced it (2026-10-24): a box
         // for it would be a box for something that cannot be seen. Decode is the white balance
         // and the curve.
-        [.filmAndPaper, .filmExposure, .format, .filmEdgeAndDateBack,
+        [.filmAndPaper, .filmExposure, .format, .filmEdgeAndDateBack, .hdr,
          .enlarger, .decode, .couplers, .preflash, .light, .curve, .colour]
             .filter { $0 != .filmEdgeAndDateBack || FeatureFlags.filmEdge || FeatureFlags.dateBack }
     }
 
-    /// Ticked when the sheet opens: everything but the film edge.
+    /// Ticked when the sheet opens: everything but the film edge and HDR.
     static var defaultSelection: Set<ClipboardGroup> {
-        Set(offered.filter { $0 != .filmEdgeAndDateBack })
+        Set(offered.filter { $0 != .filmEdgeAndDateBack && $0 != .hdr })
     }
 
     /// The groups last ticked on the Copy Settings sheet, kept: what the Mac's ⌘C copies without
@@ -77,6 +86,7 @@ enum ClipboardGroup: String, CaseIterable, Codable, Sendable, Identifiable {
         case .printEffects: L("Print Effects")
         case .scenePlacement: L("Scene Placement")
         case .filmEdgeAndDateBack: L("Film Edge & Date Back")
+        case .hdr: L("High Dynamic Range")
         case .light, .curve, .colour: layer2Tool?.title ?? ""
         }
     }
@@ -126,6 +136,9 @@ enum ClipboardGroup: String, CaseIterable, Codable, Sendable, Identifiable {
             let e = edit.filmEdge.active ? "\(edit.filmEdge.format.label) · \(edit.filmEdge.mode.label)" : L("No film edge")
             let d = edit.dateBack.active ? L("\(edit.dateBack.style.label) date") : L("No date")
             return "\(e) · \(d)"
+        case .hdr:
+            let hdr = edit.hdr ? L("HDR") + " " + String(format: "%.1f EV", edit.hdrPeak) : L("HDR off")
+            return edit.params.extendedDynamicRange ? "EDR" + Fmt.dot + hdr : hdr
         case .light, .curve, .colour:
             return layer2Tool.map { edit.adjustments.summary($0) } ?? ""
         }
@@ -184,7 +197,6 @@ struct SettingsClip: Codable, Equatable, Sendable {
             out.params.printStock = s.params.printStock
             out.params.scanFilm = s.params.scanFilm
             out.params.digitalIntermediate = s.params.digitalIntermediate
-            out.params.extendedDynamicRange = s.params.extendedDynamicRange
         }
         if groups.contains(.exposure) {
             let meterChanged = out.params.autoExposure != s.params.autoExposure
@@ -279,6 +291,12 @@ struct SettingsClip: Codable, Equatable, Sendable {
             out.params.effects.couplersActive = s.params.effects.couplersActive
         }
         if groups.contains(.preflash) { out.params.preflashExposure = s.params.preflashExposure }
+        // Enable HDR: the source's as it shows it (its choice, or the default it follows), the target's own from here on.
+        if groups.contains(.hdr) {
+            out.hdr = s.hdr
+            out.hdrPeakStops = s.hdrPeakStops
+            out.params.extendedDynamicRange = s.params.extendedDynamicRange
+        }
         // Edit's tools: each group its own fields of Layer 2, nothing else.
         for group in groups.sorted(by: { $0.rawValue < $1.rawValue }) {
             if let tool = group.layer2Tool { out.adjustments.take(tool, from: s.adjustments) }

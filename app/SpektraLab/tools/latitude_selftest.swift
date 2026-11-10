@@ -170,6 +170,13 @@ struct Rules {
     var note: (SceneLatitudeReply.Fit) -> PlacementNote? = { $0.note }
     /// What a curve tab draws behind its curve (RFC-035 §3.2, trap 16).
     var hills: (LatitudeReadout, CurveChannel) -> SceneHills = { $0.hills(for: $1) }
+    /// RFC-051: the Decode curve as the engine applies it, what the film holds through it, and the
+    /// frame after it as the output strip draws it.
+    var transfer: (CurveSet, CurveChannel) -> DecodeTransfer = { DecodeTransfer($0, channel: $1) }
+    var held: (DecodeTransfer, Double, Double) -> [ClosedRange<Double>] = { $0.held(shadow: $1, highlight: $2) }
+    var output: (LatitudeReadout, CurveChannel, CurveSet, Double, DecodeTransfer) -> (row: [Double], exact: Bool)? = {
+        $0.output(for: $1, curve: $2, exposureEV: $3, transfer: $4)
+    }
 
     // Scene Placement, solved in the app.
     var extremes: (SceneLatitudeReply, SceneLatitudeSettings) -> PlacementFit.Measured = { PlacementFit.Measured($0, for: $1) }
@@ -227,6 +234,36 @@ struct Rules {
         Rules(name: "the luminance drawn in a colour tab's place", hills: { r, c in
             let real = r.hills(for: c)
             return real == .none && c != .luma ? .luma(r.bins) : real
+        }),
+        // RFC-051's.
+        Rules(name: "the card drawn from the curve's input, not the frame after it", readout: { reply in
+            var r = reply
+            r.scene.histogram.curvedFractions = nil
+            return LatitudeReadout(r)
+        }),
+        Rules(name: "the curve's hills read from the frame after it", hills: { r, c in
+            var after = r
+            after.inputBins = nil
+            return after.hills(for: c)
+        }),
+        Rules(name: "the window drawn at its own stops whatever the curve", held: { _, s, h in
+            [max(s, -FilmParams.sceneCurveStops)...min(h, FilmParams.sceneCurveStops)]
+        }),
+        Rules(name: "the curve read without its luma row", transfer: { c, ch in
+            var bare = c
+            bare.luma = .identity
+            return DecodeTransfer(bare, channel: ch)
+        }),
+        Rules(name: "an estimate drawn as the measurement", output: { r, ch, c, ev, t in
+            r.output(for: ch, curve: c, exposureEV: ev, transfer: t).map { ($0.row, true) }
+        }),
+        Rules(name: "the norm drawn on a colour tab", output: { r, _, c, ev, t in
+            r.output(for: .luma, curve: c, exposureEV: ev, transfer: t)
+        }),
+        Rules(name: "the measurement of another curve drawn as this one's", output: { r, ch, c, ev, t in
+            var any = r
+            any.measuredOn = DecodeStamp(curve: c, exposureEV: ev)
+            return any.output(for: ch, curve: c, exposureEV: ev, transfer: t)
         }),
         Rules(name: "every refusal the same line", note: { fit in
             fit.valid ? fit.note : PlacementNote(text: "That placement cannot be solved on this frame.", refused: true)
@@ -928,7 +965,10 @@ func run(_ rules: Rules, quiet: Bool) -> (passed: Int, failed: [String]) {
     let centreOfTallest = -16 + (Double(tallest) + 0.5) * 0.25
     expect(r.bins.max() == 1 && near(r.bins.firstIndex(of: 1).map(r.binEV), centreOfTallest),
            "the tallest bin is 1, and sits at its own centre (\(centreOfTallest))")
-    expect(r == reading(metered), "these checks' own copy of the mapping is the app's")
+    // The drawing only: the reply's raw shares (RFC-051's `shares`) are held by `decodeCurveChecks`.
+    var drawn = r
+    drawn.shares = nil
+    expect(drawn == reading(metered), "these checks' own copy of the mapping is the app's")
 
     // One spike, half a stop over mid-grey: bin 66 covers +0.5...+0.75.
     let spike = rules.readout(reply([66: 0.5], from: metered))
@@ -1026,6 +1066,8 @@ func run(_ rules: Rules, quiet: Bool) -> (passed: Int, failed: [String]) {
                "the engine's sentence never reaches the card: \(note)")
     }
 
+    decodeCurveChecks(rules, expect: expect)
+
     // Scene Placement, solved in the app, against the engine's own fits of real frames.
     placementChecks(rules, quiet: quiet, expect: expect)
     return (passed, failed)
@@ -1052,4 +1094,113 @@ enum LatitudeSelfTest {
         print("latitude checks: \(r.passed) passed, \(r.failed.count) failed")
         exit(r.failed.isEmpty ? 0 : 1)
     }
+}
+
+// MARK: - RFC-051: the Decode curve shows what it does
+
+/// A curve set with one row's points, in film stops (input → output), the ends included.
+func decodeCurve(_ channel: CurveChannel, _ stops: [(Double, Double)]) -> CurveSet {
+    var set = CurveSet()
+    let s = FilmParams.sceneCurveStops
+    set[channel].points = stops.map { CGPoint(x: ($0.0 + s) / (2 * s), y: ($0.1 + s) / (2 * s)) }
+    return set
+}
+
+func decodeCurveChecks(_ rules: Rules, expect: (Bool, String) -> Void) {
+    // `scene_latitude_curved.json`: the engine's reply on a tinted ramp −6…+5 stops (patches at
+    // quarter-stop bin centres) under a Decode curve whose rgb row compresses everything over +1
+    // stop by 0.45 (`engine/tests`, 2026-11-09). It carries `curved_fractions` and its R, G, B.
+    guard let curved = fixture("curved"), let plain = fixture("reply") else {
+        expect(false, "the engine's curved reply in tools/engine_replies did not decode"); return
+    }
+    let h = curved.scene.histogram
+    expect(h.curvedFractions?.count == 128 && h.curvedFractionsR?.count == 128 && h.curvedFractionsB?.count == 128,
+           "the engine's curved rows decode, on the reply's 128 bins")
+    let card = rules.readout(curved)
+    let asInput = LatitudeReadout(shares: h.placedFractions ?? h.fractions, from: h.loEV, to: h.hiEV,
+                                  shadowEV: card.shadowEV, highlightEV: card.highlightEV)
+    let asCurved = LatitudeReadout(shares: h.curvedFractions ?? [], from: h.loEV, to: h.hiEV,
+                                   shadowEV: card.shadowEV, highlightEV: card.highlightEV)
+    expect(card.bins == asCurved.bins && card.bins != asInput.bins,
+           "the card is the frame after the curve, not the curve's input")
+    expect(card.curveInput == asInput.bins, "…and keeps the curve's input for the hills")
+    if case .luma(let bins) = rules.hills(card, .luma) {
+        expect(bins == asInput.bins, "the curve's hills are its input, never the frame after it")
+    } else {
+        expect(false, "the curve's hills are its input, never the frame after it")
+    }
+    // A brightest end that lands further down after the compression.
+    func top(_ row: [Double]) -> Int { row.lastIndex { $0 > 0 } ?? 0 }
+    expect(top(h.curvedFractions ?? []) < top(h.fractions), "the compression brings the scene's top end down")
+    var ruler = SceneLatitudeSettings()
+    ruler.highlightPullBack = 1
+    expect(curved.placed(ruler).scene.histogram.curvedFractions == nil,
+           "a placement solved here drops the engine's rows of the placement it measured")
+    let old = rules.readout(plain)
+    expect(old.inputBins == nil && old.shares?.curved == nil, "a reply without curved rows draws as it did")
+
+    // The transfer, on the wire's own table.
+    let shadow = -6.9, highlight = 2.2
+    let identity = rules.transfer(CurveSet(), .rgb)
+    let idHeld = rules.held(identity, shadow, highlight)
+    expect(idHeld.count == 1 && abs(idHeld[0].lowerBound - shadow) < 0.02 && abs(idHeld[0].upperBound - highlight) < 0.02,
+           "the identity holds the window itself: \(idHeld)")
+    // The top from +1 stop compressed to +8 → +4: on a straight line the input that lands on +2.2
+    // would be (2.2 − 1) / (3 / 7) + 1 = +3.8; the monotone cubic through the three points bends
+    // towards the diagonal near +1, so it is less, and well over a stop past the window's own edge.
+    let squash = decodeCurve(.rgb, [(-8, -8), (1, 1), (8, 4)])
+    let sq = rules.held(rules.transfer(squash, .rgb), shadow, highlight)
+    expect(sq.count == 1 && sq[0].upperBound > highlight + 0.75 && abs(sq[0].lowerBound - shadow) < 0.15,
+           "compressing the top carries the window's upper edge up the input: \(sq)")
+    // The same squash on the luma row: the same for a neutral pixel, so the same held stops.
+    let lumaSq = rules.held(rules.transfer(decodeCurve(.luma, [(-8, -8), (1, 1), (8, 4)]), .rgb), shadow, highlight)
+    expect(lumaSq.count == 1 && abs(lumaSq[0].upperBound - sq[0].upperBound) < 0.05,
+           "the luma row is read on every tab's path: \(lumaSq)")
+    // A curve that folds back: up to +4 at input 0, back down to −2 at +4, then rising: three crossings.
+    let fold = decodeCurve(.rgb, [(-8, -8), (0, 4), (4, -2), (8, 8)])
+    let folded = rules.held(rules.transfer(fold, .rgb), shadow, highlight)
+    expect(folded.count >= 2, "a curve that folds back holds more than one stretch of the input: \(folded)")
+    // Past ±8 the end's gain holds.
+    let lift = rules.transfer(decodeCurve(.rgb, [(-8, -7), (8, 9)]), .rgb)
+    expect(abs(lift(10) - 11) < 1e-3 && abs(lift(0) - 1) < 1e-3, "a +1 stop lift lands +1 everywhere, past the ends too")
+    // A colour tab reads its own row after the others.
+    let redUp = decodeCurve(.red, [(-8, -7), (8, 9)])
+    expect(abs(rules.transfer(redUp, .red)(0) - 1) < 1e-3 && abs(rules.transfer(redUp, .rgb)(0)) < 1e-3,
+           "a colour's row is on its own tab's path only")
+
+    // The output strip: the engine's rows for the curve it measured, the app's estimate otherwise.
+    let shares = SceneShares(from: -16, to: 16, input: [(0..<128).map { $0 == 64 ? 1.0 : 0 }], curved: nil)
+    var reading = LatitudeReadout(bins: [], shadowEV: shadow, highlightEV: highlight)
+    reading.shares = shares
+    let liftSet = decodeCurve(.rgb, [(-8, -7), (8, 9)])
+    let est = rules.output(reading, .rgb, liftSet, 0, rules.transfer(liftSet, .rgb))
+    expect(est?.exact == false && est?.row.firstIndex(of: 1.0) == 68,
+           "a curve not yet measured is the app's estimate, carried four bins up for +1 stop")
+    var measured = reading
+    measured.shares?.curved = [(0..<128).map { $0 == 67 ? 1.0 : 0 }]
+    measured.measuredOn = DecodeStamp(curve: liftSet, exposureEV: 0)
+    let exact = rules.output(measured, .rgb, liftSet, 0, rules.transfer(liftSet, .rgb))
+    expect(exact?.exact == true && exact?.row.firstIndex(of: 1.0) == 67, "the engine's measurement of this curve is drawn as exact")
+    let moved = decodeCurve(.rgb, [(-8, -6), (8, 10)])
+    let stale = rules.output(measured, .rgb, moved, 0, rules.transfer(moved, .rgb))
+    expect(stale?.exact == false && stale?.row.firstIndex(of: 1.0) == 72,
+           "a measurement of another curve is not drawn as this one's")
+    let otherExposure = rules.output(measured, .rgb, liftSet, 1, rules.transfer(liftSet, .rgb))
+    expect(otherExposure?.exact == false, "…nor of another Film Exposure")
+    // Each colour tab draws its own channel after the curve, never the norm in its place (the owner,
+    // 2026-11-09; trap 16): on the engine's curved reply, measured on the curve it carries.
+    var tinted = card
+    tinted.measuredOn = DecodeStamp(curve: liftSet, exposureEV: 0)
+    for (ch, k) in [(CurveChannel.red, 1), (.green, 2), (.blue, 3)] {
+        let got = rules.output(tinted, ch, liftSet, 0, rules.transfer(liftSet, ch))
+        expect(got?.exact == true && got?.row == tinted.shares?.curved?[k] && got?.row != tinted.shares?.curved?[0],
+               "the \(ch.rawValue) tab draws its own channel after the curve")
+    }
+    var noRows = tinted
+    noRows.shares?.curved = tinted.shares?.curved.map { [$0[0]] }
+    noRows.shares?.input = [tinted.shares?.input[0] ?? []]
+    expect(rules.output(noRows, .red, liftSet, 0, rules.transfer(liftSet, .red)) == nil,
+           "a reading without channel rows draws nothing on a colour tab")
+    let unstamped = LatitudeReadout(bins: [], shadowEV: shadow, highlightEV: highlight)
+    expect(rules.output(unstamped, .rgb, liftSet, 0, rules.transfer(liftSet, .rgb)) == nil, "no shares, no strip")
 }

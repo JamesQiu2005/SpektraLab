@@ -234,7 +234,7 @@ extension Log {
 
     /// One frame's export, ended: what was asked, what was made, where it went.
     @MainActor static func exported(_ frame: LibraryFrame, recipe: ExportRecipe, made: ExportService.Prepared?, outcome: String,
-                                    why: String? = nil, seconds: Double, file: URL? = nil, brought: Double? = nil) {
+                                    why: String? = nil, seconds: Double, file: URL? = nil, brought: Double? = nil, hdr: String? = nil) {
         var fields: [String: Any] = Log.recipe(recipe)
         fields["frame"] = Log.frame(frame.id)
         fields["outcome"] = outcome
@@ -255,6 +255,8 @@ extension Log {
             fields["raw"] = made.isRAW
         }
         fields["brought_s"] = brought
+        // Enable HDR: how the file's gain map is declared ("appleCamera + hdrgm"), or that it has none.
+        fields["hdr"] = frame.edit.hdr ? (hdr ?? "no map") : nil
         fields["bytes"] = file.flatMap { try? FileManager.default.attributesOfItem(atPath: $0.path)[.size] as? NSNumber }?.int64Value
         note(.export, outcome, fields, level: outcome == "saved" || outcome == "stopped" ? .info : .error)
     }

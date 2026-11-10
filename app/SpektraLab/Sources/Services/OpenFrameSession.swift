@@ -199,6 +199,9 @@ final class OpenFrameSession {
     /// Layer 2 on this page: the picture with Edit's Light, Curve and Colour,
     /// and the histogram the Curve draws behind it.
     @ObservationIgnored let layer2 = Layer2Live()
+    /// The histogram of this page's HDR picture, where its Enable HDR is on (`HDRZoneView.swift`): one set of
+    /// counts for the histogram panel and Edit's curve, which on the Mac are on screen together.
+    @ObservationIgnored let hdrZone = HDRZoneModel()
     #if SPK_ENGINE
     /// The page zoomed past its preview: the frame's render at full size (`FullDetail.swift`).
     @ObservationIgnored let fullView: FullView
@@ -444,6 +447,61 @@ final class OpenFrameSession {
         visit?.settled.rawExposureFacts = facts
     }
 
+    /// Enable HDR's curve of this frame's session as the engine last said it (`spk_session_hdr_curve`:
+    /// `HDRSessionCurve`), or its refusal; nil until the page has asked. Asked with each develop where the page
+    /// draws its HDR (`EngineRouter.curveWithDevelop`), else alone once an edit settles and when the switch is turned
+    /// on (`askCurve`). What the canvas and the histogram draw this page's HDR with (`HDRLook.of`) and what greys
+    /// the switch (`FrameEdit.hdrAvailable`) — never a live engine.
+    private(set) var hdr: HDRSessionCurve.Answer?
+    /// The develop `hdr` came with (its stamp), for the log; nil for one asked alone.
+    @ObservationIgnored private(set) var hdrStamp: String?
+    /// A develop's curve, held until its picture lands (`landed`).
+    @ObservationIgnored private var hdrComing: (answer: HDRSessionCurve.Answer, stamp: String)?
+    /// One more each time a develop's curve is taken: an answer asked alone before it is then of an older session.
+    @ObservationIgnored private var hdrTaken = 0
+
+    /// The engine said the curve of the develop about to land (`EngineRouter.onHDRCurve`, just before `landed`). It is
+    /// taken with that picture, in the same turn (the 2026-11-06 review): taken first, a curve that moved with the
+    /// edit — a Couplers step moves it 0.01–0.03 stop, a film format 0.001 — was a new look under the old picture,
+    /// so the canvas made the old picture's rendition of it, threw it away when the picture came, and made it
+    /// again: twice the GPU's work for every step, and the full-size tile empty meanwhile.
+    func hdrLanded(_ answer: HDRSessionCurve.Answer, stamp: String) {
+        hdrComing = (answer, stamp)
+    }
+
+    private func takeCurve(_ answer: HDRSessionCurve.Answer, stamp: String?) {
+        if answer != hdr { hdr = answer }
+        hdrStamp = stamp
+    }
+
+    /// Ask the engine for the curve alone (`EngineRouter.hdrCurve`: no render), where the develops do not carry it:
+    /// once an edit has settled (after the page's `spk_scene_latitude`, whose probe it shares: a cache hit), so
+    /// the switch knows whether it can do anything; and when the switch is turned on, so a print — whose switch
+    /// develops nothing (D3) — draws the curve of the edit as it stands.
+    /// One ask out at a time; asks made meanwhile become one more, of the edit as it then stands (2026-11-10: a
+    /// Peak Brightness drag asked once a step, 6–9 in the same millisecond, each a new look that restarted the
+    /// canvas's rendition and the histogram's pass).
+    @ObservationIgnored private var curveAsking = false
+    @ObservationIgnored private var curveAgain = false
+
+    private func askCurve() {
+        guard let darkroom, opened, edit.appliesFilm else { return }
+        guard !curveAsking else { curveAgain = true; return }
+        curveAsking = true
+        let taken = hdrTaken, frame = frameID, headroom = edit.hdrHeadroom
+        Task { [weak self] in
+            let answer = await darkroom.hdrCurve(frame, headroom: headroom)
+            #if DEBUG
+            Log.note(.develop, "hdr curve asked", ["headroom": headroom, "answered": answer != nil, "taken": self?.hdrTaken == taken])
+            #endif
+            guard let self else { return }
+            self.curveAsking = false
+            if self.curveAgain { self.curveAgain = false; self.askCurve(); return }
+            guard let answer, self.opened, self.hdrTaken == taken else { return }
+            self.takeCurve(answer, stamp: nil)
+        }
+    }
+
     /// The engine finished a develop of this page's.
     func landed(_ image: UIImage, stamp: String) {
         let old = developed
@@ -451,6 +509,11 @@ final class OpenFrameSession {
                                      size: PixelSize(width: Int(image.size.width * image.scale), height: Int(image.size.height * image.scale)),
                                      stamp: stamp)
         developedImage = image
+        // Its curve, in the same turn as the picture (`hdrLanded`).
+        if let coming = hdrComing {
+            hdrComing = nil
+            if coming.stamp == stamp { takeCurve(coming.answer, stamp: stamp); hdrTaken &+= 1 }
+        }
         RenderedPictures.shared.remove(old?.picture)
         visit?.pictures += 1
         layer2.show(picture: Layer2Live.picture(for: frame, developed: developed, edit: edit))
@@ -586,11 +649,20 @@ final class OpenFrameSession {
         var same = edit
         same.adjustments = next.adjustments
         same.printCrop = next.printCrop
+        // Enable HDR: a print's is the same full render (D3) — but a slide's develop is its stretched scan.
+        // The stored choice, not `hdr`.
+        if HDRGain.sdrWire(for: next) == HDRGain.sdrWire(for: edit) { same.hdrChoice = next.hdrChoice }
+        // HDR Peak Brightness is the curve's H, never the SDR picture (PRD-B).
+        same.hdrPeakStops = next.hdrPeakStops
         if same != next || pieceMoved { fullView.editChanged() }
         #endif
+        // Enable HDR turned on, or its peak moved (the curve's H, PRD-B): the curve asked again, alone — no develop.
+        let hdrTurnedOn = next.hdr && (!edit.hdr || next.hdrPeakStops != edit.hdrPeakStops)
         edit = next
         touched()
         library.update(frameID) { $0.edit = next }
+        // Enable HDR on: the curve of the edit as it stands (a print develops nothing for it).
+        if hdrTurnedOn { askCurve() }
         // Layer 2 follows the edit at once: it is the GPU's pass, not a render.
         layer2.show(adjustments: next.adjustments)
         layer2.show(picture: Layer2Live.picture(for: frame, developed: developed, edit: next))
@@ -846,7 +918,7 @@ final class OpenFrameSession {
         guard let darkroom, darkroom.makesPictures else { return }
         latitude = .waiting
         darkroom.closeEditing(frameID)
-        if let frame, let want = darkroom.stamp(frame, edit: frame.edit, longEdge: frame.previewSize.longEdge),
+        if let frame, let want = darkroom.stamp(frame, edit: frame.edit, longEdge: frame.previewDevelopLongEdge(frame.edit)),
            frame.developed?.stamp != want {
             if let developed, developed.stamp == want, let developedImage {
                 darkroom.keep(developedImage, frameID: frameID, stamp: want)
@@ -913,7 +985,7 @@ final class OpenFrameSession {
         // The page's first develop opens the frame: its decode is part of the
         // job, priced by the original's size (`RenderJob.original`). So does
         // a develop from other pixels than the one before it.
-        let source = darkroom?.sourceKey(frame, edit: target, longEdge: frame.previewSize.longEdge)
+        let source = darkroom?.sourceKey(frame, edit: target, longEdge: frame.previewDevelopLongEdge(target))
         let opens = opening || (source != nil && (source != askedSource || source != renderedSource))
         let job = RenderJob(frameID: frameID,
                             kind: opens || layers.contains(.shoot) ? .canvasDevelop : .canvasReprint,
@@ -923,12 +995,14 @@ final class OpenFrameSession {
                             decodesOriginal: opens, original: opens ? (darkroom?.openSize(frame, edit: target) ?? frame.originalSize) : nil,
                             // A half-frame pair's frames that print as their own: each a reprint
                             // of the same negative, cut in along its hole (`PrintLayers.swift`).
-                            printLayers: darkroom?.printLayers(frame, edit: target) ?? 0)
+                            printLayers: darkroom?.printLayers(frame, edit: target) ?? 0,
+                            // A cropped frame's decode is larger than its canvas (`previewDevelopLongEdge`).
+                            opens: frame.previewDevelopOpens(target))
         // The frame's file, its decode and its whole wire, as they are now: the
         // engine asks for them on its own queue. A frame with nothing to develop
         // from (a demo picture, an original that is away) is not submitted.
         if let darkroom, !darkroom.prepare(job, frame: frame, edit: target, purpose: .canvas,
-                                           longEdge: frame.previewSize.longEdge) { return }
+                                           longEdge: frame.previewDevelopLongEdge(target)) { return }
         let id = scheduler.submit(job)
         let piece = frame.pair
         asked = (id, target, piece)
@@ -1004,8 +1078,10 @@ final class OpenFrameSession {
         // A half-frame pair: the frame the placement is of, measured by itself.
         var request = settings.request
         request.region = region
-        guard let answer = await darkroom.sceneLatitude(frameID, request: request),
-              opened, !Task.isCancelled else { return }
+        let answer = await darkroom.sceneLatitude(frameID, request: request)
+        // Enable HDR's curve where the develops do not carry it: the medium was just probed, so a cache hit.
+        if opened, !Task.isCancelled, !EngineRouter.curveWithDevelop(edit) { askCurve() }
+        guard let answer, opened, !Task.isCancelled else { return }
         switch answer {
         case .success(let reply):
             if let of, turn == turns, settled != nil {
@@ -1036,7 +1112,14 @@ final class OpenFrameSession {
         let settings = edit.placementNeedsFit ? edit.params.sceneLatitude.withoutPlacement : edit.params.sceneLatitude
         let same = ground.fit.highlight.pullBack == settings.highlightPullBack
             && ground.fit.shadow.pullBack == settings.shadowPullBack
-        let reading = LatitudeReading.measured(LatitudeReadout(same ? ground : ground.placed(settings)))
+        var readout = LatitudeReadout(same ? ground : ground.placed(settings))
+        // RFC-051: the curve and exposure the engine measured this reading on, so the Decode curve
+        // shows its after-curve rows as exact for that curve and no other. `ground` is of the edit
+        // as it stands, so `measured.of` is the edit the reply was made of.
+        if let of = measured?.of {
+            readout.measuredOn = DecodeStamp(curve: of.params.sceneCurve, exposureEV: of.params.exposureCompensationEV)
+        }
+        let reading = LatitudeReading.measured(readout)
         if latitude != reading { latitude = reading }
     }
 

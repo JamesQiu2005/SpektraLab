@@ -895,7 +895,7 @@ extension HalfFramePair.PrintTrim {
         switch field {
         case .brightness: -3...3
         case .yellow, .magenta: -1...1
-        case .preflash: 0...0.03
+        case .preflash: 0...FilmParams.preflashMax
         }
     }
 }

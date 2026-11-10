@@ -18,6 +18,7 @@ add_library(spektralab_core STATIC
     src/core/curves.cpp
     src/core/digital_intermediate.cpp
     src/core/hanatos.cpp
+    src/core/hdr_curves.cpp
     src/core/json.cpp
     src/core/latitude_fit.cpp
     src/core/minilab.cpp
@@ -26,6 +27,7 @@ add_library(spektralab_core STATIC
     src/core/print_lut.cpp
     src/core/printing.cpp
     src/core/profile.cpp
+    src/core/scan_hdr.cpp
     src/core/setup_cache.cpp
     src/core/spectral.cpp
 )
