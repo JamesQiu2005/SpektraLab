@@ -14,6 +14,7 @@
 
 #include <libraw/libraw.h>
 
+#include "io/raw_camera.hpp"
 #include "io/raw_decoder.hpp"
 #include "platform.hpp"
 #include "stb_image.h"
@@ -23,6 +24,7 @@
 namespace spkhost {
 
 namespace fs = std::filesystem;
+using spk::io::detail::CameraLibRaw;
 
 // ---------------------------------------------------------------------------
 // small utilities
@@ -784,7 +786,7 @@ bool probe_file(const fs::path& path, Probe& out, std::string& error) {
     if (out.kind == FileKind::Unknown) { error = "unrecognised file type: " + path_utf8(path); return false; }
     if (out.kind == FileKind::Heic || out.kind == FileKind::Exr) return probe_extra(path, out.kind, out, error);
     if (out.kind == FileKind::Raw) {
-        auto raw = std::make_unique<LibRaw>(LIBRAW_OPTIONS_NO_DATAERR_CALLBACK);
+        auto raw = std::make_unique<CameraLibRaw>();
         if (!raw_open(*raw, path, error, &out.metadata)) return false;
         raw_metadata(*raw, out.metadata);
         out.width = raw->imgdata.sizes.width;
@@ -819,7 +821,7 @@ bool decode_linear_prophoto(const fs::path& path, const DecodeOptions& options, 
         spk::io::DecodedRaw decoded;
         std::array<float, 4> mul{};
         if (custom_wb) {
-            auto raw = std::make_unique<LibRaw>(LIBRAW_OPTIONS_NO_DATAERR_CALLBACK);
+            auto raw = std::make_unique<CameraLibRaw>();
             if (!raw_open(*raw, path, error)) return false;
             if (!multipliers_for(*raw, *options.temperature_k, options.tint.value_or(0.0), mul, error)) {
                 error = kUnsupportedPrefix + error;
@@ -911,7 +913,7 @@ bool thumbnail(const fs::path& path, uint32_t long_edge, Rgba8& out, std::string
         out.width = image.width; out.height = image.height; source = "decode"; return true;
     }
     if (probe.kind == FileKind::Raw) {
-        auto raw = std::make_unique<LibRaw>(LIBRAW_OPTIONS_NO_DATAERR_CALLBACK);
+        auto raw = std::make_unique<CameraLibRaw>();
         if (!raw_open(*raw, path, error)) return false;
         const int orientation = flip_to_orientation(raw->imgdata.sizes.flip);
         std::vector<float> rgb;
@@ -954,7 +956,7 @@ bool thumbnail(const fs::path& path, uint32_t long_edge, Rgba8& out, std::string
         }
         // No usable embedded preview: a half-size sRGB decode.
         spk::io::RawDecodeThreadScope thread_scope;
-        raw = std::make_unique<LibRaw>(LIBRAW_OPTIONS_NO_DATAERR_CALLBACK);
+        raw = std::make_unique<CameraLibRaw>();
         if (!raw_open(*raw, path, error)) return false;
         auto& p = raw->imgdata.params;
         p.half_size = 1;
