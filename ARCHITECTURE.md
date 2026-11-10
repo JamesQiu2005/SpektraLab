@@ -2,7 +2,7 @@
 
 How SpektraLab 2 is put together: a Mac Catalyst app with the SpektraLab engine, a C++/Metal render
 engine, linked into it, and a library helper, `spklib-host`, running beside it. Written for someone
-about to change the pipeline, the app or the release. Current as of **2.3.0, 2026-11-10**.
+about to change the pipeline, the app or the release. Current as of **2.3.1, 2026-11-10**.
 
 The SpektraLab engine is a C++/Metal implementation derived from spektrafilm by Andrea Volpato
 (GPL-3.0-or-later). The engine's sections (§1–§4, §6, §8) carry over from 1.x except where they
@@ -240,7 +240,7 @@ xcodebuild … archive                       a release: Release, ARCHS='arm64 x8
 - **The engine is built for Catalyst by `build_engine_mac.sh`**, from the same sources and with
   the same safe-math kernels as `engine/build.sh` (§8.4), because a Catalyst app cannot link a
   plain macOS object. It writes `build/engine-macosx/`, which the project links and copies.
-- **Versions** live in `gen_project.py`: the default is the current release (2.3.0); a release
+- **Versions** live in `gen_project.py`: the default is the current release (2.3.1); a release
   passes `--version`, `--build <yyyyMMddHHmm>` and `--bundle-id com.spektralab.mac`, and the
   generated project is committed with it. A build without `--version` shows the default in
   Settings › General › About.

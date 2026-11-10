@@ -13,7 +13,7 @@
 //  | the drag | | why |
 //  |---|---|---|
 //  | began in this app (a thumbnail, the filmstrip) | refused | the picture is in the library already; the import page is for files from outside |
-//  | a file from Finder: a picture, a RAW, a folder, a catalog or session | taken | what the import page takes |
+//  | a file from Finder: a picture, a RAW, a folder, a catalog or session | taken | what the import page takes; Finder's item is the file's type + `com.apple.finder.node`, with no file URL on Catalyst |
 //  | a file URL that names no type of its own | taken | the scan decides at the drop (`MacImportDrop.usable`); Finder names a type for almost every file |
 //  | a file from Finder that says it is something else: a PDF, text, a LUT | refused | nothing to import (the cursor's ⊘) |
 //  | another app's promise of a file (Photos), of a picture | taken | it becomes a file at the drop (`MacImportDrop.read`'s copy) |
@@ -61,9 +61,16 @@ enum MacDropOffer {
         return sawFile ? .notImportable : .noFile
     }
 
-    /// The item is a file, or another app's promise to make one (`NSFilePromiseProvider` on the Mac).
+    /// Finder's own mark on an item it drags. **On Catalyst a Finder drag carries no `public.file-url`**: its
+    /// items register the file's own type and this (a Nikon RAW: `com.nikon.raw-image`, `com.apple.finder.node`,
+    /// read off the app's log on 2026-11-10). 2.3.0 asked for the file URL alone and took every real Finder
+    /// drag for "no file", so Drop to Import was gone. A web page's picture or Safari's text never carries it.
+    static let finderNode = "com.apple.finder.node"
+
+    /// The item is a file: Finder's (its node, or a file URL), or another app's promise to make one
+    /// (`NSFilePromiseProvider` on the Mac).
     static func isFile(_ ids: [String]) -> Bool {
-        ids.contains { $0 == UTType.fileURL.identifier || isPromise($0) }
+        ids.contains { $0 == UTType.fileURL.identifier || $0 == finderNode || isPromise($0) }
     }
 
     /// The pasteboard's names for a file promise as an item provider carries them.
@@ -77,7 +84,8 @@ enum MacDropOffer {
     /// drop. `public.plain-text` is a text file's own type, and is named.
     static func namedTypes(_ ids: [String]) -> [UTType] {
         let generic: [UTType] = [.fileURL, .url, .data, .item, .content, .utf8PlainText]
-        return ids.filter { !isPromise($0) }.compactMap { UTType($0) }.filter { t in !generic.contains(t) }
+        // Finder's node mark says "a file", not what kind (as a type it is dynamic, which would pass any file).
+        return ids.filter { !isPromise($0) && $0 != finderNode }.compactMap { UTType($0) }.filter { t in !generic.contains(t) }
     }
 
     /// A file item the import page takes: a picture (a RAW among them), a folder, a package, a catalog

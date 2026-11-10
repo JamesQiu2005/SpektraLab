@@ -369,9 +369,8 @@ struct MacImportDropZone: UIViewRepresentable {
             interaction = drop
             click = tap
             host = top
-            #if DEBUG
-            NSLog("[drop] the import drop zone is on %@ (%.0f x %.0f)", String(describing: type(of: top)), top.bounds.width, top.bounds.height)
-            #endif
+            Log.note(.library, "mac drop: zone attached", ["on": String(describing: type(of: top)),
+                                                            "size": [Int(top.bounds.width), Int(top.bounds.height)]])
         }
 
         func detach() {
@@ -401,6 +400,11 @@ struct MacImportDropZone: UIViewRepresentable {
         // MARK: UIDropInteractionDelegate
 
         func dropInteraction(_ interaction: UIDropInteraction, canHandle session: UIDropSession) -> Bool {
+            // What a drag carries, as the zone is asked about it (2026-11-10: "the drag to import is completely gone").
+            Log.note(.library, "mac drop: asked", ["verdict": verdict(session).rawValue, "local": session.localDragSession != nil,
+                "types": session.items.map { $0.itemProvider.registeredTypeIdentifiers.joined(separator: ",") },
+                "in_place": session.items.map { $0.itemProvider.registeredContentTypesForOpenInPlace.map(\.identifier).joined(separator: ",") },
+                "accepts": MacImportDrop.accepts(router)])
             switch verdict(session) {
             case .files, .notImportable: return true      // the second only to show the cursor's ⊘
             case .inApp, .noFile, .empty: return false
@@ -409,6 +413,7 @@ struct MacImportDropZone: UIViewRepresentable {
 
         func dropInteraction(_ interaction: UIDropInteraction, sessionDidEnter session: UIDropSession) {
             let v = verdict(session), ok = MacImportDrop.accepts(router)
+            Log.note(.library, "mac drop: entered", ["verdict": v.rawValue, "accepts": ok])
             watch.apply { $0.entered(v, accepting: ok) }
         }
 
@@ -428,6 +433,7 @@ struct MacImportDropZone: UIViewRepresentable {
         }
 
         func dropInteraction(_ interaction: UIDropInteraction, performDrop session: UIDropSession) {
+            Log.note(.library, "mac drop: dropped", ["verdict": verdict(session).rawValue, "items": session.items.count])
             watch.apply { $0.dropped() }
             guard verdict(session).takes else { return }
             _ = MacImportDrop.perform(session.items.map(\.itemProvider), router: router)

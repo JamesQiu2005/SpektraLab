@@ -27,6 +27,13 @@ let webImage = ["public.png", "public.url"]
 let webImageHTML = ["public.jpeg", "public.html", "public.url"]
 let safariText = ["public.utf8-plain-text", "public.plain-text"]
 let photosPromise = ["com.apple.NSFilePromiseItemMetaData", "com.apple.pasteboard.promised-file-content-type", "public.jpeg"]
+// What Finder's drag actually registers on Catalyst, read off the app's log on 2026-11-10 (a Nikon RAW): the
+// file's own type and Finder's node marker, and **no** public.file-url. The table above was written without one
+// such drag and took every real Finder drag for "no file" (2.3.0: Drop to Import gone).
+let realFinderNEF = ["com.nikon.raw-image", "com.apple.finder.node"]
+let realFinderJPEG = ["public.jpeg", "com.apple.finder.node"]
+let realFinderFolder = ["public.folder", "com.apple.finder.node"]
+let realFinderPDF = ["com.adobe.pdf", "com.apple.finder.node"]
 let promisePDF = ["com.apple.NSFilePromiseItemMetaData", "com.apple.pasteboard.promised-file-content-type", "com.adobe.pdf"]
 
 func verdicts(_ c: Checks) {
@@ -47,6 +54,10 @@ func verdicts(_ c: Checks) {
     c.expect(v([finderPDF, finderDNG]) == .files, "a drag with one picture among other files is taken")
     c.expect(v([webImage, finderDNG]) == .files, "a drag with one file among web pictures is taken")
     c.expect(v([]) == .empty, "a drag with no items is not")
+    c.expect(v([realFinderNEF]) == .files, "a NEF as Finder really drags it (no file URL) is taken (\(v([realFinderNEF])))")
+    c.expect(v([realFinderJPEG]) == .files, "a JPEG as Finder really drags it is taken (\(v([realFinderJPEG])))")
+    c.expect(v([realFinderFolder]) == .files, "a folder as Finder really drags it is taken (\(v([realFinderFolder])))")
+    c.expect(v([realFinderPDF]) == .notImportable, "a PDF as Finder really drags it is not, with the ⊘ (\(v([realFinderPDF])))")
 }
 
 func states(_ c: Checks) {
