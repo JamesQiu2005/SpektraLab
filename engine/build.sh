@@ -23,9 +23,8 @@
 # up to 1.1e-5, which is past the float32 bar and silent.
 #
 # Setting them here is necessary but not sufficient, because a build flag is
-# exactly the kind of guard that stops being checked. `spk_math_probe` in
-# `shaders/probe.metal` computes `a*b - a*b`, which is *zero* under fast math
-# and the fma error term under safe math, and `spk_engine_create` asserts it.
+# exactly the kind of guard that stops being checked. `spk_metal_math_probe`
+# in `src/shaders/util.metal` checks for fast math and reassociation at startup.
 set -euo pipefail
 
 here=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)

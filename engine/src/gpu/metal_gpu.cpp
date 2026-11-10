@@ -178,53 +178,37 @@ public:
     }
 
     bool check_math_mode(std::string& detail) override {
-        // `a * b - a * b`: exactly 0 under fast math, and the rounding error
-        // of `a*b` when the compiler is allowed to contract one product into
-        // an fma but not to reassociate. Compared against the host's own
-        // `fma(a, b, -(a*b))` rather than merely against zero, so a future
-        // toolchain that stops contracting under safe math reports a mismatch
-        // instead of a false pass.
+        // The exact sum is between 2^24 and its next float, 2^24 + 2.
+        // Each lane rounds back to 2^24 before the subtraction.
         constexpr size_t n = 64;
         float in[2 * n];
         for (size_t i = 0; i < n; ++i) {
-            in[2 * i] = 0.1f + 0.37f * float(i);
-            in[2 * i + 1] = in[2 * i] * 0.5f + 1.0f;
+            in[2 * i] = float(i + 1) / 128.0f;
+            in[2 * i + 1] = 0x1p24f;
         }
         begin_frame();
         std::string error;
         BufferRef src = upload(in, sizeof in, error);
         BufferRef dst = alloc(n * sizeof(float), error);
         if (!src || !dst) { detail = "math probe could not allocate: " + error; end_frame(); return false; }
-        if (!dispatch("spk_math_probe", {Arg::buf(src), Arg::buf(dst)}, n, error) || !flush(error)) {
+        if (!dispatch("spk_metal_math_probe", {Arg::buf(src), Arg::buf(dst)}, n, error) || !flush(error)) {
             detail = "math probe failed to run: " + error;
             end_frame();
             return false;
         }
         const float* got = static_cast<const float*>(contents(dst.get()));
-        size_t zeros = 0, mismatched = 0;
+        size_t nonzero = 0;
         for (size_t i = 0; i < n; ++i) {
-            const float a = in[2 * i], b = in[2 * i + 1];
-            const float want = std::fma(a, b, -(a * b));
-            if (got[i] == 0.0f) ++zeros;
-            else if (got[i] != want) ++mismatched;
+            if (got[i] != 0.0f) ++nonzero;
         }
         end_frame();
-        if (zeros == n) {
-            detail = "the Metal library was compiled with fast math: `a*b - a*b` came back "
-                     "exactly zero for all 64 probes. Rebuild with "
-                     "-fmetal-math-mode=safe -fmetal-math-fp32-functions=precise "
-                     "(RFC-014 §5.1 trap 1: fast math drifts exp and fma contraction by up to "
-                     "1.1e-5, which is past the float32 bar and silent).";
+        if (nonzero > 0) {
+            detail = "the Metal library was compiled with fast math or the driver reassociated "
+                     "the math probe. Rebuild with -fmetal-math-mode=safe "
+                     "-fmetal-math-fp32-functions=precise (RFC-014 §5.1 trap 1).";
             return false;
         }
-        if (mismatched > 0) {
-            detail = "the fast-math probe returned " + std::to_string(mismatched) +
-                     " of 64 values that match neither zero nor the host's fma error term. "
-                     "The toolchain's contraction behaviour has changed; re-derive the probe "
-                     "in shaders/util.metal before trusting parity.";
-            return false;
-        }
-        detail = "safe (probe: fma contraction present, no reassociation)";
+        detail = "safe (probe: no reassociation)";
         return true;
     }
 

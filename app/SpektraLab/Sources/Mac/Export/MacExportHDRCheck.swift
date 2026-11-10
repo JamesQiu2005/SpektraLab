@@ -271,7 +271,9 @@ enum MacExportHDRCheck {
               let w = d[kCGImagePropertyWidth] as? Int, let h = d[kCGImagePropertyHeight] as? Int,
               let row = d[kCGImagePropertyBytesPerRow] as? Int, let data = info[kCGImageAuxiliaryDataInfoData] as? Data else { return nil }
         var out = [UInt8](repeating: 0, count: w * h)
-        data.withUnsafeBytes { b in for y in 0..<h { for x in 0..<w { out[y * w + x] = b[y * row + x] } } }
+        data.withUnsafeBytes { (b: UnsafeRawBufferPointer) in
+            for y in 0..<h { for x in 0..<w { out[y * w + x] = b[y * row + x] } }
+        }
         return (w, h, out)
     }
 

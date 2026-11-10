@@ -554,7 +554,8 @@ struct LightTableModel: Codable, Equatable, Sendable {
                 if i > 0 { reach += f * (row[i - 1].lying.width + space) }
                 steps.append(reach + it.lying.width / 2)
             }
-            let x0 = (left + right) / 2 - (reach + (row.last?.lying.width ?? 0)) / 2
+            let lastWidth = Double(row.last?.lying.width ?? 0)
+            let x0 = (left + right) / 2 - (reach + lastWidth) / 2
             for (i, var it) in row.enumerated() {
                 it.x = x0 + steps[i]
                 it.y = fanned ? rowTop - it.lying.height / 2 : rowTop - h[r] / 2

@@ -416,8 +416,8 @@ struct LightTablePane: View {
             let whole = geo.size
             let railTop = top + band + gap
             let railShown = macRail && table != nil
-            let inset = LightTableViewport.Insets(top: top + band + 10, left: 10, bottom: 10,
-                                                  right: railShown ? MacLightTableRail.width + 2 * gap : 10)
+            let inset = LightTableViewport.Insets(top: Double(top + band) + 10, left: 10, bottom: 10,
+                                                  right: railShown ? Double(MacLightTableRail.width + 2 * gap) : 10)
             ZStack(alignment: .topLeading) {
                 tableArea(inset: inset)
                     .frame(width: whole.width, height: whole.height)

@@ -72,7 +72,7 @@ inline int mirror_index(int i, int n) {
 //
 // It is also the first thing fast math would break: every one of these
 // depends on `a + b` and `fma(a, b, -p)` *not* being reassociated. See
-// build.sh, and `spk_math_probe`.
+// build.sh and `spk_metal_math_probe`.
 struct df { float hi; float lo; };
 inline df two_sum(float a, float b) { float s = a + b; float bb = s - a; float e = (a - (s - bb)) + (b - bb); return df{s, e}; }
 inline df quick_two_sum(float a, float b) { float s = a + b; float e = b - (s - a); return df{s, e}; }

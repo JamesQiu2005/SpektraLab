@@ -177,9 +177,13 @@ struct ZipWriter {
         calendar.timeZone = .current
         let c = calendar.dateComponents([.year, .month, .day, .hour, .minute, .second], from: date)
         let year = max(1980, c.year ?? 1980)
-        let time = UInt16((c.hour ?? 0) << 11 | (c.minute ?? 0) << 5 | ((c.second ?? 0) / 2))
-        let day = UInt16((year - 1980) << 9 | (c.month ?? 1) << 5 | (c.day ?? 1))
-        return (time, day)
+        let hours = (c.hour ?? 0) << 11
+        let minutes = (c.minute ?? 0) << 5
+        let seconds = (c.second ?? 0) / 2
+        let years = (year - 1980) << 9
+        let months = (c.month ?? 1) << 5
+        let days = c.day ?? 1
+        return (UInt16(hours | minutes | seconds), UInt16(years | months | days))
     }
 }
 

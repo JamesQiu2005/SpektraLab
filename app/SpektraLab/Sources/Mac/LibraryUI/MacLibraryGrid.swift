@@ -113,7 +113,9 @@ struct MacLibraryGrid: View {
         // is the part that goes. Both are whole or absent; neither is drawn cut.
         // The order (the owner, 2026-10-27: the sort belongs here too, kept in step with the bar's) goes
         // before the slider and the count of what is chosen.
-        let sort = w(MacWords.sort(store.query.sort), 12, .medium) + MacMetric.pt(8 * 2 + 4 + 10 + 4 + 22)
+        let sortLabelWidth = w(MacWords.sort(store.query.sort), 12, .medium)
+        let sortChromeWidth = MacMetric.pt(56)
+        let sort = sortLabelWidth + sortChromeWidth
         var room = width - count - gap - search
         let sorts = room >= sort + gap
         if sorts { room -= sort + gap }

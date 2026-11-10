@@ -688,9 +688,9 @@ Reclaiming only at frame end instead cost 6.4 s and 3.2 GB at 24 MP against
 MSL, compiled by `engine/build.sh` into `spektralab.metallib`, **not** by
 Xcode: the app sets `MTL_FAST_MATH = YES` for its canvas, and inheriting it
 drifts `exp` and fma contraction past the float32 bar, silently.
-`spk_math_probe` computes `a*b - a*b` — exactly 0 under fast math — and
-`spk_engine_create` refuses to start if it is; `check_math_guard.sh` proves the
-guard can fire.
+`spk_metal_math_probe` checks whether the shader was built with fast math or
+reassociates a sum that must round before subtraction. `spk_engine_create`
+refuses either result. `check_math_guard.sh` exercises the guard.
 
 The Mac build also bakes `spektralab.metalar`, native pipeline code for the
 build host, beside the portable `.metallib`. Each pipeline first requests an

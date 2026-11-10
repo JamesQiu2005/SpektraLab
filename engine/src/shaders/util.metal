@@ -129,28 +129,20 @@ kernel void spk_to_rgba16(device const float* rgb [[buffer(0)]],
     out[4u * dst + 3u] = 65535;
 }
 
-// The fast-math probe (RFC-014 §5.1 trap 1).
-//
-// `a * b - a * b` is not a tautology in floating point once the compiler is
-// allowed to contract one of the two products into an fma: under
-// `-fmetal-math-mode=safe` it evaluates to `fma(a, b, -(a*b))`, the exact
-// rounding error of `a*b`, which is small and *non-zero*. Under fast math the
-// expression is reassociated away and the result is exactly 0.
-//
-// So the engine can ask the GPU, at startup, which way its own kernels were
-// compiled, instead of trusting a flag in a build script that nothing reads.
-// `spk_engine_create` refuses to start if this comes back zero.
-//
-// The property this depends on is contraction, not a particular compiler
-// version's choice of it. If a future toolchain stops contracting under safe
-// math the probe will report a false positive -- so it is checked against a
-// host-computed `fma(a, b, -(a*b))`, not merely against zero.
-kernel void spk_math_probe(device const float* in [[buffer(0)]],
-                           device float* out [[buffer(1)]],
-                           uint3 thread_position_in_grid [[thread_position_in_grid]]) {
+// The Metal fast-math probe (RFC-014 §5.1 trap 1). The host supplies
+// a small enough that a + b rounds to b. Reassociation can cancel b
+// before that rounding and return a. This check works whether or not
+// the driver contracts implicit multiply-adds.
+kernel void spk_metal_math_probe(device const float* in [[buffer(0)]],
+                                 device float* out [[buffer(1)]],
+                                 uint3 thread_position_in_grid [[thread_position_in_grid]]) {
     uint i = thread_position_in_grid.x;
     float a = in[2u * i], b = in[2u * i + 1u];
-    out[i] = a * b - a * b;
+#ifdef __FAST_MATH__
+    out[i] = a;
+#else
+    out[i] = (a + b) - b;
+#endif
 }
 
 // A strided sample of the frame, gathered on device.

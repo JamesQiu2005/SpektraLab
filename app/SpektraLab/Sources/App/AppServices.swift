@@ -1113,7 +1113,12 @@ final class AppServices {
             let ofPair = await darkroom.wireProblems(pairWire).map { "a pair's " + $0 }
             var ofSilver: [String] = []
             for (film, sent) in silverWires { ofSilver += await darkroom.wireProblems(sent).map { "\(film)'s " + $0 } }
-            let problems = await darkroom.wireProblems(wire) + printed + ofPair + unsaid + ofSilver + unsilvered
+            var problems = await darkroom.wireProblems(wire)
+            problems += printed
+            problems += ofPair
+            problems += unsaid
+            problems += ofSilver
+            problems += unsilvered
             let log = Logger(subsystem: "com.spektralab.mac", category: "engine")
             if problems.isEmpty { log.info("the wire holds against the engine's schema: \(wire.count) fields") }
             for p in problems { log.error("wire: \(p, privacy: .public)") }

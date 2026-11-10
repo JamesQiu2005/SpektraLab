@@ -172,7 +172,7 @@ Full text in `docs/agents/TRAPS.md`. 1–13 are the upstream Python/MLX engine's
   They are what makes a freed buffer safe to reuse.
 - Do not drop `-fmetal-math-mode=safe` / `-fmetal-math-fp32-functions=precise`
   from `engine/build.sh`, and do not move the kernels into the Xcode target
-  (which compiles `MTL_FAST_MATH = YES`). `spk_math_probe` will refuse to start
+  (which compiles `MTL_FAST_MATH = YES`). `spk_metal_math_probe` will refuse to start
   the engine, which is the intended outcome, not a bug to work around.
 - Do not "fix" `kMidgrayProbeColourSpace` to use the input colour space without
   reading trap 21 first.

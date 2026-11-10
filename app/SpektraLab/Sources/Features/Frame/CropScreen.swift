@@ -594,11 +594,13 @@ private struct CropPage: View {
     /// drawer is out), then a corner or an edge, then the picture inside the crop.
     private func grab(_ p: CGPoint, _ m: StageMapping) -> Drag? {
         if guidesShown {
-            let near = visiblePointIndices
-                .map { ($0, screen(guide: points[$0], m)) }
-                .filter { hypot($0.1.x - p.x, $0.1.y - p.y) <= 30 }
-                .min { hypot($0.1.x - p.x, $0.1.y - p.y) < hypot($1.1.x - p.x, $1.1.y - p.y) }
-            if let near { return .point(near.0, from: near.1) }
+            let candidates = visiblePointIndices.map { index in
+                let position = screen(guide: points[index], m)
+                let distance: CGFloat = hypot(position.x - p.x, position.y - p.y)
+                return (index: index, position: position, distance: distance)
+            }
+            let near = candidates.filter { $0.distance <= 30 }.min { $0.distance < $1.distance }
+            if let near { return .point(near.index, from: near.position) }
         }
         let c = corrected(p, m)
         // The grab is ±22 pt round a corner, whatever the picture's scale.
