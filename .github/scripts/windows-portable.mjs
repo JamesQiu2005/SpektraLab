@@ -31,7 +31,7 @@ for (const [path, expected] of Object.entries(pin.locks)) {
 }
 const notices = join(repo, 'license/windows-runtime-notices.zip');
 if (createHash('sha256').update(readFileSync(notices)).digest('hex') !== pin.archive_sha256) throw Error('Dependency notice archive changed');
-execFileSync('powershell.exe', ['-NoProfile', '-NonInteractive', '-File', join(repo, '.github/scripts/windows-notices.ps1'), '-ArchivePath', notices, '-Destination', target], { stdio: 'inherit', windowsHide: true });
+execFileSync('powershell.exe', ['-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-File', join(repo, '.github/scripts/windows-notices.ps1'), '-ArchivePath', notices, '-Destination', target], { stdio: 'inherit', windowsHide: true });
 cpSync(join(repo, 'license'), join(target, 'licenses/project'), { recursive: true });
 for (const name of ['Cargo.lock', 'Cargo.toml']) cpSync(join(repo, 'desktop/src-tauri', name), join(target, 'licenses', name));
 cpSync(join(repo, 'desktop/package-lock.json'), join(target, 'licenses/package-lock.json'));
