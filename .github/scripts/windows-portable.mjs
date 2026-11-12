@@ -24,6 +24,14 @@ for (const entry of readdirSync(source, { withFileTypes: true })) {
   if (/^uninstall.*\.exe$/i.test(entry.name)) continue;
   cpSync(join(source, entry.name), join(target, entry.name), { recursive: true, errorOnExist: true, force: false });
 }
+const pin = JSON.parse(readFileSync(join(repo, 'license/windows-runtime-notices.json'), 'utf8'));
+for (const [path, expected] of Object.entries(pin.locks)) {
+  const text = readFileSync(join(repo, path), 'utf8').replaceAll('\r\n', '\n').replaceAll(version, pin.baseline_version);
+  if (createHash('sha256').update(text).digest('hex') !== expected) throw Error('Dependency notices need an audit: ' + path);
+}
+const notices = join(repo, 'license/windows-runtime-notices.zip');
+if (createHash('sha256').update(readFileSync(notices)).digest('hex') !== pin.archive_sha256) throw Error('Dependency notice archive changed');
+execFileSync('powershell.exe', ['-NoProfile', '-NonInteractive', '-File', join(repo, '.github/scripts/windows-notices.ps1'), '-ArchivePath', notices, '-Destination', target], { stdio: 'inherit', windowsHide: true });
 cpSync(join(repo, 'license'), join(target, 'licenses/project'), { recursive: true });
 for (const name of ['Cargo.lock', 'Cargo.toml']) cpSync(join(repo, 'desktop/src-tauri', name), join(target, 'licenses', name));
 cpSync(join(repo, 'desktop/package-lock.json'), join(target, 'licenses/package-lock.json'));
