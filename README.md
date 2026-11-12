@@ -31,6 +31,11 @@ filter pack — in about a second.
 
 ## Install
 
+**Windows x64:** [beta.3](https://github.com/JamesQiu2005/SpektraLab/releases/tag/spektralab-windows-v1.3.4-beta.3)
+has an installer and a portable ZIP. Windows releases use their own versioned
+tags; the Mac downloads below are separate. See
+[the Windows release process](desktop/docs/WINDOWS-RELEASES.md).
+
 Download the DMG from [spektralab.app](https://spektralab.app) or
 [Releases](https://github.com/JamesQiu2005/SpektraLab/releases), open it and
 drag SpektraLab to Applications. It is signed with a Developer ID and
