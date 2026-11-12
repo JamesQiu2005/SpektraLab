@@ -5,14 +5,23 @@ export const RELEASE_API = 'https://api.github.com/repos/JamesQiu2005/SpektraLab
 export type UpdateStatus = { kind: 'available' | 'current'; version: string; url: string; asset: string }
   | { kind: 'unavailable' | 'failed'; reason: string };
 
-function version(text: unknown): number[] | null {
+type ReleaseVersion = { parts: number[]; pre?: { label: string; sequence: number } };
+function version(text: unknown): ReleaseVersion | null {
   if (typeof text !== 'string') return null;
-  const m = /^(?:spektralab-v|v)?(\d+)\.(\d+)\.(\d+)(?:[-_]windows(?:[-_]x64)?)?$/i.exec(text);
+  const m = /^(?:spektralab-(?:windows-)?v|v)?(\d+)\.(\d+)\.(\d+)(?:-(alpha|beta|rc)\.(\d+))?(?:[-_]windows(?:[-_]x64)?)?$/i.exec(text);
   if (!m) return null;
-  const values = m.slice(1, 4).map(Number);
-  return values.every(Number.isSafeInteger) ? values : null;
+  const parts = m.slice(1, 4).map(Number);
+  const pre = m[4] ? { label: m[4].toLowerCase(), sequence: Number(m[5]) } : undefined;
+  return parts.every(Number.isSafeInteger) && (!pre || Number.isSafeInteger(pre.sequence)) ? { parts, pre } : null;
 }
-function compare(a: number[], b: number[]) { return a[0]! - b[0]! || a[1]! - b[1]! || a[2]! - b[2]!; }
+function compare(a: ReleaseVersion, b: ReleaseVersion) {
+  const base = a.parts[0]! - b.parts[0]! || a.parts[1]! - b.parts[1]! || a.parts[2]! - b.parts[2]!;
+  if (base) return base;
+  if (!a.pre || !b.pre) return Number(!a.pre) - Number(!b.pre);
+  const ranks = ['alpha', 'beta', 'rc'];
+  return ranks.indexOf(a.pre.label) - ranks.indexOf(b.pre.label) || a.pre.sequence - b.pre.sequence;
+}
+function displayVersion(v: ReleaseVersion) { return v.parts.join('.') + (v.pre ? `-${v.pre.label}.${v.pre.sequence}` : ''); }
 function officialUrl(value: unknown, prefix: string) {
   if (typeof value !== 'string' || !value.startsWith(prefix)) return false;
   try { const u = new URL(value); return !u.username && !u.password && !u.search && !u.hash && u.origin === 'https://github.com'; }
@@ -22,11 +31,16 @@ export function selectWindowsRelease(body: unknown, currentVersion: string): Upd
   const installed = version(currentVersion);
   if (!installed) return { kind: 'failed', reason: 'This build has no comparable release version.' };
   if (!Array.isArray(body)) return { kind: 'failed', reason: 'GitHub returned an invalid release list.' };
-  const matches: { version: number[]; url: string; asset: string }[] = [];
+  const matches: { version: ReleaseVersion; url: string; asset: string }[] = [];
   for (const r of body) {
-    if (!r || r.draft !== false || r.prerelease !== false || !Array.isArray(r.assets)) continue;
+    if (!r || r.draft !== false || typeof r.prerelease !== 'boolean' || !Array.isArray(r.assets)) continue;
     const v = version(r.tag_name);
     if (!v || !officialUrl(r.html_url, REPO + '/releases/tag/')) continue;
+    const windowsTag = /^spektralab-windows-v|[-_]windows(?:[-_]x64)?$/i.test(r.tag_name);
+    // A beta follows the independent Windows line, not a numerically equal
+    // stable Mac tag carrying an older rolling Windows installer.
+    if (installed.pre && !windowsTag) continue;
+    if (r.prerelease !== Boolean(v.pre) || (v.pre && (!installed.pre || !windowsTag))) continue;
     const asset = r.assets.find((a: { name?: unknown; browser_download_url?: unknown; size?: unknown; state?: unknown }) => {
       if (typeof a?.name !== 'string' || typeof a.size !== 'number' || a.size <= 0 || a.state !== 'uploaded') return false;
       const n = a.name.toLowerCase();
@@ -41,7 +55,7 @@ export function selectWindowsRelease(body: unknown, currentVersion: string): Upd
   if (!matches.length) return { kind: 'unavailable', reason: 'No matching Windows x64 package was found in the latest 30 releases.' };
   const latest = matches[0]!;
   return { kind: compare(latest.version, installed) > 0 ? 'available' : 'current',
-    version: latest.version.join('.'), url: latest.url, asset: latest.asset };
+    version: displayVersion(latest.version), url: latest.url, asset: latest.asset };
 }
 
 export async function checkWindowsUpdate(currentVersion: string, transport: typeof fetch = fetch): Promise<UpdateStatus> {
