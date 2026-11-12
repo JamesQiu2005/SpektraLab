@@ -20,6 +20,10 @@ macOS 上的胶片与放大相纸模拟器。打开一张 RAW，选好胶片和�
 
 ## 安装
 
+**Windows x64：**[beta.3](https://github.com/JamesQiu2005/SpektraLab/releases/tag/spektralab-windows-v1.3.4-beta.3)
+提供安装包和便携 ZIP。Windows 使用独立的版本标签；下方 DMG 适用于 Mac。
+后续发布方式见 [Windows 发布流程](desktop/docs/WINDOWS-RELEASES.md)。
+
 从 [spektralab.app](https://spektralab.app) 或 [Releases](https://github.com/JamesQiu2005/SpektraLab/releases) 下载 DMG，打开后把 SpektraLab 拖进“应用程序”文件夹。应用已用 Developer ID 签名，并通过 Apple 公证，可以像其他应用一样直接打开。
 
 需要 Apple 芯片、macOS 15 或更高版本。

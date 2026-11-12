@@ -1,0 +1,11 @@
+{
+  "source": "https://github.com/JamesQiu2005/SpektraLab/releases/tag/spektralab-windows-v1.3.4-beta.2",
+  "source_commit": "2ca735ad60a998e925bf346f57d80012bdb5c6bf",
+  "baseline_version": "1.3.4",
+  "archive_sha256": "7256c2ae89ceb014997e2831e4bed937187178621ef2e4a4d91efb43dc862945",
+  "locks": {
+    "desktop/package-lock.json": "bec96345bfc23da184bee7cbdca866ec6f671db75fb02f5adf82197dcdca8fc0",
+    "desktop/src-tauri/Cargo.lock": "62700d73e53cf9e8364c5a3cc994c9d162cd37e054c9d3b6b4fa3d446211c0d5"
+  },
+  "note": "Audited npm, Rust and WebView2 notices retained from beta.2. Byte content is unchanged. Reuse requires dependency locks to match after normalizing only the app version and line endings; update this audited bundle when dependencies change."
+}
