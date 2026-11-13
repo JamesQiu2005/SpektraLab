@@ -31,7 +31,13 @@ export function checkExistingRelease(release, commit, hashes) {
   }
 }
 
-function main() {
+export function findRelease(releases, tag) {
+  const matches = releases.filter((release) => release.tag_name === tag);
+  if (matches.length > 1) throw Error('Multiple releases use the requested tag');
+  return matches[0] || null;
+}
+
+async function main() {
   if (process.env.GITHUB_EVENT_NAME !== 'workflow_dispatch' || process.env.GITHUB_REF !== 'refs/heads/Windows_Linux') {
     throw Error('Publishing requires an explicit dispatch from Windows_Linux');
   }
@@ -92,24 +98,44 @@ function main() {
     while (object.type === 'tag') object = api('/git/tags/' + object.sha).object;
     if (object.type !== 'commit' || object.sha !== commit) throw Error('Version tag points to different source');
   }
-  let release = optional('/releases/tags/' + tag);
+  // The by-tag endpoint returns published releases only. Drafts are looked up
+  // in the authenticated list and all subsequent operations use their ID.
+  let release = findRelease(api('/releases?per_page=100'), tag);
   if (release) checkExistingRelease(release, commit, hashes);
   else {
-    gh('release', 'create', tag, '--repo', repository, '--target', commit, '--title', title, '--notes-file', notes, '--draft', '--prerelease', '--latest=false');
-    release = api('/releases/tags/' + tag);
+    const create = join(out, 'create-release.json');
+    writeFileSync(create, JSON.stringify({ tag_name: tag, target_commitish: commit, name: title,
+      body: readFileSync(notes, 'utf8'), draft: true, prerelease: true, make_latest: 'false' }));
+    release = JSON.parse(gh('api', 'repos/' + repository + '/releases', '--method', 'POST', '--input', create));
     checkExistingRelease(release, commit, hashes);
   }
+  if (release.name !== title || !Number.isSafeInteger(release.id)) throw Error('Unexpected draft identity');
+  const releasePath = '/releases/' + release.id;
+  const upload = new URL(release.upload_url.split('{')[0]);
+  if (upload.origin !== 'https://uploads.github.com' || upload.pathname !== '/repos/' + repository + releasePath + '/assets') throw Error('Unexpected upload URL');
+  if (!process.env.GH_TOKEN) throw Error('Missing release credential');
   for (const [name] of hashes) {
-    if (!release.assets.some((asset) => asset.name === name)) gh('release', 'upload', tag, join(out, name), '--repo', repository);
+    if (release.assets.some((asset) => asset.name === name)) continue;
+    upload.searchParams.set('name', name);
+    const response = await fetch(upload, { method: 'POST', body: readFileSync(join(out, name)),
+      headers: { Authorization: 'Bearer ' + process.env.GH_TOKEN, Accept: 'application/vnd.github+json', 'Content-Type': 'application/octet-stream' },
+      signal: AbortSignal.timeout(240000) });
+    if (!response.ok) throw Error('Upload failed with HTTP ' + response.status);
+    const asset = await response.json();
+    if (asset.digest !== 'sha256:' + hashes.get(name)) throw Error('Uploaded asset digest mismatch');
   }
-  const uploaded = api('/releases/tags/' + tag);
+  const uploaded = api(releasePath);
   checkExistingRelease(uploaded, commit, hashes);
   if (uploaded.assets.length !== hashes.size) throw Error('Incomplete upload; leaving the release as a draft');
-  gh('release', 'edit', tag, '--repo', repository, '--draft=false', '--prerelease', '--latest=false');
-  const published = api('/releases/tags/' + tag);
+  const publish = join(out, 'publish-release.json');
+  writeFileSync(publish, JSON.stringify({ draft: false, prerelease: true, make_latest: 'false' }));
+  gh('api', 'repos/' + repository + releasePath, '--method', 'PATCH', '--input', publish);
+  const published = api(releasePath);
   if (published.draft || !published.prerelease || published.name !== title) throw Error('Published release identity is incorrect');
   console.log(published.html_url);
 }
 
-if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) main();
+if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
+  main().catch((error) => { console.error(error); process.exitCode = 1; });
+}
 

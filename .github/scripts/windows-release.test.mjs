@@ -3,7 +3,7 @@ import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve, sep } from 'node:path';
 import { test } from 'node:test';
-import { checkExistingRelease, releaseInfo } from './windows-release.mjs';
+import { checkExistingRelease, findRelease, releaseInfo } from './windows-release.mjs';
 
 test('independent Windows tag and short title require all application versions to agree', () => {
   const root = mkdtempSync(join(tmpdir(), 'spk-release-'));
@@ -27,6 +27,12 @@ test('independent Windows tag and short title require all application versions t
 
 const commit = 'a'.repeat(40), hash = 'b'.repeat(64);
 const hashes = new Map([['app.zip', hash]]);
+test('draft releases are located in the authenticated list and retained by ID', () => {
+  const draft = { id: 443271016, tag_name: 'spektralab-windows-v1.3.4-beta.3', draft: true };
+  assert.equal(findRelease([draft], draft.tag_name)?.id, 443271016);
+  assert.equal(findRelease([draft], 'missing'), null);
+  assert.throws(() => findRelease([draft, { ...draft, id: 2 }], draft.tag_name), /Multiple releases/);
+});
 test('published versions cannot be overwritten', () => {
   assert.throws(() => checkExistingRelease({ draft: false, target_commitish: commit, assets: [] }, commit, hashes), /already public/);
 });
